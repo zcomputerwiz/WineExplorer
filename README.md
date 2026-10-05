@@ -1,0 +1,72 @@
+# WineExplorer Desktop Environment (WineExplorer DE)
+
+A complete, lightweight, authentic Desktop Environment for Linux built by extending Wine and its Wine Explorer virtual desktop architecture.
+
+## Overview
+
+The goal of this project is to evolve Wine's built-in `explorer.exe` and its virtual desktop mode into a full-featured, standalone Linux Desktop Environment. By combining:
+- **Wine Explorer** as the core desktop process and Win32 shell runtime,
+- **Gamescope** as a robust, modern Wayland compositor handling dynamic resolution changes, scaling, and display management,
+- **Wayland / Xwayland** display architecture for running both native Linux and Win32 applications,
+- **ReactOS Explorer** architecture as an open-source structural and algorithmic guide for NT-style shell components,
+
+---
+
+## Workspace Structure
+
+```
+D:\DeepThought\Projects\WineExplorer\
+├── archives/               # Original repository zip archives
+├── docs/                   # Architecture, design specifications, and guides
+│   ├── ARCHITECTURE.md     # System architecture and compositor integration
+│   ├── ROADMAP.md          # Phased development roadmap
+│   └── SHELL_SPEC.md       # Taskbar, Start Menu, Tray, and Desktop specifications
+├── references/             # Upstream reference codebases (READ-ONLY, excluded from git)
+│   ├── gamescope/          # Valve's Gamescope Wayland compositor
+│   ├── open-shell/         # Open-Shell start menu reference
+│   ├── reactos/            # ReactOS shell and explorer implementation
+│   └── wayland/            # Wayland protocol and core libraries
+├── scripts/                # Development, build, and runner scripts
+└── wine/                   # Active Wine codebase under development
+    ├── programs/explorer/  # Primary target: Wine Explorer desktop environment
+    ├── dlls/shell32/       # Shell API, desktop folder handling, shortcuts
+    ├── dlls/user32/        # Window management and message routing
+    └── dlls/winewayland.drv/ # Wayland driver integration
+```
+
+---
+
+## Clean-Room Reference Policy
+
+- **ReactOS / Open-Shell**: Open-source implementations used to study clean NT shell architecture, COM interfaces, and taskbar message handling.
+- **Wine**: The active base upstream tree where our extensions and enhancements are developed.
+
+---
+
+## Core Components
+
+1. **Virtual Desktop & Compositor Bridge**
+   - Wine virtual desktop window manager enhancement.
+   - Gamescope nested or standalone Wayland session management.
+   - Resolution switching and multi-monitor awareness.
+
+2. **Taskbar & Window Management**
+   - Running application buttons with icons, titles, and active state tracking.
+   - Window minimize, maximize, restore, close, and bring-to-front routing.
+   - Taskbar grouping and thumbnail previews.
+
+3. **Start Menu**
+   - Classic / NT 5.2 style hierarchical menu.
+   - Pinned and recent applications.
+   - Linux XDG application desktop entries (`/usr/share/applications`) integrated into the Start menu.
+   - Integrated Run dialog, Log Off, and Shut Down options.
+
+4. **System Tray (Notification Area)**
+   - Standard Win32 `Shell_NotifyIcon` support.
+   - Linux StatusNotifierItem (SNI) and XEmbed tray bridge.
+   - Interactive clock, calendar popup, volume, and power management applets.
+
+5. **Desktop Surface**
+   - Icon grid placement, selection marquee, and drag-and-drop.
+   - Wallpaper management (centered, tiled, stretched).
+   - Desktop context menu (Arrange, Refresh, New, Properties).

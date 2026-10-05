@@ -1,0 +1,38 @@
+# ====================================================================
+# Git Ignore for WineExplorer Desktop Environment Project
+# ====================================================================
+
+# Archive files
+*.zip
+*.tar.*
+*.7z
+*.gz
+*.xz
+/archives/
+
+# External reference repositories (kept locally for reference only; NEVER committed)
+/references/
+
+# Build artifacts & temporary files
+build/
+bin/
+obj/
+*.o
+*.a
+*.so
+*.dll
+*.exe
+*.res
+*.obj
+*.pdb
+*.orig
+*.rej
+*.patch
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
