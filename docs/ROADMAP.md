@@ -1,43 +1,55 @@
 # WineExplorer DE Roadmap
 
-## Phase 1: Environment & Repository Baseline (Current)
+## Phase 1: Environment & Repository Baseline (Completed)
 - [x] Unpack all provided source archives into organized workspace.
 - [x] Establish read-only isolated references directory for clean-room inspection (`references/`).
 - [x] Initialize Git repository at `D:\DeepThought\Projects\WineExplorer\`.
 - [x] Configure `.gitignore` and `.gitattributes` to safeguard reference trees and enforce clean LF endings.
 - [x] Document high-level architecture, module decomposition, and reference guide.
-- [ ] Commit repository baseline and initial Wine tree.
+- [x] Import upstream Wine baseline commit.
 
-## Phase 2: Shell Analysis & Spec Extraction
-- [ ] Catalog exact visual metrics: taskbar height (default 28/30px), Start button dimensions, font settings (Tahoma 8pt), tray icon padding (16x16 with 2px borders), 3D border bevels.
-- [ ] Compare ReactOS implementation (`taskband.cpp`, `traywnd.cpp`, `taskswnd.cpp`).
-- [ ] Map Wine's existing `programs/explorer/` (`desktop.c`, `startmenu.c`, `systray.c`, `appbar.c`) and identify missing primitives.
+## Phase 2: Theme Engine & Classic/Themed Infrastructure
+- [x] Specify `.theme` INI parser architecture (`[VisualStyles]`, `[Control Panel\Colors]`, `[Control Panel\Desktop]`, `[CLSID]`, `[AppEvents]`).
+- [ ] Implement `theme_engine.c` / `theme_engine.h`:
+  - [ ] `.theme` file reader and system color updater (`SetSysColors`).
+  - [ ] Wallpaper path and style configuration (`SPI_SETDESKWALLPAPER`).
+  - [ ] UXTheme bridge (`OpenThemeData`, `DrawThemeBackground`, `SetSystemVisualStyle`).
+  - [ ] Authentic Server 2003 Classic 3D beveled rendering fallback.
 
-## Phase 3: Taskbar & Window Management (TaskBand)
-- [ ] Implement `RegisterShellHookWindow` / shell hook message routing in Wine Explorer.
-- [ ] Create TaskBand window control (`MSTaskListWClass`) to hold running application buttons.
-- [ ] Add active/inactive window button rendering with 3D bevels and 16x16 application icons.
-- [ ] Implement window switching, minimize-on-click, bring-to-front, and window context menu (Restore, Move, Minimize, Maximize, Close).
+## Phase 3: Desktop Surface & File Management Parity
+- [ ] Implement `desktop_view.c` / `desktop_view.h`:
+  - [ ] Special namespace desktop items (My Computer, My Documents, Recycle Bin, My Network Places).
+  - [ ] Physical desktop folder enumeration (`CSIDL_DESKTOPDIRECTORY`, `CSIDL_COMMON_DESKTOPDIRECTORY`).
+  - [ ] 75x75 icon grid alignment, auto-arrange, and registry position persistence.
+  - [ ] Rubberband selection marquee (drag-to-select).
+  - [ ] Desktop right-click context menu (Arrange By, Refresh, New Folder/Shortcut, Properties).
+  - [ ] Wallpaper rendering engine (Center, Tile, Stretch, Fit, Fill).
 
-## Phase 4: Start Menu Enhancement & XDG Integration
-- [ ] Redesign classic Start Menu hierarchy matching Windows Server 2003 / Classic NT layout.
-- [ ] Implement Start button with authentic logo, text, and pressed/hover states.
-- [ ] Add standard shell folders: Programs, Documents, Settings, Search, Help, Run, Shut Down.
-- [ ] Implement Linux XDG desktop entry parser (`/usr/share/applications`) to populate Programs menu with native Linux applications.
-- [ ] Implement launcher bridge to spawn native Linux binaries or execute Wine applications.
+## Phase 4: Taskbar & TaskBand (Window Management)
+- [ ] Implement `taskband.c` / `taskband.h`:
+  - [ ] Window tracking via `RegisterShellHookWindow` / WinEvents.
+  - [ ] Running application buttons with 16x16 icon, title, active sunken state, and flashing state.
+  - [ ] Window activation, restore, and minimize-on-click logic.
+  - [ ] Window context menu (Restore, Move, Size, Minimize, Maximize, Close).
+  - [ ] Taskbar button grouping when space is constrained.
 
-## Phase 5: System Tray & Status Applets
-- [ ] Modernize notification area to handle modern Win32 tray icons with balloon tooltips.
-- [ ] Implement tray clock with accurate formatting and popup calendar.
-- [ ] Build bridge for Linux StatusNotifierItem (SNI) / system status (volume, battery/power, network).
+## Phase 5: Flexible Start Menu (Classic, 2-Column XP, Modern Search)
+- [ ] Implement `startmenu_view.c` / `startmenu_view.h`:
+  - [ ] Classic Server 2003 / NT single-column cascading menu with side banner.
+  - [ ] Windows XP / 2003 two-column layout with user header, pinned programs, and shell folders.
+  - [ ] Open-Shell inspired modern layout with integrated real-time search box.
+  - [ ] Authentic Start button with Windows flag icon and theme-aware rendering.
 
-## Phase 6: Desktop Surface & File Management
-- [ ] Interactive desktop icon view (`SHELLDLL_DefView` / `SysListView32`).
-- [ ] File system integration for `~/Desktop` / `CSIDL_DESKTOPDIRECTORY`.
-- [ ] Right-click context menus (Arrange Icons, Refresh, New, Properties).
-- [ ] Wallpaper background positioning and auto-scaling.
+## Phase 6: System Tray, Clock & Applets
+- [ ] Implement `tray_clock.c` / `tray_clock.h`:
+  - [ ] Sunken notification tray area.
+  - [ ] Win32 `Shell_NotifyIcon` with balloon tooltips.
+  - [ ] Locale-formatted clock with interactive calendar popup.
+  - [ ] Show Desktop (minimize-all toggle) button.
 
-## Phase 7: Gamescope & Linux Session Packaging
-- [ ] Create Gamescope session launch script (`wine-explorer-session.sh`).
-- [ ] Configure dynamic resolution handling and fullscreen desktop container.
-- [ ] Provide desktop entry and display manager session (`/usr/share/wayland-sessions/wine-explorer.desktop`).
+## Phase 7: Power Management & Display Manager Session
+- [ ] Implement `power_mgmt.c` / `power_mgmt.h`:
+  - [ ] Authentic "Shut Down Windows" dialog (`IDD_SHUTDOWN`).
+  - [ ] Clean Win32 process shutdown sequence.
+  - [ ] Linux system shutdown via systemd-logind D-Bus / `systemctl poweroff` / `systemctl reboot`.
+- [ ] Gamescope Display Manager session scripts (`wine-explorer-session.sh` & `wine-explorer.desktop`).
