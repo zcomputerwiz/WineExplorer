@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Wine Explorer Desktop Environment
+Comment=Complete Windows NT / Server 2003 Desktop Environment session powered by Wine & Gamescope
+Exec=/usr/local/bin/wine-explorer-session.sh
+TryExec=/usr/local/bin/wine-explorer-session.sh
+Icon=wine
+Type=Application
+DesktopNames=WineExplorer
+X-Ubuntu-Gettext-Domain=wine-explorer

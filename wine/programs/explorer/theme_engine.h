@@ -1,0 +1,108 @@
+/*
+ * WineExplorer Desktop Environment - Theme Engine
+ *
+ * Implements complete theme loading and rendering compatible with Windows XP/2003
+ * and earlier themes (.theme, .msstyles, system colors, wallpapers, desktop icons, sounds).
+ */
+
+#ifndef __WINE_EXPLORER_THEME_ENGINE_H
+#define __WINE_EXPLORER_THEME_ENGINE_H
+
+#include <windows.h>
+#include <uxtheme.h>
+
+#define THEME_STARTMENU_CLASSIC   0  /* Authentic Server 2003 / 2000 cascading single-column */
+#define THEME_STARTMENU_TWOCOLUMN 1  /* Windows XP / 2003 two-column style */
+#define THEME_STARTMENU_MODERN    2  /* Open-Shell inspired modern style with search */
+
+#define WALLPAPER_STYLE_CENTER   0
+#define WALLPAPER_STYLE_TILE     1
+#define WALLPAPER_STYLE_STRETCH  2
+#define WALLPAPER_STYLE_FIT      6
+#define WALLPAPER_STYLE_FILL    10
+
+#define NUM_SYS_COLORS 31
+
+typedef struct _THEME_SOUNDS
+{
+    WCHAR logon[MAX_PATH];
+    WCHAR logoff[MAX_PATH];
+    WCHAR startup[MAX_PATH];
+    WCHAR shutdown[MAX_PATH];
+    WCHAR recycle[MAX_PATH];
+    WCHAR navigate[MAX_PATH];
+    WCHAR asterisk[MAX_PATH];
+    WCHAR exclamation[MAX_PATH];
+    WCHAR critical_stop[MAX_PATH];
+} THEME_SOUNDS;
+
+typedef struct _THEME_DESKTOP_ICONS
+{
+    WCHAR my_computer[MAX_PATH];
+    int   my_computer_idx;
+    WCHAR my_documents[MAX_PATH];
+    int   my_documents_idx;
+    WCHAR network_places[MAX_PATH];
+    int   network_places_idx;
+    WCHAR recycle_full[MAX_PATH];
+    int   recycle_full_idx;
+    WCHAR recycle_empty[MAX_PATH];
+    int   recycle_empty_idx;
+} THEME_DESKTOP_ICONS;
+
+typedef struct _THEME_CONFIG
+{
+    WCHAR display_name[128];
+    WCHAR theme_path[MAX_PATH];
+
+    /* [VisualStyles] */
+    BOOL  has_visual_styles;
+    WCHAR msstyles_path[MAX_PATH];
+    WCHAR color_style[64];
+    WCHAR size_name[64];
+
+    /* [Control Panel\Desktop] */
+    WCHAR wallpaper_path[MAX_PATH];
+    BOOL  tile_wallpaper;
+    int   wallpaper_style;
+
+    /* [Control Panel\Colors] */
+    BOOL     has_custom_colors;
+    int      color_indices[NUM_SYS_COLORS];
+    COLORREF color_values[NUM_SYS_COLORS];
+    int      num_colors;
+
+    /* Sounds */
+    THEME_SOUNDS sounds;
+
+    /* Desktop Icons */
+    THEME_DESKTOP_ICONS icons;
+
+    /* Start Menu & Taskbar Style */
+    int start_menu_style;
+
+    /* Runtime Theme handles */
+    HTHEME ht_taskbar;
+    HTHEME ht_taskband;
+    HTHEME ht_startbutton;
+    HTHEME ht_tray;
+    HTHEME ht_clock;
+} THEME_CONFIG;
+
+/* Theme Engine API */
+void theme_init(HWND hwnd_main);
+void theme_cleanup(void);
+
+BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *out_config);
+BOOL theme_apply(THEME_CONFIG *config);
+THEME_CONFIG *theme_get_current(void);
+
+BOOL theme_is_visual_styles_active(void);
+void theme_play_sound(const WCHAR *event_name);
+
+/* Drawing helpers */
+void theme_draw_classic_bevel(HDC hdc, const RECT *rc, UINT edge, UINT flags);
+void theme_draw_sunken_well(HDC hdc, const RECT *rc);
+void theme_draw_raised_button(HDC hdc, const RECT *rc, BOOL pressed, BOOL focused);
+
+#endif /* __WINE_EXPLORER_THEME_ENGINE_H */

@@ -21,6 +21,13 @@
 #ifndef __WINE_EXPLORER_PRIVATE_H
 #define __WINE_EXPLORER_PRIVATE_H
 
+#include "theme_engine.h"
+#include "desktop_view.h"
+#include "taskband.h"
+#include "startmenu_view.h"
+#include "tray_clock.h"
+#include "power_mgmt.h"
+
 extern void manage_desktop( WCHAR *arg );
 extern void initialize_systray( BOOL using_root, BOOL enable_shell, BOOL show_systray, BOOL no_tray_items );
 extern void initialize_appbar(void);

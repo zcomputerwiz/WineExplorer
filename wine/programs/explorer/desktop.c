@@ -842,8 +842,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
             BeginPaint( hwnd, &ps );
             if (!using_root)
             {
-                PaintDesktop( ps.hdc );
-                draw_launchers( ps.hdc, ps.rcPaint );
+                desktop_view_paint( ps.hdc, &ps.rcPaint );
             }
             EndPaint( hwnd, &ps );
         }
@@ -927,8 +926,8 @@ static BOOL get_default_enable_shell( const WCHAR *name )
             found = TRUE;
         RegCloseKey( hkey );
     }
-    /* Default off, except for the magic desktop name "shell" */
-    if (!found) result = (lstrcmpiW( name, L"shell" ) == 0);
+    /* Default on for complete Linux desktop environment */
+    if (!found) result = TRUE;
     return result;
 }
 
@@ -1290,8 +1289,9 @@ void manage_desktop( WCHAR *arg )
         initialize_display_settings( width, height );
         initialize_appbar();
 
+        theme_init( hwnd );
         initialize_systray( using_root, enable_shell, show_systray, no_tray_items );
-        if (!using_root && enable_launchers) initialize_launchers( hwnd );
+        if (!using_root) desktop_view_create( hwnd, width, height );
 
         if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&
             (pShellDDEInit = (void *)GetProcAddress( shell32, (LPCSTR)188)))

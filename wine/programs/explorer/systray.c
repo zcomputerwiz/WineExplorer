@@ -1090,10 +1090,24 @@ static void do_show_systray(void)
     DeleteObject( font );
 
     tray_width = GetSystemMetrics( SM_CXSCREEN );
-    tray_height = max( icon_cy, size.cy );
-    start_button_width = size.cx;
+    tray_height = max( 28, max( icon_cy, size.cy ) );
+    start_button_width = max( 60, size.cx + 8 );
     SetWindowPos( tray_window, 0, 0, GetSystemMetrics( SM_CYSCREEN ) - tray_height,
                   tray_width, tray_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
+
+    /* Instantiate complete desktop taskbar components */
+    {
+        int clock_width = 72;
+        int show_desktop_width = 24;
+        int taskband_x = start_button_width + show_desktop_width + 4;
+        int taskband_w = tray_width - taskband_x - clock_width - (nb_displayed * icon_cx) - 8;
+
+        startbutton_create( tray_window, 0, 0, start_button_width, tray_height );
+        show_desktop_button_create( tray_window, start_button_width, 0, show_desktop_width, tray_height );
+        taskband_create( tray_window, taskband_x, 0, max( 50, taskband_w ), tray_height );
+        tray_clock_create( tray_window, tray_width - clock_width, 0, clock_width, tray_height );
+    }
+
     sync_taskbar_buttons();
 }
 
@@ -1143,12 +1157,24 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
             return menu_wndproc(hwnd, msg, wparam, lparam);
         break;
 
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint( hwnd, &ps );
+        RECT rc;
+        GetClientRect( hwnd, &rc );
+        FillRect( hdc, &rc, GetSysColorBrush( COLOR_BTNFACE ) );
+        theme_draw_classic_bevel( hdc, &rc, EDGE_RAISED, BF_TOP );
+        EndPaint( hwnd, &ps );
+        return 0;
+    }
+
     case WM_COMMAND:
         if (HIWORD(wparam) == BN_CLICKED)
         {
             if (LOWORD(wparam) == TRAY_MINIMIZE_ALL || LOWORD(wparam) == TRAY_MINIMIZE_ALL_UNDO)
             {
-                FIXME( "Shell command %u is not supported.\n", LOWORD(wparam) );
+                show_desktop_toggle();
                 break;
             }
             click_taskbar_button( (HWND)lparam );
@@ -1185,6 +1211,11 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     }
 
     default:
+    {
+        static UINT msg_shellhook = 0;
+        if (!msg_shellhook) msg_shellhook = RegisterWindowMessageW( L"SHELLHOOK" );
+        if (msg && msg == msg_shellhook)
+            return taskband_handle_shell_hook( wparam, lparam );
         return DefWindowProcW( hwnd, msg, wparam, lparam );
     }
     return 0;
@@ -1197,9 +1228,11 @@ void handle_parent_notify( HWND hwnd, WPARAM wp )
     {
     case WM_CREATE:
         add_taskbar_button( hwnd );
+        taskband_add_window( hwnd );
         break;
     case WM_DESTROY:
         remove_taskbar_button( hwnd );
+        taskband_remove_window( hwnd );
         cleanup_systray_window( hwnd );
         break;
     }
