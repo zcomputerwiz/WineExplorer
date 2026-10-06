@@ -6,7 +6,6 @@ VER_FILEDESCRIPTION_STR = "Display Properties"
 SOURCES = \
 	appearance_page.c \
 	desk.rc \
-	desk.svg \
 	desktop_page.c \
 	main.c \
 	preview.c \
