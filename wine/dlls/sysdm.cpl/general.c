@@ -5,64 +5,40 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+#if defined(__i386__) || defined(__x86_64__)
+#include <intrin.h>
+#endif
 
 #include "sysdm.h"
 
-static void draw_windows_flag(HDC hdc, const RECT *rc)
+static BOOL query_hardware_cpuid_brand(WCHAR *out_str, size_t max_chars)
 {
-    /* Four-color Windows flag emblem */
-    int cx = (rc->left + rc->right) / 2;
-    int cy = (rc->top + rc->bottom) / 2 - 6;
-    int size = 26;
-    int gap = 3;
+#if defined(__i386__) || defined(__x86_64__)
+    int regs[4];
+    char brand[49] = {0};
 
-    HBRUSH red_brush = CreateSolidBrush(RGB(235, 60, 40));
-    HBRUSH green_brush = CreateSolidBrush(RGB(90, 185, 50));
-    HBRUSH blue_brush = CreateSolidBrush(RGB(40, 130, 230));
-    HBRUSH yellow_brush = CreateSolidBrush(RGB(250, 190, 30));
-    RECT pane;
-
-    /* Top Left: Red */
-    SetRect(&pane, cx - size - gap, cy - size - gap, cx - gap, cy - gap);
-    FillRect(hdc, &pane, red_brush);
-
-    /* Top Right: Green */
-    SetRect(&pane, cx + gap, cy - size - gap, cx + size + gap, cy - gap);
-    FillRect(hdc, &pane, green_brush);
-
-    /* Bottom Left: Blue */
-    SetRect(&pane, cx - size - gap, cy + gap, cx - gap, cy + size + gap);
-    FillRect(hdc, &pane, blue_brush);
-
-    /* Bottom Right: Yellow */
-    SetRect(&pane, cx + gap, cy + gap, cx + size + gap, cy + size + gap);
-    FillRect(hdc, &pane, yellow_brush);
-
-    DeleteObject(red_brush);
-    DeleteObject(green_brush);
-    DeleteObject(blue_brush);
-    DeleteObject(yellow_brush);
-
-    /* Title text under emblem */
+    __cpuid(regs, 0x80000000);
+    if ((unsigned int)regs[0] >= 0x80000004)
     {
-        HFONT font, old_font;
-        LOGFONTW lf;
-        RECT text_rc = { rc->left, cy + size + 14, rc->right, rc->bottom };
+        __cpuid((int *)&brand[0], 0x80000002);
+        __cpuid((int *)&brand[16], 0x80000003);
+        __cpuid((int *)&brand[32], 0x80000004);
+        brand[48] = '\0';
 
-        memset(&lf, 0, sizeof(lf));
-        lf.lfHeight = -13;
-        lf.lfWeight = FW_BOLD;
-        lstrcpyW(lf.lfFaceName, L"Tahoma");
-        font = CreateFontIndirectW(&lf);
+        /* Strip leading whitespace */
+        char *p = brand;
+        while (*p == ' ') p++;
 
-        old_font = SelectObject(hdc, font);
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(20, 40, 100));
-        DrawTextW(hdc, L"Microsoft\nWindows", -1, &text_rc, DT_CENTER);
-
-        SelectObject(hdc, old_font);
-        DeleteObject(font);
+        if (*p)
+        {
+            MultiByteToWideChar(CP_ACP, 0, p, -1, out_str, (int)max_chars);
+            return TRUE;
+        }
     }
+#endif
+    return FALSE;
 }
 
 INT_PTR CALLBACK general_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -73,29 +49,80 @@ INT_PTR CALLBACK general_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
     {
         HKEY hKey;
         WCHAR buf[256];
-        DWORD size;
+        DWORD size, mhz = 0;
         MEMORYSTATUSEX mem;
+        SYSTEM_INFO si;
+        BOOL got_reg_owner = FALSE;
+        BOOL got_reg_org = FALSE;
+        BOOL got_reg_pid = FALSE;
+        BOOL got_cpu = FALSE;
 
-        /* 1. Registered info */
+        /* Set authentic Windows banner bitmap */
+        {
+            HBITMAP hbmLogo = LoadBitmapW(g_hInstance, MAKEINTRESOURCEW(IDB_WINLOGO));
+            if (hbmLogo)
+            {
+                SendDlgItemMessageW(hwnd, IDC_GEN_LOGO_STATIC, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hbmLogo);
+            }
+        }
+
+        /* 1. OS Version and Registered Info from Registry Hive */
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
                           0, KEY_READ, &hKey) == ERROR_SUCCESS)
         {
             size = sizeof(buf);
+            if (RegQueryValueExW(hKey, L"ProductName", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
+                SetDlgItemTextW(hwnd, IDC_GEN_OS_LABEL, buf);
+
+            size = sizeof(buf);
+            if (RegQueryValueExW(hKey, L"CSDVersion", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
+            {
+                WCHAR sp_buf[256];
+                swprintf(sp_buf, 256, L"%s (Gamescope)", buf);
+                SetDlgItemTextW(hwnd, IDC_GEN_DE_LABEL, sp_buf);
+            }
+
+            size = sizeof(buf);
             if (RegQueryValueExW(hKey, L"RegisteredOwner", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
+            {
                 SetDlgItemTextW(hwnd, IDC_GEN_REG_USER, buf);
+                got_reg_owner = TRUE;
+            }
 
             size = sizeof(buf);
             if (RegQueryValueExW(hKey, L"RegisteredOrganization", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
+            {
                 SetDlgItemTextW(hwnd, IDC_GEN_REG_ORG, buf);
+                got_reg_org = TRUE;
+            }
 
             size = sizeof(buf);
             if (RegQueryValueExW(hKey, L"ProductId", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
+            {
                 SetDlgItemTextW(hwnd, IDC_GEN_REG_PID, buf);
+                got_reg_pid = TRUE;
+            }
 
             RegCloseKey(hKey);
         }
 
-        /* 2. Processor Info */
+        /* Fallbacks matching Windows hive defaults if keys are missing */
+        if (!got_reg_owner)
+        {
+            size = ARRAY_SIZE(buf);
+            if (GetUserNameW(buf, &size) && size > 1)
+                SetDlgItemTextW(hwnd, IDC_GEN_REG_USER, buf);
+            else
+                SetDlgItemTextW(hwnd, IDC_GEN_REG_USER, L"Administrator");
+        }
+
+        if (!got_reg_org)
+            SetDlgItemTextW(hwnd, IDC_GEN_REG_ORG, L"WineExplorer Desktop");
+
+        if (!got_reg_pid)
+            SetDlgItemTextW(hwnd, IDC_GEN_REG_PID, L"76487-640-0000001-23104");
+
+        /* 2. Hardware CPU Detection (CPUID & Registry & Host) */
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",
                           0, KEY_READ, &hKey) == ERROR_SUCCESS)
         {
@@ -103,11 +130,41 @@ INT_PTR CALLBACK general_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (RegQueryValueExW(hKey, L"ProcessorNameString", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
             {
                 SetDlgItemTextW(hwnd, IDC_GEN_CPU_LABEL, buf);
+                got_cpu = TRUE;
             }
+
+            size = sizeof(mhz);
+            RegQueryValueExW(hKey, L"~MHz", NULL, NULL, (BYTE*)&mhz, &size);
+
             RegCloseKey(hKey);
         }
 
-        /* 3. RAM Info */
+        /* If registry ProcessorNameString was empty, query physical CPU directly via CPUID instruction */
+        if (!got_cpu)
+        {
+            if (query_hardware_cpuid_brand(buf, ARRAY_SIZE(buf)))
+            {
+                SetDlgItemTextW(hwnd, IDC_GEN_CPU_LABEL, buf);
+                got_cpu = TRUE;
+            }
+        }
+
+        /* If still not resolved, query host environment or system architecture */
+        if (!got_cpu)
+        {
+            GetSystemInfo(&si);
+            if (GetEnvironmentVariableW(L"PROCESSOR_IDENTIFIER", buf, ARRAY_SIZE(buf)) > 0)
+            {
+                SetDlgItemTextW(hwnd, IDC_GEN_CPU_LABEL, buf);
+            }
+            else
+            {
+                swprintf(buf, 256, L"x86-64 Family (%u Processors)", si.dwNumberOfProcessors);
+                SetDlgItemTextW(hwnd, IDC_GEN_CPU_LABEL, buf);
+            }
+        }
+
+        /* 3. Host Physical Memory (RAM) via GlobalMemoryStatusEx */
         memset(&mem, 0, sizeof(mem));
         mem.dwLength = sizeof(mem);
         if (GlobalMemoryStatusEx(&mem))
@@ -121,17 +178,6 @@ INT_PTR CALLBACK general_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         }
 
         return TRUE;
-    }
-
-    case WM_DRAWITEM:
-    {
-        DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT*)lparam;
-        if (dis->CtlID == IDC_GEN_LOGO_STATIC)
-        {
-            draw_windows_flag(dis->hDC, &dis->rcItem);
-            return TRUE;
-        }
-        break;
     }
     }
     return FALSE;

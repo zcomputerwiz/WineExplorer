@@ -8,6 +8,9 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+ICO_MAIN ICON "sysdm.ico"
+IDB_WINLOGO BITMAP "windows.bmp"
+
 STRINGTABLE
 BEGIN
     IDS_CPL_NAME        "System"
@@ -21,7 +24,7 @@ STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
 CAPTION "General"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    CONTROL         "", IDC_GEN_LOGO_STATIC, "Static", SS_OWNERDRAW, 10, 10, 110, 95
+    CONTROL         IDB_WINLOGO, IDC_GEN_LOGO_STATIC, "Static", SS_BITMAP | SS_CENTERIMAGE, 10, 10, 110, 95
     LTEXT           "System:", -1, 128, 12, 120, 9
     LTEXT           "Microsoft Windows Server 2003", IDC_GEN_OS_LABEL, 134, 23, 115, 9
     LTEXT           "Standard Edition", IDC_GEN_VER_LABEL, 134, 34, 115, 9
