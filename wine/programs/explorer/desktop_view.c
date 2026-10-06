@@ -812,6 +812,10 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
                                           0, 0, width, height,
                                           parent_desktop, NULL, wc.hInstance, NULL);
 
+    if (g_desktop_view.hwnd)
+        SetWindowPos(g_desktop_view.hwnd, HWND_BOTTOM, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
     desktop_view_refresh();
     return g_desktop_view.hwnd;
 }

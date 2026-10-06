@@ -1319,8 +1319,8 @@ void manage_desktop( WCHAR *arg )
         initialize_appbar();
 
         theme_init( hwnd );
-        initialize_systray( using_root, enable_shell, show_systray, no_tray_items );
         if (!using_root) desktop_view_create( hwnd, width, height );
+        initialize_systray( using_root, enable_shell, show_systray, no_tray_items );
 
         if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&
             (pShellDDEInit = (void *)GetProcAddress( shell32, (LPCSTR)188)))
