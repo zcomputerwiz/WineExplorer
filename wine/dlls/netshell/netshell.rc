@@ -1,0 +1,22 @@
+/*
+ * Network Connections Shell Extension Resource Script
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ */
+
+#include "windef.h"
+#include "winuser.h"
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+IDI_NETSHELL ICON "netfol.ico"
+IDI_NCW      ICON "foldwiz.ico"
+
+STRINGTABLE
+{
+    IDS_NETCON_NAME "Network Connections"
+    IDS_NETCON_INFO "Connects to other computers, networks, and the Internet."
+}

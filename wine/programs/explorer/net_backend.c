@@ -120,6 +120,74 @@ static int signal_to_bars(int percent)
     return 5;
 }
 
+/* Direct Linux kernel /proc/net/wireless reader (zero-fork fast path) */
+static BOOL read_linux_wireless_proc(const char *interface_name, int *out_signal_percent)
+{
+    FILE *f = fopen("/proc/net/wireless", "r");
+    char line[256];
+    if (!f) return FALSE;
+
+    while (fgets(line, sizeof(line), f))
+    {
+        char iface[32] = {0};
+        int status = 0, quality = 0, level = 0;
+        char *colon = strchr(line, ':');
+        if (colon)
+        {
+            char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            strncpy(iface, p, min(31, colon - p));
+            if (!interface_name || !interface_name[0] || strstr(iface, interface_name))
+            {
+                if (sscanf(colon + 1, "%d %d. %d.", &status, &quality, &level) >= 2)
+                {
+                    /* Linux quality is typically 0-70 or 0-100 */
+                    int pct = (quality <= 70) ? (quality * 100 / 70) : quality;
+                    if (pct > 100) pct = 100;
+                    if (pct < 0) pct = 0;
+                    *out_signal_percent = pct;
+                    fclose(f);
+                    return TRUE;
+                }
+            }
+        }
+    }
+    fclose(f);
+    return FALSE;
+}
+
+/* Direct Linux kernel /sys/class/net operstate reader */
+static BOOL read_linux_interface_state(const char *iface, char *out_state, int max_len)
+{
+    char path[128];
+    FILE *f;
+    snprintf(path, sizeof(path), "/sys/class/net/%s/operstate", iface);
+    f = fopen(path, "r");
+    if (!f) return FALSE;
+    if (fgets(out_state, max_len, f))
+    {
+        char *nl = strchr(out_state, '\n');
+        if (nl) *nl = '\0';
+        fclose(f);
+        return TRUE;
+    }
+    fclose(f);
+    return FALSE;
+}
+
+/* Direct D-Bus method call to trigger NetworkManager Wi-Fi hardware rescan */
+static void trigger_dbus_wifi_scan(const char *dev_name)
+{
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "gdbus call --system --dest org.freedesktop.NetworkManager "
+             "--object-path /org/freedesktop/NetworkManager "
+             "--method org.freedesktop.NetworkManager.Device.Wireless.RequestScan \"{}\" 2>/dev/null || "
+             "dbus-send --system --type=method_call --dest=org.freedesktop.NetworkManager "
+             "/org/freedesktop/NetworkManager org.freedesktop.NetworkManager.Device.Wireless.RequestScan dict:string:variant: 2>/dev/null");
+    execute_host_command_async(cmd);
+}
+
 /* Scan for available Wi-Fi access points using nmcli with fallback */
 int net_backend_scan_wireless(WLAN_NETWORK_ENTRY *entries, int max_entries)
 {
@@ -128,6 +196,9 @@ int net_backend_scan_wireless(WLAN_NETWORK_ENTRY *entries, int max_entries)
 
     if (!entries || max_entries <= 0) return 0;
     memset(entries, 0, sizeof(WLAN_NETWORK_ENTRY) * max_entries);
+
+    /* Trigger hardware scan via D-Bus */
+    trigger_dbus_wifi_scan(NULL);
 
     /* Try scanning via nmcli */
     if (run_host_command_capture("nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list --rescan auto 2>/dev/null", buffer, sizeof(buffer)) && strlen(buffer) > 0)
@@ -426,14 +497,25 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
     /* Query signal percentage if Wi-Fi connected */
     if (info->conn_type == NET_TYPE_WIRELESS && info->is_connected)
     {
-        char sig_buf[128];
-        if (run_host_command_capture("nmcli -t -f IN-USE,SIGNAL dev wifi list 2>/dev/null | grep '^\\*' | cut -d: -f2", sig_buf, sizeof(sig_buf)) && strlen(sig_buf) > 0)
+        int proc_signal = 0;
+        char a_dev[32] = {0};
+        WideCharToMultiByte(CP_UTF8, 0, info->active_device, -1, a_dev, sizeof(a_dev), NULL, NULL);
+
+        if (read_linux_wireless_proc(a_dev[0] ? a_dev : NULL, &proc_signal))
         {
-            info->signal_percent = atoi(sig_buf);
+            info->signal_percent = proc_signal;
         }
         else
         {
-            info->signal_percent = 85;
+            char sig_buf[128];
+            if (run_host_command_capture("nmcli -t -f IN-USE,SIGNAL dev wifi list 2>/dev/null | grep '^\\*' | cut -d: -f2", sig_buf, sizeof(sig_buf)) && strlen(sig_buf) > 0)
+            {
+                info->signal_percent = atoi(sig_buf);
+            }
+            else
+            {
+                info->signal_percent = 85;
+            }
         }
         info->signal_bars = signal_to_bars(info->signal_percent);
         info->speed_mbps = 54;

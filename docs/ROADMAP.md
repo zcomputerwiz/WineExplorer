@@ -107,6 +107,18 @@
 - [x] Implement "Wireless Network Connection Status" dialog (`IDD_STATMON_GENERAL_LAN`, `wlan_status.c` / `wlan_status.h`):
   - General tab: status, SSID, live duration timer, speed, custom-drawn 5-bar green signal meter, live byte/packet counters, and blinking twin PC icon.
   - Support tab: DHCP address type, IP, subnet mask, default gateway, and Repair action.
+- [x] Native Linux Wireless GUI Deep Integration:
+  - Zero-fork `/proc/net/wireless` reader in `net_backend.c` for microsecond signal level calculations.
+  - Zero-fork `/sys/class/net/<dev>/operstate` reader for interface status.
+  - System D-Bus Wi-Fi hardware scan trigger (`org.freedesktop.NetworkManager.Device.Wireless.RequestScan`).
+- [x] Implement Network Connections Control Panel Applet (`ncpa.cpl` in `wine/dlls/ncpa.cpl/`):
+  - Standard `CPlApplet` implementation supporting `CPL_INIT`, `CPL_GETCOUNT`, `CPL_INQUIRE`, `CPL_NEWINQUIRE`, `CPL_DBLCLK`, and `CPL_STARTWPARMSW`.
+  - Launches wireless connection manager and network connections folder.
+  - Authentic `netfol.ico` resource and metadata strings.
+- [x] Implement Network Connections Shell Extension (`netshell.dll` in `wine/dlls/netshell/`):
+  - Registered COM classes: `CLSID_NetworkConnections` (`{7007ACC7-3202-11D1-AAD2-00805FC1270E}`) and `CLSID_ConnectionTray` (`{7007ACCF-3202-11D1-AAD2-00805FC1270E}`).
+  - Windows NT 5.2 compatible API exports: `StartNCW` (New Connection Wizard), `RepairConnection`, `NcIsValidConnectionName`, `NcFreeNetconProperties`, `HrLaunchConnection`, `HrLaunchConnectionEx`, `HrCreateDesktopIcon`, `HrRenameConnection`, `InvokeDunFile`.
+  - Server 2003 authentic `netfol.ico` and `foldwiz.ico` icon resources.
 - [x] Implement `wlanui.dll` (`wine/dlls/wlanui/`):
   - Exported `WlanUIEditProfile` and `WLInvokeProfileUI` bridging to the wireless network UI.
 - [x] Deep shell integration:
@@ -118,4 +130,5 @@
 - [ ] Test build configuration with Wine build system (`./configure && make`).
 - [ ] Verify Gamescope session startup with display manager.
 - [ ] Provide comprehensive administration and user documentation.
+
 

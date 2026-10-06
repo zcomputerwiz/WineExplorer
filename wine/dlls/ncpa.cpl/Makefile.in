@@ -1,0 +1,8 @@
+MODULE    = ncpa.cpl
+IMPORTS   = shell32 user32
+
+EXTRADLLFLAGS = -Wb,--prefer-native
+
+SOURCES = \
+	ncpa.c \
+	ncpa.rc
