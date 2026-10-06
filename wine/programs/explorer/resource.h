@@ -134,6 +134,7 @@
 #define IDI_BATTERYPLUG          1017
 #define IDI_BATT                 1018
 #define IDI_HOTPLUG              1019
+#define IDI_START                1020
 
 /* Tray Volume Dialog */
 #define IDD_TRAYMASTER           105

@@ -89,6 +89,189 @@ static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
     FindClose(hFind);
 }
 
+#define STARTMENU_BANNER_CLASS L"WineStartMenuBanner"
+static HWND g_banner_wnd = NULL;
+
+static LRESULT CALLBACK startmenu_banner_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rc;
+        HFONT font_bold, font_norm, old_font;
+        LOGFONTW lf;
+        int h, y;
+
+        GetClientRect(hwnd, &rc);
+        h = rc.bottom - rc.top;
+
+        /* Paint authentic Windows XP Classic banner gradient:
+         * Black at top, transitioning through dark navy to vibrant blue, back to navy at bottom */
+        for (y = 0; y < h; y++)
+        {
+            RECT line_rc = { rc.left, y, rc.right, y + 1 };
+            COLORREF col;
+            float t = (float)y / (float)(h > 0 ? h : 1);
+
+            if (t < 0.35f)
+            {
+                float local_t = t / 0.35f;
+                col = RGB(0, 0, (int)(128.0f * local_t));
+            }
+            else if (t < 0.80f)
+            {
+                float local_t = (t - 0.35f) / 0.45f;
+                int r = (int)(16.0f * local_t);
+                int g = (int)(132.0f * local_t);
+                int b = 128 + (int)(80.0f * local_t);
+                col = RGB(r, g, b);
+            }
+            else
+            {
+                float local_t = (t - 0.80f) / 0.20f;
+                int r = (int)(16.0f * (1.0f - local_t));
+                int g = (int)(132.0f * (1.0f - local_t));
+                int b = 208 - (int)(80.0f * local_t);
+                col = RGB(r, g, b);
+            }
+
+            SetBkColor(hdc, col);
+            ExtTextOutW(hdc, 0, y, ETO_OPAQUE, &line_rc, NULL, 0, NULL);
+        }
+
+        /* 3D Bevel Edge: Top, Left, Bottom (flush with menu on right) */
+        DrawEdge(hdc, &rc, EDGE_RAISED, BF_TOP | BF_LEFT | BF_BOTTOM);
+
+        /* Rotated 90-degree vertical typography: "Windows XP" (Bold) and "Professional" (Regular) */
+        memset(&lf, 0, sizeof(lf));
+        lf.lfHeight = -13;
+        lf.lfEscapement = 900;
+        lf.lfOrientation = 900;
+        lf.lfWeight = FW_BOLD;
+        lstrcpyW(lf.lfFaceName, L"Tahoma");
+        font_bold = CreateFontIndirectW(&lf);
+
+        lf.lfWeight = FW_NORMAL;
+        font_norm = CreateFontIndirectW(&lf);
+
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(255, 255, 255));
+
+        old_font = SelectObject(hdc, font_bold);
+        TextOutW(hdc, 3, h - 8, L"Windows XP", 10);
+
+        SelectObject(hdc, font_norm);
+        TextOutW(hdc, 3, h - 102, L"Professional", 12);
+
+        SelectObject(hdc, old_font);
+        DeleteObject(font_bold);
+        DeleteObject(font_norm);
+
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_ERASEBKGND:
+        return 1;
+
+    default:
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+}
+
+static void ensure_banner_class(void)
+{
+    static BOOL registered = FALSE;
+    if (!registered)
+    {
+        WNDCLASSW wc;
+        memset(&wc, 0, sizeof(wc));
+        wc.lpfnWndProc = startmenu_banner_proc;
+        wc.hInstance = GetModuleHandleW(NULL);
+        wc.lpszClassName = STARTMENU_BANNER_CLASS;
+        wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
+        RegisterClassW(&wc);
+        registered = TRUE;
+    }
+}
+
+static HBITMAP get_shell32_icon_bitmap(int index)
+{
+    HICON hIcon = NULL;
+    HDC screen_dc, hdc;
+    HBITMAP hbm, old_bm;
+    RECT rc = { 0, 0, 16, 16 };
+
+    ExtractIconExW(L"shell32.dll", index, NULL, &hIcon, 1);
+    if (!hIcon) return NULL;
+
+    screen_dc = GetDC(NULL);
+    hdc = CreateCompatibleDC(screen_dc);
+    hbm = CreateCompatibleBitmap(screen_dc, 16, 16);
+    old_bm = SelectObject(hdc, hbm);
+
+    FillRect(hdc, &rc, GetSysColorBrush(COLOR_MENU));
+    DrawIconEx(hdc, 0, 0, hIcon, 16, 16, 0, NULL, DI_NORMAL);
+
+    SelectObject(hdc, old_bm);
+    DeleteDC(hdc);
+    ReleaseDC(NULL, screen_dc);
+    DestroyIcon(hIcon);
+    return hbm;
+}
+
+static void append_menu_item_icon(HMENU hMenu, UINT uFlags, UINT_PTR uIDNewItem,
+                                  LPCWSTR lpNewItem, HBITMAP hbm)
+{
+    MENUITEMINFOW mii;
+    memset(&mii, 0, sizeof(mii));
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STRING | MIIM_FTYPE | MIIM_ID;
+    mii.fType = MFT_STRING;
+    mii.wID = (UINT)uIDNewItem;
+    mii.dwTypeData = (LPWSTR)lpNewItem;
+
+    if (uFlags & MF_POPUP)
+    {
+        mii.fMask |= MIIM_SUBMENU;
+        mii.hSubMenu = (HMENU)uIDNewItem;
+    }
+
+    if (hbm)
+    {
+        mii.fMask |= MIIM_BITMAP;
+        mii.hbmpItem = hbm;
+    }
+
+    InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+}
+
+void startmenu_on_enter_menu_loop(void)
+{
+    HWND hMenuWnd = FindWindowW(L"#32768", NULL);
+    if (hMenuWnd && g_banner_wnd)
+    {
+        RECT rcMenu;
+        if (GetWindowRect(hMenuWnd, &rcMenu))
+        {
+            int menu_h = rcMenu.bottom - rcMenu.top;
+            if (menu_h > 50)
+            {
+                int banner_w = 21;
+                int banner_overlap = 2;
+                SetWindowPos(g_banner_wnd, HWND_TOPMOST,
+                             rcMenu.left - banner_w + banner_overlap, rcMenu.top,
+                             banner_w, menu_h,
+                             SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                InvalidateRect(g_banner_wnd, NULL, TRUE);
+            }
+        }
+    }
+}
+
 static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 {
     HMENU hMenu = CreatePopupMenu();
@@ -104,6 +287,12 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     WCHAR logoff_label[256];
     DWORD ulen = sizeof(username)/sizeof(WCHAR);
     UINT cmd;
+    int banner_w = 21;
+    int banner_overlap = 2;
+    int estimated_h = 194;
+    int banner_x = btn_rect->left;
+    int banner_y = btn_rect->top - estimated_h;
+    HBITMAP bm_prog, bm_fav, bm_doc, bm_set, bm_srch, bm_help, bm_run, bm_net, bm_logoff, bm_shut;
 
     g_program_count = 0;
 
@@ -132,32 +321,77 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     AppendMenuW(hSearch, MF_STRING, STARTMENU_CMD_SEARCH, L"For &Files or Folders...");
     AppendMenuW(hSearch, MF_STRING, 1021, L"For &Computers...");
 
-    /* Main Menu Assembly */
-    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hPrograms, L"&Programs");
-    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hFavorites, L"F&avorites");
-    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hDocuments, L"&Documents");
-    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSettings, L"&Settings");
-    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSearch, L"Sea&rch");
-    AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_HELP, L"&Help and Support");
-    AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_RUN, L"&Run...");
-    AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_CONNECT_TO, L"Connect &To...");
+    /* Load authentic icon bitmaps from shell32 */
+    bm_prog   = get_shell32_icon_bitmap(3);   /* Folder / Programs */
+    bm_fav    = get_shell32_icon_bitmap(43);  /* Favorites */
+    bm_doc    = get_shell32_icon_bitmap(1);   /* Documents */
+    bm_set    = get_shell32_icon_bitmap(21);  /* Settings / Control Panel */
+    bm_srch   = get_shell32_icon_bitmap(22);  /* Search */
+    bm_help   = get_shell32_icon_bitmap(23);  /* Help */
+    bm_run    = get_shell32_icon_bitmap(24);  /* Run */
+    bm_net    = get_shell32_icon_bitmap(17);  /* Network / Connect To */
+    bm_logoff = get_shell32_icon_bitmap(44);  /* Log Off key */
+    bm_shut   = get_shell32_icon_bitmap(27);  /* Shut Down */
+
+    /* Main Menu Assembly with Authentic Icons */
+    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hPrograms, L"&Programs", bm_prog);
+    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hFavorites, L"F&avorites", bm_fav);
+    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hDocuments, L"&Documents", bm_doc);
+    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSettings, L"&Settings", bm_set);
+    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSearch, L"Sea&rch", bm_srch);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_HELP, L"&Help and Support", bm_help);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_RUN, L"&Run...", bm_run);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_CONNECT_TO, L"Connect &To...", bm_net);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_LOGOFF, logoff_label);
-    AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_SHUTDOWN, L"Sh&ut Down...");
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_LOGOFF, logoff_label, bm_logoff);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_SHUTDOWN, L"Sh&ut Down...", bm_shut);
+
+    /* Show Companion Vertical Gradient Banner Window */
+    ensure_banner_class();
+    if (!g_banner_wnd)
+    {
+        g_banner_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                                       STARTMENU_BANNER_CLASS, NULL,
+                                       WS_POPUP | WS_CLIPSIBLINGS,
+                                       banner_x, banner_y, banner_w, estimated_h,
+                                       tray_hwnd, NULL, GetModuleHandleW(NULL), NULL);
+    }
+    else
+    {
+        SetWindowPos(g_banner_wnd, HWND_TOPMOST, banner_x, banner_y, banner_w, estimated_h,
+                     SWP_NOACTIVATE);
+    }
+    ShowWindow(g_banner_wnd, SW_SHOWNOACTIVATE);
 
     g_startmenu_open = TRUE;
     g_button_pressed = TRUE;
     InvalidateRect(g_startbutton_hwnd, NULL, FALSE);
+    UpdateWindow(g_startbutton_hwnd);
 
     SetForegroundWindow(tray_hwnd);
+    SetTimer(tray_hwnd, 9999, 15, NULL);
     cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
-                         btn_rect->left, btn_rect->top, 0, tray_hwnd, NULL);
+                         btn_rect->left + banner_w - banner_overlap, btn_rect->top, 0, tray_hwnd, NULL);
+    KillTimer(tray_hwnd, 9999);
 
+    ShowWindow(g_banner_wnd, SW_HIDE);
     g_startmenu_open = FALSE;
     g_button_pressed = FALSE;
     InvalidateRect(g_startbutton_hwnd, NULL, FALSE);
+    UpdateWindow(g_startbutton_hwnd);
 
     DestroyMenu(hMenu);
+
+    if (bm_prog) DeleteObject(bm_prog);
+    if (bm_fav) DeleteObject(bm_fav);
+    if (bm_doc) DeleteObject(bm_doc);
+    if (bm_set) DeleteObject(bm_set);
+    if (bm_srch) DeleteObject(bm_srch);
+    if (bm_help) DeleteObject(bm_help);
+    if (bm_run) DeleteObject(bm_run);
+    if (bm_net) DeleteObject(bm_net);
+    if (bm_logoff) DeleteObject(bm_logoff);
+    if (bm_shut) DeleteObject(bm_shut);
 
     switch (cmd)
     {
@@ -387,31 +621,44 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         }
         else
         {
-            /* Authentic Server 2003 Classic Start Button */
-            theme_draw_raised_button(hdc, &rc, g_button_pressed, FALSE);
+            /* Authentic Windows Classic Start Button */
+            if (g_button_pressed)
+            {
+                DrawEdge(hdc, &rc, EDGE_SUNKEN, BF_RECT | BF_ADJUST);
+                FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+            }
+            else
+            {
+                DrawEdge(hdc, &rc, EDGE_RAISED, BF_RECT | BF_ADJUST);
+                FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+            }
         }
 
         /* 2. Draw Windows Logo Icon */
         if (!g_winlogo_icon)
-            g_winlogo_icon = LoadIconW(NULL, (const WCHAR *)IDI_WINLOGO);
+        {
+            g_winlogo_icon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDI_START));
+            if (!g_winlogo_icon)
+                g_winlogo_icon = LoadIconW(NULL, (const WCHAR *)IDI_WINLOGO);
+        }
 
-        icon_x = rc.left + 5;
-        icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2;
-        if (g_button_pressed) { icon_x++; icon_y++; }
+        icon_x = rc.left + 5 + (g_button_pressed ? 1 : 0);
+        icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2 + (g_button_pressed ? 1 : 0);
 
         if (g_winlogo_icon)
             DrawIconEx(hdc, icon_x, icon_y, g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
 
         /* 3. Draw Bold "Start" Label */
         memset(&lf, 0, sizeof(lf));
-        lf.lfHeight = -12;
+        lf.lfHeight = -11;
         lf.lfWeight = FW_BOLD;
         lstrcpyW(lf.lfFaceName, L"Tahoma");
         font = CreateFontIndirectW(&lf);
 
         text_rc = rc;
         text_rc.left = icon_x + icon_size + 4;
-        if (g_button_pressed) OffsetRect(&text_rc, 1, 1);
+        text_rc.top = rc.top + (g_button_pressed ? 1 : 0);
+        text_rc.bottom = rc.bottom + (g_button_pressed ? 1 : 0);
 
         old_font = SelectObject(hdc, font);
         SetBkMode(hdc, TRANSPARENT);

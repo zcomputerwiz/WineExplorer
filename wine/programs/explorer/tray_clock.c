@@ -111,14 +111,8 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 
         GetClientRect(hwnd, &rc);
 
-        /* Fill background */
+        /* Fill background to blend seamlessly into sunken notification area */
         FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
-
-        /* Draw Server 2003 Classic Sunken Well or themed edge */
-        if (!theme_is_visual_styles_active())
-        {
-            theme_draw_sunken_well(hdc, &rc);
-        }
 
         /* Format local short time (e.g. 5:45 PM) */
         GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, NULL, NULL, time_str, sizeof(time_str)/sizeof(WCHAR));

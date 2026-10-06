@@ -33,6 +33,7 @@
 void startmenu_view_show(HWND tray_hwnd, const RECT *start_btn_rect);
 void startmenu_view_hide(void);
 BOOL startmenu_view_is_open(void);
+void startmenu_on_enter_menu_loop(void);
 
 /* Start Button API */
 HWND startbutton_create(HWND parent_tray, int x, int y, int width, int height);

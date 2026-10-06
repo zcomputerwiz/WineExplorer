@@ -180,6 +180,7 @@ IDI_MUTE            ICON "mute.ico"
 IDI_BATTERYPLUG     ICON "battplug.ico"
 IDI_BATT            ICON "batt.ico"
 IDI_HOTPLUG         ICON "hotplug.ico"
+IDI_START           ICON "start.ico"
 
 /* Authentic Windows XP / Server 2003 Tray Volume Dialog */
 IDD_TRAYMASTER DIALOGEX 0, 0, 52, 90

@@ -142,9 +142,9 @@ void taskband_relayout(void)
     while (curr)
     {
         curr->rect.left = x;
-        curr->rect.top = 2;
+        curr->rect.top = 3;
         curr->rect.right = x + button_width - 2;
-        curr->rect.bottom = g_taskband.button_height - 2;
+        curr->rect.bottom = 25;
 
         x += button_width;
         curr = curr->next;
@@ -320,13 +320,31 @@ void taskband_flash_window(HWND hwnd)
     }
 }
 
-static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font)
+static HBRUSH get_dither_brush(void)
+{
+    static HBRUSH hDitherBrush = NULL;
+    if (!hDitherBrush)
+    {
+        static const WORD dither_bits[8] = {
+            0x5555, 0xAAAA, 0x5555, 0xAAAA,
+            0x5555, 0xAAAA, 0x5555, 0xAAAA
+        };
+        HBITMAP hbm = CreateBitmap(8, 8, 1, 1, dither_bits);
+        if (hbm)
+        {
+            hDitherBrush = CreatePatternBrush(hbm);
+            DeleteObject(hbm);
+        }
+    }
+    return hDitherBrush;
+}
+
+static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font_normal, HFONT font_bold)
 {
     RECT rc = item->rect;
     HFONT old_font;
     int icon_size = 16;
-    int icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2;
-    int icon_x = rc.left + 4;
+    int icon_y, icon_x;
     RECT text_rc;
 
     /* 1. Draw Button Edge & Background */
@@ -339,43 +357,50 @@ static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font)
     }
     else
     {
-        /* Authentic Server 2003 / Classic NT 3D button rendering */
+        /* Authentic Windows Classic 3D button rendering */
         if (item->flashing)
         {
             HBRUSH flash_brush = CreateSolidBrush(RGB(255, 170, 0)); /* Highlight flash color */
             FillRect(hdc, &rc, flash_brush);
             DeleteObject(flash_brush);
-            theme_draw_classic_bevel(hdc, &rc, EDGE_RAISED, BF_RECT | BF_SOFT | BF_ADJUST);
+            theme_draw_classic_bevel(hdc, &rc, EDGE_RAISED, BF_RECT | BF_ADJUST);
         }
         else if (item->active)
         {
-            /* Active button has sunken bevel with checkered/pressed face */
-            HBRUSH btn_face = GetSysColorBrush(COLOR_BTNFACE);
-            FillRect(hdc, &rc, btn_face);
-            theme_draw_classic_bevel(hdc, &rc, EDGE_SUNKEN, BF_RECT | BF_SOFT | BF_ADJUST);
+            /* Active button has sunken 3D bevel filled with 50% checkerboard dither pattern */
+            COLORREF old_txt, old_bk;
+            DrawEdge(hdc, &rc, EDGE_SUNKEN, BF_RECT | BF_ADJUST);
+
+            old_txt = SetTextColor(hdc, GetSysColor(COLOR_BTNHIGHLIGHT));
+            old_bk = SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
+            FillRect(hdc, &rc, get_dither_brush());
+            SetTextColor(hdc, old_txt);
+            SetBkColor(hdc, old_bk);
         }
         else
         {
-            /* Inactive button has raised 3D bevel */
-            HBRUSH btn_face = GetSysColorBrush(COLOR_BTNFACE);
-            FillRect(hdc, &rc, btn_face);
-            theme_draw_classic_bevel(hdc, &rc, EDGE_RAISED, BF_RECT | BF_SOFT | BF_ADJUST);
+            /* Inactive button has raised 3D bevel and solid button face */
+            DrawEdge(hdc, &rc, EDGE_RAISED, BF_RECT | BF_ADJUST);
+            FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
         }
     }
 
-    /* 2. Draw 16x16 window icon */
+    /* 2. Position icon and text - shifted by (+1, +1) when active (authentic pressed look) */
+    icon_x = item->rect.left + 4 + (item->active ? 1 : 0);
+    icon_y = item->rect.top + (item->rect.bottom - item->rect.top - icon_size) / 2 + (item->active ? 1 : 0);
+
     if (item->icon)
     {
         DrawIconEx(hdc, icon_x, icon_y, item->icon, icon_size, icon_size, 0, NULL, DI_NORMAL);
     }
 
-    /* 3. Draw Window Title Text */
+    /* 3. Draw Window Title Text (Bold for active, Normal for inactive) */
     text_rc.left = icon_x + icon_size + 4;
-    text_rc.top = rc.top;
-    text_rc.right = rc.right - 4;
-    text_rc.bottom = rc.bottom;
+    text_rc.top = item->rect.top + (item->active ? 1 : 0);
+    text_rc.right = item->rect.right - 4;
+    text_rc.bottom = item->rect.bottom + (item->active ? 1 : 0);
 
-    old_font = SelectObject(hdc, font);
+    old_font = SelectObject(hdc, item->active ? font_bold : font_normal);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
 
@@ -451,30 +476,40 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        RECT client_rc;
-        HFONT font;
+        RECT client_rc, rc_top;
+        HFONT font_normal, font_bold;
         LOGFONTW lf;
         TASK_ITEM *curr;
 
         GetClientRect(hwnd, &client_rc);
         FillRect(hdc, &client_rc, GetSysColorBrush(COLOR_BTNFACE));
 
+        /* Top 1px highlight line continuous across taskbar */
+        rc_top = client_rc;
+        rc_top.top = 1;
+        rc_top.bottom = 2;
+        FillRect(hdc, &rc_top, GetSysColorBrush(COLOR_3DHIGHLIGHT));
+
         memset(&lf, 0, sizeof(lf));
         lf.lfHeight = -11;
         lf.lfWeight = FW_NORMAL;
         lstrcpyW(lf.lfFaceName, L"Tahoma");
-        font = CreateFontIndirectW(&lf);
+        font_normal = CreateFontIndirectW(&lf);
+
+        lf.lfWeight = FW_BOLD;
+        font_bold = CreateFontIndirectW(&lf);
 
         curr = g_taskband.tasks;
         while (curr)
         {
             RECT intersect;
             if (IntersectRect(&intersect, &ps.rcPaint, &curr->rect))
-                draw_task_button(hdc, curr, font);
+                draw_task_button(hdc, curr, font_normal, font_bold);
             curr = curr->next;
         }
 
-        DeleteObject(font);
+        DeleteObject(font_normal);
+        DeleteObject(font_bold);
         EndPaint(hwnd, &ps);
         return 0;
     }

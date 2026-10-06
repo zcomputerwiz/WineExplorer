@@ -99,11 +99,12 @@ static void draw_taskbar_preview(HDC hdc, const RECT *rc)
     DrawEdge(hdc, &task_rc, EDGE_SUNKEN, BF_RECT | BF_SOFT);
     DrawTextW(hdc, L"Document", -1, &task_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    /* Tray Clock */
+    /* Sunken Notification Tray Area */
     if (g_settings.show_clock)
     {
-        DrawEdge(hdc, &clock_rc, BDR_SUNKENOUTER, BF_RECT);
-        DrawTextW(hdc, L"12:00 PM", -1, &clock_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        RECT tray_rc = { tb_rc.right - 56, tb_rc.top + 2, tb_rc.right - 2, tb_rc.bottom - 2 };
+        DrawEdge(hdc, &tray_rc, EDGE_SUNKEN, BF_RECT);
+        DrawTextW(hdc, L"12:00 PM", -1, &tray_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
 
     SelectObject(hdc, old_font);
