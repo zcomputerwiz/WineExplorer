@@ -415,10 +415,14 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             if (PtInRect(&curr->rect, pt))
             {
                 show_task_context_menu(hwnd, curr, screen_pt);
-                break;
+                return 0;
             }
             curr = curr->next;
         }
+
+        /* Forward to taskbar context menu */
+        SendMessageW(GetParent(hwnd), WM_CONTEXTMENU, (WPARAM)GetParent(hwnd),
+                     MAKELPARAM(screen_pt.x, screen_pt.y));
         return 0;
     }
 

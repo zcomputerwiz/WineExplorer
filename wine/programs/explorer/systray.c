@@ -1051,7 +1051,73 @@ static void show_taskbar_contextmenu( HWND button, LPARAM lparam )
 {
     ULONG_PTR id = GetWindowLongPtrW( button, GWLP_ID );
 
-    if (id) SendNotifyMessageW( (HWND)id, WM_POPUPSYSTEMMENU, 0, lparam );
+    if (id)
+    {
+        SendNotifyMessageW( (HWND)id, WM_POPUPSYSTEMMENU, 0, lparam );
+        return;
+    }
+
+    /* Authentic Windows Taskbar Context Menu */
+    {
+        HMENU hMenu = CreatePopupMenu();
+        HMENU hToolbars = CreatePopupMenu();
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        TASKBAR_SETTINGS *settings = taskbar_settings_get();
+        UINT cmd;
+
+        AppendMenuW(hToolbars, MF_STRING, 3001, L"&Address");
+        AppendMenuW(hToolbars, MF_STRING, 3002, L"Lin&ks");
+        AppendMenuW(hToolbars, MF_STRING, 3003, L"&Desktop");
+        AppendMenuW(hToolbars, MF_STRING | (settings->show_quick_launch ? MF_CHECKED : 0), 3004, L"&Quick Launch");
+
+        AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hToolbars, L"&Toolbars");
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_CASCADE, L"&Cascade Windows");
+        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_TILE_H, L"Tile Windows &Horizontally");
+        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_TILE_V, L"Tile Windows &Vertically");
+        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_SHOWDESKTOP, L"&Show the Desktop");
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_TASKMGR, L"Task &Manager");
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(hMenu, MF_STRING | (settings->lock_taskbar ? MF_CHECKED : 0),
+                    IDM_TASKBAR_LOCK, L"&Lock the Taskbar");
+        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_PROPERTIES, L"P&roperties");
+
+        SetForegroundWindow(tray_window);
+        cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
+                             pt.x, pt.y, 0, tray_window, NULL);
+        DestroyMenu(hMenu);
+
+        switch (cmd)
+        {
+        case IDM_TASKBAR_CASCADE:
+            CascadeWindows(NULL, MDITILE_SKIPDISABLED, NULL, 0, NULL);
+            break;
+        case IDM_TASKBAR_TILE_H:
+            TileWindows(NULL, MDITILE_HORIZONTAL, NULL, 0, NULL);
+            break;
+        case IDM_TASKBAR_TILE_V:
+            TileWindows(NULL, MDITILE_VERTICAL, NULL, 0, NULL);
+            break;
+        case IDM_TASKBAR_SHOWDESKTOP:
+            show_desktop_toggle();
+            break;
+        case IDM_TASKBAR_TASKMGR:
+            ShellExecuteW(NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOWNORMAL);
+            break;
+        case IDM_TASKBAR_LOCK:
+            settings->lock_taskbar = !settings->lock_taskbar;
+            taskbar_settings_save();
+            break;
+        case IDM_TASKBAR_PROPERTIES:
+            taskbar_props_show(tray_window);
+            break;
+        case 3004:
+            settings->show_quick_launch = !settings->show_quick_launch;
+            taskbar_settings_save();
+            break;
+        }
+    }
 }
 
 static void do_hide_systray(void)

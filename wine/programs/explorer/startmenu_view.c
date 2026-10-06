@@ -20,8 +20,10 @@
 #include <uxtheme.h>
 
 #include "wine/debug.h"
+#include "resource.h"
 #include "theme_engine.h"
 #include "startmenu_view.h"
+#include "taskbar_props.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -165,6 +167,9 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
         break;
     case STARTMENU_CMD_SEARCH:
         ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
+        break;
+    case 1020:
+        taskbar_props_show(tray_hwnd);
         break;
     }
 }
@@ -385,6 +390,52 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         RECT btn_screen_rc;
         GetWindowRect(hwnd, &btn_screen_rc);
         startmenu_view_show(GetParent(hwnd), &btn_screen_rc);
+        return 0;
+    }
+
+    case WM_RBUTTONUP:
+    {
+        HMENU hMenu = CreatePopupMenu();
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        POINT screen_pt = pt;
+        UINT cmd;
+
+        ClientToScreen(hwnd, &screen_pt);
+
+        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_OPEN, L"&Open");
+        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_EXPLORE, L"&Explore");
+        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_SEARCH, L"&Search...");
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_PROPERTIES, L"&Properties");
+
+        SetForegroundWindow(hwnd);
+        cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
+                             screen_pt.x, screen_pt.y, 0, hwnd, NULL);
+        DestroyMenu(hMenu);
+
+        switch (cmd)
+        {
+        case IDM_STARTBTN_OPEN:
+        {
+            WCHAR prog_dir[MAX_PATH];
+            if (SHGetFolderPathW(NULL, CSIDL_STARTMENU, NULL, 0, prog_dir) == S_OK)
+                ShellExecuteW(NULL, L"open", prog_dir, NULL, NULL, SW_SHOWNORMAL);
+            break;
+        }
+        case IDM_STARTBTN_EXPLORE:
+        {
+            WCHAR prog_dir[MAX_PATH];
+            if (SHGetFolderPathW(NULL, CSIDL_STARTMENU, NULL, 0, prog_dir) == S_OK)
+                ShellExecuteW(NULL, L"explore", prog_dir, NULL, NULL, SW_SHOWNORMAL);
+            break;
+        }
+        case IDM_STARTBTN_SEARCH:
+            ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
+            break;
+        case IDM_STARTBTN_PROPERTIES:
+            taskbar_props_show(hwnd);
+            break;
+        }
         return 0;
     }
 

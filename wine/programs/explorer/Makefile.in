@@ -18,5 +18,6 @@ SOURCES = \
 	startmenu_view.c \
 	systray.c \
 	taskband.c \
+	taskbar_props.c \
 	theme_engine.c \
 	tray_clock.c

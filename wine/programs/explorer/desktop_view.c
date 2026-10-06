@@ -22,6 +22,7 @@
 #include <commctrl.h>
 
 #include "wine/debug.h"
+#include "resource.h"
 #include "theme_engine.h"
 #include "desktop_view.h"
 
@@ -468,6 +469,58 @@ static void show_desktop_context_menu(HWND hwnd, POINT pt)
     DestroyMenu(hMenu);
 }
 
+static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
+{
+    HMENU hMenu = CreatePopupMenu();
+    BOOL is_my_computer = (wcsstr(item->target_path, L"20D04FE0") != NULL);
+    BOOL is_recycle_bin = (wcsstr(item->target_path, L"645FF040") != NULL);
+    UINT cmd;
+
+    AppendMenuW(hMenu, MF_STRING | MF_DEFAULT, IDM_ITEM_OPEN, L"&Open");
+    AppendMenuW(hMenu, MF_STRING, IDM_ITEM_EXPLORE, L"&Explore");
+
+    if (is_my_computer)
+    {
+        AppendMenuW(hMenu, MF_STRING, IDM_ITEM_MANAGE, L"&Manage");
+    }
+    else if (is_recycle_bin)
+    {
+        AppendMenuW(hMenu, MF_STRING, IDM_ITEM_EMPTY_RECYCLE, L"&Empty Recycle Bin");
+    }
+
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(hMenu, MF_STRING, IDM_ITEM_PROPERTIES, L"P&roperties");
+
+    SetForegroundWindow(hwnd);
+    cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                         pt.x, pt.y, 0, hwnd, NULL);
+    DestroyMenu(hMenu);
+
+    switch (cmd)
+    {
+    case IDM_ITEM_OPEN:
+        execute_item(item);
+        break;
+    case IDM_ITEM_EXPLORE:
+        ShellExecuteW(NULL, L"explore", item->target_path, NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case IDM_ITEM_MANAGE:
+        ShellExecuteW(NULL, L"open", L"compmgmt.msc", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case IDM_ITEM_EMPTY_RECYCLE:
+        SHEmptyRecycleBinW(hwnd, NULL, 0);
+        break;
+    case IDM_ITEM_PROPERTIES:
+        if (is_my_computer)
+            ShellExecuteW(NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL);
+        else if (is_recycle_bin)
+            ShellExecuteW(NULL, L"open", L"rundll32.exe", L"shell32.dll,Options_RunDLL 7", NULL, SW_SHOWNORMAL);
+        else
+            ShellExecuteW(NULL, L"properties", item->target_path, NULL, NULL, SW_SHOWNORMAL);
+        break;
+    }
+}
+
 static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
@@ -600,8 +653,31 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_RBUTTONUP:
     {
         POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
-        ClientToScreen(hwnd, &pt);
-        show_desktop_context_menu(hwnd, pt);
+        POINT screen_pt = pt;
+        int i, hit_idx = -1;
+
+        ClientToScreen(hwnd, &screen_pt);
+
+        for (i = 0; i < g_desktop_view.item_count; i++)
+        {
+            if (PtInRect(&g_desktop_view.items[i]->bounds, pt))
+            {
+                hit_idx = i;
+                break;
+            }
+        }
+
+        if (hit_idx != -1)
+        {
+            for (i = 0; i < g_desktop_view.item_count; i++)
+                g_desktop_view.items[i]->selected = (i == hit_idx);
+            InvalidateRect(hwnd, NULL, FALSE);
+            show_item_context_menu(hwnd, g_desktop_view.items[hit_idx], screen_pt);
+        }
+        else
+        {
+            show_desktop_context_menu(hwnd, screen_pt);
+        }
         return 0;
     }
 

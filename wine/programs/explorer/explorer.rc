@@ -37,6 +37,42 @@ STRINGTABLE
     IDS_DESKTOP_TITLE   "Wine Desktop"
 }
 
+/* Taskbar Property Page */
+IDD_TASKBARPROP DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Taskbar"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Taskbar appearance", -1, 6, 6, 240, 104
+    CONTROL         "", IDC_TASKBAR_PREVIEW, "Static", SS_OWNERDRAW | SS_SUNKEN, 13, 18, 223, 26
+    AUTOCHECKBOX    "&Lock the taskbar", IDC_LOCKTASKBAR, 13, 48, 200, 10
+    AUTOCHECKBOX    "A&uto-hide the taskbar", IDC_AUTOHIDETASKBAR, 13, 61, 200, 10
+    AUTOCHECKBOX    "Keep the &taskbar on top of other windows", IDC_ONTOPTASKBAR, 13, 74, 200, 10
+    AUTOCHECKBOX    "&Group similar taskbar buttons", IDC_GROUPTASKBAR, 13, 87, 200, 10
+    AUTOCHECKBOX    "Show &Quick Launch", IDC_QUICKLAUNCH, 13, 97, 200, 10
+
+    GROUPBOX        "Notification area", -1, 6, 114, 240, 98
+    AUTOCHECKBOX    "Show the cloc&k", IDC_SHOWCLOCK, 13, 128, 200, 10
+    LTEXT           "You can keep the notification area uncluttered by hiding icons that you have not clicked recently.", -1, 13, 146, 223, 16
+    AUTOCHECKBOX    "&Hide inactive icons", IDC_HIDEINACTIVEICONS, 13, 170, 130, 10
+END
+
+/* Start Menu Property Page */
+IDD_STARTMENUPROP DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Start Menu"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_START_PREVIEW, "Static", SS_OWNERDRAW | SS_SUNKEN, 7, 7, 238, 70
+    AUTORADIOBUTTON "Classic Start &menu", IDC_START_CLASSIC, 13, 85, 120, 10, WS_GROUP | WS_TABSTOP
+    LTEXT           "Select this option to use the menu style from earlier versions of Windows (Windows 2000 / Server 2003).", -1, 25, 97, 210, 18
+    AUTORADIOBUTTON "&Start menu (Windows XP Style)", IDC_START_TWOCOLUMN, 13, 120, 150, 10
+    LTEXT           "Select this menu style for easy access to the Internet, e-mail, and favorite programs.", -1, 25, 132, 210, 18
+    AUTORADIOBUTTON "&Modern style (with Search box)", IDC_START_MODERN, 13, 155, 150, 10
+    LTEXT           "Enhanced layout featuring real-time program search and modern shortcuts.", -1, 25, 167, 210, 18
+END
+
+
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
 /* @makedep: explorer.manifest */

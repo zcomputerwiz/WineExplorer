@@ -27,6 +27,7 @@
 #include "startmenu_view.h"
 #include "tray_clock.h"
 #include "power_mgmt.h"
+#include "taskbar_props.h"
 
 extern void manage_desktop( WCHAR *arg );
 extern void initialize_systray( BOOL using_root, BOOL enable_shell, BOOL show_systray, BOOL no_tray_items );
