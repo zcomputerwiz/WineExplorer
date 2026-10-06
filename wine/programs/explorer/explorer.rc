@@ -74,6 +74,104 @@ BEGIN
     LTEXT           "Enhanced layout featuring real-time program search and modern shortcuts.", -1, 25, 167, 210, 18
 END
 
+/* Network Tray and Wireless Icons */
+IDI_NET_BLANK       ICON "net_blank.ico"
+IDI_NET_DISCONNECT  ICON "net_disconnect.ico"
+IDI_NET_PLUGGED     ICON "net_plugged.ico"
+IDI_NET_RECV        ICON "net_recv.ico"
+IDI_NET_XMIT        ICON "net_xmit.ico"
+IDI_NET_XMITRECV    ICON "net_xmitrecv.ico"
+IDI_NET_SIG0        ICON "net_sig0.ico"
+IDI_NET_SIG1        ICON "net_sig1.ico"
+IDI_NET_SIG2        ICON "net_sig2.ico"
+IDI_NET_SIG3        ICON "net_sig3.ico"
+IDI_NET_SIG4        ICON "net_sig4.ico"
+IDI_NET_SIG5        ICON "net_sig5.ico"
+IDI_NET_WIRELESS    ICON "net_wireless.ico"
+IDB_WZC_LISTICONS   BITMAP "wzcui.bmp"
+
+/* Connect to Wireless Network Dialog */
+IDD_WZCQCFG DIALOGEX 0, 0, 240, 222
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Connect to Wireless Network"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "The following wireless network(s) are available. To access a wireless network, select it from the list, and then click Connect.",
+                    IDC_WZCQCFG_LBL_INFO, 8, 7, 224, 22
+    LTEXT           "Available wireless &networks:", IDC_WZCQCFG_LBL_NETWORKS, 8, 30, 185, 9
+    CONTROL         "", IDC_WZCQCFG_NETWORKS, "SysListView32",
+                    LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP,
+                    8, 41, 224, 62
+    ICON            "", IDC_WZCQCFG_ICO_WARN, 10, 109, 21, 20, NOT WS_VISIBLE
+    LTEXT           "This wireless network is not secure. Because a network key is not used for authentication or encryption, data sent over this network might be subject to unauthorized access.",
+                    IDC_WZCQCFG_LBL_NOWKINFO, 36, 109, 196, 28, NOT WS_VISIBLE
+    AUTOCHECKBOX    "Allow &me to connect to the selected wireless network, even though it is not secure",
+                    IDC_WZCQCFG_CHK_NOWK, 20, 140, 212, 18, BS_MULTILINE | NOT WS_VISIBLE
+    LTEXT           "This wireless network requires the use of a network key. To access this network, type the key, then click Connect.",
+                    IDC_WZCQCFG_LBL_WKINFO, 8, 109, 224, 18, NOT WS_VISIBLE
+    LTEXT           "Network &key:", IDC_WZCQCFG_LBL_WEPK, 8, 129, 68, 12, NOT WS_VISIBLE
+    EDITTEXT        IDC_WZCQCFG_WEPK, 78, 127, 154, 13, ES_PASSWORD | ES_AUTOHSCROLL | NOT WS_VISIBLE
+    LTEXT           "C&onfirm key:", IDC_WZCQCFG_LBL_WEPK2, 8, 145, 68, 12, NOT WS_VISIBLE
+    EDITTEXT        IDC_WZCQCFG_WEPK2, 78, 143, 154, 13, ES_PASSWORD | ES_AUTOHSCROLL | NOT WS_VISIBLE
+    AUTOCHECKBOX    "Show network key", IDC_WZCQCFG_CHK_SHOWPWD, 78, 159, 100, 10, NOT WS_VISIBLE
+    LTEXT           "If you are having difficulty connecting to a network, click Refresh or Advanced.",
+                    -1, 8, 177, 224, 14
+    PUSHBUTTON      "&Refresh", IDC_WZCQCFG_REFRESH, 8, 197, 46, 14
+    PUSHBUTTON      "&Advanced...", IDC_WZCQCFG_ADVANCED, 58, 197, 52, 14
+    DEFPUSHBUTTON   "&Connect", IDC_WZCQCFG_CONNECT, 136, 197, 46, 14
+    PUSHBUTTON      "Close", IDCANCEL, 186, 197, 46, 14
+END
+
+/* Wireless Connection Status Dialog */
+IDD_STATMON_GENERAL_LAN DIALOGEX 0, 0, 226, 216
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Wireless Network Connection Status"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_STATMON_TAB, "SysTabControl32", WS_TABSTOP, 6, 6, 214, 180
+
+    /* General Tab Controls */
+    GROUPBOX        "Connection", -1, 14, 26, 198, 66
+    LTEXT           "Status:", -1, 22, 38, 40, 8
+    RTEXT           "Connected", IDC_TXT_SM_STATUS, 72, 38, 132, 8
+    LTEXT           "Network:", -1, 22, 50, 40, 8
+    RTEXT           "Default-WiFi", IDC_TXT_SM_SSID, 72, 50, 132, 8
+    LTEXT           "Duration:", -1, 22, 62, 40, 8
+    RTEXT           "00:00:00", IDC_TXT_SM_DURATION, 72, 62, 132, 8
+    LTEXT           "Speed:", -1, 22, 74, 40, 8
+    RTEXT           "54.0 Mbps", IDC_TXT_SM_SPEED, 72, 74, 132, 8
+    LTEXT           "Signal Strength:", -1, 22, 86, 56, 8
+    CONTROL         "", IDC_CTL_SM_SIGNAL, "Static", SS_OWNERDRAW, 140, 84, 64, 10
+
+    GROUPBOX        "Activity", -1, 14, 96, 198, 80
+    RTEXT           "Sent", -1, 60, 108, 40, 8
+    ICON            "", IDC_ICO_SM_ACTIVITY, 107, 105, 20, 20
+    RTEXT           "Received", -1, 138, 108, 40, 8
+    LTEXT           "Bytes:", -1, 22, 126, 30, 8
+    RTEXT           "0", IDC_TXT_SM_BYTES_TRANS, 54, 126, 50, 8
+    RTEXT           "0", IDC_TXT_SM_BYTES_RCVD, 132, 126, 50, 8
+    LTEXT           "Packets:", -1, 22, 140, 30, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_TRANS, 54, 140, 50, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_RCVD, 132, 140, 50, 8
+
+    PUSHBUTTON      "&Properties", IDC_BTN_SM_PROPERTIES, 14, 158, 50, 14
+    PUSHBUTTON      "&Disable", IDC_BTN_SM_DISABLE, 68, 158, 50, 14
+
+    /* Support Tab Controls (Init hidden) */
+    GROUPBOX        "Internet Protocol (TCP/IP)", -1, 14, 26, 198, 96, NOT WS_VISIBLE
+    LTEXT           "Address Type:", -1, 22, 42, 60, 8, NOT WS_VISIBLE
+    RTEXT           "Assigned by DHCP", IDC_TXT_SM_DHCP, 84, 42, 120, 8, NOT WS_VISIBLE
+    LTEXT           "IP Address:", -1, 22, 58, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_IP, 84, 58, 120, 8, NOT WS_VISIBLE
+    LTEXT           "Subnet Mask:", -1, 22, 74, 60, 8, NOT WS_VISIBLE
+    RTEXT           "255.255.255.0", IDC_TXT_SM_SUBNET, 84, 74, 120, 8, NOT WS_VISIBLE
+    LTEXT           "Default Gateway:", -1, 22, 90, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_GATEWAY, 84, 90, 120, 8, NOT WS_VISIBLE
+    PUSHBUTTON      "Re&pair", IDC_BTN_SM_REPAIR, 14, 128, 50, 14, NOT WS_VISIBLE
+
+    /* Bottom Dialog Buttons */
+    DEFPUSHBUTTON   "Close", IDCANCEL, 170, 194, 50, 14
+END
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 

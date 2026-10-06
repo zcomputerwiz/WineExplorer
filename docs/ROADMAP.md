@@ -82,7 +82,39 @@
   - [x] Desktop "My Computer" icon right-click context menu (Open, Explore, Manage, Properties -> `sysdm.cpl`).
 - [x] Install authentic theme files (`wine/resources/themes/`): `Classic.theme`, `Luna.theme`, `Royale.theme`.
 
-## Phase 9: Verification, Packaging & Deployment (Next Steps)
+## Phase 9: Wireless Network Configuration & System Tray Network Monitor (Completed)
+- [x] Investigate network applet landscape in Wine and ReactOS (Wine lacks `wlanui`, `netshell.dll`, and network tray monitors; ReactOS relies on NT NDISUIO).
+- [x] Extract authentic Server 2003 / Windows XP network assets:
+  - 13 icons: `net_sig0.ico`..`net_sig5.ico`, `net_blank.ico`, `net_disconnect.ico`, `net_plugged.ico`, `net_recv.ico`, `net_xmit.ico`, `net_xmitrecv.ico`, `net_wireless.ico`.
+  - Bitmap: `wzcui.bmp` (network list signal badges).
+- [x] Implement Linux host NetworkManager (`nmcli`) & `iphlpapi` backend (`net_backend.c` / `net_backend.h`):
+  - Async pipe execution for host `nmcli` scanning, connecting, disconnecting, and radio toggling.
+  - Signal level calculation (0-100% mapped to 5 bars).
+  - Win32 `iphlpapi` integration for live IP addresses, subnet mask, default gateway, and interface octets.
+  - Robust mock / fallback networks for containerized or virtual test environments without Wi-Fi adapters.
+- [x] Implement System Tray Network Monitor ("Connections Tray") (`nettray.c` / `nettray.h`):
+  - Dynamic tray icon reflecting Wi-Fi 5-bar signal strength, Ethernet dual monitors, or disconnected state.
+  - Multi-line tooltip with SSID, speed, signal rating, and status.
+  - Single-click to open Wireless Quick Connect (`IDD_WZCQCFG`).
+  - Double-click to open Connection Status (`IDD_STATMON_GENERAL_LAN`).
+  - Right-click context menu: Disable, Status (bold/default), Repair, View Available Wireless Networks, Open Network Connections.
+  - Non-overlapping taskbar tray positioning (left of the 72px clock).
+- [x] Implement "Connect to Wireless Network" dialog (`IDD_WZCQCFG`, `wlan_dialog.c` / `wlan_dialog.h`):
+  - Available networks list view with authentic 5-bar signal icons, SSID, and security badges.
+  - Unsecured network warning panel with required confirmation checkbox.
+  - WPA/WPA2 password entry with confirmation and show/hide password toggle.
+  - Refresh and direct Connect/Disconnect actions.
+- [x] Implement "Wireless Network Connection Status" dialog (`IDD_STATMON_GENERAL_LAN`, `wlan_status.c` / `wlan_status.h`):
+  - General tab: status, SSID, live duration timer, speed, custom-drawn 5-bar green signal meter, live byte/packet counters, and blinking twin PC icon.
+  - Support tab: DHCP address type, IP, subnet mask, default gateway, and Repair action.
+- [x] Implement `wlanui.dll` (`wine/dlls/wlanui/`):
+  - Exported `WlanUIEditProfile` and `WLInvokeProfileUI` bridging to the wireless network UI.
+- [x] Deep shell integration:
+  - Start Menu "Connect To..." and "Settings -> Network Connections".
+  - Desktop "My Network Places" double-click and right-click Properties.
+  - Command-line parameters: `explorer.exe /wlan` and `explorer.exe /netstatus`.
+
+## Phase 10: Verification, Packaging & Deployment (Next Steps)
 - [ ] Test build configuration with Wine build system (`./configure && make`).
 - [ ] Verify Gamescope session startup with display manager.
 - [ ] Provide comprehensive administration and user documentation.

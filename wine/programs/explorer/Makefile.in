@@ -1,6 +1,6 @@
 MODULE    = explorer.exe
 IMPORTS   = rpcrt4 user32 gdi32 advapi32 win32u
-DELAYIMPORTS = comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm
+DELAYIMPORTS = comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32
 
 EXTRADLLFLAGS = -mwindows -municode
 
@@ -13,6 +13,8 @@ SOURCES = \
 	desktop_view.c \
 	explorer.c \
 	explorer.rc \
+	net_backend.c \
+	nettray.c \
 	power_mgmt.c \
 	startmenu.c \
 	startmenu_view.c \
@@ -20,4 +22,6 @@ SOURCES = \
 	taskband.c \
 	taskbar_props.c \
 	theme_engine.c \
-	tray_clock.c
+	tray_clock.c \
+	wlan_dialog.c \
+	wlan_status.c

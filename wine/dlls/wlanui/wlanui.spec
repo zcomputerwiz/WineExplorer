@@ -1,6 +1,6 @@
 @ stub DllGetClassObject
 @ stub WLFreeProfile
 @ stub WLFreeProfileXml
-@ stub WLInvokeProfileUI
+@ stdcall WLInvokeProfileUI(long wstr ptr ptr long ptr ptr)
 @ stub WLInvokeProfileUIFromXMLFile
-@ stub WlanUIEditProfile
+@ stdcall WlanUIEditProfile(long wstr ptr ptr long ptr ptr)

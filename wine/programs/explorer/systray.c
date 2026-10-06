@@ -342,7 +342,7 @@ static POINT get_icon_pos( struct icon *icon )
 
     if (enable_taskbar)
     {
-        pos.x = tray_width - icon_cx * (icon->display + 1);
+        pos.x = tray_width - 72 - 4 - icon_cx * (icon->display + 1);
         pos.y = (tray_height - icon_cy) / 2;
     }
     else
@@ -805,7 +805,7 @@ static void sync_taskbar_buttons(void)
     struct taskbar_button *win;
     int pos = 0, count = 0;
     int width = taskbar_button_width;
-    int right = tray_width - nb_displayed * icon_cx;
+    int right = tray_width - 72 - 4 - nb_displayed * icon_cx;
     HWND foreground = GetAncestor( GetForegroundWindow(), GA_ROOTOWNER );
 
     if (!enable_taskbar) return;
@@ -1172,6 +1172,7 @@ static void do_show_systray(void)
         show_desktop_button_create( tray_window, start_button_width, 0, show_desktop_width, tray_height );
         taskband_create( tray_window, taskband_x, 0, max( 50, taskband_w ), tray_height );
         tray_clock_create( tray_window, tray_width - clock_width, 0, clock_width, tray_height );
+        nettray_init( tray_window );
     }
 
     sync_taskbar_buttons();
@@ -1181,6 +1182,10 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
 {
     switch (msg)
     {
+    case WM_DESTROY:
+        nettray_shutdown();
+        break;
+
     case WM_COPYDATA:
         return handle_incoming((HWND)wparam, (COPYDATASTRUCT *)lparam);
 

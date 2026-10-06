@@ -1,0 +1,299 @@
+/*
+ * WineExplorer Desktop Environment - Wireless Connection Status Dialog Implementation
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * Implements the authentic Windows XP / Server 2003 "Wireless Network Connection Status"
+ * dialog (IDD_STATMON_GENERAL_LAN) with General/Support tabs, duration timer,
+ * 5-bar signal strength meter, and live packet/byte throughput meters.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <windows.h>
+#include <commctrl.h>
+
+#include "wine/debug.h"
+#include "resource.h"
+#include "net_backend.h"
+#include "wlan_status.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(explorer);
+
+#define IDT_STATUS_TIMER 1001
+
+static NET_STATUS_INFO g_status_info;
+static int g_current_tab = 0;
+static DWORD g_last_bytes_sent = 0;
+static DWORD g_last_bytes_recv = 0;
+static int g_blink_phase = 0;
+
+/* Format number with thousands separators e.g. 1,234,567 */
+static void format_number_commas(ULONGLONG num, WCHAR *out, int max_len)
+{
+    WCHAR raw[32];
+    int len, i, j = 0, comma_count;
+
+    wsprintfW(raw, L"%I64u", num);
+    len = lstrlenW(raw);
+    comma_count = (len - 1) / 3;
+
+    for (i = 0; i < len && j < max_len - 1; i++)
+    {
+        out[j++] = raw[i];
+        if ((len - 1 - i) > 0 && (len - 1 - i) % 3 == 0)
+        {
+            out[j++] = L',';
+        }
+    }
+    out[j] = L'\0';
+}
+
+/* Paint the authentic Windows 5-bar green signal meter */
+static void paint_signal_bars(HWND hwnd, HDC hdc, int bars)
+{
+    RECT rc;
+    int i;
+    int bar_width = 8;
+    int bar_gap = 4;
+    int start_x = 2;
+    int max_h = 14;
+
+    GetClientRect(hwnd, &rc);
+    FillRect(hdc, &rc, (HBRUSH)(COLOR_3DFACE + 1));
+
+    for (i = 1; i <= 5; i++)
+    {
+        int h = 3 + (i * 2); /* 5, 7, 9, 11, 13 */
+        int x = start_x + (i - 1) * (bar_width + bar_gap);
+        int y = rc.bottom - 2 - h;
+        RECT bar_rc = {x, y, x + bar_width, rc.bottom - 2};
+
+        if (i <= bars)
+        {
+            /* Filled active signal bar */
+            HBRUSH hGreen = CreateSolidBrush(RGB(0, 180, 0));
+            HBRUSH hDarkGreen = CreateSolidBrush(RGB(0, 100, 0));
+            FrameRect(hdc, &bar_rc, hDarkGreen);
+            InflateRect(&bar_rc, -1, -1);
+            FillRect(hdc, &bar_rc, hGreen);
+            DeleteObject(hGreen);
+            DeleteObject(hDarkGreen);
+        }
+        else
+        {
+            /* Inactive hollow/gray bar */
+            HBRUSH hGray = CreateSolidBrush(RGB(180, 180, 180));
+            FrameRect(hdc, &bar_rc, hGray);
+            DeleteObject(hGray);
+        }
+    }
+}
+
+static void update_tab_visibility(HWND hwnd, int tab)
+{
+    BOOL is_general = (tab == 0);
+    HWND hTab = GetDlgItem(hwnd, IDC_STATMON_TAB);
+
+    /* General Tab controls */
+    int general_ids[] = {
+        IDC_TXT_SM_STATUS, IDC_TXT_SM_SSID, IDC_TXT_SM_DURATION, IDC_TXT_SM_SPEED,
+        IDC_CTL_SM_SIGNAL, IDC_ICO_SM_ACTIVITY, IDC_TXT_SM_BYTES_TRANS, IDC_TXT_SM_BYTES_RCVD,
+        IDC_TXT_SM_PKTS_TRANS, IDC_TXT_SM_PKTS_RCVD, IDC_BTN_SM_PROPERTIES, IDC_BTN_SM_DISABLE, 0
+    };
+
+    /* Support Tab controls */
+    int support_ids[] = {
+        IDC_TXT_SM_DHCP, IDC_TXT_SM_IP, IDC_TXT_SM_SUBNET, IDC_TXT_SM_GATEWAY,
+        IDC_BTN_SM_REPAIR, 0
+    };
+
+    int i = 0;
+    while (general_ids[i])
+    {
+        HWND hCtrl = GetDlgItem(hwnd, general_ids[i]);
+        if (hCtrl) ShowWindow(hCtrl, is_general ? SW_SHOW : SW_HIDE);
+        i++;
+    }
+
+    i = 0;
+    while (support_ids[i])
+    {
+        HWND hCtrl = GetDlgItem(hwnd, support_ids[i]);
+        if (hCtrl) ShowWindow(hCtrl, is_general ? SW_HIDE : SW_SHOW);
+        i++;
+    }
+
+    InvalidateRect(hwnd, NULL, TRUE);
+}
+
+static void update_status_controls(HWND hwnd)
+{
+    WCHAR dur_str[32];
+    WCHAR bytes_sent_str[32];
+    WCHAR bytes_recv_str[32];
+    WCHAR pkts_sent_str[32];
+    WCHAR pkts_recv_str[32];
+    WCHAR speed_str[32];
+    DWORD h, m, s;
+    HINSTANCE hInst = GetModuleHandleW(NULL);
+    HICON hActIcon;
+
+    net_backend_get_status(&g_status_info);
+
+    /* Status and SSID */
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_STATUS, g_status_info.is_connected ? L"Connected" : L"Disconnected");
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_SSID, g_status_info.active_ssid[0] ? g_status_info.active_ssid : L"Connected");
+
+    /* Duration */
+    h = g_status_info.duration_seconds / 3600;
+    m = (g_status_info.duration_seconds % 3600) / 60;
+    s = g_status_info.duration_seconds % 60;
+    wsprintfW(dur_str, L"%02u:%02u:%02u", h, m, s);
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_DURATION, dur_str);
+
+    /* Speed */
+    wsprintfW(speed_str, L"%u.0 Mbps", g_status_info.speed_mbps);
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_SPEED, speed_str);
+
+    /* Bytes and Packets */
+    format_number_commas(g_status_info.bytes_sent, bytes_sent_str, 32);
+    format_number_commas(g_status_info.bytes_received, bytes_recv_str, 32);
+    format_number_commas(g_status_info.packets_sent, pkts_sent_str, 32);
+    format_number_commas(g_status_info.packets_received, pkts_recv_str, 32);
+
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_BYTES_TRANS, bytes_sent_str);
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_BYTES_RCVD, bytes_recv_str);
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_PKTS_TRANS, pkts_sent_str);
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_PKTS_RCVD, pkts_recv_str);
+
+    /* Activity Icon Blinking */
+    g_blink_phase = (g_blink_phase + 1) % 4;
+    if (g_blink_phase == 0)
+        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_XMITRECV));
+    else if (g_blink_phase == 1)
+        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_XMIT));
+    else if (g_blink_phase == 2)
+        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_RECV));
+    else
+        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_BLANK));
+
+    SendMessageW(GetDlgItem(hwnd, IDC_ICO_SM_ACTIVITY), STM_SETICON, (WPARAM)hActIcon, 0);
+
+    /* Support Tab Data */
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_IP, g_status_info.ip_address);
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_SUBNET, g_status_info.subnet_mask);
+    SetDlgItemTextW(hwnd, IDC_TXT_SM_GATEWAY, g_status_info.default_gateway);
+
+    /* Redraw Signal Bars */
+    InvalidateRect(GetDlgItem(hwnd, IDC_CTL_SM_SIGNAL), NULL, TRUE);
+}
+
+static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+    {
+        HINSTANCE hInst = GetModuleHandleW(NULL);
+        HWND hTab = GetDlgItem(hwnd, IDC_STATMON_TAB);
+        TCITEMW ti = {0};
+        HICON hIconMain;
+
+        hIconMain = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_WIRELESS));
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconMain);
+
+        /* Initialize Tabs */
+        ti.mask = TCIF_TEXT;
+        ti.pszText = (LPWSTR)L"General";
+        TabCtrl_InsertItem(hTab, 0, &ti);
+
+        ti.pszText = (LPWSTR)L"Support";
+        TabCtrl_InsertItem(hTab, 1, &ti);
+
+        g_current_tab = 0;
+        update_tab_visibility(hwnd, 0);
+        update_status_controls(hwnd);
+
+        /* 1-second update timer */
+        SetTimer(hwnd, IDT_STATUS_TIMER, 1000, NULL);
+        return TRUE;
+    }
+
+    case WM_TIMER:
+        if (wparam == IDT_STATUS_TIMER)
+        {
+            update_status_controls(hwnd);
+        }
+        return TRUE;
+
+    case WM_NOTIFY:
+    {
+        NMHDR *hdr = (NMHDR*)lparam;
+        if (hdr->idFrom == IDC_STATMON_TAB && hdr->code == TCN_SELCHANGE)
+        {
+            g_current_tab = TabCtrl_GetCurSel(hdr->hwndFrom);
+            update_tab_visibility(hwnd, g_current_tab);
+        }
+        break;
+    }
+
+    case WM_DRAWITEM:
+    {
+        DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT*)lparam;
+        if (dis->CtlID == IDC_CTL_SM_SIGNAL)
+        {
+            paint_signal_bars(dis->hwndItem, dis->hDC, g_status_info.signal_bars);
+            return TRUE;
+        }
+        break;
+    }
+
+    case WM_COMMAND:
+    {
+        WORD cmd = LOWORD(wparam);
+        switch (cmd)
+        {
+        case IDC_BTN_SM_DISABLE:
+            net_backend_set_enabled(FALSE);
+            KillTimer(hwnd, IDT_STATUS_TIMER);
+            EndDialog(hwnd, IDOK);
+            break;
+
+        case IDC_BTN_SM_REPAIR:
+            SetCursor(LoadCursorW(NULL, IDC_WAIT));
+            net_backend_repair();
+            SetCursor(LoadCursorW(NULL, IDC_ARROW));
+            update_status_controls(hwnd);
+            MessageBoxW(hwnd, L"Windows has finished repairing the connection.",
+                        L"Repair", MB_OK | MB_ICONINFORMATION);
+            break;
+
+        case IDC_BTN_SM_PROPERTIES:
+            MessageBoxW(hwnd, L"Wireless Network Connection Properties\n\nSettings are managed automatically via NetworkManager and WZC.",
+                        L"Properties", MB_OK | MB_ICONINFORMATION);
+            break;
+
+        case IDCANCEL:
+            KillTimer(hwnd, IDT_STATUS_TIMER);
+            EndDialog(hwnd, IDCANCEL);
+            break;
+        }
+        return TRUE;
+    }
+
+    case WM_DESTROY:
+        KillTimer(hwnd, IDT_STATUS_TIMER);
+        break;
+    }
+
+    return FALSE;
+}
+
+void wlan_status_show(HWND parent)
+{
+    DialogBoxParamW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDD_STATMON_GENERAL_LAN), parent, WlanStatusDlgProc, 0);
+}

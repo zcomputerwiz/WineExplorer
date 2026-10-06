@@ -1,3 +1,7 @@
 MODULE    = wlanui.dll
+IMPORTS   = shell32
 
 EXTRADLLFLAGS = -Wb,--prefer-native
+
+SOURCES = \
+	wlanui.c

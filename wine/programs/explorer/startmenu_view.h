@@ -26,6 +26,8 @@
 #define STARTMENU_CMD_MYNET       1010
 #define STARTMENU_CMD_PICTURES    1011
 #define STARTMENU_CMD_MUSIC       1012
+#define STARTMENU_CMD_CONNECT_TO  1013
+#define STARTMENU_CMD_NETWORK     1014
 
 /* Start Menu API */
 void startmenu_view_show(HWND tray_hwnd, const RECT *start_btn_rect);

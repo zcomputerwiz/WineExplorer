@@ -24,6 +24,7 @@
 #include "theme_engine.h"
 #include "startmenu_view.h"
 #include "taskbar_props.h"
+#include "wlan_dialog.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -107,6 +108,7 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     /* Settings Submenu */
     AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_CONTROLPANEL, L"&Control Panel");
+    AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_NETWORK, L"&Network Connections");
     AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_PRINTERS, L"&Printers and Faxes");
     AppendMenuW(hSettings, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hSettings, MF_STRING, 1020, L"&Taskbar and Start Menu");
@@ -123,6 +125,7 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSearch, L"Sea&rch");
     AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_HELP, L"&Help and Support");
     AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_RUN, L"&Run...");
+    AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_CONNECT_TO, L"Connect &To...");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_LOGOFF, logoff_label);
     AppendMenuW(hMenu, MF_STRING, STARTMENU_CMD_SHUTDOWN, L"Sh&ut Down...");
@@ -158,6 +161,10 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
         break;
     case STARTMENU_CMD_CONTROLPANEL:
         ShellExecuteW(NULL, L"open", L"control.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_NETWORK:
+    case STARTMENU_CMD_CONNECT_TO:
+        wlan_dialog_show(tray_hwnd);
         break;
     case STARTMENU_CMD_PRINTERS:
         ShellExecuteW(NULL, L"open", L"control.exe", L"printers", NULL, SW_SHOWNORMAL);

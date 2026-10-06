@@ -25,6 +25,7 @@
 #include "resource.h"
 #include "theme_engine.h"
 #include "desktop_view.h"
+#include "wlan_dialog.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -426,6 +427,11 @@ void desktop_view_paint(HDC hdc, const RECT *clip_rect)
 static void execute_item(DESKTOP_ITEM *item)
 {
     if (!item) return;
+    if (item->target_path && wcsstr(item->target_path, L"208D2C60") != NULL)
+    {
+        wlan_dialog_show(g_desktop_view.hwnd);
+        return;
+    }
     TRACE("Executing desktop item: %s (%s)\n", debugstr_w(item->display_name), debugstr_w(item->target_path));
     ShellExecuteW(NULL, L"open", item->target_path, item->arguments, NULL, SW_SHOWNORMAL);
 }
@@ -473,6 +479,7 @@ static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
 {
     HMENU hMenu = CreatePopupMenu();
     BOOL is_my_computer = (wcsstr(item->target_path, L"20D04FE0") != NULL);
+    BOOL is_my_network = (wcsstr(item->target_path, L"208D2C60") != NULL);
     BOOL is_recycle_bin = (wcsstr(item->target_path, L"645FF040") != NULL);
     UINT cmd;
 
@@ -513,6 +520,8 @@ static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
     case IDM_ITEM_PROPERTIES:
         if (is_my_computer)
             ShellExecuteW(NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL);
+        else if (is_my_network)
+            wlan_dialog_show(hwnd);
         else if (is_recycle_bin)
             ShellExecuteW(NULL, L"open", L"rundll32.exe", L"shell32.dll,Options_RunDLL 7", NULL, SW_SHOWNORMAL);
         else

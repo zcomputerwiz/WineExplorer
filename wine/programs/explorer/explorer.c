@@ -25,6 +25,8 @@
 #include "wine/debug.h"
 #include "explorer_private.h"
 #include "resource.h"
+#include "wlan_dialog.h"
+#include "wlan_status.h"
 
 #include <initguid.h>
 #include <windows.h>
@@ -901,6 +903,16 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
         {
             p += len_desktop_quotes;
             manage_desktop( p );  /* the rest of the command line is handled by desktop mode */
+        }
+        else if (wcsnicmp(p, L"/wlan", 5) == 0 || wcsnicmp(p, L"-wlan", 5) == 0)
+        {
+            wlan_dialog_show(NULL);
+            ExitProcess(0);
+        }
+        else if (wcsnicmp(p, L"/netstatus", 10) == 0 || wcsnicmp(p, L"-netstatus", 10) == 0)
+        {
+            wlan_status_show(NULL);
+            ExitProcess(0);
         }
         else
         {

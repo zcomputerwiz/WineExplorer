@@ -70,5 +70,69 @@
 #define IDM_ITEM_EMPTY_RECYCLE   2024
 #define IDM_ITEM_PROPERTIES      2025
 
+/* Network Tray and Wireless Icons */
+#define IDI_NET_BLANK            1001
+#define IDI_NET_DISCONNECT       1002
+#define IDI_NET_PLUGGED          1003
+#define IDI_NET_RECV             1004
+#define IDI_NET_XMIT             1005
+#define IDI_NET_XMITRECV         1006
+#define IDI_NET_SIG0             1007
+#define IDI_NET_SIG1             1008
+#define IDI_NET_SIG2             1009
+#define IDI_NET_SIG3             1010
+#define IDI_NET_SIG4             1011
+#define IDI_NET_SIG5             1012
+#define IDI_NET_WIRELESS         1013
+#define IDB_WZC_LISTICONS        1014
+
+/* Dialogs */
+#define IDD_WZCQCFG              103
+#define IDD_STATMON_GENERAL_LAN  104
+
+/* Wireless Quick Config Controls */
+#define IDC_WZCQCFG_LBL_INFO     1301
+#define IDC_WZCQCFG_LBL_NETWORKS 1302
+#define IDC_WZCQCFG_NETWORKS     1303
+#define IDC_WZCQCFG_ICO_WARN     1304
+#define IDC_WZCQCFG_LBL_NOWKINFO 1305
+#define IDC_WZCQCFG_CHK_NOWK     1306
+#define IDC_WZCQCFG_LBL_WKINFO   1307
+#define IDC_WZCQCFG_LBL_WEPK     1308
+#define IDC_WZCQCFG_WEPK         1309
+#define IDC_WZCQCFG_LBL_WEPK2    1310
+#define IDC_WZCQCFG_WEPK2        1311
+#define IDC_WZCQCFG_CHK_SHOWPWD  1312
+#define IDC_WZCQCFG_REFRESH      1313
+#define IDC_WZCQCFG_ADVANCED     1314
+#define IDC_WZCQCFG_CONNECT      1315
+
+/* Status Monitor Controls */
+#define IDC_STATMON_TAB          1401
+#define IDC_TXT_SM_STATUS        1402
+#define IDC_TXT_SM_DURATION      1403
+#define IDC_TXT_SM_SPEED         1404
+#define IDC_TXT_SM_SSID          1405
+#define IDC_CTL_SM_SIGNAL        1406
+#define IDC_TXT_SM_BYTES_TRANS   1407
+#define IDC_TXT_SM_BYTES_RCVD    1408
+#define IDC_TXT_SM_PKTS_TRANS    1409
+#define IDC_TXT_SM_PKTS_RCVD     1410
+#define IDC_TXT_SM_IP            1411
+#define IDC_TXT_SM_SUBNET        1412
+#define IDC_TXT_SM_GATEWAY       1413
+#define IDC_TXT_SM_DHCP          1414
+#define IDC_BTN_SM_PROPERTIES    1415
+#define IDC_BTN_SM_DISABLE       1416
+#define IDC_BTN_SM_REPAIR        1417
+#define IDC_ICO_SM_ACTIVITY      1418
+
+/* Network Tray Context Menu */
+#define IDM_NET_DISABLE          2101
+#define IDM_NET_STATUS           2102
+#define IDM_NET_REPAIR           2103
+#define IDM_NET_VIEW_WIRELESS    2104
+#define IDM_NET_OPEN_CONNECTIONS 2105
+
 #endif
 
