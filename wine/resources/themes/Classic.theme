@@ -1,0 +1,58 @@
+; Windows Classic Theme - WineExplorer Desktop Environment
+[Theme]
+DisplayName=Windows Classic
+
+[CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon]
+DefaultValue=%WinDir%\explorer.exe,0
+
+[CLSID\{450D8FBA-AD25-11D0-98A8-0800361B1103}\DefaultIcon]
+DefaultValue=%WinDir%\system32\shell32.dll,235
+
+[CLSID\{208D2C60-3AEA-1069-A2D7-08002B30309D}\DefaultIcon]
+DefaultValue=%WinDir%\system32\shell32.dll,17
+
+[CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon]
+full=%WinDir%\system32\shell32.dll,32
+empty=%WinDir%\system32\shell32.dll,31
+
+[Control Panel\Colors]
+ActiveTitle=10 36 106
+Background=58 110 165
+Hilight=10 36 106
+HilightText=255 255 255
+TitleText=255 255 255
+Window=255 255 255
+WindowText=0 0 0
+Scrollbar=212 208 200
+InactiveTitle=128 128 128
+Menu=212 208 200
+WindowFrame=0 0 0
+MenuText=0 0 0
+ActiveBorder=212 208 200
+InactiveBorder=212 208 200
+AppWorkspace=128 128 128
+ButtonFace=212 208 200
+ButtonShadow=128 128 128
+GrayText=128 128 128
+ButtonText=0 0 0
+InactiveTitleText=212 208 200
+ButtonHilight=255 255 255
+ButtonDkShadow=64 64 64
+ButtonLight=212 208 200
+InfoText=0 0 0
+InfoWindow=255 255 225
+GradientActiveTitle=166 202 240
+GradientInactiveTitle=192 192 192
+
+[Control Panel\Desktop]
+Wallpaper=
+TileWallpaper=0
+WallpaperStyle=2
+Pattern=
+ScreenSaveActive=0
+StartMenuStyle=0
+
+[VisualStyles]
+Path=
+ColorStyle=
+Size=
