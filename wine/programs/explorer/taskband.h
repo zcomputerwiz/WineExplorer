@@ -20,6 +20,7 @@ typedef struct _TASK_ITEM
     BOOL        active;
     BOOL        flashing;
     BOOL        minimized;
+    BOOL        seen;
     RECT        rect;
     struct _TASK_ITEM *next;
 } TASK_ITEM;
@@ -49,6 +50,7 @@ void taskband_remove_window(HWND hwnd);
 void taskband_activate_window(HWND hwnd);
 void taskband_update_window(HWND hwnd);
 void taskband_flash_window(HWND hwnd);
+void taskband_sync_windows(void);
 
 void taskband_relayout(void);
 LRESULT taskband_handle_shell_hook(WPARAM wparam, LPARAM lparam);

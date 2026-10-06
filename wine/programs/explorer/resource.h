@@ -68,7 +68,8 @@
 #define IDM_ITEM_EXPLORE         2022
 #define IDM_ITEM_MANAGE          2023
 #define IDM_ITEM_EMPTY_RECYCLE   2024
-#define IDM_ITEM_PROPERTIES      2025
+#define IDM_ITEM_DELETE          2025
+#define IDM_ITEM_PROPERTIES      2026
 
 /* Network Tray and Wireless Icons */
 #define IDI_NET_BLANK            1001

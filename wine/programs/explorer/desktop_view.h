@@ -83,5 +83,6 @@ void desktop_view_align_to_grid(void);
 void desktop_view_load_wallpaper(const WCHAR *path);
 void desktop_view_paint(HDC hdc, const RECT *clip_rect);
 void desktop_view_on_display_change(int width, int height);
+HWND desktop_view_get_hwnd(void);
 
 #endif /* __WINE_EXPLORER_DESKTOP_VIEW_H */

@@ -469,14 +469,61 @@ void desktop_view_paint(HDC hdc, const RECT *clip_rect)
 
 static void execute_item(DESKTOP_ITEM *item)
 {
+    WCHAR param[MAX_PATH * 2];
+
     if (!item) return;
-    if (item->target_path[0] && wcsstr(item->target_path, L"208D2C60") != NULL)
+
+    TRACE("Executing desktop item: %s (%s)\n", debugstr_w(item->display_name), debugstr_w(item->target_path));
+
+    /* 1. My Network Places */
+    if (wcsstr(item->target_path, L"208D2C60") != NULL)
     {
-        wlan_dialog_show(g_desktop_view.hwnd);
+        ShellExecuteW(NULL, L"open", L"control.exe", L"ncpa.cpl", NULL, SW_SHOWNORMAL);
         return;
     }
-    TRACE("Executing desktop item: %s (%s)\n", debugstr_w(item->display_name), debugstr_w(item->target_path));
-    ShellExecuteW(NULL, L"open", item->target_path, item->arguments, NULL, SW_SHOWNORMAL);
+
+    /* 2. My Computer */
+    if (wcsstr(item->target_path, L"20D04FE0") != NULL)
+    {
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"/e,", NULL, SW_SHOWNORMAL);
+        return;
+    }
+
+    /* 3. My Documents */
+    if (wcsstr(item->target_path, L"450D8FBA") != NULL)
+    {
+        WCHAR docs_path[MAX_PATH];
+        if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, docs_path) == S_OK)
+        {
+            swprintf(param, ARRAY_SIZE(param), L"\"%s\"", docs_path);
+            ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
+        }
+        else
+        {
+            ShellExecuteW(NULL, L"open", L"explorer.exe", L"/e,", NULL, SW_SHOWNORMAL);
+        }
+        return;
+    }
+
+    /* 4. Recycle Bin */
+    if (wcsstr(item->target_path, L"645FF040") != NULL)
+    {
+        ShellExecuteW(NULL, L"open", L"explorer.exe", NULL, NULL, SW_SHOWNORMAL);
+        return;
+    }
+
+    /* 5. Directory / Folder */
+    if (item->type == DESKTOP_ITEM_FOLDER || PathIsDirectoryW(item->target_path))
+    {
+        swprintf(param, ARRAY_SIZE(param), L"\"%s\"", item->target_path);
+        ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
+        return;
+    }
+
+    /* 6. General file / shortcut / application */
+    ShellExecuteW(NULL, L"open", item->target_path,
+                  item->arguments[0] ? item->arguments : NULL,
+                  NULL, SW_SHOWNORMAL);
 }
 
 static void show_desktop_context_menu(HWND hwnd, POINT pt)
@@ -518,16 +565,44 @@ static void show_desktop_context_menu(HWND hwnd, POINT pt)
     DestroyMenu(hMenu);
 }
 
+static void delete_selected_items(HWND hwnd)
+{
+    int i;
+    for (i = 0; i < g_desktop_view.item_count; i++)
+    {
+        DESKTOP_ITEM *item = g_desktop_view.items[i];
+        if (item->selected && item->type != DESKTOP_ITEM_NAMESPACE && item->target_path[0])
+        {
+            WCHAR buf[MAX_PATH + 2];
+            SHFILEOPSTRUCTW op;
+
+            memset(buf, 0, sizeof(buf));
+            lstrcpynW(buf, item->target_path, MAX_PATH);
+
+            memset(&op, 0, sizeof(op));
+            op.hwnd = hwnd;
+            op.wFunc = FO_DELETE;
+            op.pFrom = buf;
+            op.fFlags = FOF_ALLOWUNDO;
+
+            SHFileOperationW(&op);
+        }
+    }
+    desktop_view_refresh();
+}
+
 static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
 {
     HMENU hMenu = CreatePopupMenu();
     BOOL is_my_computer = (wcsstr(item->target_path, L"20D04FE0") != NULL);
     BOOL is_my_network = (wcsstr(item->target_path, L"208D2C60") != NULL);
     BOOL is_recycle_bin = (wcsstr(item->target_path, L"645FF040") != NULL);
+    BOOL is_namespace = (item->type == DESKTOP_ITEM_NAMESPACE);
     UINT cmd;
 
     AppendMenuW(hMenu, MF_STRING | MF_DEFAULT, IDM_ITEM_OPEN, L"&Open");
-    AppendMenuW(hMenu, MF_STRING, IDM_ITEM_EXPLORE, L"&Explore");
+    if (item->type == DESKTOP_ITEM_FOLDER || PathIsDirectoryW(item->target_path))
+        AppendMenuW(hMenu, MF_STRING, IDM_ITEM_EXPLORE, L"&Explore");
 
     if (is_my_computer)
     {
@@ -536,6 +611,11 @@ static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
     else if (is_recycle_bin)
     {
         AppendMenuW(hMenu, MF_STRING, IDM_ITEM_EMPTY_RECYCLE, L"&Empty Recycle Bin");
+    }
+    else if (!is_namespace)
+    {
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(hMenu, MF_STRING, IDM_ITEM_DELETE, L"&Delete");
     }
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
@@ -549,10 +629,8 @@ static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
     switch (cmd)
     {
     case IDM_ITEM_OPEN:
-        execute_item(item);
-        break;
     case IDM_ITEM_EXPLORE:
-        ShellExecuteW(NULL, L"explore", item->target_path, NULL, NULL, SW_SHOWNORMAL);
+        execute_item(item);
         break;
     case IDM_ITEM_MANAGE:
         ShellExecuteW(NULL, L"open", L"compmgmt.msc", NULL, NULL, SW_SHOWNORMAL);
@@ -560,11 +638,14 @@ static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
     case IDM_ITEM_EMPTY_RECYCLE:
         SHEmptyRecycleBinW(hwnd, NULL, 0);
         break;
+    case IDM_ITEM_DELETE:
+        delete_selected_items(hwnd);
+        break;
     case IDM_ITEM_PROPERTIES:
         if (is_my_computer)
             ShellExecuteW(NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL);
         else if (is_my_network)
-            wlan_dialog_show(hwnd);
+            ShellExecuteW(NULL, L"open", L"control.exe", L"ncpa.cpl", NULL, SW_SHOWNORMAL);
         else if (is_recycle_bin)
             ShellExecuteW(NULL, L"open", L"rundll32.exe", L"shell32.dll,Options_RunDLL 7", NULL, SW_SHOWNORMAL);
         else
@@ -727,6 +808,7 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         POINT screen_pt = pt;
         int i, hit_idx = -1;
 
+        SetFocus(hwnd);
         ClientToScreen(hwnd, &screen_pt);
 
         for (i = 0; i < g_desktop_view.item_count; i++)
@@ -773,11 +855,126 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         case IDM_LINE_UP:
             desktop_view_align_to_grid();
             break;
+        case IDM_NEW_FOLDER:
+        {
+            WCHAR desktop_dir[MAX_PATH];
+            if (SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, desktop_dir) == S_OK)
+            {
+                WCHAR new_path[MAX_PATH];
+                int idx = 1;
+                swprintf(new_path, ARRAY_SIZE(new_path), L"%s\\New Folder", desktop_dir);
+                while (GetFileAttributesW(new_path) != INVALID_FILE_ATTRIBUTES)
+                {
+                    idx++;
+                    swprintf(new_path, ARRAY_SIZE(new_path), L"%s\\New Folder (%d)", desktop_dir, idx);
+                }
+                CreateDirectoryW(new_path, NULL);
+                desktop_view_refresh();
+            }
+            break;
+        }
+        case IDM_NEW_TEXT:
+        {
+            WCHAR desktop_dir[MAX_PATH];
+            if (SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, desktop_dir) == S_OK)
+            {
+                WCHAR new_path[MAX_PATH];
+                HANDLE hFile;
+                int idx = 1;
+                swprintf(new_path, ARRAY_SIZE(new_path), L"%s\\New Text Document.txt", desktop_dir);
+                while (GetFileAttributesW(new_path) != INVALID_FILE_ATTRIBUTES)
+                {
+                    idx++;
+                    swprintf(new_path, ARRAY_SIZE(new_path), L"%s\\New Text Document (%d).txt", desktop_dir, idx);
+                }
+                hFile = CreateFileW(new_path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
+                desktop_view_refresh();
+            }
+            break;
+        }
+        case IDM_NEW_SHORTCUT:
+            ShellExecuteW(NULL, L"open", L"rundll32.exe", L"appwiz.cpl,NewLinkHere_RunDLL", NULL, SW_SHOWNORMAL);
+            break;
         case IDM_PROPERTIES:
             ShellExecuteW(NULL, L"open", L"control.exe", L"desk.cpl", NULL, SW_SHOWNORMAL);
             break;
         }
         return 0;
+
+    case WM_KEYDOWN:
+    {
+        int i;
+        switch (wparam)
+        {
+        case VK_RETURN:
+            for (i = 0; i < g_desktop_view.item_count; i++)
+            {
+                if (g_desktop_view.items[i]->selected)
+                {
+                    execute_item(g_desktop_view.items[i]);
+                    break;
+                }
+            }
+            return 0;
+
+        case VK_DELETE:
+            delete_selected_items(hwnd);
+            return 0;
+
+        case VK_F5:
+            desktop_view_refresh();
+            return 0;
+
+        case 'A':
+            if (GetKeyState(VK_CONTROL) & 0x8000)
+            {
+                for (i = 0; i < g_desktop_view.item_count; i++)
+                    g_desktop_view.items[i]->selected = TRUE;
+                InvalidateRect(hwnd, NULL, FALSE);
+                return 0;
+            }
+            break;
+
+        case VK_UP:
+        case VK_DOWN:
+        case VK_LEFT:
+        case VK_RIGHT:
+        {
+            int current_idx = -1;
+            int new_idx = -1;
+            for (i = 0; i < g_desktop_view.item_count; i++)
+            {
+                if (g_desktop_view.items[i]->selected)
+                {
+                    current_idx = i;
+                    break;
+                }
+            }
+
+            if (current_idx == -1)
+            {
+                new_idx = 0;
+            }
+            else
+            {
+                if (wparam == VK_DOWN || wparam == VK_RIGHT)
+                    new_idx = min(current_idx + 1, g_desktop_view.item_count - 1);
+                else
+                    new_idx = max(current_idx - 1, 0);
+            }
+
+            if (new_idx >= 0 && new_idx < g_desktop_view.item_count)
+            {
+                for (i = 0; i < g_desktop_view.item_count; i++)
+                    g_desktop_view.items[i]->selected = (i == new_idx);
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+            return 0;
+        }
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
 
     case WM_ERASEBKGND:
         return 1; /* Handled in WM_PAINT double-buffering */
@@ -833,4 +1030,9 @@ void desktop_view_destroy(void)
         DestroyWindow(g_desktop_view.hwnd);
         g_desktop_view.hwnd = NULL;
     }
+}
+
+HWND desktop_view_get_hwnd(void)
+{
+    return g_desktop_view.hwnd;
 }

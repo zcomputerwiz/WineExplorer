@@ -1,9 +1,7 @@
 #!/bin/bash
-# ==============================================================================
-# WineExplorer Desktop Environment - Session Launcher
-# ==============================================================================
-# Launches WineExplorer DE as the native Linux desktop session.
-# ==============================================================================
+exec > /tmp/wine-session.log 2>&1
+echo "=== WineExplorer session started: $(date) ==="
+echo "USER=$USER DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY"
 
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 export XDG_CURRENT_DESKTOP="WineExplorer"
@@ -26,13 +24,7 @@ WIDTH="${WIDTH:-1920}"
 HEIGHT="${HEIGHT:-1080}"
 REFRESH="${REFRESH:-60}"
 
-# Start VirtualBox Guest Additions integration if available
-if command -v VBoxClient >/dev/null 2>&1; then
-    VBoxClient --clipboard 2>/dev/null || true
-    VBoxClient --seamless 2>/dev/null || true
-    VBoxClient --display 2>/dev/null || true
-    VBoxClient --draganddrop 2>/dev/null || true
-fi
+
 
 # Check for gamescope
 if command -v gamescope >/dev/null 2>&1; then

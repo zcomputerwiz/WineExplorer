@@ -802,45 +802,8 @@ static void cleanup_systray_window( HWND hwnd )
 /* update the taskbar buttons when something changed */
 static void sync_taskbar_buttons(void)
 {
-    struct taskbar_button *win;
-    int pos = 0, count = 0;
-    int width = taskbar_button_width;
-    int right = tray_width - 72 - 4 - nb_displayed * icon_cx;
-    HWND foreground = GetAncestor( GetForegroundWindow(), GA_ROOTOWNER );
-
     if (!enable_taskbar) return;
-    if (!IsWindowVisible( tray_window )) return;
-
-    LIST_FOR_EACH_ENTRY( win, &taskbar_buttons, struct taskbar_button, entry )
-    {
-        if (!win->hwnd)  /* start button */
-        {
-            SetWindowPos( win->button, 0, pos, 0, start_button_width, tray_height,
-                          SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
-            pos += start_button_width;
-            continue;
-        }
-        win->active = (win->hwnd == foreground);
-        win->visible = IsWindowVisible( win->hwnd ) && !GetWindow( win->hwnd, GW_OWNER );
-        if (win->visible) count++;
-    }
-
-    /* shrink buttons if space is tight */
-    if (count && (count * width > right - pos))
-        width = max( taskbar_button_width / 4, (right - pos) / count );
-
-    LIST_FOR_EACH_ENTRY( win, &taskbar_buttons, struct taskbar_button, entry )
-    {
-        if (!win->hwnd) continue;  /* start button */
-        if (win->visible && right - pos >= width)
-        {
-            SetWindowPos( win->button, 0, pos, 0, width, tray_height,
-                          SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
-            InvalidateRect( win->button, NULL, TRUE );
-            pos += width;
-        }
-        else SetWindowPos( win->button, 0, 0, 0, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW );
-    }
+    taskband_sync_windows();
 }
 
 static BOOL handle_incoming(HWND hwndSource, COPYDATASTRUCT *cds)
@@ -951,7 +914,7 @@ static void add_taskbar_button( HWND hwnd )
 {
     struct taskbar_button *win;
 
-    if (!enable_taskbar) return;
+    if (enable_taskbar) return;
 
     /* ignore our own windows */
     if (hwnd)
@@ -991,12 +954,17 @@ static void paint_taskbar_button( const DRAWITEMSTRUCT *dis )
 {
     RECT rect;
     UINT flags = DC_TEXT;
-    struct taskbar_button *win = find_taskbar_button( LongToHandle( dis->CtlID ));
+    struct taskbar_button *win = NULL, *it;
 
+    LIST_FOR_EACH_ENTRY( it, &taskbar_buttons, struct taskbar_button, entry )
+    {
+        if (it->button == dis->hwndItem) { win = it; break; }
+    }
     if (!win) return;
+
     GetClientRect( dis->hwndItem, &rect );
     DrawFrameControl( dis->hDC, &rect, DFC_BUTTON, DFCS_BUTTONPUSH | DFCS_ADJUSTRECT |
-                      ((dis->itemState & ODS_SELECTED) ? DFCS_PUSHED : 0 ));
+                      (((dis->itemState & ODS_SELECTED) || win->active) ? DFCS_PUSHED : 0 ));
     if (win->hwnd)
     {
         flags |= win->active ? DC_ACTIVE : DC_INBUTTON;
@@ -1008,8 +976,33 @@ static void paint_taskbar_button( const DRAWITEMSTRUCT *dis )
 
 static void click_taskbar_button( HWND button )
 {
-    LONG_PTR id = GetWindowLongPtrW( button, GWLP_ID );
-    HWND hwnd = (HWND)id;
+    struct taskbar_button *win = NULL, *it;
+    HWND hwnd;
+
+    LIST_FOR_EACH_ENTRY( it, &taskbar_buttons, struct taskbar_button, entry )
+    {
+        if (it->button == button || (button && it->hwnd == (HWND)GetWindowLongPtrW(button, GWLP_ID)))
+        {
+            win = it;
+            break;
+        }
+    }
+    if (!win)
+    {
+        POINT pt;
+        GetCursorPos( &pt );
+        LIST_FOR_EACH_ENTRY( it, &taskbar_buttons, struct taskbar_button, entry )
+        {
+            RECT rc;
+            if (it->button && it->visible)
+            {
+                GetWindowRect( it->button, &rc );
+                if (PtInRect( &rc, pt )) { win = it; break; }
+            }
+        }
+    }
+    if (!win) return;
+    hwnd = win->hwnd;
 
     if (!hwnd)  /* start button */
     {
@@ -1019,15 +1012,21 @@ static void click_taskbar_button( HWND button )
 
     if (IsIconic( hwnd ))
     {
-        SendMessageW( hwnd, WM_SYSCOMMAND, SC_RESTORE, 0 );
+        ShowWindow( hwnd, SW_RESTORE );
+        SetForegroundWindow( hwnd );
+        win->active = TRUE;
+        sync_taskbar_buttons();
         return;
     }
 
     if (IsWindowEnabled( hwnd ))
     {
-        if (hwnd == GetForegroundWindow())
+        HWND fg = GetAncestor( GetForegroundWindow(), GA_ROOTOWNER );
+        if (hwnd == fg || win->active)
         {
-            SendMessageW( hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0 );
+            ShowWindow( hwnd, SW_MINIMIZE );
+            win->active = FALSE;
+            sync_taskbar_buttons();
             return;
         }
     }
@@ -1042,18 +1041,90 @@ static void click_taskbar_button( HWND button )
                 break;
             owned = GetWindow( owned, GW_HWNDNEXT );
         }
-        hwnd = owned;
+        if (owned) hwnd = owned;
     }
+    ShowWindow( hwnd, SW_SHOWNORMAL );
     SetForegroundWindow( hwnd );
+    win->active = TRUE;
+    sync_taskbar_buttons();
 }
 
 static void show_taskbar_contextmenu( HWND button, LPARAM lparam )
 {
-    ULONG_PTR id = GetWindowLongPtrW( button, GWLP_ID );
+    struct taskbar_button *win = NULL, *it;
+    POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
 
-    if (id)
+    LIST_FOR_EACH_ENTRY( it, &taskbar_buttons, struct taskbar_button, entry )
     {
-        SendNotifyMessageW( (HWND)id, WM_POPUPSYSTEMMENU, 0, lparam );
+        if (it->button == button || (button && it->hwnd == (HWND)GetWindowLongPtrW(button, GWLP_ID)))
+        {
+            win = it;
+            break;
+        }
+    }
+    if (!win)
+    {
+        LIST_FOR_EACH_ENTRY( it, &taskbar_buttons, struct taskbar_button, entry )
+        {
+            RECT rc;
+            if (it->button && it->visible)
+            {
+                GetWindowRect( it->button, &rc );
+                if (PtInRect( &rc, pt )) { win = it; break; }
+            }
+        }
+    }
+
+    if (win && win->hwnd)
+    {
+        HMENU hMenu = CreatePopupMenu();
+        BOOL iconic = IsIconic( win->hwnd );
+        BOOL zoomed = IsZoomed( win->hwnd );
+        DWORD style = GetWindowLongW( win->hwnd, GWL_STYLE );
+        UINT cmd;
+
+        AppendMenuW( hMenu, (iconic || zoomed) ? MF_STRING : (MF_STRING | MF_GRAYED),
+                    1, L"&Restore" );
+        AppendMenuW( hMenu, (!iconic) ? MF_STRING : (MF_STRING | MF_GRAYED),
+                    2, L"&Move" );
+        AppendMenuW( hMenu, (!iconic && !zoomed && (style & WS_THICKFRAME)) ? MF_STRING : (MF_STRING | MF_GRAYED),
+                    3, L"&Size" );
+        AppendMenuW( hMenu, (!iconic) ? MF_STRING : (MF_STRING | MF_GRAYED),
+                    4, L"Mi&nimize" );
+        AppendMenuW( hMenu, (!zoomed && (style & WS_MAXIMIZEBOX)) ? MF_STRING : (MF_STRING | MF_GRAYED),
+                    5, L"Ma&ximize" );
+        AppendMenuW( hMenu, MF_SEPARATOR, 0, NULL );
+        AppendMenuW( hMenu, MF_STRING, 6, L"&Close\tAlt+F4" );
+
+        SetForegroundWindow( tray_window );
+        cmd = TrackPopupMenu( hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
+                             pt.x, pt.y, 0, tray_window, NULL );
+        DestroyMenu( hMenu );
+
+        switch (cmd)
+        {
+        case 1:
+            ShowWindow( win->hwnd, SW_RESTORE );
+            SetForegroundWindow( win->hwnd );
+            break;
+        case 2:
+            PostMessageW( win->hwnd, WM_SYSCOMMAND, SC_MOVE, 0 );
+            break;
+        case 3:
+            PostMessageW( win->hwnd, WM_SYSCOMMAND, SC_SIZE, 0 );
+            break;
+        case 4:
+            ShowWindow( win->hwnd, SW_MINIMIZE );
+            break;
+        case 5:
+            ShowWindow( win->hwnd, SW_MAXIMIZE );
+            SetForegroundWindow( win->hwnd );
+            break;
+        case 6:
+            PostMessageW( win->hwnd, WM_SYSCOMMAND, SC_CLOSE, 0 );
+            break;
+        }
+        sync_taskbar_buttons();
         return;
     }
 
@@ -1307,12 +1378,12 @@ void handle_parent_notify( HWND hwnd, WPARAM wp )
     switch (LOWORD(wp))
     {
     case WM_CREATE:
-        add_taskbar_button( hwnd );
-        taskband_add_window( hwnd );
+        if (enable_taskbar) taskband_sync_windows();
+        else add_taskbar_button( hwnd );
         break;
     case WM_DESTROY:
-        remove_taskbar_button( hwnd );
-        taskband_remove_window( hwnd );
+        if (enable_taskbar) taskband_sync_windows();
+        else remove_taskbar_button( hwnd );
         cleanup_systray_window( hwnd );
         break;
     }
@@ -1385,7 +1456,7 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
 
     LoadStringW( NULL, IDS_START_LABEL, start_label, ARRAY_SIZE( start_label ));
 
-    add_taskbar_button( 0 );
+    if (!enable_taskbar) add_taskbar_button( 0 );
 
     if (enable_taskbar) do_show_systray();
     else do_hide_systray();

@@ -806,7 +806,6 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         break;
 
     case WM_CLOSE:
-        PostQuitMessage(0);
         return 0;
 
     case WM_SETCURSOR:
@@ -864,6 +863,12 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
             if (launcher) ShellExecuteW( NULL, L"open", launcher->path, NULL, NULL, 0 );
         }
         return 0;
+
+    case WM_KEYDOWN:
+    case WM_KEYUP:
+        if (!using_root && desktop_view_get_hwnd())
+            return SendMessageW( desktop_view_get_hwnd(), message, wp, lp );
+        break;
 
     case WM_PAINT:
         {

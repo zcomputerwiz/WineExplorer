@@ -39,8 +39,12 @@ static HICON g_winlogo_icon = NULL;
 
 extern void power_mgmt_show_shutdown_dialog(HWND parent);
 
+#define MAX_PROGRAM_ENTRIES 256
+static WCHAR g_program_paths[MAX_PROGRAM_ENTRIES][MAX_PATH];
+static UINT g_program_count = 0;
+
 /* Build Programs submenu by enumerating filesystem directory */
-static void populate_programs_menu(HMENU hMenu, const WCHAR *path, UINT *pcmd_id)
+static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
 {
     WIN32_FIND_DATAW fd;
     HANDLE hFind;
@@ -61,7 +65,7 @@ static void populate_programs_menu(HMENU hMenu, const WCHAR *path, UINT *pcmd_id
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
         {
             HMENU hSub = CreatePopupMenu();
-            populate_programs_menu(hSub, item_path, pcmd_id);
+            populate_programs_menu(hSub, item_path);
             AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSub, fd.cFileName);
         }
         else if (PathMatchSpecW(fd.cFileName, L"*.lnk") || PathMatchSpecW(fd.cFileName, L"*.exe"))
@@ -69,11 +73,16 @@ static void populate_programs_menu(HMENU hMenu, const WCHAR *path, UINT *pcmd_id
             WCHAR title[MAX_PATH];
             WCHAR *ext;
 
-            lstrcpynW(title, fd.cFileName, MAX_PATH);
-            ext = wcsrchr(title, L'.');
-            if (ext) *ext = L'\0';
+            if (g_program_count < MAX_PROGRAM_ENTRIES)
+            {
+                lstrcpynW(g_program_paths[g_program_count], item_path, MAX_PATH);
+                lstrcpynW(title, fd.cFileName, MAX_PATH);
+                ext = wcsrchr(title, L'.');
+                if (ext) *ext = L'\0';
 
-            AppendMenuW(hMenu, MF_STRING, (*pcmd_id)++, title);
+                AppendMenuW(hMenu, MF_STRING, 2000 + g_program_count, title);
+                g_program_count++;
+            }
         }
     } while (FindNextFileW(hFind, &fd));
 
@@ -90,11 +99,13 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     HMENU hSearch = CreatePopupMenu();
     WCHAR user_programs[MAX_PATH];
     WCHAR common_programs[MAX_PATH];
+    WCHAR my_docs[MAX_PATH];
     WCHAR username[128];
     WCHAR logoff_label[256];
     DWORD ulen = sizeof(username)/sizeof(WCHAR);
-    UINT next_cmd = 2000;
     UINT cmd;
+
+    g_program_count = 0;
 
     /* Get current username */
     if (!GetUserNameW(username, &ulen)) lstrcpyW(username, L"Administrator");
@@ -102,9 +113,13 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     /* Enumerate Programs hierarchy */
     if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, user_programs) == S_OK)
-        populate_programs_menu(hPrograms, user_programs, &next_cmd);
+        populate_programs_menu(hPrograms, user_programs);
     if (SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, common_programs) == S_OK)
-        populate_programs_menu(hPrograms, common_programs, &next_cmd);
+        populate_programs_menu(hPrograms, common_programs);
+
+    /* Documents Submenu */
+    if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, my_docs) == S_OK)
+        AppendMenuW(hDocuments, MF_STRING, 1050, L"My &Documents");
 
     /* Settings Submenu */
     AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_CONTROLPANEL, L"&Control Panel");
@@ -163,6 +178,8 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
         ShellExecuteW(NULL, L"open", L"control.exe", NULL, NULL, SW_SHOWNORMAL);
         break;
     case STARTMENU_CMD_NETWORK:
+        ShellExecuteW(NULL, L"open", L"control.exe", L"ncpa.cpl", NULL, SW_SHOWNORMAL);
+        break;
     case STARTMENU_CMD_CONNECT_TO:
         wlan_dialog_show(tray_hwnd);
         break;
@@ -177,6 +194,23 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
         break;
     case 1020:
         taskbar_props_show(tray_hwnd);
+        break;
+    case 1050:
+    {
+        WCHAR doc_path[MAX_PATH];
+        if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, doc_path) == S_OK)
+        {
+            WCHAR param[MAX_PATH * 2];
+            swprintf(param, ARRAY_SIZE(param), L"\"%s\"", doc_path);
+            ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
+        }
+        break;
+    }
+    default:
+        if (cmd >= 2000 && (cmd - 2000) < g_program_count)
+        {
+            ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
+        }
         break;
     }
 }

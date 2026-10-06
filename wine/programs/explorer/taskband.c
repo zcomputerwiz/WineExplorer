@@ -39,13 +39,28 @@ static BOOL is_window_taskbar_candidate(HWND hwnd)
 {
     DWORD style, exstyle;
     DWORD process_id;
+    HWND root_desktop;
 
     if (!hwnd || !IsWindow(hwnd)) return FALSE;
     if (!IsWindowVisible(hwnd)) return FALSE;
 
-    /* Ignore our own explorer process windows */
+    /* Tray window or desktop itself cannot be a task */
+    root_desktop = g_taskband.parent_tray ? GetAncestor(g_taskband.parent_tray, GA_ROOT) : NULL;
+    if (hwnd == g_taskband.parent_tray || hwnd == g_taskband.hwnd || hwnd == GetDesktopWindow() || hwnd == root_desktop)
+        return FALSE;
+
+    /* Ignore our own explorer process windows EXCEPT cabinet/explore folder windows */
     GetWindowThreadProcessId(hwnd, &process_id);
-    if (process_id == GetCurrentProcessId()) return FALSE;
+    if (process_id == GetCurrentProcessId())
+    {
+        WCHAR cls[64];
+        if (GetClassNameW(hwnd, cls, ARRAY_SIZE(cls)))
+        {
+            if (wcscmp(cls, L"CabinetWClass") != 0 && wcscmp(cls, L"ExploreWClass") != 0)
+                return FALSE;
+        }
+        else return FALSE;
+    }
 
     style = GetWindowLongW(hwnd, GWL_STYLE);
     exstyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
@@ -141,7 +156,7 @@ void taskband_relayout(void)
 
 void taskband_add_window(HWND hwnd)
 {
-    TASK_ITEM *item;
+    TASK_ITEM *item, *tail;
 
     if (!is_window_taskbar_candidate(hwnd)) return;
     if (find_task_by_hwnd(hwnd)) return;
@@ -154,13 +169,92 @@ void taskband_add_window(HWND hwnd)
     GetWindowTextW(hwnd, item->title, sizeof(item->title)/sizeof(WCHAR));
     item->icon = get_window_task_icon(hwnd);
     item->minimized = IsIconic(hwnd);
-    item->active = (hwnd == GetForegroundWindow());
+    item->active = (hwnd == GetAncestor(GetForegroundWindow(), GA_ROOTOWNER));
+    item->seen = TRUE;
+    item->next = NULL;
 
-    item->next = g_taskband.tasks;
-    g_taskband.tasks = item;
+    if (!g_taskband.tasks)
+    {
+        g_taskband.tasks = item;
+    }
+    else
+    {
+        tail = g_taskband.tasks;
+        while (tail->next) tail = tail->next;
+        tail->next = item;
+    }
     g_taskband.task_count++;
 
     taskband_relayout();
+}
+
+static BOOL CALLBACK sync_enum_windows_proc(HWND hwnd, LPARAM lparam)
+{
+    HWND foreground = (HWND)lparam;
+    TASK_ITEM *item;
+
+    if (!is_window_taskbar_candidate(hwnd)) return TRUE;
+
+    item = find_task_by_hwnd(hwnd);
+    if (!item)
+    {
+        taskband_add_window(hwnd);
+        item = find_task_by_hwnd(hwnd);
+    }
+
+    if (item)
+    {
+        WCHAR title[256];
+        BOOL active = (hwnd == foreground);
+        BOOL minimized = IsIconic(hwnd);
+        GetWindowTextW(hwnd, title, ARRAY_SIZE(title));
+
+        if (wcscmp(item->title, title) != 0 || item->active != active || item->minimized != minimized)
+        {
+            lstrcpynW(item->title, title, ARRAY_SIZE(item->title));
+            item->active = active;
+            item->minimized = minimized;
+            if (g_taskband.hwnd) InvalidateRect(g_taskband.hwnd, &item->rect, FALSE);
+        }
+        item->seen = TRUE;
+    }
+    return TRUE;
+}
+
+void taskband_sync_windows(void)
+{
+    HWND foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
+    TASK_ITEM **curr;
+    TASK_ITEM *it;
+    BOOL changed = FALSE;
+
+    /* Mark existing tasks as unseen */
+    it = g_taskband.tasks;
+    while (it) { it->seen = FALSE; it = it->next; }
+
+    /* Enumerate top-level desktop windows */
+    EnumWindows(sync_enum_windows_proc, (LPARAM)foreground);
+
+    /* Purge tasks that are no longer valid, visible, or seen */
+    curr = &g_taskband.tasks;
+    while (*curr)
+    {
+        if (!(*curr)->seen || !IsWindow((*curr)->target_hwnd) || !IsWindowVisible((*curr)->target_hwnd))
+        {
+            TASK_ITEM *to_free = *curr;
+            *curr = (*curr)->next;
+            if (to_free->icon) DestroyIcon(to_free->icon);
+            free(to_free);
+            g_taskband.task_count--;
+            changed = TRUE;
+        }
+        else
+        {
+            curr = &(*curr)->next;
+        }
+    }
+
+    if (changed) taskband_relayout();
 }
 
 void taskband_remove_window(HWND hwnd)
@@ -173,6 +267,7 @@ void taskband_remove_window(HWND hwnd)
         {
             TASK_ITEM *to_free = *curr;
             *curr = (*curr)->next;
+            if (to_free->icon) DestroyIcon(to_free->icon);
             free(to_free);
             g_taskband.task_count--;
             taskband_relayout();
@@ -311,15 +406,16 @@ static void show_task_context_menu(HWND hwnd, TASK_ITEM *item, POINT pt)
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hMenu, MF_STRING, IDM_TASK_CLOSE, L"&Close\tAlt+F4");
 
-    SetForegroundWindow(hwnd);
-    cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
+    SetForegroundWindow(g_taskband.parent_tray ? g_taskband.parent_tray : hwnd);
+    cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
                          pt.x, pt.y, 0, hwnd, NULL);
     DestroyMenu(hMenu);
 
     switch (cmd)
     {
     case IDM_TASK_RESTORE:
-        PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
+        ShowWindow(item->target_hwnd, SW_RESTORE);
+        SetForegroundWindow(item->target_hwnd);
         break;
     case IDM_TASK_MOVE:
         PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_MOVE, 0);
@@ -328,15 +424,23 @@ static void show_task_context_menu(HWND hwnd, TASK_ITEM *item, POINT pt)
         PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_SIZE, 0);
         break;
     case IDM_TASK_MINIMIZE:
-        PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+        ShowWindow(item->target_hwnd, SW_MINIMIZE);
         break;
     case IDM_TASK_MAXIMIZE:
-        PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+        ShowWindow(item->target_hwnd, SW_MAXIMIZE);
+        SetForegroundWindow(item->target_hwnd);
         break;
     case IDM_TASK_CLOSE:
-        PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+        if (item->target_hwnd != g_taskband.parent_tray &&
+            item->target_hwnd != g_taskband.hwnd &&
+            item->target_hwnd != GetDesktopWindow() &&
+            item->target_hwnd != (g_taskband.parent_tray ? GetAncestor(g_taskband.parent_tray, GA_ROOT) : NULL))
+        {
+            PostMessageW(item->target_hwnd, WM_CLOSE, 0, 0);
+        }
         break;
     }
+    taskband_sync_windows();
 }
 
 static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -384,7 +488,8 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         {
             if (PtInRect(&curr->rect, pt))
             {
-                if (curr->active && !curr->minimized)
+                HWND fg = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
+                if ((curr->target_hwnd == fg || curr->active) && !IsIconic(curr->target_hwnd))
                 {
                     /* Minimize when active button is clicked */
                     ShowWindow(curr->target_hwnd, SW_MINIMIZE);
@@ -394,8 +499,11 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
                     /* Restore / Bring to front */
                     if (IsIconic(curr->target_hwnd))
                         ShowWindow(curr->target_hwnd, SW_RESTORE);
+                    else
+                        ShowWindow(curr->target_hwnd, SW_SHOWNORMAL);
                     SetForegroundWindow(curr->target_hwnd);
                 }
+                taskband_sync_windows();
                 break;
             }
             curr = curr->next;
@@ -414,7 +522,9 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         {
             if (PtInRect(&curr->rect, pt))
             {
-                show_task_context_menu(hwnd, curr, screen_pt);
+                POINT menu_pt = { curr->rect.left, curr->rect.top };
+                ClientToScreen(hwnd, &menu_pt);
+                show_task_context_menu(hwnd, curr, menu_pt);
                 return 0;
             }
             curr = curr->next;
@@ -426,12 +536,25 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return 0;
     }
 
+    case WM_TIMER:
+        if (wparam == 1)
+        {
+            taskband_sync_windows();
+            return 0;
+        }
+        break;
+
+    case WM_DESTROY:
+        KillTimer(hwnd, 1);
+        return 0;
+
     case WM_ERASEBKGND:
         return 1;
 
     default:
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
+    return 0;
 }
 
 LRESULT taskband_handle_shell_hook(WPARAM wparam, LPARAM lparam)
@@ -497,6 +620,9 @@ HWND taskband_create(HWND parent_tray, int x, int y, int width, int height)
     RegisterShellHookWindow(g_taskband.hwnd);
     g_taskband.shell_hook_msg = RegisterWindowMessageW(L"SHELLHOOK");
 
+    SetTimer(g_taskband.hwnd, 1, 200, NULL);
+    taskband_sync_windows();
+
     return g_taskband.hwnd;
 }
 
@@ -517,6 +643,7 @@ void taskband_destroy(void)
     while (curr)
     {
         TASK_ITEM *next = curr->next;
+        if (curr->icon) DestroyIcon(curr->icon);
         free(curr);
         curr = next;
     }
@@ -525,6 +652,7 @@ void taskband_destroy(void)
 
     if (g_taskband.hwnd)
     {
+        KillTimer(g_taskband.hwnd, 1);
         DeregisterShellHookWindow(g_taskband.hwnd);
         DestroyWindow(g_taskband.hwnd);
         g_taskband.hwnd = NULL;

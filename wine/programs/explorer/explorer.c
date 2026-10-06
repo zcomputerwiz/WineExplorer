@@ -396,33 +396,36 @@ static void make_explorer_window(parameters_struct *params)
 
     if (params->root[0])
     {
-        size = GetFullPathNameW(params->root, 0, NULL, NULL);
-        path = malloc( size * sizeof(WCHAR) );
-        GetFullPathNameW(params->root, size, path, NULL);
+        if (params->root[0] == ':' && params->root[1] == ':')
+        {
+            path = wcsdup(params->root);
+        }
+        else
+        {
+            size = GetFullPathNameW(params->root, 0, NULL, NULL);
+            path = malloc( size * sizeof(WCHAR) );
+            GetFullPathNameW(params->root, size, path, NULL);
+        }
     }
 
     if (sw && path)
     {
-        if (!(pidl = ILCreateFromPathW(path)))
+        pidl = ILCreateFromPathW(path);
+        if (pidl)
         {
-            ERR("Failed to create PIDL for %s.\n", debugstr_w(path));
-            IShellWindows_Release(sw);
-            free(path);
-            return;
-        }
-
-        variant_from_pidl(&var, pidl);
-        V_VT(&empty_var) = VT_EMPTY;
-        hres = IShellWindows_FindWindowSW(sw, &var, &empty_var, SWC_EXPLORER, &hwnd, 0, &dispatch);
-        VariantClear(&var);
-        ILFree(pidl);
-        if (hres == S_OK)
-        {
-            TRACE("Found window %#lx already browsing path %s.\n", hwnd, debugstr_w(path));
-            SetForegroundWindow((HWND)(LONG_PTR)hwnd);
-            IShellWindows_Release(sw);
-            free(path);
-            return;
+            variant_from_pidl(&var, pidl);
+            V_VT(&empty_var) = VT_EMPTY;
+            hres = IShellWindows_FindWindowSW(sw, &var, &empty_var, SWC_EXPLORER, &hwnd, 0, &dispatch);
+            VariantClear(&var);
+            ILFree(pidl);
+            if (hres == S_OK)
+            {
+                TRACE("Found window %#lx already browsing path %s.\n", hwnd, debugstr_w(path));
+                SetForegroundWindow((HWND)(LONG_PTR)hwnd);
+                IShellWindows_Release(sw);
+                free(path);
+                return;
+            }
         }
     }
 
@@ -873,6 +876,11 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
         {
             parameters->explorer_mode = TRUE;
             p += len_e;
+        }
+        else if (wcsnicmp(p, L"/e", 2) == 0 && (p[2] == 0 || iswspace(p[2])))
+        {
+            parameters->explorer_mode = TRUE;
+            p += 2;
         }
         else if (wcsnicmp(p, arg_cd, len_cd )==0)
         {
