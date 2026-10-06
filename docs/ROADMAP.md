@@ -54,7 +54,36 @@
   - [x] Linux system shutdown via systemd-logind D-Bus / `systemctl poweroff` / `systemctl reboot`.
 - [x] Gamescope Display Manager session scripts (`wine-explorer-session.sh` & `wine-explorer.desktop`).
 
-## Phase 8: Verification, Packaging & Theming Assets (Next Steps)
-- [ ] Install default Windows Classic (`Classic.theme`) and Luna theme definitions into prefix `C:\windows\resources\themes\`.
-- [ ] Test build configuration with Wine build system.
-- [ ] Create test harness and launcher documentation for Gamescope Wayland compositor session.
+## Phase 8: Desktop Control Panels & Properties Parity (Completed)
+- [x] Implement complete Display Properties (`desk.cpl`):
+  - [x] Themes page (`IDD_THEMES`) with theme switcher, save/delete, and live preview.
+  - [x] Desktop background page (`IDD_BACKGROUND`) with wallpaper picker, position modes, and Customize Desktop dialog (`IDD_CUSTDESKTOP`).
+  - [x] Appearance page (`IDD_APPEARANCE`) with visual style selector, color scheme, font size, and Advanced Appearance dialog (`IDD_ADVAPPEARANCE`).
+  - [x] Settings page (`IDD_SETTINGS`) with resolution slider, color depth combo, and multi-monitor setup.
+  - [x] Monitor preview control (`DeskCplPreview`) rendering authentic classic desktop, active/inactive frames, and 3D bevels.
+- [x] Implement complete Date and Time Properties (`timedate.cpl`):
+  - [x] Date & Time page (`IDD_DATEANDTIME`) with Month Calendar and time spinners.
+  - [x] Real-time analog clock control (`TimeDateClock`) with ticking hour, minute, and second hands.
+  - [x] Time Zone page (`IDD_TIMEZONE`) with worldwide time zones and interactive world map meridian indicator.
+  - [x] Integrate with tray clock double-click action.
+- [x] Implement Taskbar and Start Menu Properties (`taskbar_props.c` / `taskbar_props.h`):
+  - [x] Taskbar tab (`IDD_TASKBARPROP`) with lock, autohide, keep on top, grouping, quick launch, clock, and inactive icons options.
+  - [x] Start Menu tab (`IDD_STARTMENUPROP`) with style selector (Classic Server 2003, 2-column XP, Modern search hybrid).
+  - [x] Live previews for taskbar and start menu layouts.
+  - [x] Authentic Taskbar context menu (Cascade, Tile H/V, Show Desktop, Task Manager, Lock Taskbar, Properties).
+  - [x] Authentic Start button context menu (Open, Explore, Search, Properties).
+- [x] Implement System Properties applet (`sysdm.cpl`):
+  - [x] General page (`IDD_GENERAL`) with Windows emblem, OS version, registered owner/org, CPU specs, and RAM totals.
+  - [x] Computer Name page (`IDD_COMPNAME`) with description, full computer name, and workgroup.
+  - [x] Hardware page (`IDD_HARDWARE`) with Device Manager launcher and Hardware Profiles.
+  - [x] Advanced page (`IDD_ADVANCED`) with Performance Options, User Profiles, Startup & Recovery, and Environment Variables.
+  - [x] Performance Options dialog (`IDD_PERFORMANCE`) with Visual Effects checklist (desktop icon drop shadows, window dragging, font smoothing).
+  - [x] Environment Variables dialog (`IDD_ENVVARS`) for User and System variables.
+  - [x] Desktop "My Computer" icon right-click context menu (Open, Explore, Manage, Properties -> `sysdm.cpl`).
+- [x] Install authentic theme files (`wine/resources/themes/`): `Classic.theme`, `Luna.theme`, `Royale.theme`.
+
+## Phase 9: Verification, Packaging & Deployment (Next Steps)
+- [ ] Test build configuration with Wine build system (`./configure && make`).
+- [ ] Verify Gamescope session startup with display manager.
+- [ ] Provide comprehensive administration and user documentation.
+
