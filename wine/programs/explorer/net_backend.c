@@ -415,14 +415,207 @@ BOOL net_backend_repair(void)
     return TRUE;
 }
 
+/* Show icon in notification area registry setting */
+BOOL net_backend_get_show_tray_icon(void)
+{
+    HKEY hKey;
+    DWORD val = 1, size = sizeof(val);
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Network\\Connections",
+                      0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        if (RegQueryValueExW(hKey, L"ShowIcon", NULL, NULL, (BYTE*)&val, &size) == ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            return (val != 0);
+        }
+        RegCloseKey(hKey);
+    }
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"Software\\Wine\\Explorer\\Network\\Connections",
+                      0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        if (RegQueryValueExW(hKey, L"ShowIcon", NULL, NULL, (BYTE*)&val, &size) == ERROR_SUCCESS)
+        {
+            RegCloseKey(hKey);
+            return (val != 0);
+        }
+        RegCloseKey(hKey);
+    }
+
+    return TRUE; /* Default: Show icon in notification area when connected */
+}
+
+void net_backend_set_show_tray_icon(BOOL show)
+{
+    HKEY hKey;
+    DWORD val = show ? 1 : 0;
+
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Microsoft\\Windows\\CurrentVersion\\Network\\Connections",
+                        0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
+    {
+        RegSetValueExW(hKey, L"ShowIcon", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+        RegCloseKey(hKey);
+    }
+
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Wine\\Explorer\\Network\\Connections",
+                        0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
+    {
+        RegSetValueExW(hKey, L"ShowIcon", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+        RegCloseKey(hKey);
+    }
+}
+
+/* Direct Linux network interface statistics and hardware detection */
+static BOOL read_linux_dev_proc(NET_STATUS_INFO *info)
+{
+    FILE *f = fopen("/proc/net/dev", "r");
+    char line[512];
+    char best_iface[32] = {0};
+    ULONGLONG best_rx_bytes = 0, best_rx_pkts = 0, best_tx_bytes = 0, best_tx_pkts = 0;
+    BOOL found = FALSE;
+
+    if (!f) return FALSE;
+
+    while (fgets(line, sizeof(line), f))
+    {
+        char iface[32] = {0};
+        char *colon = strchr(line, ':');
+        if (!colon) continue;
+
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        lstrcpynA(iface, p, min((int)sizeof(iface), (int)(colon - p) + 1));
+
+        /* Skip loopback */
+        if (strcmp(iface, "lo") == 0) continue;
+
+        ULONGLONG rx_b = 0, rx_p = 0, tx_b = 0, tx_p = 0;
+        if (sscanf(colon + 1, "%llu %llu %*u %*u %*u %*u %*u %*u %llu %llu",
+                   &rx_b, &rx_p, &tx_b, &tx_p) >= 4)
+        {
+            if (!found || (rx_p + tx_p > best_rx_pkts + best_tx_pkts))
+            {
+                lstrcpynA(best_iface, iface, sizeof(best_iface));
+                best_rx_bytes = rx_b;
+                best_rx_pkts = rx_p;
+                best_tx_bytes = tx_b;
+                best_tx_pkts = tx_p;
+                found = TRUE;
+            }
+        }
+    }
+    fclose(f);
+
+    if (!found) return FALSE;
+
+    /* Detect interface type (wireless vs ethernet) */
+    char path[128];
+    snprintf(path, sizeof(path), "/sys/class/net/%s/wireless", best_iface);
+    DWORD attr = GetFileAttributesA(path);
+    BOOL is_wifi = (attr != INVALID_FILE_ATTRIBUTES);
+
+    /* Check operstate */
+    char operstate[32] = {0};
+    snprintf(path, sizeof(path), "/sys/class/net/%s/operstate", best_iface);
+    f = fopen(path, "r");
+    if (f)
+    {
+        if (fgets(operstate, sizeof(operstate), f))
+        {
+            char *nl = strchr(operstate, '\n');
+            if (nl) *nl = '\0';
+        }
+        fclose(f);
+    }
+    BOOL is_connected = (strcmp(operstate, "down") != 0);
+
+    /* Read speed */
+    DWORD speed = 1000;
+    snprintf(path, sizeof(path), "/sys/class/net/%s/speed", best_iface);
+    f = fopen(path, "r");
+    if (f)
+    {
+        int s = 0;
+        if (fscanf(f, "%d", &s) == 1 && s > 0) speed = s;
+        fclose(f);
+    }
+
+    /* Read device driver name for authentic adapter description */
+    char driver_name[64] = {0};
+    snprintf(path, sizeof(path), "/sys/class/net/%s/device/uevent", best_iface);
+    f = fopen(path, "r");
+    if (f)
+    {
+        char uline[128];
+        while (fgets(uline, sizeof(uline), f))
+        {
+            if (strncmp(uline, "DRIVER=", 7) == 0)
+            {
+                lstrcpynA(driver_name, uline + 7, sizeof(driver_name));
+                char *nl = strchr(driver_name, '\n');
+                if (nl) *nl = '\0';
+                break;
+            }
+        }
+        fclose(f);
+    }
+
+    info->is_connected = is_connected;
+    info->conn_type = is_wifi ? NET_TYPE_WIRELESS : NET_TYPE_ETHERNET;
+    MultiByteToWideChar(CP_UTF8, 0, best_iface, -1, info->active_device, 32);
+    lstrcpyW(info->active_ssid, is_wifi ? L"Wireless Network Connection" : L"Local Area Connection");
+    info->bytes_received = best_rx_bytes;
+    info->bytes_sent = best_tx_bytes;
+    info->packets_received = best_rx_pkts;
+    info->packets_sent = best_tx_pkts;
+    info->speed_mbps = speed;
+
+    /* Authentic adapter naming */
+    if (strcmp(driver_name, "e1000") == 0 || strcmp(driver_name, "e1000e") == 0)
+    {
+        lstrcpyW(info->adapter_name, L"Intel(R) PRO/1000 MT Desktop Adapter");
+    }
+    else if (strcmp(driver_name, "pcnet32") == 0)
+    {
+        lstrcpyW(info->adapter_name, L"AMD PCNET Family PCI Ethernet Adapter");
+    }
+    else if (is_wifi)
+    {
+        wsprintfW(info->adapter_name, L"Wireless Network Adapter (%s)", info->active_device);
+    }
+    else
+    {
+        lstrcpyW(info->adapter_name, L"Intel(R) PRO/1000 MT Desktop Adapter");
+    }
+
+    if (is_wifi)
+    {
+        int proc_signal = 0;
+        if (read_linux_wireless_proc(best_iface, &proc_signal))
+            info->signal_percent = proc_signal;
+        else
+            info->signal_percent = 85;
+        info->signal_bars = signal_to_bars(info->signal_percent);
+    }
+    else
+    {
+        info->signal_percent = 100;
+        info->signal_bars = 5;
+    }
+
+    return TRUE;
+}
+
 /* Query active network connection details and adapter metrics */
 BOOL net_backend_get_status(NET_STATUS_INFO *info)
 {
-    char status_buf[2048];
     IP_ADAPTER_INFO adapter_info[16];
     ULONG buf_len = sizeof(adapter_info);
-    MIB_IFTABLE *if_table = NULL;
-    ULONG table_len = 0;
     DWORD elapsed_ms;
 
     if (!info) return FALSE;
@@ -436,92 +629,18 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
         return TRUE;
     }
 
-    /* Step 1: Query nmcli device status */
-    if (run_host_command_capture("nmcli -t -f DEVICE,TYPE,STATE,CONNECTION dev status 2>/dev/null", status_buf, sizeof(status_buf)) && strlen(status_buf) > 0)
+    /* Step 1: Query Linux /proc/net/dev directly for real-time accurate stats */
+    if (!read_linux_dev_proc(info))
     {
-        char *line = strtok(status_buf, "\r\n");
-        while (line)
-        {
-            /* Format: DEVICE:TYPE:STATE:CONNECTION */
-            char dev[32] = {0}, type[32] = {0}, state[32] = {0}, con[64] = {0};
-            char *c1 = strchr(line, ':');
-            if (c1)
-            {
-                char *c2 = strchr(c1 + 1, ':');
-                if (c2)
-                {
-                    char *c3 = strchr(c2 + 1, ':');
-                    if (c3)
-                    {
-                        lstrcpynA(dev, line, min((int)sizeof(dev), (int)(c1 - line) + 1));
-                        lstrcpynA(type, c1 + 1, min((int)sizeof(type), (int)(c2 - (c1 + 1)) + 1));
-                        lstrcpynA(state, c2 + 1, min((int)sizeof(state), (int)(c3 - (c2 + 1)) + 1));
-                        lstrcpynA(con, c3 + 1, sizeof(con));
-
-                        if (strcmp(state, "connected") == 0)
-                        {
-                            info->is_connected = TRUE;
-                            MultiByteToWideChar(CP_UTF8, 0, dev, -1, info->active_device, 32);
-
-                            if (strcmp(type, "wifi") == 0)
-                            {
-                                info->conn_type = NET_TYPE_WIRELESS;
-                                MultiByteToWideChar(CP_UTF8, 0, con, -1, info->active_ssid, MAX_SSID_LEN);
-                                break;
-                            }
-                            else if (strcmp(type, "ethernet") == 0 && info->conn_type != NET_TYPE_WIRELESS)
-                            {
-                                info->conn_type = NET_TYPE_ETHERNET;
-                                MultiByteToWideChar(CP_UTF8, 0, con, -1, info->active_ssid, MAX_SSID_LEN);
-                            }
-                        }
-                    }
-                }
-            }
-            line = strtok(NULL, "\r\n");
-        }
-    }
-
-    /* Fallback state if nmcli didn't detect */
-    if (!info->is_connected && g_simulated_connected)
-    {
+        /* Fallback state if /proc/net/dev not available */
         info->is_connected = TRUE;
-        info->conn_type = NET_TYPE_WIRELESS;
-        lstrcpyW(info->active_ssid, g_simulated_ssid);
-        lstrcpyW(info->active_device, L"wlan0");
-    }
-
-    /* Query signal percentage if Wi-Fi connected */
-    if (info->conn_type == NET_TYPE_WIRELESS && info->is_connected)
-    {
-        int proc_signal = 0;
-        char a_dev[32] = {0};
-        WideCharToMultiByte(CP_UTF8, 0, info->active_device, -1, a_dev, sizeof(a_dev), NULL, NULL);
-
-        if (read_linux_wireless_proc(a_dev[0] ? a_dev : NULL, &proc_signal))
-        {
-            info->signal_percent = proc_signal;
-        }
-        else
-        {
-            char sig_buf[128];
-            if (run_host_command_capture("nmcli -t -f IN-USE,SIGNAL dev wifi list 2>/dev/null | grep '^\\*' | cut -d: -f2", sig_buf, sizeof(sig_buf)) && strlen(sig_buf) > 0)
-            {
-                info->signal_percent = atoi(sig_buf);
-            }
-            else
-            {
-                info->signal_percent = 85;
-            }
-        }
-        info->signal_bars = signal_to_bars(info->signal_percent);
-        info->speed_mbps = 54;
-    }
-    else if (info->conn_type == NET_TYPE_ETHERNET)
-    {
+        info->conn_type = NET_TYPE_ETHERNET;
+        lstrcpyW(info->active_device, L"enp0s3");
+        lstrcpyW(info->active_ssid, L"Local Area Connection");
+        lstrcpyW(info->adapter_name, L"Intel(R) PRO/1000 MT Desktop Adapter");
+        info->speed_mbps = 1000;
         info->signal_percent = 100;
         info->signal_bars = 5;
-        info->speed_mbps = 1000;
     }
 
     /* Step 2: Query IP address, subnet mask, default gateway via Win32 iphlpapi */
@@ -545,36 +664,12 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
 
     if (info->ip_address[0] == L'\0')
     {
-        lstrcpyW(info->ip_address, L"192.168.1.105");
+        lstrcpyW(info->ip_address, L"10.0.2.15");
         lstrcpyW(info->subnet_mask, L"255.255.255.0");
-        lstrcpyW(info->default_gateway, L"192.168.1.1");
+        lstrcpyW(info->default_gateway, L"10.0.2.2");
     }
 
-    /* Step 3: Query packet and byte statistics via GetIfTable */
-    if (GetIfTable(NULL, &table_len, FALSE) == ERROR_INSUFFICIENT_BUFFER)
-    {
-        if_table = (MIB_IFTABLE*)malloc(table_len);
-        if (if_table && GetIfTable(if_table, &table_len, FALSE) == NO_ERROR)
-        {
-            DWORD i;
-            for (i = 0; i < if_table->dwNumEntries; i++)
-            {
-                MIB_IFROW *row = &if_table->table[i];
-                if (row->dwType != MIB_IF_TYPE_LOOPBACK && (row->dwInOctets > 0 || row->dwOutOctets > 0))
-                {
-                    info->bytes_received = row->dwInOctets;
-                    info->bytes_sent = row->dwOutOctets;
-                    info->packets_received = row->dwInUcastPkts;
-                    info->packets_sent = row->dwOutUcastPkts;
-                    if (row->dwSpeed > 0) info->speed_mbps = (DWORD)(row->dwSpeed / 1000000);
-                    break;
-                }
-            }
-        }
-        if (if_table) free(if_table);
-    }
-
-    /* Fallback realistic counters */
+    /* Fallback realistic counters if 0 */
     if (info->bytes_sent == 0)
     {
         elapsed_ms = GetTickCount() - g_connection_start_tick;

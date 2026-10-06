@@ -4,8 +4,9 @@
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
  * Implements the authentic Windows XP / Server 2003 system tray network monitor ("Connections Tray"),
- * providing animated signal strength / twin monitor icons, rich connection tooltips,
- * left-click quick connect, double-click status dialog, and authentic right-click context menus.
+ * providing animated signal strength for Wi-Fi, packet-level transmit/receive activity blinking for Ethernet,
+ * rich connection tooltips, toggleable tray visibility matching Network Connection Properties,
+ * double-click status dialog, and authentic right-click context menus.
  */
 
 #include <stdio.h>
@@ -20,6 +21,7 @@
 #include "net_backend.h"
 #include "wlan_dialog.h"
 #include "wlan_status.h"
+#include "net_props.h"
 #include "nettray.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
@@ -33,11 +35,15 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 #define IDM_NET_REPAIR           2003
 #define IDM_NET_VIEW_WIRELESS    2004
 #define IDM_NET_OPEN_CONNECTIONS 2005
+#define IDM_NET_PROPERTIES       2006
 
 static HWND g_hwnd_nettray = NULL;
 static NOTIFYICONDATAW g_nid = {0};
 static NET_STATUS_INFO g_status;
 static int g_current_icon_id = 0;
+static BOOL g_tray_visible = FALSE;
+static ULONGLONG g_last_packets_sent = 0;
+static ULONGLONG g_last_packets_recv = 0;
 
 static const WCHAR *get_signal_strength_str(int bars)
 {
@@ -55,15 +61,39 @@ static const WCHAR *get_signal_strength_str(int bars)
 static void update_tray_icon_and_tooltip(HWND hwnd)
 {
     HINSTANCE hInst = GetModuleHandleW(NULL);
-    int new_icon_id;
+    int new_icon_id = 0;
     WCHAR new_tip[128] = {0};
+    BOOL should_show = net_backend_get_show_tray_icon();
+
+    if (!should_show)
+    {
+        if (g_tray_visible)
+        {
+            Shell_NotifyIconW(NIM_DELETE, &g_nid);
+            g_tray_visible = FALSE;
+            if (g_nid.hIcon)
+            {
+                DestroyIcon(g_nid.hIcon);
+                g_nid.hIcon = NULL;
+            }
+            g_current_icon_id = 0;
+        }
+        return;
+    }
 
     net_backend_get_status(&g_status);
 
     if (!g_status.is_connected)
     {
         new_icon_id = IDI_NET_DISCONNECT;
-        lstrcpyW(new_tip, L"Wireless Network Connection\nOne or more wireless networks are available.\nClick here to view.");
+        if (g_status.conn_type == NET_TYPE_WIRELESS)
+        {
+            lstrcpyW(new_tip, L"Wireless Network Connection\nOne or more wireless networks are available.\nClick here to view.");
+        }
+        else
+        {
+            lstrcpyW(new_tip, L"Local Area Connection\nA network cable is unplugged.");
+        }
     }
     else if (g_status.conn_type == NET_TYPE_WIRELESS)
     {
@@ -77,12 +107,35 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     }
     else
     {
-        new_icon_id = IDI_NET_XMITRECV;
+        /* Ethernet: authentic Windows XP packet activity blinking */
+        BOOL xmit = (g_last_packets_sent > 0 && g_status.packets_sent > g_last_packets_sent);
+        BOOL recv = (g_last_packets_recv > 0 && g_status.packets_received > g_last_packets_recv);
+        g_last_packets_sent = g_status.packets_sent;
+        g_last_packets_recv = g_status.packets_received;
+
+        if (xmit && recv)
+            new_icon_id = IDI_NET_XMITRECV;
+        else if (xmit)
+            new_icon_id = IDI_NET_XMIT;
+        else if (recv)
+            new_icon_id = IDI_NET_RECV;
+        else
+            new_icon_id = IDI_NET_BLANK;
+
         wsprintfW(new_tip, L"Local Area Connection\nSpeed: %u Mbps\nStatus: Connected",
                   g_status.speed_mbps);
     }
 
-    if (new_icon_id != g_current_icon_id || wcscmp(new_tip, g_nid.szTip) != 0)
+    if (!g_tray_visible)
+    {
+        g_current_icon_id = new_icon_id;
+        if (g_nid.hIcon) DestroyIcon(g_nid.hIcon);
+        g_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id));
+        lstrcpynW(g_nid.szTip, new_tip, 128);
+        Shell_NotifyIconW(NIM_ADD, &g_nid);
+        g_tray_visible = TRUE;
+    }
+    else if (new_icon_id != g_current_icon_id || wcscmp(new_tip, g_nid.szTip) != 0)
     {
         g_current_icon_id = new_icon_id;
         if (g_nid.hIcon) DestroyIcon(g_nid.hIcon);
@@ -99,11 +152,8 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
     {
     case WM_CREATE:
     {
-        HINSTANCE hInst = GetModuleHandleW(NULL);
         net_backend_init();
         net_backend_get_status(&g_status);
-
-        g_current_icon_id = g_status.is_connected ? (IDI_NET_SIG0 + g_status.signal_bars) : IDI_NET_DISCONNECT;
 
         memset(&g_nid, 0, sizeof(g_nid));
         g_nid.cbSize = sizeof(g_nid);
@@ -111,13 +161,14 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         g_nid.uID = 1;
         g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
         g_nid.uCallbackMessage = WM_NETTRAY_NOTIFY;
-        g_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(g_current_icon_id));
-        lstrcpyW(g_nid.szTip, L"Wireless Network Connection\nStatus: Initializing...");
 
-        Shell_NotifyIconW(NIM_ADD, &g_nid);
+        g_last_packets_sent = g_status.packets_sent;
+        g_last_packets_recv = g_status.packets_received;
+
         update_tray_icon_and_tooltip(hwnd);
 
-        SetTimer(hwnd, IDT_NETTRAY_TIMER, 3000, NULL);
+        /* 500ms polling timer for responsive packet activity indicator */
+        SetTimer(hwnd, IDT_NETTRAY_TIMER, 500, NULL);
         return 0;
     }
 
@@ -134,9 +185,12 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         {
         case WM_LBUTTONUP:
         case NIN_BALLOONUSERCLICK:
-            /* Single click: open Wireless Quick Connect */
-            wlan_dialog_show(hwnd);
-            update_tray_icon_and_tooltip(hwnd);
+            /* Single click: wireless opens available networks list */
+            if (g_status.conn_type == NET_TYPE_WIRELESS)
+            {
+                wlan_dialog_show(hwnd);
+                update_tray_icon_and_tooltip(hwnd);
+            }
             break;
 
         case WM_LBUTTONDBLCLK:
@@ -155,9 +209,14 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
             AppendMenuW(hMenu, MF_STRING, IDM_NET_STATUS, L"&Status");
             AppendMenuW(hMenu, MF_STRING, IDM_NET_REPAIR, L"Re&pair");
             AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-            AppendMenuW(hMenu, MF_STRING, IDM_NET_VIEW_WIRELESS, L"&View Available Wireless Networks");
-            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            if (g_status.conn_type == NET_TYPE_WIRELESS)
+            {
+                AppendMenuW(hMenu, MF_STRING, IDM_NET_VIEW_WIRELESS, L"&View Available Wireless Networks");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            }
             AppendMenuW(hMenu, MF_STRING, IDM_NET_OPEN_CONNECTIONS, L"&Open Network Connections");
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(hMenu, MF_STRING, IDM_NET_PROPERTIES, L"P&roperties");
 
             /* Default double-click action is Status */
             SetMenuDefaultItem(hMenu, IDM_NET_STATUS, FALSE);
@@ -195,8 +254,13 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
             break;
 
         case IDM_NET_VIEW_WIRELESS:
-        case IDM_NET_OPEN_CONNECTIONS:
             wlan_dialog_show(hwnd);
+            update_tray_icon_and_tooltip(hwnd);
+            break;
+
+        case IDM_NET_OPEN_CONNECTIONS:
+        case IDM_NET_PROPERTIES:
+            net_props_show(hwnd);
             update_tray_icon_and_tooltip(hwnd);
             break;
         }
@@ -204,7 +268,11 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
 
     case WM_DESTROY:
         KillTimer(hwnd, IDT_NETTRAY_TIMER);
-        Shell_NotifyIconW(NIM_DELETE, &g_nid);
+        if (g_tray_visible)
+        {
+            Shell_NotifyIconW(NIM_DELETE, &g_nid);
+            g_tray_visible = FALSE;
+        }
         if (g_nid.hIcon)
         {
             DestroyIcon(g_nid.hIcon);
@@ -249,6 +317,14 @@ void nettray_shutdown(void)
 }
 
 void nettray_update(void)
+{
+    if (g_hwnd_nettray)
+    {
+        update_tray_icon_and_tooltip(g_hwnd_nettray);
+    }
+}
+
+void nettray_update_visibility(void)
 {
     if (g_hwnd_nettray)
     {

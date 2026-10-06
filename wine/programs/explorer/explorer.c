@@ -27,6 +27,7 @@
 #include "resource.h"
 #include "wlan_dialog.h"
 #include "wlan_status.h"
+#include "net_props.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -863,6 +864,23 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
 
     LPWSTR p = commandline;
 
+    if (wcsstr(commandline, L"/netprops") || wcsstr(commandline, L"-netprops") ||
+        wcsstr(commandline, L"/lanprops") || wcsstr(commandline, L"-lanprops"))
+    {
+        net_props_show(NULL);
+        ExitProcess(0);
+    }
+    else if (wcsstr(commandline, L"/netstatus") || wcsstr(commandline, L"-netstatus"))
+    {
+        wlan_status_show(NULL);
+        ExitProcess(0);
+    }
+    else if (wcsstr(commandline, L"/wlan") || wcsstr(commandline, L"-wlan"))
+    {
+        wlan_dialog_show(NULL);
+        ExitProcess(0);
+    }
+
     while (*p)
     {
         while (iswspace(*p)) p++;
@@ -919,6 +937,12 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
         else if (wcsnicmp(p, L"/netstatus", 10) == 0 || wcsnicmp(p, L"-netstatus", 10) == 0)
         {
             wlan_status_show(NULL);
+            ExitProcess(0);
+        }
+        else if (wcsnicmp(p, L"/netprops", 9) == 0 || wcsnicmp(p, L"-netprops", 9) == 0 ||
+                 wcsnicmp(p, L"/lanprops", 9) == 0 || wcsnicmp(p, L"-lanprops", 9) == 0)
+        {
+            net_props_show(NULL);
             ExitProcess(0);
         }
         else

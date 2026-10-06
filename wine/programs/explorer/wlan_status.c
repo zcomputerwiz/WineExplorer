@@ -18,6 +18,7 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "net_backend.h"
+#include "net_props.h"
 #include "wlan_status.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
@@ -26,7 +27,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 static NET_STATUS_INFO g_status_info;
 static int g_current_tab = 0;
-static int g_blink_phase = 0;
+static ULONGLONG g_last_status_sent = 0;
+static ULONGLONG g_last_status_recv = 0;
 
 /* Format number with thousands separators e.g. 1,234,567 */
 static void format_number_commas(ULONGLONG num, WCHAR *out, int max_len)
@@ -94,15 +96,25 @@ static void update_tab_visibility(HWND hwnd, int tab)
 
     /* General Tab controls */
     int general_ids[] = {
-        IDC_TXT_SM_STATUS, IDC_TXT_SM_SSID, IDC_TXT_SM_DURATION, IDC_TXT_SM_SPEED,
-        IDC_CTL_SM_SIGNAL, IDC_ICO_SM_ACTIVITY, IDC_TXT_SM_BYTES_TRANS, IDC_TXT_SM_BYTES_RCVD,
-        IDC_TXT_SM_PKTS_TRANS, IDC_TXT_SM_PKTS_RCVD, IDC_BTN_SM_PROPERTIES, IDC_BTN_SM_DISABLE, 0
+        IDC_GRP_SM_CONN, IDC_LBL_SM_STATUS, IDC_TXT_SM_STATUS,
+        IDC_LBL_SM_SSID, IDC_TXT_SM_SSID,
+        IDC_LBL_SM_DUR, IDC_TXT_SM_DURATION,
+        IDC_LBL_SM_SPEED, IDC_TXT_SM_SPEED,
+        IDC_LBL_SM_SIGNAL, IDC_CTL_SM_SIGNAL,
+        IDC_GRP_SM_ACT, IDC_LBL_SM_SENT, IDC_LBL_SM_DASH1, IDC_ICO_SM_ACTIVITY, IDC_LBL_SM_DASH2, IDC_LBL_SM_RCVD,
+        IDC_LBL_SM_BYTES, IDC_TXT_SM_BYTES_TRANS, IDC_TXT_SM_BYTES_RCVD,
+        IDC_LBL_SM_PKTS, IDC_TXT_SM_PKTS_TRANS, IDC_LBL_SM_DIVIDER, IDC_TXT_SM_PKTS_RCVD,
+        IDC_BTN_SM_PROPERTIES, IDC_BTN_SM_DISABLE, 0
     };
 
     /* Support Tab controls */
     int support_ids[] = {
-        IDC_TXT_SM_DHCP, IDC_TXT_SM_IP, IDC_TXT_SM_SUBNET, IDC_TXT_SM_GATEWAY,
-        IDC_BTN_SM_REPAIR, 0
+        IDC_GRP_SM_SUPPORT, IDC_ICO_SM_SUPPORT,
+        IDC_LBL_SM_TYPE, IDC_TXT_SM_DHCP,
+        IDC_LBL_SM_IP, IDC_TXT_SM_IP,
+        IDC_LBL_SM_SUBNET, IDC_TXT_SM_SUBNET,
+        IDC_LBL_SM_GW, IDC_TXT_SM_GATEWAY,
+        IDC_BTN_SM_DETAILS, IDC_TXT_SM_SUPPORT_NOTE, IDC_BTN_SM_REPAIR, 0
     };
 
     int i = 0;
@@ -135,6 +147,7 @@ static void update_status_controls(HWND hwnd)
     DWORD h, m, s;
     HINSTANCE hInst = GetModuleHandleW(NULL);
     HICON hActIcon;
+    BOOL xmit, recv;
 
     net_backend_get_status(&g_status_info);
 
@@ -164,13 +177,17 @@ static void update_status_controls(HWND hwnd)
     SetDlgItemTextW(hwnd, IDC_TXT_SM_PKTS_TRANS, pkts_sent_str);
     SetDlgItemTextW(hwnd, IDC_TXT_SM_PKTS_RCVD, pkts_recv_str);
 
-    /* Activity Icon Blinking */
-    g_blink_phase = (g_blink_phase + 1) % 4;
-    if (g_blink_phase == 0)
+    /* Activity Icon Blinking based on actual packet transmission */
+    xmit = (g_last_status_sent > 0 && g_status_info.packets_sent > g_last_status_sent);
+    recv = (g_last_status_recv > 0 && g_status_info.packets_received > g_last_status_recv);
+    g_last_status_sent = g_status_info.packets_sent;
+    g_last_status_recv = g_status_info.packets_received;
+
+    if (xmit && recv)
         hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_XMITRECV));
-    else if (g_blink_phase == 1)
+    else if (xmit)
         hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_XMIT));
-    else if (g_blink_phase == 2)
+    else if (recv)
         hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_RECV));
     else
         hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_BLANK));
@@ -183,7 +200,8 @@ static void update_status_controls(HWND hwnd)
     SetDlgItemTextW(hwnd, IDC_TXT_SM_GATEWAY, g_status_info.default_gateway);
 
     /* Redraw Signal Bars */
-    InvalidateRect(GetDlgItem(hwnd, IDC_CTL_SM_SIGNAL), NULL, TRUE);
+    if (g_status_info.conn_type == NET_TYPE_WIRELESS)
+        InvalidateRect(GetDlgItem(hwnd, IDC_CTL_SM_SIGNAL), NULL, TRUE);
 }
 
 static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -197,9 +215,23 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         TCITEMW ti = {0};
         HICON hIconMain;
 
-        hIconMain = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_WIRELESS));
+        net_backend_get_status(&g_status_info);
+        g_last_status_sent = g_status_info.packets_sent;
+        g_last_status_recv = g_status_info.packets_received;
+
+        if (g_status_info.conn_type == NET_TYPE_ETHERNET)
+        {
+            hIconMain = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_LAN));
+            SetWindowTextW(hwnd, L"Local Area Connection Status");
+        }
+        else
+        {
+            hIconMain = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_WIRELESS));
+            SetWindowTextW(hwnd, L"Wireless Network Connection Status");
+        }
         SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
         SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconMain);
+        SendDlgItemMessageW(hwnd, IDC_ICO_SM_SUPPORT, STM_SETICON, (WPARAM)hIconMain, 0);
 
         /* Initialize Tabs */
         ti.mask = TCIF_TEXT;
@@ -267,9 +299,28 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
                         L"Repair", MB_OK | MB_ICONINFORMATION);
             break;
 
+        case IDC_BTN_SM_DETAILS:
+        {
+            WCHAR details_msg[512];
+            wsprintfW(details_msg,
+                      L"Physical Address:\t08-00-27-8E-52-9A\r\n"
+                      L"IP Address:\t%s\r\n"
+                      L"Subnet Mask:\t%s\r\n"
+                      L"Default Gateway:\t%s\r\n"
+                      L"DHCP Server:\t%s\r\n"
+                      L"DNS Server:\t%s",
+                      g_status_info.ip_address,
+                      g_status_info.subnet_mask,
+                      g_status_info.default_gateway,
+                      g_status_info.default_gateway,
+                      g_status_info.default_gateway);
+            MessageBoxW(hwnd, details_msg, L"Network Connection Details", MB_OK | MB_ICONINFORMATION);
+            break;
+        }
+
         case IDC_BTN_SM_PROPERTIES:
-            MessageBoxW(hwnd, L"Wireless Network Connection Properties\n\nSettings are managed automatically via NetworkManager and WZC.",
-                        L"Properties", MB_OK | MB_ICONINFORMATION);
+            net_props_show(hwnd);
+            update_status_controls(hwnd);
             break;
 
         case IDCANCEL:
@@ -290,5 +341,12 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
 void wlan_status_show(HWND parent)
 {
-    DialogBoxParamW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDD_STATMON_GENERAL_LAN), parent, WlanStatusDlgProc, 0);
+    INITCOMMONCONTROLSEX icex;
+    int dlg_id;
+    icex.dwSize = sizeof(icex);
+    icex.dwICC = ICC_TAB_CLASSES;
+    InitCommonControlsEx(&icex);
+    net_backend_get_status(&g_status_info);
+    dlg_id = (g_status_info.conn_type == NET_TYPE_ETHERNET) ? IDD_STATMON_GENERAL_LAN : IDD_STATMON_GENERAL_WLAN;
+    DialogBoxParamW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(dlg_id), parent, WlanStatusDlgProc, 0);
 }

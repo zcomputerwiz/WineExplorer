@@ -90,6 +90,7 @@
 /* Dialogs */
 #define IDD_WZCQCFG              103
 #define IDD_STATMON_GENERAL_LAN  104
+#define IDD_STATMON_GENERAL_WLAN 107
 
 /* Wireless Quick Config Controls */
 #define IDC_WZCQCFG_LBL_INFO     1301
@@ -127,6 +128,28 @@
 #define IDC_BTN_SM_DISABLE       1416
 #define IDC_BTN_SM_REPAIR        1417
 #define IDC_ICO_SM_ACTIVITY      1418
+#define IDC_LBL_SM_STATUS        1421
+#define IDC_LBL_SM_DUR           1422
+#define IDC_LBL_SM_SPEED         1423
+#define IDC_LBL_SM_SSID          1424
+#define IDC_LBL_SM_SIGNAL        1425
+#define IDC_LBL_SM_BYTES         1426
+#define IDC_LBL_SM_PKTS          1427
+#define IDC_LBL_SM_SENT          1428
+#define IDC_LBL_SM_RCVD          1429
+#define IDC_LBL_SM_DIVIDER       1430
+#define IDC_LBL_SM_TYPE          1431
+#define IDC_LBL_SM_IP            1432
+#define IDC_LBL_SM_SUBNET        1433
+#define IDC_LBL_SM_GW            1434
+#define IDC_GRP_SM_CONN          1435
+#define IDC_GRP_SM_ACT           1436
+#define IDC_GRP_SM_SUPPORT       1437
+#define IDC_ICO_SM_SUPPORT       1438
+#define IDC_BTN_SM_DETAILS       1439
+#define IDC_TXT_SM_SUPPORT_NOTE  1440
+#define IDC_LBL_SM_DASH1         1441
+#define IDC_LBL_SM_DASH2         1442
 
 /* Volume & Power System Tray Icons */
 #define IDI_VOLUME               1015
@@ -150,6 +173,35 @@
 #define IDM_PWR_OPEN_METER       2301
 #define IDM_PWR_PROPERTIES       2302
 #define IDM_PWR_SCHEME_BASE      2310
+
+/* Local Area Connection Icons */
+#define IDI_NET_LAN              1021
+#define IDI_NET_ADAPTER          1022
+#define IDI_NET_CLIENT           1023
+#define IDI_NET_SERVICE          1024
+#define IDI_NET_PROTOCOL         1025
+
+/* Local Area Connection Properties Dialog */
+#define IDD_LAN_PROPERTIES       106
+#define IDC_NETPROP_TAB          1601
+#define IDC_NETPROP_ADAPTER_ICO  1602
+#define IDC_NETPROP_ADAPTER_NAME 1603
+#define IDC_NETPROP_CONFIGURE    1604
+#define IDC_NETPROP_COMPLIST     1605
+#define IDC_NETPROP_INSTALL      1606
+#define IDC_NETPROP_UNINSTALL    1607
+#define IDC_NETPROP_PROPERTIES   1608
+#define IDC_NETPROP_DESCGROUP    1609
+#define IDC_NETPROP_DESC         1610
+#define IDC_NETPROP_SHOWICON     1611
+#define IDC_NETPROP_NOTIFY       1612
+#define IDC_NETPROP_FW_GROUP     1613
+#define IDC_NETPROP_FIREWALL     1614
+#define IDC_NETPROP_FW_LINK      1615
+#define IDC_NETPROP_ICS_GROUP    1616
+#define IDC_NETPROP_ICS_SHARE    1617
+#define IDC_NETPROP_ICS_BEACON   1618
+#define IDC_NETPROP_SETTINGS     1619
 
 #endif
 

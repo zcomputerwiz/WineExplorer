@@ -15,6 +15,7 @@ SOURCES = \
 	explorer.c \
 	explorer.rc \
 	net_backend.c \
+	net_props.c \
 	nettray.c \
 	power_backend.c \
 	power_mgmt.c \

@@ -12,5 +12,6 @@
 BOOL nettray_init(HWND hwnd_tray);
 void nettray_shutdown(void);
 void nettray_update(void);
+void nettray_update_visibility(void);
 
 #endif /* __WINE_NETTRAY_H */

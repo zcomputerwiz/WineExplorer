@@ -40,6 +40,7 @@ typedef struct _NET_STATUS_INFO {
     BOOL  is_enabled;
     WCHAR active_ssid[MAX_SSID_LEN];
     WCHAR active_device[32];
+    WCHAR adapter_name[128];
     WCHAR ip_address[32];
     WCHAR subnet_mask[32];
     WCHAR default_gateway[32];
@@ -60,5 +61,7 @@ BOOL net_backend_connect_wireless(const WCHAR *ssid, const WCHAR *passphrase);
 BOOL net_backend_disconnect(void);
 BOOL net_backend_set_enabled(BOOL enable);
 BOOL net_backend_repair(void);
+BOOL net_backend_get_show_tray_icon(void);
+void net_backend_set_show_tray_icon(BOOL show);
 
 #endif /* __WINE_NET_BACKEND_H */
