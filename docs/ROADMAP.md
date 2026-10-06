@@ -126,9 +126,60 @@
   - Desktop "My Network Places" double-click and right-click Properties.
   - Command-line parameters: `explorer.exe /wlan` and `explorer.exe /netstatus`.
 
-## Phase 10: Verification, Packaging & Deployment (Next Steps)
+## Phase 10: Volume Control & Power/Battery Ecosystem (Completed)
+- [x] Investigate upstream Wine, ReactOS, and Linux native audio/power interfaces:
+  - Wine lacks `sndvol32.exe`, `mmsys.cpl`, `powercfg.cpl`, and had `fill_battery_state` stubbed as FIXME on Linux.
+  - Native Linux audio uses PipeWire (`wpctl`), PulseAudio (`pactl`), and ALSA (`amixer`).
+  - Native Linux power management uses kernel sysfs `/sys/class/power_supply/`.
+- [x] Implement Linux Audio Backend (`audio_backend.c` / `audio_backend.h`):
+  - PipeWire / WirePlumber (`wpctl get-volume @DEFAULT_AUDIO_SINK@`, `wpctl set-volume`, `wpctl set-mute`).
+  - PulseAudio (`pactl get-sink-volume @DEFAULT_SINK@`, `pactl set-sink-volume`, `pactl set-sink-mute`).
+  - ALSA (`amixer sget Master`, `amixer sset Master`).
+  - Win32 `waveOutGetVolume` / `waveOutSetVolume` and in-memory mock fallback.
+- [x] Implement System Tray Volume Applet (`volumetray.c` / `volumetray.h`):
+  - Dynamic speaker icon (`IDI_VOLUME`) and muted icon (`IDI_MUTE`).
+  - Volume percentage and muted tooltip states.
+  - Mouse scroll wheel volume increment/decrement (5% steps).
+  - Left-click popup vertical volume slider (`trayvol_dialog.c` / `IDD_TRAYMASTER`).
+  - Double-click mixer application launcher (`sndvol32.exe`).
+  - Right-click context menu: "&Open Volume Control", "&Adjust Audio Properties".
+- [x] Implement Sound Volume Control application (`sndvol32.exe` in `wine/programs/sndvol32/`):
+  - Multi-strip mixer layout: Master Volume, Wave, SW Synth, CD Player, Microphone, Line In.
+  - Authentic 3D beveled balance and volume trackbars with tick marks.
+  - Options -> Properties (`mmsys.cpl`), Help -> About (`ShellAboutW`).
+  - Tray mode support via `/t` command-line switch.
+  - Authentic Server 2003 assets: `mixrcont.ico`, `mute.ico`, `lspeak.ico`, `rspeak.ico`, `asound.ico`.
+- [x] Implement Sounds and Audio Devices Control Panel Applet (`mmsys.cpl` in `wine/dlls/mmsys.cpl/`):
+  - `CPlApplet` export supporting Volume, Sounds, and Audio device property sheets.
+  - Volume page: device name, master volume slider, mute toggle, "Place volume icon in the taskbar", speaker setup presets.
+  - Sounds page: Windows sound scheme selector, program event sound association list, WAV playback preview (`PlaySoundW`), and browse dialog.
+  - Audio page: default playback, recording, and MIDI devices.
+  - Authentic Server 2003 assets: `speaker.ico`, `syssound.ico`, `playback.ico`, `volspkr.bmp`, `play.bmp`, `stop.bmp`.
+- [x] Implement Linux Kernel Battery & AC Power Integration (`wine/dlls/ntdll/unix/system.c`):
+  - Implemented Linux `/sys/class/power_supply` reader for `fill_battery_state` in Wine's ntdll.
+  - Resolves `NtPowerInformation(SystemBatteryState)` and Win32 `GetSystemPowerStatus` on Linux.
+  - Dynamically sets `PowerCaps->SystemBatteriesPresent` based on hardware presence.
+- [x] Implement Linux Power & Battery Backend (`power_backend.c` / `power_backend.h`):
+  - Zero-fork direct reading of `/sys/class/power_supply/BAT*` and `AC*`.
+  - Battery capacity percentage, charging status, online AC state, and remaining runtime calculation.
+- [x] Implement System Tray Power Applet (`powertray.c` / `powertray.h`):
+  - Dynamic battery icon (`IDI_BATT`) and AC plug icon (`IDI_BATTERYPLUG`).
+  - Tooltips: "On AC power", "% remaining (charging)", "H:MM hours (% remaining)".
+  - Automatic visibility management: hides on desktop machines without batteries.
+  - Right-click power scheme switcher (Home/Office Desk, Portable/Laptop, Presentation, Always On, Minimal Power, Max Battery).
+  - Double-click launches `powercfg.cpl`.
+- [x] Implement Power Options Control Panel Applet (`powercfg.cpl` in `wine/dlls/powercfg.cpl/`):
+  - `CPlApplet` export supporting Power Schemes, Power Meter, Advanced, and Hibernate pages.
+  - Power Schemes page: scheme presets, monitor, disk, and standby timeouts for AC and battery.
+  - Power Meter page: live AC/battery source indicator, battery percentage progress bar, and battery health details.
+  - Advanced page: taskbar icon toggle, password on resume, power button and lid close behavior.
+  - Hibernate page: hibernate toggle, RAM requirement calculation, and disk free space.
+  - Authentic Server 2003 assets: `pwrmng.ico`, `batt.ico`, `plug.ico`, `hibernate.ico`.
+
+## Phase 11: Verification, Packaging & Deployment (Next Steps)
 - [ ] Test build configuration with Wine build system (`./configure && make`).
 - [ ] Verify Gamescope session startup with display manager.
 - [ ] Provide comprehensive administration and user documentation.
+
 
 

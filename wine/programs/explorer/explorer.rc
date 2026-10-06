@@ -173,7 +173,29 @@ BEGIN
     DEFPUSHBUTTON   "Close", IDCANCEL, 170, 194, 50, 14
 END
 
+/* Additional System Tray Icons */
+IDI_VOLUME          ICON "volume.ico"
+IDI_MUTE            ICON "mute.ico"
+IDI_BATTERYPLUG     ICON "battplug.ico"
+IDI_BATT            ICON "batt.ico"
+IDI_HOTPLUG         ICON "hotplug.ico"
+
+/* Authentic Windows XP / Server 2003 Tray Volume Dialog */
+IDD_TRAYMASTER DIALOGEX 0, 0, 52, 90
+STYLE DS_MODALFRAME | WS_POPUP
+EXSTYLE WS_EX_TOOLWINDOW
+CLASS "Tray Volume"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CTEXT           "Volume", IDC_TRAY_VOLUME_LABEL, 0, 4, 52, 8
+    CONTROL         "", IDC_TRAY_VOLUME_SLIDER, "msctls_trackbar32",
+                    TBS_VERT | TBS_BOTH | TBS_NOTICKS | WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                    16, 14, 20, 60
+    AUTOCHECKBOX    "&Mute", IDC_TRAY_VOLUME_MUTE, 4, 76, 44, 10
+END
+
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
 /* @makedep: explorer.manifest */
 1 RT_MANIFEST explorer.manifest
+

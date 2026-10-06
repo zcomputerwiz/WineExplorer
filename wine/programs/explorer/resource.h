@@ -127,12 +127,28 @@
 #define IDC_BTN_SM_REPAIR        1417
 #define IDC_ICO_SM_ACTIVITY      1418
 
-/* Network Tray Context Menu */
-#define IDM_NET_DISABLE          2101
-#define IDM_NET_STATUS           2102
-#define IDM_NET_REPAIR           2103
-#define IDM_NET_VIEW_WIRELESS    2104
-#define IDM_NET_OPEN_CONNECTIONS 2105
+/* Volume & Power System Tray Icons */
+#define IDI_VOLUME               1015
+#define IDI_MUTE                 1016
+#define IDI_BATTERYPLUG          1017
+#define IDI_BATT                 1018
+#define IDI_HOTPLUG              1019
+
+/* Tray Volume Dialog */
+#define IDD_TRAYMASTER           105
+#define IDC_TRAY_VOLUME_SLIDER   1501
+#define IDC_TRAY_VOLUME_MUTE     1502
+#define IDC_TRAY_VOLUME_LABEL    1503
+
+/* Volume Tray Context Menu */
+#define IDM_VOL_OPEN_MIXER       2201
+#define IDM_VOL_AUDIO_PROPS      2202
+
+/* Power Tray Context Menu */
+#define IDM_PWR_OPEN_METER       2301
+#define IDM_PWR_PROPERTIES       2302
+#define IDM_PWR_SCHEME_BASE      2310
 
 #endif
+
 

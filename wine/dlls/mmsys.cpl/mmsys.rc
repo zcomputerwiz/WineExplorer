@@ -1,0 +1,101 @@
+/*
+ * Wine mmsys.cpl resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ */
+
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+IDI_CPL_MMSYS ICON   "speaker.ico"
+IDI_SYSSOUND  ICON   "syssound.ico"
+IDI_PLAYBACK  ICON   "playback.ico"
+
+IDB_VOLSPKR   BITMAP "volspkr.bmp"
+IDB_PLAY      BITMAP "play.bmp"
+IDB_STOP      BITMAP "stop.bmp"
+
+STRINGTABLE
+BEGIN
+    IDS_CPL_NAME "Sounds and Audio Devices"
+    IDS_CPL_INFO "Changes the computer sounds, and configures settings for speakers and recording devices."
+END
+
+/* Volume Property Page */
+IDD_PAGE_VOLUME DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Volume"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Device volume", -1, 6, 6, 240, 102
+    CONTROL         IDB_VOLSPKR, IDC_VOL_SPKR_ICON, "Static", SS_BITMAP, 14, 20, 24, 24
+    LTEXT           "Default Audio Device", IDC_VOL_DEVICENAME, 44, 20, 194, 16
+    LTEXT           "Low", -1, 44, 46, 20, 8
+    RTEXT           "High", -1, 168, 46, 24, 8
+    CONTROL         "", IDC_VOL_SLIDER, "msctls_trackbar32", TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP, 42, 56, 150, 20
+    AUTOCHECKBOX    "&Mute", IDC_VOL_MUTE, 44, 78, 60, 10
+    AUTOCHECKBOX    "&Place volume icon in the taskbar", IDC_VOL_SYSTRAY, 44, 92, 160, 10
+
+    GROUPBOX        "Speaker settings", -1, 6, 114, 240, 96
+    LTEXT           "Select speaker volume and advanced settings for your sound hardware.", -1, 14, 126, 224, 18
+    LTEXT           "Speaker setup:", -1, 14, 148, 60, 8
+    COMBOBOX        IDC_VOL_SPKR_SETUP, 80, 146, 158, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Speaker &Volume...", IDC_VOL_SPKR_VOL, 80, 172, 74, 14
+    PUSHBUTTON      "&Advanced...", IDC_VOL_SPKR_ADV, 164, 172, 74, 14
+END
+
+/* Sounds Property Page */
+IDD_PAGE_SOUNDS DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Sounds"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "A sound scheme is a set of sounds applied to events in Windows and programs. You can select an existing scheme or save one you have modified.",
+                    -1, 6, 6, 240, 24
+    LTEXT           "&Sound scheme:", -1, 6, 34, 60, 8
+    COMBOBOX        IDC_SND_SCHEME, 6, 44, 140, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Save &As...", IDC_SND_SAVEAS, 152, 44, 44, 14
+    PUSHBUTTON      "&Delete", IDC_SND_DELETE, 200, 44, 44, 14
+
+    LTEXT           "To change sounds, click a program event in the following list and then select a sound to apply. You can save the changes as a new sound scheme.",
+                    -1, 6, 64, 240, 24
+    LTEXT           "&Program events:", -1, 6, 92, 80, 8
+    CONTROL         "", IDC_SND_EVENTS, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOCOLUMNHEADER | WS_BORDER | WS_TABSTOP,
+                    6, 102, 240, 64
+
+    LTEXT           "&Sounds:", -1, 6, 172, 40, 8
+    EDITTEXT        IDC_SND_FILE, 6, 182, 140, 14, ES_AUTOHSCROLL
+    PUSHBUTTON      "&Browse...", IDC_SND_BROWSE, 150, 182, 44, 14
+    PUSHBUTTON      "Play", IDC_SND_PLAY, 198, 182, 22, 14
+    PUSHBUTTON      "Stop", IDC_SND_STOP, 224, 182, 22, 14
+END
+
+/* Audio Property Page */
+IDD_PAGE_AUDIO DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Audio"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Sound playback", -1, 6, 6, 240, 64
+    LTEXT           "Default device:", -1, 14, 18, 60, 8
+    COMBOBOX        IDC_AUD_PLAYBACK, 14, 28, 224, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "&Volume...", IDC_AUD_VOL_PLAY, 128, 48, 52, 14
+    PUSHBUTTON      "A&dvanced...", -1, 186, 48, 52, 14
+
+    GROUPBOX        "Sound recording", -1, 6, 76, 240, 64
+    LTEXT           "Default device:", -1, 14, 88, 60, 8
+    COMBOBOX        IDC_AUD_RECORD, 14, 98, 224, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "V&olume...", IDC_AUD_VOL_REC, 128, 118, 52, 14
+    PUSHBUTTON      "Ad&vanced...", -1, 186, 118, 52, 14
+
+    GROUPBOX        "MIDI music playback", -1, 6, 146, 240, 62
+    LTEXT           "Default device:", -1, 14, 158, 60, 8
+    COMBOBOX        IDC_AUD_MIDI, 14, 168, 224, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Volu&me...", -1, 128, 188, 52, 14
+    PUSHBUTTON      "Abou&t...", -1, 186, 188, 52, 14
+END

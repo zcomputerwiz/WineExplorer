@@ -4603,6 +4603,118 @@ static NTSTATUS fill_battery_state( SYSTEM_BATTERY_STATE *bs )
     return STATUS_SUCCESS;
 }
 
+#elif defined(__linux__)
+
+static NTSTATUS fill_battery_state( SYSTEM_BATTERY_STATE *bs )
+{
+    DIR *dir;
+    struct dirent *de;
+    char path[256];
+    FILE *f;
+    BOOL found_bat = FALSE;
+    BOOL found_ac = FALSE;
+    int capacity = 0;
+    int energy_now = 0, energy_full = 0, power_now = 0;
+    char status[64] = {0};
+
+    dir = opendir("/sys/class/power_supply");
+    if (!dir) return STATUS_NOT_IMPLEMENTED;
+
+    while ((de = readdir(dir)) != NULL)
+    {
+        if (strncmp(de->d_name, "BAT", 3) == 0)
+        {
+            found_bat = TRUE;
+            snprintf(path, sizeof(path), "/sys/class/power_supply/%s/capacity", de->d_name);
+            if ((f = fopen(path, "r")))
+            {
+                if (fscanf(f, "%d", &capacity) != 1) capacity = 0;
+                fclose(f);
+            }
+            snprintf(path, sizeof(path), "/sys/class/power_supply/%s/status", de->d_name);
+            if ((f = fopen(path, "r")))
+            {
+                if (fgets(status, sizeof(status), f))
+                {
+                    char *nl = strchr(status, '\n');
+                    if (nl) *nl = '\0';
+                }
+                fclose(f);
+            }
+            snprintf(path, sizeof(path), "/sys/class/power_supply/%s/energy_now", de->d_name);
+            if (!(f = fopen(path, "r")))
+            {
+                snprintf(path, sizeof(path), "/sys/class/power_supply/%s/charge_now", de->d_name);
+                f = fopen(path, "r");
+            }
+            if (f)
+            {
+                if (fscanf(f, "%d", &energy_now) != 1) energy_now = 0;
+                fclose(f);
+            }
+            snprintf(path, sizeof(path), "/sys/class/power_supply/%s/energy_full", de->d_name);
+            if (!(f = fopen(path, "r")))
+            {
+                snprintf(path, sizeof(path), "/sys/class/power_supply/%s/charge_full", de->d_name);
+                f = fopen(path, "r");
+            }
+            if (f)
+            {
+                if (fscanf(f, "%d", &energy_full) != 1) energy_full = 0;
+                fclose(f);
+            }
+            snprintf(path, sizeof(path), "/sys/class/power_supply/%s/power_now", de->d_name);
+            if (!(f = fopen(path, "r")))
+            {
+                snprintf(path, sizeof(path), "/sys/class/power_supply/%s/current_now", de->d_name);
+                f = fopen(path, "r");
+            }
+            if (f)
+            {
+                if (fscanf(f, "%d", &power_now) != 1) power_now = 0;
+                fclose(f);
+            }
+        }
+        else if (strncmp(de->d_name, "AC", 2) == 0 || strncmp(de->d_name, "ADP", 3) == 0)
+        {
+            int online = 0;
+            snprintf(path, sizeof(path), "/sys/class/power_supply/%s/online", de->d_name);
+            if ((f = fopen(path, "r")))
+            {
+                if (fscanf(f, "%d", &online) == 1 && online == 1)
+                    found_ac = TRUE;
+                fclose(f);
+            }
+        }
+    }
+    closedir(dir);
+
+    bs->AcOnLine = found_ac;
+    if (found_bat)
+    {
+        bs->BatteryPresent = TRUE;
+        bs->Charging = (strncmp(status, "Char", 4) == 0);
+        bs->Discharging = (strncmp(status, "Disc", 4) == 0);
+        bs->RemainingCapacity = energy_now ? energy_now : capacity;
+        bs->MaxCapacity = energy_full ? energy_full : 100;
+        bs->Rate = (power_now >= 0 ? -power_now : 0);
+        if (power_now > 0 && energy_now > 0 && bs->Discharging)
+            bs->EstimatedTime = ((ULONG64)energy_now * 3600) / power_now;
+        else
+            bs->EstimatedTime = ~0u;
+
+        bs->DefaultAlert1 = bs->MaxCapacity / 20;
+        bs->DefaultAlert2 = bs->MaxCapacity / 3;
+        return STATUS_SUCCESS;
+    }
+    else
+    {
+        bs->BatteryPresent = FALSE;
+        bs->AcOnLine = TRUE;
+        return STATUS_SUCCESS;
+    }
+}
+
 #else
 
 static NTSTATUS fill_battery_state( SYSTEM_BATTERY_STATE *bs )
@@ -4625,9 +4737,10 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input, 
     case SystemPowerCapabilities:
     {
         PSYSTEM_POWER_CAPABILITIES PowerCaps = output;
+        SYSTEM_BATTERY_STATE bs;
         FIXME("semi-stub: SystemPowerCapabilities\n");
         if (out_size < sizeof(SYSTEM_POWER_CAPABILITIES)) return STATUS_BUFFER_TOO_SMALL;
-        /* FIXME: These values are based off a native XP desktop, should probably use APM/ACPI to get the 'real' values */
+        /* Fill power capabilities */
         PowerCaps->PowerButtonPresent = TRUE;
         PowerCaps->SleepButtonPresent = FALSE;
         PowerCaps->LidPresent = FALSE;
@@ -4646,7 +4759,8 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input, 
         PowerCaps->ProcessorMinThrottle = 100;
         PowerCaps->ProcessorMaxThrottle = 100;
         PowerCaps->DiskSpinDown = TRUE;
-        PowerCaps->SystemBatteriesPresent = FALSE;
+        PowerCaps->SystemBatteriesPresent = (fill_battery_state(&bs) == STATUS_SUCCESS && bs.BatteryPresent);
+
         PowerCaps->BatteriesAreShortTerm = FALSE;
         PowerCaps->BatteryScale[0].Granularity = 0;
         PowerCaps->BatteryScale[0].Capacity = 0;

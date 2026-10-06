@@ -1,0 +1,130 @@
+/*
+ * Wine sndvol32 resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ */
+
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+IDI_MIXER    ICON "mixrcont.ico"
+IDI_MUTE     ICON "mute.ico"
+IDI_TRAY     ICON "asound.ico"
+IDI_LSPEAKER ICON "lspeak.ico"
+IDI_RSPEAKER ICON "rspeak.ico"
+
+IDR_MIXERMENU MENU
+BEGIN
+    POPUP "O&ptions"
+    BEGIN
+        MENUITEM "P&roperties",        IDM_PROPERTIES
+        MENUITEM "&Advanced Controls", IDM_ADVANCED
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",              IDM_EXIT
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&Help Topics",       IDM_HELPTOPICS
+        MENUITEM SEPARATOR
+        MENUITEM "&About Volume Control", IDM_ABOUT
+    END
+END
+
+/* Main Volume Control Dialog */
+IDD_MIXER_MAIN DIALOGEX 0, 0, 360, 160
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+CAPTION "Volume Control"
+CLASS "Volume Control"
+MENU IDR_MIXERMENU
+FONT 8, "MS Shell Dlg"
+BEGIN
+    /* Column 1: Master Volume */
+    LTEXT           "Master Volume", -1, 6, 6, 52, 8
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 6, 16, 54, 1
+    LTEXT           "Balance:", -1, 6, 22, 50, 8
+    CONTROL         "", IDC_MASTER_BALANCE, "msctls_trackbar32", TBS_HORZ | TBS_BOTTOM | TBS_AUTOTICKS | WS_TABSTOP, 12, 32, 42, 16
+    ICON            IDI_LSPEAKER, -1, 6, 34, 8, 8
+    ICON            IDI_RSPEAKER, -1, 54, 34, 8, 8
+    LTEXT           "Volume:", -1, 6, 52, 50, 8
+    CONTROL         "", IDC_MASTER_VOLUME, "msctls_trackbar32", TBS_VERT | TBS_BOTH | TBS_AUTOTICKS | WS_TABSTOP, 20, 62, 26, 68
+    AUTOCHECKBOX    "&Mute all", IDC_MASTER_MUTE, 6, 138, 52, 10
+    CONTROL         "", -1, "Static", SS_ETCHEDVERT, 64, 2, 1, 154
+
+    /* Column 2: Wave */
+    LTEXT           "Wave", -1, 70, 6, 50, 8
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 70, 16, 50, 1
+    LTEXT           "Balance:", -1, 70, 22, 50, 8
+    CONTROL         "", IDC_WAVE_BALANCE, "msctls_trackbar32", TBS_HORZ | TBS_BOTTOM | TBS_AUTOTICKS | WS_TABSTOP, 74, 32, 42, 16
+    ICON            IDI_LSPEAKER, -1, 68, 34, 8, 8
+    ICON            IDI_RSPEAKER, -1, 116, 34, 8, 8
+    LTEXT           "Volume:", -1, 70, 52, 50, 8
+    CONTROL         "", IDC_WAVE_VOLUME, "msctls_trackbar32", TBS_VERT | TBS_BOTH | TBS_AUTOTICKS | WS_TABSTOP, 82, 62, 26, 68
+    AUTOCHECKBOX    "M&ute", IDC_WAVE_MUTE, 70, 138, 50, 10
+    CONTROL         "", -1, "Static", SS_ETCHEDVERT, 124, 2, 1, 154
+
+    /* Column 3: SW Synth */
+    LTEXT           "SW Synth", -1, 130, 6, 50, 8
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 130, 16, 50, 1
+    LTEXT           "Balance:", -1, 130, 22, 50, 8
+    CONTROL         "", IDC_SYNTH_BALANCE, "msctls_trackbar32", TBS_HORZ | TBS_BOTTOM | TBS_AUTOTICKS | WS_TABSTOP, 134, 32, 42, 16
+    ICON            IDI_LSPEAKER, -1, 128, 34, 8, 8
+    ICON            IDI_RSPEAKER, -1, 176, 34, 8, 8
+    LTEXT           "Volume:", -1, 130, 52, 50, 8
+    CONTROL         "", IDC_SYNTH_VOLUME, "msctls_trackbar32", TBS_VERT | TBS_BOTH | TBS_AUTOTICKS | WS_TABSTOP, 142, 62, 26, 68
+    AUTOCHECKBOX    "Mu&te", IDC_SYNTH_MUTE, 130, 138, 50, 10
+    CONTROL         "", -1, "Static", SS_ETCHEDVERT, 184, 2, 1, 154
+
+    /* Column 4: CD Player */
+    LTEXT           "CD Player", -1, 190, 6, 50, 8
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 190, 16, 50, 1
+    LTEXT           "Balance:", -1, 190, 22, 50, 8
+    CONTROL         "", IDC_CD_BALANCE, "msctls_trackbar32", TBS_HORZ | TBS_BOTTOM | TBS_AUTOTICKS | WS_TABSTOP, 194, 32, 42, 16
+    ICON            IDI_LSPEAKER, -1, 188, 34, 8, 8
+    ICON            IDI_RSPEAKER, -1, 236, 34, 8, 8
+    LTEXT           "Volume:", -1, 190, 52, 50, 8
+    CONTROL         "", IDC_CD_VOLUME, "msctls_trackbar32", TBS_VERT | TBS_BOTH | TBS_AUTOTICKS | WS_TABSTOP, 202, 62, 26, 68
+    AUTOCHECKBOX    "Mut&e", IDC_CD_MUTE, 190, 138, 50, 10
+    CONTROL         "", -1, "Static", SS_ETCHEDVERT, 244, 2, 1, 154
+
+    /* Column 5: Microphone */
+    LTEXT           "Microphone", -1, 250, 6, 50, 8
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 250, 16, 50, 1
+    LTEXT           "Balance:", -1, 250, 22, 50, 8
+    CONTROL         "", IDC_MIC_BALANCE, "msctls_trackbar32", TBS_HORZ | TBS_BOTTOM | TBS_AUTOTICKS | WS_TABSTOP, 254, 32, 42, 16
+    ICON            IDI_LSPEAKER, -1, 248, 34, 8, 8
+    ICON            IDI_RSPEAKER, -1, 296, 34, 8, 8
+    LTEXT           "Volume:", -1, 250, 52, 50, 8
+    CONTROL         "", IDC_MIC_VOLUME, "msctls_trackbar32", TBS_VERT | TBS_BOTH | TBS_AUTOTICKS | WS_TABSTOP, 262, 62, 26, 68
+    AUTOCHECKBOX    "Mute", IDC_MIC_MUTE, 250, 138, 50, 10
+    CONTROL         "", -1, "Static", SS_ETCHEDVERT, 304, 2, 1, 154
+
+    /* Column 6: Line In */
+    LTEXT           "Line In", -1, 310, 6, 46, 8
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 310, 16, 44, 1
+    LTEXT           "Balance:", -1, 310, 22, 46, 8
+    CONTROL         "", IDC_LINE_BALANCE, "msctls_trackbar32", TBS_HORZ | TBS_BOTTOM | TBS_AUTOTICKS | WS_TABSTOP, 312, 32, 40, 16
+    ICON            IDI_LSPEAKER, -1, 308, 34, 8, 8
+    ICON            IDI_RSPEAKER, -1, 350, 34, 8, 8
+    LTEXT           "Volume:", -1, 310, 52, 46, 8
+    CONTROL         "", IDC_LINE_VOLUME, "msctls_trackbar32", TBS_VERT | TBS_BOTH | TBS_AUTOTICKS | WS_TABSTOP, 320, 62, 24, 68
+    AUTOCHECKBOX    "Mute", IDC_LINE_MUTE, 310, 138, 44, 10
+END
+
+/* Tray Mode Dialog */
+IDD_TRAYMASTER DIALOGEX 0, 0, 52, 90
+STYLE DS_MODALFRAME | WS_POPUP
+EXSTYLE WS_EX_TOOLWINDOW
+CLASS "Tray Volume"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CTEXT           "Volume", IDC_TRAY_VOLUME_LABEL, 0, 4, 52, 8
+    CONTROL         "", IDC_TRAY_VOLUME_SLIDER, "msctls_trackbar32",
+                    TBS_VERT | TBS_BOTH | TBS_NOTICKS | WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                    16, 14, 20, 60
+    AUTOCHECKBOX    "&Mute", IDC_TRAY_VOLUME_MUTE, 4, 76, 44, 10
+END

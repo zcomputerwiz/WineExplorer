@@ -1,0 +1,8 @@
+MODULE    = sndvol32.exe
+IMPORTS   = user32 gdi32 comctl32 shell32 winmm advapi32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	sndvol32.c \
+	sndvol32.rc

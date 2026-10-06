@@ -9,13 +9,16 @@ VER_PRODUCTVERSION      = 6,1,7601,17567
 
 SOURCES = \
 	appbar.c \
+	audio_backend.c \
 	desktop.c \
 	desktop_view.c \
 	explorer.c \
 	explorer.rc \
 	net_backend.c \
 	nettray.c \
+	power_backend.c \
 	power_mgmt.c \
+	powertray.c \
 	startmenu.c \
 	startmenu_view.c \
 	systray.c \
@@ -23,5 +26,8 @@ SOURCES = \
 	taskbar_props.c \
 	theme_engine.c \
 	tray_clock.c \
+	trayvol_dialog.c \
+	volumetray.c \
 	wlan_dialog.c \
 	wlan_status.c
+

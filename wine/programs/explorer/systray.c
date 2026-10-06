@@ -1173,6 +1173,8 @@ static void do_show_systray(void)
         taskband_create( tray_window, taskband_x, 0, max( 50, taskband_w ), tray_height );
         tray_clock_create( tray_window, tray_width - clock_width, 0, clock_width, tray_height );
         nettray_init( tray_window );
+        volumetray_init( tray_window );
+        powertray_init( tray_window );
     }
 
     sync_taskbar_buttons();
@@ -1184,6 +1186,8 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     {
     case WM_DESTROY:
         nettray_shutdown();
+        volumetray_shutdown();
+        powertray_shutdown();
         break;
 
     case WM_COPYDATA:

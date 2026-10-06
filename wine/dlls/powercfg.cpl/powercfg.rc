@@ -1,0 +1,118 @@
+/*
+ * Wine powercfg.cpl resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ */
+
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+IDI_CPL_POWER ICON "pwrmng.ico"
+IDI_BATT      ICON "batt.ico"
+IDI_PLUG      ICON "plug.ico"
+IDI_HIBERNATE ICON "hibernate.ico"
+
+STRINGTABLE
+BEGIN
+    IDS_CPL_NAME "Power Options"
+    IDS_CPL_INFO "Configures energy-saving settings for your computer."
+END
+
+/* Power Schemes Property Page */
+IDD_PAGE_POWERSCHEMES DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Power Schemes"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Select the power scheme with the most appropriate settings for this computer. Note that changing the settings below will modify the selected scheme.",
+                    -1, 6, 6, 240, 24
+    GROUPBOX        "Power schemes", -1, 6, 32, 240, 48
+    COMBOBOX        IDC_SCHEME_LIST, 14, 44, 224, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Save &As...", IDC_SCHEME_SAVEAS, 134, 60, 50, 14
+    PUSHBUTTON      "&Delete", IDC_SCHEME_DELETE, 188, 60, 50, 14
+
+    GROUPBOX        "Settings for selected power scheme", -1, 6, 84, 240, 126
+    RTEXT           "Plugged in", -1, 118, 96, 54, 8
+    RTEXT           "Running on batteries", -1, 174, 96, 66, 8
+
+    LTEXT           "Turn off &monitor:", -1, 14, 110, 80, 8
+    COMBOBOX        IDC_MONITOR_AC, 114, 108, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_MONITOR_DC, 180, 108, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "Turn off hard &disks:", -1, 14, 132, 80, 8
+    COMBOBOX        IDC_DISK_AC, 114, 130, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_DISK_DC, 180, 130, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "System &standby:", -1, 14, 154, 80, 8
+    COMBOBOX        IDC_STANDBY_AC, 114, 152, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_STANDBY_DC, 180, 152, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "System &hibernates:", -1, 14, 176, 80, 8
+    COMBOBOX        IDC_HIBERNATE_AC, 114, 174, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_HIBERNATE_DC, 180, 174, 60, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+END
+
+/* Power Meter Property Page */
+IDD_PAGE_POWERMETER DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Power Meter"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    ICON            IDI_BATT, IDC_METER_ICON, 14, 14, 21, 20
+    GROUPBOX        "Power status", -1, 6, 6, 240, 204
+    LTEXT           "Current power source:", -1, 44, 18, 80, 8
+    LTEXT           "AC power", IDC_METER_SOURCE, 130, 18, 108, 8
+    LTEXT           "Total battery power remaining:", -1, 44, 34, 110, 8
+    LTEXT           "100%", IDC_METER_PERCENT, 160, 34, 60, 8
+    CONTROL         "", IDC_METER_PROGRESS, "msctls_progress32", WS_BORDER, 44, 46, 194, 14
+
+    GROUPBOX        "#1 Battery", -1, 14, 70, 224, 130
+    LTEXT           "Status:", -1, 24, 86, 60, 8
+    LTEXT           "Online (Fully Charged)", IDC_METER_DETAILS, 90, 86, 140, 8
+    LTEXT           "Remaining capacity:", -1, 24, 102, 70, 8
+    LTEXT           "100%", -1, 90, 102, 100, 8
+    LTEXT           "Power state:", -1, 24, 118, 60, 8
+    LTEXT           "AC Line Online", -1, 90, 118, 100, 8
+END
+
+/* Advanced Property Page */
+IDD_PAGE_ADVANCED DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Advanced"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Options", -1, 6, 6, 240, 74
+    AUTOCHECKBOX    "&Always show icon on the taskbar", IDC_ADV_SYSTRAY_ICON, 14, 20, 220, 10
+    AUTOCHECKBOX    "&Prompt for password when computer resumes from standby", IDC_ADV_PASSWORD, 14, 38, 220, 10
+
+    GROUPBOX        "Power buttons", -1, 6, 86, 240, 124
+    LTEXT           "When I press the power button on my computer:", -1, 14, 100, 220, 8
+    COMBOBOX        IDC_ADV_PWRBTN, 14, 112, 224, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "When I close the lid of my portable computer:", -1, 14, 136, 220, 8
+    COMBOBOX        IDC_ADV_LID, 14, 148, 224, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+END
+
+/* Hibernate Property Page */
+IDD_PAGE_HIBERNATE DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Hibernate"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    ICON            IDI_HIBERNATE, -1, 14, 14, 21, 20
+    LTEXT           "When your computer hibernates, it stores whatever it has in memory on your hard disk and then shuts down. When your computer comes out of hibernation, it returns to its previous state.",
+                    -1, 44, 14, 200, 36
+    GROUPBOX        "Hibernate", -1, 6, 56, 240, 48
+    AUTOCHECKBOX    "&Enable hibernation", IDC_HIB_ENABLE, 14, 72, 220, 10
+
+    GROUPBOX        "Disk space for hibernate", -1, 6, 110, 240, 68
+    LTEXT           "Disk space required to hibernate:", -1, 14, 126, 130, 8
+    RTEXT           "4,096 MB", IDC_HIB_REQUIRED_SPACE, 150, 126, 88, 8
+    LTEXT           "Disk space free:", -1, 14, 142, 130, 8
+    RTEXT           "64,250 MB", IDC_HIB_FREE_SPACE, 150, 142, 88, 8
+END

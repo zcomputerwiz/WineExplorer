@@ -1,0 +1,8 @@
+MODULE    = mmsys.cpl
+IMPORTS   = user32 gdi32 comctl32 shell32 winmm advapi32 comdlg32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	mmsys.c \
+	mmsys.rc
