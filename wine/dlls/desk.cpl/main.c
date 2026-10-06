@@ -498,10 +498,34 @@ static void create_property_sheets( HWND parent )
     INITCOMMONCONTROLSEX init =
     {
         .dwSize = sizeof(INITCOMMONCONTROLSEX),
-        .dwICC = ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES,
+        .dwICC = ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES | ICC_TAB_CLASSES | ICC_UPDOWN_CLASS,
     };
     PROPSHEETPAGEW pages[] =
     {
+        {
+            .dwSize = sizeof(PROPSHEETPAGEW),
+            .hInstance = module,
+            .pszTemplate = MAKEINTRESOURCEW( IDD_THEMES ),
+            .pfnDlgProc = theme_page_proc,
+        },
+        {
+            .dwSize = sizeof(PROPSHEETPAGEW),
+            .hInstance = module,
+            .pszTemplate = MAKEINTRESOURCEW( IDD_BACKGROUND ),
+            .pfnDlgProc = desktop_page_proc,
+        },
+        {
+            .dwSize = sizeof(PROPSHEETPAGEW),
+            .hInstance = module,
+            .pszTemplate = MAKEINTRESOURCEW( IDD_APPEARANCE ),
+            .pfnDlgProc = appearance_page_proc,
+        },
+        {
+            .dwSize = sizeof(PROPSHEETPAGEW),
+            .hInstance = module,
+            .pszTemplate = MAKEINTRESOURCEW( IDD_SETTINGS ),
+            .pfnDlgProc = settings_page_proc,
+        },
         {
             .dwSize = sizeof(PROPSHEETPAGEW),
             .hInstance = module,
@@ -554,11 +578,13 @@ static void register_window_class(void)
         .lpszClassName = L"DeskCplDesktop",
     };
     RegisterClassW( &desktop_class );
+    preview_register_class( module );
 }
 
 static void unregister_window_class(void)
 {
     UnregisterClassW( L"DeskCplDesktop", module );
+    preview_unregister_class( module );
 }
 
 /*********************************************************************

@@ -1,0 +1,46 @@
+/*
+ * WineExplorer Desktop Environment - Date and Time Properties (timedate.cpl) Resources Script
+ */
+
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+STRINGTABLE
+BEGIN
+    IDS_CPL_NAME        "Date and Time"
+    IDS_CPL_INFO        "Set the date, time, and time zone for your computer."
+END
+
+/* Date & Time Property Page */
+IDD_DATEANDTIME DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Date & Time"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Date", IDC_STATIC, 7, 7, 130, 160
+    CONTROL         "", IDC_MONTHCAL, MONTHCAL_CLASS, WS_TABSTOP | WS_BORDER, 13, 20, 118, 140
+    GROUPBOX        "Time", IDC_STATIC, 143, 7, 102, 160
+    CONTROL         "", IDC_CLOCK_CTRL, "TimeDateClock", WS_CHILD | WS_VISIBLE, 153, 20, 82, 82
+    EDITTEXT        IDC_TIME_EDIT, 160, 120, 56, 14, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
+    CONTROL         "", IDC_TIME_SPIN, UPDOWN_CLASS, UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS, 216, 120, 11, 14
+    LTEXT           "Current time is displayed above.", IDC_STATIC, 150, 145, 90, 18
+END
+
+/* Time Zone Property Page */
+IDD_TIMEZONE DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Time Zone"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    COMBOBOX        IDC_TIMEZONE_LIST, 7, 7, 238, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "", IDC_TIMEZONE_MAP, "Static", SS_ETCHEDFRAME, 7, 30, 238, 110
+    AUTOCHECKBOX    "Automatically adjust clock for daylight saving changes", IDC_TIMEZONE_AUTO, 7, 155, 238, 10
+END
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+/* @makedep: timedate.manifest */
+124 RT_MANIFEST timedate.manifest
