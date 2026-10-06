@@ -194,7 +194,7 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         HBRUSH header_brush, right_brush, left_brush, footer_brush;
         WCHAR username[128];
         DWORD ulen = sizeof(username)/sizeof(WCHAR);
-        HFONT font, bold_font;
+        HFONT bold_font;
         LOGFONTW lf;
 
         GetClientRect(hwnd, &client_rc);
@@ -286,7 +286,7 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
             wc.lpfnWndProc = two_column_startmenu_proc;
             wc.hInstance = GetModuleHandleW(NULL);
             wc.lpszClassName = STARTMENU_WND_CLASS;
-            wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+            wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
             RegisterClassW(&wc);
 
             g_startmenu_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -359,7 +359,7 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 
         /* 2. Draw Windows Logo Icon */
         if (!g_winlogo_icon)
-            g_winlogo_icon = (HICON)LoadImageW(0, MAKEINTRESOURCEW(OIC_WINLOGO), IMAGE_ICON, 16, 16, LR_SHARED);
+            g_winlogo_icon = LoadIconW(NULL, (const WCHAR *)IDI_WINLOGO);
 
         icon_x = rc.left + 5;
         icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2;
@@ -468,7 +468,7 @@ HWND startbutton_create(HWND parent_tray, int x, int y, int width, int height)
     wc.lpfnWndProc = startbutton_proc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = STARTBUTTON_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
 
     g_startbutton_hwnd = CreateWindowExW(0, STARTBUTTON_CLASS, L"Start",

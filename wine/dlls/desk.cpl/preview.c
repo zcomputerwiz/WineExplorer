@@ -44,6 +44,8 @@ void preview_update(HWND hwnd_preview, const PREVIEW_DATA *data)
 static void draw_monitor_casing(HDC hdc, const RECT *rc, RECT *screen_rc)
 {
     RECT casing_rc = *rc;
+    RECT base_rc;
+    RECT neck_rc;
     int stand_w = (rc->right - rc->left) / 3;
     int stand_h = 10;
     int base_w = (rc->right - rc->left) / 2;
@@ -54,7 +56,6 @@ static void draw_monitor_casing(HDC hdc, const RECT *rc, RECT *screen_rc)
     casing_rc.bottom -= stand_h + 6;
 
     /* Monitor Stand Base */
-    RECT base_rc;
     base_rc.left = (rc->left + rc->right - base_w) / 2;
     base_rc.right = base_rc.left + base_w;
     base_rc.bottom = rc->bottom - 1;
@@ -63,7 +64,6 @@ static void draw_monitor_casing(HDC hdc, const RECT *rc, RECT *screen_rc)
     FrameRect(hdc, &base_rc, shadow_brush);
 
     /* Monitor Stand Neck */
-    RECT neck_rc;
     neck_rc.left = (rc->left + rc->right - stand_w) / 2;
     neck_rc.right = neck_rc.left + stand_w;
     neck_rc.top = casing_rc.bottom;
@@ -108,6 +108,9 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
     /* Inactive Window */
     {
         RECT win_rc;
+        RECT cap_rc;
+        HBRUSH inact_brush;
+
         win_rc.left = screen_rc->left + 10;
         win_rc.top = screen_rc->top + 8;
         win_rc.right = screen_rc->left + (screen_rc->right - screen_rc->left) * 3 / 4;
@@ -117,9 +120,9 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
         DrawEdge(hdc, &win_rc, EDGE_RAISED, BF_RECT);
 
         /* Inactive Title bar */
-        RECT cap_rc = win_rc;
+        cap_rc = win_rc;
         cap_rc.left += 2; cap_rc.top += 2; cap_rc.right -= 2; cap_rc.bottom = cap_rc.top + 14;
-        HBRUSH inact_brush = CreateSolidBrush(g_preview_data.cr_inactive_caption);
+        inact_brush = CreateSolidBrush(g_preview_data.cr_inactive_caption);
         FillRect(hdc, &cap_rc, inact_brush);
         DeleteObject(inact_brush);
 
@@ -133,6 +136,13 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
     /* Active Window */
     {
         RECT win_rc;
+        RECT cap_rc;
+        RECT menu_rc;
+        RECT client_rc;
+        HBRUSH act_brush;
+        HBRUSH menu_brush;
+        HBRUSH win_brush;
+
         win_rc.left = screen_rc->left + 22;
         win_rc.top = screen_rc->top + 20;
         win_rc.right = screen_rc->right - 12;
@@ -142,9 +152,9 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
         DrawEdge(hdc, &win_rc, EDGE_RAISED, BF_RECT);
 
         /* Active Title bar */
-        RECT cap_rc = win_rc;
+        cap_rc = win_rc;
         cap_rc.left += 2; cap_rc.top += 2; cap_rc.right -= 2; cap_rc.bottom = cap_rc.top + 14;
-        HBRUSH act_brush = CreateSolidBrush(g_preview_data.cr_active_caption);
+        act_brush = CreateSolidBrush(g_preview_data.cr_active_caption);
         FillRect(hdc, &cap_rc, act_brush);
         DeleteObject(act_brush);
 
@@ -155,9 +165,9 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
         DrawTextW(hdc, L"Active Window", -1, &cap_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         /* Menu Bar */
-        RECT menu_rc = win_rc;
+        menu_rc = win_rc;
         menu_rc.left += 2; menu_rc.top = cap_rc.bottom + 1; menu_rc.right -= 2; menu_rc.bottom = menu_rc.top + 12;
-        HBRUSH menu_brush = CreateSolidBrush(g_preview_data.cr_menu);
+        menu_brush = CreateSolidBrush(g_preview_data.cr_menu);
         FillRect(hdc, &menu_rc, menu_brush);
         DeleteObject(menu_brush);
 
@@ -167,9 +177,9 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
         DrawTextW(hdc, L"Normal  Disabled  Selected", -1, &menu_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         /* Window Client area */
-        RECT client_rc = win_rc;
+        client_rc = win_rc;
         client_rc.left += 3; client_rc.top = menu_rc.bottom + 1; client_rc.right -= 3; client_rc.bottom -= 3;
-        HBRUSH win_brush = CreateSolidBrush(g_preview_data.cr_window);
+        win_brush = CreateSolidBrush(g_preview_data.cr_window);
         FillRect(hdc, &client_rc, win_brush);
         DeleteObject(win_brush);
         DrawEdge(hdc, &client_rc, EDGE_SUNKEN, BF_RECT);
@@ -182,6 +192,11 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
     /* Message Box */
     {
         RECT msg_rc;
+        RECT cap_rc;
+        RECT text_rc;
+        RECT btn_rc;
+        HBRUSH act_brush;
+
         msg_rc.left = screen_rc->left + 50;
         msg_rc.top = screen_rc->top + 45;
         msg_rc.right = screen_rc->right - 25;
@@ -191,9 +206,9 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
         DrawEdge(hdc, &msg_rc, EDGE_RAISED, BF_RECT);
 
         /* Message Box Title bar */
-        RECT cap_rc = msg_rc;
+        cap_rc = msg_rc;
         cap_rc.left += 2; cap_rc.top += 2; cap_rc.right -= 2; cap_rc.bottom = cap_rc.top + 13;
-        HBRUSH act_brush = CreateSolidBrush(g_preview_data.cr_active_caption);
+        act_brush = CreateSolidBrush(g_preview_data.cr_active_caption);
         FillRect(hdc, &cap_rc, act_brush);
         DeleteObject(act_brush);
 
@@ -204,14 +219,13 @@ static void draw_preview_screen(HDC hdc, const RECT *screen_rc)
         DrawTextW(hdc, L"Message Box", -1, &cap_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         /* Text */
-        RECT text_rc = msg_rc;
+        text_rc = msg_rc;
         text_rc.left += 8; text_rc.top = cap_rc.bottom + 6;
         SelectObject(hdc, small_font);
         SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
         DrawTextW(hdc, L"Message Text", -1, &text_rc, DT_LEFT | DT_TOP);
 
         /* OK Button */
-        RECT btn_rc;
         btn_rc.right = msg_rc.right - 12;
         btn_rc.left = btn_rc.right - 35;
         btn_rc.bottom = msg_rc.bottom - 6;
@@ -233,12 +247,15 @@ static LRESULT CALLBACK preview_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
         RECT client_rc, screen_rc;
-        HDC mem_dc = CreateCompatibleDC(hdc);
+        HDC hdc, mem_dc;
+        HBITMAP mem_bm, old_bm;
+
+        hdc = BeginPaint(hwnd, &ps);
+        mem_dc = CreateCompatibleDC(hdc);
         GetClientRect(hwnd, &client_rc);
-        HBITMAP mem_bm = CreateCompatibleBitmap(hdc, client_rc.right, client_rc.bottom);
-        HBITMAP old_bm = SelectObject(mem_dc, mem_bm);
+        mem_bm = CreateCompatibleBitmap(hdc, client_rc.right, client_rc.bottom);
+        old_bm = SelectObject(mem_dc, mem_bm);
 
         FillRect(mem_dc, &client_rc, GetSysColorBrush(COLOR_BTNFACE));
         draw_monitor_casing(mem_dc, &client_rc, &screen_rc);
@@ -269,7 +286,7 @@ void preview_register_class(HINSTANCE hinst)
     wc.lpfnWndProc = preview_wnd_proc;
     wc.hInstance = hinst;
     wc.lpszClassName = PREVIEW_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
     RegisterClassW(&wc);
     init_default_preview_data();
 }

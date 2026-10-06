@@ -136,7 +136,7 @@ static BOOL read_linux_wireless_proc(const char *interface_name, int *out_signal
         {
             char *p = line;
             while (*p == ' ' || *p == '\t') p++;
-            strncpy(iface, p, min(31, colon - p));
+            lstrcpynA(iface, p, min((int)sizeof(iface), (int)(colon - p) + 1));
             if (!interface_name || !interface_name[0] || strstr(iface, interface_name))
             {
                 if (sscanf(colon + 1, "%d %d. %d.", &status, &quality, &level) >= 2)
@@ -156,8 +156,7 @@ static BOOL read_linux_wireless_proc(const char *interface_name, int *out_signal
     return FALSE;
 }
 
-/* Direct Linux kernel /sys/class/net operstate reader */
-static BOOL read_linux_interface_state(const char *iface, char *out_state, int max_len)
+static BOOL __attribute__((unused)) read_linux_interface_state(const char *iface, char *out_state, int max_len)
 {
     char path[128];
     FILE *f;
@@ -225,8 +224,7 @@ int net_backend_scan_wireless(WLAN_NETWORK_ENTRY *entries, int max_entries)
                     int ssid_len = (int)(colon2 - (colon1 + 1));
                     if (ssid_len > 0 && ssid_len < MAX_SSID_LEN)
                     {
-                        strncpy(ssid_buf, colon1 + 1, ssid_len);
-                        ssid_buf[ssid_len] = '\0';
+                        lstrcpynA(ssid_buf, colon1 + 1, min((int)sizeof(ssid_buf), ssid_len + 1));
                     }
 
                     /* Extract Signal */
@@ -235,15 +233,14 @@ int net_backend_scan_wireless(WLAN_NETWORK_ENTRY *entries, int max_entries)
                         int sig_len = (int)(colon3 - (colon2 + 1));
                         if (sig_len > 0 && sig_len < (int)sizeof(signal_buf))
                         {
-                            strncpy(signal_buf, colon2 + 1, sig_len);
-                            signal_buf[sig_len] = '\0';
+                            lstrcpynA(signal_buf, colon2 + 1, min((int)sizeof(signal_buf), sig_len + 1));
                         }
-                        strncpy(sec_buf, colon3 + 1, sizeof(sec_buf) - 1);
+                        lstrcpynA(sec_buf, colon3 + 1, sizeof(sec_buf));
                     }
                     else
                     {
-                        strncpy(signal_buf, colon2 + 1, sizeof(signal_buf) - 1);
-                        strncpy(sec_buf, "Open", sizeof(sec_buf) - 1);
+                        lstrcpynA(signal_buf, colon2 + 1, sizeof(signal_buf));
+                        lstrcpynA(sec_buf, "Open", sizeof(sec_buf));
                     }
 
                     sig_pct = atoi(signal_buf);
@@ -456,10 +453,10 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
                     char *c3 = strchr(c2 + 1, ':');
                     if (c3)
                     {
-                        strncpy(dev, line, min(31, c1 - line));
-                        strncpy(type, c1 + 1, min(31, c2 - (c1 + 1)));
-                        strncpy(state, c2 + 1, min(31, c3 - (c2 + 1)));
-                        strncpy(con, c3 + 1, sizeof(con) - 1);
+                        lstrcpynA(dev, line, min((int)sizeof(dev), (int)(c1 - line) + 1));
+                        lstrcpynA(type, c1 + 1, min((int)sizeof(type), (int)(c2 - (c1 + 1)) + 1));
+                        lstrcpynA(state, c2 + 1, min((int)sizeof(state), (int)(c3 - (c2 + 1)) + 1));
+                        lstrcpynA(con, c3 + 1, sizeof(con));
 
                         if (strcmp(state, "connected") == 0)
                         {

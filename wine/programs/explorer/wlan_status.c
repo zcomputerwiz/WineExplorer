@@ -26,19 +26,16 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 static NET_STATUS_INFO g_status_info;
 static int g_current_tab = 0;
-static DWORD g_last_bytes_sent = 0;
-static DWORD g_last_bytes_recv = 0;
 static int g_blink_phase = 0;
 
 /* Format number with thousands separators e.g. 1,234,567 */
 static void format_number_commas(ULONGLONG num, WCHAR *out, int max_len)
 {
     WCHAR raw[32];
-    int len, i, j = 0, comma_count;
+    int len, i, j = 0;
 
     wsprintfW(raw, L"%I64u", num);
     len = lstrlenW(raw);
-    comma_count = (len - 1) / 3;
 
     for (i = 0; i < len && j < max_len - 1; i++)
     {
@@ -59,7 +56,6 @@ static void paint_signal_bars(HWND hwnd, HDC hdc, int bars)
     int bar_width = 8;
     int bar_gap = 4;
     int start_x = 2;
-    int max_h = 14;
 
     GetClientRect(hwnd, &rc);
     FillRect(hdc, &rc, (HBRUSH)(COLOR_3DFACE + 1));
@@ -95,7 +91,6 @@ static void paint_signal_bars(HWND hwnd, HDC hdc, int bars)
 static void update_tab_visibility(HWND hwnd, int tab)
 {
     BOOL is_general = (tab == 0);
-    HWND hTab = GetDlgItem(hwnd, IDC_STATMON_TAB);
 
     /* General Tab controls */
     int general_ids[] = {
@@ -209,10 +204,10 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         /* Initialize Tabs */
         ti.mask = TCIF_TEXT;
         ti.pszText = (LPWSTR)L"General";
-        TabCtrl_InsertItem(hTab, 0, &ti);
+        TabCtrl_InsertItemW(hTab, 0, &ti);
 
         ti.pszText = (LPWSTR)L"Support";
-        TabCtrl_InsertItem(hTab, 1, &ti);
+        TabCtrl_InsertItemW(hTab, 1, &ti);
 
         g_current_tab = 0;
         update_tab_visibility(hwnd, 0);
@@ -264,9 +259,9 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
             break;
 
         case IDC_BTN_SM_REPAIR:
-            SetCursor(LoadCursorW(NULL, IDC_WAIT));
+            SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_WAIT));
             net_backend_repair();
-            SetCursor(LoadCursorW(NULL, IDC_ARROW));
+            SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_ARROW));
             update_status_controls(hwnd);
             MessageBoxW(hwnd, L"Windows has finished repairing the connection.",
                         L"Repair", MB_OK | MB_ICONINFORMATION);

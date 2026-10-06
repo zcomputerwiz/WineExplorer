@@ -176,7 +176,7 @@ HWND tray_clock_create(HWND parent_tray, int x, int y, int width, int height)
     wc.lpfnWndProc = tray_clock_proc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = TRAY_CLOCK_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     wc.style = CS_DBLCLKS;
     RegisterClassW(&wc);
 
@@ -260,7 +260,7 @@ HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int h
     wc.lpfnWndProc = show_desktop_button_proc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = SHOW_DESKTOP_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
 
     g_show_desktop_hwnd = CreateWindowExW(0, SHOW_DESKTOP_CLASS, NULL,

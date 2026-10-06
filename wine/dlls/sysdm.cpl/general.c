@@ -18,6 +18,7 @@ static BOOL query_hardware_cpuid_brand(WCHAR *out_str, size_t max_chars)
 #if defined(__i386__) || defined(__x86_64__)
     int regs[4];
     char brand[49] = {0};
+    char *p;
 
     __cpuid(regs, 0x80000000);
     if ((unsigned int)regs[0] >= 0x80000004)
@@ -28,7 +29,7 @@ static BOOL query_hardware_cpuid_brand(WCHAR *out_str, size_t max_chars)
         brand[48] = '\0';
 
         /* Strip leading whitespace */
-        char *p = brand;
+        p = brand;
         while (*p == ' ') p++;
 
         if (*p)

@@ -73,8 +73,6 @@ void taskbar_settings_save(void)
 
 static void draw_taskbar_preview(HDC hdc, const RECT *rc)
 {
-    int w = rc->right - rc->left;
-    int h = rc->bottom - rc->top;
     RECT tb_rc = { rc->left, rc->bottom - 22, rc->right, rc->bottom };
     RECT desktop_rc = { rc->left, rc->top, rc->right, rc->bottom - 22 };
     RECT btn_rc = { tb_rc.left + 2, tb_rc.top + 2, tb_rc.left + 46, tb_rc.bottom - 2 };

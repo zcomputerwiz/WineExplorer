@@ -113,6 +113,7 @@ static void update_pwr_tray_icon_and_tooltip(HWND hwnd)
 static void show_power_context_menu(HWND hwnd, POINT pt)
 {
     HMENU hMenu = CreatePopupMenu();
+    UINT cmd, i;
     if (!hMenu) return;
 
     AppendMenuW(hMenu, MF_STRING, IDM_PWR_PROPERTIES, L"&Adjust Power Properties");
@@ -120,7 +121,7 @@ static void show_power_context_menu(HWND hwnd, POINT pt)
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
 
     /* Populate power schemes radio list */
-    for (UINT i = 0; i <= POWER_SCHEME_MAXBATTERY; i++)
+    for (i = 0; i <= POWER_SCHEME_MAXBATTERY; i++)
     {
         UINT flags = MF_STRING;
         if (i == g_pwr_status.active_scheme)
@@ -132,8 +133,8 @@ static void show_power_context_menu(HWND hwnd, POINT pt)
     SetMenuDefaultItem(hMenu, IDM_PWR_PROPERTIES, FALSE);
 
     SetForegroundWindow(hwnd);
-    UINT cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
-                              pt.x, pt.y, 0, hwnd, NULL);
+    cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+                         pt.x, pt.y, 0, hwnd, NULL);
     DestroyMenu(hMenu);
 
     if (cmd == IDM_PWR_PROPERTIES || cmd == IDM_PWR_OPEN_METER)
@@ -204,10 +205,13 @@ static LRESULT CALLBACK PowerTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 
 BOOL powertray_init(HWND hwnd_tray)
 {
+    WNDCLASSEXW wc;
+    HINSTANCE hInst;
+
     if (g_hwnd_powertray) return TRUE;
 
-    WNDCLASSEXW wc = {0};
-    HINSTANCE hInst = GetModuleHandleW(NULL);
+    memset(&wc, 0, sizeof(wc));
+    hInst = GetModuleHandleW(NULL);
 
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = PowerTrayWndProc;

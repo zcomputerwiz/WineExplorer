@@ -88,7 +88,7 @@ static HICON get_window_task_icon(HWND hwnd)
 
     /* 5. Fallback to default application icon */
     if (!icon)
-        icon = LoadIconW(NULL, IDI_APPLICATION);
+        icon = LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION);
 
     return icon;
 }
@@ -485,7 +485,7 @@ HWND taskband_create(HWND parent_tray, int x, int y, int width, int height)
     wc.lpfnWndProc = taskband_proc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = TASKBAND_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
 
     g_taskband.hwnd = CreateWindowExW(0, TASKBAND_CLASS, NULL,

@@ -111,68 +111,6 @@ void power_mgmt_execute_action(int action)
     }
 }
 
-static LRESULT CALLBACK shutdown_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
-{
-    switch (msg)
-    {
-    case WM_INITDIALOG:
-    {
-        HWND hCombo = GetDlgItem(hwnd, IDC_SHUTDOWN_COMBO);
-        int i;
-
-        for (i = 0; i < 4; i++)
-            SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)action_names[i]);
-
-        SendMessageW(hCombo, CB_SETCURSEL, 0, 0);
-        SetDlgItemTextW(hwnd, IDC_SHUTDOWN_DESC, action_descs[0]);
-
-        /* Center dialog on screen */
-        {
-            RECT rc, desktop_rc;
-            GetWindowRect(hwnd, &rc);
-            GetWindowRect(GetDesktopWindow(), &desktop_rc);
-            SetWindowPos(hwnd, HWND_TOPMOST,
-                         (desktop_rc.right - (rc.right - rc.left)) / 2,
-                         (desktop_rc.bottom - (rc.bottom - rc.top)) / 2,
-                         0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
-        }
-        return TRUE;
-    }
-
-    case WM_COMMAND:
-        switch (LOWORD(wparam))
-        {
-        case IDC_SHUTDOWN_COMBO:
-            if (HIWORD(wparam) == CBN_SELCHANGE)
-            {
-                int sel = SendMessageW((HWND)lparam, CB_GETCURSEL, 0, 0);
-                if (sel >= 0 && sel < 4)
-                    SetDlgItemTextW(hwnd, IDC_SHUTDOWN_DESC, action_descs[sel]);
-            }
-            break;
-
-        case IDC_SHUTDOWN_OK:
-        {
-            HWND hCombo = GetDlgItem(hwnd, IDC_SHUTDOWN_COMBO);
-            int sel = SendMessageW(hCombo, CB_GETCURSEL, 0, 0);
-            EndDialog(hwnd, IDOK);
-            power_mgmt_execute_action(sel);
-            break;
-        }
-
-        case IDC_SHUTDOWN_CANCEL:
-            EndDialog(hwnd, IDCANCEL);
-            break;
-        }
-        return TRUE;
-
-    case WM_CLOSE:
-        EndDialog(hwnd, IDCANCEL);
-        return TRUE;
-    }
-    return FALSE;
-}
-
 /* Helper to construct dialog in memory without requiring .rc recompilation */
 void power_mgmt_show_shutdown_dialog(HWND parent)
 {
@@ -206,7 +144,7 @@ void power_mgmt_show_shutdown_dialog(HWND parent)
     bold_font = CreateFontIndirectW(&lf);
 
     /* Windows Logo Icon */
-    hWinLogo = (HICON)LoadImageW(0, MAKEINTRESOURCEW(OIC_WINLOGO), IMAGE_ICON, 32, 32, LR_SHARED);
+    hWinLogo = LoadIconW(NULL, (const WCHAR *)IDI_WINLOGO);
     icon_ctl = CreateWindowW(L"Static", NULL, WS_CHILD | WS_VISIBLE | SS_ICON,
                              20, 20, 32, 32, dlg, NULL, NULL, NULL);
     SendMessageW(icon_ctl, STM_SETICON, (WPARAM)hWinLogo, 0);

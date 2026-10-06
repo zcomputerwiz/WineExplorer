@@ -72,7 +72,7 @@ BEGIN
     LTEXT           "Display:", IDC_STATIC, 60, 10, 40, 10
     LTEXT           "Default Monitor on Gamescope / Virtual Desktop", IDC_SET_DISPLAY_LBL, 60, 22, 180, 16
     GROUPBOX        "Screen resolution", IDC_STATIC, 7, 50, 115, 65
-    CONTROL         "", IDC_SET_RES_SLIDER, TRACKBAR_CLASS, WS_TABSTOP | TBS_HORZ | TBS_AUTOTICKS, 15, 68, 98, 20
+    CONTROL         "", IDC_SET_RES_SLIDER, "msctls_trackbar32", WS_TABSTOP | TBS_HORZ | TBS_AUTOTICKS, 15, 68, 98, 20
     CTEXT           "1920 by 1080 pixels", IDC_SET_RES_TEXT, 12, 94, 105, 12
     GROUPBOX        "Color quality", IDC_STATIC, 130, 50, 115, 65
     COMBOBOX        IDC_SET_BPP_COMBO, 138, 70, 98, 50, CBS_DROPDOWNLIST | WS_TABSTOP

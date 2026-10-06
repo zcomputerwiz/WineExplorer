@@ -12,19 +12,19 @@ static void init_env_listview(HWND hList)
 {
     LVCOLUMNW col;
 
-    ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+    SendMessageW(hList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 
     memset(&col, 0, sizeof(col));
     col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
-    col.pszText = L"Variable";
+    col.pszText = (LPWSTR)L"Variable";
     col.cx = 100;
     col.iSubItem = 0;
-    ListView_InsertColumn(hList, 0, &col);
+    ListView_InsertColumnW(hList, 0, &col);
 
-    col.pszText = L"Value";
+    col.pszText = (LPWSTR)L"Value";
     col.cx = 240;
     col.iSubItem = 1;
-    ListView_InsertColumn(hList, 1, &col);
+    ListView_InsertColumnW(hList, 1, &col);
 }
 
 static void load_env_vars(HWND hList, HKEY hRoot, const WCHAR *subKey)
@@ -36,7 +36,7 @@ static void load_env_vars(HWND hList, HKEY hRoot, const WCHAR *subKey)
     DWORD name_len, val_size, type;
     LVITEMW item;
 
-    ListView_DeleteAllItems(hList);
+    SendMessageW(hList, LVM_DELETEALLITEMS, 0, 0);
 
     if (RegOpenKeyExW(hRoot, subKey, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
@@ -51,9 +51,9 @@ static void load_env_vars(HWND hList, HKEY hRoot, const WCHAR *subKey)
             item.mask = LVIF_TEXT;
             item.iItem = index;
             item.pszText = name;
-            ListView_InsertItem(hList, &item);
+            ListView_InsertItemW(hList, &item);
 
-            ListView_SetItemText(hList, index, 1, value);
+            ListView_SetItemTextW(hList, index, 1, value);
         }
         RegCloseKey(hKey);
     }

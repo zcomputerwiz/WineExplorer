@@ -28,7 +28,6 @@
 #include "wlan_dialog.h"
 #include "wlan_status.h"
 
-#include <initguid.h>
 #include <windows.h>
 #include <shellapi.h>
 #include <shobjidl.h>

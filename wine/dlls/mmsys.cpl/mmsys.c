@@ -13,6 +13,7 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <cpl.h>
 #include <shellapi.h>
 #include <mmsystem.h>
@@ -338,7 +339,13 @@ static INT_PTR CALLBACK SoundsPageProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
                 item.pszText = (LPWSTR)g_sound_events[i].sound_file;
                 SendMessageW(hEvents, LVM_SETITEMW, 0, (LPARAM)&item);
             }
-            ListView_SetItemState(hEvents, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            {
+                LVITEMW item_state;
+                memset(&item_state, 0, sizeof(item_state));
+                item_state.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+                item_state.state = LVIS_SELECTED | LVIS_FOCUSED;
+                SendMessageW(hEvents, LVM_SETITEMSTATE, 0, (LPARAM)&item_state);
+            }
             SetDlgItemTextW(hwnd, IDC_SND_FILE, g_sound_events[0].sound_file);
         }
         return TRUE;

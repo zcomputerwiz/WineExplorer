@@ -135,19 +135,23 @@ static void refresh_network_list(HWND hwnd)
         item.iImage = g_scan_entries[i].signal_bars;
         item.lParam = (LPARAM)i;
 
-        ListView_InsertItem(hList, &item);
+        ListView_InsertItemW(hList, &item);
 
         /* Subitem 1: Signal strength text */
         wsprintfW(sig_str, L"%d%%", g_scan_entries[i].signal_percent);
-        ListView_SetItemText(hList, i, 1, sig_str);
+        ListView_SetItemTextW(hList, i, 1, sig_str);
 
         /* Subitem 2: Security mode */
-        ListView_SetItemText(hList, i, 2, g_scan_entries[i].security);
+        ListView_SetItemTextW(hList, i, 2, g_scan_entries[i].security);
     }
 
     if (g_scan_count > 0)
     {
-        ListView_SetItemState(hList, select_idx, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        LVITEMW lvi;
+        memset(&lvi, 0, sizeof(lvi));
+        lvi.state = LVIS_SELECTED | LVIS_FOCUSED;
+        lvi.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+        SendMessageW(hList, LVM_SETITEMSTATE, (WPARAM)select_idx, (LPARAM)&lvi);
         ListView_EnsureVisible(hList, select_idx, FALSE);
     }
 
@@ -172,7 +176,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
         SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconMain);
 
-        SendMessageW(hWarnIco, STM_SETICON, (LPARAM)LoadIconW(NULL, IDI_WARNING), 0);
+        SendMessageW(hWarnIco, STM_SETICON, (LPARAM)LoadIconW(NULL, (const WCHAR *)IDI_WARNING), 0);
 
         /* Configure List View */
         ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -180,15 +184,15 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         col.mask = LVCF_TEXT | LVCF_WIDTH;
         col.cx = 125;
         col.pszText = (LPWSTR)L"Network Name";
-        ListView_InsertColumn(hList, 0, &col);
+        ListView_InsertColumnW(hList, 0, &col);
 
         col.cx = 40;
         col.pszText = (LPWSTR)L"Signal";
-        ListView_InsertColumn(hList, 1, &col);
+        ListView_InsertColumnW(hList, 1, &col);
 
         col.cx = 65;
         col.pszText = (LPWSTR)L"Security";
-        ListView_InsertColumn(hList, 2, &col);
+        ListView_InsertColumnW(hList, 2, &col);
 
         /* Initialize 16x16 Signal ImageList */
         g_hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 6, 1);
@@ -293,9 +297,9 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
                     }
 
                     /* Initiate Connection */
-                    SetCursor(LoadCursorW(NULL, IDC_WAIT));
+                    SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_WAIT));
                     net_backend_connect_wireless(g_scan_entries[sel].ssid, key1);
-                    SetCursor(LoadCursorW(NULL, IDC_ARROW));
+                    SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_ARROW));
 
                     MessageBoxW(hwnd, L"Windows has connected to the wireless network.",
                                 L"Wireless Network Connection", MB_OK | MB_ICONINFORMATION);

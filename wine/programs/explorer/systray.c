@@ -1297,6 +1297,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
             return taskband_handle_shell_hook( wparam, lparam );
         return DefWindowProcW( hwnd, msg, wparam, lparam );
     }
+    }
     return 0;
 }
 

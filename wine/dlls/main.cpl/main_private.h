@@ -5,10 +5,10 @@
 #ifndef __WINE_MAIN_CPL_PRIVATE_H
 #define __WINE_MAIN_CPL_PRIVATE_H
 
+#define OEMRESOURCE
 #include <windows.h>
 #include <commctrl.h>
 #include <cpl.h>
-#include <tchar.h>
 #include <stdio.h>
 #include <stdlib.h>
 

@@ -22,6 +22,7 @@ INT_PTR CALLBACK keyboard_speed_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         HWND hDelay = GetDlgItem(hwnd, KDELAY_SCROLL);
         HWND hSpeed = GetDlgItem(hwnd, KSPEED_SCROLL);
         HWND hBlink = GetDlgItem(hwnd, KBLINK_SCROLL);
+        int blink_pos;
 
         g_state.repeat_delay = 1;
         g_state.repeat_speed = 31;
@@ -40,7 +41,7 @@ INT_PTR CALLBACK keyboard_speed_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
         /* Blink: 0 (None) to 10 (Fast) */
         SendMessageW(hBlink, TBM_SETRANGE, TRUE, MAKELONG(0, 10));
-        int blink_pos = 10 - (int)((g_state.blink_time - 200) * 10 / 1000);
+        blink_pos = 10 - (int)((g_state.blink_time - 200) * 10 / 1000);
         if (blink_pos < 0) blink_pos = 0;
         if (blink_pos > 10) blink_pos = 10;
         SendMessageW(hBlink, TBM_SETPOS, TRUE, blink_pos);

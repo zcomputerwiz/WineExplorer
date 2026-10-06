@@ -183,7 +183,7 @@ INT_PTR CALLBACK pointer_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     g_cursors[sel].hicon = (HICON)LoadImageW(NULL, g_cursors[sel].ocr_id, IMAGE_CURSOR, 32, 32, LR_SHARED | LR_DEFAULTSIZE);
                 g_cursors[sel].file_path[0] = 0;
                 SendDlgItemMessageW(hwnd, ID_PREVIEW, STM_SETICON, (WPARAM)g_cursors[sel].hicon, 0);
-                InvalidateDlgItem(hwnd, ID_CURSORLIST, TRUE);
+                InvalidateRect(GetDlgItem(hwnd, ID_CURSORLIST), NULL, TRUE);
                 PropSheet_Changed(GetParent(hwnd), hwnd);
             }
             break;
@@ -211,7 +211,7 @@ INT_PTR CALLBACK pointer_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     g_cursors[sel].hicon = hnew;
                     lstrcpynW(g_cursors[sel].file_path, file, MAX_PATH);
                     SendDlgItemMessageW(hwnd, ID_PREVIEW, STM_SETICON, (WPARAM)hnew, 0);
-                    InvalidateDlgItem(hwnd, ID_CURSORLIST, TRUE);
+                    InvalidateRect(GetDlgItem(hwnd, ID_CURSORLIST), NULL, TRUE);
                     PropSheet_Changed(GetParent(hwnd), hwnd);
                 }
             }

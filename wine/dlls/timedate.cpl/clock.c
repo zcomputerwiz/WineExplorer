@@ -121,7 +121,7 @@ void clock_register_class(HINSTANCE hinst)
     wc.lpfnWndProc = clock_wnd_proc;
     wc.hInstance = hinst;
     wc.lpszClassName = CLOCK_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
 }
 

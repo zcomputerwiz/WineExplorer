@@ -19,6 +19,15 @@ static const WCHAR *g_visual_fx[] = {
     L"Animate windows when minimizing and maximizing"
 };
 
+static void set_listview_check_state(HWND hList, int index, BOOL check)
+{
+    LVITEMW lvi;
+    memset(&lvi, 0, sizeof(lvi));
+    lvi.state = INDEXTOSTATEIMAGEMASK(check ? 2 : 1);
+    lvi.stateMask = LVIS_STATEIMAGEMASK;
+    SendMessageW(hList, LVM_SETITEMSTATE, (WPARAM)index, (LPARAM)&lvi);
+}
+
 static INT_PTR CALLBACK perf_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
@@ -30,12 +39,12 @@ static INT_PTR CALLBACK perf_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         LVITEMW item;
         int i;
 
-        ListView_SetExtendedListViewStyle(hList, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT);
+        SendMessageW(hList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT);
 
         memset(&col, 0, sizeof(col));
         col.mask = LVCF_WIDTH;
         col.cx = 320;
-        ListView_InsertColumn(hList, 0, &col);
+        ListView_InsertColumnW(hList, 0, &col);
 
         for (i = 0; i < ARRAY_SIZE(g_visual_fx); i++)
         {
@@ -43,8 +52,8 @@ static INT_PTR CALLBACK perf_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             item.mask = LVIF_TEXT;
             item.iItem = i;
             item.pszText = (LPWSTR)g_visual_fx[i];
-            ListView_InsertItem(hList, &item);
-            ListView_SetCheckState(hList, i, TRUE);
+            ListView_InsertItemW(hList, &item);
+            set_listview_check_state(hList, i, TRUE);
         }
 
         CheckRadioButton(hwnd, IDC_PERF_RADIO_AUTO, IDC_PERF_RADIO_CUSTOM, IDC_PERF_RADIO_AUTO);
@@ -60,12 +69,12 @@ static INT_PTR CALLBACK perf_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         {
         case IDC_PERF_RADIO_BESTAPP:
             for (i = 0; i < ARRAY_SIZE(g_visual_fx); i++)
-                ListView_SetCheckState(hList, i, TRUE);
+                set_listview_check_state(hList, i, TRUE);
             break;
 
         case IDC_PERF_RADIO_BESTPERF:
             for (i = 0; i < ARRAY_SIZE(g_visual_fx); i++)
-                ListView_SetCheckState(hList, i, FALSE);
+                set_listview_check_state(hList, i, FALSE);
             break;
 
         case IDOK:

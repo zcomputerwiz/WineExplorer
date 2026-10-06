@@ -20,6 +20,7 @@
 
 #include "windef.h"
 #include "winuser.h"
+#include "commctrl.h"
 #include "resource.h"
 
 #pragma makedep po
@@ -102,7 +103,7 @@ BEGIN
     CONTROL         "", IDC_WZCQCFG_NETWORKS, "SysListView32",
                     LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP,
                     8, 41, 224, 62
-    ICON            "", IDC_WZCQCFG_ICO_WARN, 10, 109, 21, 20, NOT WS_VISIBLE
+    CONTROL         "", IDC_WZCQCFG_ICO_WARN, "Static", SS_ICON | NOT WS_VISIBLE, 10, 109, 21, 20
     LTEXT           "This wireless network is not secure. Because a network key is not used for authentication or encryption, data sent over this network might be subject to unauthorized access.",
                     IDC_WZCQCFG_LBL_NOWKINFO, 36, 109, 196, 28, NOT WS_VISIBLE
     AUTOCHECKBOX    "Allow &me to connect to the selected wireless network, even though it is not secure",
@@ -145,7 +146,7 @@ BEGIN
 
     GROUPBOX        "Activity", -1, 14, 96, 198, 80
     RTEXT           "Sent", -1, 60, 108, 40, 8
-    ICON            "", IDC_ICO_SM_ACTIVITY, 107, 105, 20, 20
+    CONTROL         "", IDC_ICO_SM_ACTIVITY, "Static", SS_ICON, 107, 105, 20, 20
     RTEXT           "Received", -1, 138, 108, 40, 8
     LTEXT           "Bytes:", -1, 22, 126, 30, 8
     RTEXT           "0", IDC_TXT_SM_BYTES_TRANS, 54, 126, 50, 8

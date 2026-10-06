@@ -189,6 +189,7 @@ static INT_PTR CALLBACK PowerMeterPageProc(HWND hwnd, UINT msg, WPARAM wparam, L
         HWND hProgress = GetDlgItem(hwnd, IDC_METER_PROGRESS);
         int percent = 100;
         BOOL on_ac = TRUE;
+        WCHAR pct_str[32];
 
         if (GetSystemPowerStatus(&sps))
         {
@@ -205,7 +206,6 @@ static INT_PTR CALLBACK PowerMeterPageProc(HWND hwnd, UINT msg, WPARAM wparam, L
 
         SetDlgItemTextW(hwnd, IDC_METER_SOURCE, on_ac ? L"AC power" : L"Batteries");
 
-        WCHAR pct_str[32];
         wsprintfW(pct_str, L"%d%%", percent);
         SetDlgItemTextW(hwnd, IDC_METER_PERCENT, pct_str);
 

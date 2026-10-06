@@ -294,15 +294,19 @@ static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
         int band_center = rc->left + (int)(((lon + 180.0) / 360.0) * width);
         int band_w = max(width / 24, 6);
         RECT band_rc;
+        HBRUSH highlight_brush;
+        HPEN highlight_pen;
 
         band_rc.left = max(rc->left, band_center - band_w / 2);
         band_rc.right = min(rc->right, band_center + band_w / 2);
         band_rc.top = rc->top;
         band_rc.bottom = rc->bottom;
 
-        /* Translucent highlight via AlphaBlend or hatched stripe */
-        HBRUSH highlight_brush = CreateSolidBrush(RGB(255, 230, 80));
-        HPEN highlight_pen = CreatePen(PS_SOLID, 2, RGB(220, 160, 20));
+        /* Highlight stripe */
+        highlight_brush = CreateSolidBrush(RGB(255, 230, 80));
+        FillRect(hdc, &band_rc, highlight_brush);
+
+        highlight_pen = CreatePen(PS_SOLID, 2, RGB(220, 160, 20));
         SelectObject(hdc, highlight_pen);
         MoveToEx(hdc, band_center, rc->top, NULL);
         LineTo(hdc, band_center, rc->bottom);
@@ -365,7 +369,6 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         HWND hCombo = GetDlgItem(hwnd, IDC_TIMEZONE_LIST);
         HWND hMap = GetDlgItem(hwnd, IDC_TIMEZONE_MAP);
         TIME_ZONE_INFORMATION cur_tzi;
-        DWORD tz_res;
         int i, sel = 0;
 
         init_timezones();
@@ -384,7 +387,7 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         }
 
         /* Determine current timezone */
-        tz_res = GetTimeZoneInformation(&cur_tzi);
+        GetTimeZoneInformation(&cur_tzi);
         for (i = 0; i < g_tz_count; i++)
         {
             if (wcscmp(g_tz_entries[i].std_name, cur_tzi.StandardName) == 0 ||

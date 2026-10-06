@@ -51,18 +51,20 @@ static BOOL read_sysfs_str(const char *path, char *out_buf, int max_len)
     return FALSE;
 }
 
-/* Direct Linux kernel sysfs /sys/class/power_supply query */
 static BOOL query_linux_sysfs(POWER_STATUS_INFO *info)
 {
+    const char *ac_names[] = { "AC", "ACAD", "ADP0", "ADP1" };
     int capacity = 0;
     char status[64] = {0};
     int energy_now = 0, power_now = 0;
     int ac_online = 0;
     BOOL bat_found = FALSE;
     BOOL ac_found = FALSE;
+    int i;
+    size_t j;
 
     /* Check BAT0 through BAT4 */
-    for (int i = 0; i < 5; i++)
+    for (i = 0; i < 5; i++)
     {
         char path[128];
         snprintf(path, sizeof(path), "/sys/class/power_supply/BAT%d/capacity", i);
@@ -90,11 +92,10 @@ static BOOL query_linux_sysfs(POWER_STATUS_INFO *info)
     }
 
     /* Check AC power adapter */
-    const char *ac_names[] = { "AC", "ACAD", "ADP0", "ADP1" };
-    for (size_t i = 0; i < sizeof(ac_names)/sizeof(ac_names[0]); i++)
+    for (j = 0; j < sizeof(ac_names)/sizeof(ac_names[0]); j++)
     {
         char path[128];
-        snprintf(path, sizeof(path), "/sys/class/power_supply/%s/online", ac_names[i]);
+        snprintf(path, sizeof(path), "/sys/class/power_supply/%s/online", ac_names[j]);
         if (read_sysfs_int(path, &ac_online))
         {
             ac_found = TRUE;
@@ -125,8 +126,6 @@ void power_backend_init(void)
 {
     /* Read active power scheme from registry */
     HKEY hKey;
-    DWORD val = 0;
-    DWORD size = sizeof(val);
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\PowerCfg", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
         WCHAR str[16];
@@ -183,6 +182,8 @@ BOOL power_backend_get_status(POWER_STATUS_INFO *info)
 
 void power_backend_set_scheme(UINT scheme_id)
 {
+    HKEY hKey;
+
     if (scheme_id > POWER_SCHEME_MAXBATTERY)
         scheme_id = POWER_SCHEME_DESK;
 
@@ -190,7 +191,6 @@ void power_backend_set_scheme(UINT scheme_id)
     g_cached_status.active_scheme = scheme_id;
 
     /* Persist scheme to registry */
-    HKEY hKey;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Control Panel\\PowerCfg", 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
     {
         WCHAR str[16];

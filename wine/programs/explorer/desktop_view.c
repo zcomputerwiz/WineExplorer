@@ -114,7 +114,7 @@ static HICON load_shell_icon(int index)
         ExtractIconExW(L"shell32.dll", index, &hIcon, NULL, 1);
         FreeLibrary(hShell);
     }
-    if (!hIcon) hIcon = LoadIconW(NULL, IDI_APPLICATION);
+    if (!hIcon) hIcon = LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION);
     return hIcon;
 }
 
@@ -369,7 +369,7 @@ static void draw_wallpaper(HDC hdc, int screen_w, int screen_h)
 
 static void draw_desktop_item(HDC hdc, DESKTOP_ITEM *item, HFONT font)
 {
-    RECT icon_rc, text_rc;
+    RECT text_rc;
     int icon_x = item->pos.x + (g_desktop_view.grid_cx - g_desktop_view.icon_size) / 2;
     int icon_y = item->pos.y + 4;
     HFONT old_font;
@@ -470,7 +470,7 @@ void desktop_view_paint(HDC hdc, const RECT *clip_rect)
 static void execute_item(DESKTOP_ITEM *item)
 {
     if (!item) return;
-    if (item->target_path && wcsstr(item->target_path, L"208D2C60") != NULL)
+    if (item->target_path[0] && wcsstr(item->target_path, L"208D2C60") != NULL)
     {
         wlan_dialog_show(g_desktop_view.hwnd);
         return;
@@ -803,7 +803,7 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
     wc.lpfnWndProc = desktop_view_proc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = DESKTOP_VIEW_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     wc.style = CS_DBLCLKS;
     RegisterClassW(&wc);
 

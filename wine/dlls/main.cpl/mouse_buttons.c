@@ -75,18 +75,21 @@ static void draw_mouse_preview(HDC hdc, const RECT *rc, BOOL swapped)
         HDC mdc = CreateCompatibleDC(hdc);
         HBITMAP old_bm = SelectObject(mdc, g_state.hbm_mouse);
         BITMAP bm;
-        GetObject(g_state.hbm_mouse, sizeof(bm), &bm);
+        HBRUSH hl_brush;
+        RECT btn_rect;
+        int dst_x, dst_y;
 
-        int dst_x = rc->left + (rc->right - rc->left - bm.bmWidth) / 2;
-        int dst_y = rc->top + (rc->bottom - rc->top - bm.bmHeight) / 2;
+        GetObjectW(g_state.hbm_mouse, sizeof(bm), &bm);
+
+        dst_x = rc->left + (rc->right - rc->left - bm.bmWidth) / 2;
+        dst_y = rc->top + (rc->bottom - rc->top - bm.bmHeight) / 2;
 
         BitBlt(hdc, dst_x, dst_y, bm.bmWidth, bm.bmHeight, mdc, 0, 0, SRCCOPY);
         SelectObject(mdc, old_bm);
         DeleteDC(mdc);
 
         /* Overlay highlight for primary active button */
-        HBRUSH hl_brush = CreateSolidBrush(GetSysColor(COLOR_HIGHLIGHT));
-        RECT btn_rect;
+        hl_brush = CreateSolidBrush(GetSysColor(COLOR_HIGHLIGHT));
         if (!swapped)
         {
             /* Left button area */
@@ -149,6 +152,7 @@ INT_PTR CALLBACK button_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         HWND hSwap = GetDlgItem(hwnd, IDBTN_BUTTONSWAP);
         HWND hSlider = GetDlgItem(hwnd, MOUSE_CLICKSCROLL);
         HWND hLock = GetDlgItem(hwnd, IDCK_CLICKLOCK);
+        int pos;
 
         read_registry_settings(&g_state);
 
@@ -161,7 +165,7 @@ INT_PTR CALLBACK button_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
 
         /* Slider: 0 = Slow (900ms), 10 = Fast (200ms) */
         SendMessageW(hSlider, TBM_SETRANGE, TRUE, MAKELONG(0, 10));
-        int pos = 10 - (int)((g_state.dbl_click_speed - 200) * 10 / 700);
+        pos = 10 - (int)((g_state.dbl_click_speed - 200) * 10 / 700);
         if (pos < 0) pos = 0;
         if (pos > 10) pos = 10;
         SendMessageW(hSlider, TBM_SETPOS, TRUE, pos);
@@ -202,7 +206,7 @@ INT_PTR CALLBACK button_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         {
         case IDBTN_BUTTONSWAP:
             g_state.swapped = (IsDlgButtonChecked(hwnd, IDBTN_BUTTONSWAP) == BST_CHECKED);
-            InvalidateDlgItem(hwnd, MOUSE_MOUSEBMP, TRUE);
+            InvalidateRect(GetDlgItem(hwnd, MOUSE_MOUSEBMP), NULL, TRUE);
             PropSheet_Changed(GetParent(hwnd), hwnd);
             break;
 

@@ -20,7 +20,6 @@
 #include "resource.h"
 
 static HINSTANCE g_hInstance = NULL;
-static HWND g_hMainDlg = NULL;
 static int g_master_volume = 75;
 static BOOL g_master_mute = FALSE;
 
@@ -286,7 +285,12 @@ static INT_PTR CALLBACK TrayDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
     {
     case WM_INITDIALOG:
     {
-        HWND hTrack = GetDlgItem(hwnd, IDC_TRAY_VOLUME_SLIDER);
+        HWND hTrack;
+        POINT pt;
+        RECT rc;
+        int w, h;
+
+        hTrack = GetDlgItem(hwnd, IDC_TRAY_VOLUME_SLIDER);
         query_audio_state();
 
         if (hTrack)
@@ -299,12 +303,10 @@ static INT_PTR CALLBACK TrayDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         CheckDlgButton(hwnd, IDC_TRAY_VOLUME_MUTE, g_master_mute ? BST_CHECKED : BST_UNCHECKED);
 
         /* Position dialog near cursor */
-        POINT pt;
         GetCursorPos(&pt);
-        RECT rc;
         GetWindowRect(hwnd, &rc);
-        int w = rc.right - rc.left;
-        int h = rc.bottom - rc.top;
+        w = rc.right - rc.left;
+        h = rc.bottom - rc.top;
         SetWindowPos(hwnd, HWND_TOPMOST, pt.x - (w / 2), pt.y - h - 4, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
         return TRUE;
     }

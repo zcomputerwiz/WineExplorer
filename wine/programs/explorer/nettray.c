@@ -28,6 +28,12 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 #define IDT_NETTRAY_TIMER  101
 #define NETTRAY_CLASS_NAME L"Connections Tray"
 
+#define IDM_NET_DISABLE          2001
+#define IDM_NET_STATUS           2002
+#define IDM_NET_REPAIR           2003
+#define IDM_NET_VIEW_WIRELESS    2004
+#define IDM_NET_OPEN_CONNECTIONS 2005
+
 static HWND g_hwnd_nettray = NULL;
 static NOTIFYICONDATAW g_nid = {0};
 static NET_STATUS_INFO g_status;
@@ -180,9 +186,9 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
             break;
 
         case IDM_NET_REPAIR:
-            SetCursor(LoadCursorW(NULL, IDC_WAIT));
+            SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_WAIT));
             net_backend_repair();
-            SetCursor(LoadCursorW(NULL, IDC_ARROW));
+            SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_ARROW));
             update_tray_icon_and_tooltip(hwnd);
             MessageBoxW(hwnd, L"Windows has finished repairing the connection.",
                         L"Repair", MB_OK | MB_ICONINFORMATION);
