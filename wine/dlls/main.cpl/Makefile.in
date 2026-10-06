@@ -1,7 +1,7 @@
 MODULE    = main.cpl
 IMPORTS   = user32 gdi32 comctl32 shell32 advapi32 comdlg32
 
-EXTRADLLFLAGS = -mwindows -municode
+VER_FILEDESCRIPTION_STR = "Mouse and Keyboard Control Panel"
 
 SOURCES = \
 	hardware_page.c \

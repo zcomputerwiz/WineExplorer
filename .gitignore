@@ -22,12 +22,16 @@ obj/
 *.so
 *.dll
 *.exe
+!wine/dlls/ntoskrnl.exe/
+!wine/dlls/ntoskrnl.exe/**
 *.res
 *.obj
 *.pdb
 *.orig
 *.rej
 *.patch
+autom4te.cache/
+wine/autom4te.cache/
 
 # Editor and OS files
 .vscode/

@@ -1,7 +1,7 @@
 MODULE    = mmsys.cpl
 IMPORTS   = user32 gdi32 comctl32 shell32 winmm advapi32 comdlg32
 
-EXTRADLLFLAGS = -mwindows -municode
+VER_FILEDESCRIPTION_STR = "Sounds and Audio Devices Control Panel"
 
 SOURCES = \
 	mmsys.c \
