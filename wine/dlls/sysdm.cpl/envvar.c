@@ -1,0 +1,95 @@
+/*
+ * WineExplorer Desktop Environment - Environment Variables Dialog (sysdm.cpl)
+ */
+
+#include <windows.h>
+#include <commctrl.h>
+#include <stdio.h>
+
+#include "sysdm.h"
+
+static void init_env_listview(HWND hList)
+{
+    LVCOLUMNW col;
+
+    ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+
+    memset(&col, 0, sizeof(col));
+    col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+    col.pszText = L"Variable";
+    col.cx = 100;
+    col.iSubItem = 0;
+    ListView_InsertColumn(hList, 0, &col);
+
+    col.pszText = L"Value";
+    col.cx = 240;
+    col.iSubItem = 1;
+    ListView_InsertColumn(hList, 1, &col);
+}
+
+static void load_env_vars(HWND hList, HKEY hRoot, const WCHAR *subKey)
+{
+    HKEY hKey;
+    DWORD index = 0;
+    WCHAR name[256];
+    WCHAR value[1024];
+    DWORD name_len, val_size, type;
+    LVITEMW item;
+
+    ListView_DeleteAllItems(hList);
+
+    if (RegOpenKeyExW(hRoot, subKey, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        for (index = 0; ; index++)
+        {
+            name_len = ARRAY_SIZE(name);
+            val_size = sizeof(value);
+            if (RegEnumValueW(hKey, index, name, &name_len, NULL, &type, (BYTE*)value, &val_size) != ERROR_SUCCESS)
+                break;
+
+            memset(&item, 0, sizeof(item));
+            item.mask = LVIF_TEXT;
+            item.iItem = index;
+            item.pszText = name;
+            ListView_InsertItem(hList, &item);
+
+            ListView_SetItemText(hList, index, 1, value);
+        }
+        RegCloseKey(hKey);
+    }
+}
+
+static INT_PTR CALLBACK envvars_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+    {
+        HWND hUserList = GetDlgItem(hwnd, IDC_ENV_USER_LIST);
+        HWND hSysList = GetDlgItem(hwnd, IDC_ENV_SYS_LIST);
+
+        init_env_listview(hUserList);
+        init_env_listview(hSysList);
+
+        load_env_vars(hUserList, HKEY_CURRENT_USER, L"Environment");
+        load_env_vars(hSysList, HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\Session Manager\\Environment");
+        return TRUE;
+    }
+
+    case WM_COMMAND:
+        switch (LOWORD(wparam))
+        {
+        case IDOK:
+        case IDCANCEL:
+            EndDialog(hwnd, LOWORD(wparam));
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
+}
+
+void show_envvars_dialog(HWND parent)
+{
+    DialogBoxW(g_hInstance, MAKEINTRESOURCEW(IDD_ENVVARS), parent, envvars_dlg_proc);
+}

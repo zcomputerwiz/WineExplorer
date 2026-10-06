@@ -1,0 +1,14 @@
+MODULE    = sysdm.cpl
+IMPORTS   = advapi32 ole32 comctl32 shell32 user32 gdi32
+
+VER_FILEDESCRIPTION_STR = "System Control Panel Applet"
+
+SOURCES = \
+	advanced.c \
+	compname.c \
+	envvar.c \
+	general.c \
+	hardware.c \
+	performance.c \
+	sysdm.c \
+	sysdm.rc

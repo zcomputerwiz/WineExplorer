@@ -1,0 +1,140 @@
+/*
+ * WineExplorer Desktop Environment - System Properties Resources (sysdm.cpl)
+ */
+
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+STRINGTABLE
+BEGIN
+    IDS_CPL_NAME        "System"
+    IDS_CPL_INFO        "View information about your computer system, and change settings for hardware, performance, and automatic updates."
+    IDS_CPL_TITLE       "System Properties"
+END
+
+/* General Page */
+IDD_GENERAL DIALOGEX 0, 0, 256, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "General"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_GEN_LOGO_STATIC, "Static", SS_OWNERDRAW, 10, 10, 110, 95
+    LTEXT           "System:", -1, 128, 12, 120, 9
+    LTEXT           "Microsoft Windows Server 2003", IDC_GEN_OS_LABEL, 134, 23, 115, 9
+    LTEXT           "Standard Edition", IDC_GEN_VER_LABEL, 134, 34, 115, 9
+    LTEXT           "WineExplorer Desktop Environment", IDC_GEN_DE_LABEL, 134, 45, 115, 9
+    LTEXT           "Service Pack 2 (Gamescope)", -1, 134, 56, 115, 9
+
+    LTEXT           "Registered to:", -1, 128, 72, 120, 9
+    LTEXT           "Administrator", IDC_GEN_REG_USER, 134, 83, 115, 9
+    LTEXT           "Wine Desktop Environment", IDC_GEN_REG_ORG, 134, 94, 115, 9
+    LTEXT           "76487-640-0000001-23104", IDC_GEN_REG_PID, 134, 105, 115, 9
+
+    LTEXT           "Computer:", -1, 128, 122, 120, 9
+    LTEXT           "x86 Compatible Processor", IDC_GEN_CPU_LABEL, 134, 133, 115, 18
+    LTEXT           "16.0 GB of RAM", IDC_GEN_RAM_LABEL, 134, 154, 115, 9
+END
+
+/* Computer Name Page */
+IDD_COMPNAME DIALOGEX 0, 0, 256, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Computer Name"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    ICON            "", -1, 10, 10, 20, 20
+    LTEXT           "Windows uses the following information to identify your computer on the network.", -1, 40, 10, 206, 18
+    LTEXT           "Computer description:", -1, 10, 36, 100, 9
+    EDITTEXT        IDC_COMP_DESC, 10, 48, 236, 14, ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Full computer name:", -1, 10, 75, 90, 9
+    LTEXT           "WINE-DESKTOP", IDC_COMP_NAME_LABEL, 110, 75, 136, 9
+    LTEXT           "Workgroup:", -1, 10, 92, 90, 9
+    LTEXT           "WORKGROUP", IDC_COMP_WORKGROUP, 110, 92, 136, 9
+    LTEXT           "To rename this computer or join a domain, click Change.", -1, 10, 125, 160, 18
+    PUSHBUTTON      "&Change...", IDC_COMP_CHANGE_BTN, 180, 125, 66, 14
+END
+
+/* Hardware Page */
+IDD_HARDWARE DIALOGEX 0, 0, 256, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Hardware"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Device Manager", -1, 6, 10, 244, 60
+    LTEXT           "The Device Manager lists all the hardware devices installed on your computer. Use the Device Manager to change the properties of any device.", -1, 14, 22, 160, 36
+    PUSHBUTTON      "&Device Manager...", IDC_HW_DEVMGR_BTN, 178, 28, 66, 14
+
+    GROUPBOX        "Hardware Profiles", -1, 6, 78, 244, 60
+    LTEXT           "Hardware profiles provide a way for you to set up and store different hardware configurations.", -1, 14, 90, 160, 36
+    PUSHBUTTON      "&Hardware Profiles", IDC_HW_PROFILES_BTN, 178, 96, 66, 14
+END
+
+/* Advanced Page */
+IDD_ADVANCED DIALOGEX 0, 0, 256, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Advanced"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "You must be logged on as an Administrator to make most of these changes.", -1, 10, 6, 236, 9
+
+    GROUPBOX        "Performance", -1, 6, 18, 244, 46
+    LTEXT           "Visual effects, processor scheduling, memory usage, and virtual memory.", -1, 14, 30, 160, 24
+    PUSHBUTTON      "&Settings...", IDC_ADV_PERF_BTN, 178, 36, 66, 14
+
+    GROUPBOX        "User Profiles", -1, 6, 68, 244, 46
+    LTEXT           "Desktop settings related to your logon.", -1, 14, 80, 160, 24
+    PUSHBUTTON      "S&ettings...", IDC_ADV_PROFILE_BTN, 178, 86, 66, 14
+
+    GROUPBOX        "Startup and Recovery", -1, 6, 118, 244, 46
+    LTEXT           "System startup, system failure, and debugging information.", -1, 14, 130, 160, 24
+    PUSHBUTTON      "Sett&ings...", IDC_ADV_STARTUP_BTN, 178, 136, 66, 14
+
+    PUSHBUTTON      "&Environment Variables...", IDC_ADV_ENVVAR_BTN, 120, 172, 130, 14
+END
+
+/* Performance Options Dialog */
+IDD_PERFORMANCE DIALOGEX 0, 0, 256, 230
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Performance Options"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Select the settings you want to use for the appearance and performance of Windows on this computer.", -1, 10, 8, 236, 18
+    AUTORADIOBUTTON "Let &Windows choose what's best for my computer", IDC_PERF_RADIO_AUTO, 10, 30, 236, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "Adjust for best &appearance", IDC_PERF_RADIO_BESTAPP, 10, 44, 236, 10
+    AUTORADIOBUTTON "Adjust for best &performance", IDC_PERF_RADIO_BESTPERF, 10, 58, 236, 10
+    AUTORADIOBUTTON "&Custom:", IDC_PERF_RADIO_CUSTOM, 10, 72, 80, 10
+
+    CONTROL         "", IDC_PERF_TREE, "SysListView32", LVS_REPORT | LVS_NOCOLUMNHEADER | WS_BORDER | WS_TABSTOP, 10, 86, 236, 110
+
+    DEFPUSHBUTTON   "OK", IDOK, 142, 206, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 196, 206, 50, 14
+END
+
+/* Environment Variables Dialog */
+IDD_ENVVARS DIALOGEX 0, 0, 260, 240
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Environment Variables"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "User variables for Administrator", -1, 6, 6, 248, 96
+    CONTROL         "", IDC_ENV_USER_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | WS_BORDER | WS_TABSTOP, 12, 18, 236, 58
+    PUSHBUTTON      "&New...", IDC_ENV_USER_NEW, 96, 80, 46, 14
+    PUSHBUTTON      "&Edit...", IDC_ENV_USER_EDIT, 146, 80, 46, 14
+    PUSHBUTTON      "&Delete", IDC_ENV_USER_DEL, 196, 80, 46, 14
+
+    GROUPBOX        "System variables", -1, 6, 106, 248, 96
+    CONTROL         "", IDC_ENV_SYS_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | WS_BORDER | WS_TABSTOP, 12, 118, 236, 58
+    PUSHBUTTON      "Ne&w...", IDC_ENV_SYS_NEW, 96, 180, 46, 14
+    PUSHBUTTON      "Ed&it...", IDC_ENV_SYS_EDIT, 146, 180, 46, 14
+    PUSHBUTTON      "De&lete", IDC_ENV_SYS_DEL, 196, 180, 46, 14
+
+    DEFPUSHBUTTON   "OK", IDOK, 146, 214, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 200, 214, 50, 14
+END
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+/* @makedep: sysdm.manifest */
+124 RT_MANIFEST sysdm.manifest
