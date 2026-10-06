@@ -819,6 +819,35 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         if (!using_root) PaintDesktop( (HDC)wp );
         return TRUE;
 
+    case WM_DISPLAYCHANGE:
+    {
+        int new_w = LOWORD(lp);
+        int new_h = HIWORD(lp);
+        if (!new_w || !new_h)
+        {
+            new_w = GetSystemMetrics(SM_CXSCREEN);
+            new_h = GetSystemMetrics(SM_CYSCREEN);
+        }
+        TRACE("desktop_wnd_proc: WM_DISPLAYCHANGE %dx%d @ %Id bpp\n", new_w, new_h, wp);
+        if (!using_root)
+        {
+            SetWindowPos(hwnd, 0, 0, 0, new_w, new_h, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+            desktop_view_on_display_change(new_w, new_h);
+        }
+        return 0;
+    }
+
+    case WM_SIZE:
+    {
+        int new_w = LOWORD(lp);
+        int new_h = HIWORD(lp);
+        if (!using_root && (wp == SIZE_RESTORED || wp == SIZE_MAXIMIZED) && new_w && new_h)
+        {
+            desktop_view_on_display_change(new_w, new_h);
+        }
+        break;
+    }
+
     case WM_SETTINGCHANGE:
         if (wp == SPI_SETDESKWALLPAPER)
             SystemParametersInfoW( SPI_SETDESKWALLPAPER, 0, NULL, FALSE );

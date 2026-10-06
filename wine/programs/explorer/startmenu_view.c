@@ -458,6 +458,12 @@ HWND startbutton_create(HWND parent_tray, int x, int y, int width, int height)
 {
     WNDCLASSW wc;
 
+    if (g_startbutton_hwnd)
+    {
+        startbutton_resize(x, y, width, height);
+        return g_startbutton_hwnd;
+    }
+
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = startbutton_proc;
     wc.hInstance = GetModuleHandleW(NULL);

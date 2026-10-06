@@ -110,6 +110,18 @@ BEGIN
     PUSHBUTTON      "Cancel", IDCANCEL, 172, 158, 50, 14
 END
 
+/* Display Change Confirmation Dialog */
+IDD_CONFIRMSETTINGS DIALOGEX 0, 0, 220, 85
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_CENTER
+CAPTION "Monitor Settings"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    ICON            ICO_MAIN, IDC_STATIC, 14, 15, 21, 20
+    LTEXT           "Your desktop has been reconfigured. Do you want to keep these settings?\n\nReverting in 15 seconds", IDC_CONFIRM_TEXT, 48, 15, 160, 36
+    DEFPUSHBUTTON   "&Yes", IDYES, 55, 58, 50, 14
+    PUSHBUTTON      "&No", IDNO, 115, 58, 50, 14
+END
+
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
 /* @makedep: desk.manifest */

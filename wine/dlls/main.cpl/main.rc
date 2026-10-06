@@ -1,0 +1,240 @@
+/*
+ * WineExplorer Desktop Environment - Mouse & Keyboard Control Panel (main.cpl)
+ *
+ * Resource File
+ */
+
+#include "resource.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+/* Icons */
+IDI_MOUSE          ICON "mouse.ico"
+IDI_KEYBD          ICON "keybd.ico"
+IDI_PRINT          ICON "prtfldsh.ico"
+IDI_FONTS          ICON "fntfldsh.ico"
+IDI_ADM            ICON "admfldsh.ico"
+
+IDI_PTSPEED        ICON "pspeed.ico"
+IDI_DELAY          ICON "delay.ico"
+IDI_REPEAT         ICON "repeat.ico"
+IDI_SNAPDEF        ICON "snapto.ico"
+IDI_SGLCLICK       ICON "sglclk.ico"
+IDI_DBLCLICK       ICON "dblclk.ico"
+
+IDI_PTTRAILS       ICON "pt02.ico"
+IDI_PTVANISH       ICON "vanish.ico"
+IDI_PTSONAR        ICON "sonar.ico"
+IDI_WHEEL          ICON "wheel.ico"
+
+ICON_FOLDER_CLOSED ICON "fldr_clo.ico"
+ICON_FOLDER_OPEN   ICON "fldr_opn.ico"
+ICON_CLICKLOCK     ICON "clklock.ico"
+
+/* Bitmaps */
+IDB_MOUSE          BITMAP "mouse.bmp"
+
+/* Strings */
+STRINGTABLE
+BEGIN
+    IDS_MOUSE_TITLE      "Mouse"
+    IDS_MOUSE_EXPLAIN    "Customizes mouse settings, such as button configuration, double-click speed, mouse pointers, and motion speed."
+    IDS_KEYBD_TITLE      "Keyboard"
+    IDS_KEYBD_EXPLAIN    "Customizes keyboard settings, such as the cursor blink rate and character repeat rate."
+    IDS_PRINT_TITLE      "Printers and Faxes"
+    IDS_PRINT_EXPLAIN    "Shows installed printers and fax printers and helps you add new ones."
+    IDS_FONTS_TITLE      "Fonts"
+    IDS_FONTS_EXPLAIN    "Shows fonts installed on your computer."
+    IDS_ADM_TITLE        "Administrative Tools"
+    IDS_ADM_EXPLAIN      "Configures administrative settings for your computer."
+
+    IDS_NONE             "(None)"
+    IDS_SCHEME_DEFAULT   "Windows Default (system scheme)"
+    IDS_SCHEME_INVERTED  "Windows Inverted (system scheme)"
+    IDS_SCHEME_BLACK     "Windows Black (system scheme)"
+    IDS_SCHEME_STANDARD  "Windows Standard (large)"
+
+    IDS_CURSOR_NORMAL       "Normal Select"
+    IDS_CURSOR_HELP         "Help Select"
+    IDS_CURSOR_APPSTARTING  "Working in Background"
+    IDS_CURSOR_WAIT         "Busy"
+    IDS_CURSOR_CROSS        "Precision Select"
+    IDS_CURSOR_IBEAM        "Text Select"
+    IDS_CURSOR_NWPEN        "Handwriting"
+    IDS_CURSOR_NO           "Unavailable"
+    IDS_CURSOR_SIZENS       "Vertical Resize"
+    IDS_CURSOR_SIZEWE       "Horizontal Resize"
+    IDS_CURSOR_SIZENWSE     "Diagonal Resize 1"
+    IDS_CURSOR_SIZENESW     "Diagonal Resize 2"
+    IDS_CURSOR_SIZEALL      "Move"
+    IDS_CURSOR_UPARROW      "Alternate Select"
+    IDS_CURSOR_HAND         "Link Select"
+END
+
+/* Mouse Buttons Dialog */
+DLG_MOUSE_BUTTONS DIALOGEX 0, 0, 252, 218
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Buttons"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Button configuration", IDC_STATIC, 7, 7, 238, 71
+    AUTOCHECKBOX    "&Switch primary and secondary buttons", IDBTN_BUTTONSWAP, 13, 17, 145, 14, WS_GROUP
+    CONTROL         "", MOUSE_MOUSEBMP, "Static", SS_OWNERDRAW | WS_GROUP, 173, 14, 65, 60
+    LTEXT           "Select this check box to make the button on the right the one you use for primary functions such as selecting and dragging.",
+                    IDC_STATIC, 13, 33, 155, 37
+
+    GROUPBOX        "Double-click speed", IDC_STATIC, 7, 81, 238, 66
+    LTEXT           "Double-click the folder to test your setting. If the folder does not open or close, try using a slower setting.",
+                    IDC_DBLCLICK_TEXT, 13, 91, 158, 25
+    LTEXT           "Spee&d:", IDC_STATIC, 13, 121, 28, 9
+    LTEXT           "Slow", IDC_STATIC, 45, 121, 18, 9
+    LTEXT           "Fast", IDC_STATIC, 145, 121, 16, 9
+    CONTROL         "", MOUSE_CLICKSCROLL, "msctls_trackbar32", TBS_AUTOTICKS | WS_GROUP | WS_TABSTOP, 63, 118, 80, 16
+    ICON            ICON_FOLDER_CLOSED, MOUSE_DBLCLK_TEST_AREA, 195, 96, 32, 32, SS_NOTIFY | SS_CENTERIMAGE | SS_SUNKEN
+
+    GROUPBOX        "ClickLock", IDC_STATIC, 7, 150, 238, 62
+    AUTOCHECKBOX    "&Turn on ClickLock", IDCK_CLICKLOCK, 13, 162, 75, 10, WS_GROUP
+    LTEXT           "Enables you to highlight or drag without holding down the mouse button. To set, briefly press the mouse button. To release, click the mouse button again.",
+                    IDC_CLICKLOCK_TEXT, 13, 176, 155, 32
+    PUSHBUTTON      "S&ettings...", IDBTN_CLICKLOCK_SETTINGS, 174, 160, 63, 14
+END
+
+/* ClickLock Settings Dialog */
+IDD_CLICKLOCK_SETTINGS_DLG DIALOGEX 0, 0, 188, 86
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Settings for ClickLock"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    ICON            ICON_CLICKLOCK, IDC_STATIC, 7, 7, 21, 20, WS_GROUP
+    LTEXT           "&Adjust how long you need to hold down a mouse button before your click is ""locked.""",
+                    IDC_CLICKLOCK_SETTINGS_TXT, 32, 7, 145, 25
+    RTEXT           "Short", IDC_CLICKLOCK_SETTINGS_LEFT_TXT, 25, 36, 25, 10
+    LTEXT           "Long", IDC_CLICKLOCK_SETTINGS_RIGHT_TXT, 140, 36, 25, 10
+    CONTROL         "", IDT_CLICKLOCK_TIME_SETTINGS, "msctls_trackbar32", TBS_AUTOTICKS | WS_GROUP | WS_TABSTOP, 52, 33, 85, 20
+    DEFPUSHBUTTON   "OK", IDOK, 78, 65, 50, 14, WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 131, 65, 50, 14
+END
+
+/* Mouse Pointers Dialog */
+DLG_MOUSE_POINTER DIALOGEX 0, 0, 252, 218
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Pointers"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "&Scheme", IDC_STATIC, 7, 7, 178, 53
+    COMBOBOX        ID_SCHEMECOMBO, 13, 21, 165, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Sa&ve As...", ID_SAVESCHEME, 74, 39, 50, 14
+    PUSHBUTTON      "&Delete", ID_REMOVESCHEME, 128, 39, 50, 14
+    ICON            "", ID_PREVIEW, 195, 11, 45, 48, SS_CENTERIMAGE | SS_SUNKEN
+
+    LTEXT           "&Customize:", IDC_STATIC, 7, 66, 100, 9
+    LISTBOX         ID_CURSORLIST, 7, 77, 238, 113, LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "&Enable pointer shadow", ID_CURSORSHADOW, 7, 196, 100, 12
+    PUSHBUTTON      "Use De&fault", ID_DEFAULT, 138, 196, 52, 14
+    PUSHBUTTON      "&Browse...", ID_BROWSE, 193, 196, 52, 14
+END
+
+/* Save Cursor Scheme Dialog */
+DLG_MOUSE_POINTER_SCHEMESAVE DIALOGEX 132, 64, 227, 60
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Save Scheme"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Save this cursor scheme as:", IDC_STATIC, 7, 7, 144, 9
+    EDITTEXT        ID_SCHEMEFILENAME, 7, 18, 212, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK", IDOK, 116, 39, 50, 14, WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 169, 39, 50, 14, WS_GROUP
+END
+
+/* Pointer Options (Motion) Dialog */
+DLG_MOUSE_MOTION DIALOGEX 0, 0, 252, 218
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Pointer Options"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Motion", IDC_STATIC, 7, 6, 238, 61
+    ICON            IDI_PTSPEED, MOUSE_SPEEDBMP, 13, 17, 20, 20
+    LTEXT           "Sele&ct a pointer speed:", IDC_STATIC, 42, 19, 120, 8
+    RTEXT           "Slow", IDC_STATIC, 42, 36, 17, 9
+    LTEXT           "Fast", IDC_STATIC, 145, 36, 16, 9
+    CONTROL         "", MOUSE_SPEEDSCROLL, "msctls_trackbar32", TBS_AUTOTICKS | WS_GROUP | WS_TABSTOP, 61, 32, 80, 16
+    AUTOCHECKBOX    "&Enhance pointer precision", MOUSE_ENHANCED_MOTION, 42, 53, 151, 10
+
+    GROUPBOX        "Snap To", IDC_STATIC, 7, 71, 238, 38
+    ICON            IDI_SNAPDEF, MOUSE_PTRSNAPDEF, 13, 83, 20, 20
+    AUTOCHECKBOX    "A&utomatically move pointer to the default button in a dialog box",
+                    MOUSE_SNAPDEF, 42, 83, 195, 17, BS_TOP | BS_MULTILINE
+
+    GROUPBOX        "Visibility", IDC_STATIC, 7, 113, 238, 98
+    ICON            IDI_PTTRAILS, MOUSE_PTRTRAIL, 13, 125, 20, 20
+    AUTOCHECKBOX    "&Display pointer trails", MOUSE_TRAILS, 42, 126, 192, 13
+    LTEXT           "Short", MOUSE_TRAILSCROLLTXT1, 42, 143, 18, 9
+    LTEXT           "Long", MOUSE_TRAILSCROLLTXT2, 145, 143, 20, 8
+    CONTROL         "", MOUSE_TRAILSCROLL, "msctls_trackbar32", TBS_AUTOTICKS | WS_GROUP | WS_TABSTOP, 61, 139, 80, 16
+
+    ICON            IDI_PTVANISH, MOUSE_PTRVANISH, 13, 160, 20, 20
+    AUTOCHECKBOX    "&Hide pointer while typing", MOUSE_VANISH, 42, 165, 174, 10
+
+    ICON            IDI_PTSONAR, MOUSE_PTRSONAR, 13, 185, 20, 20
+    AUTOCHECKBOX    "&Show location of pointer when I press the CTRL key",
+                    MOUSE_SONAR, 42, 190, 196, 10
+END
+
+/* Mouse Wheel Dialog */
+DLG_MOUSE_WHEEL DIALOGEX 0, 0, 252, 218
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Wheel"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Scrolling", IDC_STATIC, 7, 7, 238, 78, WS_GROUP
+    ICON            IDI_WHEEL, IDBMP_SCROLL, 13, 18, 20, 20
+    LTEXT           "Roll the wheel one notch to scroll:", IDC_STATIC, 42, 20, 140, 12
+    AUTORADIOBUTTON "The following &number of lines at a time:", IDRAD_SCROLL_LINES, 42, 37, 195, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "&One screen at a time", IDRAD_SCROLL_PAGE, 42, 68, 195, 10
+    EDITTEXT        IDE_BUDDY_SCROLL_LINES, 69, 49, 40, 14, ES_CENTER | ES_AUTOHSCROLL | ES_NUMBER | WS_GROUP
+    CONTROL         "", IDC_SPIN_SCROLL_LINES, "msctls_updown32", UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS | WS_GROUP, 100, 46, 11, 18
+END
+
+/* Keyboard Speed Dialog */
+DLG_KEYBD_SPEED DIALOGEX 0, 0, 252, 218
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Speed"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Character repeat", IDC_STATIC, 7, 7, 238, 146
+    ICON            IDI_DELAY, IDC_STATIC, 21, 24, 18, 20
+    LTEXT           "Repeat &delay:", IDC_STATIC, 56, 24, 46, 9
+    LTEXT           "Long", IDC_STATIC, 56, 38, 17, 9
+    LTEXT           "Short", IDC_STATIC, 210, 38, 17, 9
+    CONTROL         "", KDELAY_SCROLL, "msctls_trackbar32", TBS_AUTOTICKS | WS_TABSTOP, 75, 38, 134, 18
+
+    ICON            IDI_REPEAT, IDC_STATIC, 21, 70, 18, 20
+    LTEXT           "&Repeat rate:", IDC_STATIC, 56, 70, 41, 9
+    LTEXT           "Slow", IDC_STATIC, 56, 84, 18, 9
+    LTEXT           "Fast", IDC_STATIC, 210, 84, 16, 8
+    CONTROL         "", KSPEED_SCROLL, "msctls_trackbar32", TBS_AUTOTICKS | WS_TABSTOP, 75, 84, 134, 18
+
+    LTEXT           "Click here and hold down a key to &test repeat rate:", IDC_STATIC, 21, 115, 187, 9
+    EDITTEXT        KREPEAT_EDIT, 21, 125, 209, 14, ES_AUTOHSCROLL
+
+    GROUPBOX        "Cursor &blink rate", IDC_STATIC, 7, 157, 238, 49
+    LTEXT           "None", IDC_STATIC, 56, 176, 20, 9
+    LTEXT           "Fast", IDC_STATIC, 210, 176, 16, 9
+    CONTROL         "", KBLINK_SCROLL, "msctls_trackbar32", TBS_AUTOTICKS | WS_TABSTOP, 75, 174, 134, 18
+END
+
+/* Hardware Dialog (Shared for Mouse and Keyboard) */
+DLG_HARDWARE DIALOGEX 0, 0, 252, 218
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Hardware"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Devices:", IDC_STATIC, 7, 7, 238, 120
+    CONTROL         "", IDC_DEV_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, 14, 22, 224, 98
+
+    GROUPBOX        "Device Properties", IDC_STATIC, 7, 132, 238, 55
+    LTEXT           "Location: Connected to Linux Input Subsystem (Wayland / libinput)", IDC_DEV_DESC, 14, 145, 224, 18
+    LTEXT           "Device Status: This device is working properly.", IDC_STATIC, 14, 166, 224, 14
+
+    PUSHBUTTON      "&Properties", IDC_DEV_PROPERTIES, 180, 194, 65, 14
+END

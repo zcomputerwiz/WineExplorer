@@ -176,7 +176,30 @@
   - Hibernate page: hibernate toggle, RAM requirement calculation, and disk free space.
   - Authentic Server 2003 assets: `pwrmng.ico`, `batt.ico`, `plug.ico`, `hibernate.ico`.
 
-## Phase 11: Verification, Packaging & Deployment (Next Steps)
+## Phase 11: Display Properties Dynamic Reactivity & Mouse Properties (`main.cpl`) (Completed)
+- [x] Investigate display resolution and color depth handling across Wine, Explorer, and GameScope:
+  - Wine's `NtUserChangeDisplaySettings` sets the primary source mode and broadcasts `WM_DISPLAYCHANGE` to all windows.
+  - Resolved Explorer deficiency: Subclassed desktop window (`desktop_wnd_proc`) previously ignored `WM_DISPLAYCHANGE` and `WM_SIZE`, leaving the virtual desktop window and view surface static.
+- [x] Implement Dynamic Virtual Desktop & Compositor Reactivity in Wine Explorer:
+  - `desktop.c`: Intercept `WM_DISPLAYCHANGE` and `WM_SIZE`. Calls `SetWindowPos` on virtual desktop window to new dimensions. Wine's X11 driver executes `XMoveResizeWindow`, triggering GameScope compositor auto-scaling and nested resize.
+  - `desktop_view.c` / `desktop_view.h`: Added `desktop_view_on_display_change`. Handles `WM_DISPLAYCHANGE` and `WM_SIZE`, resizes view window, recalculates auto-arrange or clamps icons to visible screen boundaries so no icons are left off-screen, and repaints wallpapers across all position modes (Center, Tile, Stretch, Fit, Fill).
+  - `systray.c` / `tray_clock.c` / `startmenu_view.c` / `taskband.c`: Repositions and dynamically resizes taskbar, Start button, Show Desktop button, taskband, and tray clock without duplicate window recreation.
+- [x] Implement Enhanced Display Settings & Confirmation Dialog (`desk.cpl`):
+  - Added 16-bit / 32-bit color depth selection from `IDC_SET_BPP_COMBO` with device capability detection.
+  - Added authentic Windows XP / Server 2003 15-second countdown confirmation dialog (`IDD_CONFIRMSETTINGS` / `confirm_dialog_proc`): "Your desktop has been reconfigured. Do you want to keep these settings?\n\nReverting in %d seconds".
+  - Implemented automatic rollback to previous resolution and bit depth on "No" or timer expiration.
+- [x] Implement Mouse & Keyboard Control Panel Applet (`main.cpl` in `wine/dlls/main.cpl/`):
+  - Extracted and integrated 20 authentic Server 2003 binary icons and bitmaps: `mouse.ico`, `keybd.ico`, `prtfldsh.ico`, `fntfldsh.ico`, `admfldsh.ico`, `mouse.bmp`, `fldr_clo.ico`, `fldr_opn.ico`, `clklock.ico`, `dblclk.ico`, `delay.ico`, `pspeed.ico`, `pt02.ico`, `repeat.ico`, `sglclk.ico`, `snapto.ico`, `sonar.ico`, `vanish.ico`, `wheel.ico`.
+  - Exported standard `CPlApplet` supporting both Mouse (`@0`) and Keyboard (`@1`) applets, wiring directly into `control.exe`.
+  - Mouse Buttons page (`DLG_MOUSE_BUTTONS`): Left/Right button swap (`SwapMouseButton`) with live owner-drawn mouse button highlight preview, double-click speed slider (`GetDoubleClickTime` / `SetDoubleClickTime`), interactive double-click folder test area, ClickLock toggle and settings dialog (`IDD_CLICKLOCK_SETTINGS_DLG`).
+  - Mouse Pointers page (`DLG_MOUSE_POINTER`): Schemes dropdown (Default, Inverted, Black, Standard Large, None), owner-drawn cursor list with authentic system cursor roles, live preview icon, pointer shadow toggle (`SPI_SETCURSORSHADOW`), Use Default, and Browse (`GetOpenFileNameW` for `*.cur;*.ani`).
+  - Mouse Pointer Options page (`DLG_MOUSE_MOTION`): Motion speed trackbar (`SPI_SETMOUSESPEED`, 1-20), Enhance pointer precision (`SPI_SETMOUSE`), Snap To default dialog button (`SPI_SETSNAPTODEFBUTTON`), pointer trails with Short/Long slider (`SPI_SETMOUSETRAILS`), Hide pointer while typing (`MouseVanish`), Show location on CTRL key (`MouseSonar`).
+  - Mouse Wheel page (`DLG_MOUSE_WHEEL`): Vertical scrolling lines per notch with updown spinner buddy (`SPI_SETWHEELSCROLLLINES`, 1-100) or one screen at a time (`WHEEL_PAGESCROLL`).
+  - Keyboard Speed page (`DLG_KEYBD_SPEED`): Character repeat delay trackbar (`SPI_SETKEYBOARDDELAY`, 0-3), repeat rate trackbar (`SPI_SETKEYBOARDSPEED`, 0-31), test text box, cursor blink rate trackbar (`GetCaretBlinkTime` / `SetCaretBlinkTime`).
+  - Hardware page (`DLG_HARDWARE`): Full list view of detected pointing devices and keyboards with Linux/Wayland/libinput connection status and device properties.
+  - Added `WINE_CONFIG_MAKEFILE(dlls/main.cpl)` to `wine/configure.ac`.
+
+## Phase 12: Verification, Packaging & Deployment (Next Steps)
 - [ ] Test build configuration with Wine build system (`./configure && make`).
 - [ ] Verify Gamescope session startup with display manager.
 - [ ] Provide comprehensive administration and user documentation.

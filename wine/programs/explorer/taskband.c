@@ -469,6 +469,12 @@ HWND taskband_create(HWND parent_tray, int x, int y, int width, int height)
 {
     WNDCLASSW wc;
 
+    if (g_taskband.hwnd)
+    {
+        taskband_resize(x, y, width, height);
+        return g_taskband.hwnd;
+    }
+
     memset(&g_taskband, 0, sizeof(g_taskband));
     g_taskband.parent_tray = parent_tray;
     g_taskband.max_width = width;

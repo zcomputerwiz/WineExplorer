@@ -120,6 +120,56 @@ static void update_resolution_label(HWND hwnd, int idx)
     SetDlgItemTextW(hwnd, IDC_SET_RES_TEXT, buf);
 }
 
+static INT_PTR CALLBACK confirm_dialog_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+    {
+        int timeout = (int)lparam;
+        if (timeout <= 0) timeout = 15;
+        SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)timeout);
+        SetTimer(hwnd, 1, 1000, NULL);
+        return TRUE;
+    }
+
+    case WM_TIMER:
+    {
+        int timeout = (int)GetWindowLongPtrW(hwnd, DWLP_USER);
+        timeout--;
+        SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)timeout);
+        if (timeout <= 0)
+        {
+            KillTimer(hwnd, 1);
+            EndDialog(hwnd, IDNO);
+        }
+        else
+        {
+            WCHAR buf[256];
+            swprintf(buf, 256,
+                     L"Your desktop has been reconfigured. Do you want to keep these settings?\n\nReverting in %d seconds",
+                     timeout);
+            SetDlgItemTextW(hwnd, IDC_CONFIRM_TEXT, buf);
+        }
+        return TRUE;
+    }
+
+    case WM_COMMAND:
+        if (LOWORD(wparam) == IDYES || LOWORD(wparam) == IDNO)
+        {
+            KillTimer(hwnd, 1);
+            EndDialog(hwnd, LOWORD(wparam));
+            return TRUE;
+        }
+        break;
+
+    case WM_DESTROY:
+        KillTimer(hwnd, 1);
+        break;
+    }
+    return FALSE;
+}
+
 INT_PTR CALLBACK settings_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
@@ -129,6 +179,8 @@ INT_PTR CALLBACK settings_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         HWND hSlider = GetDlgItem(hwnd, IDC_SET_RES_SLIDER);
         HWND hBpp = GetDlgItem(hwnd, IDC_SET_BPP_COMBO);
         DISPLAY_DEVICEW dd;
+        HDC hdc;
+        int cur_bpp = 32;
 
         init_resolutions();
 
@@ -148,9 +200,16 @@ INT_PTR CALLBACK settings_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         SendMessageW(hSlider, TBM_SETPOS, TRUE, g_selected_res_idx);
         update_resolution_label(hwnd, g_selected_res_idx);
 
+        hdc = GetDC(NULL);
+        if (hdc)
+        {
+            cur_bpp = GetDeviceCaps(hdc, BITSPIXEL);
+            ReleaseDC(NULL, hdc);
+        }
+
         SendMessageW(hBpp, CB_ADDSTRING, 0, (LPARAM)L"Highest (32 bit)");
         SendMessageW(hBpp, CB_ADDSTRING, 0, (LPARAM)L"Medium (16 bit)");
-        SendMessageW(hBpp, CB_SETCURSEL, 0, 0);
+        SendMessageW(hBpp, CB_SETCURSEL, (cur_bpp <= 16) ? 1 : 0, 0);
 
         return TRUE;
     }
@@ -174,6 +233,11 @@ INT_PTR CALLBACK settings_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                         L"Display Properties", MB_OK | MB_ICONINFORMATION);
             return TRUE;
         }
+        else if (LOWORD(wparam) == IDC_SET_BPP_COMBO && HIWORD(wparam) == CBN_SELCHANGE)
+        {
+            PropSheet_Changed(GetParent(hwnd), hwnd);
+            return TRUE;
+        }
         break;
 
     case WM_NOTIFY:
@@ -183,15 +247,62 @@ INT_PTR CALLBACK settings_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         {
             if (g_selected_res_idx >= 0 && g_selected_res_idx < g_res_count)
             {
-                DEVMODEW dm;
-                memset(&dm, 0, sizeof(dm));
-                dm.dmSize = sizeof(dm);
-                dm.dmPelsWidth = g_resolutions[g_selected_res_idx].width;
-                dm.dmPelsHeight = g_resolutions[g_selected_res_idx].height;
-                dm.dmBitsPerPel = 32;
-                dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+                DEVMODEW cur_dm;
+                DEVMODEW new_dm;
+                int bpp_sel = (int)SendMessageW(GetDlgItem(hwnd, IDC_SET_BPP_COMBO), CB_GETCURSEL, 0, 0);
+                int target_bpp = (bpp_sel == 1) ? 16 : 32;
+                LONG ret;
 
-                ChangeDisplaySettingsExW(NULL, &dm, NULL, CDS_UPDATEREGISTRY, NULL);
+                memset(&cur_dm, 0, sizeof(cur_dm));
+                cur_dm.dmSize = sizeof(cur_dm);
+                EnumDisplaySettingsExW(NULL, ENUM_CURRENT_SETTINGS, &cur_dm, 0);
+
+                memset(&new_dm, 0, sizeof(new_dm));
+                new_dm.dmSize = sizeof(new_dm);
+                new_dm.dmPelsWidth = g_resolutions[g_selected_res_idx].width;
+                new_dm.dmPelsHeight = g_resolutions[g_selected_res_idx].height;
+                new_dm.dmBitsPerPel = target_bpp;
+                new_dm.dmDisplayFrequency = cur_dm.dmDisplayFrequency ? cur_dm.dmDisplayFrequency : 60;
+                new_dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY;
+
+                if (new_dm.dmPelsWidth != cur_dm.dmPelsWidth ||
+                    new_dm.dmPelsHeight != cur_dm.dmPelsHeight ||
+                    new_dm.dmBitsPerPel != cur_dm.dmBitsPerPel)
+                {
+                    ret = ChangeDisplaySettingsExW(NULL, &new_dm, NULL, CDS_UPDATEREGISTRY, NULL);
+                    if (ret == DISP_CHANGE_SUCCESSFUL)
+                    {
+                        INT_PTR keep = DialogBoxParamW(GetModuleHandleW(L"desk.cpl"),
+                                                       MAKEINTRESOURCEW(IDD_CONFIRMSETTINGS),
+                                                       hwnd, confirm_dialog_proc, (LPARAM)15);
+                        if (keep != IDYES)
+                        {
+                            int i;
+                            /* Revert */
+                            ChangeDisplaySettingsExW(NULL, &cur_dm, NULL, CDS_UPDATEREGISTRY, NULL);
+
+                            /* Restore slider pos */
+                            for (i = 0; i < g_res_count; i++)
+                            {
+                                if (g_resolutions[i].width == (int)cur_dm.dmPelsWidth &&
+                                    g_resolutions[i].height == (int)cur_dm.dmPelsHeight)
+                                {
+                                    g_selected_res_idx = i;
+                                    SendMessageW(GetDlgItem(hwnd, IDC_SET_RES_SLIDER), TBM_SETPOS, TRUE, i);
+                                    update_resolution_label(hwnd, i);
+                                    break;
+                                }
+                            }
+                            SendMessageW(GetDlgItem(hwnd, IDC_SET_BPP_COMBO), CB_SETCURSEL,
+                                         (cur_dm.dmBitsPerPel <= 16) ? 1 : 0, 0);
+                        }
+                    }
+                    else
+                    {
+                        MessageBoxW(hwnd, L"The selected display mode could not be applied.",
+                                    L"Display Properties", MB_OK | MB_ICONEXCLAMATION);
+                    }
+                }
             }
             return TRUE;
         }

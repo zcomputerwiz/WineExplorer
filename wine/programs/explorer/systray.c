@@ -1169,9 +1169,13 @@ static void do_show_systray(void)
         int taskband_w = tray_width - taskband_x - clock_width - (nb_displayed * icon_cx) - 8;
 
         startbutton_create( tray_window, 0, 0, start_button_width, tray_height );
+        startbutton_resize( 0, 0, start_button_width, tray_height );
         show_desktop_button_create( tray_window, start_button_width, 0, show_desktop_width, tray_height );
+        show_desktop_button_resize( start_button_width, 0, show_desktop_width, tray_height );
         taskband_create( tray_window, taskband_x, 0, max( 50, taskband_w ), tray_height );
+        taskband_resize( taskband_x, 0, max( 50, taskband_w ), tray_height );
         tray_clock_create( tray_window, tray_width - clock_width, 0, clock_width, tray_height );
+        tray_clock_resize( tray_width - clock_width, 0, clock_width, tray_height );
         nettray_init( tray_window );
         volumetray_init( tray_window );
         powertray_init( tray_window );

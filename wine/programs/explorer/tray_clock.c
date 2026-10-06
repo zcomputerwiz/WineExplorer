@@ -166,6 +166,12 @@ HWND tray_clock_create(HWND parent_tray, int x, int y, int width, int height)
 {
     WNDCLASSW wc;
 
+    if (g_tray_clock_hwnd)
+    {
+        tray_clock_resize(x, y, width, height);
+        return g_tray_clock_hwnd;
+    }
+
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = tray_clock_proc;
     wc.hInstance = GetModuleHandleW(NULL);
@@ -244,6 +250,12 @@ HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int h
 {
     WNDCLASSW wc;
 
+    if (g_show_desktop_hwnd)
+    {
+        show_desktop_button_resize(x, y, width, height);
+        return g_show_desktop_hwnd;
+    }
+
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = show_desktop_button_proc;
     wc.hInstance = GetModuleHandleW(NULL);
@@ -257,6 +269,12 @@ HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int h
                                           parent_tray, NULL, wc.hInstance, NULL);
 
     return g_show_desktop_hwnd;
+}
+
+void show_desktop_button_resize(int x, int y, int width, int height)
+{
+    if (g_show_desktop_hwnd)
+        SetWindowPos(g_show_desktop_hwnd, NULL, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void show_desktop_button_destroy(void)

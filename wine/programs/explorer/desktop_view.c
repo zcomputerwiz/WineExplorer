@@ -259,6 +259,49 @@ void desktop_view_align_to_grid(void)
         InvalidateRect(g_desktop_view.hwnd, NULL, TRUE);
 }
 
+void desktop_view_on_display_change(int width, int height)
+{
+    int i;
+    int max_x, max_y;
+    RECT rc;
+
+    if (!width || !height)
+    {
+        width = GetSystemMetrics(SM_CXSCREEN);
+        height = GetSystemMetrics(SM_CYSCREEN);
+    }
+
+    if (g_desktop_view.hwnd)
+    {
+        GetClientRect(g_desktop_view.hwnd, &rc);
+        if (rc.right != width || rc.bottom != height)
+        {
+            SetWindowPos(g_desktop_view.hwnd, NULL, 0, 0, width, height,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+
+    max_x = max(10, width - g_desktop_view.grid_cx);
+    max_y = max(10, height - g_desktop_view.grid_cy - 40);
+
+    if (g_desktop_view.auto_arrange)
+    {
+        desktop_view_auto_arrange();
+    }
+    else
+    {
+        for (i = 0; i < g_desktop_view.item_count; i++)
+        {
+            DESKTOP_ITEM *item = g_desktop_view.items[i];
+            if (item->pos.x > max_x) item->pos.x = max_x;
+            if (item->pos.y > max_y) item->pos.y = max_y;
+            update_item_bounds(item, g_desktop_view.grid_cx, g_desktop_view.grid_cy);
+        }
+        if (g_desktop_view.hwnd)
+            InvalidateRect(g_desktop_view.hwnd, NULL, TRUE);
+    }
+}
+
 void desktop_view_load_wallpaper(const WCHAR *path)
 {
     if (g_desktop_view.hbm_wallpaper)
@@ -534,6 +577,25 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
 {
     switch (msg)
     {
+    case WM_DISPLAYCHANGE:
+    {
+        int w = LOWORD(lparam);
+        int h = HIWORD(lparam);
+        desktop_view_on_display_change(w, h);
+        return 0;
+    }
+
+    case WM_SIZE:
+    {
+        int w = LOWORD(lparam);
+        int h = HIWORD(lparam);
+        if (w && h && (wparam == SIZE_RESTORED || wparam == SIZE_MAXIMIZED))
+        {
+            desktop_view_on_display_change(w, h);
+        }
+        return 0;
+    }
+
     case WM_PAINT:
     {
         PAINTSTRUCT ps;

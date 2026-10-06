@@ -24,6 +24,7 @@ void tray_clock_resize(int x, int y, int width, int height);
 /* Show Desktop Button API */
 HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int height);
 void show_desktop_button_destroy(void);
+void show_desktop_button_resize(int x, int y, int width, int height);
 void show_desktop_toggle(void);
 
 #endif /* __WINE_EXPLORER_TRAY_CLOCK_H */

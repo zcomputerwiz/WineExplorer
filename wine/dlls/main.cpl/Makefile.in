@@ -1,0 +1,14 @@
+MODULE    = main.cpl
+IMPORTS   = user32 gdi32 comctl32 shell32 advapi32 comdlg32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	hardware_page.c \
+	keyboard_page.c \
+	main.c \
+	main.rc \
+	mouse_buttons.c \
+	mouse_options.c \
+	mouse_pointers.c \
+	mouse_wheel.c

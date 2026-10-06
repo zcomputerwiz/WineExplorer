@@ -25,9 +25,11 @@
 #define IDD_SETTINGS        1004
 #define IDD_ADVAPPEARANCE   1005
 #define IDD_CUSTDESKTOP     1006
+#define IDD_CONFIRMSETTINGS 1007
 
 /* Control IDs: Common */
 #define IDC_STATIC          -1
+#define IDC_CONFIRM_TEXT    2410
 
 /* Themes Tab */
 #define IDC_THEME_LIST      2100
