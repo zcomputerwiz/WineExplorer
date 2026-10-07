@@ -14,6 +14,7 @@
 #define IDS_CPL_INFO        2
 
 #define ICO_MAIN            100
+#define IDB_WORLD           101
 
 /* Dialogs */
 #define IDD_DATEANDTIME     1001

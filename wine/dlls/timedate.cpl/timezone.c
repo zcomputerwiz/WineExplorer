@@ -32,6 +32,9 @@ static TZ_ENTRY *g_tz_entries = NULL;
 static int g_tz_count = 0;
 static int g_selected_tz_idx = -1;
 static WNDPROC g_orig_map_proc = NULL;
+static HBITMAP g_hWorldBmp = NULL;
+static int g_bm_width = 0;
+static int g_bm_height = 0;
 
 static const struct {
     const WCHAR *key;
@@ -97,6 +100,18 @@ static const struct {
     { L"Tonga Standard Time", L"(GMT+13:00) Nuku'alofa", L"Tonga Standard Time", L"Tonga Daylight Time", -780, FALSE }
 };
 
+/* Sort by Bias descending (so UTC-12 is first, up to UTC+13), then by display_name */
+static int tz_compare(const void *a, const void *b)
+{
+    const TZ_ENTRY *ea = (const TZ_ENTRY *)a;
+    const TZ_ENTRY *eb = (const TZ_ENTRY *)b;
+
+    if (ea->tzi.Bias != eb->tzi.Bias)
+        return (ea->tzi.Bias > eb->tzi.Bias) ? -1 : 1;
+
+    return _wcsicmp(ea->display_name, eb->display_name);
+}
+
 static void init_timezones(void)
 {
     HKEY hZonesKey;
@@ -135,10 +150,12 @@ static void init_timezones(void)
                         wcsncpy(item->display_name, subkey_name, ARRAY_SIZE(item->display_name) - 1);
 
                     size = sizeof(item->std_name);
-                    RegQueryValueExW(hSub, L"Std", NULL, &type, (BYTE*)item->std_name, &size);
+                    if (RegQueryValueExW(hSub, L"Std", NULL, &type, (BYTE*)item->std_name, &size) != ERROR_SUCCESS)
+                        item->std_name[0] = 0;
 
                     size = sizeof(item->dlt_name);
-                    RegQueryValueExW(hSub, L"Dlt", NULL, &type, (BYTE*)item->dlt_name, &size);
+                    if (RegQueryValueExW(hSub, L"Dlt", NULL, &type, (BYTE*)item->dlt_name, &size) != ERROR_SUCCESS)
+                        item->dlt_name[0] = 0;
 
                     size = sizeof(item->tzi);
                     if (RegQueryValueExW(hSub, L"TZI", NULL, &type, (BYTE*)&item->tzi, &size) == ERROR_SUCCESS)
@@ -177,111 +194,35 @@ static void init_timezones(void)
             }
         }
     }
+
+    /* Sort time zones by UTC offset (Bias descending) */
+    if (g_tz_count > 1)
+    {
+        qsort(g_tz_entries, g_tz_count, sizeof(TZ_ENTRY), tz_compare);
+    }
 }
 
 static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
 {
     int width = rc->right - rc->left;
     int height = rc->bottom - rc->top;
-    HBRUSH ocean_brush = CreateSolidBrush(RGB(180, 205, 230));
-    HBRUSH land_brush = CreateSolidBrush(RGB(220, 220, 200));
-    HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(140, 160, 180));
-    HPEN grid_pen = CreatePen(PS_DOT, 1, RGB(160, 185, 210));
-    HPEN old_pen;
-    HBRUSH old_brush;
-    int i;
+    HDC mem_dc = CreateCompatibleDC(hdc);
+    HBITMAP mem_bm = CreateCompatibleBitmap(hdc, width, height);
+    HBITMAP old_mem_bm = SelectObject(mem_dc, mem_bm);
 
-    /* Ocean Background */
-    FillRect(hdc, rc, ocean_brush);
-
-    /* Grid lines (Equator & Tropic lines, Meridians) */
-    old_pen = SelectObject(hdc, grid_pen);
-    
-    /* Equator */
-    MoveToEx(hdc, rc->left, rc->top + height / 2, NULL);
-    LineTo(hdc, rc->right, rc->top + height / 2);
-
-    /* Meridians (every 30 degrees = 12 lines) */
-    for (i = 1; i < 12; i++)
+    if (g_hWorldBmp && g_bm_width > 0 && g_bm_height > 0)
     {
-        int x = rc->left + (i * width) / 12;
-        MoveToEx(hdc, x, rc->top, NULL);
-        LineTo(hdc, x, rc->bottom);
+        HDC bmp_dc = CreateCompatibleDC(hdc);
+        HBITMAP old_bmp = SelectObject(bmp_dc, g_hWorldBmp);
+        StretchBlt(mem_dc, 0, 0, width, height, bmp_dc, 0, 0, g_bm_width, g_bm_height, SRCCOPY);
+        SelectObject(bmp_dc, old_bmp);
+        DeleteDC(bmp_dc);
     }
-
-    /* Prime Meridian (Greenwich) */
+    else
     {
-        HPEN prime_pen = CreatePen(PS_SOLID, 1, RGB(130, 150, 180));
-        SelectObject(hdc, prime_pen);
-        MoveToEx(hdc, rc->left + width / 2, rc->top, NULL);
-        LineTo(hdc, rc->left + width / 2, rc->bottom);
-        DeleteObject(prime_pen);
-    }
-
-    /* Stylized landmasses (representative world outlines) */
-    old_brush = SelectObject(hdc, land_brush);
-    SelectObject(hdc, border_pen);
-
-    /* North America */
-    {
-        POINT pts[] = {
-            { rc->left + (int)(width * 0.12), rc->top + (int)(height * 0.15) },
-            { rc->left + (int)(width * 0.28), rc->top + (int)(height * 0.15) },
-            { rc->left + (int)(width * 0.32), rc->top + (int)(height * 0.32) },
-            { rc->left + (int)(width * 0.25), rc->top + (int)(height * 0.45) },
-            { rc->left + (int)(width * 0.20), rc->top + (int)(height * 0.42) },
-            { rc->left + (int)(width * 0.14), rc->top + (int)(height * 0.30) }
-        };
-        Polygon(hdc, pts, ARRAY_SIZE(pts));
-    }
-
-    /* South America */
-    {
-        POINT pts[] = {
-            { rc->left + (int)(width * 0.27), rc->top + (int)(height * 0.48) },
-            { rc->left + (int)(width * 0.35), rc->top + (int)(height * 0.55) },
-            { rc->left + (int)(width * 0.32), rc->top + (int)(height * 0.78) },
-            { rc->left + (int)(width * 0.28), rc->top + (int)(height * 0.72) },
-            { rc->left + (int)(width * 0.26), rc->top + (int)(height * 0.52) }
-        };
-        Polygon(hdc, pts, ARRAY_SIZE(pts));
-    }
-
-    /* Eurasia */
-    {
-        POINT pts[] = {
-            { rc->left + (int)(width * 0.46), rc->top + (int)(height * 0.18) },
-            { rc->left + (int)(width * 0.88), rc->top + (int)(height * 0.18) },
-            { rc->left + (int)(width * 0.82), rc->top + (int)(height * 0.42) },
-            { rc->left + (int)(width * 0.70), rc->top + (int)(height * 0.48) },
-            { rc->left + (int)(width * 0.65), rc->top + (int)(height * 0.38) },
-            { rc->left + (int)(width * 0.50), rc->top + (int)(height * 0.40) },
-            { rc->left + (int)(width * 0.44), rc->top + (int)(height * 0.28) }
-        };
-        Polygon(hdc, pts, ARRAY_SIZE(pts));
-    }
-
-    /* Africa */
-    {
-        POINT pts[] = {
-            { rc->left + (int)(width * 0.46), rc->top + (int)(height * 0.38) },
-            { rc->left + (int)(width * 0.58), rc->top + (int)(height * 0.42) },
-            { rc->left + (int)(width * 0.56), rc->top + (int)(height * 0.68) },
-            { rc->left + (int)(width * 0.50), rc->top + (int)(height * 0.72) },
-            { rc->left + (int)(width * 0.44), rc->top + (int)(height * 0.50) }
-        };
-        Polygon(hdc, pts, ARRAY_SIZE(pts));
-    }
-
-    /* Australia */
-    {
-        POINT pts[] = {
-            { rc->left + (int)(width * 0.78), rc->top + (int)(height * 0.60) },
-            { rc->left + (int)(width * 0.88), rc->top + (int)(height * 0.62) },
-            { rc->left + (int)(width * 0.86), rc->top + (int)(height * 0.75) },
-            { rc->left + (int)(width * 0.76), rc->top + (int)(height * 0.72) }
-        };
-        Polygon(hdc, pts, ARRAY_SIZE(pts));
+        HBRUSH bg_br = CreateSolidBrush(RGB(180, 205, 230));
+        FillRect(mem_dc, rc, bg_br);
+        DeleteObject(bg_br);
     }
 
     /* Highlight band for selected time zone */
@@ -291,34 +232,37 @@ static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
         /* Longitude in degrees: -Bias / 4.0 */
         double lon = -bias / 4.0;
         /* Map lon [-180, 180] to [0, width] */
-        int band_center = rc->left + (int)(((lon + 180.0) / 360.0) * width);
-        int band_w = max(width / 24, 6);
-        RECT band_rc;
+        int band_center = (int)(((lon + 180.0) / 360.0) * width);
         HBRUSH highlight_brush;
-        HPEN highlight_pen;
+        HPEN highlight_pen, old_pen;
 
-        band_rc.left = max(rc->left, band_center - band_w / 2);
-        band_rc.right = min(rc->right, band_center + band_w / 2);
-        band_rc.top = rc->top;
-        band_rc.bottom = rc->bottom;
-
-        /* Highlight stripe */
+        /* Semi-translucent yellow stripe: Invert / blend or draw tinted frame */
         highlight_brush = CreateSolidBrush(RGB(255, 230, 80));
-        FillRect(hdc, &band_rc, highlight_brush);
-
         highlight_pen = CreatePen(PS_SOLID, 2, RGB(220, 160, 20));
-        SelectObject(hdc, highlight_pen);
-        MoveToEx(hdc, band_center, rc->top, NULL);
-        LineTo(hdc, band_center, rc->bottom);
+        old_pen = SelectObject(mem_dc, highlight_pen);
 
-        /* UTC indicator text */
+        /* Draw vertical highlighted meridional meridian strip */
+        MoveToEx(mem_dc, band_center, 0, NULL);
+        LineTo(mem_dc, band_center, height);
+
+        SelectObject(mem_dc, old_pen);
+        DeleteObject(highlight_brush);
+        DeleteObject(highlight_pen);
+
+        /* UTC indicator text badge in lower-left */
         {
             WCHAR tz_text[32];
             int hours = -bias / 60;
             int mins = abs(bias % 60);
             HFONT font = GetStockObject(DEFAULT_GUI_FONT);
-            HFONT old_font = SelectObject(hdc, font);
-            RECT txt_rc = { rc->left + 4, rc->bottom - 18, rc->right - 4, rc->bottom - 2 };
+            HFONT old_font = SelectObject(mem_dc, font);
+            RECT badge_rc = { 4, height - 20, 120, height - 3 };
+            RECT txt_rc = { 8, height - 19, 116, height - 4 };
+            HBRUSH badge_br = CreateSolidBrush(RGB(255, 255, 255));
+            HPEN badge_pen = CreatePen(PS_SOLID, 1, RGB(120, 140, 170));
+
+            old_pen = SelectObject(mem_dc, badge_pen);
+            RoundRect(mem_dc, badge_rc.left, badge_rc.top, badge_rc.right, badge_rc.bottom, 4, 4);
 
             if (bias == 0)
                 swprintf(tz_text, 32, L"UTC / GMT");
@@ -327,22 +271,22 @@ static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
             else
                 swprintf(tz_text, 32, L"UTC %+d:%02d", hours, mins);
 
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, RGB(20, 40, 80));
-            DrawTextW(hdc, tz_text, -1, &txt_rc, DT_LEFT | DT_SINGLELINE);
-            SelectObject(hdc, old_font);
-        }
+            SetBkMode(mem_dc, TRANSPARENT);
+            SetTextColor(mem_dc, RGB(20, 40, 80));
+            DrawTextW(mem_dc, tz_text, -1, &txt_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-        DeleteObject(highlight_brush);
-        DeleteObject(highlight_pen);
+            SelectObject(mem_dc, old_pen);
+            SelectObject(mem_dc, old_font);
+            DeleteObject(badge_pen);
+            DeleteObject(badge_br);
+        }
     }
 
-    SelectObject(hdc, old_brush);
-    SelectObject(hdc, old_pen);
-    DeleteObject(ocean_brush);
-    DeleteObject(land_brush);
-    DeleteObject(border_pen);
-    DeleteObject(grid_pen);
+    BitBlt(hdc, rc->left, rc->top, width, height, mem_dc, 0, 0, SRCCOPY);
+
+    SelectObject(mem_dc, old_mem_bm);
+    DeleteObject(mem_bm);
+    DeleteDC(mem_dc);
 }
 
 static LRESULT CALLBACK map_subclass_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -360,6 +304,47 @@ static LRESULT CALLBACK map_subclass_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     return CallWindowProcW(g_orig_map_proc, hwnd, msg, wparam, lparam);
 }
 
+/* Retrieve the system's configured TimeZoneKeyName from registry */
+static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
+{
+    HKEY hKey;
+    DWORD type, size;
+    BOOL ret = FALSE;
+
+    /* First check user's persisted setting in HKCU\Software\WineExplorer\Time */
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Time",
+                      0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        size = max_len * sizeof(WCHAR);
+        if (RegQueryValueExW(hKey, L"SelectedTimeZone", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0] != 0)
+        {
+            ret = TRUE;
+        }
+        RegCloseKey(hKey);
+        if (ret) return TRUE;
+    }
+
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\TimeZoneInformation",
+                      0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        size = max_len * sizeof(WCHAR);
+        if (RegQueryValueExW(hKey, L"TimeZoneKeyName", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0] != 0)
+        {
+            ret = TRUE;
+        }
+        else
+        {
+            size = max_len * sizeof(WCHAR);
+            if (RegQueryValueExW(hKey, L"StandardName", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0] != 0)
+            {
+                ret = TRUE;
+            }
+        }
+        RegCloseKey(hKey);
+    }
+    return ret;
+}
+
 INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
@@ -369,9 +354,23 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         HWND hCombo = GetDlgItem(hwnd, IDC_TIMEZONE_LIST);
         HWND hMap = GetDlgItem(hwnd, IDC_TIMEZONE_MAP);
         TIME_ZONE_INFORMATION cur_tzi;
-        int i, sel = 0;
+        WCHAR active_key[64];
+        BOOL has_key;
+        int i, sel = -1;
+        BITMAP bm;
 
         init_timezones();
+
+        if (!g_hWorldBmp)
+        {
+            g_hWorldBmp = LoadImageW(g_hInstance, MAKEINTRESOURCEW(IDB_WORLD), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            if (g_hWorldBmp)
+            {
+                GetObjectW(g_hWorldBmp, sizeof(bm), &bm);
+                g_bm_width = bm.bmWidth;
+                g_bm_height = bm.bmHeight;
+            }
+        }
 
         /* Subclass map control */
         if (hMap && !g_orig_map_proc)
@@ -386,17 +385,53 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)g_tz_entries[i].display_name);
         }
 
-        /* Determine current timezone */
+        /* Match current timezone:
+         * 1. Try matching TimeZoneKeyName from HKLM\System\CurrentControlSet\Control\TimeZoneInformation
+         * 2. Try matching StandardName / DaylightName from GetTimeZoneInformation
+         * 3. Fallback to matching Bias
+         */
+        has_key = get_active_timezone_key(active_key, ARRAY_SIZE(active_key));
         GetTimeZoneInformation(&cur_tzi);
-        for (i = 0; i < g_tz_count; i++)
+
+        if (has_key)
         {
-            if (wcscmp(g_tz_entries[i].std_name, cur_tzi.StandardName) == 0 ||
-                g_tz_entries[i].tzi.Bias == cur_tzi.Bias)
+            for (i = 0; i < g_tz_count; i++)
             {
-                sel = i;
-                break;
+                if (_wcsicmp(g_tz_entries[i].key_name, active_key) == 0 ||
+                    _wcsicmp(g_tz_entries[i].std_name, active_key) == 0)
+                {
+                    sel = i;
+                    break;
+                }
             }
         }
+
+        if (sel == -1 && cur_tzi.StandardName[0] != 0)
+        {
+            for (i = 0; i < g_tz_count; i++)
+            {
+                if (wcscmp(g_tz_entries[i].std_name, cur_tzi.StandardName) == 0 ||
+                    wcscmp(g_tz_entries[i].dlt_name, cur_tzi.StandardName) == 0)
+                {
+                    sel = i;
+                    break;
+                }
+            }
+        }
+
+        if (sel == -1)
+        {
+            for (i = 0; i < g_tz_count; i++)
+            {
+                if (g_tz_entries[i].tzi.Bias == cur_tzi.Bias)
+                {
+                    sel = i;
+                    break;
+                }
+            }
+        }
+
+        if (sel < 0 || sel >= g_tz_count) sel = 0;
 
         g_selected_tz_idx = sel;
         SendMessageW(hCombo, CB_SETCURSEL, sel, 0);
@@ -459,6 +494,7 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             {
                 TIME_ZONE_INFORMATION tzi;
                 BOOL auto_dst = (IsDlgButtonChecked(hwnd, IDC_TIMEZONE_AUTO) == BST_CHECKED);
+                HKEY hKey;
 
                 memset(&tzi, 0, sizeof(tzi));
                 tzi.Bias = g_tz_entries[g_selected_tz_idx].tzi.Bias;
@@ -474,7 +510,30 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                 }
 
                 SetTimeZoneInformation(&tzi);
+
+                /* Write TimeZoneKeyName to HKLM\System\CurrentControlSet\Control\TimeZoneInformation */
+                if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\TimeZoneInformation",
+                                  0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS)
+                {
+                    RegSetValueExW(hKey, L"TimeZoneKeyName", 0, REG_SZ,
+                                   (BYTE *)g_tz_entries[g_selected_tz_idx].key_name,
+                                   (lstrlenW(g_tz_entries[g_selected_tz_idx].key_name) + 1) * sizeof(WCHAR));
+                    RegCloseKey(hKey);
+                }
+
+                /* Also persist to HKCU\Software\WineExplorer\Time to survive prefix restarts and kernelbase resets */
+                if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Time",
+                                    0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, NULL) == ERROR_SUCCESS)
+                {
+                    RegSetValueExW(hKey, L"SelectedTimeZone", 0, REG_SZ,
+                                   (BYTE *)g_tz_entries[g_selected_tz_idx].key_name,
+                                   (lstrlenW(g_tz_entries[g_selected_tz_idx].key_name) + 1) * sizeof(WCHAR));
+                    RegCloseKey(hKey);
+                }
+
+                SendMessageW(HWND_BROADCAST, WM_TIMECHANGE, 0, 0);
             }
+            SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
             return TRUE;
         }
         break;
@@ -487,6 +546,11 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         {
             SetWindowLongPtrW(hMap, GWLP_WNDPROC, (LONG_PTR)g_orig_map_proc);
             g_orig_map_proc = NULL;
+        }
+        if (g_hWorldBmp)
+        {
+            DeleteObject(g_hWorldBmp);
+            g_hWorldBmp = NULL;
         }
         break;
     }

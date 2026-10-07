@@ -9,6 +9,7 @@
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
 ICO_MAIN ICON "timedate.ico"
+IDB_WORLD BITMAP "world.bmp"
 
 STRINGTABLE
 BEGIN
@@ -26,9 +27,8 @@ BEGIN
     CONTROL         "", IDC_MONTHCAL, "SysMonthCal32", WS_TABSTOP | WS_BORDER, 13, 20, 118, 140
     GROUPBOX        "Time", IDC_STATIC, 143, 7, 102, 160
     CONTROL         "", IDC_CLOCK_CTRL, "TimeDateClock", WS_CHILD | WS_VISIBLE, 153, 20, 82, 82
-    EDITTEXT        IDC_TIME_EDIT, 160, 120, 56, 14, ES_CENTER | ES_AUTOHSCROLL | WS_TABSTOP
-    CONTROL         "", IDC_TIME_SPIN, "msctls_updown32", UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS, 216, 120, 11, 14
-    LTEXT           "Current time is displayed above.", IDC_STATIC, 150, 145, 90, 18
+    CONTROL         "", IDC_TIME_EDIT, "SysDateTimePick32", DTS_TIMEFORMAT | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 150, 115, 88, 14
+    LTEXT           "Current time is displayed above.", IDC_STATIC, 150, 140, 90, 22
 END
 
 /* Time Zone Property Page */
