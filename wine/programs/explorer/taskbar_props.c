@@ -298,9 +298,11 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
         if (nmhdr->code == PSN_APPLY)
         {
             THEME_CONFIG *theme = theme_get_current();
+            HWND hTray = FindWindowW(L"Shell_TrayWnd", NULL);
             g_settings.start_menu_style = s_preview_style;
             if (theme) theme->start_menu_style = s_preview_style;
             taskbar_settings_save();
+            if (hTray) PostMessageW(hTray, WM_SETTINGCHANGE, 0, 0);
             return TRUE;
         }
         break;

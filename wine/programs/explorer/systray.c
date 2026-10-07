@@ -1283,7 +1283,8 @@ static void do_show_systray(void)
 
     tray_width = GetSystemMetrics( SM_CXSCREEN );
     tray_height = 28;
-    start_button_width = 58;
+    taskbar_settings_load();
+    start_button_width = startbutton_get_desired_width();
     SetWindowPos( tray_window, HWND_TOPMOST, 0, GetSystemMetrics( SM_CYSCREEN ) - tray_height,
                   tray_width, tray_height, SWP_NOACTIVATE | SWP_SHOWWINDOW );
 
@@ -1293,7 +1294,7 @@ static void do_show_systray(void)
         RECT rcTray = get_tray_notify_rect();
         int clock_width = 66;
         int show_desktop_width = 24;
-        int taskband_x = 62;
+        int taskband_x = start_button_width + 4;
         int taskband_w;
 
         startbutton_create( tray_window, 2, 3, start_button_width, 22 );
@@ -1301,9 +1302,9 @@ static void do_show_systray(void)
 
         if (settings && settings->show_quick_launch)
         {
-            show_desktop_button_create( tray_window, 62, 3, show_desktop_width, 22 );
-            show_desktop_button_resize( 62, 3, show_desktop_width, 22 );
-            taskband_x = 62 + show_desktop_width + 4;
+            show_desktop_button_create( tray_window, taskband_x, 3, show_desktop_width, 22 );
+            show_desktop_button_resize( taskband_x, 3, show_desktop_width, 22 );
+            taskband_x += show_desktop_width + 4;
         }
 
         tray_clock_create( tray_window, rcTray.right - clock_width - 2, 4, clock_width, 20 );
@@ -1319,6 +1320,35 @@ static void do_show_systray(void)
     }
 
     sync_taskbar_buttons();
+}
+
+static void update_taskbar_layout(void)
+{
+    TASKBAR_SETTINGS *settings;
+    RECT rcTray;
+    int clock_width = 66;
+    int show_desktop_width = 24;
+    int taskband_x;
+    int taskband_w;
+
+    taskbar_settings_load();
+    settings = taskbar_settings_get();
+    rcTray = get_tray_notify_rect();
+
+    start_button_width = startbutton_get_desired_width();
+    startbutton_resize( 2, 3, start_button_width, 22 );
+    taskband_x = start_button_width + 4;
+
+    if (settings && settings->show_quick_launch)
+    {
+        show_desktop_button_resize( taskband_x, 3, show_desktop_width, 22 );
+        taskband_x += show_desktop_width + 4;
+    }
+
+    tray_clock_resize( rcTray.right - clock_width - 2, 4, clock_width, 20 );
+
+    taskband_w = rcTray.left - taskband_x - 4;
+    taskband_resize( taskband_x, 0, max( 50, taskband_w ), tray_height );
 }
 
 static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
@@ -1424,6 +1454,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
 
     case WM_ENTERMENULOOP:
         startmenu_on_enter_menu_loop();
+        break;
+
+    case WM_SETTINGCHANGE:
+    case WM_THEMECHANGED:
+        update_taskbar_layout();
+        InvalidateRect( hwnd, NULL, TRUE );
         break;
 
     case WM_TIMER:

@@ -61,7 +61,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmdLine, INT nC
     if (!lstrcmpiW(lpszCmdLine, L"PORTS"))
         launch(L"sysdm.cpl,,1");
     if (!lstrcmpiW(lpszCmdLine, L"PRINTERS"))
-        launch(L"main.cpl @2");
+    {
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{2227A280-3AEA-1069-A2DE-08002B30309D}", NULL, SW_SHOWNORMAL);
+        ExitProcess(0);
+    }
 
     /* try to launch if a .cpl file is given directly */
     launch(lpszCmdLine);

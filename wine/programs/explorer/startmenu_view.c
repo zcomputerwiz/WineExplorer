@@ -30,11 +30,14 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define STARTBUTTON_CLASS L"Start"
 #define STARTMENU_WND_CLASS L"WineStartMenuWnd"
+#define STARTMENU_BANNER_CLASS L"WineStartMenuBanner"
 
 static HWND g_startbutton_hwnd = NULL;
 static HWND g_startmenu_wnd = NULL;
+static HWND g_banner_wnd = NULL;
 static BOOL g_startmenu_open = FALSE;
 static BOOL g_button_pressed = FALSE;
+static BOOL g_button_hovered = FALSE;
 static HICON g_winlogo_icon = NULL;
 
 extern void power_mgmt_show_shutdown_dialog(HWND parent);
@@ -42,6 +45,113 @@ extern void power_mgmt_show_shutdown_dialog(HWND parent);
 #define MAX_PROGRAM_ENTRIES 256
 static WCHAR g_program_paths[MAX_PROGRAM_ENTRIES][MAX_PATH];
 static UINT g_program_count = 0;
+
+/* --- Helpers for Loading Shell and System Icons --- */
+
+static HICON load_shell_icon(int index, int size)
+{
+    HICON hLarge = NULL;
+    HICON hSmall = NULL;
+    UINT count = ExtractIconExW(L"shell32.dll", index, &hLarge, &hSmall, 1);
+    if (count > 0)
+    {
+        if (size >= 32 && hLarge)
+        {
+            if (hSmall) DestroyIcon(hSmall);
+            return hLarge;
+        }
+        else if (hSmall)
+        {
+            if (hLarge) DestroyIcon(hLarge);
+            return hSmall;
+        }
+        else if (hLarge)
+        {
+            return hLarge;
+        }
+    }
+    return NULL;
+}
+
+static HICON load_app_icon(const WCHAR *exe_name, int fallback_shell_idx, int size)
+{
+    HICON hLarge = NULL;
+    HICON hSmall = NULL;
+    UINT count = ExtractIconExW(exe_name, 0, &hLarge, &hSmall, 1);
+    if (count > 0)
+    {
+        if (size >= 32 && hLarge)
+        {
+            if (hSmall) DestroyIcon(hSmall);
+            return hLarge;
+        }
+        else if (hSmall)
+        {
+            if (hLarge) DestroyIcon(hLarge);
+            return hSmall;
+        }
+        else if (hLarge)
+        {
+            return hLarge;
+        }
+    }
+    return load_shell_icon(fallback_shell_idx, size);
+}
+
+static HBITMAP get_shell32_icon_bitmap(int index)
+{
+    HICON hIcon = load_shell_icon(index, 16);
+    HDC screen_dc, hdc;
+    HBITMAP hbm, old_bm;
+    RECT rc;
+
+    if (!hIcon) return NULL;
+
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = 16;
+    rc.bottom = 16;
+
+    screen_dc = GetDC(NULL);
+    hdc = CreateCompatibleDC(screen_dc);
+    hbm = CreateCompatibleBitmap(screen_dc, 16, 16);
+    old_bm = SelectObject(hdc, hbm);
+
+    FillRect(hdc, &rc, GetSysColorBrush(COLOR_MENU));
+    DrawIconEx(hdc, 0, 0, hIcon, 16, 16, 0, NULL, DI_NORMAL);
+
+    SelectObject(hdc, old_bm);
+    DeleteDC(hdc);
+    ReleaseDC(NULL, screen_dc);
+    DestroyIcon(hIcon);
+    return hbm;
+}
+
+static void append_menu_item_icon(HMENU hMenu, UINT uFlags, UINT_PTR uIDNewItem,
+                                  LPCWSTR lpNewItem, HBITMAP hbm)
+{
+    MENUITEMINFOW mii;
+    memset(&mii, 0, sizeof(mii));
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STRING | MIIM_FTYPE | MIIM_ID;
+    mii.fType = MFT_STRING;
+    mii.wID = (UINT)uIDNewItem;
+    mii.dwTypeData = (LPWSTR)lpNewItem;
+
+    if (uFlags & MF_POPUP)
+    {
+        mii.fMask |= MIIM_SUBMENU;
+        mii.hSubMenu = (HMENU)uIDNewItem;
+    }
+
+    if (hbm)
+    {
+        mii.fMask |= MIIM_BITMAP;
+        mii.hbmpItem = hbm;
+    }
+
+    InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+}
 
 /* Build Programs submenu by enumerating filesystem directory */
 static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
@@ -89,8 +199,9 @@ static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
     FindClose(hFind);
 }
 
-#define STARTMENU_BANNER_CLASS L"WineStartMenuBanner"
-static HWND g_banner_wnd = NULL;
+/* ========================================================================= */
+/*                         CLASSIC START MENU BANNER                         */
+/* ========================================================================= */
 
 static LRESULT CALLBACK startmenu_banner_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -112,9 +223,14 @@ static LRESULT CALLBACK startmenu_banner_proc(HWND hwnd, UINT msg, WPARAM wparam
          * Black at top, transitioning through dark navy to vibrant blue, back to navy at bottom */
         for (y = 0; y < h; y++)
         {
-            RECT line_rc = { rc.left, y, rc.right, y + 1 };
+            RECT line_rc;
             COLORREF col;
             float t = (float)y / (float)(h > 0 ? h : 1);
+
+            line_rc.left = rc.left;
+            line_rc.top = y;
+            line_rc.right = rc.right;
+            line_rc.bottom = y + 1;
 
             if (t < 0.35f)
             {
@@ -198,57 +314,6 @@ static void ensure_banner_class(void)
     }
 }
 
-static HBITMAP get_shell32_icon_bitmap(int index)
-{
-    HICON hIcon = NULL;
-    HDC screen_dc, hdc;
-    HBITMAP hbm, old_bm;
-    RECT rc = { 0, 0, 16, 16 };
-
-    ExtractIconExW(L"shell32.dll", index, NULL, &hIcon, 1);
-    if (!hIcon) return NULL;
-
-    screen_dc = GetDC(NULL);
-    hdc = CreateCompatibleDC(screen_dc);
-    hbm = CreateCompatibleBitmap(screen_dc, 16, 16);
-    old_bm = SelectObject(hdc, hbm);
-
-    FillRect(hdc, &rc, GetSysColorBrush(COLOR_MENU));
-    DrawIconEx(hdc, 0, 0, hIcon, 16, 16, 0, NULL, DI_NORMAL);
-
-    SelectObject(hdc, old_bm);
-    DeleteDC(hdc);
-    ReleaseDC(NULL, screen_dc);
-    DestroyIcon(hIcon);
-    return hbm;
-}
-
-static void append_menu_item_icon(HMENU hMenu, UINT uFlags, UINT_PTR uIDNewItem,
-                                  LPCWSTR lpNewItem, HBITMAP hbm)
-{
-    MENUITEMINFOW mii;
-    memset(&mii, 0, sizeof(mii));
-    mii.cbSize = sizeof(mii);
-    mii.fMask = MIIM_STRING | MIIM_FTYPE | MIIM_ID;
-    mii.fType = MFT_STRING;
-    mii.wID = (UINT)uIDNewItem;
-    mii.dwTypeData = (LPWSTR)lpNewItem;
-
-    if (uFlags & MF_POPUP)
-    {
-        mii.fMask |= MIIM_SUBMENU;
-        mii.hSubMenu = (HMENU)uIDNewItem;
-    }
-
-    if (hbm)
-    {
-        mii.fMask |= MIIM_BITMAP;
-        mii.hbmpItem = hbm;
-    }
-
-    InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
-}
-
 void startmenu_on_enter_menu_loop(void)
 {
     HWND hMenuWnd = FindWindowW(L"#32768", NULL);
@@ -272,11 +337,14 @@ void startmenu_on_enter_menu_loop(void)
     }
 }
 
+/* ========================================================================= */
+/*                         CLASSIC START MENU POPUP                          */
+/* ========================================================================= */
+
 static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 {
     HMENU hMenu = CreatePopupMenu();
     HMENU hPrograms = CreatePopupMenu();
-    HMENU hFavorites = CreatePopupMenu();
     HMENU hDocuments = CreatePopupMenu();
     HMENU hSettings = CreatePopupMenu();
     HMENU hSearch = CreatePopupMenu();
@@ -289,14 +357,25 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     UINT cmd;
     int banner_w = 21;
     int banner_overlap = 2;
-    int estimated_h = 194;
+    int estimated_h = 240;
     int banner_x = btn_rect->left;
     int banner_y = btn_rect->top - estimated_h;
-    HBITMAP bm_prog, bm_fav, bm_doc, bm_set, bm_srch, bm_help, bm_run, bm_net, bm_logoff, bm_shut;
+
+    HBITMAP bm_progacc = NULL;
+    HBITMAP bm_catalog = NULL;
+    HBITMAP bm_update = NULL;
+    HBITMAP bm_prog = NULL;
+    HBITMAP bm_doc = NULL;
+    HBITMAP bm_set = NULL;
+    HBITMAP bm_srch = NULL;
+    HBITMAP bm_help = NULL;
+    HBITMAP bm_run = NULL;
+    HBITMAP bm_logoff = NULL;
+    HBITMAP bm_shut = NULL;
 
     g_program_count = 0;
 
-    /* Get current username */
+    /* Current username */
     if (!GetUserNameW(username, &ulen)) lstrcpyW(username, L"Administrator");
     swprintf(logoff_label, 256, L"&Log Off %s...", username);
 
@@ -308,43 +387,49 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     /* Documents Submenu */
     if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, my_docs) == S_OK)
-        AppendMenuW(hDocuments, MF_STRING, 1050, L"My &Documents");
+        AppendMenuW(hDocuments, MF_STRING, STARTMENU_CMD_MYDOCS, L"My &Documents");
 
     /* Settings Submenu */
     AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_CONTROLPANEL, L"&Control Panel");
     AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_NETWORK, L"&Network Connections");
     AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_PRINTERS, L"&Printers and Faxes");
     AppendMenuW(hSettings, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(hSettings, MF_STRING, 1020, L"&Taskbar and Start Menu");
+    AppendMenuW(hSettings, MF_STRING, STARTMENU_CMD_TASKBAR_PROPS, L"&Taskbar and Start Menu");
 
     /* Search Submenu */
     AppendMenuW(hSearch, MF_STRING, STARTMENU_CMD_SEARCH, L"For &Files or Folders...");
-    AppendMenuW(hSearch, MF_STRING, 1021, L"For &Computers...");
+    AppendMenuW(hSearch, MF_STRING, STARTMENU_CMD_SEARCH_COMPUTERS, L"For &Computers...");
 
     /* Load authentic icon bitmaps from shell32 */
-    bm_prog   = get_shell32_icon_bitmap(3);   /* Folder / Programs */
-    bm_fav    = get_shell32_icon_bitmap(43);  /* Favorites */
-    bm_doc    = get_shell32_icon_bitmap(1);   /* Documents */
-    bm_set    = get_shell32_icon_bitmap(21);  /* Settings / Control Panel */
-    bm_srch   = get_shell32_icon_bitmap(22);  /* Search */
-    bm_help   = get_shell32_icon_bitmap(23);  /* Help */
-    bm_run    = get_shell32_icon_bitmap(24);  /* Run */
-    bm_net    = get_shell32_icon_bitmap(17);  /* Network / Connect To */
-    bm_logoff = get_shell32_icon_bitmap(44);  /* Log Off key */
-    bm_shut   = get_shell32_icon_bitmap(27);  /* Shut Down */
+    bm_progacc = get_shell32_icon_bitmap(271); /* Set Program Access and Defaults */
+    if (!bm_progacc) bm_progacc = get_shell32_icon_bitmap(21);
+    bm_catalog = get_shell32_icon_bitmap(14);  /* Windows Catalog */
+    bm_update  = get_shell32_icon_bitmap(46);  /* Windows Update */
+    bm_prog    = get_shell32_icon_bitmap(3);   /* Programs */
+    bm_doc     = get_shell32_icon_bitmap(1);   /* Documents */
+    bm_set     = get_shell32_icon_bitmap(21);  /* Settings */
+    bm_srch    = get_shell32_icon_bitmap(22);  /* Search */
+    bm_help    = get_shell32_icon_bitmap(23);  /* Help */
+    bm_run     = get_shell32_icon_bitmap(24);  /* Run */
+    bm_logoff  = get_shell32_icon_bitmap(44);  /* Log Off key */
+    bm_shut    = get_shell32_icon_bitmap(27);  /* Turn Off red button */
 
-    /* Main Menu Assembly with Authentic Icons */
+    /* Top Pinned Items */
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_PROGACCESS, L"Set &Program Access and Defaults", bm_progacc);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_CATALOG, L"Windows &Catalog", bm_catalog);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_UPDATE, L"Windows &Update", bm_update);
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+
+    /* Cascading and Single Standard Items */
     append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hPrograms, L"&Programs", bm_prog);
-    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hFavorites, L"F&avorites", bm_fav);
     append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hDocuments, L"&Documents", bm_doc);
     append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSettings, L"&Settings", bm_set);
     append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSearch, L"Sea&rch", bm_srch);
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_HELP, L"&Help and Support", bm_help);
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_RUN, L"&Run...", bm_run);
-    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_CONNECT_TO, L"Connect &To...", bm_net);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_LOGOFF, logoff_label, bm_logoff);
-    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_SHUTDOWN, L"Sh&ut Down...", bm_shut);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_SHUTDOWN, L"T&urn Off Computer...", bm_shut);
 
     /* Show Companion Vertical Gradient Banner Window */
     ensure_banner_class();
@@ -382,19 +467,29 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     DestroyMenu(hMenu);
 
+    if (bm_progacc) DeleteObject(bm_progacc);
+    if (bm_catalog) DeleteObject(bm_catalog);
+    if (bm_update) DeleteObject(bm_update);
     if (bm_prog) DeleteObject(bm_prog);
-    if (bm_fav) DeleteObject(bm_fav);
     if (bm_doc) DeleteObject(bm_doc);
     if (bm_set) DeleteObject(bm_set);
     if (bm_srch) DeleteObject(bm_srch);
     if (bm_help) DeleteObject(bm_help);
     if (bm_run) DeleteObject(bm_run);
-    if (bm_net) DeleteObject(bm_net);
     if (bm_logoff) DeleteObject(bm_logoff);
     if (bm_shut) DeleteObject(bm_shut);
 
     switch (cmd)
     {
+    case STARTMENU_CMD_PROGACCESS:
+        ShellExecuteW(NULL, L"open", L"control.exe", L"appwiz.cpl,,3", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_CATALOG:
+        ShellExecuteW(NULL, L"open", L"iexplore.exe", L"http://go.microsoft.com/fwlink/?LinkId=374", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_UPDATE:
+        ShellExecuteW(NULL, L"open", L"wupdmgr.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
     case STARTMENU_CMD_RUN:
         ShellExecuteW(NULL, L"open", L"rundll32.exe", L"shell32.dll,#61", NULL, SW_SHOWNORMAL);
         break;
@@ -414,11 +509,8 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     case STARTMENU_CMD_NETWORK:
         ShellExecuteW(NULL, L"open", L"control.exe", L"ncpa.cpl", NULL, SW_SHOWNORMAL);
         break;
-    case STARTMENU_CMD_CONNECT_TO:
-        wlan_dialog_show(tray_hwnd);
-        break;
     case STARTMENU_CMD_PRINTERS:
-        ShellExecuteW(NULL, L"open", L"control.exe", L"printers", NULL, SW_SHOWNORMAL);
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{2227a280-3aea-1069-a2de-08002b30309d}", NULL, SW_SHOWNORMAL);
         break;
     case STARTMENU_CMD_HELP:
         ShellExecuteW(NULL, L"open", L"hh.exe", NULL, NULL, SW_SHOWNORMAL);
@@ -426,10 +518,13 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     case STARTMENU_CMD_SEARCH:
         ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
         break;
-    case 1020:
+    case STARTMENU_CMD_SEARCH_COMPUTERS:
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_TASKBAR_PROPS:
         taskbar_props_show(tray_hwnd);
         break;
-    case 1050:
+    case STARTMENU_CMD_MYDOCS:
     {
         WCHAR doc_path[MAX_PATH];
         if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, doc_path) == S_OK)
@@ -449,7 +544,278 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     }
 }
 
-/* Two-column Windows XP / 2003 Style Start Menu Window Procedure */
+/* ========================================================================= */
+/*                   TWO-COLUMN WINDOWS XP START MENU                        */
+/* ========================================================================= */
+
+#define TWOCOL_WIDTH  380
+#define TWOCOL_HEIGHT 490
+
+#define COL_NONE   0
+#define COL_LEFT   1
+#define COL_RIGHT  2
+#define COL_FOOTER 3
+
+static int g_hover_column = COL_NONE;
+static int g_hover_index  = -1;
+static HWND g_tray_parent = NULL;
+
+/* Left Column Items */
+typedef struct _LEFT_ITEM
+{
+    const WCHAR *title;
+    const WCHAR *subtitle;
+    const WCHAR *exe;
+    int shell_icon_idx;
+    UINT cmd;
+} LEFT_ITEM;
+
+static const LEFT_ITEM g_left_frequent[] =
+{
+    { L"Windows Media Player", NULL, L"wmplayer.exe", 227, 3001 },
+    { L"Notepad",              NULL, L"notepad.exe",  223, 3002 },
+    { L"Calculator",           NULL, L"calc.exe",     221, 3003 },
+    { L"Paint",                NULL, L"mspaint.exe",  226, 3004 },
+    { L"Command Prompt",       NULL, L"cmd.exe",      24,  3005 }
+};
+#define NUM_LEFT_FREQUENT (sizeof(g_left_frequent)/sizeof(g_left_frequent[0]))
+
+/* Right Column Items */
+typedef struct _RIGHT_ITEM
+{
+    const WCHAR *title;
+    int icon_idx;
+    BOOL is_bold;
+    BOOL is_separator;
+    UINT cmd;
+} RIGHT_ITEM;
+
+static const RIGHT_ITEM g_right_items[] =
+{
+    { L"My Documents",                 235, TRUE,  FALSE, STARTMENU_CMD_MYDOCS },
+    { L"My Recent Documents",          1,   FALSE, FALSE, STARTMENU_CMD_RECENT_DOCS },
+    { L"My Pictures",                  236, FALSE, FALSE, STARTMENU_CMD_PICTURES },
+    { L"My Music",                     237, FALSE, FALSE, STARTMENU_CMD_MUSIC },
+    { L"My Computer",                  15,  TRUE,  FALSE, STARTMENU_CMD_MYCOMP },
+    { L"My Network Places",            17,  FALSE, FALSE, STARTMENU_CMD_MYNET },
+    { NULL,                            0,   FALSE, TRUE,  0 },
+    { L"Control Panel",                21,  FALSE, FALSE, STARTMENU_CMD_CONTROLPANEL },
+    { L"Set Program Access and Defaults", 271, FALSE, FALSE, STARTMENU_CMD_PROGACCESS },
+    { L"Connect To",                   17,  FALSE, FALSE, STARTMENU_CMD_CONNECT_TO },
+    { L"Printers and Faxes",           16,  FALSE, FALSE, STARTMENU_CMD_PRINTERS },
+    { NULL,                            0,   FALSE, TRUE,  0 },
+    { L"Help and Support",             23,  FALSE, FALSE, STARTMENU_CMD_HELP },
+    { L"Search",                       22,  FALSE, FALSE, STARTMENU_CMD_SEARCH },
+    { L"Run...",                       24,  FALSE, FALSE, STARTMENU_CMD_RUN }
+};
+#define NUM_RIGHT_ITEMS (sizeof(g_right_items)/sizeof(g_right_items[0]))
+
+/* Hit testing for Two-Column Menu */
+static void two_col_hit_test(int x, int y, int *out_col, int *out_idx)
+{
+    *out_col = COL_NONE;
+    *out_idx = -1;
+
+    /* Footer Buttons */
+    if (y >= 444 && y < 482)
+    {
+        if (x >= 186 && x < 274)
+        {
+            *out_col = COL_FOOTER;
+            *out_idx = 0; /* Log Off */
+            return;
+        }
+        else if (x >= 276 && x < 376)
+        {
+            *out_col = COL_FOOTER;
+            *out_idx = 1; /* Turn Off Computer */
+            return;
+        }
+    }
+
+    /* Left Column */
+    if (x >= 4 && x < 188 && y >= 60 && y < 440)
+    {
+        /* Pinned Internet */
+        if (y >= 62 && y < 102)
+        {
+            *out_col = COL_LEFT;
+            *out_idx = 0;
+            return;
+        }
+        /* Pinned E-mail */
+        if (y >= 104 && y < 144)
+        {
+            *out_col = COL_LEFT;
+            *out_idx = 1;
+            return;
+        }
+        /* Frequent Apps */
+        if (y >= 150 && y < 150 + (int)(NUM_LEFT_FREQUENT * 36))
+        {
+            int idx = (y - 150) / 36;
+            if (idx >= 0 && idx < (int)NUM_LEFT_FREQUENT)
+            {
+                *out_col = COL_LEFT;
+                *out_idx = 2 + idx;
+                return;
+            }
+        }
+        /* All Programs */
+        if (y >= 398 && y < 436)
+        {
+            *out_col = COL_LEFT;
+            *out_idx = 100; /* All Programs anchor */
+            return;
+        }
+    }
+
+    /* Right Column */
+    if (x >= 190 && x < 376 && y >= 60 && y < 440)
+    {
+        int cur_y = 62;
+        int i;
+        for (i = 0; i < (int)NUM_RIGHT_ITEMS; i++)
+        {
+            if (g_right_items[i].is_separator)
+            {
+                cur_y += 6;
+                continue;
+            }
+            if (y >= cur_y && y < cur_y + 24)
+            {
+                *out_col = COL_RIGHT;
+                *out_idx = i;
+                return;
+            }
+            cur_y += 24;
+        }
+    }
+}
+
+static void show_programs_popup_menu(HWND parent, int x, int y)
+{
+    HMENU hPrograms = CreatePopupMenu();
+    WCHAR user_programs[MAX_PATH];
+    WCHAR common_programs[MAX_PATH];
+    UINT cmd;
+
+    g_program_count = 0;
+
+    if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, user_programs) == S_OK)
+        populate_programs_menu(hPrograms, user_programs);
+    if (SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, common_programs) == S_OK)
+        populate_programs_menu(hPrograms, common_programs);
+
+    cmd = TrackPopupMenu(hPrograms, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
+                         x, y, 0, parent, NULL);
+
+    DestroyMenu(hPrograms);
+
+    if (cmd >= 2000 && (cmd - 2000) < g_program_count)
+    {
+        ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
+        startmenu_view_hide();
+    }
+}
+
+static void execute_startmenu_command(UINT cmd)
+{
+    HWND tray = g_tray_parent;
+    if (!g_startmenu_open) return;
+    startmenu_view_hide();
+
+    switch (cmd)
+    {
+    case STARTMENU_CMD_INTERNET:
+        ShellExecuteW(NULL, L"open", L"iexplore.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_EMAIL:
+        ShellExecuteW(NULL, L"open", L"mailto:", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case 3001: /* Windows Media Player */
+        ShellExecuteW(NULL, L"open", L"wmplayer.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case 3002: /* Notepad */
+        ShellExecuteW(NULL, L"open", L"notepad.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case 3003: /* Calculator */
+        ShellExecuteW(NULL, L"open", L"calc.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case 3004: /* Paint */
+        ShellExecuteW(NULL, L"open", L"mspaint.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case 3005: /* Command Prompt */
+        ShellExecuteW(NULL, L"open", L"cmd.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_MYDOCS:
+    case STARTMENU_CMD_RECENT_DOCS:
+    {
+        WCHAR path[MAX_PATH];
+        if (SHGetFolderPathW(NULL, (cmd == STARTMENU_CMD_RECENT_DOCS) ? CSIDL_RECENT : CSIDL_PERSONAL,
+                             NULL, 0, path) == S_OK)
+        {
+            WCHAR param[MAX_PATH * 2];
+            swprintf(param, ARRAY_SIZE(param), L"\"%s\"", path);
+            ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
+        }
+        break;
+    }
+    case STARTMENU_CMD_PICTURES:
+    {
+        WCHAR path[MAX_PATH];
+        if (SHGetFolderPathW(NULL, CSIDL_MYPICTURES, NULL, 0, path) == S_OK)
+            ShellExecuteW(NULL, L"open", L"explorer.exe", path, NULL, SW_SHOWNORMAL);
+        break;
+    }
+    case STARTMENU_CMD_MUSIC:
+    {
+        WCHAR path[MAX_PATH];
+        if (SHGetFolderPathW(NULL, CSIDL_MYMUSIC, NULL, 0, path) == S_OK)
+            ShellExecuteW(NULL, L"open", L"explorer.exe", path, NULL, SW_SHOWNORMAL);
+        break;
+    }
+    case STARTMENU_CMD_MYCOMP:
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_MYNET:
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_CONTROLPANEL:
+        ShellExecuteW(NULL, L"open", L"control.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_PROGACCESS:
+        ShellExecuteW(NULL, L"open", L"control.exe", L"appwiz.cpl,,3", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_CONNECT_TO:
+        wlan_dialog_show(tray);
+        break;
+    case STARTMENU_CMD_PRINTERS:
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{2227a280-3aea-1069-a2de-08002b30309d}", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_HELP:
+        ShellExecuteW(NULL, L"open", L"hh.exe", NULL, NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_SEARCH:
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_RUN:
+        ShellExecuteW(NULL, L"open", L"rundll32.exe", L"shell32.dll,#61", NULL, SW_SHOWNORMAL);
+        break;
+    case STARTMENU_CMD_LOGOFF:
+        if (MessageBoxW(tray, L"Are you sure you want to log off?", L"Log Off Windows",
+                        MB_YESNO | MB_ICONQUESTION) == IDYES)
+        {
+            ExitWindowsEx(EWX_LOGOFF, 0);
+        }
+        break;
+    case STARTMENU_CMD_SHUTDOWN:
+        power_mgmt_show_shutdown_dialog(tray);
+        break;
+    }
+}
+
+/* Two-column Windows XP Start Menu Window Procedure */
 static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
@@ -459,62 +825,527 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT client_rc, header_rc, left_rc, right_rc, footer_rc;
-        HBRUSH header_brush, right_brush, left_brush, footer_brush;
+        HDC mem_dc;
+        HBITMAP mem_bm, old_mem_bm;
+        HFONT font_bold, font_norm, font_head, old_font;
+        LOGFONTW lf;
         WCHAR username[128];
         DWORD ulen = sizeof(username)/sizeof(WCHAR);
-        HFONT bold_font;
-        LOGFONTW lf;
+        int y, i, cur_y;
+        HICON icon_user = NULL;
+        HICON icon_ie = NULL;
+        HICON icon_mail = NULL;
+        HICON icon_logoff = NULL;
+        HICON icon_shut = NULL;
 
         GetClientRect(hwnd, &client_rc);
 
+        /* Double Buffering */
+        mem_dc = CreateCompatibleDC(hdc);
+        mem_bm = CreateCompatibleBitmap(hdc, client_rc.right, client_rc.bottom);
+        old_mem_bm = SelectObject(mem_dc, mem_bm);
+
         /* Layout zones */
-        header_rc = client_rc; header_rc.bottom = 54;
-        footer_rc = client_rc; footer_rc.top = client_rc.bottom - 44;
-        left_rc.left = 0; left_rc.top = 54; left_rc.right = client_rc.right / 2; left_rc.bottom = footer_rc.top;
-        right_rc.left = left_rc.right; right_rc.top = 54; right_rc.right = client_rc.right; right_rc.bottom = footer_rc.top;
+        header_rc = client_rc; header_rc.bottom = 56;
+        footer_rc = client_rc; footer_rc.top = 442;
+        left_rc.left = 0; left_rc.top = 58; left_rc.right = 190; left_rc.bottom = footer_rc.top;
+        right_rc.left = 190; right_rc.top = 58; right_rc.right = client_rc.right; right_rc.bottom = footer_rc.top;
 
-        /* Brushes */
-        header_brush = CreateSolidBrush(RGB(40, 100, 200));   /* XP Blue Header */
-        left_brush = CreateSolidBrush(RGB(255, 255, 255));     /* White Left Pane */
-        right_brush = CreateSolidBrush(RGB(214, 230, 252));    /* Tinted Right Pane */
-        footer_brush = CreateSolidBrush(RGB(40, 100, 200));   /* XP Blue Footer */
-
-        FillRect(hdc, &header_rc, header_brush);
-        FillRect(hdc, &left_rc, left_brush);
-        FillRect(hdc, &right_rc, right_brush);
-        FillRect(hdc, &footer_rc, footer_brush);
-
-        DeleteObject(header_brush);
-        DeleteObject(left_brush);
-        DeleteObject(right_brush);
-        DeleteObject(footer_brush);
-
-        /* 3D Border */
-        theme_draw_classic_bevel(hdc, &client_rc, EDGE_RAISED, BF_RECT);
-
-        /* Header Text: Username */
-        if (!GetUserNameW(username, &ulen)) lstrcpyW(username, L"Administrator");
-
+        /* Fonts */
         memset(&lf, 0, sizeof(lf));
-        lf.lfHeight = -14;
-        lf.lfWeight = FW_BOLD;
+        lf.lfHeight = -12;
+        lf.lfWeight = FW_NORMAL;
         lstrcpyW(lf.lfFaceName, L"Tahoma");
-        bold_font = CreateFontIndirectW(&lf);
+        font_norm = CreateFontIndirectW(&lf);
 
-        SelectObject(hdc, bold_font);
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(255, 255, 255));
+        lf.lfWeight = FW_BOLD;
+        font_bold = CreateFontIndirectW(&lf);
 
-        header_rc.left += 54;
-        header_rc.top += 18;
-        DrawTextW(hdc, username, -1, &header_rc, DT_LEFT | DT_TOP);
+        lf.lfHeight = -16;
+        lf.lfWeight = FW_BOLD;
+        font_head = CreateFontIndirectW(&lf);
 
-        /* Clean up fonts */
-        DeleteObject(bold_font);
+        /* 1. Header Rendering (Blue gradient with user profile) */
+        for (y = 0; y < 56; y++)
+        {
+            RECT line_rc;
+            float t = (float)y / 56.0f;
+            int r = 32 + (int)(18.0f * t);
+            int g = 92 + (int)(32.0f * t);
+            int b = 198 + (int)(24.0f * t);
+
+            line_rc.left = 0;
+            line_rc.top = y;
+            line_rc.right = client_rc.right;
+            line_rc.bottom = y + 1;
+
+            SetBkColor(mem_dc, RGB(r, g, b));
+            ExtTextOutW(mem_dc, 0, y, ETO_OPAQUE, &line_rc, NULL, 0, NULL);
+        }
+
+        /* Avatar Box at x=10, y=7 */
+        {
+            RECT avatar_rc;
+            HBRUSH white_br = CreateSolidBrush(RGB(255, 255, 255));
+            HBRUSH shadow_br = CreateSolidBrush(RGB(20, 60, 130));
+
+            avatar_rc.left = 11; avatar_rc.top = 8;
+            avatar_rc.right = 53; avatar_rc.bottom = 50;
+            FillRect(mem_dc, &avatar_rc, shadow_br);
+
+            avatar_rc.left = 10; avatar_rc.top = 7;
+            avatar_rc.right = 52; avatar_rc.bottom = 49;
+            FillRect(mem_dc, &avatar_rc, white_br);
+
+            DeleteObject(white_br);
+            DeleteObject(shadow_br);
+
+            icon_user = load_shell_icon(269, 32);
+            if (!icon_user) icon_user = load_shell_icon(44, 32);
+            if (icon_user)
+            {
+                DrawIconEx(mem_dc, 15, 12, icon_user, 32, 32, 0, NULL, DI_NORMAL);
+                DestroyIcon(icon_user);
+            }
+        }
+
+        /* Username Text */
+        if (!GetUserNameW(username, &ulen)) lstrcpyW(username, L"Administrator");
+        SetBkMode(mem_dc, TRANSPARENT);
+        old_font = SelectObject(mem_dc, font_head);
+
+        /* Drop shadow */
+        SetTextColor(mem_dc, RGB(16, 50, 110));
+        TextOutW(mem_dc, 61, 20, username, lstrlenW(username));
+
+        /* Main text */
+        SetTextColor(mem_dc, RGB(255, 255, 255));
+        TextOutW(mem_dc, 60, 19, username, lstrlenW(username));
+
+        /* 2px Orange divider line below header */
+        {
+            RECT div_rc1 = { 0, 56, client_rc.right, 57 };
+            RECT div_rc2 = { 0, 57, client_rc.right, 58 };
+            SetBkColor(mem_dc, RGB(229, 145, 36));
+            ExtTextOutW(mem_dc, 0, 56, ETO_OPAQUE, &div_rc1, NULL, 0, NULL);
+            SetBkColor(mem_dc, RGB(235, 180, 91));
+            ExtTextOutW(mem_dc, 0, 57, ETO_OPAQUE, &div_rc2, NULL, 0, NULL);
+        }
+
+        /* 2. Left Column Rendering (White Pane) */
+        {
+            HBRUSH left_br = CreateSolidBrush(RGB(255, 255, 255));
+            FillRect(mem_dc, &left_rc, left_br);
+            DeleteObject(left_br);
+        }
+
+        /* Pinned Internet Item */
+        {
+            RECT itm_rc = { 6, 62, 186, 102 };
+            if (g_hover_column == COL_LEFT && g_hover_index == 0)
+            {
+                HBRUSH hov_br = CreateSolidBrush(RGB(190, 215, 250));
+                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(49, 106, 197));
+                HPEN old_pen = SelectObject(mem_dc, hov_pen);
+                HBRUSH old_br = SelectObject(mem_dc, hov_br);
+                RoundRect(mem_dc, itm_rc.left, itm_rc.top, itm_rc.right, itm_rc.bottom, 4, 4);
+                SelectObject(mem_dc, old_pen);
+                SelectObject(mem_dc, old_br);
+                DeleteObject(hov_pen);
+                DeleteObject(hov_br);
+            }
+
+            icon_ie = load_shell_icon(14, 32);
+            if (!icon_ie) icon_ie = load_app_icon(L"iexplore.exe", 14, 32);
+            if (icon_ie)
+            {
+                DrawIconEx(mem_dc, 10, 66, icon_ie, 32, 32, 0, NULL, DI_NORMAL);
+                DestroyIcon(icon_ie);
+            }
+
+            SelectObject(mem_dc, font_bold);
+            SetTextColor(mem_dc, RGB(0, 0, 0));
+            TextOutW(mem_dc, 46, 66, L"Internet", 8);
+
+            SelectObject(mem_dc, font_norm);
+            SetTextColor(mem_dc, RGB(120, 120, 120));
+            TextOutW(mem_dc, 46, 82, L"Internet Explorer", 17);
+        }
+
+        /* Pinned E-mail Item */
+        {
+            RECT itm_rc = { 6, 104, 186, 144 };
+            if (g_hover_column == COL_LEFT && g_hover_index == 1)
+            {
+                HBRUSH hov_br = CreateSolidBrush(RGB(190, 215, 250));
+                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(49, 106, 197));
+                HPEN old_pen = SelectObject(mem_dc, hov_pen);
+                HBRUSH old_br = SelectObject(mem_dc, hov_br);
+                RoundRect(mem_dc, itm_rc.left, itm_rc.top, itm_rc.right, itm_rc.bottom, 4, 4);
+                SelectObject(mem_dc, old_pen);
+                SelectObject(mem_dc, old_br);
+                DeleteObject(hov_pen);
+                DeleteObject(hov_br);
+            }
+
+            icon_mail = load_shell_icon(254, 32);
+            if (!icon_mail) icon_mail = load_shell_icon(1, 32);
+            if (icon_mail)
+            {
+                DrawIconEx(mem_dc, 10, 108, icon_mail, 32, 32, 0, NULL, DI_NORMAL);
+                DestroyIcon(icon_mail);
+            }
+
+            SelectObject(mem_dc, font_bold);
+            SetTextColor(mem_dc, RGB(0, 0, 0));
+            TextOutW(mem_dc, 46, 108, L"E-mail", 6);
+
+            SelectObject(mem_dc, font_norm);
+            SetTextColor(mem_dc, RGB(120, 120, 120));
+            TextOutW(mem_dc, 46, 124, L"Outlook Express", 15);
+        }
+
+        /* Subtle separator below pinned */
+        {
+            RECT sep_rc = { 12, 146, 178, 147 };
+            SetBkColor(mem_dc, RGB(220, 220, 220));
+            ExtTextOutW(mem_dc, 0, 146, ETO_OPAQUE, &sep_rc, NULL, 0, NULL);
+        }
+
+        /* Frequent Apps */
+        for (i = 0; i < (int)NUM_LEFT_FREQUENT; i++)
+        {
+            int itm_y = 150 + i * 36;
+            RECT itm_rc;
+            HICON hAppIco;
+
+            itm_rc.left = 6;
+            itm_rc.top = itm_y;
+            itm_rc.right = 186;
+            itm_rc.bottom = itm_y + 34;
+
+            if (g_hover_column == COL_LEFT && g_hover_index == (2 + i))
+            {
+                HBRUSH hov_br = CreateSolidBrush(RGB(190, 215, 250));
+                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(49, 106, 197));
+                HPEN old_pen = SelectObject(mem_dc, hov_pen);
+                HBRUSH old_br = SelectObject(mem_dc, hov_br);
+                RoundRect(mem_dc, itm_rc.left, itm_rc.top, itm_rc.right, itm_rc.bottom, 4, 4);
+                SelectObject(mem_dc, old_pen);
+                SelectObject(mem_dc, old_br);
+                DeleteObject(hov_pen);
+                DeleteObject(hov_br);
+            }
+
+            hAppIco = load_app_icon(g_left_frequent[i].exe, g_left_frequent[i].shell_icon_idx, 24);
+            if (hAppIco)
+            {
+                DrawIconEx(mem_dc, 12, itm_y + 5, hAppIco, 24, 24, 0, NULL, DI_NORMAL);
+                DestroyIcon(hAppIco);
+            }
+
+            SelectObject(mem_dc, font_bold);
+            SetTextColor(mem_dc, RGB(0, 0, 0));
+            TextOutW(mem_dc, 44, itm_y + 10, g_left_frequent[i].title, lstrlenW(g_left_frequent[i].title));
+        }
+
+        /* Subtle separator above All Programs */
+        {
+            RECT sep_rc = { 12, 394, 178, 395 };
+            SetBkColor(mem_dc, RGB(220, 220, 220));
+            ExtTextOutW(mem_dc, 0, 394, ETO_OPAQUE, &sep_rc, NULL, 0, NULL);
+        }
+
+        /* All Programs Button */
+        {
+            RECT prog_rc = { 6, 398, 186, 436 };
+            if (g_hover_column == COL_LEFT && g_hover_index == 100)
+            {
+                HBRUSH hov_br = CreateSolidBrush(RGB(49, 106, 197));
+                FillRect(mem_dc, &prog_rc, hov_br);
+                DeleteObject(hov_br);
+                SetTextColor(mem_dc, RGB(255, 255, 255));
+            }
+            else
+            {
+                SetTextColor(mem_dc, RGB(0, 0, 0));
+            }
+
+            SelectObject(mem_dc, font_bold);
+            TextOutW(mem_dc, 38, 410, L"All Programs", 12);
+
+            /* Green right arrow triangle */
+            {
+                POINT pts[3];
+                HBRUSH green_br = (g_hover_column == COL_LEFT && g_hover_index == 100) ?
+                                  CreateSolidBrush(RGB(255, 255, 255)) : CreateSolidBrush(RGB(40, 160, 40));
+                HPEN green_pen = CreatePen(PS_SOLID, 1, RGB(40, 160, 40));
+                HPEN old_pen = SelectObject(mem_dc, green_pen);
+                HBRUSH old_br = SelectObject(mem_dc, green_br);
+
+                pts[0].x = 154; pts[0].y = 412;
+                pts[1].x = 154; pts[1].y = 422;
+                pts[2].x = 160; pts[2].y = 417;
+                Polygon(mem_dc, pts, 3);
+
+                SelectObject(mem_dc, old_pen);
+                SelectObject(mem_dc, old_br);
+                DeleteObject(green_pen);
+                DeleteObject(green_br);
+            }
+        }
+
+        /* Vertical separator between left and right columns */
+        {
+            RECT col_div = { 190, 58, 191, 442 };
+            SetBkColor(mem_dc, RGB(165, 195, 235));
+            ExtTextOutW(mem_dc, 0, 58, ETO_OPAQUE, &col_div, NULL, 0, NULL);
+        }
+
+        /* 3. Right Column Rendering (Tinted Light Blue Pane) */
+        {
+            HBRUSH right_br = CreateSolidBrush(RGB(214, 230, 252));
+            FillRect(mem_dc, &right_rc, right_br);
+            DeleteObject(right_br);
+        }
+
+        cur_y = 62;
+        for (i = 0; i < (int)NUM_RIGHT_ITEMS; i++)
+        {
+            if (g_right_items[i].is_separator)
+            {
+                RECT sep_rc;
+                sep_rc.left = 198;
+                sep_rc.top = cur_y + 2;
+                sep_rc.right = 368;
+                sep_rc.bottom = cur_y + 3;
+                SetBkColor(mem_dc, RGB(180, 205, 240));
+                ExtTextOutW(mem_dc, 0, cur_y + 2, ETO_OPAQUE, &sep_rc, NULL, 0, NULL);
+                cur_y += 6;
+                continue;
+            }
+
+            /* Item rect */
+            {
+                RECT itm_rc;
+                HICON hIcon;
+
+                itm_rc.left = 192;
+                itm_rc.top = cur_y;
+                itm_rc.right = 374;
+                itm_rc.bottom = cur_y + 24;
+
+                if (g_hover_column == COL_RIGHT && g_hover_index == i)
+                {
+                    HBRUSH hov_br = CreateSolidBrush(RGB(49, 106, 197));
+                    FillRect(mem_dc, &itm_rc, hov_br);
+                    DeleteObject(hov_br);
+                    SetTextColor(mem_dc, RGB(255, 255, 255));
+                }
+                else
+                {
+                    SetTextColor(mem_dc, RGB(0, 0, 0));
+                }
+
+                hIcon = load_shell_icon(g_right_items[i].icon_idx, 16);
+                if (hIcon)
+                {
+                    DrawIconEx(mem_dc, 198, cur_y + 4, hIcon, 16, 16, 0, NULL, DI_NORMAL);
+                    DestroyIcon(hIcon);
+                }
+
+                SelectObject(mem_dc, g_right_items[i].is_bold ? font_bold : font_norm);
+                TextOutW(mem_dc, 222, cur_y + 4, g_right_items[i].title, lstrlenW(g_right_items[i].title));
+            }
+
+            cur_y += 24;
+        }
+
+        /* 4. Footer Rendering (Darker Blue with Log Off / Turn Off) */
+        for (y = 442; y < client_rc.bottom; y++)
+        {
+            RECT line_rc;
+            float t = (float)(y - 442) / (float)(client_rc.bottom - 442);
+            int r = 25 - (int)(10.0f * t);
+            int g = 80 - (int)(25.0f * t);
+            int b = 175 - (int)(45.0f * t);
+
+            line_rc.left = 0;
+            line_rc.top = y;
+            line_rc.right = client_rc.right;
+            line_rc.bottom = y + 1;
+
+            SetBkColor(mem_dc, RGB(r, g, b));
+            ExtTextOutW(mem_dc, 0, y, ETO_OPAQUE, &line_rc, NULL, 0, NULL);
+        }
+
+        /* Log Off Button */
+        {
+            RECT logoff_rc = { 186, 448, 272, 478 };
+            if (g_hover_column == COL_FOOTER && g_hover_index == 0)
+            {
+                HBRUSH hov_br = CreateSolidBrush(RGB(40, 100, 200));
+                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(70, 140, 240));
+                HPEN old_pen = SelectObject(mem_dc, hov_pen);
+                HBRUSH old_br = SelectObject(mem_dc, hov_br);
+                RoundRect(mem_dc, logoff_rc.left, logoff_rc.top, logoff_rc.right, logoff_rc.bottom, 4, 4);
+                SelectObject(mem_dc, old_pen);
+                SelectObject(mem_dc, old_br);
+                DeleteObject(hov_pen);
+                DeleteObject(hov_br);
+            }
+
+            icon_logoff = load_shell_icon(44, 16);
+            if (icon_logoff)
+            {
+                DrawIconEx(mem_dc, 192, 455, icon_logoff, 16, 16, 0, NULL, DI_NORMAL);
+                DestroyIcon(icon_logoff);
+            }
+
+            SelectObject(mem_dc, font_bold);
+            SetTextColor(mem_dc, RGB(255, 255, 255));
+            TextOutW(mem_dc, 214, 455, L"Log Off", 7);
+        }
+
+        /* Turn Off Computer Button */
+        {
+            RECT shut_rc = { 276, 448, 374, 478 };
+            if (g_hover_column == COL_FOOTER && g_hover_index == 1)
+            {
+                HBRUSH hov_br = CreateSolidBrush(RGB(40, 100, 200));
+                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(70, 140, 240));
+                HPEN old_pen = SelectObject(mem_dc, hov_pen);
+                HBRUSH old_br = SelectObject(mem_dc, hov_br);
+                RoundRect(mem_dc, shut_rc.left, shut_rc.top, shut_rc.right, shut_rc.bottom, 4, 4);
+                SelectObject(mem_dc, old_pen);
+                SelectObject(mem_dc, old_br);
+                DeleteObject(hov_pen);
+                DeleteObject(hov_br);
+            }
+
+            icon_shut = load_shell_icon(27, 16);
+            if (icon_shut)
+            {
+                DrawIconEx(mem_dc, 280, 455, icon_shut, 16, 16, 0, NULL, DI_NORMAL);
+                DestroyIcon(icon_shut);
+            }
+
+            SelectObject(mem_dc, font_bold);
+            SetTextColor(mem_dc, RGB(255, 255, 255));
+            TextOutW(mem_dc, 300, 455, L"Turn Off Computer", 17);
+        }
+
+        /* Outer 2px Window Border */
+        {
+            HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(0, 36, 104));
+            HPEN old_pen = SelectObject(mem_dc, border_pen);
+            HBRUSH old_br = SelectObject(mem_dc, GetStockObject(NULL_BRUSH));
+            Rectangle(mem_dc, 0, 0, client_rc.right, client_rc.bottom);
+            Rectangle(mem_dc, 1, 1, client_rc.right - 1, client_rc.bottom - 1);
+            SelectObject(mem_dc, old_pen);
+            SelectObject(mem_dc, old_br);
+            DeleteObject(border_pen);
+        }
+
+        /* Blit to screen */
+        BitBlt(hdc, 0, 0, client_rc.right, client_rc.bottom, mem_dc, 0, 0, SRCCOPY);
+
+        /* Cleanup GDI objects */
+        SelectObject(mem_dc, old_font);
+        SelectObject(mem_dc, old_mem_bm);
+        DeleteDC(mem_dc);
+        DeleteObject(mem_bm);
+        DeleteObject(font_norm);
+        DeleteObject(font_bold);
+        DeleteObject(font_head);
 
         EndPaint(hwnd, &ps);
         return 0;
     }
+
+    case WM_MOUSEMOVE:
+    {
+        int x = (short)LOWORD(lparam);
+        int y = (short)HIWORD(lparam);
+        int col, idx;
+        TRACKMOUSEEVENT tme;
+
+        two_col_hit_test(x, y, &col, &idx);
+
+        if (col != g_hover_column || idx != g_hover_index)
+        {
+            g_hover_column = col;
+            g_hover_index = idx;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+
+        memset(&tme, 0, sizeof(tme));
+        tme.cbSize = sizeof(tme);
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = hwnd;
+        TrackMouseEvent(&tme);
+        return 0;
+    }
+
+    case WM_MOUSELEAVE:
+    {
+        g_hover_column = COL_NONE;
+        g_hover_index = -1;
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
+
+    case WM_LBUTTONDBLCLK:
+        return 0;
+
+    case WM_LBUTTONDOWN:
+    {
+        int x = (short)LOWORD(lparam);
+        int y = (short)HIWORD(lparam);
+        int col, idx;
+
+        if (!g_startmenu_open) return 0;
+
+        two_col_hit_test(x, y, &col, &idx);
+
+        if (col == COL_LEFT)
+        {
+            if (idx == 0)
+                execute_startmenu_command(STARTMENU_CMD_INTERNET);
+            else if (idx == 1)
+                execute_startmenu_command(STARTMENU_CMD_EMAIL);
+            else if (idx >= 2 && idx < 2 + (int)NUM_LEFT_FREQUENT)
+                execute_startmenu_command(g_left_frequent[idx - 2].cmd);
+            else if (idx == 100)
+            {
+                /* All Programs popup anchored at right of All Programs button */
+                RECT wnd_rc;
+                GetWindowRect(hwnd, &wnd_rc);
+                show_programs_popup_menu(hwnd, wnd_rc.left + 190, wnd_rc.top + 436);
+            }
+        }
+        else if (col == COL_RIGHT)
+        {
+            if (idx >= 0 && idx < (int)NUM_RIGHT_ITEMS && !g_right_items[idx].is_separator)
+                execute_startmenu_command(g_right_items[idx].cmd);
+        }
+        else if (col == COL_FOOTER)
+        {
+            if (idx == 0)
+                execute_startmenu_command(STARTMENU_CMD_LOGOFF);
+            else if (idx == 1)
+                execute_startmenu_command(STARTMENU_CMD_SHUTDOWN);
+        }
+        return 0;
+    }
+
+    case WM_KEYDOWN:
+        if (wparam == VK_ESCAPE)
+        {
+            startmenu_view_hide();
+            return 0;
+        }
+        break;
 
     case WM_KILLFOCUS:
         startmenu_view_hide();
@@ -523,11 +1354,16 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
     default:
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
+    return 0;
 }
 
 void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
 {
     THEME_CONFIG *theme = theme_get_current();
+    TASKBAR_SETTINGS *settings = taskbar_settings_get();
+    int style = THEME_STARTMENU_CLASSIC;
+
+    g_tray_parent = tray_hwnd;
 
     if (g_startmenu_open)
     {
@@ -535,15 +1371,20 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
         return;
     }
 
-    if (!theme || theme->start_menu_style == THEME_STARTMENU_CLASSIC)
+    if (settings)
+        style = settings->start_menu_style;
+    else if (theme)
+        style = theme->start_menu_style;
+
+    if (style == THEME_STARTMENU_CLASSIC)
     {
         show_classic_start_menu(tray_hwnd, btn_rect);
     }
     else
     {
-        /* Two-column / Modern Start Menu Window */
-        int width = 380;
-        int height = 480;
+        /* Two-column Windows XP Start Menu Window */
+        int width = TWOCOL_WIDTH;
+        int height = TWOCOL_HEIGHT;
         int x = btn_rect->left;
         int y = btn_rect->top - height;
 
@@ -551,6 +1392,7 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
         {
             WNDCLASSW wc;
             memset(&wc, 0, sizeof(wc));
+            wc.style = CS_DBLCLKS;
             wc.lpfnWndProc = two_column_startmenu_proc;
             wc.hInstance = GetModuleHandleW(NULL);
             wc.lpszClassName = STARTMENU_WND_CLASS;
@@ -582,6 +1424,7 @@ void startmenu_view_hide(void)
     }
     g_startmenu_open = FALSE;
     g_button_pressed = FALSE;
+    g_button_hovered = FALSE;
     if (g_startbutton_hwnd)
         InvalidateRect(g_startbutton_hwnd, NULL, FALSE);
 }
@@ -591,7 +1434,19 @@ BOOL startmenu_view_is_open(void)
     return g_startmenu_open;
 }
 
-/* Start Button Implementation */
+/* ========================================================================= */
+/*                         START BUTTON IMPLEMENTATION                       */
+/* ========================================================================= */
+
+int startbutton_get_desired_width(void)
+{
+    THEME_CONFIG *cur_theme = theme_get_current();
+    TASKBAR_SETTINGS *settings = taskbar_settings_get();
+    BOOL is_themed = theme_is_visual_styles_active() ||
+                     (cur_theme && cur_theme->start_menu_style != THEME_STARTMENU_CLASSIC) ||
+                     (settings && settings->start_menu_style != THEME_STARTMENU_CLASSIC);
+    return is_themed ? 96 : 58;
+}
 
 static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -604,24 +1459,158 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         RECT rc;
         HFONT font, old_font;
         LOGFONTW lf;
-        int icon_size = 16;
-        int icon_y, icon_x;
-        RECT text_rc;
+        THEME_CONFIG *cur_theme = theme_get_current();
+        TASKBAR_SETTINGS *settings = taskbar_settings_get();
+        BOOL is_themed = theme_is_visual_styles_active() ||
+                         (cur_theme && cur_theme->start_menu_style != THEME_STARTMENU_CLASSIC) ||
+                         (settings && settings->start_menu_style != THEME_STARTMENU_CLASSIC);
 
         GetClientRect(hwnd, &rc);
 
-        /* 1. Draw Button Surface */
-        if (theme_is_visual_styles_active())
+        /* 1. Draw Windows Logo Icon */
+        if (!g_winlogo_icon)
         {
-            /* Themed Start Button */
-            HBRUSH face = GetSysColorBrush(g_button_pressed ? COLOR_BTNHIGHLIGHT : COLOR_BTNFACE);
-            FillRect(hdc, &rc, face);
-            theme_draw_classic_bevel(hdc, &rc, g_button_pressed ? EDGE_SUNKEN : EDGE_RAISED,
-                                     BF_RECT | BF_SOFT | BF_ADJUST);
+            g_winlogo_icon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDI_START));
+            if (!g_winlogo_icon)
+                g_winlogo_icon = LoadIconW(NULL, (const WCHAR *)IDI_WINLOGO);
+        }
+
+        if (is_themed)
+        {
+            /* --- Themed Windows XP Luna Green Pill Button --- */
+            int h = rc.bottom - rc.top;
+            int y;
+            RECT text_rc;
+            HPEN border_pen;
+            HPEN old_pen;
+            HBRUSH null_br;
+            HBRUSH old_br;
+
+            /* Gradient Fill */
+            for (y = 0; y < h; y++)
+            {
+                RECT line_rc;
+                float t = (float)y / (float)(h > 0 ? h : 1);
+                int r, g, b;
+
+                line_rc.left = rc.left + 2;
+                line_rc.top = y;
+                line_rc.right = rc.right - 2;
+                line_rc.bottom = y + 1;
+
+                if (g_button_pressed)
+                {
+                    /* Sunken Pressed: darker olive/forest green */
+                    r = 35 + (int)(25.0f * t);
+                    g = 95 + (int)(30.0f * t);
+                    b = 30 + (int)(20.0f * t);
+                }
+                else if (g_button_hovered)
+                {
+                    /* Hovered: bright glowing lime green */
+                    if (t < 0.45f)
+                    {
+                        float lt = t / 0.45f;
+                        r = 75 + (int)(25.0f * lt);
+                        g = 195 + (int)(25.0f * lt);
+                        b = 70 + (int)(20.0f * lt);
+                    }
+                    else
+                    {
+                        float lt = (t - 0.45f) / 0.55f;
+                        r = 100 - (int)(35.0f * lt);
+                        g = 220 - (int)(45.0f * lt);
+                        b = 90 - (int)(30.0f * lt);
+                    }
+                }
+                else
+                {
+                    /* Normal Luna Green */
+                    if (t < 0.45f)
+                    {
+                        float lt = t / 0.45f;
+                        r = 55 + (int)(30.0f * lt);
+                        g = 140 + (int)(35.0f * lt);
+                        b = 50 + (int)(15.0f * lt);
+                    }
+                    else
+                    {
+                        float lt = (t - 0.45f) / 0.55f;
+                        r = 85 - (int)(35.0f * lt);
+                        g = 175 - (int)(50.0f * lt);
+                        b = 65 - (int)(20.0f * lt);
+                    }
+                }
+
+                SetBkColor(hdc, RGB(r, g, b));
+                ExtTextOutW(hdc, 0, y, ETO_OPAQUE, &line_rc, NULL, 0, NULL);
+            }
+
+            /* Rounded Pill Outline */
+            border_pen = CreatePen(PS_SOLID, 1, g_button_pressed ? RGB(20, 60, 20) : RGB(30, 85, 25));
+            old_pen = SelectObject(hdc, border_pen);
+            null_br = GetStockObject(NULL_BRUSH);
+            old_br = SelectObject(hdc, null_br);
+            RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 7, 7);
+            SelectObject(hdc, old_pen);
+            SelectObject(hdc, old_br);
+            DeleteObject(border_pen);
+
+            /* Subtle top highlight arc */
+            if (!g_button_pressed)
+            {
+                HPEN hilite_pen = CreatePen(PS_SOLID, 1, RGB(140, 225, 130));
+                old_pen = SelectObject(hdc, hilite_pen);
+                MoveToEx(hdc, rc.left + 4, rc.top + 1, NULL);
+                LineTo(hdc, rc.right - 4, rc.top + 1);
+                SelectObject(hdc, old_pen);
+                DeleteObject(hilite_pen);
+            }
+
+            /* Draw Windows XP Flag */
+            if (g_winlogo_icon)
+            {
+                int icon_y = rc.top + (rc.bottom - rc.top - 16) / 2 + (g_button_pressed ? 1 : 0);
+                DrawIconEx(hdc, rc.left + 7 + (g_button_pressed ? 1 : 0), icon_y,
+                           g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
+            }
+
+            /* Authentic bold italic lowercase "start" text with drop shadow */
+            memset(&lf, 0, sizeof(lf));
+            lf.lfHeight = -13;
+            lf.lfWeight = FW_BOLD;
+            lf.lfItalic = TRUE;
+            lstrcpyW(lf.lfFaceName, L"Tahoma");
+            font = CreateFontIndirectW(&lf);
+
+            text_rc = rc;
+            text_rc.left = rc.left + 28 + (g_button_pressed ? 1 : 0);
+            text_rc.top = rc.top + (g_button_pressed ? 1 : 0);
+            text_rc.bottom = rc.bottom + (g_button_pressed ? 1 : 0);
+
+            old_font = SelectObject(hdc, font);
+            SetBkMode(hdc, TRANSPARENT);
+
+            /* Shadow */
+            SetTextColor(hdc, RGB(20, 60, 20));
+            text_rc.left += 1; text_rc.top += 1;
+            DrawTextW(hdc, L"start", -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+            /* White Text */
+            SetTextColor(hdc, RGB(255, 255, 255));
+            text_rc.left -= 1; text_rc.top -= 1;
+            DrawTextW(hdc, L"start", -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+            SelectObject(hdc, old_font);
+            DeleteObject(font);
         }
         else
         {
-            /* Authentic Windows Classic Start Button */
+            /* --- Authentic Windows Classic 3D Start Button --- */
+            int icon_size = 16;
+            int icon_x, icon_y;
+            RECT text_rc;
+
             if (g_button_pressed)
             {
                 DrawEdge(hdc, &rc, EDGE_SUNKEN, BF_RECT | BF_ADJUST);
@@ -632,44 +1621,61 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                 DrawEdge(hdc, &rc, EDGE_RAISED, BF_RECT | BF_ADJUST);
                 FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
             }
+
+            icon_x = rc.left + 4 + (g_button_pressed ? 1 : 0);
+            icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2 + (g_button_pressed ? 1 : 0);
+
+            if (g_winlogo_icon)
+                DrawIconEx(hdc, icon_x, icon_y, g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
+
+            memset(&lf, 0, sizeof(lf));
+            lf.lfHeight = -11;
+            lf.lfWeight = FW_BOLD;
+            lstrcpyW(lf.lfFaceName, L"Tahoma");
+            font = CreateFontIndirectW(&lf);
+
+            text_rc = rc;
+            text_rc.left = icon_x + icon_size + 4;
+            text_rc.top = rc.top + (g_button_pressed ? 1 : 0);
+            text_rc.bottom = rc.bottom + (g_button_pressed ? 1 : 0);
+
+            old_font = SelectObject(hdc, font);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
+
+            DrawTextW(hdc, L"Start", -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+            SelectObject(hdc, old_font);
+            DeleteObject(font);
         }
-
-        /* 2. Draw Windows Logo Icon */
-        if (!g_winlogo_icon)
-        {
-            g_winlogo_icon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDI_START));
-            if (!g_winlogo_icon)
-                g_winlogo_icon = LoadIconW(NULL, (const WCHAR *)IDI_WINLOGO);
-        }
-
-        icon_x = rc.left + 5 + (g_button_pressed ? 1 : 0);
-        icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2 + (g_button_pressed ? 1 : 0);
-
-        if (g_winlogo_icon)
-            DrawIconEx(hdc, icon_x, icon_y, g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
-
-        /* 3. Draw Bold "Start" Label */
-        memset(&lf, 0, sizeof(lf));
-        lf.lfHeight = -11;
-        lf.lfWeight = FW_BOLD;
-        lstrcpyW(lf.lfFaceName, L"Tahoma");
-        font = CreateFontIndirectW(&lf);
-
-        text_rc = rc;
-        text_rc.left = icon_x + icon_size + 4;
-        text_rc.top = rc.top + (g_button_pressed ? 1 : 0);
-        text_rc.bottom = rc.bottom + (g_button_pressed ? 1 : 0);
-
-        old_font = SelectObject(hdc, font);
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
-
-        DrawTextW(hdc, L"Start", -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-        SelectObject(hdc, old_font);
-        DeleteObject(font);
 
         EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_MOUSEMOVE:
+    {
+        TRACKMOUSEEVENT tme;
+        if (!g_button_hovered)
+        {
+            g_button_hovered = TRUE;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        memset(&tme, 0, sizeof(tme));
+        tme.cbSize = sizeof(tme);
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = hwnd;
+        TrackMouseEvent(&tme);
+        return 0;
+    }
+
+    case WM_MOUSELEAVE:
+    {
+        if (g_button_hovered)
+        {
+            g_button_hovered = FALSE;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
         return 0;
     }
 
@@ -684,9 +1690,13 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     case WM_RBUTTONUP:
     {
         HMENU hMenu = CreatePopupMenu();
-        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
-        POINT screen_pt = pt;
+        POINT pt;
+        POINT screen_pt;
         UINT cmd;
+
+        pt.x = (short)LOWORD(lparam);
+        pt.y = (short)HIWORD(lparam);
+        screen_pt = pt;
 
         ClientToScreen(hwnd, &screen_pt);
 
@@ -772,6 +1782,11 @@ void startbutton_destroy(void)
     {
         DestroyWindow(g_startmenu_wnd);
         g_startmenu_wnd = NULL;
+    }
+    if (g_banner_wnd)
+    {
+        DestroyWindow(g_banner_wnd);
+        g_banner_wnd = NULL;
     }
     if (g_startbutton_hwnd)
     {
