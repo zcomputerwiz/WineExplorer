@@ -335,17 +335,28 @@ static void update_tooltip_text(struct icon *icon)
     SendMessageW(icon->tooltip, TTM_UPDATETIPTEXTW, 0, (LPARAM)&ti);
 }
 
+static RECT get_tray_clock_rect(void)
+{
+    RECT rc;
+    int clock_width = 64;
+    rc.right = tray_width - 2;
+    rc.left = rc.right - clock_width;
+    rc.top = 2;
+    rc.bottom = tray_height - 2;
+    return rc;
+}
+
 static RECT get_tray_notify_rect(void)
 {
     RECT rc;
-    int clock_width = 66;
+    int clock_width = 64;
     int icons_width = nb_displayed > 0 ? (nb_displayed * 18 + 4) : 0;
     int total_width = clock_width + icons_width + 4;
 
     rc.right = tray_width - 2;
     rc.left = rc.right - total_width;
-    rc.top = 3;
-    rc.bottom = 25;
+    rc.top = 2;
+    rc.bottom = tray_height - 2;
     return rc;
 }
 
@@ -356,8 +367,9 @@ static POINT get_icon_pos( struct icon *icon )
 
     if (enable_taskbar)
     {
-        RECT rc = get_tray_notify_rect();
-        pos.x = rc.left + 3 + (icon->display * 18);
+        RECT rcClock = get_tray_clock_rect();
+        int icons_width = nb_displayed * 18;
+        pos.x = rcClock.left - 4 - icons_width + (icon->display * 18);
         pos.y = (tray_height - icon_cy) / 2;
     }
     else
@@ -375,19 +387,19 @@ static void update_tray_layout(void)
     {
         TASKBAR_SETTINGS *settings = taskbar_settings_get();
         RECT rcTray = get_tray_notify_rect();
-        int clock_width = 66;
+        RECT rcClock = get_tray_clock_rect();
         int show_desktop_width = 24;
-        int taskband_x = 62;
+        int taskband_x = start_button_width + 4;
         int taskband_w;
         struct icon *icon;
 
         if (settings && settings->show_quick_launch)
         {
-            show_desktop_button_resize( 62, 3, show_desktop_width, 22 );
-            taskband_x = 62 + show_desktop_width + 4;
+            show_desktop_button_resize( taskband_x, 3, show_desktop_width, 22 );
+            taskband_x += show_desktop_width + 4;
         }
 
-        tray_clock_resize( rcTray.right - clock_width - 2, 4, clock_width, 20 );
+        tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
 
         taskband_w = rcTray.left - taskband_x - 4;
         taskband_resize( taskband_x, 0, max( 50, taskband_w ), tray_height );
@@ -1292,13 +1304,13 @@ static void do_show_systray(void)
     {
         TASKBAR_SETTINGS *settings = taskbar_settings_get();
         RECT rcTray = get_tray_notify_rect();
-        int clock_width = 66;
+        RECT rcClock = get_tray_clock_rect();
         int show_desktop_width = 24;
         int taskband_x = start_button_width + 4;
         int taskband_w;
 
-        startbutton_create( tray_window, 2, 3, start_button_width, 22 );
-        startbutton_resize( 2, 3, start_button_width, 22 );
+        startbutton_create( tray_window, 2, 2, start_button_width, 24 );
+        startbutton_resize( 2, 2, start_button_width, 24 );
 
         if (settings && settings->show_quick_launch)
         {
@@ -1307,8 +1319,8 @@ static void do_show_systray(void)
             taskband_x += show_desktop_width + 4;
         }
 
-        tray_clock_create( tray_window, rcTray.right - clock_width - 2, 4, clock_width, 20 );
-        tray_clock_resize( rcTray.right - clock_width - 2, 4, clock_width, 20 );
+        tray_clock_create( tray_window, rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
+        tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
 
         taskband_w = rcTray.left - taskband_x - 4;
         taskband_create( tray_window, taskband_x, 0, max( 50, taskband_w ), tray_height );
@@ -1326,7 +1338,7 @@ static void update_taskbar_layout(void)
 {
     TASKBAR_SETTINGS *settings;
     RECT rcTray;
-    int clock_width = 66;
+    RECT rcClock;
     int show_desktop_width = 24;
     int taskband_x;
     int taskband_w;
@@ -1334,9 +1346,10 @@ static void update_taskbar_layout(void)
     taskbar_settings_load();
     settings = taskbar_settings_get();
     rcTray = get_tray_notify_rect();
+    rcClock = get_tray_clock_rect();
 
     start_button_width = startbutton_get_desired_width();
-    startbutton_resize( 2, 3, start_button_width, 22 );
+    startbutton_resize( 2, 2, start_button_width, 24 );
     taskband_x = start_button_width + 4;
 
     if (settings && settings->show_quick_launch)
@@ -1345,7 +1358,7 @@ static void update_taskbar_layout(void)
         taskband_x += show_desktop_width + 4;
     }
 
-    tray_clock_resize( rcTray.right - clock_width - 2, 4, clock_width, 20 );
+    tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
 
     taskband_w = rcTray.left - taskband_x - 4;
     taskband_resize( taskband_x, 0, max( 50, taskband_w ), tray_height );
@@ -1407,7 +1420,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint( hwnd, &ps );
-        RECT rc, rcTop, rcTray;
+        RECT rc, rcTop;
 
         GetClientRect( hwnd, &rc );
         FillRect( hdc, &rc, GetSysColorBrush( COLOR_BTNFACE ) );
@@ -1418,11 +1431,11 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         rcTop.bottom = 2;
         FillRect( hdc, &rcTop, GetSysColorBrush( COLOR_3DHIGHLIGHT ) );
 
-        /* Draw sunken notification area enclosing icons and clock */
+        /* Draw sunken border only around the clock in Classic mode */
         if (enable_taskbar)
         {
-            rcTray = get_tray_notify_rect();
-            DrawEdge( hdc, &rcTray, EDGE_SUNKEN, BF_RECT );
+            RECT rcClock = get_tray_clock_rect();
+            DrawEdge( hdc, &rcClock, EDGE_SUNKEN, BF_RECT );
         }
 
         EndPaint( hwnd, &ps );

@@ -1,0 +1,9 @@
+#include <windows.h>
+#include "resource.h"
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+/* Icons */
+IDI_CALC ICON "res/calc.ico"
+
+#include "lang/en-US.rc"

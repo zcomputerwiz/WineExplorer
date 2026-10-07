@@ -39,12 +39,31 @@ static BOOL g_startmenu_open = FALSE;
 static BOOL g_button_pressed = FALSE;
 static BOOL g_button_hovered = FALSE;
 static HICON g_winlogo_icon = NULL;
+static DWORD g_last_close_tick = 0;
+static HHOOK g_mouse_hook = NULL;
 
 extern void power_mgmt_show_shutdown_dialog(HWND parent);
 
 #define MAX_PROGRAM_ENTRIES 256
 static WCHAR g_program_paths[MAX_PROGRAM_ENTRIES][MAX_PATH];
 static UINT g_program_count = 0;
+
+static LRESULT CALLBACK mouse_hook_proc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode >= 0 && g_startmenu_open)
+    {
+        if (wParam == WM_LBUTTONDOWN || wParam == WM_NCLBUTTONDOWN ||
+            wParam == WM_RBUTTONDOWN || wParam == WM_NCRBUTTONDOWN)
+        {
+            MOUSEHOOKSTRUCT *mhs = (MOUSEHOOKSTRUCT *)lParam;
+            if (mhs->hwnd != g_startmenu_wnd && !IsChild(g_startmenu_wnd, mhs->hwnd))
+            {
+                startmenu_view_hide();
+            }
+        }
+    }
+    return CallNextHookEx(g_mouse_hook, nCode, wParam, lParam);
+}
 
 /* --- Helpers for Loading Shell and System Icons --- */
 
@@ -98,9 +117,9 @@ static HICON load_app_icon(const WCHAR *exe_name, int fallback_shell_idx, int si
     return load_shell_icon(fallback_shell_idx, size);
 }
 
-static HBITMAP get_shell32_icon_bitmap(int index)
+static HBITMAP get_shell32_icon_bitmap(int index, int size)
 {
-    HICON hIcon = load_shell_icon(index, 16);
+    HICON hIcon = load_shell_icon(index, size);
     HDC screen_dc, hdc;
     HBITMAP hbm, old_bm;
     RECT rc;
@@ -109,16 +128,16 @@ static HBITMAP get_shell32_icon_bitmap(int index)
 
     rc.left = 0;
     rc.top = 0;
-    rc.right = 16;
-    rc.bottom = 16;
+    rc.right = size;
+    rc.bottom = size;
 
     screen_dc = GetDC(NULL);
     hdc = CreateCompatibleDC(screen_dc);
-    hbm = CreateCompatibleBitmap(screen_dc, 16, 16);
+    hbm = CreateCompatibleBitmap(screen_dc, size, size);
     old_bm = SelectObject(hdc, hbm);
 
     FillRect(hdc, &rc, GetSysColorBrush(COLOR_MENU));
-    DrawIconEx(hdc, 0, 0, hIcon, 16, 16, 0, NULL, DI_NORMAL);
+    DrawIconEx(hdc, 0, 0, hIcon, size, size, 0, NULL, DI_NORMAL);
 
     SelectObject(hdc, old_bm);
     DeleteDC(hdc);
@@ -153,12 +172,123 @@ static void append_menu_item_icon(HMENU hMenu, UINT uFlags, UINT_PTR uIDNewItem,
     InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
 }
 
+static HMENU find_existing_submenu(HMENU hMenu, const WCHAR *name)
+{
+    int count = GetMenuItemCount(hMenu);
+    int i;
+    for (i = 0; i < count; i++)
+    {
+        WCHAR buf[256];
+        if (GetMenuStringW(hMenu, i, buf, 256, MF_BYPOSITION) > 0)
+        {
+            if (_wcsicmp(buf, name) == 0)
+            {
+                MENUITEMINFOW mii;
+                memset(&mii, 0, sizeof(mii));
+                mii.cbSize = sizeof(mii);
+                mii.fMask = MIIM_SUBMENU;
+                if (GetMenuItemInfoW(hMenu, i, TRUE, &mii) && mii.hSubMenu)
+                    return mii.hSubMenu;
+            }
+        }
+    }
+    return NULL;
+}
+
+static BOOL menu_has_item(HMENU hMenu, const WCHAR *title)
+{
+    int count = GetMenuItemCount(hMenu);
+    int i;
+    for (i = 0; i < count; i++)
+    {
+        WCHAR buf[256];
+        if (GetMenuStringW(hMenu, i, buf, 256, MF_BYPOSITION) > 0)
+        {
+            if (_wcsicmp(buf, title) == 0)
+                return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static void create_shortcut(const WCHAR *dir, const WCHAR *name, const WCHAR *target)
+{
+    WCHAR lnk_path[MAX_PATH];
+    WCHAR full_target[MAX_PATH];
+    IShellLinkW *psl;
+    IPersistFile *ppf;
+
+    swprintf(lnk_path, MAX_PATH, L"%s\\%s.lnk", dir, name);
+    if (GetFileAttributesW(lnk_path) != INVALID_FILE_ATTRIBUTES)
+        return;
+
+    if (!SearchPathW(NULL, target, L".exe", MAX_PATH, full_target, NULL))
+        lstrcpynW(full_target, target, MAX_PATH);
+
+    if (SUCCEEDED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,
+                                   &IID_IShellLinkW, (void **)&psl)))
+    {
+        psl->lpVtbl->SetPath(psl, full_target);
+        if (SUCCEEDED(psl->lpVtbl->QueryInterface(psl, &IID_IPersistFile, (void **)&ppf)))
+        {
+            ppf->lpVtbl->Save(ppf, lnk_path, TRUE);
+            ppf->lpVtbl->Release(ppf);
+        }
+        psl->lpVtbl->Release(psl);
+    }
+}
+
+static void ensure_default_shortcuts(void)
+{
+    static BOOL initialized = FALSE;
+    WCHAR prog_dir[MAX_PATH];
+    WCHAR acc_dir[MAX_PATH];
+    WCHAR ent_dir[MAX_PATH];
+    WCHAR sys_dir[MAX_PATH];
+    WCHAR adm_dir[MAX_PATH];
+    WCHAR gam_dir[MAX_PATH];
+
+    if (initialized) return;
+    initialized = TRUE;
+
+    CoInitialize(NULL);
+
+    if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, prog_dir) != S_OK &&
+        SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, prog_dir) != S_OK)
+        return;
+
+    swprintf(acc_dir, MAX_PATH, L"%s\\Accessories", prog_dir);
+    CreateDirectoryW(acc_dir, NULL);
+    swprintf(ent_dir, MAX_PATH, L"%s\\Entertainment", acc_dir);
+    CreateDirectoryW(ent_dir, NULL);
+    swprintf(sys_dir, MAX_PATH, L"%s\\System Tools", acc_dir);
+    CreateDirectoryW(sys_dir, NULL);
+    swprintf(adm_dir, MAX_PATH, L"%s\\Administrative Tools", prog_dir);
+    CreateDirectoryW(adm_dir, NULL);
+    swprintf(gam_dir, MAX_PATH, L"%s\\Games", prog_dir);
+    CreateDirectoryW(gam_dir, NULL);
+    create_shortcut(acc_dir, L"Calculator", L"calc.exe");
+    create_shortcut(acc_dir, L"Paint", L"mspaint.exe");
+    create_shortcut(acc_dir, L"Notepad", L"notepad.exe");
+    create_shortcut(acc_dir, L"WordPad", L"wordpad.exe");
+    create_shortcut(acc_dir, L"Command Prompt", L"cmd.exe");
+    create_shortcut(acc_dir, L"Windows Explorer", L"explorer.exe");
+    create_shortcut(ent_dir, L"Volume Control", L"sndvol32.exe");
+    create_shortcut(ent_dir, L"Windows Media Player", L"wmplayer.exe");
+    create_shortcut(sys_dir, L"Task Manager", L"taskmgr.exe");
+    create_shortcut(sys_dir, L"Registry Editor", L"regedit.exe");
+    create_shortcut(adm_dir, L"Wine Configuration", L"winecfg.exe");
+    create_shortcut(gam_dir, L"Minesweeper", L"winemine.exe");
+}
+
 /* Build Programs submenu by enumerating filesystem directory */
 static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
 {
     WIN32_FIND_DATAW fd;
     HANDLE hFind;
     WCHAR search_path[MAX_PATH];
+
+    ensure_default_shortcuts();
 
     swprintf(search_path, MAX_PATH, L"%s\\*", path);
     hFind = FindFirstFileW(search_path, &fd);
@@ -174,22 +304,26 @@ static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
 
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
         {
-            HMENU hSub = CreatePopupMenu();
+            HMENU hSub = find_existing_submenu(hMenu, fd.cFileName);
+            if (!hSub)
+            {
+                hSub = CreatePopupMenu();
+                AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSub, fd.cFileName);
+            }
             populate_programs_menu(hSub, item_path);
-            AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSub, fd.cFileName);
         }
         else if (PathMatchSpecW(fd.cFileName, L"*.lnk") || PathMatchSpecW(fd.cFileName, L"*.exe"))
         {
             WCHAR title[MAX_PATH];
             WCHAR *ext;
 
-            if (g_program_count < MAX_PROGRAM_ENTRIES)
+            lstrcpynW(title, fd.cFileName, MAX_PATH);
+            ext = wcsrchr(title, L'.');
+            if (ext) *ext = L'\0';
+
+            if (!menu_has_item(hMenu, title) && g_program_count < MAX_PROGRAM_ENTRIES)
             {
                 lstrcpynW(g_program_paths[g_program_count], item_path, MAX_PATH);
-                lstrcpynW(title, fd.cFileName, MAX_PATH);
-                ext = wcsrchr(title, L'.');
-                if (ext) *ext = L'\0';
-
                 AppendMenuW(hMenu, MF_STRING, 2000 + g_program_count, title);
                 g_program_count++;
             }
@@ -400,19 +534,19 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     AppendMenuW(hSearch, MF_STRING, STARTMENU_CMD_SEARCH, L"For &Files or Folders...");
     AppendMenuW(hSearch, MF_STRING, STARTMENU_CMD_SEARCH_COMPUTERS, L"For &Computers...");
 
-    /* Load authentic icon bitmaps from shell32 */
-    bm_progacc = get_shell32_icon_bitmap(271); /* Set Program Access and Defaults */
-    if (!bm_progacc) bm_progacc = get_shell32_icon_bitmap(21);
-    bm_catalog = get_shell32_icon_bitmap(14);  /* Windows Catalog */
-    bm_update  = get_shell32_icon_bitmap(46);  /* Windows Update */
-    bm_prog    = get_shell32_icon_bitmap(3);   /* Programs */
-    bm_doc     = get_shell32_icon_bitmap(1);   /* Documents */
-    bm_set     = get_shell32_icon_bitmap(21);  /* Settings */
-    bm_srch    = get_shell32_icon_bitmap(22);  /* Search */
-    bm_help    = get_shell32_icon_bitmap(23);  /* Help */
-    bm_run     = get_shell32_icon_bitmap(24);  /* Run */
-    bm_logoff  = get_shell32_icon_bitmap(44);  /* Log Off key */
-    bm_shut    = get_shell32_icon_bitmap(27);  /* Turn Off red button */
+    /* Load authentic icon bitmaps from shell32 (24x24 for authentic Windows XP classic scale) */
+    bm_progacc = get_shell32_icon_bitmap(271, 24); /* Set Program Access and Defaults */
+    if (!bm_progacc) bm_progacc = get_shell32_icon_bitmap(21, 24);
+    bm_catalog = get_shell32_icon_bitmap(14, 24);  /* Windows Catalog */
+    bm_update  = get_shell32_icon_bitmap(46, 24);  /* Windows Update */
+    bm_prog    = get_shell32_icon_bitmap(3, 24);   /* Programs */
+    bm_doc     = get_shell32_icon_bitmap(1, 24);   /* Documents */
+    bm_set     = get_shell32_icon_bitmap(21, 24);  /* Settings */
+    bm_srch    = get_shell32_icon_bitmap(22, 24);  /* Search */
+    bm_help    = get_shell32_icon_bitmap(23, 24);  /* Help */
+    bm_run     = get_shell32_icon_bitmap(24, 24);  /* Run */
+    bm_logoff  = get_shell32_icon_bitmap(44, 24);  /* Log Off key */
+    bm_shut    = get_shell32_icon_bitmap(27, 24);  /* Turn Off red button */
 
     /* Top Pinned Items */
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_PROGACCESS, L"Set &Program Access and Defaults", bm_progacc);
@@ -462,6 +596,7 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     ShowWindow(g_banner_wnd, SW_HIDE);
     g_startmenu_open = FALSE;
     g_button_pressed = FALSE;
+    g_last_close_tick = GetTickCount();
     InvalidateRect(g_startbutton_hwnd, NULL, FALSE);
     UpdateWindow(g_startbutton_hwnd);
 
@@ -1347,6 +1482,22 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         }
         break;
 
+    case WM_ACTIVATE:
+        if (LOWORD(wparam) == WA_INACTIVE)
+        {
+            startmenu_view_hide();
+            return 0;
+        }
+        break;
+
+    case WM_ACTIVATEAPP:
+        if (!wparam)
+        {
+            startmenu_view_hide();
+            return 0;
+        }
+        break;
+
     case WM_KILLFOCUS:
         startmenu_view_hide();
         return 0;
@@ -1368,6 +1519,11 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
     if (g_startmenu_open)
     {
         startmenu_view_hide();
+        return;
+    }
+
+    if (GetTickCount() - g_last_close_tick < 350)
+    {
         return;
     }
 
@@ -1410,6 +1566,9 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
         SetForegroundWindow(g_startmenu_wnd);
         SetFocus(g_startmenu_wnd);
 
+        if (!g_mouse_hook)
+            g_mouse_hook = SetWindowsHookExW(WH_MOUSE, mouse_hook_proc, NULL, GetCurrentThreadId());
+
         g_startmenu_open = TRUE;
         g_button_pressed = TRUE;
         InvalidateRect(g_startbutton_hwnd, NULL, FALSE);
@@ -1418,6 +1577,11 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
 
 void startmenu_view_hide(void)
 {
+    if (g_mouse_hook)
+    {
+        UnhookWindowsHookEx(g_mouse_hook);
+        g_mouse_hook = NULL;
+    }
     if (g_startmenu_wnd && IsWindowVisible(g_startmenu_wnd))
     {
         ShowWindow(g_startmenu_wnd, SW_HIDE);
@@ -1425,6 +1589,7 @@ void startmenu_view_hide(void)
     g_startmenu_open = FALSE;
     g_button_pressed = FALSE;
     g_button_hovered = FALSE;
+    g_last_close_tick = GetTickCount();
     if (g_startbutton_hwnd)
         InvalidateRect(g_startbutton_hwnd, NULL, FALSE);
 }
@@ -1470,9 +1635,11 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         /* 1. Draw Windows Logo Icon */
         if (!g_winlogo_icon)
         {
-            g_winlogo_icon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDI_START));
+            g_winlogo_icon = (HICON)LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDI_START),
+                                               IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
             if (!g_winlogo_icon)
-                g_winlogo_icon = LoadIconW(NULL, (const WCHAR *)IDI_WINLOGO);
+                g_winlogo_icon = (HICON)LoadImageW(NULL, (const WCHAR *)IDI_WINLOGO,
+                                                   IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED);
         }
 
         if (is_themed)
@@ -1682,6 +1849,18 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     case WM_LBUTTONDOWN:
     {
         RECT btn_screen_rc;
+
+        if (g_startmenu_open)
+        {
+            startmenu_view_hide();
+            return 0;
+        }
+
+        if (GetTickCount() - g_last_close_tick < 350)
+        {
+            return 0;
+        }
+
         GetWindowRect(hwnd, &btn_screen_rc);
         startmenu_view_show(GetParent(hwnd), &btn_screen_rc);
         return 0;

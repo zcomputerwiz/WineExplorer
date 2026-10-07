@@ -77,7 +77,6 @@ static void draw_taskbar_preview(HDC hdc, const RECT *rc)
     RECT desktop_rc = { rc->left, rc->top, rc->right, rc->bottom - 22 };
     RECT btn_rc = { tb_rc.left + 2, tb_rc.top + 2, tb_rc.left + 46, tb_rc.bottom - 2 };
     RECT task_rc = { tb_rc.left + 52, tb_rc.top + 2, tb_rc.left + 120, tb_rc.bottom - 2 };
-    RECT clock_rc = { tb_rc.right - 48, tb_rc.top + 2, tb_rc.right - 2, tb_rc.bottom - 2 };
     HFONT font, old_font;
 
     /* Desktop background */
@@ -311,6 +310,23 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
     return FALSE;
 }
 
+static int CALLBACK prop_sheet_callback(HWND hwnd, UINT msg, LPARAM lparam)
+{
+    if (msg == PSCB_INITIALIZED)
+    {
+        RECT rc, wa;
+        int x, y;
+        GetWindowRect(hwnd, &rc);
+        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0))
+        {
+            x = wa.left + (wa.right - wa.left - (rc.right - rc.left)) / 2;
+            y = wa.top + (wa.bottom - wa.top - (rc.bottom - rc.top)) / 2;
+            SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        }
+    }
+    return 0;
+}
+
 void taskbar_props_show(HWND parent)
 {
     INITCOMMONCONTROLSEX init = {
@@ -342,7 +358,8 @@ void taskbar_props_show(HWND parent)
 
     memset(&psh, 0, sizeof(psh));
     psh.dwSize = sizeof(PROPSHEETHEADERW);
-    psh.dwFlags = PSH_PROPSHEETPAGE;
+    psh.dwFlags = PSH_PROPSHEETPAGE | PSH_USECALLBACK;
+    psh.pfnCallback = prop_sheet_callback;
     psh.hwndParent = parent;
     psh.hInstance = hInst;
     psh.pszCaption = L"Taskbar and Start Menu Properties";

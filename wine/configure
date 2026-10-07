@@ -23134,6 +23134,7 @@ wine_fn_config_makefile programs/aspnet_regiis enable_aspnet_regiis
 wine_fn_config_makefile programs/attrib enable_attrib
 wine_fn_config_makefile programs/cabarc enable_cabarc
 wine_fn_config_makefile programs/cacls enable_cacls
+wine_fn_config_makefile programs/calc enable_calc
 wine_fn_config_makefile programs/certutil enable_certutil
 wine_fn_config_makefile programs/chcp.com enable_chcp_com
 wine_fn_config_makefile programs/clock enable_clock
@@ -23177,6 +23178,7 @@ wine_fn_config_makefile programs/mshta enable_mshta
 wine_fn_config_makefile programs/msidb enable_msidb
 wine_fn_config_makefile programs/msiexec enable_msiexec
 wine_fn_config_makefile programs/msinfo32 enable_msinfo32
+wine_fn_config_makefile programs/mspaint enable_mspaint
 wine_fn_config_makefile programs/net enable_net
 wine_fn_config_makefile programs/net/tests enable_tests
 wine_fn_config_makefile programs/netsh enable_netsh

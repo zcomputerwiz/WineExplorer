@@ -1,0 +1,8 @@
+MODULE    = mspaint.exe
+IMPORTS   = comctl32 comdlg32 shell32 user32 gdi32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	main.c \
+	paint.rc

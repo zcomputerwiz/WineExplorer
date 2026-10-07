@@ -2524,11 +2524,24 @@ NTSTATUS WINAPI NtSetSystemTime( const LARGE_INTEGER *new, LARGE_INTEGER *old )
 {
     LARGE_INTEGER now;
     LONGLONG diff;
+    struct timespec ts;
+    char cmd[128];
 
     NtQuerySystemTime( &now );
     if (old) *old = now;
     diff = new->QuadPart - now.QuadPart;
     if (diff > -TICKSPERSEC / 2 && diff < TICKSPERSEC / 2) return STATUS_SUCCESS;
+
+    ts.tv_sec = (time_t)((new->QuadPart / TICKSPERSEC) - SECS_1601_TO_1970);
+    ts.tv_nsec = (long)((new->QuadPart % TICKSPERSEC) * 100);
+
+#ifdef HAVE_CLOCK_GETTIME
+    if (clock_settime( CLOCK_REALTIME, &ts ) == 0) return STATUS_SUCCESS;
+#endif
+
+    snprintf( cmd, sizeof(cmd), "sudo -n date -s '@%ld' >/dev/null 2>&1", (long)ts.tv_sec );
+    if (system( cmd ) == 0) return STATUS_SUCCESS;
+
     ERR( "not allowed: difference %d ms\n", (int)(diff / 10000) );
     return STATUS_PRIVILEGE_NOT_HELD;
 }

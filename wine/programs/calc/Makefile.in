@@ -1,0 +1,14 @@
+MODULE    = calc.exe
+IMPORTS   = advapi32 comctl32 user32 shell32 gdi32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	convert.c \
+	fun_ieee.c \
+	rpn_ieee.c \
+	utl_ieee.c \
+	winmain.c \
+	htmlhelp.c \
+	theme.c \
+	calc.rc

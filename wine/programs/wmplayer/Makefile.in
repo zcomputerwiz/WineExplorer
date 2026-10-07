@@ -1,9 +1,8 @@
 MODULE    = wmplayer.exe
+IMPORTS   = advapi32 comctl32 comdlg32 user32 gdi32 winmm shell32
 
 EXTRADLLFLAGS = -mwindows -municode
 
-VER_FILEDESCRIPTION_STR = "Windows Media Player"
-VER_PRODUCTVERSION      = 12,0,7601,18840
-
 SOURCES = \
-	main.c
+	mplay32.c \
+	mplay32.rc

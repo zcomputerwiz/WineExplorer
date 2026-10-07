@@ -1,0 +1,37 @@
+#include <windows.h>
+#include "paint.h"
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+IDI_APP ICON "paint.ico"
+
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&New\tCtrl+N",       IDM_FILE_NEW
+        MENUITEM "&Open...\tCtrl+O",   IDM_FILE_OPEN
+        MENUITEM "&Save\tCtrl+S",      IDM_FILE_SAVE
+        MENUITEM "Save &As...",        IDM_FILE_SAVEAS
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",              IDM_FILE_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z",      IDM_EDIT_UNDO
+        MENUITEM SEPARATOR
+        MENUITEM "&Clear Image",       IDM_EDIT_CLEAR
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About Paint",       IDM_HELP_ABOUT
+    END
+END
+
+ID_ACCEL ACCELERATORS
+BEGIN
+    "^N", IDM_FILE_NEW
+    "^O", IDM_FILE_OPEN
+    "^S", IDM_FILE_SAVE
+    "^Z", IDM_EDIT_UNDO
+END

@@ -1,0 +1,19 @@
+#include <windows.h>
+#include "resource.h"
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+/* Icons */
+IDI_MAIN ICON "resources/mplay32.ico"
+
+/* Bitmaps */
+IDB_PLAYICON BITMAP "resources/play.bmp"
+IDB_STOPICON BITMAP "resources/stop.bmp"
+IDB_EJECTICON BITMAP "resources/eject.bmp"
+IDB_BACKWARDICON BITMAP "resources/backward.bmp"
+IDB_SEEKBACKICON BITMAP "resources/seekback.bmp"
+IDB_SEEKFORWICON BITMAP "resources/seekforw.bmp"
+IDB_FORWARDICON BITMAP "resources/forward.bmp"
+IDB_PAUSEICON BITMAP "resources/pause.bmp"
+
+#include "lang/en-US.rc"

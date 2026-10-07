@@ -5,26 +5,24 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>
+#include <wine/debug.h>
 #include "timedate.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(timedate);
 
 static SYSTEMTIME g_selected_time;
 static BOOL g_time_modified = FALSE;
-static WNDPROC g_old_dtp_proc = NULL;
-
-static LRESULT CALLBACK dtp_subclass_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+static LRESULT CALLBACK dtp_subclass_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+                                          UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
 {
-    if (msg == WM_KEYDOWN)
+    if (uMsg == WM_KEYDOWN || uMsg == WM_LBUTTONDOWN)
     {
-        /* If user interacts with keys other than left/right arrow navigation, mark modified */
-        if (wparam != VK_LEFT && wparam != VK_RIGHT)
-        {
-            HWND page = GetParent(hwnd);
-            g_time_modified = TRUE;
-            KillTimer(page, 1);
-            PropSheet_Changed(GetParent(page), page);
-        }
+        HWND page = GetParent(hwnd);
+        g_time_modified = TRUE;
+        KillTimer(page, 1);
+        PropSheet_Changed(GetParent(page), page);
     }
-    return CallWindowProcW(g_old_dtp_proc, hwnd, msg, wparam, lparam);
+    return DefSubclassProc(hwnd, uMsg, wParam, lParam);
 }
 
 INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -44,10 +42,7 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         if (hDtp)
         {
             SendMessageW(hDtp, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&g_selected_time);
-            if (!g_old_dtp_proc)
-            {
-                g_old_dtp_proc = (WNDPROC)SetWindowLongPtrW(hDtp, GWLP_WNDPROC, (LONG_PTR)dtp_subclass_proc);
-            }
+            SetWindowSubclass(hDtp, dtp_subclass_proc, 1, 0);
         }
 
         SetTimer(hwnd, 1, 1000 - g_selected_time.wMilliseconds, NULL);
@@ -70,12 +65,16 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
     case WM_NOTIFY:
     {
         NMHDR *nmhdr = (NMHDR *)lparam;
-        if (nmhdr->code == MCN_SELECT)
+        if (!nmhdr) break;
+
+        if (nmhdr->code == MCN_SELECT || nmhdr->code == MCN_SELCHANGE)
         {
             NMSELCHANGE *sc = (NMSELCHANGE *)lparam;
             g_selected_time.wYear = sc->stSelStart.wYear;
             g_selected_time.wMonth = sc->stSelStart.wMonth;
             g_selected_time.wDay = sc->stSelStart.wDay;
+            g_time_modified = TRUE;
+            KillTimer(hwnd, 1);
             PropSheet_Changed(GetParent(hwnd), hwnd);
         }
         else if (nmhdr->code == DTN_DATETIMECHANGE)
@@ -93,8 +92,17 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         }
         else if (nmhdr->code == PSN_APPLY)
         {
+            HWND hCal = GetDlgItem(hwnd, IDC_MONTHCAL);
             HWND hDtp = GetDlgItem(hwnd, IDC_TIME_EDIT);
             SYSTEMTIME cur_st;
+
+            if (hCal && SendMessageW(hCal, MCM_GETCURSEL, 0, (LPARAM)&cur_st))
+            {
+                g_selected_time.wYear = cur_st.wYear;
+                g_selected_time.wMonth = cur_st.wMonth;
+                g_selected_time.wDay = cur_st.wDay;
+            }
+
             if (hDtp && SendMessageW(hDtp, DTM_GETSYSTEMTIME, 0, (LPARAM)&cur_st) == GDT_VALID)
             {
                 g_selected_time.wHour = cur_st.wHour;
@@ -102,7 +110,11 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
                 g_selected_time.wSecond = cur_st.wSecond;
                 g_selected_time.wMilliseconds = 0;
             }
+
             SetLocalTime(&g_selected_time);
+            TRACE("PSN_APPLY: set %04d-%02d-%02d %02d:%02d:%02d\n",
+                  g_selected_time.wYear, g_selected_time.wMonth, g_selected_time.wDay,
+                  g_selected_time.wHour, g_selected_time.wMinute, g_selected_time.wSecond);
             SendMessageW(HWND_BROADCAST, WM_TIMECHANGE, 0, 0);
 
             g_time_modified = FALSE;
@@ -117,11 +129,8 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
     {
         HWND hDtp = GetDlgItem(hwnd, IDC_TIME_EDIT);
         KillTimer(hwnd, 1);
-        if (hDtp && g_old_dtp_proc)
-        {
-            SetWindowLongPtrW(hDtp, GWLP_WNDPROC, (LONG_PTR)g_old_dtp_proc);
-            g_old_dtp_proc = NULL;
-        }
+        if (hDtp)
+            RemoveWindowSubclass(hDtp, dtp_subclass_proc, 1);
         break;
     }
     }
