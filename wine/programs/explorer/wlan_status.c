@@ -14,6 +14,7 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <iphlpapi.h>
 
 #include "wine/debug.h"
 #include "resource.h"
@@ -302,18 +303,66 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         case IDC_BTN_SM_DETAILS:
         {
             WCHAR details_msg[512];
+            WCHAR phys_addr[32] = L"Unavailable";
+            WCHAR dhcp_srv[32] = L"Unavailable";
+            WCHAR dns_srv[32] = L"Unavailable";
+            IP_ADAPTER_INFO adapter_buf[16];
+            ULONG adapter_len = sizeof(adapter_buf);
+
+            if (GetAdaptersInfo(adapter_buf, &adapter_len) == ERROR_SUCCESS)
+            {
+                PIP_ADAPTER_INFO p = adapter_buf;
+                while (p)
+                {
+                    if (p->AddressLength >= 6)
+                    {
+                        wsprintfW(phys_addr, L"%02X-%02X-%02X-%02X-%02X-%02X",
+                                  p->Address[0], p->Address[1], p->Address[2],
+                                  p->Address[3], p->Address[4], p->Address[5]);
+                    }
+                    if (p->DhcpServer.IpAddress.String[0] &&
+                        strcmp(p->DhcpServer.IpAddress.String, "0.0.0.0") != 0)
+                    {
+                        MultiByteToWideChar(CP_ACP, 0, p->DhcpServer.IpAddress.String, -1, dhcp_srv, 32);
+                    }
+                    else if (g_status_info.default_gateway[0])
+                    {
+                        lstrcpynW(dhcp_srv, g_status_info.default_gateway, 32);
+                    }
+                    break;
+                }
+            }
+
+            {
+                FIXED_INFO fixed_buf;
+                ULONG fixed_len = sizeof(fixed_buf);
+                if (GetNetworkParams(&fixed_buf, &fixed_len) == ERROR_SUCCESS)
+                {
+                    if (fixed_buf.DnsServerList.IpAddress.String[0] &&
+                        strcmp(fixed_buf.DnsServerList.IpAddress.String, "0.0.0.0") != 0)
+                    {
+                        MultiByteToWideChar(CP_ACP, 0, fixed_buf.DnsServerList.IpAddress.String, -1, dns_srv, 32);
+                    }
+                }
+                if (wcscmp(dns_srv, L"Unavailable") == 0 && g_status_info.default_gateway[0])
+                {
+                    lstrcpynW(dns_srv, g_status_info.default_gateway, 32);
+                }
+            }
+
             wsprintfW(details_msg,
-                      L"Physical Address:\t08-00-27-8E-52-9A\r\n"
+                      L"Physical Address:\t%s\r\n"
                       L"IP Address:\t%s\r\n"
                       L"Subnet Mask:\t%s\r\n"
                       L"Default Gateway:\t%s\r\n"
                       L"DHCP Server:\t%s\r\n"
                       L"DNS Server:\t%s",
+                      phys_addr,
                       g_status_info.ip_address,
                       g_status_info.subnet_mask,
                       g_status_info.default_gateway,
-                      g_status_info.default_gateway,
-                      g_status_info.default_gateway);
+                      dhcp_srv,
+                      dns_srv);
             MessageBoxW(hwnd, details_msg, L"Network Connection Details", MB_OK | MB_ICONINFORMATION);
             break;
         }

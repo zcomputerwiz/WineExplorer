@@ -473,28 +473,35 @@ void net_backend_set_show_tray_icon(BOOL show)
 /* Direct Linux network interface statistics and hardware detection */
 static BOOL read_linux_dev_proc(NET_STATUS_INFO *info)
 {
-    FILE *f = fopen("/proc/net/dev", "r");
+    FILE *f;
     char line[512];
     char best_iface[32] = {0};
     ULONGLONG best_rx_bytes = 0, best_rx_pkts = 0, best_tx_bytes = 0, best_tx_pkts = 0;
     BOOL found = FALSE;
+    char path[128];
+    char operstate[32] = {0};
+    char driver_name[64] = {0};
+    DWORD attr, speed = 1000;
+    BOOL is_wifi, is_connected;
 
+    f = fopen("/proc/net/dev", "r");
     if (!f) return FALSE;
 
     while (fgets(line, sizeof(line), f))
     {
         char iface[32] = {0};
+        char *p;
         char *colon = strchr(line, ':');
+        ULONGLONG rx_b = 0, rx_p = 0, tx_b = 0, tx_p = 0;
         if (!colon) continue;
 
-        char *p = line;
+        p = line;
         while (*p == ' ' || *p == '\t') p++;
         lstrcpynA(iface, p, min((int)sizeof(iface), (int)(colon - p) + 1));
 
         /* Skip loopback */
         if (strcmp(iface, "lo") == 0) continue;
 
-        ULONGLONG rx_b = 0, rx_p = 0, tx_b = 0, tx_p = 0;
         if (sscanf(colon + 1, "%llu %llu %*u %*u %*u %*u %*u %*u %llu %llu",
                    &rx_b, &rx_p, &tx_b, &tx_p) >= 4)
         {
@@ -514,13 +521,11 @@ static BOOL read_linux_dev_proc(NET_STATUS_INFO *info)
     if (!found) return FALSE;
 
     /* Detect interface type (wireless vs ethernet) */
-    char path[128];
     snprintf(path, sizeof(path), "/sys/class/net/%s/wireless", best_iface);
-    DWORD attr = GetFileAttributesA(path);
-    BOOL is_wifi = (attr != INVALID_FILE_ATTRIBUTES);
+    attr = GetFileAttributesA(path);
+    is_wifi = (attr != INVALID_FILE_ATTRIBUTES);
 
     /* Check operstate */
-    char operstate[32] = {0};
     snprintf(path, sizeof(path), "/sys/class/net/%s/operstate", best_iface);
     f = fopen(path, "r");
     if (f)
@@ -532,10 +537,9 @@ static BOOL read_linux_dev_proc(NET_STATUS_INFO *info)
         }
         fclose(f);
     }
-    BOOL is_connected = (strcmp(operstate, "down") != 0);
+    is_connected = (strcmp(operstate, "down") != 0);
 
     /* Read speed */
-    DWORD speed = 1000;
     snprintf(path, sizeof(path), "/sys/class/net/%s/speed", best_iface);
     f = fopen(path, "r");
     if (f)
@@ -546,7 +550,6 @@ static BOOL read_linux_dev_proc(NET_STATUS_INFO *info)
     }
 
     /* Read device driver name for authentic adapter description */
-    char driver_name[64] = {0};
     snprintf(path, sizeof(path), "/sys/class/net/%s/device/uevent", best_iface);
     f = fopen(path, "r");
     if (f)
@@ -556,8 +559,9 @@ static BOOL read_linux_dev_proc(NET_STATUS_INFO *info)
         {
             if (strncmp(uline, "DRIVER=", 7) == 0)
             {
+                char *nl;
                 lstrcpynA(driver_name, uline + 7, sizeof(driver_name));
-                char *nl = strchr(driver_name, '\n');
+                nl = strchr(driver_name, '\n');
                 if (nl) *nl = '\0';
                 break;
             }

@@ -113,6 +113,7 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         LVITEMW item = {0};
         RECT rcList;
         BOOL show_icon;
+        int i;
         static const WCHAR *comp_names[] = {
             L"Client for Microsoft Networks",
             L"File and Printer Sharing for Microsoft Networks",
@@ -163,7 +164,7 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
 
         /* Insert Network Components */
 
-        for (int i = 0; i < 4; i++)
+        for (i = 0; i < 4; i++)
         {
             memset(&item, 0, sizeof(item));
             item.mask = LVIF_TEXT | LVIF_IMAGE;

@@ -114,7 +114,8 @@ static HICON load_shell_icon(int index)
         ExtractIconExW(L"shell32.dll", index, &hIcon, NULL, 1);
         FreeLibrary(hShell);
     }
-    if (!hIcon) hIcon = LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION);
+    /* LoadIcon returns a shared icon; copy it since items are DestroyIcon()'d */
+    if (!hIcon) hIcon = CopyIcon(LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION));
     return hIcon;
 }
 
@@ -171,6 +172,7 @@ void desktop_view_refresh(void)
     WCHAR common_desktop[MAX_PATH];
     THEME_CONFIG *theme = theme_get_current();
 
+    user_desktop[0] = 0;
     free_all_items();
 
     /* 1. Add standard Windows namespace icons */

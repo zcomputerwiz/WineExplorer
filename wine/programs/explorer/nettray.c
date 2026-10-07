@@ -259,6 +259,9 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
             break;
 
         case IDM_NET_OPEN_CONNECTIONS:
+            ShellExecuteW(NULL, L"open", L"control.exe", L"ncpa.cpl", NULL, SW_SHOWNORMAL);
+            break;
+
         case IDM_NET_PROPERTIES:
             net_props_show(hwnd);
             update_tray_icon_and_tooltip(hwnd);

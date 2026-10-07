@@ -50,9 +50,10 @@ static const WCHAR *g_timeouts_standby[] = {
 /* Page 1: Power Schemes */
 static void populate_timeout_combo(HWND hCombo, const WCHAR **arr, int count, int def_idx)
 {
+    int i;
     if (!hCombo) return;
     SendMessageW(hCombo, CB_RESETCONTENT, 0, 0);
-    for (int i = 0; i < count; i++)
+    for (i = 0; i < count; i++)
         SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)arr[i]);
     SendMessageW(hCombo, CB_SETCURSEL, def_idx, 0);
 }
@@ -112,9 +113,10 @@ static INT_PTR CALLBACK PowerSchemesPageProc(HWND hwnd, UINT msg, WPARAM wparam,
     {
         HWND hSchemes = GetDlgItem(hwnd, IDC_SCHEME_LIST);
         int cur_scheme = 0;
+        size_t i;
+        HKEY hKey;
 
         /* Query scheme from registry */
-        HKEY hKey;
         if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\PowerCfg", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
         {
             WCHAR str[16];
@@ -128,7 +130,7 @@ static INT_PTR CALLBACK PowerSchemesPageProc(HWND hwnd, UINT msg, WPARAM wparam,
 
         if (hSchemes)
         {
-            for (size_t i = 0; i < ARRAYSIZE(g_scheme_names); i++)
+            for (i = 0; i < ARRAYSIZE(g_scheme_names); i++)
                 SendMessageW(hSchemes, CB_ADDSTRING, 0, (LPARAM)g_scheme_names[i]);
             SendMessageW(hSchemes, CB_SETCURSEL, cur_scheme, 0);
         }
