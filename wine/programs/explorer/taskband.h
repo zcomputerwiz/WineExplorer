@@ -37,6 +37,8 @@ typedef struct _TASK_ITEM
     BOOL        flashing;
     BOOL        minimized;
     BOOL        seen;
+    BOOL        hot;       /* mouse is over the button */
+    BOOL        pressed;   /* left button held down on it */
     RECT        rect;
     struct _TASK_ITEM *next;
 } TASK_ITEM;

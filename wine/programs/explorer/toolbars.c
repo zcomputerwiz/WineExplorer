@@ -262,6 +262,26 @@ static int item_width(HDC hdc, const TB_ITEM *item, BOOL show_text)
     return min(3 + 16 + 4 + size.cx + 6, 140);
 }
 
+/* Toolbars other than Quick Launch show their name in front of the buttons, in the style's band text */
+static int title_width(TOOLBAR *tb)
+{
+    HDC hdc;
+    HFONT font, old;
+    NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+    SIZE size = {0};
+
+    if (tb->kind == TOOLBAR_QUICKLAUNCH) return 0;
+    hdc = GetDC(NULL);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    font = CreateFontIndirectW(&ncm.lfMessageFont);
+    old = SelectObject(hdc, font);
+    GetTextExtentPoint32W(hdc, tb_names[tb->kind], lstrlenW(tb_names[tb->kind]), &size);
+    SelectObject(hdc, old);
+    DeleteObject(font);
+    ReleaseDC(NULL, hdc);
+    return size.cx + 8;
+}
+
 /* Icon toolbars: gripper and buttons.  Returns the width they want. */
 static int preferred_width(TOOLBAR *tb)
 {
@@ -270,12 +290,12 @@ static int preferred_width(TOOLBAR *tb)
     NONCLIENTMETRICSW ncm = { sizeof(ncm) };
     int i, width;
 
-    if (tb->kind == TOOLBAR_ADDRESS) return GRIPPER_W + 190;
+    if (tb->kind == TOOLBAR_ADDRESS) return GRIPPER_W + title_width(tb) + 190;
     hdc = GetDC(NULL);
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     font = CreateFontIndirectW(&ncm.lfMessageFont);
     old = SelectObject(hdc, font);
-    for (i = 0, width = GRIPPER_W; i < tb->count; i++) width += item_width(hdc, &tb->items[i], tb->show_text);
+    for (i = 0, width = GRIPPER_W + title_width(tb); i < tb->count; i++) width += item_width(hdc, &tb->items[i], tb->show_text);
     SelectObject(hdc, old);
     DeleteObject(font);
     ReleaseDC(NULL, hdc);
@@ -289,7 +309,7 @@ static void place_items(TOOLBAR *tb)
     HDC hdc = GetDC(tb->hwnd);
     HFONT font, old;
     NONCLIENTMETRICSW ncm = { sizeof(ncm) };
-    int i, x = GRIPPER_W;
+    int i, x = GRIPPER_W + title_width(tb);
 
     GetClientRect(tb->hwnd, &rc);
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
@@ -379,7 +399,7 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
 
     /* a locked taskbar only shows a thin separator, an unlocked one the gripper handle */
     grip = rc;
-    grip.left += 2; grip.right = grip.left + 3; grip.top += 3; grip.bottom -= 3;
+    grip.left += 1; grip.right = grip.left + 6; grip.top += 2; grip.bottom -= 2;
     if (tb_locked())
     {
         RECT line = { grip.left + 1, grip.top, grip.left + 2, grip.bottom };
@@ -393,11 +413,23 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
     old_font = SelectObject(hdc, font);
     SetBkMode(hdc, TRANSPARENT);
 
-    if (tb->kind == TOOLBAR_ADDRESS)
+    if (tb->kind != TOOLBAR_QUICKLAUNCH)
     {
-        RECT label = { GRIPPER_W + 2, rc.top, GRIPPER_W + 2 + 46, rc.bottom };
-        SetTextColor(hdc, buttons ? RGB(255, 255, 255) : GetSysColor(COLOR_BTNTEXT));
-        DrawTextW(hdc, L"Address", -1, &label, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        RECT label = { GRIPPER_W + 2, rc.top, GRIPPER_W + title_width(tb), rc.bottom };
+        COLORREF color = GetSysColor(COLOR_BTNTEXT);
+        LOGFONTW lf;
+        HFONT title_font = NULL, previous;
+
+        if (rebar)
+        {
+            GetThemeColor(rebar, 0, 0, TMT_TEXTCOLOR, &color);
+            if (SUCCEEDED(GetThemeFont(rebar, hdc, 0, 0, TMT_FONT, &lf))) title_font = CreateFontIndirectW(&lf);
+        }
+        previous = title_font ? SelectObject(hdc, title_font) : NULL;
+        SetTextColor(hdc, color);
+        DrawTextW(hdc, tb_names[tb->kind], -1, &label, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        if (previous) SelectObject(hdc, previous);
+        if (title_font) DeleteObject(title_font);
     }
     for (i = 0; i < tb->visible; i++)
     {
@@ -429,7 +461,7 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
     {
         RECT chev = chevron_rect(tb);
         int state = tb->chevron_down ? 3 : (tb->chevron_hot ? 2 : 1);
-        if (rebar && SUCCEEDED(GetThemeInt(rebar, RP_CHEVRON, state, TMT_IMAGECOUNT, &i)))
+        if (rebar)
             DrawThemeBackground(rebar, hdc, RP_CHEVRON, state, &chev, NULL);
         else
         {
@@ -606,7 +638,7 @@ static void position_combo(TOOLBAR *tb)
     RECT rc;
     if (!tb->combo) return;
     GetClientRect(tb->hwnd, &rc);
-    SetWindowPos(tb->combo, NULL, GRIPPER_W + 50, (rc.bottom - 22) / 2, max(20, rc.right - GRIPPER_W - 50 - GO_W - 4), 200,
+    SetWindowPos(tb->combo, NULL, GRIPPER_W + title_width(tb) + 2, (rc.bottom - 22) / 2, max(20, rc.right - GRIPPER_W - title_width(tb) - 2 - GO_W - 4), 200,
                  SWP_NOZORDER | SWP_NOACTIVATE);
     SetWindowPos(tb->go, NULL, rc.right - GO_W - 2, (rc.bottom - 22) / 2, GO_W, 22, SWP_NOZORDER | SWP_NOACTIVATE);
 }

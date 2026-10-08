@@ -33,6 +33,10 @@ HICON shellres_icon(int id, int size);
  * deletes it. */
 HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id);
 
+/* Make the pixels of a 32 bit bitmap with straight alpha premultiplied (what AlphaBlend wants); a bitmap that stores
+ * no alpha at all becomes opaque. */
+void shellres_premultiply(HBITMAP bitmap);
+
 /* TRUE if a genuine pack is installed for the module */
 BOOL shellres_has_pack(const WCHAR *module);
 

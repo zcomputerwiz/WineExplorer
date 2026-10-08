@@ -19,6 +19,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <windows.h>
 
 #include "shellres.h"
@@ -76,4 +77,27 @@ HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id)
     if (pack) bmp = LoadImageW(pack, MAKEINTRESOURCEW(id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
     if (!bmp && fallback_id) bmp = LoadImageW(explorer_hInstance, MAKEINTRESOURCEW(fallback_id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
     return bmp;
+}
+
+void shellres_premultiply(HBITMAP bitmap)
+{
+    BITMAP bm;
+    DWORD *px;
+    int i, n;
+    BOOL has_alpha = FALSE;
+
+    if (!GetObjectW(bitmap, sizeof(bm), &bm) || bm.bmBitsPixel != 32 || !bm.bmBits) return;
+    px = bm.bmBits;
+    n = bm.bmWidth * abs(bm.bmHeight);
+    for (i = 0; i < n && !has_alpha; i++) has_alpha = (px[i] >> 24) != 0;
+    if (!has_alpha)
+    {
+        for (i = 0; i < n; i++) px[i] |= 0xff000000;
+        return;
+    }
+    for (i = 0; i < n; i++)
+    {
+        DWORD a = px[i] >> 24;
+        px[i] = (a << 24) | ((((px[i] >> 16) & 255) * a / 255) << 16) | ((((px[i] >> 8) & 255) * a / 255) << 8) | ((px[i] & 255) * a / 255);
+    }
 }

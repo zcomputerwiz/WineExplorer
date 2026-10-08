@@ -1390,8 +1390,9 @@ static void do_show_systray(void)
         tray_height = 28;
         if (theme)
         {
-            if (SUCCEEDED(GetThemePartSize( theme, hdc, TBP_BACKGROUNDBOTTOM, 0, NULL, TS_TRUE, &size )) && size.cy > 0)
-                tray_height = size.cy;
+            /* measured on Windows XP: 30 pixels with a visual style, 28 for Windows Classic; Wine's uxtheme cannot
+             * report the size of a tiled picture, so the value is fixed */
+            tray_height = 30;
             CloseThemeData( theme );
         }
         ReleaseDC( NULL, hdc );

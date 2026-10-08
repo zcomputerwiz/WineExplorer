@@ -395,8 +395,10 @@ static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font_normal, HFONT 
     if (theme)
     {
         /* TaskBand::Toolbar button states: 1 normal, 5 checked (the active window); TaskBand flash button when flashing */
-        DrawThemeBackground(theme, hdc, item->flashing ? 2 : 1, item->active ? 5 : 1, &rc, NULL);
-        GetThemeColor(theme, item->flashing ? 2 : 1, item->active ? 5 : 1, TMT_TEXTCOLOR, &text_color);
+        /* button images: 1 normal, 2 hot, 3 pressed, 5 checked (the active window), 6 hot and checked */
+        int state = item->pressed ? 3 : (item->active ? (item->hot ? 6 : 5) : (item->hot ? 2 : 1));
+        DrawThemeBackground(theme, hdc, item->flashing ? 2 : 1, state, &rc, NULL);
+        GetThemeColor(theme, item->flashing ? 2 : 1, state, TMT_TEXTCOLOR, &text_color);
         CloseThemeData(theme);
     }
     else
@@ -564,6 +566,32 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return 0;
     }
 
+    case WM_MOUSEMOVE:
+    {
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        TASK_ITEM *curr = g_taskband.tasks;
+        BOOL changed = FALSE;
+        TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+
+        TrackMouseEvent(&tme);
+        while (curr)
+        {
+            BOOL hot = PtInRect(&curr->rect, pt);
+            if (hot != curr->hot) { curr->hot = hot; changed = TRUE; }
+            curr = curr->next;
+        }
+        if (changed) InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
+
+    case WM_MOUSELEAVE:
+    {
+        TASK_ITEM *curr = g_taskband.tasks;
+        while (curr) { curr->hot = curr->pressed = FALSE; curr = curr->next; }
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
+
     case WM_LBUTTONDOWN:
     {
         POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
@@ -571,21 +599,34 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
 
         while (curr)
         {
-            if (PtInRect(&curr->rect, pt))
+            curr->pressed = PtInRect(&curr->rect, pt);
+            curr = curr->next;
+        }
+        SetCapture(hwnd);
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
+
+    case WM_LBUTTONUP:
+    {
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        TASK_ITEM *curr = g_taskband.tasks;
+
+        if (GetCapture() == hwnd) ReleaseCapture();
+        while (curr)
+        {
+            BOOL was_pressed = curr->pressed;
+            curr->pressed = FALSE;
+            if (was_pressed && PtInRect(&curr->rect, pt))
             {
+                /* the button acts when it is released, like on Windows */
                 HWND fg = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
                 if ((curr->target_hwnd == fg || curr->active) && !IsIconic(curr->target_hwnd))
-                {
-                    /* Minimize when active button is clicked */
                     ShowWindow(curr->target_hwnd, SW_MINIMIZE);
-                }
                 else
                 {
-                    /* Restore / Bring to front */
-                    if (IsIconic(curr->target_hwnd))
-                        ShowWindow(curr->target_hwnd, SW_RESTORE);
-                    else
-                        ShowWindow(curr->target_hwnd, SW_SHOWNORMAL);
+                    if (IsIconic(curr->target_hwnd)) ShowWindow(curr->target_hwnd, SW_RESTORE);
+                    else ShowWindow(curr->target_hwnd, SW_SHOWNORMAL);
                     SetForegroundWindow(curr->target_hwnd);
                 }
                 taskband_sync_windows();
@@ -593,6 +634,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             }
             curr = curr->next;
         }
+        InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     }
 

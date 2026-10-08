@@ -1702,6 +1702,7 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                     /* the flag is a 32 bit bitmap with alpha, drawn left aligned like a button image list */
                     HBITMAP flag = shellres_bitmap(L"explorer", 143, IDB_STARTFLAG);
                     BITMAP bm;
+                    if (flag) shellres_premultiply(flag);
                     if (flag && GetObjectW(flag, sizeof(bm), &bm))
                     {
                         HDC mem = CreateCompatibleDC(hdc);
