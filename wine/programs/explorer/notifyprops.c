@@ -64,10 +64,10 @@ static INT_PTR CALLBACK notify_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         LVCOLUMNW col = { LVCF_TEXT | LVCF_WIDTH };
 
         col.pszText = (WCHAR *)L"Name";
-        col.cx = 130;
+        col.cx = 108;
         SendMessageW(list, LVM_INSERTCOLUMNW, 0, (LPARAM)&col);
         col.pszText = (WCHAR *)L"Behavior";
-        col.cx = 84;
+        col.cx = 106;
         SendMessageW(list, LVM_INSERTCOLUMNW, 1, (LPARAM)&col);
         SendMessageW(list, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_FULLROWSELECT, LVS_EX_FULLROWSELECT);
         g_count = systray_enum_icons(g_icons, MAX_ICONS);
