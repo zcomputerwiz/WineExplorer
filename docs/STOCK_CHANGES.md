@@ -7,6 +7,7 @@ rebasing on upstream Wine harder. Baseline = commit `03476d7`.
 | Area | Change | Gate |
 |---|---|---|
 | `programs/explorer/desktop.c`, `systray.c`, `explorer.c` | Windows-style shell (taskbar, Start menu, desktop view, tray applets) | only when the desktop has `EnableShell=1` (`HKCU\Software\Wine\Explorer\Desktops\<name>`) or is named `shell`; stock launchers/`PaintDesktop`/`WM_CLOSE` otherwise |
+| `programs/explorer/desktop.c` | `/shell` switch (before the program to run) enables the shell for that desktop; used by the Winlogon-style session script | only when given |
 | `programs/explorer/explorer.c` | `/wlan`, `/netstatus`, `/netprops` helper switches; `::{CLSID}` paths and `/e` accepted | token-based, only when given as arguments |
 | `dlls/desk.cpl` | theme/background/appearance/settings pages added in front of Wine's Settings page | always |
 | `programs/wmplayer` | Wine's stub `main.c` replaced by ReactOS mplay32 | always |

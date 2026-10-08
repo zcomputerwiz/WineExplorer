@@ -2,11 +2,13 @@
 # WineExplorer session: plays the role of Winlogon.
 #
 # Windows starts whatever HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell names (default
-# "explorer.exe") on the interactive desktop.  We do the same: read that value from the Wine prefix and
-#   - Shell is explorer.exe: start the Explorer desktop manager with its shell (taskbar, Start menu, desktop)
-#     enabled for the "Default" desktop;
+# "explorer.exe") on the interactive desktop.  We do the same:
+#   - Shell is explorer.exe: start the Explorer desktop manager with "/shell" (taskbar, Start menu, desktop);
 #   - anything else: start a plain desktop and run that program in it (like setting a custom Shell on Windows).
 # Plain "wine explorer /desktop=Name,WxH" keeps stock Wine behavior; only this session turns the shell on.
+#
+# The Shell value is read straight from the prefix's system.reg: running any Wine program first (e.g. "wine reg")
+# would start wineserver, wineboot and a bare desktop manager before ours and make our explorer lose the race.
 LOG="${XDG_RUNTIME_DIR:-$HOME}/wine-session.log"
 exec > "$LOG" 2>&1
 echo "=== WineExplorer session started: $(date) ==="
@@ -31,18 +33,21 @@ WIDTH="${WIDTH:-1920}"
 HEIGHT="${HEIGHT:-1080}"
 REFRESH="${REFRESH:-60}"
 
-# --- Winlogon: which shell?
-SHELL_CMD=$("$WINE" reg query 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon' /v Shell 2>/dev/null |
-            tr -d '\r' | sed -nE 's/^[[:space:]]*Shell[[:space:]]+REG_[A-Z_]+[[:space:]]+(.*)$/\1/p' | head -1)
+# --- Winlogon: which shell?  (no prefix yet = first boot = the default)
+SHELL_CMD=""
+if [ -r "$WINEPREFIX/system.reg" ]; then
+    SHELL_CMD=$(awk '
+        /^\[/ { in_key = ($0 ~ /^\[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\]/) }
+        in_key && /^"Shell"=/ { sub(/^"Shell"="/, ""); sub(/"[ \t\r]*$/, ""); gsub(/\\\\/, "\\"); print; exit }
+    ' "$WINEPREFIX/system.reg")
+fi
 SHELL_CMD="${SHELL_CMD:-explorer.exe}"
 SHELL_BASE=$(basename "${SHELL_CMD//\\//}" | tr 'A-Z' 'a-z')
 echo "Winlogon Shell=$SHELL_CMD"
 
 if [ "$SHELL_BASE" = "explorer.exe" ]; then
-    "$WINE" reg add "HKCU\\Software\\Wine\\Explorer\\Desktops\\$DESKTOP_NAME" /v EnableShell /t REG_DWORD /d 1 /f
-    SHELL_ARGS=()
+    SHELL_ARGS=(/shell)
 else
-    "$WINE" reg add "HKCU\\Software\\Wine\\Explorer\\Desktops\\$DESKTOP_NAME" /v EnableShell /t REG_DWORD /d 0 /f
     SHELL_ARGS=("$SHELL_CMD")
 fi
 

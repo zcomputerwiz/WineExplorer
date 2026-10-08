@@ -1247,7 +1247,7 @@ void manage_desktop( WCHAR *arg )
     WCHAR *cmdline = NULL, *driver = NULL;
     WCHAR *p = arg;
     const WCHAR *name = NULL;
-    BOOL enable_shell, enable_launchers, show_systray, no_tray_items;
+    BOOL enable_shell, enable_launchers, show_systray, no_tray_items, force_shell = FALSE;
     void (WINAPI *pShellDDEInit)( BOOL ) = NULL;
     HMODULE shell32;
     HANDLE thread;
@@ -1261,6 +1261,16 @@ void manage_desktop( WCHAR *arg )
         *p++ = 0;
         while (*p && is_whitespace(*p)) p++;
         if (*p) cmdline = p;
+    }
+
+    /* "/shell" before the program to run turns the desktop into the interactive Windows-style shell
+     * (what Winlogon does by starting the Shell value); no program after it means the built-in shell */
+    if (cmdline && !wcsncmp( cmdline, L"/shell", 6 ) && (!cmdline[6] || is_whitespace( cmdline[6] )))
+    {
+        force_shell = TRUE;
+        cmdline += 6;
+        while (*cmdline && is_whitespace( *cmdline )) cmdline++;
+        if (!*cmdline) cmdline = NULL;
     }
 
     /* parse the desktop option */
@@ -1282,7 +1292,7 @@ void manage_desktop( WCHAR *arg )
         if (!get_default_desktop_size( name, &width, &height )) width = height = 0;
     }
 
-    enable_shell = name ? get_default_enable_shell( name ) : FALSE;
+    enable_shell = force_shell || (name ? get_default_enable_shell( name ) : FALSE);
     enable_launchers = get_default_enable_launchers();
     show_systray = get_default_show_systray( name );
     no_tray_items = get_no_tray_items_display();

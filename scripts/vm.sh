@@ -4,7 +4,8 @@
 #   scripts/vm.sh build [target]  make in ~/build/wine64 (default: all)
 #   scripts/vm.sh install         sudo make install (installs to /usr/local)
 #   scripts/vm.sh deploy          sync + build + install
-#   scripts/vm.sh restart-shell   restart the wine session (kills wineserver; GDM relaunches the session)
+#   scripts/vm.sh restart-shell   clean every wine process and restart the session (GDM autologin)
+#   scripts/vm.sh clean           same, without restarting the session
 #   scripts/vm.sh shot [file]     screenshot of the VM display via VBoxManage (default vm_shot.png)
 #   scripts/vm.sh xpshot [file]   screenshot of the "Windows XP Pro" VM
 #   scripts/vm.sh ssh <cmd...>    run a command on the VM
@@ -50,7 +51,7 @@ deploy)
     "$0" sync && "$0" build "$@" && "$0" install
     ;;
 restart-shell)
-    "${SSH[@]}" 'pkill -x wineserver || true; sudo systemctl restart gdm || true'
+    "${SSH[@]}" 'bash -s restart' < "$ROOT/scripts/vm-clean-wine.sh"
     ;;
 shot)
     out="${1:-$ROOT/vm_shot.png}"
@@ -61,6 +62,9 @@ xpshot)
     out="${1:-$ROOT/xp_shot.png}"
     "$VBM" controlvm "Windows XP Pro" screenshotpng "$(cygpath -w "$out")"
     echo "$out"
+    ;;
+clean)
+    "${SSH[@]}" 'bash -s' < "$ROOT/scripts/vm-clean-wine.sh"
     ;;
 ssh)
     "${SSH[@]}" "$@"
