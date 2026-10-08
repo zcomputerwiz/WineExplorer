@@ -170,9 +170,14 @@ static HICON load_clsid_icon(const WCHAR *clsid, const WCHAR *value, int fallbac
     }
     if (found)
     {
+        const WCHAR *file;
         ExpandEnvironmentStringsW(spec, path, MAX_PATH);
         if ((comma = wcsrchr(path, ','))) { index = _wtoi(comma + 1); *comma = 0; }
-        ExtractIconExW(path, index, &icon, NULL, 1);
+        file = PathFindFileNameW(path);
+        /* Windows themes name icons by position in Windows' own shell32.dll; our shell32 is laid out differently,
+         * so only icons from other files are taken from the registry */
+        if (wcsicmp(file, L"shell32.dll") && wcsicmp(file, L"explorer.exe") && wcsicmp(file, L"mydocs.dll"))
+            ExtractIconExW(path, index, &icon, NULL, 1);
     }
     return icon ? icon : load_shell_icon(fallback_shell_index);
 }
@@ -218,6 +223,29 @@ static void populate_directory_items(const WCHAR *folder_path, int *cur_row, int
     FindClose(hFind);
 }
 
+static int g_rb_full = -1;
+
+/* The Recycle Bin icon shows whether it holds anything */
+static void update_recycle_bin_icon(void)
+{
+    SHQUERYRBINFO info = { sizeof(info) };
+    BOOL full = SUCCEEDED(SHQueryRecycleBinW(NULL, &info)) && info.i64NumItems > 0;
+    int i;
+
+    if (full == g_rb_full) return;
+    g_rb_full = full;
+    for (i = 0; i < g_desktop_view.item_count; i++)
+    {
+        DESKTOP_ITEM *item = g_desktop_view.items[i];
+        if (item->type == DESKTOP_ITEM_NAMESPACE && wcsstr(item->target_path, L"645FF040"))
+        {
+            HICON icon = load_clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", full ? L"full" : L"empty", full ? -33 : -32);
+            if (icon) { if (item->icon) DestroyIcon(item->icon); item->icon = icon; }
+        }
+    }
+    if (g_desktop_view.hwnd) InvalidateRect(g_desktop_view.hwnd, NULL, FALSE);
+}
+
 void desktop_view_refresh(void)
 {
     int row = 0, col = 0;
@@ -227,19 +255,20 @@ void desktop_view_refresh(void)
 
     user_desktop[0] = 0;
     free_all_items();
+    g_rb_full = -1;
 
     /* 1. Standard namespace icons; each takes its icon from the registered DefaultIcon */
     add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Documents", L"::{450D8FBA-AD25-11D0-98A8-0800361B1103}",
-                     load_clsid_icon(L"{450D8FBA-AD25-11D0-98A8-0800361B1103}", NULL, 235), col, row);
+                     load_clsid_icon(L"{450D8FBA-AD25-11D0-98A8-0800361B1103}", NULL, -235), col, row);
     next_cell(&row, &col);
     add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Computer", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
-                     load_clsid_icon(L"{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, 15), col, row);
+                     load_clsid_icon(L"{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, -16), col, row);
     next_cell(&row, &col);
     add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Network Places", L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}",
-                     load_clsid_icon(L"{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, 17), col, row);
+                     load_clsid_icon(L"{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, -18), col, row);
     next_cell(&row, &col);
     add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"Recycle Bin", L"::{645FF040-5081-101B-9F08-00AA002F954E}",
-                     load_clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", L"empty", 31), col, row);
+                     load_clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", L"empty", -32), col, row);
     next_cell(&row, &col);
 
     /* 2. Populate physical user and common desktop directory items */
@@ -258,6 +287,7 @@ void desktop_view_refresh(void)
     if (theme && theme->wallpaper_path[0])
         desktop_view_load_wallpaper(theme->wallpaper_path);
 
+    update_recycle_bin_icon();
     if (g_desktop_view.hwnd)
         InvalidateRect(g_desktop_view.hwnd, NULL, TRUE);
 }
@@ -265,15 +295,15 @@ void desktop_view_refresh(void)
 void desktop_view_auto_arrange(void)
 {
     int i, row = 0, col = 0;
-    int max_rows = max(1, (GetSystemMetrics(SM_CYSCREEN) - 60) / g_desktop_view.grid_cy);
+    int max_rows = rows_per_column();
 
     for (i = 0; i < g_desktop_view.item_count; i++)
     {
         DESKTOP_ITEM *item = g_desktop_view.items[i];
         item->grid_x = col;
         item->grid_y = row;
-        item->pos.x = col * g_desktop_view.grid_cx + 10;
-        item->pos.y = row * g_desktop_view.grid_cy + 10;
+        item->pos.x = col * g_desktop_view.grid_cx;
+        item->pos.y = row * g_desktop_view.grid_cy;
         update_item_bounds(item, g_desktop_view.grid_cx, g_desktop_view.grid_cy);
 
         row++;
@@ -298,8 +328,8 @@ void desktop_view_align_to_grid(void)
         int gy = max(0, (item->pos.y + g_desktop_view.grid_cy / 2) / g_desktop_view.grid_cy);
         item->grid_x = gx;
         item->grid_y = gy;
-        item->pos.x = gx * g_desktop_view.grid_cx + 10;
-        item->pos.y = gy * g_desktop_view.grid_cy + 10;
+        item->pos.x = gx * g_desktop_view.grid_cx;
+        item->pos.y = gy * g_desktop_view.grid_cy;
         update_item_bounds(item, g_desktop_view.grid_cx, g_desktop_view.grid_cy);
     }
 
@@ -903,6 +933,10 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         return 0;
     }
 
+    case WM_TIMER:
+        if (wparam == 1) update_recycle_bin_icon();
+        return 0;
+
     case WM_LBUTTONUP:
     {
         ReleaseCapture();
@@ -1138,6 +1172,7 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
     desktop_view_refresh();
+    SetTimer(g_desktop_view.hwnd, 1, 3000, NULL);
     return g_desktop_view.hwnd;
 }
 

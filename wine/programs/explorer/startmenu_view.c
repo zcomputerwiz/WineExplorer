@@ -904,11 +904,11 @@ typedef struct _LEFT_ITEM
 
 static const LEFT_ITEM g_left_frequent[] =
 {
-    { L"Windows Media Player", L"wmplayer.exe", 227, 3001 },
-    { L"Notepad",              L"notepad.exe",  223, 3002 },
-    { L"Calculator",           L"calc.exe",     221, 3003 },
-    { L"Paint",                L"mspaint.exe",  226, 3004 },
-    { L"Command Prompt",       L"cmd.exe",      24,  3005 }
+    { L"Windows Media Player", L"wmplayer.exe", -227, 3001 },
+    { L"Notepad",              L"notepad.exe",  -152, 3002 },
+    { L"Calculator",           L"calc.exe",     -2, 3003 },
+    { L"Paint",                L"mspaint.exe",  -226, 3004 },
+    { L"Command Prompt",       L"cmd.exe",      -3,  3005 }
 };
 #define NUM_LEFT_FREQUENT (sizeof(g_left_frequent)/sizeof(g_left_frequent[0]))
 
@@ -923,21 +923,21 @@ typedef struct _RIGHT_ITEM
 
 static const RIGHT_ITEM g_right_items[] =
 {
-    { L"My Documents",                 235, TRUE,  FALSE, STARTMENU_CMD_MYDOCS },
-    { L"My Recent Documents",          1,   FALSE, FALSE, STARTMENU_CMD_RECENT_DOCS },
-    { L"My Pictures",                  236, FALSE, FALSE, STARTMENU_CMD_PICTURES },
-    { L"My Music",                     237, FALSE, FALSE, STARTMENU_CMD_MUSIC },
-    { L"My Computer",                  15,  TRUE,  FALSE, STARTMENU_CMD_MYCOMP },
-    { L"My Network Places",            17,  FALSE, FALSE, STARTMENU_CMD_MYNET },
+    { L"My Documents",                 -235, TRUE,  FALSE, STARTMENU_CMD_MYDOCS },
+    { L"My Recent Documents",          -21, FALSE, FALSE, STARTMENU_CMD_RECENT_DOCS },
+    { L"My Pictures",                  -236, FALSE, FALSE, STARTMENU_CMD_PICTURES },
+    { L"My Music",                     -237, FALSE, FALSE, STARTMENU_CMD_MUSIC },
+    { L"My Computer",                  -16, TRUE,  FALSE, STARTMENU_CMD_MYCOMP },
+    { L"My Network Places",            -18, FALSE, FALSE, STARTMENU_CMD_MYNET },
     { NULL,                            0,   FALSE, TRUE,  0 },
-    { L"Control Panel",                21,  FALSE, FALSE, STARTMENU_CMD_CONTROLPANEL },
-    { L"Set Program Access and Defaults", 271, FALSE, FALSE, STARTMENU_CMD_PROGACCESS },
-    { L"Connect To",                   17,  FALSE, FALSE, STARTMENU_CMD_CONNECT_TO },
-    { L"Printers and Faxes",           16,  FALSE, FALSE, STARTMENU_CMD_PRINTERS },
+    { L"Control Panel",                -137, FALSE, FALSE, STARTMENU_CMD_CONTROLPANEL },
+    { L"Set Program Access and Defaults", -37, FALSE, FALSE, STARTMENU_CMD_PROGACCESS },
+    { L"Connect To",                   -175, FALSE, FALSE, STARTMENU_CMD_CONNECT_TO },
+    { L"Printers and Faxes",           -138, FALSE, FALSE, STARTMENU_CMD_PRINTERS },
     { NULL,                            0,   FALSE, TRUE,  0 },
-    { L"Help and Support",             23,  FALSE, FALSE, STARTMENU_CMD_HELP },
-    { L"Search",                       22,  FALSE, FALSE, STARTMENU_CMD_SEARCH },
-    { L"Run...",                       24,  FALSE, FALSE, STARTMENU_CMD_RUN }
+    { L"Help and Support",             -24, FALSE, FALSE, STARTMENU_CMD_HELP },
+    { L"Search",                       -23, FALSE, FALSE, STARTMENU_CMD_SEARCH },
+    { L"Run...",                       -25, FALSE, FALSE, STARTMENU_CMD_RUN }
 };
 #define NUM_RIGHT_ITEMS (sizeof(g_right_items)/sizeof(g_right_items[0]))
 
@@ -1029,10 +1029,10 @@ static void panel_layout(void)
     c.left += mp.cxLeftWidth; c.right -= mp.cxRightWidth; c.top += mp.cyTopHeight; c.bottom -= mp.cyBottomHeight;
     y = c.top;
     SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
-    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_INTERNET); it->title = L"Internet"; it->subtitle = L"Web Browser"; it->exe = L"winebrowser.exe"; it->icon_idx = 14; it->bold = TRUE; }
+    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_INTERNET); it->title = L"Internet"; it->subtitle = L"Web Browser"; it->exe = L"winebrowser.exe"; it->icon_idx = -178; it->bold = TRUE; }
     y += PANEL_PINNED_H;
     SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
-    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_EMAIL); it->title = L"E-mail"; it->subtitle = L"Mail Client"; it->exe = L"winebrowser.exe"; it->icon_idx = 254; it->bold = TRUE; }
+    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_EMAIL); it->title = L"E-mail"; it->subtitle = L"Mail Client"; it->exe = L"winebrowser.exe"; it->icon_idx = -178; it->bold = TRUE; }
     y += PANEL_PINNED_H;
     SetRect(&r, c.left, y, c.right, y + PANEL_SEP_H);
     panel_add(ZONE_PROG, &r, 0)->sep = TRUE;

@@ -202,9 +202,12 @@ static HICON clsid_icon(const WCHAR *clsid, const WCHAR *value, int shell_fallba
         !RegGetValueW(HKEY_LOCAL_MACHINE, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &size))
     {
         WCHAR path[MAX_PATH];
+        const WCHAR *file;
         ExpandEnvironmentStringsW(spec, path, MAX_PATH);
         if ((comma = wcsrchr(path, ','))) { index = _wtoi(comma + 1); *comma = 0; }
-        ExtractIconExW(path, index, NULL, &icon, 1);
+        file = PathFindFileNameW(path);
+        if (wcsicmp(file, L"shell32.dll") && wcsicmp(file, L"explorer.exe") && wcsicmp(file, L"mydocs.dll"))
+            ExtractIconExW(path, index, NULL, &icon, 1);
     }
     if (!icon) ExtractIconExW(L"shell32.dll", shell_fallback, NULL, &icon, 1);
     return icon;
@@ -232,10 +235,10 @@ static void load_items(TOOLBAR *tb)
         if (toolbar_folder(tb->kind, dir)) add_folder_items(tb, dir);
         break;
     case TOOLBAR_DESKTOP:
-        add_item(tb, L"::{450D8FBA-AD25-11D0-98A8-0800361B1103}", L"My Documents", clsid_icon(L"{450D8FBA-AD25-11D0-98A8-0800361B1103}", NULL, 235));
-        add_item(tb, L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", L"My Computer", clsid_icon(L"{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, 15));
-        add_item(tb, L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}", L"My Network Places", clsid_icon(L"{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, 17));
-        add_item(tb, L"::{645FF040-5081-101B-9F08-00AA002F954E}", L"Recycle Bin", clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", L"empty", 31));
+        add_item(tb, L"::{450D8FBA-AD25-11D0-98A8-0800361B1103}", L"My Documents", clsid_icon(L"{450D8FBA-AD25-11D0-98A8-0800361B1103}", NULL, -235));
+        add_item(tb, L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", L"My Computer", clsid_icon(L"{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, -16));
+        add_item(tb, L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}", L"My Network Places", clsid_icon(L"{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, -18));
+        add_item(tb, L"::{645FF040-5081-101B-9F08-00AA002F954E}", L"Recycle Bin", clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", L"empty", -32));
         if (toolbar_folder(tb->kind, dir)) add_folder_items(tb, dir);
         if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_DESKTOPDIRECTORY, NULL, SHGFP_TYPE_CURRENT, dir))) add_folder_items(tb, dir);
         break;

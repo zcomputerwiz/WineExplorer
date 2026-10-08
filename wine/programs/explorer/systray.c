@@ -90,6 +90,8 @@ struct icon
     UINT           info_timeout;    /* timeout for info balloon */
     HICON          info_icon;       /* info balloon icon */
     UINT           version;         /* notify icon api version */
+    DWORD          last_active;     /* tick of the last update or mouse use, for "hide inactive icons" */
+    BOOL           auto_hidden;     /* hidden only because it is inactive */
 };
 
 static struct list icon_list = LIST_INIT( icon_list );
@@ -346,13 +348,33 @@ static RECT get_tray_clock_rect(void)
     return rc;
 }
 
+#define CHEVRON_WIDTH 14
+#define INACTIVE_AFTER 8000
+static BOOL tray_expanded;
+
+static BOOL setting_hide_inactive(void)
+{
+    return taskbar_settings_get()->hide_inactive_icons;
+}
+
+static BOOL chevron_visible(void)
+{
+    struct icon *icon;
+
+    if (!setting_hide_inactive()) return FALSE;
+    if (tray_expanded) return TRUE;
+    LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
+        if (icon->auto_hidden) return TRUE;
+    return FALSE;
+}
+
 RECT systray_get_notify_rect(void);
 static RECT get_tray_notify_rect(void)
 {
     RECT rc;
-    int clock_width = 64;
+    int clock_width = taskbar_settings_get()->show_clock ? 64 : 0;
     int icons_width = nb_displayed > 0 ? (nb_displayed * 18 + 4) : 0;
-    int total_width = clock_width + icons_width + 4;
+    int total_width = clock_width + icons_width + 4 + (chevron_visible() ? CHEVRON_WIDTH : 0);
 
     rc.right = tray_width - 2;
     rc.left = rc.right - total_width;
@@ -425,6 +447,33 @@ static void autohide_tick(void)
         taskbar_hidden = TRUE;
         position_taskbar();
     }
+}
+
+static void update_tray_layout(void);
+
+static void refresh_inactive_icons(void)
+{
+    struct icon *icon;
+    BOOL changed = FALSE, want_hide;
+
+    LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
+    {
+        if (!icon->window || (icon->state & NIS_HIDDEN)) continue;
+        want_hide = setting_hide_inactive() && !tray_expanded && GetTickCount() - icon->last_active > INACTIVE_AFTER;
+        if (want_hide && !icon->auto_hidden && icon->display != ICON_DISPLAY_HIDDEN)
+        {
+            icon->auto_hidden = TRUE;
+            hide_icon( icon );
+            changed = TRUE;
+        }
+        else if (!want_hide && icon->auto_hidden)
+        {
+            icon->auto_hidden = FALSE;
+            show_icon( icon );
+            changed = TRUE;
+        }
+    }
+    if (changed && enable_taskbar) update_tray_layout();
 }
 
 static void update_tray_layout(void)
@@ -590,6 +639,8 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     struct icon *icon = (struct icon *)GetWindowLongPtrW( hwnd, GWLP_USERDATA );
 
     TRACE( "hwnd %p, msg %#x, wparam %#Ix, lparam %#Ix\n", hwnd, msg, wparam, lparam );
+
+    if (icon && msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) icon->last_active = GetTickCount();
 
     switch (msg)
     {
@@ -840,6 +891,8 @@ static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
 
         update_balloon( icon );
     }
+    icon->last_active = GetTickCount();
+    icon->auto_hidden = FALSE;
     if (icon->state & NIS_HIDDEN) hide_icon( icon );
     else show_icon( icon );
     return TRUE;
@@ -1487,6 +1540,24 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         FillRect( hdc, &rcTop, GetSysColorBrush( COLOR_3DHIGHLIGHT ) );
         }
 
+        if (chevron_visible())
+        {
+            RECT notify = get_tray_notify_rect(), chev;
+            HTHEME button = theme_open( hwnd, tray_expanded ? L"TrayNotifyHorizOpen::Button" : L"TrayNotifyHoriz::Button" );
+            SetRect( &chev, notify.left, rc.top, notify.left + CHEVRON_WIDTH, rc.bottom );
+            if (button)
+            {
+                DrawThemeBackground( button, hdc, 1, 1, &chev, NULL );
+                CloseThemeData( button );
+            }
+            else
+            {
+                RECT inner = chev;
+                InflateRect( &inner, 0, -4 );
+                DrawFrameControl( hdc, &inner, DFC_SCROLL, tray_expanded ? DFCS_SCROLLRIGHT : DFCS_SCROLLLEFT );
+            }
+        }
+
         /* Draw sunken border around entire notification area in Classic mode */
         if (enable_taskbar)
         {
@@ -1538,10 +1609,33 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         tray_clock_update();
         break;
 
+    case WM_LBUTTONDOWN:
+        if (chevron_visible())
+        {
+            RECT notify = get_tray_notify_rect(), chev;
+            POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+            SetRect( &chev, notify.left, 0, notify.left + CHEVRON_WIDTH, tray_height );
+            if (PtInRect( &chev, pt ))
+            {
+                tray_expanded = !tray_expanded;
+                refresh_inactive_icons();
+                update_taskbar_layout();
+                InvalidateRect( hwnd, NULL, TRUE );
+                return 0;
+            }
+        }
+        break;
+
     case WM_TIMER:
         if (wparam == IDT_AUTOHIDE)
         {
+            static DWORD last_inactive_check;
             autohide_tick();
+            if (GetTickCount() - last_inactive_check > 1000)
+            {
+                last_inactive_check = GetTickCount();
+                refresh_inactive_icons();
+            }
             return 0;
         }
         if (wparam == 9999)

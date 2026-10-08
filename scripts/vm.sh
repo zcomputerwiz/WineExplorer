@@ -9,6 +9,7 @@
 #   scripts/vm.sh shot [file]     screenshot of the VM display via VBoxManage (default vm_shot.png)
 #   scripts/vm.sh xpshot [file]   screenshot of the "Windows XP Pro" VM
 #   scripts/vm.sh fonts xp|open   install the genuine XP fonts into the prefix, or remove them and use the open replacements
+#   scripts/vm.sh resources xp|open   copy the genuine XP themes, cursors, sounds and wallpapers into the prefix, or remove them
 #   scripts/vm.sh ssh <cmd...>    run a command on the VM
 # Override with VM_KEY / VM_PORT / VM_USER if the environment differs.
 set -e
@@ -84,6 +85,16 @@ fonts)
     *) echo "usage: vm.sh fonts xp|open"; exit 1 ;;
     esac
     echo "fonts: $mode set; restart the shell (vm.sh restart-shell) to reload the font list" ;;
+resources)
+    case "${1:-}" in
+    xp)
+        tar -C "$ROOT/references/xp_export" -cf - Resources Cursors Media Web | "${SSH[@]}" 'tar -C ~/.wine/drive_c/windows -xmf -'
+        echo "resources: genuine XP set installed" ;;
+    open)
+        "${SSH[@]}" 'cd ~/.wine/drive_c/windows && rm -rf Resources/Themes/Luna Resources/Themes/Luna.theme "Resources/Themes/Windows Classic.theme" Cursors Media Web/Wallpaper'
+        echo "resources: XP set removed" ;;
+    *) echo "usage: vm.sh resources xp|open"; exit 1 ;;
+    esac ;;
 ssh)
     "${SSH[@]}" "$@"
     ;;
