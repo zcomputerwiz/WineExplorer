@@ -37,6 +37,9 @@ HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id);
  * no alpha at all becomes opaque. */
 void shellres_premultiply(HBITMAP bitmap);
 
+/* Drop the cached packs after the theme changed */
+void shellres_reset(void);
+
 /* TRUE if a genuine pack is installed for the module */
 BOOL shellres_has_pack(const WCHAR *module);
 

@@ -30,23 +30,66 @@ extern HINSTANCE explorer_hInstance;
 
 static struct { WCHAR name[24]; HMODULE module; BOOL tried; } packs[MAX_PACKS];
 
+/* Folder of the active theme's icon packs: "IconPack=" in the [WineExplorer] section of the .theme file that
+ * is current (HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\CurrentTheme). */
+static BOOL theme_pack_dir(WCHAR *dir)
+{
+    WCHAR theme[MAX_PATH], value[MAX_PATH], windir[MAX_PATH];
+    DWORD size = sizeof(theme);
+
+    dir[0] = 0;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes", L"CurrentTheme",
+                     RRF_RT_REG_SZ, NULL, theme, &size)) return FALSE;
+    if (!GetPrivateProfileStringW(L"WineExplorer", L"IconPack", L"", value, MAX_PATH, theme) || !value[0]) return FALSE;
+    GetWindowsDirectoryW(windir, MAX_PATH);
+    {
+        /* %ResourceDir% is the Resources folder of the Windows directory */
+        const WCHAR *tail = value;
+        if (!wcsnicmp(value, L"%ResourceDir%", 13)) tail = value + 13;
+        else { lstrcpynW(dir, value, MAX_PATH); return TRUE; }
+        lstrcpyW(dir, windir);
+        wcscat(dir, L"\\Resources");
+        wcscat(dir, tail);
+    }
+    return TRUE;
+}
+
 /* The pack DLL of a module, loaded as data, or NULL */
 static HMODULE pack_module(const WCHAR *name)
 {
     int i;
-    WCHAR path[MAX_PATH];
+    WCHAR path[MAX_PATH], dir[MAX_PATH];
 
     for (i = 0; i < MAX_PACKS && packs[i].name[0]; i++)
         if (!wcsicmp(packs[i].name, name)) return packs[i].module;
     if (i == MAX_PACKS) return NULL;
 
     lstrcpynW(packs[i].name, name, ARRAY_SIZE(packs[i].name));
-    GetWindowsDirectoryW(path, MAX_PATH);
-    wcscat(path, L"\\Resources\\Icons\\xpres_");
-    wcscat(path, name);
-    wcscat(path, L".dll");
-    packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    if (theme_pack_dir(dir))
+    {
+        swprintf(path, MAX_PATH, L"%s\\xpres_%s.dll", dir, name);
+        packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    }
+    if (!packs[i].module)
+    {
+        GetWindowsDirectoryW(path, MAX_PATH);
+        wcscat(path, L"\\Resources\\Icons\\xpres_");
+        wcscat(path, name);
+        wcscat(path, L".dll");
+        packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    }
     return packs[i].module;
+}
+
+/* Forget the loaded packs: the next lookup reads the active theme again */
+void shellres_reset(void)
+{
+    int i;
+    for (i = 0; i < MAX_PACKS; i++)
+    {
+        if (packs[i].module) FreeLibrary(packs[i].module);
+        memset(&packs[i], 0, sizeof(packs[i]));
+    }
 }
 
 BOOL shellres_has_pack(const WCHAR *module)

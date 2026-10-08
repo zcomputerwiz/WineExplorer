@@ -29,6 +29,8 @@
 #include <wine/list.h>
 
 #include "explorer_private.h"
+#include "shellres.h"
+#include "desktop_view.h"
 #include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
@@ -1600,8 +1602,13 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         startmenu_on_enter_menu_loop();
         break;
 
-    case WM_SETTINGCHANGE:
     case WM_THEMECHANGED:
+        /* the icon packs belong to the theme: reload them everywhere */
+        shellres_reset();
+        desktop_view_refresh();
+        toolbars_refresh();
+        /* fall through */
+    case WM_SETTINGCHANGE:
         update_taskbar_layout();
         InvalidateRect( hwnd, NULL, TRUE );
         break;
