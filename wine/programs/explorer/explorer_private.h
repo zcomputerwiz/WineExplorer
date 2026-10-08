@@ -27,6 +27,7 @@
 #include "taskband.h"
 #include "startmenu_view.h"
 #include "tray_clock.h"
+#include "toolbars.h"
 #include "power_mgmt.h"
 #include "uac_agent.h"
 #include "taskbar_props.h"

@@ -338,7 +338,7 @@ static void update_tooltip_text(struct icon *icon)
 static RECT get_tray_clock_rect(void)
 {
     RECT rc;
-    int clock_width = 64;
+    int clock_width = taskbar_settings_get()->show_clock ? 64 : 0;
     rc.right = tray_width - 2;
     rc.left = rc.right - clock_width;
     rc.top = 2;
@@ -387,28 +387,58 @@ static POINT get_icon_pos( struct icon *icon )
     return pos;
 }
 
+#define IDT_AUTOHIDE 9998
+static BOOL taskbar_hidden;
+
+/* Always on top, auto-hide and the work area follow the taskbar settings */
+static void position_taskbar(void)
+{
+    TASKBAR_SETTINGS *s = taskbar_settings_get();
+    int screen_w = GetSystemMetrics( SM_CXSCREEN ), screen_h = GetSystemMetrics( SM_CYSCREEN );
+    int y = (s->autohide && taskbar_hidden) ? screen_h - 2 : screen_h - tray_height;
+    RECT work = { 0, 0, screen_w, s->autohide ? screen_h : screen_h - tray_height }, current;
+
+    SetWindowPos( tray_window, (s->always_on_top || s->autohide) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, y,
+                  tray_width, tray_height, SWP_NOACTIVATE | SWP_SHOWWINDOW );
+    if (SystemParametersInfoW( SPI_GETWORKAREA, 0, &current, 0 ) && !EqualRect( &current, &work ))
+        SystemParametersInfoW( SPI_SETWORKAREA, 0, &work, SPIF_SENDCHANGE );
+}
+
+static void autohide_tick(void)
+{
+    TASKBAR_SETTINGS *s = taskbar_settings_get();
+    int screen_h = GetSystemMetrics( SM_CYSCREEN );
+    POINT pt;
+    BOOL over;
+
+    if (!s->autohide)
+    {
+        if (taskbar_hidden) { taskbar_hidden = FALSE; position_taskbar(); }
+        return;
+    }
+    GetCursorPos( &pt );
+    over = pt.y >= (taskbar_hidden ? screen_h - 1 : screen_h - tray_height);
+    if (over && taskbar_hidden) { taskbar_hidden = FALSE; position_taskbar(); }
+    else if (!over && !taskbar_hidden && !startmenu_view_is_open() &&
+             GetAncestor( GetForegroundWindow(), GA_ROOT ) != tray_window && !GetCapture())
+    {
+        taskbar_hidden = TRUE;
+        position_taskbar();
+    }
+}
+
 static void update_tray_layout(void)
 {
     if (!enable_taskbar || !tray_window) return;
     {
-        TASKBAR_SETTINGS *settings = taskbar_settings_get();
         RECT rcTray = get_tray_notify_rect();
         RECT rcClock = get_tray_clock_rect();
-        int show_desktop_width = show_desktop_button_get_width();
-        int taskband_x = start_button_width + 4;
-        int taskband_w;
+        int taskband_x, taskband_w;
         struct icon *icon;
 
-        if (settings && settings->show_quick_launch)
-        {
-            show_desktop_button_resize( taskband_x, 3, show_desktop_width, 22 );
-            taskband_x += show_desktop_width + 4;
-        }
-
+        toolbars_layout( tray_window, start_button_width + 4, rcTray.left, tray_height, &taskband_x, &taskband_w );
         tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
-
-        taskband_w = rcTray.left - taskband_x - 4;
-        taskband_resize( taskband_x, 0, max( 50, taskband_w ), tray_height );
+        taskband_resize( taskband_x, 0, taskband_w, tray_height );
 
         /* Relayout tray icons */
         LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
@@ -1209,11 +1239,10 @@ static void show_taskbar_contextmenu( HWND button, LPARAM lparam )
         TASKBAR_SETTINGS *settings = taskbar_settings_get();
         UINT cmd;
 
-        AppendMenuW(hToolbars, MF_STRING, 3001, L"&Address");
-        AppendMenuW(hToolbars, MF_STRING, 3002, L"Lin&ks");
-        AppendMenuW(hToolbars, MF_STRING, 3003, L"&Desktop");
-        AppendMenuW(hToolbars, MF_STRING | (settings->show_quick_launch ? MF_CHECKED : 0), 3004, L"&Quick Launch");
-
+        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_ADDRESS) ? MF_CHECKED : 0), 3001, L"&Address");
+        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_LINKS) ? MF_CHECKED : 0), 3002, L"Lin&ks");
+        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_DESKTOP) ? MF_CHECKED : 0), 3003, L"&Desktop");
+        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_QUICKLAUNCH) ? MF_CHECKED : 0), 3004, L"&Quick Launch");
         AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hToolbars, L"&Toolbars");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_CASCADE, L"&Cascade Windows");
@@ -1252,14 +1281,15 @@ static void show_taskbar_contextmenu( HWND button, LPARAM lparam )
         case IDM_TASKBAR_LOCK:
             settings->lock_taskbar = !settings->lock_taskbar;
             taskbar_settings_save();
+            toolbars_refresh();
             break;
         case IDM_TASKBAR_PROPERTIES:
             taskbar_props_show(tray_window);
             break;
-        case 3004:
-            settings->show_quick_launch = !settings->show_quick_launch;
-            taskbar_settings_save();
-            break;
+        case 3001: toolbars_set_visible(tray_window, TOOLBAR_ADDRESS, !toolbars_is_visible(TOOLBAR_ADDRESS)); break;
+        case 3002: toolbars_set_visible(tray_window, TOOLBAR_LINKS, !toolbars_is_visible(TOOLBAR_LINKS)); break;
+        case 3003: toolbars_set_visible(tray_window, TOOLBAR_DESKTOP, !toolbars_is_visible(TOOLBAR_DESKTOP)); break;
+        case 3004: toolbars_set_visible(tray_window, TOOLBAR_QUICKLAUNCH, !toolbars_is_visible(TOOLBAR_QUICKLAUNCH)); break;
         }
     }
 }
@@ -1315,34 +1345,26 @@ static void do_show_systray(void)
     }
     taskbar_settings_load();
     start_button_width = startbutton_get_desired_width();
-    SetWindowPos( tray_window, HWND_TOPMOST, 0, GetSystemMetrics( SM_CYSCREEN ) - tray_height,
-                  tray_width, tray_height, SWP_NOACTIVATE | SWP_SHOWWINDOW );
+    position_taskbar();
+    SetTimer( tray_window, IDT_AUTOHIDE, 150, NULL );
 
     /* Instantiate complete desktop taskbar components */
     {
-        TASKBAR_SETTINGS *settings = taskbar_settings_get();
         RECT rcTray = get_tray_notify_rect();
         RECT rcClock = get_tray_clock_rect();
-        int show_desktop_width = show_desktop_button_get_width();
-        int taskband_x = start_button_width + 4;
-        int taskband_w;
+        int taskband_x, taskband_w;
 
         startbutton_create( tray_window, 2, 2, start_button_width, 24 );
         startbutton_resize( 2, 2, start_button_width, 24 );
 
-        if (settings && settings->show_quick_launch)
-        {
-            show_desktop_button_create( tray_window, taskband_x, 3, show_desktop_width, 22 );
-            show_desktop_button_resize( taskband_x, 3, show_desktop_width, 22 );
-            taskband_x += show_desktop_width + 4;
-        }
+        toolbars_create( tray_window );
+        toolbars_layout( tray_window, start_button_width + 4, rcTray.left, tray_height, &taskband_x, &taskband_w );
 
         tray_clock_create( tray_window, rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
         tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
 
-        taskband_w = rcTray.left - taskband_x - 4;
-        taskband_create( tray_window, taskband_x, 0, max( 50, taskband_w ), tray_height );
-        taskband_resize( taskband_x, 0, max( 50, taskband_w ), tray_height );
+        taskband_create( tray_window, taskband_x, 0, taskband_w, tray_height );
+        taskband_resize( taskband_x, 0, taskband_w, tray_height );
 
         nettray_init( tray_window );
         volumetray_init( tray_window );
@@ -1357,7 +1379,6 @@ static void update_taskbar_layout(void)
     TASKBAR_SETTINGS *settings;
     RECT rcTray;
     RECT rcClock;
-    int show_desktop_width = show_desktop_button_get_width();
     int taskband_x;
     int taskband_w;
 
@@ -1371,18 +1392,13 @@ static void update_taskbar_layout(void)
         startbutton_resize( 0, 0, start_button_width, tray_height );
     else
         startbutton_resize( 2, 2, start_button_width, tray_height - 4 );
-    taskband_x = start_button_width + 4;
 
-    if (settings && settings->show_quick_launch)
-    {
-        show_desktop_button_resize( taskband_x, 3, show_desktop_width, 22 );
-        taskband_x += show_desktop_width + 4;
-    }
-
+    toolbars_layout( tray_window, start_button_width + 4, rcTray.left, tray_height, &taskband_x, &taskband_w );
     tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
-
-    taskband_w = rcTray.left - taskband_x - 4;
-    taskband_resize( taskband_x, 0, max( 50, taskband_w ), tray_height );
+    taskband_resize( taskband_x, 0, taskband_w, tray_height );
+    position_taskbar();
+    tray_clock_show( settings->show_clock );
+    InvalidateRect( tray_window, NULL, TRUE );
 }
 
 static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
@@ -1523,6 +1539,11 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         break;
 
     case WM_TIMER:
+        if (wparam == IDT_AUTOHIDE)
+        {
+            autohide_tick();
+            return 0;
+        }
         if (wparam == 9999)
         {
             KillTimer(hwnd, 9999);

@@ -1708,6 +1708,7 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                         SelectObject(mem, prev);
                         DeleteDC(mem);
                         text_rc.left += bm.bmWidth + 3;
+                    text_rc.right = max(text_rc.right, rc.right - 6);
                     }
                     if (flag) DeleteObject(flag);
                 }

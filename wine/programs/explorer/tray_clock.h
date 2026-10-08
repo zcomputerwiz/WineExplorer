@@ -30,19 +30,12 @@
 #include <windows.h>
 
 #define TRAY_CLOCK_CLASS L"TrayClockWClass"
-#define SHOW_DESKTOP_CLASS L"ShowDesktopButtonClass"
 
 /* Tray Clock API */
 HWND tray_clock_create(HWND parent_tray, int x, int y, int width, int height);
 void tray_clock_destroy(void);
 void tray_clock_resize(int x, int y, int width, int height);
 void tray_clock_update(void);
-
-/* Show Desktop Button API */
-HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int height);
-void show_desktop_button_destroy(void);
-void show_desktop_button_resize(int x, int y, int width, int height);
-void show_desktop_toggle(void);
-int show_desktop_button_get_width(void); /* quick launch toolbar width */
+void tray_clock_show(BOOL show);
 
 #endif /* __WINE_EXPLORER_TRAY_CLOCK_H */

@@ -96,8 +96,8 @@ static void add_desktop_item(DESKTOP_ITEM_TYPE type, const WCHAR *display_name,
     item->icon = icon;
     item->grid_x = gx;
     item->grid_y = gy;
-    item->pos.x = gx * g_desktop_view.grid_cx + 10;
-    item->pos.y = gy * g_desktop_view.grid_cy + 10;
+    item->pos.x = gx * g_desktop_view.grid_cx;
+    item->pos.y = gy * g_desktop_view.grid_cy;
     update_item_bounds(item, g_desktop_view.grid_cx, g_desktop_view.grid_cy);
 
     g_desktop_view.items[g_desktop_view.item_count++] = item;
@@ -135,6 +135,48 @@ static HICON load_shell_icon(int index)
     return hIcon;
 }
 
+static int rows_per_column(void)
+{
+    RECT work;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    return max(1, (work.bottom - work.top) / g_desktop_view.grid_cy);
+}
+
+static void next_cell(int *row, int *col)
+{
+    if (++*row >= rows_per_column())
+    {
+        *row = 0;
+        ++*col;
+    }
+}
+
+/* Icon of a shell namespace object, as registered (a theme replaces these values) */
+static HICON load_clsid_icon(const WCHAR *clsid, const WCHAR *value, int fallback_shell_index)
+{
+    WCHAR key[160], spec[MAX_PATH + 16], path[MAX_PATH];
+    DWORD size = sizeof(spec);
+    HICON icon = NULL;
+    WCHAR *comma;
+    int index = 0;
+
+    swprintf(key, ARRAY_SIZE(key), L"Software\\Classes\\CLSID\\%s\\DefaultIcon", clsid);
+    BOOL found = !RegGetValueW(HKEY_CURRENT_USER, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &size);
+
+    if (!found)
+    {
+        size = sizeof(spec);
+        found = !RegGetValueW(HKEY_LOCAL_MACHINE, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &size);
+    }
+    if (found)
+    {
+        ExpandEnvironmentStringsW(spec, path, MAX_PATH);
+        if ((comma = wcsrchr(path, ','))) { index = _wtoi(comma + 1); *comma = 0; }
+        ExtractIconExW(path, index, &icon, NULL, 1);
+    }
+    return icon ? icon : load_shell_icon(fallback_shell_index);
+}
+
 static void populate_directory_items(const WCHAR *folder_path, int *cur_row, int *cur_col)
 {
     WIN32_FIND_DATAW fd;
@@ -170,12 +212,7 @@ static void populate_directory_items(const WCHAR *folder_path, int *cur_row, int
         add_desktop_item(itype, sfi.szDisplayName[0] ? sfi.szDisplayName : fd.cFileName,
                          full_path, sfi.hIcon, *cur_col, *cur_row);
 
-        (*cur_row)++;
-        if (*cur_row * g_desktop_view.grid_cy + 100 > GetSystemMetrics(SM_CYSCREEN))
-        {
-            *cur_row = 0;
-            (*cur_col)++;
-        }
+        next_cell(cur_row, cur_col);
     } while (FindNextFileW(hFind, &fd));
 
     FindClose(hFind);
@@ -191,26 +228,19 @@ void desktop_view_refresh(void)
     user_desktop[0] = 0;
     free_all_items();
 
-    /* 1. Add standard Windows namespace icons */
-    /* My Documents */
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Documents",
-                     L"::{450D8FBA-AD25-11D0-98A8-0800361B1103}",
-                     load_shell_icon(235), col, row++);
-
-    /* My Computer */
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Computer",
-                     L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
-                     load_shell_icon(15), col, row++);
-
-    /* My Network Places */
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Network Places",
-                     L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}",
-                     load_shell_icon(17), col, row++);
-
-    /* Recycle Bin */
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"Recycle Bin",
-                     L"::{645FF040-5081-101B-9F08-00AA002F954E}",
-                     load_shell_icon(31), col, row++);
+    /* 1. Standard namespace icons; each takes its icon from the registered DefaultIcon */
+    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Documents", L"::{450D8FBA-AD25-11D0-98A8-0800361B1103}",
+                     load_clsid_icon(L"{450D8FBA-AD25-11D0-98A8-0800361B1103}", NULL, 235), col, row);
+    next_cell(&row, &col);
+    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Computer", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
+                     load_clsid_icon(L"{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, 15), col, row);
+    next_cell(&row, &col);
+    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Network Places", L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}",
+                     load_clsid_icon(L"{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, 17), col, row);
+    next_cell(&row, &col);
+    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"Recycle Bin", L"::{645FF040-5081-101B-9F08-00AA002F954E}",
+                     load_clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", L"empty", 31), col, row);
+    next_cell(&row, &col);
 
     /* 2. Populate physical user and common desktop directory items */
     if (SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, user_desktop) == S_OK)
@@ -385,54 +415,156 @@ static void draw_wallpaper(HDC hdc, int screen_w, int screen_h)
     }
 }
 
+/* Icon and label rectangles of an item; the label is as wide as its (wrapped) text */
+static void item_layout(HDC hdc, DESKTOP_ITEM *item, HFONT font, BOOL full_text, RECT *icon_rc, RECT *label_rc)
+{
+    int cell = g_desktop_view.grid_cx, size = g_desktop_view.icon_size, lines;
+    RECT avail, calc;
+    HFONT old = SelectObject(hdc, font);
+    TEXTMETRICW tm;
+
+    GetTextMetricsW(hdc, &tm);
+    icon_rc->left = item->pos.x + (cell - size) / 2;
+    icon_rc->top = item->pos.y + 4;
+    icon_rc->right = icon_rc->left + size;
+    icon_rc->bottom = icon_rc->top + size;
+
+    SetRect(&avail, item->pos.x + 3, icon_rc->bottom + 4, item->pos.x + cell - 3, 0);
+    avail.bottom = avail.top + 1000;
+    calc = avail;
+    DrawTextW(hdc, item->display_name, -1, &calc, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+    lines = full_text ? 100 : 2;
+    if (calc.bottom - calc.top > lines * tm.tmHeight) calc.bottom = calc.top + lines * tm.tmHeight;
+    {
+        int w = calc.right - calc.left;
+        label_rc->left = item->pos.x + (cell - w) / 2;
+        label_rc->right = label_rc->left + w;
+        label_rc->top = calc.top;
+        label_rc->bottom = calc.bottom;
+    }
+    SelectObject(hdc, old);
+}
+
+/* Draw an icon with its opaque pixels blended 50% with a color (the selected look) */
+static void draw_icon_tinted(HDC hdc, HICON icon, int x, int y, int size, COLORREF tint)
+{
+    ICONINFO info;
+    BITMAP bm;
+    BITMAPINFO bi = {{ sizeof(BITMAPINFOHEADER), size, -size, 1, 32, BI_RGB }};
+    DWORD *color_bits = NULL, *mask_bits = NULL, *overlay = NULL;
+    HBITMAP dib = NULL;
+    HDC mem;
+    int i, n = size * size;
+    BOOL has_alpha = FALSE;
+
+    DrawIconEx(hdc, x, y, icon, size, size, 0, NULL, DI_NORMAL);
+    if (!GetIconInfo(icon, &info)) return;
+    color_bits = calloc(n, sizeof(DWORD));
+    mask_bits = calloc(n, sizeof(DWORD));
+    mem = CreateCompatibleDC(hdc);
+    dib = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, (void **)&overlay, NULL, 0);
+    if (color_bits && mask_bits && dib && overlay && info.hbmColor && GetObjectW(info.hbmColor, sizeof(bm), &bm) &&
+        bm.bmWidth == size && bm.bmHeight == size)
+    {
+        GetDIBits(hdc, info.hbmColor, 0, size, color_bits, &bi, DIB_RGB_COLORS);
+        GetDIBits(hdc, info.hbmMask, 0, size, mask_bits, &bi, DIB_RGB_COLORS);
+        for (i = 0; i < n; i++) if (color_bits[i] >> 24) { has_alpha = TRUE; break; }
+        for (i = 0; i < n; i++)
+        {
+            BOOL opaque = has_alpha ? (color_bits[i] >> 24) != 0 : (mask_bits[i] & 0xffffff) == 0;
+            DWORD a = opaque ? 128 : 0;
+            overlay[i] = (a << 24) | ((GetRValue(tint) * a / 255) << 16) | ((GetGValue(tint) * a / 255) << 8) | (GetBValue(tint) * a / 255);
+        }
+        {
+            HBITMAP prev = SelectObject(mem, dib);
+            BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+            AlphaBlend(hdc, x, y, size, size, mem, 0, 0, size, size, blend);
+            SelectObject(mem, prev);
+        }
+    }
+    if (dib) DeleteObject(dib);
+    DeleteDC(mem);
+    free(color_bits);
+    free(mask_bits);
+    if (info.hbmColor) DeleteObject(info.hbmColor);
+    if (info.hbmMask) DeleteObject(info.hbmMask);
+}
+
 static void draw_desktop_item(HDC hdc, DESKTOP_ITEM *item, HFONT font)
 {
-    RECT text_rc;
-    int icon_x = item->pos.x + (g_desktop_view.grid_cx - g_desktop_view.icon_size) / 2;
-    int icon_y = item->pos.y + 4;
+    RECT icon_rc, label_rc, text_rc;
+    /* the selection is blue while no other window is active, gray otherwise */
+    HWND fg = GetForegroundWindow();
+    BOOL focus = !fg || GetAncestor(fg, GA_ROOT) == GetAncestor(g_desktop_view.hwnd, GA_ROOT);
     HFONT old_font;
 
-    /* Draw icon */
+    item_layout(hdc, item, font, item->selected, &icon_rc, &label_rc);
+
     if (item->icon)
     {
-        DrawIconEx(hdc, icon_x, icon_y, item->icon,
-                   g_desktop_view.icon_size, g_desktop_view.icon_size,
-                   0, NULL, DI_NORMAL);
+        if (item->selected)
+            draw_icon_tinted(hdc, item->icon, icon_rc.left, icon_rc.top, g_desktop_view.icon_size,
+                             GetSysColor(focus ? COLOR_HIGHLIGHT : COLOR_BTNSHADOW));
+        else
+            DrawIconEx(hdc, icon_rc.left, icon_rc.top, item->icon, g_desktop_view.icon_size, g_desktop_view.icon_size,
+                       0, NULL, DI_NORMAL);
     }
-
-    /* Draw label text */
-    text_rc.left = item->pos.x + 2;
-    text_rc.right = item->pos.x + g_desktop_view.grid_cx - 2;
-    text_rc.top = icon_y + g_desktop_view.icon_size + 4;
-    text_rc.bottom = item->bounds.bottom - 2;
 
     old_font = SelectObject(hdc, font);
     SetBkMode(hdc, TRANSPARENT);
+    text_rc = label_rc;
 
     if (item->selected)
     {
-        /* Selected label: draw highlight rectangle */
-        RECT calc_rc = text_rc;
-        DrawTextW(hdc, item->display_name, -1, &calc_rc, DT_CALCRECT | DT_CENTER | DT_WORDBREAK);
-        InflateRect(&calc_rc, 4, 1);
-        FillRect(hdc, &calc_rc, GetSysColorBrush(COLOR_HIGHLIGHT));
-
+        RECT back = label_rc;
+        InflateRect(&back, 2, 1);
+        FillRect(hdc, &back, GetSysColorBrush(focus ? COLOR_HIGHLIGHT : COLOR_BTNSHADOW));
         SetTextColor(hdc, GetSysColor(COLOR_HIGHLIGHTTEXT));
-        DrawTextW(hdc, item->display_name, -1, &text_rc, DT_CENTER | DT_WORDBREAK);
+        DrawTextW(hdc, item->display_name, -1, &text_rc, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        if (focus && item->focused) DrawFocusRect(hdc, &back);
     }
     else
     {
-        /* Classic drop shadow text */
+        /* labels on the desktop have a shadow so they stay readable on any wallpaper */
         RECT shadow_rc = text_rc;
         OffsetRect(&shadow_rc, 1, 1);
         SetTextColor(hdc, RGB(0, 0, 0));
-        DrawTextW(hdc, item->display_name, -1, &shadow_rc, DT_CENTER | DT_WORDBREAK);
-
+        DrawTextW(hdc, item->display_name, -1, &shadow_rc, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS);
         SetTextColor(hdc, RGB(255, 255, 255));
-        DrawTextW(hdc, item->display_name, -1, &text_rc, DT_CENTER | DT_WORDBREAK);
+        DrawTextW(hdc, item->display_name, -1, &text_rc, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS);
     }
-
     SelectObject(hdc, old_font);
+}
+
+static HFONT create_label_font(void)
+{
+    LOGFONTW lf;
+    SystemParametersInfoW(SPI_GETICONTITLELOGFONT, sizeof(lf), &lf, 0);
+    return CreateFontIndirectW(&lf);
+}
+
+/* An item is hit on its icon or its label, not on the empty part of its cell */
+static BOOL item_hit(HDC hdc, DESKTOP_ITEM *item, HFONT font, POINT pt)
+{
+    RECT icon_rc, label_rc;
+    item_layout(hdc, item, font, item->selected, &icon_rc, &label_rc);
+    InflateRect(&icon_rc, 2, 2);
+    InflateRect(&label_rc, 2, 1);
+    return PtInRect(&icon_rc, pt) || PtInRect(&label_rc, pt);
+}
+
+/* topmost item under a client point, or -1 */
+static int item_at(HWND hwnd, POINT pt)
+{
+    HDC hdc = GetDC(hwnd);
+    HFONT font = create_label_font();
+    int i, found = -1;
+
+    for (i = g_desktop_view.item_count - 1; i >= 0 && found < 0; i--)
+        if (item_hit(hdc, g_desktop_view.items[i], font, pt)) found = i;
+    DeleteObject(font);
+    ReleaseDC(hwnd, hdc);
+    return found;
 }
 
 void desktop_view_paint(HDC hdc, const RECT *clip_rect)
@@ -443,15 +575,9 @@ void desktop_view_paint(HDC hdc, const RECT *clip_rect)
     HBITMAP mem_bm = CreateCompatibleBitmap(hdc, screen_w, screen_h);
     HBITMAP old_bm = SelectObject(mem_dc, mem_bm);
     HFONT font;
-    LOGFONTW lf;
     int i;
 
-    /* Create Tahoma 8pt font */
-    memset(&lf, 0, sizeof(lf));
-    lf.lfHeight = -11;
-    lf.lfWeight = FW_NORMAL;
-    lstrcpyW(lf.lfFaceName, L"Tahoma");
-    font = CreateFontIndirectW(&lf);
+    font = create_label_font();
 
     /* 1. Paint wallpaper & solid background */
     draw_wallpaper(mem_dc, screen_w, screen_h);
@@ -712,20 +838,13 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         SetFocus(hwnd);
         SetCapture(hwnd);
 
-        for (i = 0; i < g_desktop_view.item_count; i++)
-        {
-            if (PtInRect(&g_desktop_view.items[i]->bounds, pt))
-            {
-                hit_idx = i;
-                break;
-            }
-        }
+        hit_idx = item_at(hwnd, pt);
 
         if (hit_idx != -1)
         {
             /* Item clicked */
             for (i = 0; i < g_desktop_view.item_count; i++)
-                g_desktop_view.items[i]->selected = (i == hit_idx);
+                g_desktop_view.items[i]->selected = g_desktop_view.items[i]->focused = (i == hit_idx);
 
             g_desktop_view.drag_active = TRUE;
             g_desktop_view.dragged_index = hit_idx;
@@ -809,14 +928,8 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
         int i;
 
-        for (i = 0; i < g_desktop_view.item_count; i++)
-        {
-            if (PtInRect(&g_desktop_view.items[i]->bounds, pt))
-            {
-                execute_item(g_desktop_view.items[i]);
-                break;
-            }
-        }
+        i = item_at(hwnd, pt);
+        if (i >= 0) execute_item(g_desktop_view.items[i]);
         return 0;
     }
 
@@ -829,19 +942,12 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         SetFocus(hwnd);
         ClientToScreen(hwnd, &screen_pt);
 
-        for (i = 0; i < g_desktop_view.item_count; i++)
-        {
-            if (PtInRect(&g_desktop_view.items[i]->bounds, pt))
-            {
-                hit_idx = i;
-                break;
-            }
-        }
+        hit_idx = item_at(hwnd, pt);
 
         if (hit_idx != -1)
         {
             for (i = 0; i < g_desktop_view.item_count; i++)
-                g_desktop_view.items[i]->selected = (i == hit_idx);
+                g_desktop_view.items[i]->selected = g_desktop_view.items[i]->focused = (i == hit_idx);
             InvalidateRect(hwnd, NULL, FALSE);
             show_item_context_menu(hwnd, g_desktop_view.items[hit_idx], screen_pt);
         }
@@ -1008,8 +1114,8 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
 
     memset(&g_desktop_view, 0, sizeof(g_desktop_view));
     g_desktop_view.parent_desktop = parent_desktop;
-    g_desktop_view.grid_cx = 75;
-    g_desktop_view.grid_cy = 75;
+    g_desktop_view.grid_cx = 81;   /* XP measured: icon spacing 75 plus padding */
+    g_desktop_view.grid_cy = 81;
     g_desktop_view.icon_size = 32;
     g_desktop_view.align_to_grid = TRUE;
     g_desktop_view.show_desktop_icons = TRUE;

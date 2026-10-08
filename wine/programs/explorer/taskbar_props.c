@@ -32,6 +32,9 @@ static TASKBAR_SETTINGS g_settings = {
     .always_on_top = TRUE,
     .group_buttons = TRUE,
     .show_quick_launch = TRUE,
+    .show_address = FALSE,
+    .show_links = FALSE,
+    .show_desktop_toolbar = FALSE,
     .show_clock = TRUE,
     .hide_inactive_icons = FALSE,
     .start_menu_style = THEME_STARTMENU_TWOCOLUMN
@@ -42,10 +45,36 @@ TASKBAR_SETTINGS *taskbar_settings_get(void)
     return &g_settings;
 }
 
+static const WCHAR taskbar_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Taskbar";
+
+static const struct { const WCHAR *name; size_t offset; } flag_values[] =
+{
+    { L"AutoHide",         offsetof(TASKBAR_SETTINGS, autohide) },
+    { L"AlwaysOnTop",      offsetof(TASKBAR_SETTINGS, always_on_top) },
+    { L"ShowClock",        offsetof(TASKBAR_SETTINGS, show_clock) },
+    { L"HideInactiveIcons", offsetof(TASKBAR_SETTINGS, hide_inactive_icons) },
+    { L"QuickLaunch",      offsetof(TASKBAR_SETTINGS, show_quick_launch) },
+    { L"AddressToolbar",   offsetof(TASKBAR_SETTINGS, show_address) },
+    { L"LinksToolbar",     offsetof(TASKBAR_SETTINGS, show_links) },
+    { L"DesktopToolbar",   offsetof(TASKBAR_SETTINGS, show_desktop_toolbar) },
+};
+
 void taskbar_settings_load(void)
 {
     HKEY hKey;
     DWORD val, size;
+    unsigned int i;
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, taskbar_key, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        for (i = 0; i < ARRAY_SIZE(flag_values); i++)
+        {
+            size = sizeof(val);
+            if (RegQueryValueExW(hKey, flag_values[i].name, NULL, NULL, (BYTE *)&val, &size) == ERROR_SUCCESS)
+                *(BOOL *)((char *)&g_settings + flag_values[i].offset) = val != 0;
+        }
+        RegCloseKey(hKey);
+    }
 
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
                       0, KEY_READ, &hKey) == ERROR_SUCCESS)
@@ -72,6 +101,17 @@ void taskbar_settings_save(void)
 {
     HKEY hKey;
     DWORD val;
+    unsigned int i;
+
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, taskbar_key, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
+    {
+        for (i = 0; i < ARRAY_SIZE(flag_values); i++)
+        {
+            val = *(BOOL *)((char *)&g_settings + flag_values[i].offset) ? 1 : 0;
+            RegSetValueExW(hKey, flag_values[i].name, 0, REG_DWORD, (BYTE *)&val, sizeof(val));
+        }
+        RegCloseKey(hKey);
+    }
 
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
                         0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
