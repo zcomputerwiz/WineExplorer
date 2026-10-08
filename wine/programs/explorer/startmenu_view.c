@@ -1341,6 +1341,21 @@ static void panel_paint(HDC hdc)
             panel_draw_icon(hdc, item, rc.left + 4, rc.top + (rc.bottom - rc.top - 16) / 2, 16);
             tr = rc; tr.left += 4 + 16 + 6;
             panel_text(hdc, tr, item->title, item->bold ? bold : font, text);
+            if (item->cmd == STARTMENU_CMD_RECENT_DOCS || item->cmd == STARTMENU_CMD_CONNECT_TO)
+            {
+                /* the flyout arrow */
+                POINT tri[3];
+                int ay = rc.top + (rc.bottom - rc.top) / 2;
+                HBRUSH ab = CreateSolidBrush(text), ap = SelectObject(hdc, ab);
+                HPEN pen = CreatePen(PS_SOLID, 1, text), pp = SelectObject(hdc, pen);
+
+                tri[0].x = rc.right - 10; tri[0].y = ay - 4;
+                tri[1].x = rc.right - 10; tri[1].y = ay + 4;
+                tri[2].x = rc.right - 6;  tri[2].y = ay;
+                Polygon(hdc, tri, 3);
+                SelectObject(hdc, pp); DeleteObject(pen);
+                SelectObject(hdc, ap); DeleteObject(ab);
+            }
         }
     }
     DeleteObject(font);
@@ -1373,6 +1388,94 @@ static void show_programs_popup_menu(HWND parent, int x, int y)
         ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
         startmenu_view_hide();
     }
+}
+
+static BOOL g_panel_menu_open;
+
+typedef struct { WCHAR path[MAX_PATH]; FILETIME time; } RECENT_ENTRY;
+
+static int compare_recent(const void *a, const void *b)
+{
+    return CompareFileTime(&((const RECENT_ENTRY *)b)->time, &((const RECENT_ENTRY *)a)->time);
+}
+
+/* The flyouts of "My Recent Documents" (the shortcuts of the Recent folder) and "Connect To" */
+static void show_panel_flyout(HWND parent, UINT cmd, const RECT *item_rc)
+{
+    HMENU menu = CreatePopupMenu();
+    RECT wnd;
+    RECENT_ENTRY *entries = NULL;
+    int count = 0, i;
+    UINT id;
+    POINT pt;
+
+    GetWindowRect(parent, &wnd);
+    pt.x = wnd.left + item_rc->right - 2;
+    pt.y = wnd.top + item_rc->top;
+
+    if (cmd == STARTMENU_CMD_RECENT_DOCS)
+    {
+        WCHAR dir[MAX_PATH], pattern[MAX_PATH];
+        WIN32_FIND_DATAW fd;
+        HANDLE find;
+
+        entries = HeapAlloc(GetProcessHeap(), 0, 64 * sizeof(*entries));
+        if (entries && SHGetFolderPathW(NULL, CSIDL_RECENT, NULL, 0, dir) == S_OK)
+        {
+            swprintf(pattern, MAX_PATH, L"%s\\*.lnk", dir);
+            if ((find = FindFirstFileW(pattern, &fd)) != INVALID_HANDLE_VALUE)
+            {
+                do
+                {
+                    if (count < 64)
+                    {
+                        swprintf(entries[count].path, MAX_PATH, L"%s\\%s", dir, fd.cFileName);
+                        entries[count++].time = fd.ftLastWriteTime;
+                    }
+                } while (FindNextFileW(find, &fd));
+                FindClose(find);
+            }
+        }
+        qsort(entries, count, sizeof(*entries), compare_recent);
+        for (i = 0; i < count && i < 15; i++)
+        {
+            WCHAR label[MAX_PATH], *dot;
+            lstrcpynW(label, PathFindFileNameW(entries[i].path), MAX_PATH);
+            if ((dot = wcsrchr(label, '.'))) *dot = 0;
+            append_menu_item_icon(menu, MF_STRING, 6000 + i, label, get_file_icon_bitmap(entries[i].path, 16));
+        }
+        if (!count) AppendMenuW(menu, MF_STRING | MF_GRAYED, 5999, L"(Empty)");
+    }
+    else
+    {
+        append_menu_item_icon(menu, MF_STRING, 5001, L"Wireless Network Connection", get_shell32_icon_bitmap(17, 16));
+        AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(menu, MF_STRING, 5002, L"&Show all connections");
+    }
+
+    g_panel_menu_open = TRUE;
+    id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN, pt.x, pt.y, 0, parent, NULL);
+    g_panel_menu_open = FALSE;
+    DestroyMenu(menu);
+    free_menu_bitmaps();
+
+    if (id >= 6000 && (int)(id - 6000) < count)
+    {
+        startmenu_view_hide();
+        ShellExecuteW(NULL, L"open", entries[id - 6000].path, NULL, NULL, SW_SHOWNORMAL);
+    }
+    else if (id == 5001)
+    {
+        HWND tray = g_tray_parent;
+        startmenu_view_hide();
+        wlan_dialog_show(tray);
+    }
+    else if (id == 5002)
+    {
+        startmenu_view_hide();
+        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL, SW_SHOWNORMAL);
+    }
+    HeapFree(GetProcessHeap(), 0, entries);
 }
 
 static void execute_startmenu_command(UINT cmd)
@@ -1471,8 +1574,6 @@ static void execute_startmenu_command(UINT cmd)
     }
 }
 
-static BOOL g_panel_menu_open;
-
 #define PCM_OPEN       1
 #define PCM_EXPLORE    2
 #define PCM_SEARCH     3
@@ -1545,6 +1646,48 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
     }
 }
 
+/* the info tips of the Start panel items (strings of the Windows shell) */
+static HWND g_panel_tip;
+
+static const WCHAR *panel_tip_text(UINT cmd)
+{
+    switch (cmd)
+    {
+    case STARTMENU_CMD_SEARCH:       return L"Opens a window where you can pick search options and work with search results.";
+    case STARTMENU_CMD_HELP:         return L"Opens a central location for Help topics, tutorials, troubleshooting, and other support services.";
+    case STARTMENU_CMD_RUN:          return L"Opens a program, folder, document, or Web site.";
+    case STARTMENU_CMD_INTERNET:     return L"Opens your Internet browser.";
+    case STARTMENU_CMD_EMAIL:        return L"Opens your e-mail program so you can send or read a message.";
+    case STARTMENU_CMD_MYDOCS:       return L"Opens the My Documents folder, where you can store letters, reports, notes, and other kinds of documents.";
+    case STARTMENU_CMD_RECENT_DOCS:  return L"Displays recently opened documents and folders.";
+    case STARTMENU_CMD_MUSIC:        return L"Opens the My Music folder, where you can store music and other audio files.";
+    case STARTMENU_CMD_PICTURES:     return L"Opens the My Pictures folder, where you can store digital photos, images, and graphics files.";
+    case STARTMENU_CMD_MYNET:        return L"Gives access to, and information about, folders and files on other computers.";
+    case STARTMENU_CMD_MYCOMP:       return L"Gives access to, and information about, the disk drives, cameras, scanners, and other hardware connected to your computer.";
+    case STARTMENU_CMD_CONNECT_TO:   return L"Connects to other computers, networks, and the Internet.";
+    case STARTMENU_CMD_CONTROLPANEL: return L"Provides options for you to customize the appearance and functionality of your computer, add or remove programs, and set up network connections and user accounts.";
+    case CMD_ALL_PROGRAMS:           return L"Displays a list of programs on your computer.";
+    case STARTMENU_CMD_LOGOFF:       return L"Provides options for closing your programs and logging off, or for leaving your programs running and switching to another user.";
+    case STARTMENU_CMD_SHUTDOWN:     return L"Provides options for turning off or restarting your computer, or for activating Stand By or Hibernate modes.";
+    }
+    return NULL;
+}
+
+static void panel_tip_create(HWND hwnd)
+{
+    TOOLINFOW ti = { sizeof(ti), TTF_SUBCLASS };
+
+    if (g_panel_tip) return;
+    g_panel_tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                                  0, 0, 0, 0, hwnd, NULL, GetModuleHandleW(NULL), NULL);
+    SendMessageW(g_panel_tip, TTM_SETMAXTIPWIDTH, 0, 300);
+    ti.hwnd = hwnd;
+    ti.uId = 1;
+    ti.lpszText = LPSTR_TEXTCALLBACKW;
+    GetClientRect(hwnd, &ti.rect);
+    SendMessageW(g_panel_tip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+}
+
 /* Two-column Start panel window procedure */
 static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -1569,14 +1712,27 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
     case WM_ERASEBKGND:
         return 1;
 
+    case WM_NOTIFY:
+        if (((NMHDR *)lparam)->hwndFrom == g_panel_tip && ((NMHDR *)lparam)->code == TTN_GETDISPINFOW)
+        {
+            NMTTDISPINFOW *info = (NMTTDISPINFOW *)lparam;
+            const WCHAR *text = g_panel_hot >= 0 ? panel_tip_text(g_panel[g_panel_hot].cmd) : NULL;
+            if (text) lstrcpynW(info->szText, text, ARRAY_SIZE(info->szText));
+            else info->szText[0] = 0;
+            return 0;
+        }
+        break;
+
     case WM_MOUSEMOVE:
     {
         int hot = panel_hit_test((short)LOWORD(lparam), (short)HIWORD(lparam));
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
 
+        panel_tip_create(hwnd);
         if (hot != g_panel_hot)
         {
             g_panel_hot = hot;
+            SendMessageW(g_panel_tip, TTM_POP, 0, 0);
             InvalidateRect(hwnd, NULL, FALSE);
         }
         TrackMouseEvent(&tme);
@@ -1604,6 +1760,8 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
             GetWindowRect(hwnd, &wnd_rc);
             show_programs_popup_menu(hwnd, wnd_rc.left + g_zone[ZONE_MORE].right, wnd_rc.top + g_zone[ZONE_MORE].bottom);
         }
+        else if (g_panel[hit].cmd == STARTMENU_CMD_RECENT_DOCS || g_panel[hit].cmd == STARTMENU_CMD_CONNECT_TO)
+            show_panel_flyout(hwnd, g_panel[hit].cmd, &g_panel[hit].rc);
         else
             execute_startmenu_command(g_panel[hit].cmd);
         return 0;
