@@ -216,7 +216,8 @@ static HBITMAP icon_to_menu_bitmap(HICON hIcon, int size)
 
 static HBITMAP get_shell32_icon_bitmap(int index, int size)
 {
-    HICON hIcon = load_shell_icon(index, size);
+    /* shell32 resource id, like the Windows shell */
+    HICON hIcon = load_shell_icon(-index, size);
     return icon_to_menu_bitmap(hIcon, size);
 }
 
@@ -451,7 +452,7 @@ static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
             hSub = find_existing_submenu(hMenu, fd.cFileName);
             if (!hSub)
             {
-                HBITMAP hbm = get_shell32_icon_bitmap(3, 16);
+                HBITMAP hbm = get_shell32_icon_bitmap(4, 16);
                 hSub = CreatePopupMenu();
                 append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSub, fd.cFileName, hbm);
             }
@@ -729,32 +730,32 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     /* Documents Submenu */
     if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, my_docs) == S_OK)
-        append_menu_item_icon(hDocuments, MF_STRING, STARTMENU_CMD_MYDOCS, L"My &Documents", get_shell32_icon_bitmap(1, 16));
+        append_menu_item_icon(hDocuments, MF_STRING, STARTMENU_CMD_MYDOCS, L"My &Documents", get_shell32_icon_bitmap(235, 16));
 
     /* Settings Submenu */
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_CONTROLPANEL, L"&Control Panel", get_shell32_icon_bitmap(21, 16));
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_NETWORK, L"&Network Connections", get_shell32_icon_bitmap(17, 16));
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_PRINTERS, L"&Printers and Faxes", get_shell32_icon_bitmap(16, 16));
+    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_CONTROLPANEL, L"&Control Panel", get_shell32_icon_bitmap(137, 16));
+    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_NETWORK, L"&Network Connections", get_shell32_icon_bitmap(175, 16));
+    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_PRINTERS, L"&Printers and Faxes", get_shell32_icon_bitmap(138, 16));
     AppendMenuW(hSettings, MF_SEPARATOR, 0, NULL);
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_TASKBAR_PROPS, L"&Taskbar and Start Menu", get_shell32_icon_bitmap(39, 16));
+    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_TASKBAR_PROPS, L"&Taskbar and Start Menu", get_shell32_icon_bitmap(40, 16));
 
     /* Search Submenu */
-    append_menu_item_icon(hSearch, MF_STRING, STARTMENU_CMD_SEARCH, L"For &Files or Folders...", get_shell32_icon_bitmap(22, 16));
-    append_menu_item_icon(hSearch, MF_STRING, STARTMENU_CMD_SEARCH_COMPUTERS, L"For &Computers...", get_shell32_icon_bitmap(15, 16));
+    append_menu_item_icon(hSearch, MF_STRING, STARTMENU_CMD_SEARCH, L"For &Files or Folders...", get_shell32_icon_bitmap(23, 16));
+    append_menu_item_icon(hSearch, MF_STRING, STARTMENU_CMD_SEARCH_COMPUTERS, L"For &Computers...", get_shell32_icon_bitmap(135, 16));
 
     /* Load authentic icon bitmaps from shell32 (24x24 for authentic Windows XP classic scale) */
-    bm_progacc = get_shell32_icon_bitmap(271, 24); /* Set Program Access and Defaults */
-    if (!bm_progacc) bm_progacc = get_shell32_icon_bitmap(21, 24);
+    bm_progacc = get_shell32_icon_bitmap(37, 24); /* Set Program Access and Defaults */
+    if (!bm_progacc) bm_progacc = get_shell32_icon_bitmap(36, 24);
     bm_catalog = get_shell32_icon_bitmap(14, 24);  /* Windows Catalog */
-    bm_update  = get_shell32_icon_bitmap(46, 24);  /* Windows Update */
-    bm_prog    = get_shell32_icon_bitmap(3, 24);   /* Programs */
-    bm_doc     = get_shell32_icon_bitmap(1, 24);   /* Documents */
-    bm_set     = get_shell32_icon_bitmap(21, 24);  /* Settings */
-    bm_srch    = get_shell32_icon_bitmap(22, 24);  /* Search */
-    bm_help    = get_shell32_icon_bitmap(23, 24);  /* Help */
-    bm_run     = get_shell32_icon_bitmap(24, 24);  /* Run */
-    bm_logoff  = get_shell32_icon_bitmap(44, 24);  /* Log Off key */
-    bm_shut    = get_shell32_icon_bitmap(27, 24);  /* Turn Off red button */
+    bm_update  = get_shell32_icon_bitmap(47, 24);  /* Windows Update */
+    bm_prog    = get_shell32_icon_bitmap(20, 24);   /* Programs */
+    bm_doc     = get_shell32_icon_bitmap(21, 24);   /* Documents */
+    bm_set     = get_shell32_icon_bitmap(22, 24);  /* Settings */
+    bm_srch    = get_shell32_icon_bitmap(23, 24);  /* Search */
+    bm_help    = get_shell32_icon_bitmap(24, 24);  /* Help */
+    bm_run     = get_shell32_icon_bitmap(25, 24);  /* Run */
+    bm_logoff  = get_shell32_icon_bitmap(45, 24);  /* Log Off key */
+    bm_shut    = get_shell32_icon_bitmap(221, 24);  /* Turn Off red button */
 
     /* Top Pinned Items */
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_PROGACCESS, L"Set &Program Access and Defaults", bm_progacc);
@@ -1469,6 +1470,7 @@ static void show_programs_popup_menu(HWND parent, int x, int y)
 }
 
 static BOOL g_panel_menu_open;
+static int g_panel_press = -1;
 
 typedef struct { WCHAR path[MAX_PATH]; FILETIME time; } RECENT_ENTRY;
 
@@ -1526,7 +1528,7 @@ static void show_panel_flyout(HWND parent, UINT cmd, const RECT *item_rc)
     }
     else
     {
-        append_menu_item_icon(menu, MF_STRING, 5001, L"Wireless Network Connection", get_shell32_icon_bitmap(17, 16));
+        append_menu_item_icon(menu, MF_STRING, 5001, L"Wireless Network Connection", get_shell32_icon_bitmap(175, 16));
         AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(menu, MF_STRING, 5002, L"&Show all connections");
     }
@@ -1765,6 +1767,54 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
     }
 }
 
+/* The arrow keys, Tab, in the Start panel: items of the two columns in reading order, the footer buttons last */
+static void panel_key_move(HWND hwnd, WPARAM key)
+{
+    int i, n = g_panel_n, cur = g_panel_hot, next = cur;
+    int zone = cur >= 0 ? g_panel[cur].zone : ZONE_PROG;
+
+    if (zone == ZONE_MORE) zone = ZONE_PROG;   /* All Programs belongs to the programs column */
+
+    if (cur < 0)
+    {
+        for (i = 0; i < n; i++) if (!g_panel[i].sep && g_panel[i].zone == ZONE_PROG) { next = i; break; }
+    }
+    else if (key == VK_DOWN || key == VK_UP || key == VK_TAB)
+    {
+        int step = (key == VK_UP || (key == VK_TAB && (GetKeyState(VK_SHIFT) & 0x8000))) ? -1 : 1;
+        for (i = cur + step; i >= 0 && i < n; i += step)
+            if (!g_panel[i].sep && (key == VK_TAB || (g_panel[i].zone == zone || (zone == ZONE_PROG && g_panel[i].zone == ZONE_MORE)) || zone == ZONE_LOGOFF)) { next = i; break; }
+        if (next == cur && key == VK_TAB)
+            for (i = step > 0 ? 0 : n - 1; i >= 0 && i < n; i += step) if (!g_panel[i].sep) { next = i; break; }
+    }
+    else
+    {
+        /* left and right: to the closest item of the other column (programs, places) or between footer buttons */
+        int target_zone = zone == ZONE_PLACES ? ZONE_PROG : zone == ZONE_PROG ? ZONE_PLACES : zone;
+        int y = (g_panel[cur].rc.top + g_panel[cur].rc.bottom) / 2, best = -1, dist = 100000;
+
+        if (zone == ZONE_LOGOFF)
+        {
+            for (i = cur + (key == VK_RIGHT ? 1 : -1); i >= 0 && i < n; i += (key == VK_RIGHT ? 1 : -1))
+                if (g_panel[i].zone == ZONE_LOGOFF) { next = i; break; }
+        }
+        else if ((key == VK_RIGHT && zone == ZONE_PROG) || (key == VK_LEFT && zone == ZONE_PLACES))
+        {
+            for (i = 0; i < n; i++)
+            {
+                int d = abs((g_panel[i].rc.top + g_panel[i].rc.bottom) / 2 - y);
+                if (!g_panel[i].sep && g_panel[i].zone == target_zone && d < dist) { dist = d; best = i; }
+            }
+            if (best >= 0) next = best;
+        }
+    }
+    if (next != g_panel_hot)
+    {
+        g_panel_hot = next;
+        InvalidateRect(hwnd, NULL, FALSE);
+    }
+}
+
 /* the info tips of the Start panel items (strings of the Windows shell) */
 static HWND g_panel_tip;
 
@@ -1882,7 +1932,16 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         else if (g_panel[hit].cmd == STARTMENU_CMD_RECENT_DOCS || (g_panel[hit].cmd == STARTMENU_CMD_CONNECT_TO && g_start.connect_to == START_MENU))
             show_panel_flyout(hwnd, g_panel[hit].cmd, &g_panel[hit].rc);
         else
-            execute_startmenu_command(g_panel[hit].cmd);
+            g_panel_press = hit;   /* the item runs when the button is released over it */
+        return 0;
+    }
+
+    case WM_LBUTTONUP:
+    {
+        int hit = panel_hit_test((short)LOWORD(lparam), (short)HIWORD(lparam)), pressed = g_panel_press;
+
+        g_panel_press = -1;
+        if (g_startmenu_open && hit >= 0 && hit == pressed) execute_startmenu_command(g_panel[hit].cmd);
         return 0;
     }
 
@@ -1905,6 +1964,29 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         if (wparam == VK_ESCAPE)
         {
             startmenu_view_hide();
+            return 0;
+        }
+        if (wparam == VK_UP || wparam == VK_DOWN || wparam == VK_LEFT || wparam == VK_RIGHT || wparam == VK_TAB)
+        {
+            panel_key_move(hwnd, wparam);
+            return 0;
+        }
+        if (wparam == VK_RETURN || wparam == VK_SPACE)
+        {
+            if (g_panel_hot >= 0)
+            {
+                if (g_panel[g_panel_hot].cmd == CMD_ALL_PROGRAMS)
+                {
+                    RECT wnd_rc;
+                    GetWindowRect(hwnd, &wnd_rc);
+                    show_programs_popup_menu(hwnd, wnd_rc.left + g_zone[ZONE_MORE].right, wnd_rc.top + g_zone[ZONE_MORE].bottom);
+                }
+                else if (g_panel[g_panel_hot].cmd == STARTMENU_CMD_RECENT_DOCS ||
+                         (g_panel[g_panel_hot].cmd == STARTMENU_CMD_CONNECT_TO && g_start.connect_to == START_MENU))
+                    show_panel_flyout(hwnd, g_panel[g_panel_hot].cmd, &g_panel[g_panel_hot].rc);
+                else
+                    execute_startmenu_command(g_panel[g_panel_hot].cmd);
+            }
             return 0;
         }
         break;
