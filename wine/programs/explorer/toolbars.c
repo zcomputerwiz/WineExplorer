@@ -41,8 +41,11 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define TB_CLASS        L"WineTaskbarToolbar"
+static BOOL tb_locked(void);
+
 static int gripper_w(void)
 {
+    if (tb_locked()) return 1;         /* a locked taskbar has no grippers: the bands start right after each other */
     return IsThemeActive() ? 9 : 12;   /* the classic gripper is a 3 pixel raised bar with room around it */
 }
 #define GRIPPER_W       gripper_w()
@@ -455,8 +458,7 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
     grip.left += 1; grip.right = grip.left + 6; grip.top += 2; grip.bottom -= 2;
     if (tb_locked())
     {
-        RECT line = { grip.left + 1, grip.top, grip.left + 2, grip.bottom };
-        FillRect(hdc, &line, GetSysColorBrush(rebar ? COLOR_HOTLIGHT : COLOR_BTNSHADOW));
+        /* nothing: Windows draws no handle and no separator on a locked taskbar */
     }
     else if (rebar) DrawThemeBackground(rebar, hdc, RP_GRIPPER, 0, &grip, NULL);
     else
@@ -700,7 +702,11 @@ static void position_combo(TOOLBAR *tb)
     GetClientRect(tb->hwnd, &rc);
     SetWindowPos(tb->combo, NULL, GRIPPER_W + title_width(tb) + 2, (rc.bottom - 22) / 2, max(20, rc.right - GRIPPER_W - title_width(tb) - 2 - GO_W - 4), 200,
                  SWP_NOZORDER | SWP_NOACTIVATE);
-    SetWindowPos(tb->go, NULL, rc.right - GO_W - 2, (rc.bottom - 22) / 2, GO_W, 22, SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(tb->go, NULL, rc.right - GO_W - 2, (rc.bottom - 22) / 2, GO_W, 22, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetWindowPos(tb->combo, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    RedrawWindow(tb->hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
+    RedrawWindow(tb->combo, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    RedrawWindow(tb->go, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_UPDATENOW);
 }
 
 static void save_bands(void);
@@ -1203,7 +1209,8 @@ void toolbars_refresh(void)
         if (kind != TOOLBAR_ADDRESS) load_items(tb);
         place_items(tb);
         update_tooltips(tb);
-        InvalidateRect(tb->hwnd, NULL, TRUE);
+        position_combo(tb);
+        RedrawWindow(tb->hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
 }
 

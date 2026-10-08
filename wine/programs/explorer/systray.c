@@ -1495,6 +1495,7 @@ static void track_tray_menu( POINT pt, BOOL include_time )
         settings->lock_taskbar = !settings->lock_taskbar;
         taskbar_settings_save();
         toolbars_refresh();
+        SendMessageW( tray_window, WM_SETTINGCHANGE, 0, 0 );
         break;
     case IDM_TASKBAR_PROPERTIES:
         taskbar_props_show( tray_window );
@@ -2025,7 +2026,7 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
         SetRect( &primary_rect, 0, 0, GetSystemMetrics( SM_CXSCREEN ), GetSystemMetrics( SM_CYSCREEN ) );
         SubtractRect( &taskbar_rect, &primary_rect, &work_rect );
 
-        tray_window = CreateWindowExW( WS_EX_TOPMOST | WS_EX_TOOLWINDOW, shell_traywnd_class.lpszClassName, NULL, WS_POPUP,
+        tray_window = CreateWindowExW( WS_EX_TOPMOST | WS_EX_TOOLWINDOW, shell_traywnd_class.lpszClassName, NULL, WS_POPUP | WS_CLIPCHILDREN,
                                        taskbar_rect.left, taskbar_rect.top, taskbar_rect.right - taskbar_rect.left,
                                        taskbar_rect.bottom - taskbar_rect.top, 0, 0, 0, 0 );
     }

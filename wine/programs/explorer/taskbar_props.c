@@ -347,6 +347,7 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
             g_settings.show_clock = (IsDlgButtonChecked(hwnd, IDC_SHOWCLOCK) == BST_CHECKED);
             g_settings.hide_inactive_icons = (IsDlgButtonChecked(hwnd, IDC_HIDEINACTIVEICONS) == BST_CHECKED);
             taskbar_settings_save();
+            { HWND tray = FindWindowW(L"Shell_TrayWnd", NULL); if (tray) PostMessageW(tray, WM_SETTINGCHANGE, 0, 0); }
             return TRUE;
         }
         break;
