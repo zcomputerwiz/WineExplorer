@@ -1,0 +1,8 @@
+@ stdcall WexTimedateGet(ptr)
+@ stdcall WexTimedateSetTime(long int64 long)
+@ stdcall WexTimedateSetTimezone(long str)
+@ stdcall WexTimedateSetNtp(long long)
+@ stdcall WexTimedateListTimezones(ptr long ptr)
+@ stdcall WexAgentStart(ptr ptr)
+@ stdcall WexAgentRespond(str str str long)
+@ stdcall WexAgentStop()

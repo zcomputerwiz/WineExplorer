@@ -1594,6 +1594,7 @@ enable_webservices
 enable_websocket
 enable_wer
 enable_wevtapi
+enable_wexhost
 enable_wevtsvc
 enable_wiaservc
 enable_wimgapi
@@ -1798,6 +1799,7 @@ enable_aspnet_regiis
 enable_attrib
 enable_cabarc
 enable_cacls
+enable_calc
 enable_certutil
 enable_chcp_com
 enable_clock
@@ -1834,6 +1836,7 @@ enable_mshta
 enable_msidb
 enable_msiexec
 enable_msinfo32
+enable_mspaint
 enable_net
 enable_netsh
 enable_netstat
@@ -22870,6 +22873,7 @@ wine_fn_config_makefile dlls/wer enable_wer
 wine_fn_config_makefile dlls/wer/tests enable_tests
 wine_fn_config_makefile dlls/wevtapi enable_wevtapi
 wine_fn_config_makefile dlls/wevtapi/tests enable_tests
+wine_fn_config_makefile dlls/wexhost enable_wexhost
 wine_fn_config_makefile dlls/wevtsvc enable_wevtsvc
 wine_fn_config_makefile dlls/wiaservc enable_wiaservc
 wine_fn_config_makefile dlls/wiaservc/tests enable_tests

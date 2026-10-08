@@ -1,5 +1,5 @@
 MODULE    = timedate.cpl
-IMPORTS   = advapi32 ole32 comctl32 user32 gdi32
+IMPORTS   = advapi32 ole32 comctl32 user32 gdi32 wexhost
 
 VER_FILEDESCRIPTION_STR = "Date and Time Control Panel"
 
@@ -8,5 +8,4 @@ SOURCES = \
 	dateandtime.c \
 	timedate.c \
 	timedate.rc \
-	timezone.c \
-	uac.c
+	timezone.c

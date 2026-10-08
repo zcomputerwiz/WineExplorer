@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Date and Time Properties (timedate.cpl)
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #ifndef __WINE_TIMEDATE_RESOURCE_H
@@ -34,16 +50,5 @@
 #define IDC_TIMEZONE_AUTO   2102
 #define IDC_TIMEZONE_MAP    2103
 
-/* UAC prompt */
-#define IDD_UAC             1003
-#define IDC_UAC_BANNER      2201
-#define IDC_UAC_PROGRAM     2202
-#define IDC_UAC_PROMPT      2203
-#define IDC_UAC_ACCOUNT     2204
-#define IDC_UAC_PASSWORD    2205
-#define IDC_UAC_USERTILE    2206
-#define IDC_UAC_PW_LABEL    2207
-#define IDC_UAC_ICON        2208
-#define IDC_UAC_PUB_NAME    2209
 
 #endif /* __WINE_TIMEDATE_RESOURCE_H */

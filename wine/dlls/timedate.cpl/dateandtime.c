@@ -1,10 +1,27 @@
 /*
  * WineExplorer Desktop Environment - Date & Time Page (timedate.cpl)
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>
+#include <wexhost.h>
 #include "timedate.h"
 
 static SYSTEMTIME g_selected_time;
@@ -111,7 +128,7 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
                 g_selected_time.wMonth = sc->stSelStart.wMonth;
                 g_selected_time.wDay = sc->stSelStart.wDay;
                 g_time_modified = TRUE;
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
         }
         else if (nmhdr->code == DTN_DATETIMECHANGE)
@@ -130,7 +147,7 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
                     g_time_modified = TRUE;
                     KillTimer(hwnd, 1);
                     SendDlgItemMessageW(hwnd, IDC_CLOCK_CTRL, CLM_STOPCLOCK, 0, 0);
-                    PropSheet_Changed(GetParent(hwnd), hwnd);
+                    SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
                 }
             }
         }
@@ -139,7 +156,6 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
             HWND hCal = GetDlgItem(hwnd, IDC_MONTHCAL);
             HWND hDtp = GetDlgItem(hwnd, IDC_TIME_EDIT);
             SYSTEMTIME cur_st;
-            char cmd[64];
 
             if (!g_time_modified)
             {
@@ -162,17 +178,32 @@ INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
                 g_selected_time.wMilliseconds = 0;
             }
 
-            snprintf(cmd, sizeof(cmd), "date -s %04u-%02u-%02uT%02u:%02u:%02u",
-                     g_selected_time.wYear, g_selected_time.wMonth, g_selected_time.wDay,
-                     g_selected_time.wHour, g_selected_time.wMinute, g_selected_time.wSecond);
-
-            if (!uac_run_elevated(hwnd, L"Date and Time Properties", cmd))
+            /* Wall clock delta (chosen - now): independent of any difference between Wine's and the host's
+             * idea of the zone/DST, so the clock ends up showing exactly what the user typed. */
             {
-                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
-                return TRUE;
-            }
+                SYSTEMTIME now;
+                FILETIME ft_now, ft_new;
+                ULARGE_INTEGER a, b;
+                DWORD err;
 
-            SetLocalTime(&g_selected_time);
+                GetLocalTime(&now);
+                SystemTimeToFileTime(&now, &ft_now);
+                SystemTimeToFileTime(&g_selected_time, &ft_new);
+                a.LowPart = ft_now.dwLowDateTime; a.HighPart = ft_now.dwHighDateTime;
+                b.LowPart = ft_new.dwLowDateTime; b.HighPart = ft_new.dwHighDateTime;
+
+                err = WexTimedateSetTime(GetParent(hwnd), ((INT64)b.QuadPart - (INT64)a.QuadPart) / 10, TRUE);
+                if (err)
+                {
+                    if (err != ERROR_CANCELLED)
+                        MessageBoxW(hwnd, err == ERROR_NOT_SUPPORTED ?
+                                    L"The system time service is not available on this computer." :
+                                    L"You do not have permission to change the system time.",
+                                    L"Date and Time Properties", MB_OK | MB_ICONWARNING);
+                    SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
+                    return TRUE;
+                }
+            }
 
             if (hCal)
             {

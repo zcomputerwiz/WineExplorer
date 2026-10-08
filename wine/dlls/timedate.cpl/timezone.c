@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Time Zone Property Page (timedate.cpl)
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <windows.h>
@@ -8,6 +24,7 @@
 #include <stdlib.h>
 #include <math.h>
 
+#include <wexhost.h>
 #include "timedate.h"
 
 typedef struct
@@ -31,6 +48,7 @@ typedef struct _TZ_ENTRY
 static TZ_ENTRY *g_tz_entries = NULL;
 static int g_tz_count = 0;
 static int g_selected_tz_idx = -1;
+static BOOL g_tz_modified = FALSE;   /* PSN_APPLY reaches every visited page, so only act on real edits */
 static WNDPROC g_orig_map_proc = NULL;
 static HBITMAP g_hWorldBmp = NULL;
 static int g_bm_width = 0;
@@ -129,10 +147,11 @@ static void init_timezones(void)
         RegQueryInfoKeyW(hZonesKey, NULL, NULL, NULL, &subkey_count, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
         if (subkey_count > 0)
         {
-            g_tz_entries = malloc(subkey_count * sizeof(TZ_ENTRY));
+            g_tz_entries = calloc(subkey_count, sizeof(TZ_ENTRY));
             g_tz_count = 0;
+            if (!g_tz_entries) subkey_count = 0;
 
-            for (index = 0; ; index++)
+            for (index = 0; g_tz_entries; index++)
             {
                 HKEY hSub;
                 DWORD type, size;
@@ -173,7 +192,8 @@ static void init_timezones(void)
     {
         /* Fallback table */
         int count = ARRAY_SIZE(g_fallback_tzs);
-        g_tz_entries = malloc(count * sizeof(TZ_ENTRY));
+        g_tz_entries = calloc(count, sizeof(TZ_ENTRY));
+        if (!g_tz_entries) return;
         g_tz_count = count;
 
         for (i = 0; i < count; i++)
@@ -263,19 +283,13 @@ static const struct {
     { L"UTC", "UTC" }
 };
 
-static void set_system_timezone_linux(HWND owner, const WCHAR *tz_key_name)
+/* Host zone name for a Windows zone key; NULL if we have no mapping. */
+static const char *iana_for_key(const WCHAR *tz_key_name)
 {
     DWORD i;
     for (i = 0; i < ARRAY_SIZE(g_tz_iana_map); i++)
-    {
-        if (_wcsicmp(g_tz_iana_map[i].win_name, tz_key_name) == 0)
-        {
-            char cmd[256];
-            snprintf(cmd, sizeof(cmd), "timedatectl set-timezone %s", g_tz_iana_map[i].iana_name);
-            uac_run_elevated(owner, L"Date and Time Properties", cmd);
-            break;
-        }
-    }
+        if (!_wcsicmp(g_tz_iana_map[i].win_name, tz_key_name)) return g_tz_iana_map[i].iana_name;
+    return NULL;
 }
 
 static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
@@ -323,22 +337,31 @@ static LRESULT CALLBACK map_subclass_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     return CallWindowProcW(g_orig_map_proc, hwnd, msg, wparam, lparam);
 }
 
-/* Retrieve the system's configured TimeZoneKeyName from registry or Linux system */
+/* Which Windows zone is active?  The host (systemd timedate1) is the source of truth; fall back to what this
+ * applet saved earlier, then to the registry. */
 static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
 {
     HKEY hKey;
-    DWORD type, size;
+    DWORD type, size, i;
+    WEX_TIMEDATE td;
     BOOL ret = FALSE;
 
-    /* First check user's persisted setting in HKCU\Software\WineExplorer\Time */
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Time",
-                      0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    if (!WexTimedateGet(&td) && td.timezone[0])
+    {
+        for (i = 0; i < ARRAY_SIZE(g_tz_iana_map); i++)
+        {
+            if (!_stricmp(g_tz_iana_map[i].iana_name, td.timezone))
+            {
+                lstrcpynW(key_buf, g_tz_iana_map[i].win_name, max_len);
+                return TRUE;
+            }
+        }
+    }
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Time", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
         size = max_len * sizeof(WCHAR);
-        if (RegQueryValueExW(hKey, L"SelectedTimeZone", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0] != 0)
-        {
-            ret = TRUE;
-        }
+        ret = RegQueryValueExW(hKey, L"SelectedTimeZone", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0];
         RegCloseKey(hKey);
         if (ret) return TRUE;
     }
@@ -347,47 +370,11 @@ static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
                       0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
         size = max_len * sizeof(WCHAR);
-        if (RegQueryValueExW(hKey, L"TimeZoneKeyName", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0] != 0)
-        {
-            if (_wcsicmp(key_buf, L"UTC") != 0)
-                ret = TRUE;
-        }
+        ret = RegQueryValueExW(hKey, L"TimeZoneKeyName", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS &&
+              key_buf[0] && _wcsicmp(key_buf, L"UTC") != 0;
         RegCloseKey(hKey);
-        if (ret) return TRUE;
     }
-
-    /* Check system timezone from Linux timedatectl */
-    {
-        FILE *fp = popen("timedatectl show -p Timezone --value 2>/dev/null", "r");
-        if (fp)
-        {
-            char buf[128];
-            if (fgets(buf, sizeof(buf), fp))
-            {
-                size_t l = strlen(buf);
-                while (l > 0 && (buf[l - 1] == '\r' || buf[l - 1] == '\n' || buf[l - 1] == ' '))
-                    buf[--l] = '\0';
-                if (l > 0)
-                {
-                    DWORD i;
-                    for (i = 0; i < ARRAY_SIZE(g_tz_iana_map); i++)
-                    {
-                        if (_stricmp(g_tz_iana_map[i].iana_name, buf) == 0)
-                        {
-                            wcsncpy(key_buf, g_tz_iana_map[i].win_name, max_len - 1);
-                            key_buf[max_len - 1] = 0;
-                            ret = TRUE;
-                            break;
-                        }
-                    }
-                }
-            }
-            pclose(fp);
-            if (ret) return TRUE;
-        }
-    }
-
-    return FALSE;
+    return ret;
 }
 
 INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -479,6 +466,7 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         if (sel < 0 || sel >= g_tz_count) sel = 0;
 
         g_selected_tz_idx = sel;
+        g_tz_modified = FALSE;
         SendMessageW(hCombo, CB_SETCURSEL, sel, 0);
 
         /* Auto Daylight saving checkbox */
@@ -517,14 +505,16 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                     CheckDlgButton(hwnd, IDC_TIMEZONE_AUTO, BST_UNCHECKED);
                 }
 
+                g_tz_modified = TRUE;
                 if (hMap) InvalidateRect(hMap, NULL, TRUE);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             return TRUE;
         }
         else if (LOWORD(wparam) == IDC_TIMEZONE_AUTO)
         {
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            g_tz_modified = TRUE;
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             return TRUE;
         }
         break;
@@ -535,11 +525,27 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         NMHDR *nmhdr = (NMHDR *)lparam;
         if (nmhdr->code == PSN_APPLY)
         {
-            if (g_selected_tz_idx >= 0 && g_selected_tz_idx < g_tz_count)
+            if (g_tz_modified && g_selected_tz_idx >= 0 && g_selected_tz_idx < g_tz_count)
             {
                 TIME_ZONE_INFORMATION tzi;
                 BOOL auto_dst = (IsDlgButtonChecked(hwnd, IDC_TIMEZONE_AUTO) == BST_CHECKED);
                 HKEY hKey;
+
+                /* Host first: if polkit refuses (or the user cancels) nothing else changes */
+                {
+                    const char *iana = iana_for_key(g_tz_entries[g_selected_tz_idx].key_name);
+                    DWORD err = iana ? WexTimedateSetTimezone(GetParent(hwnd), iana) : ERROR_NOT_SUPPORTED;
+
+                    if (err && err != ERROR_NOT_SUPPORTED)
+                    {
+                        if (err != ERROR_CANCELLED)
+                            MessageBoxW(hwnd, L"You do not have permission to change the time zone.",
+                                        L"Date and Time Properties", MB_OK | MB_ICONWARNING);
+                        SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
+                        return TRUE;
+                    }
+                    /* ERROR_NOT_SUPPORTED: no timedate service (or no mapping): still update Wine's own zone */
+                }
 
                 memset(&tzi, 0, sizeof(tzi));
                 tzi.Bias = g_tz_entries[g_selected_tz_idx].tzi.Bias;
@@ -576,10 +582,8 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                     RegCloseKey(hKey);
                 }
 
-                /* Also sync Linux host system timezone via timedatectl */
-                set_system_timezone_linux(hwnd, g_tz_entries[g_selected_tz_idx].key_name);
-
                 SendMessageW(HWND_BROADCAST, WM_TIMECHANGE, 0, 0);
+                g_tz_modified = FALSE;
             }
             SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
             return TRUE;
