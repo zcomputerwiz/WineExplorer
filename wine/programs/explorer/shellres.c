@@ -97,6 +97,19 @@ BOOL shellres_has_pack(const WCHAR *module)
     return pack_module(module) != NULL;
 }
 
+/* The icon of a program by executable name (notepad.exe), from the theme's Apps folder of the icon pack */
+HICON shellres_app_icon(const WCHAR *exe, int size)
+{
+    WCHAR dir[MAX_PATH], path[MAX_PATH], base[MAX_PATH];
+    WCHAR *dot;
+
+    if (!theme_pack_dir(dir)) return NULL;
+    lstrcpynW(base, wcsrchr(exe, '\\') ? wcsrchr(exe, '\\') + 1 : exe, MAX_PATH);
+    if ((dot = wcsrchr(base, '.'))) *dot = 0;
+    swprintf(path, MAX_PATH, L"%s\\Apps\\%s.ico", dir, base);
+    return LoadImageW(NULL, path, IMAGE_ICON, size, size, LR_LOADFROMFILE | LR_DEFAULTCOLOR);
+}
+
 HICON shellres_icon(int id, int size)
 {
     HMODULE pack = pack_module(L"shell32"), shell32;

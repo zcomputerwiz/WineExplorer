@@ -145,9 +145,11 @@ static HICON load_shell_icon(int index, int size)
 
 static HICON load_app_icon(const WCHAR *exe_name, int fallback_shell_idx, int size)
 {
-    HICON hLarge = NULL;
-    HICON hSmall = NULL;
-    UINT count = ExtractIconExW(exe_name, 0, &hLarge, &hSmall, 1);
+    HICON hLarge = shellres_app_icon(exe_name, size), hSmall = NULL;
+    UINT count;
+
+    if (hLarge) return hLarge;
+    count = ExtractIconExW(exe_name, 0, &hLarge, &hSmall, 1);
     if (count > 0)
     {
         if (size >= 32 && hLarge)
@@ -217,42 +219,48 @@ static HBITMAP get_shell32_icon_bitmap(int index, int size)
     return icon_to_menu_bitmap(hIcon, size);
 }
 
+/* the target of a shortcut, "" if it cannot be read */
+static void shortcut_target(const WCHAR *file_path, WCHAR *target)
+{
+    IShellLinkW *psl;
+    IPersistFile *ppf;
+
+    target[0] = 0;
+    if (!PathMatchSpecW(file_path, L"*.lnk") ||
+        FAILED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&psl)))
+        return;
+    if (SUCCEEDED(psl->lpVtbl->QueryInterface(psl, &IID_IPersistFile, (void **)&ppf)))
+    {
+        if (SUCCEEDED(ppf->lpVtbl->Load(ppf, file_path, STGM_READ)))
+            psl->lpVtbl->GetPath(psl, target, MAX_PATH, NULL, 0);
+        ppf->lpVtbl->Release(ppf);
+    }
+    psl->lpVtbl->Release(psl);
+}
+
 static HBITMAP get_file_icon_bitmap(const WCHAR *file_path, int size)
 {
     SHFILEINFOW sfi;
+    WCHAR target[MAX_PATH];
     HICON hIcon = NULL;
 
-    memset(&sfi, 0, sizeof(sfi));
-    if (SHGetFileInfoW(file_path, 0, &sfi, sizeof(sfi), SHGFI_ICON | SHGFI_SMALLICON) && sfi.hIcon)
+    if (PathIsDirectoryW(file_path)) hIcon = shellres_icon(4, size);            /* folder */
+    if (!hIcon)
     {
-        hIcon = sfi.hIcon;
+        shortcut_target(file_path, target);
+        if (target[0] && !PathIsDirectoryW(target)) hIcon = shellres_app_icon(target, size);
+        else if (target[0]) hIcon = shellres_icon(4, size);
     }
-    else
+    if (!hIcon)
     {
-        WCHAR target[MAX_PATH];
-        IShellLinkW *psl;
-        IPersistFile *ppf;
-
-        target[0] = L'\0';
-        if (PathMatchSpecW(file_path, L"*.lnk") &&
-            SUCCEEDED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,
-                                       &IID_IShellLinkW, (void **)&psl)))
+        memset(&sfi, 0, sizeof(sfi));
+        if (SHGetFileInfoW(file_path, 0, &sfi, sizeof(sfi), SHGFI_ICON | SHGFI_SMALLICON) && sfi.hIcon)
+            hIcon = sfi.hIcon;
+        else
         {
-            if (SUCCEEDED(psl->lpVtbl->QueryInterface(psl, &IID_IPersistFile, (void **)&ppf)))
-            {
-                if (SUCCEEDED(ppf->lpVtbl->Load(ppf, file_path, STGM_READ)))
-                {
-                    psl->lpVtbl->GetPath(psl, target, MAX_PATH, NULL, 0);
-                }
-                ppf->lpVtbl->Release(ppf);
-            }
-            psl->lpVtbl->Release(psl);
+            if (target[0]) ExtractIconExW(target, 0, NULL, &hIcon, 1);
+            if (!hIcon) hIcon = load_shell_icon(0, size);
         }
-
-        if (target[0])
-            ExtractIconExW(target, 0, NULL, &hIcon, 1);
-        if (!hIcon)
-            hIcon = load_shell_icon(0, size);
     }
 
     return icon_to_menu_bitmap(hIcon, size);
@@ -909,7 +917,7 @@ typedef struct _LEFT_ITEM
 
 static const LEFT_ITEM g_left_frequent[] =
 {
-    { L"Windows Media Player", L"wmplayer.exe", -2, 3001 },
+    { L"Windows Media Player", NULL, -2, 3001 },
     { L"Notepad",              L"notepad.exe",  -152, 3002 },
     { L"Calculator",           L"calc.exe",     -2, 3003 },
     { L"Paint",                L"mspaint.exe",  -226, 3004 },
@@ -1034,7 +1042,7 @@ static void panel_layout(void)
     c.left += mp.cxLeftWidth; c.right -= mp.cxRightWidth; c.top += mp.cyTopHeight; c.bottom -= mp.cyBottomHeight;
     y = c.top;
     SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
-    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_INTERNET); it->title = L"Internet"; it->subtitle = L"Web Browser"; it->exe = L"winebrowser.exe"; it->icon_idx = -178; it->bold = TRUE; }
+    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_INTERNET); it->title = L"Internet"; it->subtitle = L"Web Browser"; it->exe = L"iexplore.exe"; it->icon_idx = -178; it->bold = TRUE; }
     y += PANEL_PINNED_H;
     SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
     { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_EMAIL); it->title = L"E-mail"; it->subtitle = L"Mail Client"; it->exe = L"winebrowser.exe"; it->icon_idx = -178; it->bold = TRUE; }
@@ -1463,6 +1471,80 @@ static void execute_startmenu_command(UINT cmd)
     }
 }
 
+static BOOL g_panel_menu_open;
+
+#define PCM_OPEN       1
+#define PCM_EXPLORE    2
+#define PCM_SEARCH     3
+#define PCM_SHOWDESK   4
+#define PCM_PROPS      5
+#define PCM_PIN        6
+#define PCM_REMOVE     7
+
+/* The context menu of an item of the Start panel (the verbs the Windows shell offers for the item) */
+static void panel_context_menu(HWND hwnd, int hit, POINT screen)
+{
+    HMENU menu = CreatePopupMenu();
+    UINT cmd = g_panel[hit].cmd, id;
+    BOOL program = g_panel[hit].zone == ZONE_PROG && cmd != CMD_ALL_PROGRAMS;
+    BOOL folder = cmd == STARTMENU_CMD_MYDOCS || cmd == STARTMENU_CMD_PICTURES || cmd == STARTMENU_CMD_MUSIC ||
+                  cmd == STARTMENU_CMD_MYCOMP || cmd == STARTMENU_CMD_MYNET;
+
+    if (cmd == CMD_ALL_PROGRAMS || g_panel[hit].zone == ZONE_LOGOFF) { DestroyMenu(menu); return; }
+    if (program)
+    {
+        BOOL pinned = cmd == STARTMENU_CMD_INTERNET || cmd == STARTMENU_CMD_EMAIL;
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_PIN, pinned ? L"Unpin from Start menu" : L"Pin to Start menu");
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_REMOVE, L"Remove &from This List");
+        AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_PROPS, L"P&roperties");
+    }
+    else
+    {
+        AppendMenuW(menu, MF_STRING | MF_DEFAULT, PCM_OPEN, L"&Open");
+        if (folder)
+        {
+            AppendMenuW(menu, MF_STRING, PCM_EXPLORE, L"E&xplore");
+            AppendMenuW(menu, MF_STRING, PCM_SEARCH, L"&Search...");
+            AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_SHOWDESK, L"&Show on Desktop");
+            AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(menu, MF_STRING, PCM_PROPS, L"P&roperties");
+        }
+    }
+    g_panel_menu_open = TRUE;
+    id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN, screen.x, screen.y, 0, hwnd, NULL);
+    g_panel_menu_open = FALSE;
+    DestroyMenu(menu);
+
+    switch (id)
+    {
+    case PCM_OPEN:
+        execute_startmenu_command(cmd);
+        break;
+    case PCM_EXPLORE:
+    case PCM_SEARCH:
+    case PCM_PROPS:
+    {
+        WCHAR path[MAX_PATH] = L"";
+        const WCHAR *verb = id == PCM_EXPLORE ? L"explore" : id == PCM_SEARCH ? L"find" : L"properties";
+
+        startmenu_view_hide();
+        if (cmd == STARTMENU_CMD_MYDOCS) SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, path);
+        else if (cmd == STARTMENU_CMD_PICTURES) SHGetFolderPathW(NULL, CSIDL_MYPICTURES, NULL, 0, path);
+        else if (cmd == STARTMENU_CMD_MUSIC) SHGetFolderPathW(NULL, CSIDL_MYMUSIC, NULL, 0, path);
+        if (cmd == STARTMENU_CMD_MYCOMP && id == PCM_PROPS)
+            ShellExecuteW(NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL);
+        else if (path[0])
+            ShellExecuteW(NULL, verb, path, NULL, NULL, SW_SHOWNORMAL);
+        else
+            ShellExecuteW(NULL, L"open", L"explorer.exe", cmd == STARTMENU_CMD_MYNET ? L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}" :
+                          L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, SW_SHOWNORMAL);
+        break;
+    }
+    }
+}
+
 /* Two-column Start panel window procedure */
 static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -1527,6 +1609,21 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         return 0;
     }
 
+    case WM_RBUTTONUP:
+    {
+        int hit;
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+
+        if (!g_startmenu_open) return 0;
+        hit = panel_hit_test(pt.x, pt.y);
+        if (hit >= 0)
+        {
+            ClientToScreen(hwnd, &pt);
+            panel_context_menu(hwnd, hit, pt);
+        }
+        return 0;
+    }
+
     case WM_KEYDOWN:
         if (wparam == VK_ESCAPE)
         {
@@ -1536,6 +1633,7 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         break;
 
     case WM_ACTIVATE:
+        if (g_panel_menu_open) return 0;
         if (LOWORD(wparam) == WA_INACTIVE)
         {
             startmenu_view_hide();
@@ -1544,7 +1642,7 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         break;
 
     case WM_ACTIVATEAPP:
-        if (!wparam)
+        if (!wparam && !g_panel_menu_open)
         {
             startmenu_view_hide();
             return 0;
@@ -1552,6 +1650,7 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         break;
 
     case WM_KILLFOCUS:
+        if (g_panel_menu_open) return 0;
         startmenu_view_hide();
         return 0;
 

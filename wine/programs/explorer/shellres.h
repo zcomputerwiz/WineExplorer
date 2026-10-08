@@ -29,6 +29,9 @@
 /* shell32 icon by resource id at the requested size; the caller destroys it.  NULL if neither set has it. */
 HICON shellres_icon(int id, int size);
 
+/* Icon of a program (by executable name) from the theme's icon pack Apps folder; NULL if the pack has none */
+HICON shellres_app_icon(const WCHAR *exe, int size);
+
 /* Bitmap by (module, id) from the genuine pack, else from explorer.exe's resource fallback_id (0 = none).  Caller
  * deletes it. */
 HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id);
