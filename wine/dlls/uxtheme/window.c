@@ -89,3 +89,167 @@ void WINAPI UXTHEME_NonClientButtonDraw(HWND hwnd, HDC hdc, enum NONCLIENT_BUTTO
 
     CloseThemeData(theme);
 }
+
+/* ---- themed window frame (caption, borders and caption buttons) ---- */
+
+struct nc_button
+{
+    int part, state;
+    int which;      /* NCFRAME_BTN_* */
+    RECT rect;
+};
+
+static int nc_button_state(UINT flags, BOOL disabled, BOOL pressed_this)
+{
+    if (disabled) return 4;
+    if (pressed_this && (flags & NCFRAME_DOWN)) return 3;
+    if (!(flags & NCFRAME_ACTIVE)) return 5;
+    return 1;
+}
+
+static void nc_draw_caption_text(HTHEME theme, HDC hdc, HWND hwnd, int part, int state, RECT rect, BOOL small_caption)
+{
+    NONCLIENTMETRICSW ncm = {.cbSize = sizeof(ncm)};
+    WCHAR text[256];
+    COLORREF color = RGB(255, 255, 255), shadow = 0;
+    int shadow_type = 0;
+    POINT offset = {1, 1};
+    HFONT font, old_font;
+
+    if (!GetWindowTextW(hwnd, text, ARRAY_SIZE(text)) || !SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0))
+        return;
+
+    GetThemeColor(theme, part, state, TMT_TEXTCOLOR, &color);
+    GetThemeEnumValue(theme, part, state, TMT_TEXTSHADOWTYPE, &shadow_type);
+    GetThemeColor(theme, part, state, TMT_TEXTSHADOWCOLOR, &shadow);
+    GetThemePosition(theme, part, state, TMT_TEXTSHADOWOFFSET, &offset);
+
+    font = CreateFontIndirectW(small_caption ? &ncm.lfSmCaptionFont : &ncm.lfCaptionFont);
+    old_font = SelectObject(hdc, font);
+    SetBkMode(hdc, TRANSPARENT);
+    if (shadow_type)
+    {
+        RECT sr = rect;
+        OffsetRect(&sr, offset.x, offset.y);
+        SetTextColor(hdc, shadow);
+        DrawTextW(hdc, text, -1, &sr, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS | DT_LEFT);
+    }
+    SetTextColor(hdc, color);
+    DrawTextW(hdc, text, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS | DT_LEFT);
+    SelectObject(hdc, old_font);
+    DeleteObject(font);
+}
+
+static HICON nc_get_icon(HWND hwnd)
+{
+    HICON icon = (HICON)SendMessageW(hwnd, WM_GETICON, ICON_SMALL, 0);
+    if (!icon) icon = (HICON)SendMessageW(hwnd, WM_GETICON, ICON_BIG, 0);
+    if (!icon) icon = (HICON)GetClassLongPtrW(hwnd, GCLP_HICONSM);
+    if (!icon) icon = (HICON)GetClassLongPtrW(hwnd, GCLP_HICON);
+    return icon;
+}
+
+BOOL WINAPI UXTHEME_NonClientFrameDraw(HWND hwnd, HDC hdc, RECT rect, DWORD style, DWORD ex_style, UINT flags)
+{
+    UINT target = flags >> NCFRAME_PART_SHIFT;
+    BOOL active = flags & NCFRAME_ACTIVE, tool = ex_style & WS_EX_TOOLWINDOW, thick = style & WS_THICKFRAME;
+    int w = rect.right - rect.left, h = rect.bottom - rect.top;
+    int bw = GetSystemMetrics(thick ? SM_CXFRAME : SM_CXDLGFRAME);
+    int bh = GetSystemMetrics(thick ? SM_CYFRAME : SM_CYDLGFRAME);
+    int cap_h = GetSystemMetrics(tool ? SM_CYSMCAPTION : SM_CYCAPTION);
+    int top_h = bh + cap_h, state = active ? 1 : 2;
+    int cap_part, left_part, right_part, bottom_part, i, nbtn = 0, x, btn_sz, text_left, text_right;
+    struct nc_button btn[3];
+    HTHEME theme;
+    RECT r;
+    SIZE size;
+
+    if (!IsThemeActive()) return FALSE;
+    theme = OpenThemeDataForDpi(NULL, L"Window", GetDpiForWindow(hwnd));
+    if (!theme) return FALSE;
+
+    if (tool)
+    {
+        cap_part = (style & WS_MAXIMIZE) ? WP_SMALLMAXCAPTION : WP_SMALLCAPTION;
+        left_part = WP_SMALLFRAMELEFT; right_part = WP_SMALLFRAMERIGHT; bottom_part = WP_SMALLFRAMEBOTTOM;
+    }
+    else
+    {
+        cap_part = (style & WS_MAXIMIZE) ? WP_MAXCAPTION : WP_CAPTION;
+        left_part = WP_FRAMELEFT; right_part = WP_FRAMERIGHT; bottom_part = WP_FRAMEBOTTOM;
+    }
+
+    /* caption buttons, right to left */
+    btn_sz = 21;
+    size.cx = size.cy = 0;
+    if (SUCCEEDED(GetThemePartSize(theme, hdc, tool ? WP_SMALLCLOSEBUTTON : WP_CLOSEBUTTON, 1, NULL, TS_TRUE, &size)) && size.cx > 0)
+        btn_sz = size.cx;
+    x = w - bw - 1;
+    if (style & WS_SYSMENU)
+    {
+        BOOL has_minmax = style & (WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+        int y = (top_h - btn_sz + 1) / 2;
+
+        btn[nbtn].which = NCFRAME_BTN_CLOSE;
+        btn[nbtn].part = tool ? WP_SMALLCLOSEBUTTON : WP_CLOSEBUTTON;
+        btn[nbtn].state = nc_button_state(flags, (flags & NCFRAME_GRAYED) && target == NCFRAME_BTN_CLOSE, target == NCFRAME_BTN_CLOSE);
+        SetRect(&btn[nbtn].rect, x - btn_sz, y, x, y + btn_sz);
+        x -= btn_sz + 2;
+        nbtn++;
+        if (!tool && has_minmax)
+        {
+            btn[nbtn].which = NCFRAME_BTN_MAX;
+            btn[nbtn].part = (style & WS_MAXIMIZE) ? WP_RESTOREBUTTON : WP_MAXBUTTON;
+            btn[nbtn].state = nc_button_state(flags, !(style & WS_MAXIMIZEBOX), target == NCFRAME_BTN_MAX);
+            SetRect(&btn[nbtn].rect, x - btn_sz, y, x, y + btn_sz);
+            x -= btn_sz;
+            nbtn++;
+            btn[nbtn].which = NCFRAME_BTN_MIN;
+            btn[nbtn].part = WP_MINBUTTON;
+            btn[nbtn].state = nc_button_state(flags, !(style & WS_MINIMIZEBOX), target == NCFRAME_BTN_MIN);
+            SetRect(&btn[nbtn].rect, x - btn_sz, y, x, y + btn_sz);
+            x -= btn_sz + 2;
+            nbtn++;
+        }
+    }
+
+    if (target)
+    {
+        HRGN clip = NULL;
+        for (i = 0; i < nbtn; i++)
+            if (btn[i].which == target) { clip = CreateRectRgnIndirect(&btn[i].rect); break; }
+        if (!clip) { CloseThemeData(theme); return TRUE; }
+        ExtSelectClipRgn(hdc, clip, RGN_AND);
+        DeleteObject(clip);
+    }
+
+    /* frame and caption background */
+    SetRect(&r, 0, 0, w, top_h);
+    if (IsThemeBackgroundPartiallyTransparent(theme, cap_part, state)) FillRect(hdc, &r, GetSysColorBrush(COLOR_BTNFACE));
+    DrawThemeBackground(theme, hdc, cap_part, state, &r, NULL);
+    SetRect(&r, 0, top_h, bw, h - bh);
+    DrawThemeBackground(theme, hdc, left_part, state, &r, NULL);
+    SetRect(&r, w - bw, top_h, w, h - bh);
+    DrawThemeBackground(theme, hdc, right_part, state, &r, NULL);
+    SetRect(&r, 0, h - bh, w, h);
+    DrawThemeBackground(theme, hdc, bottom_part, state, &r, NULL);
+
+    /* icon and title */
+    text_left = bw + 4;
+    if ((style & WS_SYSMENU) && !tool)
+    {
+        HICON icon = nc_get_icon(hwnd);
+        int isz = GetSystemMetrics(SM_CXSMICON);
+        if (icon) DrawIconEx(hdc, bw + 2, (top_h - isz) / 2, icon, isz, isz, 0, NULL, DI_NORMAL);
+        text_left = bw + 2 + isz + 4;
+    }
+    text_right = nbtn ? btn[nbtn - 1].rect.left - 4 : w - bw;
+    SetRect(&r, text_left, 0, text_right, top_h - 2);
+    nc_draw_caption_text(theme, hdc, hwnd, cap_part, state, r, tool);
+
+    for (i = 0; i < nbtn; i++)
+        DrawThemeBackground(theme, hdc, btn[i].part, btn[i].state, &btn[i].rect, NULL);
+
+    CloseThemeData(theme);
+    return TRUE;
+}

@@ -74,6 +74,7 @@ static struct user_api_hook original_user_api =
 {
     USER_DefDlgProc,
     USER_NonClientButtonDraw,
+    USER_NonClientFrameDraw,
     USER_ScrollBarDraw,
     USER_ScrollBarProc,
 };
