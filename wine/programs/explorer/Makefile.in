@@ -1,6 +1,6 @@
 MODULE    = explorer.exe
 IMPORTS   = rpcrt4 user32 gdi32 advapi32 win32u
-DELAYIMPORTS = wexhost comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32
+DELAYIMPORTS = wexhost msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32
 
 EXTRADLLFLAGS = -mwindows -municode
 

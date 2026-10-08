@@ -32,6 +32,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <uxtheme.h>
 
 #include "wine/debug.h"
@@ -244,38 +245,214 @@ void tray_clock_update(void)
         InvalidateRect(g_tray_clock_hwnd, NULL, FALSE);
 }
 
-/* Show Desktop Button Implementation */
+/* Quick Launch toolbar: "Show Desktop" followed by the shortcuts in
+ * %APPDATA%\Microsoft\Internet Explorer\Quick Launch, behind a rebar gripper. */
+
+#define QL_GRIPPER_W 9
+#define QL_ITEM_W    23   /* 16 pixel icon with 3 pixels either side, like a Luna toolbar button */
+#define QL_MAX_ITEMS 16
+
+typedef struct _QL_ITEM
+{
+    WCHAR path[MAX_PATH];   /* empty = Show Desktop */
+    WCHAR name[MAX_PATH];
+    HICON icon;
+} QL_ITEM;
+
+static QL_ITEM g_ql_items[QL_MAX_ITEMS];
+static int g_ql_count;
+static int g_ql_hot = -1, g_ql_down = -1;
+static BOOL g_ql_tracking;
+static HWND g_ql_tooltip;
+
+static void ql_load(void)
+{
+    WCHAR dir[MAX_PATH], pattern[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    HANDLE find;
+
+    if (g_ql_count) return;
+    lstrcpyW(g_ql_items[0].name, L"Show Desktop");
+    g_ql_count = 1;
+
+    if (FAILED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, SHGFP_TYPE_CURRENT, dir))) return;
+    lstrcatW(dir, L"\\Microsoft\\Internet Explorer\\Quick Launch");
+    swprintf(pattern, MAX_PATH, L"%s\\*", dir);
+    if ((find = FindFirstFileW(pattern, &fd)) == INVALID_HANDLE_VALUE) return;
+    do
+    {
+        SHFILEINFOW info;
+        QL_ITEM *item;
+        WCHAR *dot;
+
+        if ((fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_HIDDEN)) || g_ql_count >= QL_MAX_ITEMS) continue;
+        if (!wcsicmp(fd.cFileName, L"desktop.ini") || !wcsicmp(fd.cFileName, L"Show Desktop.scf")) continue;
+        item = &g_ql_items[g_ql_count];
+        swprintf(item->path, MAX_PATH, L"%s\\%s", dir, fd.cFileName);
+        lstrcpynW(item->name, fd.cFileName, MAX_PATH);
+        if ((dot = wcsrchr(item->name, '.'))) *dot = 0;
+        memset(&info, 0, sizeof(info));
+        if (SHGetFileInfoW(item->path, 0, &info, sizeof(info), SHGFI_ICON | SHGFI_SMALLICON)) item->icon = info.hIcon;
+        g_ql_count++;
+    } while (FindNextFileW(find, &fd));
+    FindClose(find);
+}
+
+int show_desktop_button_get_width(void)
+{
+    ql_load();
+    return QL_GRIPPER_W + g_ql_count * QL_ITEM_W;
+}
+
+static int ql_hit(int x)
+{
+    int i = (x - QL_GRIPPER_W) / QL_ITEM_W;
+    return (x >= QL_GRIPPER_W && i >= 0 && i < g_ql_count) ? i : -1;
+}
+
+static void ql_item_rect(HWND hwnd, int i, RECT *rc)
+{
+    GetClientRect(hwnd, rc);
+    rc->left = QL_GRIPPER_W + i * QL_ITEM_W;
+    rc->right = rc->left + QL_ITEM_W;
+    rc->top += 3;
+    rc->bottom -= 3;
+}
+
+static void ql_draw_show_desktop(HDC hdc, const RECT *rc)
+{
+    RECT sky = { rc->left, rc->top, rc->left + 14, rc->top + 10 }, desk;
+
+    /* a desktop with a window on it */
+    FillRect(hdc, &sky, GetSysColorBrush(COLOR_BACKGROUND));
+    FrameRect(hdc, &sky, GetSysColorBrush(COLOR_BTNSHADOW));
+    desk = sky;
+    InflateRect(&desk, -2, -2);
+    desk.bottom -= 2;
+    FillRect(hdc, &desk, GetSysColorBrush(COLOR_WINDOW));
+    desk.bottom = desk.top + 2;
+    FillRect(hdc, &desk, GetSysColorBrush(COLOR_ACTIVECAPTION));
+}
+
+static void ql_paint(HWND hwnd, HDC hdc)
+{
+    RECT rc, grip;
+    HTHEME rebar = theme_open(hwnd, L"TaskBar::Rebar");
+    HTHEME toolbar = theme_open(hwnd, L"TaskBar::Toolbar");
+    int i;
+
+    GetClientRect(hwnd, &rc);
+    if (!theme_draw_taskbar_background(hwnd, hdc)) FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+
+    grip = rc;
+    grip.left += 2; grip.right = grip.left + 3; grip.top += 3; grip.bottom -= 3;
+    if (rebar) DrawThemeBackground(rebar, hdc, RP_GRIPPER, 0, &grip, NULL);
+    else DrawEdge(hdc, &grip, EDGE_RAISED, BF_RECT);
+
+    for (i = 0; i < g_ql_count; i++)
+    {
+        RECT item;
+        int state = (i == g_ql_down && i == g_ql_hot) ? 3 : (i == g_ql_hot ? 2 : 1), off = state == 3 ? 1 : 0;
+
+        ql_item_rect(hwnd, i, &item);
+        if (state > 1)
+        {
+            if (toolbar) DrawThemeBackground(toolbar, hdc, TP_BUTTON, state, &item, NULL);
+            else DrawEdge(hdc, &item, state == 3 ? EDGE_SUNKEN : EDGE_RAISED, BF_RECT);
+        }
+        if (g_ql_items[i].icon)
+            DrawIconEx(hdc, item.left + 3 + off, item.top + (item.bottom - item.top - 16) / 2 + off,
+                       g_ql_items[i].icon, 16, 16, 0, NULL, DI_NORMAL);
+        else
+        {
+            RECT glyph = { item.left + 4 + off, item.top + 4 + off, item.left + 18 + off, item.top + 16 + off };
+            ql_draw_show_desktop(hdc, &glyph);
+        }
+    }
+    if (rebar) CloseThemeData(rebar);
+    if (toolbar) CloseThemeData(toolbar);
+}
+
+static void ql_update_tooltips(HWND hwnd)
+{
+    TOOLINFOW ti = { sizeof(ti) };
+    int i;
+
+    if (!g_ql_tooltip) return;
+    for (i = 0; i < QL_MAX_ITEMS; i++)
+    {
+        ti.hwnd = hwnd; ti.uId = i;
+        SendMessageW(g_ql_tooltip, TTM_DELTOOLW, 0, (LPARAM)&ti);
+    }
+    for (i = 0; i < g_ql_count; i++)
+    {
+        ti.uFlags = TTF_SUBCLASS; ti.hwnd = hwnd; ti.uId = i;
+        ql_item_rect(hwnd, i, &ti.rect);
+        ti.lpszText = g_ql_items[i].name;
+        SendMessageW(g_ql_tooltip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+    }
+}
 
 static LRESULT CALLBACK show_desktop_button_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
     {
+    case WM_CREATE:
+        g_ql_tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                                       0, 0, 0, 0, hwnd, NULL, GetModuleHandleW(NULL), NULL);
+        return 0;
+
+    case WM_SIZE:
+        ql_update_tooltips(hwnd);
+        return 0;
+
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-
-        FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
-        theme_draw_classic_bevel(hdc, &rc, EDGE_RAISED, BF_RECT | BF_SOFT | BF_ADJUST);
-
-        /* Draw mini desktop rectangle icon */
-        {
-            RECT icon_rc = { rc.left + 3, rc.top + 3, rc.right - 3, rc.bottom - 5 };
-            FrameRect(hdc, &icon_rc, GetSysColorBrush(COLOR_BTNSHADOW));
-            icon_rc.top = icon_rc.bottom - 2;
-            icon_rc.bottom = rc.bottom - 3;
-            FillRect(hdc, &icon_rc, GetSysColorBrush(COLOR_HIGHLIGHT));
-        }
-
+        ql_paint(hwnd, hdc);
         EndPaint(hwnd, &ps);
         return 0;
     }
 
-    case WM_LBUTTONDOWN:
-        show_desktop_toggle();
+    case WM_MOUSEMOVE:
+    {
+        int hot = ql_hit((short)LOWORD(lparam));
+        if (!g_ql_tracking)
+        {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            TrackMouseEvent(&tme);
+            g_ql_tracking = TRUE;
+        }
+        if (hot != g_ql_hot) { g_ql_hot = hot; InvalidateRect(hwnd, NULL, FALSE); }
         return 0;
+    }
+
+    case WM_MOUSELEAVE:
+        g_ql_tracking = FALSE;
+        g_ql_hot = g_ql_down = -1;
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+
+    case WM_LBUTTONDOWN:
+        g_ql_down = ql_hit((short)LOWORD(lparam));
+        SetCapture(hwnd);
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+
+    case WM_LBUTTONUP:
+    {
+        int i = ql_hit((short)LOWORD(lparam)), was_down = g_ql_down;
+        ReleaseCapture();
+        g_ql_down = -1;
+        InvalidateRect(hwnd, NULL, FALSE);
+        if (i >= 0 && i == was_down)
+        {
+            if (!g_ql_items[i].path[0]) show_desktop_toggle();
+            else ShellExecuteW(hwnd, NULL, g_ql_items[i].path, NULL, NULL, SW_SHOWNORMAL);
+        }
+        return 0;
+    }
 
     case WM_ERASEBKGND:
         return 1;
@@ -295,6 +472,7 @@ HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int h
         return g_show_desktop_hwnd;
     }
 
+    ql_load();
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = show_desktop_button_proc;
     wc.hInstance = GetModuleHandleW(NULL);
@@ -302,18 +480,26 @@ HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int h
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
 
-    g_show_desktop_hwnd = CreateWindowExW(0, SHOW_DESKTOP_CLASS, NULL,
-                                          WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-                                          x, y, width, height,
-                                          parent_tray, NULL, wc.hInstance, NULL);
+    {
+        RECT parent;
+        GetClientRect(parent_tray, &parent);
+        g_show_desktop_hwnd = CreateWindowExW(0, SHOW_DESKTOP_CLASS, NULL,
+                                              WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+                                              x, 0, show_desktop_button_get_width(), parent.bottom,
+                                              parent_tray, NULL, wc.hInstance, NULL);
+    }
 
     return g_show_desktop_hwnd;
 }
 
 void show_desktop_button_resize(int x, int y, int width, int height)
 {
-    if (g_show_desktop_hwnd)
-        SetWindowPos(g_show_desktop_hwnd, NULL, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+    RECT parent;
+
+    if (!g_show_desktop_hwnd) return;
+    GetClientRect(GetParent(g_show_desktop_hwnd), &parent);
+    SetWindowPos(g_show_desktop_hwnd, NULL, x, 0, show_desktop_button_get_width(), parent.bottom,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void show_desktop_button_destroy(void)

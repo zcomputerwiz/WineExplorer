@@ -394,7 +394,7 @@ static void update_tray_layout(void)
         TASKBAR_SETTINGS *settings = taskbar_settings_get();
         RECT rcTray = get_tray_notify_rect();
         RECT rcClock = get_tray_clock_rect();
-        int show_desktop_width = 24;
+        int show_desktop_width = show_desktop_button_get_width();
         int taskband_x = start_button_width + 4;
         int taskband_w;
         struct icon *icon;
@@ -1323,7 +1323,7 @@ static void do_show_systray(void)
         TASKBAR_SETTINGS *settings = taskbar_settings_get();
         RECT rcTray = get_tray_notify_rect();
         RECT rcClock = get_tray_clock_rect();
-        int show_desktop_width = 24;
+        int show_desktop_width = show_desktop_button_get_width();
         int taskband_x = start_button_width + 4;
         int taskband_w;
 
@@ -1357,7 +1357,7 @@ static void update_taskbar_layout(void)
     TASKBAR_SETTINGS *settings;
     RECT rcTray;
     RECT rcClock;
-    int show_desktop_width = 24;
+    int show_desktop_width = show_desktop_button_get_width();
     int taskband_x;
     int taskband_w;
 

@@ -162,6 +162,7 @@
 #define IDB_LOGOFF               1027
 #define IDB_SHUTDOWN             1028
 #define IDB_STARTBTN             1029
+#define IDB_STARTFLAG            1030
 
 /* Tray Volume Dialog */
 #define IDD_TRAYMASTER           105

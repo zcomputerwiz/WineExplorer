@@ -43,5 +43,6 @@ HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int h
 void show_desktop_button_destroy(void);
 void show_desktop_button_resize(int x, int y, int width, int height);
 void show_desktop_toggle(void);
+int show_desktop_button_get_width(void); /* quick launch toolbar width */
 
 #endif /* __WINE_EXPLORER_TRAY_CLOCK_H */

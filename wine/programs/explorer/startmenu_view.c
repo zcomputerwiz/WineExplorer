@@ -866,23 +866,37 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 /*                   TWO-COLUMN WINDOWS XP START MENU                        */
 /* ========================================================================= */
 
-#define TWOCOL_WIDTH  380
-#define TWOCOL_HEIGHT 490
-
-#define COL_NONE   0
-#define COL_LEFT   1
-#define COL_RIGHT  2
-#define COL_FOOTER 3
-
-static int g_hover_column = COL_NONE;
-static int g_hover_index  = -1;
 static HWND g_tray_parent = NULL;
 
-/* Left Column Items */
+/* ---- Start panel: layout and drawing come from the visual style's StartPanel class ----
+ * Sizes, margins, colors and images are read from the active style (DefaultPaneSize, ContentMargins, TextColor,
+ * HotTracking ...).  Without a visual style the panel uses plain system colors with the same layout. */
+
+enum { ZONE_USER, ZONE_PROG, ZONE_MORE, ZONE_PLACES, ZONE_LOGOFF, ZONE_COUNT };
+
+#define CMD_ALL_PROGRAMS 100
+#define PANEL_PINNED_H   38
+#define PANEL_MFU_H      36
+#define PANEL_PLACE_H    24
+#define PANEL_SEP_H      6
+#define PANEL_MAX_ITEMS  48
+
+typedef struct _PANEL_ITEM
+{
+    RECT rc;
+    const WCHAR *title;
+    const WCHAR *subtitle;
+    const WCHAR *exe;
+    int icon_idx;
+    int zone;
+    UINT cmd;
+    BOOL bold;
+    BOOL sep;
+} PANEL_ITEM;
+
 typedef struct _LEFT_ITEM
 {
     const WCHAR *title;
-    const WCHAR *subtitle;
     const WCHAR *exe;
     int shell_icon_idx;
     UINT cmd;
@@ -890,15 +904,14 @@ typedef struct _LEFT_ITEM
 
 static const LEFT_ITEM g_left_frequent[] =
 {
-    { L"Windows Media Player", NULL, L"wmplayer.exe", 227, 3001 },
-    { L"Notepad",              NULL, L"notepad.exe",  223, 3002 },
-    { L"Calculator",           NULL, L"calc.exe",     221, 3003 },
-    { L"Paint",                NULL, L"mspaint.exe",  226, 3004 },
-    { L"Command Prompt",       NULL, L"cmd.exe",      24,  3005 }
+    { L"Windows Media Player", L"wmplayer.exe", 227, 3001 },
+    { L"Notepad",              L"notepad.exe",  223, 3002 },
+    { L"Calculator",           L"calc.exe",     221, 3003 },
+    { L"Paint",                L"mspaint.exe",  226, 3004 },
+    { L"Command Prompt",       L"cmd.exe",      24,  3005 }
 };
 #define NUM_LEFT_FREQUENT (sizeof(g_left_frequent)/sizeof(g_left_frequent[0]))
 
-/* Right Column Items */
 typedef struct _RIGHT_ITEM
 {
     const WCHAR *title;
@@ -928,87 +941,371 @@ static const RIGHT_ITEM g_right_items[] =
 };
 #define NUM_RIGHT_ITEMS (sizeof(g_right_items)/sizeof(g_right_items[0]))
 
-/* Hit testing for Two-Column Menu */
-static void two_col_hit_test(int x, int y, int *out_col, int *out_idx)
+static PANEL_ITEM g_panel[PANEL_MAX_ITEMS];
+static int g_panel_n;
+static int g_panel_hot = -1;
+static RECT g_zone[ZONE_COUNT];
+static SIZE g_panel_size = { 380, 440 };
+
+static BOOL pane_size(HTHEME theme, int part, int *w, int *h)
 {
-    *out_col = COL_NONE;
-    *out_idx = -1;
+    RECT r;
+    if (!theme || FAILED(GetThemeRect(theme, part, 0, TMT_DEFAULTPANESIZE, &r))) return FALSE;
+    if (r.right - r.left <= 0 || r.bottom - r.top <= 0) return FALSE;
+    *w = r.right - r.left;
+    *h = r.bottom - r.top;
+    return TRUE;
+}
 
-    /* Footer Buttons */
-    if (y >= 444 && y < 482)
+static MARGINS content_margins(HTHEME theme, int part)
+{
+    MARGINS m = {0};
+    if (theme) GetThemeMargins(theme, NULL, part, 0, TMT_CONTENTMARGINS, NULL, &m);
+    return m;
+}
+
+static HFONT panel_font(BOOL bold)
+{
+    NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+    ncm.lfMessageFont.lfWeight = bold ? FW_BOLD : FW_NORMAL;
+    return CreateFontIndirectW(&ncm.lfMessageFont);
+}
+
+static int text_width(HDC hdc, HFONT font, const WCHAR *s)
+{
+    SIZE size;
+    HFONT old = SelectObject(hdc, font);
+    GetTextExtentPoint32W(hdc, s, lstrlenW(s), &size);
+    SelectObject(hdc, old);
+    return size.cx;
+}
+
+static PANEL_ITEM *panel_add(int zone, const RECT *rc, UINT cmd)
+{
+    PANEL_ITEM *item;
+    if (g_panel_n >= PANEL_MAX_ITEMS) return &g_panel[PANEL_MAX_ITEMS - 1];
+    item = &g_panel[g_panel_n++];
+    memset(item, 0, sizeof(*item));
+    item->zone = zone;
+    item->rc = *rc;
+    item->cmd = cmd;
+    return item;
+}
+
+/* Build zones and item rectangles from the style's pane sizes */
+static void panel_layout(void)
+{
+    HTHEME theme = theme_open(NULL, L"StartPanel");
+    int W = 380, hu = 64, hp = 306, hm = 30, hpl = 336, hl = 40, wl = 190, w, h;
+    MARGINS mp, mm, mpl;
+    RECT r, c;
+    HDC hdc = GetDC(NULL);
+    HFONT bold = panel_font(TRUE);
+    unsigned int i;
+    int y;
+
+    if (pane_size(theme, SPP_USERPANE, &w, &h)) { W = w; hu = h; }
+    if (pane_size(theme, SPP_PROGLIST, &w, &h)) { wl = w; hp = h; }
+    if (pane_size(theme, SPP_MOREPROGRAMS, &w, &h)) hm = h;
+    if (pane_size(theme, SPP_PLACESLIST, &w, &h)) hpl = h;
+    if (pane_size(theme, SPP_LOGOFF, &w, &h)) hl = h;
+    mp = content_margins(theme, SPP_PROGLIST);
+    mm = content_margins(theme, SPP_MOREPROGRAMS);
+    mpl = content_margins(theme, SPP_PLACESLIST);
+    if (theme) CloseThemeData(theme);
+
+    SetRect(&g_zone[ZONE_USER], 0, 0, W, hu);
+    SetRect(&g_zone[ZONE_PROG], 0, hu, wl, hu + hp);
+    SetRect(&g_zone[ZONE_MORE], 0, hu + hp, wl, hu + hp + hm);
+    SetRect(&g_zone[ZONE_PLACES], wl, hu, W, hu + hpl);
+    SetRect(&g_zone[ZONE_LOGOFF], 0, hu + hpl, W, hu + hpl + hl);
+    g_panel_size.cx = W;
+    g_panel_size.cy = hu + hpl + hl;
+    g_panel_n = 0;
+
+    /* programs: pinned browser and mail, separator, most frequently used */
+    c = g_zone[ZONE_PROG];
+    c.left += mp.cxLeftWidth; c.right -= mp.cxRightWidth; c.top += mp.cyTopHeight; c.bottom -= mp.cyBottomHeight;
+    y = c.top;
+    SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
+    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_INTERNET); it->title = L"Internet"; it->subtitle = L"Web Browser"; it->exe = L"winebrowser.exe"; it->icon_idx = 14; it->bold = TRUE; }
+    y += PANEL_PINNED_H;
+    SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
+    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_EMAIL); it->title = L"E-mail"; it->subtitle = L"Mail Client"; it->exe = L"winebrowser.exe"; it->icon_idx = 254; it->bold = TRUE; }
+    y += PANEL_PINNED_H;
+    SetRect(&r, c.left, y, c.right, y + PANEL_SEP_H);
+    panel_add(ZONE_PROG, &r, 0)->sep = TRUE;
+    y += PANEL_SEP_H;
+    for (i = 0; i < NUM_LEFT_FREQUENT && y + PANEL_MFU_H <= c.bottom; i++, y += PANEL_MFU_H)
     {
-        if (x >= 186 && x < 274)
-        {
-            *out_col = COL_FOOTER;
-            *out_idx = 0; /* Log Off */
-            return;
-        }
-        else if (x >= 276 && x < 376)
-        {
-            *out_col = COL_FOOTER;
-            *out_idx = 1; /* Turn Off Computer */
-            return;
-        }
+        PANEL_ITEM *it;
+        SetRect(&r, c.left, y, c.right, y + PANEL_MFU_H);
+        it = panel_add(ZONE_PROG, &r, g_left_frequent[i].cmd);
+        it->title = g_left_frequent[i].title;
+        it->exe = g_left_frequent[i].exe;
+        it->icon_idx = g_left_frequent[i].shell_icon_idx;
+        it->bold = TRUE;
     }
 
-    /* Left Column */
-    if (x >= 4 && x < 188 && y >= 60 && y < 440)
+    /* "All Programs" */
+    c = g_zone[ZONE_MORE];
+    c.left += mm.cxLeftWidth; c.right -= mm.cxRightWidth; c.top += mm.cyTopHeight; c.bottom -= mm.cyBottomHeight;
+    { PANEL_ITEM *it = panel_add(ZONE_MORE, &c, CMD_ALL_PROGRAMS); it->title = L"All Programs"; it->bold = TRUE; }
+
+    /* places */
+    c = g_zone[ZONE_PLACES];
+    c.left += mpl.cxLeftWidth; c.right -= mpl.cxRightWidth; c.top += mpl.cyTopHeight; c.bottom -= mpl.cyBottomHeight;
+    y = c.top;
+    for (i = 0; i < NUM_RIGHT_ITEMS; i++)
     {
-        /* Pinned Internet */
-        if (y >= 62 && y < 102)
-        {
-            *out_col = COL_LEFT;
-            *out_idx = 0;
-            return;
-        }
-        /* Pinned E-mail */
-        if (y >= 104 && y < 144)
-        {
-            *out_col = COL_LEFT;
-            *out_idx = 1;
-            return;
-        }
-        /* Frequent Apps */
-        if (y >= 150 && y < 150 + (int)(NUM_LEFT_FREQUENT * 36))
-        {
-            int idx = (y - 150) / 36;
-            if (idx >= 0 && idx < (int)NUM_LEFT_FREQUENT)
-            {
-                *out_col = COL_LEFT;
-                *out_idx = 2 + idx;
-                return;
-            }
-        }
-        /* All Programs */
-        if (y >= 398 && y < 436)
-        {
-            *out_col = COL_LEFT;
-            *out_idx = 100; /* All Programs anchor */
-            return;
-        }
+        PANEL_ITEM *it;
+        int ih = g_right_items[i].is_separator ? PANEL_SEP_H : PANEL_PLACE_H;
+        SetRect(&r, c.left, y, c.right, y + ih);
+        it = panel_add(ZONE_PLACES, &r, g_right_items[i].cmd);
+        it->title = g_right_items[i].title;
+        it->icon_idx = g_right_items[i].icon_idx;
+        it->bold = g_right_items[i].is_bold;
+        it->sep = g_right_items[i].is_separator;
+        y += ih;
     }
 
-    /* Right Column */
-    if (x >= 190 && x < 376 && y >= 60 && y < 440)
+    /* log off / turn off, right aligned in the footer */
     {
-        int cur_y = 62;
-        int i;
-        for (i = 0; i < (int)NUM_RIGHT_ITEMS; i++)
+        int bh = 28, by = g_zone[ZONE_LOGOFF].top + (hl - bh) / 2;
+        int shut_w = 8 + 20 + 4 + text_width(hdc, bold, L"Turn Off Computer") + 8;
+        int off_w = 8 + 20 + 4 + text_width(hdc, bold, L"Log Off") + 8;
+        int right = W - 8;
+        PANEL_ITEM *it;
+
+        SetRect(&r, right - shut_w, by, right, by + bh);
+        it = panel_add(ZONE_LOGOFF, &r, STARTMENU_CMD_SHUTDOWN); it->title = L"Turn Off Computer"; it->bold = TRUE;
+        SetRect(&r, right - shut_w - 6 - off_w, by, right - shut_w - 6, by + bh);
+        it = panel_add(ZONE_LOGOFF, &r, STARTMENU_CMD_LOGOFF); it->title = L"Log Off"; it->bold = TRUE;
+    }
+    DeleteObject(bold);
+    ReleaseDC(NULL, hdc);
+}
+
+static int panel_hit_test(int x, int y)
+{
+    POINT pt = { x, y };
+    int i;
+    for (i = 0; i < g_panel_n; i++)
+        if (!g_panel[i].sep && PtInRect(&g_panel[i].rc, pt)) return i;
+    return -1;
+}
+
+static COLORREF theme_color(HTHEME theme, int part, int prop, int fallback)
+{
+    COLORREF c;
+    if (theme && SUCCEEDED(GetThemeColor(theme, part, 0, prop, &c))) return c;
+    return GetSysColor(fallback);
+}
+
+static void panel_text(HDC hdc, RECT rc, const WCHAR *s, HFONT font, COLORREF color)
+{
+    HFONT old = SelectObject(hdc, font);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, color);
+    DrawTextW(hdc, s, -1, &rc, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS | DT_LEFT);
+    SelectObject(hdc, old);
+}
+
+static void panel_draw_icon(HDC hdc, const PANEL_ITEM *item, int x, int y, int size)
+{
+    HICON icon = item->exe ? load_app_icon(item->exe, item->icon_idx, size) : load_shell_icon(item->icon_idx, size);
+    if (!icon) return;
+    DrawIconEx(hdc, x, y, icon, size, size, 0, NULL, DI_NORMAL);
+    DestroyIcon(icon);
+}
+
+static void panel_draw_user(HDC hdc, HTHEME theme)
+{
+    RECT zone = g_zone[ZONE_USER], tile, content;
+    WCHAR name[128];
+    HFONT font;
+    LOGFONTW lf;
+    COLORREF color = RGB(255, 255, 255), shadow = 0;
+    POINT offset = { 2, 2 };
+    int shadow_type = 0;
+    MARGINS m;
+
+    if (theme) DrawThemeBackground(theme, hdc, SPP_USERPANE, 0, &zone, NULL);
+    else
+    {
+        FillRect(hdc, &zone, GetSysColorBrush(COLOR_ACTIVECAPTION));
+        color = GetSysColor(COLOR_CAPTIONTEXT);
+    }
+
+    SetRect(&tile, 6, 4, 66, zone.bottom - 4);
+    m = content_margins(theme, SPP_USERPICTURE);
+    if (theme) DrawThemeBackground(theme, hdc, SPP_USERPICTURE, 0, &tile, NULL);
+    content = tile;
+    content.left += m.cxLeftWidth; content.right -= m.cxRightWidth; content.top += m.cyTopHeight; content.bottom -= m.cyBottomHeight;
+    {
+        HBITMAP avatar = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_AVATAR));
+        BITMAP bm;
+        if (avatar && GetObjectW(avatar, sizeof(bm), &bm))
         {
-            if (g_right_items[i].is_separator)
+            HDC mem = CreateCompatibleDC(hdc);
+            HBITMAP prev = SelectObject(mem, avatar);
+            int old_mode = SetStretchBltMode(hdc, HALFTONE);
+            StretchBlt(hdc, content.left, content.top, content.right - content.left, content.bottom - content.top,
+                       mem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
+            SetStretchBltMode(hdc, old_mode);
+            SelectObject(mem, prev);
+            DeleteDC(mem);
+        }
+        if (avatar) DeleteObject(avatar);
+    }
+
+    if (theme)
+    {
+        GetThemeColor(theme, SPP_USERPANE, 0, TMT_TEXTCOLOR, &color);
+        GetThemeEnumValue(theme, SPP_USERPANE, 0, TMT_TEXTSHADOWTYPE, &shadow_type);
+        GetThemeColor(theme, SPP_USERPANE, 0, TMT_TEXTSHADOWCOLOR, &shadow);
+        GetThemePosition(theme, SPP_USERPANE, 0, TMT_TEXTSHADOWOFFSET, &offset);
+    }
+    if (theme && SUCCEEDED(GetThemeFont(theme, hdc, SPP_USERPANE, 0, TMT_FONT, &lf))) font = CreateFontIndirectW(&lf);
+    else font = panel_font(TRUE);
+
+    get_display_user_name(name, ARRAY_SIZE(name));
+    SetRect(&content, tile.right + 8, zone.top, zone.right - 8, zone.bottom);
+    if (shadow_type)
+    {
+        RECT sr = content;
+        OffsetRect(&sr, offset.x, offset.y);
+        panel_text(hdc, sr, name, font, shadow);
+    }
+    panel_text(hdc, content, name, font, color);
+    DeleteObject(font);
+}
+
+static void panel_paint(HDC hdc)
+{
+    HTHEME theme = theme_open(NULL, L"StartPanel");
+    HFONT font = panel_font(FALSE), bold = panel_font(TRUE);
+    int i;
+
+    /* zone backgrounds */
+    panel_draw_user(hdc, theme);
+    if (theme)
+    {
+        DrawThemeBackground(theme, hdc, SPP_PROGLIST, 0, &g_zone[ZONE_PROG], NULL);
+        DrawThemeBackground(theme, hdc, SPP_MOREPROGRAMS, 0, &g_zone[ZONE_MORE], NULL);
+        DrawThemeBackground(theme, hdc, SPP_PLACESLIST, 0, &g_zone[ZONE_PLACES], NULL);
+        DrawThemeBackground(theme, hdc, SPP_LOGOFF, 0, &g_zone[ZONE_LOGOFF], NULL);
+    }
+    else
+    {
+        FillRect(hdc, &g_zone[ZONE_PROG], GetSysColorBrush(COLOR_WINDOW));
+        FillRect(hdc, &g_zone[ZONE_MORE], GetSysColorBrush(COLOR_WINDOW));
+        FillRect(hdc, &g_zone[ZONE_PLACES], GetSysColorBrush(COLOR_MENU));
+        FillRect(hdc, &g_zone[ZONE_LOGOFF], GetSysColorBrush(COLOR_ACTIVECAPTION));
+    }
+
+    for (i = 0; i < g_panel_n; i++)
+    {
+        const PANEL_ITEM *item = &g_panel[i];
+        BOOL hot = (i == g_panel_hot);
+        int part = item->zone == ZONE_PROG ? SPP_PROGLIST : item->zone == ZONE_MORE ? SPP_MOREPROGRAMS :
+                   item->zone == ZONE_PLACES ? SPP_PLACESLIST : SPP_LOGOFF;
+        COLORREF text = theme_color(theme, part, TMT_TEXTCOLOR, item->zone == ZONE_PLACES ? COLOR_MENUTEXT :
+                                    item->zone == ZONE_LOGOFF ? COLOR_CAPTIONTEXT : COLOR_WINDOWTEXT);
+        COLORREF sub = theme_color(theme, part, TMT_CAPTIONTEXT, COLOR_GRAYTEXT);
+        COLORREF hot_bg = theme_color(theme, part, TMT_HOTTRACKING, COLOR_HIGHLIGHT);
+        RECT rc = item->rc, tr;
+
+        if (item->sep)
+        {
+            SIZE sz = {0, 2};
+            RECT line = rc;
+            HTHEME sep = theme ? theme : NULL;
+            int sep_part = item->zone == ZONE_PROG ? SPP_PROGLISTSEPARATOR : SPP_PLACESLISTSEPARATOR;
+            if (sep)
             {
-                cur_y += 6;
-                continue;
+                GetThemePartSize(sep, hdc, sep_part, 0, NULL, TS_TRUE, &sz);
+                line.top = rc.top + (rc.bottom - rc.top - sz.cy) / 2;
+                line.bottom = line.top + sz.cy;
+                DrawThemeBackground(sep, hdc, sep_part, 0, &line, NULL);
             }
-            if (y >= cur_y && y < cur_y + 24)
+            else
             {
-                *out_col = COL_RIGHT;
-                *out_idx = i;
-                return;
+                line.top = rc.top + (rc.bottom - rc.top) / 2;
+                line.bottom = line.top + 1;
+                FillRect(hdc, &line, GetSysColorBrush(COLOR_BTNSHADOW));
             }
-            cur_y += 24;
+            continue;
+        }
+
+        if (item->zone == ZONE_LOGOFF)
+        {
+            HBITMAP bmp = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(item->cmd == STARTMENU_CMD_LOGOFF ? IDB_LOGOFF : IDB_SHUTDOWN));
+            BITMAP bm;
+            if (hot && theme) DrawThemeBackground(theme, hdc, SPP_LOGOFFBUTTONS, SPLS_HOT, &rc, NULL);
+            if (bmp && GetObjectW(bmp, sizeof(bm), &bm))
+            {
+                HDC mem = CreateCompatibleDC(hdc);
+                HBITMAP prev = SelectObject(mem, bmp);
+                BitBlt(hdc, rc.left + 8, rc.top + (rc.bottom - rc.top - bm.bmHeight) / 2, bm.bmWidth, bm.bmHeight, mem, 0, 0, SRCCOPY);
+                SelectObject(mem, prev);
+                DeleteDC(mem);
+            }
+            if (bmp) DeleteObject(bmp);
+            tr = rc; tr.left += 8 + 20 + 4;
+            panel_text(hdc, tr, item->title, bold, text);
+            continue;
+        }
+
+        if (hot)
+        {
+            HBRUSH br = CreateSolidBrush(hot_bg);
+            FillRect(hdc, &rc, br);
+            DeleteObject(br);
+            text = sub = GetSysColor(COLOR_HIGHLIGHTTEXT);
+        }
+
+        if (item->zone == ZONE_MORE)
+        {
+            SIZE sz = {0};
+            RECT arrow;
+            tr = rc; tr.left += 4;
+            panel_text(hdc, tr, item->title, bold, text);
+            if (theme && SUCCEEDED(GetThemePartSize(theme, hdc, SPP_MOREPROGRAMSARROW, hot ? SPS_HOT : SPS_NORMAL, NULL, TS_TRUE, &sz)))
+            {
+                SetRect(&arrow, rc.right - sz.cx - 4, rc.top + (rc.bottom - rc.top - sz.cy) / 2, rc.right - 4, 0);
+                arrow.bottom = arrow.top + sz.cy;
+                DrawThemeBackground(theme, hdc, SPP_MOREPROGRAMSARROW, hot ? SPS_HOT : SPS_NORMAL, &arrow, NULL);
+            }
+            continue;
+        }
+
+        if (item->zone == ZONE_PROG)
+        {
+            panel_draw_icon(hdc, item, rc.left + 4, rc.top + (rc.bottom - rc.top - 32) / 2, 32);
+            tr = rc; tr.left += 4 + 32 + 6;
+            if (item->subtitle)
+            {
+                RECT t1 = tr, t2 = tr;
+                t1.bottom = rc.top + (rc.bottom - rc.top) / 2 + 1;
+                t2.top = t1.bottom - 1;
+                panel_text(hdc, t1, item->title, bold, text);
+                panel_text(hdc, t2, item->subtitle, font, sub);
+            }
+            else
+                panel_text(hdc, tr, item->title, item->bold ? bold : font, text);
+        }
+        else
+        {
+            panel_draw_icon(hdc, item, rc.left + 4, rc.top + (rc.bottom - rc.top - 16) / 2, 16);
+            tr = rc; tr.left += 4 + 16 + 6;
+            panel_text(hdc, tr, item->title, item->bold ? bold : font, text);
         }
     }
+    DeleteObject(font);
+    DeleteObject(bold);
+    if (theme) CloseThemeData(theme);
 }
 
 static void show_programs_popup_menu(HWND parent, int x, int y)
@@ -1134,7 +1431,7 @@ static void execute_startmenu_command(UINT cmd)
     }
 }
 
-/* Two-column Windows XP Start Menu Window Procedure */
+/* Two-column Start panel window procedure */
 static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
@@ -1143,560 +1440,58 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        RECT client_rc, left_rc, right_rc, footer_rc;
-        HDC mem_dc;
-        HBITMAP mem_bm, old_mem_bm;
-        HFONT font_bold, font_norm, font_head, old_font;
-        LOGFONTW lf;
-        WCHAR username[128];
-        DWORD ulen = sizeof(username)/sizeof(WCHAR);
-        int y, i, cur_y;
-        HICON icon_user = NULL;
-        HICON icon_ie = NULL;
-        HICON icon_mail = NULL;
-        HICON icon_logoff = NULL;
-        HICON icon_shut = NULL;
+        HDC mem = CreateCompatibleDC(hdc);
+        HBITMAP bmp = CreateCompatibleBitmap(hdc, g_panel_size.cx, g_panel_size.cy), prev = SelectObject(mem, bmp);
 
-        GetClientRect(hwnd, &client_rc);
-
-        /* Double Buffering */
-        mem_dc = CreateCompatibleDC(hdc);
-        mem_bm = CreateCompatibleBitmap(hdc, client_rc.right, client_rc.bottom);
-        old_mem_bm = SelectObject(mem_dc, mem_bm);
-
-        /* Layout zones */
-        footer_rc = client_rc; footer_rc.top = 442;
-        left_rc.left = 0; left_rc.top = 58; left_rc.right = 190; left_rc.bottom = footer_rc.top;
-        right_rc.left = 190; right_rc.top = 58; right_rc.right = client_rc.right; right_rc.bottom = footer_rc.top;
-
-        /* Fonts */
-        memset(&lf, 0, sizeof(lf));
-        lf.lfHeight = -12;
-        lf.lfWeight = FW_NORMAL;
-        lstrcpyW(lf.lfFaceName, L"Tahoma");
-        font_norm = CreateFontIndirectW(&lf);
-
-        lf.lfWeight = FW_BOLD;
-        font_bold = CreateFontIndirectW(&lf);
-
-        lf.lfHeight = -16;
-        lf.lfWeight = FW_BOLD;
-        font_head = CreateFontIndirectW(&lf);
-
-        /* 1. Header Rendering (Blue gradient with user profile) */
-        for (y = 0; y < 56; y++)
-        {
-            RECT line_rc;
-            float t = (float)y / 56.0f;
-            int r = 32 + (int)(18.0f * t);
-            int g = 92 + (int)(32.0f * t);
-            int b = 198 + (int)(24.0f * t);
-
-            line_rc.left = 0;
-            line_rc.top = y;
-            line_rc.right = client_rc.right;
-            line_rc.bottom = y + 1;
-
-            SetBkColor(mem_dc, RGB(r, g, b));
-            ExtTextOutW(mem_dc, 0, y, ETO_OPAQUE, &line_rc, NULL, 0, NULL);
-        }
-
-        /* Avatar Box at x=8, y=3 */
-        {
-            HBITMAP hbm_avatar = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_AVATAR));
-            if (hbm_avatar)
-            {
-                HDC bm_dc = CreateCompatibleDC(mem_dc);
-                HBITMAP old_bm = SelectObject(bm_dc, hbm_avatar);
-                BitBlt(mem_dc, 8, 3, 52, 50, bm_dc, 0, 0, SRCCOPY);
-                SelectObject(bm_dc, old_bm);
-                DeleteDC(bm_dc);
-                DeleteObject(hbm_avatar);
-            }
-            else
-            {
-                RECT avatar_rc;
-                HBRUSH white_br = CreateSolidBrush(RGB(255, 255, 255));
-                HBRUSH shadow_br = CreateSolidBrush(RGB(20, 60, 130));
-
-                avatar_rc.left = 11; avatar_rc.top = 8;
-                avatar_rc.right = 53; avatar_rc.bottom = 50;
-                FillRect(mem_dc, &avatar_rc, shadow_br);
-
-                avatar_rc.left = 10; avatar_rc.top = 7;
-                avatar_rc.right = 52; avatar_rc.bottom = 49;
-                FillRect(mem_dc, &avatar_rc, white_br);
-
-                DeleteObject(white_br);
-                DeleteObject(shadow_br);
-
-                icon_user = load_shell_icon(269, 32);
-                if (!icon_user) icon_user = load_shell_icon(44, 32);
-                if (icon_user)
-                {
-                    DrawIconEx(mem_dc, 15, 12, icon_user, 32, 32, 0, NULL, DI_NORMAL);
-                    DestroyIcon(icon_user);
-                }
-            }
-        }
-
-        /* Username Text */
-        get_display_user_name(username, ARRAY_SIZE(username));
-        SetBkMode(mem_dc, TRANSPARENT);
-        old_font = SelectObject(mem_dc, font_head);
-
-        /* Drop shadow */
-        SetTextColor(mem_dc, RGB(16, 50, 110));
-        TextOutW(mem_dc, 69, 21, username, lstrlenW(username));
-
-        /* Main text */
-        SetTextColor(mem_dc, RGB(255, 255, 255));
-        TextOutW(mem_dc, 68, 20, username, lstrlenW(username));
-
-        /* 2px Orange divider line below header */
-        {
-            RECT div_rc1 = { 0, 56, client_rc.right, 57 };
-            RECT div_rc2 = { 0, 57, client_rc.right, 58 };
-            SetBkColor(mem_dc, RGB(229, 145, 36));
-            ExtTextOutW(mem_dc, 0, 56, ETO_OPAQUE, &div_rc1, NULL, 0, NULL);
-            SetBkColor(mem_dc, RGB(235, 180, 91));
-            ExtTextOutW(mem_dc, 0, 57, ETO_OPAQUE, &div_rc2, NULL, 0, NULL);
-        }
-
-        /* 2. Left Column Rendering (White Pane) */
-        {
-            HBRUSH left_br = CreateSolidBrush(RGB(255, 255, 255));
-            FillRect(mem_dc, &left_rc, left_br);
-            DeleteObject(left_br);
-        }
-
-        /* Pinned Internet Item */
-        {
-            RECT itm_rc = { 6, 62, 186, 102 };
-            if (g_hover_column == COL_LEFT && g_hover_index == 0)
-            {
-                HBRUSH hov_br = CreateSolidBrush(RGB(190, 215, 250));
-                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(49, 106, 197));
-                HPEN old_pen = SelectObject(mem_dc, hov_pen);
-                HBRUSH old_br = SelectObject(mem_dc, hov_br);
-                RoundRect(mem_dc, itm_rc.left, itm_rc.top, itm_rc.right, itm_rc.bottom, 4, 4);
-                SelectObject(mem_dc, old_pen);
-                SelectObject(mem_dc, old_br);
-                DeleteObject(hov_pen);
-                DeleteObject(hov_br);
-            }
-
-            icon_ie = load_shell_icon(14, 32);
-            if (!icon_ie) icon_ie = load_app_icon(L"iexplore.exe", 14, 32);
-            if (icon_ie)
-            {
-                DrawIconEx(mem_dc, 10, 66, icon_ie, 32, 32, 0, NULL, DI_NORMAL);
-                DestroyIcon(icon_ie);
-            }
-
-            SelectObject(mem_dc, font_bold);
-            SetTextColor(mem_dc, RGB(0, 0, 0));
-            TextOutW(mem_dc, 46, 66, L"Internet", 8);
-
-            SelectObject(mem_dc, font_norm);
-            SetTextColor(mem_dc, RGB(120, 120, 120));
-            TextOutW(mem_dc, 46, 82, L"Internet Explorer", 17);
-        }
-
-        /* Pinned E-mail Item */
-        {
-            RECT itm_rc = { 6, 104, 186, 144 };
-            if (g_hover_column == COL_LEFT && g_hover_index == 1)
-            {
-                HBRUSH hov_br = CreateSolidBrush(RGB(190, 215, 250));
-                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(49, 106, 197));
-                HPEN old_pen = SelectObject(mem_dc, hov_pen);
-                HBRUSH old_br = SelectObject(mem_dc, hov_br);
-                RoundRect(mem_dc, itm_rc.left, itm_rc.top, itm_rc.right, itm_rc.bottom, 4, 4);
-                SelectObject(mem_dc, old_pen);
-                SelectObject(mem_dc, old_br);
-                DeleteObject(hov_pen);
-                DeleteObject(hov_br);
-            }
-
-            icon_mail = load_shell_icon(254, 32);
-            if (!icon_mail) icon_mail = load_shell_icon(1, 32);
-            if (icon_mail)
-            {
-                DrawIconEx(mem_dc, 10, 108, icon_mail, 32, 32, 0, NULL, DI_NORMAL);
-                DestroyIcon(icon_mail);
-            }
-
-            SelectObject(mem_dc, font_bold);
-            SetTextColor(mem_dc, RGB(0, 0, 0));
-            TextOutW(mem_dc, 46, 108, L"E-mail", 6);
-
-            SelectObject(mem_dc, font_norm);
-            SetTextColor(mem_dc, RGB(120, 120, 120));
-            TextOutW(mem_dc, 46, 124, L"Outlook Express", 15);
-        }
-
-        /* Subtle separator below pinned */
-        {
-            RECT sep_rc = { 12, 146, 178, 147 };
-            SetBkColor(mem_dc, RGB(220, 220, 220));
-            ExtTextOutW(mem_dc, 0, 146, ETO_OPAQUE, &sep_rc, NULL, 0, NULL);
-        }
-
-        /* Frequent Apps */
-        for (i = 0; i < (int)NUM_LEFT_FREQUENT; i++)
-        {
-            int itm_y = 150 + i * 36;
-            RECT itm_rc;
-            HICON hAppIco;
-
-            itm_rc.left = 6;
-            itm_rc.top = itm_y;
-            itm_rc.right = 186;
-            itm_rc.bottom = itm_y + 34;
-
-            if (g_hover_column == COL_LEFT && g_hover_index == (2 + i))
-            {
-                HBRUSH hov_br = CreateSolidBrush(RGB(190, 215, 250));
-                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(49, 106, 197));
-                HPEN old_pen = SelectObject(mem_dc, hov_pen);
-                HBRUSH old_br = SelectObject(mem_dc, hov_br);
-                RoundRect(mem_dc, itm_rc.left, itm_rc.top, itm_rc.right, itm_rc.bottom, 4, 4);
-                SelectObject(mem_dc, old_pen);
-                SelectObject(mem_dc, old_br);
-                DeleteObject(hov_pen);
-                DeleteObject(hov_br);
-            }
-
-            hAppIco = load_app_icon(g_left_frequent[i].exe, g_left_frequent[i].shell_icon_idx, 24);
-            if (hAppIco)
-            {
-                DrawIconEx(mem_dc, 12, itm_y + 5, hAppIco, 24, 24, 0, NULL, DI_NORMAL);
-                DestroyIcon(hAppIco);
-            }
-
-            SelectObject(mem_dc, font_bold);
-            SetTextColor(mem_dc, RGB(0, 0, 0));
-            TextOutW(mem_dc, 44, itm_y + 10, g_left_frequent[i].title, lstrlenW(g_left_frequent[i].title));
-        }
-
-        /* Subtle separator above All Programs */
-        {
-            RECT sep_rc = { 12, 394, 178, 395 };
-            SetBkColor(mem_dc, RGB(220, 220, 220));
-            ExtTextOutW(mem_dc, 0, 394, ETO_OPAQUE, &sep_rc, NULL, 0, NULL);
-        }
-
-        /* All Programs Button */
-        {
-            RECT prog_rc = { 6, 398, 186, 436 };
-            if (g_hover_column == COL_LEFT && g_hover_index == 100)
-            {
-                HBRUSH hov_br = CreateSolidBrush(RGB(49, 106, 197));
-                FillRect(mem_dc, &prog_rc, hov_br);
-                DeleteObject(hov_br);
-                SetTextColor(mem_dc, RGB(255, 255, 255));
-            }
-            else
-            {
-                SetTextColor(mem_dc, RGB(0, 0, 0));
-            }
-
-            SelectObject(mem_dc, font_bold);
-            TextOutW(mem_dc, 38, 410, L"All Programs", 12);
-
-            /* Green right arrow triangle */
-            {
-                POINT pts[3];
-                HBRUSH green_br = (g_hover_column == COL_LEFT && g_hover_index == 100) ?
-                                  CreateSolidBrush(RGB(255, 255, 255)) : CreateSolidBrush(RGB(40, 160, 40));
-                HPEN green_pen = CreatePen(PS_SOLID, 1, RGB(40, 160, 40));
-                HPEN old_pen = SelectObject(mem_dc, green_pen);
-                HBRUSH old_br = SelectObject(mem_dc, green_br);
-
-                pts[0].x = 154; pts[0].y = 412;
-                pts[1].x = 154; pts[1].y = 422;
-                pts[2].x = 160; pts[2].y = 417;
-                Polygon(mem_dc, pts, 3);
-
-                SelectObject(mem_dc, old_pen);
-                SelectObject(mem_dc, old_br);
-                DeleteObject(green_pen);
-                DeleteObject(green_br);
-            }
-        }
-
-        /* Vertical separator between left and right columns */
-        {
-            RECT col_div = { 190, 58, 191, 442 };
-            SetBkColor(mem_dc, RGB(165, 195, 235));
-            ExtTextOutW(mem_dc, 0, 58, ETO_OPAQUE, &col_div, NULL, 0, NULL);
-        }
-
-        /* 3. Right Column Rendering (Tinted Light Blue Pane) */
-        {
-            HBRUSH right_br = CreateSolidBrush(RGB(214, 230, 252));
-            FillRect(mem_dc, &right_rc, right_br);
-            DeleteObject(right_br);
-        }
-
-        cur_y = 62;
-        for (i = 0; i < (int)NUM_RIGHT_ITEMS; i++)
-        {
-            if (g_right_items[i].is_separator)
-            {
-                RECT sep_rc;
-                sep_rc.left = 198;
-                sep_rc.top = cur_y + 2;
-                sep_rc.right = 368;
-                sep_rc.bottom = cur_y + 3;
-                SetBkColor(mem_dc, RGB(180, 205, 240));
-                ExtTextOutW(mem_dc, 0, cur_y + 2, ETO_OPAQUE, &sep_rc, NULL, 0, NULL);
-                cur_y += 6;
-                continue;
-            }
-
-            /* Item rect */
-            {
-                RECT itm_rc;
-                HICON hIcon;
-
-                itm_rc.left = 192;
-                itm_rc.top = cur_y;
-                itm_rc.right = 374;
-                itm_rc.bottom = cur_y + 24;
-
-                if (g_hover_column == COL_RIGHT && g_hover_index == i)
-                {
-                    HBRUSH hov_br = CreateSolidBrush(RGB(49, 106, 197));
-                    FillRect(mem_dc, &itm_rc, hov_br);
-                    DeleteObject(hov_br);
-                    SetTextColor(mem_dc, RGB(255, 255, 255));
-                }
-                else
-                {
-                    SetTextColor(mem_dc, RGB(0, 0, 0));
-                }
-
-                hIcon = load_shell_icon(g_right_items[i].icon_idx, 16);
-                if (hIcon)
-                {
-                    DrawIconEx(mem_dc, 198, cur_y + 4, hIcon, 16, 16, 0, NULL, DI_NORMAL);
-                    DestroyIcon(hIcon);
-                }
-
-                SelectObject(mem_dc, g_right_items[i].is_bold ? font_bold : font_norm);
-                TextOutW(mem_dc, 222, cur_y + 4, g_right_items[i].title, lstrlenW(g_right_items[i].title));
-            }
-
-            cur_y += 24;
-        }
-
-        /* 4. Footer Rendering (Darker Blue with Log Off / Turn Off) */
-        for (y = 442; y < client_rc.bottom; y++)
-        {
-            RECT line_rc;
-            float t = (float)(y - 442) / (float)(client_rc.bottom - 442);
-            int r = 25 - (int)(10.0f * t);
-            int g = 80 - (int)(25.0f * t);
-            int b = 175 - (int)(45.0f * t);
-
-            line_rc.left = 0;
-            line_rc.top = y;
-            line_rc.right = client_rc.right;
-            line_rc.bottom = y + 1;
-
-            SetBkColor(mem_dc, RGB(r, g, b));
-            ExtTextOutW(mem_dc, 0, y, ETO_OPAQUE, &line_rc, NULL, 0, NULL);
-        }
-
-        /* Log Off Button */
-        {
-            RECT logoff_rc = { 186, 448, 272, 478 };
-            HBITMAP hbm_logoff;
-
-            if (g_hover_column == COL_FOOTER && g_hover_index == 0)
-            {
-                HBRUSH hov_br = CreateSolidBrush(RGB(40, 100, 200));
-                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(70, 140, 240));
-                HPEN old_pen = SelectObject(mem_dc, hov_pen);
-                HBRUSH old_br = SelectObject(mem_dc, hov_br);
-                RoundRect(mem_dc, logoff_rc.left, logoff_rc.top, logoff_rc.right, logoff_rc.bottom, 4, 4);
-                SelectObject(mem_dc, old_pen);
-                SelectObject(mem_dc, old_br);
-                DeleteObject(hov_pen);
-                DeleteObject(hov_br);
-            }
-
-            hbm_logoff = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_LOGOFF));
-            if (hbm_logoff)
-            {
-                HDC bm_dc = CreateCompatibleDC(mem_dc);
-                HBITMAP old_bm = SelectObject(bm_dc, hbm_logoff);
-                BitBlt(mem_dc, 192, 453, 18, 20, bm_dc, 0, 0, SRCCOPY);
-                SelectObject(bm_dc, old_bm);
-                DeleteDC(bm_dc);
-                DeleteObject(hbm_logoff);
-            }
-            else
-            {
-                icon_logoff = load_shell_icon(44, 16);
-                if (icon_logoff)
-                {
-                    DrawIconEx(mem_dc, 192, 455, icon_logoff, 16, 16, 0, NULL, DI_NORMAL);
-                    DestroyIcon(icon_logoff);
-                }
-            }
-
-            SelectObject(mem_dc, font_bold);
-            SetTextColor(mem_dc, RGB(255, 255, 255));
-            TextOutW(mem_dc, 214, 455, L"Log Off", 7);
-        }
-
-        /* Turn Off Computer Button */
-        {
-            RECT shut_rc = { 276, 448, 374, 478 };
-            HBITMAP hbm_shut;
-
-            if (g_hover_column == COL_FOOTER && g_hover_index == 1)
-            {
-                HBRUSH hov_br = CreateSolidBrush(RGB(40, 100, 200));
-                HPEN hov_pen = CreatePen(PS_SOLID, 1, RGB(70, 140, 240));
-                HPEN old_pen = SelectObject(mem_dc, hov_pen);
-                HBRUSH old_br = SelectObject(mem_dc, hov_br);
-                RoundRect(mem_dc, shut_rc.left, shut_rc.top, shut_rc.right, shut_rc.bottom, 4, 4);
-                SelectObject(mem_dc, old_pen);
-                SelectObject(mem_dc, old_br);
-                DeleteObject(hov_pen);
-                DeleteObject(hov_br);
-            }
-
-            hbm_shut = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_SHUTDOWN));
-            if (hbm_shut)
-            {
-                HDC bm_dc = CreateCompatibleDC(mem_dc);
-                HBITMAP old_bm = SelectObject(bm_dc, hbm_shut);
-                BitBlt(mem_dc, 280, 453, 20, 20, bm_dc, 0, 0, SRCCOPY);
-                SelectObject(bm_dc, old_bm);
-                DeleteDC(bm_dc);
-                DeleteObject(hbm_shut);
-            }
-            else
-            {
-                icon_shut = load_shell_icon(27, 16);
-                if (icon_shut)
-                {
-                    DrawIconEx(mem_dc, 280, 455, icon_shut, 16, 16, 0, NULL, DI_NORMAL);
-                    DestroyIcon(icon_shut);
-                }
-            }
-
-            SelectObject(mem_dc, font_bold);
-            SetTextColor(mem_dc, RGB(255, 255, 255));
-            TextOutW(mem_dc, 303, 455, L"Turn Off Computer", 17);
-        }
-
-        /* Outer 2px Window Border */
-        {
-            HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(0, 36, 104));
-            HPEN old_pen = SelectObject(mem_dc, border_pen);
-            HBRUSH old_br = SelectObject(mem_dc, GetStockObject(NULL_BRUSH));
-            Rectangle(mem_dc, 0, 0, client_rc.right, client_rc.bottom);
-            Rectangle(mem_dc, 1, 1, client_rc.right - 1, client_rc.bottom - 1);
-            SelectObject(mem_dc, old_pen);
-            SelectObject(mem_dc, old_br);
-            DeleteObject(border_pen);
-        }
-
-        /* Blit to screen */
-        BitBlt(hdc, 0, 0, client_rc.right, client_rc.bottom, mem_dc, 0, 0, SRCCOPY);
-
-        /* Cleanup GDI objects */
-        SelectObject(mem_dc, old_font);
-        SelectObject(mem_dc, old_mem_bm);
-        DeleteDC(mem_dc);
-        DeleteObject(mem_bm);
-        DeleteObject(font_norm);
-        DeleteObject(font_bold);
-        DeleteObject(font_head);
-
+        panel_paint(mem);
+        BitBlt(hdc, 0, 0, g_panel_size.cx, g_panel_size.cy, mem, 0, 0, SRCCOPY);
+        SelectObject(mem, prev);
+        DeleteObject(bmp);
+        DeleteDC(mem);
         EndPaint(hwnd, &ps);
         return 0;
     }
 
+    case WM_ERASEBKGND:
+        return 1;
+
     case WM_MOUSEMOVE:
     {
-        int x = (short)LOWORD(lparam);
-        int y = (short)HIWORD(lparam);
-        int col, idx;
-        TRACKMOUSEEVENT tme;
+        int hot = panel_hit_test((short)LOWORD(lparam), (short)HIWORD(lparam));
+        TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
 
-        two_col_hit_test(x, y, &col, &idx);
-
-        if (col != g_hover_column || idx != g_hover_index)
+        if (hot != g_panel_hot)
         {
-            g_hover_column = col;
-            g_hover_index = idx;
+            g_panel_hot = hot;
             InvalidateRect(hwnd, NULL, FALSE);
         }
-
-        memset(&tme, 0, sizeof(tme));
-        tme.cbSize = sizeof(tme);
-        tme.dwFlags = TME_LEAVE;
-        tme.hwndTrack = hwnd;
         TrackMouseEvent(&tme);
         return 0;
     }
 
     case WM_MOUSELEAVE:
-    {
-        g_hover_column = COL_NONE;
-        g_hover_index = -1;
+        g_panel_hot = -1;
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
-    }
 
     case WM_LBUTTONDBLCLK:
         return 0;
 
     case WM_LBUTTONDOWN:
     {
-        int x = (short)LOWORD(lparam);
-        int y = (short)HIWORD(lparam);
-        int col, idx;
+        int hit;
 
         if (!g_startmenu_open) return 0;
-
-        two_col_hit_test(x, y, &col, &idx);
-
-        if (col == COL_LEFT)
+        hit = panel_hit_test((short)LOWORD(lparam), (short)HIWORD(lparam));
+        if (hit < 0) return 0;
+        if (g_panel[hit].cmd == CMD_ALL_PROGRAMS)
         {
-            if (idx == 0)
-                execute_startmenu_command(STARTMENU_CMD_INTERNET);
-            else if (idx == 1)
-                execute_startmenu_command(STARTMENU_CMD_EMAIL);
-            else if (idx >= 2 && idx < 2 + (int)NUM_LEFT_FREQUENT)
-                execute_startmenu_command(g_left_frequent[idx - 2].cmd);
-            else if (idx == 100)
-            {
-                /* All Programs popup anchored at right of All Programs button */
-                RECT wnd_rc;
-                GetWindowRect(hwnd, &wnd_rc);
-                show_programs_popup_menu(hwnd, wnd_rc.left + 190, wnd_rc.top + 436);
-            }
+            RECT wnd_rc;
+            GetWindowRect(hwnd, &wnd_rc);
+            show_programs_popup_menu(hwnd, wnd_rc.left + g_zone[ZONE_MORE].right, wnd_rc.top + g_zone[ZONE_MORE].bottom);
         }
-        else if (col == COL_RIGHT)
-        {
-            if (idx >= 0 && idx < (int)NUM_RIGHT_ITEMS && !g_right_items[idx].is_separator)
-                execute_startmenu_command(g_right_items[idx].cmd);
-        }
-        else if (col == COL_FOOTER)
-        {
-            if (idx == 0)
-                execute_startmenu_command(STARTMENU_CMD_LOGOFF);
-            else if (idx == 1)
-                execute_startmenu_command(STARTMENU_CMD_SHUTDOWN);
-        }
+        else
+            execute_startmenu_command(g_panel[hit].cmd);
         return 0;
     }
 
@@ -1768,8 +1563,11 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
     else
     {
         /* Two-column Windows XP Start Menu Window */
-        int width = TWOCOL_WIDTH;
-        int height = TWOCOL_HEIGHT;
+        int width, height;
+        panel_layout();
+        g_panel_hot = -1;
+        width = g_panel_size.cx;
+        height = g_panel_size.cy;
         int x = btn_rect->left;
         int y = btn_rect->top - height;
 
@@ -1792,7 +1590,7 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
         }
 
         {
-            HRGN rgn_top = CreateRoundRectRgn(0, 0, width + 1, 40, 16, 16);
+            HRGN rgn_top = CreateRoundRectRgn(0, 0, width + 1, 40, 12, 12);
             HRGN rgn_body = CreateRectRgn(0, 12, width, height);
             CombineRgn(rgn_body, rgn_body, rgn_top, RGN_OR);
             SetWindowRgn(g_startmenu_wnd, rgn_body, TRUE);
@@ -1895,11 +1693,23 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 
                 DrawThemeBackground(theme, hdc, 0, state, &rc, NULL);
                 GetThemeBackgroundContentRect(theme, hdc, 0, state, &rc, &text_rc);
-                if (g_winlogo_icon)
                 {
-                    DrawIconEx(hdc, text_rc.left - 2 + (g_button_pressed ? 1 : 0), (rc.bottom - rc.top - 16) / 2 + (g_button_pressed ? 1 : 0),
-                               g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
-                    text_rc.left += 20;
+                    /* the flag is a 32 bit bitmap with alpha, drawn left aligned like a button image list */
+                    HBITMAP flag = LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_STARTFLAG), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+                    BITMAP bm;
+                    if (flag && GetObjectW(flag, sizeof(bm), &bm))
+                    {
+                        HDC mem = CreateCompatibleDC(hdc);
+                        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+                        int off = g_button_pressed ? 1 : 0;
+                        HBITMAP prev = SelectObject(mem, flag);
+                        AlphaBlend(hdc, text_rc.left + off, (rc.bottom - rc.top - bm.bmHeight) / 2 + off, bm.bmWidth, bm.bmHeight,
+                                   mem, 0, 0, bm.bmWidth, bm.bmHeight, blend);
+                        SelectObject(mem, prev);
+                        DeleteDC(mem);
+                        text_rc.left += bm.bmWidth + 3;
+                    }
+                    if (flag) DeleteObject(flag);
                 }
                 GetThemeColor(theme, 0, state, TMT_TEXTCOLOR, &color);
                 GetThemeColor(theme, 0, state, TMT_TEXTSHADOWCOLOR, &shadow);

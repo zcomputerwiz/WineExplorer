@@ -27,6 +27,7 @@
 
 #define COBJMACROS
 #include <windows.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <commctrl.h>
 #include <uxtheme.h>
@@ -93,34 +94,61 @@ static BOOL is_window_taskbar_candidate(HWND hwnd)
     return TRUE;
 }
 
+/* Icon handles belong to the process that created them and Wine cannot draw another process's icon, so a
+ * handle from WM_GETICON is only usable when GetIconInfo accepts it. */
+static BOOL icon_is_usable(HICON icon)
+{
+    ICONINFO info;
+
+    if (!icon || !GetIconInfo(icon, &info)) return FALSE;
+    if (info.hbmColor) DeleteObject(info.hbmColor);
+    if (info.hbmMask) DeleteObject(info.hbmMask);
+    return TRUE;
+}
+
+/* The small icon of the window's program, extracted from its executable (cached per process). */
+static HICON get_process_icon(HWND hwnd)
+{
+    static struct { DWORD pid; HICON icon; } cache[64];
+    static unsigned int next;
+    WCHAR path[MAX_PATH];
+    DWORD pid, len = MAX_PATH;
+    HICON small_icon = NULL;
+    HANDLE process;
+    unsigned int i;
+
+    GetWindowThreadProcessId(hwnd, &pid);
+    for (i = 0; i < ARRAY_SIZE(cache); i++)
+        if (cache[i].pid == pid && cache[i].icon) return cache[i].icon;
+
+    if (!(process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid))) return NULL;
+    if (QueryFullProcessImageNameW(process, 0, path, &len))
+        ExtractIconExW(path, 0, NULL, &small_icon, 1);
+    CloseHandle(process);
+    if (!small_icon) return NULL;
+
+    i = next++ % ARRAY_SIZE(cache);
+    if (cache[i].icon) DestroyIcon(cache[i].icon);
+    cache[i].pid = pid;
+    cache[i].icon = small_icon;
+    return small_icon;
+}
+
 static HICON get_window_task_icon(HWND hwnd)
 {
+    static const WPARAM kinds[] = { 2 /* ICON_SMALL2 */, ICON_SMALL, ICON_BIG };
     HICON icon = NULL;
     DWORD_PTR res;
+    unsigned int i;
 
-    /* 1. Try WM_GETICON with ICON_SMALL2 */
-    if (SendMessageTimeoutW(hwnd, WM_GETICON, 2 /* ICON_SMALL2 */, 0,
-                            SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &res) && res)
-        icon = (HICON)res;
-
-    /* 2. Try WM_GETICON with ICON_SMALL */
-    if (!icon && SendMessageTimeoutW(hwnd, WM_GETICON, ICON_SMALL, 0,
-                                     SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &res) && res)
-        icon = (HICON)res;
-
-    /* 3. Try class small icon */
-    if (!icon)
+    for (i = 0; i < ARRAY_SIZE(kinds) && !icon; i++)
+        if (SendMessageTimeoutW(hwnd, WM_GETICON, kinds[i], 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &res) &&
+            icon_is_usable((HICON)res))
+            icon = (HICON)res;
+    if (!icon && icon_is_usable((HICON)GetClassLongPtrW(hwnd, GCLP_HICONSM)))
         icon = (HICON)GetClassLongPtrW(hwnd, GCLP_HICONSM);
-
-    /* 4. Try WM_GETICON with ICON_BIG */
-    if (!icon && SendMessageTimeoutW(hwnd, WM_GETICON, ICON_BIG, 0,
-                                     SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &res) && res)
-        icon = (HICON)res;
-
-    /* 5. Fallback to default application icon */
-    if (!icon)
-        icon = LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION);
-
+    if (!icon) icon = get_process_icon(hwnd);
+    if (!icon) icon = LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION);
     return icon;
 }
 
