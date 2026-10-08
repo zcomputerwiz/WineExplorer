@@ -25,6 +25,9 @@ SOURCES = \
 	shellres.c \
 	startmenu.c \
 	startmenu_view.c \
+	startsettings.c \
+	notifyprops.c \
+	startprops.c \
 	systray.c \
 	taskband.c \
 	toolbars.c \

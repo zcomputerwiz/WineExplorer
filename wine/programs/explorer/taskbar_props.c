@@ -24,6 +24,9 @@
 
 #include "resource.h"
 #include "taskbar_props.h"
+#include "startprops.h"
+#include "notifyprops.h"
+#include "shellres.h"
 #include "theme_engine.h"
 
 static TASKBAR_SETTINGS g_settings = {
@@ -90,8 +93,6 @@ void taskbar_settings_load(void)
         size = sizeof(val);
         if (RegQueryValueExW(hKey, L"Start_Style", NULL, NULL, (BYTE*)&val, &size) == ERROR_SUCCESS)
             g_settings.start_menu_style = val;
-        else if (RegQueryValueExW(hKey, L"Start_ShowRun", NULL, NULL, (BYTE*)&val, &size) == ERROR_SUCCESS)
-            g_settings.start_menu_style = val;
 
         RegCloseKey(hKey);
     }
@@ -124,7 +125,6 @@ void taskbar_settings_save(void)
 
         val = g_settings.start_menu_style;
         RegSetValueExW(hKey, L"Start_Style", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
-        RegSetValueExW(hKey, L"Start_ShowRun", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
 
         RegCloseKey(hKey);
     }
@@ -168,8 +168,50 @@ static void draw_taskbar_preview(HDC hdc, const RECT *rc)
     SelectObject(hdc, old_font);
 }
 
+static void draw_notify_preview(HDC hdc, const RECT *rc)
+{
+    RECT tray = { rc->right - 120, rc->top + 2, rc->right - 2, rc->bottom - 2 };
+    HFONT old = SelectObject(hdc, GetStockObject(DEFAULT_GUI_FONT));
+    HICON icon;
+
+    FillRect(hdc, rc, GetSysColorBrush(COLOR_BTNFACE));
+    DrawEdge(hdc, &tray, EDGE_SUNKEN, BF_RECT);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
+    if (g_settings.show_clock)
+    {
+        RECT clock = tray;
+        clock.left = tray.right - 56;
+        DrawTextW(hdc, L"12:00 PM", -1, &clock, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    if ((icon = shellres_icon(15, 16)))
+    {
+        DrawIconEx(hdc, tray.left + 6, tray.top + (tray.bottom - tray.top - 16) / 2, icon, 16, 16, 0, NULL, DI_NORMAL);
+        DestroyIcon(icon);
+    }
+    SelectObject(hdc, old);
+}
+
 static void draw_start_preview(HDC hdc, const RECT *rc, int style)
 {
+    /* the pictures of the Windows shell */
+    HBITMAP bmp = shellres_bitmap(L"explorer", style == THEME_STARTMENU_CLASSIC ? 171 : 170, 0);
+
+    if (bmp)
+    {
+        BITMAP bm;
+        HDC mem = CreateCompatibleDC(hdc);
+        HBITMAP prev = SelectObject(mem, bmp);
+
+        GetObjectW(bmp, sizeof(bm), &bm);
+        SetStretchBltMode(hdc, HALFTONE);
+        StretchBlt(hdc, rc->left, rc->top, rc->right - rc->left, rc->bottom - rc->top, mem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
+        SelectObject(mem, prev);
+        DeleteDC(mem);
+        DeleteObject(bmp);
+        return;
+    }
+
     FillRect(hdc, rc, GetSysColorBrush(COLOR_BTNFACE));
     DrawEdge(hdc, (LPRECT)rc, EDGE_SUNKEN, BF_RECT);
 
@@ -250,6 +292,7 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         CheckDlgButton(hwnd, IDC_QUICKLAUNCH, g_settings.show_quick_launch ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hwnd, IDC_SHOWCLOCK, g_settings.show_clock ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hwnd, IDC_HIDEINACTIVEICONS, g_settings.hide_inactive_icons ? BST_CHECKED : BST_UNCHECKED);
+        EnableWindow(GetDlgItem(hwnd, IDC_CUSTOMIZE), g_settings.hide_inactive_icons);
         return TRUE;
 
     case WM_DRAWITEM:
@@ -258,6 +301,11 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         if (dis->CtlID == IDC_TASKBAR_PREVIEW)
         {
             draw_taskbar_preview(dis->hDC, &dis->rcItem);
+            return TRUE;
+        }
+        if (dis->CtlID == IDC_NOTIFY_PREVIEW)
+        {
+            draw_notify_preview(dis->hDC, &dis->rcItem);
             return TRUE;
         }
         break;
@@ -272,7 +320,11 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         case IDC_GROUPTASKBAR:
         case IDC_QUICKLAUNCH:
         case IDC_HIDEINACTIVEICONS:
+            EnableWindow(GetDlgItem(hwnd, IDC_CUSTOMIZE), IsDlgButtonChecked(hwnd, IDC_HIDEINACTIVEICONS) == BST_CHECKED);
             SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+            break;
+        case IDC_CUSTOMIZE:
+            notifyprops_show(hwnd);
             break;
         case IDC_SHOWCLOCK:
             g_settings.show_clock = (IsDlgButtonChecked(hwnd, IDC_SHOWCLOCK) == BST_CHECKED);
@@ -310,14 +362,11 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
     switch (msg)
     {
     case WM_INITDIALOG:
-    {
-        s_preview_style = g_settings.start_menu_style;
-
-        CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN,
-                         s_preview_style == THEME_STARTMENU_CLASSIC ? IDC_START_CLASSIC :
-                         (s_preview_style == THEME_STARTMENU_TWOCOLUMN ? IDC_START_TWOCOLUMN : IDC_START_MODERN));
+        s_preview_style = g_settings.start_menu_style == THEME_STARTMENU_CLASSIC ? THEME_STARTMENU_CLASSIC : THEME_STARTMENU_TWOCOLUMN;
+        CheckRadioButton(hwnd, IDC_NEWSCHOOL, IDC_OLDSCHOOL, s_preview_style == THEME_STARTMENU_CLASSIC ? IDC_OLDSCHOOL : IDC_NEWSCHOOL);
+        EnableWindow(GetDlgItem(hwnd, IDC_NEWSTARTCUSTOMIZE), s_preview_style != THEME_STARTMENU_CLASSIC);
+        EnableWindow(GetDlgItem(hwnd, IDC_OLDSTARTCUSTOMIZE), s_preview_style == THEME_STARTMENU_CLASSIC);
         return TRUE;
-    }
 
     case WM_DRAWITEM:
     {
@@ -333,23 +382,20 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
     case WM_COMMAND:
         switch (LOWORD(wparam))
         {
-        case IDC_START_CLASSIC:
-            s_preview_style = THEME_STARTMENU_CLASSIC;
-            CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_CLASSIC);
+        case IDC_NEWSCHOOL:
+        case IDC_OLDSCHOOL:
+            s_preview_style = LOWORD(wparam) == IDC_OLDSCHOOL ? THEME_STARTMENU_CLASSIC : THEME_STARTMENU_TWOCOLUMN;
+            CheckRadioButton(hwnd, IDC_NEWSCHOOL, IDC_OLDSCHOOL, LOWORD(wparam));
+            EnableWindow(GetDlgItem(hwnd, IDC_NEWSTARTCUSTOMIZE), s_preview_style != THEME_STARTMENU_CLASSIC);
+            EnableWindow(GetDlgItem(hwnd, IDC_OLDSTARTCUSTOMIZE), s_preview_style == THEME_STARTMENU_CLASSIC);
             InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
             SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
-        case IDC_START_TWOCOLUMN:
-            s_preview_style = THEME_STARTMENU_TWOCOLUMN;
-            CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_TWOCOLUMN);
-            InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
-            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+        case IDC_NEWSTARTCUSTOMIZE:
+            startprops_customize(hwnd);
             break;
-        case IDC_START_MODERN:
-            s_preview_style = THEME_STARTMENU_MODERN;
-            CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_MODERN);
-            InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
-            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+        case IDC_OLDSTARTCUSTOMIZE:
+            startprops_customize_classic(hwnd);
             break;
         }
         return TRUE;

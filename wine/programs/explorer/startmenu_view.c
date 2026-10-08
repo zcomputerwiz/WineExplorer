@@ -42,6 +42,7 @@
 #include "theme_engine.h"
 #include "shellres.h"
 #include "startmenu_view.h"
+#include "startsettings.h"
 #include "taskbar_props.h"
 #include "wlan_dialog.h"
 
@@ -1006,6 +1007,31 @@ static PANEL_ITEM *panel_add(int zone, const RECT *rc, UINT cmd)
     return item;
 }
 
+static START_SETTINGS g_start;
+static START_PROGRAM g_dyn[48];
+static int g_dyn_n;
+
+static BOOL right_item_visible(UINT cmd)
+{
+    switch (cmd)
+    {
+    case STARTMENU_CMD_MYDOCS:       return g_start.my_docs != START_HIDE;
+    case STARTMENU_CMD_RECENT_DOCS:  return g_start.recent_docs;
+    case STARTMENU_CMD_PICTURES:     return g_start.my_pics != START_HIDE;
+    case STARTMENU_CMD_MUSIC:        return g_start.my_music != START_HIDE;
+    case STARTMENU_CMD_MYCOMP:       return g_start.my_computer != START_HIDE;
+    case STARTMENU_CMD_MYNET:        return g_start.net_places != START_HIDE;
+    case STARTMENU_CMD_CONTROLPANEL: return g_start.control_panel != START_HIDE;
+    case STARTMENU_CMD_PROGACCESS:   return g_start.program_access != START_HIDE;
+    case STARTMENU_CMD_CONNECT_TO:   return g_start.connect_to != START_HIDE;
+    case STARTMENU_CMD_PRINTERS:     return g_start.printers != START_HIDE;
+    case STARTMENU_CMD_HELP:         return g_start.help != START_HIDE;
+    case STARTMENU_CMD_SEARCH:       return g_start.search != START_HIDE;
+    case STARTMENU_CMD_RUN:          return g_start.run != START_HIDE;
+    }
+    return TRUE;
+}
+
 /* Build zones and item rectangles from the style's pane sizes */
 static void panel_layout(void)
 {
@@ -1037,28 +1063,52 @@ static void panel_layout(void)
     g_panel_size.cy = hu + hpl + hl;
     g_panel_n = 0;
 
-    /* programs: pinned browser and mail, separator, most frequently used */
+    /* programs: pinned browser and mail, the user's pinned programs, separator, most frequently used */
+    startsettings_load(&g_start);
     c = g_zone[ZONE_PROG];
     c.left += mp.cxLeftWidth; c.right -= mp.cxRightWidth; c.top += mp.cyTopHeight; c.bottom -= mp.cyBottomHeight;
     y = c.top;
-    SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
-    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_INTERNET); it->title = L"Internet"; it->subtitle = L"Web Browser"; it->exe = L"iexplore.exe"; it->icon_idx = -178; it->bold = TRUE; }
-    y += PANEL_PINNED_H;
-    SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
-    { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_EMAIL); it->title = L"E-mail"; it->subtitle = L"Mail Client"; it->exe = L"winebrowser.exe"; it->icon_idx = -178; it->bold = TRUE; }
-    y += PANEL_PINNED_H;
-    SetRect(&r, c.left, y, c.right, y + PANEL_SEP_H);
-    panel_add(ZONE_PROG, &r, 0)->sep = TRUE;
-    y += PANEL_SEP_H;
-    for (i = 0; i < NUM_LEFT_FREQUENT && y + PANEL_MFU_H <= c.bottom; i++, y += PANEL_MFU_H)
+    g_dyn_n = 0;
+    if (g_start.show_internet)
     {
-        PANEL_ITEM *it;
-        SetRect(&r, c.left, y, c.right, y + PANEL_MFU_H);
-        it = panel_add(ZONE_PROG, &r, g_left_frequent[i].cmd);
-        it->title = g_left_frequent[i].title;
-        it->exe = g_left_frequent[i].exe;
-        it->icon_idx = g_left_frequent[i].shell_icon_idx;
-        it->bold = TRUE;
+        SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
+        { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_INTERNET); it->title = L"Internet"; it->subtitle = L"Web Browser"; it->exe = L"iexplore.exe"; it->icon_idx = -178; it->bold = TRUE; }
+        y += PANEL_PINNED_H;
+    }
+    if (g_start.show_email)
+    {
+        SetRect(&r, c.left, y, c.right, y + PANEL_PINNED_H);
+        { PANEL_ITEM *it = panel_add(ZONE_PROG, &r, STARTMENU_CMD_EMAIL); it->title = L"E-mail"; it->subtitle = L"Mail Client"; it->exe = L"winebrowser.exe"; it->icon_idx = -178; it->bold = TRUE; }
+        y += PANEL_PINNED_H;
+    }
+    {
+        int row = g_start.large_icons ? PANEL_MFU_H : 26, i, np = 0, nm;
+
+        g_dyn_n = startprograms_pinned(g_dyn, ARRAY_SIZE(g_dyn));
+        np = g_dyn_n;
+        for (i = 0; i < np && y + row <= c.bottom; i++, y += row)
+        {
+            PANEL_ITEM *it;
+            SetRect(&r, c.left, y, c.right, y + row);
+            it = panel_add(ZONE_PROG, &r, 4000 + i);
+            it->title = g_dyn[i].title; it->exe = g_dyn[i].path; it->icon_idx = -2; it->bold = TRUE;
+        }
+        if (g_start.show_internet || g_start.show_email || np)
+        {
+            SetRect(&r, c.left, y, c.right, y + PANEL_SEP_H);
+            panel_add(ZONE_PROG, &r, 0)->sep = TRUE;
+            y += PANEL_SEP_H;
+        }
+        nm = startprograms_mfu(g_dyn + g_dyn_n, ARRAY_SIZE(g_dyn) - g_dyn_n);
+        if (nm > g_start.min_mfu) nm = g_start.min_mfu;
+        for (i = 0; i < nm && y + row <= c.bottom; i++, y += row)
+        {
+            PANEL_ITEM *it;
+            SetRect(&r, c.left, y, c.right, y + row);
+            it = panel_add(ZONE_PROG, &r, 4000 + g_dyn_n + i);
+            it->title = g_dyn[g_dyn_n + i].title; it->exe = g_dyn[g_dyn_n + i].path; it->icon_idx = -2; it->bold = TRUE;
+        }
+        g_dyn_n += nm;
     }
 
     /* "All Programs" */
@@ -1070,17 +1120,31 @@ static void panel_layout(void)
     c = g_zone[ZONE_PLACES];
     c.left += mpl.cxLeftWidth; c.right -= mpl.cxRightWidth; c.top += mpl.cyTopHeight; c.bottom -= mpl.cyBottomHeight;
     y = c.top;
-    for (i = 0; i < NUM_RIGHT_ITEMS; i++)
     {
-        PANEL_ITEM *it;
-        int ih = g_right_items[i].is_separator ? PANEL_SEP_H : PANEL_PLACE_H;
-        SetRect(&r, c.left, y, c.right, y + ih);
-        it = panel_add(ZONE_PLACES, &r, g_right_items[i].cmd);
-        it->title = g_right_items[i].title;
-        it->icon_idx = g_right_items[i].icon_idx;
-        it->bold = g_right_items[i].is_bold;
-        it->sep = g_right_items[i].is_separator;
-        y += ih;
+        BOOL any_before = FALSE, sep_pending = FALSE;
+        for (i = 0; i < NUM_RIGHT_ITEMS; i++)
+        {
+            PANEL_ITEM *it;
+            int ih;
+
+            if (g_right_items[i].is_separator) { sep_pending = any_before; continue; }
+            if (!right_item_visible(g_right_items[i].cmd)) continue;
+            if (sep_pending)
+            {
+                SetRect(&r, c.left, y, c.right, y + PANEL_SEP_H);
+                panel_add(ZONE_PLACES, &r, 0)->sep = TRUE;
+                y += PANEL_SEP_H;
+                sep_pending = FALSE;
+            }
+            ih = PANEL_PLACE_H;
+            SetRect(&r, c.left, y, c.right, y + ih);
+            it = panel_add(ZONE_PLACES, &r, g_right_items[i].cmd);
+            it->title = g_right_items[i].title;
+            it->icon_idx = g_right_items[i].icon_idx;
+            it->bold = g_right_items[i].is_bold;
+            any_before = TRUE;
+            y += ih;
+        }
     }
 
     /* log off / turn off, right aligned in the footer */
@@ -1128,6 +1192,15 @@ static void panel_text(HDC hdc, RECT rc, const WCHAR *s, HFONT font, COLORREF co
 static void panel_draw_icon(HDC hdc, const PANEL_ITEM *item, int x, int y, int size)
 {
     HICON icon = item->exe ? load_app_icon(item->exe, item->icon_idx, size) : load_shell_icon(item->icon_idx, size);
+    if (!icon && item->exe) icon = load_shell_icon(item->icon_idx, size);
+    if (!icon && item->exe)
+    {
+        /* the generic program icon */
+        SHFILEINFOW info = { 0 };
+        if (SHGetFileInfoW(L"program.exe", FILE_ATTRIBUTE_NORMAL, &info, sizeof(info),
+                           SHGFI_ICON | SHGFI_USEFILEATTRIBUTES | (size >= 32 ? SHGFI_LARGEICON : SHGFI_SMALLICON)))
+            icon = info.hIcon;
+    }
     if (!icon) return;
     DrawIconEx(hdc, x, y, icon, size, size, 0, NULL, DI_NORMAL);
     DestroyIcon(icon);
@@ -1323,8 +1396,9 @@ static void panel_paint(HDC hdc)
 
         if (item->zone == ZONE_PROG)
         {
-            panel_draw_icon(hdc, item, rc.left + 4, rc.top + (rc.bottom - rc.top - 32) / 2, 32);
-            tr = rc; tr.left += 4 + 32 + 6;
+            int isz = (item->subtitle || g_start.large_icons) ? 32 : 16;
+            panel_draw_icon(hdc, item, rc.left + 4, rc.top + (rc.bottom - rc.top - isz) / 2, isz);
+            tr = rc; tr.left += 4 + isz + 6;
             if (item->subtitle)
             {
                 RECT t1 = tr, t2 = tr;
@@ -1341,7 +1415,7 @@ static void panel_paint(HDC hdc)
             panel_draw_icon(hdc, item, rc.left + 4, rc.top + (rc.bottom - rc.top - 16) / 2, 16);
             tr = rc; tr.left += 4 + 16 + 6;
             panel_text(hdc, tr, item->title, item->bold ? bold : font, text);
-            if (item->cmd == STARTMENU_CMD_RECENT_DOCS || item->cmd == STARTMENU_CMD_CONNECT_TO)
+            if (item->cmd == STARTMENU_CMD_RECENT_DOCS || (item->cmd == STARTMENU_CMD_CONNECT_TO && g_start.connect_to == START_MENU))
             {
                 /* the flyout arrow */
                 POINT tri[3];
@@ -1385,6 +1459,10 @@ static void show_programs_popup_menu(HWND parent, int x, int y)
 
     if (cmd >= 2000 && (cmd - 2000) < g_program_count)
     {
+        WCHAR target[MAX_PATH];
+
+        shortcut_target(g_program_paths[cmd - 2000], target);
+        startprograms_count_launch(target[0] ? target : g_program_paths[cmd - 2000]);
         ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
         startmenu_view_hide();
     }
@@ -1483,6 +1561,17 @@ static void execute_startmenu_command(UINT cmd)
     HWND tray = g_tray_parent;
     if (!g_startmenu_open) return;
     startmenu_view_hide();
+
+    if (cmd >= 4000 && (int)(cmd - 4000) < g_dyn_n)
+    {
+        WCHAR target[MAX_PATH];
+        const WCHAR *path = g_dyn[cmd - 4000].path;
+
+        shortcut_target(path, target);
+        startprograms_count_launch(target[0] ? target : path);
+        ShellExecuteW(NULL, L"open", path, NULL, NULL, SW_SHOWNORMAL);
+        return;
+    }
 
     switch (cmd)
     {
@@ -1594,9 +1683,12 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
     if (cmd == CMD_ALL_PROGRAMS || g_panel[hit].zone == ZONE_LOGOFF) { DestroyMenu(menu); return; }
     if (program)
     {
-        BOOL pinned = cmd == STARTMENU_CMD_INTERNET || cmd == STARTMENU_CMD_EMAIL;
-        AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_PIN, pinned ? L"Unpin from Start menu" : L"Pin to Start menu");
-        AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_REMOVE, L"Remove &from This List");
+        BOOL dyn = cmd >= 4000 && (int)(cmd - 4000) < g_dyn_n;
+        BOOL pinned = dyn && g_dyn[cmd - 4000].pinned;
+        BOOL fixed = cmd == STARTMENU_CMD_INTERNET || cmd == STARTMENU_CMD_EMAIL;
+
+        AppendMenuW(menu, MF_STRING | (dyn || fixed ? 0 : MF_GRAYED), PCM_PIN, pinned || fixed ? L"Unpin from Start menu" : L"Pin to Start menu");
+        if (!fixed) AppendMenuW(menu, MF_STRING | (dyn ? 0 : MF_GRAYED), PCM_REMOVE, L"Remove &from This List");
         AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_PROPS, L"P&roperties");
     }
@@ -1620,6 +1712,33 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
 
     switch (id)
     {
+    case PCM_PIN:
+        if (cmd == STARTMENU_CMD_INTERNET || cmd == STARTMENU_CMD_EMAIL)
+        {
+            if (cmd == STARTMENU_CMD_INTERNET) g_start.show_internet = FALSE; else g_start.show_email = FALSE;
+            startsettings_save(&g_start);
+            panel_layout();
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        else if (cmd >= 4000 && (int)(cmd - 4000) < g_dyn_n)
+        {
+            START_PROGRAM *p = &g_dyn[cmd - 4000];
+            if (p->pinned) startprograms_unpin(p->path);
+            else startprograms_pin(p->path, p->title);
+            panel_layout();
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        break;
+    case PCM_REMOVE:
+        if (cmd >= 4000 && (int)(cmd - 4000) < g_dyn_n)
+        {
+            START_PROGRAM *p = &g_dyn[cmd - 4000];
+            if (p->pinned) startprograms_unpin(p->path);
+            startprograms_remove_from_list(p->path);
+            panel_layout();
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        break;
     case PCM_OPEN:
         execute_startmenu_command(cmd);
         break;
@@ -1760,7 +1879,7 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
             GetWindowRect(hwnd, &wnd_rc);
             show_programs_popup_menu(hwnd, wnd_rc.left + g_zone[ZONE_MORE].right, wnd_rc.top + g_zone[ZONE_MORE].bottom);
         }
-        else if (g_panel[hit].cmd == STARTMENU_CMD_RECENT_DOCS || g_panel[hit].cmd == STARTMENU_CMD_CONNECT_TO)
+        else if (g_panel[hit].cmd == STARTMENU_CMD_RECENT_DOCS || (g_panel[hit].cmd == STARTMENU_CMD_CONNECT_TO && g_start.connect_to == START_MENU))
             show_panel_flyout(hwnd, g_panel[hit].cmd, &g_panel[hit].rc);
         else
             execute_startmenu_command(g_panel[hit].cmd);

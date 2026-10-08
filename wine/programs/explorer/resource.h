@@ -226,6 +226,44 @@
 #define IDC_UAC_PW_LABEL         2407
 #define IDC_UAC_ERROR            2408
 
+/* Taskbar and Start Menu Properties, Customize ... dialogs (ids of the Windows shell where they exist) */
+#define IDC_CUSTOMIZE            1007
+#define IDC_NOTIFY_ITEMS         1005
+#define IDC_COMBO_ACTION         1006
+#define IDC_NEWSCHOOL            1132
+#define IDC_OLDSCHOOL            1133
+#define IDC_STARTMENUPREVIEW     1134
+#define IDC_NEWSCHOOLDESCRIPTION 1135
+#define IDC_NEWSTARTCUSTOMIZE    1131
+#define IDC_OLDSTARTCUSTOMIZE    1130
+#define IDC_STARTMENUSETTINGS    1123
+#define IDC_RESORT               1124
+#define IDC_KILLDOCUMENTS        1125
+#define IDC_ADDSHORTCUT          1126
+#define IDC_DELSHORTCUT          1127
+#define IDC_EXPLOREMENUS         1128
+#define IDC_SPCUST_LARGE         1302
+#define IDC_SPCUST_SMALL         1303
+#define IDC_SPCUST_MINPROGS      1304
+#define IDC_SPCUST_MINPROGS_ARROW 1305
+#define IDC_SPCUST_HOVEROPEN     1306
+#define IDC_SPCUST_RECENT        1308
+#define IDB_SPCUST_CLEARDOCS     1309
+#define IDB_SPCUST_CLEARPROG     1310
+#define IDC_SPCUST_INTERNET      1320
+#define IDC_SPCUST_INTERNETCB    1321
+#define IDC_SPCUST_EMAIL         1322
+#define IDC_SPCUST_EMAILCB       1323
+#define IDC_SPCUST_NOTIFYNEW     1326
+#define IDB_NOTIFY_RESTOREDEFAULTS 1402
+#define IDC_NOTIFY_PREVIEW      1109
+#define IDD_START_STYLE          110
+#define IDD_START_GENERAL        111
+#define IDD_START_ADVANCED       112
+#define IDD_CLASSIC_CUSTOMIZE    113
+#define IDD_NOTIFY_CUSTOMIZE     114
+#define IDS_START_ADVANCED_TIP   115
+
 #endif
 
 

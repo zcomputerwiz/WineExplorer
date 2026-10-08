@@ -30,6 +30,7 @@
 
 #include "explorer_private.h"
 #include "shellres.h"
+#include "notifyprops.h"
 #include "desktop_view.h"
 #include "resource.h"
 
@@ -94,6 +95,7 @@ struct icon
     UINT           version;         /* notify icon api version */
     DWORD          last_active;     /* tick of the last update or mouse use, for "hide inactive icons" */
     BOOL           auto_hidden;     /* hidden only because it is inactive */
+    int            behavior;        /* NOTIFY_*, -1 until read from the registry */
 };
 
 static struct list icon_list = LIST_INIT( icon_list );
@@ -354,6 +356,82 @@ static RECT get_tray_clock_rect(void)
 #define INACTIVE_AFTER 8000
 static BOOL tray_expanded;
 
+static void refresh_inactive_icons(void);
+
+/* ---- Customize Notifications: per icon behavior ---- */
+
+static const WCHAR behavior_key[] = L"Software\\WineExplorer\\TrayIcons";
+
+static void icon_key( struct icon *icon, WCHAR *key )
+{
+    WCHAR path[MAX_PATH] = L"", *name;
+    DWORD pid = 0, len = MAX_PATH;
+    HANDLE process;
+
+    GetWindowThreadProcessId( icon->owner, &pid );
+    if ((process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid )))
+    {
+        QueryFullProcessImageNameW( process, 0, path, &len );
+        CloseHandle( process );
+    }
+    name = wcsrchr( path, '\\' );
+    swprintf( key, 300, L"%s|%u", name ? name + 1 : L"unknown", icon->id );
+    CharLowerW( key );
+}
+
+static int icon_behavior( struct icon *icon )
+{
+    if (icon->behavior < 0)
+    {
+        WCHAR key[300];
+        DWORD val = NOTIFY_HIDE_WHEN_INACTIVE, size = sizeof(val);
+
+        icon_key( icon, key );
+        if (RegGetValueW( HKEY_CURRENT_USER, behavior_key, key, RRF_RT_REG_DWORD, NULL, &val, &size )) val = NOTIFY_HIDE_WHEN_INACTIVE;
+        icon->behavior = val;
+    }
+    return icon->behavior;
+}
+
+int systray_enum_icons( TRAY_ICON_INFO *out, int max )
+{
+    struct icon *icon;
+    int n = 0;
+
+    LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
+    {
+        if (n >= max) break;
+        if (!icon->window || (icon->state & NIS_HIDDEN)) continue;
+        icon_key( icon, out[n].key );
+        lstrcpynW( out[n].text, icon->tiptext[0] ? icon->tiptext : out[n].key, ARRAY_SIZE(out[n].text) );
+        out[n].icon = icon->image ? CopyIcon( icon->image ) : NULL;
+        out[n].behavior = icon_behavior( icon );
+        n++;
+    }
+    return n;
+}
+
+void systray_set_behavior( const WCHAR *key, int behavior )
+{
+    HKEY hkey;
+    DWORD val = behavior;
+
+    if (!RegCreateKeyExW( HKEY_CURRENT_USER, behavior_key, 0, NULL, 0, KEY_WRITE, NULL, &hkey, NULL ))
+    {
+        RegSetValueExW( hkey, key, 0, REG_DWORD, (BYTE *)&val, sizeof(val) );
+        RegCloseKey( hkey );
+    }
+    systray_reset_behaviors();
+}
+
+void systray_reset_behaviors(void)
+{
+    struct icon *icon;
+
+    LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry ) icon->behavior = -1;
+    if (tray_window) refresh_inactive_icons();
+}
+
 static BOOL setting_hide_inactive(void)
 {
     return taskbar_settings_get()->hide_inactive_icons;
@@ -462,7 +540,11 @@ static void refresh_inactive_icons(void)
     LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
     {
         if (!icon->window || (icon->state & NIS_HIDDEN)) continue;
-        want_hide = setting_hide_inactive() && !tray_expanded && GetTickCount() - icon->last_active > INACTIVE_AFTER;
+        {
+            int behavior = icon_behavior( icon );
+            want_hide = setting_hide_inactive() && !tray_expanded && behavior != NOTIFY_ALWAYS_SHOW &&
+                        (behavior == NOTIFY_ALWAYS_HIDE || GetTickCount() - icon->last_active > INACTIVE_AFTER);
+        }
         if (want_hide && !icon->auto_hidden && icon->display != ICON_DISPLAY_HIDDEN)
         {
             icon->auto_hidden = TRUE;
@@ -924,6 +1006,7 @@ static BOOL add_icon(NOTIFYICONDATAW *nid)
     icon->id     = nid->uID;
     icon->owner  = nid->hWnd;
     icon->display = ICON_DISPLAY_HIDDEN;
+    icon->behavior = -1;
 
     CreateWindowExW( 0, tray_icon_class.lpszClassName, NULL, WS_CLIPSIBLINGS | WS_POPUP,
                      0, 0, icon_cx, icon_cy, 0, NULL, NULL, icon );
