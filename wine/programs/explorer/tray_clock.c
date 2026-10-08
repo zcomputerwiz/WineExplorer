@@ -36,6 +36,7 @@
 
 #include "wine/debug.h"
 #include "theme_engine.h"
+extern RECT systray_get_notify_rect(void);
 #include "tray_clock.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
