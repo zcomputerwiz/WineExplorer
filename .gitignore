@@ -40,3 +40,9 @@ wine/autom4te.cache/
 *~
 .DS_Store
 Thumbs.db
+
+# VM sync stamp / screenshots
+.vm_synced_commit
+vm_shot.png
+xp_shot.png
+assets/_ms_originals/

@@ -20,3 +20,6 @@
 *.dll binary
 *.so binary
 *.a binary
+
+# macro used by wine/.gitattributes (macros are only valid in the top-level file)
+[attr]generated gitlab-generated linguist-generated=true
