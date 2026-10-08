@@ -8,6 +8,7 @@
 #   scripts/vm.sh clean           same, without restarting the session
 #   scripts/vm.sh shot [file]     screenshot of the VM display via VBoxManage (default vm_shot.png)
 #   scripts/vm.sh xpshot [file]   screenshot of the "Windows XP Pro" VM
+#   scripts/vm.sh fonts xp|open   install the genuine XP fonts into the prefix, or remove them and use the open replacements
 #   scripts/vm.sh ssh <cmd...>    run a command on the VM
 # Override with VM_KEY / VM_PORT / VM_USER if the environment differs.
 set -e
@@ -66,6 +67,23 @@ xpshot)
 clean)
     "${SSH[@]}" 'bash -s' < "$ROOT/scripts/vm-clean-wine.sh"
     ;;
+fonts)
+    mode="${1:-}"; FD='$HOME/.wine/drive_c/windows/Fonts'
+    case "$mode" in
+    xp)
+        "${SSH[@]}" "mkdir -p $FD"
+        python "$ROOT/scripts/fonts.py" files | while read -r f; do f="$(cygpath -u "$f")"
+            scp -q -i "$KEY" -P "$PORT" -o StrictHostKeyChecking=no "$f" "$USER_@127.0.0.1:.wine/drive_c/windows/Fonts/"
+        done
+        "${SSH[@]}" "wine reg delete 'HKCU\Software\Wine\Fonts\Replacements' /f >/dev/null 2>&1; true" ;;
+    open)
+        python "$ROOT/scripts/fonts.py" files | while read -r f; do f="$(cygpath -u "$f")"; "${SSH[@]}" "rm -f $FD/$(basename "$f")"; done
+        python "$ROOT/scripts/fonts.py" reg > /tmp/font_repl.reg
+        scp -q -i "$KEY" -P "$PORT" -o StrictHostKeyChecking=no /tmp/font_repl.reg "$USER_@127.0.0.1:/tmp/font_repl.reg"
+        "${SSH[@]}" "wine regedit /tmp/font_repl.reg >/dev/null 2>&1; true" ;;
+    *) echo "usage: vm.sh fonts xp|open"; exit 1 ;;
+    esac
+    echo "fonts: $mode set; restart the shell (vm.sh restart-shell) to reload the font list" ;;
 ssh)
     "${SSH[@]}" "$@"
     ;;

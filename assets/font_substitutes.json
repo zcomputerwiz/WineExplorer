@@ -1,0 +1,17 @@
+{
+  "_comment": "Exact list of Microsoft fonts the UI expects and the open replacement for each. 'ms_files' are the genuine files exported from the XP VM into references/xp_export/fonts (never committed). 'kind': metric = same advance widths (layout identical), approx = similar look, different widths, builtin = shipped in wine/fonts (original or LGPL Wine work), none = no open equivalent. The open table behind the 'metric' entries is fontconfig's 30-metric-aliases.conf (Liberation/Croscore, Carlito, Caladea).",
+  "fonts": [
+    {"ms_font": "Arial", "ms_files": ["arial.ttf", "arialbd.ttf"], "replacement": "Liberation Sans", "kind": "metric", "license": "SIL OFL 1.1", "package": "fonts-liberation", "notes": "same metrics as Arial; Arimo is the identical Croscore design"},
+    {"ms_font": "Times New Roman", "ms_files": [], "replacement": "Liberation Serif", "kind": "metric", "license": "SIL OFL 1.1", "package": "fonts-liberation"},
+    {"ms_font": "Courier New", "ms_files": ["cour.ttf"], "replacement": "Liberation Mono", "kind": "metric", "license": "SIL OFL 1.1", "package": "fonts-liberation"},
+    {"ms_font": "Tahoma", "ms_files": ["tahoma.ttf", "tahomabd.ttf"], "replacement": "Tahoma", "kind": "builtin", "license": "LGPL (Wine)", "source": "wine/fonts/tahoma.sfd, tahomabd.sfd", "notes": "Wine's own Tahoma look-alike; the shell and dialogs use it (MS Shell Dlg 2 -> Tahoma)"},
+    {"ms_font": "Microsoft Sans Serif", "ms_files": ["micross.ttf"], "replacement": "Liberation Sans", "kind": "approx", "license": "SIL OFL 1.1", "package": "fonts-liberation", "notes": "Wine ships a bitmap-style 'MS Sans Serif' (wine/fonts/ms_sans_serif.sfd) for the old bitmap name"},
+    {"ms_font": "Verdana", "ms_files": ["verdana.ttf", "verdanab.ttf"], "replacement": "DejaVu Sans", "kind": "approx", "license": "Bitstream Vera / public domain changes", "package": "fonts-dejavu-core", "notes": "wide humanist sans like Verdana; widths differ by a few percent"},
+    {"ms_font": "Trebuchet MS", "ms_files": ["trebuc.ttf", "trebucbd.ttf", "trebucbi.ttf", "trebucit.ttf"], "replacement": "DejaVu Sans", "kind": "approx", "license": "Bitstream Vera / public domain changes", "package": "fonts-dejavu-core", "notes": "Luna caption font (10pt bold). No metric-compatible open font exists; Fira Sans or Open Sans (OFL) look closer if installed"},
+    {"ms_font": "Lucida Console", "ms_files": ["lucon.ttf"], "replacement": "DejaVu Sans Mono", "kind": "approx", "license": "Bitstream Vera / public domain changes", "package": "fonts-dejavu-core"},
+    {"ms_font": "Marlett", "ms_files": [], "replacement": "Marlett", "kind": "builtin", "license": "LGPL (Wine)", "source": "wine/fonts/marlett.sfd", "notes": "caption and menu glyphs"},
+    {"ms_font": "Segoe UI", "ms_files": [], "replacement": "Selawik", "kind": "metric", "license": "MIT", "package": "none (github.com/microsoft/Selawik)", "notes": "Longhorn-era UI font; not in Debian, install manually when needed"},
+    {"ms_font": "Calibri", "ms_files": [], "replacement": "Carlito", "kind": "metric", "license": "SIL OFL 1.1", "package": "fonts-crosextra-carlito"},
+    {"ms_font": "Cambria", "ms_files": [], "replacement": "Caladea", "kind": "metric", "license": "Apache 2.0", "package": "fonts-crosextra-caladea"}
+  ]
+}
