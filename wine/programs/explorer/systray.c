@@ -412,6 +412,7 @@ static POINT get_icon_pos( struct icon *icon )
 }
 
 #define IDT_AUTOHIDE 9998
+#define IDT_THEMEREDRAW 9997
 static BOOL taskbar_hidden;
 
 /* Always on top, auto-hide and the work area follow the taskbar settings */
@@ -1604,13 +1605,16 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
 
     case WM_THEMECHANGED:
         /* the icon packs belong to the theme: reload them everywhere */
+        theme_reload();
         shellres_reset();
         desktop_view_refresh();
         toolbars_refresh();
+        /* repaint everything once the change has settled (children paint late after a live switch) */
+        SetTimer( hwnd, IDT_THEMEREDRAW, 300, NULL );
         /* fall through */
     case WM_SETTINGCHANGE:
         update_taskbar_layout();
-        InvalidateRect( hwnd, NULL, TRUE );
+        RedrawWindow( hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN );
         break;
 
     case WM_TIMECHANGE:
@@ -1635,6 +1639,13 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         break;
 
     case WM_TIMER:
+        if (wparam == IDT_THEMEREDRAW)
+        {
+            KillTimer( hwnd, IDT_THEMEREDRAW );
+            update_taskbar_layout();
+            RedrawWindow( hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW );
+            break;
+        }
         if (wparam == IDT_AUTOHIDE)
         {
             static DWORD last_inactive_check;

@@ -38,6 +38,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 static THEME_CONFIG current_theme;
+void theme_cleanup(void);
 static HWND main_window = NULL;
 
 /* uxtheme's unnamed exports, as used by themeui.dll on Windows */
@@ -325,6 +326,13 @@ BOOL theme_apply(THEME_CONFIG *cfg)
 
     if (!cfg) return FALSE;
 
+    /* Remember the theme first (Windows keeps the active theme in HKCU\\...\\Themes) */
+    if (!RegCreateKeyExW(HKEY_CURRENT_USER, themes_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &hkey, NULL))
+    {
+        RegSetValueExW(hkey, L"CurrentTheme", 0, REG_SZ, (const BYTE *)cfg->theme_path, (lstrlenW(cfg->theme_path) + 1) * sizeof(WCHAR));
+        RegCloseKey(hkey);
+    }
+
     /* 1. Visual style: open the msstyles file and make it the active style (uxtheme also applies the style's own
      *    colors, fonts and sizes and broadcasts WM_THEMECHANGED).  No style = Windows Classic. */
     huxtheme = LoadLibraryW(L"uxtheme.dll");
@@ -380,13 +388,6 @@ BOOL theme_apply(THEME_CONFIG *cfg)
     }
     SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, cfg->wallpaper_path[0] ? (void *)cfg->wallpaper_path : (void *)L"",
                           SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
-
-    /* 5. Remember it (Windows keeps the active theme in HKCU\\...\\Themes) */
-    if (!RegCreateKeyExW(HKEY_CURRENT_USER, themes_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &hkey, NULL))
-    {
-        RegSetValueExW(hkey, L"CurrentTheme", 0, REG_SZ, (const BYTE *)cfg->theme_path, (lstrlenW(cfg->theme_path) + 1) * sizeof(WCHAR));
-        RegCloseKey(hkey);
-    }
 
     memcpy(&current_theme, cfg, sizeof(THEME_CONFIG));
     return TRUE;
@@ -444,18 +445,16 @@ void theme_play_sound(const WCHAR *event_name)
     }
 }
 
-void theme_init(HWND hwnd_main)
+/* read the active theme back from the registry, so the shell knows the wallpaper, icons and Start menu style */
+void theme_reload(void)
 {
     WCHAR path[MAX_PATH];
     DWORD size = sizeof(path);
     HKEY key;
 
-    main_window = hwnd_main;
-    memset(&current_theme, 0, sizeof(current_theme));
+    theme_cleanup();
     current_theme.start_menu_style = THEME_STARTMENU_CLASSIC;
 
-    /* The active theme persists in the registry; uxtheme already activated its visual style in this process.
-     * Only read the file back so the shell knows the wallpaper, icons and Start menu style. */
     path[0] = 0;
     if (!RegOpenKeyExW(HKEY_CURRENT_USER, themes_key, 0, KEY_QUERY_VALUE, &key))
     {
@@ -469,6 +468,13 @@ void theme_init(HWND hwnd_main)
         current_theme.has_visual_styles = FALSE;
         current_theme.start_menu_style = THEME_STARTMENU_CLASSIC;
     }
+}
+
+void theme_init(HWND hwnd_main)
+{
+    main_window = hwnd_main;
+    /* uxtheme already activated the visual style in this process */
+    theme_reload();
 }
 
 void theme_cleanup(void)

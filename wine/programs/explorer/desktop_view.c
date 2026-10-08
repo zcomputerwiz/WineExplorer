@@ -40,6 +40,7 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "theme_engine.h"
+#include <wincodec.h>
 #include "desktop_view.h"
 #include "shellres.h"
 #include "wlan_dialog.h"
@@ -290,8 +291,7 @@ void desktop_view_refresh(void)
     }
 
     /* 3. Reload wallpaper if configured */
-    if (theme && theme->wallpaper_path[0])
-        desktop_view_load_wallpaper(theme->wallpaper_path);
+    if (theme) desktop_view_load_wallpaper(theme->wallpaper_path);
 
     update_recycle_bin_icon();
     if (g_desktop_view.hwnd)
@@ -386,6 +386,44 @@ void desktop_view_on_display_change(int width, int height)
     }
 }
 
+/* Decode any picture format (JPEG, PNG, GIF ...) with the imaging component */
+static HBITMAP load_picture(const WCHAR *path)
+{
+    static const GUID clsid_factory = { 0xcacaf262, 0x9370, 0x4615, { 0xa1, 0x3b, 0x9f, 0x55, 0x39, 0xda, 0x4c, 0x0a } };
+    static const GUID iid_factory = { 0xec5ec8a9, 0xc395, 0x4314, { 0x9c, 0x77, 0x54, 0xd7, 0xa9, 0x35, 0xff, 0x70 } };
+    static const GUID format_bgra = { 0x6fddc324, 0x4e03, 0x4bfe, { 0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d, 0xc9, 0x0f } };
+    IWICImagingFactory *factory = NULL;
+    IWICBitmapDecoder *decoder = NULL;
+    IWICBitmapFrameDecode *frame = NULL;
+    IWICFormatConverter *converter = NULL;
+    HBITMAP bitmap = NULL;
+    UINT w, h;
+
+    if (FAILED(CoCreateInstance(&clsid_factory, NULL, CLSCTX_INPROC_SERVER, &iid_factory, (void **)&factory))) return NULL;
+    if (SUCCEEDED(IWICImagingFactory_CreateDecoderFromFilename(factory, path, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)) &&
+        SUCCEEDED(IWICBitmapDecoder_GetFrame(decoder, 0, &frame)) &&
+        SUCCEEDED(IWICImagingFactory_CreateFormatConverter(factory, &converter)) &&
+        SUCCEEDED(IWICFormatConverter_Initialize(converter, (IWICBitmapSource *)frame, &format_bgra, WICBitmapDitherTypeNone, NULL, 0.0, WICBitmapPaletteTypeCustom)) &&
+        SUCCEEDED(IWICFormatConverter_GetSize(converter, &w, &h)))
+    {
+        BITMAPINFO bi = { { sizeof(BITMAPINFOHEADER), (LONG)w, -(LONG)h, 1, 32, BI_RGB } };
+        void *bits = NULL;
+        HDC dc = GetDC(NULL);
+        bitmap = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+        ReleaseDC(NULL, dc);
+        if (bitmap && FAILED(IWICFormatConverter_CopyPixels(converter, NULL, w * 4, w * 4 * h, bits)))
+        {
+            DeleteObject(bitmap);
+            bitmap = NULL;
+        }
+    }
+    if (converter) IWICFormatConverter_Release(converter);
+    if (frame) IWICBitmapFrameDecode_Release(frame);
+    if (decoder) IWICBitmapDecoder_Release(decoder);
+    IWICImagingFactory_Release(factory);
+    return bitmap;
+}
+
 void desktop_view_load_wallpaper(const WCHAR *path)
 {
     if (g_desktop_view.hbm_wallpaper)
@@ -399,6 +437,7 @@ void desktop_view_load_wallpaper(const WCHAR *path)
         BITMAP bm;
         g_desktop_view.hbm_wallpaper = (HBITMAP)LoadImageW(NULL, path, IMAGE_BITMAP, 0, 0,
                                                            LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+        if (!g_desktop_view.hbm_wallpaper) g_desktop_view.hbm_wallpaper = load_picture(path);
         if (g_desktop_view.hbm_wallpaper && GetObjectW(g_desktop_view.hbm_wallpaper, sizeof(bm), &bm))
         {
             g_desktop_view.wallpaper_width = bm.bmWidth;

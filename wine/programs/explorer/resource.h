@@ -158,9 +158,6 @@
 #define IDI_BATT                 1018
 #define IDI_HOTPLUG              1019
 #define IDI_START                1020
-#define IDB_AVATAR               1026
-#define IDB_LOGOFF               1027
-#define IDB_SHUTDOWN             1028
 #define IDB_STARTBTN             1029
 #define IDB_STARTFLAG            1030
 #define IDB_BROWSER_TB           1031

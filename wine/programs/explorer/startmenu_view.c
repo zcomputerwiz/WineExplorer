@@ -1078,8 +1078,8 @@ static void panel_layout(void)
     /* log off / turn off, right aligned in the footer */
     {
         int bh = 28, by = g_zone[ZONE_LOGOFF].top + (hl - bh) / 2;
-        int shut_w = 8 + 20 + 4 + text_width(hdc, bold, L"Turn Off Computer") + 8;
-        int off_w = 8 + 20 + 4 + text_width(hdc, bold, L"Log Off") + 8;
+        int shut_w = 6 + 24 + 4 + text_width(hdc, bold, L"Turn Off Computer") + 8;
+        int off_w = 6 + 24 + 4 + text_width(hdc, bold, L"Log Off") + 8;
         int right = W - 8;
         PANEL_ITEM *it;
 
@@ -1149,8 +1149,17 @@ static void panel_draw_user(HDC hdc, HTHEME theme)
     content = tile;
     content.left += m.cxLeftWidth; content.right -= m.cxRightWidth; content.top += m.cyTopHeight; content.bottom -= m.cyBottomHeight;
     {
-        HBITMAP avatar = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_AVATAR));
+        /* the account picture: <all users>\Microsoft\User Account Pictures\<user name>.bmp, else the users icon */
+        WCHAR dir[MAX_PATH], file[MAX_PATH], user[64];
+        DWORD user_len = ARRAY_SIZE(user);
+        HBITMAP avatar = NULL;
         BITMAP bm;
+
+        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, SHGFP_TYPE_CURRENT, dir)) && GetUserNameW(user, &user_len))
+        {
+            swprintf(file, MAX_PATH, L"%s\\Microsoft\\User Account Pictures\\%s.bmp", dir, user);
+            avatar = LoadImageW(NULL, file, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+        }
         if (avatar && GetObjectW(avatar, sizeof(bm), &bm))
         {
             HDC mem = CreateCompatibleDC(hdc);
@@ -1161,6 +1170,16 @@ static void panel_draw_user(HDC hdc, HTHEME theme)
             SetStretchBltMode(hdc, old_mode);
             SelectObject(mem, prev);
             DeleteDC(mem);
+        }
+        else
+        {
+            HICON icon = shellres_icon(220, 32);
+            if (icon)
+            {
+                DrawIconEx(hdc, content.left + (content.right - content.left - 32) / 2, content.top + (content.bottom - content.top - 32) / 2,
+                           icon, 32, 32, 0, NULL, DI_NORMAL);
+                DestroyIcon(icon);
+            }
         }
         if (avatar) DeleteObject(avatar);
     }
@@ -1246,19 +1265,27 @@ static void panel_paint(HDC hdc)
 
         if (item->zone == ZONE_LOGOFF)
         {
-            HBITMAP bmp = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(item->cmd == STARTMENU_CMD_LOGOFF ? IDB_LOGOFF : IDB_SHUTDOWN));
-            BITMAP bm;
+            BOOL is_logoff = item->cmd == STARTMENU_CMD_LOGOFF;
+            HBITMAP strip = shellres_bitmap(L"explorer", hot ? 7011 : 7010, 0);
+            int y = rc.top + (rc.bottom - rc.top - 24) / 2;
+
             if (hot && theme) DrawThemeBackground(theme, hdc, SPP_LOGOFFBUTTONS, SPLS_HOT, &rc, NULL);
-            if (bmp && GetObjectW(bmp, sizeof(bm), &bm))
+            if (strip)
             {
+                /* three 24 pixel pictures (undock, log off, turn off) on an olive key colour */
                 HDC mem = CreateCompatibleDC(hdc);
-                HBITMAP prev = SelectObject(mem, bmp);
-                BitBlt(hdc, rc.left + 8, rc.top + (rc.bottom - rc.top - bm.bmHeight) / 2, bm.bmWidth, bm.bmHeight, mem, 0, 0, SRCCOPY);
+                HBITMAP prev = SelectObject(mem, strip);
+                TransparentBlt(hdc, rc.left + 6, y, 24, 24, mem, (is_logoff ? 1 : 2) * 24, 0, 24, 24, RGB(128, 128, 0));
                 SelectObject(mem, prev);
                 DeleteDC(mem);
+                DeleteObject(strip);
             }
-            if (bmp) DeleteObject(bmp);
-            tr = rc; tr.left += 8 + 20 + 4;
+            else
+            {
+                HICON icon = shellres_icon(is_logoff ? 45 : 221, 24);
+                if (icon) { DrawIconEx(hdc, rc.left + 6, y, icon, 24, 24, 0, NULL, DI_NORMAL); DestroyIcon(icon); }
+            }
+            tr = rc; tr.left += 6 + 24 + 4;
             panel_text(hdc, tr, item->title, bold, text);
             continue;
         }

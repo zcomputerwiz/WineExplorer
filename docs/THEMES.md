@@ -30,3 +30,16 @@ The shell (`shellres.c`) loads `xpres_<module>.dll` from the active theme's fold
 ## Not covered yet
 - `Luna\Shell\<scheme>\shellstyle.dll` (Start panel pictures) still comes from the XP export.
 - Cursors, sounds and wallpaper are applied from the `.theme` file but not yet packaged.
+
+## Packages (built from the source tree)
+
+| Package | Theme files | Contents |
+|---|---|---|
+
+records which XP-VM export files are byte-identical to source files.
+
+* Cursors: `[Control Panel\Cursors]` names the files; user32 reads them when a system cursor is loaded
+  (`dlls/user32/cursoricon.c`, `SPI_SETCURSORS` is accepted).
+* Sounds: the scheme is written as `[AppEvents\...]` sections of the `.theme`.
+* Icons and bitmaps: the theme's `IconPack=` folder (see above).
+
