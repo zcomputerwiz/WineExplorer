@@ -29,6 +29,9 @@
 /* shell32 icon by resource id at the requested size; the caller destroys it.  NULL if neither set has it. */
 HICON shellres_icon(int id, int size);
 
+/* An icon of any module of the genuine pack by resource id; NULL without pack */
+HICON shellres_module_icon(const WCHAR *module, int id, int size);
+
 /* Icon of a program (by executable name) from the theme's icon pack Apps folder; NULL if the pack has none */
 HICON shellres_app_icon(const WCHAR *exe, int size);
 

@@ -445,6 +445,54 @@ void theme_play_sound(const WCHAR *event_name)
     }
 }
 
+/* The system colors are cached by every process; another process (explorer /theme) changed them in the registry.
+ * Without a visual style the colors of the registry are the ones to show: take them over in this process. */
+void theme_sync_colors(void)
+{
+    static const struct { const WCHAR *name; int index; } colors[] =
+    {
+        { L"Scrollbar", COLOR_SCROLLBAR }, { L"Background", COLOR_BACKGROUND }, { L"ActiveTitle", COLOR_ACTIVECAPTION },
+        { L"InactiveTitle", COLOR_INACTIVECAPTION }, { L"Menu", COLOR_MENU }, { L"Window", COLOR_WINDOW },
+        { L"WindowFrame", COLOR_WINDOWFRAME }, { L"MenuText", COLOR_MENUTEXT }, { L"WindowText", COLOR_WINDOWTEXT },
+        { L"TitleText", COLOR_CAPTIONTEXT }, { L"ActiveBorder", COLOR_ACTIVEBORDER }, { L"InactiveBorder", COLOR_INACTIVEBORDER },
+        { L"AppWorkSpace", COLOR_APPWORKSPACE }, { L"Hilight", COLOR_HIGHLIGHT }, { L"HilightText", COLOR_HIGHLIGHTTEXT },
+        { L"ButtonFace", COLOR_BTNFACE }, { L"ButtonShadow", COLOR_BTNSHADOW }, { L"GrayText", COLOR_GRAYTEXT },
+        { L"ButtonText", COLOR_BTNTEXT }, { L"InactiveTitleText", COLOR_INACTIVECAPTIONTEXT }, { L"ButtonHilight", COLOR_BTNHIGHLIGHT },
+        { L"ButtonDkShadow", COLOR_3DDKSHADOW }, { L"ButtonLight", COLOR_3DLIGHT }, { L"InfoText", COLOR_INFOTEXT },
+        { L"InfoWindow", COLOR_INFOBK }, 
+        { L"HotTrackingColor", COLOR_HOTLIGHT }, { L"GradientActiveTitle", COLOR_GRADIENTACTIVECAPTION },
+        { L"GradientInactiveTitle", COLOR_GRADIENTINACTIVECAPTION }, { L"MenuHilight", COLOR_MENUHILIGHT },
+        { L"MenuBar", COLOR_MENUBAR },
+    };
+    static BOOL syncing;
+    INT indices[ARRAY_SIZE(colors)];
+    COLORREF values[ARRAY_SIZE(colors)];
+    unsigned int i, n = 0;
+    HKEY key;
+
+    if (syncing || IsThemeActive()) return;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Colors", 0, KEY_READ, &key)) return;
+    for (i = 0; i < ARRAY_SIZE(colors); i++)
+    {
+        WCHAR text[32];
+        DWORD size = sizeof(text), r, g, b;
+        WCHAR *end;
+
+        if (!lstrcmpW(colors[i].name, L"ButtonAlternateFace")) continue;
+        if (RegQueryValueExW(key, colors[i].name, NULL, NULL, (BYTE *)text, &size)) continue;
+        r = wcstoul(text, &end, 10);
+        g = wcstoul(end, &end, 10);
+        b = wcstoul(end, &end, 10);
+        indices[n] = colors[i].index;
+        values[n++] = RGB(r, g, b);
+    }
+    RegCloseKey(key);
+    if (!n) return;
+    syncing = TRUE;
+    SetSysColors(n, indices, values);
+    syncing = FALSE;
+}
+
 /* read the active theme back from the registry, so the shell knows the wallpaper, icons and Start menu style */
 void theme_reload(void)
 {

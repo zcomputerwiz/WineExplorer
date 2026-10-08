@@ -199,19 +199,51 @@ static HBITMAP icon_to_menu_bitmap(HICON hIcon, int size)
     rc.right = size;
     rc.bottom = size;
 
+    /* small icons: one pixel above and below and a gap before the text, like the menus of Windows (rows of 20 pixels) */
+    if (size <= 16) { rc.right = size + 6; rc.bottom = size + 2; }
+
     screen_dc = GetDC(NULL);
     hdc = CreateCompatibleDC(screen_dc);
-    hbm = CreateCompatibleBitmap(screen_dc, size, size);
+    hbm = CreateCompatibleBitmap(screen_dc, rc.right, rc.bottom);
     old_bm = SelectObject(hdc, hbm);
 
     FillRect(hdc, &rc, GetSysColorBrush(COLOR_MENU));
-    DrawIconEx(hdc, 0, 0, hIcon, size, size, 0, NULL, DI_NORMAL);
+    DrawIconEx(hdc, 0, (rc.bottom - size) / 2, hIcon, size, size, 0, NULL, DI_NORMAL);
 
     SelectObject(hdc, old_bm);
     DeleteDC(hdc);
     ReleaseDC(NULL, screen_dc);
     DestroyIcon(hIcon);
     return hbm;
+}
+
+/* an icon on a canvas of the menu color, with room around it (the classic Start menu has 32 pixel icons and a gap) */
+static HBITMAP get_padded_icon_bitmap_app(const WCHAR *app, int id, int size, int left, int right);
+
+static HBITMAP get_padded_icon_bitmap(int id, int size, int left, int right)
+{
+    return get_padded_icon_bitmap_app(NULL, id, size, left, right);
+}
+
+static HBITMAP get_padded_icon_bitmap_app(const WCHAR *app, int id, int size, int left, int right)
+{
+    HICON icon = app ? shellres_app_icon(app, size) : NULL;
+
+    if (!icon) icon = load_shell_icon(-id, size);
+    HDC screen = GetDC(NULL), dc = CreateCompatibleDC(screen);
+    HBITMAP bmp = CreateCompatibleBitmap(screen, left + size + right, size), old = SelectObject(dc, bmp);
+    RECT rc = { 0, 0, left + size + right, size };
+
+    FillRect(dc, &rc, GetSysColorBrush(COLOR_MENU));
+    if (icon)
+    {
+        DrawIconEx(dc, left, 0, icon, size, size, 0, NULL, DI_NORMAL);
+        DestroyIcon(icon);
+    }
+    SelectObject(dc, old);
+    DeleteDC(dc);
+    ReleaseDC(NULL, screen);
+    return bmp;
 }
 
 static HBITMAP get_shell32_icon_bitmap(int index, int size)
@@ -246,7 +278,7 @@ static HBITMAP get_file_icon_bitmap(const WCHAR *file_path, int size)
     WCHAR target[MAX_PATH];
     HICON hIcon = NULL;
 
-    if (PathIsDirectoryW(file_path)) hIcon = shellres_icon(4, size);            /* folder */
+    if (PathIsDirectoryW(file_path)) hIcon = shellres_icon(20, size);           /* folder of the Programs menu */
     if (!hIcon)
     {
         shortcut_target(file_path, target);
@@ -268,10 +300,21 @@ static HBITMAP get_file_icon_bitmap(const WCHAR *file_path, int size)
     return icon_to_menu_bitmap(hIcon, size);
 }
 
+/* a popup menu without room for check marks: the pictures start at the left edge, like on Windows */
+static HMENU create_picture_menu(void)
+{
+    HMENU menu = CreatePopupMenu();
+    MENUINFO info = { sizeof(info), MIM_STYLE, MNS_NOCHECK };
+
+    SetMenuInfo(menu, &info);
+    return menu;
+}
+
 static void append_menu_item_icon(HMENU hMenu, UINT uFlags, UINT_PTR uIDNewItem,
                                   LPCWSTR lpNewItem, HBITMAP hbm)
 {
     MENUITEMINFOW mii;
+
     memset(&mii, 0, sizeof(mii));
     mii.cbSize = sizeof(mii);
     mii.fMask = MIIM_STRING | MIIM_FTYPE | MIIM_ID;
@@ -392,7 +435,7 @@ static void ensure_default_shortcuts(void)
     CreateDirectoryW(adm_dir, NULL);
     _snwprintf(gam_dir, MAX_PATH, L"%s\\Games", prog_dir);
     CreateDirectoryW(gam_dir, NULL);
-    _snwprintf(stu_dir, MAX_PATH, L"%s\\StartUp", prog_dir);
+    _snwprintf(stu_dir, MAX_PATH, L"%s\\Startup", prog_dir);
     CreateDirectoryW(stu_dir, NULL);
 
     /* Accessories items */
@@ -452,8 +495,8 @@ static void populate_programs_menu(HMENU hMenu, const WCHAR *path)
             hSub = find_existing_submenu(hMenu, fd.cFileName);
             if (!hSub)
             {
-                HBITMAP hbm = get_shell32_icon_bitmap(4, 16);
-                hSub = CreatePopupMenu();
+                HBITMAP hbm = get_shell32_icon_bitmap(20, 16);   /* the folders of the Programs menu show the Programs picture */
+                hSub = create_picture_menu();
                 append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSub, fd.cFileName, hbm);
             }
             populate_programs_menu(hSub, item_path);
@@ -517,6 +560,34 @@ static LRESULT CALLBACK startmenu_banner_proc(HWND hwnd, UINT msg, WPARAM wparam
 
         GetClientRect(hwnd, &rc);
         h = rc.bottom - rc.top;
+
+        {
+            /* the picture of the Windows shell (21 x 233), at the bottom of the menu; what is above is its top color */
+            HBITMAP pic = shellres_bitmap(L"explorer", 167, 0);
+
+            if (pic)
+            {
+                BITMAP bm;
+                HDC mem = CreateCompatibleDC(hdc);
+                HBITMAP prev = SelectObject(mem, pic);
+                COLORREF top;
+                HBRUSH brush;
+                RECT fill = rc;
+
+                GetObjectW(pic, sizeof(bm), &bm);
+                top = GetPixel(mem, 0, 0);
+                brush = CreateSolidBrush(top);
+                fill.bottom = h - bm.bmHeight;
+                if (fill.bottom > 0) FillRect(hdc, &fill, brush);
+                DeleteObject(brush);
+                BitBlt(hdc, 0, h - bm.bmHeight, bm.bmWidth, bm.bmHeight, mem, 0, 0, SRCCOPY);
+                SelectObject(mem, prev);
+                DeleteDC(mem);
+                DeleteObject(pic);
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
+        }
 
         /* Paint authentic Windows XP Classic banner gradient:
          * Black at top, transitioning through dark navy to vibrant blue, back to navy at bottom */
@@ -688,10 +759,10 @@ static void run_dialog_inproc(HWND owner)
 static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 {
     HMENU hMenu = CreatePopupMenu();
-    HMENU hPrograms = CreatePopupMenu();
-    HMENU hDocuments = CreatePopupMenu();
-    HMENU hSettings = CreatePopupMenu();
-    HMENU hSearch = CreatePopupMenu();
+    HMENU hPrograms = create_picture_menu();
+    HMENU hDocuments = create_picture_menu();
+    HMENU hSettings = create_picture_menu();
+    HMENU hSearch = create_picture_menu();
     WCHAR user_programs[MAX_PATH];
     WCHAR common_programs[MAX_PATH];
     WCHAR my_docs[MAX_PATH];
@@ -744,21 +815,26 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     append_menu_item_icon(hSearch, MF_STRING, STARTMENU_CMD_SEARCH_COMPUTERS, L"For &Computers...", get_shell32_icon_bitmap(135, 16));
 
     /* Load authentic icon bitmaps from shell32 (24x24 for authentic Windows XP classic scale) */
-    bm_progacc = get_shell32_icon_bitmap(37, 24); /* Set Program Access and Defaults */
-    if (!bm_progacc) bm_progacc = get_shell32_icon_bitmap(36, 24);
-    bm_catalog = get_shell32_icon_bitmap(14, 24);  /* Windows Catalog */
-    bm_update  = get_shell32_icon_bitmap(47, 24);  /* Windows Update */
-    bm_prog    = get_shell32_icon_bitmap(20, 24);   /* Programs */
-    bm_doc     = get_shell32_icon_bitmap(21, 24);   /* Documents */
-    bm_set     = get_shell32_icon_bitmap(22, 24);  /* Settings */
-    bm_srch    = get_shell32_icon_bitmap(23, 24);  /* Search */
-    bm_help    = get_shell32_icon_bitmap(24, 24);  /* Help */
-    bm_run     = get_shell32_icon_bitmap(25, 24);  /* Run */
-    bm_logoff  = get_shell32_icon_bitmap(45, 24);  /* Log Off key */
-    bm_shut    = get_shell32_icon_bitmap(221, 24);  /* Turn Off red button */
+    bm_progacc = get_padded_icon_bitmap_app(L"setprogramaccess.exe", 37, 32, 2, 8); /* Set Program Access and Defaults */
+    
+    bm_catalog = get_padded_icon_bitmap(14, 32, 2, 8);  /* Windows Catalog */
+    bm_update  = get_padded_icon_bitmap(47, 32, 2, 8);  /* Windows Update */
+    bm_prog    = get_padded_icon_bitmap(20, 32, 2, 8);   /* Programs */
+    bm_doc     = get_padded_icon_bitmap(21, 32, 2, 8);   /* Documents */
+    bm_set     = get_padded_icon_bitmap(22, 32, 2, 8);  /* Settings */
+    bm_srch    = get_padded_icon_bitmap(23, 32, 2, 8);  /* Search */
+    bm_help    = get_padded_icon_bitmap(24, 32, 2, 8);  /* Help */
+    bm_run     = get_padded_icon_bitmap(25, 32, 2, 8);  /* Run */
+    bm_logoff  = get_padded_icon_bitmap(45, 32, 2, 8);  /* Log Off key */
+    bm_shut    = get_padded_icon_bitmap(28, 32, 2, 8);  /* Turn Off red button */
 
+    {
+        /* no room for check marks: the pictures start at the left edge, like on Windows */
+        MENUINFO mi = { sizeof(mi), MIM_STYLE, MNS_NOCHECK };
+        SetMenuInfo(hMenu, &mi);
+    }
     /* Top Pinned Items */
-    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_PROGACCESS, L"Set &Program Access and Defaults", bm_progacc);
+    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_PROGACCESS, L"Set Pr&ogram Access and Defaults", bm_progacc);
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_CATALOG, L"Windows &Catalog", bm_catalog);
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_UPDATE, L"Windows &Update", bm_update);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
@@ -1142,6 +1218,7 @@ static void panel_layout(void)
             it = panel_add(ZONE_PLACES, &r, g_right_items[i].cmd);
             it->title = g_right_items[i].title;
             it->icon_idx = g_right_items[i].icon_idx;
+            if (it->cmd == STARTMENU_CMD_PROGACCESS) it->exe = L"setprogramaccess.exe";
             it->bold = g_right_items[i].is_bold;
             any_before = TRUE;
             y += ih;
@@ -2131,7 +2208,7 @@ BOOL startmenu_view_is_open(void)
 int startbutton_get_desired_width(void)
 {
     HTHEME theme = theme_open(NULL, L"Start::Button");
-    int width = 58;
+    int width = 53;   /* Windows Classic: measured on Windows XP */
 
     if (theme)
     {
@@ -2240,11 +2317,25 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                 FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
             }
 
-            icon_x = rc.left + 4 + (g_button_pressed ? 1 : 0);
-            icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2 + (g_button_pressed ? 1 : 0);
+            icon_x = rc.left + 2 + (g_button_pressed ? 1 : 0);
+            icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2 + 1 + (g_button_pressed ? 1 : 0);
 
-            if (g_winlogo_icon)
-                DrawIconEx(hdc, icon_x, icon_y, g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
+            {
+                /* the classic button shows the flag picture of the shell (IDB_STARTCLASSIC, black is transparent) */
+                HBITMAP flag = shellres_bitmap(L"explorer", 176, 0);
+
+                if (flag)
+                {
+                    HDC mem = CreateCompatibleDC(hdc);
+                    HBITMAP prev = SelectObject(mem, flag);
+                    TransparentBlt(hdc, icon_x, icon_y, 16, 16, mem, 0, 0, 16, 16, RGB(0, 0, 0));
+                    SelectObject(mem, prev);
+                    DeleteDC(mem);
+                    DeleteObject(flag);
+                }
+                else if (g_winlogo_icon)
+                    DrawIconEx(hdc, icon_x, icon_y, g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
+            }
 
             memset(&lf, 0, sizeof(lf));
             lf.lfHeight = -11;
@@ -2253,7 +2344,7 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
             font = CreateFontIndirectW(&lf);
 
             text_rc = rc;
-            text_rc.left = icon_x + icon_size + 4;
+            text_rc.left = icon_x + icon_size + 1;
             text_rc.top = rc.top + (g_button_pressed ? 1 : 0);
             text_rc.bottom = rc.bottom + (g_button_pressed ? 1 : 0);
 

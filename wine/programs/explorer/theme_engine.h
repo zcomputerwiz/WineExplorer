@@ -110,6 +110,7 @@ typedef struct _THEME_CONFIG
 /* Theme Engine API */
 void theme_init(HWND hwnd_main);
 void theme_reload(void);
+void theme_sync_colors(void);
 void theme_cleanup(void);
 
 BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *out_config);

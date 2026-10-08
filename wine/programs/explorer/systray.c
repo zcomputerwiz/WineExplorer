@@ -570,7 +570,7 @@ static void update_tray_layout(void)
         int taskband_x, taskband_w;
         struct icon *icon;
 
-        toolbars_layout( tray_window, start_button_width + 4, rcTray.left, tray_height, &taskband_x, &taskband_w );
+        toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_height, &taskband_x, &taskband_w );
         tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
         taskband_resize( taskband_x, 0, taskband_w, tray_height );
 
@@ -1653,10 +1653,10 @@ static void do_show_systray(void)
 
         startbutton_create( tray_window, 2, 2, start_button_width, 24 );
         if (theme_is_visual_styles_active()) startbutton_resize( 0, 0, start_button_width, tray_height );
-        else startbutton_resize( 2, 2, start_button_width, tray_height - 4 );
+        else startbutton_resize( 1, 3, start_button_width, tray_height - 5 );
 
         toolbars_create( tray_window );
-        toolbars_layout( tray_window, start_button_width + 4, rcTray.left, tray_height, &taskband_x, &taskband_w );
+        toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_height, &taskband_x, &taskband_w );
 
         tray_clock_create( tray_window, rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
         tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
@@ -1689,9 +1689,9 @@ static void update_taskbar_layout(void)
     if (theme_is_visual_styles_active())
         startbutton_resize( 0, 0, start_button_width, tray_height );
     else
-        startbutton_resize( 2, 2, start_button_width, tray_height - 4 );
+        startbutton_resize( 1, 3, start_button_width, tray_height - 5 );
 
-    toolbars_layout( tray_window, start_button_width + 4, rcTray.left, tray_height, &taskband_x, &taskband_w );
+    toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_height, &taskband_x, &taskband_w );
     tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
     taskband_resize( taskband_x, 0, taskband_w, tray_height );
     position_taskbar();
@@ -1797,9 +1797,14 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
             }
             else
             {
-                RECT inner = chev;
-                InflateRect( &inner, 0, -4 );
-                DrawFrameControl( hdc, &inner, DFC_SCROLL, tray_expanded ? DFCS_SCROLLRIGHT : DFCS_SCROLLLEFT );
+                /* Windows Classic: the two arrows are plain text, no button */
+                HFONT font = CreateFontW( -11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0, 0, 0, L"Tahoma" );
+                HFONT prev = SelectObject( hdc, font );
+                SetBkMode( hdc, TRANSPARENT );
+                SetTextColor( hdc, GetSysColor( COLOR_BTNTEXT ) );
+                DrawTextW( hdc, tray_expanded ? L"\u00bb" : L"\u00ab", -1, &chev, DT_CENTER | DT_VCENTER | DT_SINGLELINE );
+                SelectObject( hdc, prev );
+                DeleteObject( font );
             }
         }
 
@@ -1854,6 +1859,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_THEMECHANGED:
         /* the icon packs belong to the theme: reload them everywhere */
         theme_reload();
+        theme_sync_colors();
         shellres_reset();
         desktop_view_refresh();
         toolbars_refresh();

@@ -48,3 +48,10 @@ Modified Wine files keep their original header. ReactOS-derived programs keep th
 - `programs/explorer/explorer.c`: window class is `CabinetWClass`; the window chrome moved to `browser_ui.c` (menu bar, Standard
   Buttons, Address bar with Go, activity logo, status bar) and `browser_taskpane.c` (File and Folder Tasks / Other Places /
   Details, drawn with the ExplorerBar class).  Toolbar and logo pictures come from ReactOS browseui (`res_browser/`).
+
+## Menu accelerator underlines (Windows XP behavior)
+
+* `dlls/user32/text.c`: `DrawText` honors `DT_HIDEPREFIX` (the `&` is removed, the letter is not underlined).
+* `dlls/win32u/menu.c`: menus hide the accelerator underlines until a key is used while the menu is open (or
+  `SPI_GETKEYBOARDCUES` is set), like Windows XP; menu items with a 32 pixel picture are exactly as high as the
+  picture (the classic Start menu).

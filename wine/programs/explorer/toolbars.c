@@ -41,7 +41,11 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define TB_CLASS        L"WineTaskbarToolbar"
-#define GRIPPER_W       9
+static int gripper_w(void)
+{
+    return IsThemeActive() ? 9 : 12;   /* the classic gripper is a 3 pixel raised bar with room around it */
+}
+#define GRIPPER_W       gripper_w()
 #define BUTTON_W        23    /* 16 pixel icon with 3 pixels either side, like a Luna toolbar button */
 #define CHEVRON_W       13
 #define MAX_ITEMS       64
@@ -261,8 +265,13 @@ static void load_items(TOOLBAR *tb)
     switch (tb->kind)
     {
     case TOOLBAR_QUICKLAUNCH:
-        add_item(tb, L"", L"Show Desktop", NULL);
+        add_item(tb, L"", L"Show Desktop", shellres_module_icon(L"explorer", 103, 16));
         if (toolbar_folder(tb->kind, dir)) add_folder_items(tb, dir);
+        if (tb->count == 1)
+        {
+            /* a fresh profile: "Launch Internet Explorer Browser", like the default Quick Launch of Windows */
+            add_item(tb, L"iexplore.exe", L"Launch Internet Explorer Browser", shellres_app_icon(L"iexplore.exe", 16) ? shellres_app_icon(L"iexplore.exe", 16) : shellres_icon(3, 16));
+        }
         break;
     case TOOLBAR_LINKS:
     case TOOLBAR_CUSTOM:
@@ -332,6 +341,7 @@ static int preferred_width(TOOLBAR *tb)
     font = CreateFontIndirectW(&ncm.lfMessageFont);
     old = SelectObject(hdc, font);
     for (i = 0, width = GRIPPER_W + title_width(tb); i < tb->count; i++) width += item_width(hdc, &tb->items[i], tb->show_text);
+    if (!IsThemeActive()) width += 2;
     SelectObject(hdc, old);
     DeleteObject(font);
     ReleaseDC(NULL, hdc);
@@ -431,7 +441,14 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
     int i;
 
     GetClientRect(tb->hwnd, &rc);
-    if (!theme_draw_taskbar_background(tb->hwnd, hdc)) FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+    if (!theme_draw_taskbar_background(tb->hwnd, hdc))
+    {
+        RECT top = rc;
+
+        FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+        top.top = 1; top.bottom = 2;   /* the highlight line along the top of the Windows Classic taskbar */
+        FillRect(hdc, &top, GetSysColorBrush(COLOR_BTNHIGHLIGHT));
+    }
 
     /* a locked taskbar only shows a thin separator, an unlocked one the gripper handle */
     grip = rc;
@@ -442,7 +459,12 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
         FillRect(hdc, &line, GetSysColorBrush(rebar ? COLOR_HOTLIGHT : COLOR_BTNSHADOW));
     }
     else if (rebar) DrawThemeBackground(rebar, hdc, RP_GRIPPER, 0, &grip, NULL);
-    else DrawEdge(hdc, &grip, EDGE_RAISED, BF_RECT);
+    else
+    {
+        /* Windows Classic: a raised bar, 3 pixels wide and 18 high */
+        RECT bar = { rc.left + 1, rc.top + 6, rc.left + 4, rc.top + 24 };
+        DrawEdge(hdc, &bar, BDR_RAISEDINNER, BF_RECT);
+    }
 
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     font = CreateFontIndirectW(&ncm.lfMessageFont);
@@ -1202,6 +1224,7 @@ static int band_width(TOOLBAR *tb)
 void toolbars_layout(HWND tray, int x, int tray_left, int height, int *task_x, int *task_w)
 {
     int i, total = 0, avail, widths[TOOLBAR_COUNT + 1] = { 0 }, min_task = 120, cursor;
+    int gap = IsThemeActive() ? 2 : 0;
 
     load_bands();
     avail = tray_left - x - 4;
@@ -1210,7 +1233,7 @@ void toolbars_layout(HWND tray, int x, int tray_left, int height, int *task_x, i
         int band = g_order[i];
         if (band == TASK_BAND || !g_tb[band].hwnd) continue;
         widths[i] = band_width(&g_tb[band]);
-        total += widths[i] + 2;
+        total += widths[i] + gap;
     }
     /* give way: the last toolbars shrink so that the task buttons keep a minimum */
     for (i = TOOLBAR_COUNT; i >= 0 && total > avail - min_task; i--)
@@ -1230,12 +1253,12 @@ void toolbars_layout(HWND tray, int x, int tray_left, int height, int *task_x, i
         {
             g_task_x = cursor;
             g_task_w = widths[i];
-            cursor += widths[i] + 2;
+            cursor += widths[i] + gap;
         }
         else if (g_tb[band].hwnd)
         {
             SetWindowPos(g_tb[band].hwnd, NULL, cursor, 0, widths[i], height, SWP_NOZORDER | SWP_NOACTIVATE);
-            cursor += widths[i] + 2;
+            cursor += widths[i] + gap;
         }
     }
     *task_x = g_task_x;

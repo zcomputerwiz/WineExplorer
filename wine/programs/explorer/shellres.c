@@ -110,6 +110,13 @@ HICON shellres_app_icon(const WCHAR *exe, int size)
     return LoadImageW(NULL, path, IMAGE_ICON, size, size, LR_LOADFROMFILE | LR_DEFAULTCOLOR);
 }
 
+/* an icon of any module of the genuine pack (explorer, browseui ...) by resource id */
+HICON shellres_module_icon(const WCHAR *module, int id, int size)
+{
+    HMODULE pack = pack_module(module);
+    return pack ? LoadImageW(pack, MAKEINTRESOURCEW(id), IMAGE_ICON, size, size, LR_DEFAULTCOLOR) : NULL;
+}
+
 HICON shellres_icon(int id, int size)
 {
     HMODULE pack = pack_module(L"shell32"), shell32;
