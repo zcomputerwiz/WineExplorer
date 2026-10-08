@@ -39,12 +39,14 @@
 #include "theme_engine.h"
 extern RECT systray_get_notify_rect(void);
 #include "tray_clock.h"
+#include "taskbar_props.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define IDT_CLOCK_TIMER 1
 
 static HWND g_tray_clock_hwnd = NULL;
+static HWND g_clock_tip = NULL;
 static HWND g_calendar_popup_hwnd = NULL;
 
 static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -86,15 +88,23 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         /* Format local short time (e.g. 5:45 PM) */
         GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, NULL, NULL, time_str, sizeof(time_str)/sizeof(WCHAR));
 
-        memset(&lf, 0, sizeof(lf));
-        lf.lfHeight = -11;
-        lf.lfWeight = FW_NORMAL;
-        lstrcpyW(lf.lfFaceName, L"Tahoma");
-        font = CreateFontIndirectW(&lf);
+        {
+            NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+            COLORREF color = GetSysColor(COLOR_BTNTEXT);
+            HTHEME clock = theme_open(hwnd, L"TrayNotify::Clock");
 
-        old_font = SelectObject(hdc, font);
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+            lf = ncm.lfStatusFont;
+            if (clock)
+            {
+                GetThemeColor(clock, 0, 0, TMT_TEXTCOLOR, &color);
+                CloseThemeData(clock);
+            }
+            font = CreateFontIndirectW(&lf);
+            old_font = SelectObject(hdc, font);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, color);
+        }
 
         DrawTextW(hdc, time_str, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
@@ -102,6 +112,56 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         DeleteObject(font);
 
         EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_CREATE:
+    {
+        TOOLINFOW ti = { sizeof(ti), TTF_SUBCLASS };
+        g_clock_tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                                      0, 0, 0, 0, hwnd, NULL, GetModuleHandleW(NULL), NULL);
+        ti.hwnd = hwnd;
+        ti.uId = 1;
+        ti.lpszText = LPSTR_TEXTCALLBACKW;
+        GetClientRect(hwnd, &ti.rect);
+        SendMessageW(g_clock_tip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+        return 0;
+    }
+
+    case WM_SIZE:
+    {
+        TOOLINFOW ti = { sizeof(ti) };
+        ti.hwnd = hwnd;
+        ti.uId = 1;
+        GetClientRect(hwnd, &ti.rect);
+        SendMessageW(g_clock_tip, TTM_NEWTOOLRECTW, 0, (LPARAM)&ti);
+        return 0;
+    }
+
+    case WM_NOTIFY:
+        if (((NMHDR *)lparam)->hwndFrom == g_clock_tip && ((NMHDR *)lparam)->code == TTN_GETDISPINFOW)
+        {
+            /* the tip shows the full date, like "Thursday, October 08, 2026" */
+            NMTTDISPINFOW *info = (NMTTDISPINFOW *)lparam;
+            GetDateFormatW(LOCALE_USER_DEFAULT, DATE_LONGDATE, NULL, NULL, info->szText, ARRAY_SIZE(info->szText));
+            return 0;
+        }
+        break;
+
+    case WM_CONTEXTMENU:
+    {
+        HMENU menu = CreatePopupMenu();
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        UINT cmd;
+
+        AppendMenuW(menu, MF_STRING, 1, L"&Adjust Date/Time");
+        SetMenuDefaultItem(menu, 1, FALSE);
+        AppendMenuW(menu, MF_STRING, 2, L"&Customize Notifications");
+        SetForegroundWindow(GetAncestor(hwnd, GA_ROOT));
+        cmd = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
+        DestroyMenu(menu);
+        if (cmd == 1) ShellExecuteW(NULL, L"open", L"control.exe", L"timedate.cpl", NULL, SW_SHOWNORMAL);
+        else if (cmd == 2) taskbar_props_show(GetAncestor(hwnd, GA_ROOT));
         return 0;
     }
 
