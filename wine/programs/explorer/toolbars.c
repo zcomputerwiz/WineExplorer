@@ -79,8 +79,30 @@ typedef struct _TOOLBAR
 static TOOLBAR g_tb[TOOLBAR_COUNT];
 static BOOL g_all_minimized;
 
-static const WCHAR *const tb_names[TOOLBAR_COUNT] = { L"Quick Launch", L"Address", L"Links", L"Desktop" };
-static const WCHAR *const tb_values[TOOLBAR_COUNT] = { L"QuickLaunch", L"Address", L"Links", L"Desktop" };
+static const WCHAR *const tb_fixed_values[4] = { L"QuickLaunch", L"Address", L"Links", L"Desktop" };
+static const WCHAR *const tb_fixed_names[4] = { L"Quick Launch", L"Address", L"Links", L"Desktop" };
+static WCHAR g_custom_dir[TOOLBAR_CUSTOM_MAX][MAX_PATH];
+
+/* bands: the order of the toolbars and the task buttons (TASK_BAND) along the taskbar, and the width of each */
+#define TASK_BAND TOOLBAR_COUNT
+static int g_order[TOOLBAR_COUNT + 1];
+static int g_width[TOOLBAR_COUNT];
+static BOOL g_order_loaded;
+
+static const WCHAR *tb_name(int kind)
+{
+    static WCHAR names[TOOLBAR_CUSTOM_MAX][MAX_PATH];
+
+    if (kind < TOOLBAR_CUSTOM) return tb_fixed_names[kind];
+    lstrcpynW(names[kind - TOOLBAR_CUSTOM], PathFindFileNameW(g_custom_dir[kind - TOOLBAR_CUSTOM]), MAX_PATH);
+    return names[kind - TOOLBAR_CUSTOM];
+}
+
+static void tb_value(int kind, WCHAR *out)
+{
+    if (kind < TOOLBAR_CUSTOM) lstrcpyW(out, tb_fixed_values[kind]);
+    else swprintf(out, 16, L"Custom%d", kind - TOOLBAR_CUSTOM);
+}
 static const WCHAR tb_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Taskbar\\Toolbars";
 
 /* ---- Show Desktop ---- */
@@ -192,6 +214,11 @@ static BOOL toolbar_folder(int kind, WCHAR *dir)
     case TOOLBAR_DESKTOP:
         return SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, SHGFP_TYPE_CURRENT, dir));
     }
+    if (kind >= TOOLBAR_CUSTOM && g_custom_dir[kind - TOOLBAR_CUSTOM][0])
+    {
+        lstrcpynW(dir, g_custom_dir[kind - TOOLBAR_CUSTOM], MAX_PATH);
+        return TRUE;
+    }
     return FALSE;
 }
 
@@ -238,6 +265,10 @@ static void load_items(TOOLBAR *tb)
         if (toolbar_folder(tb->kind, dir)) add_folder_items(tb, dir);
         break;
     case TOOLBAR_LINKS:
+    case TOOLBAR_CUSTOM:
+    case TOOLBAR_CUSTOM + 1:
+    case TOOLBAR_CUSTOM + 2:
+    case TOOLBAR_CUSTOM + 3:
         if (toolbar_folder(tb->kind, dir)) add_folder_items(tb, dir);
         break;
     case TOOLBAR_DESKTOP:
@@ -280,7 +311,7 @@ static int title_width(TOOLBAR *tb)
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     font = CreateFontIndirectW(&ncm.lfMessageFont);
     old = SelectObject(hdc, font);
-    GetTextExtentPoint32W(hdc, tb_names[tb->kind], lstrlenW(tb_names[tb->kind]), &size);
+    GetTextExtentPoint32W(hdc, tb_name(tb->kind), lstrlenW(tb_name(tb->kind)), &size);
     SelectObject(hdc, old);
     DeleteObject(font);
     ReleaseDC(NULL, hdc);
@@ -432,7 +463,7 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
         }
         previous = title_font ? SelectObject(hdc, title_font) : NULL;
         SetTextColor(hdc, color);
-        DrawTextW(hdc, tb_names[tb->kind], -1, &label, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        DrawTextW(hdc, tb_name(tb->kind), -1, &label, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         if (previous) SelectObject(hdc, previous);
         if (title_font) DeleteObject(title_font);
     }
@@ -591,7 +622,9 @@ static void show_context_menu(TOOLBAR *tb, POINT screen)
         if (!RegCreateKeyExW(HKEY_CURRENT_USER, tb_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL))
         {
             WCHAR name[64];
-            swprintf(name, ARRAY_SIZE(name), L"%sText", tb_values[tb->kind]);
+            WCHAR value[16];
+            tb_value(tb->kind, value);
+            swprintf(name, ARRAY_SIZE(name), L"%sText", value);
             v = tb->show_text;
             RegSetValueExW(key, name, 0, REG_DWORD, (BYTE *)&v, sizeof(v));
             RegCloseKey(key);
@@ -648,6 +681,70 @@ static void position_combo(TOOLBAR *tb)
     SetWindowPos(tb->go, NULL, rc.right - GO_W - 2, (rc.bottom - 22) / 2, GO_W, 22, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+static void save_bands(void);
+static int g_drag_kind = -1, g_drag_start, g_drag_width;
+void toolbars_task_rect(int *x, int *w);
+
+static int band_index(int band)
+{
+    int i;
+    for (i = 0; i <= TOOLBAR_COUNT; i++) if (g_order[i] == band) return i;
+    return -1;
+}
+
+/* Moving a gripper: the band widens or narrows by what the mouse moved, and changes place with a neighbor once the
+ * pointer passes its middle. */
+static void drag_band(TOOLBAR *tb, int screen_x)
+{
+    int dx = screen_x - g_drag_start, pos = band_index(tb->kind), step, other;
+    RECT rc;
+    int min = GRIPPER_W + CHEVRON_W + 2;
+
+    if (pos < 0) return;
+    for (step = -1; step <= 1; step += 2)
+    {
+        int at = pos + step, w;
+        while (at >= 0 && at <= TOOLBAR_COUNT && g_order[at] != TASK_BAND && !g_tb[g_order[at]].hwnd) at += step;
+        if (at < 0 || at > TOOLBAR_COUNT) continue;
+        other = g_order[at];
+        if (other == TASK_BAND)
+        {
+            HWND tray = GetParent(tb->hwnd);
+            RECT t;
+            int tx, tw;
+            toolbars_task_rect(&tx, &tw);
+            SetRect(&t, tx, 0, tx + tw, 1);
+            MapWindowPoints(tray, NULL, (POINT *)&t, 2);
+            rc = t;
+        }
+        else GetWindowRect(g_tb[other].hwnd, &rc);
+        w = rc.right - rc.left;
+        if ((step < 0 && screen_x < rc.left + w / 2 - 4 && other != TASK_BAND) ||
+            (step > 0 && screen_x > rc.left + w / 2 + 4 && other != TASK_BAND) ||
+            (other == TASK_BAND && ((step < 0 && screen_x < rc.left + 4) || (step > 0 && screen_x > rc.right - 4))))
+        {
+            int tmp = g_order[pos];
+            g_order[pos] = g_order[at];
+            g_order[at] = tmp;
+            g_drag_start = screen_x;
+            GetClientRect(tb->hwnd, &rc);
+            g_drag_width = rc.right;
+            SendMessageW(GetParent(tb->hwnd), WM_SETTINGCHANGE, 0, 0);
+            return;
+        }
+    }
+    /* resize: a band right of the task buttons grows when its gripper goes left, one on the left side the other way */
+    {
+        int before_task = pos < band_index(TASK_BAND);
+        int w = before_task ? g_drag_width + dx : g_drag_width - dx;
+
+        if (w < min) w = min;
+        if (w > 700) w = 700;
+        if (tb->kind != TOOLBAR_ADDRESS || TRUE) g_width[tb->kind] = w;
+        SendMessageW(GetParent(tb->hwnd), WM_SETTINGCHANGE, 0, 0);
+    }
+}
+
 static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     TOOLBAR *tb = toolbar_from_hwnd(hwnd);
@@ -702,7 +799,16 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
 
     case WM_MOUSEMOVE:
     {
-        int hot = hit_test(tb, (short)LOWORD(lparam), (short)HIWORD(lparam));
+        int hot;
+
+        if (g_drag_kind == tb->kind && GetCapture() == hwnd)
+        {
+            POINT pt;
+            GetCursorPos(&pt);
+            drag_band(tb, pt.x);
+            return 0;
+        }
+        hot = hit_test(tb, (short)LOWORD(lparam), (short)HIWORD(lparam));
         POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
         BOOL chev = FALSE;
 
@@ -724,9 +830,34 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
 
+    case WM_SETCURSOR:
+    {
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(hwnd, &pt);
+        if (!tb_locked() && (pt.x < GRIPPER_W || g_drag_kind >= 0))
+        {
+            SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_SIZEWE));
+            return TRUE;
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
     case WM_LBUTTONDOWN:
     {
         POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        if (!tb_locked() && pt.x < GRIPPER_W)
+        {
+            RECT rc;
+            POINT screen = pt;
+            GetClientRect(hwnd, &rc);
+            ClientToScreen(hwnd, &screen);
+            g_drag_kind = tb->kind;
+            g_drag_start = screen.x;
+            g_drag_width = rc.right;
+            SetCapture(hwnd);
+            return 0;
+        }
         if (has_chevron(tb))
         {
             RECT c = chevron_rect(tb);
@@ -740,7 +871,18 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
 
     case WM_LBUTTONUP:
     {
-        int i = hit_test(tb, (short)LOWORD(lparam), (short)HIWORD(lparam)), was = tb->down;
+        int i;
+        int was;
+
+        if (g_drag_kind == tb->kind)
+        {
+            g_drag_kind = -1;
+            if (GetCapture() == hwnd) ReleaseCapture();
+            save_bands();
+            return 0;
+        }
+        i = hit_test(tb, (short)LOWORD(lparam), (short)HIWORD(lparam));
+        was = tb->down;
         if (GetCapture() == hwnd) ReleaseCapture();
         tb->down = -1;
         InvalidateRect(hwnd, NULL, FALSE);
@@ -797,7 +939,12 @@ static void read_text_flag(TOOLBAR *tb)
 
     /* Links shows its text by default, like on Windows */
     tb->show_text = tb->kind == TOOLBAR_LINKS;
-    swprintf(name, ARRAY_SIZE(name), L"%sText", tb_values[tb->kind]);
+    {
+        WCHAR value[16];
+        tb_value(tb->kind, value);
+        swprintf(name, ARRAY_SIZE(name), L"%sText", value);
+    }
+    tb->show_text = tb->kind == TOOLBAR_LINKS || tb->kind >= TOOLBAR_CUSTOM;
     if (!RegOpenKeyExW(HKEY_CURRENT_USER, tb_key, 0, KEY_READ, &key))
     {
         if (!RegQueryValueExW(key, name, NULL, NULL, (BYTE *)&v, &size)) tb->show_text = v != 0;
@@ -816,7 +963,7 @@ static void create_one(HWND tray, int kind)
     tb->hot = tb->down = -1;
     read_text_flag(tb);
     load_items(tb);
-    tb->hwnd = CreateWindowExW(0, TB_CLASS, tb_names[kind], WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+    tb->hwnd = CreateWindowExW(0, TB_CLASS, tb_name(kind), WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
                                0, 0, preferred_width(tb), 28, tray, NULL, GetModuleHandleW(NULL), (void *)(INT_PTR)kind);
     if (kind == TOOLBAR_ADDRESS && tb->combo)
     {
@@ -843,7 +990,7 @@ BOOL toolbars_is_visible(int kind)
     case TOOLBAR_LINKS: return s->show_links;
     case TOOLBAR_DESKTOP: return s->show_desktop_toolbar;
     }
-    return FALSE;
+    return kind >= TOOLBAR_CUSTOM && g_custom_dir[kind - TOOLBAR_CUSTOM][0];
 }
 
 void toolbars_set_visible(HWND tray, int kind, BOOL visible)
@@ -856,21 +1003,169 @@ void toolbars_set_visible(HWND tray, int kind, BOOL visible)
     case TOOLBAR_ADDRESS: s->show_address = visible; break;
     case TOOLBAR_LINKS: s->show_links = visible; break;
     case TOOLBAR_DESKTOP: s->show_desktop_toolbar = visible; break;
+    default:
+        if (!visible && kind >= TOOLBAR_CUSTOM)
+        {
+            HKEY key;
+            WCHAR value[16], name[32];
+
+            tb_value(kind, value);
+            swprintf(name, ARRAY_SIZE(name), L"%sFolder", value);
+            if (!RegOpenKeyExW(HKEY_CURRENT_USER, tb_key, 0, KEY_SET_VALUE, &key))
+            {
+                RegDeleteValueW(key, name);
+                RegCloseKey(key);
+            }
+            g_custom_dir[kind - TOOLBAR_CUSTOM][0] = 0;
+        }
+        break;
     }
     taskbar_settings_save();
     if (visible) create_one(tray, kind); else destroy_one(kind);
     SendMessageW(tray, WM_SETTINGCHANGE, 0, 0);
 }
 
+static void create_one(HWND tray, int kind);
+
+static void load_bands(void)
+{
+    HKEY key;
+    int i;
+    WCHAR name[32], order[80];
+    DWORD size;
+
+    if (g_order_loaded) return;
+    g_order_loaded = TRUE;
+    if (!RegOpenKeyExW(HKEY_CURRENT_USER, tb_key, 0, KEY_READ, &key))
+    {
+        for (i = 0; i < TOOLBAR_CUSTOM_MAX; i++)
+        {
+            size = sizeof(g_custom_dir[i]);
+            swprintf(name, ARRAY_SIZE(name), L"Custom%dFolder", i);
+            if (RegQueryValueExW(key, name, NULL, NULL, (BYTE *)g_custom_dir[i], &size)) g_custom_dir[i][0] = 0;
+        }
+        for (i = 0; i < TOOLBAR_COUNT; i++)
+        {
+            WCHAR value[16];
+            DWORD w = 0;
+
+            size = sizeof(w);
+            tb_value(i, value);
+            swprintf(name, ARRAY_SIZE(name), L"%sWidth", value);
+            if (!RegQueryValueExW(key, name, NULL, NULL, (BYTE *)&w, &size)) g_width[i] = w;
+        }
+        size = sizeof(order);
+        if (RegQueryValueExW(key, L"Order", NULL, NULL, (BYTE *)order, &size)) order[0] = 0;
+        RegCloseKey(key);
+    }
+    else order[0] = 0;
+
+    /* the saved order, then whatever is missing in the default order (Quick Launch, task buttons, the rest) */
+    {
+        int n = 0, seen[TOOLBAR_COUNT + 1] = { 0 };
+        const WCHAR *p = order;
+
+        while (*p)
+        {
+            int v = _wtoi(p);
+            if (v >= 0 && v <= TASK_BAND && !seen[v]) { g_order[n++] = v; seen[v] = 1; }
+            while (*p && *p != ',') p++;
+            if (*p == ',') p++;
+        }
+        if (!seen[TOOLBAR_QUICKLAUNCH]) { g_order[n++] = TOOLBAR_QUICKLAUNCH; seen[TOOLBAR_QUICKLAUNCH] = 1; }
+        if (!seen[TASK_BAND]) { g_order[n++] = TASK_BAND; seen[TASK_BAND] = 1; }
+        for (i = 0; i < TOOLBAR_COUNT; i++) if (!seen[i]) g_order[n++] = i;
+    }
+}
+
+static void save_bands(void)
+{
+    HKEY key;
+    int i;
+    WCHAR order[80] = L"", item[8];
+
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, tb_key, 0, NULL, 0, KEY_WRITE, NULL, &key, NULL)) return;
+    for (i = 0; i <= TOOLBAR_COUNT; i++)
+    {
+        swprintf(item, ARRAY_SIZE(item), i ? L",%d" : L"%d", g_order[i]);
+        lstrcatW(order, item);
+    }
+    RegSetValueExW(key, L"Order", 0, REG_SZ, (BYTE *)order, (lstrlenW(order) + 1) * sizeof(WCHAR));
+    for (i = 0; i < TOOLBAR_COUNT; i++)
+    {
+        WCHAR value[16], name[32];
+        DWORD w = g_width[i];
+
+        tb_value(i, value);
+        swprintf(name, ARRAY_SIZE(name), L"%sWidth", value);
+        if (w) RegSetValueExW(key, name, 0, REG_DWORD, (BYTE *)&w, sizeof(w));
+    }
+    RegCloseKey(key);
+}
+
+BOOL toolbars_custom_name(int kind, WCHAR *name, int len)
+{
+    load_bands();
+    if (kind < TOOLBAR_CUSTOM || kind >= TOOLBAR_COUNT || !g_custom_dir[kind - TOOLBAR_CUSTOM][0]) return FALSE;
+    lstrcpynW(name, tb_name(kind), len);
+    return TRUE;
+}
+
+BOOL toolbars_add_custom(HWND tray, const WCHAR *folder)
+{
+    int i;
+
+    load_bands();
+    for (i = 0; i < TOOLBAR_CUSTOM_MAX; i++)
+    {
+        if (!g_custom_dir[i][0])
+        {
+            HKEY key;
+            WCHAR name[32];
+
+            lstrcpynW(g_custom_dir[i], folder, MAX_PATH);
+            swprintf(name, ARRAY_SIZE(name), L"Custom%dFolder", i);
+            if (!RegCreateKeyExW(HKEY_CURRENT_USER, tb_key, 0, NULL, 0, KEY_WRITE, NULL, &key, NULL))
+            {
+                RegSetValueExW(key, name, 0, REG_SZ, (BYTE *)folder, (lstrlenW(folder) + 1) * sizeof(WCHAR));
+                RegCloseKey(key);
+            }
+            create_one(tray, TOOLBAR_CUSTOM + i);
+            SendMessageW(tray, WM_SETTINGCHANGE, 0, 0);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* "New Toolbar...": pick a folder; the toolbar shows its contents */
+void toolbars_choose_new(HWND tray)
+{
+    BROWSEINFOW bi = { 0 };
+    WCHAR folder[MAX_PATH];
+    LPITEMIDLIST pidl;
+
+    bi.hwndOwner = tray;
+    bi.pszDisplayName = folder;
+    bi.lpszTitle = L"Choose a folder";
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    if (!(pidl = SHBrowseForFolderW(&bi))) return;
+    if (SHGetPathFromIDListW(pidl, folder)) toolbars_add_custom(tray, folder);
+    CoTaskMemFree(pidl);
+}
+
 void toolbars_create(HWND tray)
 {
     int kind;
+
+    load_bands();
     for (kind = 0; kind < TOOLBAR_COUNT; kind++)
         if (toolbars_is_visible(kind)) create_one(tray, kind);
 }
 
 void toolbars_destroy(void)
 {
+    save_bands();
     int kind;
     for (kind = 0; kind < TOOLBAR_COUNT; kind++) destroy_one(kind);
 }
@@ -890,43 +1185,60 @@ void toolbars_refresh(void)
     }
 }
 
+static int g_task_x, g_task_w;
+
+void toolbars_task_rect(int *x, int *w)
+{
+    *x = g_task_x;
+    *w = g_task_w;
+}
+
+static int band_width(TOOLBAR *tb)
+{
+    int w = g_width[tb->kind] ? g_width[tb->kind] : preferred_width(tb);
+    return max(w, GRIPPER_W + CHEVRON_W);
+}
+
 void toolbars_layout(HWND tray, int x, int tray_left, int height, int *task_x, int *task_w)
 {
-    int kind, right_total = 0, right;
-    int order[3] = { TOOLBAR_ADDRESS, TOOLBAR_LINKS, TOOLBAR_DESKTOP };
-    int i, avail;
+    int i, total = 0, avail, widths[TOOLBAR_COUNT + 1] = { 0 }, min_task = 120, cursor;
 
-    /* Quick Launch sits before the task buttons */
-    if (g_tb[TOOLBAR_QUICKLAUNCH].hwnd)
+    load_bands();
+    avail = tray_left - x - 4;
+    for (i = 0; i <= TOOLBAR_COUNT; i++)
     {
-        TOOLBAR *tb = &g_tb[TOOLBAR_QUICKLAUNCH];
-        int w = preferred_width(tb);
-        SetWindowPos(tb->hwnd, NULL, x, 0, w, height, SWP_NOZORDER | SWP_NOACTIVATE);
-        x += w + 2;
+        int band = g_order[i];
+        if (band == TASK_BAND || !g_tb[band].hwnd) continue;
+        widths[i] = band_width(&g_tb[band]);
+        total += widths[i] + 2;
     }
-    *task_x = x;
+    /* give way: the last toolbars shrink so that the task buttons keep a minimum */
+    for (i = TOOLBAR_COUNT; i >= 0 && total > avail - min_task; i--)
+    {
+        int give = min(total - (avail - min_task), max(0, widths[i] - (GRIPPER_W + CHEVRON_W)));
+        widths[i] -= give;
+        total -= give;
+    }
+    widths[band_index(TASK_BAND)] = max(50, avail - total);
 
-    /* the other toolbars follow the task buttons; they give way so that the task buttons keep at least 120 pixels */
-    avail = tray_left - x - 4 - 120;
-    for (i = 0; i < 3; i++)
+    cursor = x;
+    for (i = 0; i <= TOOLBAR_COUNT; i++)
     {
-        TOOLBAR *tb = &g_tb[order[i]];
-        if (tb->hwnd) right_total += preferred_width(tb) + 2;
-    }
-    if (right_total > avail && avail > 0) right_total = avail;
-    else if (avail <= 0) right_total = 0;
-    *task_w = max(50, tray_left - x - 4 - right_total);
+        int band = g_order[i];
 
-    right = *task_x + *task_w + 2;
-    for (i = 0; i < 3; i++)
-    {
-        TOOLBAR *tb = &g_tb[order[i]];
-        int w;
-        if (!tb->hwnd) continue;
-        w = min(preferred_width(tb), max(GRIPPER_W + CHEVRON_W, tray_left - 4 - right));
-        SetWindowPos(tb->hwnd, NULL, right, 0, w, height, SWP_NOZORDER | SWP_NOACTIVATE);
-        right += w + 2;
+        if (band == TASK_BAND)
+        {
+            g_task_x = cursor;
+            g_task_w = widths[i];
+            cursor += widths[i] + 2;
+        }
+        else if (g_tb[band].hwnd)
+        {
+            SetWindowPos(g_tb[band].hwnd, NULL, cursor, 0, widths[i], height, SWP_NOZORDER | SWP_NOACTIVATE);
+            cursor += widths[i] + 2;
+        }
     }
-    (void)kind;
+    *task_x = g_task_x;
+    *task_w = g_task_w;
     (void)tray;
 }

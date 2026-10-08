@@ -25,7 +25,15 @@
 
 #include <windows.h>
 
-enum { TOOLBAR_QUICKLAUNCH, TOOLBAR_ADDRESS, TOOLBAR_LINKS, TOOLBAR_DESKTOP, TOOLBAR_COUNT };
+/* the four toolbars of Windows, then the ones the user added ("New Toolbar...") */
+#define TOOLBAR_CUSTOM_MAX 4
+enum { TOOLBAR_QUICKLAUNCH, TOOLBAR_ADDRESS, TOOLBAR_LINKS, TOOLBAR_DESKTOP, TOOLBAR_CUSTOM,
+       TOOLBAR_COUNT = TOOLBAR_CUSTOM + TOOLBAR_CUSTOM_MAX };
+
+/* The toolbars the user added: the number of the slot is the kind - TOOLBAR_CUSTOM */
+BOOL toolbars_custom_name(int kind, WCHAR *name, int len);   /* FALSE if the slot is free */
+BOOL toolbars_add_custom(HWND tray, const WCHAR *folder);    /* TRUE if there was a free slot */
+void toolbars_choose_new(HWND tray);                         /* the "New Toolbar..." dialog */
 
 /* Create the windows of every enabled toolbar as children of the taskbar */
 void toolbars_create(HWND tray);

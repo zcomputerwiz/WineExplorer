@@ -1359,8 +1359,15 @@ static void track_tray_menu( POINT pt, BOOL include_time )
         AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_LINKS ) ? MF_CHECKED : 0), 3002, L"&Links" );
         AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_DESKTOP ) ? MF_CHECKED : 0), 3003, L"&Desktop" );
         AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_QUICKLAUNCH ) ? MF_CHECKED : 0), 3004, L"&Quick Launch" );
+        {
+            int c;
+            WCHAR cname[MAX_PATH];
+            for (c = 0; c < TOOLBAR_CUSTOM_MAX; c++)
+                if (toolbars_custom_name( TOOLBAR_CUSTOM + c, cname, MAX_PATH ))
+                    AppendMenuW( hToolbars, MF_STRING | MF_CHECKED, 3010 + c, cname );
+        }
         AppendMenuW( hToolbars, MF_SEPARATOR, 0, NULL );
-        AppendMenuW( hToolbars, MF_STRING | MF_GRAYED, 3005, L"&New Toolbar..." );
+        AppendMenuW( hToolbars, MF_STRING, 3005, L"&New Toolbar..." );
         AppendMenuW( hMenu, MF_POPUP, (UINT_PTR)hToolbars, L"&Toolbars" );
         AppendMenuW( hMenu, MF_SEPARATOR, 0, NULL );
     }
@@ -1426,6 +1433,8 @@ static void track_tray_menu( POINT pt, BOOL include_time )
     case 3002: toolbars_set_visible( tray_window, TOOLBAR_LINKS, !toolbars_is_visible( TOOLBAR_LINKS ) ); break;
     case 3003: toolbars_set_visible( tray_window, TOOLBAR_DESKTOP, !toolbars_is_visible( TOOLBAR_DESKTOP ) ); break;
     case 3004: toolbars_set_visible( tray_window, TOOLBAR_QUICKLAUNCH, !toolbars_is_visible( TOOLBAR_QUICKLAUNCH ) ); break;
+    case 3005: toolbars_choose_new( tray_window ); break;
+    case 3010: case 3011: case 3012: case 3013: toolbars_set_visible( tray_window, TOOLBAR_CUSTOM + cmd - 3010, FALSE ); break;
     }
 }
 
