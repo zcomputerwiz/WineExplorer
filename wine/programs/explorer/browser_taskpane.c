@@ -36,6 +36,7 @@
 #include "wine/debug.h"
 #include "theme_engine.h"
 #include "browser.h"
+#include "shellres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -359,8 +360,7 @@ static void paint(HWND hwnd, HDC hdc)
 
             if (l->icon_id)
             {
-                HICON icon = NULL;
-                ExtractIconExW(L"shell32.dll", -l->icon_id, NULL, &icon, 1);
+                HICON icon = shellres_icon(l->icon_id, LINK_ICON);
                 if (icon)
                 {
                     DrawIconEx(hdc, l->rc.left - LINK_ICON - 4, l->rc.top, icon, LINK_ICON, LINK_ICON, 0, NULL, DI_NORMAL);

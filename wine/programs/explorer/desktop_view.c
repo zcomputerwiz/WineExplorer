@@ -41,6 +41,7 @@
 #include "resource.h"
 #include "theme_engine.h"
 #include "desktop_view.h"
+#include "shellres.h"
 #include "wlan_dialog.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
@@ -123,6 +124,11 @@ static void free_all_items(void)
 
 static HICON load_shell_icon(int index)
 {
+    if (index < 0)
+    {
+        HICON icon = shellres_icon(-index, 32);
+        if (icon) return icon;
+    }
     HMODULE hShell = LoadLibraryW(L"shell32.dll");
     HICON hIcon = NULL;
     if (hShell)

@@ -34,13 +34,12 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "browser.h"
+#include "shellres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define ADDRESS_CLASS L"BrowserAddressBand"
 #define BRAND_CLASS   L"BrowserBrand"
-#define BRAND_FRAMES  32
-#define BRAND_SIZE    22
 #define TB_ICON       24
 
 /* positions in the toolbar picture strip */
@@ -350,6 +349,44 @@ static LRESULT CALLBACK address_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
 
 /* ---- activity logo ---- */
 
+/* The logo is a strip of square frames; the genuine pack has the 38 pixel one, the built-in one is 22 pixels */
+static HBITMAP brand_bitmap(int *size, int *frames)
+{
+    static HBITMAP cached;
+    static int cached_size, cached_frames;
+
+    if (!cached)
+    {
+        cached = shellres_bitmap(L"shell32", 242, IDB_BROWSER_BRAND);
+        if (cached)
+        {
+            BITMAP bm;
+            if (GetObjectW(cached, sizeof(bm), &bm))
+            {
+                cached_size = bm.bmWidth;
+                cached_frames = max(1, abs(bm.bmHeight) / bm.bmWidth);
+                if (bm.bmBitsPixel == 32 && bm.bmBits)
+                {
+                    /* straight alpha, if there is any, becomes premultiplied for AlphaBlend; none means opaque */
+                    DWORD *px = bm.bmBits;
+                    int i, n = bm.bmWidth * abs(bm.bmHeight);
+                    BOOL has_alpha = FALSE;
+                    for (i = 0; i < n && !has_alpha; i++) has_alpha = (px[i] >> 24) != 0;
+                    if (!has_alpha) for (i = 0; i < n; i++) px[i] |= 0xff000000;
+                    else for (i = 0; i < n; i++)
+                    {
+                        DWORD a = px[i] >> 24;
+                        px[i] = (a << 24) | ((((px[i] >> 16) & 255) * a / 255) << 16) | ((((px[i] >> 8) & 255) * a / 255) << 8) | ((px[i] & 255) * a / 255);
+                    }
+                }
+            }
+        }
+    }
+    *size = cached_size;
+    *frames = cached_frames;
+    return cached;
+}
+
 static LRESULT CALLBACK brand_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     explorer_info *info = (explorer_info *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
@@ -361,32 +398,8 @@ static LRESULT CALLBACK brand_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc;
-        static HBITMAP cached;
-        HBITMAP strip;
-
-        if (!cached)
-        {
-            /* the picture is stored with straight alpha; AlphaBlend wants premultiplied */
-            cached = LoadImageW(explorer_hInstance, MAKEINTRESOURCEW(IDB_BROWSER_BRAND), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
-            if (cached)
-            {
-                BITMAP bm;
-                if (GetObjectW(cached, sizeof(bm), &bm) && bm.bmBitsPixel == 32 && bm.bmBits)
-                {
-                    DWORD *px = bm.bmBits;
-                    int i, n = bm.bmWidth * abs(bm.bmHeight);
-                    BOOL has_alpha = FALSE;
-                    for (i = 0; i < n && !has_alpha; i++) has_alpha = (px[i] >> 24) != 0;
-                    if (!has_alpha) for (i = 0; i < n; i++) px[i] |= 0xff000000;   /* no alpha stored: opaque */
-                    else for (i = 0; i < n; i++)
-                    {
-                        DWORD a = px[i] >> 24;
-                        px[i] = (a << 24) | ((((px[i] >> 16) & 255) * a / 255) << 16) | ((((px[i] >> 8) & 255) * a / 255) << 8) | ((px[i] & 255) * a / 255);
-                    }
-                }
-            }
-        }
-        strip = cached;
+        int size, frames;
+        HBITMAP strip = brand_bitmap(&size, &frames);
 
         GetClientRect(hwnd, &rc);
         FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
@@ -395,9 +408,13 @@ static LRESULT CALLBACK brand_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             HDC mem = CreateCompatibleDC(hdc);
             HBITMAP prev = SelectObject(mem, strip);
             BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-            UINT frame = info && info->navigating ? info->brand_frame % BRAND_FRAMES : 0;
-            AlphaBlend(hdc, (rc.right - BRAND_SIZE) / 2, (rc.bottom - BRAND_SIZE) / 2, BRAND_SIZE, BRAND_SIZE,
-                       mem, 0, frame * BRAND_SIZE, BRAND_SIZE, BRAND_SIZE, blend);
+            BITMAP bm;
+            UINT frame = info && info->navigating ? info->brand_frame % frames : 0;
+            int x = (rc.right - size) / 2, y = (rc.bottom - size) / 2;
+
+            GetObjectW(strip, sizeof(bm), &bm);
+            if (bm.bmBitsPixel == 32) AlphaBlend(hdc, x, y, size, size, mem, 0, frame * size, size, size, blend);
+            else BitBlt(hdc, x, y, size, size, mem, 0, frame * size, SRCCOPY);
             SelectObject(mem, prev);
             DeleteDC(mem);
         }
@@ -412,17 +429,27 @@ static LRESULT CALLBACK brand_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 
 /* ---- bars ---- */
 
-static HIMAGELIST load_strip(int id)
+/* The picture strip of the Standard Buttons: the genuine shell32 bitmap if installed, else the built-in one.  Both
+ * have the same 47 pictures in the same order. */
+static HIMAGELIST load_strip(int shell32_id, int builtin_id)
 {
-    HBITMAP bmp = LoadImageW(explorer_hInstance, MAKEINTRESOURCEW(id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+    HBITMAP bmp = shellres_bitmap(L"shell32", shell32_id, builtin_id);
     HIMAGELIST list = NULL;
 
     if (bmp)
     {
         BITMAP bm;
         GetObjectW(bmp, sizeof(bm), &bm);
-        list = ImageList_Create(TB_ICON, TB_ICON, ILC_COLOR24 | ILC_MASK, bm.bmWidth / TB_ICON, 0);
-        ImageList_AddMasked(list, bmp, RGB(0, 0, 0));
+        if (bm.bmBitsPixel == 32)
+        {
+            list = ImageList_Create(TB_ICON, TB_ICON, ILC_COLOR32, bm.bmWidth / TB_ICON, 0);
+            ImageList_Add(list, bmp, NULL);
+        }
+        else
+        {
+            list = ImageList_Create(TB_ICON, TB_ICON, ILC_COLOR24 | ILC_MASK, bm.bmWidth / TB_ICON, 0);
+            ImageList_AddMasked(list, bmp, RGB(0, 0, 0));
+        }
         DeleteObject(bmp);
     }
     return list;
@@ -457,8 +484,8 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
                                     CCS_NORESIZE | CCS_NODIVIDER, 0, 0, 0, 0, info->rebar, NULL, explorer_hInstance, NULL);
     SendMessageW(info->toolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
     SendMessageW(info->toolbar, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS | TBSTYLE_EX_DRAWDDARROWS);
-    info->tb_normal = load_strip(IDB_BROWSER_TB);
-    info->tb_hot = load_strip(IDB_BROWSER_TB_HOT);
+    info->tb_normal = load_strip(214, IDB_BROWSER_TB);
+    info->tb_hot = load_strip(215, IDB_BROWSER_TB_HOT);
     if (info->tb_normal) SendMessageW(info->toolbar, TB_SETIMAGELIST, 0, (LPARAM)info->tb_normal);
     if (info->tb_hot) SendMessageW(info->toolbar, TB_SETHOTIMAGELIST, 0, (LPARAM)info->tb_hot);
 
@@ -499,12 +526,17 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
     SendMessageW(info->rebar, RB_INSERTBANDW, -1, (LPARAM)&band);
 
     /* activity logo, at the right end of the same row */
-    info->brand = CreateWindowExW(0, BRAND_CLASS, NULL, WS_CHILD | WS_VISIBLE, 0, 0, 40, 38, info->rebar, NULL, explorer_hInstance, NULL);
-    SetWindowLongPtrW(info->brand, GWLP_USERDATA, (LONG_PTR)info);
-    band.fStyle = RBBS_FIXEDSIZE | RBBS_NOGRIPPER;
-    band.hwndChild = info->brand;
-    band.cyMinChild = band.cyChild = 38;
-    band.cxMinChild = band.cx = 40;
+    {
+        int size, frames;
+        brand_bitmap(&size, &frames);
+        size = max(size, 22);
+        info->brand = CreateWindowExW(0, BRAND_CLASS, NULL, WS_CHILD | WS_VISIBLE, 0, 0, size + 18, band.cyChild, info->rebar, NULL, explorer_hInstance, NULL);
+        SetWindowLongPtrW(info->brand, GWLP_USERDATA, (LONG_PTR)info);
+        band.fStyle = RBBS_FIXEDSIZE | RBBS_NOGRIPPER;
+        band.hwndChild = info->brand;
+        band.cyMinChild = band.cyChild = max(band.cyChild, size + 4);
+        band.cxMinChild = band.cx = size + 18;
+    }
     SendMessageW(info->rebar, RB_INSERTBANDW, -1, (LPARAM)&band);
 
     /* Address bar: label, path box, Go */

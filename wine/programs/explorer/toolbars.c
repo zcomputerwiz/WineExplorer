@@ -36,6 +36,7 @@
 #include "theme_engine.h"
 #include "taskbar_props.h"
 #include "toolbars.h"
+#include "shellres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -209,7 +210,7 @@ static HICON clsid_icon(const WCHAR *clsid, const WCHAR *value, int shell_fallba
         if (wcsicmp(file, L"shell32.dll") && wcsicmp(file, L"explorer.exe") && wcsicmp(file, L"mydocs.dll"))
             ExtractIconExW(path, index, NULL, &icon, 1);
     }
-    if (!icon) ExtractIconExW(L"shell32.dll", shell_fallback, NULL, &icon, 1);
+    if (!icon && shell_fallback < 0) icon = shellres_icon(-shell_fallback, 16);
     return icon;
 }
 

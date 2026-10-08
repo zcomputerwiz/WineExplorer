@@ -40,6 +40,7 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "theme_engine.h"
+#include "shellres.h"
 #include "startmenu_view.h"
 #include "taskbar_props.h"
 #include "wlan_dialog.h"
@@ -114,6 +115,11 @@ static void get_display_user_name(WCHAR *buf, DWORD count)
 
 static HICON load_shell_icon(int index, int size)
 {
+    if (index < 0)
+    {
+        HICON icon = shellres_icon(-index, size);
+        if (icon) return icon;
+    }
     HICON hLarge = NULL;
     HICON hSmall = NULL;
     UINT count = ExtractIconExW(L"shell32.dll", index, &hLarge, &hSmall, 1);
@@ -681,7 +687,6 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     WCHAR my_docs[MAX_PATH];
     WCHAR username[128];
     WCHAR logoff_label[256];
-    DWORD ulen = sizeof(username)/sizeof(WCHAR);
     UINT cmd;
     int banner_w = 22;
     int banner_overlap = 2;
@@ -1695,7 +1700,7 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                 GetThemeBackgroundContentRect(theme, hdc, 0, state, &rc, &text_rc);
                 {
                     /* the flag is a 32 bit bitmap with alpha, drawn left aligned like a button image list */
-                    HBITMAP flag = LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_STARTFLAG), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+                    HBITMAP flag = shellres_bitmap(L"explorer", 143, IDB_STARTFLAG);
                     BITMAP bm;
                     if (flag && GetObjectW(flag, sizeof(bm), &bm))
                     {
