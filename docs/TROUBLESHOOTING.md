@@ -22,7 +22,7 @@ the session. Leftover processes from section 1 made it worse.
 (no Wine process) and its first Wine process is `explorer.exe /desktop=Default,WxH /shell`. `/shell` is a new
 explorer switch that turns the Windows-style shell on for that desktop. Verified: clean + restart gives a working
 desktop on the first try.
-If it ever recurs: `scripts/vm.sh clean`, then `scripts/vm.sh restart-shell`, and read `/run/user/1000/wine-session.log`.
+If it ever recurs: `scripts/vm.sh clean`, then `scripts/vm.sh restart-shell`, and read `~/.wine-session.log`.
 
 ### 2b. First start after `make install` (prefix update) ends the session
 After a fresh install Wine updates the prefix on the next start (`.update-timestamp` older than `ntdll.so`).
