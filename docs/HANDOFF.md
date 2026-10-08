@@ -45,6 +45,18 @@ Related changes made for it elsewhere:
 - The calendar is created with `MCS_NOTODAY | MCS_NOTODAYCIRCLE` (matches XP; comctl32 is stock again).
 - `uac.c` and the UAC dialog resource left the applet; the dialog now lives in explorer.
 
+## Time zone / audio / shell hook (done after the first handoff)
+- Wine follows the host zone (libc); `SetTimeZoneInformation` is a no-op in Wine, so the applet only changes the host
+  zone (`timedate1`) and no longer touches Wine's registry. The "DST checkbox" is informational. The stale-DST symptom
+  was a wineserver bug (bias only recomputed on year change): fixed in `server/fd.c`; ntdll's cache now follows
+  `/etc/localtime`. Verified live: changing the host zone updates the tray clock within seconds.
+- `IAudioEndpointVolume` really works now (set from a Wine process, `wpctl` shows the change). explorer's
+  `audio_backend.c` uses it again (no process spawns); `hostcmd.c` remains for nmcli.
+- `RegisterShellHookWindow` works; taskband gets created/destroyed/activated/redraw/flash events (the 2 s poll is
+  only a safety net). One hook window per desktop (it is stored as the taskman window).
+- VM gotcha: `pkill wineserver` leaves orphan Wine processes that block new clients; use `/tmp/cleanwine.sh`-style
+  cleanup (`wineserver -k`, kill `windows.system32` processes) before restarting the session.
+
 ## Known defects / unfinished (timedate)
 1. XP fidelity (compare with the XP VM, Control Panel -> Date and Time): add the **Internet Time** tab (use
    `timedate1.SetNTP`, `NTPSynchronized`); the XP page uses month combo + year spinner above the grid and a

@@ -484,6 +484,9 @@ static void show_task_context_menu(HWND hwnd, TASK_ITEM *item, POINT pt)
 
 static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
+    if (msg && msg == g_taskband.shell_hook_msg)
+        return taskband_handle_shell_hook(wparam, lparam);
+
     switch (msg)
     {
     case WM_PAINT:
@@ -610,7 +613,7 @@ LRESULT taskband_handle_shell_hook(WPARAM wparam, LPARAM lparam)
 {
     HWND hwnd = (HWND)lparam;
 
-    switch (wparam & 0x7fff)
+    switch (wparam)
     {
     case HSHELL_WINDOWCREATED:
         taskband_add_window(hwnd);
@@ -622,6 +625,7 @@ LRESULT taskband_handle_shell_hook(WPARAM wparam, LPARAM lparam)
 
     case HSHELL_WINDOWACTIVATED:
     case HSHELL_RUDEAPPACTIVATED:
+        if (hwnd && !find_task_by_hwnd(hwnd)) taskband_add_window(hwnd);
         taskband_activate_window(hwnd);
         break;
 
@@ -665,11 +669,12 @@ HWND taskband_create(HWND parent_tray, int x, int y, int width, int height)
                                       x, y, width, height,
                                       parent_tray, NULL, wc.hInstance, NULL);
 
-    /* Register as shell hook window to receive top-level window notifications */
-    RegisterShellHookWindow(g_taskband.hwnd);
+    /* Top-level window notifications arrive as the "SHELLHOOK" message; the slow timer is only a safety net
+     * for windows whose events we could not see (e.g. created before we registered). */
     g_taskband.shell_hook_msg = RegisterWindowMessageW(L"SHELLHOOK");
+    RegisterShellHookWindow(g_taskband.hwnd);
 
-    SetTimer(g_taskband.hwnd, 1, 200, NULL);
+    SetTimer(g_taskband.hwnd, 1, 2000, NULL);
     taskband_sync_windows();
 
     return g_taskband.hwnd;

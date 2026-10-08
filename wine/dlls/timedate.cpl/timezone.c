@@ -337,14 +337,13 @@ static LRESULT CALLBACK map_subclass_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     return CallWindowProcW(g_orig_map_proc, hwnd, msg, wparam, lparam);
 }
 
-/* Which Windows zone is active?  The host (systemd timedate1) is the source of truth; fall back to what this
- * applet saved earlier, then to the registry. */
+/* Which Windows zone is active?  Wine follows the host's zone, so ask the host (systemd timedate1) and fall
+ * back to the zone key Wine itself derived. */
 static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
 {
-    HKEY hKey;
-    DWORD type, size, i;
+    DYNAMIC_TIME_ZONE_INFORMATION dtzi;
     WEX_TIMEDATE td;
-    BOOL ret = FALSE;
+    DWORD i;
 
     if (!WexTimedateGet(&td) && td.timezone[0])
     {
@@ -358,23 +357,12 @@ static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
         }
     }
 
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Time", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    if (GetDynamicTimeZoneInformation(&dtzi) != TIME_ZONE_ID_INVALID && dtzi.TimeZoneKeyName[0])
     {
-        size = max_len * sizeof(WCHAR);
-        ret = RegQueryValueExW(hKey, L"SelectedTimeZone", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0];
-        RegCloseKey(hKey);
-        if (ret) return TRUE;
+        lstrcpynW(key_buf, dtzi.TimeZoneKeyName, max_len);
+        return TRUE;
     }
-
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\TimeZoneInformation",
-                      0, KEY_READ, &hKey) == ERROR_SUCCESS)
-    {
-        size = max_len * sizeof(WCHAR);
-        ret = RegQueryValueExW(hKey, L"TimeZoneKeyName", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS &&
-              key_buf[0] && _wcsicmp(key_buf, L"UTC") != 0;
-        RegCloseKey(hKey);
-    }
-    return ret;
+    return FALSE;
 }
 
 INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -469,17 +457,10 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         g_tz_modified = FALSE;
         SendMessageW(hCombo, CB_SETCURSEL, sel, 0);
 
-        /* Auto Daylight saving checkbox */
-        if (g_tz_entries[sel].tzi.StandardDate.wMonth != 0)
-        {
-            EnableWindow(GetDlgItem(hwnd, IDC_TIMEZONE_AUTO), TRUE);
-            CheckDlgButton(hwnd, IDC_TIMEZONE_AUTO, (cur_tzi.StandardDate.wMonth != 0) ? BST_CHECKED : BST_UNCHECKED);
-        }
-        else
-        {
-            EnableWindow(GetDlgItem(hwnd, IDC_TIMEZONE_AUTO), FALSE);
-            CheckDlgButton(hwnd, IDC_TIMEZONE_AUTO, BST_UNCHECKED);
-        }
+        /* "Automatically adjust for DST" is informational: the host's zone rules always apply */
+        EnableWindow(GetDlgItem(hwnd, IDC_TIMEZONE_AUTO), FALSE);
+        CheckDlgButton(hwnd, IDC_TIMEZONE_AUTO,
+                       g_tz_entries[sel].tzi.StandardDate.wMonth != 0 ? BST_CHECKED : BST_UNCHECKED);
 
         return TRUE;
     }
@@ -494,16 +475,8 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                 HWND hMap = GetDlgItem(hwnd, IDC_TIMEZONE_MAP);
                 g_selected_tz_idx = sel;
 
-                if (g_tz_entries[sel].tzi.StandardDate.wMonth != 0)
-                {
-                    EnableWindow(GetDlgItem(hwnd, IDC_TIMEZONE_AUTO), TRUE);
-                    CheckDlgButton(hwnd, IDC_TIMEZONE_AUTO, BST_CHECKED);
-                }
-                else
-                {
-                    EnableWindow(GetDlgItem(hwnd, IDC_TIMEZONE_AUTO), FALSE);
-                    CheckDlgButton(hwnd, IDC_TIMEZONE_AUTO, BST_UNCHECKED);
-                }
+                CheckDlgButton(hwnd, IDC_TIMEZONE_AUTO,
+                               g_tz_entries[sel].tzi.StandardDate.wMonth != 0 ? BST_CHECKED : BST_UNCHECKED);
 
                 g_tz_modified = TRUE;
                 if (hMap) InvalidateRect(hMap, NULL, TRUE);
@@ -527,62 +500,21 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         {
             if (g_tz_modified && g_selected_tz_idx >= 0 && g_selected_tz_idx < g_tz_count)
             {
-                TIME_ZONE_INFORMATION tzi;
-                BOOL auto_dst = (IsDlgButtonChecked(hwnd, IDC_TIMEZONE_AUTO) == BST_CHECKED);
-                HKEY hKey;
+                /* Wine reads the host zone, so changing the host's zone is the whole job */
+                const char *iana = iana_for_key(g_tz_entries[g_selected_tz_idx].key_name);
+                DWORD err = iana ? WexTimedateSetTimezone(GetParent(hwnd), iana) : ERROR_NOT_SUPPORTED;
 
-                /* Host first: if polkit refuses (or the user cancels) nothing else changes */
+                if (err)
                 {
-                    const char *iana = iana_for_key(g_tz_entries[g_selected_tz_idx].key_name);
-                    DWORD err = iana ? WexTimedateSetTimezone(GetParent(hwnd), iana) : ERROR_NOT_SUPPORTED;
-
-                    if (err && err != ERROR_NOT_SUPPORTED)
-                    {
-                        if (err != ERROR_CANCELLED)
-                            MessageBoxW(hwnd, L"You do not have permission to change the time zone.",
-                                        L"Date and Time Properties", MB_OK | MB_ICONWARNING);
-                        SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
-                        return TRUE;
-                    }
-                    /* ERROR_NOT_SUPPORTED: no timedate service (or no mapping): still update Wine's own zone */
+                    if (err != ERROR_CANCELLED)
+                        MessageBoxW(hwnd, err == ERROR_NOT_SUPPORTED ?
+                                    L"The time zone cannot be changed on this computer." :
+                                    L"You do not have permission to change the time zone.",
+                                    L"Date and Time Properties", MB_OK | MB_ICONWARNING);
+                    SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
+                    return TRUE;
                 }
-
-                memset(&tzi, 0, sizeof(tzi));
-                tzi.Bias = g_tz_entries[g_selected_tz_idx].tzi.Bias;
-                tzi.StandardBias = g_tz_entries[g_selected_tz_idx].tzi.StandardBias;
-                tzi.DaylightBias = g_tz_entries[g_selected_tz_idx].tzi.DaylightBias;
-                wcsncpy(tzi.StandardName, g_tz_entries[g_selected_tz_idx].std_name, 32);
-                wcsncpy(tzi.DaylightName, g_tz_entries[g_selected_tz_idx].dlt_name, 32);
-
-                if (auto_dst && g_tz_entries[g_selected_tz_idx].tzi.StandardDate.wMonth != 0)
-                {
-                    tzi.StandardDate = g_tz_entries[g_selected_tz_idx].tzi.StandardDate;
-                    tzi.DaylightDate = g_tz_entries[g_selected_tz_idx].tzi.DaylightDate;
-                }
-
-                SetTimeZoneInformation(&tzi);
-
-                /* Write TimeZoneKeyName to HKLM\System\CurrentControlSet\Control\TimeZoneInformation */
-                if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\TimeZoneInformation",
-                                  0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS)
-                {
-                    RegSetValueExW(hKey, L"TimeZoneKeyName", 0, REG_SZ,
-                                   (BYTE *)g_tz_entries[g_selected_tz_idx].key_name,
-                                   (lstrlenW(g_tz_entries[g_selected_tz_idx].key_name) + 1) * sizeof(WCHAR));
-                    RegCloseKey(hKey);
-                }
-
-                /* Also persist to HKCU\Software\WineExplorer\Time to survive prefix restarts and kernelbase resets */
-                if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Time",
-                                    0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, NULL) == ERROR_SUCCESS)
-                {
-                    RegSetValueExW(hKey, L"SelectedTimeZone", 0, REG_SZ,
-                                   (BYTE *)g_tz_entries[g_selected_tz_idx].key_name,
-                                   (lstrlenW(g_tz_entries[g_selected_tz_idx].key_name) + 1) * sizeof(WCHAR));
-                    RegCloseKey(hKey);
-                }
-
-                SendMessageW(HWND_BROADCAST, WM_TIMECHANGE, 0, 0);
+                SendMessageTimeoutW(HWND_BROADCAST, WM_TIMECHANGE, 0, 0, SMTO_ABORTIFHUNG, 1000, NULL);
                 g_tz_modified = FALSE;
             }
             SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);

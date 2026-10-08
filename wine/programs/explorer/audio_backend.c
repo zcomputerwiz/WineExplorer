@@ -3,9 +3,8 @@
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
- * Wine's mmdevapi does not implement IAudioEndpointVolume (it reports a constant 100%), so master
- * volume/mute are read and written through the host sound server: PipeWire (wpctl), PulseAudio (pactl)
- * or ALSA (amixer).  A worker thread polls the server so the shell's UI thread never waits on a process.
+ * Master volume and mute of the default playback device through the standard Windows interface,
+ * IAudioEndpointVolume (mmdevapi), which Wine forwards to the sound server (winepulse: PulseAudio/PipeWire).
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,241 +21,136 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdio.h>
+#define COBJMACROS
 #include <stdlib.h>
-#include <string.h>
-
 #include <windows.h>
+#include <mmdeviceapi.h>
+#include <endpointvolume.h>
 
 #include "wine/debug.h"
 #include "audio_backend.h"
-#include "hostcmd.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
-#define POLL_MS 1000
+static IMMDevice *g_device;
+static IAudioEndpointVolume *g_volume;
+static BOOL g_com_inited;
+static DWORD g_last_probe_tick;
+static WCHAR g_device_name[128];
 
-typedef enum { BACKEND_NONE, BACKEND_PIPEWIRE, BACKEND_PULSE, BACKEND_ALSA } BACKEND;
+/* Not in libuuid; defined here so initguid.h stays out of this file (it would redefine unknwn.h GUIDs). */
+static const GUID clsid_mm_enumerator =
+    { 0xbcde0395, 0xe52f, 0x467c, { 0x8e, 0x3d, 0xc4, 0x57, 0x92, 0x91, 0x69, 0x2e } };
+static const GUID iid_mm_enumerator =
+    { 0xa95664d2, 0x9614, 0x4f35, { 0xa7, 0x46, 0xde, 0x8d, 0xb6, 0x36, 0x17, 0xe6 } };
+static const GUID iid_endpoint_volume =
+    { 0x5cdf2c82, 0x841e, 0x4546, { 0x97, 0x22, 0x0c, 0xf7, 0x40, 0x78, 0x22, 0x9a } };
 
-static CRITICAL_SECTION g_cs;
-static BOOL g_cs_ready;
-static BACKEND g_backend = BACKEND_NONE;
-static HANDLE g_thread;
-static volatile LONG g_stop;
-static AUDIO_STATUS_INFO g_status;     /* guarded by g_cs */
-static DWORD g_hold_until;             /* ignore polled values briefly after we changed something */
+/* PKEY_Device_FriendlyName {a45c254e-df1c-4efd-8020-67d146a850e0}, 14 */
+static const PROPERTYKEY key_friendly_name =
+    { { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
 
-static const char *const wpctl_get[] = { "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@", NULL };
-static const char *const pactl_vol[] = { "pactl", "get-sink-volume", "@DEFAULT_SINK@", NULL };
-static const char *const pactl_mute[] = { "pactl", "get-sink-mute", "@DEFAULT_SINK@", NULL };
-static const char *const amixer_get[] = { "amixer", "sget", "Master", NULL };
-
-/* Volume = first percentage found in text; digits immediately before the '%'. */
-static int first_percent(const char *buf)
+static void release_endpoint(void)
 {
-    const char *pct = strchr(buf, '%');
-    if (!pct) return -1;
-    while (pct > buf && pct[-1] >= '0' && pct[-1] <= '9') pct--;
-    return atoi(pct);
+    if (g_volume) { IAudioEndpointVolume_Release(g_volume); g_volume = NULL; }
+    if (g_device) { IMMDevice_Release(g_device); g_device = NULL; }
+    g_device_name[0] = 0;
 }
 
-/* Returns FALSE if the backend gave no usable answer. */
-static BOOL query(BACKEND backend, int *volume, BOOL *mute)
+static void read_device_name(void)
 {
-    char buf[512];
+    IPropertyStore *props;
+    PROPVARIANT pv;
 
-    switch (backend)
-    {
-    case BACKEND_PIPEWIRE:
-    {
-        const char *p;
-        float v = 0;
-        if (!hostcmd_capture(wpctl_get, buf, sizeof(buf), 1500) || !(p = strstr(buf, "Volume:"))) return FALSE;
-        if (sscanf(p + 7, "%f", &v) != 1) return FALSE;
-        *volume = max(0, min(100, (int)(v * 100.0f + 0.5f)));
-        *mute = strstr(buf, "[MUTED]") != NULL;
-        return TRUE;
-    }
-    case BACKEND_PULSE:
-        if (!hostcmd_capture(pactl_vol, buf, sizeof(buf), 1500) || (*volume = first_percent(buf)) < 0) return FALSE;
-        *volume = min(100, *volume);
-        *mute = hostcmd_capture(pactl_mute, buf, sizeof(buf), 1500) && strstr(buf, "yes") != NULL;
-        return TRUE;
-    case BACKEND_ALSA:
-        if (!hostcmd_capture(amixer_get, buf, sizeof(buf), 1500) || (*volume = first_percent(buf)) < 0) return FALSE;
-        *volume = min(100, *volume);
-        *mute = strstr(buf, "[off]") != NULL;
-        return TRUE;
-    default:
-        return FALSE;
-    }
+    g_device_name[0] = 0;
+    if (FAILED(IMMDevice_OpenPropertyStore(g_device, STGM_READ, &props))) return;
+    PropVariantInit(&pv);
+    if (SUCCEEDED(IPropertyStore_GetValue(props, &key_friendly_name, &pv)) && pv.vt == VT_LPWSTR && pv.pwszVal)
+        lstrcpynW(g_device_name, pv.pwszVal, ARRAY_SIZE(g_device_name));
+    PropVariantClear(&pv);
+    IPropertyStore_Release(props);
 }
 
-static const char *backend_name(BACKEND b)
+/* Look for the default render endpoint; cheap enough to retry every few seconds when none exists. */
+static BOOL acquire_endpoint(void)
 {
-    return b == BACKEND_PIPEWIRE ? "PipeWire" : b == BACKEND_PULSE ? "PulseAudio" : "ALSA";
-}
+    IMMDeviceEnumerator *enumerator;
+    HRESULT hr;
 
-static DWORD WINAPI poll_thread(void *arg)
-{
-    static const BACKEND order[] = { BACKEND_PIPEWIRE, BACKEND_PULSE, BACKEND_ALSA };
+    if (g_volume) return TRUE;
+    if (!g_com_inited)
+        g_com_inited = SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED));
 
-    while (!g_stop)
-    {
-        int vol = 0, i;
-        BOOL mute = FALSE, ok = FALSE;
-        BACKEND found = BACKEND_NONE;
+    hr = CoCreateInstance(&clsid_mm_enumerator, NULL, CLSCTX_INPROC_SERVER, &iid_mm_enumerator, (void **)&enumerator);
+    if (FAILED(hr)) return FALSE;
 
-        for (i = 0; i < 3 && !ok; i++)
-        {
-            BACKEND b = (g_backend != BACKEND_NONE) ? g_backend : order[i];
-            ok = query(b, &vol, &mute);
-            if (ok) found = b;
-            if (g_backend != BACKEND_NONE) break;   /* once detected, only ask that one */
-        }
+    hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, eRender, eMultimedia, &g_device);
+    IMMDeviceEnumerator_Release(enumerator);
+    if (FAILED(hr)) { g_device = NULL; return FALSE; }
 
-        EnterCriticalSection(&g_cs);
-        if (ok)
-        {
-            if (g_backend == BACKEND_NONE) TRACE("audio backend: %s\n", backend_name(found));
-            g_backend = found;
-            g_status.available = TRUE;
-            if ((int)(GetTickCount() - g_hold_until) >= 0)
-            {
-                g_status.volume_percent = vol;
-                g_status.is_muted = mute;
-            }
-            lstrcpyW(g_status.device_name, L"Default audio device");
-        }
-        else
-        {
-            g_backend = BACKEND_NONE;   /* server may have gone away or not started yet: probe again */
-            g_status.available = FALSE;
-        }
-        LeaveCriticalSection(&g_cs);
+    hr = IMMDevice_Activate(g_device, &iid_endpoint_volume, CLSCTX_INPROC_SERVER, NULL, (void **)&g_volume);
+    if (FAILED(hr)) { release_endpoint(); return FALSE; }
 
-        {
-            DWORD waited;
-            for (waited = 0; waited < POLL_MS && !g_stop; waited += 50) Sleep(50);
-        }
-    }
-    return 0;
+    read_device_name();
+    TRACE("audio endpoint %s\n", debugstr_w(g_device_name));
+    return TRUE;
 }
 
 void audio_backend_init(void)
 {
-    if (g_thread) return;
-    if (!g_cs_ready) { InitializeCriticalSection(&g_cs); g_cs_ready = TRUE; }
-    g_stop = 0;
-    g_thread = CreateThread(NULL, 0, poll_thread, NULL, 0, NULL);
+    g_last_probe_tick = GetTickCount();
+    acquire_endpoint();
 }
 
 void audio_backend_shutdown(void)
 {
-    if (!g_thread) return;
-    g_stop = 1;
-    WaitForSingleObject(g_thread, 3000);
-    CloseHandle(g_thread);
-    g_thread = NULL;
+    release_endpoint();
+    if (g_com_inited) { CoUninitialize(); g_com_inited = FALSE; }
 }
 
 BOOL audio_backend_get_status(AUDIO_STATUS_INFO *info)
 {
+    float level = 0.0f;
+    BOOL mute = FALSE;
+
     if (!info) return FALSE;
     memset(info, 0, sizeof(*info));
-    if (!g_cs_ready) return TRUE;
-    EnterCriticalSection(&g_cs);
-    *info = g_status;
-    LeaveCriticalSection(&g_cs);
-    return TRUE;
-}
 
-/* Publish a locally-made change immediately; polled values are ignored for a moment so the UI does not
- * flicker back to the old value before the server reflects the change. */
-static void publish(int volume, int mute)
-{
-    EnterCriticalSection(&g_cs);
-    if (volume >= 0) g_status.volume_percent = volume;
-    if (mute >= 0) g_status.is_muted = mute;
-    g_hold_until = GetTickCount() + 1500;
-    LeaveCriticalSection(&g_cs);
+    if (!g_volume)
+    {
+        DWORD now = GetTickCount();
+        if (now - g_last_probe_tick < 5000) return TRUE;
+        g_last_probe_tick = now;
+        if (!acquire_endpoint()) return TRUE;
+    }
+
+    /* E_NOTIMPL: the active driver cannot control the device volume, so there is nothing useful to show */
+    if (FAILED(IAudioEndpointVolume_GetMasterVolumeLevelScalar(g_volume, &level)) ||
+        FAILED(IAudioEndpointVolume_GetMute(g_volume, &mute)))
+    {
+        release_endpoint();  /* device went away; re-probe later */
+        return TRUE;
+    }
+
+    info->available = TRUE;
+    info->volume_percent = (int)(level * 100.0f + 0.5f);
+    info->is_muted = mute;
+    lstrcpynW(info->device_name, g_device_name, ARRAY_SIZE(info->device_name));
+    return TRUE;
 }
 
 BOOL audio_backend_set_volume(int percent)
 {
-    char arg[32];
-    BACKEND b;
-
-    if (!g_cs_ready) return FALSE;
-    percent = max(0, min(100, percent));
-    EnterCriticalSection(&g_cs);
-    b = g_backend;
-    LeaveCriticalSection(&g_cs);
-
-    switch (b)
-    {
-    case BACKEND_PIPEWIRE:
-    {
-        const char *argv[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", arg, NULL };
-        snprintf(arg, sizeof(arg), "%d.%02d", percent / 100, percent % 100);
-        hostcmd_run_async(argv);
-        break;
-    }
-    case BACKEND_PULSE:
-    {
-        const char *argv[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", arg, NULL };
-        snprintf(arg, sizeof(arg), "%d%%", percent);
-        hostcmd_run_async(argv);
-        break;
-    }
-    case BACKEND_ALSA:
-    {
-        const char *argv[] = { "amixer", "sset", "Master", arg, NULL };
-        snprintf(arg, sizeof(arg), "%d%%", percent);
-        hostcmd_run_async(argv);
-        break;
-    }
-    default:
-        return FALSE;
-    }
-    publish(percent, -1);
-    return TRUE;
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    if (!g_volume) return FALSE;
+    return SUCCEEDED(IAudioEndpointVolume_SetMasterVolumeLevelScalar(g_volume, percent / 100.0f, NULL));
 }
 
 BOOL audio_backend_set_mute(BOOL mute)
 {
-    BACKEND b;
-
-    if (!g_cs_ready) return FALSE;
-    EnterCriticalSection(&g_cs);
-    b = g_backend;
-    LeaveCriticalSection(&g_cs);
-
-    switch (b)
-    {
-    case BACKEND_PIPEWIRE:
-    {
-        const char *argv[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", mute ? "1" : "0", NULL };
-        hostcmd_run_async(argv);
-        break;
-    }
-    case BACKEND_PULSE:
-    {
-        const char *argv[] = { "pactl", "set-sink-mute", "@DEFAULT_SINK@", mute ? "1" : "0", NULL };
-        hostcmd_run_async(argv);
-        break;
-    }
-    case BACKEND_ALSA:
-    {
-        const char *argv[] = { "amixer", "sset", "Master", mute ? "mute" : "unmute", NULL };
-        hostcmd_run_async(argv);
-        break;
-    }
-    default:
-        return FALSE;
-    }
-    publish(-1, mute);
-    return TRUE;
+    if (!g_volume) return FALSE;
+    return SUCCEEDED(IAudioEndpointVolume_SetMute(g_volume, mute, NULL));
 }
 
 BOOL audio_backend_toggle_mute(void)

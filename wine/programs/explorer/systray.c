@@ -1513,13 +1513,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     }
 
     default:
-    {
-        static UINT msg_shellhook = 0;
-        if (!msg_shellhook) msg_shellhook = RegisterWindowMessageW( L"SHELLHOOK" );
-        if (msg && msg == msg_shellhook)
-            return taskband_handle_shell_hook( wparam, lparam );
         return DefWindowProcW( hwnd, msg, wparam, lparam );
-    }
     }
     return 0;
 }

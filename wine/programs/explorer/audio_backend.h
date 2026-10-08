@@ -3,7 +3,7 @@
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
- * Master volume / mute of the host's default output, via PipeWire, PulseAudio or ALSA command-line tools.
+ * Master volume / mute of the host's default output, through IAudioEndpointVolume (mmdevapi -> winepulse -> PulseAudio/PipeWire).
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
