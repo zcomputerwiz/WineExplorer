@@ -824,6 +824,24 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     return DefWindowProcW( hwnd, msg, wparam, lparam );
 }
 
+/* the icons of the notification area keep the order they were added in, whatever was hidden meanwhile */
+static void renumber_icons(void)
+{
+    struct icon *ptr;
+    int n = 0;
+
+    LIST_FOR_EACH_ENTRY( ptr, &icon_list, struct icon, entry )
+    {
+        POINT pos;
+        if (ptr->display < 0) continue;
+        ptr->display = n++;
+        if (!ptr->window) continue;
+        update_tooltip_position( ptr );
+        pos = get_icon_pos( ptr );
+        SetWindowPos( ptr->window, 0, pos.x, pos.y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER );
+    }
+}
+
 /* add an icon to the system tray window */
 static void systray_add_icon( struct icon *icon )
 {
@@ -834,6 +852,7 @@ static void systray_add_icon( struct icon *icon )
     SetWindowLongW( icon->window, GWL_STYLE, GetWindowLongW( icon->window, GWL_STYLE ) | WS_CHILD );
     SetParent( icon->window, tray_window );
     icon->display = nb_displayed++;
+    renumber_icons();   /* icons that were hidden come back where they were */
     pos = get_icon_pos( icon );
     SetWindowPos( icon->window, 0, pos.x, pos.y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW );
 
@@ -925,8 +944,53 @@ static void hide_icon(struct icon *icon)
 }
 
 /* Modifies an existing icon record */
+/* TRUE if two icon handles show the same picture */
+static BOOL same_icon( HICON a, HICON b )
+{
+    ICONINFO ia, ib;
+    BITMAP ba, bb;
+    BOOL same = FALSE;
+
+    if (!GetIconInfo( a, &ia )) return FALSE;
+    if (!GetIconInfo( b, &ib )) { DeleteObject( ia.hbmColor ); DeleteObject( ia.hbmMask ); return FALSE; }
+    if (GetObjectW( ia.hbmMask, sizeof(ba), &ba ) && GetObjectW( ib.hbmMask, sizeof(bb), &bb ) &&
+        ba.bmWidth == bb.bmWidth && ba.bmHeight == bb.bmHeight)
+    {
+        int size = ba.bmWidthBytes * ba.bmHeight, cmp = 0;
+        BYTE *x = malloc( 2 * size ), *y;
+
+        if (x)
+        {
+            y = x + size;
+            GetBitmapBits( ia.hbmMask, size, x );
+            GetBitmapBits( ib.hbmMask, size, y );
+            cmp = memcmp( x, y, size );
+            free( x );
+        }
+        if (!cmp && ia.hbmColor && ib.hbmColor && GetObjectW( ia.hbmColor, sizeof(ba), &ba ) &&
+            GetObjectW( ib.hbmColor, sizeof(bb), &bb ) && ba.bmWidthBytes == bb.bmWidthBytes && ba.bmHeight == bb.bmHeight)
+        {
+            size = ba.bmWidthBytes * ba.bmHeight;
+            x = malloc( 2 * size );
+            if (x)
+            {
+                y = x + size;
+                GetBitmapBits( ia.hbmColor, size, x );
+                GetBitmapBits( ib.hbmColor, size, y );
+                same = !memcmp( x, y, size );
+                free( x );
+            }
+        }
+    }
+    DeleteObject( ia.hbmColor ); DeleteObject( ia.hbmMask );
+    DeleteObject( ib.hbmColor ); DeleteObject( ib.hbmMask );
+    return same;
+}
+
 static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
 {
+    BOOL activity = FALSE;
+
     TRACE( "id=0x%x, hwnd=%p\n", nid->uID, nid->hWnd );
 
     /* demarshal the request from the NID */
@@ -943,6 +1007,8 @@ static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
 
     if (nid->uFlags & NIF_ICON)
     {
+        /* a new picture counts as activity, the same picture again (a tooltip refresh) does not */
+        if (!icon->image || !nid->hIcon || !same_icon( icon->image, nid->hIcon )) activity = TRUE;
         if (icon->image) DestroyIcon(icon->image);
         icon->image = CopyIcon(nid->hIcon);
 
@@ -976,10 +1042,14 @@ static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
 
         update_balloon( icon );
     }
-    icon->last_active = GetTickCount();
-    icon->auto_hidden = FALSE;
+    if ((nid->uFlags & NIF_INFO) && nid->szInfo[0]) activity = TRUE;
+    if (activity || !icon->auto_hidden)
+    {
+        icon->last_active = GetTickCount();
+        icon->auto_hidden = FALSE;
+    }
     if (icon->state & NIS_HIDDEN) hide_icon( icon );
-    else show_icon( icon );
+    else if (!icon->auto_hidden) show_icon( icon );
     return TRUE;
 }
 
@@ -1582,7 +1652,8 @@ static void do_show_systray(void)
         int taskband_x, taskband_w;
 
         startbutton_create( tray_window, 2, 2, start_button_width, 24 );
-        startbutton_resize( 2, 2, start_button_width, 24 );
+        if (theme_is_visual_styles_active()) startbutton_resize( 0, 0, start_button_width, tray_height );
+        else startbutton_resize( 2, 2, start_button_width, tray_height - 4 );
 
         toolbars_create( tray_window );
         toolbars_layout( tray_window, start_button_width + 4, rcTray.left, tray_height, &taskband_x, &taskband_w );
@@ -1826,7 +1897,25 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         if (wparam == IDT_AUTOHIDE)
         {
             static DWORD last_inactive_check;
+            static BOOL was_down;
+            BOOL down = (GetAsyncKeyState( VK_LBUTTON ) & 0x8000) != 0;
+
             autohide_tick();
+            /* the expanded notification area closes when something else is clicked */
+            if (tray_expanded && down && !was_down)
+            {
+                POINT pt;
+                RECT area = get_tray_notify_rect();
+                GetCursorPos( &pt );
+                ScreenToClient( tray_window, &pt );
+                if (!PtInRect( &area, pt ))
+                {
+                    tray_expanded = FALSE;
+                    refresh_inactive_icons();
+                    update_taskbar_layout();
+                }
+            }
+            was_down = down;
             if (GetTickCount() - last_inactive_check > 1000)
             {
                 last_inactive_check = GetTickCount();
