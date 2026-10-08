@@ -145,16 +145,19 @@ static LRESULT CALLBACK VolumeTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
     case WM_VOLUMETRAY_NOTIFY:
     {
+        static DWORD last_dblclk;
         POINT pt;
         GetCursorPos(&pt);
 
         switch (LOWORD(lparam))
         {
-        case WM_LBUTTONDOWN:
-            trayvol_toggle(hwnd, pt);
+        case WM_LBUTTONUP:
+            /* a click opens the slider on release (the press would deactivate it again); not after a double click */
+            if (GetTickCount() - last_dblclk > 500) trayvol_toggle(hwnd, pt);
             break;
 
         case WM_LBUTTONDBLCLK:
+            last_dblclk = GetTickCount();
             trayvol_dismiss();
             ShellExecuteW(NULL, L"open", L"sndvol32.exe", NULL, NULL, SW_SHOWNORMAL);
             break;
