@@ -981,7 +981,7 @@ static void add_taskbar_button( HWND hwnd )
 {
     struct taskbar_button *win;
 
-    if (enable_taskbar) return;
+    if (!enable_taskbar) return;
 
     /* ignore our own windows */
     if (hwnd)

@@ -6,6 +6,22 @@
  * 2. Windows XP / 2003 two-column layout (pinned/recent on left, shell folders on right)
  * 3. Open-Shell inspired modern hybrid layout with integrated search box
  * Authentic Start button with Windows flag icon and theme-aware rendering.
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -581,6 +597,32 @@ void startmenu_on_enter_menu_loop(void)
     }
 }
 
+/* XP opens the Run box in the lower-left corner just above the taskbar when started from the Start menu.
+ * shell32 centers it, so move it from a CBT hook the first time its window is activated. */
+static HHOOK g_run_hook;
+static HWND g_run_owner;
+
+static LRESULT CALLBACK run_cbt_proc(int code, WPARAM wparam, LPARAM lparam)
+{
+    if (code == HCBT_ACTIVATE)
+    {
+        HWND dlg = (HWND)wparam;
+        WCHAR cls[16];
+
+        if (GetClassNameW(dlg, cls, ARRAY_SIZE(cls)) && !wcscmp(cls, L"#32770"))
+        {
+            RECT rc, tray;
+            GetWindowRect(dlg, &rc);
+            GetWindowRect(g_run_owner, &tray);
+            SetWindowPos(dlg, NULL, tray.left + 14, tray.top - (rc.bottom - rc.top) - 14,
+                         0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            UnhookWindowsHookEx(g_run_hook);
+            g_run_hook = NULL;
+        }
+    }
+    return CallNextHookEx(g_run_hook, code, wparam, lparam);
+}
+
 static void run_dialog_inproc(HWND owner)
 {
     void (WINAPI *pRunFileDlg)(HWND owner, HICON icon, const WCHAR *dir,
@@ -590,7 +632,12 @@ static void run_dialog_inproc(HWND owner)
     {
         pRunFileDlg = (void *)GetProcAddress(hShell32, (LPCSTR)61);
         if (pRunFileDlg)
+        {
+            g_run_owner = owner;
+            g_run_hook = SetWindowsHookExW(WH_CBT, run_cbt_proc, NULL, GetCurrentThreadId());
             pRunFileDlg(owner, NULL, NULL, NULL, NULL, 0);
+            if (g_run_hook) { UnhookWindowsHookEx(g_run_hook); g_run_hook = NULL; }
+        }
         FreeLibrary(hShell32);
     }
 }

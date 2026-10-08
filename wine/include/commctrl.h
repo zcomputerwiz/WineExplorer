@@ -199,9 +199,7 @@ typedef struct tagNMCHAR
 
 
 #ifndef SNDMSG
-#ifdef __WINESRC__
-#define SNDMSG SendMessageW
-#elif defined(__cplusplus)
+#ifdef __cplusplus
 #define SNDMSG ::SendMessage
 #else   /* __cplusplus */
 #define SNDMSG SendMessage

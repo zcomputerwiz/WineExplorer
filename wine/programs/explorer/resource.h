@@ -207,6 +207,17 @@
 #define IDC_NETPROP_ICS_BEACON   1618
 #define IDC_NETPROP_SETTINGS     1619
 
+/* polkit / UAC-style authentication dialog */
+#define IDD_UAC                  2400
+#define IDC_UAC_BANNER           2401
+#define IDC_UAC_PROGRAM          2402
+#define IDC_UAC_PROMPT           2403
+#define IDC_UAC_ACCOUNT          2404
+#define IDC_UAC_PASSWORD         2405
+#define IDC_UAC_USERTILE         2406
+#define IDC_UAC_PW_LABEL         2407
+#define IDC_UAC_ERROR            2408
+
 #endif
 
 

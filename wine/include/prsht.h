@@ -516,16 +516,6 @@ typedef struct _PSHNOTIFY
  * Property sheet support (macros)
  */
 
-#ifndef SNDMSG
-#ifdef __WINESRC__
-#define SNDMSG SendMessageW
-#elif defined(__cplusplus)
-#define SNDMSG ::SendMessage
-#else
-#define SNDMSG SendMessage
-#endif
-#endif
-
 #define PropSheet_SetCurSel(hDlg, hpage, index) \
 	SendMessageA(hDlg, PSM_SETCURSEL, (WPARAM)index, (LPARAM)hpage)
 

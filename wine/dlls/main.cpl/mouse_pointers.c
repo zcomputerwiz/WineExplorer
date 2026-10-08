@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Mouse Properties: Pointers Page
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include "main_private.h"
@@ -171,7 +187,7 @@ INT_PTR CALLBACK pointer_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 
         case ID_CURSORSHADOW:
             g_cursor_shadow = (IsDlgButtonChecked(hwnd, ID_CURSORSHADOW) == BST_CHECKED);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case ID_DEFAULT:
@@ -184,7 +200,7 @@ INT_PTR CALLBACK pointer_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 g_cursors[sel].file_path[0] = 0;
                 SendDlgItemMessageW(hwnd, ID_PREVIEW, STM_SETICON, (WPARAM)g_cursors[sel].hicon, 0);
                 InvalidateRect(GetDlgItem(hwnd, ID_CURSORLIST), NULL, TRUE);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
         }
@@ -212,7 +228,7 @@ INT_PTR CALLBACK pointer_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     lstrcpynW(g_cursors[sel].file_path, file, MAX_PATH);
                     SendDlgItemMessageW(hwnd, ID_PREVIEW, STM_SETICON, (WPARAM)hnew, 0);
                     InvalidateRect(GetDlgItem(hwnd, ID_CURSORLIST), NULL, TRUE);
-                    PropSheet_Changed(GetParent(hwnd), hwnd);
+                    SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
                 }
             }
             break;
@@ -221,7 +237,7 @@ INT_PTR CALLBACK pointer_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case ID_SCHEMECOMBO:
             if (HIWORD(wparam) == CBN_SELCHANGE)
             {
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
         }

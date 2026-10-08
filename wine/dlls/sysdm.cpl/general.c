@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - General System Information Page (sysdm.cpl)
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <windows.h>
@@ -67,6 +83,19 @@ INT_PTR CALLBACK general_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             }
         }
 
+        /* Platform line: the Wine this shell is running on */
+        {
+            const char *(CDECL *pwine_get_version)(void) = (void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version");
+            WCHAR ver[64] = L"";
+            if (pwine_get_version) MultiByteToWideChar(CP_ACP, 0, pwine_get_version(), -1, ver, ARRAY_SIZE(ver));
+            if (ver[0])
+            {
+                WCHAR line[96];
+                swprintf(line, ARRAY_SIZE(line), L"Wine %s", ver);
+                SetDlgItemTextW(hwnd, IDC_GEN_DE_LABEL, line);
+            }
+        }
+
         /* 1. OS Version and Registered Info from Registry Hive */
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
                           0, KEY_READ, &hKey) == ERROR_SUCCESS)
@@ -74,14 +103,6 @@ INT_PTR CALLBACK general_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             size = sizeof(buf);
             if (RegQueryValueExW(hKey, L"ProductName", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
                 SetDlgItemTextW(hwnd, IDC_GEN_OS_LABEL, buf);
-
-            size = sizeof(buf);
-            if (RegQueryValueExW(hKey, L"CSDVersion", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
-            {
-                WCHAR sp_buf[256];
-                swprintf(sp_buf, 256, L"%s (Gamescope)", buf);
-                SetDlgItemTextW(hwnd, IDC_GEN_DE_LABEL, sp_buf);
-            }
 
             size = sizeof(buf);
             if (RegQueryValueExW(hKey, L"RegisteredOwner", NULL, NULL, (BYTE*)buf, &size) == ERROR_SUCCESS && size > 2)
@@ -117,11 +138,7 @@ INT_PTR CALLBACK general_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 SetDlgItemTextW(hwnd, IDC_GEN_REG_USER, L"Administrator");
         }
 
-        if (!got_reg_org)
-            SetDlgItemTextW(hwnd, IDC_GEN_REG_ORG, L"WineExplorer Desktop");
-
-        if (!got_reg_pid)
-            SetDlgItemTextW(hwnd, IDC_GEN_REG_PID, L"76487-640-0000001-23104");
+        /* organization and product id are shown blank unless the registry has them */
 
         /* 2. Hardware CPU Detection (CPUID & Registry & Host) */
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",

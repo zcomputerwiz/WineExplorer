@@ -6,6 +6,20 @@
  * Implements the authentic Windows XP / Server 2003 system tray volume monitor,
  * featuring dynamic speaker / mute icons, master volume tooltips, left-click
  * popup slider, double-click mixer launch, and right-click audio properties menu.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -31,6 +45,7 @@ static HWND g_hwnd_volumetray = NULL;
 static NOTIFYICONDATAW g_vol_nid = {0};
 static AUDIO_STATUS_INFO g_audio_status;
 static int g_current_vol_icon = 0;
+static BOOL g_vol_icon_shown = FALSE;
 
 static void update_vol_tray_icon_and_tooltip(HWND hwnd)
 {
@@ -39,6 +54,17 @@ static void update_vol_tray_icon_and_tooltip(HWND hwnd)
     WCHAR new_tip[128] = {0};
 
     audio_backend_get_status(&g_audio_status);
+
+    if (!g_audio_status.available)
+    {
+        /* No audio device: Windows shows no volume icon at all */
+        if (g_vol_icon_shown)
+        {
+            Shell_NotifyIconW(NIM_DELETE, &g_vol_nid);
+            g_vol_icon_shown = FALSE;
+        }
+        return;
+    }
 
     if (g_audio_status.is_muted)
     {
@@ -51,14 +77,15 @@ static void update_vol_tray_icon_and_tooltip(HWND hwnd)
         wsprintfW(new_tip, L"Volume: %d%%", g_audio_status.volume_percent);
     }
 
-    if (new_icon_id != g_current_vol_icon || wcscmp(new_tip, g_vol_nid.szTip) != 0)
+    if (!g_vol_icon_shown || new_icon_id != g_current_vol_icon || wcscmp(new_tip, g_vol_nid.szTip) != 0)
     {
         g_current_vol_icon = new_icon_id;
         if (g_vol_nid.hIcon) DestroyIcon(g_vol_nid.hIcon);
         g_vol_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id));
         lstrcpynW(g_vol_nid.szTip, new_tip, 128);
 
-        Shell_NotifyIconW(NIM_MODIFY, &g_vol_nid);
+        Shell_NotifyIconW(g_vol_icon_shown ? NIM_MODIFY : NIM_ADD, &g_vol_nid);
+        g_vol_icon_shown = TRUE;
     }
 }
 
@@ -95,11 +122,7 @@ static LRESULT CALLBACK VolumeTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LP
     {
     case WM_CREATE:
     {
-        HINSTANCE hInst = GetModuleHandleW(NULL);
         audio_backend_init();
-        audio_backend_get_status(&g_audio_status);
-
-        g_current_vol_icon = g_audio_status.is_muted ? IDI_MUTE : IDI_VOLUME;
 
         memset(&g_vol_nid, 0, sizeof(g_vol_nid));
         g_vol_nid.cbSize = sizeof(NOTIFYICONDATAW);
@@ -107,14 +130,8 @@ static LRESULT CALLBACK VolumeTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         g_vol_nid.uID = 1002;
         g_vol_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
         g_vol_nid.uCallbackMessage = WM_VOLUMETRAY_NOTIFY;
-        g_vol_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(g_current_vol_icon));
 
-        if (g_audio_status.is_muted)
-            lstrcpyW(g_vol_nid.szTip, L"Volume (muted)");
-        else
-            wsprintfW(g_vol_nid.szTip, L"Volume: %d%%", g_audio_status.volume_percent);
-
-        Shell_NotifyIconW(NIM_ADD, &g_vol_nid);
+        update_vol_tray_icon_and_tooltip(hwnd);
         SetTimer(hwnd, IDT_VOLUMETRAY_TIMER, 500, NULL);
         return 0;
     }
@@ -162,12 +179,17 @@ static LRESULT CALLBACK VolumeTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_DESTROY:
         KillTimer(hwnd, IDT_VOLUMETRAY_TIMER);
         trayvol_dismiss();
-        if (g_vol_nid.hIcon)
+        if (g_vol_icon_shown)
         {
             Shell_NotifyIconW(NIM_DELETE, &g_vol_nid);
+            g_vol_icon_shown = FALSE;
+        }
+        if (g_vol_nid.hIcon)
+        {
             DestroyIcon(g_vol_nid.hIcon);
             g_vol_nid.hIcon = NULL;
         }
+        audio_backend_shutdown();
         g_hwnd_volumetray = NULL;
         return 0;
     }

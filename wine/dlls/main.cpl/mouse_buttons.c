@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Mouse Properties: Buttons Page
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include "main_private.h"
@@ -196,7 +212,7 @@ INT_PTR CALLBACK button_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             /* pos 0 = 900ms, pos 10 = 200ms */
             g_state.dbl_click_speed = 900 - (pos * 70);
             SetDoubleClickTime(g_state.dbl_click_speed);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         }
         break;
     }
@@ -207,19 +223,19 @@ INT_PTR CALLBACK button_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         case IDBTN_BUTTONSWAP:
             g_state.swapped = (IsDlgButtonChecked(hwnd, IDBTN_BUTTONSWAP) == BST_CHECKED);
             InvalidateRect(GetDlgItem(hwnd, MOUSE_MOUSEBMP), NULL, TRUE);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case IDCK_CLICKLOCK:
             g_state.click_lock = (IsDlgButtonChecked(hwnd, IDCK_CLICKLOCK) == BST_CHECKED);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case IDBTN_CLICKLOCK_SETTINGS:
             if (DialogBoxParamW(g_hinst, MAKEINTRESOURCEW(IDD_CLICKLOCK_SETTINGS_DLG),
                                 hwnd, clicklock_settings_proc, 0) == IDOK)
             {
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
 

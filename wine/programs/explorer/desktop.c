@@ -43,6 +43,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 static const WCHAR default_driver[] = L"mac,x11,wayland";
 
 static BOOL using_root = TRUE;
+static BOOL shell_mode;   /* WineExplorer interactive shell: taskbar, Start menu, desktop view */
 
 struct launcher
 {
@@ -806,6 +807,10 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         break;
 
     case WM_CLOSE:
+        if (shell_mode)
+            power_mgmt_show_shutdown_dialog( hwnd );   /* Alt+F4 on the Windows desktop */
+        else
+            PostQuitMessage(0);
         return 0;
 
     case WM_SETCURSOR:
@@ -828,7 +833,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
             new_h = GetSystemMetrics(SM_CYSCREEN);
         }
         TRACE("desktop_wnd_proc: WM_DISPLAYCHANGE %dx%d @ %Id bpp\n", new_w, new_h, wp);
-        if (!using_root)
+        if (shell_mode)
         {
             SetWindowPos(hwnd, 0, 0, 0, new_w, new_h, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
             desktop_view_on_display_change(new_w, new_h);
@@ -840,7 +845,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
     {
         int new_w = LOWORD(lp);
         int new_h = HIWORD(lp);
-        if (!using_root && (wp == SIZE_RESTORED || wp == SIZE_MAXIMIZED) && new_w && new_h)
+        if (shell_mode && (wp == SIZE_RESTORED || wp == SIZE_MAXIMIZED) && new_w && new_h)
         {
             desktop_view_on_display_change(new_w, new_h);
         }
@@ -857,7 +862,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         return 0;
 
     case WM_LBUTTONDBLCLK:
-        if (!using_root)
+        if (!using_root && !shell_mode)
         {
             const struct launcher *launcher = launcher_from_point( (short)LOWORD(lp), (short)HIWORD(lp) );
             if (launcher) ShellExecuteW( NULL, L"open", launcher->path, NULL, NULL, 0 );
@@ -866,7 +871,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
 
     case WM_KEYDOWN:
     case WM_KEYUP:
-        if (!using_root && desktop_view_get_hwnd())
+        if (shell_mode && desktop_view_get_hwnd())
             return SendMessageW( desktop_view_get_hwnd(), message, wp, lp );
         break;
 
@@ -874,9 +879,14 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         {
             PAINTSTRUCT ps;
             BeginPaint( hwnd, &ps );
-            if (!using_root)
+            if (shell_mode)
             {
                 desktop_view_paint( ps.hdc, &ps.rcPaint );
+            }
+            else if (!using_root)
+            {
+                PaintDesktop( ps.hdc );
+                draw_launchers( ps.hdc, ps.rcPaint );
             }
             EndPaint( hwnd, &ps );
         }
@@ -960,8 +970,8 @@ static BOOL get_default_enable_shell( const WCHAR *name )
             found = TRUE;
         RegCloseKey( hkey );
     }
-    /* Default on for complete Linux desktop environment */
-    if (!found) result = TRUE;
+    /* Default off, except for the magic desktop name "shell" */
+    if (!found) result = (lstrcmpiW( name, L"shell" ) == 0);
     return result;
 }
 
@@ -1323,8 +1333,14 @@ void manage_desktop( WCHAR *arg )
         initialize_display_settings( width, height );
         initialize_appbar();
 
-        theme_init( hwnd );
-        if (!using_root) desktop_view_create( hwnd, width, height );
+        shell_mode = enable_shell && !using_root;
+        if (shell_mode)
+        {
+            theme_init( hwnd );
+            desktop_view_create( hwnd, width, height );
+            uac_agent_start();
+        }
+        else if (!using_root && enable_launchers) initialize_launchers( hwnd );
         initialize_systray( using_root, enable_shell, show_systray, no_tray_items );
 
         if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&

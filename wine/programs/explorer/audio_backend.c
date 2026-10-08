@@ -3,8 +3,23 @@
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
- * Implements native audio control bridging Linux PipeWire / WirePlumber (wpctl),
- * PulseAudio (pactl), and ALSA (amixer) with Win32 waveOut fallback.
+ * Wine's mmdevapi does not implement IAudioEndpointVolume (it reports a constant 100%), so master
+ * volume/mute are read and written through the host sound server: PipeWire (wpctl), PulseAudio (pactl)
+ * or ALSA (amixer).  A worker thread polls the server so the shell's UI thread never waits on a process.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -12,325 +27,253 @@
 #include <string.h>
 
 #include <windows.h>
-#include <mmsystem.h>
 
 #include "wine/debug.h"
 #include "audio_backend.h"
+#include "hostcmd.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
-static AUDIO_BACKEND_TYPE g_backend = AUDIO_BACKEND_UNKNOWN;
-static int g_cached_volume = 75;
-static BOOL g_cached_mute = FALSE;
-static DWORD g_last_query_tick = 0;
-static WCHAR g_cached_device[128] = L"Default Audio Device";
+#define POLL_MS 1000
 
-/* Execute command asynchronously without blocking UI */
-static void run_cmd_async(const char *cmd)
+typedef enum { BACKEND_NONE, BACKEND_PIPEWIRE, BACKEND_PULSE, BACKEND_ALSA } BACKEND;
+
+static CRITICAL_SECTION g_cs;
+static BOOL g_cs_ready;
+static BACKEND g_backend = BACKEND_NONE;
+static HANDLE g_thread;
+static volatile LONG g_stop;
+static AUDIO_STATUS_INFO g_status;     /* guarded by g_cs */
+static DWORD g_hold_until;             /* ignore polled values briefly after we changed something */
+
+static const char *const wpctl_get[] = { "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@", NULL };
+static const char *const pactl_vol[] = { "pactl", "get-sink-volume", "@DEFAULT_SINK@", NULL };
+static const char *const pactl_mute[] = { "pactl", "get-sink-mute", "@DEFAULT_SINK@", NULL };
+static const char *const amixer_get[] = { "amixer", "sget", "Master", NULL };
+
+/* Volume = first percentage found in text; digits immediately before the '%'. */
+static int first_percent(const char *buf)
 {
-    STARTUPINFOA si = {0};
-    PROCESS_INFORMATION pi = {0};
-    char cmd_line[512];
+    const char *pct = strchr(buf, '%');
+    if (!pct) return -1;
+    while (pct > buf && pct[-1] >= '0' && pct[-1] <= '9') pct--;
+    return atoi(pct);
+}
 
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
+/* Returns FALSE if the backend gave no usable answer. */
+static BOOL query(BACKEND backend, int *volume, BOOL *mute)
+{
+    char buf[512];
 
-    snprintf(cmd_line, sizeof(cmd_line), "sh -c \"%s\" 2>/dev/null", cmd);
-    if (CreateProcessA(NULL, cmd_line, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+    switch (backend)
     {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+    case BACKEND_PIPEWIRE:
+    {
+        const char *p;
+        float v = 0;
+        if (!hostcmd_capture(wpctl_get, buf, sizeof(buf), 1500) || !(p = strstr(buf, "Volume:"))) return FALSE;
+        if (sscanf(p + 7, "%f", &v) != 1) return FALSE;
+        *volume = max(0, min(100, (int)(v * 100.0f + 0.5f)));
+        *mute = strstr(buf, "[MUTED]") != NULL;
+        return TRUE;
+    }
+    case BACKEND_PULSE:
+        if (!hostcmd_capture(pactl_vol, buf, sizeof(buf), 1500) || (*volume = first_percent(buf)) < 0) return FALSE;
+        *volume = min(100, *volume);
+        *mute = hostcmd_capture(pactl_mute, buf, sizeof(buf), 1500) && strstr(buf, "yes") != NULL;
+        return TRUE;
+    case BACKEND_ALSA:
+        if (!hostcmd_capture(amixer_get, buf, sizeof(buf), 1500) || (*volume = first_percent(buf)) < 0) return FALSE;
+        *volume = min(100, *volume);
+        *mute = strstr(buf, "[off]") != NULL;
+        return TRUE;
+    default:
+        return FALSE;
     }
 }
 
-/* Execute command and capture standard output */
-static BOOL run_cmd_capture(const char *cmd, char *out_buf, DWORD max_len)
+static const char *backend_name(BACKEND b)
 {
-    HANDLE hReadPipe, hWritePipe;
-    SECURITY_ATTRIBUTES sa;
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    char cmd_line[512];
-    DWORD bytes_read = 0;
-    BOOL success = FALSE;
+    return b == BACKEND_PIPEWIRE ? "PipeWire" : b == BACKEND_PULSE ? "PulseAudio" : "ALSA";
+}
 
-    if (!out_buf || max_len == 0) return FALSE;
-    out_buf[0] = '\0';
+static DWORD WINAPI poll_thread(void *arg)
+{
+    static const BACKEND order[] = { BACKEND_PIPEWIRE, BACKEND_PULSE, BACKEND_ALSA };
 
-    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-    sa.bInheritHandle = TRUE;
-    sa.lpSecurityDescriptor = NULL;
-
-    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) return FALSE;
-    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
-
-    memset(&si, 0, sizeof(si));
-    si.cb = sizeof(si);
-    si.hStdError = hWritePipe;
-    si.hStdOutput = hWritePipe;
-    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-
-    memset(&pi, 0, sizeof(pi));
-    snprintf(cmd_line, sizeof(cmd_line), "sh -c \"%s\"", cmd);
-
-    if (CreateProcessA(NULL, cmd_line, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+    while (!g_stop)
     {
-        CloseHandle(hWritePipe);
-        hWritePipe = NULL;
+        int vol = 0, i;
+        BOOL mute = FALSE, ok = FALSE;
+        BACKEND found = BACKEND_NONE;
 
-        if (WaitForSingleObject(pi.hProcess, 1000) == WAIT_OBJECT_0)
+        for (i = 0; i < 3 && !ok; i++)
         {
-            ReadFile(hReadPipe, out_buf, max_len - 1, &bytes_read, NULL);
-            if (bytes_read > 0)
-            {
-                out_buf[bytes_read] = '\0';
-                success = TRUE;
-            }
+            BACKEND b = (g_backend != BACKEND_NONE) ? g_backend : order[i];
+            ok = query(b, &vol, &mute);
+            if (ok) found = b;
+            if (g_backend != BACKEND_NONE) break;   /* once detected, only ask that one */
         }
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-    }
 
-    if (hWritePipe) CloseHandle(hWritePipe);
-    CloseHandle(hReadPipe);
-    return success;
+        EnterCriticalSection(&g_cs);
+        if (ok)
+        {
+            if (g_backend == BACKEND_NONE) TRACE("audio backend: %s\n", backend_name(found));
+            g_backend = found;
+            g_status.available = TRUE;
+            if ((int)(GetTickCount() - g_hold_until) >= 0)
+            {
+                g_status.volume_percent = vol;
+                g_status.is_muted = mute;
+            }
+            lstrcpyW(g_status.device_name, L"Default audio device");
+        }
+        else
+        {
+            g_backend = BACKEND_NONE;   /* server may have gone away or not started yet: probe again */
+            g_status.available = FALSE;
+        }
+        LeaveCriticalSection(&g_cs);
+
+        {
+            DWORD waited;
+            for (waited = 0; waited < POLL_MS && !g_stop; waited += 50) Sleep(50);
+        }
+    }
+    return 0;
 }
 
 void audio_backend_init(void)
 {
-    char buf[256];
+    if (g_thread) return;
+    if (!g_cs_ready) { InitializeCriticalSection(&g_cs); g_cs_ready = TRUE; }
+    g_stop = 0;
+    g_thread = CreateThread(NULL, 0, poll_thread, NULL, 0, NULL);
+}
 
-    /* 1. Test for PipeWire / WirePlumber (standard on modern Linux & Gamescope) */
-    if (run_cmd_capture("wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null", buf, sizeof(buf)) && strlen(buf) > 0)
-    {
-        g_backend = AUDIO_BACKEND_PIPEWIRE;
-        lstrcpyW(g_cached_device, L"PipeWire Audio Sink");
-        TRACE("Audio backend initialized: PipeWire (WirePlumber)\n");
-        return;
-    }
-
-    /* 2. Test for PulseAudio */
-    if (run_cmd_capture("pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null", buf, sizeof(buf)) && strlen(buf) > 0)
-    {
-        g_backend = AUDIO_BACKEND_PULSEAUDIO;
-        lstrcpyW(g_cached_device, L"PulseAudio Master Sink");
-        TRACE("Audio backend initialized: PulseAudio\n");
-        return;
-    }
-
-    /* 3. Test for ALSA */
-    if (run_cmd_capture("amixer sget Master 2>/dev/null", buf, sizeof(buf)) && strlen(buf) > 0)
-    {
-        g_backend = AUDIO_BACKEND_ALSA;
-        lstrcpyW(g_cached_device, L"ALSA Master Mixer");
-        TRACE("Audio backend initialized: ALSA\n");
-        return;
-    }
-
-    /* 4. Test for Win32 waveOut */
-    {
-        DWORD vol = 0;
-        if (waveOutGetVolume(0, &vol) == MMSYSERR_NOERROR)
-        {
-            g_backend = AUDIO_BACKEND_WINMM;
-            lstrcpyW(g_cached_device, L"Wave Audio Out");
-            TRACE("Audio backend initialized: WinMM waveOut\n");
-            return;
-        }
-    }
-
-    /* 5. Fallback in-memory mock */
-    g_backend = AUDIO_BACKEND_MOCK;
-    lstrcpyW(g_cached_device, L"Simulated Audio Device");
-    TRACE("Audio backend initialized: Mock / Fallback\n");
+void audio_backend_shutdown(void)
+{
+    if (!g_thread) return;
+    g_stop = 1;
+    WaitForSingleObject(g_thread, 3000);
+    CloseHandle(g_thread);
+    g_thread = NULL;
 }
 
 BOOL audio_backend_get_status(AUDIO_STATUS_INFO *info)
 {
-    char buf[512];
-    DWORD now = GetTickCount();
-
     if (!info) return FALSE;
-
-    if (g_backend == AUDIO_BACKEND_UNKNOWN)
-        audio_backend_init();
-
-    /* Rate-limit backend queries to once every 400ms to keep UI responsive */
-    if (now - g_last_query_tick > 400)
-    {
-        g_last_query_tick = now;
-
-        switch (g_backend)
-        {
-        case AUDIO_BACKEND_PIPEWIRE:
-            if (run_cmd_capture("wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null", buf, sizeof(buf)))
-            {
-                /* Typical output: "Volume: 0.65" or "Volume: 0.65 [MUTED]" */
-                char *p = strstr(buf, "Volume:");
-                if (p)
-                {
-                    float val = 0.0f;
-                    if (sscanf(p + 7, "%f", &val) == 1)
-                    {
-                        g_cached_volume = (int)(val * 100.0f + 0.5f);
-                        if (g_cached_volume < 0) g_cached_volume = 0;
-                        if (g_cached_volume > 100) g_cached_volume = 100;
-                    }
-                }
-                g_cached_mute = (strstr(buf, "[MUTED]") != NULL);
-            }
-            break;
-
-        case AUDIO_BACKEND_PULSEAUDIO:
-            if (run_cmd_capture("pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null", buf, sizeof(buf)))
-            {
-                /* Look for first percentage "%" */
-                char *pct = strchr(buf, '%');
-                if (pct)
-                {
-                    char *p = pct - 1;
-                    while (p > buf && (*p >= '0' && *p <= '9')) p--;
-                    g_cached_volume = atoi(p + 1);
-                }
-            }
-            if (run_cmd_capture("pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null", buf, sizeof(buf)))
-            {
-                g_cached_mute = (strstr(buf, "yes") != NULL);
-            }
-            break;
-
-        case AUDIO_BACKEND_ALSA:
-            if (run_cmd_capture("amixer sget Master 2>/dev/null", buf, sizeof(buf)))
-            {
-                char *pct = strchr(buf, '%');
-                if (pct)
-                {
-                    char *p = pct - 1;
-                    while (p > buf && (*p >= '0' && *p <= '9')) p--;
-                    g_cached_volume = atoi(p + 1);
-                }
-                g_cached_mute = (strstr(buf, "[off]") != NULL);
-            }
-            break;
-
-        case AUDIO_BACKEND_WINMM:
-        {
-            DWORD vol = 0;
-            if (waveOutGetVolume(0, &vol) == MMSYSERR_NOERROR)
-            {
-                WORD left = LOWORD(vol);
-                g_cached_volume = (int)((left * 100) / 0xFFFF);
-            }
-            break;
-        }
-
-        case AUDIO_BACKEND_MOCK:
-        default:
-            /* Maintain simulated in-memory state */
-            break;
-        }
-    }
-
-    info->volume_percent = g_cached_volume;
-    info->is_muted = g_cached_mute;
-    info->backend_type = g_backend;
-    lstrcpyW(info->device_name, g_cached_device);
+    memset(info, 0, sizeof(*info));
+    if (!g_cs_ready) return TRUE;
+    EnterCriticalSection(&g_cs);
+    *info = g_status;
+    LeaveCriticalSection(&g_cs);
     return TRUE;
+}
+
+/* Publish a locally-made change immediately; polled values are ignored for a moment so the UI does not
+ * flicker back to the old value before the server reflects the change. */
+static void publish(int volume, int mute)
+{
+    EnterCriticalSection(&g_cs);
+    if (volume >= 0) g_status.volume_percent = volume;
+    if (mute >= 0) g_status.is_muted = mute;
+    g_hold_until = GetTickCount() + 1500;
+    LeaveCriticalSection(&g_cs);
 }
 
 BOOL audio_backend_set_volume(int percent)
 {
-    char cmd[256];
+    char arg[32];
+    BACKEND b;
 
-    if (percent < 0) percent = 0;
-    if (percent > 100) percent = 100;
+    if (!g_cs_ready) return FALSE;
+    percent = max(0, min(100, percent));
+    EnterCriticalSection(&g_cs);
+    b = g_backend;
+    LeaveCriticalSection(&g_cs);
 
-    g_cached_volume = percent;
-    g_last_query_tick = GetTickCount();
-
-    switch (g_backend)
+    switch (b)
     {
-    case AUDIO_BACKEND_PIPEWIRE:
-        snprintf(cmd, sizeof(cmd), "wpctl set-volume @DEFAULT_AUDIO_SINK@ %.2f", (float)percent / 100.0f);
-        run_cmd_async(cmd);
-        break;
-
-    case AUDIO_BACKEND_PULSEAUDIO:
-        snprintf(cmd, sizeof(cmd), "pactl set-sink-volume @DEFAULT_SINK@ %d%%", percent);
-        run_cmd_async(cmd);
-        break;
-
-    case AUDIO_BACKEND_ALSA:
-        snprintf(cmd, sizeof(cmd), "amixer sset Master %d%%", percent);
-        run_cmd_async(cmd);
-        break;
-
-    case AUDIO_BACKEND_WINMM:
+    case BACKEND_PIPEWIRE:
     {
-        DWORD raw = (percent * 0xFFFF) / 100;
-        waveOutSetVolume(0, MAKELONG(raw, raw));
+        const char *argv[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", arg, NULL };
+        snprintf(arg, sizeof(arg), "%d.%02d", percent / 100, percent % 100);
+        hostcmd_run_async(argv);
         break;
     }
-
-    case AUDIO_BACKEND_MOCK:
+    case BACKEND_PULSE:
+    {
+        const char *argv[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", arg, NULL };
+        snprintf(arg, sizeof(arg), "%d%%", percent);
+        hostcmd_run_async(argv);
+        break;
+    }
+    case BACKEND_ALSA:
+    {
+        const char *argv[] = { "amixer", "sset", "Master", arg, NULL };
+        snprintf(arg, sizeof(arg), "%d%%", percent);
+        hostcmd_run_async(argv);
+        break;
+    }
     default:
-        break;
+        return FALSE;
     }
-
+    publish(percent, -1);
     return TRUE;
 }
 
 BOOL audio_backend_set_mute(BOOL mute)
 {
-    char cmd[256];
+    BACKEND b;
 
-    g_cached_mute = mute;
-    g_last_query_tick = GetTickCount();
+    if (!g_cs_ready) return FALSE;
+    EnterCriticalSection(&g_cs);
+    b = g_backend;
+    LeaveCriticalSection(&g_cs);
 
-    switch (g_backend)
+    switch (b)
     {
-    case AUDIO_BACKEND_PIPEWIRE:
-        snprintf(cmd, sizeof(cmd), "wpctl set-mute @DEFAULT_AUDIO_SINK@ %d", mute ? 1 : 0);
-        run_cmd_async(cmd);
-        break;
-
-    case AUDIO_BACKEND_PULSEAUDIO:
-        snprintf(cmd, sizeof(cmd), "pactl set-sink-mute @DEFAULT_SINK@ %d", mute ? 1 : 0);
-        run_cmd_async(cmd);
-        break;
-
-    case AUDIO_BACKEND_ALSA:
-        snprintf(cmd, sizeof(cmd), "amixer sset Master %s", mute ? "mute" : "unmute");
-        run_cmd_async(cmd);
-        break;
-
-    case AUDIO_BACKEND_WINMM:
-        if (mute)
-            waveOutSetVolume(0, 0);
-        else
-            audio_backend_set_volume(g_cached_volume);
-        break;
-
-    case AUDIO_BACKEND_MOCK:
-    default:
+    case BACKEND_PIPEWIRE:
+    {
+        const char *argv[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", mute ? "1" : "0", NULL };
+        hostcmd_run_async(argv);
         break;
     }
-
+    case BACKEND_PULSE:
+    {
+        const char *argv[] = { "pactl", "set-sink-mute", "@DEFAULT_SINK@", mute ? "1" : "0", NULL };
+        hostcmd_run_async(argv);
+        break;
+    }
+    case BACKEND_ALSA:
+    {
+        const char *argv[] = { "amixer", "sset", "Master", mute ? "mute" : "unmute", NULL };
+        hostcmd_run_async(argv);
+        break;
+    }
+    default:
+        return FALSE;
+    }
+    publish(-1, mute);
     return TRUE;
 }
 
 BOOL audio_backend_toggle_mute(void)
 {
-    return audio_backend_set_mute(!g_cached_mute);
+    AUDIO_STATUS_INFO st;
+    audio_backend_get_status(&st);
+    return st.available && audio_backend_set_mute(!st.is_muted);
 }
 
 int audio_backend_step_volume(int delta_percent)
 {
-    int new_vol = g_cached_volume + delta_percent;
-    if (new_vol < 0) new_vol = 0;
-    if (new_vol > 100) new_vol = 100;
-    audio_backend_set_volume(new_vol);
-    return new_vol;
+    AUDIO_STATUS_INFO st;
+    int v;
+
+    audio_backend_get_status(&st);
+    if (!st.available) return 0;
+    v = max(0, min(100, st.volume_percent + delta_percent));
+    audio_backend_set_volume(v);
+    return v;
 }

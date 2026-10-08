@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Keyboard Properties: Speed Page
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include "main_private.h"
@@ -58,19 +74,19 @@ INT_PTR CALLBACK keyboard_speed_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         if ((HWND)lparam == hDelay)
         {
             g_state.repeat_delay = (UINT)SendMessageW(hDelay, TBM_GETPOS, 0, 0);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         }
         else if ((HWND)lparam == hSpeed)
         {
             g_state.repeat_speed = (UINT)SendMessageW(hSpeed, TBM_GETPOS, 0, 0);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         }
         else if ((HWND)lparam == hBlink)
         {
             int pos = (int)SendMessageW(hBlink, TBM_GETPOS, 0, 0);
             g_state.blink_time = 1200 - (pos * 100);
             SetCaretBlinkTime(g_state.blink_time);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         }
         break;
     }

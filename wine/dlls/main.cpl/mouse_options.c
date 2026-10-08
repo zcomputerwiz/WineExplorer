@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Mouse Properties: Pointer Options Page
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include "main_private.h"
@@ -104,12 +120,12 @@ INT_PTR CALLBACK motion_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         if ((HWND)lparam == hSpeed)
         {
             g_state.mouse_speed = (UINT)SendMessageW(hSpeed, TBM_GETPOS, 0, 0);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         }
         else if ((HWND)lparam == hTrails)
         {
             g_state.mouse_trails = (UINT)SendMessageW(hTrails, TBM_GETPOS, 0, 0);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         }
         break;
     }
@@ -119,12 +135,12 @@ INT_PTR CALLBACK motion_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         {
         case MOUSE_ENHANCED_MOTION:
             g_state.enhance_precision = (IsDlgButtonChecked(hwnd, MOUSE_ENHANCED_MOTION) == BST_CHECKED);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case MOUSE_SNAPDEF:
             g_state.snap_to_def = (IsDlgButtonChecked(hwnd, MOUSE_SNAPDEF) == BST_CHECKED);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case MOUSE_TRAILS:
@@ -140,18 +156,18 @@ INT_PTR CALLBACK motion_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             {
                 g_state.mouse_trails = 0;
             }
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         }
 
         case MOUSE_VANISH:
             g_state.mouse_vanish = (IsDlgButtonChecked(hwnd, MOUSE_VANISH) == BST_CHECKED);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case MOUSE_SONAR:
             g_state.mouse_sonar = (IsDlgButtonChecked(hwnd, MOUSE_SONAR) == BST_CHECKED);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         }
         break;

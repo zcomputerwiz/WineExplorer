@@ -22,6 +22,8 @@
 
 #define COBJMACROS
 
+/* must precede every other header so the GUIDs used across explorer get defined here */
+#include <initguid.h>
 #include "wine/debug.h"
 #include "explorer_private.h"
 #include "resource.h"
@@ -411,22 +413,26 @@ static void make_explorer_window(parameters_struct *params)
 
     if (sw && path)
     {
-        pidl = ILCreateFromPathW(path);
-        if (pidl)
+        if (!(pidl = ILCreateFromPathW(path)))
         {
-            variant_from_pidl(&var, pidl);
-            V_VT(&empty_var) = VT_EMPTY;
-            hres = IShellWindows_FindWindowSW(sw, &var, &empty_var, SWC_EXPLORER, &hwnd, 0, &dispatch);
-            VariantClear(&var);
-            ILFree(pidl);
-            if (hres == S_OK)
-            {
-                TRACE("Found window %#lx already browsing path %s.\n", hwnd, debugstr_w(path));
-                SetForegroundWindow((HWND)(LONG_PTR)hwnd);
-                IShellWindows_Release(sw);
-                free(path);
-                return;
-            }
+            ERR("Failed to create PIDL for %s.\n", debugstr_w(path));
+            IShellWindows_Release(sw);
+            free(path);
+            return;
+        }
+
+        variant_from_pidl(&var, pidl);
+        V_VT(&empty_var) = VT_EMPTY;
+        hres = IShellWindows_FindWindowSW(sw, &var, &empty_var, SWC_EXPLORER, &hwnd, 0, &dispatch);
+        VariantClear(&var);
+        ILFree(pidl);
+        if (hres == S_OK)
+        {
+            TRACE("Found window %#lx already browsing path %s.\n", hwnd, debugstr_w(path));
+            SetForegroundWindow((HWND)(LONG_PTR)hwnd);
+            IShellWindows_Release(sw);
+            free(path);
+            return;
         }
     }
 
@@ -863,23 +869,6 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
     const size_t len_desktop_quotes = wcslen(arg_desktop_quotes);
 
     LPWSTR p = commandline;
-
-    if (wcsstr(commandline, L"/netprops") || wcsstr(commandline, L"-netprops") ||
-        wcsstr(commandline, L"/lanprops") || wcsstr(commandline, L"-lanprops"))
-    {
-        net_props_show(NULL);
-        ExitProcess(0);
-    }
-    else if (wcsstr(commandline, L"/netstatus") || wcsstr(commandline, L"-netstatus"))
-    {
-        wlan_status_show(NULL);
-        ExitProcess(0);
-    }
-    else if (wcsstr(commandline, L"/wlan") || wcsstr(commandline, L"-wlan"))
-    {
-        wlan_dialog_show(NULL);
-        ExitProcess(0);
-    }
 
     while (*p)
     {

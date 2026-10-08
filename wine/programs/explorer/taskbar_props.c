@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Taskbar and Start Menu Properties Implementation
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <windows.h>
@@ -216,12 +232,12 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         case IDC_GROUPTASKBAR:
         case IDC_QUICKLAUNCH:
         case IDC_HIDEINACTIVEICONS:
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         case IDC_SHOWCLOCK:
             g_settings.show_clock = (IsDlgButtonChecked(hwnd, IDC_SHOWCLOCK) == BST_CHECKED);
             InvalidateRect(GetDlgItem(hwnd, IDC_TASKBAR_PREVIEW), NULL, TRUE);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         }
         return TRUE;
@@ -281,19 +297,19 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
             s_preview_style = THEME_STARTMENU_CLASSIC;
             CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_CLASSIC);
             InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         case IDC_START_TWOCOLUMN:
             s_preview_style = THEME_STARTMENU_TWOCOLUMN;
             CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_TWOCOLUMN);
             InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         case IDC_START_MODERN:
             s_preview_style = THEME_STARTMENU_MODERN;
             CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_MODERN);
             InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         }
         return TRUE;

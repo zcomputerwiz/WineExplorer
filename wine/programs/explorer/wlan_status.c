@@ -6,6 +6,20 @@
  * Implements the authentic Windows XP / Server 2003 "Wireless Network Connection Status"
  * dialog (IDD_STATMON_GENERAL_LAN) with General/Support tabs, duration timer,
  * 5-bar signal strength meter, and live packet/byte throughput meters.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -164,7 +178,8 @@ static void update_status_controls(HWND hwnd)
     SetDlgItemTextW(hwnd, IDC_TXT_SM_DURATION, dur_str);
 
     /* Speed */
-    wsprintfW(speed_str, L"%u.0 Mbps", g_status_info.speed_mbps);
+    if (g_status_info.speed_mbps) wsprintfW(speed_str, L"%u Mbps", g_status_info.speed_mbps);
+    else speed_str[0] = 0;
     SetDlgItemTextW(hwnd, IDC_TXT_SM_SPEED, speed_str);
 
     /* Bytes and Packets */
@@ -263,7 +278,7 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         NMHDR *hdr = (NMHDR*)lparam;
         if (hdr->idFrom == IDC_STATMON_TAB && hdr->code == TCN_SELCHANGE)
         {
-            g_current_tab = TabCtrl_GetCurSel(hdr->hwndFrom);
+            g_current_tab = ((int)SendMessageW(hdr->hwndFrom, TCM_GETCURSEL, 0, 0));
             update_tab_visibility(hwnd, g_current_tab);
         }
         break;

@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Display Properties Desktop (Background) Page
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <windows.h>
@@ -147,7 +163,7 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case IDC_BG_LIST:
             if (HIWORD(wparam) == LBN_SELCHANGE)
             {
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
 
@@ -155,7 +171,7 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (HIWORD(wparam) == CBN_SELCHANGE)
             {
                 g_wallpaper_style = SendMessageW((HWND)lparam, CB_GETCURSEL, 0, 0);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
 
@@ -174,7 +190,7 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             {
                 g_desktop_color = cc.rgbResult;
                 update_desktop_preview(hwnd);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
         }
@@ -197,7 +213,7 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 int idx = SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)PathFindFileNameW(file_buf));
                 SendMessageW(hList, LB_SETCURSEL, idx, 0);
                 lstrcpynW(g_current_wallpaper, file_buf, MAX_PATH);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
         }

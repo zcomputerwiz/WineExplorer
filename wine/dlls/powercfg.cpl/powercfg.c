@@ -5,6 +5,20 @@
  *
  * Implements the authentic Windows XP / Server 2003 Power Options Control Panel
  * applet, featuring Power Schemes, Power Meter, Advanced, and Hibernate pages.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -147,7 +161,7 @@ static INT_PTR CALLBACK PowerSchemesPageProc(HWND hwnd, UINT msg, WPARAM wparam,
             if (idx >= 0 && idx <= 5)
             {
                 update_scheme_combos(hwnd, idx);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             return TRUE;
         }

@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Performance Options Dialog (sysdm.cpl)
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <windows.h>
@@ -44,7 +60,7 @@ static INT_PTR CALLBACK perf_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         memset(&col, 0, sizeof(col));
         col.mask = LVCF_WIDTH;
         col.cx = 320;
-        ListView_InsertColumnW(hList, 0, &col);
+        SendMessageW(hList, LVM_INSERTCOLUMNW, 0, (LPARAM)&col);
 
         for (i = 0; i < ARRAY_SIZE(g_visual_fx); i++)
         {
@@ -52,7 +68,7 @@ static INT_PTR CALLBACK perf_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             item.mask = LVIF_TEXT;
             item.iItem = i;
             item.pszText = (LPWSTR)g_visual_fx[i];
-            ListView_InsertItemW(hList, &item);
+            SendMessageW(hList, LVM_INSERTITEMW, 0, (LPARAM)&item);
             set_listview_check_state(hList, i, TRUE);
         }
 
@@ -80,8 +96,8 @@ static INT_PTR CALLBACK perf_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         case IDOK:
         {
             /* Apply visual effects settings */
-            BOOL drag_full = ListView_GetCheckState(hList, 3);
-            BOOL font_smooth = ListView_GetCheckState(hList, 4);
+            BOOL drag_full = ((((UINT)SendMessageW(hList, LVM_GETITEMSTATE, 3, LVIS_STATEIMAGEMASK)) >> 12) - 1);
+            BOOL font_smooth = ((((UINT)SendMessageW(hList, LVM_GETITEMSTATE, 4, LVIS_STATEIMAGEMASK)) >> 12) - 1);
 
             SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS, drag_full, 0, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
             SystemParametersInfoW(SPI_SETFONTSMOOTHING, font_smooth, 0, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);

@@ -5,6 +5,20 @@
  *
  * Implements the authentic Windows XP / Server 2003 Sounds and Audio Devices
  * Control Panel applet, providing Volume, Sounds, and Audio device property pages.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -423,21 +437,33 @@ static INT_PTR CALLBACK AudioPageProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         HWND hRec = GetDlgItem(hwnd, IDC_AUD_RECORD);
         HWND hMidi = GetDlgItem(hwnd, IDC_AUD_MIDI);
 
-        if (hPlay)
+        UINT i, n;
+
+        /* Real devices as reported by winmm; an empty list means the host has none */
+        n = waveOutGetNumDevs();
+        for (i = 0; hPlay && i < n; i++)
         {
-            SendMessageW(hPlay, CB_ADDSTRING, 0, (LPARAM)L"Default Audio Device (PipeWire / PulseAudio)");
-            SendMessageW(hPlay, CB_SETCURSEL, 0, 0);
+            WAVEOUTCAPSW caps;
+            if (waveOutGetDevCapsW(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR)
+                SendMessageW(hPlay, CB_ADDSTRING, 0, (LPARAM)caps.szPname);
         }
-        if (hRec)
+        n = waveInGetNumDevs();
+        for (i = 0; hRec && i < n; i++)
         {
-            SendMessageW(hRec, CB_ADDSTRING, 0, (LPARAM)L"Default Audio Input (Microphone)");
-            SendMessageW(hRec, CB_SETCURSEL, 0, 0);
+            WAVEINCAPSW caps;
+            if (waveInGetDevCapsW(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR)
+                SendMessageW(hRec, CB_ADDSTRING, 0, (LPARAM)caps.szPname);
         }
-        if (hMidi)
+        n = midiOutGetNumDevs();
+        for (i = 0; hMidi && i < n; i++)
         {
-            SendMessageW(hMidi, CB_ADDSTRING, 0, (LPARAM)L"Microsoft GS Wavetable SW Synth");
-            SendMessageW(hMidi, CB_SETCURSEL, 0, 0);
+            MIDIOUTCAPSW caps;
+            if (midiOutGetDevCapsW(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR)
+                SendMessageW(hMidi, CB_ADDSTRING, 0, (LPARAM)caps.szPname);
         }
+        if (hPlay) SendMessageW(hPlay, CB_SETCURSEL, 0, 0);
+        if (hRec) SendMessageW(hRec, CB_SETCURSEL, 0, 0);
+        if (hMidi) SendMessageW(hMidi, CB_SETCURSEL, 0, 0);
         return TRUE;
     }
 

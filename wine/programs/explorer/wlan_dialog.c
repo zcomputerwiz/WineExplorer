@@ -6,6 +6,20 @@
  * Implements the authentic Windows XP / Server 2003 "Connect to Wireless Network"
  * dialog (IDD_WZCQCFG) with available AP listing, signal strength metrics,
  * security warnings, and WPA/WPA2 key confirmation.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -109,7 +123,7 @@ static void refresh_network_list(HWND hwnd)
     HWND hList = GetDlgItem(hwnd, IDC_WZCQCFG_NETWORKS);
     int i, select_idx = 0;
 
-    ListView_DeleteAllItems(hList);
+    SendMessageW(hList, LVM_DELETEALLITEMS, 0, 0);
     g_scan_count = net_backend_scan_wireless(g_scan_entries, MAX_NETWORKS);
 
     for (i = 0; i < g_scan_count; i++)
@@ -135,7 +149,7 @@ static void refresh_network_list(HWND hwnd)
         item.iImage = g_scan_entries[i].signal_bars;
         item.lParam = (LPARAM)i;
 
-        ListView_InsertItemW(hList, &item);
+        SendMessageW(hList, LVM_INSERTITEMW, 0, (LPARAM)&item);
 
         /* Subitem 1: Signal strength text */
         wsprintfW(sig_str, L"%d%%", g_scan_entries[i].signal_percent);
@@ -152,7 +166,7 @@ static void refresh_network_list(HWND hwnd)
         lvi.state = LVIS_SELECTED | LVIS_FOCUSED;
         lvi.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
         SendMessageW(hList, LVM_SETITEMSTATE, (WPARAM)select_idx, (LPARAM)&lvi);
-        ListView_EnsureVisible(hList, select_idx, FALSE);
+        SendMessageW(hList, LVM_ENSUREVISIBLE, select_idx, FALSE);
     }
 
     update_security_pane(hwnd, select_idx);
@@ -179,20 +193,20 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         SendMessageW(hWarnIco, STM_SETICON, (LPARAM)LoadIconW(NULL, (const WCHAR *)IDI_WARNING), 0);
 
         /* Configure List View */
-        ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        SendMessageW(hList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 
         col.mask = LVCF_TEXT | LVCF_WIDTH;
         col.cx = 125;
         col.pszText = (LPWSTR)L"Network Name";
-        ListView_InsertColumnW(hList, 0, &col);
+        SendMessageW(hList, LVM_INSERTCOLUMNW, 0, (LPARAM)&col);
 
         col.cx = 40;
         col.pszText = (LPWSTR)L"Signal";
-        ListView_InsertColumnW(hList, 1, &col);
+        SendMessageW(hList, LVM_INSERTCOLUMNW, 1, (LPARAM)&col);
 
         col.cx = 65;
         col.pszText = (LPWSTR)L"Security";
-        ListView_InsertColumnW(hList, 2, &col);
+        SendMessageW(hList, LVM_INSERTCOLUMNW, 2, (LPARAM)&col);
 
         /* Initialize 16x16 Signal ImageList */
         g_hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 6, 1);
@@ -201,7 +215,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
             HICON hSig = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_SIG0 + i));
             ImageList_AddIcon(g_hImageList, hSig ? hSig : hIconMain);
         }
-        ListView_SetImageList(hList, g_hImageList, LVSIL_SMALL);
+        SendMessageW(hList, LVM_SETIMAGELIST, LVSIL_SMALL, (LPARAM)g_hImageList);
 
         refresh_network_list(hwnd);
         return TRUE;
@@ -260,7 +274,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         case IDC_WZCQCFG_CONNECT:
         {
             HWND hList = GetDlgItem(hwnd, IDC_WZCQCFG_NETWORKS);
-            int sel = ListView_GetNextItem(hList, -1, LVNI_SELECTED);
+            int sel = (int)SendMessageW(hList, LVM_GETNEXTITEM, (WPARAM)-1, LVNI_SELECTED);
             if (sel >= 0 && sel < g_scan_count)
             {
                 if (g_scan_entries[sel].is_connected)

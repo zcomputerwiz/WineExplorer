@@ -3,8 +3,21 @@
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
- * Provides abstraction for Linux audio servers (PipeWire / WirePlumber wpctl,
- * PulseAudio pactl, ALSA amixer) with Win32 waveOut / mmsystem fallback.
+ * Master volume / mute of the host's default output, via PipeWire, PulseAudio or ALSA command-line tools.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #ifndef __WINE_EXPLORER_AUDIO_BACKEND_H
@@ -12,48 +25,20 @@
 
 #include <windows.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-typedef enum
-{
-    AUDIO_BACKEND_UNKNOWN = 0,
-    AUDIO_BACKEND_PIPEWIRE,
-    AUDIO_BACKEND_PULSEAUDIO,
-    AUDIO_BACKEND_ALSA,
-    AUDIO_BACKEND_WINMM,
-    AUDIO_BACKEND_MOCK
-} AUDIO_BACKEND_TYPE;
-
 typedef struct
 {
+    BOOL available;        /* FALSE when there is no usable audio device: callers must hide their UI */
     int volume_percent;    /* 0 to 100 */
     BOOL is_muted;
-    AUDIO_BACKEND_TYPE backend_type;
     WCHAR device_name[128];
 } AUDIO_STATUS_INFO;
 
-/* Initialize audio subsystem and detect native Linux / Win32 backend */
 void audio_backend_init(void);
-
-/* Get current volume level (0-100) and mute status */
+void audio_backend_shutdown(void);
 BOOL audio_backend_get_status(AUDIO_STATUS_INFO *info);
-
-/* Set master volume level (0-100) */
 BOOL audio_backend_set_volume(int percent);
-
-/* Set master mute state */
 BOOL audio_backend_set_mute(BOOL mute);
-
-/* Toggle mute state */
 BOOL audio_backend_toggle_mute(void);
-
-/* Step volume up or down by delta (e.g. +5 or -5) */
 int audio_backend_step_volume(int delta_percent);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* __WINE_EXPLORER_AUDIO_BACKEND_H */

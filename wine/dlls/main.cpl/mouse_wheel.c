@@ -1,5 +1,21 @@
 /*
  * WineExplorer Desktop Environment - Mouse Properties: Wheel Page
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include "main_private.h"
@@ -51,14 +67,14 @@ INT_PTR CALLBACK wheel_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             g_state.is_page_scroll = FALSE;
             EnableWindow(GetDlgItem(hwnd, IDE_BUDDY_SCROLL_LINES), TRUE);
             EnableWindow(GetDlgItem(hwnd, IDC_SPIN_SCROLL_LINES), TRUE);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case IDRAD_SCROLL_PAGE:
             g_state.is_page_scroll = TRUE;
             EnableWindow(GetDlgItem(hwnd, IDE_BUDDY_SCROLL_LINES), FALSE);
             EnableWindow(GetDlgItem(hwnd, IDC_SPIN_SCROLL_LINES), FALSE);
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
 
         case IDE_BUDDY_SCROLL_LINES:
@@ -69,7 +85,7 @@ INT_PTR CALLBACK wheel_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 if (translated && val >= 1 && val <= 100)
                 {
                     g_state.scroll_lines = val;
-                    PropSheet_Changed(GetParent(hwnd), hwnd);
+                    SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
                 }
             }
             break;

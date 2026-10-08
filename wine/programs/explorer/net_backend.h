@@ -5,6 +5,20 @@
  *
  * Clean-room implementation for pairing Wine Explorer with Linux NetworkManager (nmcli)
  * and Win32 iphlpapi network status.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #ifndef __WINE_NET_BACKEND_H
@@ -36,6 +50,7 @@ typedef struct _WLAN_NETWORK_ENTRY {
 
 typedef struct _NET_STATUS_INFO {
     NET_CONNECTION_TYPE conn_type;
+    BOOL  has_adapter;         /* FALSE when the host has no network interface at all */
     BOOL  is_connected;
     BOOL  is_enabled;
     WCHAR active_ssid[MAX_SSID_LEN];
@@ -46,7 +61,7 @@ typedef struct _NET_STATUS_INFO {
     WCHAR default_gateway[32];
     int   signal_percent;      /* 0 - 100 */
     int   signal_bars;         /* 0 - 5 */
-    DWORD speed_mbps;          /* e.g. 54, 150, 1000 */
+    DWORD speed_mbps;          /* 0 when the host does not report a link speed */
     DWORD duration_seconds;
     ULONGLONG bytes_sent;
     ULONGLONG bytes_received;

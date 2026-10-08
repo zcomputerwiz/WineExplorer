@@ -7,6 +7,20 @@
  * providing animated signal strength for Wi-Fi, packet-level transmit/receive activity blinking for Ethernet,
  * rich connection tooltips, toggleable tray visibility matching Network Connection Properties,
  * double-click status dialog, and authentic right-click context menus.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -65,6 +79,9 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     WCHAR new_tip[128] = {0};
     BOOL should_show = net_backend_get_show_tray_icon();
 
+    net_backend_get_status(&g_status);
+    if (!g_status.has_adapter) should_show = FALSE;   /* nothing to monitor */
+
     if (!should_show)
     {
         if (g_tray_visible)
@@ -80,8 +97,6 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
         }
         return;
     }
-
-    net_backend_get_status(&g_status);
 
     if (!g_status.is_connected)
     {
@@ -100,9 +115,8 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
         int bars = max(0, min(5, g_status.signal_bars));
         new_icon_id = IDI_NET_SIG0 + bars;
 
-        wsprintfW(new_tip, L"Wireless Network Connection (%s)\nSpeed: %u.0 Mbps\nSignal Strength: %s\nStatus: Connected",
+        wsprintfW(new_tip, L"Wireless Network Connection (%s)\nSignal Strength: %s\nStatus: Connected",
                   g_status.active_ssid[0] ? g_status.active_ssid : L"Connected",
-                  g_status.speed_mbps,
                   get_signal_strength_str(bars));
     }
     else
@@ -122,8 +136,10 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
         else
             new_icon_id = IDI_NET_BLANK;
 
-        wsprintfW(new_tip, L"Local Area Connection\nSpeed: %u Mbps\nStatus: Connected",
-                  g_status.speed_mbps);
+        if (g_status.speed_mbps)
+            wsprintfW(new_tip, L"Local Area Connection\nSpeed: %u Mbps\nStatus: Connected", g_status.speed_mbps);
+        else
+            lstrcpyW(new_tip, L"Local Area Connection\nStatus: Connected");
     }
 
     if (!g_tray_visible)

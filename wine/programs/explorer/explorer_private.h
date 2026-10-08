@@ -27,6 +27,7 @@
 #include "startmenu_view.h"
 #include "tray_clock.h"
 #include "power_mgmt.h"
+#include "uac_agent.h"
 #include "taskbar_props.h"
 #include "nettray.h"
 #include "volumetray.h"

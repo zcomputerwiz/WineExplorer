@@ -189,48 +189,33 @@ static INT_PTR CALLBACK RunDlgProc (HWND hwnd, UINT message, WPARAM wParam, LPAR
     switch (message)
         {
         case WM_INITDIALOG :
+            prfdp = (RUNFILEDLGPARAMS *)lParam ;
+            SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)prfdp);
+
+            if (prfdp->lpstrTitle)
+                SetWindowTextW(hwnd, prfdp->lpstrTitle);
+            if (prfdp->lpstrDescription)
+                SetWindowTextW(GetDlgItem(hwnd, IDC_RUNDLG_DESCRIPTION), prfdp->lpstrDescription);
+            if (prfdp->uFlags & RFF_NOBROWSE)
             {
-                RECT rc, wa;
-                int h, x, y;
-
-                prfdp = (RUNFILEDLGPARAMS *)lParam ;
-                SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)prfdp);
-
-                if (prfdp->lpstrTitle)
-                    SetWindowTextW(hwnd, prfdp->lpstrTitle);
-                if (prfdp->lpstrDescription)
-                    SetWindowTextW(GetDlgItem(hwnd, IDC_RUNDLG_DESCRIPTION), prfdp->lpstrDescription);
-                if (prfdp->uFlags & RFF_NOBROWSE)
-                {
-                    HWND browse = GetDlgItem(hwnd, IDC_RUNDLG_BROWSE);
-                    ShowWindow(browse, SW_HIDE);
-                    EnableWindow(browse, FALSE);
-                }
-                if (prfdp->uFlags & RFF_NOLABEL)
-                    ShowWindow(GetDlgItem(hwnd, IDC_RUNDLG_LABEL), SW_HIDE);
-                if (prfdp->uFlags & RFF_CALCDIRECTORY)
-                    FIXME("RFF_CALCDIRECTORY not supported\n");
-
-                if (prfdp->hIcon == NULL)
-                    prfdp->hIcon = LoadIconW(NULL, (LPCWSTR)IDI_WINLOGO);
-                SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)prfdp->hIcon);
-                SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)prfdp->hIcon);
-                SendMessageW(GetDlgItem(hwnd, IDC_RUNDLG_ICON), STM_SETICON, (WPARAM)prfdp->hIcon, 0);
-
-                FillList (GetDlgItem (hwnd, IDC_RUNDLG_EDITPATH), NULL, (prfdp->uFlags & RFF_NODEFAULT) == 0) ;
-                SetFocus (GetDlgItem (hwnd, IDC_RUNDLG_EDITPATH)) ;
-
-                /* Position above taskbar in lower-left corner (XP style) */
-                GetWindowRect(hwnd, &rc);
-                if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0))
-                {
-                    h = rc.bottom - rc.top;
-                    x = wa.left + 14;
-                    y = wa.bottom - h - 14;
-                    SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-                }
-                return TRUE ;
+                HWND browse = GetDlgItem(hwnd, IDC_RUNDLG_BROWSE);
+                ShowWindow(browse, SW_HIDE);
+                EnableWindow(browse, FALSE);
             }
+            if (prfdp->uFlags & RFF_NOLABEL)
+                ShowWindow(GetDlgItem(hwnd, IDC_RUNDLG_LABEL), SW_HIDE);
+            if (prfdp->uFlags & RFF_CALCDIRECTORY)
+                FIXME("RFF_CALCDIRECTORY not supported\n");
+
+            if (prfdp->hIcon == NULL)
+                prfdp->hIcon = LoadIconW(NULL, (LPCWSTR)IDI_WINLOGO);
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)prfdp->hIcon);
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)prfdp->hIcon);
+            SendMessageW(GetDlgItem(hwnd, IDC_RUNDLG_ICON), STM_SETICON, (WPARAM)prfdp->hIcon, 0);
+
+            FillList (GetDlgItem (hwnd, IDC_RUNDLG_EDITPATH), NULL, (prfdp->uFlags & RFF_NODEFAULT) == 0) ;
+            SetFocus (GetDlgItem (hwnd, IDC_RUNDLG_EDITPATH)) ;
+            return TRUE ;
 
         case WM_COMMAND :
             switch (LOWORD (wParam))

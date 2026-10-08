@@ -6,6 +6,20 @@
  * Implements the authentic Windows XP / Server 2003 "Local Area Connection Properties"
  * dialog matching ground truth, with General/Advanced tabs, component checklist,
  * device configuration, and the "Show icon in notification area when connected" toggle.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -26,18 +40,26 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 static int g_current_prop_tab = 0;
 static NET_STATUS_INFO g_prop_status;
 
+/* Only components the host really has are listed: IPv4 always, IPv6 when the kernel exposes it. */
+static const WCHAR *comp_names[2];
+static int comp_count;
+
+static void init_components(void)
+{
+    comp_count = 0;
+    comp_names[comp_count++] = L"Internet Protocol (TCP/IP)";
+    if (GetFileAttributesA("/proc/net/if_inet6") != INVALID_FILE_ATTRIBUTES)
+        comp_names[comp_count++] = L"Internet Protocol Version 6 (TCP/IPv6)";
+}
+
 static const WCHAR *get_component_desc(int index)
 {
     switch (index)
     {
     case 0:
-        return L"Allows your computer to access resources on a Microsoft network.";
-    case 1:
-        return L"Allows other computers to access resources on your computer using a Microsoft network.";
-    case 2:
-        return L"Quality of Service Packet Scheduler. This component provides active network traffic control and packet prioritization.";
-    case 3:
         return L"Transmission Control Protocol/Internet Protocol. The default wide area network protocol that provides communication across diverse interconnected networks.";
+    case 1:
+        return L"Version 6 of the Internet Protocol (IPv6), provided by the host operating system.";
     default:
         return L"";
     }
@@ -107,20 +129,14 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         HWND hTab = GetDlgItem(hwnd, IDC_NETPROP_TAB);
         HWND hList = GetDlgItem(hwnd, IDC_NETPROP_COMPLIST);
         TCITEMW ti = {0};
-        HICON hIconWin, hIconAdapter, hIconClient, hIconService, hIconProtocol;
+        HICON hIconWin, hIconAdapter, hIconProtocol;
         HIMAGELIST himl;
         LVCOLUMNW col = {0};
         LVITEMW item = {0};
         RECT rcList;
         BOOL show_icon;
         int i;
-        static const WCHAR *comp_names[] = {
-            L"Client for Microsoft Networks",
-            L"File and Printer Sharing for Microsoft Networks",
-            L"QoS Packet Scheduler",
-            L"Internet Protocol (TCP/IP)"
-        };
-        static const int comp_icons[] = {0, 1, 1, 2};
+        init_components();
 
         /* Set Dialog Window Icon (network cable/NIC) */
         hIconWin = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_LAN));
@@ -134,7 +150,7 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         /* Query Adapter Status and Name */
         net_backend_get_status(&g_prop_status);
         SetDlgItemTextW(hwnd, IDC_NETPROP_ADAPTER_NAME,
-                        g_prop_status.adapter_name[0] ? g_prop_status.adapter_name : L"AMD PCNET Family PCI Ethernet Adapter");
+                        g_prop_status.adapter_name);
 
         /* Initialize Tabs */
         ti.mask = TCIF_TEXT;
@@ -148,12 +164,8 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         SendMessageW(hList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0,
                      (LPARAM)(LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_SUBITEMIMAGES));
 
-        himl = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 3, 3);
-        hIconClient = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_CLIENT));
-        hIconService = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_SERVICE));
+        himl = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 1, 1);
         hIconProtocol = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_PROTOCOL));
-        ImageList_AddIcon(himl, hIconClient);
-        ImageList_AddIcon(himl, hIconService);
         ImageList_AddIcon(himl, hIconProtocol);
         SendMessageW(hList, LVM_SETIMAGELIST, (WPARAM)LVSIL_SMALL, (LPARAM)himl);
 
@@ -164,13 +176,13 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
 
         /* Insert Network Components */
 
-        for (i = 0; i < 4; i++)
+        for (i = 0; i < comp_count; i++)
         {
             memset(&item, 0, sizeof(item));
             item.mask = LVIF_TEXT | LVIF_IMAGE;
             item.iItem = i;
             item.pszText = (LPWSTR)comp_names[i];
-            item.iImage = comp_icons[i];
+            item.iImage = 0;
             SendMessageW(hList, LVM_INSERTITEMW, 0, (LPARAM)&item);
             set_listview_check(hList, i, TRUE);
         }
@@ -182,7 +194,18 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         /* Initialize Show Icon Checkbox from registry */
         show_icon = net_backend_get_show_tray_icon();
         CheckDlgButton(hwnd, IDC_NETPROP_SHOWICON, show_icon ? BST_CHECKED : BST_UNCHECKED);
-        CheckDlgButton(hwnd, IDC_NETPROP_NOTIFY, BST_CHECKED);
+        CheckDlgButton(hwnd, IDC_NETPROP_NOTIFY, BST_CHECKED);  /* ponytail: not persisted or acted on yet */
+
+        /* Firewall / connection sharing are Windows services; the host handles them, so show them inert */
+        {
+            static const int inert[] = { IDC_NETPROP_FIREWALL, IDC_NETPROP_ICS_SHARE, IDC_NETPROP_ICS_BEACON,
+                                         IDC_NETPROP_FW_LINK, IDC_NETPROP_SETTINGS };
+            for (i = 0; i < (int)ARRAY_SIZE(inert); i++)
+            {
+                EnableWindow(GetDlgItem(hwnd, inert[i]), FALSE);
+                if (i < 3) CheckDlgButton(hwnd, inert[i], BST_UNCHECKED);
+            }
+        }
 
         g_current_prop_tab = 0;
         update_prop_tab_visibility(hwnd, 0);
@@ -195,7 +218,7 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         NMHDR *hdr = (NMHDR*)lparam;
         if (hdr->idFrom == IDC_NETPROP_TAB && hdr->code == TCN_SELCHANGE)
         {
-            g_current_prop_tab = TabCtrl_GetCurSel(hdr->hwndFrom);
+            g_current_prop_tab = ((int)SendMessageW(hdr->hwndFrom, TCM_GETCURSEL, 0, 0));
             update_prop_tab_visibility(hwnd, g_current_prop_tab);
         }
         else if (hdr->idFrom == IDC_NETPROP_COMPLIST)
@@ -238,7 +261,8 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         {
             WCHAR msg_buf[256];
             wsprintfW(msg_buf, L"%s\n\nDevice Status: This device is working properly.",
-                      g_prop_status.adapter_name[0] ? g_prop_status.adapter_name : L"AMD PCNET Family PCI Ethernet Adapter");
+                      g_prop_status.adapter_name,
+                      g_prop_status.is_connected ? L"The network link is up." : L"The network link is down.");
             MessageBoxW(hwnd, msg_buf, L"Device Properties", MB_OK | MB_ICONINFORMATION);
             return TRUE;
         }
@@ -257,7 +281,7 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         {
             HWND hList = GetDlgItem(hwnd, IDC_NETPROP_COMPLIST);
             int sel = (int)SendMessageW(hList, LVM_GETNEXTITEM, (WPARAM)-1, MAKELPARAM(LVNI_SELECTED, 0));
-            if (sel == 3)
+            if (sel == 0)
             {
                 WCHAR tcp_info[512];
                 wsprintfW(tcp_info,
@@ -265,10 +289,8 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
                           L"IP Address:\t\t%s\n"
                           L"Subnet Mask:\t\t%s\n"
                           L"Default Gateway:\t%s\n\n"
-                          L"IP address and DNS server settings are assigned automatically by DHCP.",
-                          g_prop_status.ip_address[0] ? g_prop_status.ip_address : L"10.0.2.15",
-                          g_prop_status.subnet_mask[0] ? g_prop_status.subnet_mask : L"255.255.255.0",
-                          g_prop_status.default_gateway[0] ? g_prop_status.default_gateway : L"10.0.2.2");
+                          L"Addresses are managed by the host operating system.",
+                          g_prop_status.ip_address, g_prop_status.subnet_mask, g_prop_status.default_gateway);
                 MessageBoxW(hwnd, tcp_info, L"Internet Protocol (TCP/IP) Properties", MB_OK | MB_ICONINFORMATION);
             }
             else

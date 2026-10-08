@@ -3,6 +3,22 @@
  *
  * Implements running application window tracking, taskbar buttons, active/flashing states,
  * window activation/minimization, grouping, and authentic system menus.
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 #include <stdio.h>
@@ -243,7 +259,6 @@ void taskband_sync_windows(void)
         {
             TASK_ITEM *to_free = *curr;
             *curr = (*curr)->next;
-            if (to_free->icon) DestroyIcon(to_free->icon);
             free(to_free);
             g_taskband.task_count--;
             changed = TRUE;
@@ -267,7 +282,6 @@ void taskband_remove_window(HWND hwnd)
         {
             TASK_ITEM *to_free = *curr;
             *curr = (*curr)->next;
-            if (to_free->icon) DestroyIcon(to_free->icon);
             free(to_free);
             g_taskband.task_count--;
             taskband_relayout();
@@ -678,7 +692,6 @@ void taskband_destroy(void)
     while (curr)
     {
         TASK_ITEM *next = curr->next;
-        if (curr->icon) DestroyIcon(curr->icon);
         free(curr);
         curr = next;
     }

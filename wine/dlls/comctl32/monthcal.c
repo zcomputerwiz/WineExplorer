@@ -1049,17 +1049,18 @@ static void MONTHCAL_PaintWeeknumbers(const MONTHCAL_INFO *infoPtr, HDC hdc, con
 static void MONTHCAL_PaintTodayTitle(const MONTHCAL_INFO *infoPtr, HDC hdc, const PAINTSTRUCT *ps)
 {
   WCHAR buf_todayW[30], buf_dateW[20], buf[80];
-  RECT text_rect;
+  RECT text_rect, box_rect;
   HFONT old_font;
   INT col;
 
   if(infoPtr->dwStyle & MCS_NOTODAY) return;
 
   LoadStringW(COMCTL32_hModule, IDM_TODAY, buf_todayW, ARRAY_SIZE(buf_todayW));
-  col = 0;
+  col = infoPtr->dwStyle & MCS_NOTODAYCIRCLE ? 0 : 1;
   if (infoPtr->dwStyle & MCS_WEEKNUMBERS) col--;
   /* label is located below first calendar last row */
   MONTHCAL_GetDayRectI(infoPtr, &text_rect, col, 6, infoPtr->dim.cx * infoPtr->dim.cy - infoPtr->dim.cx);
+  box_rect = text_rect;
 
   GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &infoPtr->todaysDate, NULL, buf_dateW, ARRAY_SIZE(buf_dateW));
   old_font = SelectObject(hdc, infoPtr->hBoldFont);
@@ -1068,6 +1069,11 @@ static void MONTHCAL_PaintTodayTitle(const MONTHCAL_INFO *infoPtr, HDC hdc, cons
   wsprintfW(buf, L"%s %s", buf_todayW, buf_dateW);
   DrawTextW(hdc, buf, -1, &text_rect, DT_CALCRECT | DT_LEFT | DT_VCENTER | DT_SINGLELINE);
   DrawTextW(hdc, buf, -1, &text_rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+  if(!(infoPtr->dwStyle & MCS_NOTODAYCIRCLE)) {
+    OffsetRect(&box_rect, -infoPtr->width_increment, 0);
+    MONTHCAL_Circle(infoPtr, hdc, &box_rect);
+  }
 
   SelectObject(hdc, old_font);
 }
