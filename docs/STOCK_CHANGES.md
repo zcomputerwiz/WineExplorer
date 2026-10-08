@@ -35,3 +35,10 @@ Modified Wine files keep their original header. ReactOS-derived programs keep th
 - `programs/calc` - ReactOS Calc, LGPL-2.1+ (header in each file); `copying.txt` is the GPL text shipped with it.
 - `programs/wmplayer` - ReactOS mplay32 (ReactOS license: GPL-2.0-or-later).
 - `dlls/ntoskrnl.exe` - stock Wine.
+
+## Themed non-client frame (visual phase)
+- `include/ntuser.h`, `include/winuser.h`: new `DrawNonClientFrame` user32 callback, `struct draw_non_client_frame_params`,
+  `user_api_hook.pNonClientFrameDraw` and `NCFRAME_*` flags.
+- `dlls/win32u/defwnd.c`: `nc_paint` and the caption-button redraws ask the hook first; if it draws, only the rectangle is advanced.
+- `dlls/user32/{user_main.c,hook.c,nonclient.c,user_private.h}`, `dlls/wow64win/user.c`: callback plumbing and default (declines).
+- `dlls/uxtheme/{window.c,system.c,uxthemedll.h}`: `UXTHEME_NonClientFrameDraw` draws `Window` caption, frame and buttons from the active msstyles.
