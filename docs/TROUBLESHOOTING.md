@@ -24,6 +24,13 @@ explorer switch that turns the Windows-style shell on for that desktop. Verified
 desktop on the first try.
 If it ever recurs: `scripts/vm.sh clean`, then `scripts/vm.sh restart-shell`, and read `/run/user/1000/wine-session.log`.
 
+### 2b. First start after `make install` (prefix update) ends the session
+After a fresh install Wine updates the prefix on the next start (`.update-timestamp` older than `ntdll.so`).
+Run as a side effect of starting explorer, the update's helper (`wine: failed to start syswow64undll32.exe: c0000135`,
+this build has no 32-bit part) took the session down. The session script now runs `wineboot.exe -u` up front when the
+prefix is stale, kills that wineserver, and then starts explorer cleanly. The log is `~/.wine-session.log`
+(previous run: `.1`) and only has errors (`WINEDEBUG=-all,err+all`; set `WINEDEBUG` to override).
+
 ## 3. A stale VM clock stops rebuilds
 The guest clock once ran months ahead (VirtualBox time sync is disabled on purpose). Files created with future
 timestamps (`*.res`, objects) are "newer" than their sources, so `make` skips them. Fix: set the clock

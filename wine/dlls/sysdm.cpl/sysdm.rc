@@ -58,6 +58,18 @@ BEGIN
 END
 
 /* Computer Name Page */
+IDD_COMPNAME_CHANGE DIALOGEX 0, 0, 240, 90
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Computer Name Changes"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "You can change the name of this computer. Changes may affect access to network resources.", -1, 8, 8, 224, 22
+    LTEXT           "&Computer name:", -1, 8, 38, 224, 8
+    EDITTEXT        IDC_COMPCHG_NAME, 8, 48, 224, 13, ES_AUTOHSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "OK", IDOK, 126, 70, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 182, 70, 50, 14
+END
+
 IDD_COMPNAME DIALOGEX 0, 0, 256, 218
 STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
 CAPTION "Computer Name"

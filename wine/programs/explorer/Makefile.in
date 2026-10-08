@@ -12,7 +12,6 @@ SOURCES = \
 	audio_backend.c \
 	desktop.c \
 	desktop_view.c \
-	hostcmd.c \
 	explorer.c \
 	explorer.rc \
 	net_backend.c \

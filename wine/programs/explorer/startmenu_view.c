@@ -35,6 +35,8 @@
 #include <shlwapi.h>
 #include <uxtheme.h>
 
+#include <wexhost.h>
+
 #include "wine/debug.h"
 #include "resource.h"
 #include "theme_engine.h"
@@ -85,6 +87,27 @@ static LRESULT CALLBACK mouse_hook_proc(int nCode, WPARAM wParam, LPARAM lParam)
         }
     }
     return CallNextHookEx(g_mouse_hook, nCode, wParam, lParam);
+}
+
+/* The name shown for the user: the account's display name (AccountsService) when there is one, cached so
+ * painting never talks to D-Bus. */
+static void get_display_user_name(WCHAR *buf, DWORD count)
+{
+    static WCHAR cached[128];
+    static BOOL done;
+
+    if (!done)
+    {
+        WEX_USER u;
+        DWORD len = ARRAY_SIZE(cached);
+
+        done = TRUE;
+        if (!WexUserGet(&u) && u.real_name[0])
+            MultiByteToWideChar(CP_UTF8, 0, u.real_name, -1, cached, ARRAY_SIZE(cached));
+        else if (!GetUserNameW(cached, &len))
+            lstrcpyW(cached, L"User");
+    }
+    lstrcpynW(buf, cached, count);
 }
 
 /* --- Helpers for Loading Shell and System Icons --- */
@@ -681,7 +704,7 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     g_program_count = 0;
 
     /* Current username */
-    if (!GetUserNameW(username, &ulen)) lstrcpyW(username, L"Administrator");
+    get_display_user_name(username, ARRAY_SIZE(username));
     _snwprintf(logoff_label, 256, L"&Log Off %s...", username);
 
     /* Enumerate Programs hierarchy */
@@ -1218,7 +1241,7 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         }
 
         /* Username Text */
-        if (!GetUserNameW(username, &ulen)) lstrcpyW(username, L"Administrator");
+        get_display_user_name(username, ARRAY_SIZE(username));
         SetBkMode(mem_dc, TRANSPARENT);
         old_font = SelectObject(mem_dc, font_head);
 

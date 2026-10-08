@@ -9,7 +9,8 @@
 #
 # The Shell value is read straight from the prefix's system.reg: running any Wine program first (e.g. "wine reg")
 # would start wineserver, wineboot and a bare desktop manager before ours and make our explorer lose the race.
-LOG="${XDG_RUNTIME_DIR:-$HOME}/wine-session.log"
+LOG="$HOME/.wine-session.log"   # persistent: the runtime dir disappears when the session ends
+[ -f "$LOG" ] && mv -f "$LOG" "$LOG.1"
 exec > "$LOG" 2>&1
 echo "=== WineExplorer session started: $(date) ==="
 echo "USER=$USER DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY"
@@ -18,6 +19,7 @@ export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 export XDG_CURRENT_DESKTOP="WineExplorer"
 export XDG_SESSION_DESKTOP="WineExplorer"
 export WINEDLLOVERRIDES="mscoree,mshtml="
+export WINEDEBUG="${WINEDEBUG:--all,err+all}"   # keep the log small; errors only
 WINE="${WINE:-/usr/local/bin/wine}"
 DESKTOP_NAME="Default"
 
@@ -32,6 +34,16 @@ fi
 WIDTH="${WIDTH:-1920}"
 HEIGHT="${HEIGHT:-1080}"
 REFRESH="${REFRESH:-60}"
+
+# --- Prefix update after a Wine (re)install.  Doing it as a side effect of starting explorer kills the session
+# (the update runs in the first Wine client and a failure there ends it), so do it up front and start clean.
+NTDLL=$(ls /usr/local/lib/wine/x86_64-unix/ntdll.so 2>/dev/null)
+if [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -nt "$WINEPREFIX/.update-timestamp" ]; }; then
+    echo "Updating the Wine prefix..."
+    "$WINE" wineboot.exe -u
+    "$(dirname "$WINE")/wineserver" -k
+    sleep 2
+fi
 
 # --- Winlogon: which shell?  (no prefix yet = first boot = the default)
 SHELL_CMD=""

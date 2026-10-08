@@ -40,6 +40,7 @@
 #define IDD_ADVANCED        1004
 #define IDD_PERFORMANCE     1005
 #define IDD_ENVVARS         1006
+#define IDD_COMPNAME_CHANGE 1007
 
 /* General Page Controls */
 #define IDC_GEN_OS_LABEL       2001
@@ -57,6 +58,7 @@
 #define IDC_COMP_NAME_LABEL    2102
 #define IDC_COMP_WORKGROUP     2103
 #define IDC_COMP_CHANGE_BTN    2104
+#define IDC_COMPCHG_NAME       2105
 
 /* Hardware Controls */
 #define IDC_HW_DEVMGR_BTN      2201

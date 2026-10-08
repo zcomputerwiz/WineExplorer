@@ -30,6 +30,8 @@
 #include <commctrl.h>
 #include <shellapi.h>
 
+#include <wexhost.h>
+
 #include "wine/debug.h"
 #include "theme_engine.h"
 #include "power_mgmt.h"
@@ -55,59 +57,76 @@ static const WCHAR *action_descs[] = {
     L"Maintains your session, keeping the computer running on low power."
 };
 
-static void execute_linux_power_command(const char *cmd)
+static BOOL CALLBACK enum_end_session_proc(HWND hwnd, LPARAM lparam)
 {
-    STARTUPINFOA si;
-    PROCESS_INFORMATION pi;
-    char full_cmd[512];
+    struct { UINT msg; WPARAM wparam; LPARAM lparam; BOOL veto; } *ctx = (void *)lparam;
+    DWORD pid;
+    DWORD_PTR result = 1;
 
-    memset(&si, 0, sizeof(si));
-    si.cb = sizeof(si);
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == GetCurrentProcessId() || GetWindow(hwnd, GW_OWNER)) return TRUE;
 
-    /* Direct execution of Linux host command */
-    snprintf(full_cmd, sizeof(full_cmd), "/bin/sh -c \"%s\"", cmd);
-    TRACE("Executing Linux power command: %s\n", full_cmd);
-
-    if (CreateProcessA(NULL, full_cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+    /* a window that does not answer in 5 s is hung and does not block shutdown, as on Windows */
+    if (SendMessageTimeoutW(hwnd, ctx->msg, ctx->wparam, ctx->lparam, SMTO_ABORTIFHUNG, 5000, &result) &&
+        ctx->msg == WM_QUERYENDSESSION && !result)
     {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+        ctx->veto = TRUE;
+        return FALSE;
     }
+    return TRUE;
+}
+
+/* Ask every top-level window whether the session may end; on yes tell them it is ending. */
+static BOOL end_session_with_consent(void)
+{
+    struct { UINT msg; WPARAM wparam; LPARAM lparam; BOOL veto; } ctx = { WM_QUERYENDSESSION, 0, 0, FALSE };
+
+    EnumWindows(enum_end_session_proc, (LPARAM)&ctx);
+    if (ctx.veto) return FALSE;
+
+    ctx.msg = WM_ENDSESSION; ctx.wparam = TRUE; ctx.lparam = 0;
+    EnumWindows(enum_end_session_proc, (LPARAM)&ctx);
+    return TRUE;
+}
+
+static void report_power_error(HWND owner, DWORD err)
+{
+    if (err == ERROR_CANCELLED || err == ERROR_SUCCESS) return;
+    MessageBoxW(owner, err == ERROR_NOT_SUPPORTED ? L"This action is not available on this computer." :
+                L"You do not have permission to do this.", L"Turn Off Computer", MB_OK | MB_ICONWARNING);
 }
 
 void power_mgmt_execute_action(int action)
 {
+    HWND owner = GetDesktopWindow();
+    DWORD can = WEX_POWER_NO, err;
+
     TRACE("Executing power action: %d\n", action);
 
     switch (action)
     {
     case POWER_ACTION_SHUTDOWN:
-        theme_play_sound(L"Shutdown");
-        ExitWindowsEx(EWX_SHUTDOWN | EWX_FORCE, 0);
-
-        /* Linux Power Off: systemd-logind via D-Bus, or systemctl poweroff */
-        execute_linux_power_command(
-            "systemctl poweroff || "
-            "dbus-send --system --print-reply --dest=org.freedesktop.login1 "
-            "/org/freedesktop/login1 org.freedesktop.login1.Manager.PowerOff boolean:true || "
-            "shutdown -h now"
-        );
-        ExitProcess(0);
-        break;
-
     case POWER_ACTION_RESTART:
-        theme_play_sound(L"Shutdown");
-        ExitWindowsEx(EWX_REBOOT | EWX_FORCE, 0);
+    {
+        DWORD wex = (action == POWER_ACTION_SHUTDOWN) ? WEX_POWER_SHUTDOWN : WEX_POWER_REBOOT;
 
-        /* Linux Reboot: systemd-logind via D-Bus, or systemctl reboot */
-        execute_linux_power_command(
-            "systemctl reboot || "
-            "dbus-send --system --print-reply --dest=org.freedesktop.login1 "
-            "/org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:true || "
-            "shutdown -r now"
-        );
-        ExitProcess(0);
+        if (WexPowerCan(wex, &can) || can == WEX_POWER_NO)
+        {
+            report_power_error(owner, ERROR_NOT_SUPPORTED);
+            return;
+        }
+        if (!end_session_with_consent())
+        {
+            MessageBoxW(owner, L"A program is preventing Windows from shutting down.", L"Turn Off Computer",
+                        MB_OK | MB_ICONWARNING);
+            return;
+        }
+        theme_play_sound(L"Shutdown");
+        /* login1 (through polkit) powers off the machine and ends the whole session, Wine included */
+        err = WexPowerDo(owner, wex);
+        report_power_error(owner, err);
         break;
+    }
 
     case POWER_ACTION_LOGOFF:
         theme_play_sound(L"Logoff");
@@ -117,12 +136,10 @@ void power_mgmt_execute_action(int action)
         break;
 
     case POWER_ACTION_STANDBY:
-        /* Suspend via systemd */
-        execute_linux_power_command(
-            "systemctl suspend || "
-            "dbus-send --system --print-reply --dest=org.freedesktop.login1 "
-            "/org/freedesktop/login1 org.freedesktop.login1.Manager.Suspend boolean:true"
-        );
+        if (WexPowerCan(WEX_POWER_SUSPEND, &can) || can == WEX_POWER_NO)
+            report_power_error(owner, ERROR_NOT_SUPPORTED);
+        else
+            report_power_error(owner, WexPowerDo(owner, WEX_POWER_SUSPEND));
         break;
     }
 }

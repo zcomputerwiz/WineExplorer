@@ -58,6 +58,19 @@ struct agent_respond_params
 
 struct agent_stop_params { DWORD err; };
 
+struct power_can_params { DWORD action; DWORD result; DWORD err; };
+struct power_do_params { DWORD action; DWORD err; };
+struct battery_get_params { WEX_BATTERY info; DWORD err; };
+struct hostname_get_params { WEX_HOSTNAME info; DWORD err; };
+struct hostname_set_params { char name[128]; BOOL pretty; DWORD err; };
+struct user_get_params { WEX_USER info; DWORD err; };
+
+struct net_get_status_params { WEX_NET_STATUS status; DWORD err; };
+struct net_scan_wifi_params { ULONG64 buffer; DWORD max; DWORD count; DWORD err; };
+struct net_connect_wifi_params { char ssid[64]; char passphrase[128]; BOOL sae; DWORD err; };
+struct net_disconnect_params { DWORD err; };
+struct net_enable_params { DWORD err; };
+
 enum wexhost_funcs
 {
     unix_init,
@@ -70,6 +83,17 @@ enum wexhost_funcs
     unix_agent_next_event,
     unix_agent_respond,
     unix_agent_stop,
+    unix_power_can,
+    unix_power_do,
+    unix_battery_get,
+    unix_hostname_get,
+    unix_hostname_set,
+    unix_user_get,
+    unix_net_get_status,
+    unix_net_scan_wifi,
+    unix_net_connect_wifi,
+    unix_net_disconnect,
+    unix_net_enable,
     unix_funcs_count
 };
 

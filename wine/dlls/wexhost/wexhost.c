@@ -81,6 +81,124 @@ static void run_pumped( HWND owner, unsigned int code, void *params )
     CloseHandle( thread );
 }
 
+DWORD WINAPI WexPowerCan( DWORD action, DWORD *result )
+{
+    struct power_can_params params = { action };
+
+    if (!unix_ready || !result) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( power_can, &params );
+    *result = params.result;
+    return params.err;
+}
+
+DWORD WINAPI WexPowerDo( HWND owner, DWORD action )
+{
+    struct power_do_params params = { action };
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    run_pumped( owner, unix_power_do, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexBatteryGet( WEX_BATTERY *info )
+{
+    struct battery_get_params params;
+
+    if (!unix_ready || !info) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( battery_get, &params );
+    if (!params.err) *info = params.info;
+    return params.err;
+}
+
+DWORD WINAPI WexHostnameGet( WEX_HOSTNAME *info )
+{
+    struct hostname_get_params params;
+
+    if (!unix_ready || !info) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( hostname_get, &params );
+    if (!params.err) *info = params.info;
+    return params.err;
+}
+
+DWORD WINAPI WexHostnameSet( HWND owner, const char *name, BOOL pretty )
+{
+    struct hostname_set_params params;
+
+    if (!unix_ready || !name) return ERROR_NOT_SUPPORTED;
+    memset( &params, 0, sizeof(params) );
+    lstrcpynA( params.name, name, sizeof(params.name) );
+    params.pretty = pretty;
+    run_pumped( owner, unix_hostname_set, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexUserGet( WEX_USER *info )
+{
+    struct user_get_params params;
+
+    if (!unix_ready || !info) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( user_get, &params );
+    if (!params.err) *info = params.info;
+    return params.err;
+}
+
+DWORD WINAPI WexNetGetStatus( WEX_NET_STATUS *status )
+{
+    struct net_get_status_params params;
+
+    if (!unix_ready || !status) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( net_get_status, &params );
+    if (!params.err) *status = params.status;
+    return params.err;
+}
+
+DWORD WINAPI WexNetScanWifi( WEX_WIFI_AP *aps, DWORD max, DWORD *count )
+{
+    struct net_scan_wifi_params params;
+
+    if (!unix_ready || !aps || !count) return ERROR_NOT_SUPPORTED;
+    memset( &params, 0, sizeof(params) );
+    params.buffer = (ULONG_PTR)aps;
+    params.max = max;
+    WEXHOST_CALL( net_scan_wifi, &params );
+    *count = params.count;
+    return params.err;
+}
+
+DWORD WINAPI WexNetConnectWifi( const char *ssid, const char *passphrase, BOOL sae )
+{
+    struct net_connect_wifi_params params;
+    DWORD ret;
+
+    if (!unix_ready || !ssid) return ERROR_NOT_SUPPORTED;
+    memset( &params, 0, sizeof(params) );
+    lstrcpynA( params.ssid, ssid, sizeof(params.ssid) );
+    if (passphrase) lstrcpynA( params.passphrase, passphrase, sizeof(params.passphrase) );
+    params.sae = sae;
+    WEXHOST_CALL( net_connect_wifi, &params );
+    ret = params.err;
+    SecureZeroMemory( &params, sizeof(params) );
+    return ret;
+}
+
+DWORD WINAPI WexNetDisconnect( void )
+{
+    struct net_disconnect_params params;
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( net_disconnect, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexNetEnable( void )
+{
+    struct net_enable_params params;
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( net_enable, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexTimedateGet( WEX_TIMEDATE *info )
 {
     struct timedate_get_params params;

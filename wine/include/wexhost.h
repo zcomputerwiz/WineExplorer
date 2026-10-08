@@ -56,6 +56,76 @@ DWORD WINAPI WexTimedateSetNtp( HWND owner, BOOL enable );
 /* Newline separated list of IANA names; *needed gets the required size (including NUL). */
 DWORD WINAPI WexTimedateListTimezones( char *buffer, DWORD size, DWORD *needed );
 
+/* power actions: login1 */
+#define WEX_POWER_SHUTDOWN   0
+#define WEX_POWER_REBOOT     1
+#define WEX_POWER_SUSPEND    2
+#define WEX_POWER_HIBERNATE  3
+
+#define WEX_POWER_NO         0
+#define WEX_POWER_YES        1
+#define WEX_POWER_CHALLENGE  2   /* allowed after authentication */
+
+DWORD WINAPI WexPowerCan( DWORD action, DWORD *result );
+DWORD WINAPI WexPowerDo( HWND owner, DWORD action );
+
+/* battery and AC: UPower (the aggregated "display device") */
+typedef struct
+{
+    BOOL  has_battery;
+    BOOL  on_battery;          /* running on battery (AC unplugged) */
+    DWORD percent;
+    DWORD state;               /* UPower: 1 charging, 2 discharging, 3 empty, 4 fully charged */
+    int   seconds_to_empty;    /* -1 unknown */
+    int   seconds_to_full;
+} WEX_BATTERY;
+
+DWORD WINAPI WexBatteryGet( WEX_BATTERY *info );
+
+/* computer name: hostname1 */
+typedef struct { char static_name[64]; char pretty_name[128]; char transient_name[64]; } WEX_HOSTNAME;
+
+DWORD WINAPI WexHostnameGet( WEX_HOSTNAME *info );
+DWORD WINAPI WexHostnameSet( HWND owner, const char *name, BOOL pretty );
+
+/* network: NetworkManager */
+#define WEX_NET_ETHERNET 1
+#define WEX_NET_WIFI     2
+
+typedef struct
+{
+    BOOL  present;            /* an Ethernet or Wi-Fi device exists */
+    DWORD type;               /* WEX_NET_* */
+    DWORD state;              /* NetworkManager device state, 100 = activated */
+    BOOL  connected;
+    char  ifname[32];
+    char  driver[32];
+    char  ssid[64];           /* Wi-Fi: network joined */
+    DWORD signal;             /* Wi-Fi: 0..100 */
+    DWORD speed_mbps;         /* link speed, 0 if unknown */
+} WEX_NET_STATUS;
+
+typedef struct
+{
+    char  ssid[64];
+    DWORD strength;           /* 0..100 */
+    BOOL  secured;
+    BOOL  connected;
+    BOOL  sae_only;           /* WPA3-only network */
+    char  security[24];       /* "WPA2-PSK", "WPA3", ... empty when open */
+} WEX_WIFI_AP;
+
+DWORD WINAPI WexNetGetStatus( WEX_NET_STATUS *status );
+DWORD WINAPI WexNetScanWifi( WEX_WIFI_AP *aps, DWORD max, DWORD *count );
+DWORD WINAPI WexNetConnectWifi( const char *ssid, const char *passphrase, BOOL sae );
+DWORD WINAPI WexNetDisconnect( void );
+DWORD WINAPI WexNetEnable( void );
+
+/* the logged-in user: AccountsService */
+typedef struct { char name[64]; char real_name[128]; char icon_file[260]; } WEX_USER;
+
+DWORD WINAPI WexUserGet( WEX_USER *info );
+
 /* polkit authentication agent */
 #define WEX_EVENT_STOP    0
 #define WEX_EVENT_BEGIN   1

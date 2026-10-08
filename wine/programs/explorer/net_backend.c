@@ -1,11 +1,11 @@
 /*
- * WineExplorer Desktop Environment - Linux Host NetworkManager / Network Backend Implementation
+ * WineExplorer Desktop Environment - Network Backend Implementation
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
- * Reads interface state from /proc and /sys, addresses through iphlpapi, and drives
- * the host's NetworkManager through nmcli.  Nothing in here invents data: when the
- * host does not provide a value the field is left empty / zero and the UI hides it.
+ * Connection state, Wi-Fi scanning and connecting go through NetworkManager's D-Bus API (wexhost); traffic
+ * counters come from /proc, addresses from iphlpapi.  Nothing in here invents data: when the host does not
+ * provide a value the field is left empty / zero and the UI hides it.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -28,19 +28,17 @@
 
 #include <windows.h>
 #include <iphlpapi.h>
+#include <wexhost.h>
 
 #include "wine/debug.h"
 #include "net_backend.h"
-#include "hostcmd.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
-#define ACTIVE_SSID_REFRESH_MS 10000
-
-static BOOL g_backend_initialized = FALSE;
 static BOOL g_was_connected = FALSE;
 static DWORD g_connection_start_tick = 0;
-static char g_disabled_dev[32];      /* interface the user disabled from the UI */
+static char g_sae_only[MAX_NETWORKS][MAX_SSID_LEN];   /* SSIDs of the last scan that need WPA3 (SAE) */
+static int g_sae_count;
 
 /* ------------------------------------------------------------------ sysfs / procfs */
 
@@ -65,32 +63,6 @@ static BOOL read_sysfs_line(const char *iface, const char *file, char *out, size
     if (fgets(out, (int)size, f)) out[strcspn(out, "\r\n")] = 0;
     fclose(f);
     return out[0] != 0;
-}
-
-/* Link quality of a wireless interface from /proc/net/wireless; -1 if not reported. */
-static int read_wireless_quality(const char *iface)
-{
-    FILE *f = fopen("/proc/net/wireless", "r");
-    char line[256];
-    int result = -1;
-
-    if (!f) return -1;
-    while (fgets(line, sizeof(line), f))
-    {
-        char *colon = strchr(line, ':'), *p = line;
-        int status, quality;
-        if (!colon) continue;
-        while (*p == ' ') p++;
-        if ((size_t)(colon - p) != strlen(iface) || strncmp(p, iface, colon - p)) continue;
-        if (sscanf(colon + 1, "%d %d", &status, &quality) == 2)
-        {
-            result = quality <= 70 ? quality * 100 / 70 : quality;  /* drivers report 0-70 or 0-100 */
-            result = max(0, min(100, result));
-        }
-        break;
-    }
-    fclose(f);
-    return result;
 }
 
 /* Hardware description from the PCI ids database, e.g. "Intel Corporation 82540EM Gigabit Ethernet Controller". */
@@ -136,12 +108,14 @@ static BOOL pci_description(const char *iface, char *out, size_t size)
     return FALSE;
 }
 
-/* Pick the interface carrying the most traffic that is not loopback. */
-static BOOL pick_interface(char *iface, size_t size, ULONGLONG *rx_b, ULONGLONG *rx_p, ULONGLONG *tx_b, ULONGLONG *tx_p)
+/* Counters of one interface from /proc/net/dev; with no name, the busiest non-loopback interface (name returned). */
+static BOOL read_interface_counters(char *iface, size_t size, ULONGLONG *rx_b, ULONGLONG *rx_p,
+                                    ULONGLONG *tx_b, ULONGLONG *tx_p)
 {
     FILE *f = fopen("/proc/net/dev", "r");
     char line[512];
     BOOL found = FALSE;
+    BOOL want_named = iface[0] != 0;
 
     if (!f) return FALSE;
     while (fgets(line, sizeof(line), f))
@@ -152,10 +126,11 @@ static BOOL pick_interface(char *iface, size_t size, ULONGLONG *rx_b, ULONGLONG 
         while (*p == ' ') p++;
         lstrcpynA(name, p, min((int)sizeof(name), (int)(colon - p) + 1));
         if (!strcmp(name, "lo")) continue;
+        if (want_named && strcmp(name, iface)) continue;
         if (sscanf(colon + 1, "%llu %llu %*u %*u %*u %*u %*u %*u %llu %llu", &a, &b, &c, &d) < 4) continue;
         if (!found || b + d > *rx_p + *tx_p)
         {
-            lstrcpynA(iface, name, (int)size);
+            if (!want_named) lstrcpynA(iface, name, (int)size);
             *rx_b = a; *rx_p = b; *tx_b = c; *tx_p = d;
             found = TRUE;
         }
@@ -164,70 +139,30 @@ static BOOL pick_interface(char *iface, size_t size, ULONGLONG *rx_b, ULONGLONG 
     return found;
 }
 
-/* ------------------------------------------------------------------ nmcli (active SSID, refreshed asynchronously) */
-
-static WCHAR g_active_ssid[MAX_SSID_LEN];
-static HANDLE g_ssid_proc, g_ssid_pipe;
-static DWORD g_ssid_last_start;
-
-static void poll_active_ssid(const char *iface)
-{
-    char buf[1024];
-
-    if (g_ssid_proc)
-    {
-        if (WaitForSingleObject(g_ssid_proc, 0) != WAIT_OBJECT_0) return;
-        {
-            DWORD got = 0;
-            char *line, *save = NULL;
-            memset(buf, 0, sizeof(buf));
-            ReadFile(g_ssid_pipe, buf, sizeof(buf) - 1, &got, NULL);
-            g_active_ssid[0] = 0;
-            for (line = strtok_s(buf, "\r\n", &save); line; line = strtok_s(NULL, "\r\n", &save))
-            {
-                /* -t output is "yes:<ssid>" for the active network; escaped colons are "\:" */
-                if (strncmp(line, "yes:", 4)) continue;
-                MultiByteToWideChar(CP_UTF8, 0, line + 4, -1, g_active_ssid, MAX_SSID_LEN);
-                break;
-            }
-        }
-        CloseHandle(g_ssid_pipe); CloseHandle(g_ssid_proc);
-        g_ssid_proc = g_ssid_pipe = NULL;
-        return;
-    }
-
-    if (GetTickCount() - g_ssid_last_start < ACTIVE_SSID_REFRESH_MS && g_ssid_last_start) return;
-    {
-        const char *argv[] = { "nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi", "list", "ifname", iface, NULL };
-        g_ssid_last_start = GetTickCount();
-        g_ssid_proc = hostcmd_spawn(argv, &g_ssid_pipe);
-    }
-}
-
 /* ------------------------------------------------------------------ public API */
 
 void net_backend_init(void)
 {
-    if (g_backend_initialized) return;
-    g_backend_initialized = TRUE;
 }
 
-/* Query active network connection details and adapter metrics */
 BOOL net_backend_get_status(NET_STATUS_INFO *info)
 {
     char iface[32] = "", tmp[160];
     ULONGLONG rx_b = 0, rx_p = 0, tx_b = 0, tx_p = 0;
     IP_ADAPTER_INFO adapters[16];
     ULONG buf_len = sizeof(adapters);
-    BOOL is_wifi, link_up;
+    WEX_NET_STATUS nm;
+    BOOL have_nm;
 
     if (!info) return FALSE;
     memset(info, 0, sizeof(*info));
     info->is_enabled = TRUE;
 
-    if (!pick_interface(iface, sizeof(iface), &rx_b, &rx_p, &tx_b, &tx_p))
+    /* NetworkManager is the authority on what is connected; without it fall back to what the kernel shows */
+    have_nm = !WexNetGetStatus(&nm) && nm.present;
+    if (have_nm) lstrcpynA(iface, nm.ifname, sizeof(iface));
+    if (!read_interface_counters(iface, sizeof(iface), &rx_b, &rx_p, &tx_b, &tx_p))
     {
-        /* No network interface at all: nothing to show */
         info->has_adapter = FALSE;
         info->conn_type = NET_TYPE_DISCONNECTED;
         g_was_connected = FALSE;
@@ -237,37 +172,35 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
     info->has_adapter = TRUE;
     MultiByteToWideChar(CP_UTF8, 0, iface, -1, info->active_device, ARRAY_SIZE(info->active_device));
 
+    if (have_nm)
+    {
+        info->conn_type = (nm.type == WEX_NET_WIFI) ? NET_TYPE_WIRELESS : NET_TYPE_ETHERNET;
+        info->is_connected = nm.connected;
+        info->is_enabled = nm.connected || nm.state >= 30;       /* 20 = unavailable (e.g. radio off) */
+        info->speed_mbps = nm.speed_mbps;
+        if (nm.type == WEX_NET_WIFI)
+        {
+            info->signal_percent = nm.signal;
+            info->signal_bars = signal_to_bars(nm.signal);
+            if (nm.ssid[0]) MultiByteToWideChar(CP_UTF8, 0, nm.ssid, -1, info->active_ssid, MAX_SSID_LEN);
+        }
+    }
+    else
     {
         char path[96];
         snprintf(path, sizeof(path), "/sys/class/net/%s/wireless", iface);
-        is_wifi = GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+        info->conn_type = GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES ? NET_TYPE_WIRELESS : NET_TYPE_ETHERNET;
+        info->is_connected = read_sysfs_line(iface, "operstate", tmp, sizeof(tmp)) && !strcmp(tmp, "up");
+        if (read_sysfs_line(iface, "speed", tmp, sizeof(tmp)) && atoi(tmp) > 0) info->speed_mbps = atoi(tmp);
     }
-    info->conn_type = is_wifi ? NET_TYPE_WIRELESS : NET_TYPE_ETHERNET;
 
-    link_up = read_sysfs_line(iface, "operstate", tmp, sizeof(tmp)) && !strcmp(tmp, "up");
-    info->is_enabled = strcmp(iface, g_disabled_dev) != 0;
-    info->is_connected = link_up && info->is_enabled;
+    if (!info->active_ssid[0])
+        lstrcpyW(info->active_ssid, info->conn_type == NET_TYPE_WIRELESS ? L"Wireless Network Connection" : L"Local Area Connection");
 
     if (pci_description(iface, tmp, sizeof(tmp)))
         MultiByteToWideChar(CP_UTF8, 0, tmp, -1, info->adapter_name, ARRAY_SIZE(info->adapter_name));
     else
         MultiByteToWideChar(CP_UTF8, 0, iface, -1, info->adapter_name, ARRAY_SIZE(info->adapter_name));
-
-    lstrcpyW(info->active_ssid, is_wifi ? L"Wireless Network Connection" : L"Local Area Connection");
-
-    if (read_sysfs_line(iface, "speed", tmp, sizeof(tmp)) && atoi(tmp) > 0)
-        info->speed_mbps = atoi(tmp);                    /* Ethernet; wireless drivers do not export it */
-
-    if (is_wifi)
-    {
-        int q = read_wireless_quality(iface);
-        if (info->is_connected)
-        {
-            poll_active_ssid(iface);
-            if (g_active_ssid[0]) lstrcpynW(info->active_ssid, g_active_ssid, MAX_SSID_LEN);
-        }
-        if (q >= 0) { info->signal_percent = q; info->signal_bars = signal_to_bars(q); }
-    }
 
     info->bytes_received = rx_b;
     info->bytes_sent = tx_b;
@@ -296,154 +229,71 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
     return TRUE;
 }
 
-/* Scan for available Wi-Fi access points using nmcli.  Returns 0 networks when nmcli is missing or no radio exists. */
+/* Visible Wi-Fi networks (empty when there is no Wi-Fi device or NetworkManager). */
 int net_backend_scan_wireless(WLAN_NETWORK_ENTRY *entries, int max_entries)
 {
-    static const char *const scan_cmd[] = { "nmcli", "-t", "-e", "yes", "-f", "IN-USE,SSID,SIGNAL,SECURITY",
-                                            "dev", "wifi", "list", "--rescan", "auto", NULL };
-    char buffer[16384];
-    char *line, *save = NULL;
-    int count = 0;
+    WEX_WIFI_AP aps[MAX_NETWORKS];
+    DWORD count = 0, i;
+    int n = 0;
 
     if (!entries || max_entries <= 0) return 0;
     memset(entries, 0, sizeof(WLAN_NETWORK_ENTRY) * max_entries);
+    g_sae_count = 0;
 
-    if (!hostcmd_capture(scan_cmd, buffer, sizeof(buffer), 8000)) return 0;
+    if (WexNetScanWifi(aps, ARRAY_SIZE(aps), &count)) return 0;
 
-    for (line = strtok_s(buffer, "\r\n", &save); line && count < max_entries; line = strtok_s(NULL, "\r\n", &save))
+    for (i = 0; i < count && n < max_entries; i++)
     {
-        /* IN-USE:SSID:SIGNAL:SECURITY with ':' and '\' escaped by a backslash inside fields */
-        char fields[4][128] = {{0}};
-        int nf = 0, n = 0;
-        char *p;
-        WCHAR w_ssid[MAX_SSID_LEN];
-        int sig, i, dup = -1;
-
-        for (p = line; *p && nf < 4; p++)
-        {
-            if (*p == '\\' && p[1]) { if (n < 127) fields[nf][n++] = *++p; else p++; }
-            else if (*p == ':' && nf < 3) { nf++; n = 0; }
-            else if (n < 127) fields[nf][n++] = *p;
-        }
-        if (!fields[1][0]) continue;                       /* hidden network */
-
-        MultiByteToWideChar(CP_UTF8, 0, fields[1], -1, w_ssid, MAX_SSID_LEN);
-        sig = max(0, min(100, atoi(fields[2])));
-
-        for (i = 0; i < count; i++)
-            if (!wcscmp(entries[i].ssid, w_ssid)) { dup = i; break; }
-
-        if (dup >= 0)
-        {
-            if (sig > entries[dup].signal_percent)
-            {
-                entries[dup].signal_percent = sig;
-                entries[dup].signal_bars = signal_to_bars(sig);
-            }
-            if (fields[0][0] == '*') entries[dup].is_connected = TRUE;
-            continue;
-        }
-
-        lstrcpyW(entries[count].ssid, w_ssid);
-        entries[count].signal_percent = sig;
-        entries[count].signal_bars = signal_to_bars(sig);
-        entries[count].is_connected = (fields[0][0] == '*');
-        if (!fields[3][0] || !strcmp(fields[3], "--"))
-        {
-            lstrcpyW(entries[count].security, L"Open (Unsecured)");
-        }
+        WLAN_NETWORK_ENTRY *e = &entries[n++];
+        MultiByteToWideChar(CP_UTF8, 0, aps[i].ssid, -1, e->ssid, MAX_SSID_LEN);
+        e->signal_percent = min(100, aps[i].strength);
+        e->signal_bars = signal_to_bars(e->signal_percent);
+        e->is_connected = aps[i].connected;
+        e->is_secure = aps[i].secured;
+        if (aps[i].secured)
+            MultiByteToWideChar(CP_UTF8, 0, aps[i].security, -1, e->security, MAX_SECURITY_LEN);
         else
-        {
-            MultiByteToWideChar(CP_UTF8, 0, fields[3], -1, entries[count].security, MAX_SECURITY_LEN);
-            entries[count].is_secure = TRUE;
-        }
-        count++;
+            lstrcpyW(e->security, L"Open (Unsecured)");
+        if (aps[i].sae_only && g_sae_count < MAX_NETWORKS)
+            lstrcpynA(g_sae_only[g_sae_count++], aps[i].ssid, MAX_SSID_LEN);
     }
-    return count;
+    return n;
 }
 
-/* Connect to a wireless network by SSID and optional passphrase.
- * ponytail: the passphrase is an nmcli argument and so visible to `ps` while nmcli runs; move to a
- * NetworkManager D-Bus secret agent if that matters. */
 BOOL net_backend_connect_wireless(const WCHAR *ssid, const WCHAR *passphrase)
 {
     char a_ssid[MAX_SSID_LEN * 4] = "", a_pwd[256] = "";
-    const char *argv[10];
-    int n = 0;
+    BOOL sae = FALSE, ok;
+    int i;
 
     if (!ssid || !ssid[0]) return FALSE;
     WideCharToMultiByte(CP_UTF8, 0, ssid, -1, a_ssid, sizeof(a_ssid), NULL, NULL);
-
-    argv[n++] = "nmcli"; argv[n++] = "dev"; argv[n++] = "wifi"; argv[n++] = "connect"; argv[n++] = a_ssid;
     if (passphrase && passphrase[0])
-    {
         WideCharToMultiByte(CP_UTF8, 0, passphrase, -1, a_pwd, sizeof(a_pwd), NULL, NULL);
-        argv[n++] = "password"; argv[n++] = a_pwd;
-    }
-    argv[n] = NULL;
+    for (i = 0; i < g_sae_count; i++) if (!strcmp(g_sae_only[i], a_ssid)) sae = TRUE;
 
-    hostcmd_run_async(argv);
+    ok = !WexNetConnectWifi(a_ssid, a_pwd, sae);
     SecureZeroMemory(a_pwd, sizeof(a_pwd));
-    TRACE("Connecting to Wi-Fi SSID %s\n", debugstr_a(a_ssid));
-    return TRUE;
-}
-
-/* First device of the given nmcli TYPE ("wifi", "ethernet"); empty if none. */
-static BOOL find_nm_device(const char *type, char *dev, size_t size)
-{
-    static const char *const cmd[] = { "nmcli", "-t", "-f", "DEVICE,TYPE", "dev", NULL };
-    char buf[2048], *line, *save = NULL;
-
-    dev[0] = 0;
-    if (!hostcmd_capture(cmd, buf, sizeof(buf), 3000)) return FALSE;
-    for (line = strtok_s(buf, "\r\n", &save); line; line = strtok_s(NULL, "\r\n", &save))
-    {
-        char *colon = strchr(line, ':');
-        if (!colon || strcmp(colon + 1, type)) continue;
-        *colon = 0;
-        lstrcpynA(dev, line, (int)size);
-        return TRUE;
-    }
-    return FALSE;
+    TRACE("Connecting to Wi-Fi SSID %s: %d\n", debugstr_a(a_ssid), ok);
+    return ok;
 }
 
 BOOL net_backend_disconnect(void)
 {
-    char dev[32];
-    const char *argv[] = { "nmcli", "dev", "disconnect", dev, NULL };
-
-    if (!find_nm_device("wifi", dev, sizeof(dev))) return FALSE;
-    hostcmd_run_async(argv);
-    return TRUE;
+    return !WexNetDisconnect();
 }
 
-/* "Disable"/"Enable" act on the active interface only (never on all networking). */
+/* "Disable"/"Enable" act on the active device only (never on all networking). */
 BOOL net_backend_set_enabled(BOOL enable)
 {
-    NET_STATUS_INFO st;
-    char dev[32];
-    const char *argv[] = { "nmcli", "dev", enable ? "connect" : "disconnect", dev, NULL };
-
-    net_backend_get_status(&st);
-    if (!st.has_adapter) return FALSE;
-    WideCharToMultiByte(CP_UTF8, 0, st.active_device, -1, dev, sizeof(dev), NULL, NULL);
-    hostcmd_run_async(argv);
-    if (enable) g_disabled_dev[0] = 0; else lstrcpynA(g_disabled_dev, dev, sizeof(g_disabled_dev));
-    return TRUE;
+    return enable ? !WexNetEnable() : !WexNetDisconnect();
 }
 
-/* Repair connection: re-applies the device's NetworkManager configuration */
+/* Repair: drop the connection and let NetworkManager bring it up again */
 BOOL net_backend_repair(void)
 {
-    NET_STATUS_INFO st;
-    char dev[32];
-    const char *argv[] = { "nmcli", "dev", "reapply", dev, NULL };
-
-    net_backend_get_status(&st);
-    if (!st.has_adapter) return FALSE;
-    WideCharToMultiByte(CP_UTF8, 0, st.active_device, -1, dev, sizeof(dev), NULL, NULL);
-    hostcmd_run_async(argv);
-    return TRUE;
+    WexNetDisconnect();
+    return !WexNetEnable();
 }
 
 static BOOL read_show_icon(const WCHAR *key, BOOL *value)

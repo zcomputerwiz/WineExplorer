@@ -80,6 +80,8 @@ WINE_DEFAULT_DEBUG_CHANNEL( wexhost );
     DO_FUNC( dbus_message_iter_close_container ); \
     DO_FUNC( dbus_message_iter_get_arg_type ); \
     DO_FUNC( dbus_message_iter_get_basic ); \
+    DO_FUNC( dbus_message_iter_get_fixed_array ); \
+    DO_FUNC( dbus_message_iter_append_fixed_array ); \
     DO_FUNC( dbus_message_iter_init ); \
     DO_FUNC( dbus_message_iter_init_append ); \
     DO_FUNC( dbus_message_iter_next ); \
@@ -298,6 +300,555 @@ static NTSTATUS timedate_list_tz( void *args )
     p_dbus_message_unref( reply );
     if (out && used < params->size) out[used] = 0;
     params->needed = used + 1;
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ generic property access */
+
+struct prop { const char *name; int type; void *out; size_t size; };   /* type: DBUS_TYPE_* */
+
+/* GetAll(iface) on dest/path and store the listed properties */
+static DWORD get_properties( const char *dest, const char *path, const char *iface, struct prop *props, int count )
+{
+    DBusMessage *msg, *reply;
+    DBusMessageIter it, arr, entry, var;
+    DWORD err;
+
+    if (!load_dbus()) return ERROR_NOT_SUPPORTED;
+    msg = p_dbus_message_new_method_call( dest, path, "org.freedesktop.DBus.Properties", "GetAll" );
+    p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_INVALID );
+    err = call_system( msg, &reply );
+    p_dbus_message_unref( msg );
+    if (err) return err;
+
+    if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_ARRAY)
+    {
+        p_dbus_message_iter_recurse( &it, &arr );
+        while (p_dbus_message_iter_get_arg_type( &arr ) == DBUS_TYPE_DICT_ENTRY)
+        {
+            const char *key;
+            int i;
+            p_dbus_message_iter_recurse( &arr, &entry );
+            p_dbus_message_iter_get_basic( &entry, &key );
+            p_dbus_message_iter_next( &entry );
+            p_dbus_message_iter_recurse( &entry, &var );
+            for (i = 0; i < count; i++)
+            {
+                union { const char *s; dbus_bool_t b; double d; dbus_uint32_t u; dbus_int64_t x; dbus_uint64_t t; } v;
+                if (strcmp( key, props[i].name ) || p_dbus_message_iter_get_arg_type( &var ) != props[i].type) continue;
+                if (props[i].type == DBUS_TYPE_ARRAY)          /* "ay": copy the bytes as a string (e.g. an SSID) */
+                {
+                    DBusMessageIter sub;
+                    const unsigned char *bytes = NULL;
+                    int n = 0;
+                    p_dbus_message_iter_recurse( &var, &sub );
+                    if (p_dbus_message_iter_get_arg_type( &sub ) == DBUS_TYPE_BYTE)
+                    {
+                        p_dbus_message_iter_get_fixed_array( &sub, &bytes, &n );
+                        n = min( n, (int)props[i].size - 1 );
+                        if (n > 0) memcpy( props[i].out, bytes, n );
+                        ((char *)props[i].out)[max( n, 0 )] = 0;
+                    }
+                    continue;
+                }
+                p_dbus_message_iter_get_basic( &var, &v );
+                switch (props[i].type)
+                {
+                case DBUS_TYPE_STRING: case DBUS_TYPE_OBJECT_PATH:
+                    snprintf( props[i].out, props[i].size, "%s", v.s ); break;
+                case DBUS_TYPE_BOOLEAN: *(int *)props[i].out = v.b; break;
+                case DBUS_TYPE_BYTE: *(unsigned char *)props[i].out = (unsigned char)v.u; break;
+                case DBUS_TYPE_DOUBLE: *(double *)props[i].out = v.d; break;
+                case DBUS_TYPE_UINT32: *(dbus_uint32_t *)props[i].out = v.u; break;
+                case DBUS_TYPE_INT64: *(dbus_int64_t *)props[i].out = v.x; break;
+                case DBUS_TYPE_UINT64: *(dbus_uint64_t *)props[i].out = v.t; break;
+                }
+            }
+            p_dbus_message_iter_next( &arr );
+        }
+    }
+    p_dbus_message_unref( reply );
+    return ERROR_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ login1: power actions */
+
+#define LOGIN_DEST  "org.freedesktop.login1"
+#define LOGIN_PATH  "/org/freedesktop/login1"
+#define LOGIN_IFACE "org.freedesktop.login1.Manager"
+
+static const char *const power_methods[] = { "PowerOff", "Reboot", "Suspend", "Hibernate" };
+
+static NTSTATUS power_can( void *args )
+{
+    struct power_can_params *params = args;
+    char name[32];
+    DBusMessage *msg, *reply;
+    DBusMessageIter it;
+    const char *s;
+
+    params->result = WEX_POWER_NO;
+    if (params->action >= ARRAYSIZE(power_methods)) { params->err = ERROR_INVALID_PARAMETER; return STATUS_SUCCESS; }
+    snprintf( name, sizeof(name), "Can%s", power_methods[params->action] );
+    msg = load_dbus() ? p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, name ) : NULL;
+    params->err = call_system( msg, &reply );
+    if (msg) p_dbus_message_unref( msg );
+    if (params->err) return STATUS_SUCCESS;
+
+    if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_STRING)
+    {
+        p_dbus_message_iter_get_basic( &it, &s );
+        if (!strcmp( s, "yes" )) params->result = WEX_POWER_YES;
+        else if (!strcmp( s, "challenge" )) params->result = WEX_POWER_CHALLENGE;
+    }
+    p_dbus_message_unref( reply );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS power_do( void *args )
+{
+    struct power_do_params *params = args;
+    DBusMessage *msg;
+    dbus_bool_t interactive = TRUE;
+
+    if (params->action >= ARRAYSIZE(power_methods)) { params->err = ERROR_INVALID_PARAMETER; return STATUS_SUCCESS; }
+    msg = load_dbus() ? p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, power_methods[params->action] ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
+    params->err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ UPower: battery */
+
+static NTSTATUS battery_get( void *args )
+{
+    struct battery_get_params *params = args;
+    int present = 0, on_battery = 0, lid = 0;
+    double percentage = 0;
+    dbus_uint32_t state = 0;
+    dbus_int64_t to_empty = 0, to_full = 0;
+    struct prop root[] = { { "OnBattery", DBUS_TYPE_BOOLEAN, &on_battery, 0 } };
+    struct prop disp[] = {
+        { "IsPresent", DBUS_TYPE_BOOLEAN, &present, 0 }, { "Percentage", DBUS_TYPE_DOUBLE, &percentage, 0 },
+        { "State", DBUS_TYPE_UINT32, &state, 0 }, { "TimeToEmpty", DBUS_TYPE_INT64, &to_empty, 0 },
+        { "TimeToFull", DBUS_TYPE_INT64, &to_full, 0 } };
+
+    memset( &params->info, 0, sizeof(params->info) );
+    (void)lid;
+    params->err = get_properties( "org.freedesktop.UPower", "/org/freedesktop/UPower", "org.freedesktop.UPower",
+                                  root, ARRAYSIZE(root) );
+    if (params->err) return STATUS_SUCCESS;
+    params->err = get_properties( "org.freedesktop.UPower", "/org/freedesktop/UPower/devices/DisplayDevice",
+                                  "org.freedesktop.UPower.Device", disp, ARRAYSIZE(disp) );
+    if (params->err) return STATUS_SUCCESS;
+
+    params->info.has_battery = present;
+    params->info.on_battery = on_battery;
+    params->info.percent = (DWORD)(percentage + 0.5);
+    params->info.state = state;        /* 1 charging, 2 discharging, 3 empty, 4 fully charged, 5/6 pending */
+    params->info.seconds_to_empty = (to_empty > 0) ? (int)to_empty : -1;
+    params->info.seconds_to_full = (to_full > 0) ? (int)to_full : -1;
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ hostname1 */
+
+#define HN_DEST  "org.freedesktop.hostname1"
+#define HN_PATH  "/org/freedesktop/hostname1"
+#define HN_IFACE "org.freedesktop.hostname1"
+
+static NTSTATUS hostname_get( void *args )
+{
+    struct hostname_get_params *params = args;
+    struct prop props[] = {
+        { "StaticHostname", DBUS_TYPE_STRING, params->info.static_name, sizeof(params->info.static_name) },
+        { "PrettyHostname", DBUS_TYPE_STRING, params->info.pretty_name, sizeof(params->info.pretty_name) },
+        { "Hostname", DBUS_TYPE_STRING, params->info.transient_name, sizeof(params->info.transient_name) } };
+
+    memset( &params->info, 0, sizeof(params->info) );
+    params->err = get_properties( HN_DEST, HN_PATH, HN_IFACE, props, ARRAYSIZE(props) );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS hostname_set( void *args )
+{
+    struct hostname_set_params *params = args;
+    DBusMessage *msg;
+    const char *name = params->name;
+    dbus_bool_t interactive = TRUE;
+
+    params->name[sizeof(params->name) - 1] = 0;
+    msg = load_dbus() ? p_dbus_message_new_method_call( HN_DEST, HN_PATH, HN_IFACE,
+                                                        params->pretty ? "SetPrettyHostname" : "SetStaticHostname" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &name, DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
+    params->err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ AccountsService: the logged-in user */
+
+static NTSTATUS user_get( void *args )
+{
+    struct user_get_params *params = args;
+    DBusMessage *msg, *reply;
+    DBusMessageIter it;
+    dbus_int64_t uid = getuid();
+    char path[128] = "";
+    struct prop props[] = {
+        { "UserName", DBUS_TYPE_STRING, params->info.name, sizeof(params->info.name) },
+        { "RealName", DBUS_TYPE_STRING, params->info.real_name, sizeof(params->info.real_name) },
+        { "IconFile", DBUS_TYPE_STRING, params->info.icon_file, sizeof(params->info.icon_file) } };
+
+    memset( &params->info, 0, sizeof(params->info) );
+    msg = load_dbus() ? p_dbus_message_new_method_call( "org.freedesktop.Accounts", "/org/freedesktop/Accounts",
+                                                        "org.freedesktop.Accounts", "FindUserById" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_INT64, &uid, DBUS_TYPE_INVALID );
+    params->err = call_system( msg, &reply );
+    if (msg) p_dbus_message_unref( msg );
+    if (params->err) return STATUS_SUCCESS;
+
+    if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_OBJECT_PATH)
+    {
+        const char *s;
+        p_dbus_message_iter_get_basic( &it, &s );
+        snprintf( path, sizeof(path), "%s", s );
+    }
+    p_dbus_message_unref( reply );
+    if (!path[0]) { params->err = ERROR_NOT_FOUND; return STATUS_SUCCESS; }
+    params->err = get_properties( "org.freedesktop.Accounts", path, "org.freedesktop.Accounts.User", props, ARRAYSIZE(props) );
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ NetworkManager */
+
+#define NM_DEST   "org.freedesktop.NetworkManager"
+#define NM_PATH   "/org/freedesktop/NetworkManager"
+#define NM_IFACE  "org.freedesktop.NetworkManager"
+#define NM_DEV    "org.freedesktop.NetworkManager.Device"
+#define NM_WIRED  "org.freedesktop.NetworkManager.Device.Wired"
+#define NM_WIFI   "org.freedesktop.NetworkManager.Device.Wireless"
+#define NM_AP     "org.freedesktop.NetworkManager.AccessPoint"
+
+#define NM_DEVICE_TYPE_ETHERNET 1
+#define NM_DEVICE_TYPE_WIFI     2
+#define NM_DEVICE_STATE_ACTIVATED 100
+
+#define AP_FLAG_PRIVACY   0x1
+#define SEC_PSK           0x100
+#define SEC_8021X         0x200
+#define SEC_SAE           0x400
+
+#define MAX_DEVICES 16
+
+struct nm_device { char path[128]; char name[32]; char driver[32]; dbus_uint32_t type, state; };
+
+/* All devices we care about (Ethernet and Wi-Fi). */
+static int nm_get_devices( struct nm_device *devs, int max )
+{
+    DBusMessage *msg, *reply;
+    DBusMessageIter it, arr;
+    int count = 0;
+
+    msg = load_dbus() ? p_dbus_message_new_method_call( NM_DEST, NM_PATH, NM_IFACE, "GetDevices" ) : NULL;
+    if (call_system( msg, &reply )) { if (msg) p_dbus_message_unref( msg ); return -1; }
+    p_dbus_message_unref( msg );
+
+    if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_ARRAY)
+    {
+        p_dbus_message_iter_recurse( &it, &arr );
+        while (p_dbus_message_iter_get_arg_type( &arr ) == DBUS_TYPE_OBJECT_PATH && count < max)
+        {
+            const char *path;
+            struct nm_device *d = &devs[count];
+            struct prop props[] = {
+                { "Interface", DBUS_TYPE_STRING, d->name, sizeof(d->name) },
+                { "Driver", DBUS_TYPE_STRING, d->driver, sizeof(d->driver) },
+                { "DeviceType", DBUS_TYPE_UINT32, &d->type, 0 },
+                { "State", DBUS_TYPE_UINT32, &d->state, 0 } };
+
+            p_dbus_message_iter_get_basic( &arr, &path );
+            memset( d, 0, sizeof(*d) );
+            snprintf( d->path, sizeof(d->path), "%s", path );
+            if (!get_properties( NM_DEST, d->path, NM_DEV, props, ARRAYSIZE(props) ) &&
+                (d->type == NM_DEVICE_TYPE_ETHERNET || d->type == NM_DEVICE_TYPE_WIFI))
+                count++;
+            p_dbus_message_iter_next( &arr );
+        }
+    }
+    p_dbus_message_unref( reply );
+    return count;
+}
+
+static DWORD nm_call_path( const char *path, const char *iface, const char *method )
+{
+    DBusMessage *msg = load_dbus() ? p_dbus_message_new_method_call( NM_DEST, path, iface, method ) : NULL;
+    DWORD err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
+    return err;
+}
+
+static NTSTATUS net_get_status( void *args )
+{
+    struct net_get_status_params *params = args;
+    struct nm_device devs[MAX_DEVICES];
+    int count, i, pick = -1;
+    WEX_NET_STATUS *st = &params->status;
+
+    memset( st, 0, sizeof(*st) );
+    if (!load_dbus()) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
+    count = nm_get_devices( devs, MAX_DEVICES );
+    if (count < 0) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
+    params->err = ERROR_SUCCESS;
+
+    for (i = 0; i < count; i++)
+        if (devs[i].state == NM_DEVICE_STATE_ACTIVATED) { pick = i; break; }
+    if (pick < 0 && count) pick = 0;
+    if (pick < 0) return STATUS_SUCCESS;
+
+    st->present = TRUE;
+    st->type = devs[pick].type;
+    st->state = devs[pick].state;
+    st->connected = (devs[pick].state == NM_DEVICE_STATE_ACTIVATED);
+    snprintf( st->ifname, sizeof(st->ifname), "%s", devs[pick].name );
+    snprintf( st->driver, sizeof(st->driver), "%s", devs[pick].driver );
+
+    if (devs[pick].type == NM_DEVICE_TYPE_ETHERNET)
+    {
+        dbus_uint32_t speed = 0;
+        struct prop props[] = { { "Speed", DBUS_TYPE_UINT32, &speed, 0 } };
+        if (!get_properties( NM_DEST, devs[pick].path, NM_WIRED, props, 1 )) st->speed_mbps = speed;
+    }
+    else
+    {
+        char ap_path[128] = "";
+        dbus_uint32_t bitrate = 0;
+        struct prop props[] = { { "ActiveAccessPoint", DBUS_TYPE_OBJECT_PATH, ap_path, sizeof(ap_path) },
+                                { "Bitrate", DBUS_TYPE_UINT32, &bitrate, 0 } };
+
+        if (!get_properties( NM_DEST, devs[pick].path, NM_WIFI, props, ARRAYSIZE(props) ))
+        {
+            st->speed_mbps = bitrate / 1000;           /* NM reports kb/s */
+            if (ap_path[0] && strcmp( ap_path, "/" ))
+            {
+                unsigned char strength = 0;
+                struct prop ap[] = { { "Ssid", DBUS_TYPE_ARRAY, st->ssid, sizeof(st->ssid) },
+                                     { "Strength", DBUS_TYPE_BYTE, &strength, 0 } };
+                if (!get_properties( NM_DEST, ap_path, NM_AP, ap, ARRAYSIZE(ap) )) st->signal = strength;
+            }
+        }
+    }
+    return STATUS_SUCCESS;
+}
+
+static const char *security_name( dbus_uint32_t flags, dbus_uint32_t wpa, dbus_uint32_t rsn )
+{
+    if (rsn & SEC_SAE) return "WPA3";
+    if (rsn & SEC_8021X) return "WPA2-Enterprise";
+    if (rsn & SEC_PSK) return "WPA2-PSK";
+    if (wpa & SEC_8021X) return "WPA-Enterprise";
+    if (wpa & SEC_PSK) return "WPA-PSK";
+    if (flags & AP_FLAG_PRIVACY) return "WEP";
+    return "";
+}
+
+static BOOL nm_first_wifi( char *path, size_t size )
+{
+    struct nm_device devs[MAX_DEVICES];
+    int count = nm_get_devices( devs, MAX_DEVICES ), i;
+
+    for (i = 0; i < count; i++)
+        if (devs[i].type == NM_DEVICE_TYPE_WIFI) { snprintf( path, size, "%s", devs[i].path ); return TRUE; }
+    return FALSE;
+}
+
+static NTSTATUS net_scan_wifi( void *args )
+{
+    struct net_scan_wifi_params *params = args;
+    WEX_WIFI_AP *out = (WEX_WIFI_AP *)(ULONG_PTR)params->buffer;
+    char dev[128], active[128] = "";
+    DBusMessage *msg, *reply;
+    DBusMessageIter it, arr, opts;
+    struct prop dprops[] = { { "ActiveAccessPoint", DBUS_TYPE_OBJECT_PATH, active, sizeof(active) } };
+    DWORD n = 0;
+
+    params->count = 0;
+    if (!load_dbus() || !nm_first_wifi( dev, sizeof(dev) )) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
+
+    /* ask for a fresh scan; the results below are whatever NetworkManager already knows */
+    msg = p_dbus_message_new_method_call( NM_DEST, dev, NM_WIFI, "RequestScan" );
+    p_dbus_message_iter_init_append( msg, &it );
+    p_dbus_message_iter_open_container( &it, DBUS_TYPE_ARRAY, "{sv}", &opts );
+    p_dbus_message_iter_close_container( &it, &opts );
+    call_system( msg, NULL );
+    p_dbus_message_unref( msg );
+
+    get_properties( NM_DEST, dev, NM_WIFI, dprops, 1 );
+
+    msg = p_dbus_message_new_method_call( NM_DEST, dev, NM_WIFI, "GetAllAccessPoints" );
+    params->err = call_system( msg, &reply );
+    p_dbus_message_unref( msg );
+    if (params->err) return STATUS_SUCCESS;
+
+    if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_ARRAY)
+    {
+        p_dbus_message_iter_recurse( &it, &arr );
+        while (p_dbus_message_iter_get_arg_type( &arr ) == DBUS_TYPE_OBJECT_PATH)
+        {
+            const char *path;
+            char ssid[64] = "";
+            unsigned char strength = 0;
+            dbus_uint32_t flags = 0, wpa = 0, rsn = 0;
+            struct prop ap[] = { { "Ssid", DBUS_TYPE_ARRAY, ssid, sizeof(ssid) }, { "Strength", DBUS_TYPE_BYTE, &strength, 0 },
+                                 { "Flags", DBUS_TYPE_UINT32, &flags, 0 }, { "WpaFlags", DBUS_TYPE_UINT32, &wpa, 0 },
+                                 { "RsnFlags", DBUS_TYPE_UINT32, &rsn, 0 } };
+            DWORD i;
+
+            p_dbus_message_iter_get_basic( &arr, &path );
+            p_dbus_message_iter_next( &arr );
+            if (get_properties( NM_DEST, path, NM_AP, ap, ARRAYSIZE(ap) ) || !ssid[0]) continue;
+
+            for (i = 0; i < n; i++) if (!strcmp( out[i].ssid, ssid )) break;   /* same network, several access points */
+            if (i < n)
+            {
+                if (strength > out[i].strength) out[i].strength = strength;
+                if (!strcmp( path, active )) out[i].connected = TRUE;
+                continue;
+            }
+            if (n >= params->max) continue;
+            memset( &out[n], 0, sizeof(out[n]) );
+            snprintf( out[n].ssid, sizeof(out[n].ssid), "%s", ssid );
+            out[n].strength = strength;
+            snprintf( out[n].security, sizeof(out[n].security), "%s", security_name( flags, wpa, rsn ) );
+            out[n].secured = out[n].security[0] != 0;
+            out[n].sae_only = (rsn & SEC_SAE) && !(rsn & SEC_PSK);
+            out[n].connected = !strcmp( path, active );
+            n++;
+        }
+    }
+    p_dbus_message_unref( reply );
+    params->count = n;
+    return STATUS_SUCCESS;
+}
+
+static void append_str_var( DBusMessageIter *dict, const char *key, const char *value )
+{
+    DBusMessageIter entry, var;
+
+    p_dbus_message_iter_open_container( dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry );
+    p_dbus_message_iter_append_basic( &entry, DBUS_TYPE_STRING, &key );
+    p_dbus_message_iter_open_container( &entry, DBUS_TYPE_VARIANT, "s", &var );
+    p_dbus_message_iter_append_basic( &var, DBUS_TYPE_STRING, &value );
+    p_dbus_message_iter_close_container( &entry, &var );
+    p_dbus_message_iter_close_container( dict, &entry );
+}
+
+static void append_bytes_var( DBusMessageIter *dict, const char *key, const char *bytes, int len )
+{
+    DBusMessageIter entry, var, arr;
+
+    p_dbus_message_iter_open_container( dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry );
+    p_dbus_message_iter_append_basic( &entry, DBUS_TYPE_STRING, &key );
+    p_dbus_message_iter_open_container( &entry, DBUS_TYPE_VARIANT, "ay", &var );
+    p_dbus_message_iter_open_container( &var, DBUS_TYPE_ARRAY, "y", &arr );
+    p_dbus_message_iter_append_fixed_array( &arr, DBUS_TYPE_BYTE, &bytes, len );
+    p_dbus_message_iter_close_container( &var, &arr );
+    p_dbus_message_iter_close_container( &entry, &var );
+    p_dbus_message_iter_close_container( dict, &entry );
+}
+
+static void begin_section( DBusMessageIter *conn, DBusMessageIter *sec_entry, DBusMessageIter *sec_dict, const char *name )
+{
+    p_dbus_message_iter_open_container( conn, DBUS_TYPE_DICT_ENTRY, NULL, sec_entry );
+    p_dbus_message_iter_append_basic( sec_entry, DBUS_TYPE_STRING, &name );
+    p_dbus_message_iter_open_container( sec_entry, DBUS_TYPE_ARRAY, "{sv}", sec_dict );
+}
+
+static void end_section( DBusMessageIter *conn, DBusMessageIter *sec_entry, DBusMessageIter *sec_dict )
+{
+    p_dbus_message_iter_close_container( sec_entry, sec_dict );
+    p_dbus_message_iter_close_container( conn, sec_entry );
+}
+
+/* Connect to a network: create a profile (with the passphrase when given) and activate it on the Wi-Fi device. */
+static NTSTATUS net_connect_wifi( void *args )
+{
+    struct net_connect_wifi_params *params = args;
+    char dev[128];
+    DBusMessage *msg;
+    DBusMessageIter it, conn, se, sd;
+    const char *any = "/", *ssid = params->ssid, *devp = dev;
+
+    params->ssid[sizeof(params->ssid) - 1] = 0;
+    params->passphrase[sizeof(params->passphrase) - 1] = 0;
+    if (!load_dbus() || !nm_first_wifi( dev, sizeof(dev) )) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
+
+    msg = p_dbus_message_new_method_call( NM_DEST, NM_PATH, NM_IFACE, "AddAndActivateConnection" );
+    p_dbus_message_iter_init_append( msg, &it );
+    p_dbus_message_iter_open_container( &it, DBUS_TYPE_ARRAY, "{sa{sv}}", &conn );
+
+    begin_section( &conn, &se, &sd, "connection" );
+    append_str_var( &sd, "id", ssid );
+    append_str_var( &sd, "type", "802-11-wireless" );
+    end_section( &conn, &se, &sd );
+
+    begin_section( &conn, &se, &sd, "802-11-wireless" );
+    append_bytes_var( &sd, "ssid", ssid, (int)strlen( ssid ) );
+    end_section( &conn, &se, &sd );
+
+    if (params->passphrase[0])
+    {
+        begin_section( &conn, &se, &sd, "802-11-wireless-security" );
+        append_str_var( &sd, "key-mgmt", params->sae ? "sae" : "wpa-psk" );
+        append_str_var( &sd, "psk", params->passphrase );
+        end_section( &conn, &se, &sd );
+    }
+    p_dbus_message_iter_close_container( &it, &conn );
+    p_dbus_message_iter_append_basic( &it, DBUS_TYPE_OBJECT_PATH, &devp );
+    p_dbus_message_iter_append_basic( &it, DBUS_TYPE_OBJECT_PATH, &any );
+    params->err = call_system( msg, NULL );
+    p_dbus_message_unref( msg );
+    memset( params->passphrase, 0, sizeof(params->passphrase) );
+    return STATUS_SUCCESS;
+}
+
+static BOOL nm_primary_path( char *path, size_t size )
+{
+    struct nm_device devs[MAX_DEVICES];
+    int count = nm_get_devices( devs, MAX_DEVICES ), i, pick = -1;
+
+    for (i = 0; i < count; i++) if (devs[i].state == NM_DEVICE_STATE_ACTIVATED) { pick = i; break; }
+    if (pick < 0 && count) pick = 0;
+    if (pick < 0) return FALSE;
+    snprintf( path, size, "%s", devs[pick].path );
+    return TRUE;
+}
+
+static NTSTATUS net_disconnect( void *args )
+{
+    struct net_disconnect_params *params = args;
+    char path[128];
+
+    if (!load_dbus() || !nm_primary_path( path, sizeof(path) )) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
+    params->err = nm_call_path( path, NM_DEV, "Disconnect" );
+    return STATUS_SUCCESS;
+}
+
+/* "Enable": let NetworkManager activate the best connection on the device again. */
+static NTSTATUS net_enable( void *args )
+{
+    struct net_enable_params *params = args;
+    char path[128];
+    DBusMessage *msg;
+    const char *none = "/", *dev = path;
+
+    if (!load_dbus() || !nm_primary_path( path, sizeof(path) )) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
+    msg = p_dbus_message_new_method_call( NM_DEST, NM_PATH, NM_IFACE, "ActivateConnection" );
+    p_dbus_message_append_args( msg, DBUS_TYPE_OBJECT_PATH, &none, DBUS_TYPE_OBJECT_PATH, &dev,
+                                DBUS_TYPE_OBJECT_PATH, &none, DBUS_TYPE_INVALID );
+    params->err = call_system( msg, NULL );
+    p_dbus_message_unref( msg );
     return STATUS_SUCCESS;
 }
 
@@ -735,6 +1286,17 @@ STUB( agent_start, struct agent_start_params )
 STUB( agent_next_event, struct agent_next_event_params )
 STUB( agent_respond, struct agent_respond_params )
 STUB( agent_stop, struct agent_stop_params )
+STUB( power_can, struct power_can_params )
+STUB( power_do, struct power_do_params )
+STUB( battery_get, struct battery_get_params )
+STUB( hostname_get, struct hostname_get_params )
+STUB( hostname_set, struct hostname_set_params )
+STUB( user_get, struct user_get_params )
+STUB( net_get_status, struct net_get_status_params )
+STUB( net_scan_wifi, struct net_scan_wifi_params )
+STUB( net_connect_wifi, struct net_connect_wifi_params )
+STUB( net_disconnect, struct net_disconnect_params )
+STUB( net_enable, struct net_enable_params )
 
 #endif
 
@@ -750,6 +1312,17 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     agent_next_event,
     agent_respond,
     agent_stop,
+    power_can,
+    power_do,
+    battery_get,
+    hostname_get,
+    hostname_set,
+    user_get,
+    net_get_status,
+    net_scan_wifi,
+    net_connect_wifi,
+    net_disconnect,
+    net_enable,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

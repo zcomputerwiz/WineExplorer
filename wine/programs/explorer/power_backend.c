@@ -26,6 +26,8 @@
 #include <string.h>
 
 #include <windows.h>
+#include <wexhost.h>
+
 #include "wine/debug.h"
 #include "power_backend.h"
 
@@ -63,6 +65,20 @@ static BOOL read_sysfs_str(const char *path, char *out_buf, int max_len)
     }
     fclose(f);
     return FALSE;
+}
+
+/* UPower aggregates every battery and the AC state; preferred over reading sysfs ourselves */
+static BOOL query_upower(POWER_STATUS_INFO *info)
+{
+    WEX_BATTERY b;
+
+    if (WexBatteryGet(&b)) return FALSE;
+    info->has_battery = b.has_battery;
+    info->ac_online = !b.on_battery;
+    info->battery_percent = min(100, b.percent);
+    info->is_charging = (b.state == 1);
+    info->time_remaining_min = (b.on_battery && b.seconds_to_empty > 0) ? b.seconds_to_empty / 60 : -1;
+    return TRUE;
 }
 
 static BOOL query_linux_sysfs(POWER_STATUS_INFO *info)
@@ -164,8 +180,8 @@ BOOL power_backend_get_status(POWER_STATUS_INFO *info)
     {
         g_last_check = now;
 
-        /* 1. Try zero-fork Linux kernel sysfs */
-        if (!query_linux_sysfs(&g_cached_status))
+        /* 1. UPower over D-Bus, else zero-fork Linux kernel sysfs */
+        if (!query_upower(&g_cached_status) && !query_linux_sysfs(&g_cached_status))
         {
             /* 2. Fall back to Win32 GetSystemPowerStatus */
             SYSTEM_POWER_STATUS sps;
