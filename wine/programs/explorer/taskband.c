@@ -360,14 +360,16 @@ static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font_normal, HFONT 
     int icon_size = 16;
     int icon_y, icon_x;
     RECT text_rc;
+    COLORREF text_color = GetSysColor(COLOR_BTNTEXT);
 
     /* 1. Draw Button Edge & Background */
-    if (theme_is_visual_styles_active())
+    HTHEME theme = theme_open(NULL, item->flashing ? L"TaskBand" : L"TaskBand::Toolbar");
+    if (theme)
     {
-        /* Themed button drawing */
-        HBRUSH face = GetSysColorBrush(item->active ? COLOR_BTNHIGHLIGHT : COLOR_BTNFACE);
-        FillRect(hdc, &rc, face);
-        theme_draw_classic_bevel(hdc, &rc, item->active ? EDGE_SUNKEN : EDGE_RAISED, BF_RECT | BF_SOFT | BF_ADJUST);
+        /* TaskBand::Toolbar button states: 1 normal, 5 checked (the active window); TaskBand flash button when flashing */
+        DrawThemeBackground(theme, hdc, item->flashing ? 2 : 1, item->active ? 5 : 1, &rc, NULL);
+        GetThemeColor(theme, item->flashing ? 2 : 1, item->active ? 5 : 1, TMT_TEXTCOLOR, &text_color);
+        CloseThemeData(theme);
     }
     else
     {
@@ -416,7 +418,7 @@ static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font_normal, HFONT 
 
     old_font = SelectObject(hdc, item->active ? font_bold : font_normal);
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
+    SetTextColor(hdc, text_color);
 
     DrawTextW(hdc, item->title, -1, &text_rc,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -499,6 +501,8 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         TASK_ITEM *curr;
 
         GetClientRect(hwnd, &client_rc);
+        if (!theme_draw_taskbar_background(hwnd, hdc))
+        {
         FillRect(hdc, &client_rc, GetSysColorBrush(COLOR_BTNFACE));
 
         /* Top 1px highlight line continuous across taskbar */
@@ -506,6 +510,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         rc_top.top = 1;
         rc_top.bottom = 2;
         FillRect(hdc, &rc_top, GetSysColorBrush(COLOR_3DHIGHLIGHT));
+        }
 
         memset(&lf, 0, sizeof(lf));
         lf.lfHeight = -11;

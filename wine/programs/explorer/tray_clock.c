@@ -128,7 +128,25 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         GetClientRect(hwnd, &rc);
 
         /* Fill background to blend seamlessly into sunken notification area */
-        FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+        {
+            HTHEME tray = theme_open(hwnd, L"TrayNotifyHoriz::TrayNotify");
+            if (tray)
+            {
+                /* the tray image spans icons and clock: draw it as the taskbar sees it */
+                HWND root = GetAncestor(hwnd, GA_ROOT);
+                RECT area = systray_get_notify_rect(), client;
+                POINT origin = {0, 0};
+                GetClientRect(root, &client);
+                area.top = client.top;
+                area.bottom = client.bottom;
+                MapWindowPoints(hwnd, root, &origin, 1);
+                OffsetRect(&area, -origin.x, -origin.y);
+                DrawThemeBackground(tray, hdc, TNP_BACKGROUND, 0, &area, NULL);
+                CloseThemeData(tray);
+            }
+            else
+                FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+        }
 
         /* Format local short time (e.g. 5:45 PM) */
         GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, NULL, NULL, time_str, sizeof(time_str)/sizeof(WCHAR));

@@ -22,6 +22,8 @@
 #define __WINE_EXPLORER_PRIVATE_H
 
 #include "theme_engine.h"
+
+extern RECT systray_get_notify_rect(void);
 #include "desktop_view.h"
 #include "taskband.h"
 #include "startmenu_view.h"

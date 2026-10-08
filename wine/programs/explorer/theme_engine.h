@@ -26,6 +26,8 @@
 
 #include <windows.h>
 #include <uxtheme.h>
+#include <vsstyle.h>
+#include <vssym32.h>
 
 #define THEME_STARTMENU_CLASSIC   0  /* Authentic Server 2003 / 2000 cascading single-column */
 #define THEME_STARTMENU_TWOCOLUMN 1  /* Windows XP / 2003 two-column style */
@@ -114,6 +116,8 @@ BOOL theme_apply(THEME_CONFIG *config);
 THEME_CONFIG *theme_get_current(void);
 
 BOOL theme_is_visual_styles_active(void);
+HTHEME theme_open(HWND hwnd, const WCHAR *classes); /* NULL when Windows Classic */
+BOOL theme_draw_taskbar_background(HWND hwnd, HDC hdc); /* taskbar image seen through a child window; FALSE in Classic */
 void theme_play_sound(const WCHAR *event_name);
 
 /* Drawing helpers */

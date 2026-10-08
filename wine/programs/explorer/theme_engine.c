@@ -40,7 +40,13 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 static THEME_CONFIG current_theme;
 static HWND main_window = NULL;
 
-typedef HRESULT (WINAPI *pfnSetSystemVisualStyle)(LPCWSTR, LPCWSTR, LPCWSTR, DWORD);
+/* uxtheme's unnamed exports, as used by themeui.dll on Windows */
+typedef HRESULT (WINAPI *pfnOpenThemeFile)(LPCWSTR, LPCWSTR, LPCWSTR, HANDLE *, DWORD);
+typedef HRESULT (WINAPI *pfnCloseThemeFile)(HANDLE);
+typedef HRESULT (WINAPI *pfnApplyTheme)(HANDLE, char *, HWND);
+
+static const WCHAR themes_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes";
+
 
 /* System color name to index mapping */
 typedef struct _COLOR_MAP
@@ -164,8 +170,9 @@ BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *cfg)
     lstrcpynW(cfg->theme_path, path, MAX_PATH);
 
     /* Theme Display Name */
-    GetPrivateProfileStringW(L"Theme", L"DisplayName", L"Classic Theme",
-                             cfg->display_name, sizeof(cfg->display_name)/sizeof(WCHAR), path);
+    GetPrivateProfileStringW(L"Theme", L"DisplayName", L"", buffer, MAX_PATH, path);
+    if (buffer[0] != '@' || FAILED(SHLoadIndirectString(buffer, cfg->display_name, ARRAY_SIZE(cfg->display_name), NULL)))
+        lstrcpynW(cfg->display_name, buffer[0] ? buffer : PathFindFileNameW(path), ARRAY_SIZE(cfg->display_name));
 
     /* [VisualStyles] */
     GetPrivateProfileStringW(L"VisualStyles", L"Path", L"",
@@ -258,47 +265,107 @@ BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *cfg)
     return TRUE;
 }
 
+/* Write every "section = value" pair of the theme's registry-like sections under HKCU.  Theme files carry
+ * AppEvents (sounds), CLSID (desktop icons) and Control Panel (cursors, desktop) data that Windows imports as-is. */
+static void apply_registry_section(const WCHAR *path, const WCHAR *section, const WCHAR *root, BOOL expand_values)
+{
+    WCHAR *names = HeapAlloc(GetProcessHeap(), 0, 8192 * sizeof(WCHAR));
+    WCHAR full[MAX_PATH], value[MAX_PATH], exp[MAX_PATH];
+    const WCHAR *n;
+    HKEY key;
+
+    if (!names) return;
+    if (root[0]) swprintf(full, MAX_PATH, L"%s\\%s", root, section);
+    else lstrcpynW(full, section, MAX_PATH);
+    if (GetPrivateProfileStringW(section, NULL, L"", names, 8192, path) &&
+        !RegCreateKeyExW(HKEY_CURRENT_USER, full, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL))
+    {
+        for (n = names; *n; n += lstrlenW(n) + 1)
+        {
+            const WCHAR *name = n;
+            GetPrivateProfileStringW(section, n, L"", value, MAX_PATH, path);
+            if (!wcscmp(n, L"DefaultValue")) name = L"";
+            else if (!wcsicmp(n, L"DefaultValue.MUI") || wcsstr(n, L".MUI")) continue;
+            if (expand_values)
+            {
+                expand_theme_path(value, exp, MAX_PATH);
+                RegSetValueExW(key, name, 0, REG_EXPAND_SZ, (const BYTE *)exp, (lstrlenW(exp) + 1) * sizeof(WCHAR));
+            }
+            else
+                RegSetValueExW(key, name, 0, REG_SZ, (const BYTE *)value, (lstrlenW(value) + 1) * sizeof(WCHAR));
+        }
+        RegCloseKey(key);
+    }
+    HeapFree(GetProcessHeap(), 0, names);
+}
+
+static void apply_registry_sections(const WCHAR *path)
+{
+    WCHAR *sections = HeapAlloc(GetProcessHeap(), 0, 32768 * sizeof(WCHAR));
+    const WCHAR *sec;
+
+    if (!sections) return;
+    GetPrivateProfileSectionNamesW(sections, 32768, path);
+    for (sec = sections; *sec; sec += lstrlenW(sec) + 1)
+    {
+        if (!wcsnicmp(sec, L"AppEvents\\", 10))
+            apply_registry_section(path, sec, L"", TRUE);
+        else if (!wcsnicmp(sec, L"CLSID\\", 6))
+            apply_registry_section(path, sec, L"Software\\Classes", TRUE);
+        else if (!wcsicmp(sec, L"Control Panel\\Cursors"))
+            apply_registry_section(path, sec, L"", TRUE);
+    }
+    HeapFree(GetProcessHeap(), 0, sections);
+}
+
 BOOL theme_apply(THEME_CONFIG *cfg)
 {
     HMODULE huxtheme;
-    pfnSetSystemVisualStyle pSetSystemVisualStyle;
     HKEY hkey;
 
     if (!cfg) return FALSE;
 
-    /* 1. Apply visual style if requested and available */
+    /* 1. Visual style: open the msstyles file and make it the active style (uxtheme also applies the style's own
+     *    colors, fonts and sizes and broadcasts WM_THEMECHANGED).  No style = Windows Classic. */
     huxtheme = LoadLibraryW(L"uxtheme.dll");
     if (huxtheme)
     {
-        pSetSystemVisualStyle = (pfnSetSystemVisualStyle)GetProcAddress(huxtheme, (LPCSTR)65);
-        if (!pSetSystemVisualStyle)
-            pSetSystemVisualStyle = (pfnSetSystemVisualStyle)GetProcAddress(huxtheme, "SetSystemVisualStyle");
+        pfnOpenThemeFile pOpen = (pfnOpenThemeFile)GetProcAddress(huxtheme, (LPCSTR)2);
+        pfnCloseThemeFile pClose = (pfnCloseThemeFile)GetProcAddress(huxtheme, (LPCSTR)3);
+        pfnApplyTheme pApply = (pfnApplyTheme)GetProcAddress(huxtheme, (LPCSTR)4);
 
-        if (pSetSystemVisualStyle)
+        if (pOpen && pClose && pApply)
         {
+            HANDLE file = NULL;
             if (cfg->has_visual_styles && cfg->msstyles_path[0])
             {
-                TRACE("Setting visual style: %s (%s, %s)\n",
-                      debugstr_w(cfg->msstyles_path), debugstr_w(cfg->color_style), debugstr_w(cfg->size_name));
-                pSetSystemVisualStyle(cfg->msstyles_path, cfg->color_style, cfg->size_name, 0);
+                HRESULT hr = pOpen(cfg->msstyles_path, cfg->color_style, cfg->size_name, &file, 0);
+                if (SUCCEEDED(hr))
+                {
+                    pApply(file, NULL, NULL);
+                    pClose(file);
+                }
+                else
+                {
+                    WARN("could not open visual style %s: %#lx\n", debugstr_w(cfg->msstyles_path), hr);
+                    cfg->has_visual_styles = FALSE;
+                    pApply(NULL, NULL, NULL);
+                }
             }
             else
-            {
-                TRACE("Disabling visual styles (Classic NT mode)\n");
-                pSetSystemVisualStyle(NULL, NULL, NULL, 0);
-            }
+                pApply(NULL, NULL, NULL);
         }
         FreeLibrary(huxtheme);
     }
 
-    /* 2. Apply system colors */
-    if (cfg->has_custom_colors && cfg->num_colors > 0)
-    {
-        TRACE("Applying %d system colors\n", cfg->num_colors);
+    /* 2. System colors from the theme (the visual style supplies its own; Classic needs these) */
+    if (cfg->has_custom_colors && cfg->num_colors > 0 && !cfg->has_visual_styles)
         SetSysColors(cfg->num_colors, cfg->color_indices, cfg->color_values);
-    }
 
-    /* 3. Apply wallpaper and registry style */
+    /* 3. Sounds, desktop icons and cursors */
+    apply_registry_sections(cfg->theme_path);
+
+    /* 4. Wallpaper */
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", 0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS)
     {
         WCHAR style_str[16];
@@ -311,20 +378,17 @@ BOOL theme_apply(THEME_CONFIG *cfg)
         RegSetValueExW(hkey, L"TileWallpaper", 0, REG_SZ, (const BYTE*)tile_str, (lstrlenW(tile_str)+1)*sizeof(WCHAR));
         RegCloseKey(hkey);
     }
+    SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, cfg->wallpaper_path[0] ? (void *)cfg->wallpaper_path : (void *)L"",
+                          SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 
-    if (cfg->wallpaper_path[0])
+    /* 5. Remember it (Windows keeps the active theme in HKCU\\...\\Themes) */
+    if (!RegCreateKeyExW(HKEY_CURRENT_USER, themes_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &hkey, NULL))
     {
-        TRACE("Applying wallpaper: %s\n", debugstr_w(cfg->wallpaper_path));
-        SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)cfg->wallpaper_path, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+        RegSetValueExW(hkey, L"CurrentTheme", 0, REG_SZ, (const BYTE *)cfg->theme_path, (lstrlenW(cfg->theme_path) + 1) * sizeof(WCHAR));
+        RegCloseKey(hkey);
     }
 
-    /* 4. Update current theme state */
     memcpy(&current_theme, cfg, sizeof(THEME_CONFIG));
-
-    /* 5. Broadcast changes to shell and all top-level windows */
-    PostMessageW(HWND_BROADCAST, WM_SYSCOLORCHANGE, 0, 0);
-    PostMessageW(HWND_BROADCAST, WM_THEMECHANGED, 0, 0);
-
     return TRUE;
 }
 
@@ -335,7 +399,28 @@ THEME_CONFIG *theme_get_current(void)
 
 BOOL theme_is_visual_styles_active(void)
 {
-    return IsThemeActive() && current_theme.has_visual_styles;
+    return IsThemeActive();
+}
+
+BOOL theme_draw_taskbar_background(HWND hwnd, HDC hdc)
+{
+    HWND root = GetAncestor(hwnd, GA_ROOT);
+    HTHEME theme = theme_open(root, L"TaskBar");
+    RECT rc;
+    POINT origin = {0, 0};
+
+    if (!theme) return FALSE;
+    GetClientRect(root, &rc);
+    MapWindowPoints(hwnd, root, &origin, 1);
+    OffsetRect(&rc, -origin.x, -origin.y);
+    DrawThemeBackground(theme, hdc, TBP_BACKGROUNDBOTTOM, 0, &rc, NULL);
+    CloseThemeData(theme);
+    return TRUE;
+}
+
+HTHEME theme_open(HWND hwnd, const WCHAR *classes)
+{
+    return IsThemeActive() ? OpenThemeData(hwnd, classes) : NULL;
 }
 
 void theme_play_sound(const WCHAR *event_name)
@@ -361,59 +446,28 @@ void theme_play_sound(const WCHAR *event_name)
 
 void theme_init(HWND hwnd_main)
 {
-    WCHAR default_theme[MAX_PATH];
-    WCHAR windir[MAX_PATH];
+    WCHAR path[MAX_PATH];
+    DWORD size = sizeof(path);
+    HKEY key;
 
     main_window = hwnd_main;
     memset(&current_theme, 0, sizeof(current_theme));
+    current_theme.start_menu_style = THEME_STARTMENU_CLASSIC;
 
-    /* Set default Server 2003 Classic parameters */
-    current_theme.start_menu_style = THEME_STARTMENU_TWOCOLUMN;
-    current_theme.has_visual_styles = FALSE;
-
-    /* Check if a theme is configured in registry */
-    GetWindowsDirectoryW(windir, MAX_PATH);
-    swprintf(default_theme, MAX_PATH, L"%s\\Resources\\Themes\\Classic.theme", windir);
-
-    if (PathFileExistsW(default_theme))
+    /* The active theme persists in the registry; uxtheme already activated its visual style in this process.
+     * Only read the file back so the shell knows the wallpaper, icons and Start menu style. */
+    path[0] = 0;
+    if (!RegOpenKeyExW(HKEY_CURRENT_USER, themes_key, 0, KEY_QUERY_VALUE, &key))
     {
-        THEME_CONFIG cfg;
-        if (theme_load_file(default_theme, &cfg))
-            theme_apply(&cfg);
+        if (RegQueryValueExW(key, L"CurrentTheme", NULL, NULL, (BYTE *)path, &size)) path[0] = 0;
+        RegCloseKey(key);
     }
-    else
+    if (path[0] && PathFileExistsW(path))
+        theme_load_file(path, &current_theme);
+    if (!IsThemeActive())
     {
-        /* Authentic Windows Server 2003 Classic color defaults */
-        static const int def_indices[] = {
-            COLOR_BACKGROUND,
-            COLOR_BTNFACE,
-            COLOR_BTNHIGHLIGHT,
-            COLOR_BTNSHADOW,
-            COLOR_3DDKSHADOW,
-            COLOR_BTNTEXT,
-            COLOR_WINDOW,
-            COLOR_WINDOWTEXT,
-            COLOR_ACTIVECAPTION,
-            COLOR_CAPTIONTEXT,
-            COLOR_INACTIVECAPTION,
-            COLOR_INACTIVECAPTIONTEXT
-        };
-        static const COLORREF def_colors[] = {
-            RGB(58, 110, 165),   /* Server 2003 Teal Desktop */
-            RGB(212, 208, 200),  /* Standard Classic 3D Face */
-            RGB(255, 255, 255),  /* Hilight */
-            RGB(128, 128, 128),  /* Shadow */
-            RGB(64, 64, 64),     /* Dark Shadow */
-            RGB(0, 0, 0),        /* Button Text */
-            RGB(255, 255, 255),  /* Window Background */
-            RGB(0, 0, 0),        /* Window Text */
-            RGB(10, 36, 106),    /* Active Caption Blue */
-            RGB(255, 255, 255),  /* Active Caption Text */
-            RGB(128, 128, 128),  /* Inactive Caption */
-            RGB(212, 208, 200)   /* Inactive Caption Text */
-        };
-
-        SetSysColors(sizeof(def_indices)/sizeof(def_indices[0]), def_indices, def_colors);
+        current_theme.has_visual_styles = FALSE;
+        current_theme.start_menu_style = THEME_STARTMENU_CLASSIC;
     }
 }
 

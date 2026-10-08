@@ -346,6 +346,7 @@ static RECT get_tray_clock_rect(void)
     return rc;
 }
 
+RECT systray_get_notify_rect(void);
 static RECT get_tray_notify_rect(void)
 {
     RECT rc;
@@ -358,6 +359,11 @@ static RECT get_tray_notify_rect(void)
     rc.top = 2;
     rc.bottom = tray_height - 2;
     return rc;
+}
+
+RECT systray_get_notify_rect(void)
+{
+    return get_tray_notify_rect();
 }
 
 /* get the position of an icon in the tray */
@@ -1294,7 +1300,19 @@ static void do_show_systray(void)
     DeleteObject( font );
 
     tray_width = GetSystemMetrics( SM_CXSCREEN );
-    tray_height = 28;
+    {
+        HTHEME theme = theme_open( NULL, L"TaskBar" );
+        SIZE size = {0};
+        HDC hdc = GetDC( NULL );
+        tray_height = 28;
+        if (theme)
+        {
+            if (SUCCEEDED(GetThemePartSize( theme, hdc, TBP_BACKGROUNDBOTTOM, 0, NULL, TS_TRUE, &size )) && size.cy > 0)
+                tray_height = size.cy;
+            CloseThemeData( theme );
+        }
+        ReleaseDC( NULL, hdc );
+    }
     taskbar_settings_load();
     start_button_width = startbutton_get_desired_width();
     SetWindowPos( tray_window, HWND_TOPMOST, 0, GetSystemMetrics( SM_CYSCREEN ) - tray_height,
@@ -1425,7 +1443,25 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         HDC hdc = BeginPaint( hwnd, &ps );
         RECT rc, rcTop;
 
+        HTHEME theme = theme_open( hwnd, L"TaskBar" );
+
         GetClientRect( hwnd, &rc );
+        if (theme)
+        {
+            HTHEME tray_theme = theme_open( hwnd, L"TrayNotifyHoriz::TrayNotify" );
+            DrawThemeBackground( theme, hdc, TBP_BACKGROUNDBOTTOM, 0, &rc, NULL );
+            if (tray_theme)
+            {
+                RECT rcTray = get_tray_notify_rect();
+                rcTray.top = rc.top;
+                rcTray.bottom = rc.bottom;
+                DrawThemeBackground( tray_theme, hdc, TNP_BACKGROUND, 0, &rcTray, NULL );
+                CloseThemeData( tray_theme );
+            }
+            CloseThemeData( theme );
+        }
+        else
+        {
         FillRect( hdc, &rc, GetSysColorBrush( COLOR_BTNFACE ) );
 
         /* Continuous 1px highlight line across the top of the taskbar */
@@ -1433,6 +1469,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         rcTop.top = 1;
         rcTop.bottom = 2;
         FillRect( hdc, &rcTop, GetSysColorBrush( COLOR_3DHIGHLIGHT ) );
+        }
 
         /* Draw sunken border around entire notification area in Classic mode */
         if (enable_taskbar)

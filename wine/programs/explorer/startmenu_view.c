@@ -1842,8 +1842,18 @@ BOOL startmenu_view_is_open(void)
 
 int startbutton_get_desired_width(void)
 {
-    BOOL is_themed = theme_is_visual_styles_active();
-    return is_themed ? 98 : 58;
+    HTHEME theme = theme_open(NULL, L"Start::Button");
+    int width = 58;
+
+    if (theme)
+    {
+        SIZE size = {0};
+        HDC hdc = GetDC(NULL);
+        if (SUCCEEDED(GetThemePartSize(theme, hdc, 0, 1, NULL, TS_TRUE, &size)) && size.cx > 0) width = size.cx;
+        ReleaseDC(NULL, hdc);
+        CloseThemeData(theme);
+    }
+    return width;
 }
 
 static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -1873,145 +1883,41 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 
         if (is_themed)
         {
-            HBITMAP hbm_start = LoadBitmapW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDB_STARTBTN));
-            if (hbm_start)
+            /* Start::Button from the visual style: three images (normal, hot, pressed) and the style's font */
+            HTHEME theme = OpenThemeData(hwnd, L"Start::Button");
+            if (theme)
             {
-                HDC bm_dc = CreateCompatibleDC(hdc);
-                HBITMAP old_bm = SelectObject(bm_dc, hbm_start);
-                BitBlt(hdc, g_button_pressed ? 1 : 0, g_button_pressed ? 1 : 0,
-                       98, 30, bm_dc, 0, 0, SRCCOPY);
-                SelectObject(bm_dc, old_bm);
-                DeleteDC(bm_dc);
-                DeleteObject(hbm_start);
-            }
-            else
-            {
-            /* --- Themed Windows XP Luna Green Pill Button --- */
-            int h = rc.bottom - rc.top;
-            int y;
-            RECT text_rc;
-            HPEN border_pen;
-            HPEN old_pen;
-            HBRUSH null_br;
-            HBRUSH old_br;
+                int state = g_button_pressed ? 3 : (g_button_hovered ? 2 : 1);
+                RECT text_rc;
+                LOGFONTW tf;
+                COLORREF color = RGB(255, 255, 255), shadow = 0;
+                POINT offset = {2, 2};
 
-            /* Gradient Fill */
-            for (y = 0; y < h; y++)
-            {
-                RECT line_rc;
-                float t = (float)y / (float)(h > 0 ? h : 1);
-                int r, g, b;
-
-                line_rc.left = rc.left + 2;
-                line_rc.top = y;
-                line_rc.right = rc.right - 2;
-                line_rc.bottom = y + 1;
-
-                if (g_button_pressed)
+                DrawThemeBackground(theme, hdc, 0, state, &rc, NULL);
+                GetThemeBackgroundContentRect(theme, hdc, 0, state, &rc, &text_rc);
+                if (g_winlogo_icon)
                 {
-                    /* Sunken Pressed: darker olive/forest green */
-                    r = 35 + (int)(25.0f * t);
-                    g = 95 + (int)(30.0f * t);
-                    b = 30 + (int)(20.0f * t);
+                    DrawIconEx(hdc, text_rc.left - 2 + (g_button_pressed ? 1 : 0), (rc.bottom - rc.top - 16) / 2 + (g_button_pressed ? 1 : 0),
+                               g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
+                    text_rc.left += 20;
                 }
-                else if (g_button_hovered)
+                GetThemeColor(theme, 0, state, TMT_TEXTCOLOR, &color);
+                GetThemeColor(theme, 0, state, TMT_TEXTSHADOWCOLOR, &shadow);
+                GetThemePosition(theme, 0, state, TMT_TEXTSHADOWOFFSET, &offset);
+                if (SUCCEEDED(GetThemeFont(theme, hdc, 0, state, TMT_FONT, &tf)))
                 {
-                    /* Hovered: bright glowing lime green */
-                    if (t < 0.45f)
-                    {
-                        float lt = t / 0.45f;
-                        r = 75 + (int)(25.0f * lt);
-                        g = 195 + (int)(25.0f * lt);
-                        b = 70 + (int)(20.0f * lt);
-                    }
-                    else
-                    {
-                        float lt = (t - 0.45f) / 0.55f;
-                        r = 100 - (int)(35.0f * lt);
-                        g = 220 - (int)(45.0f * lt);
-                        b = 90 - (int)(30.0f * lt);
-                    }
+                    HFONT tfont = CreateFontIndirectW(&tf), tprev = SelectObject(hdc, tfont);
+                    RECT sr = text_rc;
+                    SetBkMode(hdc, TRANSPARENT);
+                    OffsetRect(&sr, offset.x, offset.y);
+                    SetTextColor(hdc, shadow);
+                    DrawTextW(hdc, L"start", -1, &sr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                    SetTextColor(hdc, color);
+                    DrawTextW(hdc, L"start", -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                    SelectObject(hdc, tprev);
+                    DeleteObject(tfont);
                 }
-                else
-                {
-                    /* Normal Luna Green */
-                    if (t < 0.45f)
-                    {
-                        float lt = t / 0.45f;
-                        r = 55 + (int)(30.0f * lt);
-                        g = 140 + (int)(35.0f * lt);
-                        b = 50 + (int)(15.0f * lt);
-                    }
-                    else
-                    {
-                        float lt = (t - 0.45f) / 0.55f;
-                        r = 85 - (int)(35.0f * lt);
-                        g = 175 - (int)(50.0f * lt);
-                        b = 65 - (int)(20.0f * lt);
-                    }
-                }
-
-                SetBkColor(hdc, RGB(r, g, b));
-                ExtTextOutW(hdc, 0, y, ETO_OPAQUE, &line_rc, NULL, 0, NULL);
-            }
-
-            /* Rounded Pill Outline */
-            border_pen = CreatePen(PS_SOLID, 1, g_button_pressed ? RGB(20, 60, 20) : RGB(30, 85, 25));
-            old_pen = SelectObject(hdc, border_pen);
-            null_br = GetStockObject(NULL_BRUSH);
-            old_br = SelectObject(hdc, null_br);
-            RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 7, 7);
-            SelectObject(hdc, old_pen);
-            SelectObject(hdc, old_br);
-            DeleteObject(border_pen);
-
-            /* Subtle top highlight arc */
-            if (!g_button_pressed)
-            {
-                HPEN hilite_pen = CreatePen(PS_SOLID, 1, RGB(140, 225, 130));
-                old_pen = SelectObject(hdc, hilite_pen);
-                MoveToEx(hdc, rc.left + 4, rc.top + 1, NULL);
-                LineTo(hdc, rc.right - 4, rc.top + 1);
-                SelectObject(hdc, old_pen);
-                DeleteObject(hilite_pen);
-            }
-
-            /* Draw Windows XP Flag */
-            if (g_winlogo_icon)
-            {
-                int icon_y = rc.top + (rc.bottom - rc.top - 16) / 2 + (g_button_pressed ? 1 : 0);
-                DrawIconEx(hdc, rc.left + 7 + (g_button_pressed ? 1 : 0), icon_y,
-                           g_winlogo_icon, 16, 16, 0, NULL, DI_NORMAL);
-            }
-
-            /* Authentic bold italic lowercase "start" text with drop shadow */
-            memset(&lf, 0, sizeof(lf));
-            lf.lfHeight = -13;
-            lf.lfWeight = FW_BOLD;
-            lf.lfItalic = TRUE;
-            lstrcpyW(lf.lfFaceName, L"Tahoma");
-            font = CreateFontIndirectW(&lf);
-
-            text_rc = rc;
-            text_rc.left = rc.left + 28 + (g_button_pressed ? 1 : 0);
-            text_rc.top = rc.top + (g_button_pressed ? 1 : 0);
-            text_rc.bottom = rc.bottom + (g_button_pressed ? 1 : 0);
-
-            old_font = SelectObject(hdc, font);
-            SetBkMode(hdc, TRANSPARENT);
-
-            /* Shadow */
-            SetTextColor(hdc, RGB(20, 60, 20));
-            text_rc.left += 1; text_rc.top += 1;
-            DrawTextW(hdc, L"start", -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-            /* White Text */
-            SetTextColor(hdc, RGB(255, 255, 255));
-            text_rc.left -= 1; text_rc.top -= 1;
-            DrawTextW(hdc, L"start", -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-            SelectObject(hdc, old_font);
-            DeleteObject(font);
+                CloseThemeData(theme);
             }
         }
         else
