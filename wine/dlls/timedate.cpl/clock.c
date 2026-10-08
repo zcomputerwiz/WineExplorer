@@ -9,73 +9,83 @@
 #define CLOCK_CLASS L"TimeDateClock"
 #define PI 3.14159265358979323846
 
-static void draw_analog_clock(HDC hdc, const RECT *rc)
+typedef struct
 {
-    SYSTEMTIME st;
+    SYSTEMTIME time;
+    BOOL stopped;
+    BOOL timer_active;
+} CLOCK_DATA;
+
+static void draw_analog_clock(HDC hdc, const RECT *rc, const SYSTEMTIME *st)
+{
     int cx = (rc->left + rc->right) / 2;
     int cy = (rc->top + rc->bottom) / 2;
     int radius = min((rc->right - rc->left) / 2, (rc->bottom - rc->top) / 2) - 4;
     int i;
     HBRUSH face_brush, old_brush;
-    HPEN rim_pen, tick_pen, hour_pen, min_pen, sec_pen, old_pen;
+    HPEN rim_pen, hour_pen, min_pen, sec_pen, old_pen;
     double angle, rad;
-
-    GetLocalTime(&st);
 
     /* Clock Face */
     face_brush = CreateSolidBrush(RGB(255, 255, 255));
-    rim_pen = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
+    rim_pen = CreatePen(PS_SOLID, 1, RGB(160, 160, 160));
     old_brush = SelectObject(hdc, face_brush);
     old_pen = SelectObject(hdc, rim_pen);
 
     Ellipse(hdc, cx - radius, cy - radius, cx + radius, cy + radius);
 
-    /* Hour Ticks */
-    tick_pen = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
-    SelectObject(hdc, tick_pen);
-
+    /* Hour Ticks (dots like authentic Windows XP) */
     for (i = 0; i < 12; i++)
     {
-        int x1, y1, x2, y2;
+        int dot_r = (i % 3 == 0) ? 2 : 1;
+        COLORREF dot_col = (i % 3 == 0) ? RGB(0, 128, 128) : RGB(80, 80, 80);
+        HBRUSH dot_br = CreateSolidBrush(dot_col);
+        HPEN dot_pn = CreatePen(PS_SOLID, 1, dot_col);
+        HPEN prev_pn = SelectObject(hdc, dot_pn);
+        HBRUSH prev_br = SelectObject(hdc, dot_br);
+
         rad = i * (2.0 * PI / 12.0);
-        x1 = cx + (int)((radius - 6) * sin(rad));
-        y1 = cy - (int)((radius - 6) * cos(rad));
-        x2 = cx + (int)(radius * sin(rad));
-        y2 = cy - (int)(radius * cos(rad));
-        MoveToEx(hdc, x1, y1, NULL);
-        LineTo(hdc, x2, y2);
+        {
+            int dx = cx + (int)((radius - 6) * sin(rad));
+            int dy = cy - (int)((radius - 6) * cos(rad));
+            Ellipse(hdc, dx - dot_r, dy - dot_r, dx + dot_r + 1, dy + dot_r + 1);
+        }
+
+        SelectObject(hdc, prev_br);
+        SelectObject(hdc, prev_pn);
+        DeleteObject(dot_br);
+        DeleteObject(dot_pn);
     }
 
     /* Hour Hand */
-    hour_pen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
+    hour_pen = CreatePen(PS_SOLID, 3, RGB(0, 100, 100));
     SelectObject(hdc, hour_pen);
-    angle = (st.wHour % 12 + st.wMinute / 60.0) * (2.0 * PI / 12.0);
+    angle = (st->wHour % 12 + st->wMinute / 60.0) * (2.0 * PI / 12.0);
     MoveToEx(hdc, cx, cy, NULL);
-    LineTo(hdc, cx + (int)((radius * 0.5) * sin(angle)), cy - (int)((radius * 0.5) * cos(angle)));
+    LineTo(hdc, cx + (int)((radius * 0.52) * sin(angle)), cy - (int)((radius * 0.52) * cos(angle)));
 
     /* Minute Hand */
-    min_pen = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
+    min_pen = CreatePen(PS_SOLID, 2, RGB(0, 128, 128));
     SelectObject(hdc, min_pen);
-    angle = (st.wMinute + st.wSecond / 60.0) * (2.0 * PI / 60.0);
+    angle = (st->wMinute + st->wSecond / 60.0) * (2.0 * PI / 60.0);
     MoveToEx(hdc, cx, cy, NULL);
-    LineTo(hdc, cx + (int)((radius * 0.75) * sin(angle)), cy - (int)((radius * 0.75) * cos(angle)));
+    LineTo(hdc, cx + (int)((radius * 0.78) * sin(angle)), cy - (int)((radius * 0.78) * cos(angle)));
 
-    /* Second Hand (Red) */
-    sec_pen = CreatePen(PS_SOLID, 1, RGB(220, 20, 20));
+    /* Second Hand (Dark Slate / Red) */
+    sec_pen = CreatePen(PS_SOLID, 1, RGB(40, 40, 40));
     SelectObject(hdc, sec_pen);
-    angle = st.wSecond * (2.0 * PI / 60.0);
+    angle = st->wSecond * (2.0 * PI / 60.0);
     MoveToEx(hdc, cx, cy, NULL);
     LineTo(hdc, cx + (int)((radius * 0.85) * sin(angle)), cy - (int)((radius * 0.85) * cos(angle)));
 
     /* Center Hub */
     SelectObject(hdc, GetStockObject(BLACK_BRUSH));
-    Ellipse(hdc, cx - 3, cy - 3, cx + 4, cy + 4);
+    Ellipse(hdc, cx - 2, cy - 2, cx + 3, cy + 3);
 
     SelectObject(hdc, old_pen);
     SelectObject(hdc, old_brush);
     DeleteObject(face_brush);
     DeleteObject(rim_pen);
-    DeleteObject(tick_pen);
     DeleteObject(hour_pen);
     DeleteObject(min_pen);
     DeleteObject(sec_pen);
@@ -83,10 +93,27 @@ static void draw_analog_clock(HDC hdc, const RECT *rc)
 
 static LRESULT CALLBACK clock_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
+    CLOCK_DATA *data = (CLOCK_DATA *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+
     switch (msg)
     {
+    case WM_NCCREATE:
+    {
+        data = (CLOCK_DATA *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(CLOCK_DATA));
+        if (data)
+        {
+            GetLocalTime(&data->time);
+            data->stopped = FALSE;
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)data);
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
     case WM_CREATE:
-        SetTimer(hwnd, 1, 1000, NULL);
+        if (data)
+        {
+            data->timer_active = (SetTimer(hwnd, 1, 1000 - data->time.wMilliseconds, NULL) != 0);
+        }
         return 0;
 
     case WM_PAINT:
@@ -94,20 +121,71 @@ static LRESULT CALLBACK clock_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc;
+        SYSTEMTIME cur_st;
+
         GetClientRect(hwnd, &rc);
         FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
-        draw_analog_clock(hdc, &rc);
+
+        if (data)
+        {
+            if (!data->stopped)
+                GetLocalTime(&data->time);
+            cur_st = data->time;
+        }
+        else
+        {
+            GetLocalTime(&cur_st);
+        }
+
+        draw_analog_clock(hdc, &rc, &cur_st);
         EndPaint(hwnd, &ps);
         return 0;
     }
 
     case WM_TIMER:
-        InvalidateRect(hwnd, NULL, FALSE);
+        if (data && !data->stopped)
+        {
+            GetLocalTime(&data->time);
+            InvalidateRect(hwnd, NULL, FALSE);
+            SetTimer(hwnd, 1, 1000 - data->time.wMilliseconds, NULL);
+        }
         return 0;
 
-    case WM_DESTROY:
-        KillTimer(hwnd, 1);
+    case CLM_STOPCLOCK:
+        if (data)
+        {
+            KillTimer(hwnd, 1);
+            data->stopped = TRUE;
+            data->timer_active = FALSE;
+        }
         return 0;
+
+    case CLM_STARTCLOCK:
+        if (data)
+        {
+            GetLocalTime(&data->time);
+            data->stopped = FALSE;
+            data->timer_active = (SetTimer(hwnd, 1, 1000 - data->time.wMilliseconds, NULL) != 0);
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        return 0;
+
+    case CLM_SETTIME:
+        if (data && lparam)
+        {
+            data->time = *(const SYSTEMTIME *)lparam;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        return 0;
+
+    case WM_NCDESTROY:
+        if (data)
+        {
+            KillTimer(hwnd, 1);
+            HeapFree(GetProcessHeap(), 0, data);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
 
     default:
         return DefWindowProcW(hwnd, msg, wparam, lparam);

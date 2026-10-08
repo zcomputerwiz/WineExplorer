@@ -202,6 +202,82 @@ static void init_timezones(void)
     }
 }
 
+static const struct {
+    const WCHAR *win_name;
+    const char *iana_name;
+} g_tz_iana_map[] = {
+    { L"Dateline Standard Time", "Etc/GMT+12" },
+    { L"Samoa Standard Time", "Pacific/Apia" },
+    { L"Hawaiian Standard Time", "Pacific/Honolulu" },
+    { L"Alaskan Standard Time", "America/Anchorage" },
+    { L"Pacific Standard Time", "America/Los_Angeles" },
+    { L"Mountain Standard Time", "America/Denver" },
+    { L"US Mountain Standard Time", "America/Phoenix" },
+    { L"Central Standard Time", "America/Chicago" },
+    { L"Canada Central Standard Time", "America/Regina" },
+    { L"Eastern Standard Time", "America/New_York" },
+    { L"US Eastern Standard Time", "America/Indiana/Indianapolis" },
+    { L"Atlantic Standard Time", "America/Halifax" },
+    { L"SA Western Standard Time", "America/La_Paz" },
+    { L"Newfoundland Standard Time", "America/St_Johns" },
+    { L"E. South America Standard Time", "America/Sao_Paulo" },
+    { L"Greenland Standard Time", "America/Godthab" },
+    { L"Mid-Atlantic Standard Time", "Etc/GMT+2" },
+    { L"Azores Standard Time", "Atlantic/Azores" },
+    { L"Cape Verde Standard Time", "Atlantic/Cape_Verde" },
+    { L"GMT Standard Time", "Europe/London" },
+    { L"Greenwich Standard Time", "Atlantic/Reykjavik" },
+    { L"W. Europe Standard Time", "Europe/Berlin" },
+    { L"Romance Standard Time", "Europe/Paris" },
+    { L"GTB Standard Time", "Europe/Athens" },
+    { L"Egypt Standard Time", "Africa/Cairo" },
+    { L"Israel Standard Time", "Asia/Jerusalem" },
+    { L"Russian Standard Time", "Europe/Moscow" },
+    { L"Arab Standard Time", "Asia/Riyadh" },
+    { L"Iran Standard Time", "Asia/Tehran" },
+    { L"Arabian Standard Time", "Asia/Dubai" },
+    { L"Caucasus Standard Time", "Asia/Yerevan" },
+    { L"Afghanistan Standard Time", "Asia/Kabul" },
+    { L"Ekaterinburg Standard Time", "Asia/Yekaterinburg" },
+    { L"West Asia Standard Time", "Asia/Karachi" },
+    { L"India Standard Time", "Asia/Kolkata" },
+    { L"Nepal Standard Time", "Asia/Kathmandu" },
+    { L"Central Asia Standard Time", "Asia/Dhaka" },
+    { L"Myanmar Standard Time", "Asia/Yangon" },
+    { L"SE Asia Standard Time", "Asia/Bangkok" },
+    { L"China Standard Time", "Asia/Shanghai" },
+    { L"Singapore Standard Time", "Asia/Singapore" },
+    { L"Taipei Standard Time", "Asia/Taipei" },
+    { L"Tokyo Standard Time", "Asia/Tokyo" },
+    { L"Korea Standard Time", "Asia/Seoul" },
+    { L"Yakutsk Standard Time", "Asia/Yakutsk" },
+    { L"Cen. Australia Standard Time", "Australia/Adelaide" },
+    { L"AUS Central Standard Time", "Australia/Darwin" },
+    { L"E. Australia Standard Time", "Australia/Brisbane" },
+    { L"AUS Eastern Standard Time", "Australia/Sydney" },
+    { L"Vladivostok Standard Time", "Asia/Vladivostok" },
+    { L"Central Pacific Standard Time", "Pacific/Guadalcanal" },
+    { L"New Zealand Standard Time", "Pacific/Auckland" },
+    { L"Fiji Standard Time", "Pacific/Fiji" },
+    { L"Tonga Standard Time", "Pacific/Tongatapu" },
+    { L"UTC", "UTC" }
+};
+
+static void set_system_timezone_linux(HWND owner, const WCHAR *tz_key_name)
+{
+    DWORD i;
+    for (i = 0; i < ARRAY_SIZE(g_tz_iana_map); i++)
+    {
+        if (_wcsicmp(g_tz_iana_map[i].win_name, tz_key_name) == 0)
+        {
+            char cmd[256];
+            snprintf(cmd, sizeof(cmd), "timedatectl set-timezone %s", g_tz_iana_map[i].iana_name);
+            uac_run_elevated(owner, L"Date and Time Properties", cmd);
+            break;
+        }
+    }
+}
+
 static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
 {
     int width = rc->right - rc->left;
@@ -220,66 +296,9 @@ static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
     }
     else
     {
-        HBRUSH bg_br = CreateSolidBrush(RGB(180, 205, 230));
+        HBRUSH bg_br = CreateSolidBrush(RGB(0, 0, 128));
         FillRect(mem_dc, rc, bg_br);
         DeleteObject(bg_br);
-    }
-
-    /* Highlight band for selected time zone */
-    if (selected_idx >= 0 && selected_idx < g_tz_count)
-    {
-        LONG bias = g_tz_entries[selected_idx].tzi.Bias;
-        /* Longitude in degrees: -Bias / 4.0 */
-        double lon = -bias / 4.0;
-        /* Map lon [-180, 180] to [0, width] */
-        int band_center = (int)(((lon + 180.0) / 360.0) * width);
-        HBRUSH highlight_brush;
-        HPEN highlight_pen, old_pen;
-
-        /* Semi-translucent yellow stripe: Invert / blend or draw tinted frame */
-        highlight_brush = CreateSolidBrush(RGB(255, 230, 80));
-        highlight_pen = CreatePen(PS_SOLID, 2, RGB(220, 160, 20));
-        old_pen = SelectObject(mem_dc, highlight_pen);
-
-        /* Draw vertical highlighted meridional meridian strip */
-        MoveToEx(mem_dc, band_center, 0, NULL);
-        LineTo(mem_dc, band_center, height);
-
-        SelectObject(mem_dc, old_pen);
-        DeleteObject(highlight_brush);
-        DeleteObject(highlight_pen);
-
-        /* UTC indicator text badge in lower-left */
-        {
-            WCHAR tz_text[32];
-            int hours = -bias / 60;
-            int mins = abs(bias % 60);
-            HFONT font = GetStockObject(DEFAULT_GUI_FONT);
-            HFONT old_font = SelectObject(mem_dc, font);
-            RECT badge_rc = { 4, height - 20, 120, height - 3 };
-            RECT txt_rc = { 8, height - 19, 116, height - 4 };
-            HBRUSH badge_br = CreateSolidBrush(RGB(255, 255, 255));
-            HPEN badge_pen = CreatePen(PS_SOLID, 1, RGB(120, 140, 170));
-
-            old_pen = SelectObject(mem_dc, badge_pen);
-            RoundRect(mem_dc, badge_rc.left, badge_rc.top, badge_rc.right, badge_rc.bottom, 4, 4);
-
-            if (bias == 0)
-                swprintf(tz_text, 32, L"UTC / GMT");
-            else if (mins == 0)
-                swprintf(tz_text, 32, L"UTC %+d:00", hours);
-            else
-                swprintf(tz_text, 32, L"UTC %+d:%02d", hours, mins);
-
-            SetBkMode(mem_dc, TRANSPARENT);
-            SetTextColor(mem_dc, RGB(20, 40, 80));
-            DrawTextW(mem_dc, tz_text, -1, &txt_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-            SelectObject(mem_dc, old_pen);
-            SelectObject(mem_dc, old_font);
-            DeleteObject(badge_pen);
-            DeleteObject(badge_br);
-        }
     }
 
     BitBlt(hdc, rc->left, rc->top, width, height, mem_dc, 0, 0, SRCCOPY);
@@ -304,7 +323,7 @@ static LRESULT CALLBACK map_subclass_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     return CallWindowProcW(g_orig_map_proc, hwnd, msg, wparam, lparam);
 }
 
-/* Retrieve the system's configured TimeZoneKeyName from registry */
+/* Retrieve the system's configured TimeZoneKeyName from registry or Linux system */
 static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
 {
     HKEY hKey;
@@ -330,19 +349,45 @@ static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
         size = max_len * sizeof(WCHAR);
         if (RegQueryValueExW(hKey, L"TimeZoneKeyName", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0] != 0)
         {
-            ret = TRUE;
-        }
-        else
-        {
-            size = max_len * sizeof(WCHAR);
-            if (RegQueryValueExW(hKey, L"StandardName", NULL, &type, (BYTE *)key_buf, &size) == ERROR_SUCCESS && key_buf[0] != 0)
-            {
+            if (_wcsicmp(key_buf, L"UTC") != 0)
                 ret = TRUE;
-            }
         }
         RegCloseKey(hKey);
+        if (ret) return TRUE;
     }
-    return ret;
+
+    /* Check system timezone from Linux timedatectl */
+    {
+        FILE *fp = popen("timedatectl show -p Timezone --value 2>/dev/null", "r");
+        if (fp)
+        {
+            char buf[128];
+            if (fgets(buf, sizeof(buf), fp))
+            {
+                size_t l = strlen(buf);
+                while (l > 0 && (buf[l - 1] == '\r' || buf[l - 1] == '\n' || buf[l - 1] == ' '))
+                    buf[--l] = '\0';
+                if (l > 0)
+                {
+                    DWORD i;
+                    for (i = 0; i < ARRAY_SIZE(g_tz_iana_map); i++)
+                    {
+                        if (_stricmp(g_tz_iana_map[i].iana_name, buf) == 0)
+                        {
+                            wcsncpy(key_buf, g_tz_iana_map[i].win_name, max_len - 1);
+                            key_buf[max_len - 1] = 0;
+                            ret = TRUE;
+                            break;
+                        }
+                    }
+                }
+            }
+            pclose(fp);
+            if (ret) return TRUE;
+        }
+    }
+
+    return FALSE;
 }
 
 INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -530,6 +575,9 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                                    (lstrlenW(g_tz_entries[g_selected_tz_idx].key_name) + 1) * sizeof(WCHAR));
                     RegCloseKey(hKey);
                 }
+
+                /* Also sync Linux host system timezone via timedatectl */
+                set_system_timezone_linux(hwnd, g_tz_entries[g_selected_tz_idx].key_name);
 
                 SendMessageW(HWND_BROADCAST, WM_TIMECHANGE, 0, 0);
             }

@@ -18,7 +18,7 @@ static TASKBAR_SETTINGS g_settings = {
     .show_quick_launch = FALSE,
     .show_clock = TRUE,
     .hide_inactive_icons = FALSE,
-    .start_menu_style = THEME_STARTMENU_CLASSIC
+    .start_menu_style = THEME_STARTMENU_TWOCOLUMN
 };
 
 TASKBAR_SETTINGS *taskbar_settings_get(void)
@@ -43,7 +43,9 @@ void taskbar_settings_load(void)
             g_settings.group_buttons = (val != 0);
 
         size = sizeof(val);
-        if (RegQueryValueExW(hKey, L"Start_ShowRun", NULL, NULL, (BYTE*)&val, &size) == ERROR_SUCCESS)
+        if (RegQueryValueExW(hKey, L"Start_Style", NULL, NULL, (BYTE*)&val, &size) == ERROR_SUCCESS)
+            g_settings.start_menu_style = val;
+        else if (RegQueryValueExW(hKey, L"Start_ShowRun", NULL, NULL, (BYTE*)&val, &size) == ERROR_SUCCESS)
             g_settings.start_menu_style = val;
 
         RegCloseKey(hKey);
@@ -65,6 +67,7 @@ void taskbar_settings_save(void)
         RegSetValueExW(hKey, L"TaskbarGlomming", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
 
         val = g_settings.start_menu_style;
+        RegSetValueExW(hKey, L"Start_Style", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
         RegSetValueExW(hKey, L"Start_ShowRun", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
 
         RegCloseKey(hKey);
@@ -176,11 +179,14 @@ static void draw_start_preview(HDC hdc, const RECT *rc, int style)
     }
 }
 
+static void center_window(HWND hwnd);
+
 static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg)
     {
     case WM_INITDIALOG:
+        center_window(GetParent(hwnd));
         CheckDlgButton(hwnd, IDC_LOCKTASKBAR, g_settings.lock_taskbar ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hwnd, IDC_AUTOHIDETASKBAR, g_settings.autohide ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hwnd, IDC_ONTOPTASKBAR, g_settings.always_on_top ? BST_CHECKED : BST_UNCHECKED);
@@ -249,9 +255,7 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
     {
     case WM_INITDIALOG:
     {
-        THEME_CONFIG *theme = theme_get_current();
-        if (theme) s_preview_style = theme->start_menu_style;
-        else s_preview_style = g_settings.start_menu_style;
+        s_preview_style = g_settings.start_menu_style;
 
         CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN,
                          s_preview_style == THEME_STARTMENU_CLASSIC ? IDC_START_CLASSIC :
@@ -275,16 +279,19 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
         {
         case IDC_START_CLASSIC:
             s_preview_style = THEME_STARTMENU_CLASSIC;
+            CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_CLASSIC);
             InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
             PropSheet_Changed(GetParent(hwnd), hwnd);
             break;
         case IDC_START_TWOCOLUMN:
             s_preview_style = THEME_STARTMENU_TWOCOLUMN;
+            CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_TWOCOLUMN);
             InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
             PropSheet_Changed(GetParent(hwnd), hwnd);
             break;
         case IDC_START_MODERN:
             s_preview_style = THEME_STARTMENU_MODERN;
+            CheckRadioButton(hwnd, IDC_START_CLASSIC, IDC_START_MODERN, IDC_START_MODERN);
             InvalidateRect(GetDlgItem(hwnd, IDC_START_PREVIEW), NULL, TRUE);
             PropSheet_Changed(GetParent(hwnd), hwnd);
             break;
@@ -310,19 +317,38 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
     return FALSE;
 }
 
+static void center_window(HWND hwnd)
+{
+    RECT rc, wa;
+    int sw = GetSystemMetrics(SM_CXSCREEN);
+    int sh = GetSystemMetrics(SM_CYSCREEN);
+    int x, y, w, h;
+
+    GetWindowRect(hwnd, &rc);
+    w = rc.right - rc.left;
+    h = rc.bottom - rc.top;
+
+    if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0) || wa.right <= wa.left || wa.bottom <= wa.top)
+    {
+        wa.left = 0;
+        wa.top = 0;
+        wa.right = sw;
+        wa.bottom = sh - 30;
+    }
+
+    x = wa.left + (wa.right - wa.left - w) / 2;
+    y = wa.top + (wa.bottom - wa.top - h) / 2;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (y + h > sh - 30) y = max(0, sh - 30 - h - 10);
+    SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+}
+
 static int CALLBACK prop_sheet_callback(HWND hwnd, UINT msg, LPARAM lparam)
 {
     if (msg == PSCB_INITIALIZED)
     {
-        RECT rc, wa;
-        int x, y;
-        GetWindowRect(hwnd, &rc);
-        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0))
-        {
-            x = wa.left + (wa.right - wa.left - (rc.right - rc.left)) / 2;
-            y = wa.top + (wa.bottom - wa.top - (rc.bottom - rc.top)) / 2;
-            SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-        }
+        center_window(hwnd);
     }
     return 0;
 }

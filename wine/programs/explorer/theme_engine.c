@@ -352,7 +352,7 @@ void theme_init(HWND hwnd_main)
     memset(&current_theme, 0, sizeof(current_theme));
 
     /* Set default Server 2003 Classic parameters */
-    current_theme.start_menu_style = THEME_STARTMENU_CLASSIC;
+    current_theme.start_menu_style = THEME_STARTMENU_TWOCOLUMN;
     current_theme.has_visual_styles = FALSE;
 
     /* Check if a theme is configured in registry */

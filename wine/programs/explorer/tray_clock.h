@@ -20,6 +20,7 @@
 HWND tray_clock_create(HWND parent_tray, int x, int y, int width, int height);
 void tray_clock_destroy(void);
 void tray_clock_resize(int x, int y, int width, int height);
+void tray_clock_update(void);
 
 /* Show Desktop Button API */
 HWND show_desktop_button_create(HWND parent_tray, int x, int y, int width, int height);

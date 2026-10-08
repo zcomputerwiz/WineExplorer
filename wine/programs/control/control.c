@@ -60,7 +60,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmdLine, INT nC
         launch(L"main.cpl");
     if (!lstrcmpiW(lpszCmdLine, L"PORTS"))
         launch(L"sysdm.cpl,,1");
-    if (!lstrcmpiW(lpszCmdLine, L"PRINTERS"))
+    if (!lstrcmpiW(lpszCmdLine, L"PRINTERS") || !lstrcmpiW(lpszCmdLine, L"\"PRINTERS\"") ||
+        !lstrcmpiW(lpszCmdLine, L"printers and faxes") || !lstrcmpiW(lpszCmdLine, L"\"printers and faxes\""))
     {
         ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{2227A280-3AEA-1069-A2DE-08002B30309D}", NULL, SW_SHOWNORMAL);
         ExitProcess(0);

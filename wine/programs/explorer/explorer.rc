@@ -69,9 +69,9 @@ BEGIN
     CONTROL         "", IDC_START_PREVIEW, "Static", SS_OWNERDRAW | SS_SUNKEN, 7, 7, 238, 70
     AUTORADIOBUTTON "Classic Start &menu", IDC_START_CLASSIC, 13, 85, 120, 10, WS_GROUP | WS_TABSTOP
     LTEXT           "Select this option to use the menu style from earlier versions of Windows (Windows 2000 / Server 2003).", -1, 25, 97, 210, 18
-    AUTORADIOBUTTON "&Start menu (Windows XP Style)", IDC_START_TWOCOLUMN, 13, 120, 150, 10
+    AUTORADIOBUTTON "&Start menu (Windows XP Style)", IDC_START_TWOCOLUMN, 13, 120, 150, 10, WS_TABSTOP
     LTEXT           "Select this menu style for easy access to the Internet, e-mail, and favorite programs.", -1, 25, 132, 210, 18
-    AUTORADIOBUTTON "&Modern style (with Search box)", IDC_START_MODERN, 13, 155, 150, 10
+    AUTORADIOBUTTON "&Modern style (with Search box)", IDC_START_MODERN, 13, 155, 150, 10, WS_TABSTOP
     LTEXT           "Enhanced layout featuring real-time program search and modern shortcuts.", -1, 25, 167, 210, 18
 END
 
@@ -279,6 +279,10 @@ IDI_BATTERYPLUG     ICON "battplug.ico"
 IDI_BATT            ICON "batt.ico"
 IDI_HOTPLUG         ICON "hotplug.ico"
 IDI_START           ICON "start.ico"
+IDB_AVATAR          BITMAP "avatar.bmp"
+IDB_LOGOFF          BITMAP "logoff.bmp"
+IDB_SHUTDOWN        BITMAP "shut.bmp"
+IDB_STARTBTN        BITMAP "startbtn.bmp"
 
 /* Authentic Windows XP / Server 2003 Tray Volume Dialog */
 IDD_TRAYMASTER DIALOGEX 0, 0, 52, 90

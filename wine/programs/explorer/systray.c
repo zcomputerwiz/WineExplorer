@@ -1349,7 +1349,10 @@ static void update_taskbar_layout(void)
     rcClock = get_tray_clock_rect();
 
     start_button_width = startbutton_get_desired_width();
-    startbutton_resize( 2, 2, start_button_width, 24 );
+    if (theme_is_visual_styles_active())
+        startbutton_resize( 0, 0, start_button_width, tray_height );
+    else
+        startbutton_resize( 2, 2, start_button_width, tray_height - 4 );
     taskband_x = start_button_width + 4;
 
     if (settings && settings->show_quick_launch)
@@ -1431,11 +1434,14 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         rcTop.bottom = 2;
         FillRect( hdc, &rcTop, GetSysColorBrush( COLOR_3DHIGHLIGHT ) );
 
-        /* Draw sunken border only around the clock in Classic mode */
+        /* Draw sunken border around entire notification area in Classic mode */
         if (enable_taskbar)
         {
-            RECT rcClock = get_tray_clock_rect();
-            DrawEdge( hdc, &rcClock, EDGE_SUNKEN, BF_RECT );
+            if (!theme_is_visual_styles_active())
+            {
+                RECT rcTray = get_tray_notify_rect();
+                DrawEdge( hdc, &rcTray, EDGE_SUNKEN, BF_RECT );
+            }
         }
 
         EndPaint( hwnd, &ps );
@@ -1473,6 +1479,10 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_THEMECHANGED:
         update_taskbar_layout();
         InvalidateRect( hwnd, NULL, TRUE );
+        break;
+
+    case WM_TIMECHANGE:
+        tray_clock_update();
         break;
 
     case WM_TIMER:

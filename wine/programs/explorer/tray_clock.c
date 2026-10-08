@@ -143,6 +143,10 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         }
         return 0;
 
+    case WM_TIMECHANGE:
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+
     case WM_LBUTTONDBLCLK:
         /* Launch Date and Time Control Panel */
         ShellExecuteW(NULL, L"open", L"control.exe", L"timedate.cpl", NULL, SW_SHOWNORMAL);
@@ -197,6 +201,12 @@ void tray_clock_destroy(void)
         DestroyWindow(g_tray_clock_hwnd);
         g_tray_clock_hwnd = NULL;
     }
+}
+
+void tray_clock_update(void)
+{
+    if (g_tray_clock_hwnd)
+        InvalidateRect(g_tray_clock_hwnd, NULL, FALSE);
 }
 
 /* Show Desktop Button Implementation */

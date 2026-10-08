@@ -8,4 +8,5 @@ SOURCES = \
 	dateandtime.c \
 	timedate.c \
 	timedate.rc \
-	timezone.c
+	timezone.c \
+	uac.c
