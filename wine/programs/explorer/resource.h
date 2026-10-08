@@ -163,6 +163,11 @@
 #define IDB_SHUTDOWN             1028
 #define IDB_STARTBTN             1029
 #define IDB_STARTFLAG            1030
+#define IDB_BROWSER_TB           1031
+#define IDB_BROWSER_TB_HOT       1032
+#define IDB_BROWSER_BRAND        1033
+#define IDB_BROWSER_GO           1034
+#define IDB_BROWSER_GO_HOT       1035
 
 /* Tray Volume Dialog */
 #define IDD_TRAYMASTER           105

@@ -10,6 +10,8 @@ VER_PRODUCTVERSION      = 6,1,7601,17567
 SOURCES = \
 	appbar.c \
 	audio_backend.c \
+	browser_taskpane.c \
+	browser_ui.c \
 	desktop.c \
 	desktop_view.c \
 	explorer.c \
