@@ -43,5 +43,6 @@ void toolbars_layout(HWND tray, int x, int tray_left, int height, int *task_x, i
 void toolbars_refresh(void);
 
 void show_desktop_toggle(void);
+BOOL toolbars_desktop_shown(void);
 
 #endif /* __WINE_EXPLORER_TOOLBARS_H */

@@ -909,7 +909,7 @@ typedef struct _LEFT_ITEM
 
 static const LEFT_ITEM g_left_frequent[] =
 {
-    { L"Windows Media Player", L"wmplayer.exe", -227, 3001 },
+    { L"Windows Media Player", L"wmplayer.exe", -2, 3001 },
     { L"Notepad",              L"notepad.exe",  -152, 3002 },
     { L"Calculator",           L"calc.exe",     -2, 3003 },
     { L"Paint",                L"mspaint.exe",  -226, 3004 },
@@ -1911,8 +1911,10 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_OPEN, L"&Open");
         AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_EXPLORE, L"&Explore");
         AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_SEARCH, L"&Search...");
+        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_PROPERTIES, L"P&roperties");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_PROPERTIES, L"&Properties");
+        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_OPEN_ALL, L"O&pen All Users");
+        AppendMenuW(hMenu, MF_STRING, IDM_STARTBTN_EXPLORE_ALL, L"E&xplore All Users");
 
         SetForegroundWindow(hwnd);
         cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
@@ -1933,6 +1935,14 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
             WCHAR prog_dir[MAX_PATH];
             if (SHGetFolderPathW(NULL, CSIDL_STARTMENU, NULL, 0, prog_dir) == S_OK)
                 ShellExecuteW(NULL, L"explore", prog_dir, NULL, NULL, SW_SHOWNORMAL);
+            break;
+        }
+        case IDM_STARTBTN_OPEN_ALL:
+        case IDM_STARTBTN_EXPLORE_ALL:
+        {
+            WCHAR dir[MAX_PATH];
+            if (SHGetFolderPathW(NULL, CSIDL_COMMON_STARTMENU, NULL, 0, dir) == S_OK)
+                ShellExecuteW(NULL, cmd == IDM_STARTBTN_OPEN_ALL ? L"open" : L"explore", dir, NULL, NULL, SW_SHOWNORMAL);
             break;
         }
         case IDM_STARTBTN_SEARCH:

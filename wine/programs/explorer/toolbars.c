@@ -109,6 +109,11 @@ static BOOL CALLBACK enum_windows_for_minimize(HWND hwnd, LPARAM lparam)
     return TRUE;
 }
 
+BOOL toolbars_desktop_shown(void)
+{
+    return g_all_minimized;
+}
+
 void show_desktop_toggle(void)
 {
     MINIMIZE_ENUM_DATA data = {0};

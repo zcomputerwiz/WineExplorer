@@ -149,21 +149,11 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         break;
 
     case WM_CONTEXTMENU:
-    {
-        HMENU menu = CreatePopupMenu();
-        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
-        UINT cmd;
-
-        AppendMenuW(menu, MF_STRING, 1, L"&Adjust Date/Time");
-        SetMenuDefaultItem(menu, 1, FALSE);
-        AppendMenuW(menu, MF_STRING, 2, L"&Customize Notifications");
-        SetForegroundWindow(GetAncestor(hwnd, GA_ROOT));
-        cmd = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
-        DestroyMenu(menu);
-        if (cmd == 1) ShellExecuteW(NULL, L"open", L"control.exe", L"timedate.cpl", NULL, SW_SHOWNORMAL);
-        else if (cmd == 2) taskbar_props_show(GetAncestor(hwnd, GA_ROOT));
+        /* the taskbar's menu, with the date and notification items first */
+        SendMessageW(g_clock_tip, TTM_ACTIVATE, FALSE, 0);
+        SendMessageW(GetAncestor(hwnd, GA_ROOT), WM_APP + 31, 0, lparam);
+        SendMessageW(g_clock_tip, TTM_ACTIVATE, TRUE, 0);
         return 0;
-    }
 
     case WM_TIMER:
         if (wparam == IDT_CLOCK_TIMER)

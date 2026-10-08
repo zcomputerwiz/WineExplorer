@@ -1208,6 +1208,144 @@ static void click_taskbar_button( HWND button )
     sync_taskbar_buttons();
 }
 
+#define WM_TRAY_CLOCKMENU (WM_APP + 31)
+
+/* the positions of the windows before Cascade, Tile or Minimize All, for the Undo item */
+static struct
+{
+    HWND hwnd[64];
+    WINDOWPLACEMENT place[64];
+    int count;
+    const WCHAR *label;
+} undo_state;
+
+static void undo_save( const WCHAR *label )
+{
+    struct taskbar_button *it;
+
+    undo_state.count = 0;
+    undo_state.label = label;
+    LIST_FOR_EACH_ENTRY( it, &taskbar_buttons, struct taskbar_button, entry )
+    {
+        if (!it->hwnd || !IsWindow( it->hwnd ) || undo_state.count >= 64) continue;
+        undo_state.hwnd[undo_state.count] = it->hwnd;
+        undo_state.place[undo_state.count].length = sizeof(WINDOWPLACEMENT);
+        GetWindowPlacement( it->hwnd, &undo_state.place[undo_state.count] );
+        undo_state.count++;
+    }
+}
+
+static void undo_apply(void)
+{
+    int i;
+
+    for (i = 0; i < undo_state.count; i++)
+        if (IsWindow( undo_state.hwnd[i] )) SetWindowPlacement( undo_state.hwnd[i], &undo_state.place[i] );
+    undo_state.count = 0;
+}
+
+static int count_tileable_windows(void)
+{
+    struct taskbar_button *it;
+    int n = 0;
+
+    LIST_FOR_EACH_ENTRY( it, &taskbar_buttons, struct taskbar_button, entry )
+        if (it->hwnd && IsWindowVisible( it->hwnd ) && !IsIconic( it->hwnd )) n++;
+    return n;
+}
+
+/* The taskbar's own menu (MENU_TRAYCONTEXT of the Windows shell); the notification area adds the clock items */
+static void track_tray_menu( POINT pt, BOOL include_time )
+{
+    HMENU hMenu = CreatePopupMenu();
+    HMENU hToolbars = CreatePopupMenu();
+    TASKBAR_SETTINGS *settings = taskbar_settings_get();
+    UINT gray = count_tileable_windows() > 0 ? 0 : MF_GRAYED;
+    UINT cmd;
+
+    if (include_time)
+    {
+        AppendMenuW( hMenu, MF_STRING, IDM_TASKBAR_SETTIME, L"&Adjust Date/Time" );
+        SetMenuDefaultItem( hMenu, IDM_TASKBAR_SETTIME, FALSE );
+        AppendMenuW( hMenu, MF_STRING, IDM_TASKBAR_NOTIFYCUST, L"&Customize Notifications..." );
+        AppendMenuW( hMenu, MF_SEPARATOR, 0, NULL );
+    }
+    else
+    {
+        AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_ADDRESS ) ? MF_CHECKED : 0), 3001, L"&Address" );
+        AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_LINKS ) ? MF_CHECKED : 0), 3002, L"&Links" );
+        AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_DESKTOP ) ? MF_CHECKED : 0), 3003, L"&Desktop" );
+        AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_QUICKLAUNCH ) ? MF_CHECKED : 0), 3004, L"&Quick Launch" );
+        AppendMenuW( hToolbars, MF_SEPARATOR, 0, NULL );
+        AppendMenuW( hToolbars, MF_STRING | MF_GRAYED, 3005, L"&New Toolbar..." );
+        AppendMenuW( hMenu, MF_POPUP, (UINT_PTR)hToolbars, L"&Toolbars" );
+        AppendMenuW( hMenu, MF_SEPARATOR, 0, NULL );
+    }
+    AppendMenuW( hMenu, MF_STRING | gray, IDM_TASKBAR_CASCADE, L"Ca&scade Windows" );
+    AppendMenuW( hMenu, MF_STRING | gray, IDM_TASKBAR_TILE_H, L"Tile Windows &Horizontally" );
+    AppendMenuW( hMenu, MF_STRING | gray, IDM_TASKBAR_TILE_V, L"Tile Windows V&ertically" );
+    AppendMenuW( hMenu, MF_STRING, IDM_TASKBAR_SHOWDESKTOP, toolbars_desktop_shown() ? L"&Show Open Windows" : L"&Show the Desktop" );
+    if (undo_state.count)
+    {
+        WCHAR text[64];
+        swprintf( text, ARRAY_SIZE(text), L"&Undo %s", undo_state.label );
+        AppendMenuW( hMenu, MF_STRING, IDM_TASKBAR_UNDO, text );
+    }
+    AppendMenuW( hMenu, MF_SEPARATOR, 0, NULL );
+    AppendMenuW( hMenu, MF_STRING, IDM_TASKBAR_TASKMGR, L"Tas&k Manager" );
+    AppendMenuW( hMenu, MF_SEPARATOR, 0, NULL );
+    AppendMenuW( hMenu, MF_STRING | (settings->lock_taskbar ? MF_CHECKED : 0), IDM_TASKBAR_LOCK, L"&Lock the Taskbar" );
+    AppendMenuW( hMenu, MF_STRING, IDM_TASKBAR_PROPERTIES, L"P&roperties" );
+
+    SetForegroundWindow( tray_window );
+    cmd = TrackPopupMenu( hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, tray_window, NULL );
+    DestroyMenu( hMenu );
+
+    switch (cmd)
+    {
+    case IDM_TASKBAR_SETTIME:
+        ShellExecuteW( NULL, L"open", L"control.exe", L"timedate.cpl", NULL, SW_SHOWNORMAL );
+        break;
+    case IDM_TASKBAR_NOTIFYCUST:
+        taskbar_props_show( tray_window );
+        break;
+    case IDM_TASKBAR_CASCADE:
+        undo_save( L"Cascade" );
+        CascadeWindows( NULL, MDITILE_SKIPDISABLED, NULL, 0, NULL );
+        break;
+    case IDM_TASKBAR_TILE_H:
+        undo_save( L"Tile" );
+        TileWindows( NULL, MDITILE_HORIZONTAL | MDITILE_SKIPDISABLED, NULL, 0, NULL );
+        break;
+    case IDM_TASKBAR_TILE_V:
+        undo_save( L"Tile" );
+        TileWindows( NULL, MDITILE_VERTICAL | MDITILE_SKIPDISABLED, NULL, 0, NULL );
+        break;
+    case IDM_TASKBAR_SHOWDESKTOP:
+        if (!toolbars_desktop_shown()) undo_save( L"Minimize All" );
+        show_desktop_toggle();
+        break;
+    case IDM_TASKBAR_UNDO:
+        undo_apply();
+        break;
+    case IDM_TASKBAR_TASKMGR:
+        ShellExecuteW( NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOWNORMAL );
+        break;
+    case IDM_TASKBAR_LOCK:
+        settings->lock_taskbar = !settings->lock_taskbar;
+        taskbar_settings_save();
+        toolbars_refresh();
+        break;
+    case IDM_TASKBAR_PROPERTIES:
+        taskbar_props_show( tray_window );
+        break;
+    case 3001: toolbars_set_visible( tray_window, TOOLBAR_ADDRESS, !toolbars_is_visible( TOOLBAR_ADDRESS ) ); break;
+    case 3002: toolbars_set_visible( tray_window, TOOLBAR_LINKS, !toolbars_is_visible( TOOLBAR_LINKS ) ); break;
+    case 3003: toolbars_set_visible( tray_window, TOOLBAR_DESKTOP, !toolbars_is_visible( TOOLBAR_DESKTOP ) ); break;
+    case 3004: toolbars_set_visible( tray_window, TOOLBAR_QUICKLAUNCH, !toolbars_is_visible( TOOLBAR_QUICKLAUNCH ) ); break;
+    }
+}
+
 static void show_taskbar_contextmenu( HWND button, LPARAM lparam )
 {
     struct taskbar_button *win = NULL, *it;
@@ -1287,67 +1425,7 @@ static void show_taskbar_contextmenu( HWND button, LPARAM lparam )
         return;
     }
 
-    /* Authentic Windows Taskbar Context Menu */
-    {
-        HMENU hMenu = CreatePopupMenu();
-        HMENU hToolbars = CreatePopupMenu();
-        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
-        TASKBAR_SETTINGS *settings = taskbar_settings_get();
-        UINT cmd;
-
-        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_ADDRESS) ? MF_CHECKED : 0), 3001, L"&Address");
-        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_LINKS) ? MF_CHECKED : 0), 3002, L"Lin&ks");
-        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_DESKTOP) ? MF_CHECKED : 0), 3003, L"&Desktop");
-        AppendMenuW(hToolbars, MF_STRING | (toolbars_is_visible(TOOLBAR_QUICKLAUNCH) ? MF_CHECKED : 0), 3004, L"&Quick Launch");
-        AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hToolbars, L"&Toolbars");
-        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_CASCADE, L"&Cascade Windows");
-        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_TILE_H, L"Tile Windows &Horizontally");
-        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_TILE_V, L"Tile Windows &Vertically");
-        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_SHOWDESKTOP, L"&Show the Desktop");
-        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_TASKMGR, L"Task &Manager");
-        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(hMenu, MF_STRING | (settings->lock_taskbar ? MF_CHECKED : 0),
-                    IDM_TASKBAR_LOCK, L"&Lock the Taskbar");
-        AppendMenuW(hMenu, MF_STRING, IDM_TASKBAR_PROPERTIES, L"P&roperties");
-
-        SetForegroundWindow(tray_window);
-        cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
-                             pt.x, pt.y, 0, tray_window, NULL);
-        DestroyMenu(hMenu);
-
-        switch (cmd)
-        {
-        case IDM_TASKBAR_CASCADE:
-            CascadeWindows(NULL, MDITILE_SKIPDISABLED, NULL, 0, NULL);
-            break;
-        case IDM_TASKBAR_TILE_H:
-            TileWindows(NULL, MDITILE_HORIZONTAL, NULL, 0, NULL);
-            break;
-        case IDM_TASKBAR_TILE_V:
-            TileWindows(NULL, MDITILE_VERTICAL, NULL, 0, NULL);
-            break;
-        case IDM_TASKBAR_SHOWDESKTOP:
-            show_desktop_toggle();
-            break;
-        case IDM_TASKBAR_TASKMGR:
-            ShellExecuteW(NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOWNORMAL);
-            break;
-        case IDM_TASKBAR_LOCK:
-            settings->lock_taskbar = !settings->lock_taskbar;
-            taskbar_settings_save();
-            toolbars_refresh();
-            break;
-        case IDM_TASKBAR_PROPERTIES:
-            taskbar_props_show(tray_window);
-            break;
-        case 3001: toolbars_set_visible(tray_window, TOOLBAR_ADDRESS, !toolbars_is_visible(TOOLBAR_ADDRESS)); break;
-        case 3002: toolbars_set_visible(tray_window, TOOLBAR_LINKS, !toolbars_is_visible(TOOLBAR_LINKS)); break;
-        case 3003: toolbars_set_visible(tray_window, TOOLBAR_DESKTOP, !toolbars_is_visible(TOOLBAR_DESKTOP)); break;
-        case 3004: toolbars_set_visible(tray_window, TOOLBAR_QUICKLAUNCH, !toolbars_is_visible(TOOLBAR_QUICKLAUNCH)); break;
-        }
-    }
+    track_tray_menu( pt, FALSE );
 }
 
 static void do_hide_systray(void)
@@ -1587,6 +1665,13 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
             click_taskbar_button( (HWND)lparam );
         }
         break;
+
+    case WM_TRAY_CLOCKMENU:
+    {
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        track_tray_menu( pt, TRUE );
+        return 0;
+    }
 
     case WM_CONTEXTMENU:
         show_taskbar_contextmenu( (HWND)wparam, lparam );
