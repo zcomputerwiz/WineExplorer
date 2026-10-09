@@ -70,6 +70,10 @@ struct net_scan_wifi_params { ULONG64 buffer; DWORD max; DWORD count; DWORD err;
 struct net_connect_wifi_params { char ssid[64]; char passphrase[128]; BOOL sae; DWORD err; };
 struct net_disconnect_params { DWORD err; };
 struct net_enable_params { DWORD err; };
+struct display_get_params { WEX_DISPLAY display; DWORD err; };
+struct display_set_params { WEX_DISPLAY_MODE mode; BOOL persist; DWORD err; };
+extern NTSTATUS display_get(void *args);
+extern NTSTATUS display_set(void *args);
 
 enum wexhost_funcs
 {
@@ -94,6 +98,8 @@ enum wexhost_funcs
     unix_net_connect_wifi,
     unix_net_disconnect,
     unix_net_enable,
+    unix_display_get,
+    unix_display_set,
     unix_funcs_count
 };
 

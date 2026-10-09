@@ -834,11 +834,12 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         return HTCLIENT;
 
     case WM_ERASEBKGND:
-        if (!using_root) PaintDesktop( (HDC)wp );
+        if (!using_root && !shell_mode) PaintDesktop( (HDC)wp );
         return TRUE;
 
     case WM_DISPLAYCHANGE:
     {
+        LRESULT result = desktop_orig_wndproc( hwnd, message, wp, lp );
         int new_w = LOWORD(lp);
         int new_h = HIWORD(lp);
         if (!new_w || !new_h)
@@ -849,10 +850,9 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         TRACE("desktop_wnd_proc: WM_DISPLAYCHANGE %dx%d @ %Id bpp\n", new_w, new_h, wp);
         if (shell_mode)
         {
-            SetWindowPos(hwnd, 0, 0, 0, new_w, new_h, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
             desktop_view_on_display_change(new_w, new_h);
         }
-        return 0;
+        return result;
     }
 
     case WM_SIZE:
@@ -895,7 +895,10 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
             BeginPaint( hwnd, &ps );
             if (shell_mode)
             {
-                desktop_view_paint( ps.hdc, &ps.rcPaint );
+                /* The bottommost desktop view paints the wallpaper and icons.
+                 * Painting them again on the X11 parent can cover application
+                 * windows while a display change is being redrawn. */
+                if (!desktop_view_get_hwnd()) PaintDesktop( ps.hdc );
             }
             else if (!using_root)
             {

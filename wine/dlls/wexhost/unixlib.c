@@ -1323,6 +1323,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     net_connect_wifi,
     net_disconnect,
     net_enable,
+    display_get,
+    display_set,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

@@ -17,3 +17,5 @@
 @ stdcall WexNetConnectWifi(str str long)
 @ stdcall WexNetDisconnect()
 @ stdcall WexNetEnable()
+@ stdcall WexDisplayGet(ptr)
+@ stdcall WexDisplaySet(ptr long)

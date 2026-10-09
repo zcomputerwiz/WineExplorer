@@ -1,338 +1,209 @@
-/*
- * WineExplorer Desktop Environment - Display Properties Settings Page
- *
- * Copyright 2026 WineExplorer Desktop Environment Project
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- */
-
+/* Display modes are supplied by the host, with a Wine-driver fallback. */
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <wexhost.h>
 #include "resource.h"
+#include "preview.h"
 
-typedef struct _RES_ITEM
+static WEX_DISPLAY host;
+static BOOL native,dirty;
+static DEVMODEW modes[WEX_DISPLAY_MAX_MODES];
+static WEX_DISPLAY_MODE host_modes[WEX_DISPLAY_MAX_MODES];
+static int count,selected;
+typedef struct {
+    DEVMODEW old_mode,new_mode;
+    WEX_DISPLAY_MODE old_host,new_host;
+    BOOL wine_applied;
+    DWORD deadline;
+    int stable;
+} CHANGE;
+
+static void label(HWND hwnd)
 {
-    int width;
-    int height;
-} RES_ITEM;
-
-static RES_ITEM *g_resolutions = NULL;
-static int g_res_count = 0;
-static int g_selected_res_idx = 0;
-
-static const RES_ITEM g_fallback_presets[] = {
-    { 640, 480 },
-    { 800, 600 },
-    { 1024, 768 },
-    { 1280, 720 },
-    { 1280, 800 },
-    { 1280, 1024 },
-    { 1366, 768 },
-    { 1440, 900 },
-    { 1600, 900 },
-    { 1680, 1050 },
-    { 1920, 1080 },
-    { 1920, 1200 },
-    { 2560, 1440 },
-    { 3840, 2160 }
-};
-
-static void init_resolutions(void)
-{
-    DEVMODEW dm;
-    int i, j;
-    int cur_w = GetSystemMetrics(SM_CXSCREEN);
-    int cur_h = GetSystemMetrics(SM_CYSCREEN);
-
-    if (g_resolutions) return;
-
-    g_resolutions = malloc(64 * sizeof(RES_ITEM));
-    g_res_count = 0;
-
-    memset(&dm, 0, sizeof(dm));
-    dm.dmSize = sizeof(dm);
-
-    for (i = 0; EnumDisplaySettingsExW(NULL, i, &dm, 0); i++)
-    {
-        BOOL exists = FALSE;
-        if (dm.dmPelsWidth < 640 || dm.dmPelsHeight < 480) continue;
-
-        for (j = 0; j < g_res_count; j++)
-        {
-            if (g_resolutions[j].width == (int)dm.dmPelsWidth &&
-                g_resolutions[j].height == (int)dm.dmPelsHeight)
-            {
-                exists = TRUE;
-                break;
-            }
-        }
-
-        if (!exists && g_res_count < 64)
-        {
-            /* Insert sorted */
-            int insert_idx = g_res_count;
-            for (j = 0; j < g_res_count; j++)
-            {
-                if (g_resolutions[j].width > (int)dm.dmPelsWidth ||
-                    (g_resolutions[j].width == (int)dm.dmPelsWidth && g_resolutions[j].height > (int)dm.dmPelsHeight))
-                {
-                    insert_idx = j;
-                    break;
-                }
-            }
-
-            for (j = g_res_count; j > insert_idx; j--)
-                g_resolutions[j] = g_resolutions[j - 1];
-
-            g_resolutions[insert_idx].width = dm.dmPelsWidth;
-            g_resolutions[insert_idx].height = dm.dmPelsHeight;
-            g_res_count++;
-        }
-    }
-
-    if (g_res_count == 0)
-    {
-        /* Fallback */
-        int count = ARRAY_SIZE(g_fallback_presets);
-        for (i = 0; i < count; i++)
-            g_resolutions[i] = g_fallback_presets[i];
-        g_res_count = count;
-    }
-
-    /* Find current active resolution */
-    g_selected_res_idx = 0;
-    for (i = 0; i < g_res_count; i++)
-    {
-        if (g_resolutions[i].width == cur_w && g_resolutions[i].height == cur_h)
-        {
-            g_selected_res_idx = i;
-            break;
-        }
-    }
+    WCHAR text[80];
+    if(!count) { SetDlgItemTextW(hwnd,IDC_SET_RES_TEXT,L"No supported modes"); return; }
+    swprintf(text,80,L"%lu by %lu pixels",modes[selected].dmPelsWidth,modes[selected].dmPelsHeight);
+    SetDlgItemTextW(hwnd,IDC_SET_RES_TEXT,text);
 }
 
-static void update_resolution_label(HWND hwnd, int idx)
+static int compare_modes(const void *a,const void *b)
 {
-    WCHAR buf[64];
-    if (idx < 0) idx = 0;
-    if (idx >= g_res_count) idx = g_res_count - 1;
-
-    swprintf(buf, 64, L"%d by %d pixels", g_resolutions[idx].width, g_resolutions[idx].height);
-    SetDlgItemTextW(hwnd, IDC_SET_RES_TEXT, buf);
+    const DEVMODEW *x=a,*y=b;
+    if(x->dmPelsWidth!=y->dmPelsWidth) return x->dmPelsWidth<y->dmPelsWidth?-1:1;
+    return x->dmPelsHeight<y->dmPelsHeight?-1:x->dmPelsHeight>y->dmPelsHeight;
 }
 
-static INT_PTR CALLBACK confirm_dialog_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+static void refresh(HWND hwnd)
 {
-    switch (msg)
+    DEVMODEW current={0},mode={0}; int i,j;
+    WCHAR name[128]; PREVIEW_DATA preview;
+    current.dmSize=mode.dmSize=sizeof(mode);
+    EnumDisplaySettingsW(NULL,ENUM_CURRENT_SETTINGS,&current);
+    count=selected=0; native=!WexDisplayGet(&host);
+    if(native)
     {
-    case WM_INITDIALOG:
+        for(i=0;i<host.count && count<WEX_DISPLAY_MAX_MODES;i++)
+        {
+            for(j=0;j<count;j++)
+                if(modes[j].dmPelsWidth==host.modes[i].width && modes[j].dmPelsHeight==host.modes[i].height) break;
+            if(j<count) continue;
+            mode=current; mode.dmPelsWidth=host.modes[i].width; mode.dmPelsHeight=host.modes[i].height;
+            mode.dmFields=DM_PELSWIDTH|DM_PELSHEIGHT|DM_BITSPERPEL;
+            modes[count++]=mode;
+        }
+        swprintf(name,128,L"1. %hs",host.output);
+    }
+    else
     {
-        int timeout = (int)lparam;
-        if (timeout <= 0) timeout = 15;
-        SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)timeout);
-        SetTimer(hwnd, 1, 1000, NULL);
+        for(i=0;EnumDisplaySettingsW(NULL,i,&mode);i++)
+        {
+            if(mode.dmBitsPerPel!=current.dmBitsPerPel || ChangeDisplaySettingsExW(NULL,&mode,NULL,CDS_TEST,NULL)) continue;
+            for(j=0;j<count;j++)
+                if(modes[j].dmPelsWidth==mode.dmPelsWidth && modes[j].dmPelsHeight==mode.dmPelsHeight) break;
+            if(j==count && count<WEX_DISPLAY_MAX_MODES) modes[count++]=mode;
+        }
+        lstrcpyW(name,L"1. Wine display");
+    }
+    qsort(modes,count,sizeof(*modes),compare_modes);
+    for(i=0;i<count;i++)
+    {
+        if(modes[i].dmPelsWidth==current.dmPelsWidth && modes[i].dmPelsHeight==current.dmPelsHeight) selected=i;
+        if(native)
+        {
+            DWORD best=0xffffffff;
+            for(j=0;j<host.count;j++)
+            {
+                DWORD distance=abs((int)host.modes[j].refresh-60000);
+                if(host.modes[j].width!=modes[i].dmPelsWidth || host.modes[j].height!=modes[i].dmPelsHeight) continue;
+                if(!memcmp(&host.current,&host.modes[j],sizeof(host.current))) distance=0;
+                if(distance<best) { host_modes[i]=host.modes[j]; best=distance; }
+            }
+        }
+    }
+    SetDlgItemTextW(hwnd,IDC_SET_DISPLAY_LBL,name);
+    SendDlgItemMessageW(hwnd,IDC_SET_RES_SLIDER,TBM_SETRANGE,TRUE,MAKELONG(0,max(0,count-1)));
+    SendDlgItemMessageW(hwnd,IDC_SET_RES_SLIDER,TBM_SETPOS,TRUE,selected);
+    EnableWindow(GetDlgItem(hwnd,IDC_SET_RES_SLIDER),count>1);
+    SendDlgItemMessageW(hwnd,IDC_SET_BPP_COMBO,CB_RESETCONTENT,0,0);
+    swprintf(name,128,L"%s (%lu bit)",current.dmBitsPerPel==32?L"Highest":L"Current",current.dmBitsPerPel);
+    SendDlgItemMessageW(hwnd,IDC_SET_BPP_COMBO,CB_ADDSTRING,0,(LPARAM)name);
+    SendDlgItemMessageW(hwnd,IDC_SET_BPP_COMBO,CB_SETCURSEL,0,0);
+    EnableWindow(GetDlgItem(hwnd,IDC_SET_BPP_COMBO),FALSE);
+    EnableWindow(GetDlgItem(hwnd,IDC_SET_ADVANCED),FALSE);
+    preview_init_data(&preview); preview_update(GetDlgItem(hwnd,IDC_SET_MONITOR_IMG),&preview);
+    label(hwnd);
+}
+
+/* Pump messages while Wine updates its virtual source and the shell redraws.
+ * The confirmation timer does not exist until this phase completes. */
+static INT_PTR CALLBACK wait_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
+{
+    CHANGE *change=(CHANGE *)GetWindowLongPtrW(hwnd,DWLP_USER);
+    if(msg==WM_INITDIALOG)
+    {
+        change=(CHANGE *)lp; SetWindowLongPtrW(hwnd,DWLP_USER,lp);
+        change->deadline=GetTickCount()+10000; SetTimer(hwnd,1,100,NULL); return TRUE;
+    }
+    if(msg==WM_TIMER)
+    {
+        RECT desktop,tray; HWND bar=FindWindowW(L"Shell_TrayWnd",NULL); DWORD_PTR pong;
+        if(!change->wine_applied)
+            change->wine_applied=ChangeDisplaySettingsExW(NULL,&change->new_mode,NULL,0,NULL)==DISP_CHANGE_SUCCESSFUL;
+        GetWindowRect(GetDesktopWindow(),&desktop); GetWindowRect(bar,&tray);
+        if(change->wine_applied && GetSystemMetrics(SM_CXSCREEN)==change->new_mode.dmPelsWidth &&
+           GetSystemMetrics(SM_CYSCREEN)==change->new_mode.dmPelsHeight &&
+           desktop.right-desktop.left==change->new_mode.dmPelsWidth &&
+           desktop.bottom-desktop.top==change->new_mode.dmPelsHeight &&
+           (!bar || tray.right-tray.left==change->new_mode.dmPelsWidth) &&
+           SendMessageTimeoutW(GetDesktopWindow(),WM_NULL,0,0,SMTO_ABORTIFHUNG,200,&pong))
+        {
+            if(++change->stable==2)
+            {
+                RedrawWindow(GetDesktopWindow(),NULL,NULL,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
+                if(bar) RedrawWindow(bar,NULL,NULL,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
+                EndDialog(hwnd,IDYES);
+            }
+        }
+        else change->stable=0;
+        if((int)(GetTickCount()-change->deadline)>=0) EndDialog(hwnd,IDNO);
         return TRUE;
     }
-
-    case WM_TIMER:
-    {
-        int timeout = (int)GetWindowLongPtrW(hwnd, DWLP_USER);
-        timeout--;
-        SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)timeout);
-        if (timeout <= 0)
-        {
-            KillTimer(hwnd, 1);
-            EndDialog(hwnd, IDNO);
-        }
-        else
-        {
-            WCHAR buf[256];
-            swprintf(buf, 256,
-                     L"Your desktop has been reconfigured. Do you want to keep these settings?\n\nReverting in %d seconds",
-                     timeout);
-            SetDlgItemTextW(hwnd, IDC_CONFIRM_TEXT, buf);
-        }
-        return TRUE;
-    }
-
-    case WM_COMMAND:
-        if (LOWORD(wparam) == IDYES || LOWORD(wparam) == IDNO)
-        {
-            KillTimer(hwnd, 1);
-            EndDialog(hwnd, LOWORD(wparam));
-            return TRUE;
-        }
-        break;
-
-    case WM_DESTROY:
-        KillTimer(hwnd, 1);
-        break;
-    }
+    if(msg==WM_CLOSE || (msg==WM_COMMAND && LOWORD(wp)==IDCANCEL)) { EndDialog(hwnd,IDNO); return TRUE; }
+    if(msg==WM_DESTROY) KillTimer(hwnd,1);
     return FALSE;
 }
 
-INT_PTR CALLBACK settings_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+static INT_PTR CALLBACK confirm_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
 {
-    switch (msg)
+    if(msg==WM_INITDIALOG) { SetWindowLongPtrW(hwnd,DWLP_USER,GetTickCount()+15000); SetTimer(hwnd,1,200,NULL); return TRUE; }
+    if(msg==WM_TIMER)
     {
-    case WM_INITDIALOG:
-    {
-        HWND hSlider = GetDlgItem(hwnd, IDC_SET_RES_SLIDER);
-        HWND hBpp = GetDlgItem(hwnd, IDC_SET_BPP_COMBO);
-        DISPLAY_DEVICEW dd;
-        HDC hdc;
-        int cur_bpp = 32;
-
-        init_resolutions();
-
-        /* Display Adapter / Monitor info */
-        memset(&dd, 0, sizeof(dd));
-        dd.cb = sizeof(dd);
-        if (EnumDisplayDevicesW(NULL, 0, &dd, 0))
-        {
-            WCHAR disp_str[256];
-            swprintf(disp_str, 256, L"Display:\n1. %s on %s",
-                     dd.DeviceString[0] ? dd.DeviceString : L"Default Monitor",
-                     dd.DeviceName);
-            SetDlgItemTextW(hwnd, IDC_SET_DISPLAY_LBL, disp_str);
-        }
-
-        SendMessageW(hSlider, TBM_SETRANGE, TRUE, MAKELONG(0, g_res_count - 1));
-        SendMessageW(hSlider, TBM_SETPOS, TRUE, g_selected_res_idx);
-        update_resolution_label(hwnd, g_selected_res_idx);
-
-        hdc = GetDC(NULL);
-        if (hdc)
-        {
-            cur_bpp = GetDeviceCaps(hdc, BITSPIXEL);
-            ReleaseDC(NULL, hdc);
-        }
-
-        SendMessageW(hBpp, CB_ADDSTRING, 0, (LPARAM)L"Highest (32 bit)");
-        SendMessageW(hBpp, CB_ADDSTRING, 0, (LPARAM)L"Medium (16 bit)");
-        SendMessageW(hBpp, CB_SETCURSEL, (cur_bpp <= 16) ? 1 : 0, 0);
-
+        int remaining=(int)((DWORD)GetWindowLongPtrW(hwnd,DWLP_USER)-GetTickCount()); WCHAR text[256];
+        if(remaining<=0) EndDialog(hwnd,IDNO);
+        else { swprintf(text,256,L"Your desktop has been reconfigured. Do you want to keep these settings?\n\nReverting in %d seconds",(remaining+999)/1000); SetDlgItemTextW(hwnd,IDC_CONFIRM_TEXT,text); }
         return TRUE;
     }
+    if(msg==WM_COMMAND && (LOWORD(wp)==IDYES || LOWORD(wp)==IDNO || LOWORD(wp)==IDCANCEL))
+    { EndDialog(hwnd,LOWORD(wp)==IDYES?IDYES:IDNO); return TRUE; }
+    if(msg==WM_CLOSE) { EndDialog(hwnd,IDNO); return TRUE; }
+    if(msg==WM_DESTROY) KillTimer(hwnd,1);
+    return FALSE;
+}
 
-    case WM_HSCROLL:
+static BOOL apply(HWND hwnd)
+{
+    CHANGE change={0}; WEX_DISPLAY before; INT_PTR ready,keep=IDNO; BOOL restored=TRUE;
+    HINSTANCE instance=GetModuleHandleW(L"desk.cpl");
+    if(!count) return FALSE;
+    change.old_mode.dmSize=sizeof(DEVMODEW);
+    if(!EnumDisplaySettingsW(NULL,ENUM_CURRENT_SETTINGS,&change.old_mode)) return FALSE;
+    change.new_mode=modes[selected];
+    if(change.old_mode.dmPelsWidth==change.new_mode.dmPelsWidth && change.old_mode.dmPelsHeight==change.new_mode.dmPelsHeight) return TRUE;
+    if(native)
     {
-        HWND hSlider = GetDlgItem(hwnd, IDC_SET_RES_SLIDER);
-        if ((HWND)lparam == hSlider)
-        {
-            g_selected_res_idx = (int)SendMessageW(hSlider, TBM_GETPOS, 0, 0);
-            update_resolution_label(hwnd, g_selected_res_idx);
-            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
-        }
-        break;
+        if(WexDisplayGet(&before)) return FALSE;
+        change.old_host=before.current; change.new_host=host_modes[selected];
+        if(WexDisplaySet(&change.new_host,FALSE))
+        { WexDisplaySet(&change.old_host,FALSE); return FALSE; }
     }
-
-    case WM_COMMAND:
-        if (LOWORD(wparam) == IDC_SET_ADVANCED)
-        {
-            MessageBoxW(hwnd, L"Advanced adapter properties are configured by the Gamescope display manager session.",
-                        L"Display Properties", MB_OK | MB_ICONINFORMATION);
-            return TRUE;
-        }
-        else if (LOWORD(wparam) == IDC_SET_BPP_COMBO && HIWORD(wparam) == CBN_SELCHANGE)
-        {
-            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
-            return TRUE;
-        }
-        break;
-
-    case WM_NOTIFY:
+    ready=DialogBoxParamW(instance,MAKEINTRESOURCEW(IDD_WAITSETTINGS),hwnd,wait_proc,(LPARAM)&change);
+    if(ready==IDYES) keep=DialogBoxParamW(instance,MAKEINTRESOURCEW(IDD_CONFIRMSETTINGS),hwnd,confirm_proc,0);
+    if(keep==IDYES)
     {
-        NMHDR *nmhdr = (NMHDR *)lparam;
-        if (nmhdr->code == PSN_APPLY)
+        if(ChangeDisplaySettingsExW(NULL,&change.new_mode,NULL,CDS_UPDATEREGISTRY|CDS_NORESET,NULL)==DISP_CHANGE_SUCCESSFUL &&
+           (!native || !WexDisplaySet(&change.new_host,TRUE)))
+        { refresh(hwnd); return TRUE; }
+    }
+    if(native && WexDisplaySet(&change.old_host,FALSE)) restored=FALSE;
+    if(ChangeDisplaySettingsExW(NULL,&change.old_mode,NULL,keep==IDYES?CDS_UPDATEREGISTRY:0,NULL)!=DISP_CHANGE_SUCCESSFUL) restored=FALSE;
+    refresh(hwnd);
+    if(!restored) MessageBoxW(hwnd,L"The previous display mode could not be restored.",L"Display Properties",MB_OK|MB_ICONEXCLAMATION);
+    return ready==IDYES && keep!=IDYES && restored;
+}
+
+INT_PTR CALLBACK settings_page_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
+{
+    switch(msg)
+    {
+    case WM_INITDIALOG: dirty=FALSE; refresh(hwnd); return TRUE;
+    case WM_HSCROLL:
+        if((HWND)lp==GetDlgItem(hwnd,IDC_SET_RES_SLIDER))
+        { selected=SendDlgItemMessageW(hwnd,IDC_SET_RES_SLIDER,TBM_GETPOS,0,0); label(hwnd); dirty=TRUE; SendMessageW(GetParent(hwnd),PSM_CHANGED,(WPARAM)hwnd,0); }
+        return TRUE;
+    case WM_NOTIFY:
+        if(((NMHDR *)lp)->code==PSN_SETACTIVE && !dirty) { refresh(hwnd); return TRUE; }
+        if(((NMHDR *)lp)->code==PSN_APPLY && dirty)
         {
-            if (g_selected_res_idx >= 0 && g_selected_res_idx < g_res_count)
+            if(apply(hwnd)) dirty=FALSE;
+            else
             {
-                DEVMODEW cur_dm;
-                DEVMODEW new_dm;
-                int bpp_sel = (int)SendMessageW(GetDlgItem(hwnd, IDC_SET_BPP_COMBO), CB_GETCURSEL, 0, 0);
-                int target_bpp = (bpp_sel == 1) ? 16 : 32;
-                LONG ret;
-
-                memset(&cur_dm, 0, sizeof(cur_dm));
-                cur_dm.dmSize = sizeof(cur_dm);
-                EnumDisplaySettingsExW(NULL, ENUM_CURRENT_SETTINGS, &cur_dm, 0);
-
-                memset(&new_dm, 0, sizeof(new_dm));
-                new_dm.dmSize = sizeof(new_dm);
-                new_dm.dmPelsWidth = g_resolutions[g_selected_res_idx].width;
-                new_dm.dmPelsHeight = g_resolutions[g_selected_res_idx].height;
-                new_dm.dmBitsPerPel = target_bpp;
-                new_dm.dmDisplayFrequency = cur_dm.dmDisplayFrequency ? cur_dm.dmDisplayFrequency : 60;
-                new_dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY;
-
-                if (new_dm.dmPelsWidth != cur_dm.dmPelsWidth ||
-                    new_dm.dmPelsHeight != cur_dm.dmPelsHeight ||
-                    new_dm.dmBitsPerPel != cur_dm.dmBitsPerPel)
-                {
-                    ret = ChangeDisplaySettingsExW(NULL, &new_dm, NULL, CDS_UPDATEREGISTRY, NULL);
-                    if (ret == DISP_CHANGE_SUCCESSFUL)
-                    {
-                        INT_PTR keep = DialogBoxParamW(GetModuleHandleW(L"desk.cpl"),
-                                                       MAKEINTRESOURCEW(IDD_CONFIRMSETTINGS),
-                                                       hwnd, confirm_dialog_proc, (LPARAM)15);
-                        if (keep != IDYES)
-                        {
-                            int i;
-                            /* Revert */
-                            ChangeDisplaySettingsExW(NULL, &cur_dm, NULL, CDS_UPDATEREGISTRY, NULL);
-
-                            /* Restore slider pos */
-                            for (i = 0; i < g_res_count; i++)
-                            {
-                                if (g_resolutions[i].width == (int)cur_dm.dmPelsWidth &&
-                                    g_resolutions[i].height == (int)cur_dm.dmPelsHeight)
-                                {
-                                    g_selected_res_idx = i;
-                                    SendMessageW(GetDlgItem(hwnd, IDC_SET_RES_SLIDER), TBM_SETPOS, TRUE, i);
-                                    update_resolution_label(hwnd, i);
-                                    break;
-                                }
-                            }
-                            SendMessageW(GetDlgItem(hwnd, IDC_SET_BPP_COMBO), CB_SETCURSEL,
-                                         (cur_dm.dmBitsPerPel <= 16) ? 1 : 0, 0);
-                        }
-                    }
-                    else
-                    {
-                        MessageBoxW(hwnd, L"The selected display mode could not be applied.",
-                                    L"Display Properties", MB_OK | MB_ICONEXCLAMATION);
-                    }
-                }
+                MessageBoxW(hwnd,L"The selected display mode could not be applied.",L"Display Properties",MB_OK|MB_ICONEXCLAMATION);
+                SetWindowLongPtrW(hwnd,DWLP_MSGRESULT,PSNRET_INVALID_NOCHANGEPAGE);
             }
             return TRUE;
         }
-        break;
-    }
-
-    case WM_DESTROY:
-        if (g_resolutions)
-        {
-            free(g_resolutions);
-            g_resolutions = NULL;
-            g_res_count = 0;
-        }
-        break;
     }
     return FALSE;
 }

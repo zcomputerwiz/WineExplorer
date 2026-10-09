@@ -1,116 +1,85 @@
-/*
- * WineExplorer Desktop Environment - Display Properties Themes Page
- *
- * Copyright 2026 WineExplorer Desktop Environment Project
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- */
-
+/* Installed .theme files and their pending sample. Apply runs the shell theme engine. */
 #include <windows.h>
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <stdio.h>
-
 #include "resource.h"
 #include "preview.h"
 
-typedef struct _THEME_ENTRY
-{
-    WCHAR name[64];
-    WCHAR path[MAX_PATH];
-    COLORREF desktop_color;
-    COLORREF active_caption;
-    COLORREF inactive_caption;
-} THEME_ENTRY;
+#define MAX_THEMES 96
+#define WEX_APPLY_THEME 0x57455448
+static WCHAR themes[MAX_THEMES][MAX_PATH];
+static int count;
+static WCHAR selected[MAX_PATH];
+static BOOL dirty;
 
-static THEME_ENTRY g_themes[] =
-{
-    { L"Windows Classic", L"", RGB(58, 110, 165), RGB(10, 36, 106), RGB(128, 128, 128) },
-    { L"Windows XP (Luna)", L"", RGB(0, 78, 152), RGB(0, 85, 230), RGB(122, 150, 225) },
-    { L"Windows Server 2003", L"", RGB(58, 110, 165), RGB(10, 36, 106), RGB(128, 128, 128) },
-    { L"High Contrast", L"", RGB(0, 0, 0), RGB(0, 0, 128), RGB(64, 64, 64) }
-};
-
-#define NUM_THEMES (sizeof(g_themes) / sizeof(g_themes[0]))
-
-static void update_theme_preview(HWND hwnd, int sel)
+static void update_preview(HWND hwnd)
 {
     PREVIEW_DATA pd;
-    HWND hPreview = GetDlgItem(hwnd, IDC_THEME_PREVIEW);
-
-    if (sel < 0 || sel >= NUM_THEMES) sel = 0;
-
-    pd.cr_desktop = g_themes[sel].desktop_color;
-    pd.cr_active_caption = g_themes[sel].active_caption;
-    pd.cr_active_text = RGB(255, 255, 255);
-    pd.cr_inactive_caption = g_themes[sel].inactive_caption;
-    pd.cr_inactive_text = RGB(212, 208, 200);
-    pd.cr_btn_face = RGB(212, 208, 200);
-    pd.cr_btn_text = RGB(0, 0, 0);
-    pd.cr_window = RGB(255, 255, 255);
-    pd.cr_window_text = RGB(0, 0, 0);
-    pd.cr_menu = RGB(212, 208, 200);
-    pd.cr_menu_text = RGB(0, 0, 0);
-
-    preview_update(hPreview, &pd);
+    if(selected[0] && GetFileAttributesW(selected)!=INVALID_FILE_ATTRIBUTES) preview_theme_data(&pd,selected);
+    else preview_init_data(&pd);
+    preview_update(GetDlgItem(hwnd,IDC_THEME_PREVIEW),&pd);
 }
 
-INT_PTR CALLBACK theme_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+static void refresh_list(HWND hwnd)
 {
-    switch (msg)
+    HWND combo=GetDlgItem(hwnd,IDC_THEME_LIST);
+    WCHAR title[MAX_PATH],text[MAX_PATH]; int i,choice=-1;
+    count=preview_find_files(L".theme",themes,MAX_THEMES);
+    SendMessageW(combo,CB_RESETCONTENT,0,0);
+    for(i=0;i<count;i++)
+    {
+        GetPrivateProfileStringW(L"Theme",L"DisplayName",L"",text,MAX_PATH,themes[i]);
+        if(!text[0] || (text[0]=='@' && FAILED(SHLoadIndirectString(text,title,MAX_PATH,NULL))))
+        { lstrcpyW(title,PathFindFileNameW(themes[i])); PathRemoveExtensionW(title); }
+        else if(text[0]!='@') lstrcpyW(title,text);
+        SendMessageW(combo,CB_ADDSTRING,0,(LPARAM)title);
+        if(!wcsicmp(themes[i],selected)) choice=i;
+    }
+    SendMessageW(combo,CB_SETCURSEL,choice,0);
+    EnableWindow(combo,count>0);
+    update_preview(hwnd);
+}
+
+INT_PTR CALLBACK theme_page_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
+{
+    switch(msg)
     {
     case WM_INITDIALOG:
     {
-        HWND hCombo = GetDlgItem(hwnd, IDC_THEME_LIST);
-        unsigned int i;
-
-        for (i = 0; i < NUM_THEMES; i++)
-            SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)g_themes[i].name);
-
-        SendMessageW(hCombo, CB_SETCURSEL, 0, 0);
-        update_theme_preview(hwnd, 0);
-        return TRUE;
+        DWORD size=sizeof(selected); selected[0]=0;
+        RegGetValueW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes",L"CurrentTheme",RRF_RT_REG_SZ,NULL,selected,&size);
+        dirty=FALSE; refresh_list(hwnd); return TRUE;
     }
-
     case WM_COMMAND:
-        if (LOWORD(wparam) == IDC_THEME_LIST && HIWORD(wparam) == CBN_SELCHANGE)
+        if(LOWORD(wp)==IDC_THEME_LIST && HIWORD(wp)==CBN_DROPDOWN) { refresh_list(hwnd); return TRUE; }
+        if(LOWORD(wp)==IDC_THEME_LIST && HIWORD(wp)==CBN_SELCHANGE)
         {
-            int sel = SendMessageW((HWND)lparam, CB_GETCURSEL, 0, 0);
-            update_theme_preview(hwnd, sel);
-            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+            int index=SendDlgItemMessageW(hwnd,IDC_THEME_LIST,CB_GETCURSEL,0,0);
+            if(index>=0 && index<count) lstrcpyW(selected,themes[index]);
+            dirty=TRUE; update_preview(hwnd); SendMessageW(GetParent(hwnd),PSM_CHANGED,(WPARAM)hwnd,0); return TRUE;
         }
         break;
-
     case WM_NOTIFY:
-    {
-        NMHDR *nmhdr = (NMHDR *)lparam;
-        if (nmhdr->code == PSN_APPLY)
+        if(((NMHDR *)lp)->code==PSN_SETACTIVE && !dirty)
         {
-            HWND hCombo = GetDlgItem(hwnd, IDC_THEME_LIST);
-            int sel = SendMessageW(hCombo, CB_GETCURSEL, 0, 0);
-            if (sel >= 0 && sel < NUM_THEMES)
+            DWORD size=sizeof(selected); selected[0]=0;
+            RegGetValueW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes",L"CurrentTheme",RRF_RT_REG_SZ,NULL,selected,&size);
+            refresh_list(hwnd); return TRUE;
+        }
+        if(((NMHDR *)lp)->code==PSN_APPLY && dirty)
+        {
+            COPYDATASTRUCT data={WEX_APPLY_THEME,(lstrlenW(selected)+1)*sizeof(WCHAR),selected};
+            HWND tray=FindWindowW(L"Shell_TrayWnd",NULL);
+            if(!selected[0] || !tray || !SendMessageW(tray,WM_COPYDATA,(WPARAM)hwnd,(LPARAM)&data))
             {
-                int indices[] = { COLOR_BACKGROUND, COLOR_ACTIVECAPTION, COLOR_INACTIVECAPTION };
-                COLORREF colors[] = { g_themes[sel].desktop_color, g_themes[sel].active_caption, g_themes[sel].inactive_caption };
-                SetSysColors(3, indices, colors);
-                PostMessageW(HWND_BROADCAST, WM_SYSCOLORCHANGE, 0, 0);
+                MessageBoxW(hwnd,L"The selected theme could not be applied.",L"Display Properties",MB_OK|MB_ICONEXCLAMATION);
+                SetWindowLongPtrW(hwnd,DWLP_MSGRESULT,PSNRET_INVALID_NOCHANGEPAGE);
             }
+            else dirty=FALSE;
             return TRUE;
         }
         break;
-    }
     }
     return FALSE;
 }

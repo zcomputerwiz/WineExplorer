@@ -41,6 +41,7 @@
 #define IDD_ADVAPPEARANCE   1005
 #define IDD_CUSTDESKTOP     1006
 #define IDD_CONFIRMSETTINGS 1007
+#define IDD_WAITSETTINGS    1008
 
 /* Control IDs: Common */
 #define IDC_STATIC          -1

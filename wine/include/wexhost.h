@@ -149,6 +149,17 @@ DWORD WINAPI WexAgentStart( WEX_AGENT_CALLBACK callback, void *context );
 DWORD WINAPI WexAgentRespond( const char *cookie, const char *user, const char *password, BOOL cancel );
 void  WINAPI WexAgentStop( void );
 
+#define WEX_DISPLAY_MAX_MODES 128
+typedef struct { DWORD width, height, refresh; } WEX_DISPLAY_MODE; /* refresh in millihertz */
+typedef struct {
+    char output[64];
+    WEX_DISPLAY_MODE current;
+    DWORD count;
+    WEX_DISPLAY_MODE modes[WEX_DISPLAY_MAX_MODES];
+} WEX_DISPLAY;
+DWORD WINAPI WexDisplayGet(WEX_DISPLAY *display);
+DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist);
+
 #ifdef __cplusplus
 }
 #endif

@@ -14,6 +14,8 @@ BEGIN
     IDS_CPL_INFO        "Customizes your desktop display, themes, screen colors, and resolution."
 END
 
+126 BITMAP "monitor.bmp"
+
 /* Themes Property Page */
 IDD_THEMES DIALOGEX 0, 0, 252, 218
 STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
@@ -22,7 +24,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     LTEXT           "A theme is a background plus a set of sounds, icons, and other elements to help you personalize your computer with one click.", IDC_STATIC, 7, 7, 238, 20
     LTEXT           "&Theme:", IDC_STATIC, 7, 30, 40, 10
-    COMBOBOX        IDC_THEME_LIST, 7, 42, 140, 100, CBS_DROPDOWNLIST | CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_THEME_LIST, 7, 42, 140, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     PUSHBUTTON      "Save &As...", IDC_THEME_SAVEAS, 155, 41, 42, 14
     PUSHBUTTON      "&Delete", IDC_THEME_DELETE, 202, 41, 42, 14
     LTEXT           "Sample:", IDC_STATIC, 7, 60, 40, 10
@@ -35,7 +37,7 @@ STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
 CAPTION "Desktop"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    CONTROL         "", IDC_BG_PREVIEW, "DeskCplPreview", WS_CHILD | WS_VISIBLE | WS_BORDER, 46, 7, 160, 100
+    CONTROL         "", IDC_BG_PREVIEW, "DeskCplPreview", WS_CHILD | WS_VISIBLE, 63, 7, 125, 107
     LTEXT           "&Background:", IDC_STATIC, 7, 114, 50, 10
     LISTBOX         IDC_BG_LIST, 7, 126, 175, 62, LBS_NOTIFY | WS_VSCROLL | WS_BORDER | WS_TABSTOP
     PUSHBUTTON      "&Browse...", IDC_BG_BROWSE, 190, 126, 55, 14
@@ -51,15 +53,15 @@ STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
 CAPTION "Appearance"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    CONTROL         "", IDC_APP_PREVIEW, "DeskCplPreview", WS_CHILD | WS_VISIBLE | WS_BORDER, 26, 7, 200, 105
-    LTEXT           "&Windows and buttons:", IDC_STATIC, 7, 118, 100, 10
-    COMBOBOX        IDC_APP_STYLE, 7, 128, 238, 60, CBS_DROPDOWNLIST | WS_TABSTOP
-    LTEXT           "&Color scheme:", IDC_STATIC, 7, 146, 100, 10
-    COMBOBOX        IDC_APP_COLORSCHEME, 7, 156, 238, 60, CBS_DROPDOWNLIST | WS_TABSTOP
-    LTEXT           "&Font size:", IDC_STATIC, 7, 174, 100, 10
-    COMBOBOX        IDC_APP_FONTSIZE, 7, 184, 130, 60, CBS_DROPDOWNLIST | WS_TABSTOP
-    PUSHBUTTON      "E&ffects...", IDC_APP_EFFECTS, 145, 183, 46, 14
-    PUSHBUTTON      "Ad&vanced", IDC_APP_ADVANCED, 196, 183, 48, 14
+    CONTROL         "", IDC_APP_PREVIEW, "DeskCplPreview", WS_CHILD | WS_VISIBLE | WS_BORDER, 7, 5, 238, 120
+    LTEXT           "&Windows and buttons:", IDC_STATIC, 7, 131, 100, 10
+    COMBOBOX        IDC_APP_STYLE, 7, 141, 131, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "&Color scheme:", IDC_STATIC, 7, 159, 100, 10
+    COMBOBOX        IDC_APP_COLORSCHEME, 7, 169, 131, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "&Font size:", IDC_STATIC, 7, 188, 100, 10
+    COMBOBOX        IDC_APP_FONTSIZE, 7, 198, 131, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    PUSHBUTTON      "E&ffects...", IDC_APP_EFFECTS, 190, 180, 55, 14
+    PUSHBUTTON      "Ad&vanced", IDC_APP_ADVANCED, 190, 199, 55, 14
 END
 
 /* Settings Property Page */
@@ -68,16 +70,15 @@ STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
 CAPTION "Settings"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    ICON            ICO_MAIN, IDC_SET_MONITOR_IMG, 20, 10, 32, 32
-    LTEXT           "Display:", IDC_STATIC, 60, 10, 40, 10
-    LTEXT           "Default Monitor on Gamescope / Virtual Desktop", IDC_SET_DISPLAY_LBL, 60, 22, 180, 16
-    GROUPBOX        "Screen resolution", IDC_STATIC, 7, 50, 115, 65
-    CONTROL         "", IDC_SET_RES_SLIDER, "msctls_trackbar32", WS_TABSTOP | TBS_HORZ | TBS_AUTOTICKS, 15, 68, 98, 20
-    CTEXT           "1920 by 1080 pixels", IDC_SET_RES_TEXT, 12, 94, 105, 12
-    GROUPBOX        "Color quality", IDC_STATIC, 130, 50, 115, 65
-    COMBOBOX        IDC_SET_BPP_COMBO, 138, 70, 98, 50, CBS_DROPDOWNLIST | WS_TABSTOP
-    PUSHBUTTON      "Ad&vanced", IDC_SET_ADVANCED, 185, 125, 60, 14
-    CONTROL         "Emulate display mode changes (requires restart)", IDC_EMULATE_MODESET, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 7, 150, 238, 10
+    CONTROL         "", IDC_SET_MONITOR_IMG, "DeskCplPreview", WS_CHILD | WS_VISIBLE, 63, 7, 125, 107
+    LTEXT           "Display:", IDC_STATIC, 7, 116, 40, 10
+    LTEXT           "", IDC_SET_DISPLAY_LBL, 7, 128, 238, 16
+    GROUPBOX        "Screen resolution", IDC_STATIC, 7, 147, 115, 57
+    CONTROL         "", IDC_SET_RES_SLIDER, "msctls_trackbar32", WS_TABSTOP | TBS_HORZ | TBS_AUTOTICKS, 15, 161, 98, 20
+    CTEXT           "", IDC_SET_RES_TEXT, 12, 187, 105, 12
+    GROUPBOX        "Color quality", IDC_STATIC, 130, 147, 115, 57
+    COMBOBOX        IDC_SET_BPP_COMBO, 138, 168, 98, 50, CBS_DROPDOWNLIST | WS_TABSTOP
+    PUSHBUTTON      "Ad&vanced", IDC_SET_ADVANCED, 185, 205, 60, 14
 END
 
 /* Virtual Desktop Page (Legacy Wine Settings) */
@@ -111,6 +112,15 @@ BEGIN
 END
 
 /* Display Change Confirmation Dialog */
+IDD_WAITSETTINGS DIALOGEX 0, 0, 220, 60
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_CENTER
+CAPTION "Monitor Settings"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Please wait while your desktop is reconfigured.", IDC_STATIC, 12, 12, 196, 18
+    PUSHBUTTON "Cancel", IDCANCEL, 85, 37, 50, 14
+END
+
 IDD_CONFIRMSETTINGS DIALOGEX 0, 0, 220, 85
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_CENTER
 CAPTION "Monitor Settings"

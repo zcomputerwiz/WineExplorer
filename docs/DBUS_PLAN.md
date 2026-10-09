@@ -4,7 +4,8 @@ Status (2026-10-08): **implemented in `wexhost`:** timedate1 + polkit agent, log
 Windows-style end-of-session query first), UPower (battery/AC), hostname1 (computer name/description), AccountsService
 (display name), NetworkManager (status, Wi-Fi scan/connect, disconnect/enable). `nmcli`/`hostcmd.c` are gone.
 Still to do: PipeWire native volume events (volume works through winepulse), StatusNotifierItem, notifications,
-D-Bus signals instead of polling (nettray/powertray/volumetray still poll every 0.5-1.5 s), displays.
+D-Bus signals instead of polling (nettray/powertray/volumetray still poll every 0.5-1.5 s), native Wayland displays.
+Display Properties now uses native XRandR through `wexhost` on X11 / supported Xwayland sessions; see DISPLAY.md.
 Original intent follows.  Today's backends (`hostcmd.c` running `nmcli`,
 `wpctl`/`pactl`/`amixer`, `systemctl`, `sudo date`, `timedatectl`) are a stopgap. They are shell-free (argv only), but
 they parse text, poll, and force our own password handling. Other Linux desktops use D-Bus services and polkit.

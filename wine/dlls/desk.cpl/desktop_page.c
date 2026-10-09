@@ -67,74 +67,60 @@ static INT_PTR CALLBACK custdesktop_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
 static void update_desktop_preview(HWND hwnd)
 {
     PREVIEW_DATA pd;
-    HWND hPreview = GetDlgItem(hwnd, IDC_BG_PREVIEW);
-
+    static const int styles[] = {0,1,2,6,10};
+    preview_init_data(&pd);
     pd.cr_desktop = g_desktop_color;
-    pd.cr_active_caption = GetSysColor(COLOR_ACTIVECAPTION);
-    pd.cr_active_text = GetSysColor(COLOR_CAPTIONTEXT);
-    pd.cr_inactive_caption = GetSysColor(COLOR_INACTIVECAPTION);
-    pd.cr_inactive_text = GetSysColor(COLOR_INACTIVECAPTIONTEXT);
-    pd.cr_btn_face = GetSysColor(COLOR_BTNFACE);
-    pd.cr_btn_text = GetSysColor(COLOR_BTNTEXT);
-    pd.cr_window = GetSysColor(COLOR_WINDOW);
-    pd.cr_window_text = GetSysColor(COLOR_WINDOWTEXT);
-    pd.cr_menu = GetSysColor(COLOR_MENU);
-    pd.cr_menu_text = GetSysColor(COLOR_MENUTEXT);
+    lstrcpyW(pd.wallpaper_path,g_current_wallpaper);
+    pd.wallpaper_style = styles[g_wallpaper_style];
+    preview_update(GetDlgItem(hwnd,IDC_BG_PREVIEW),&pd);
+}
 
-    preview_update(hPreview, &pd);
+static WCHAR wallpapers[256][MAX_PATH];
+static int wallpaper_count;
+static BOOL dirty;
+
+static void add_wallpapers(HWND list,const WCHAR *directory)
+{
+    WCHAR pattern[MAX_PATH],title[MAX_PATH]; WIN32_FIND_DATAW fd; HANDLE find;
+    swprintf(pattern,MAX_PATH,L"%s\\*",directory);
+    find=FindFirstFileW(pattern,&fd); if(find==INVALID_HANDLE_VALUE) return;
+    do {
+        if(wallpaper_count>=256) break;
+        if((fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) ||
+            (!PathMatchSpecW(fd.cFileName,L"*.bmp") && !PathMatchSpecW(fd.cFileName,L"*.jpg") && !PathMatchSpecW(fd.cFileName,L"*.png"))) continue;
+        swprintf(wallpapers[wallpaper_count],MAX_PATH,L"%s\\%s",directory,fd.cFileName);
+        lstrcpyW(title,fd.cFileName); PathRemoveExtensionW(title);
+        SendMessageW(list,LB_ADDSTRING,0,(LPARAM)title); wallpaper_count++;
+    } while(FindNextFileW(find,&fd));
+    FindClose(find);
 }
 
 static void populate_wallpapers(HWND hwnd)
 {
-    HWND hList = GetDlgItem(hwnd, IDC_BG_LIST);
-    WCHAR windir[MAX_PATH];
-    WCHAR search_path[MAX_PATH];
-    WIN32_FIND_DATAW fd;
-    HANDLE hFind;
-
-    SendMessageW(hList, LB_RESETCONTENT, 0, 0);
-    SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)L"(None)");
-
-    GetWindowsDirectoryW(windir, MAX_PATH);
-
-    /* 1. Search %WinDir%\Web\Wallpaper\*.bmp;*.jpg */
-    swprintf(search_path, MAX_PATH, L"%s\\Web\\Wallpaper\\*.*", windir);
-    hFind = FindFirstFileW(search_path, &fd);
-    if (hFind != INVALID_HANDLE_VALUE)
+    HWND list=GetDlgItem(hwnd,IDC_BG_LIST); WCHAR windir[MAX_PATH],folder[MAX_PATH]; int i,selected=0;
+    wallpaper_count=1; wallpapers[0][0]=0;
+    SendMessageW(list,LB_RESETCONTENT,0,0); SendMessageW(list,LB_ADDSTRING,0,(LPARAM)L"(None)");
+    GetWindowsDirectoryW(windir,MAX_PATH); swprintf(folder,MAX_PATH,L"%s\\Web\\Wallpaper",windir);
+    add_wallpapers(list,folder); add_wallpapers(list,windir);
+    for(i=1;i<wallpaper_count;i++) if(!wcsicmp(wallpapers[i],g_current_wallpaper)) selected=i;
+    if(!selected && g_current_wallpaper[0] && wallpaper_count<256)
     {
-        do
-        {
-            if (PathMatchSpecW(fd.cFileName, L"*.bmp") || PathMatchSpecW(fd.cFileName, L"*.jpg") || PathMatchSpecW(fd.cFileName, L"*.png"))
-            {
-                WCHAR title[MAX_PATH];
-                WCHAR *dot;
-                lstrcpynW(title, fd.cFileName, MAX_PATH);
-                dot = wcsrchr(title, L'.');
-                if (dot) *dot = L'\0';
-                SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)title);
-            }
-        } while (FindNextFileW(hFind, &fd));
-        FindClose(hFind);
+        selected=wallpaper_count; lstrcpyW(wallpapers[wallpaper_count++],g_current_wallpaper);
+        SendMessageW(list,LB_ADDSTRING,0,(LPARAM)PathFindFileNameW(g_current_wallpaper));
     }
+    SendMessageW(list,LB_SETCURSEL,selected,0);
+}
 
-    /* 2. Search %WinDir%\*.bmp */
-    swprintf(search_path, MAX_PATH, L"%s\\*.bmp", windir);
-    hFind = FindFirstFileW(search_path, &fd);
-    if (hFind != INVALID_HANDLE_VALUE)
-    {
-        do
-        {
-            WCHAR title[MAX_PATH];
-            WCHAR *dot;
-            lstrcpynW(title, fd.cFileName, MAX_PATH);
-            dot = wcsrchr(title, L'.');
-            if (dot) *dot = L'\0';
-            SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)title);
-        } while (FindNextFileW(hFind, &fd));
-        FindClose(hFind);
-    }
-
-    SendMessageW(hList, LB_SETCURSEL, 0, 0);
+static void refresh_background(HWND hwnd)
+{
+    PREVIEW_DATA pd;
+    preview_init_data(&pd);
+    g_desktop_color=pd.cr_desktop;
+    lstrcpyW(g_current_wallpaper,pd.wallpaper_path);
+    g_wallpaper_style=pd.wallpaper_style==1?1:pd.wallpaper_style==2?2:pd.wallpaper_style==6?3:pd.wallpaper_style==10?4:0;
+    SendDlgItemMessageW(hwnd,IDC_BG_POSITION,CB_SETCURSEL,g_wallpaper_style,0);
+    populate_wallpapers(hwnd);
+    update_desktop_preview(hwnd);
 }
 
 INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -146,14 +132,11 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         HWND hPos = GetDlgItem(hwnd, IDC_BG_POSITION);
         unsigned int i;
 
-        g_desktop_color = GetSysColor(COLOR_BACKGROUND);
+        dirty=FALSE;
 
         for (i = 0; i < 5; i++)
             SendMessageW(hPos, CB_ADDSTRING, 0, (LPARAM)position_names[i]);
-        SendMessageW(hPos, CB_SETCURSEL, 2, 0); /* Default: Stretch */
-
-        populate_wallpapers(hwnd);
-        update_desktop_preview(hwnd);
+        refresh_background(hwnd);
         return TRUE;
     }
 
@@ -163,6 +146,10 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case IDC_BG_LIST:
             if (HIWORD(wparam) == LBN_SELCHANGE)
             {
+                int index=SendMessageW((HWND)lparam,LB_GETCURSEL,0,0);
+                if(index>=0 && index<wallpaper_count) lstrcpyW(g_current_wallpaper,wallpapers[index]);
+                dirty=TRUE;
+                update_desktop_preview(hwnd);
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
@@ -171,6 +158,8 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (HIWORD(wparam) == CBN_SELCHANGE)
             {
                 g_wallpaper_style = SendMessageW((HWND)lparam, CB_GETCURSEL, 0, 0);
+                dirty=TRUE;
+                update_desktop_preview(hwnd);
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
@@ -189,6 +178,7 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (ChooseColorW(&cc))
             {
                 g_desktop_color = cc.rgbResult;
+                dirty=TRUE;
                 update_desktop_preview(hwnd);
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
@@ -213,6 +203,9 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 int idx = SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)PathFindFileNameW(file_buf));
                 SendMessageW(hList, LB_SETCURSEL, idx, 0);
                 lstrcpynW(g_current_wallpaper, file_buf, MAX_PATH);
+                if(wallpaper_count<256) lstrcpyW(wallpapers[wallpaper_count++],file_buf);
+                dirty=TRUE;
+                update_desktop_preview(hwnd);
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
@@ -227,17 +220,24 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
     case WM_NOTIFY:
     {
         NMHDR *nmhdr = (NMHDR *)lparam;
-        if (nmhdr->code == PSN_APPLY)
+        if(nmhdr->code==PSN_SETACTIVE && !dirty) { refresh_background(hwnd); return TRUE; }
+        if (nmhdr->code == PSN_APPLY && dirty)
         {
             int idx = COLOR_BACKGROUND;
             COLORREF clr = g_desktop_color;
+            HKEY key;
+            WCHAR text[16];
+            static const int styles[] = {0,0,2,6,10};
             SetSysColors(1, &idx, &clr);
-
-            if (g_current_wallpaper[0])
+            if(!RegCreateKeyExW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",0,NULL,0,KEY_SET_VALUE,NULL,&key,NULL))
             {
-                SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)g_current_wallpaper,
-                                      SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+                swprintf(text,16,L"%d",styles[g_wallpaper_style]);
+                RegSetValueExW(key,L"WallpaperStyle",0,REG_SZ,(BYTE *)text,(lstrlenW(text)+1)*sizeof(WCHAR));
+                RegSetValueExW(key,L"TileWallpaper",0,REG_SZ,(BYTE *)(g_wallpaper_style==1?L"1":L"0"),2*sizeof(WCHAR));
+                RegCloseKey(key);
             }
+            SystemParametersInfoW(SPI_SETDESKWALLPAPER,0,g_current_wallpaper,SPIF_UPDATEINIFILE|SPIF_SENDCHANGE);
+            dirty=FALSE;
 
             PostMessageW(HWND_BROADCAST, WM_SYSCOLORCHANGE, 0, 0);
             return TRUE;

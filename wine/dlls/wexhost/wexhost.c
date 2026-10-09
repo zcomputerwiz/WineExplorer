@@ -36,6 +36,28 @@ static HANDLE agent_thread;
 static WEX_AGENT_CALLBACK agent_callback;
 static void *agent_context;
 
+DWORD WINAPI WexDisplayGet(WEX_DISPLAY *display)
+{
+    struct display_get_params params;
+    if(!display) return ERROR_INVALID_PARAMETER;
+    memset(display,0,sizeof(*display));
+    if(!unix_ready) return ERROR_NOT_SUPPORTED;
+    memset(&params,0,sizeof(params));
+    WEXHOST_CALL(display_get,&params);
+    if(!params.err) *display=params.display;
+    return params.err;
+}
+
+DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist)
+{
+    struct display_set_params params;
+    if(!unix_ready) return ERROR_NOT_SUPPORTED;
+    if(!mode) return ERROR_INVALID_PARAMETER;
+    params.mode=*mode; params.persist=persist;
+    WEXHOST_CALL(display_set,&params);
+    return params.err;
+}
+
 BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
 {
     if (reason == DLL_PROCESS_ATTACH)

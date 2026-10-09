@@ -2,9 +2,10 @@ MODULE    = wexhost.dll
 IMPORTLIB = wexhost
 IMPORTS   = user32
 UNIXLIB   = wexhost.so
-UNIX_CFLAGS = $(DBUS_CFLAGS)
+UNIX_CFLAGS = $(DBUS_CFLAGS) $(X_CFLAGS)
 UNIX_LIBS   = $(PTHREAD_LIBS)
 
 SOURCES = \
+	display.c \
 	unixlib.c \
 	wexhost.c

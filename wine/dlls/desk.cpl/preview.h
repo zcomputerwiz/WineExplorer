@@ -37,10 +37,18 @@ typedef struct _PREVIEW_DATA
     COLORREF cr_menu;
     COLORREF cr_menu_text;
 
-    HBITMAP  hbm_wallpaper;
+    WCHAR theme_path[MAX_PATH];
+    WCHAR color_name[64];
+    WCHAR size_name[64];
+    WCHAR wallpaper_path[MAX_PATH];
+    int font_size;
     int      wallpaper_style;
 } PREVIEW_DATA;
 
+int preview_find_files(const WCHAR *extension, WCHAR paths[][MAX_PATH], int limit);
+void preview_init_data(PREVIEW_DATA *data);
+void preview_theme_data(PREVIEW_DATA *data, const WCHAR *path);
+void preview_expand_path(const WCHAR *src, WCHAR *dst);
 void preview_register_class(HINSTANCE hinst);
 void preview_unregister_class(HINSTANCE hinst);
 void preview_update(HWND hwnd_preview, const PREVIEW_DATA *data);

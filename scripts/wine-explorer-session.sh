@@ -27,6 +27,19 @@ DESKTOP_NAME="Default"
 xset s off -dpms 2>/dev/null || true
 
 # Display size: explicit WIDTH/HEIGHT, else xrandr, else 1920x1080
+# Restore the mode accepted in Display Properties. XRandR validates that the
+# current output still supports it; a replaced/disconnected monitor keeps its mode.
+DISPLAY_PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/wineexplorer/display"
+if [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ] && command -v xrandr >/dev/null 2>&1; then
+    read -r SAVED_WIDTH SAVED_HEIGHT SAVED_RATE SAVED_MODE < "$DISPLAY_PROFILE"
+    if [[ "$SAVED_WIDTH $SAVED_HEIGHT $SAVED_RATE" =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]]; then
+        OUTPUT=$(xrandr --current | awk '/ connected primary [0-9]+x[0-9]+/ {print $1; exit}')
+        [ -n "$OUTPUT" ] || OUTPUT=$(xrandr --current | awk '/ connected [0-9]+x[0-9]+/ {print $1; exit}')
+        RATE=$(awk -v rate="$SAVED_RATE" 'BEGIN {printf "%.3f", rate/1000}')
+        SAVED_MODE="${SAVED_MODE:-${SAVED_WIDTH}x${SAVED_HEIGHT}}"
+        [ -z "$OUTPUT" ] || xrandr --output "$OUTPUT" --mode "$SAVED_MODE" --rate "$RATE" || true
+    fi
+fi
 if [ -z "$WIDTH" ] && command -v xrandr >/dev/null 2>&1; then
     RES=$(xrandr 2>/dev/null | sed -nE 's/.*current ([0-9]+) x ([0-9]+).*/\1 \2/p' | head -1)
     WIDTH=${RES% *}; HEIGHT=${RES#* }

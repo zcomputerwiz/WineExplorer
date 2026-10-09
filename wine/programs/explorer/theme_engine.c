@@ -287,6 +287,27 @@ BOOL theme_apply(THEME_CONFIG *cfg)
 
     if (!cfg) return FALSE;
 
+    /* Reject an unavailable style before changing the active theme registry or
+     * shell resources. Display Properties must not silently apply Classic. */
+    if (cfg->has_visual_styles && cfg->msstyles_path[0])
+    {
+        HANDLE file = NULL;
+        HRESULT hr = E_FAIL;
+        huxtheme = LoadLibraryW(L"uxtheme.dll");
+        if (huxtheme)
+        {
+            pfnOpenThemeFile open_file = (pfnOpenThemeFile)GetProcAddress(huxtheme, (LPCSTR)2);
+            pfnCloseThemeFile close_file = (pfnCloseThemeFile)GetProcAddress(huxtheme, (LPCSTR)3);
+            if (open_file && close_file)
+            {
+                hr = open_file(cfg->msstyles_path, cfg->color_style, cfg->size_name, &file, 0);
+                if (SUCCEEDED(hr)) close_file(file);
+            }
+            FreeLibrary(huxtheme);
+        }
+        if (FAILED(hr)) return FALSE;
+    }
+
     /* Remember the theme first (Windows keeps the active theme in HKCU\\...\\Themes) */
     if (!RegCreateKeyExW(HKEY_CURRENT_USER, themes_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &hkey, NULL))
     {
