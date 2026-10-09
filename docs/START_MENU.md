@@ -5,6 +5,14 @@ The shell offers the two Start menu styles of Windows XP, chosen in *Taskbar and
 The dialogs are the ones of the Windows shell (`explorer/dlg.rc`), including the preview pictures, which come from the
 genuine resource pack (`xpres_explorer.dll`, ids 170 and 171).
 
+## Linux applications
+
+Programs / All Programs now contains **Linux Applications** in both styles. GIO discovers visible `.desktop` entries, using localized names and the normal NoDisplay, Hidden, TryExec and desktop-visibility rules. The list is sorted and rebuilt each time it opens, so installation/removal does not require restarting Explorer. Labels display literal ampersands.
+
+Selection launches the desktop ID through `WexAppsLaunch`, not a Windows shortcut or a shell command. Directly spawned clients retain display/session variables but receive none of the desktop runtime's `WINE*` variables. Steam and other launchers can select their own Proton runtime and prefix. Explicit environment settings in a desktop entry still apply; D-Bus activation uses the service activation environment. Launch failure shows an error dialog. GIO is loaded at runtime; its absence hides the submenu.
+
+The first version is a flat list, capped at 512 entries. Category folders, application-specific menu icons and native pinned/MFU integration remain future work. Technical details and verification are in [LINUX_WINDOWS.md](LINUX_WINDOWS.md); `scripts/linux-apps-probe.c` exercises the API independently of the menus.
+
 ## Where things are stored
 
 | What | Where |

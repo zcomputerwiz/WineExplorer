@@ -2,7 +2,9 @@
 
 ## 1. High-Level Architecture & Operating Model
 
-WineExplorer DE functions as a complete, standalone Linux Desktop Environment session. It is designed to run directly from a display manager (such as GDM, LightDM, or direct TTY/DRM) with Valve's Gamescope Wayland compositor managing physical display hardware, resolution scaling, and direct input.
+WineExplorer DE runs as an X11 session from a display manager such as GDM. Customized Wine remains the desktop runtime; Explorer owns the X11 root as the window manager and hosts native Linux and separate Wine/Proton windows in Win32 frames. Proton keeps its normal application runtime and prefixes. It does not replace the shell's Wine. See [LINUX_WINDOWS.md](LINUX_WINDOWS.md) for the implemented bridge and its limits.
+
+The current stack is GDM → Xorg → Wine desktop/Explorer, with Linux and Proton clients connecting to the same X server. Gamescope is optional per application; nesting the entire shell under Gamescope would isolate it from the session's external windows. Native Wayland window management is future work.
 
 ```
 +-----------------------------------------------------------------------------------+
@@ -12,10 +14,10 @@ WineExplorer DE functions as a complete, standalone Linux Desktop Environment se
                                           |
                                           v
 +-----------------------------------------------------------------------------------+
-|                        Gamescope Wayland Compositor Session                       |
-|           - Standalone DRM/KMS display session or nested Wayland session          |
-|           - Dynamic resolution switching & integer/FSR scaling                    |
-|           - Embedded Xwayland / Wayland socket endpoint                           |
+|                        Xorg / X11 Desktop Session                                 |
+|           - Explorer owns SubstructureRedirect on the X11 root                   |
+|           - XRandR provides output modes and physical resolution changes         |
+|           - Native Linux, separate Wine and Proton clients share the server     |
 +-----------------------------------------+-----------------------------------------+
                                           |
                                           v
@@ -162,4 +164,4 @@ WineExplorer DE functions as a complete, standalone Linux Desktop Environment se
     - Calls systemd-logind via D-Bus: `org.freedesktop.login1.Manager.PowerOff(true)`.
     - Fallback to `systemctl poweroff` or `shutdown -h now`.
     - For reboot: `org.freedesktop.login1.Manager.Reboot(true)` or `systemctl reboot`.
-    - For log off: Exits Gamescope and terminates the display manager session.
+    - For log off: Exits the Explorer desktop and terminates the display manager session.

@@ -43,10 +43,13 @@ rebasing on upstream Wine harder. Baseline = commit `03476d7`.
 - `dlls/shell32/dialogs.c` (Run dialog placement).
 
 ## License headers
+
+`wexhost` now also provides `WexAppsList` / `WexAppsLaunch` through runtime-loaded GIO. `apps.c` handles freedesktop discovery and launching with the shell's Wine variables removed; both Start menu styles expose the entries. The X11 WM checks its running state under the connection lock so requests arriving during shutdown cannot use the closed connection. These are project additions, not changes to Proton or a shared prefix.
 New project files carry the Wine-style LGPL-2.1+ header (`scripts/add-license.py` adds it to anything missing it).
 Modified Wine files keep their original header. ReactOS-derived programs keep theirs:
 - `programs/calc` - ReactOS Calc, LGPL-2.1+ (header in each file); `copying.txt` is the GPL text shipped with it.
 - `programs/wmplayer` - ReactOS mplay32 (ReactOS license: GPL-2.0-or-later).
+- `programs/explorer/alttab.c` - ReactOS-derived Alt+Tab implementation; retains its GPL-2.0-or-later header and attribution.
 - `dlls/ntoskrnl.exe` - stock Wine.
 
 ## Themed non-client frame (visual phase)

@@ -1,5 +1,9 @@
 # WineExplorer DE Roadmap
 
+## Current direction (2026-10-09)
+
+Customized Wine remains the desktop runtime; Explorer manages X11 windows from native Linux and independent Wine/Proton applications. Proton is not replacing the desktop's Wine. The X11 WM, foreign-window hosts, XP Alt+Tab and Linux desktop-entry Start menu launcher are implemented. Next: application menu icons/categories, Linux tray/notifications, and real Steam/Proton runtime verification. Gamescope is optional per application; a session-wide compositor/service bridge is future work. See [HANDOFF.md](HANDOFF.md) and [LINUX_WINDOWS.md](LINUX_WINDOWS.md). Older completed phases below describe their original scope, not verification of a current Gamescope session.
+
 ## Phase 1: Environment & Repository Baseline (Completed)
 - [x] Unpack all provided source archives into organized workspace.
 - [x] Establish read-only isolated references directory for clean-room inspection (`references/`).

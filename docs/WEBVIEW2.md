@@ -2,8 +2,9 @@
 
 The native C diagnostic host and Fixed Version runtime are installed in
 `/home/wineuser/webview2-lab` on WineExplorer-VM. WebView2 initializes and
-navigates, but rendering does not yet work. This is a compatibility investigation,
-not a shell feature ready for integration.
+navigates. A separate Wine 11.19 test on ProtonExplorer-VM renders successfully
+with Proton's per-application Windows 7 setting and SwiftShader (details below).
+This remains a compatibility lab, not a shell feature ready for integration.
 
 ## Upstream research (2026-10-09)
 

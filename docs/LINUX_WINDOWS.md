@@ -18,6 +18,9 @@ come from code we already have. Cygwin/X's multiwindow mode does the same in the
 | API | `include/wexhost.h` (`WexWm*`), `dlls/wexhost/wexhost.c` | Event thread like the polkit agent's; the calls the shell makes. |
 | Hosts | `programs/explorer/linux_windows.c` | One host per window: style from the window type and Motif hints, title, `_NET_WM_ICON`, position (NorthWest gravity), size limits, states, fullscreen. |
 | Start | `programs/explorer/desktop.c` | `linux_windows_start()` in shell mode. `HKCU\Software\WineExplorer\Shell` `ManageLinuxWindows`=0 turns it off. |
+| Applications | `dlls/wexhost/apps.c`, `WexAppsList` / `WexAppsLaunch`, `startmenu_view.c` | GIO discovers visible freedesktop entries and launches their desktop IDs. Both Start menu styles have a Linux Applications submenu. |
+
+The desktop remains on customized Wine. Steam/Proton and other Wine installations use their own runtimes and prefixes, connecting to the same X server as normal Linux applications. The session launcher runs Explorer directly on X11. There is no implemented Gamescope service bridge; use Gamescope per application. A compositor/service bridge can be designed separately without changing the desktop's Wine runtime.
 
 Mapping between X and Win32:
 
@@ -63,6 +66,11 @@ xterm, xclock (Xt), zenity (GTK3) and gnome-text-editor (GTK4) were tested in th
 - close through `WM_DELETE_WINDOW`;
 - the Windows key opening Start while xterm has focus;
 - adopting a window that already existed when the shell started.
+- GTK client-side title-bar move/resize, ignoring unwanted GTK origin positioning, shell-key replay and Alt+Tab across Linux and Win32 windows were implemented in the subsequent `4f87754` and `4634367` commits.
+
+Application bridge checks use a separate Xvfb display and fresh prefix, leaving the visible Luna desktop untouched. GIO filters NoDisplay and OnlyShowIn, preserves localized names and handles Exec field codes, Terminal and D-Bus activation. Directly spawned applications inherit the Linux session variables but none of the shell's `WINE*` variables. Explicit environment assignments in an application's own desktop entry still take effect. D-Bus-activated applications use their service's activation environment, which this launcher does not change.
+
+The submenu is sorted by localized display name and rebuilt on every opening. Install/remove changes were checked without restarting Explorer. IDs remain separate from Windows shortcut paths; names containing ampersands are displayed literally. Missing GIO hides the submenu, and launch errors are reported. Current limits: 512 displayed entries, names up to 511 UTF-16 units, desktop IDs below 512 UTF-8 bytes; flat listing with no per-application menu icons or category hierarchy yet. The bridge returns category and PNG metadata for a later presentation pass.
 
 The content stays intact when the frame repaints.
 
@@ -72,17 +80,11 @@ now has `Option "AccelMethod" "none"`; the previous file is kept as `.before-acc
 
 ## Not done yet
 
-- `_NET_WM_MOVERESIZE`: windows that draw their own title bar (GTK headerbars, Steam) cannot be moved or resized by
-  it. Map it to `SC_MOVE`/`SC_SIZE` and check that Wine's move loop gets the pointer.
-- GTK4 windows can appear at the origin; check which hint they send.
-- Win+E/R/D and other Windows-key combinations, and Alt+Tab, while a Linux window has the keyboard.
 - Docks and struts (`_NET_WM_STRUT_PARTIAL`) in the work area, and multiple monitors.
-- Grouping and icons by program: windows without `_NET_WM_ICON` show Explorer's icon, and every host belongs to
-  Explorer's process.
+- Grouping by program: every host belongs to Explorer's process. Windows without `_NET_WM_ICON` now use a generic program icon.
 - If Explorer dies, the save set cannot bring the Linux windows back, because their parent is destroyed with Wine's
   connection. A normal shell exit releases them first.
-- Launching Linux programs from the shell with a clean environment (no `WINEDLLOVERRIDES` and so on), `.desktop`
-  entries in the Start menu, and the other freedesktop services listed in the design discussion.
+- Linux application menu categories/icons, pinned/MFU entries and the remaining freedesktop services (StatusNotifierItem, notifications).
 - A compositing phase like DWM: redirect windows with the X Composite extension for live taskbar and Alt+Tab
   thumbnails and transparency. XP had no compositor, so it is optional and later.
 - Gamescope cannot run as the session compositor at the same time, because it is a window manager itself. Run it per

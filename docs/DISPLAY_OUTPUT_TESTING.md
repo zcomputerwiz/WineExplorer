@@ -44,8 +44,7 @@ have no candidate. Enumerating physical devices with `libvulkan.so.1` reports on
 DRM path therefore remains untested; installing a compositor alone would not
 establish GPU acceleration. See the [upstream requirements](https://github.com/ValveSoftware/gamescope).
 
-The current session launcher starts from Xorg and lets Gamescope choose its
-backend. In such a session Gamescope normally nests inside the host display;
+The session launcher now starts Explorer directly on Xorg so its X11 window manager can host independent Linux and Proton clients. Gamescope may be launched per application; there is no implemented session-wide compositor/service bridge. In a nested Gamescope test it runs inside the host display;
 resizing its Xwayland output must not be described as changing physical scanout.
 Embedded testing needs a separate DRM session with a suitable Vulkan device and
 session/seat ownership, rather than taking DRM ownership away from the running

@@ -1,17 +1,31 @@
-# Current handoff location (2026-10-09)
+# Current handoff (2026-10-09)
 
-Active migration work now lives in `D:\DeepThought\Projects\ProtonExplorer`.
-Read [the ProtonExplorer handoff](../../ProtonExplorer/docs/HANDOFF.md) and
-[migration plan](../../ProtonExplorer/docs/PROTON_MIGRATION.md) before resuming.
-The new independent VM is **ProtonExplorer-VM**, SSH **2223**. Its host product
-checkout is `ProtonExplorer/proton/`, and its guest checkout is
-`/srv/protonexplorer/source/proton`, on `codex/proton-explorer`.
+**Active desktop work is back in `D:\DeepThought\Projects\WineExplorer`.** The user has superseded the full Proton desktop migration: customized Wine 11.19 remains the desktop runtime and window manager. Proton runs applications independently, with its normal runtimes and prefixes, as it would under another Linux desktop. The ProtonExplorer copy/VM remains a separate compatibility lab; its migration plan is historical, not the current desktop implementation plan.
 
-This original workspace/VM remains the Wine 11.19 comparison baseline on SSH
-2222. The Proton migration is planned; no Proton desktop build or verified
-WebView2 fix exists yet. Current local setup and handoff documentation are
-committed separately in the copied workspace and the user's Proton fork;
-nothing has been pushed. The old Date/Time notes below are historical context.
+Read [LINUX_WINDOWS.md](LINUX_WINDOWS.md) for the new implementation. Claude's `72a1faf`, `4f87754` and `4634367` added the X11 window manager, themed Win32 hosts for external windows, client-side title-bar move/resize, shell keys and XP Alt+Tab across threads. Review also moved the WM running-state check inside the X connection lock, preventing a late request from using a connection after shutdown.
+
+Claude left an untracked `wine/dlls/wexhost/apps.c`. It is now integrated into the Unix call table, PE exports and both Start menu styles. Programs / All Programs includes a sorted **Linux Applications** submenu, discovered through GIO and refreshed on opening. Launching by desktop ID strips the shell's `WINE*` variables from directly spawned clients. GIO handles desktop-entry field codes, visibility rules and terminal/D-Bus launches. Categories and per-application menu icons are the next presentation work; the current list is flat. See [START_MENU.md](START_MENU.md) and [LINUX_WINDOWS.md](LINUX_WINDOWS.md).
+
+## Runtime and build
+
+- **WineExplorer-VM**, SSH `2222`, user `wineuser`, key `D:/VirtualBox_VMs/vm_key`.
+- Guest source `~/src/wine`, build `~/build/wine64`, installed `/usr/local`; source is copied, not a guest Git checkout.
+- Visible desktop: GDM → Xorg `:0` → installed Wine Explorer `/desktop=Default,800x600 /shell`, prefix `~/.wine`. Xauthority `/run/user/1000/gdm/Xauthority`. The current Luna/Bliss session has My Computer and xterm open; preserve it during tests.
+- Gamescope is not installed. There is no compositor pass-through service. `wexhost` supplies system D-Bus APIs and XRandR display control. The session script now starts directly on X11, matching Claude's WM design; Gamescope remains optional per application. A future service/compositor bridge needs separate design and validation.
+- Targeted build: `make -j8 dlls/wexhost/all programs/explorer/all` (directory names alone do not build them).
+- Launcher verification used Xvfb `:6` and `~/launcher-check/prefix`, not the visible desktop. `scripts/linux-apps-probe.c` provides enumeration and launch checks. Verified visibility filtering, oversized metadata serialization, Unicode/ampersands, clean launch environment, missing-ID errors, dynamic install/remove changes, and both menu styles. Screenshots/logs are under guest `~/launcher-check`; host screenshots under ignored `build/launcher-*.png`.
+- Changes are built and installed for the next desktop session. The visible session has not been restarted; it continues using the previously loaded code.
+
+## Next work
+
+1. Linux application menu icons/categories and pinned/MFU integration.
+2. Linux tray icons (StatusNotifierItem) and notifications; see [DBUS_PLAN.md](DBUS_PLAN.md).
+3. Exercise a real Steam/Proton application with its independent prefix. Native Linux/X11 window hosting is verified; no Proton application was launched in this continuation.
+4. Multi-monitor work areas/struts, foreign-window grouping and shell-crash recovery remain open. Native Wayland management and a session-wide Gamescope bridge are not implemented.
+
+**WebView2 update:** Claude's `66c09b0` recorded a positive rendering result on the separate ProtonExplorer VM using baseline Wine 11.19, Proton's per-app Windows 7 override for `msedgewebview2.exe`, and SwiftShader. See [WEBVIEW2.md](WEBVIEW2.md). This does not require migrating the desktop to Proton and is not yet a shell feature.
+
+The Date/Time notes below are historical context and may describe code since replaced; use the current implementation and topical docs first.
 
 # Historical handoff (2026-10-07)
 

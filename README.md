@@ -6,8 +6,9 @@ A complete, lightweight, authentic Desktop Environment for Linux built by extend
 
 The goal of this project is to evolve Wine's built-in `explorer.exe` and its virtual desktop mode into a full-featured, standalone Linux Desktop Environment. By combining:
 - **Wine Explorer** as the core desktop process and Win32 shell runtime,
-- **Gamescope** as a robust, modern Wayland compositor handling dynamic resolution changes, scaling, and display management,
-- **Wayland / Xwayland** display architecture for running both native Linux and Win32 applications,
+- **X11** with Explorer itself managing native Linux and separate Wine/Proton windows,
+- **Proton** as an independent application runtime, retaining its own prefixes and normal Steam/launcher integration,
+- **Gamescope** as an optional per-application compositor for games,
 - **ReactOS Explorer** architecture as an open-source structural and algorithmic guide for NT-style shell components,
 
 ---
@@ -47,7 +48,8 @@ D:\DeepThought\Projects\WineExplorer\
 
 1. **Virtual Desktop & Compositor Bridge**
    - Wine virtual desktop window manager enhancement.
-   - Gamescope nested or standalone Wayland session management.
+   - X11 window management and Win32 hosts for external application windows.
+   - Independent Proton runtimes; optional Gamescope per application.
    - Resolution switching and multi-monitor awareness.
 
 2. **Taskbar & Window Management**
