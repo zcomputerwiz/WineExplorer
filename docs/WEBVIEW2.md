@@ -45,6 +45,34 @@ backend. Inspect the Wine-Wayland cross-process surface patches and relevant
 Proton launch defaults before selecting fixes to port. A Wayland-specific success
 may require a separate test compositor and does not directly validate X11 fallback.
 
+### Proton's own WebView2 setting (2026-10-09, positive result)
+
+Valve's Proton 11.0 Wine (`e60892c`) still stubs `DCompositionCreateDevice*`. Its
+only WebView2 handling is one `wine.inf` line, which reports Windows 7 to the
+runtime process only (the host and the desktop keep their version):
+
+```
+HKCU,Software\Wine\AppDefaults\msedgewebview2.exe,"Version",,"win7"
+```
+
+That key set in the Wine 11.19 prefix on ProtonExplorer-VM (still the baseline Wine):
+
+| Run directory | Arguments | Result |
+| --- | --- | --- |
+| `20261009T205918Z-win7-baseline-FBq74U` | logging only | GPU process exits 9 times; wined3d over VirtualBox GL offers no D3D feature level ANGLE accepts; zero frames |
+| `20261009T210054Z-win7-swiftshader-UAE84h` | SwiftShader | `animation_progressing`, assessment exit 0, 829 frames in 19 s, late deltas 26-60, no DComp/WARP errors, no GPU restarts |
+| `20261009T210126Z-win7-swiftshader-visual-bO5OcY` | SwiftShader, 60 s | Assessment exit 0, 3183 frames, steady ~60 fps. Visually checked: page, counter and moving square paint; background alternates; wheel scrolling repaints |
+
+Under Windows 7 Chromium skips DirectComposition and presents without it, which
+works with Wine's cross-process child windows. With `--enable-logging` the runtime
+also opens a console window that stays above the probe. That console is a
+diagnostic side effect; drop the flag in production.
+
+Remaining failure without SwiftShader: VirtualBox's OpenGL is the limit (wined3d
+cannot create a 4.4 context). It is not a Wine/Proton difference. On real GPUs, or with
+DXVK over Mesa (lavapipe is installed in the VM), hardware ANGLE should be tested
+separately.
+
 ## Minimal setup
 
 The lab uses Microsoft's x64 SDK **1.0.4258.31** and Fixed Version runtime
