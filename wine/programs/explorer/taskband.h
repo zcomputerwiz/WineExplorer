@@ -69,6 +69,7 @@ void taskband_activate_window(HWND hwnd);
 void taskband_update_window(HWND hwnd);
 void taskband_flash_window(HWND hwnd);
 void taskband_sync_windows(void);
+BOOL taskband_is_task_window(HWND hwnd);   /* the windows with a taskbar button (also Alt+Tab's list) */
 
 void taskband_relayout(void);
 LRESULT taskband_handle_shell_hook(WPARAM wparam, LPARAM lparam);

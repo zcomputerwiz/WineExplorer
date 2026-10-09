@@ -36,6 +36,7 @@
 #include "wine/debug.h"
 #include "wine/list.h"
 #include "linux_windows.h"
+#include "shellres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -66,8 +67,19 @@ struct linux_window
     HICON  icon, small_icon;
 };
 
+#define WM_POPUPSYSTEMMENU 0x0313   /* undocumented: what the taskbar sends to show a window's system menu */
+
 static struct list windows = LIST_INIT( windows );
 static HWND events_hwnd;
+
+/* a program moving or sizing its window from its own title bar (WEX_WM_MOVERESIZE) */
+static struct
+{
+    struct linux_window *lw;
+    DWORD direction;        /* 0-7 edges from the top-left corner clockwise, 8 move */
+    POINT start;
+    RECT  rect;
+} drag;
 
 static struct linux_window *find_window( UINT64 window )
 {
@@ -79,7 +91,9 @@ static struct linux_window *find_window( UINT64 window )
 static void host_style( const struct linux_window *lw, BOOL owned, DWORD *style, DWORD *ex_style )
 {
     *ex_style = 0;
-    if ((lw->flags & WEX_WM_NO_BORDER) || lw->window_type == WEX_WM_TYPE_SPLASH) *style = WS_POPUP;
+    if (lw->window_type == WEX_WM_TYPE_SPLASH) *style = WS_POPUP;
+    /* the program draws its title bar; the window menu, minimize and maximize still work through the host */
+    else if (lw->flags & WEX_WM_NO_BORDER) *style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
     else if (lw->window_type == WEX_WM_TYPE_DIALOG) *style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME;
     else if (lw->window_type == WEX_WM_TYPE_UTILITY)
     {
@@ -162,6 +176,10 @@ static void update_icon( struct linux_window *lw )
 {
     HICON icon = get_icon( lw->window, GetSystemMetrics( SM_CXICON ) );
     HICON small_icon = get_icon( lw->window, GetSystemMetrics( SM_CXSMICON ) );
+
+    /* like a Windows program without an icon: the generic program icon (shell32 resource 3) */
+    if (!icon) icon = shellres_icon( 3, GetSystemMetrics( SM_CXICON ) );
+    if (!small_icon) small_icon = shellres_icon( 3, GetSystemMetrics( SM_CXSMICON ) );
 
     SendMessageW( lw->host, WM_SETICON, ICON_BIG, (LPARAM)icon );
     SendMessageW( lw->host, WM_SETICON, ICON_SMALL, (LPARAM)small_icon );
@@ -340,8 +358,36 @@ static void configure_window( struct linux_window *lw, const WEX_WM_EVENT *event
     SetWindowPos( lw->host, NULL, event->rect.left, event->rect.top, rect.right - rect.left, rect.bottom - rect.top, flags );
 }
 
+static void drag_to( POINT pt )
+{
+    enum { LEFT = 1, TOP = 2, RIGHT = 4, BOTTOM = 8 };
+    static const BYTE edges[8] = { LEFT | TOP, TOP, RIGHT | TOP, RIGHT, RIGHT | BOTTOM, BOTTOM, LEFT | BOTTOM, LEFT };
+    MINMAXINFO info = { 0 };
+    RECT rect = drag.rect;
+    int dx = pt.x - drag.start.x, dy = pt.y - drag.start.y;
+    BYTE edge;
+
+    if (drag.direction == 8) OffsetRect( &rect, dx, dy );
+    else
+    {
+        info.ptMinTrackSize.x = GetSystemMetrics( SM_CXMINTRACK );
+        info.ptMinTrackSize.y = GetSystemMetrics( SM_CYMINTRACK );
+        info.ptMaxTrackSize.x = GetSystemMetrics( SM_CXMAXTRACK );
+        info.ptMaxTrackSize.y = GetSystemMetrics( SM_CYMAXTRACK );
+        SendMessageW( drag.lw->host, WM_GETMINMAXINFO, 0, (LPARAM)&info );
+        edge = edges[drag.direction];
+        if (edge & LEFT) rect.left = min( rect.right - info.ptMinTrackSize.x, max( rect.right - info.ptMaxTrackSize.x, rect.left + dx ));
+        if (edge & RIGHT) rect.right = max( rect.left + info.ptMinTrackSize.x, min( rect.left + info.ptMaxTrackSize.x, rect.right + dx ));
+        if (edge & TOP) rect.top = min( rect.bottom - info.ptMinTrackSize.y, max( rect.bottom - info.ptMaxTrackSize.y, rect.top + dy ));
+        if (edge & BOTTOM) rect.bottom = max( rect.top + info.ptMinTrackSize.y, min( rect.top + info.ptMaxTrackSize.y, rect.bottom + dy ));
+    }
+    SetWindowPos( drag.lw->host, NULL, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                  SWP_NOZORDER | SWP_NOACTIVATE );
+}
+
 static void handle_event( const WEX_WM_EVENT *event )
 {
+    POINT pt = { event->rect.left, event->rect.top };
     struct linux_window *lw;
     DWORD state;
 
@@ -352,8 +398,17 @@ static void handle_event( const WEX_WM_EVENT *event )
     }
     if (event->type == WEX_WM_KEY)
     {
-        /* the Windows key and Ctrl+Esc reach the shell window, as on Windows */
-        PostMessageW( GetShellWindow(), WM_SYSCOMMAND, SC_TASKLIST, 0 );
+        /* replayed into Wine: the keyboard hook, hotkeys and the focused host handle it as for a Windows program */
+        INPUT input = { INPUT_KEYBOARD };
+        WORD vk = event->value;
+
+        input.ki.wVk = vk;
+        input.ki.wScan = MapVirtualKeyW( vk, MAPVK_VK_TO_VSC );
+        if (event->flags & WEX_WM_KEY_UP) input.ki.dwFlags |= KEYEVENTF_KEYUP;
+        if (vk == VK_LWIN || vk == VK_RWIN || vk == VK_RMENU || vk == VK_RCONTROL || (vk >= VK_PRIOR && vk <= VK_DOWN) ||
+            vk == VK_DELETE)
+            input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+        SendInput( 1, &input, sizeof(input) );
         return;
     }
     if (!(lw = find_window( event->window ))) return;
@@ -391,6 +446,22 @@ static void handle_event( const WEX_WM_EVENT *event )
     case WEX_WM_HINTS:
         lw->min_size = event->min_size;
         lw->max_size = event->max_size;
+        break;
+    case WEX_WM_MOVERESIZE:
+        /* as on Windows, a maximized window is not moved or sized (the pointer grab ends with the button) */
+        if (!lw->managed || lw->fullscreen || IsZoomed( lw->host ) || IsIconic( lw->host )) break;
+        drag.lw = lw;
+        drag.direction = event->value;
+        drag.start = pt;
+        GetWindowRect( lw->host, &drag.rect );
+        break;
+    case WEX_WM_DRAG:
+        if (drag.lw != lw) break;
+        drag_to( pt );
+        if (event->value) drag.lw = NULL;
+        break;
+    case WEX_WM_MENU:
+        PostMessageW( lw->host, WM_POPUPSYSTEMMENU, 0, MAKELPARAM( pt.x, pt.y ));
         break;
     }
 }
@@ -468,6 +539,7 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     case WM_NCDESTROY:
         if (lw)
         {
+            if (drag.lw == lw) drag.lw = NULL;
             list_remove( &lw->entry );
             if (lw->icon) DestroyIcon( lw->icon );
             if (lw->small_icon) DestroyIcon( lw->small_icon );

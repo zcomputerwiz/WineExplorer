@@ -31,6 +31,7 @@
 #include "power_mgmt.h"
 #include "uac_agent.h"
 #include "linux_windows.h"
+#include "alttab.h"
 #include "taskbar_props.h"
 #include "nettray.h"
 #include "volumetray.h"

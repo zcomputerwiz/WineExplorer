@@ -50,6 +50,13 @@
 
 static TASKBAND g_taskband;
 
+static BOOL is_window_taskbar_candidate(HWND hwnd);
+
+BOOL taskband_is_task_window(HWND hwnd)
+{
+    return is_window_taskbar_candidate(hwnd);
+}
+
 static BOOL is_window_taskbar_candidate(HWND hwnd)
 {
     DWORD style, exstyle;

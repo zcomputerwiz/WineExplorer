@@ -172,8 +172,13 @@ DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist);
 #define WEX_WM_STATE      6   /* states: WEX_WM_STATE_* to change, value: 0 remove, 1 add, 2 toggle */
 #define WEX_WM_ACTIVATE   7   /* the program asks to be activated, or was clicked */
 #define WEX_WM_MINIMIZE   8   /* the program asks to be minimized */
-#define WEX_WM_KEY        9   /* a shell key while a Linux window has the keyboard: value VK_LWIN, or VK_ESCAPE for Ctrl+Esc */
+#define WEX_WM_KEY        9   /* a key of a shell combination (Windows key, Ctrl+Esc, Alt+Tab, Alt+F4) while a Linux
+                               * window has the keyboard, to replay into Wine: value VK, flags WEX_WM_KEY_UP */
 #define WEX_WM_HINTS     10   /* min_size or max_size changed */
+#define WEX_WM_MOVERESIZE 11  /* the program's title bar or edge was dragged: value 0-7 edge (top-left clockwise to
+                               * left, as _NET_WM_MOVERESIZE), 8 move; rect.left/top: pointer on the screen */
+#define WEX_WM_DRAG      12   /* the pointer moved during it (rect.left/top), value 1 when the button is released */
+#define WEX_WM_MENU      13   /* show the window menu at rect.left/top */
 
 #define WEX_WM_TYPE_NORMAL   0
 #define WEX_WM_TYPE_DIALOG   1
@@ -185,6 +190,7 @@ DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist);
 #define WEX_WM_EXISTING   0x04   /* MAP: already on the screen when the window manager started */
 #define WEX_WM_MOVE       0x08   /* CONFIGURE */
 #define WEX_WM_SIZE       0x10   /* CONFIGURE */
+#define WEX_WM_KEY_UP     0x20   /* KEY */
 
 #define WEX_WM_STATE_FULLSCREEN  0x01
 #define WEX_WM_STATE_MAXIMIZED   0x02

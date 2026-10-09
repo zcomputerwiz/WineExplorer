@@ -9,6 +9,7 @@ VER_PRODUCTVERSION      = 6,1,7601,17567
 
 SOURCES = \
 	agent_char.c \
+	alttab.c \
 	appbar.c \
 	audio_backend.c \
 	browser_taskpane.c \

@@ -51,6 +51,7 @@
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#include <X11/cursorfont.h>
 enum { x_control_mask = ControlMask, x_lock_mask = LockMask, x_numlock_mask = Mod2Mask };
 #undef Status
 #undef ControlMask
@@ -77,7 +78,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(wexhost);
     FUNC(XGrabButton) FUNC(XUngrabButton) FUNC(XGrabKey) FUNC(XUngrabKey) FUNC(XAllowEvents) \
     FUNC(XKeysymToKeycode) FUNC(XGetWMNormalHints) FUNC(XGetTransientForHint) FUNC(XGetWMProtocols) \
     FUNC(XGetWMHints) FUNC(XGetTextProperty) FUNC(Xutf8TextPropertyToTextList) FUNC(XFreeStringList) \
-    FUNC(XLookupKeysym)
+    FUNC(XLookupKeysym) FUNC(XGrabPointer) FUNC(XUngrabPointer) FUNC(XCreateFontCursor) FUNC(XFreeCursor) \
+    FUNC(XCheckTypedEvent) FUNC(XGrabKeyboard) FUNC(XUngrabKeyboard)
 #define FUNC(name) static typeof(name) *p##name;
 X11_FUNCS
 #undef FUNC
@@ -93,7 +95,7 @@ enum atom
     NET_WM_WINDOW_TYPE_TOOLBAR, NET_WM_WINDOW_TYPE_SPLASH, NET_WM_WINDOW_TYPE_DOCK, NET_WM_WINDOW_TYPE_DESKTOP,
     NET_WM_WINDOW_TYPE_MENU, NET_WM_WINDOW_TYPE_DROPDOWN_MENU, NET_WM_WINDOW_TYPE_POPUP_MENU,
     NET_WM_WINDOW_TYPE_TOOLTIP, NET_WM_WINDOW_TYPE_NOTIFICATION, NET_WM_WINDOW_TYPE_COMBO, NET_WM_WINDOW_TYPE_DND,
-    MOTIF_WM_HINTS,
+    MOTIF_WM_HINTS, NET_WM_MOVERESIZE, GTK_SHOW_WINDOW_MENU, NET_WM_PID,
     ATOM_COUNT
 };
 
@@ -109,7 +111,7 @@ static const char * const atom_names[ATOM_COUNT] =
     "_NET_WM_WINDOW_TYPE_DESKTOP", "_NET_WM_WINDOW_TYPE_MENU", "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU",
     "_NET_WM_WINDOW_TYPE_POPUP_MENU", "_NET_WM_WINDOW_TYPE_TOOLTIP", "_NET_WM_WINDOW_TYPE_NOTIFICATION",
     "_NET_WM_WINDOW_TYPE_COMBO", "_NET_WM_WINDOW_TYPE_DND",
-    "_MOTIF_WM_HINTS",
+    "_MOTIF_WM_HINTS", "_NET_WM_MOVERESIZE", "_GTK_SHOW_WINDOW_MENU", "_NET_WM_PID",
 };
 
 #define MWM_HINTS_DECORATIONS 2
@@ -137,8 +139,9 @@ static int x_error;
 static struct client clients[MAX_CLIENTS];
 static unsigned int client_count;
 static Window active_window;
-static KeyCode super_keys[2], escape_key;
-static BOOL super_down, super_used;
+static Window drag_window;   /* moved or sized for its program (_NET_WM_MOVERESIZE) */
+static Cursor drag_cursor;
+static KeyCode super_keys[2], escape_key, tab_key, f4_key;
 static pthread_t loop_thread;
 static int wake_pipe[2] = { -1, -1 };
 static BOOL running;
@@ -343,11 +346,19 @@ static void grab_input( Window window, BOOL grab )
     /* click to activate: the click is replayed to the program afterwards (wm_loop) */
     pXGrabButton( display, AnyButton, AnyModifier, window, False, ButtonPressMask, GrabModeSync, GrabModeAsync,
                   None, None );
-    /* the shell keys: the program has the keyboard, so Explorer's own hooks never see them */
+    /* the shell keys: the program has the keyboard, so Wine never sees them; key_event replays them into Wine */
     for (i = 0; i < 2; i++)
         if (super_keys[i]) pXGrabKey( display, super_keys[i], AnyModifier, window, True, GrabModeAsync, GrabModeAsync );
     for (i = 0; i < ARRAYSIZE(locks); i++)
+    {
         if (escape_key) pXGrabKey( display, escape_key, x_control_mask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
+        if (tab_key)
+        {
+            pXGrabKey( display, tab_key, Mod1Mask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
+            pXGrabKey( display, tab_key, Mod1Mask | ShiftMask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
+        }
+        if (f4_key) pXGrabKey( display, f4_key, Mod1Mask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
+    }
 }
 
 static DWORD window_type( Window window )
@@ -403,9 +414,6 @@ static void get_size_limits( Window window, WEX_WM_EVENT *event )
     long supplied = 0;
 
     if (!pXGetWMNormalHints( display, window, &hints, &supplied )) return;
-    /* a position the user gave (-geometry) is kept; one the program chose only when it is not the origin, which
-     * toolkits send when they mean "anywhere" (Openbox does the same) */
-    if (supplied & USPosition) event->flags |= WEX_WM_POSITION;
     if (supplied & PMinSize) { event->min_size.cx = hints.min_width; event->min_size.cy = hints.min_height; }
     if (supplied & PMaxSize) { event->max_size.cx = hints.max_width; event->max_size.cy = hints.max_height; }
 }
@@ -453,6 +461,8 @@ static void map_request( Window window, BOOL existing )
     if (pXGetTransientForHint( display, window, &owner ) && owner != root) event.owner = owner;
     event.window_type = window_type( window );
     get_size_limits( window, &event );
+    /* a window placed by its program or the user (-geometry) keeps its place; GTK maps at the origin with a user
+     * position when it means "anywhere", so the origin never counts as a choice */
     if (attr.x || attr.y) event.flags |= WEX_WM_POSITION;
     if (no_border( window )) event.flags |= WEX_WM_NO_BORDER;
     if (existing) event.flags |= WEX_WM_EXISTING;
@@ -468,6 +478,8 @@ static void map_request( Window window, BOOL existing )
     push_event( &event );
 }
 
+static void end_drag( int x, int y );
+
 /* The program withdrew or destroyed its window: hand it back to the root window and tell the shell. */
 static void withdraw( struct client *client, BOOL destroyed )
 {
@@ -475,6 +487,7 @@ static void withdraw( struct client *client, BOOL destroyed )
     BOOL managed = client->managed;
 
     TRACE( "withdraw %lx destroyed %d\n", window, destroyed );
+    if (drag_window == window) end_drag( 0, 0 );
     if (!destroyed)
     {
         pXSelectInput( display, window, NoEventMask );
@@ -539,6 +552,52 @@ static void configure_request( XConfigureRequestEvent *request )
     if (event.flags) push_event( &event );
 }
 
+static void push_point( DWORD type, Window window, DWORD value, int x, int y )
+{
+    WEX_WM_EVENT event;
+    memset( &event, 0, sizeof(event) );
+    event.type = type;
+    event.window = window;
+    event.value = value;
+    event.rect.left = event.rect.right = x;
+    event.rect.top = event.rect.bottom = y;
+    push_event( &event );
+}
+
+static void end_drag( int x, int y )
+{
+    pXUngrabPointer( display, CurrentTime );
+    if (drag_cursor) pXFreeCursor( display, drag_cursor );
+    drag_cursor = 0;
+    push_point( WEX_WM_DRAG, drag_window, 1, x, y );
+    drag_window = 0;
+}
+
+/* EWMH _NET_WM_MOVERESIZE from a window that draws its own title bar (GTK, Steam): as window managers do, we grab
+ * the pointer and the shell moves or sizes the host while it moves; Wine's own move loop cannot be used, it never
+ * saw the button go down. */
+static void start_drag( struct client *client, long direction, int x, int y )
+{
+    static const unsigned int cursors[9] =
+    {
+        XC_top_left_corner, XC_top_side, XC_top_right_corner, XC_right_side, XC_bottom_right_corner,
+        XC_bottom_side, XC_bottom_left_corner, XC_left_side, XC_fleur
+    };
+
+    if (drag_window || direction < 0 || direction > 8) return;
+    drag_cursor = pXCreateFontCursor( display, cursors[direction] );
+    if (pXGrabPointer( display, root, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync,
+                       None, drag_cursor, CurrentTime ) != GrabSuccess)
+    {
+        WARN( "cannot grab the pointer to move %lx\n", client->window );
+        pXFreeCursor( display, drag_cursor );
+        drag_cursor = 0;
+        return;
+    }
+    drag_window = client->window;
+    push_point( WEX_WM_MOVERESIZE, drag_window, direction, x, y );
+}
+
 static void client_message( XClientMessageEvent *message )
 {
     struct client *client = find_client( message->window );
@@ -567,6 +626,14 @@ static void client_message( XClientMessageEvent *message )
         if (has_protocol( client->window, atoms[WM_DELETE_WINDOW] )) send_protocol( client->window, atoms[WM_DELETE_WINDOW] );
         else pXKillClient( display, client->window );
     }
+    else if (message->message_type == atoms[NET_WM_MOVERESIZE] && client->managed)
+    {
+        /* x, y, direction (0-7 edges, 8 move, 9-10 keyboard, 11 cancel), button, source */
+        if (message->data.l[2] == 11) { if (drag_window == client->window) end_drag( message->data.l[0], message->data.l[1] ); }
+        else start_drag( client, message->data.l[2], message->data.l[0], message->data.l[1] );
+    }
+    else if (message->message_type == atoms[GTK_SHOW_WINDOW_MENU] && client->managed)
+        push_point( WEX_WM_MENU, client->window, 0, message->data.l[1], message->data.l[2] );
     else TRACE( "unhandled client message %lu for %lx\n", message->message_type, message->window );
 }
 
@@ -589,22 +656,93 @@ static void property_notify( XPropertyEvent *property )
     }
 }
 
-/* the Windows key alone opens Start; with another key it is a combination the program never sees */
+static WORD vk_from_keysym( KeySym sym )
+{
+    if (sym >= XK_a && sym <= XK_z) return 'A' + sym - XK_a;
+    if (sym >= XK_0 && sym <= XK_9) return '0' + sym - XK_0;
+    if (sym >= XK_F1 && sym <= XK_F24) return VK_F1 + sym - XK_F1;
+    switch (sym)
+    {
+    case XK_Super_L: return VK_LWIN;
+    case XK_Super_R: return VK_RWIN;
+    case XK_Alt_L: case XK_Meta_L: return VK_LMENU;
+    case XK_Alt_R: case XK_Meta_R: case XK_ISO_Level3_Shift: return VK_RMENU;
+    case XK_Control_L: return VK_LCONTROL;
+    case XK_Control_R: return VK_RCONTROL;
+    case XK_Shift_L: return VK_LSHIFT;
+    case XK_Shift_R: return VK_RSHIFT;
+    case XK_Tab: case XK_ISO_Left_Tab: return VK_TAB;
+    case XK_Escape: return VK_ESCAPE;
+    case XK_Return: case XK_KP_Enter: return VK_RETURN;
+    case XK_space: return VK_SPACE;
+    case XK_Left: return VK_LEFT;
+    case XK_Right: return VK_RIGHT;
+    case XK_Up: return VK_UP;
+    case XK_Down: return VK_DOWN;
+    case XK_Home: return VK_HOME;
+    case XK_End: return VK_END;
+    case XK_Pause: case XK_Break: return VK_PAUSE;
+    case XK_Delete: return VK_DELETE;
+    }
+    return 0;
+}
+
+static void push_key( WORD vk, BOOL up )
+{
+    WEX_WM_EVENT event;
+    memset( &event, 0, sizeof(event) );
+    event.type = WEX_WM_KEY;
+    event.value = vk;
+    if (up) event.flags = WEX_WM_KEY_UP;
+    push_event( &event );
+}
+
+/* The shell keys reach Wine as if a Win32 window had had the keyboard, so Explorer's keyboard hook, its hotkeys and
+ * DefWindowProc (Alt+F4) handle them as they do for Windows programs.  A grab of ours starts a replay: the modifiers
+ * already held are pressed in Wine first, every key until the combination ends follows, and the replay ends with
+ * the key that started it (Windows key, Ctrl+Esc, Alt+F4) or with Alt (Alt+Tab, during which we hold the keyboard). */
+static struct
+{
+    BOOL  active;
+    BOOL  alt_tab;
+    KeyCode key;        /* the key that started it */
+    WORD  held[3];      /* modifiers we pressed in Wine */
+    unsigned int held_count;
+} replay;
+
+static void end_replay(void)
+{
+    while (replay.held_count) push_key( replay.held[--replay.held_count], TRUE );
+    if (replay.alt_tab) pXUngrabKeyboard( display, CurrentTime );
+    memset( &replay, 0, sizeof(replay) );
+}
+
 static void key_event( XKeyEvent *key )
 {
-    BOOL super = key->keycode == super_keys[0] || key->keycode == super_keys[1];
+    WORD vk = vk_from_keysym( pXLookupKeysym( key, 0 ) );
+    BOOL up = key->type == KeyRelease;
 
-    if (key->type == KeyPress)
+    if (!replay.active)
     {
-        if (super) { super_down = TRUE; super_used = FALSE; }
-        else if (key->keycode == escape_key && (key->state & x_control_mask)) push_simple( WEX_WM_KEY, 0, VK_ESCAPE );
-        else if (super_down) super_used = TRUE;
+        if (up) return;
+        replay.active = TRUE;
+        replay.key = key->keycode;
+        if (key->state & x_control_mask) push_key( replay.held[replay.held_count++] = VK_LCONTROL, FALSE );
+        if (key->state & Mod1Mask) push_key( replay.held[replay.held_count++] = VK_LMENU, FALSE );
+        if (key->state & ShiftMask) push_key( replay.held[replay.held_count++] = VK_LSHIFT, FALSE );
+        /* Alt+Tab lasts until Alt is released: keep the keyboard until then */
+        if (key->keycode == tab_key && (key->state & Mod1Mask))
+            replay.alt_tab = pXGrabKeyboard( display, root, False, GrabModeAsync, GrabModeAsync, CurrentTime ) == GrabSuccess;
     }
-    else if (super)
+    if (vk)
     {
-        if (super_down && !super_used) push_simple( WEX_WM_KEY, 0, VK_LWIN );
-        super_down = FALSE;
+        /* modifiers we pressed for the replay and that are released now need no second release */
+        unsigned int i;
+        for (i = 0; up && i < replay.held_count; i++)
+            if (replay.held[i] == vk) { replay.held[i] = replay.held[--replay.held_count]; break; }
+        push_key( vk, up );
     }
+    if (up && (replay.alt_tab ? vk == VK_LMENU || vk == VK_RMENU : key->keycode == replay.key)) end_replay();
 }
 
 static void handle_event( XEvent *event )
@@ -646,6 +784,14 @@ static void handle_event( XEvent *event )
         pXAllowEvents( display, ReplayPointer, CurrentTime );
         if ((client = find_client( event->xbutton.window )) && client->window != active_window)
             push_simple( WEX_WM_ACTIVATE, client->window, 0 );
+        break;
+    case MotionNotify:
+        if (!drag_window) break;
+        while (pXCheckTypedEvent( display, MotionNotify, event )) ;   /* only the latest position matters */
+        push_point( WEX_WM_DRAG, drag_window, 0, event->xmotion.x_root, event->xmotion.y_root );
+        break;
+    case ButtonRelease:
+        if (drag_window) end_drag( event->xbutton.x_root, event->xbutton.y_root );
         break;
     case KeyPress:
     case KeyRelease:
@@ -690,7 +836,7 @@ static void set_supported(void)
         NET_CLOSE_WINDOW, NET_FRAME_EXTENTS, NET_REQUEST_FRAME_EXTENTS, NET_WM_STATE, NET_WM_STATE_FULLSCREEN,
         NET_WM_STATE_MAXIMIZED_VERT, NET_WM_STATE_MAXIMIZED_HORZ, NET_WM_STATE_HIDDEN, NET_WM_STATE_ABOVE,
         NET_WM_STATE_FOCUSED, NET_WM_WINDOW_TYPE, NET_WM_WINDOW_TYPE_NORMAL, NET_WM_WINDOW_TYPE_DIALOG,
-        NET_WM_WINDOW_TYPE_UTILITY, NET_WM_WINDOW_TYPE_SPLASH,
+        NET_WM_WINDOW_TYPE_UTILITY, NET_WM_WINDOW_TYPE_SPLASH, NET_WM_MOVERESIZE, GTK_SHOW_WINDOW_MENU,
     };
     Atom list[ARRAYSIZE(supported)];
     static const char name[] = "WineExplorer";
@@ -758,6 +904,8 @@ NTSTATUS wm_start( void *args )
     super_keys[0] = pXKeysymToKeycode( display, XK_Super_L );
     super_keys[1] = pXKeysymToKeycode( display, XK_Super_R );
     escape_key = pXKeysymToKeycode( display, XK_Escape );
+    tab_key = pXKeysymToKeycode( display, XK_Tab );
+    f4_key = pXKeysymToKeycode( display, XK_F4 );
     set_supported();
     scan();
     pXSync( display, False );

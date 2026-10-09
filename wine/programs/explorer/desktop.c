@@ -1239,6 +1239,9 @@ static LRESULT CALLBACK winkey_hook( int code, WPARAM wp, LPARAM lp )
         BOOL win = kb->vkCode == VK_LWIN || kb->vkCode == VK_RWIN;
         BOOL down = wp == WM_KEYDOWN || wp == WM_SYSKEYDOWN;
 
+        /* Alt+Tab: the switcher takes Tab and its navigation keys */
+        if (alttab_key( kb->vkCode, down )) return 1;
+
         if (win && down)
         {
             if (!win_down) win_used = FALSE;
