@@ -64,3 +64,17 @@ original preferences were preserved and the temporary icon/registry entry remove
 `scripts/tray-layout-probe.c` checked actual visible child-window rectangles:
 two icons collapsed and three expanded passed with no overlap between icons,
 clock, or task band, and no icon outside the taskbar's bounds.
+## Always-on-top verification (2026-10-09)
+
+The taskbar was verified against a blank Notepad window in the current X11 VM.
+With Keep the taskbar on top enabled, `Shell_TrayWnd` retained `WS_EX_TOPMOST`
+while Notepad was activated, maximized, and manually sized to cover the entire
+800x600 display. Hit testing at the Start button, middle task band, and clock
+returned the taskbar or its children, and a VM screenshot confirmed that Notepad
+painted behind the taskbar. Maximization respected the reserved desktop work area.
+
+With AutoHide temporarily enabled, the taskbar hid to y=598 and revealed to y=570
+above the still-active Notepad when the pointer reached the bottom edge. The
+original registry setting and Notepad placement were restored; all six checks
+passed. No implementation change was needed: `position_taskbar` already uses
+`HWND_TOPMOST` when AlwaysOnTop or AutoHide is enabled.
