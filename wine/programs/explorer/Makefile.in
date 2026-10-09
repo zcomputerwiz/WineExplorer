@@ -18,6 +18,7 @@ SOURCES = \
 	explorer.c \
 	explorer.rc \
 	instant_search.c \
+	linux_windows.c \
 	net_backend.c \
 	net_props.c \
 	nettray.c \

@@ -8,4 +8,5 @@ UNIX_LIBS   = $(PTHREAD_LIBS)
 SOURCES = \
 	display.c \
 	unixlib.c \
-	wexhost.c
+	wexhost.c \
+	x11wm.c

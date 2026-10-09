@@ -75,6 +75,24 @@ struct display_set_params { WEX_DISPLAY_MODE mode; BOOL persist; DWORD err; };
 extern NTSTATUS display_get(void *args);
 extern NTSTATUS display_set(void *args);
 
+struct wm_start_params { UINT64 desktop; DWORD err; };
+struct wm_next_event_params { WEX_WM_EVENT event; DWORD err; };
+struct wm_manage_params { UINT64 window; UINT64 parent; RECT client; RECT screen; DWORD err; };
+struct wm_window_params { UINT64 window; RECT client; RECT screen; DWORD value; DWORD err; };
+struct wm_get_title_params { UINT64 window; char title[1024]; DWORD err; };
+struct wm_get_icon_params { UINT64 window; DWORD size; ULONG64 pixels; DWORD max; DWORD width; DWORD height; DWORD err; };
+struct wm_stop_params { DWORD err; };
+extern NTSTATUS wm_start(void *args);
+extern NTSTATUS wm_next_event(void *args);
+extern NTSTATUS wm_manage(void *args);
+extern NTSTATUS wm_configure(void *args);
+extern NTSTATUS wm_set_state(void *args);
+extern NTSTATUS wm_close(void *args);
+extern NTSTATUS wm_release(void *args);
+extern NTSTATUS wm_get_title(void *args);
+extern NTSTATUS wm_get_icon(void *args);
+extern NTSTATUS wm_stop(void *args);
+
 enum wexhost_funcs
 {
     unix_init,
@@ -100,6 +118,16 @@ enum wexhost_funcs
     unix_net_enable,
     unix_display_get,
     unix_display_set,
+    unix_wm_start,
+    unix_wm_next_event,
+    unix_wm_manage,
+    unix_wm_configure,
+    unix_wm_set_state,
+    unix_wm_close,
+    unix_wm_release,
+    unix_wm_get_title,
+    unix_wm_get_icon,
+    unix_wm_stop,
     unix_funcs_count
 };
 

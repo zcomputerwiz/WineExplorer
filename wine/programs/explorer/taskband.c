@@ -64,14 +64,16 @@ static BOOL is_window_taskbar_candidate(HWND hwnd)
     if (hwnd == g_taskband.parent_tray || hwnd == g_taskband.hwnd || hwnd == GetDesktopWindow() || hwnd == root_desktop)
         return FALSE;
 
-    /* Ignore our own explorer process windows EXCEPT cabinet/explore folder windows */
+    /* Ignore our own explorer process windows EXCEPT cabinet/explore folder windows and the hosts of Linux
+     * programs' windows (linux_windows.c) */
     GetWindowThreadProcessId(hwnd, &process_id);
     if (process_id == GetCurrentProcessId())
     {
         WCHAR cls[64];
         if (GetClassNameW(hwnd, cls, ARRAY_SIZE(cls)))
         {
-            if (wcscmp(cls, L"CabinetWClass") != 0 && wcscmp(cls, L"ExploreWClass") != 0)
+            if (wcscmp(cls, L"CabinetWClass") != 0 && wcscmp(cls, L"ExploreWClass") != 0 &&
+                wcscmp(cls, L"WineExplorerLinuxWindow") != 0)
                 return FALSE;
         }
         else return FALSE;

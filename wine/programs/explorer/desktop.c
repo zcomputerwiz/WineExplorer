@@ -1410,6 +1410,7 @@ void manage_desktop( WCHAR *arg )
             theme_init( hwnd );
             desktop_view_create( hwnd, width, height );
             uac_agent_start();
+            linux_windows_start();
         }
         else if (!using_root && enable_launchers) initialize_launchers( hwnd );
         initialize_systray( using_root, enable_shell, show_systray, no_tray_items );
@@ -1457,6 +1458,7 @@ void manage_desktop( WCHAR *arg )
     }
 
     if (pShellDDEInit) pShellDDEInit( FALSE );
+    linux_windows_stop();
 
     ExitProcess( 0 );
 }

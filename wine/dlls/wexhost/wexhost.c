@@ -23,6 +23,7 @@
 
 #include <windef.h>
 #include <winbase.h>
+#include <winnls.h>
 #include <winuser.h>
 #include <winternl.h>
 
@@ -315,6 +316,134 @@ DWORD WINAPI WexAgentRespond( const char *cookie, const char *user, const char *
     ret = params.err;
     SecureZeroMemory( &params, sizeof(params) );
     return ret;
+}
+
+static HANDLE wm_thread;
+static WEX_WM_CALLBACK wm_callback;
+static void *wm_context;
+
+static DWORD WINAPI wm_event_thread( void *arg )
+{
+    for (;;)
+    {
+        struct wm_next_event_params params;
+
+        WEXHOST_CALL( wm_next_event, &params );
+        if (params.event.type == WEX_WM_STOP) break;
+        wm_callback( &params.event, wm_context );
+    }
+    return 0;
+}
+
+DWORD WINAPI WexWmStart( UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context )
+{
+    struct wm_start_params params = { desktop_window };
+
+    if (!unix_ready || !callback) return ERROR_NOT_SUPPORTED;
+    if (wm_thread) return ERROR_ALREADY_EXISTS;
+    wm_callback = callback;
+    wm_context = context;
+    WEXHOST_CALL( wm_start, &params );
+    if (params.err) return params.err;
+    wm_thread = CreateThread( NULL, 0, wm_event_thread, NULL, 0, NULL );
+    return wm_thread ? ERROR_SUCCESS : ERROR_GEN_FAILURE;
+}
+
+DWORD WINAPI WexWmManage( UINT64 window, UINT64 parent, const RECT *client, const RECT *screen )
+{
+    struct wm_manage_params params;
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    memset( &params, 0, sizeof(params) );
+    params.window = window;
+    params.parent = parent;
+    if (client) params.client = *client;
+    if (screen) params.screen = *screen;
+    WEXHOST_CALL( wm_manage, &params );
+    return params.err;
+}
+
+static DWORD wm_window_call( unsigned int code, UINT64 window, const RECT *client, const RECT *screen, DWORD value )
+{
+    struct wm_window_params params;
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    memset( &params, 0, sizeof(params) );
+    params.window = window;
+    if (client) params.client = *client;
+    if (screen) params.screen = *screen;
+    params.value = value;
+    __wine_unix_call( __wine_unixlib_handle, code, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexWmConfigure( UINT64 window, const RECT *client, const RECT *screen )
+{
+    return wm_window_call( unix_wm_configure, window, client, screen, 0 );
+}
+
+DWORD WINAPI WexWmSetState( UINT64 window, DWORD states )
+{
+    return wm_window_call( unix_wm_set_state, window, NULL, NULL, states );
+}
+
+DWORD WINAPI WexWmClose( UINT64 window )
+{
+    return wm_window_call( unix_wm_close, window, NULL, NULL, 0 );
+}
+
+DWORD WINAPI WexWmRelease( UINT64 window, const RECT *screen )
+{
+    return wm_window_call( unix_wm_release, window, NULL, screen, 0 );
+}
+
+DWORD WINAPI WexWmGetTitle( UINT64 window, WCHAR *title, DWORD count )
+{
+    struct wm_get_title_params params;
+
+    if (!title || !count) return ERROR_INVALID_PARAMETER;
+    title[0] = 0;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.window = window;
+    WEXHOST_CALL( wm_get_title, &params );
+    if (!params.err && !MultiByteToWideChar( CP_UTF8, 0, params.title, -1, title, count ))
+    {
+        title[count - 1] = 0;
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) title[0] = 0;
+    }
+    return params.err;
+}
+
+DWORD WINAPI WexWmGetIcon( UINT64 window, DWORD size, DWORD *pixels, DWORD max, DWORD *width, DWORD *height )
+{
+    struct wm_get_icon_params params;
+
+    if (!pixels || !width || !height) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    memset( &params, 0, sizeof(params) );
+    params.window = window;
+    params.size = size;
+    params.pixels = (ULONG_PTR)pixels;
+    params.max = max;
+    WEXHOST_CALL( wm_get_icon, &params );
+    *width = params.width;
+    *height = params.height;
+    return params.err;
+}
+
+void WINAPI WexWmStop( void )
+{
+    struct wm_stop_params params;
+
+    MSG msg;
+
+    if (!unix_ready || !wm_thread) return;
+    WEXHOST_CALL( wm_stop, &params );
+    /* the event thread may be sending its last events to this thread */
+    while (MsgWaitForMultipleObjects( 1, &wm_thread, FALSE, 5000, QS_SENDMESSAGE ) == WAIT_OBJECT_0 + 1)
+        PeekMessageW( &msg, NULL, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE );
+    CloseHandle( wm_thread );
+    wm_thread = NULL;
 }
 
 void WINAPI WexAgentStop( void )

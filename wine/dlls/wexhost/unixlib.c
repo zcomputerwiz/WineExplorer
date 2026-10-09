@@ -1325,6 +1325,16 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     net_enable,
     display_get,
     display_set,
+    wm_start,
+    wm_next_event,
+    wm_manage,
+    wm_configure,
+    wm_set_state,
+    wm_close,
+    wm_release,
+    wm_get_title,
+    wm_get_icon,
+    wm_stop,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

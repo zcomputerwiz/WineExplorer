@@ -1246,7 +1246,7 @@ static BOOL X11DRV_PropertyNotify( HWND hwnd, XEvent *xev )
 void X11DRV_ActivateWindow( HWND hwnd, HWND previous )
 {
     struct x11drv_win_data *data;
-    BOOL flush = FALSE;
+    BOOL flush = FALSE, raise = FALSE;
 
     if (!is_virtual_desktop())
     {
@@ -1261,10 +1261,15 @@ void X11DRV_ActivateWindow( HWND hwnd, HWND previous )
             set_input_focus( data );
             flush = TRUE;
         }
+        raise = is_virtual_desktop() && !data->managed && !data->embedded;
         release_win_data( data );
     }
 
     if (flush) XFlush( x11drv_thread_data()->display );
+    /* WineExplorer: Windows brings the window that becomes active to the top; in a virtual desktop no window manager
+     * does it and set_input_focus no longer raises in X, so raise it in the Win32 z-order, which the X stacking
+     * follows (below topmost windows such as the taskbar) */
+    if (raise) NtUserSetWindowPos( hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE );
 }
 
 static void drag_drop_enter( UINT entries_size, struct format_entry *entries )

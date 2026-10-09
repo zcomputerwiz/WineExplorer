@@ -160,6 +160,73 @@ typedef struct {
 DWORD WINAPI WexDisplayGet(WEX_DISPLAY *display);
 DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist);
 
+/* Linux windows: wexhost is the X11 window manager for every program that is not ours (native Linux programs,
+ * Steam, Proton games).  The shell puts each of their windows into a Win32 window of its own (the "host"), so the
+ * taskbar, Alt+Tab, the visual style and the z-order treat them like Windows programs.  See docs/LINUX_WINDOWS.md. */
+#define WEX_WM_STOP       0
+#define WEX_WM_MAP        1   /* a window wants to be shown: create its host and call WexWmManage */
+#define WEX_WM_WITHDRAW   2   /* the program hid or destroyed it; it is released already: destroy the host */
+#define WEX_WM_CONFIGURE  3   /* the program asks for another position or size (flags: WEX_WM_MOVE, WEX_WM_SIZE) */
+#define WEX_WM_TITLE      4
+#define WEX_WM_ICON       5
+#define WEX_WM_STATE      6   /* states: WEX_WM_STATE_* to change, value: 0 remove, 1 add, 2 toggle */
+#define WEX_WM_ACTIVATE   7   /* the program asks to be activated, or was clicked */
+#define WEX_WM_MINIMIZE   8   /* the program asks to be minimized */
+#define WEX_WM_KEY        9   /* a shell key while a Linux window has the keyboard: value VK_LWIN, or VK_ESCAPE for Ctrl+Esc */
+#define WEX_WM_HINTS     10   /* min_size or max_size changed */
+
+#define WEX_WM_TYPE_NORMAL   0
+#define WEX_WM_TYPE_DIALOG   1
+#define WEX_WM_TYPE_UTILITY  2
+#define WEX_WM_TYPE_SPLASH   3
+
+#define WEX_WM_POSITION   0x01   /* MAP: the program chose the position (top-left of the frame, as X11 window managers do) */
+#define WEX_WM_NO_BORDER  0x02   /* MAP: asked for no frame (Motif hints) */
+#define WEX_WM_EXISTING   0x04   /* MAP: already on the screen when the window manager started */
+#define WEX_WM_MOVE       0x08   /* CONFIGURE */
+#define WEX_WM_SIZE       0x10   /* CONFIGURE */
+
+#define WEX_WM_STATE_FULLSCREEN  0x01
+#define WEX_WM_STATE_MAXIMIZED   0x02
+#define WEX_WM_STATE_MINIMIZED   0x04
+#define WEX_WM_STATE_ABOVE       0x08
+#define WEX_WM_STATE_FOCUSED     0x10
+
+typedef struct
+{
+    DWORD  type;          /* WEX_WM_* */
+    UINT64 window;        /* the program's X window */
+    UINT64 owner;         /* MAP: the window it belongs to (WM_TRANSIENT_FOR), 0 if none */
+    RECT   rect;          /* MAP, CONFIGURE: client area in screen coordinates */
+    DWORD  window_type;   /* MAP: WEX_WM_TYPE_* */
+    DWORD  flags;         /* WEX_WM_POSITION ... WEX_WM_SIZE */
+    DWORD  states;        /* MAP: initial states; STATE: the states to change */
+    DWORD  value;
+    SIZE   min_size;      /* MAP, HINTS: client size limits, 0 when none */
+    SIZE   max_size;
+} WEX_WM_EVENT;
+
+/* Called on a wexhost thread for every event, like WEX_AGENT_CALLBACK. */
+typedef void (CALLBACK *WEX_WM_CALLBACK)( const WEX_WM_EVENT *event, void *context );
+
+/* desktop_window: the X window of the shell's virtual desktop, which is not managed.  ERROR_ALREADY_EXISTS: another
+ * window manager runs on the display. */
+DWORD WINAPI WexWmStart( UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context );
+/* Put window into the host's X window (parent) at client (the host's client area, relative to parent) and show it;
+ * screen is the same area on the screen.  parent 0 shows it unmanaged instead.  ERROR_INVALID_WINDOW_HANDLE: one of
+ * the windows does not exist (yet). */
+DWORD WINAPI WexWmManage( UINT64 window, UINT64 parent, const RECT *client, const RECT *screen );
+DWORD WINAPI WexWmConfigure( UINT64 window, const RECT *client, const RECT *screen );
+DWORD WINAPI WexWmSetState( UINT64 window, DWORD states );
+DWORD WINAPI WexWmClose( UINT64 window );
+/* Give the window back to the root window (its host goes away while the program keeps it). */
+DWORD WINAPI WexWmRelease( UINT64 window, const RECT *screen );
+DWORD WINAPI WexWmGetTitle( UINT64 window, WCHAR *title, DWORD count );
+/* ARGB pixels, top-down, of the icon closest to size; ERROR_MORE_DATA when max pixels are not enough. */
+DWORD WINAPI WexWmGetIcon( UINT64 window, DWORD size, DWORD *pixels, DWORD max, DWORD *width, DWORD *height );
+/* Release every window to the root window and stop managing the display. */
+void  WINAPI WexWmStop( void );
+
 #ifdef __cplusplus
 }
 #endif
