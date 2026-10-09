@@ -106,7 +106,28 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
             SetTextColor(hdc, color);
         }
 
-        DrawTextW(hdc, time_str, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        {
+            /* a taller taskbar also shows the day of the week and the date under the time, like Windows XP */
+            WCHAR lines[3][64];
+            TEXTMETRICW tm;
+            int count = 1, line_h, i, y;
+
+            lstrcpynW(lines[0], time_str, ARRAY_SIZE(lines[0]));
+            GetTextMetricsW(hdc, &tm);
+            line_h = tm.tmHeight;
+            if (rc.bottom - rc.top >= 3 * line_h)
+            {
+                GetDateFormatW(LOCALE_USER_DEFAULT, 0, NULL, L"dddd", lines[1], ARRAY_SIZE(lines[1]));
+                GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, NULL, NULL, lines[2], ARRAY_SIZE(lines[2]));
+                count = 3;
+            }
+            y = rc.top + (rc.bottom - rc.top - count * line_h) / 2;
+            for (i = 0; i < count; i++, y += line_h)
+            {
+                RECT line = { rc.left, y, rc.right, y + line_h };
+                DrawTextW(hdc, lines[i], -1, &line, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            }
+        }
 
         SelectObject(hdc, old_font);
         DeleteObject(font);

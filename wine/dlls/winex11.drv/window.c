@@ -2137,12 +2137,18 @@ void make_window_embedded( struct x11drv_win_data *data )
  *
  * Synchronize the X window position with the Windows one
  */
+static int restack_error( Display *display, XErrorEvent *event, void *arg )
+{
+    return (event->error_code == BadMatch || event->error_code == BadWindow);
+}
+
 static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags, const struct window_rects *old_rects )
 {
     DWORD style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE );
     DWORD ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
     RECT new_rect, window_rect;
     BOOL above = FALSE;
+    Window below = 0;
 
     if (data->managed && ((style & WS_MINIMIZE) || data->desired_state.wm_state == IconicState)) return;
 
@@ -2155,6 +2161,9 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags, 
         if (!prev) above = TRUE;  /* top child */
         /* should use stack_mode Below but most window managers don't get it right */
         /* and Above with a sibling doesn't work so well either, so we ignore it */
+        /* WineExplorer: in a virtual desktop no window manager is involved, and a new window would otherwise stay
+         * mapped above topmost ones like the taskbar */
+        else if (is_virtual_desktop() && !data->managed && !data->embedded) below = X11DRV_get_whole_window( prev );
     }
 
     set_size_hints( data, style );
@@ -2169,6 +2178,17 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags, 
                                         window_rect.top - old_rects->window.top );
 
     window_set_config( data, new_rect, above );
+
+    if (below && data->whole_window && below != data->whole_window)
+    {
+        XWindowChanges changes = { .sibling = below, .stack_mode = Below };
+
+        /* BadMatch when the other window is not a sibling (embedded or owned by another parent) */
+        TRACE( "window %p/%lx below %lx\n", data->hwnd, data->whole_window, below );
+        X11DRV_expect_error( data->display, restack_error, NULL );
+        XConfigureWindow( data->display, data->whole_window, CWSibling | CWStackMode, &changes );
+        X11DRV_check_error();
+    }
 }
 
 

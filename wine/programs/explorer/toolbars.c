@@ -381,6 +381,11 @@ static void place_items(TOOLBAR *tb)
     ReleaseDC(tb->hwnd, hdc);
 }
 
+static int first_row_height(void)
+{
+    return IsThemeActive() ? 30 : 28;
+}
+
 static RECT item_rect(const TOOLBAR *tb, int i)
 {
     RECT rc;
@@ -388,7 +393,7 @@ static RECT item_rect(const TOOLBAR *tb, int i)
     rc.left = tb->items[i].x;
     rc.right = rc.left + tb->items[i].w;
     rc.top += 3;
-    rc.bottom -= 3;
+    rc.bottom = min(rc.bottom, first_row_height()) - 3;   /* a taller taskbar keeps the buttons in the first row */
     return rc;
 }
 
@@ -398,7 +403,7 @@ static RECT chevron_rect(const TOOLBAR *tb)
     GetClientRect(tb->hwnd, &rc);
     rc.left = rc.right - CHEVRON_W;
     rc.top += 3;
-    rc.bottom -= 3;
+    rc.bottom = min(rc.bottom, first_row_height()) - 3;
     return rc;
 }
 
@@ -860,6 +865,15 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         return 0;
     }
 
+    case WM_NCHITTEST:
+    {
+        /* Windows Classic: the top edge of an unlocked taskbar belongs to the taskbar, which changes its height from there */
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        ScreenToClient(hwnd, &pt);
+        if (pt.y < 3 && !tb_locked() && !IsThemeActive()) return HTTRANSPARENT;
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
     case WM_ERASEBKGND:
         return 1;
 
@@ -991,6 +1005,7 @@ static void register_class(void)
     WNDCLASSW wc = {0};
     if (GetClassInfoW(GetModuleHandleW(NULL), TB_CLASS, &wc)) return;
     wc.lpfnWndProc = toolbar_proc;
+    wc.style = CS_HREDRAW | CS_VREDRAW;   /* everything is laid out from the size: repaint all of it */
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = TB_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);

@@ -478,8 +478,13 @@ static void set_input_focus( struct x11drv_win_data *data )
         timestamp = CurrentTime;
 
     /* Set X focus and install colormap */
-    changes.stack_mode = Above;
-    XConfigureWindow( data->display, data->whole_window, CWStackMode, &changes );
+    /* WineExplorer: in a virtual desktop the stacking follows the Win32 z-order (sync_window_position); raising here
+     * would put the window above topmost ones such as the taskbar */
+    if (!is_virtual_desktop())
+    {
+        changes.stack_mode = Above;
+        XConfigureWindow( data->display, data->whole_window, CWStackMode, &changes );
+    }
 
     if (data->embedder)
         xembed_request_focus( data->display, data->embedder, timestamp );

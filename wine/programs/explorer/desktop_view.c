@@ -694,21 +694,14 @@ static void execute_item(DESKTOP_ITEM *item)
 
     TRACE("Executing desktop item: %s (%s)\n", debugstr_w(item->display_name), debugstr_w(item->target_path));
 
-    /* 1. My Network Places */
-    if (wcsstr(item->target_path, L"208D2C60") != NULL)
+    /* 1. My Computer, My Network Places and the Recycle Bin open their shell folder, like from the Start menu */
+    if (item->type == DESKTOP_ITEM_NAMESPACE && !wcsstr(item->target_path, L"450D8FBA"))
     {
-        ShellExecuteW(NULL, L"open", L"control.exe", L"ncpa.cpl", NULL, SW_SHOWNORMAL);
+        ShellExecuteW(NULL, L"open", L"explorer.exe", item->target_path, NULL, SW_SHOWNORMAL);
         return;
     }
 
-    /* 2. My Computer */
-    if (wcsstr(item->target_path, L"20D04FE0") != NULL)
-    {
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"/e,", NULL, SW_SHOWNORMAL);
-        return;
-    }
-
-    /* 3. My Documents */
+    /* 2. My Documents */
     if (wcsstr(item->target_path, L"450D8FBA") != NULL)
     {
         WCHAR docs_path[MAX_PATH];
@@ -724,14 +717,7 @@ static void execute_item(DESKTOP_ITEM *item)
         return;
     }
 
-    /* 4. Recycle Bin */
-    if (wcsstr(item->target_path, L"645FF040") != NULL)
-    {
-        ShellExecuteW(NULL, L"open", L"explorer.exe", NULL, NULL, SW_SHOWNORMAL);
-        return;
-    }
-
-    /* 5. Directory / Folder */
+    /* 3. Directory / Folder */
     if (item->type == DESKTOP_ITEM_FOLDER || PathIsDirectoryW(item->target_path))
     {
         swprintf(param, ARRAY_SIZE(param), L"\"%s\"", item->target_path);
@@ -739,7 +725,7 @@ static void execute_item(DESKTOP_ITEM *item)
         return;
     }
 
-    /* 6. General file / shortcut / application */
+    /* 4. General file / shortcut / application */
     ShellExecuteW(NULL, L"open", item->target_path,
                   item->arguments[0] ? item->arguments : NULL,
                   NULL, SW_SHOWNORMAL);
@@ -847,8 +833,15 @@ static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
 
     switch (cmd)
     {
-    case IDM_ITEM_OPEN:
     case IDM_ITEM_EXPLORE:
+    {
+        /* the folder with the Folders pane */
+        WCHAR param[MAX_PATH + 8];
+        swprintf(param, ARRAY_SIZE(param), L"/e,%s", item->target_path);
+        ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
+        break;
+    }
+    case IDM_ITEM_OPEN:
         execute_item(item);
         break;
     case IDM_ITEM_MANAGE:

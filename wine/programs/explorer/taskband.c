@@ -35,6 +35,7 @@
 #include "wine/debug.h"
 #include "theme_engine.h"
 #include "taskband.h"
+#include "taskbar_props.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -168,7 +169,11 @@ void taskband_relayout(void)
     int count = g_taskband.task_count;
     int available_width = g_taskband.max_width;
     int button_width = MAX_TASK_BUTTON_WIDTH;
-    int x = 0;
+    BOOL themed = theme_is_visual_styles_active();
+    /* rows as measured on Windows XP: 30 pixels (Classic: 28, then 26 per further row) */
+    int first = themed ? 30 : 28, pitch = themed ? 30 : 26;
+    int rows = max(1, (g_taskband.button_height - first) / pitch + 1);
+    int per_row = max(1, available_width / MAX_TASK_BUTTON_WIDTH), i = 0;
     TASK_ITEM *curr;
 
     if (count <= 0)
@@ -177,21 +182,23 @@ void taskband_relayout(void)
         return;
     }
 
-    if (count * button_width > available_width)
-        button_width = max(MIN_TASK_BUTTON_WIDTH, available_width / count);
-
+    /* the buttons fill the first row at their full width and only use further rows (narrower) when they do not fit */
+    if (count > per_row)
+    {
+        per_row = (count + rows - 1) / rows;
+        button_width = max(MIN_TASK_BUTTON_WIDTH, available_width / per_row);
+    }
     g_taskband.button_width = button_width;
 
-    curr = g_taskband.tasks;
-    while (curr)
+    for (curr = g_taskband.tasks; curr; curr = curr->next, i++)
     {
-        curr->rect.left = x;
-        curr->rect.top = 3;
-        curr->rect.right = x + button_width - 2;
-        curr->rect.bottom = 25;
+        int row = i / per_row, col = i % per_row;
 
-        x += button_width;
-        curr = curr->next;
+        curr->rect.left = col * button_width;
+        curr->rect.right = curr->rect.left + button_width - 2;
+        /* the picture of a styled button has its own margins and covers the whole row */
+        curr->rect.top = row * pitch + (themed ? 0 : 3);
+        curr->rect.bottom = curr->rect.top + (themed ? 30 : 22);
     }
 
     if (g_taskband.hwnd)
@@ -675,6 +682,15 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         KillTimer(hwnd, 1);
         return 0;
 
+    case WM_NCHITTEST:
+    {
+        /* Windows Classic: the top edge of an unlocked taskbar belongs to the taskbar, which changes its height from there */
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        ScreenToClient(hwnd, &pt);
+        if (pt.y < 3 && !taskbar_settings_get()->lock_taskbar && !theme_is_visual_styles_active()) return HTTRANSPARENT;
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
     case WM_ERASEBKGND:
         return 1;
 
@@ -734,6 +750,7 @@ HWND taskband_create(HWND parent_tray, int x, int y, int width, int height)
 
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = taskband_proc;
+    wc.style = CS_HREDRAW | CS_VREDRAW;   /* everything is laid out from the size: repaint all of it */
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = TASKBAND_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);

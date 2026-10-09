@@ -93,7 +93,7 @@ struct icon
     UINT           info_timeout;    /* timeout for info balloon */
     HICON          info_icon;       /* info balloon icon */
     UINT           version;         /* notify icon api version */
-    DWORD          last_active;     /* tick of the last update or mouse use, for "hide inactive icons" */
+    DWORD          last_active;     /* tick of the last change by the program, for "hide inactive icons" */
     BOOL           auto_hidden;     /* hidden only because it is inactive */
     int            behavior;        /* NOTIFY_*, -1 until read from the registry */
 };
@@ -355,6 +355,7 @@ static RECT get_tray_clock_rect(void)
 #define CHEVRON_WIDTH 14
 #define INACTIVE_AFTER 8000
 static BOOL tray_expanded;
+static int first_row_height(void);
 
 static void refresh_inactive_icons(void);
 
@@ -478,7 +479,7 @@ static POINT get_icon_pos( struct icon *icon )
         RECT rcClock = get_tray_clock_rect();
         int icons_width = nb_displayed * 18;
         pos.x = rcClock.left - 4 - icons_width + (icon->display * 18);
-        pos.y = tray_top + (tray_height - icon_cy) / 2;
+        pos.y = tray_top + (first_row_height() - icon_cy) / 2;   /* the icons stay in the first row */
     }
     else
     {
@@ -493,10 +494,53 @@ static POINT get_icon_pos( struct icon *icon )
 #define IDT_THEMEREDRAW 9997
 static BOOL taskbar_hidden;
 
+static const WCHAR rows_key[] = L"Software\\WineExplorer\\Taskbar";
+static int tray_rows;   /* rows of task buttons; an unlocked taskbar is made taller by dragging its top edge */
+
+/* measured on Windows XP: the first row is 30 pixels with a visual style and 28 for Windows Classic, every further
+ * row adds 30 (26 for Classic) */
+static int first_row_height(void)
+{
+    return theme_is_visual_styles_active() ? 30 : 28;
+}
+
+static int row_pitch(void)
+{
+    return theme_is_visual_styles_active() ? 30 : 26;
+}
+
+static int max_rows(void)
+{
+    return max( 1, (GetSystemMetrics( SM_CYSCREEN ) / 2 - first_row_height()) / row_pitch() + 1 );
+}
+
 /* an unlocked taskbar with a visual style has a sizing border of four pixels above the Start button */
 static void update_tray_top(void)
 {
+    if (!tray_rows)
+    {
+        DWORD rows = 1, size = sizeof(rows);
+        RegGetValueW( HKEY_CURRENT_USER, rows_key, L"Rows", RRF_RT_REG_DWORD, NULL, &rows, &size );
+        tray_rows = rows;
+    }
+    tray_rows = max( 1, min( tray_rows, max_rows() ));
     tray_top = (theme_is_visual_styles_active() && !taskbar_settings_get()->lock_taskbar) ? 4 : 0;
+    tray_height = first_row_height() + (tray_rows - 1) * row_pitch();
+}
+
+static BOOL sizing_rows;
+
+/* the top edge of an unlocked taskbar changes its height */
+static BOOL on_sizing_edge( int y )
+{
+    return !taskbar_settings_get()->lock_taskbar && y >= 0 && y < max( tray_top, 3 );
+}
+
+static void place_start_button(void)
+{
+    /* the Start button stays in the first row */
+    if (theme_is_visual_styles_active()) startbutton_resize( 0, tray_top, start_button_width, first_row_height() );
+    else startbutton_resize( 1, tray_top + 3, start_button_width, first_row_height() - 5 );
 }
 
 /* Always on top, auto-hide and the work area follow the taskbar settings */
@@ -589,6 +633,7 @@ static void update_tray_layout(void)
                 POINT pos = get_icon_pos( icon );
                 SetWindowPos( icon->window, 0, pos.x, pos.y, 0, 0,
                               SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER );
+                InvalidateRect( icon->window, NULL, TRUE );   /* the background under it may have changed */
             }
         }
 
@@ -763,8 +808,6 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     struct icon *icon = (struct icon *)GetWindowLongPtrW( hwnd, GWLP_USERDATA );
 
     TRACE( "hwnd %p, msg %#x, wparam %#Ix, lparam %#Ix\n", hwnd, msg, wparam, lparam );
-
-    if (icon && msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) icon->last_active = GetTickCount();
 
     switch (msg)
     {
@@ -1682,20 +1725,6 @@ static void do_show_systray(void)
     DeleteObject( font );
 
     tray_width = GetSystemMetrics( SM_CXSCREEN );
-    {
-        HTHEME theme = theme_open( NULL, L"TaskBar" );
-        SIZE size = {0};
-        HDC hdc = GetDC( NULL );
-        tray_height = 28;
-        if (theme)
-        {
-            /* measured on Windows XP: 30 pixels with a visual style, 28 for Windows Classic; Wine's uxtheme cannot
-             * report the size of a tiled picture, so the value is fixed */
-            tray_height = 30;
-            CloseThemeData( theme );
-        }
-        ReleaseDC( NULL, hdc );
-    }
     taskbar_settings_load();
     update_tray_top();
     start_button_width = startbutton_get_desired_width();
@@ -1709,8 +1738,7 @@ static void do_show_systray(void)
         int taskband_x, taskband_w;
 
         startbutton_create( tray_window, 2, 2, start_button_width, 24 );
-        if (theme_is_visual_styles_active()) startbutton_resize( 0, tray_top, start_button_width, tray_height );
-        else startbutton_resize( 1, tray_top + 3, start_button_width, tray_height - 5 );
+        place_start_button();
 
         toolbars_create( tray_window );
         toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_top, tray_height, &taskband_x, &taskband_w );
@@ -1744,10 +1772,7 @@ static void update_taskbar_layout(void)
     rcClock = get_tray_clock_rect();
 
     start_button_width = startbutton_get_desired_width();
-    if (theme_is_visual_styles_active())
-        startbutton_resize( 0, tray_top, start_button_width, tray_height );
-    else
-        startbutton_resize( 1, tray_top + 3, start_button_width, tray_height - 5 );
+    place_start_button();
 
     toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_top, tray_height, &taskband_x, &taskband_w );
     tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
@@ -1922,12 +1947,60 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         tray_clock_update();
         break;
 
+    case WM_SETCURSOR:
+    {
+        POINT pt;
+        GetCursorPos( &pt );
+        ScreenToClient( hwnd, &pt );
+        if (LOWORD(lparam) == HTCLIENT && on_sizing_edge( pt.y ))
+        {
+            SetCursor( LoadCursorW( 0, (const WCHAR *)IDC_SIZENS ) );
+            return TRUE;
+        }
+        return DefWindowProcW( hwnd, msg, wparam, lparam );
+    }
+
+    case WM_MOUSEMOVE:
+        if (sizing_rows && GetCapture() == hwnd)
+        {
+            /* the height snaps to whole rows of buttons, up to half the screen */
+            POINT pt;
+            int rows;
+
+            GetCursorPos( &pt );
+            rows = (GetSystemMetrics( SM_CYSCREEN ) - pt.y - tray_top - first_row_height() + row_pitch() / 2) / row_pitch() + 1;
+            rows = max( 1, min( rows, max_rows() ));
+            if (rows != tray_rows)
+            {
+                tray_rows = rows;
+                update_taskbar_layout();
+            }
+        }
+        return 0;
+
+    case WM_LBUTTONUP:
+    case WM_CAPTURECHANGED:
+        if (sizing_rows)
+        {
+            DWORD rows = tray_rows;
+            sizing_rows = FALSE;
+            if (msg == WM_LBUTTONUP && GetCapture() == hwnd) ReleaseCapture();
+            RegSetKeyValueW( HKEY_CURRENT_USER, rows_key, L"Rows", REG_DWORD, &rows, sizeof(rows) );
+        }
+        return 0;
+
     case WM_LBUTTONDOWN:
+        if (on_sizing_edge( (short)HIWORD(lparam) ))
+        {
+            sizing_rows = TRUE;
+            SetCapture( hwnd );
+            return 0;
+        }
         if (chevron_visible())
         {
             RECT notify = get_tray_notify_rect(), chev;
             POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
-            SetRect( &chev, notify.left, 0, notify.left + CHEVRON_WIDTH, tray_height );
+            SetRect( &chev, notify.left, 0, notify.left + CHEVRON_WIDTH, tray_top + tray_height );
             if (PtInRect( &chev, pt ))
             {
                 tray_expanded = !tray_expanded;
