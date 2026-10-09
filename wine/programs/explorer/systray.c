@@ -362,7 +362,6 @@ static RECT get_tray_clock_rect(void)
     return rc;
 }
 
-#define CHEVRON_WIDTH 14
 #define INACTIVE_AFTER (5 * 60 * 1000)
 static BOOL tray_expanded;
 static DWORD tray_expanded_hover_tick;
@@ -461,18 +460,44 @@ static BOOL chevron_visible(void)
     return FALSE;
 }
 
+static SIZE get_tray_chevron_size(void)
+{
+    SIZE size = { GetSystemMetrics( SM_CXSMICON ), GetSystemMetrics( SM_CYSMICON ) };
+    HTHEME theme = theme_open( tray_window, tray_expanded ? L"TrayNotifyHorizOpen::Button" : L"TrayNotifyHoriz::Button" );
+
+    if (theme)
+    {
+        SIZE themed;
+        if (SUCCEEDED( GetThemePartSize( theme, NULL, BP_PUSHBUTTON, PBS_DEFAULTED, NULL, TS_TRUE, &themed ) ) &&
+            themed.cx > 0 && themed.cy > 0) size = themed;
+        CloseThemeData( theme );
+    }
+    return size;
+}
+
 static RECT get_tray_notify_rect(void)
 {
     RECT rc;
     int clock_width = taskbar_settings_get()->show_clock ? 64 : 0;
-    int icons_width = nb_displayed > 0 ? (nb_displayed * 18 + 4) : 0;
-    int total_width = clock_width + icons_width + 4 + (chevron_visible() ? CHEVRON_WIDTH : 0);
+    int icons_width = nb_displayed > 0 ? (nb_displayed * icon_cx + 4) : 0;
+    int total_width = clock_width + icons_width + 4 + (chevron_visible() ? get_tray_chevron_size().cx : 0);
 
     rc.right = tray_width - 2;
     rc.left = rc.right - total_width;
     rc.top = tray_top + 2;
     rc.bottom = tray_top + tray_height - 2;
     return rc;
+}
+
+static RECT get_tray_chevron_rect(void)
+{
+    RECT notify = get_tray_notify_rect(), rect;
+    SIZE size = get_tray_chevron_size();
+    int height = min( size.cy, theme_taskbar_first_row() );
+    int top = tray_top + (theme_taskbar_first_row() - height) / 2;
+
+    SetRect( &rect, notify.left, top, notify.left + size.cx, top + height );
+    return rect;
 }
 
 /* get the position of an icon in the tray */
@@ -483,8 +508,8 @@ static POINT get_icon_pos( struct icon *icon )
     if (enable_taskbar)
     {
         RECT rcClock = get_tray_clock_rect();
-        int icons_width = nb_displayed * 18;
-        pos.x = rcClock.left - 4 - icons_width + (icon->display * 18);
+        int icons_width = nb_displayed * icon_cx;
+        pos.x = rcClock.left - 4 - icons_width + (icon->display * icon_cx);
         pos.y = tray_top + (theme_taskbar_first_row() - icon_cy) / 2;   /* the icons stay in the first row */
     }
     else
@@ -1090,6 +1115,7 @@ static BOOL same_icon( HICON a, HICON b )
 static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
 {
     BOOL activity = FALSE;
+    BOOL had_chevron = chevron_visible();
 
     TRACE( "id=0x%x, hwnd=%p\n", nid->uID, nid->hWnd );
 
@@ -1150,6 +1176,9 @@ static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
                          GetTickCount() - icon->last_active > INACTIVE_AFTER);
     if ((icon->state & NIS_HIDDEN) || icon->auto_hidden) hide_icon( icon );
     else show_icon( icon );
+    /* An initially hidden icon changes the chevron without changing the
+     * visible icon count. Reserve its space before the task band paints it. */
+    if (enable_taskbar && had_chevron != chevron_visible()) update_tray_layout();
     return TRUE;
 }
 
@@ -1191,8 +1220,10 @@ static BOOL add_icon(NOTIFYICONDATAW *nid)
 /* Deletes tray icon window and icon record */
 static BOOL delete_icon( struct icon *icon )
 {
+    BOOL had_chevron = chevron_visible();
     hide_icon( icon );
     list_remove( &icon->entry );
+    if (enable_taskbar && had_chevron != chevron_visible()) update_tray_layout();
     DestroyWindow( icon->tooltip );
     DestroyWindow( icon->window );
     DestroyIcon( icon->image );
@@ -1873,9 +1904,8 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
 
         if (chevron_visible())
         {
-            RECT notify = get_tray_notify_rect(), chev;
+            RECT chev = get_tray_chevron_rect();
             HTHEME button = theme_open( hwnd, tray_expanded ? L"TrayNotifyHorizOpen::Button" : L"TrayNotifyHoriz::Button" );
-            SetRect( &chev, notify.left, rc.top + tray_top, notify.left + CHEVRON_WIDTH, rc.bottom );
             if (button)
             {
                 DrawThemeBackground( button, hdc, 1, 1, &chev, NULL );
@@ -2047,9 +2077,8 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         }
         if (chevron_visible())
         {
-            RECT notify = get_tray_notify_rect(), chev;
+            RECT chev = get_tray_chevron_rect();
             POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
-            SetRect( &chev, notify.left, 0, notify.left + CHEVRON_WIDTH, tray_top + tray_height );
             if (PtInRect( &chev, pt ))
             {
                 tray_expanded = !tray_expanded;

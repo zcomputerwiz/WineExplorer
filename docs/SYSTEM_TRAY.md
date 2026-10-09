@@ -41,3 +41,26 @@ Auto-hide reveal also invalidates the whole tray and its children, with
 SWP_NOCOPYBITS. Reusing off-screen pixels had left the first two revealed rows
 black. Pixel checks confirmed the repaired rows match the normal taskbar at the
 same y coordinates (570 and 571 in the 800x600 locked Luna test).
+
+## Icon bounds and chevron layout (2026-10-09)
+
+The notification area now reserves each icon window's full `icon_cx` width
+(20 pixels at the VM's current metrics), replacing the 18-pixel pitch that made
+adjacent 20-pixel windows overlap. Icons, notification background, and the task
+band use the same reservation. The chevron uses its theme's native part size
+(Luna: 19x20), centered within the first taskbar row; drawing and hit testing
+share that rectangle. Classic uses the small-icon metrics.
+
+An icon registered already hidden can make the chevron appear without changing
+the visible icon count. Modification and deletion now relayout when chevron
+visibility changes, so the task band does not cover a newly needed chevron or
+retain its space after the final hidden icon is deleted.
+
+Explorer built and was deployed. A temporary Always hide icon reproduced the
+missing-chevron case before the fix. Afterward the chevron appeared immediately,
+expanded to show the test icon, changed arrow direction, collapsed on click and
+after the pointer left, and disappeared when the test icon was removed. The
+original preferences were preserved and the temporary icon/registry entry removed.
+`scripts/tray-layout-probe.c` checked actual visible child-window rectangles:
+two icons collapsed and three expanded passed with no overlap between icons,
+clock, or task band, and no icon outside the taskbar's bounds.
