@@ -133,3 +133,44 @@ Service" switches it on or off.
 
 Open decision:
 - Search Companion first, or the plainer Windows 2000 style pane first?
+
+## Taskbar band resizing (2026-10-09)
+
+The first visible band stays at the fixed offset from Start, matching the XP VM.
+Its left gripper can reorder it, but cannot introduce a blank leading space.
+Other grippers move the boundary between neighboring bands: dragging right grows
+the left band and shrinks the right band; dragging left does the reverse. The task
+band absorbs remaining width. Its gripper, drawn in the tray rather than in the
+task-button window, now handles dragging too, so a toolbar immediately before it
+can be resized from the right. This applies to any toolbar order, including Search
+before or after the task buttons. The existing crossing thresholds still reorder
+bands. Locked taskbars hide and disable these grippers.
+
+Dragging starts from the actual displayed widths, including compression on small
+screens, and uses the coordinates supplied by the mouse event. Search and Address
+keep enough width for their embedded controls. The sizing strip above the taskbar
+is drawn with `TaskBar.SizingBarBottom`; locking hides it without shifting the
+Start button or stretching the main taskbar background. The XP reference has a
+four-pixel strip in its unlocked Luna taskbar.
+
+Validation: the Explorer target builds in the Debian VM. Live window measurements
+confirmed the first band stays at x=103 in unlocked Luna, a toolbar after the task
+buttons can move its left edge while keeping its right edge fixed, and a shared
+Search/Quick Launch boundary transfers 20 pixels in either direction. The task
+band's gripper also resizes Search on its left. Reordering the task band was
+exercised in the VM. Locked/unlocked screenshots matched the XP reference's
+four-pixel sizing-strip colors and kept the background below it at the same
+screen coordinates. Checks were performed with the XP resources installed.
+
+## Search focus and desktop typing (2026-10-09)
+
+The desktop view is now a focusable tool window kept at the bottom of the window
+stack. Wine rejects keyboard focus on a child directly beneath its special
+Desktop window; this had left the taskbar search edit receiving characters after
+a desktop click. The desktop supports incremental name selection and repeated
+initial-letter cycling. Leaving search closes the results, cancels the search
+job, and clears its text, matching the requested Windows 11 behavior. Interaction
+with the search results retains the query.
+
+Live validation: enter a query, click the exposed desktop, and type `m`.
+The search field returns to its placeholder and My Documents is selected.

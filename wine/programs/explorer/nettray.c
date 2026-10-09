@@ -58,6 +58,8 @@ static int g_current_icon_id = 0;
 static BOOL g_tray_visible = FALSE;
 static ULONGLONG g_last_packets_sent = 0;
 static ULONGLONG g_last_packets_recv = 0;
+static BOOL g_activity_baseline;
+static WCHAR g_activity_device[128];
 
 static const WCHAR *get_signal_strength_str(int bars)
 {
@@ -72,6 +74,28 @@ static const WCHAR *get_signal_strength_str(int bars)
     }
 }
 
+static int ethernet_activity_icon(const NET_STATUS_INFO *status)
+{
+    BOOL valid = g_activity_baseline && !wcscmp(g_activity_device, status->active_device) &&
+                 status->packets_sent >= g_last_packets_sent &&
+                 status->packets_received >= g_last_packets_recv;
+    BOOL xmit = valid && status->packets_sent > g_last_packets_sent;
+    BOOL recv = valid && status->packets_received > g_last_packets_recv;
+    g_activity_baseline = TRUE;
+    lstrcpynW(g_activity_device, status->active_device, ARRAY_SIZE(g_activity_device));
+    g_last_packets_sent = status->packets_sent;
+    g_last_packets_recv = status->packets_received;
+
+    if (xmit && recv)
+        return IDI_NET_XMITRECV;
+    else if (xmit)
+        return IDI_NET_XMIT;
+    else if (recv)
+        return IDI_NET_RECV;
+    else
+        return IDI_NET_BLANK;
+}
+
 static void update_tray_icon_and_tooltip(HWND hwnd)
 {
     HINSTANCE hInst = GetModuleHandleW(NULL);
@@ -81,6 +105,9 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
 
     net_backend_get_status(&g_status);
     if (!g_status.has_adapter) should_show = FALSE;   /* nothing to monitor */
+
+    if (!should_show || !g_status.is_connected || g_status.conn_type == NET_TYPE_WIRELESS)
+        g_activity_baseline = FALSE;
 
     if (!should_show)
     {
@@ -122,19 +149,7 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     else
     {
         /* Ethernet: authentic Windows XP packet activity blinking */
-        BOOL xmit = (g_last_packets_sent > 0 && g_status.packets_sent > g_last_packets_sent);
-        BOOL recv = (g_last_packets_recv > 0 && g_status.packets_received > g_last_packets_recv);
-        g_last_packets_sent = g_status.packets_sent;
-        g_last_packets_recv = g_status.packets_received;
-
-        if (xmit && recv)
-            new_icon_id = IDI_NET_XMITRECV;
-        else if (xmit)
-            new_icon_id = IDI_NET_XMIT;
-        else if (recv)
-            new_icon_id = IDI_NET_RECV;
-        else
-            new_icon_id = IDI_NET_BLANK;
+        new_icon_id = ethernet_activity_icon(&g_status);
 
         if (g_status.speed_mbps)
             wsprintfW(new_tip, L"Local Area Connection\nSpeed: %u Mbps\nStatus: Connected", g_status.speed_mbps);
@@ -146,7 +161,7 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     {
         g_current_icon_id = new_icon_id;
         if (g_nid.hIcon) DestroyIcon(g_nid.hIcon);
-        g_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id));
+        g_nid.hIcon = CopyIcon(LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id)));
         lstrcpynW(g_nid.szTip, new_tip, 128);
         Shell_NotifyIconW(NIM_ADD, &g_nid);
         g_tray_visible = TRUE;
@@ -155,7 +170,7 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     {
         g_current_icon_id = new_icon_id;
         if (g_nid.hIcon) DestroyIcon(g_nid.hIcon);
-        g_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id));
+        g_nid.hIcon = CopyIcon(LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id)));
         lstrcpynW(g_nid.szTip, new_tip, 128);
 
         Shell_NotifyIconW(NIM_MODIFY, &g_nid);

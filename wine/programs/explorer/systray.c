@@ -363,8 +363,9 @@ static RECT get_tray_clock_rect(void)
 }
 
 #define CHEVRON_WIDTH 14
-#define INACTIVE_AFTER 8000
+#define INACTIVE_AFTER (5 * 60 * 1000)
 static BOOL tray_expanded;
+static DWORD tray_expanded_hover_tick;
 
 static void refresh_inactive_icons(void);
 
@@ -398,7 +399,7 @@ static int icon_behavior( struct icon *icon )
 
         icon_key( icon, key );
         if (RegGetValueW( HKEY_CURRENT_USER, behavior_key, key, RRF_RT_REG_DWORD, NULL, &val, &size )) val = NOTIFY_HIDE_WHEN_INACTIVE;
-        icon->behavior = val;
+        icon->behavior = val <= NOTIFY_ALWAYS_SHOW ? val : NOTIFY_HIDE_WHEN_INACTIVE;
     }
     return icon->behavior;
 }
@@ -425,6 +426,8 @@ void systray_set_behavior( const WCHAR *key, int behavior )
 {
     HKEY hkey;
     DWORD val = behavior;
+
+    if (behavior < NOTIFY_HIDE_WHEN_INACTIVE || behavior > NOTIFY_ALWAYS_SHOW) return;
 
     if (!RegCreateKeyExW( HKEY_CURRENT_USER, behavior_key, 0, NULL, 0, KEY_WRITE, NULL, &hkey, NULL ))
     {
@@ -454,7 +457,7 @@ static BOOL chevron_visible(void)
     if (!setting_hide_inactive()) return FALSE;
     if (tray_expanded) return TRUE;
     LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
-        if (icon->auto_hidden) return TRUE;
+        if (icon->auto_hidden && !(icon->state & NIS_HIDDEN)) return TRUE;
     return FALSE;
 }
 
@@ -545,7 +548,9 @@ static void position_taskbar(void)
     RECT work = { 0, 0, screen_w, (s->autohide || !s->always_on_top) ? screen_h : screen_h - total }, current;
 
     SetWindowPos( tray_window, (s->always_on_top || s->autohide) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, y,
-                  tray_width, total, SWP_NOACTIVATE | SWP_SHOWWINDOW );
+                  tray_width, total, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOCOPYBITS );
+    /* Off-screen auto-hide pixels cannot be reused when the tray is revealed. */
+    RedrawWindow( tray_window, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW );
     if (SystemParametersInfoW( SPI_GETWORKAREA, 0, &current, 0 ) && !EqualRect( &current, &work ))
         SystemParametersInfoW( SPI_SETWORKAREA, TRUE, &work, SPIF_SENDCHANGE );   /* TRUE: maximized windows follow */
 }
@@ -772,14 +777,25 @@ static void paint_tray_background( HWND hwnd, HDC hdc, RECT *rc )
     if (theme)
     {
         HTHEME tray_theme = theme_open( hwnd, L"TrayNotifyHoriz::TrayNotify" );
-        DrawThemeBackground( theme, hdc, TBP_BACKGROUNDBOTTOM, 0, rc, NULL );
+        RECT body = *rc;
+
+        /* XP keeps the background and controls fixed when unlocking: the
+         * additional four pixels are the theme's separate sizing strip. */
+        body.top += tray_top;
+        DrawThemeBackground( theme, hdc, TBP_BACKGROUNDBOTTOM, 0, &body, NULL );
         if (tray_theme)
         {
             RECT rcTray = get_tray_notify_rect();
-            rcTray.top = rc->top;
+            rcTray.top = body.top;
             rcTray.bottom = rc->bottom;
             DrawThemeBackground( tray_theme, hdc, TNP_BACKGROUND, 0, &rcTray, NULL );
             CloseThemeData( tray_theme );
+        }
+        if (tray_top)
+        {
+            RECT sizing = *rc;
+            sizing.bottom = sizing.top + tray_top;
+            DrawThemeBackground( theme, hdc, TBP_SIZINGBARBOTTOM, 0, &sizing, NULL );
         }
         CloseThemeData( theme );
     }
@@ -872,6 +888,7 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     case WM_MBUTTONDBLCLK:
     {
         MSG message = {.hwnd = hwnd, .message = msg, .wParam = wparam, .lParam = lparam};
+        if (msg != WM_MOUSEMOVE) icon->last_active = GetTickCount();
         SendMessageW( icon->tooltip, TTM_RELAYEVENT, 0, (LPARAM)&message );
         if (!notify_owner( icon, msg, lparam )) break;
         if (icon->version > 0)
@@ -1126,13 +1143,13 @@ static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
         update_balloon( icon );
     }
     if ((nid->uFlags & NIF_INFO) && nid->szInfo[0]) activity = TRUE;
-    if (activity || !icon->auto_hidden)
-    {
-        icon->last_active = GetTickCount();
-        icon->auto_hidden = FALSE;
-    }
-    if (icon->state & NIS_HIDDEN) hide_icon( icon );
-    else if (!icon->auto_hidden) show_icon( icon );
+    if (activity) icon->last_active = GetTickCount();
+    icon->auto_hidden = setting_hide_inactive() && !tray_expanded &&
+                        icon_behavior( icon ) != NOTIFY_ALWAYS_SHOW &&
+                        (icon_behavior( icon ) == NOTIFY_ALWAYS_HIDE ||
+                         GetTickCount() - icon->last_active > INACTIVE_AFTER);
+    if ((icon->state & NIS_HIDDEN) || icon->auto_hidden) hide_icon( icon );
+    else show_icon( icon );
     return TRUE;
 }
 
@@ -1160,6 +1177,7 @@ static BOOL add_icon(NOTIFYICONDATAW *nid)
     icon->owner  = nid->hWnd;
     icon->display = ICON_DISPLAY_HIDDEN;
     icon->behavior = -1;
+    icon->last_active = GetTickCount();
 
     CreateWindowExW( 0, tray_icon_class.lpszClassName, NULL, WS_CLIPSIBLINGS | WS_POPUP,
                      0, 0, icon_cx, icon_cy, 0, NULL, NULL, icon );
@@ -1773,6 +1791,8 @@ static void update_taskbar_layout(void)
 
 static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
+    if (enable_taskbar && toolbars_task_gripper_message(hwnd, msg, wparam, lparam))
+        return msg == WM_SETCURSOR ? TRUE : 0;
     switch (msg)
     {
     case WM_DESTROY:
@@ -1782,7 +1802,23 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         break;
 
     case WM_COPYDATA:
-        return handle_incoming((HWND)wparam, (COPYDATASTRUCT *)lparam);
+    {
+        COPYDATASTRUCT *data = (COPYDATASTRUCT *)lparam;
+        if (data->dwData == 0x57455448) /* Display Properties: apply a .theme file */
+        {
+            THEME_CONFIG config;
+            DWORD attrs;
+            if (!data->lpData || data->cbData < sizeof(WCHAR) || data->cbData > MAX_PATH * sizeof(WCHAR) ||
+                data->cbData % sizeof(WCHAR) ||
+                ((const WCHAR *)data->lpData)[data->cbData / sizeof(WCHAR) - 1]) return FALSE;
+            attrs = GetFileAttributesW(data->lpData);
+            if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) return FALSE;
+            if (!theme_load_file(data->lpData, &config) || !theme_apply(&config)) return FALSE;
+            PostMessageW(hwnd, WM_THEMECHANGED, 0, 0);
+            return TRUE;
+        }
+        return handle_incoming((HWND)wparam, data);
+    }
 
     case WM_DISPLAYCHANGE:
         if (!enable_taskbar && (!show_systray || !nb_displayed)) do_hide_systray();
@@ -1839,7 +1875,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         {
             RECT notify = get_tray_notify_rect(), chev;
             HTHEME button = theme_open( hwnd, tray_expanded ? L"TrayNotifyHorizOpen::Button" : L"TrayNotifyHoriz::Button" );
-            SetRect( &chev, notify.left, rc.top, notify.left + CHEVRON_WIDTH, rc.bottom );
+            SetRect( &chev, notify.left, rc.top + tray_top, notify.left + CHEVRON_WIDTH, rc.bottom );
             if (button)
             {
                 DrawThemeBackground( button, hdc, 1, 1, &chev, NULL );
@@ -2017,6 +2053,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
             if (PtInRect( &chev, pt ))
             {
                 tray_expanded = !tray_expanded;
+                tray_expanded_hover_tick = GetTickCount();
                 refresh_inactive_icons();
                 update_taskbar_layout();
                 InvalidateRect( hwnd, NULL, FALSE );
@@ -2048,6 +2085,20 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
                 GetCursorPos( &pt );
                 ScreenToClient( tray_window, &pt );
                 if (!PtInRect( &area, pt ))
+                {
+                    tray_expanded = FALSE;
+                    refresh_inactive_icons();
+                    update_taskbar_layout();
+                }
+            }
+            if (tray_expanded)
+            {
+                POINT pt;
+                RECT area = get_tray_notify_rect();
+                GetCursorPos( &pt );
+                ScreenToClient( tray_window, &pt );
+                if (PtInRect( &area, pt ) || GetCapture()) tray_expanded_hover_tick = GetTickCount();
+                else if (GetTickCount() - tray_expanded_hover_tick >= 5000)
                 {
                     tray_expanded = FALSE;
                     refresh_inactive_icons();

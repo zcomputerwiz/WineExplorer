@@ -132,13 +132,40 @@ void taskbar_settings_save(void)
     }
 }
 
-static void draw_taskbar_preview(HDC hdc, const RECT *rc)
+static BOOL draw_shell_preview(HDC hdc, const RECT *rc, int id)
+{
+    HBITMAP bitmap = shellres_bitmap(L"explorer", id, 0), old;
+    BITMAP bm;
+    HDC mem;
+    int x, y;
+
+    if (!bitmap) return FALSE;
+    GetObjectW(bitmap, sizeof(bm), &bm);
+    mem = CreateCompatibleDC(hdc);
+    old = SelectObject(mem, bitmap);
+    FillRect(hdc, rc, GetSysColorBrush(COLOR_BTNFACE));
+    x = rc->left + ((rc->right - rc->left) - bm.bmWidth) / 2;
+    y = rc->top + ((rc->bottom - rc->top) - bm.bmHeight) / 2;
+    BitBlt(hdc, x, y, bm.bmWidth, bm.bmHeight, mem, 0, 0, SRCCOPY);
+    SelectObject(mem, old);
+    DeleteDC(mem);
+    DeleteObject(bitmap);
+    return TRUE;
+}
+
+static void draw_taskbar_preview(HWND page, HDC hdc, const RECT *rc)
 {
     RECT tb_rc = { rc->left, rc->bottom - 22, rc->right, rc->bottom };
     RECT desktop_rc = { rc->left, rc->top, rc->right, rc->bottom - 22 };
     RECT btn_rc = { tb_rc.left + 2, tb_rc.top + 2, tb_rc.left + 46, tb_rc.bottom - 2 };
     RECT task_rc = { tb_rc.left + 52, tb_rc.top + 2, tb_rc.left + 120, tb_rc.bottom - 2 };
     HFONT font, old_font;
+
+    int bitmap = 146 + (IsDlgButtonChecked(page, IDC_LOCKTASKBAR) != BST_CHECKED) +
+                 2 * (IsDlgButtonChecked(page, IDC_GROUPTASKBAR) != BST_CHECKED) +
+                 4 * (IsDlgButtonChecked(page, IDC_QUICKLAUNCH) != BST_CHECKED);
+    if (IsDlgButtonChecked(page, IDC_AUTOHIDETASKBAR) == BST_CHECKED) bitmap = 145;
+    if (draw_shell_preview(hdc, rc, bitmap)) return;
 
     /* Desktop background */
     FillRect(hdc, &desktop_rc, GetSysColorBrush(COLOR_BACKGROUND));
@@ -170,17 +197,20 @@ static void draw_taskbar_preview(HDC hdc, const RECT *rc)
     SelectObject(hdc, old_font);
 }
 
-static void draw_notify_preview(HDC hdc, const RECT *rc)
+static void draw_notify_preview(HWND page, HDC hdc, const RECT *rc, BOOL show_clock)
 {
     RECT tray = { rc->right - 120, rc->top + 2, rc->right - 2, rc->bottom - 2 };
     HFONT old = SelectObject(hdc, GetStockObject(DEFAULT_GUI_FONT));
     HICON icon;
 
+    int bitmap = 180 + !show_clock +
+                 2 * (IsDlgButtonChecked(page, IDC_HIDEINACTIVEICONS) != BST_CHECKED);
+    if (draw_shell_preview(hdc, rc, bitmap)) { SelectObject(hdc, old); return; }
     FillRect(hdc, rc, GetSysColorBrush(COLOR_BTNFACE));
     DrawEdge(hdc, &tray, EDGE_SUNKEN, BF_RECT);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
-    if (g_settings.show_clock)
+    if (show_clock)
     {
         RECT clock = tray;
         clock.left = tray.right - 56;
@@ -196,23 +226,7 @@ static void draw_notify_preview(HDC hdc, const RECT *rc)
 
 static void draw_start_preview(HDC hdc, const RECT *rc, int style)
 {
-    /* the pictures of the Windows shell */
-    HBITMAP bmp = shellres_bitmap(L"explorer", style == THEME_STARTMENU_CLASSIC ? 171 : 170, 0);
-
-    if (bmp)
-    {
-        BITMAP bm;
-        HDC mem = CreateCompatibleDC(hdc);
-        HBITMAP prev = SelectObject(mem, bmp);
-
-        GetObjectW(bmp, sizeof(bm), &bm);
-        SetStretchBltMode(hdc, HALFTONE);
-        StretchBlt(hdc, rc->left, rc->top, rc->right - rc->left, rc->bottom - rc->top, mem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
-        SelectObject(mem, prev);
-        DeleteDC(mem);
-        DeleteObject(bmp);
-        return;
-    }
+    if (draw_shell_preview(hdc, rc, style == THEME_STARTMENU_CLASSIC ? 171 : 170)) return;
 
     FillRect(hdc, rc, GetSysColorBrush(COLOR_BTNFACE));
     DrawEdge(hdc, (LPRECT)rc, EDGE_SUNKEN, BF_RECT);
@@ -302,12 +316,12 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT *)lparam;
         if (dis->CtlID == IDC_TASKBAR_PREVIEW)
         {
-            draw_taskbar_preview(dis->hDC, &dis->rcItem);
+            draw_taskbar_preview(hwnd, dis->hDC, &dis->rcItem);
             return TRUE;
         }
         if (dis->CtlID == IDC_NOTIFY_PREVIEW)
         {
-            draw_notify_preview(dis->hDC, &dis->rcItem);
+            draw_notify_preview(hwnd, dis->hDC, &dis->rcItem, IsDlgButtonChecked(hwnd, IDC_SHOWCLOCK) == BST_CHECKED);
             return TRUE;
         }
         break;
@@ -322,6 +336,8 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         case IDC_GROUPTASKBAR:
         case IDC_QUICKLAUNCH:
         case IDC_HIDEINACTIVEICONS:
+            InvalidateRect(GetDlgItem(hwnd, IDC_TASKBAR_PREVIEW), NULL, TRUE);
+            InvalidateRect(GetDlgItem(hwnd, IDC_NOTIFY_PREVIEW), NULL, TRUE);
             EnableWindow(GetDlgItem(hwnd, IDC_CUSTOMIZE), IsDlgButtonChecked(hwnd, IDC_HIDEINACTIVEICONS) == BST_CHECKED);
             SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
@@ -329,8 +345,7 @@ static INT_PTR CALLBACK taskbar_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
             notifyprops_show(hwnd);
             break;
         case IDC_SHOWCLOCK:
-            g_settings.show_clock = (IsDlgButtonChecked(hwnd, IDC_SHOWCLOCK) == BST_CHECKED);
-            InvalidateRect(GetDlgItem(hwnd, IDC_TASKBAR_PREVIEW), NULL, TRUE);
+            InvalidateRect(GetDlgItem(hwnd, IDC_NOTIFY_PREVIEW), NULL, TRUE);
             SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         }

@@ -49,7 +49,7 @@ static void fill_list(HWND list)
         sub.pszText = (WCHAR *)behavior_names[g_icons[i].behavior];
         SendMessageW(list, LVM_SETITEMW, 0, (LPARAM)&sub);
     }
-    SendMessageW(list, LVM_SETIMAGELIST, LVSIL_SMALL, (LPARAM)images);
+    ImageList_Destroy((HIMAGELIST)SendMessageW(list, LVM_SETIMAGELIST, LVSIL_SMALL, (LPARAM)images));
 }
 
 static INT_PTR CALLBACK notify_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -77,6 +77,10 @@ static INT_PTR CALLBACK notify_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         EnableWindow(combo, FALSE);
         return TRUE;
     }
+
+    case WM_DESTROY:
+        ImageList_Destroy((HIMAGELIST)SendMessageW(list, LVM_SETIMAGELIST, LVSIL_SMALL, 0));
+        return TRUE;
 
     case WM_NOTIFY:
         if (((NMHDR *)lparam)->hwndFrom == list && ((NMHDR *)lparam)->code == LVN_ITEMCHANGED)

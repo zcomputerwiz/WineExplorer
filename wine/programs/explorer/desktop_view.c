@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wctype.h>
 
 #define COBJMACROS
 #include <windows.h>
@@ -67,6 +68,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 #define IDM_PROPERTIES        115
 
 static DESKTOP_VIEW g_desktop_view;
+static WCHAR type_prefix[MAX_PATH];
+static DWORD type_tick;
 
 static void update_item_bounds(DESKTOP_ITEM *item, int grid_cx, int grid_cy)
 {
@@ -244,7 +247,16 @@ void desktop_view_refresh(void)
     }
 
     /* 3. Reload wallpaper if configured */
-    if (theme) desktop_view_load_wallpaper(theme->wallpaper_path);
+    if (theme)
+    {
+        DWORD size; WCHAR text[16];
+        SystemParametersInfoW(SPI_GETDESKWALLPAPER,MAX_PATH,theme->wallpaper_path,0);
+        size=sizeof(text);
+        if(!RegGetValueW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",L"WallpaperStyle",RRF_RT_REG_SZ,NULL,text,&size)) theme->wallpaper_style=wcstol(text,NULL,10);
+        size=sizeof(text);
+        if(!RegGetValueW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",L"TileWallpaper",RRF_RT_REG_SZ,NULL,text,&size)) theme->tile_wallpaper=wcstol(text,NULL,10)!=0;
+        desktop_view_load_wallpaper(theme->wallpaper_path);
+    }
 
     update_recycle_bin_icon();
     if (g_desktop_view.hwnd)
@@ -809,6 +821,50 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
 {
     switch (msg)
     {
+    case WM_WINDOWPOSCHANGING:
+        /* The focusable desktop surface must remain behind application windows. */
+        if (!(((WINDOWPOS *)lparam)->flags & SWP_NOZORDER))
+            ((WINDOWPOS *)lparam)->hwndInsertAfter = HWND_BOTTOM;
+        return 0;
+
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS:
+        type_prefix[0] = 0;
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+
+    case WM_CHAR:
+    {
+        DWORD now = GetTickCount();
+        int i, current = -1, length = lstrlenW(type_prefix), start;
+        BOOL cycle;
+
+        if (wparam < 32 || (GetKeyState(VK_CONTROL) & 0x8000)) return 0;
+        if (now - type_tick > 1000) length = 0;
+        cycle = length == 1 && towupper(type_prefix[0]) == towupper((WCHAR)wparam);
+        if (!cycle && length < ARRAY_SIZE(type_prefix) - 1) type_prefix[length++] = wparam;
+        type_prefix[length] = 0;
+        type_tick = now;
+        for (i = 0; i < g_desktop_view.item_count; i++)
+            if (g_desktop_view.items[i]->focused) current = i;
+        start = (cycle || length == 1) ? current + 1 : max(current, 0);
+        for (i = 0; i < g_desktop_view.item_count; i++)
+        {
+            int index = (start + i) % g_desktop_view.item_count, j;
+            if (CompareStringOrdinal(g_desktop_view.items[index]->display_name, length,
+                                     type_prefix, length, TRUE) != CSTR_EQUAL) continue;
+            for (j = 0; j < g_desktop_view.item_count; j++)
+                g_desktop_view.items[j]->selected = g_desktop_view.items[j]->focused = (j == index);
+            InvalidateRect(hwnd, NULL, FALSE);
+            break;
+        }
+        return 0;
+    }
+
+    case WM_SETTINGCHANGE:
+        if (wparam == SPI_SETDESKWALLPAPER) desktop_view_refresh();
+        return 0;
+
     case WM_DISPLAYCHANGE:
     {
         int w = LOWORD(lparam);
@@ -1105,7 +1161,7 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
             if (new_idx >= 0 && new_idx < g_desktop_view.item_count)
             {
                 for (i = 0; i < g_desktop_view.item_count; i++)
-                    g_desktop_view.items[i]->selected = (i == new_idx);
+                    g_desktop_view.items[i]->selected = g_desktop_view.items[i]->focused = (i == new_idx);
                 InvalidateRect(hwnd, NULL, FALSE);
             }
             return 0;
@@ -1142,8 +1198,9 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
     wc.style = CS_DBLCLKS;
     RegisterClassW(&wc);
 
-    g_desktop_view.hwnd = CreateWindowExW(0, DESKTOP_VIEW_CLASS, NULL,
-                                          WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+    /* Wine cannot focus a child directly under its special desktop window. */
+    g_desktop_view.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, DESKTOP_VIEW_CLASS, NULL,
+                                          WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                                           0, 0, width, height,
                                           parent_desktop, NULL, wc.hInstance, NULL);
 

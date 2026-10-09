@@ -44,9 +44,9 @@ void toolbars_destroy(void);
 BOOL toolbars_is_visible(int kind);
 void toolbars_set_visible(HWND tray, int kind, BOOL visible);
 
-/* Place the visible toolbars: Quick Launch starts at x, the others follow the task buttons.  Returns where the
- * task buttons start and how wide they are. */
+/* Place all visible bands in their saved order, anchored at x. Returns the task buttons' rectangle. */
 void toolbars_draw_task_gripper(HWND tray, HDC hdc, int top, int height);
+BOOL toolbars_task_gripper_message(HWND tray, UINT msg, WPARAM wparam, LPARAM lparam);
 void toolbars_layout(HWND tray, int x, int tray_left, int top, int height, int *task_x, int *task_w);
 
 /* Called when the visual style, colors or the folders behind the toolbars change */

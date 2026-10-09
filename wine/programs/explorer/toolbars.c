@@ -748,6 +748,7 @@ static void position_search(TOOLBAR *tb)
 
 static void save_bands(void);
 static int g_drag_kind = -1, g_drag_start, g_drag_width;
+static int g_drag_previous, g_drag_previous_width;
 void toolbars_task_rect(int *x, int *w);
 
 static int band_index(int band)
@@ -757,13 +758,59 @@ static int band_index(int band)
     return -1;
 }
 
+static int minimum_band_width(TOOLBAR *tb)
+{
+    if (tb->kind == TOOLBAR_SEARCH) return GRIPPER_W + SEARCH_ICON_W + 24;
+    if (tb->kind == TOOLBAR_ADDRESS) return GRIPPER_W + title_width(tb) + GO_W + 26;
+    return GRIPPER_W + CHEVRON_W + 2;
+}
+
+static void band_rect(int kind, HWND tray, RECT *rc)
+{
+    if (kind == TASK_BAND)
+    {
+        int x, w;
+        toolbars_task_rect(&x, &w);
+        SetRect(rc, x - GRIPPER_W, 0, x + w, 1);
+        MapWindowPoints(tray, NULL, (POINT *)rc, 2);
+    }
+    else GetWindowRect(g_tb[kind].hwnd, rc);
+}
+
+static void begin_band_drag(int kind, HWND tray, int screen_x)
+{
+    RECT rc;
+    int i, at = band_index(kind) - 1;
+
+    /* Layout may have compressed saved widths to fit the screen. Start from
+     * the visible widths so another band cannot reclaim that space mid-drag. */
+    for (i = 0; i < TOOLBAR_COUNT; ++i)
+        if (g_tb[i].hwnd)
+        {
+            GetClientRect(g_tb[i].hwnd, &rc);
+            g_width[i] = rc.right;
+        }
+
+    g_drag_start = screen_x;
+    band_rect(kind, tray, &rc);
+    g_drag_width = rc.right - rc.left;
+    while (at >= 0 && g_order[at] != TASK_BAND && !g_tb[g_order[at]].hwnd) --at;
+    g_drag_previous = at >= 0 ? g_order[at] : -1;
+    g_drag_previous_width = 0;
+    if (g_drag_previous >= 0 && g_drag_previous != TASK_BAND)
+    {
+        GetClientRect(g_tb[g_drag_previous].hwnd, &rc);
+        g_drag_previous_width = rc.right;
+    }
+}
+
 /* Moving a gripper: the band widens or narrows by what the mouse moved, and changes place with a neighbor once the
  * pointer passes its middle. */
-static void drag_band(TOOLBAR *tb, int screen_x)
+static void drag_band(int kind, HWND tray, int screen_x)
 {
-    int dx = screen_x - g_drag_start, pos = band_index(tb->kind), step, other;
+    int dx = screen_x - g_drag_start, pos = band_index(kind), step, other;
     RECT rc;
-    int min = GRIPPER_W + CHEVRON_W + 2;
+    int min = kind == TASK_BAND ? 120 : minimum_band_width(&g_tb[kind]);
 
     if (pos < 0) return;
     for (step = -1; step <= 1; step += 2)
@@ -772,17 +819,7 @@ static void drag_band(TOOLBAR *tb, int screen_x)
         while (at >= 0 && at <= TOOLBAR_COUNT && g_order[at] != TASK_BAND && !g_tb[g_order[at]].hwnd) at += step;
         if (at < 0 || at > TOOLBAR_COUNT) continue;
         other = g_order[at];
-        if (other == TASK_BAND)
-        {
-            HWND tray = GetParent(tb->hwnd);
-            RECT t;
-            int tx, tw;
-            toolbars_task_rect(&tx, &tw);
-            SetRect(&t, tx, 0, tx + tw, 1);
-            MapWindowPoints(tray, NULL, (POINT *)&t, 2);
-            rc = t;
-        }
-        else GetWindowRect(g_tb[other].hwnd, &rc);
+        band_rect(other, tray, &rc);
         w = rc.right - rc.left;
         if ((step < 0 && screen_x < rc.left + w / 2 - 4 && other != TASK_BAND) ||
             (step > 0 && screen_x > rc.left + w / 2 + 4 && other != TASK_BAND) ||
@@ -791,22 +828,32 @@ static void drag_band(TOOLBAR *tb, int screen_x)
             int tmp = g_order[pos];
             g_order[pos] = g_order[at];
             g_order[at] = tmp;
-            g_drag_start = screen_x;
-            GetClientRect(tb->hwnd, &rc);
-            g_drag_width = rc.right;
-            SendMessageW(GetParent(tb->hwnd), WM_SETTINGCHANGE, 0, 0);
+            SendMessageW(tray, WM_SETTINGCHANGE, 0, 0);
+            begin_band_drag(kind, tray, screen_x);
             return;
         }
     }
-    /* resize: a band right of the task buttons grows when its gripper goes left, one on the left side the other way */
+    /* Move the boundary between this band and its left neighbor. The task band
+     * absorbs changes through layout; other neighbors need an explicit width. */
     {
-        int before_task = pos < band_index(TASK_BAND);
-        int w = before_task ? g_drag_width + dx : g_drag_width - dx;
+        int w = g_drag_width - dx;
 
+        /* XP anchors the first band beside Start. Its gripper only reorders;
+         * its right edge is resized with the following band's gripper. */
+        if (g_drag_previous < 0) return;
         if (w < min) w = min;
-        if (w > 700) w = 700;
-        g_width[tb->kind] = w;
-        SendMessageW(GetParent(tb->hwnd), WM_SETTINGCHANGE, 0, 0);
+        if (kind != TASK_BAND && w > 700) w = 700;
+        if (g_drag_previous != TASK_BAND)
+        {
+            int previous_min = minimum_band_width(&g_tb[g_drag_previous]);
+            int delta = g_drag_width - w;
+
+            delta = max(delta, previous_min - g_drag_previous_width);
+            w = g_drag_width - delta;
+            g_width[g_drag_previous] = g_drag_previous_width + delta;
+        }
+        if (kind != TASK_BAND) g_width[kind] = w;
+        SendMessageW(tray, WM_SETTINGCHANGE, 0, 0);
     }
 }
 
@@ -897,9 +944,8 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
 
         if (g_drag_kind == tb->kind && GetCapture() == hwnd)
         {
-            POINT pt;
-            GetCursorPos(&pt);
-            drag_band(tb, pt.x);
+            ClientToScreen(hwnd, &pt);
+            drag_band(tb->kind, GetParent(hwnd), pt.x);
             return 0;
         }
         hot = hit_test(tb, pt.x, pt.y);
@@ -940,13 +986,10 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
         if (!tb_locked() && pt.x < GRIPPER_W)
         {
-            RECT rc;
             POINT screen = pt;
-            GetClientRect(hwnd, &rc);
             ClientToScreen(hwnd, &screen);
             g_drag_kind = tb->kind;
-            g_drag_start = screen.x;
-            g_drag_width = rc.right;
+            begin_band_drag(tb->kind, GetParent(hwnd), screen.x);
             SetCapture(hwnd);
             return 0;
         }
@@ -981,6 +1024,14 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         if (i >= 0 && i == was) activate_item(tb, i);
         return 0;
     }
+
+    case WM_CAPTURECHANGED:
+        if (g_drag_kind == tb->kind)
+        {
+            g_drag_kind = -1;
+            save_bands();
+        }
+        return 0;
 
     case WM_CONTEXTMENU:
     {
@@ -1022,7 +1073,11 @@ static LRESULT CALLBACK search_edit_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         if (wparam == '\r' || wparam == 27) return 0;   /* no beep */
         break;
     case WM_KILLFOCUS:
-        if (!instant_search_owns((HWND)wparam)) instant_search_hide();
+        if (!instant_search_owns((HWND)wparam))
+        {
+            instant_search_hide();
+            SetWindowTextW(hwnd, L"");
+        }
         break;
     case WM_SETFOCUS:
         if (GetWindowTextLengthW(hwnd)) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(IDC_SEARCHBOX, EN_CHANGE), (LPARAM)hwnd);
@@ -1328,7 +1383,7 @@ void toolbars_refresh(void)
     }
 }
 
-static int g_task_x, g_task_w;
+static int g_task_x, g_task_w, g_task_top, g_task_height;
 
 void toolbars_task_rect(int *x, int *w)
 {
@@ -1339,7 +1394,7 @@ void toolbars_task_rect(int *x, int *w)
 static int band_width(TOOLBAR *tb)
 {
     int w = g_width[tb->kind] ? g_width[tb->kind] : preferred_width(tb);
-    return max(w, GRIPPER_W + CHEVRON_W);
+    return max(w, minimum_band_width(tb));
 }
 
 void toolbars_layout(HWND tray, int x, int tray_left, int top, int height, int *task_x, int *task_w)
@@ -1348,6 +1403,8 @@ void toolbars_layout(HWND tray, int x, int tray_left, int top, int height, int *
     int gap = IsThemeActive() ? 2 : 0;
 
     load_bands();
+    g_task_top = top;
+    g_task_height = height;
     avail = tray_left - x - 4;
     for (i = 0; i <= TOOLBAR_COUNT; i++)
     {
@@ -1359,7 +1416,9 @@ void toolbars_layout(HWND tray, int x, int tray_left, int top, int height, int *
     /* give way: the last toolbars shrink so that the task buttons keep a minimum */
     for (i = TOOLBAR_COUNT; i >= 0 && total > avail - min_task; i--)
     {
-        int give = min(total - (avail - min_task), max(0, widths[i] - (GRIPPER_W + CHEVRON_W)));
+        int band = g_order[i], give;
+        if (band == TASK_BAND || !g_tb[band].hwnd) continue;
+        give = min(total - (avail - min_task), max(0, widths[i] - minimum_band_width(&g_tb[band])));
         widths[i] -= give;
         total -= give;
     }
@@ -1386,6 +1445,61 @@ void toolbars_layout(HWND tray, int x, int tray_left, int top, int height, int *
     *task_x = g_task_x;
     *task_w = g_task_w;
     (void)tray;
+}
+
+/* The task band's gripper is painted in the tray, outside its button window. */
+BOOL toolbars_task_gripper_message(HWND tray, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    POINT pt;
+    BOOL dragging = g_drag_kind == TASK_BAND;
+
+    switch (msg)
+    {
+    case WM_SETCURSOR:
+    case WM_LBUTTONDOWN:
+        if (msg == WM_SETCURSOR && dragging)
+        {
+            SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_SIZEWE));
+            return TRUE;
+        }
+        if (msg == WM_LBUTTONDOWN)
+        {
+            pt.x = (short)LOWORD(lparam);
+            pt.y = (short)HIWORD(lparam);
+        }
+        else
+        {
+            GetCursorPos(&pt);
+            ScreenToClient(tray, &pt);
+        }
+        if (tb_locked() || pt.x < g_task_x - GRIPPER_W || pt.x >= g_task_x ||
+            pt.y < g_task_top + 3 || pt.y >= g_task_top + g_task_height) return FALSE;
+        if (msg == WM_SETCURSOR)
+            SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_SIZEWE));
+        else
+        {
+            ClientToScreen(tray, &pt);
+            g_drag_kind = TASK_BAND;
+            begin_band_drag(TASK_BAND, tray, pt.x);
+            SetCapture(tray);
+        }
+        return TRUE;
+    case WM_MOUSEMOVE:
+        if (!dragging || GetCapture() != tray) return FALSE;
+        pt.x = (short)LOWORD(lparam);
+        pt.y = (short)HIWORD(lparam);
+        ClientToScreen(tray, &pt);
+        drag_band(TASK_BAND, tray, pt.x);
+        return TRUE;
+    case WM_LBUTTONUP:
+    case WM_CAPTURECHANGED:
+        if (!dragging) return FALSE;
+        g_drag_kind = -1;
+        if (msg == WM_LBUTTONUP && GetCapture() == tray) ReleaseCapture();
+        save_bands();
+        return TRUE;
+    }
+    return FALSE;
 }
 
 /* The gripper in front of the task buttons, drawn by the taskbar; it is the same handle as that of the toolbars */
