@@ -71,3 +71,6 @@ configuration and rollback if the entire CPL process is forcibly killed remain f
   Yes persisted 1024x768 across a graphical-session restart. The VM was restored to accepted 800x600 afterward.
 - Monitor asset SHA-256 matches the reference file. `git diff --check` passed. The repository-wide asset check
   reports the unrelated, pre-existing unlisted `wine/dlls/intl.cpl/intl.ico`; the new monitor asset is cataloged.
+
+Independent DRM scanout validation and Gamescope prerequisites are recorded in
+[DISPLAY_OUTPUT_TESTING.md](DISPLAY_OUTPUT_TESTING.md).

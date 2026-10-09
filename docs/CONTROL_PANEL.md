@@ -47,3 +47,6 @@ window, `::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\::{21EC2020-3AEA-1069-A2DD-080
 
 The applet, kernelbase locale override, Control Panel launcher, Explorer, and wineserver build successfully.
 The applet icon matches the ReactOS resource and is cataloged in the asset manifest.
+
+The built Regional Options applet was launched in the VM and displayed the current locale's number,
+currency, time, and date samples. Its controls were closed without applying changes.
