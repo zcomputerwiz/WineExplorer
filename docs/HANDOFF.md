@@ -1,4 +1,19 @@
-# Handoff - where the previous session stopped (2026-10-07)
+# Current handoff location (2026-10-09)
+
+Active migration work now lives in `D:\DeepThought\Projects\ProtonExplorer`.
+Read [the ProtonExplorer handoff](../../ProtonExplorer/docs/HANDOFF.md) and
+[migration plan](../../ProtonExplorer/docs/PROTON_MIGRATION.md) before resuming.
+The new independent VM is **ProtonExplorer-VM**, SSH **2223**. Its host product
+checkout is `ProtonExplorer/proton/`, and its guest checkout is
+`/srv/protonexplorer/source/proton`, on `codex/proton-explorer`.
+
+This original workspace/VM remains the Wine 11.19 comparison baseline on SSH
+2222. The Proton migration is planned; no Proton desktop build or verified
+WebView2 fix exists yet. Current local setup and handoff documentation are
+committed separately in the copied workspace and the user's Proton fork;
+nothing has been pushed. The old Date/Time notes below are historical context.
+
+# Historical handoff (2026-10-07)
 
 **Last area of work: `timedate.cpl` (Date and Time Properties)**, plus Start menu / tray polish in the same
 commits (`aa0c06c`, `504e692`, `d0809c3`). It now runs through the new D-Bus stack (see below). Full review: `docs/CODE_REVIEW.md`.
