@@ -233,6 +233,14 @@ DWORD WINAPI WexWmGetIcon( UINT64 window, DWORD size, DWORD *pixels, DWORD max, 
 /* Release every window to the root window and stop managing the display. */
 void  WINAPI WexWmStop( void );
 
+/* Visible freedesktop applications. UTF-8 rows: desktop ID, name, description,
+ * categories, PNG path, separated by tabs and terminated by newline; final NUL.
+ * ERROR_MORE_DATA returns the required byte count, including the final NUL. */
+#define WEX_APP_ID_MAX 512
+DWORD WINAPI WexAppsList( char *buffer, DWORD size, DWORD *needed );
+/* Launch by desktop ID through GIO, without the shell's Wine environment. */
+DWORD WINAPI WexAppsLaunch( const WCHAR *id );
+
 #ifdef __cplusplus
 }
 #endif

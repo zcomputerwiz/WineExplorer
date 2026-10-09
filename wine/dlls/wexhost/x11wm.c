@@ -964,8 +964,15 @@ NTSTATUS wm_next_event( void *args )
 /* Starts a shell call on our display; NULL when the window manager does not run. */
 static BOOL begin_call( DWORD *err )
 {
-    if (!running) { *err = ERROR_NOT_SUPPORTED; return FALSE; }
     pthread_mutex_lock( &x_mutex );
+    /* Stop can win the lock after a caller arrives. Check while holding it so
+     * a late configure/focus request cannot use the closed X connection. */
+    if (!running)
+    {
+        pthread_mutex_unlock( &x_mutex );
+        *err = ERROR_NOT_SUPPORTED;
+        return FALSE;
+    }
     x_error = 0;
     return TRUE;
 }

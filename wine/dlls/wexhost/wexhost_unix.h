@@ -75,6 +75,11 @@ struct display_set_params { WEX_DISPLAY_MODE mode; BOOL persist; DWORD err; };
 extern NTSTATUS display_get(void *args);
 extern NTSTATUS display_set(void *args);
 
+struct apps_list_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
+struct apps_launch_params { char id[WEX_APP_ID_MAX]; DWORD err; };
+extern NTSTATUS apps_list(void *args);
+extern NTSTATUS apps_launch(void *args);
+
 struct wm_start_params { UINT64 desktop; DWORD err; };
 struct wm_next_event_params { WEX_WM_EVENT event; DWORD err; };
 struct wm_manage_params { UINT64 window; UINT64 parent; RECT client; RECT screen; DWORD err; };
@@ -128,6 +133,8 @@ enum wexhost_funcs
     unix_wm_get_title,
     unix_wm_get_icon,
     unix_wm_stop,
+    unix_apps_list,
+    unix_apps_launch,
     unix_funcs_count
 };
 

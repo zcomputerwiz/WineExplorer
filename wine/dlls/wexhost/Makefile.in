@@ -6,6 +6,7 @@ UNIX_CFLAGS = $(DBUS_CFLAGS) $(X_CFLAGS)
 UNIX_LIBS   = $(PTHREAD_LIBS)
 
 SOURCES = \
+	apps.c \
 	display.c \
 	unixlib.c \
 	wexhost.c \

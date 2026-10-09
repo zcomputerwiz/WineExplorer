@@ -37,6 +37,31 @@ static HANDLE agent_thread;
 static WEX_AGENT_CALLBACK agent_callback;
 static void *agent_context;
 
+DWORD WINAPI WexAppsList( char *buffer, DWORD size, DWORD *needed )
+{
+    struct apps_list_params params = {0};
+    if (needed) *needed = 0;
+    if (!buffer && size) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.buffer = (ULONG_PTR)buffer;
+    params.size = size;
+    WEXHOST_CALL( apps_list, &params );
+    if (needed) *needed = params.needed;
+    return params.err;
+}
+
+DWORD WINAPI WexAppsLaunch( const WCHAR *id )
+{
+    struct apps_launch_params params = {0};
+    int size;
+    if (!id || !*id) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    size = WideCharToMultiByte( CP_UTF8, WC_ERR_INVALID_CHARS, id, -1, params.id, sizeof(params.id), NULL, NULL );
+    if (!size) return GetLastError();
+    WEXHOST_CALL( apps_launch, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexDisplayGet(WEX_DISPLAY *display)
 {
     struct display_get_params params;

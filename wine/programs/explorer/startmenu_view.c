@@ -68,6 +68,11 @@ extern void power_mgmt_show_shutdown_dialog(HWND parent);
 static WCHAR g_program_paths[MAX_PROGRAM_ENTRIES][MAX_PATH];
 static UINT g_program_count = 0;
 
+#define MAX_LINUX_PROGRAMS 512
+#define LINUX_PROGRAM_FIRST 8000
+static WCHAR g_linux_ids[MAX_LINUX_PROGRAMS][WEX_APP_ID_MAX];
+static UINT g_linux_count;
+
 static LRESULT CALLBACK mouse_hook_proc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode >= 0 && g_startmenu_open)
@@ -337,6 +342,88 @@ static void append_menu_item_icon(HMENU hMenu, UINT uFlags, UINT_PTR uIDNewItem,
     }
 
     InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+}
+
+/* Re-enumerate on every opening so installed and removed desktop entries are reflected.
+ * Keep desktop IDs separate from Windows paths: launching through ShellExecute would
+ * inherit the desktop prefix and cannot interpret freedesktop Exec field codes. */
+static void populate_linux_programs(HMENU programs)
+{
+    char *buffer = NULL, *line, *next, *fields[5];
+    DWORD needed = 0, err;
+    unsigned int attempt, field;
+    HMENU menu;
+
+    g_linux_count = 0;
+    err = WexAppsList(NULL, 0, &needed);
+    for (attempt = 0; err == ERROR_MORE_DATA && attempt < 3; attempt++)
+    {
+        free(buffer);
+        if (!needed || needed > 16 * 1024 * 1024) return;
+        if (!(buffer = malloc(needed))) return;
+        err = WexAppsList(buffer, needed, &needed);
+    }
+    if (err) { free(buffer); return; }
+    menu = create_picture_menu();
+    if (!menu) { free(buffer); return; }
+    for (line = buffer; *line && g_linux_count < MAX_LINUX_PROGRAMS; line = next)
+    {
+        WCHAR name[512], label[1024], existing[1024];
+        MENUITEMINFOW item = {sizeof(item)};
+        unsigned int i, j;
+        int position;
+
+        next = strchr(line, '\n');
+        if (!next) break;
+        *next++ = 0;
+        fields[0] = line;
+        for (field = 1; field < ARRAY_SIZE(fields); field++)
+        {
+            fields[field] = strchr(fields[field - 1], '\t');
+            if (!fields[field]) break;
+            *fields[field]++ = 0;
+        }
+        if (field != ARRAY_SIZE(fields) || !*fields[0] || !*fields[1]) continue;
+        if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, fields[0], -1,
+                                 g_linux_ids[g_linux_count], WEX_APP_ID_MAX) ||
+            !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, fields[1], -1, name, ARRAY_SIZE(name))) continue;
+        /* Application names are literal text, not menu accelerators. */
+        for (i = j = 0; name[i]; i++)
+        {
+            if (name[i] == '&') label[j++] = '&';
+            label[j++] = name[i];
+        }
+        label[j] = 0;
+        for (position = 0; position < GetMenuItemCount(menu); position++)
+        {
+            GetMenuStringW(menu, position, existing, ARRAY_SIZE(existing), MF_BYPOSITION);
+            if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE, label, -1, existing, -1) == CSTR_LESS_THAN) break;
+        }
+        item.fMask = MIIM_STRING | MIIM_ID;
+        item.dwTypeData = label;
+        item.wID = LINUX_PROGRAM_FIRST + g_linux_count;
+        if (InsertMenuItemW(menu, position, TRUE, &item)) g_linux_count++;
+    }
+    free(buffer);
+    if (g_linux_count)
+        append_menu_item_icon(programs, MF_POPUP, (UINT_PTR)menu, L"Linux Applications", get_shell32_icon_bitmap(20, 16));
+    else DestroyMenu(menu);
+}
+
+static BOOL launch_linux_program(UINT cmd, HWND owner)
+{
+    DWORD err;
+    WCHAR message[256];
+    if (cmd < LINUX_PROGRAM_FIRST || cmd - LINUX_PROGRAM_FIRST >= g_linux_count) return FALSE;
+    err = WexAppsLaunch(g_linux_ids[cmd - LINUX_PROGRAM_FIRST]);
+    if (err)
+    {
+        if (!FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                            NULL, err, 0, message, ARRAY_SIZE(message), NULL))
+            lstrcpyW(message, L"The application could not be started.");
+        MessageBoxW(owner, message, L"Start Application", MB_OK | MB_ICONERROR);
+    }
+    return TRUE;
 }
 
 static HMENU find_existing_submenu(HMENU hMenu, const WCHAR *name)
@@ -870,6 +957,7 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
         populate_programs_menu(hPrograms, user_programs);
     if (SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, common_programs) == S_OK)
         populate_programs_menu(hPrograms, common_programs);
+    populate_linux_programs(hPrograms);
 
     /* Documents Submenu */
     if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, my_docs) == S_OK)
@@ -962,7 +1050,7 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     if (cmd >= 2000 && (cmd - 2000) < g_program_count)
         ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
-    else if (cmd)
+    else if (cmd && !launch_linux_program(cmd, tray_hwnd))
         run_start_command(cmd, tray_hwnd);
 }
 
@@ -1541,6 +1629,7 @@ static void show_programs_popup_menu(HWND parent, int x, int y)
         populate_programs_menu(hPrograms, user_programs);
     if (SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, common_programs) == S_OK)
         populate_programs_menu(hPrograms, common_programs);
+    populate_linux_programs(hPrograms);
 
     cmd = TrackPopupMenu(hPrograms, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
                          x, y, 0, parent, NULL);
@@ -1557,6 +1646,7 @@ static void show_programs_popup_menu(HWND parent, int x, int y)
         ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
         startmenu_view_hide();
     }
+    else if (launch_linux_program(cmd, parent)) startmenu_view_hide();
 }
 
 static BOOL g_panel_menu_open;

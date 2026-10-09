@@ -78,10 +78,8 @@ fi
 
 LAUNCH=("$WINE" explorer.exe "/desktop=${DESKTOP_NAME},${WIDTH}x${HEIGHT}" "${SHELL_ARGS[@]}")
 
-if command -v gamescope >/dev/null 2>&1; then
-    echo "Starting under Gamescope (${WIDTH}x${HEIGHT}@${REFRESH}Hz)"
-    exec gamescope -W "$WIDTH" -H "$HEIGHT" -r "$REFRESH" -- "${LAUNCH[@]}"
-else
-    echo "Starting direct (${WIDTH}x${HEIGHT})"
-    exec "${LAUNCH[@]}"
-fi
+# Explorer owns the session's X11 root and manages other runtimes' windows.
+# Gamescope owns a different root, so nesting the entire shell under it would
+# isolate native Linux and Proton windows. Use Gamescope per application instead.
+echo "Starting X11 desktop (${WIDTH}x${HEIGHT})"
+exec "${LAUNCH[@]}"

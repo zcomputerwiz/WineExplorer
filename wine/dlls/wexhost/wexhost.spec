@@ -28,3 +28,5 @@
 @ stdcall WexWmGetTitle(int64 ptr long)
 @ stdcall WexWmGetIcon(int64 long ptr long ptr ptr)
 @ stdcall WexWmStop()
+@ stdcall WexAppsList(ptr long ptr)
+@ stdcall WexAppsLaunch(wstr)
