@@ -22,6 +22,7 @@ SOURCES = \
 	power_backend.c \
 	power_mgmt.c \
 	powertray.c \
+	shellfolders.c \
 	shellres.c \
 	startmenu.c \
 	startmenu_view.c \

@@ -54,20 +54,6 @@ typedef struct _THEME_SOUNDS
     WCHAR critical_stop[MAX_PATH];
 } THEME_SOUNDS;
 
-typedef struct _THEME_DESKTOP_ICONS
-{
-    WCHAR my_computer[MAX_PATH];
-    int   my_computer_idx;
-    WCHAR my_documents[MAX_PATH];
-    int   my_documents_idx;
-    WCHAR network_places[MAX_PATH];
-    int   network_places_idx;
-    WCHAR recycle_full[MAX_PATH];
-    int   recycle_full_idx;
-    WCHAR recycle_empty[MAX_PATH];
-    int   recycle_empty_idx;
-} THEME_DESKTOP_ICONS;
-
 typedef struct _THEME_CONFIG
 {
     WCHAR display_name[128];
@@ -94,7 +80,6 @@ typedef struct _THEME_CONFIG
     THEME_SOUNDS sounds;
 
     /* Desktop Icons */
-    THEME_DESKTOP_ICONS icons;
 
     /* Start Menu & Taskbar Style */
     int start_menu_style;
@@ -118,8 +103,9 @@ BOOL theme_apply(THEME_CONFIG *config);
 THEME_CONFIG *theme_get_current(void);
 
 BOOL theme_is_visual_styles_active(void);
+int theme_taskbar_first_row(void);   /* height of the first row of the taskbar */
+int theme_taskbar_row_pitch(void);   /* every further row */
 HTHEME theme_open(HWND hwnd, const WCHAR *classes); /* NULL when Windows Classic */
-BOOL theme_draw_taskbar_background(HWND hwnd, HDC hdc); /* taskbar image seen through a child window; FALSE in Classic */
 void theme_play_sound(const WCHAR *event_name);
 
 /* Drawing helpers */

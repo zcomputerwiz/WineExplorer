@@ -355,7 +355,6 @@ static RECT get_tray_clock_rect(void)
 #define CHEVRON_WIDTH 14
 #define INACTIVE_AFTER 8000
 static BOOL tray_expanded;
-static int first_row_height(void);
 
 static void refresh_inactive_icons(void);
 
@@ -449,7 +448,6 @@ static BOOL chevron_visible(void)
     return FALSE;
 }
 
-RECT systray_get_notify_rect(void);
 static RECT get_tray_notify_rect(void)
 {
     RECT rc;
@@ -464,11 +462,6 @@ static RECT get_tray_notify_rect(void)
     return rc;
 }
 
-RECT systray_get_notify_rect(void)
-{
-    return get_tray_notify_rect();
-}
-
 /* get the position of an icon in the tray */
 static POINT get_icon_pos( struct icon *icon )
 {
@@ -479,7 +472,7 @@ static POINT get_icon_pos( struct icon *icon )
         RECT rcClock = get_tray_clock_rect();
         int icons_width = nb_displayed * 18;
         pos.x = rcClock.left - 4 - icons_width + (icon->display * 18);
-        pos.y = tray_top + (first_row_height() - icon_cy) / 2;   /* the icons stay in the first row */
+        pos.y = tray_top + (theme_taskbar_first_row() - icon_cy) / 2;   /* the icons stay in the first row */
     }
     else
     {
@@ -497,21 +490,9 @@ static BOOL taskbar_hidden;
 static const WCHAR rows_key[] = L"Software\\WineExplorer\\Taskbar";
 static int tray_rows;   /* rows of task buttons; an unlocked taskbar is made taller by dragging its top edge */
 
-/* measured on Windows XP: the first row is 30 pixels with a visual style and 28 for Windows Classic, every further
- * row adds 30 (26 for Classic) */
-static int first_row_height(void)
-{
-    return theme_is_visual_styles_active() ? 30 : 28;
-}
-
-static int row_pitch(void)
-{
-    return theme_is_visual_styles_active() ? 30 : 26;
-}
-
 static int max_rows(void)
 {
-    return max( 1, (GetSystemMetrics( SM_CYSCREEN ) / 2 - first_row_height()) / row_pitch() + 1 );
+    return max( 1, (GetSystemMetrics( SM_CYSCREEN ) / 2 - theme_taskbar_first_row()) / theme_taskbar_row_pitch() + 1 );
 }
 
 /* an unlocked taskbar with a visual style has a sizing border of four pixels above the Start button */
@@ -525,7 +506,7 @@ static void update_tray_top(void)
     }
     tray_rows = max( 1, min( tray_rows, max_rows() ));
     tray_top = (theme_is_visual_styles_active() && !taskbar_settings_get()->lock_taskbar) ? 4 : 0;
-    tray_height = first_row_height() + (tray_rows - 1) * row_pitch();
+    tray_height = theme_taskbar_first_row() + (tray_rows - 1) * theme_taskbar_row_pitch();
 }
 
 static BOOL sizing_rows;
@@ -539,8 +520,8 @@ static BOOL on_sizing_edge( int y )
 static void place_start_button(void)
 {
     /* the Start button stays in the first row */
-    if (theme_is_visual_styles_active()) startbutton_resize( 0, tray_top, start_button_width, first_row_height() );
-    else startbutton_resize( 1, tray_top + 3, start_button_width, first_row_height() - 5 );
+    if (theme_is_visual_styles_active()) startbutton_resize( 0, tray_top, start_button_width, theme_taskbar_first_row() );
+    else startbutton_resize( 1, tray_top + 3, start_button_width, theme_taskbar_first_row() - 5 );
 }
 
 /* Always on top, auto-hide and the work area follow the taskbar settings */
@@ -840,17 +821,10 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
         break;
 
     case WM_ERASEBKGND:
-        if (icon && enable_taskbar && tray_window && GetAncestor( hwnd, GA_PARENT ) == tray_window && !icon->layered)
+        /* an icon on the taskbar shows the taskbar under it, not what was drawn there before */
+        if (icon && !icon->layered && GetParent( hwnd ) == tray_window)
         {
-            /* the icon sits on the taskbar: copy the background of the taskbar, not what was drawn there before */
-            POINT org = { 0, 0 }, old;
-            RECT rc;
-
-            GetClientRect( tray_window, &rc );
-            MapWindowPoints( hwnd, tray_window, &org, 1 );
-            SetViewportOrgEx( (HDC)wparam, -org.x, -org.y, &old );
-            paint_tray_background( tray_window, (HDC)wparam, &rc );
-            SetViewportOrgEx( (HDC)wparam, old.x, old.y, NULL );
+            DrawThemeParentBackground( hwnd, (HDC)wparam, NULL );
             return 1;
         }
         break;
@@ -947,7 +921,7 @@ static void systray_add_icon( struct icon *icon )
 
     if (icon->display != ICON_DISPLAY_HIDDEN) return;  /* already added */
 
-    SetWindowLongW( icon->window, GWL_STYLE, GetWindowLongW( icon->window, GWL_STYLE ) | WS_CHILD );
+    SetWindowLongW( icon->window, GWL_STYLE, (GetWindowLongW( icon->window, GWL_STYLE ) & ~WS_POPUP) | WS_CHILD );
     SetParent( icon->window, tray_window );
     icon->display = nb_displayed++;
     renumber_icons();   /* icons that were hidden come back where they were */
@@ -984,7 +958,7 @@ static void systray_remove_icon( struct icon *icon )
 
     icon->display = ICON_DISPLAY_HIDDEN;
     SetParent( icon->window, GetDesktopWindow() );
-    SetWindowLongW( icon->window, GWL_STYLE, GetWindowLongW( icon->window, GWL_STYLE ) & ~WS_CHILD );
+    SetWindowLongW( icon->window, GWL_STYLE, (GetWindowLongW( icon->window, GWL_STYLE ) & ~WS_CHILD) | WS_POPUP );
 }
 
 /* make an icon visible */
@@ -1837,14 +1811,13 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
-        HDC real = BeginPaint( hwnd, &ps ), hdc = CreateCompatibleDC( real );
+        HDC real = BeginPaint( hwnd, &ps ), hdc;
+        /* paint into a buffer and copy it at once: no flashing while the bands are moved or resized */
+        HPAINTBUFFER buffer = BeginBufferedPaint( real, &ps.rcPaint, BPBF_COMPATIBLEBITMAP, NULL, &hdc );
         RECT rc;
-        HBITMAP buffer, old_buffer;
 
+        if (!buffer) hdc = real;
         GetClientRect( hwnd, &rc );
-        /* paint into a bitmap and copy it at once: no flashing while the bands are moved or resized */
-        buffer = CreateCompatibleBitmap( real, rc.right, rc.bottom );
-        old_buffer = SelectObject( hdc, buffer );
         paint_tray_background( hwnd, hdc, &rc );
 
         if (chevron_visible())
@@ -1882,12 +1855,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
 
         toolbars_draw_task_gripper( hwnd, hdc, tray_top, tray_height );
 
-        BitBlt( real, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
-                hdc, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY );
-        SelectObject( hdc, old_buffer );
-        DeleteObject( buffer );
-        DeleteDC( hdc );
+        if (buffer) EndBufferedPaint( buffer, TRUE );
         EndPaint( hwnd, &ps );
+        return 0;
+    }
+
+    case WM_PRINTCLIENT:
+    {
+        /* the background the bands, the clock, the Start button and the tray icons draw under themselves
+         * (DrawThemeParentBackground) */
+        RECT rc;
+        GetClientRect( hwnd, &rc );
+        paint_tray_background( hwnd, (HDC)wparam, &rc );
         return 0;
     }
 
@@ -1968,7 +1947,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
             int rows;
 
             GetCursorPos( &pt );
-            rows = (GetSystemMetrics( SM_CYSCREEN ) - pt.y - tray_top - first_row_height() + row_pitch() / 2) / row_pitch() + 1;
+            rows = (GetSystemMetrics( SM_CYSCREEN ) - pt.y - tray_top - theme_taskbar_first_row() + theme_taskbar_row_pitch() / 2) / theme_taskbar_row_pitch() + 1;
             rows = max( 1, min( rows, max_rows() ));
             if (rows != tray_rows)
             {

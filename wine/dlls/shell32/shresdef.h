@@ -155,6 +155,7 @@
 
 /* Note: this string is referenced from the registry*/
 #define IDS_RECYCLEBIN_FOLDER_NAME   8964
+#define IDS_MYDOCUMENTS_FOLDER_NAME  9227
 
 /* Properties dialog */
 #define IDD_FILE_PROPERTIES        8

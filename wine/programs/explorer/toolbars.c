@@ -36,6 +36,7 @@
 #include "theme_engine.h"
 #include "taskbar_props.h"
 #include "toolbars.h"
+#include "shellfolders.h"
 #include "shellres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
@@ -64,7 +65,8 @@ static int gripper_w(void)
 
 typedef struct _TB_ITEM
 {
-    WCHAR path[MAX_PATH];   /* empty: Show Desktop; "::{...}" shell objects are opened through explorer */
+    WCHAR path[MAX_PATH];   /* empty: Show Desktop (or a special folder) */
+    int csidl;              /* special folder of the Desktop toolbar, else -1 */
     WCHAR name[MAX_PATH];
     HICON icon;
     int x, w;               /* position inside the toolbar, when it fits */
@@ -178,6 +180,7 @@ static void add_item(TOOLBAR *tb, const WCHAR *path, const WCHAR *name, HICON ic
     lstrcpynW(item->path, path, MAX_PATH);
     lstrcpynW(item->name, name, MAX_PATH);
     item->icon = icon;
+    item->csidl = -1;
 }
 
 static void add_folder_items(TOOLBAR *tb, const WCHAR *dir)
@@ -230,30 +233,6 @@ static BOOL toolbar_folder(int kind, WCHAR *dir)
     return FALSE;
 }
 
-static HICON clsid_icon(const WCHAR *clsid, const WCHAR *value, int shell_fallback)
-{
-    WCHAR key[160], spec[MAX_PATH + 16];
-    DWORD size = sizeof(spec);
-    HICON icon = NULL;
-    WCHAR *comma;
-    int index = 0;
-
-    swprintf(key, ARRAY_SIZE(key), L"Software\\Classes\\CLSID\\%s\\DefaultIcon", clsid);
-    if (!RegGetValueW(HKEY_CURRENT_USER, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &size) ||
-        !RegGetValueW(HKEY_LOCAL_MACHINE, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &size))
-    {
-        WCHAR path[MAX_PATH];
-        const WCHAR *file;
-        ExpandEnvironmentStringsW(spec, path, MAX_PATH);
-        if ((comma = wcsrchr(path, ','))) { index = _wtoi(comma + 1); *comma = 0; }
-        file = PathFindFileNameW(path);
-        if (wcsicmp(file, L"shell32.dll") && wcsicmp(file, L"explorer.exe") && wcsicmp(file, L"mydocs.dll"))
-            ExtractIconExW(path, index, NULL, &icon, 1);
-    }
-    if (!icon && shell_fallback < 0) icon = shellres_icon(-shell_fallback, 16);
-    return icon;
-}
-
 static void free_items(TOOLBAR *tb)
 {
     int i;
@@ -274,7 +253,10 @@ static void load_items(TOOLBAR *tb)
         if (tb->count == 1)
         {
             /* a fresh profile: "Launch Internet Explorer Browser", like the default Quick Launch of Windows */
-            add_item(tb, L"iexplore.exe", L"Launch Internet Explorer Browser", shellres_app_icon(L"iexplore.exe", 16) ? shellres_app_icon(L"iexplore.exe", 16) : shellres_icon(3, 16));
+        {
+            HICON icon = shellres_app_icon(L"iexplore.exe", 16);
+            add_item(tb, L"iexplore.exe", L"Launch Internet Explorer Browser", icon ? icon : shellres_icon(3, 16));
+        }
         }
         break;
     case TOOLBAR_LINKS:
@@ -285,10 +267,19 @@ static void load_items(TOOLBAR *tb)
         if (toolbar_folder(tb->kind, dir)) add_folder_items(tb, dir);
         break;
     case TOOLBAR_DESKTOP:
-        add_item(tb, L"::{450D8FBA-AD25-11D0-98A8-0800361B1103}", L"My Documents", clsid_icon(L"{450D8FBA-AD25-11D0-98A8-0800361B1103}", NULL, -235));
-        add_item(tb, L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", L"My Computer", clsid_icon(L"{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, -16));
-        add_item(tb, L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}", L"My Network Places", clsid_icon(L"{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, -18));
-        add_item(tb, L"::{645FF040-5081-101B-9F08-00AA002F954E}", L"Recycle Bin", clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", L"empty", -32));
+    {
+        /* the same items as the desktop */
+        int csidls[8], n = shellfolder_desktop_items(csidls, ARRAY_SIZE(csidls)), i;
+        WCHAR name[MAX_PATH];
+
+        for (i = 0; i < n; i++)
+        {
+            if (!shellfolder_name(csidls[i], name, ARRAY_SIZE(name))) continue;
+            int before = tb->count;
+            add_item(tb, L"", name, shellfolder_icon(csidls[i], csidls[i] == CSIDL_BITBUCKET ? L"empty" : NULL, 16));
+            if (tb->count > before) tb->items[before].csidl = csidls[i];
+        }
+    }
         if (toolbar_folder(tb->kind, dir)) add_folder_items(tb, dir);
         if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_DESKTOPDIRECTORY, NULL, SHGFP_TYPE_CURRENT, dir))) add_folder_items(tb, dir);
         break;
@@ -381,11 +372,6 @@ static void place_items(TOOLBAR *tb)
     ReleaseDC(tb->hwnd, hdc);
 }
 
-static int first_row_height(void)
-{
-    return IsThemeActive() ? 30 : 28;
-}
-
 static RECT item_rect(const TOOLBAR *tb, int i)
 {
     RECT rc;
@@ -393,7 +379,7 @@ static RECT item_rect(const TOOLBAR *tb, int i)
     rc.left = tb->items[i].x;
     rc.right = rc.left + tb->items[i].w;
     rc.top += 3;
-    rc.bottom = min(rc.bottom, first_row_height()) - 3;   /* a taller taskbar keeps the buttons in the first row */
+    rc.bottom = min(rc.bottom, theme_taskbar_first_row()) - 3;   /* a taller taskbar keeps the buttons in the first row */
     return rc;
 }
 
@@ -403,7 +389,7 @@ static RECT chevron_rect(const TOOLBAR *tb)
     GetClientRect(tb->hwnd, &rc);
     rc.left = rc.right - CHEVRON_W;
     rc.top += 3;
-    rc.bottom = min(rc.bottom, first_row_height()) - 3;
+    rc.bottom = min(rc.bottom, theme_taskbar_first_row()) - 3;
     return rc;
 }
 
@@ -450,14 +436,7 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
     int i;
 
     GetClientRect(tb->hwnd, &rc);
-    if (!theme_draw_taskbar_background(tb->hwnd, hdc))
-    {
-        RECT top = rc;
-
-        FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
-        top.top = 1; top.bottom = 2;   /* the highlight line along the top of the Windows Classic taskbar */
-        FillRect(hdc, &top, GetSysColorBrush(COLOR_BTNHIGHLIGHT));
-    }
+    DrawThemeParentBackground(tb->hwnd, hdc, NULL);   /* the taskbar under the band */
 
     /* a locked taskbar only shows a thin separator, an unlocked one the gripper handle */
     grip = rc;
@@ -548,8 +527,8 @@ static void activate_item(TOOLBAR *tb, int i)
 {
     TB_ITEM *item = &tb->items[i];
 
-    if (!item->path[0]) { show_desktop_toggle(); return; }
-    if (!wcsncmp(item->path, L"::{", 3)) ShellExecuteW(NULL, L"open", L"explorer.exe", item->path, NULL, SW_SHOWNORMAL);
+    if (item->csidl >= 0) shellfolder_open(item->csidl, FALSE);
+    else if (!item->path[0]) show_desktop_toggle();
     else ShellExecuteW(NULL, NULL, item->path, NULL, NULL, SW_SHOWNORMAL);
 }
 
@@ -848,19 +827,11 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
-        HDC real = BeginPaint(hwnd, &ps), hdc = CreateCompatibleDC(real);
-        RECT rc;
-        HBITMAP bmp, old;
+        HDC real = BeginPaint(hwnd, &ps), hdc;
+        HPAINTBUFFER buffer = BeginBufferedPaint(real, &ps.rcPaint, BPBF_COMPATIBLEBITMAP, NULL, &hdc);
 
-        GetClientRect(hwnd, &rc);
-        bmp = CreateCompatibleBitmap(real, rc.right, rc.bottom);
-        old = SelectObject(hdc, bmp);
-        paint_toolbar(tb, hdc);
-        BitBlt(real, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
-               hdc, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
-        SelectObject(hdc, old);
-        DeleteObject(bmp);
-        DeleteDC(hdc);
+        paint_toolbar(tb, buffer ? hdc : real);
+        if (buffer) EndBufferedPaint(buffer, TRUE);
         EndPaint(hwnd, &ps);
         return 0;
     }

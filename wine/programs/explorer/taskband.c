@@ -170,8 +170,7 @@ void taskband_relayout(void)
     int available_width = g_taskband.max_width;
     int button_width = MAX_TASK_BUTTON_WIDTH;
     BOOL themed = theme_is_visual_styles_active();
-    /* rows as measured on Windows XP: 30 pixels (Classic: 28, then 26 per further row) */
-    int first = themed ? 30 : 28, pitch = themed ? 30 : 26;
+    int first = theme_taskbar_first_row(), pitch = theme_taskbar_row_pitch();
     int rows = max(1, (g_taskband.button_height - first) / pitch + 1);
     int per_row = max(1, available_width / MAX_TASK_BUTTON_WIDTH), i = 0;
     TASK_ITEM *curr;
@@ -531,23 +530,14 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        RECT client_rc, rc_top;
+        HDC real = BeginPaint(hwnd, &ps), hdc;
+        HPAINTBUFFER buffer = BeginBufferedPaint(real, &ps.rcPaint, BPBF_COMPATIBLEBITMAP, NULL, &hdc);
         HFONT font_normal, font_bold;
         LOGFONTW lf;
         TASK_ITEM *curr;
 
-        GetClientRect(hwnd, &client_rc);
-        if (!theme_draw_taskbar_background(hwnd, hdc))
-        {
-        FillRect(hdc, &client_rc, GetSysColorBrush(COLOR_BTNFACE));
-
-        /* Top 1px highlight line continuous across taskbar */
-        rc_top = client_rc;
-        rc_top.top = 1;
-        rc_top.bottom = 2;
-        FillRect(hdc, &rc_top, GetSysColorBrush(COLOR_3DHIGHLIGHT));
-        }
+        if (!buffer) hdc = real;
+        DrawThemeParentBackground(hwnd, hdc, NULL);   /* the taskbar under the buttons */
 
         memset(&lf, 0, sizeof(lf));
         lf.lfHeight = -11;
@@ -569,6 +559,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
 
         DeleteObject(font_normal);
         DeleteObject(font_bold);
+        if (buffer) EndBufferedPaint(buffer, TRUE);
         EndPaint(hwnd, &ps);
         return 0;
     }

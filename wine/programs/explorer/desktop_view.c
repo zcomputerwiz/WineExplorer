@@ -42,6 +42,7 @@
 #include "theme_engine.h"
 #include <wincodec.h>
 #include "desktop_view.h"
+#include "shellfolders.h"
 #include "shellres.h"
 #include "wlan_dialog.h"
 
@@ -93,6 +94,7 @@ static void add_desktop_item(DESKTOP_ITEM_TYPE type, const WCHAR *display_name,
     if (!item) return;
 
     item->type = type;
+    item->csidl = -1;
     lstrcpynW(item->display_name, display_name, MAX_PATH);
     if (target_path) lstrcpynW(item->target_path, target_path, MAX_PATH);
     item->icon = icon;
@@ -123,25 +125,6 @@ static void free_all_items(void)
     g_desktop_view.item_capacity = 0;
 }
 
-static HICON load_shell_icon(int index)
-{
-    if (index < 0)
-    {
-        HICON icon = shellres_icon(-index, 32);
-        if (icon) return icon;
-    }
-    HMODULE hShell = LoadLibraryW(L"shell32.dll");
-    HICON hIcon = NULL;
-    if (hShell)
-    {
-        ExtractIconExW(L"shell32.dll", index, &hIcon, NULL, 1);
-        FreeLibrary(hShell);
-    }
-    /* LoadIcon returns a shared icon; copy it since items are DestroyIcon()'d */
-    if (!hIcon) hIcon = CopyIcon(LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION));
-    return hIcon;
-}
-
 static int rows_per_column(void)
 {
     RECT work;
@@ -156,37 +139,6 @@ static void next_cell(int *row, int *col)
         *row = 0;
         ++*col;
     }
-}
-
-/* Icon of a shell namespace object, as registered (a theme replaces these values) */
-static HICON load_clsid_icon(const WCHAR *clsid, const WCHAR *value, int fallback_shell_index)
-{
-    WCHAR key[160], spec[MAX_PATH + 16], path[MAX_PATH];
-    DWORD size = sizeof(spec);
-    HICON icon = NULL;
-    WCHAR *comma;
-    int index = 0;
-
-    swprintf(key, ARRAY_SIZE(key), L"Software\\Classes\\CLSID\\%s\\DefaultIcon", clsid);
-    BOOL found = !RegGetValueW(HKEY_CURRENT_USER, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &size);
-
-    if (!found)
-    {
-        size = sizeof(spec);
-        found = !RegGetValueW(HKEY_LOCAL_MACHINE, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &size);
-    }
-    if (found)
-    {
-        const WCHAR *file;
-        ExpandEnvironmentStringsW(spec, path, MAX_PATH);
-        if ((comma = wcsrchr(path, ','))) { index = _wtoi(comma + 1); *comma = 0; }
-        file = PathFindFileNameW(path);
-        /* Windows themes name icons by position in Windows' own shell32.dll; our shell32 is laid out differently,
-         * so only icons from other files are taken from the registry */
-        if (wcsicmp(file, L"shell32.dll") && wcsicmp(file, L"explorer.exe") && wcsicmp(file, L"mydocs.dll"))
-            ExtractIconExW(path, index, &icon, NULL, 1);
-    }
-    return icon ? icon : load_shell_icon(fallback_shell_index);
 }
 
 static void populate_directory_items(const WCHAR *folder_path, int *cur_row, int *cur_col)
@@ -244,9 +196,9 @@ static void update_recycle_bin_icon(void)
     for (i = 0; i < g_desktop_view.item_count; i++)
     {
         DESKTOP_ITEM *item = g_desktop_view.items[i];
-        if (item->type == DESKTOP_ITEM_NAMESPACE && wcsstr(item->target_path, L"645FF040"))
+        if (item->csidl == CSIDL_BITBUCKET)
         {
-            HICON icon = load_clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", full ? L"full" : L"empty", full ? -33 : -32);
+            HICON icon = shellfolder_icon(CSIDL_BITBUCKET, full ? L"full" : L"empty", 32);
             if (icon) { if (item->icon) DestroyIcon(item->icon); item->icon = icon; }
         }
     }
@@ -264,19 +216,20 @@ void desktop_view_refresh(void)
     free_all_items();
     g_rb_full = -1;
 
-    /* 1. Standard namespace icons; each takes its icon from the registered DefaultIcon */
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Documents", L"::{450D8FBA-AD25-11D0-98A8-0800361B1103}",
-                     load_clsid_icon(L"{450D8FBA-AD25-11D0-98A8-0800361B1103}", NULL, -235), col, row);
-    next_cell(&row, &col);
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Computer", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
-                     load_clsid_icon(L"{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, -16), col, row);
-    next_cell(&row, &col);
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"My Network Places", L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}",
-                     load_clsid_icon(L"{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, -18), col, row);
-    next_cell(&row, &col);
-    add_desktop_item(DESKTOP_ITEM_NAMESPACE, L"Recycle Bin", L"::{645FF040-5081-101B-9F08-00AA002F954E}",
-                     load_clsid_icon(L"{645FF040-5081-101B-9F08-00AA002F954E}", L"empty", -32), col, row);
-    next_cell(&row, &col);
+    /* 1. The special folders shown on the desktop ("Desktop Items"), named and drawn by the namespace */
+    {
+        int csidls[8], n = shellfolder_desktop_items(csidls, ARRAY_SIZE(csidls)), i;
+        WCHAR name[MAX_PATH];
+
+        for (i = 0; i < n; i++)
+        {
+            if (!shellfolder_name(csidls[i], name, ARRAY_SIZE(name))) continue;
+            add_desktop_item(DESKTOP_ITEM_NAMESPACE, name, shellfolder_clsid(csidls[i]),
+                             shellfolder_icon(csidls[i], csidls[i] == CSIDL_BITBUCKET ? L"empty" : NULL, 32), col, row);
+            g_desktop_view.items[g_desktop_view.item_count - 1]->csidl = csidls[i];
+            next_cell(&row, &col);
+        }
+    }
 
     /* 2. Populate physical user and common desktop directory items */
     if (SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, user_desktop) == S_OK)
@@ -694,30 +647,14 @@ static void execute_item(DESKTOP_ITEM *item)
 
     TRACE("Executing desktop item: %s (%s)\n", debugstr_w(item->display_name), debugstr_w(item->target_path));
 
-    /* 1. My Computer, My Network Places and the Recycle Bin open their shell folder, like from the Start menu */
-    if (item->type == DESKTOP_ITEM_NAMESPACE && !wcsstr(item->target_path, L"450D8FBA"))
+    /* 1. Special folders open through the namespace */
+    if (item->type == DESKTOP_ITEM_NAMESPACE)
     {
-        ShellExecuteW(NULL, L"open", L"explorer.exe", item->target_path, NULL, SW_SHOWNORMAL);
+        shellfolder_open(item->csidl, FALSE);
         return;
     }
 
-    /* 2. My Documents */
-    if (wcsstr(item->target_path, L"450D8FBA") != NULL)
-    {
-        WCHAR docs_path[MAX_PATH];
-        if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, docs_path) == S_OK)
-        {
-            swprintf(param, ARRAY_SIZE(param), L"\"%s\"", docs_path);
-            ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
-        }
-        else
-        {
-            ShellExecuteW(NULL, L"open", L"explorer.exe", L"/e,", NULL, SW_SHOWNORMAL);
-        }
-        return;
-    }
-
-    /* 3. Directory / Folder */
+    /* 2. Directory / Folder */
     if (item->type == DESKTOP_ITEM_FOLDER || PathIsDirectoryW(item->target_path))
     {
         swprintf(param, ARRAY_SIZE(param), L"\"%s\"", item->target_path);
@@ -725,7 +662,7 @@ static void execute_item(DESKTOP_ITEM *item)
         return;
     }
 
-    /* 4. General file / shortcut / application */
+    /* 3. General file / shortcut / application */
     ShellExecuteW(NULL, L"open", item->target_path,
                   item->arguments[0] ? item->arguments : NULL,
                   NULL, SW_SHOWNORMAL);
@@ -799,14 +736,14 @@ static void delete_selected_items(HWND hwnd)
 static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
 {
     HMENU hMenu = CreatePopupMenu();
-    BOOL is_my_computer = (wcsstr(item->target_path, L"20D04FE0") != NULL);
-    BOOL is_my_network = (wcsstr(item->target_path, L"208D2C60") != NULL);
-    BOOL is_recycle_bin = (wcsstr(item->target_path, L"645FF040") != NULL);
+    BOOL is_my_computer = item->csidl == CSIDL_DRIVES;
+    BOOL is_my_network = item->csidl == CSIDL_NETWORK;
+    BOOL is_recycle_bin = item->csidl == CSIDL_BITBUCKET;
     BOOL is_namespace = (item->type == DESKTOP_ITEM_NAMESPACE);
     UINT cmd;
 
     AppendMenuW(hMenu, MF_STRING | MF_DEFAULT, IDM_ITEM_OPEN, L"&Open");
-    if (item->type == DESKTOP_ITEM_FOLDER || PathIsDirectoryW(item->target_path))
+    if (item->type == DESKTOP_ITEM_FOLDER || (is_namespace && item->csidl != CSIDL_INTERNET))
         AppendMenuW(hMenu, MF_STRING, IDM_ITEM_EXPLORE, L"&Explore");
 
     if (is_my_computer)
@@ -834,13 +771,15 @@ static void show_item_context_menu(HWND hwnd, DESKTOP_ITEM *item, POINT pt)
     switch (cmd)
     {
     case IDM_ITEM_EXPLORE:
-    {
         /* the folder with the Folders pane */
-        WCHAR param[MAX_PATH + 8];
-        swprintf(param, ARRAY_SIZE(param), L"/e,%s", item->target_path);
-        ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
+        if (is_namespace) shellfolder_open(item->csidl, TRUE);
+        else
+        {
+            WCHAR param[MAX_PATH + 8];
+            swprintf(param, ARRAY_SIZE(param), L"/e,%s", item->target_path);
+            ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
+        }
         break;
-    }
     case IDM_ITEM_OPEN:
         execute_item(item);
         break;

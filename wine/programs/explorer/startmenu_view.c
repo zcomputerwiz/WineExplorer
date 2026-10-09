@@ -40,10 +40,13 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "theme_engine.h"
+#include "desktop_view.h"
+#include "shellfolders.h"
 #include "shellres.h"
 #include "startmenu_view.h"
 #include "startsettings.h"
 #include "taskbar_props.h"
+#include "toolbars.h"
 #include "wlan_dialog.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
@@ -756,6 +759,78 @@ static void run_dialog_inproc(HWND owner)
 /*                         CLASSIC START MENU POPUP                          */
 /* ========================================================================= */
 
+/* The special folder behind a Start menu command, -1 for others */
+static int command_csidl(UINT cmd)
+{
+    switch (cmd)
+    {
+    case STARTMENU_CMD_MYDOCS:      return CSIDL_PERSONAL;
+    case STARTMENU_CMD_RECENT_DOCS: return CSIDL_RECENT;
+    case STARTMENU_CMD_PICTURES:    return CSIDL_MYPICTURES;
+    case STARTMENU_CMD_MUSIC:       return CSIDL_MYMUSIC;
+    case STARTMENU_CMD_MYCOMP:      return CSIDL_DRIVES;
+    case STARTMENU_CMD_MYNET:       return CSIDL_NETWORK;
+    case STARTMENU_CMD_PRINTERS:    return CSIDL_PRINTERS;
+    default:                        return -1;
+    }
+}
+
+/* What a command of either Start menu (Classic or Windows XP style) does */
+static void run_start_command(UINT cmd, HWND tray)
+{
+    static const struct { UINT cmd; const WCHAR *file, *params; } programs[] =
+    {
+        { STARTMENU_CMD_INTERNET,     L"iexplore.exe", NULL },
+        { STARTMENU_CMD_EMAIL,        L"mailto:", NULL },
+        { 3001,                       L"wmplayer.exe", NULL },
+        { 3002,                       L"notepad.exe", NULL },
+        { 3003,                       L"calc.exe", NULL },
+        { 3004,                       L"mspaint.exe", NULL },
+        { 3005,                       L"cmd.exe", NULL },
+        { STARTMENU_CMD_CONTROLPANEL, L"control.exe", NULL },
+        { STARTMENU_CMD_NETWORK,      L"control.exe", L"ncpa.cpl" },
+        { STARTMENU_CMD_PROGACCESS,   L"control.exe", L"appwiz.cpl,,3" },
+        { STARTMENU_CMD_HELP,         L"hh.exe", NULL },
+        { STARTMENU_CMD_CATALOG,      L"iexplore.exe", L"http://go.microsoft.com/fwlink/?LinkId=374" },
+        { STARTMENU_CMD_UPDATE,       L"wupdmgr.exe", NULL },
+        /* the Search Companion; SHFindFiles is still a stub in Wine */
+        { STARTMENU_CMD_SEARCH,       L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}" },
+        { STARTMENU_CMD_SEARCH_COMPUTERS, L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}" },
+    };
+    int i, csidl = command_csidl(cmd);
+
+    if (csidl >= 0)
+    {
+        shellfolder_open(csidl, FALSE);
+        return;
+    }
+    for (i = 0; i < ARRAY_SIZE(programs); i++)
+    {
+        if (programs[i].cmd != cmd) continue;
+        ShellExecuteW(NULL, L"open", programs[i].file, programs[i].params, NULL, SW_SHOWNORMAL);
+        return;
+    }
+    switch (cmd)
+    {
+    case STARTMENU_CMD_CONNECT_TO:
+        wlan_dialog_show(tray);
+        break;
+    case STARTMENU_CMD_RUN:
+        run_dialog_inproc(tray);
+        break;
+    case STARTMENU_CMD_TASKBAR_PROPS:
+        taskbar_props_show(tray);
+        break;
+    case STARTMENU_CMD_LOGOFF:
+        if (MessageBoxW(tray, L"Are you sure you want to log off?", L"Log Off Windows", MB_YESNO | MB_ICONQUESTION) == IDYES)
+            ExitWindowsEx(EWX_LOGOFF, 0);
+        break;
+    case STARTMENU_CMD_SHUTDOWN:
+        power_mgmt_show_shutdown_dialog(tray);
+        break;
+    }
+}
+
 static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 {
     HMENU hMenu = CreatePopupMenu();
@@ -888,69 +963,10 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     DestroyMenu(hMenu);
     free_menu_bitmaps();
 
-    switch (cmd)
-    {
-    case STARTMENU_CMD_PROGACCESS:
-        ShellExecuteW(NULL, L"open", L"control.exe", L"appwiz.cpl,,3", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_CATALOG:
-        ShellExecuteW(NULL, L"open", L"iexplore.exe", L"http://go.microsoft.com/fwlink/?LinkId=374", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_UPDATE:
-        ShellExecuteW(NULL, L"open", L"wupdmgr.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_RUN:
-        run_dialog_inproc(tray_hwnd);
-        break;
-    case STARTMENU_CMD_SHUTDOWN:
-        power_mgmt_show_shutdown_dialog(tray_hwnd);
-        break;
-    case STARTMENU_CMD_LOGOFF:
-        if (MessageBoxW(tray_hwnd, L"Are you sure you want to log off?", L"Log Off Windows",
-                        MB_YESNO | MB_ICONQUESTION) == IDYES)
-        {
-            ExitWindowsEx(EWX_LOGOFF, 0);
-        }
-        break;
-    case STARTMENU_CMD_CONTROLPANEL:
-        ShellExecuteW(NULL, L"open", L"control.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_NETWORK:
-        ShellExecuteW(NULL, L"open", L"control.exe", L"ncpa.cpl", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_PRINTERS:
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{2227a280-3aea-1069-a2de-08002b30309d}", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_HELP:
-        ShellExecuteW(NULL, L"open", L"hh.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_SEARCH:
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_SEARCH_COMPUTERS:
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_TASKBAR_PROPS:
-        taskbar_props_show(tray_hwnd);
-        break;
-    case STARTMENU_CMD_MYDOCS:
-    {
-        WCHAR doc_path[MAX_PATH];
-        if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, doc_path) == S_OK)
-        {
-            WCHAR param[MAX_PATH * 2];
-            _snwprintf(param, ARRAY_SIZE(param), L"\"%s\"", doc_path);
-            ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
-        }
-        break;
-    }
-    default:
-        if (cmd >= 2000 && (cmd - 2000) < g_program_count)
-        {
-            ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
-        }
-        break;
-    }
+    if (cmd >= 2000 && (cmd - 2000) < g_program_count)
+        ShellExecuteW(NULL, L"open", g_program_paths[cmd - 2000], NULL, NULL, SW_SHOWNORMAL);
+    else if (cmd)
+        run_start_command(cmd, tray_hwnd);
 }
 
 /* ========================================================================= */
@@ -1630,7 +1646,7 @@ static void show_panel_flyout(HWND parent, UINT cmd, const RECT *item_rc)
     else if (id == 5002)
     {
         startmenu_view_hide();
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL, SW_SHOWNORMAL);
+        run_start_command(STARTMENU_CMD_NETWORK, g_tray_parent);
     }
     HeapFree(GetProcessHeap(), 0, entries);
 }
@@ -1652,94 +1668,7 @@ static void execute_startmenu_command(UINT cmd)
         return;
     }
 
-    switch (cmd)
-    {
-    case STARTMENU_CMD_INTERNET:
-        ShellExecuteW(NULL, L"open", L"iexplore.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_EMAIL:
-        ShellExecuteW(NULL, L"open", L"mailto:", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case 3001: /* Windows Media Player */
-        ShellExecuteW(NULL, L"open", L"wmplayer.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case 3002: /* Notepad */
-        ShellExecuteW(NULL, L"open", L"notepad.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case 3003: /* Calculator */
-        ShellExecuteW(NULL, L"open", L"calc.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case 3004: /* Paint */
-        ShellExecuteW(NULL, L"open", L"mspaint.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case 3005: /* Command Prompt */
-        ShellExecuteW(NULL, L"open", L"cmd.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_MYDOCS:
-    case STARTMENU_CMD_RECENT_DOCS:
-    {
-        WCHAR path[MAX_PATH];
-        if (SHGetFolderPathW(NULL, (cmd == STARTMENU_CMD_RECENT_DOCS) ? CSIDL_RECENT : CSIDL_PERSONAL,
-                             NULL, 0, path) == S_OK)
-        {
-            WCHAR param[MAX_PATH * 2];
-            _snwprintf(param, ARRAY_SIZE(param), L"\"%s\"", path);
-            ShellExecuteW(NULL, L"open", L"explorer.exe", param, NULL, SW_SHOWNORMAL);
-        }
-        break;
-    }
-    case STARTMENU_CMD_PICTURES:
-    {
-        WCHAR path[MAX_PATH];
-        if (SHGetFolderPathW(NULL, CSIDL_MYPICTURES, NULL, 0, path) == S_OK)
-            ShellExecuteW(NULL, L"open", L"explorer.exe", path, NULL, SW_SHOWNORMAL);
-        break;
-    }
-    case STARTMENU_CMD_MUSIC:
-    {
-        WCHAR path[MAX_PATH];
-        if (SHGetFolderPathW(NULL, CSIDL_MYMUSIC, NULL, 0, path) == S_OK)
-            ShellExecuteW(NULL, L"open", L"explorer.exe", path, NULL, SW_SHOWNORMAL);
-        break;
-    }
-    case STARTMENU_CMD_MYCOMP:
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_MYNET:
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_CONTROLPANEL:
-        ShellExecuteW(NULL, L"open", L"control.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_PROGACCESS:
-        ShellExecuteW(NULL, L"open", L"control.exe", L"appwiz.cpl,,3", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_CONNECT_TO:
-        wlan_dialog_show(tray);
-        break;
-    case STARTMENU_CMD_PRINTERS:
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{2227a280-3aea-1069-a2de-08002b30309d}", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_HELP:
-        ShellExecuteW(NULL, L"open", L"hh.exe", NULL, NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_SEARCH:
-        ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
-        break;
-    case STARTMENU_CMD_RUN:
-        run_dialog_inproc(tray);
-        break;
-    case STARTMENU_CMD_LOGOFF:
-        if (MessageBoxW(tray, L"Are you sure you want to log off?", L"Log Off Windows",
-                        MB_YESNO | MB_ICONQUESTION) == IDYES)
-        {
-            ExitWindowsEx(EWX_LOGOFF, 0);
-        }
-        break;
-    case STARTMENU_CMD_SHUTDOWN:
-        power_mgmt_show_shutdown_dialog(tray);
-        break;
-    }
+    run_start_command(cmd, tray);
 }
 
 #define PCM_OPEN       1
@@ -1756,8 +1685,10 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
     HMENU menu = CreatePopupMenu();
     UINT cmd = g_panel[hit].cmd, id;
     BOOL program = g_panel[hit].zone == ZONE_PROG && cmd != CMD_ALL_PROGRAMS;
-    BOOL folder = cmd == STARTMENU_CMD_MYDOCS || cmd == STARTMENU_CMD_PICTURES || cmd == STARTMENU_CMD_MUSIC ||
-                  cmd == STARTMENU_CMD_MYCOMP || cmd == STARTMENU_CMD_MYNET;
+    int csidl = command_csidl(cmd);
+    BOOL folder = csidl >= 0 && csidl != CSIDL_RECENT && csidl != CSIDL_PRINTERS;
+    /* Windows offers "Show on Desktop" for the folders the desktop can show */
+    BOOL desktop_item = shellfolder_clsid(csidl) && csidl != CSIDL_PRINTERS;
 
     if (cmd == CMD_ALL_PROGRAMS || g_panel[hit].zone == ZONE_LOGOFF) { DestroyMenu(menu); return; }
     if (program)
@@ -1779,7 +1710,8 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
             AppendMenuW(menu, MF_STRING, PCM_EXPLORE, L"E&xplore");
             AppendMenuW(menu, MF_STRING, PCM_SEARCH, L"&Search...");
             AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
-            AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_SHOWDESK, L"&Show on Desktop");
+            AppendMenuW(menu, MF_STRING | (desktop_item ? (shellfolder_on_desktop(csidl) ? MF_CHECKED : 0) : MF_GRAYED),
+                        PCM_SHOWDESK, L"&Show on Desktop");
             AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
             AppendMenuW(menu, MF_STRING, PCM_PROPS, L"P&roperties");
         }
@@ -1822,23 +1754,28 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
         execute_startmenu_command(cmd);
         break;
     case PCM_EXPLORE:
+        startmenu_view_hide();
+        shellfolder_open(csidl, TRUE);
+        break;
     case PCM_SEARCH:
+        startmenu_view_hide();
+        run_start_command(STARTMENU_CMD_SEARCH, g_tray_parent);
+        break;
+    case PCM_SHOWDESK:
+        shellfolder_set_on_desktop(csidl, !shellfolder_on_desktop(csidl));
+        desktop_view_refresh();
+        toolbars_refresh();
+        break;
     case PCM_PROPS:
     {
-        WCHAR path[MAX_PATH] = L"";
-        const WCHAR *verb = id == PCM_EXPLORE ? L"explore" : id == PCM_SEARCH ? L"find" : L"properties";
+        WCHAR path[MAX_PATH];
 
         startmenu_view_hide();
-        if (cmd == STARTMENU_CMD_MYDOCS) SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, path);
-        else if (cmd == STARTMENU_CMD_PICTURES) SHGetFolderPathW(NULL, CSIDL_MYPICTURES, NULL, 0, path);
-        else if (cmd == STARTMENU_CMD_MUSIC) SHGetFolderPathW(NULL, CSIDL_MYMUSIC, NULL, 0, path);
-        if (cmd == STARTMENU_CMD_MYCOMP && id == PCM_PROPS)
-            ShellExecuteW(NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL);
-        else if (path[0])
-            ShellExecuteW(NULL, verb, path, NULL, NULL, SW_SHOWNORMAL);
-        else
-            ShellExecuteW(NULL, L"open", L"explorer.exe", cmd == STARTMENU_CMD_MYNET ? L"::{208D2C60-3AEA-1069-A2D7-08002B30309D}" :
-                          L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", NULL, SW_SHOWNORMAL);
+        /* the properties of My Computer are the System Properties, those of My Network Places the connections */
+        if (csidl == CSIDL_DRIVES) ShellExecuteW(NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL);
+        else if (csidl == CSIDL_NETWORK) run_start_command(STARTMENU_CMD_NETWORK, g_tray_parent);
+        else if (SUCCEEDED(SHGetFolderPathW(NULL, csidl, NULL, 0, path)))
+            ShellExecuteW(NULL, L"properties", path, NULL, NULL, SW_SHOWNORMAL);
         break;
     }
     }
@@ -2258,20 +2195,8 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                 COLORREF color = RGB(255, 255, 255), shadow = 0;
                 POINT offset = {2, 2};
 
-                {
-                    /* the button image has transparent corners: the taskbar shows through */
-                    HTHEME bar = OpenThemeData(hwnd, L"TaskBar");
-                    if (bar)
-                    {
-                        RECT pr;
-                        POINT org = {0, 0};
-                        GetClientRect(GetParent(hwnd), &pr);
-                        MapWindowPoints(hwnd, GetParent(hwnd), &org, 1);
-                        OffsetRect(&pr, -org.x, -org.y);
-                        DrawThemeBackground(bar, hdc, 1, 0, &pr, &ps.rcPaint);
-                        CloseThemeData(bar);
-                    }
-                }
+                /* the button image has transparent corners: the taskbar shows through */
+                DrawThemeParentBackground(hwnd, hdc, NULL);
                 {
                     /* the picture of the style (33 pixels) is taller than the taskbar: Windows cuts off the lower rows */
                     SIZE natural = {0};
@@ -2517,7 +2442,7 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
             break;
         }
         case IDM_STARTBTN_SEARCH:
-            ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{e17d4fc0-5564-11d1-83f2-00a0c90dc849}", NULL, SW_SHOWNORMAL);
+            run_start_command(STARTMENU_CMD_SEARCH, hwnd);
             break;
         case IDM_STARTBTN_PROPERTIES:
             taskbar_props_show(hwnd);

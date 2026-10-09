@@ -43,6 +43,7 @@ typedef enum _DESKTOP_ITEM_TYPE
 typedef struct _DESKTOP_ITEM
 {
     DESKTOP_ITEM_TYPE type;
+    int csidl;                  /* the special folder of a DESKTOP_ITEM_NAMESPACE, else -1 */
     WCHAR display_name[MAX_PATH];
     WCHAR target_path[MAX_PATH];
     WCHAR arguments[MAX_PATH];

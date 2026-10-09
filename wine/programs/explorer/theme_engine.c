@@ -142,25 +142,6 @@ static BOOL parse_rgb_string(const WCHAR *str, COLORREF *out_color)
     return FALSE;
 }
 
-static void parse_icon_entry(const WCHAR *val, WCHAR *out_path, int *out_idx)
-{
-    WCHAR expanded[MAX_PATH];
-    WCHAR *comma;
-
-    expand_theme_path(val, expanded, MAX_PATH);
-    comma = wcsrchr(expanded, L',');
-    if (comma)
-    {
-        *comma = L'\0';
-        *out_idx = _wtoi(comma + 1);
-    }
-    else
-    {
-        *out_idx = 0;
-    }
-    lstrcpynW(out_path, expanded, MAX_PATH);
-}
-
 BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *cfg)
 {
     WCHAR buffer[MAX_PATH];
@@ -221,27 +202,6 @@ BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *cfg)
         }
     }
     cfg->has_custom_colors = (cfg->num_colors > 0);
-
-    /* Desktop Icons */
-    GetPrivateProfileStringW(L"CLSID\\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\DefaultIcon",
-                             L"DefaultValue", L"", buffer, MAX_PATH, path);
-    if (buffer[0]) parse_icon_entry(buffer, cfg->icons.my_computer, &cfg->icons.my_computer_idx);
-
-    GetPrivateProfileStringW(L"CLSID\\{450D8FBA-AD25-11D0-98A8-0800361B1103}\\DefaultIcon",
-                             L"DefaultValue", L"", buffer, MAX_PATH, path);
-    if (buffer[0]) parse_icon_entry(buffer, cfg->icons.my_documents, &cfg->icons.my_documents_idx);
-
-    GetPrivateProfileStringW(L"CLSID\\{208D2C60-3AEA-1069-A2D7-08002B30309D}\\DefaultIcon",
-                             L"DefaultValue", L"", buffer, MAX_PATH, path);
-    if (buffer[0]) parse_icon_entry(buffer, cfg->icons.network_places, &cfg->icons.network_places_idx);
-
-    GetPrivateProfileStringW(L"CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}\\DefaultIcon",
-                             L"full", L"", buffer, MAX_PATH, path);
-    if (buffer[0]) parse_icon_entry(buffer, cfg->icons.recycle_full, &cfg->icons.recycle_full_idx);
-
-    GetPrivateProfileStringW(L"CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}\\DefaultIcon",
-                             L"empty", L"", buffer, MAX_PATH, path);
-    if (buffer[0]) parse_icon_entry(buffer, cfg->icons.recycle_empty, &cfg->icons.recycle_empty_idx);
 
     /* Sound events */
     GetPrivateProfileStringW(L"AppEvents\\Schemes\\Apps\\.Default\\WindowsLogon\\.Current",
@@ -403,20 +363,16 @@ BOOL theme_is_visual_styles_active(void)
     return IsThemeActive();
 }
 
-BOOL theme_draw_taskbar_background(HWND hwnd, HDC hdc)
+/* Taskbar rows as measured on Windows XP: the first row is 30 pixels with a visual style and 28 for Windows Classic,
+ * every further row adds 30 (Classic 26) */
+int theme_taskbar_first_row(void)
 {
-    HWND root = GetAncestor(hwnd, GA_ROOT);
-    HTHEME theme = theme_open(root, L"TaskBar");
-    RECT rc;
-    POINT origin = {0, 0};
+    return IsThemeActive() ? 30 : 28;
+}
 
-    if (!theme) return FALSE;
-    GetClientRect(root, &rc);
-    MapWindowPoints(hwnd, root, &origin, 1);
-    OffsetRect(&rc, -origin.x, -origin.y);
-    DrawThemeBackground(theme, hdc, TBP_BACKGROUNDBOTTOM, 0, &rc, NULL);
-    CloseThemeData(theme);
-    return TRUE;
+int theme_taskbar_row_pitch(void)
+{
+    return IsThemeActive() ? 30 : 26;
 }
 
 HTHEME theme_open(HWND hwnd, const WCHAR *classes)
