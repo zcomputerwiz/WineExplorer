@@ -11,6 +11,7 @@
 #   scripts/vm.sh fonts xp|open   install the genuine XP fonts into the prefix, or remove them and use the open replacements
 #   scripts/vm.sh resources xp|open   copy the genuine XP themes, cursors, sounds and wallpapers into the prefix, or remove them
 #   scripts/vm.sh ssh <cmd...>    run a command on the VM
+#   scripts/vm.sh cursor software|hardware   select Xorg cursor rendering (requires graphical-session restart)
 # Override with VM_KEY / VM_PORT / VM_USER if the environment differs.
 set -e
 KEY="${VM_KEY:-/d/VirtualBox_VMs/vm_key}"
@@ -85,6 +86,21 @@ fonts)
     *) echo "usage: vm.sh fonts xp|open"; exit 1 ;;
     esac
     echo "fonts: $mode set; restart the shell (vm.sh restart-shell) to reload the font list" ;;
+cursor)
+    mode="${1:-}"
+    case "$mode" in
+    software|hardware) ;;
+    *) echo "usage: vm.sh cursor software|hardware"; exit 1 ;;
+    esac
+    "${SSH[@]}" 'sudo mkdir -p /etc/X11/xorg.conf.d; f=/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf; if [ -f "$f" ] && [ ! -e "$f.before-cursor-fix" ]; then sudo cp -p "$f" "$f.before-cursor-fix"; fi'
+    if [ "$mode" = software ]; then
+        "${SSH[@]}" 'sudo tee /etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf >/dev/null' < "$ROOT/scripts/20-wineexplorer-modesetting.conf"
+    else
+        sed 's/"SWcursor" "true"/"SWcursor" "false"/' "$ROOT/scripts/20-wineexplorer-modesetting.conf" |
+            "${SSH[@]}" 'sudo tee /etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf >/dev/null'
+    fi
+    echo "cursor: $mode configured; restart the graphical session to apply (closes open Wine windows)"
+    ;;
 resources)
     case "${1:-}" in
     xp)
