@@ -1,0 +1,20 @@
+MODULE    = intl.cpl
+IMPORTS   = advapi32 comctl32 user32 gdi32 setupapi shell32 shlwapi
+EXTRADEFS = -DUNICODE -D_UNICODE
+
+VER_FILEDESCRIPTION_STR = "Regional and Language Options"
+
+SOURCES = \
+	advanced.c \
+	currency.c \
+	date.c \
+	generalp.c \
+	inplocale.c \
+	intl.c \
+	intl.rc \
+	kblayouts.c \
+	languages.c \
+	misc.c \
+	numbers.c \
+	sort.c \
+	time.c

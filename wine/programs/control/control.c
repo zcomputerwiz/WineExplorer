@@ -40,9 +40,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR lpszCmdLine, INT nC
 {
     InitCommonControls();
 
-    /* no parameters - pop up whole "Control Panel" by default */
+    /* no parameters: the Control Panel folder in Explorer, like Windows */
     if (!*lpszCmdLine) {
-        launch(lpszCmdLine);
+        if ((INT_PTR)ShellExecuteW(NULL, L"open", L"explorer.exe",
+                                   L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}",
+                                   NULL, SW_SHOWNORMAL) > 32)
+            ExitProcess(0);
+        launch(lpszCmdLine);   /* without Explorer: Wine's own Control Panel window */
     }
 
     /* check for optional parameter */

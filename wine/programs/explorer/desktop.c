@@ -1398,6 +1398,15 @@ void manage_desktop( WCHAR *arg )
         shell_mode = enable_shell && !using_root;
         if (shell_mode)
         {
+            /* like on Windows, the desktop stays while the shell runs, with or without programs */
+            USEROBJECTFLAGS uof;
+            HDESK desk = GetThreadDesktop( GetCurrentThreadId() );
+            if (GetUserObjectInformationW( desk, UOI_FLAGS, &uof, sizeof(uof), NULL ))
+            {
+                uof.dwFlags |= DF_WINE_SHELL_DESKTOP;
+                SetUserObjectInformationW( desk, UOI_FLAGS, &uof, sizeof(uof) );
+            }
+
             theme_init( hwnd );
             desktop_view_create( hwnd, width, height );
             uac_agent_start();
