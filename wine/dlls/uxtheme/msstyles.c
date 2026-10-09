@@ -238,7 +238,7 @@ HRESULT MSSTYLES_SetActiveTheme(PTHEME_FILE tf, BOOL setMetrics)
     if (tfActiveTheme)
     {
         InterlockedIncrement(&tfActiveTheme->refcount);
-	if(!tfActiveTheme->classes)
+	if(setMetrics || !tfActiveTheme->classes)
 	    MSSTYLES_ParseThemeIni(tfActiveTheme, setMetrics);
     }
     return S_OK;
@@ -626,10 +626,10 @@ static inline PTHEME_PROPERTY MSSTYLES_FFindMetric(PTHEME_FILE tf, int iProperty
  * RETURNS
  *  The property found, or NULL
  */
-PTHEME_PROPERTY MSSTYLES_FindMetric(int iPropertyPrimitive, int iPropertyId)
+PTHEME_PROPERTY MSSTYLES_FindMetric(PTHEME_CLASS cls, int iPropertyPrimitive, int iPropertyId)
 {
-    if(!tfActiveTheme) return NULL;
-    return MSSTYLES_FFindMetric(tfActiveTheme, iPropertyPrimitive, iPropertyId);
+    if(!cls || !cls->tf) return NULL;
+    return MSSTYLES_FFindMetric(cls->tf, iPropertyPrimitive, iPropertyId);
 }
 
 /***********************************************************************
@@ -908,6 +908,7 @@ static void parse_apply_nonclient (struct PARSENONCLIENTSTATE* state)
  */
 static void MSSTYLES_ParseThemeIni(PTHEME_FILE tf, BOOL setMetrics)
 {
+    BOOL parse_classes = !tf->classes;
     PTHEME_CLASS cls;
     PTHEME_CLASS globals;
     PTHEME_PARTSTATE ps;
@@ -977,7 +978,7 @@ static void MSSTYLES_ParseThemeIni(PTHEME_FILE tf, BOOL setMetrics)
 	    }
             continue;
         }
-        if(MSSTYLES_ParseIniSectionName(lpName, dwLen, szAppName, szClassName, &iPartId, &iStateId)) {
+        if(parse_classes && MSSTYLES_ParseIniSectionName(lpName, dwLen, szAppName, szClassName, &iPartId, &iStateId)) {
             BOOL isGlobal = FALSE;
             if(!lstrcmpiW(szClassName, L"globals")) {
                 isGlobal = TRUE;
@@ -1051,7 +1052,7 @@ static void parse_app_class_name(LPCWSTR name, LPWSTR app_name, LPWSTR class_nam
  *     pszClassList        List of requested classes, semicolon delimited
  *     dpi                 DPI for theme parts
  */
-PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, UINT dpi)
+PTHEME_CLASS MSSTYLES_OpenThemeClassFromFile(PTHEME_FILE file, LPCWSTR pszAppName, LPCWSTR pszClassList, UINT dpi)
 {
     PTHEME_CLASS cls = NULL;
     WCHAR buf[MAX_THEME_APP_NAME + MAX_THEME_CLASS_NAME];
@@ -1061,13 +1062,11 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U
     LPCWSTR end;
     DWORD len;
 
-    if(!tfActiveTheme) {
+    if(!file) {
         TRACE("there is no active theme\n");
         return NULL;
     }
-    if(!tfActiveTheme->classes) {
-	return NULL;
-    }
+    if (!file->classes) MSSTYLES_ParseThemeIni(file, FALSE);
 
     start = pszClassList;
     while((end = wcschr(start, ';'))) {
@@ -1081,9 +1080,9 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U
         if (szAppName[0] && pszAppName)
             return NULL;
 
-        cls = MSSTYLES_FindClass(tfActiveTheme, szAppName[0] ? szAppName : pszAppName, szClassName);
+        cls = MSSTYLES_FindClass(file, szAppName[0] ? szAppName : pszAppName, szClassName);
         /* Fall back to default class if the specified subclass is not found */
-        if (!cls) cls = MSSTYLES_FindClass(tfActiveTheme, NULL, szClassName);
+        if (!cls) cls = MSSTYLES_FindClass(file, NULL, szClassName);
 
         if(cls) break;
     }
@@ -1094,18 +1093,23 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U
         if (szAppName[0] && pszAppName)
             return NULL;
 
-        cls = MSSTYLES_FindClass(tfActiveTheme, szAppName[0] ? szAppName : pszAppName, szClassName);
+        cls = MSSTYLES_FindClass(file, szAppName[0] ? szAppName : pszAppName, szClassName);
         /* Fall back to default class if the specified subclass is not found */
-        if (!cls) cls = MSSTYLES_FindClass(tfActiveTheme, NULL, szClassName);
+        if (!cls) cls = MSSTYLES_FindClass(file, NULL, szClassName);
     }
     if(cls) {
         TRACE("Opened app %s, class %s from list %s\n", debugstr_w(cls->szAppName), debugstr_w(cls->szClassName), debugstr_w(pszClassList));
-	cls->tf = tfActiveTheme;
+	cls->tf = file;
         InterlockedIncrement(&cls->tf->refcount);
         InterlockedIncrement(&cls->refcount);
         cls->dpi = dpi;
     }
     return cls;
+}
+
+PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR app, LPCWSTR classes, UINT dpi)
+{
+    return MSSTYLES_OpenThemeClassFromFile(tfActiveTheme, app, classes, dpi);
 }
 
 /***********************************************************************
