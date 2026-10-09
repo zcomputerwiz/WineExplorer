@@ -25,10 +25,11 @@
 
 #include <windows.h>
 
-/* the four toolbars of Windows, then the ones the user added ("New Toolbar...") */
+/* the four toolbars of Windows, the ones the user added ("New Toolbar..."), then the instant search box of later
+ * Windows.  The numbers are saved (band order), so new kinds go at the end. */
 #define TOOLBAR_CUSTOM_MAX 4
 enum { TOOLBAR_QUICKLAUNCH, TOOLBAR_ADDRESS, TOOLBAR_LINKS, TOOLBAR_DESKTOP, TOOLBAR_CUSTOM,
-       TOOLBAR_COUNT = TOOLBAR_CUSTOM + TOOLBAR_CUSTOM_MAX };
+       TOOLBAR_SEARCH = TOOLBAR_CUSTOM + TOOLBAR_CUSTOM_MAX, TOOLBAR_COUNT };
 
 /* The toolbars the user added: the number of the slot is the kind - TOOLBAR_CUSTOM */
 BOOL toolbars_custom_name(int kind, WCHAR *name, int len);   /* FALSE if the slot is free */
@@ -52,6 +53,10 @@ void toolbars_layout(HWND tray, int x, int tray_left, int top, int height, int *
 void toolbars_refresh(void);
 
 void show_desktop_toggle(void);
+
+/* The search box: TRUE if it is on the taskbar; typing elsewhere (the Start menu) goes on in it */
+BOOL toolbars_search_available(void);
+void toolbars_search_type(WCHAR ch);
 BOOL toolbars_desktop_shown(void);
 
 #endif /* __WINE_EXPLORER_TOOLBARS_H */

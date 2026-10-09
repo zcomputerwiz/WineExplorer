@@ -71,6 +71,18 @@ it. ReactOS code (LGPL) may be ported.
 3. The XP Search Companion layout (task list, then the criteria page), drawn natively from XP VM screenshots. The
    Agent characters need Microsoft Agent and stay out at first.
 
+Status: done. `search_companion.c` (pages, criteria, preferences, character chooser), `search_engine.c` (worker
+thread: names, wildcards, text in files, dates, sizes, types), `search_results.c` (results list, watermark), and
+`agent_char.c`, which plays the Agent characters of `%WINDIR%\srchasst\chars` itself (written from the published
+descriptions of the .acs format: frames, branches, exit branches, return animations, idle states; no Microsoft Agent
+needed). Rover shows, searches, is pleased or embarrassed by the result and reacts to clicks; "With a different
+character" previews Courtney, Earl and any other .acs file with its greeting.
+
+**Also: instant search** (`instant_search.c`), the taskbar search box of Windows 10 and 11 as a taskbar toolbar
+(Toolbars > Search). Typing there, or typing while the Start menu is open, lists the best match, Start menu programs,
+Control Panel items, and folders and files of your own folders (found as you type by the same search engine), with the
+selected item described on the right ("Open", "Open file location"); the last row opens the Search Companion.
+
 **Phase 2: an index**, the counterpart of XP's "Use Indexing Service". See section 6.
 
 **Phase 3, only if programs need it**: the Vista+ APIs (`ISearchFolderItemFactory`, `search-ms:`, structured query,

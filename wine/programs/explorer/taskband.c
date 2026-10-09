@@ -32,12 +32,9 @@
 #include <commctrl.h>
 #include <uxtheme.h>
 
-#include "wine/debug.h"
 #include "theme_engine.h"
 #include "taskband.h"
 #include "taskbar_props.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define TASKBAND_CLASS L"MSTaskListWClass"
 

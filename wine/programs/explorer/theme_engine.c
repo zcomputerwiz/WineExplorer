@@ -34,6 +34,7 @@
 
 #include "wine/debug.h"
 #include "theme_engine.h"
+#include "shellres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -292,6 +293,10 @@ BOOL theme_apply(THEME_CONFIG *cfg)
         RegSetValueExW(hkey, L"CurrentTheme", 0, REG_SZ, (const BYTE *)cfg->theme_path, (lstrlenW(cfg->theme_path) + 1) * sizeof(WCHAR));
         RegCloseKey(hkey);
     }
+
+    /* shell32's icons follow the theme's icon pack; written before WM_THEMECHANGED goes out, which reloads them */
+    shellres_reset();
+    shellres_sync_shell_icons();
 
     /* 1. Visual style: open the msstyles file and make it the active style (uxtheme also applies the style's own
      *    colors, fonts and sizes and broadcasts WM_THEMECHANGED).  No style = Windows Classic. */

@@ -28,7 +28,7 @@ extern HINSTANCE explorer_hInstance;
 
 #define MAX_PACKS 8
 
-static struct { WCHAR name[24]; HMODULE module; BOOL tried; } packs[MAX_PACKS];
+static struct { WCHAR name[24]; WCHAR path[MAX_PATH]; HMODULE module; BOOL tried; } packs[MAX_PACKS];
 
 /* Folder of the active theme's icon packs: "IconPack=" in the [WineExplorer] section of the .theme file that
  * is current (HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\CurrentTheme). */
@@ -78,6 +78,7 @@ static HMODULE pack_module(const WCHAR *name)
         wcscat(path, L".dll");
         packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     }
+    if (packs[i].module) lstrcpyW(packs[i].path, path);
     return packs[i].module;
 }
 
@@ -95,6 +96,103 @@ void shellres_reset(void)
 BOOL shellres_has_pack(const WCHAR *module)
 {
     return pack_module(module) != NULL;
+}
+
+/* ---- shell32's own icons ---- */
+
+static const WCHAR shell_icons_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Icons";
+#define SHELL32_FIRST_ICONS 54   /* shell32's icons 1-54 have no gaps: the icon with id n is index n - 1 */
+
+/* a Shell Icons value that points into one of our packs */
+static BOOL is_pack_value(const WCHAR *data)
+{
+    WCHAR lower[MAX_PATH + 16];
+    lstrcpynW(lower, data, ARRAY_SIZE(lower));
+    CharLowerW(lower);
+    return wcsstr(lower, L"\\xpres_shell32.dll,") != NULL;
+}
+
+/* Wine numbers shell32's icons like Windows, except these, which are other pictures in Wine */
+static BOOL other_picture(int id)
+{
+    static const WORD ids[] = { 220, 223, 269, 271, 272, 273, 276, 279, 281, 289 };
+    unsigned int i;
+    for (i = 0; i < ARRAY_SIZE(ids); i++) if (ids[i] == id) return TRUE;
+    return FALSE;
+}
+
+struct shell_icons_ctx { HKEY key; const WCHAR *pack; BOOL changed; };
+
+static BOOL CALLBACK add_shell_icon(HMODULE module, LPCWSTR type, LPWSTR name, LONG_PTR param)
+{
+    struct shell_icons_ctx *ctx = (struct shell_icons_ctx *)param;
+    WCHAR value[16], data[MAX_PATH + 16], old[MAX_PATH + 16];
+    DWORD size = sizeof(old);
+    int id;
+
+    if (!IS_INTRESOURCE(name)) return TRUE;
+    id = LOWORD(name);
+    if (other_picture(id)) return TRUE;
+    /* the Windows names are icon indexes; past the first icons shell32 also takes the negative resource id */
+    if (id <= SHELL32_FIRST_ICONS) swprintf(value, ARRAY_SIZE(value), L"%d", id - 1);
+    else swprintf(value, ARRAY_SIZE(value), L"-%d", id);
+    swprintf(data, ARRAY_SIZE(data), L"%s,-%d", ctx->pack, id);
+
+    if (!RegQueryValueExW(ctx->key, value, NULL, NULL, (BYTE *)old, &size))
+    {
+        if (!wcsicmp(old, data) || !is_pack_value(old)) return TRUE;   /* up to date, or the user's own */
+    }
+    RegSetValueExW(ctx->key, value, 0, REG_SZ, (const BYTE *)data, (lstrlenW(data) + 1) * sizeof(WCHAR));
+    ctx->changed = TRUE;
+    return TRUE;
+}
+
+/* shell32 takes its own icons from the Shell Icons key first, as on Windows: point it at the theme's pack, or back at
+ * shell32 without one.  Values that point into another pack are ours and go away; other values are left alone.
+ * TRUE if anything changed (then shellres_reload_shell_icons() shows it in this process). */
+BOOL shellres_sync_shell_icons(void)
+{
+    HMODULE pack = pack_module(L"shell32");
+    const WCHAR *path = NULL;
+    WCHAR name[16], data[MAX_PATH + 16];
+    DWORD i, name_len, data_len, type;
+    BOOL changed = FALSE;
+    HKEY key;
+    int n;
+
+    for (n = 0; pack && n < MAX_PACKS; n++) if (packs[n].module == pack) path = packs[n].path;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, shell_icons_key, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &key, NULL)) return FALSE;
+
+    for (i = 0;;)
+    {
+        name_len = ARRAY_SIZE(name);
+        data_len = sizeof(data);
+        if (RegEnumValueW(key, i, name, &name_len, NULL, &type, (BYTE *)data, &data_len)) break;
+        if (type == REG_SZ && is_pack_value(data) &&
+            (!path || wcsnicmp(data, path, lstrlenW(path)) || data[lstrlenW(path)] != ',' ||
+             other_picture(name[0] == '-' ? _wtoi(name + 1) : _wtoi(name) + 1)))
+        {
+            RegDeleteValueW(key, name);
+            changed = TRUE;
+            continue;
+        }
+        i++;
+    }
+    if (path)
+    {
+        struct shell_icons_ctx ctx = { key, path, FALSE };
+        EnumResourceNamesW(pack, (LPCWSTR)RT_GROUP_ICON, add_shell_icon, (LONG_PTR)&ctx);
+        changed |= ctx.changed;
+    }
+    RegCloseKey(key);
+    return changed;
+}
+
+/* Load shell32's icons in this process's system image list again (FileIconInit(TRUE)), after Shell Icons changed */
+void shellres_reload_shell_icons(void)
+{
+    BOOL (WINAPI *file_icon_init)(BOOL) = (void *)GetProcAddress(LoadLibraryW(L"shell32.dll"), (LPCSTR)660);
+    if (file_icon_init) file_icon_init(TRUE);
 }
 
 /* The icon of a program by executable name (notepad.exe), from the theme's Apps folder of the icon pack */

@@ -26,6 +26,8 @@
 #include <shobjidl.h>
 #include <commoncontrols.h>
 
+struct search_ui;
+
 typedef struct
 {
     IExplorerBrowser *browser;
@@ -43,6 +45,8 @@ typedef struct
     HIMAGELIST tb_normal, tb_hot;
     BOOL show_toolbar, show_address, show_status, show_folders;
     BOOL navigating;
+    struct search_ui *search;   /* Search Companion and Search Results, when searching */
+    BOOL search_started;         /* the window opened as Search Results: its first navigation keeps the results */
     UINT brand_frame;
     int view_mode;
 } explorer_info;
@@ -73,6 +77,8 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label);
 void browser_layout(explorer_info *info, int width, int height);
 void browser_command(explorer_info *info, UINT id);
 void browser_update_ui(explorer_info *info);
+void browser_search(explorer_info *info, BOOL show);   /* the Search button: Search Companion on or off */
+void browser_exit_search(explorer_info *info);         /* back to the folder */
 void browser_navigation_state(explorer_info *info, BOOL navigating);
 void browser_init_menu_popup(explorer_info *info, HMENU menu);
 LRESULT browser_toolbar_notify(explorer_info *info, NMHDR *nm);

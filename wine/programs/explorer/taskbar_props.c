@@ -38,6 +38,7 @@ static TASKBAR_SETTINGS g_settings = {
     .show_address = FALSE,
     .show_links = FALSE,
     .show_desktop_toolbar = FALSE,
+    .show_search = FALSE,
     .show_clock = TRUE,
     .hide_inactive_icons = FALSE,
     .start_menu_style = THEME_STARTMENU_TWOCOLUMN
@@ -60,6 +61,7 @@ static const struct { const WCHAR *name; size_t offset; } flag_values[] =
     { L"AddressToolbar",   offsetof(TASKBAR_SETTINGS, show_address) },
     { L"LinksToolbar",     offsetof(TASKBAR_SETTINGS, show_links) },
     { L"DesktopToolbar",   offsetof(TASKBAR_SETTINGS, show_desktop_toolbar) },
+    { L"SearchToolbar",    offsetof(TASKBAR_SETTINGS, show_search) },
 };
 
 void taskbar_settings_load(void)

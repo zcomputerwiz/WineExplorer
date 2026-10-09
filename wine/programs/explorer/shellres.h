@@ -49,4 +49,10 @@ void shellres_reset(void);
 /* TRUE if a genuine pack is installed for the module */
 BOOL shellres_has_pack(const WCHAR *module);
 
+/* Point shell32's own icons (Shell Icons key) at the theme's pack, or back at shell32; TRUE if that changed anything */
+BOOL shellres_sync_shell_icons(void);
+
+/* Reload shell32's icons in this process's system image list after Shell Icons changed */
+void shellres_reload_shell_icons(void);
+
 #endif

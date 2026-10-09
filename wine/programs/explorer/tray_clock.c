@@ -35,12 +35,9 @@
 #include <shlobj.h>
 #include <uxtheme.h>
 
-#include "wine/debug.h"
 #include "theme_engine.h"
 #include "tray_clock.h"
 #include "taskbar_props.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define IDT_CLOCK_TIMER 1
 

@@ -1042,6 +1042,9 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         int i;
         switch (wparam)
         {
+        case VK_F3:
+            ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{E17D4FC0-5564-11D1-83F2-00A0C90DC849}", NULL, SW_SHOWNORMAL);
+            break;
         case VK_RETURN:
             for (i = 0; i < g_desktop_view.item_count; i++)
             {

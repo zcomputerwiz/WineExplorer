@@ -30,3 +30,14 @@ Segoe UI: Tahoma and Marlett come from `wine/fonts` (Wine's own LGPL fonts), Ver
 (approximate widths) and Segoe UI maps to Selawik (MIT, `github.com/microsoft/Selawik`, install by hand).
 Not yet done: Luna's caption font (Trebuchet MS 10 bold) only applies once the theme engine sets the non-client metrics
 from the msstyles `[SysMetrics]` when a theme is applied.
+
+## Genuine runtime files (never committed)
+`scripts/vm.sh resources xp` copies files exported from the XP VM (`references/xp_export`) into the VM prefix's Windows
+directory, and `vm.sh resources open` removes them. Explorer uses them when present and falls back to its own
+pictures otherwise:
+- `Resources`, `Cursors`, `Media`, `Web`: themes, cursors, sounds and wallpapers.
+- `srchasst`: the Search Companion's pictures (`srchui.dll` icons and the "new search" bitmap, read as resources).
+  Without it the companion uses the shell's nearest icons and draws its own link arrow. The animated characters
+  (`chars/*.acs`, Microsoft Agent files) are played by `agent_char.c`; without them a still Rover
+  (`wine/programs/explorer/rover.bmp`, origin `ms`) is built in.
+  `Shell Icons` key at the theme's `xpres_shell32.dll`, so folders and documents get the XP icons everywhere.

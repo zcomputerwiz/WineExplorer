@@ -32,11 +32,21 @@
 #include "shellres.h"
 #include "notifyprops.h"
 #include "desktop_view.h"
+#include "shellfolders.h"
 #include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
 
 #define TRAY_MINIMIZE_ALL 419
+
+/* the Windows key shortcuts of the taskbar, as on Windows XP (ids as in ReactOS) */
+#define IDHK_RUN            0x1f4
+#define IDHK_MINIMIZE_ALL   0x1f5
+#define IDHK_RESTORE_ALL    0x1f6
+#define IDHK_EXPLORE        0x1f8
+#define IDHK_FIND           0x1f9
+#define IDHK_SYS_PROPERTIES 0x1fd
+#define IDHK_DESKTOP        0x1fe
 #define TRAY_MINIMIZE_ALL_UNDO 416
 
 struct notify_data_icon
@@ -531,12 +541,13 @@ static void position_taskbar(void)
     int screen_w = GetSystemMetrics( SM_CXSCREEN ), screen_h = GetSystemMetrics( SM_CYSCREEN );
     int total = tray_top + tray_height;
     int y = (s->autohide && taskbar_hidden) ? screen_h - 2 : screen_h - total;
-    RECT work = { 0, 0, screen_w, s->autohide ? screen_h : screen_h - total }, current;
+    /* like Windows XP: the taskbar only takes its place out of the work area when it stays on top and does not hide */
+    RECT work = { 0, 0, screen_w, (s->autohide || !s->always_on_top) ? screen_h : screen_h - total }, current;
 
     SetWindowPos( tray_window, (s->always_on_top || s->autohide) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, y,
                   tray_width, total, SWP_NOACTIVATE | SWP_SHOWWINDOW );
     if (SystemParametersInfoW( SPI_GETWORKAREA, 0, &current, 0 ) && !EqualRect( &current, &work ))
-        SystemParametersInfoW( SPI_SETWORKAREA, 0, &work, SPIF_SENDCHANGE );
+        SystemParametersInfoW( SPI_SETWORKAREA, TRUE, &work, SPIF_SENDCHANGE );   /* TRUE: maximized windows follow */
 }
 
 static void autohide_tick(void)
@@ -1501,6 +1512,7 @@ static void track_tray_menu( POINT pt, BOOL include_time )
         AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_LINKS ) ? MF_CHECKED : 0), 3002, L"&Links" );
         AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_DESKTOP ) ? MF_CHECKED : 0), 3003, L"&Desktop" );
         AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_QUICKLAUNCH ) ? MF_CHECKED : 0), 3004, L"&Quick Launch" );
+        AppendMenuW( hToolbars, MF_STRING | (toolbars_is_visible( TOOLBAR_SEARCH ) ? MF_CHECKED : 0), 3006, L"&Search" );
         {
             int c;
             WCHAR cname[MAX_PATH];
@@ -1577,6 +1589,7 @@ static void track_tray_menu( POINT pt, BOOL include_time )
     case 3003: toolbars_set_visible( tray_window, TOOLBAR_DESKTOP, !toolbars_is_visible( TOOLBAR_DESKTOP ) ); break;
     case 3004: toolbars_set_visible( tray_window, TOOLBAR_QUICKLAUNCH, !toolbars_is_visible( TOOLBAR_QUICKLAUNCH ) ); break;
     case 3005: toolbars_choose_new( tray_window ); break;
+    case 3006: toolbars_set_visible( tray_window, TOOLBAR_SEARCH, !toolbars_is_visible( TOOLBAR_SEARCH ) ); break;
     case 3010: case 3011: case 3012: case 3013: toolbars_set_visible( tray_window, TOOLBAR_CUSTOM + cmd - 3010, FALSE ); break;
     }
 }
@@ -1699,6 +1712,8 @@ static void do_show_systray(void)
     DeleteObject( font );
 
     tray_width = GetSystemMetrics( SM_CXSCREEN );
+    /* an icon pack installed since the last session: shell32's icons come from it from now on */
+    if (shellres_sync_shell_icons()) shellres_reload_shell_icons();
     taskbar_settings_load();
     update_tray_top();
     start_button_width = startbutton_get_desired_width();
@@ -1896,6 +1911,23 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         show_taskbar_contextmenu( (HWND)wparam, lparam );
         break;
 
+    case WM_HOTKEY:
+        switch (wparam)
+        {
+        case IDHK_RUN: startmenu_run( STARTMENU_CMD_RUN, hwnd ); break;
+        case IDHK_FIND: startmenu_run( STARTMENU_CMD_SEARCH, hwnd ); break;
+        case IDHK_EXPLORE: shellfolder_open( CSIDL_DRIVES, TRUE ); break;
+        case IDHK_SYS_PROPERTIES: ShellExecuteW( NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL ); break;
+        case IDHK_RESTORE_ALL: undo_apply(); break;
+        case IDHK_MINIMIZE_ALL:
+        case IDHK_DESKTOP:
+            if (wparam == IDHK_MINIMIZE_ALL && toolbars_desktop_shown()) break;
+            if (!toolbars_desktop_shown()) undo_save( L"Minimize All" );
+            show_desktop_toggle();
+            break;
+        }
+        return 0;
+
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
 
@@ -1912,6 +1944,8 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         theme_reload();
         theme_sync_colors();
         shellres_reset();
+        shellres_sync_shell_icons();
+        shellres_reload_shell_icons();
         desktop_view_refresh();
         toolbars_refresh();
         /* repaint everything once the change has settled (children paint late after a live switch) */
@@ -2146,6 +2180,17 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
 
     if (!enable_taskbar) add_taskbar_button( 0 );
 
-    if (enable_taskbar) do_show_systray();
+    if (enable_taskbar)
+    {
+        static const struct { int id; UINT mod, key; } hotkeys[] =
+        {
+            { IDHK_RUN, MOD_WIN, 'R' }, { IDHK_MINIMIZE_ALL, MOD_WIN, 'M' }, { IDHK_RESTORE_ALL, MOD_WIN | MOD_SHIFT, 'M' },
+            { IDHK_EXPLORE, MOD_WIN, 'E' }, { IDHK_FIND, MOD_WIN, 'F' }, { IDHK_SYS_PROPERTIES, MOD_WIN, VK_PAUSE },
+            { IDHK_DESKTOP, MOD_WIN, 'D' },
+        };
+        unsigned int i;
+        for (i = 0; i < ARRAY_SIZE(hotkeys); i++) RegisterHotKey( tray_window, hotkeys[i].id, hotkeys[i].mod, hotkeys[i].key );
+        do_show_systray();
+    }
     else do_hide_systray();
 }

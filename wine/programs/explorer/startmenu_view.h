@@ -57,6 +57,8 @@
 /* Start Menu API */
 void startmenu_view_show(HWND tray_hwnd, const RECT *start_btn_rect);
 void startmenu_view_hide(void);
+void startmenu_run(UINT cmd, HWND tray);
+void startmenu_toggle(void);   /* Ctrl+Esc and the Windows key */
 BOOL startmenu_view_is_open(void);
 void startmenu_on_enter_menu_loop(void);
 

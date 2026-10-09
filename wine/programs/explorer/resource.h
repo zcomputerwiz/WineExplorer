@@ -170,6 +170,7 @@
 #define IDB_BROWSER_BRAND        1033
 #define IDB_BROWSER_GO           1034
 #define IDB_BROWSER_GO_HOT       1035
+#define IDB_SEARCH_ROVER         1036
 
 /* Tray Volume Dialog */
 #define IDD_TRAYMASTER           105

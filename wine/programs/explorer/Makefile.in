@@ -8,6 +8,7 @@ VER_FILEDESCRIPTION_STR = "Wine Explorer Desktop Environment"
 VER_PRODUCTVERSION      = 6,1,7601,17567
 
 SOURCES = \
+	agent_char.c \
 	appbar.c \
 	audio_backend.c \
 	browser_taskpane.c \
@@ -16,12 +17,16 @@ SOURCES = \
 	desktop_view.c \
 	explorer.c \
 	explorer.rc \
+	instant_search.c \
 	net_backend.c \
 	net_props.c \
 	nettray.c \
 	power_backend.c \
 	power_mgmt.c \
 	powertray.c \
+	search_companion.c \
+	search_engine.c \
+	search_results.c \
 	shellfolders.c \
 	shellres.c \
 	startmenu.c \

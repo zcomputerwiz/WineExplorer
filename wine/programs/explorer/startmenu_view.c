@@ -37,7 +37,6 @@
 
 #include <wexhost.h>
 
-#include "wine/debug.h"
 #include "resource.h"
 #include "theme_engine.h"
 #include "desktop_view.h"
@@ -48,8 +47,6 @@
 #include "taskbar_props.h"
 #include "toolbars.h"
 #include "wlan_dialog.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define STARTBUTTON_CLASS L"Start"
 #define STARTMENU_WND_CLASS L"WineStartMenuWnd"
@@ -1974,6 +1971,16 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
         return 0;
     }
 
+    case WM_CHAR:
+        /* with the search box on the taskbar, typing in the Start menu searches, like on Windows 10 and 11 */
+        if (wparam > ' ' && toolbars_search_available())
+        {
+            startmenu_view_hide();
+            toolbars_search_type((WCHAR)wparam);
+            return 0;
+        }
+        break;
+
     case WM_KEYDOWN:
         if (wparam == VK_ESCAPE)
         {
@@ -2136,6 +2143,29 @@ void startmenu_view_hide(void)
 BOOL startmenu_view_is_open(void)
 {
     return g_startmenu_open;
+}
+
+/* Ctrl+Esc and the Windows key (SC_TASKLIST on the shell window): open the Start menu like a click on Start, or close
+ * it.  A taskbar that is not kept on top comes in front of the windows first. */
+void startmenu_toggle(void)
+{
+    RECT rc;
+
+    if (!g_startbutton_hwnd) return;
+    if (g_startmenu_open)
+    {
+        startmenu_view_hide();
+        return;
+    }
+    SetWindowPos(GetParent(g_startbutton_hwnd), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    GetWindowRect(g_startbutton_hwnd, &rc);
+    startmenu_view_show(GetParent(g_startbutton_hwnd), &rc);
+}
+
+/* Run a Start menu command from elsewhere (the Windows key shortcuts of the taskbar) */
+void startmenu_run(UINT cmd, HWND tray)
+{
+    run_start_command(cmd, tray);
 }
 
 /* ========================================================================= */

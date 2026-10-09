@@ -31,12 +31,10 @@
 #include <shlwapi.h>
 #include <commctrl.h>
 
-#include "wine/debug.h"
 #include "resource.h"
 #include "browser.h"
+#include "search_ui.h"
 #include "shellres.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define ADDRESS_CLASS L"BrowserAddressBand"
 #define BRAND_CLASS   L"BrowserBrand"
@@ -571,6 +569,9 @@ void browser_layout(explorer_info *info, int width, int height)
     RECT rect;
     int status_h = 0;
 
+    /* the rebar lays its bands out in its own width, so it follows the window (its height is its own) */
+    if (info->rebar && GetWindowRect(info->rebar, &rect) && rect.right - rect.left != width)
+        SetWindowPos(info->rebar, NULL, 0, 0, width, rect.bottom - rect.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     if (info->status)
     {
         ShowWindow(info->status, info->show_status ? SW_SHOW : SW_HIDE);
@@ -584,6 +585,22 @@ void browser_layout(explorer_info *info, int width, int height)
         }
     }
     SetRect(&rect, 0, info->rebar_height, width, max(info->rebar_height, height - status_h));
+    if (info->search)
+    {
+        /* the Search Companion takes the place of the task pane, the results that of the folder */
+        BOOL results;
+        if (info->taskpane) ShowWindow(info->taskpane, search_ui_pane_visible(info->search) ? SW_HIDE : SW_SHOWNA);
+        if (!search_ui_pane_visible(info->search) && info->taskpane && !info->show_folders && !search_ui_results_visible(info->search))
+        {
+            SetWindowPos(info->taskpane, NULL, 0, rect.top, TASKPANE_WIDTH, rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            rect.left = TASKPANE_WIDTH;
+        }
+        else if (info->taskpane && !search_ui_pane_visible(info->search)) ShowWindow(info->taskpane, SW_HIDE);
+        results = search_ui_layout(info->search, &rect);
+        if (results) SetRect(&rect, 0, 0, 0, 0);
+        IExplorerBrowser_SetRect(info->browser, NULL, rect);
+        return;
+    }
     if (info->taskpane)
     {
         BOOL pane = !info->show_folders;
@@ -605,8 +622,17 @@ void browser_update_ui(explorer_info *info)
     int total, selected;
 
     if (!info->status) return;
-    total = item_count(info, SVGIO_ALLVIEW);
-    selected = item_count(info, SVGIO_SELECTION);
+    SendMessageW(info->toolbar, TB_CHECKBUTTON, SEARCH_BUTTON, search_ui_pane_visible(info->search));
+    if (search_ui_results_visible(info->search))
+    {
+        total = search_ui_result_count(info->search, FALSE);
+        selected = search_ui_result_count(info->search, TRUE);
+    }
+    else
+    {
+        total = item_count(info, SVGIO_ALLVIEW);
+        selected = item_count(info, SVGIO_SELECTION);
+    }
     if (selected > 0)
         swprintf(text, ARRAY_SIZE(text), L"%d object%s selected", selected, selected == 1 ? L"" : L"s");
     else
@@ -695,7 +721,9 @@ void browser_command(explorer_info *info, UINT id)
     {
     case BACK_BUTTON:
     case IDM_GO_BACK:
-        IExplorerBrowser_BrowseToObject(info->browser, NULL, SBSP_NAVIGATEBACK);
+        /* from Search Results, Back returns to the folder */
+        if (search_ui_results_visible(info->search)) browser_exit_search(info);
+        else IExplorerBrowser_BrowseToObject(info->browser, NULL, SBSP_NAVIGATEBACK);
         break;
     case FORWARD_BUTTON:
     case IDM_GO_FORWARD:
@@ -710,7 +738,8 @@ void browser_command(explorer_info *info, UINT id)
         toggle_folders(info);
         break;
     case SEARCH_BUTTON:
-        break;  /* no search companion on this system */
+        browser_search(info, !search_ui_pane_visible(info->search));
+        break;
     case GO_BUTTON:
     {
         WCHAR text[MAX_PATH];

@@ -33,12 +33,9 @@
 #include <vsstyle.h>
 #include <vssym32.h>
 
-#include "wine/debug.h"
 #include "theme_engine.h"
 #include "browser.h"
 #include "shellres.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define TASKPANE_CLASS L"BrowserTaskPane"
 #define MAX_LINES  40

@@ -44,6 +44,7 @@ static const WCHAR default_driver[] = L"mac,x11,wayland";
 
 static BOOL using_root = TRUE;
 static BOOL shell_mode;   /* WineExplorer interactive shell: taskbar, Start menu, desktop view */
+#define IDHK_TASKLIST 1   /* Ctrl+Esc on the shell window */
 
 struct launcher
 {
@@ -801,16 +802,29 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         switch(wp & 0xfff0)
         {
         case SC_CLOSE:
-            ExitWindows( 0, 0 );
+            if (shell_mode) power_mgmt_show_shutdown_dialog( hwnd );   /* Alt+F4 on the Windows desktop */
+            else ExitWindows( 0, 0 );
             return 0;
+        case SC_TASKLIST:
+            /* Ctrl+Esc and the Windows key reach the shell window as on Windows: they open (or close) Start */
+            if (shell_mode)
+            {
+                startmenu_toggle();
+                return 0;
+            }
+            break;
         }
         break;
 
+    case WM_HOTKEY:
+        if (wp == IDHK_TASKLIST) PostMessageW( hwnd, WM_SYSCOMMAND, SC_TASKLIST, 0 );
+        return 0;
+
     case WM_CLOSE:
-        if (shell_mode)
-            power_mgmt_show_shutdown_dialog( hwnd );   /* Alt+F4 on the Windows desktop */
-        else
-            PostQuitMessage(0);
+        /* wineserver posts this when no other program uses the desktop any more (also when a thread of ours that
+         * used it ends): a plain desktop goes away then, the shell stays.  Sent, it is someone closing it. */
+        if (!shell_mode) PostQuitMessage(0);
+        else if (InSendMessage()) power_mgmt_show_shutdown_dialog( hwnd );
         return 0;
 
     case WM_SETCURSOR:
@@ -1209,6 +1223,34 @@ static inline BOOL is_whitespace(WCHAR c)
     return c == ' ' || c == '\t';
 }
 
+static HWND shell_hwnd;
+
+/* The Windows key alone (down and up with no other key between) opens Start; with another key it is a shortcut */
+static LRESULT CALLBACK winkey_hook( int code, WPARAM wp, LPARAM lp )
+{
+    static BOOL win_down, win_used;
+    const KBDLLHOOKSTRUCT *kb = (const KBDLLHOOKSTRUCT *)lp;
+
+    if (code == HC_ACTION)
+    {
+        BOOL win = kb->vkCode == VK_LWIN || kb->vkCode == VK_RWIN;
+        BOOL down = wp == WM_KEYDOWN || wp == WM_SYSKEYDOWN;
+
+        if (win && down)
+        {
+            if (!win_down) win_used = FALSE;
+            win_down = TRUE;
+        }
+        else if (win)
+        {
+            if (win_down && !win_used) PostMessageW( shell_hwnd, WM_SYSCOMMAND, SC_TASKLIST, 0 );
+            win_down = FALSE;
+        }
+        else if (down && win_down) win_used = TRUE;
+    }
+    return CallNextHookEx( NULL, code, wp, lp );
+}
+
 /* Set the shell window if appropriate for the current desktop. We should set
    the shell window on the "Default" desktop on a visible window station, but
    not for other desktops. */
@@ -1234,6 +1276,13 @@ static void set_shell_window( HWND hwnd )
     }
 
     SetShellWindow( hwnd );
+    if (shell_mode)
+    {
+        /* what Windows does for the shell window: Ctrl+Esc, and the Windows key pressed and released alone */
+        RegisterHotKey( hwnd, IDHK_TASKLIST, MOD_CONTROL, VK_ESCAPE );
+        shell_hwnd = hwnd;
+        SetWindowsHookExW( WH_KEYBOARD_LL, winkey_hook, GetModuleHandleW( NULL ), 0 );
+    }
 }
 
 /* main desktop management function */
@@ -1387,7 +1436,11 @@ void manage_desktop( WCHAR *arg )
     if (hwnd)
     {
         TRACE( "desktop message loop starting on hwnd %p\n", hwnd );
-        while (GetMessageW( &msg, 0, 0, 0 )) DispatchMessageW( &msg );
+        while (GetMessageW( &msg, 0, 0, 0 ))
+        {
+            TranslateMessage( &msg );   /* typed characters: the search box, typing in the Start menu */
+            DispatchMessageW( &msg );
+        }
         TRACE( "desktop message loop exiting for hwnd %p\n", hwnd );
     }
 

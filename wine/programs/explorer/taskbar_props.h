@@ -36,6 +36,7 @@ typedef struct _TASKBAR_SETTINGS
     BOOL show_address;
     BOOL show_links;
     BOOL show_desktop_toolbar;
+    BOOL show_search;          /* the instant search box (not in Windows XP) */
     BOOL show_clock;
     BOOL hide_inactive_icons;
     int  start_menu_style; /* 0: Classic, 1: Two-column XP, 2: Modern */

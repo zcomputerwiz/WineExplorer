@@ -28,6 +28,8 @@
 #include "explorer_private.h"
 #include "resource.h"
 #include "browser.h"
+#include "search_ui.h"
+#include "shellres.h"
 #include "wlan_dialog.h"
 #include "wlan_status.h"
 #include "net_props.h"
@@ -43,11 +45,6 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define EXPLORER_INFO_INDEX 0
-
-#define NAV_TOOLBAR_HEIGHT 30
-#define PATHBOX_HEIGHT 240
-static int nav_toolbar_height;
-static int pathbox_height;
 
 #define DEFAULT_WIDTH 640
 #define DEFAULT_HEIGHT 480
@@ -246,6 +243,98 @@ static void update_path_box(explorer_info *info)
     CoTaskMemFree(main_item.pszText);
 }
 
+int WINAPI Shell_GetCachedImageIndexW(const WCHAR *path, int index, UINT flags);
+
+/* "Search Results" in the title, the address box and the window icon, like Windows' search folder */
+static void show_search_title(explorer_info *info)
+{
+    COMBOBOXEXITEMW item = { CBEIF_TEXT | CBEIF_IMAGE | CBEIF_SELECTEDIMAGE };
+    WCHAR srchui[MAX_PATH];
+    HICON icon = NULL, old;
+    HMODULE module;
+    int image = -1;
+
+    GetWindowsDirectoryW(srchui, MAX_PATH);
+    lstrcatW(srchui, L"\\srchasst\\srchui.dll");
+    if (GetFileAttributesW(srchui) != INVALID_FILE_ATTRIBUTES) image = Shell_GetCachedImageIndexW(srchui, -24000, 0);
+    if (image < 0) image = Shell_GetCachedImageIndexW(L"shell32.dll", -23, 0);
+    SetWindowTextW(info->main_window, L"Search Results");
+    item.iItem = -1;
+    item.pszText = (WCHAR *)L"Search Results";
+    item.iImage = item.iSelectedImage = max(image, 0);
+    SendMessageW(info->path_box, CBEM_SETITEMW, 0, (LPARAM)&item);
+    if ((module = LoadLibraryExW(srchui, NULL, LOAD_LIBRARY_AS_DATAFILE)))
+    {
+        icon = LoadImageW(module, MAKEINTRESOURCEW(24000), IMAGE_ICON, 16, 16, 0);
+        FreeLibrary(module);
+    }
+    if (!icon) icon = shellres_icon(23, 16);
+    if (icon && (old = (HICON)SendMessageW(info->main_window, WM_SETICON, ICON_SMALL, (LPARAM)icon))) DestroyIcon(old);
+}
+
+/* the title, address and icon of the folder being shown */
+static void show_folder_title(explorer_info *info)
+{
+    IShellFolder *parent;
+    PCUITEMID_CHILD child_pidl;
+    SHFILEINFOW sfi = {0};
+    STRRET strret;
+    WCHAR *name;
+
+    if (!info->pidl) return;
+    update_path_box(info);
+    if (SHGetFileInfoW((const WCHAR *)info->pidl, 0, &sfi, sizeof(sfi), SHGFI_PIDL | SHGFI_ICON | SHGFI_SMALLICON))
+    {
+        HICON old = (HICON)SendMessageW(info->main_window, WM_SETICON, ICON_SMALL, (LPARAM)sfi.hIcon);
+        if (old) DestroyIcon(old);
+    }
+    if (SUCCEEDED(SHBindToParent(info->pidl, &IID_IShellFolder, (void **)&parent, &child_pidl)))
+    {
+        if (SUCCEEDED(IShellFolder_GetDisplayNameOf(parent, child_pidl, SHGDN_FORADDRESSBAR, &strret)) &&
+            SUCCEEDED(StrRetToStrW(&strret, child_pidl, &name)))
+        {
+            SetWindowTextW(info->main_window, name);
+            CoTaskMemFree(name);
+        }
+        IShellFolder_Release(parent);
+    }
+}
+
+static void relayout_window(explorer_info *info)
+{
+    RECT rc;
+    GetClientRect(info->main_window, &rc);
+    browser_layout(info, rc.right, rc.bottom);
+}
+
+/* The Search button: the Search Companion on the left, looking in the folder shown */
+void browser_search(explorer_info *info, BOOL show)
+{
+    WCHAR folder[MAX_PATH];
+
+    if (!info->search)
+    {
+        if (!show) return;
+        if (!info->pidl || !SHGetPathFromIDListW(info->pidl, folder)) folder[0] = 0;
+        info->search = search_ui_create(info->main_window, folder[0] ? folder : NULL, FALSE);
+        if (info->show_folders) browser_command(info, FOLDERS_BUTTON);   /* one Explorer bar at a time */
+    }
+    else search_ui_show_pane(info->search, show);
+    relayout_window(info);
+    browser_update_ui(info);
+}
+
+/* Leave the search: the folder comes back with its title */
+void browser_exit_search(explorer_info *info)
+{
+    if (!info->search) return;
+    search_ui_destroy(info->search);
+    info->search = NULL;
+    show_folder_title(info);
+    relayout_window(info);
+    browser_update_ui(info);
+}
+
 static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationComplete(IExplorerBrowserEvents *iface, PCIDLIST_ABSOLUTE pidl)
 {
     IExplorerBrowserEventsImpl *This = impl_from_IExplorerBrowserEvents(iface);
@@ -266,6 +355,27 @@ static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationComplete(IExplore
 
     ILFree(This->info->pidl);
     This->info->pidl = ILClone(pidl);
+    if (This->info->search_started)
+    {
+        /* opened as Search Results: the folder behind it is not shown */
+        This->info->search_started = FALSE;
+        update_path_box(This->info);
+        browser_navigation_state(This->info, FALSE);
+        show_search_title(This->info);
+        return S_OK;
+    }
+    /* going to a folder while the results show: the results make way, the Search Companion stays */
+    if (search_ui_results_visible(This->info->search))
+    {
+        if (search_ui_pane_visible(This->info->search))
+        {
+            SEARCH_UI *ui = This->info->search;
+            This->info->search = NULL;
+            search_ui_destroy(ui);
+            browser_search(This->info, TRUE);
+        }
+        else browser_exit_search(This->info);
+    }
     update_path_box(This->info);
     browser_navigation_state(This->info, FALSE);
     {
@@ -376,6 +486,7 @@ static void make_explorer_window(parameters_struct *params)
     IShellFolder *folder;
     IDispatch *dispatch;
     WCHAR *path = NULL;
+    BOOL search_window = FALSE;
     IShellWindows *sw;
     ITEMIDLIST *pidl;
     UINT dpix, dpiy;
@@ -387,6 +498,12 @@ static void make_explorer_window(parameters_struct *params)
     CoCreateInstance(&CLSID_ShellWindows, NULL, CLSCTX_LOCAL_SERVER,
             &IID_IShellWindows, (void **)&sw);
 
+    if (!wcsicmp(params->root, FIND_FOLDER_PATH))
+    {
+        /* "Search Results" (SHFindFiles, Start > Search): the Search Companion over the desktop */
+        params->root[0] = 0;
+        search_window = TRUE;
+    }
     if (params->root[0])
     {
         if (params->root[0] == ':' && params->root[1] == ':')
@@ -478,10 +595,20 @@ static void make_explorer_window(parameters_struct *params)
     events = make_explorer_events(info);
     IExplorerBrowser_Advise(info->browser,events,&info->advise_cookie);
 
+    if (search_window)
+    {
+        info->search_started = TRUE;
+        info->search = search_ui_create(info->main_window, NULL, TRUE);
+    }
     folder = get_starting_shell_folder(path);
     IExplorerBrowser_BrowseToObject(info->browser, (IUnknown *)folder, SBSP_ABSOLUTE);
     IShellFolder_Release(folder);
     free(path);
+    if (search_window)
+    {
+        show_search_title(info);
+        relayout_window(info);
+    }
 
     ShowWindow(info->main_window,SW_SHOWDEFAULT);
     UpdateWindow(info->main_window);
@@ -489,6 +616,14 @@ static void make_explorer_window(parameters_struct *params)
 
     while (GetMessageW(&msg, NULL, 0, 0))
     {
+        /* F3 and Ctrl+F open the Search Companion, like in Windows Explorer */
+        if (msg.message == WM_KEYDOWN && GetAncestor(msg.hwnd, GA_ROOT) == info->main_window &&
+            (msg.wParam == VK_F3 || (msg.wParam == 'F' && GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_MENU) >= 0)))
+        {
+            browser_search(info, TRUE);
+            continue;
+        }
+        if (search_ui_translate(info->search, &msg)) continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -645,7 +780,20 @@ static LRESULT CALLBACK explorer_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         browser = info->browser;
     switch(uMsg)
     {
+    case WM_SEARCHUI_CHANGED:
+        if (!info) break;
+        if (wParam == SEARCHUI_RESULTS_SHOWN && search_ui_results_visible(info->search)) show_search_title(info);
+        if (wParam == SEARCHUI_PANE_CLOSED && !search_ui_results_visible(info->search))
+        {
+            browser_exit_search(info);
+            break;
+        }
+        relayout_window(info);
+        browser_update_ui(info);
+        break;
     case WM_DESTROY:
+        search_ui_destroy(info->search);
+        info->search = NULL;
         if(info->sw)
         {
             IShellWindows_Revoke(info->sw, info->sw_cookie);
@@ -666,7 +814,7 @@ static LRESULT CALLBACK explorer_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, L
     case WM_NOTIFY:
         return explorer_on_notify(info,(NMHDR*)lParam);
     case WM_COMMAND:
-        if (LOWORD(wParam) >= BACK_BUTTON && (HIWORD(wParam) == BN_CLICKED || HIWORD(wParam) == 0))
+        if (LOWORD(wParam) >= BACK_BUTTON && HIWORD(wParam) == BN_CLICKED)   /* also menus: both are 0 */
             browser_command(info, LOWORD(wParam));
         break;
     case WM_INITMENUPOPUP:
@@ -694,6 +842,15 @@ static LRESULT CALLBACK explorer_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, L
     case WM_SIZE:
         if (info) update_window_size(info,HIWORD(lParam),LOWORD(lParam));
         break;
+    case WM_THEMECHANGED:
+        /* a new theme can bring other shell icons (Shell Icons key): reload them in place and show them */
+        shellres_reset();
+        shellres_reload_shell_icons();
+        if (!info) {}
+        else if (info->search && search_ui_results_visible(info->search)) show_search_title(info);
+        else show_folder_title(info);
+        RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
     case WM_COPYDATA:
         return handle_copydata(info, (const COPYDATASTRUCT *)lParam);
     default:
@@ -903,7 +1060,8 @@ int WINAPI wWinMain(HINSTANCE hinstance,
         if(ShellExecuteW(NULL,NULL,parameters.root,NULL,NULL,SW_SHOWDEFAULT) > (HINSTANCE)32)
             ExitProcess(EXIT_SUCCESS);
     init_info.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    init_info.dwICC = ICC_USEREX_CLASSES | ICC_BAR_CLASSES | ICC_COOL_CLASSES;
+    init_info.dwICC = ICC_USEREX_CLASSES | ICC_BAR_CLASSES | ICC_COOL_CLASSES | ICC_DATE_CLASSES | ICC_UPDOWN_CLASS |
+                      ICC_LISTVIEW_CLASSES;
     if(!InitCommonControlsEx(&init_info))
     {
         ERR( "Could not initialize Comctl\n" );

@@ -88,10 +88,10 @@ fonts)
 resources)
     case "${1:-}" in
     xp)
-        tar -C "$ROOT/references/xp_export" -cf - Resources Cursors Media Web | "${SSH[@]}" 'tar -C ~/.wine/drive_c/windows -xmf -'
+        tar -C "$ROOT/references/xp_export" -cf - Resources Cursors Media Web srchasst | "${SSH[@]}" 'tar -C ~/.wine/drive_c/windows -xmf -'
         echo "resources: genuine XP set installed" ;;
     open)
-        "${SSH[@]}" 'cd ~/.wine/drive_c/windows && rm -rf Resources/Themes/Luna Resources/Themes/Luna.theme "Resources/Themes/Windows Classic.theme" Cursors Media Web/Wallpaper'
+        "${SSH[@]}" 'cd ~/.wine/drive_c/windows && rm -rf Resources/Themes/Luna Resources/Themes/Luna.theme "Resources/Themes/Windows Classic.theme" Cursors Media Web/Wallpaper srchasst'
         "${SSH[@]}" 'rm -f ~/.wine/drive_c/windows/Resources/Icons/xpres_*.dll'
         echo "resources: XP set removed" ;;
     *) echo "usage: vm.sh resources xp|open"; exit 1 ;;

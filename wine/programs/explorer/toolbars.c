@@ -32,14 +32,12 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 
-#include "wine/debug.h"
 #include "theme_engine.h"
 #include "taskbar_props.h"
 #include "toolbars.h"
 #include "shellfolders.h"
 #include "shellres.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL(explorer);
+#include "instant_search.h"
 
 #define TB_CLASS        L"WineTaskbarToolbar"
 static BOOL tb_locked(void);
@@ -56,6 +54,8 @@ static int gripper_w(void)
 #define IDC_ADDRESS     1
 #define IDC_GO          2
 #define GO_W            34
+#define IDC_SEARCHBOX   3
+#define SEARCH_ICON_W   20    /* the magnifier in front of the search box */
 #define IDM_CLOSE       1
 #define IDM_SHOWTEXT    2
 #define IDM_OPENFOLDER  3
@@ -78,6 +78,8 @@ typedef struct _TOOLBAR
     HWND hwnd;
     HWND tooltip;
     HWND combo, go;         /* address toolbar */
+    HWND edit;              /* search toolbar */
+    HICON search_icon;
     TB_ITEM items[MAX_ITEMS];
     int count;
     int visible;            /* items that fit; the rest are in the chevron menu */
@@ -92,6 +94,9 @@ static BOOL g_all_minimized;
 static const WCHAR *const tb_fixed_values[4] = { L"QuickLaunch", L"Address", L"Links", L"Desktop" };
 static const WCHAR *const tb_fixed_names[4] = { L"Quick Launch", L"Address", L"Links", L"Desktop" };
 static WCHAR g_custom_dir[TOOLBAR_CUSTOM_MAX][MAX_PATH];
+#define IS_CUSTOM(kind) ((kind) >= TOOLBAR_CUSTOM && (kind) < TOOLBAR_CUSTOM + TOOLBAR_CUSTOM_MAX)
+/* toolbars made of an edit box rather than buttons */
+#define IS_BOX(kind) ((kind) == TOOLBAR_ADDRESS || (kind) == TOOLBAR_SEARCH)
 
 /* bands: the order of the toolbars and the task buttons (TASK_BAND) along the taskbar, and the width of each */
 #define TASK_BAND TOOLBAR_COUNT
@@ -104,6 +109,7 @@ static const WCHAR *tb_name(int kind)
     static WCHAR names[TOOLBAR_CUSTOM_MAX][MAX_PATH];
 
     if (kind < TOOLBAR_CUSTOM) return tb_fixed_names[kind];
+    if (kind == TOOLBAR_SEARCH) return L"Search";
     lstrcpynW(names[kind - TOOLBAR_CUSTOM], PathFindFileNameW(g_custom_dir[kind - TOOLBAR_CUSTOM]), MAX_PATH);
     return names[kind - TOOLBAR_CUSTOM];
 }
@@ -111,6 +117,7 @@ static const WCHAR *tb_name(int kind)
 static void tb_value(int kind, WCHAR *out)
 {
     if (kind < TOOLBAR_CUSTOM) lstrcpyW(out, tb_fixed_values[kind]);
+    else if (kind == TOOLBAR_SEARCH) lstrcpyW(out, L"Search");
     else swprintf(out, 16, L"Custom%d", kind - TOOLBAR_CUSTOM);
 }
 static const WCHAR tb_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Taskbar\\Toolbars";
@@ -225,7 +232,7 @@ static BOOL toolbar_folder(int kind, WCHAR *dir)
     case TOOLBAR_DESKTOP:
         return SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, SHGFP_TYPE_CURRENT, dir));
     }
-    if (kind >= TOOLBAR_CUSTOM && g_custom_dir[kind - TOOLBAR_CUSTOM][0])
+    if (IS_CUSTOM(kind) && g_custom_dir[kind - TOOLBAR_CUSTOM][0])
     {
         lstrcpynW(dir, g_custom_dir[kind - TOOLBAR_CUSTOM], MAX_PATH);
         return TRUE;
@@ -310,7 +317,7 @@ static int title_width(TOOLBAR *tb)
     NONCLIENTMETRICSW ncm = { sizeof(ncm) };
     SIZE size = {0};
 
-    if (tb->kind == TOOLBAR_QUICKLAUNCH) return 0;
+    if (tb->kind == TOOLBAR_QUICKLAUNCH || tb->kind == TOOLBAR_SEARCH) return 0;   /* the search box says it inside */
     hdc = GetDC(NULL);
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     font = CreateFontIndirectW(&ncm.lfMessageFont);
@@ -331,6 +338,7 @@ static int preferred_width(TOOLBAR *tb)
     int i, width;
 
     if (tb->kind == TOOLBAR_ADDRESS) return GRIPPER_W + title_width(tb) + 190;
+    if (tb->kind == TOOLBAR_SEARCH) return GRIPPER_W + SEARCH_ICON_W + 180;
     hdc = GetDC(NULL);
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     font = CreateFontIndirectW(&ncm.lfMessageFont);
@@ -395,7 +403,7 @@ static RECT chevron_rect(const TOOLBAR *tb)
 
 static BOOL has_chevron(const TOOLBAR *tb)
 {
-    return tb->kind != TOOLBAR_ADDRESS && tb->visible < tb->count;
+    return !IS_BOX(tb->kind) && tb->visible < tb->count;
 }
 
 static int hit_test(const TOOLBAR *tb, int x, int y)
@@ -458,7 +466,13 @@ static void paint_toolbar(TOOLBAR *tb, HDC hdc)
     old_font = SelectObject(hdc, font);
     SetBkMode(hdc, TRANSPARENT);
 
-    if (tb->kind != TOOLBAR_QUICKLAUNCH)
+    if (tb->search_icon)
+    {
+        RECT box;
+        GetClientRect(tb->hwnd, &box);
+        DrawIconEx(hdc, GRIPPER_W + 1, (min(box.bottom, theme_taskbar_first_row()) - 16) / 2, tb->search_icon, 16, 16, 0, NULL, DI_NORMAL);
+    }
+    if (tb->kind != TOOLBAR_QUICKLAUNCH && tb->kind != TOOLBAR_SEARCH)
     {
         RECT label = { GRIPPER_W + 2, rc.top, GRIPPER_W + title_width(tb), rc.bottom };
         COLORREF color = GetSysColor(COLOR_BTNTEXT);
@@ -632,10 +646,10 @@ static void show_context_menu(TOOLBAR *tb, POINT screen)
 {
     HMENU menu = CreatePopupMenu();
     WCHAR dir[MAX_PATH];
-    BOOL folder = toolbar_folder(tb->kind, dir) && tb->kind != TOOLBAR_ADDRESS;
+    BOOL folder = toolbar_folder(tb->kind, dir) && !IS_BOX(tb->kind);
     UINT cmd;
 
-    if (tb->kind != TOOLBAR_ADDRESS)
+    if (!IS_BOX(tb->kind))
         AppendMenuW(menu, MF_STRING | (tb->show_text ? MF_CHECKED : 0), IDM_SHOWTEXT, L"Show &Text");
     if (folder)
     {
@@ -690,7 +704,7 @@ static void update_tooltips(TOOLBAR *tb)
         ti.hwnd = tb->hwnd; ti.uId = i;
         SendMessageW(tb->tooltip, TTM_DELTOOLW, 0, (LPARAM)&ti);
     }
-    for (i = 0; i < tb->visible && tb->kind != TOOLBAR_ADDRESS; i++)
+    for (i = 0; i < tb->visible && !IS_BOX(tb->kind); i++)
     {
         ti.uFlags = TTF_SUBCLASS; ti.hwnd = tb->hwnd; ti.uId = i;
         ti.rect = item_rect(tb, i);
@@ -718,6 +732,18 @@ static void position_combo(TOOLBAR *tb)
     RedrawWindow(tb->hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
     RedrawWindow(tb->combo, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
     RedrawWindow(tb->go, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_UPDATENOW);
+}
+
+static void position_search(TOOLBAR *tb)
+{
+    RECT rc;
+    int h = 20, top;
+
+    if (!tb->edit) return;
+    GetClientRect(tb->hwnd, &rc);
+    top = (min(rc.bottom, theme_taskbar_first_row()) - h) / 2;
+    SetWindowPos(tb->edit, NULL, GRIPPER_W + SEARCH_ICON_W, top, max(20, rc.right - GRIPPER_W - SEARCH_ICON_W - 4), h,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 static void save_bands(void);
@@ -779,7 +805,7 @@ static void drag_band(TOOLBAR *tb, int screen_x)
 
         if (w < min) w = min;
         if (w > 700) w = 700;
-        if (tb->kind != TOOLBAR_ADDRESS || TRUE) g_width[tb->kind] = w;
+        g_width[tb->kind] = w;
         SendMessageW(GetParent(tb->hwnd), WM_SETTINGCHANGE, 0, 0);
     }
 }
@@ -811,17 +837,32 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             SendMessageW(tb->go, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), FALSE);
             load_address_history(tb);
         }
+        else if (tb->kind == TOOLBAR_SEARCH)
+        {
+            tb->edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", NULL, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 100, 20,
+                                       hwnd, (HMENU)IDC_SEARCHBOX, GetModuleHandleW(NULL), NULL);
+            SendMessageW(tb->edit, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), FALSE);
+            SendMessageW(tb->edit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Type here to search");
+            tb->search_icon = shellres_icon(23, 16);
+        }
         return 0;
 
     case WM_SIZE:
         place_items(tb);
         position_combo(tb);
+        position_search(tb);
         update_tooltips(tb);
         return 0;
 
     case WM_COMMAND:
         if (LOWORD(wparam) == IDC_ADDRESS && HIWORD(wparam) == CBN_DROPDOWN) load_address_history(tb);
         if (LOWORD(wparam) == IDC_GO && HIWORD(wparam) == BN_CLICKED) run_address(tb);
+        if (LOWORD(wparam) == IDC_SEARCHBOX && HIWORD(wparam) == EN_CHANGE)
+        {
+            WCHAR text[256];
+            GetWindowTextW(tb->edit, text, ARRAY_SIZE(text));
+            instant_search_update(tb->edit, text);
+        }
         return 0;
 
     case WM_PAINT:
@@ -850,6 +891,8 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
 
     case WM_MOUSEMOVE:
     {
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        BOOL chev = FALSE;
         int hot;
 
         if (g_drag_kind == tb->kind && GetCapture() == hwnd)
@@ -859,9 +902,7 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             drag_band(tb, pt.x);
             return 0;
         }
-        hot = hit_test(tb, (short)LOWORD(lparam), (short)HIWORD(lparam));
-        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
-        BOOL chev = FALSE;
+        hot = hit_test(tb, pt.x, pt.y);
 
         if (has_chevron(tb)) { RECT c = chevron_rect(tb); chev = PtInRect(&c, pt); }
         if (!tb->tracking)
@@ -969,6 +1010,45 @@ static LRESULT CALLBACK address_edit_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
+/* The search box: arrows, Enter and Escape go to the results; it closes them when you click elsewhere */
+static LRESULT CALLBACK search_edit_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR ref)
+{
+    switch (msg)
+    {
+    case WM_KEYDOWN:
+        if (instant_search_key(wparam)) return 0;
+        break;
+    case WM_CHAR:
+        if (wparam == '\r' || wparam == 27) return 0;   /* no beep */
+        break;
+    case WM_KILLFOCUS:
+        if (!instant_search_owns((HWND)wparam)) instant_search_hide();
+        break;
+    case WM_SETFOCUS:
+        if (GetWindowTextLengthW(hwnd)) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(IDC_SEARCHBOX, EN_CHANGE), (LPARAM)hwnd);
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+BOOL toolbars_search_available(void)
+{
+    return g_tb[TOOLBAR_SEARCH].edit != NULL;
+}
+
+/* Typing in the Start menu goes on in the search box, like on Windows 10 and 11 */
+void toolbars_search_type(WCHAR ch)
+{
+    TOOLBAR *tb = &g_tb[TOOLBAR_SEARCH];
+    WCHAR text[2] = { ch, 0 };
+
+    if (!tb->edit) return;
+    SetForegroundWindow(GetParent(tb->hwnd));
+    SetFocus(tb->edit);
+    SetWindowTextW(tb->edit, text);   /* EN_CHANGE shows the results */
+    SendMessageW(tb->edit, EM_SETSEL, 1, 1);
+}
+
 /* ---- public ---- */
 
 static void register_class(void)
@@ -996,7 +1076,7 @@ static void read_text_flag(TOOLBAR *tb)
         tb_value(tb->kind, value);
         swprintf(name, ARRAY_SIZE(name), L"%sText", value);
     }
-    tb->show_text = tb->kind == TOOLBAR_LINKS || tb->kind >= TOOLBAR_CUSTOM;
+    tb->show_text = tb->kind == TOOLBAR_LINKS || IS_CUSTOM(tb->kind);
     if (!RegOpenKeyExW(HKEY_CURRENT_USER, tb_key, 0, KEY_READ, &key))
     {
         if (!RegQueryValueExW(key, name, NULL, NULL, (BYTE *)&v, &size)) tb->show_text = v != 0;
@@ -1017,6 +1097,7 @@ static void create_one(HWND tray, int kind)
     load_items(tb);
     tb->hwnd = CreateWindowExW(0, TB_CLASS, tb_name(kind), WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
                                0, 0, preferred_width(tb), 28, tray, NULL, GetModuleHandleW(NULL), (void *)(INT_PTR)kind);
+    if (kind == TOOLBAR_SEARCH && tb->edit) SetWindowSubclass(tb->edit, search_edit_proc, 1, 0);
     if (kind == TOOLBAR_ADDRESS && tb->combo)
     {
         COMBOBOXINFO info = { sizeof(info) };
@@ -1027,6 +1108,8 @@ static void create_one(HWND tray, int kind)
 static void destroy_one(int kind)
 {
     TOOLBAR *tb = &g_tb[kind];
+    if (kind == TOOLBAR_SEARCH) instant_search_hide();
+    if (tb->search_icon) DestroyIcon(tb->search_icon);
     if (tb->hwnd) DestroyWindow(tb->hwnd);
     free_items(tb);
     memset(tb, 0, sizeof(*tb));
@@ -1039,10 +1122,11 @@ BOOL toolbars_is_visible(int kind)
     {
     case TOOLBAR_QUICKLAUNCH: return s->show_quick_launch;
     case TOOLBAR_ADDRESS: return s->show_address;
+    case TOOLBAR_SEARCH: return s->show_search;
     case TOOLBAR_LINKS: return s->show_links;
     case TOOLBAR_DESKTOP: return s->show_desktop_toolbar;
     }
-    return kind >= TOOLBAR_CUSTOM && g_custom_dir[kind - TOOLBAR_CUSTOM][0];
+    return IS_CUSTOM(kind) && g_custom_dir[kind - TOOLBAR_CUSTOM][0];
 }
 
 void toolbars_set_visible(HWND tray, int kind, BOOL visible)
@@ -1053,10 +1137,11 @@ void toolbars_set_visible(HWND tray, int kind, BOOL visible)
     {
     case TOOLBAR_QUICKLAUNCH: s->show_quick_launch = visible; break;
     case TOOLBAR_ADDRESS: s->show_address = visible; break;
+    case TOOLBAR_SEARCH: s->show_search = visible; break;
     case TOOLBAR_LINKS: s->show_links = visible; break;
     case TOOLBAR_DESKTOP: s->show_desktop_toolbar = visible; break;
     default:
-        if (!visible && kind >= TOOLBAR_CUSTOM)
+        if (!visible && IS_CUSTOM(kind))
         {
             HKEY key;
             WCHAR value[16], name[32];
@@ -1117,9 +1202,13 @@ static void load_bands(void)
         int n = 0, seen[TOOLBAR_COUNT + 1] = { 0 };
         const WCHAR *p = order;
 
+        /* orders saved before the search box existed: the task buttons had its number */
+        BOOL old = !wcsstr(order, L",9") && wcsncmp(order, L"9", 1);
+
         while (*p)
         {
             int v = _wtoi(p);
+            if (old && v == TOOLBAR_SEARCH) v = TASK_BAND;
             if (v >= 0 && v <= TASK_BAND && !seen[v]) { g_order[n++] = v; seen[v] = 1; }
             while (*p && *p != ',') p++;
             if (*p == ',') p++;
@@ -1158,7 +1247,7 @@ static void save_bands(void)
 BOOL toolbars_custom_name(int kind, WCHAR *name, int len)
 {
     load_bands();
-    if (kind < TOOLBAR_CUSTOM || kind >= TOOLBAR_COUNT || !g_custom_dir[kind - TOOLBAR_CUSTOM][0]) return FALSE;
+    if (!IS_CUSTOM(kind) || !g_custom_dir[kind - TOOLBAR_CUSTOM][0]) return FALSE;
     lstrcpynW(name, tb_name(kind), len);
     return TRUE;
 }
@@ -1217,8 +1306,8 @@ void toolbars_create(HWND tray)
 
 void toolbars_destroy(void)
 {
-    save_bands();
     int kind;
+    save_bands();
     for (kind = 0; kind < TOOLBAR_COUNT; kind++) destroy_one(kind);
 }
 
@@ -1230,10 +1319,11 @@ void toolbars_refresh(void)
         TOOLBAR *tb = &g_tb[kind];
         if (!tb->hwnd) continue;
         read_text_flag(tb);
-        if (kind != TOOLBAR_ADDRESS) load_items(tb);
+        if (!IS_BOX(kind)) load_items(tb);
         place_items(tb);
         update_tooltips(tb);
         position_combo(tb);
+        position_search(tb);
         RedrawWindow(tb->hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
 }
