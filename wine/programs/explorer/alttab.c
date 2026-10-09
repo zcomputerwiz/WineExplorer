@@ -196,22 +196,47 @@ static void paint( HWND hwnd )
     EndPaint( hwnd, &ps );
 }
 
+#define VK_MASK     0xe8          /* unassigned virtual key */
+#define WM_MASK_ALT (WM_APP + 1)
+
+/* The program saw Alt go down but never sees the Tab we take: when Alt goes up DefWindowProc would enter its menu
+ * bar (and keep the activation).  A key of no meaning in between tells it Alt was part of a combination.  Sent
+ * after the keyboard hook returns: input sent from inside the hook would wait for that same hook. */
+static void mask_alt(void)
+{
+    INPUT input[2] = { { INPUT_KEYBOARD }, { INPUT_KEYBOARD } };
+
+    input[0].ki.wVk = input[1].ki.wVk = VK_MASK;
+    input[1].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput( 2, input, sizeof(INPUT) );
+}
+
 static LRESULT CALLBACK switch_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
 {
-    if (msg == WM_PAINT)
+    switch (msg)
     {
+    case WM_PAINT:
         paint( hwnd );
+        return 0;
+    case WM_MASK_ALT:
+        mask_alt();
         return 0;
     }
     return DefWindowProcW( hwnd, msg, wp, lp );
 }
 
-/* Wine's SwitchToThisWindow only brings the window to the top, which activates it within its own thread */
+/* Wine's SwitchToThisWindow only brings the window to the top, which activates it within its own thread.  The
+ * keyboard went to the foreground window's thread, so join its input to be allowed to change the foreground. */
 static void switch_to( HWND hwnd )
 {
+    DWORD thread = GetWindowThreadProcessId( GetForegroundWindow(), NULL ), self = GetCurrentThreadId();
+    BOOL attached;
+
     if (!hwnd) return;
+    attached = thread && thread != self && AttachThreadInput( self, thread, TRUE );
     if (IsIconic( hwnd )) ShowWindow( hwnd, SW_RESTORE );
     SetForegroundWindow( GetLastActivePopup( hwnd ));
+    if (attached) AttachThreadInput( self, thread, FALSE );
 }
 
 static void complete( BOOL do_switch )
@@ -252,6 +277,7 @@ static void open_switcher( BOOL backwards )
     selected = backwards ? count - 1 : 1;
     layout();
     InvalidateRect( switch_hwnd, NULL, TRUE );
+    PostMessageW( switch_hwnd, WM_MASK_ALT, 0, 0 );
 }
 
 static void move_selection( int step )
@@ -270,19 +296,6 @@ static void move_row( int step )
     InvalidateRect( switch_hwnd, NULL, TRUE );
 }
 
-#define VK_MASK 0xe8   /* unassigned virtual key */
-
-/* The program saw Alt go down but never sees the Tab we take: when Alt goes up DefWindowProc would enter its menu
- * bar (and keep the activation).  A key of no meaning in between tells it Alt was part of a combination. */
-static void mask_alt(void)
-{
-    INPUT input[2] = { { INPUT_KEYBOARD }, { INPUT_KEYBOARD } };
-
-    input[0].ki.wVk = input[1].ki.wVk = VK_MASK;
-    input[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    SendInput( 2, input, sizeof(INPUT) );
-}
-
 BOOL alttab_key( DWORD vk, BOOL down )
 {
     BOOL is_open = switch_hwnd && IsWindowVisible( switch_hwnd );
@@ -290,11 +303,7 @@ BOOL alttab_key( DWORD vk, BOOL down )
 
     if (vk == VK_TAB && down && GetAsyncKeyState( VK_MENU ) < 0)
     {
-        if (!is_open)
-        {
-            mask_alt();
-            open_switcher( shift );
-        }
+        if (!is_open) open_switcher( shift );
         else move_selection( shift ? -1 : 1 );
         return TRUE;   /* never a Tab for the program */
     }

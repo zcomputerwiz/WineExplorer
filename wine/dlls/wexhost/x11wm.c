@@ -479,6 +479,7 @@ static void map_request( Window window, BOOL existing )
 }
 
 static void end_drag( int x, int y );
+static void end_replay_for( Window window );
 
 /* The program withdrew or destroyed its window: hand it back to the root window and tell the shell. */
 static void withdraw( struct client *client, BOOL destroyed )
@@ -488,6 +489,7 @@ static void withdraw( struct client *client, BOOL destroyed )
 
     TRACE( "withdraw %lx destroyed %d\n", window, destroyed );
     if (drag_window == window) end_drag( 0, 0 );
+    end_replay_for( window );
     if (!destroyed)
     {
         pXSelectInput( display, window, NoEventMask );
@@ -690,6 +692,7 @@ static WORD vk_from_keysym( KeySym sym )
 static void push_key( WORD vk, BOOL up )
 {
     WEX_WM_EVENT event;
+    TRACE( "replay %02x %s\n", vk, up ? "up" : "down" );
     memset( &event, 0, sizeof(event) );
     event.type = WEX_WM_KEY;
     event.value = vk;
@@ -706,6 +709,7 @@ static struct
     BOOL  active;
     BOOL  alt_tab;
     KeyCode key;        /* the key that started it */
+    Window window;      /* the window that had the keyboard */
     WORD  held[3];      /* modifiers we pressed in Wine */
     unsigned int held_count;
 } replay;
@@ -717,6 +721,12 @@ static void end_replay(void)
     memset( &replay, 0, sizeof(replay) );
 }
 
+/* Alt+F4 closes the window before its F4 comes up: end the replay with the window, or it would never end */
+static void end_replay_for( Window window )
+{
+    if (replay.active && !replay.alt_tab && replay.window == window) end_replay();
+}
+
 static void key_event( XKeyEvent *key )
 {
     WORD vk = vk_from_keysym( pXLookupKeysym( key, 0 ) );
@@ -725,8 +735,10 @@ static void key_event( XKeyEvent *key )
     if (!replay.active)
     {
         if (up) return;
+        TRACE( "replay of keycode %u, state %#x\n", key->keycode, key->state );
         replay.active = TRUE;
         replay.key = key->keycode;
+        replay.window = key->window;
         if (key->state & x_control_mask) push_key( replay.held[replay.held_count++] = VK_LCONTROL, FALSE );
         if (key->state & Mod1Mask) push_key( replay.held[replay.held_count++] = VK_LMENU, FALSE );
         if (key->state & ShiftMask) push_key( replay.held[replay.held_count++] = VK_LSHIFT, FALSE );
