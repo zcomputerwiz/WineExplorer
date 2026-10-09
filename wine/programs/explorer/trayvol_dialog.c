@@ -34,6 +34,24 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 static HWND g_hwnd_trayvol = NULL;
+static HHOOK g_hook;
+static DWORD g_dismiss_tick;
+
+/* a click on any other window of the shell closes the slider; other programs' windows deactivate it */
+static LRESULT CALLBACK trayvol_mouse_hook(int code, WPARAM wparam, LPARAM lparam)
+{
+    if (code >= 0 && g_hwnd_trayvol &&
+        (wparam == WM_LBUTTONDOWN || wparam == WM_NCLBUTTONDOWN || wparam == WM_RBUTTONDOWN || wparam == WM_NCRBUTTONDOWN))
+    {
+        HWND target = ((MOUSEHOOKSTRUCT *)lparam)->hwnd;
+        if (target != g_hwnd_trayvol && !IsChild(g_hwnd_trayvol, target))
+        {
+            g_dismiss_tick = GetTickCount();
+            PostMessageW(g_hwnd_trayvol, WM_COMMAND, IDCANCEL, 0);
+        }
+    }
+    return CallNextHookEx(g_hook, code, wparam, lparam);
+}
 
 static INT_PTR CALLBACK TrayVolDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -99,6 +117,8 @@ static INT_PTR CALLBACK TrayVolDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         break;
 
     case WM_DESTROY:
+        if (g_hook) UnhookWindowsHookEx(g_hook);
+        g_hook = NULL;
         g_hwnd_trayvol = NULL;
         return 0;
     }
@@ -113,6 +133,8 @@ void trayvol_toggle(HWND hwnd_tray_icon, POINT pt_cursor)
         trayvol_dismiss();
         return;
     }
+    /* the press on the speaker icon just closed it: the release must not open it again */
+    if (GetTickCount() - g_dismiss_tick < 500) return;
 
     HINSTANCE hInst = GetModuleHandleW(NULL);
     g_hwnd_trayvol = CreateDialogW(hInst, MAKEINTRESOURCEW(IDD_TRAYMASTER), NULL, TrayVolDlgProc);
@@ -143,6 +165,7 @@ void trayvol_toggle(HWND hwnd_tray_icon, POINT pt_cursor)
 
     SetWindowPos(g_hwnd_trayvol, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
     SetForegroundWindow(g_hwnd_trayvol);
+    g_hook = SetWindowsHookExW(WH_MOUSE, trayvol_mouse_hook, NULL, GetCurrentThreadId());
 }
 
 void trayvol_dismiss(void)

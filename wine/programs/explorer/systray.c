@@ -120,7 +120,7 @@ static BOOL show_systray; /* show a standalone systray window */
 static BOOL enable_dock; /* allow systray icons to be docked in the host systray */
 static BOOL no_tray_items; /* hide the systray and all systray icons */
 
-static int icon_cx, icon_cy, tray_width, tray_height;
+static int icon_cx, icon_cy, tray_width, tray_height, tray_top;
 static int start_button_width, taskbar_button_width;
 static WCHAR start_label[50];
 
@@ -347,8 +347,8 @@ static RECT get_tray_clock_rect(void)
     int clock_width = taskbar_settings_get()->show_clock ? 64 : 0;
     rc.right = tray_width - 2;
     rc.left = rc.right - clock_width;
-    rc.top = 2;
-    rc.bottom = tray_height - 2;
+    rc.top = tray_top + 2;
+    rc.bottom = tray_top + tray_height - 2;
     return rc;
 }
 
@@ -458,8 +458,8 @@ static RECT get_tray_notify_rect(void)
 
     rc.right = tray_width - 2;
     rc.left = rc.right - total_width;
-    rc.top = 2;
-    rc.bottom = tray_height - 2;
+    rc.top = tray_top + 2;
+    rc.bottom = tray_top + tray_height - 2;
     return rc;
 }
 
@@ -478,7 +478,7 @@ static POINT get_icon_pos( struct icon *icon )
         RECT rcClock = get_tray_clock_rect();
         int icons_width = nb_displayed * 18;
         pos.x = rcClock.left - 4 - icons_width + (icon->display * 18);
-        pos.y = (tray_height - icon_cy) / 2;
+        pos.y = tray_top + (tray_height - icon_cy) / 2;
     }
     else
     {
@@ -493,16 +493,23 @@ static POINT get_icon_pos( struct icon *icon )
 #define IDT_THEMEREDRAW 9997
 static BOOL taskbar_hidden;
 
+/* an unlocked taskbar with a visual style has a sizing border of four pixels above the Start button */
+static void update_tray_top(void)
+{
+    tray_top = (theme_is_visual_styles_active() && !taskbar_settings_get()->lock_taskbar) ? 4 : 0;
+}
+
 /* Always on top, auto-hide and the work area follow the taskbar settings */
 static void position_taskbar(void)
 {
     TASKBAR_SETTINGS *s = taskbar_settings_get();
     int screen_w = GetSystemMetrics( SM_CXSCREEN ), screen_h = GetSystemMetrics( SM_CYSCREEN );
-    int y = (s->autohide && taskbar_hidden) ? screen_h - 2 : screen_h - tray_height;
-    RECT work = { 0, 0, screen_w, s->autohide ? screen_h : screen_h - tray_height }, current;
+    int total = tray_top + tray_height;
+    int y = (s->autohide && taskbar_hidden) ? screen_h - 2 : screen_h - total;
+    RECT work = { 0, 0, screen_w, s->autohide ? screen_h : screen_h - total }, current;
 
     SetWindowPos( tray_window, (s->always_on_top || s->autohide) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, y,
-                  tray_width, tray_height, SWP_NOACTIVATE | SWP_SHOWWINDOW );
+                  tray_width, total, SWP_NOACTIVATE | SWP_SHOWWINDOW );
     if (SystemParametersInfoW( SPI_GETWORKAREA, 0, &current, 0 ) && !EqualRect( &current, &work ))
         SystemParametersInfoW( SPI_SETWORKAREA, 0, &work, SPIF_SENDCHANGE );
 }
@@ -520,7 +527,7 @@ static void autohide_tick(void)
         return;
     }
     GetCursorPos( &pt );
-    over = pt.y >= (taskbar_hidden ? screen_h - 1 : screen_h - tray_height);
+    over = pt.y >= (taskbar_hidden ? screen_h - 1 : screen_h - tray_top - tray_height);
     if (over && taskbar_hidden) { taskbar_hidden = FALSE; position_taskbar(); }
     else if (!over && !taskbar_hidden && !startmenu_view_is_open() &&
              GetAncestor( GetForegroundWindow(), GA_ROOT ) != tray_window && !GetCapture())
@@ -570,9 +577,9 @@ static void update_tray_layout(void)
         int taskband_x, taskband_w;
         struct icon *icon;
 
-        toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_height, &taskband_x, &taskband_w );
+        toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_top, tray_height, &taskband_x, &taskband_w );
         tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
-        taskband_resize( taskband_x, 0, taskband_w, tray_height );
+        taskband_resize( taskband_x, tray_top, taskband_w, tray_height );
 
         /* Relayout tray icons */
         LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
@@ -585,7 +592,7 @@ static void update_tray_layout(void)
             }
         }
 
-        InvalidateRect( tray_window, NULL, TRUE );
+        InvalidateRect( tray_window, NULL, FALSE );
     }
 }
 
@@ -719,6 +726,38 @@ static BOOL notify_owner( struct icon *icon, UINT msg, LPARAM lparam )
 }
 
 /* window procedure for the individual tray icon window */
+/* the background of the taskbar and the notification area, also used behind the icons of the tray */
+static void paint_tray_background( HWND hwnd, HDC hdc, RECT *rc )
+{
+    HTHEME theme = theme_open( hwnd, L"TaskBar" );
+    RECT rcTop;
+
+    if (theme)
+    {
+        HTHEME tray_theme = theme_open( hwnd, L"TrayNotifyHoriz::TrayNotify" );
+        DrawThemeBackground( theme, hdc, TBP_BACKGROUNDBOTTOM, 0, rc, NULL );
+        if (tray_theme)
+        {
+            RECT rcTray = get_tray_notify_rect();
+            rcTray.top = rc->top;
+            rcTray.bottom = rc->bottom;
+            DrawThemeBackground( tray_theme, hdc, TNP_BACKGROUND, 0, &rcTray, NULL );
+            CloseThemeData( tray_theme );
+        }
+        CloseThemeData( theme );
+    }
+    else
+    {
+        FillRect( hdc, rc, GetSysColorBrush( COLOR_BTNFACE ) );
+
+        /* Continuous 1px highlight line across the top of the taskbar */
+        rcTop = *rc;
+        rcTop.top = 1;
+        rcTop.bottom = 2;
+        FillRect( hdc, &rcTop, GetSysColorBrush( COLOR_3DHIGHLIGHT ) );
+    }
+}
+
 static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
     struct icon *icon = (struct icon *)GetWindowLongPtrW( hwnd, GWLP_USERDATA );
@@ -755,6 +794,22 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     case WM_SIZE:
     case WM_MOVE:
         if (icon->layered) paint_layered_icon( icon );
+        break;
+
+    case WM_ERASEBKGND:
+        if (icon && enable_taskbar && tray_window && GetAncestor( hwnd, GA_PARENT ) == tray_window && !icon->layered)
+        {
+            /* the icon sits on the taskbar: copy the background of the taskbar, not what was drawn there before */
+            POINT org = { 0, 0 }, old;
+            RECT rc;
+
+            GetClientRect( tray_window, &rc );
+            MapWindowPoints( hwnd, tray_window, &org, 1 );
+            SetViewportOrgEx( (HDC)wparam, -org.x, -org.y, &old );
+            paint_tray_background( tray_window, (HDC)wparam, &rc );
+            SetViewportOrgEx( (HDC)wparam, old.x, old.y, NULL );
+            return 1;
+        }
         break;
 
     case WM_PAINT:
@@ -1557,7 +1612,7 @@ static void show_taskbar_contextmenu( HWND button, LPARAM lparam )
         AppendMenuW( hMenu, MF_STRING, 6, L"&Close\tAlt+F4" );
 
         SetForegroundWindow( tray_window );
-        cmd = TrackPopupMenu( hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD,
+        cmd = TrackPopupMenu( hMenu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON,
                              pt.x, pt.y, 0, tray_window, NULL );
         DestroyMenu( hMenu );
 
@@ -1642,6 +1697,7 @@ static void do_show_systray(void)
         ReleaseDC( NULL, hdc );
     }
     taskbar_settings_load();
+    update_tray_top();
     start_button_width = startbutton_get_desired_width();
     position_taskbar();
     SetTimer( tray_window, IDT_AUTOHIDE, 150, NULL );
@@ -1653,17 +1709,17 @@ static void do_show_systray(void)
         int taskband_x, taskband_w;
 
         startbutton_create( tray_window, 2, 2, start_button_width, 24 );
-        if (theme_is_visual_styles_active()) startbutton_resize( 0, 0, start_button_width, tray_height );
-        else startbutton_resize( 1, 3, start_button_width, tray_height - 5 );
+        if (theme_is_visual_styles_active()) startbutton_resize( 0, tray_top, start_button_width, tray_height );
+        else startbutton_resize( 1, tray_top + 3, start_button_width, tray_height - 5 );
 
         toolbars_create( tray_window );
-        toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_height, &taskband_x, &taskband_w );
+        toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_top, tray_height, &taskband_x, &taskband_w );
 
         tray_clock_create( tray_window, rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
         tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
 
-        taskband_create( tray_window, taskband_x, 0, taskband_w, tray_height );
-        taskband_resize( taskband_x, 0, taskband_w, tray_height );
+        taskband_create( tray_window, taskband_x, tray_top, taskband_w, tray_height );
+        taskband_resize( taskband_x, tray_top, taskband_w, tray_height );
 
         nettray_init( tray_window );
         volumetray_init( tray_window );
@@ -1682,22 +1738,23 @@ static void update_taskbar_layout(void)
     int taskband_w;
 
     taskbar_settings_load();
+    update_tray_top();
     settings = taskbar_settings_get();
     rcTray = get_tray_notify_rect();
     rcClock = get_tray_clock_rect();
 
     start_button_width = startbutton_get_desired_width();
     if (theme_is_visual_styles_active())
-        startbutton_resize( 0, 0, start_button_width, tray_height );
+        startbutton_resize( 0, tray_top, start_button_width, tray_height );
     else
-        startbutton_resize( 1, 3, start_button_width, tray_height - 5 );
+        startbutton_resize( 1, tray_top + 3, start_button_width, tray_height - 5 );
 
-    toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_height, &taskband_x, &taskband_w );
+    toolbars_layout( tray_window, start_button_width + (theme_is_visual_styles_active() ? 4 : 7), rcTray.left, tray_top, tray_height, &taskband_x, &taskband_w );
     tray_clock_resize( rcClock.left + 2, rcClock.top + 2, rcClock.right - rcClock.left - 4, rcClock.bottom - rcClock.top - 4 );
-    taskband_resize( taskband_x, 0, taskband_w, tray_height );
+    taskband_resize( taskband_x, tray_top, taskband_w, tray_height );
     position_taskbar();
     tray_clock_show( settings->show_clock );
-    InvalidateRect( tray_window, NULL, TRUE );
+    update_tray_layout();   /* the icons follow the height of the taskbar */
 }
 
 static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
@@ -1755,36 +1812,15 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint( hwnd, &ps );
-        RECT rc, rcTop;
-
-        HTHEME theme = theme_open( hwnd, L"TaskBar" );
+        HDC real = BeginPaint( hwnd, &ps ), hdc = CreateCompatibleDC( real );
+        RECT rc;
+        HBITMAP buffer, old_buffer;
 
         GetClientRect( hwnd, &rc );
-        if (theme)
-        {
-            HTHEME tray_theme = theme_open( hwnd, L"TrayNotifyHoriz::TrayNotify" );
-            DrawThemeBackground( theme, hdc, TBP_BACKGROUNDBOTTOM, 0, &rc, NULL );
-            if (tray_theme)
-            {
-                RECT rcTray = get_tray_notify_rect();
-                rcTray.top = rc.top;
-                rcTray.bottom = rc.bottom;
-                DrawThemeBackground( tray_theme, hdc, TNP_BACKGROUND, 0, &rcTray, NULL );
-                CloseThemeData( tray_theme );
-            }
-            CloseThemeData( theme );
-        }
-        else
-        {
-        FillRect( hdc, &rc, GetSysColorBrush( COLOR_BTNFACE ) );
-
-        /* Continuous 1px highlight line across the top of the taskbar */
-        rcTop = rc;
-        rcTop.top = 1;
-        rcTop.bottom = 2;
-        FillRect( hdc, &rcTop, GetSysColorBrush( COLOR_3DHIGHLIGHT ) );
-        }
+        /* paint into a bitmap and copy it at once: no flashing while the bands are moved or resized */
+        buffer = CreateCompatibleBitmap( real, rc.right, rc.bottom );
+        old_buffer = SelectObject( hdc, buffer );
+        paint_tray_background( hwnd, hdc, &rc );
 
         if (chevron_visible())
         {
@@ -1819,9 +1855,19 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
             }
         }
 
+        toolbars_draw_task_gripper( hwnd, hdc, tray_top, tray_height );
+
+        BitBlt( real, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
+                hdc, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY );
+        SelectObject( hdc, old_buffer );
+        DeleteObject( buffer );
+        DeleteDC( hdc );
         EndPaint( hwnd, &ps );
         return 0;
     }
+
+    case WM_ERASEBKGND:
+        return 1;
 
     case WM_COMMAND:
         if (HIWORD(wparam) == BN_CLICKED)
@@ -1887,7 +1933,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
                 tray_expanded = !tray_expanded;
                 refresh_inactive_icons();
                 update_taskbar_layout();
-                InvalidateRect( hwnd, NULL, TRUE );
+                InvalidateRect( hwnd, NULL, FALSE );
                 return 0;
             }
         }

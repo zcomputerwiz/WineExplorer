@@ -2258,7 +2258,29 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                 COLORREF color = RGB(255, 255, 255), shadow = 0;
                 POINT offset = {2, 2};
 
-                DrawThemeBackground(theme, hdc, 0, state, &rc, NULL);
+                {
+                    /* the button image has transparent corners: the taskbar shows through */
+                    HTHEME bar = OpenThemeData(hwnd, L"TaskBar");
+                    if (bar)
+                    {
+                        RECT pr;
+                        POINT org = {0, 0};
+                        GetClientRect(GetParent(hwnd), &pr);
+                        MapWindowPoints(hwnd, GetParent(hwnd), &org, 1);
+                        OffsetRect(&pr, -org.x, -org.y);
+                        DrawThemeBackground(bar, hdc, 1, 0, &pr, &ps.rcPaint);
+                        CloseThemeData(bar);
+                    }
+                }
+                {
+                    /* the picture of the style (33 pixels) is taller than the taskbar: Windows cuts off the lower rows */
+                    SIZE natural = {0};
+                    RECT pic = rc;
+
+                    if (SUCCEEDED(GetThemePartSize(theme, hdc, 0, state, NULL, TS_TRUE, &natural)) && natural.cy > rc.bottom)
+                        pic.bottom = natural.cy;
+                    DrawThemeBackground(theme, hdc, 0, state, &pic, NULL);
+                }
                 GetThemeBackgroundContentRect(theme, hdc, 0, state, &rc, &text_rc);
                 {
                     /* the flag is a 32 bit bitmap with alpha, drawn left aligned like a button image list */

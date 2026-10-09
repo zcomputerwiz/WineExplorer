@@ -60,6 +60,7 @@ static int gripper_w(void)
 #define IDM_OPENFOLDER  3
 #define IDM_REFRESH     4
 #define IDM_OVERFLOW    100
+#define MAX_ITEMS_OVERFLOW 64
 
 typedef struct _TB_ITEM
 {
@@ -555,13 +556,39 @@ static void show_overflow_menu(TOOLBAR *tb)
     UINT cmd;
     int i;
 
+    HBITMAP bitmaps[MAX_ITEMS_OVERFLOW] = { 0 };
+
     for (i = tb->visible; i < tb->count; i++)
-        AppendMenuW(menu, MF_STRING, IDM_OVERFLOW + i, tb->items[i].name);
+    {
+        MENUITEMINFOW mii = { sizeof(mii), MIIM_ID | MIIM_STRING | MIIM_FTYPE };
+
+        mii.fType = MFT_STRING;
+        mii.wID = IDM_OVERFLOW + i;
+        mii.dwTypeData = tb->items[i].name;
+        if (tb->items[i].icon && i < MAX_ITEMS_OVERFLOW)
+        {
+            HDC screen = GetDC(NULL), dc = CreateCompatibleDC(screen);
+            HBITMAP old;
+            RECT r = { 0, 0, 20, 16 };   /* room between the picture and the name */
+
+            bitmaps[i] = CreateCompatibleBitmap(screen, 20, 16);
+            old = SelectObject(dc, bitmaps[i]);
+            FillRect(dc, &r, GetSysColorBrush(COLOR_MENU));
+            DrawIconEx(dc, 0, 0, tb->items[i].icon, 16, 16, 0, NULL, DI_NORMAL);
+            SelectObject(dc, old);
+            DeleteDC(dc);
+            ReleaseDC(NULL, screen);
+            mii.fMask |= MIIM_BITMAP;
+            mii.hbmpItem = bitmaps[i];
+        }
+        InsertMenuItemW(menu, i - tb->visible, TRUE, &mii);
+    }
     ClientToScreen(tb->hwnd, &pt);
     tb->chevron_down = TRUE;
     InvalidateRect(tb->hwnd, NULL, FALSE);
     cmd = TrackPopupMenu(menu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD, pt.x, pt.y - 3, 0, tb->hwnd, NULL);
     DestroyMenu(menu);
+    for (i = 0; i < MAX_ITEMS_OVERFLOW; i++) if (bitmaps[i]) DeleteObject(bitmaps[i]);
     tb->chevron_down = FALSE;
     InvalidateRect(tb->hwnd, NULL, FALSE);
     if (cmd >= IDM_OVERFLOW) activate_item(tb, cmd - IDM_OVERFLOW);
@@ -631,9 +658,9 @@ static void show_context_menu(TOOLBAR *tb, POINT screen)
         AppendMenuW(menu, MF_STRING, IDM_OPENFOLDER, L"&Open Folder");
         AppendMenuW(menu, MF_STRING, IDM_REFRESH, L"&Refresh");
     }
-    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    if (GetMenuItemCount(menu) > 0) AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(menu, MF_STRING, IDM_CLOSE, L"&Close Toolbar");
-    cmd = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD, screen.x, screen.y, 0, tb->hwnd, NULL);
+    cmd = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, screen.x, screen.y, 0, tb->hwnd, NULL);
     DestroyMenu(menu);
 
     switch (cmd)
@@ -816,8 +843,19 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
+        HDC real = BeginPaint(hwnd, &ps), hdc = CreateCompatibleDC(real);
+        RECT rc;
+        HBITMAP bmp, old;
+
+        GetClientRect(hwnd, &rc);
+        bmp = CreateCompatibleBitmap(real, rc.right, rc.bottom);
+        old = SelectObject(hdc, bmp);
         paint_toolbar(tb, hdc);
+        BitBlt(real, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
+               hdc, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
+        SelectObject(hdc, old);
+        DeleteObject(bmp);
+        DeleteDC(hdc);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -1228,7 +1266,7 @@ static int band_width(TOOLBAR *tb)
     return max(w, GRIPPER_W + CHEVRON_W);
 }
 
-void toolbars_layout(HWND tray, int x, int tray_left, int height, int *task_x, int *task_w)
+void toolbars_layout(HWND tray, int x, int tray_left, int top, int height, int *task_x, int *task_w)
 {
     int i, total = 0, avail, widths[TOOLBAR_COUNT + 1] = { 0 }, min_task = 120, cursor;
     int gap = IsThemeActive() ? 2 : 0;
@@ -1258,17 +1296,39 @@ void toolbars_layout(HWND tray, int x, int tray_left, int height, int *task_x, i
 
         if (band == TASK_BAND)
         {
-            g_task_x = cursor;
-            g_task_w = widths[i];
+            int g = tb_locked() ? 0 : gripper_w();
+            g_task_x = cursor + g;
+            g_task_w = widths[i] - g;
             cursor += widths[i] + gap;
         }
         else if (g_tb[band].hwnd)
         {
-            SetWindowPos(g_tb[band].hwnd, NULL, cursor, 0, widths[i], height, SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(g_tb[band].hwnd, NULL, cursor, top, widths[i], height, SWP_NOZORDER | SWP_NOACTIVATE);
             cursor += widths[i] + gap;
         }
     }
     *task_x = g_task_x;
     *task_w = g_task_w;
     (void)tray;
+}
+
+/* The gripper in front of the task buttons, drawn by the taskbar; it is the same handle as that of the toolbars */
+void toolbars_draw_task_gripper(HWND tray, HDC hdc, int top, int height)
+{
+    HTHEME rebar;
+    RECT grip;
+
+    if (tb_locked()) return;
+    rebar = theme_open(tray, L"TaskBar::Rebar");
+    SetRect(&grip, g_task_x - gripper_w() + 1, top + 2, g_task_x - gripper_w() + 7, top + height - 2);
+    if (rebar)
+    {
+        DrawThemeBackground(rebar, hdc, RP_GRIPPER, 0, &grip, NULL);
+        CloseThemeData(rebar);
+    }
+    else
+    {
+        RECT bar = { g_task_x - gripper_w() + 1, top + 6, g_task_x - gripper_w() + 4, top + 24 };
+        DrawEdge(hdc, &bar, BDR_RAISEDINNER, BF_RECT);
+    }
 }
