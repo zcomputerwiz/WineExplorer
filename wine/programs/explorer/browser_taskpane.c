@@ -52,6 +52,7 @@ typedef struct
     BOOL detail_head;    /* bold first line of the Details group */
     BOOL plain;          /* detail text, not a link */
     BOOL disabled;       /* grayed: not available on Wine */
+    LPITEMIDLIST pidl;   /* a place to browse to, with its own icon (icon_id -1) */
     RECT rc;
 } LINE;
 
@@ -99,6 +100,18 @@ static LINE *add_line(const WCHAR *text, UINT command, int place, int icon)
     l->icon_id = icon;
     g_pane.groups[g_pane.group_count - 1].count++;
     return l;
+}
+
+/* a link to a folder, named and drawn as the shell shows it; the line owns the pidl */
+static BOOL add_place(LPITEMIDLIST pidl)
+{
+    SHFILEINFOW sfi;
+    LINE *l;
+
+    if (!SHGetFileInfoW((const WCHAR *)pidl, 0, &sfi, sizeof(sfi), SHGFI_PIDL | SHGFI_DISPLAYNAME)) { ILFree(pidl); return FALSE; }
+    l = add_line(sfi.szDisplayName, 0, -1, -1);
+    l->pidl = pidl;
+    return TRUE;
 }
 
 static HWND current_list(explorer_info *info)
@@ -159,6 +172,7 @@ static void rebuild(explorer_info *info)
     WCHAR path[MAX_PATH];
     SHFILEINFOW sfi = {0};
     LINE *l;
+    int i;
 
     has_path = info->pidl && SHGetPathFromIDListW(info->pidl, path);
     if (info->pidl && SHGetFileInfoW((const WCHAR *)info->pidl, 0, &sfi, sizeof(sfi), SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_TYPENAME))
@@ -176,6 +190,7 @@ static void rebuild(explorer_info *info)
     if (!wcscmp(signature, g_pane.signature)) return;
     lstrcpynW(g_pane.signature, signature, ARRAY_SIZE(g_pane.signature));
 
+    for (i = 0; i < g_pane.line_count; i++) ILFree(g_pane.lines[i].pidl);
     g_pane.line_count = g_pane.group_count = 0;
     if (computer)
     {
@@ -189,9 +204,9 @@ static void rebuild(explorer_info *info)
         add_group(L"File and Folder Tasks", TRUE);
         if (!selected)
         {
-            add_line(L"Make a new folder", IDM_FILE_NEWFOLDER, -1, 0);
-            add_line(L"Publish this folder to the Web", 0, -1, 0)->disabled = TRUE;
-            add_line(L"Share this folder", 0, -1, 0)->disabled = TRUE;
+            add_line(L"Make a new folder", IDM_FILE_NEWFOLDER, -1, 319);
+            add_line(L"Publish this folder to the Web", 0, -1, 244)->disabled = TRUE;
+            add_line(L"Share this folder", 0, -1, 267)->disabled = TRUE;
         }
         else if (selected == 1)
         {
@@ -201,25 +216,25 @@ static void rebuild(explorer_info *info)
             WCHAR text[80];
 
             swprintf(text, ARRAY_SIZE(text), L"Rename this %s", kind);
-            add_line(text, IDM_FILE_RENAME, -1, 0);
+            add_line(text, IDM_FILE_RENAME, -1, 242);
             swprintf(text, ARRAY_SIZE(text), L"Move this %s", kind);
-            add_line(text, IDM_EDIT_MOVETO, -1, 0);
+            add_line(text, IDM_EDIT_MOVETO, -1, 241);
             swprintf(text, ARRAY_SIZE(text), L"Copy this %s", kind);
-            add_line(text, IDM_EDIT_COPYTO, -1, 0);
+            add_line(text, IDM_EDIT_COPYTO, -1, 243);
             swprintf(text, ARRAY_SIZE(text), L"Publish this %s to the Web", kind);
-            add_line(text, 0, -1, 0)->disabled = TRUE;
-            if (folder) add_line(L"Share this folder", 0, -1, 0)->disabled = TRUE;
-            else add_line(L"E-mail this file", 0, -1, 0)->disabled = TRUE;
+            add_line(text, 0, -1, 244)->disabled = TRUE;
+            if (folder) add_line(L"Share this folder", 0, -1, 267)->disabled = TRUE;
+            else add_line(L"E-mail this file", 0, -1, 265)->disabled = TRUE;
             swprintf(text, ARRAY_SIZE(text), L"Delete this %s", kind);
-            add_line(text, IDM_FILE_DELETE, -1, 0);
+            add_line(text, IDM_FILE_DELETE, -1, 240);
         }
         else
         {
-            add_line(L"Move the selected items", IDM_EDIT_MOVETO, -1, 0);
-            add_line(L"Copy the selected items", IDM_EDIT_COPYTO, -1, 0);
-            add_line(L"Publish the selected items to the Web", 0, -1, 0)->disabled = TRUE;
-            add_line(L"E-mail the selected items", 0, -1, 0)->disabled = TRUE;
-            add_line(L"Delete the selected items", IDM_FILE_DELETE, -1, 0);
+            add_line(L"Move the selected items", IDM_EDIT_MOVETO, -1, 241);
+            add_line(L"Copy the selected items", IDM_EDIT_COPYTO, -1, 243);
+            add_line(L"Publish the selected items to the Web", 0, -1, 244)->disabled = TRUE;
+            add_line(L"E-mail the selected items", 0, -1, 265)->disabled = TRUE;
+            add_line(L"Delete the selected items", IDM_FILE_DELETE, -1, 240);
         }
     }
 
@@ -234,10 +249,26 @@ static void rebuild(explorer_info *info)
     }
     else
     {
-        add_line(L"My Computer", 0, CSIDL_DRIVES, 16);
-        add_line(L"My Documents", 0, CSIDL_PERSONAL, 235);
-        add_line(L"My Network Places", 0, CSIDL_NETWORK, 18);
-        add_line(L"Desktop", 0, CSIDL_DESKTOP, 35);
+        /* Windows XP: the parent folder, then the places that are neither it nor this folder */
+        static const int places[] = { CSIDL_PERSONAL, CSIDL_COMMON_DOCUMENTS, CSIDL_DRIVES, CSIDL_NETWORK };
+        LPITEMIDLIST parent = NULL, place;
+
+        WCHAR docs[MAX_PATH], place_path[MAX_PATH];
+        BOOL in_docs = has_path && SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, docs)) &&
+                       !wcsicmp(docs, path);
+
+        /* My Documents is on the Desktop in the namespace, also when opened by its path */
+        if (in_docs) SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &parent);
+        else if (info->pidl && !ILIsEmpty(info->pidl) && (parent = ILClone(info->pidl))) ILRemoveLastID(parent);
+        if (parent && !add_place(parent)) parent = NULL;   /* the line owns it */
+        for (i = 0; i < ARRAY_SIZE(places); i++)
+        {
+            if (FAILED(SHGetSpecialFolderLocation(NULL, places[i], &place))) continue;
+            if ((parent && ILIsEqual(place, parent)) || (info->pidl && ILIsEqual(place, info->pidl)) ||
+                (has_path && SHGetPathFromIDListW(place, place_path) && !wcsicmp(place_path, path)))
+                ILFree(place);
+            else add_place(place);
+        }
     }
 
     add_group(L"Details", FALSE);
@@ -394,7 +425,13 @@ static void paint(HWND hwnd, HDC hdc)
 
             if (l->icon_id)
             {
-                HICON icon = shellres_icon(l->icon_id, LINK_ICON);
+                SHFILEINFOW sfi;
+                HICON icon = NULL;
+
+                if (l->pidl && SHGetFileInfoW((const WCHAR *)l->pidl, 0, &sfi, sizeof(sfi), SHGFI_PIDL | SHGFI_ICON | SHGFI_SMALLICON))
+                    icon = sfi.hIcon;
+                else if (l->icon_id > 0)
+                    icon = shellres_icon(l->icon_id, LINK_ICON);
                 if (icon)
                 {
                     DrawIconEx(hdc, l->rc.left - LINK_ICON - 4, l->rc.top, icon, LINK_ICON, LINK_ICON, 0, NULL, DI_NORMAL);
@@ -446,6 +483,11 @@ static void activate(LINE *l)
 {
     explorer_info *info = g_pane.info;
 
+    if (l->pidl)
+    {
+        IExplorerBrowser_BrowseToIDList(info->browser, l->pidl, SBSP_ABSOLUTE);
+        return;
+    }
     if (l->place >= 0)
     {
         LPITEMIDLIST pidl;

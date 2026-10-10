@@ -151,6 +151,7 @@ STRINGTABLE
 	IDS_MYPICTURES_FOLDER_NAME      "My Pictures"
 	IDS_MYMUSIC_FOLDER_NAME         "My Music"
 	IDS_MYVIDEOS_FOLDER_NAME        "My Videos"
+	IDS_SHAREDDOCS_FOLDER_NAME      "Shared Documents"
 	IDS_CONTROLPANEL	"Control Panel"
 
         /* context menus */

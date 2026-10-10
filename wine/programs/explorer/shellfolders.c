@@ -256,6 +256,7 @@ void shellfolder_link_media_folders(void)
 
     if (FAILED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, docs))) return;
     set_display_name(CSIDL_PERSONAL, 9227);
+    set_display_name(CSIDL_COMMON_DOCUMENTS, 21785);   /* "Shared Documents" */
     for (i = 0; i < ARRAY_SIZE(media); i++) set_display_name(media[i].csidl, media[i].string_id);
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     len = wcslen(docs);
