@@ -378,6 +378,7 @@ static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationComplete(IExplore
     }
     update_path_box(This->info);
     browser_navigation_state(This->info, FALSE);
+    browser_apply_folder_view(This->info);
     {
         /* the window shows the icon of the folder it is in */
         SHFILEINFOW sfi = {0};

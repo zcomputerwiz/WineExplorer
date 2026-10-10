@@ -56,6 +56,7 @@
 #include "shobjidl.h"
 #include "commoncontrols.h"
 #include "stgprop.h"
+#include "gdiplus.h"
 #include "shresdef.h"
 #include "wine/debug.h"
 
@@ -148,6 +149,9 @@ typedef struct
         UINT            columns;        /* Number of shell folder columns */
         UINT            tile_columns[2]; /* the type and size columns, the details of a tile */
         UINT            tile_column_count;
+        HIMAGELIST      thumbnails;     /* the pictures of the Thumbnails view */
+        struct thumbnail *thumbnail_map; /* item -> picture */
+        UINT            thumbnail_count;
 } IShellViewImpl;
 
 static inline IShellViewImpl *impl_from_IShellView3(IShellView3 *iface)
@@ -330,6 +334,119 @@ static void SetStyle(IShellViewImpl * This, DWORD dwAdd, DWORD dwRemove)
 static DWORD ViewModeToListStyle(UINT ViewMode);
 
 #define FCIDM_SHVIEW_TILE 0x7191   /* "Tiles" of the View menu, MENU_002 */
+#define FCIDM_SHVIEW_THUMBNAIL 0x7190
+
+#define THUMBNAIL_SIZE 96
+
+struct thumbnail
+{
+    LPCITEMIDLIST pidl;   /* the item's data in the list */
+    int index;            /* its picture */
+};
+
+static void free_thumbnails(IShellViewImpl *This)
+{
+    free(This->thumbnail_map);
+    This->thumbnail_map = NULL;
+    This->thumbnail_count = 0;
+    if (This->thumbnails) ImageList_RemoveAll(This->thumbnails);
+}
+
+static BOOL is_picture(const WCHAR *path)
+{
+    static const WCHAR *exts[] = { L".bmp", L".dib", L".jpg", L".jpeg", L".jpe", L".gif", L".png", L".tif", L".tiff",
+                                   L".ico", L".emf", L".wmf" };
+    const WCHAR *ext = PathFindExtensionW(path);
+    UINT i;
+
+    for (i = 0; i < ARRAY_SIZE(exts); i++) if (!wcsicmp(ext, exts[i])) return TRUE;
+    return FALSE;
+}
+
+/* The picture of an item as Windows XP shows it in Thumbnails: an image scaled into a white square with a gray
+ * frame, or the item's 48 pixel icon in that square. */
+static HBITMAP make_thumbnail(IShellViewImpl *This, LPCITEMIDLIST pidl)
+{
+    HDC screen = GetDC(NULL), hdc = CreateCompatibleDC(screen);
+    HBITMAP bitmap = CreateCompatibleBitmap(screen, THUMBNAIL_SIZE, THUMBNAIL_SIZE), old;
+    RECT rc = { 0, 0, THUMBNAIL_SIZE, THUMBNAIL_SIZE };
+    HBRUSH frame = CreateSolidBrush(RGB(0xd0, 0xd0, 0xbf));
+    WCHAR path[MAX_PATH] = {0};
+    BOOL drawn = FALSE;
+    STRRET str;
+
+    old = SelectObject(hdc, bitmap);
+    FillRect(hdc, &rc, GetStockObject(WHITE_BRUSH));
+    FrameRect(hdc, &rc, frame);
+    DeleteObject(frame);
+
+    if (SUCCEEDED(IShellFolder_GetDisplayNameOf(This->pSFParent, pidl, SHGDN_FORPARSING, &str)))
+        StrRetToBufW(&str, pidl, path, ARRAY_SIZE(path));
+    if (path[0] && !_ILIsFolder(pidl) && is_picture(path))
+    {
+        GpImage *image;
+        GpGraphics *graphics;
+        UINT cx, cy, w, h, max = THUMBNAIL_SIZE - 6;
+
+        if (!GdipLoadImageFromFile(path, &image))
+        {
+            if (!GdipGetImageWidth(image, &cx) && !GdipGetImageHeight(image, &cy) && cx && cy &&
+                !GdipCreateFromHDC(hdc, &graphics))
+            {
+                /* smaller pictures keep their size */
+                if (cx <= max && cy <= max) { w = cx; h = cy; }
+                else if (cx >= cy) { w = max; h = max(1, cy * max / cx); }
+                else { h = max; w = max(1, cx * max / cy); }
+                GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
+                drawn = !GdipDrawImageRectI(graphics, image, (THUMBNAIL_SIZE - w) / 2, (THUMBNAIL_SIZE - h) / 2, w, h);
+                GdipDeleteGraphics(graphics);
+            }
+            GdipDisposeImage(image);
+        }
+    }
+    if (!drawn)
+    {
+        IImageList *icons;
+        HICON icon = NULL;
+        int index = SHMapPIDLToSystemImageListIndex(This->pSFParent, pidl, 0);
+
+        if (SUCCEEDED(SHGetImageList(SHIL_EXTRALARGE, &IID_IImageList, (void **)&icons)))
+        {
+            IImageList_GetIcon(icons, index, ILD_TRANSPARENT, &icon);
+            IImageList_Release(icons);
+        }
+        if (icon)
+        {
+            DrawIconEx(hdc, (THUMBNAIL_SIZE - 48) / 2, (THUMBNAIL_SIZE - 48) / 2, icon, 48, 48, 0, NULL, DI_NORMAL);
+            DestroyIcon(icon);
+        }
+    }
+    SelectObject(hdc, old);
+    DeleteDC(hdc);
+    ReleaseDC(NULL, screen);
+    return bitmap;
+}
+
+/* the index of an item's picture in the Thumbnails view, made when it is first shown */
+/* ponytail: linear search and made on the UI thread; a map and a worker thread when folders are large */
+static int thumbnail_index(IShellViewImpl *This, LPCITEMIDLIST pidl)
+{
+    struct thumbnail *map;
+    HBITMAP bitmap;
+    UINT i;
+    int index;
+
+    for (i = 0; i < This->thumbnail_count; i++)
+        if (This->thumbnail_map[i].pidl == pidl) return This->thumbnail_map[i].index;
+    if (!(map = realloc(This->thumbnail_map, (This->thumbnail_count + 1) * sizeof(*map)))) return -1;
+    This->thumbnail_map = map;
+    bitmap = make_thumbnail(This, pidl);
+    index = ImageList_Add(This->thumbnails, bitmap, NULL);
+    DeleteObject(bitmap);
+    map[This->thumbnail_count].pidl = pidl;
+    map[This->thumbnail_count++].index = index;
+    return index;
+}
 
 /* Switch the list to a view mode.  Tiles have the 48 pixel icons (SHIL_EXTRALARGE) and show the type and size
  * of each item under its name, as on Windows XP. */
@@ -342,7 +459,19 @@ static void shellview_set_view(IShellViewImpl *This, UINT mode)
     Shell_GetImageLists(&big_icons, &small_icons);
     if (mode == FVM_TILE && FAILED(SHGetImageList(SHIL_EXTRALARGE, &IID_IImageList, (void **)&tile_icons)))
         tile_icons = NULL;
-    SendMessageW(This->hWndList, LVM_SETIMAGELIST, LVSIL_NORMAL, (LPARAM)(tile_icons ? (HIMAGELIST)tile_icons : big_icons));
+    free_thumbnails(This);
+    if (mode == FVM_THUMBNAIL)
+    {
+        if (!This->thumbnails)
+            This->thumbnails = ImageList_Create(THUMBNAIL_SIZE, THUMBNAIL_SIZE, ILC_COLOR24, 16, 16);
+        SendMessageW(This->hWndList, LVM_SETIMAGELIST, LVSIL_NORMAL, (LPARAM)This->thumbnails);
+        SendMessageW(This->hWndList, LVM_SETICONSPACING, 0, MAKELPARAM(THUMBNAIL_SIZE + 22, THUMBNAIL_SIZE + 40));
+    }
+    else
+    {
+        SendMessageW(This->hWndList, LVM_SETIMAGELIST, LVSIL_NORMAL, (LPARAM)(tile_icons ? (HIMAGELIST)tile_icons : big_icons));
+        SendMessageW(This->hWndList, LVM_SETICONSPACING, 0, MAKELPARAM(-1, -1));
+    }
     if (tile_icons) IImageList_Release(tile_icons);   /* the system image list stays */
 
     SetStyle(This, ViewModeToListStyle(mode), LVS_TYPEMASK);
@@ -360,6 +489,7 @@ static void shellview_set_view(IShellViewImpl *This, UINT mode)
         SendMessageW(This->hWndList, LVM_SETIMAGELIST, LVSIL_NORMAL, (LPARAM)big_icons);
         SendMessageW(This->hWndList, LVM_SETVIEW, LV_VIEW_ICON, 0);
     }
+    SendMessageW(This->hWndList, LVM_ARRANGE, LVA_DEFAULT, 0);
     This->FolderSettings.ViewMode = mode;
 }
 
@@ -792,6 +922,7 @@ static HRESULT ShellView_FillList(IShellViewImpl *This)
     HRESULT hr;
 
     TRACE("(%p)\n", This);
+    free_thumbnails(This);
 
     /* get the itemlist from the shfolder*/
     hr = IShellFolder_EnumObjects(This->pSFParent, This->hWnd, SHCONTF_NONFOLDERS | SHCONTF_FOLDERS, &pEnumIDList);
@@ -812,6 +943,8 @@ static HRESULT ShellView_FillList(IShellViewImpl *This)
     SendMessageW(This->hWndList, LVM_SORTITEMS, (WPARAM)This->pSFParent, (LPARAM)ShellView_CompareItems);
 
     IFolderView2_SetRedraw(folderview, TRUE);
+    /* sizes seen while the list did not redraw were not laid out */
+    SendMessageW(This->hWndList, LVM_ARRANGE, LVA_DEFAULT, 0);
 
     IEnumIDList_Release(pEnumIDList);
     return S_OK;
@@ -1198,9 +1331,12 @@ static void ShellView_DoContextMenu(IShellViewImpl * This, WORD x, WORD y, BOOL 
 	      UINT current = This->FolderSettings.ViewMode == FVM_LIST ? FCIDM_SHVIEW_LISTVIEW :
 	                     This->FolderSettings.ViewMode == FVM_DETAILS ? FCIDM_SHVIEW_REPORTVIEW : FCIDM_SHVIEW_BIGICON;
 	      EnableMenuItem(hMenu, FCIDM_SHVIEW_TILE - 0x7000, MF_BYCOMMAND | MF_ENABLED);
-	      if (This->FolderSettings.ViewMode == FVM_TILE)
-	          CheckMenuRadioItem(hMenu, FCIDM_SHVIEW_TILE - 0x7000, FCIDM_SHVIEW_TILE - 0x7000,
-	                             FCIDM_SHVIEW_TILE - 0x7000, MF_BYCOMMAND);
+	      EnableMenuItem(hMenu, FCIDM_SHVIEW_THUMBNAIL - 0x7000, MF_BYCOMMAND | MF_ENABLED);
+	      if (This->FolderSettings.ViewMode == FVM_TILE || This->FolderSettings.ViewMode == FVM_THUMBNAIL)
+	      {
+	          UINT id = This->FolderSettings.ViewMode == FVM_TILE ? FCIDM_SHVIEW_TILE : FCIDM_SHVIEW_THUMBNAIL;
+	          CheckMenuRadioItem(hMenu, id - 0x7000, id - 0x7000, id - 0x7000, MF_BYCOMMAND);
+	      }
 	      else
 	          CheckMenuRadioItem(hMenu, FCIDM_SHVIEW_BIGICON - 0x7000, FCIDM_SHVIEW_REPORTVIEW - 0x7000,
 	                             current - 0x7000, MF_BYCOMMAND);
@@ -1404,6 +1540,11 @@ static LRESULT ShellView_OnCommand(IShellViewImpl * This,DWORD dwCmdID, DWORD dw
 	    CheckToolbar(This);
 	    break;
 
+	  case FCIDM_SHVIEW_THUMBNAIL:
+	    shellview_set_view(This, FVM_THUMBNAIL);
+	    CheckToolbar(This);
+	    break;
+
 	  case FCIDM_SHVIEW_LISTVIEW:
 	    shellview_set_view(This, FVM_LIST);
 	    CheckToolbar(This);
@@ -1584,7 +1725,10 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 
 	    if(lpdi->item.mask & LVIF_IMAGE)	/* image requested */
 	    {
-	      lpdi->item.iImage = SHMapPIDLToSystemImageListIndex(This->pSFParent, pidl, 0);
+	      if (This->FolderSettings.ViewMode == FVM_THUMBNAIL && This->thumbnails)
+	        lpdi->item.iImage = thumbnail_index(This, pidl);
+	      else
+	        lpdi->item.iImage = SHMapPIDLToSystemImageListIndex(This->pSFParent, pidl, 0);
 	    }
 	    break;
 
@@ -2012,6 +2156,8 @@ static ULONG WINAPI IShellView_fnRelease(IShellView3 *iface)
 
 	  if(This->pSFParent)
 	    IShellFolder_Release(This->pSFParent);
+	    free_thumbnails(This);
+	    if (This->thumbnails) ImageList_Destroy(This->thumbnails);
 
 	  if(This->pSF2Parent)
 	    IShellFolder2_Release(This->pSF2Parent);

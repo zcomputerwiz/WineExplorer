@@ -81,6 +81,7 @@ void browser_update_ui(explorer_info *info);
 void browser_search(explorer_info *info, BOOL show);   /* the Search button: Search Companion on or off */
 void browser_exit_search(explorer_info *info);         /* back to the folder */
 void browser_navigation_state(explorer_info *info, BOOL navigating);
+void browser_apply_folder_view(explorer_info *info);   /* the view remembered for the folder, else XP's default */
 void browser_init_menu_popup(explorer_info *info, HMENU menu);
 LRESULT browser_toolbar_notify(explorer_info *info, NMHDR *nm);
 

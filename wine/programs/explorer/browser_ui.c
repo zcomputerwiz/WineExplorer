@@ -106,13 +106,90 @@ static int item_count(explorer_info *info, UINT which)
     return (int)SendMessageW(list, which == SVGIO_SELECTION ? LVM_GETSELECTEDCOUNT : LVM_GETITEMCOUNT, 0, 0);
 }
 
-static void set_view_mode(explorer_info *info, UINT mode)
+/* Windows XP remembers the view of each folder; ours are kept by the folder's parsing name */
+static const WCHAR folder_views_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\WineExplorer\\FolderViews";
+
+static void apply_view_mode(explorer_info *info, UINT mode)
 {
     IFolderView *fv = current_folder_view(info);
     if (!fv) return;
     IFolderView_SetCurrentViewMode(fv, mode);
     IFolderView_Release(fv);
     info->view_mode = mode;
+}
+
+/* the view the user chose: kept for the folder */
+static void set_view_mode(explorer_info *info, UINT mode)
+{
+    WCHAR *name;
+    DWORD value = mode;
+
+    apply_view_mode(info, mode);
+    if (info->pidl && SUCCEEDED(SHGetNameFromIDList(info->pidl, SIGDN_DESKTOPABSOLUTEPARSING, &name)))
+    {
+        RegSetKeyValueW(HKEY_CURRENT_USER, folder_views_key, name, REG_DWORD, &value, sizeof(value));
+        CoTaskMemFree(name);
+    }
+}
+
+/* the file system path of the folder the view shows: the target of a folder shortcut such as My Pictures */
+static BOOL view_folder_path(explorer_info *info, WCHAR *path)
+{
+    IFolderView *fv = current_folder_view(info);
+    IPersistFolder2 *folder;
+    LPITEMIDLIST pidl;
+    BOOL ret = FALSE;
+
+    if (fv)
+    {
+        if (SUCCEEDED(IFolderView_GetFolder(fv, &IID_IPersistFolder2, (void **)&folder)))
+        {
+            if (SUCCEEDED(IPersistFolder2_GetCurFolder(folder, &pidl)))
+            {
+                ret = SHGetPathFromIDListW(pidl, path);
+                ILFree(pidl);
+            }
+            IPersistFolder2_Release(folder);
+        }
+        IFolderView_Release(fv);
+    }
+    return ret || SHGetPathFromIDListW(info->pidl, path);
+}
+
+/* Windows XP's views of a folder not seen before: Thumbnails in My Pictures, Icons in Control Panel, else Tiles */
+static UINT default_view_mode(explorer_info *info)
+{
+    WCHAR path[MAX_PATH], pictures[MAX_PATH];
+    LPITEMIDLIST controls;
+    UINT mode = FVM_TILE, len;
+
+    if (view_folder_path(info, path) &&
+        SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_MYPICTURES, NULL, SHGFP_TYPE_CURRENT, pictures)) &&
+        !wcsnicmp(path, pictures, (len = wcslen(pictures))) && (!path[len] || path[len] == '\\'))
+        return FVM_THUMBNAIL;
+    if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_CONTROLS, &controls)))
+    {
+        if (ILIsEqual(controls, info->pidl)) mode = FVM_ICON;
+        ILFree(controls);
+    }
+    return mode;
+}
+
+void browser_apply_folder_view(explorer_info *info)
+{
+    DWORD value, size = sizeof(value);
+    WCHAR *name;
+    UINT mode;
+
+    if (!info->pidl) return;
+    mode = default_view_mode(info);
+    if (SUCCEEDED(SHGetNameFromIDList(info->pidl, SIGDN_DESKTOPABSOLUTEPARSING, &name)))
+    {
+        if (!RegGetValueW(HKEY_CURRENT_USER, folder_views_key, name, RRF_RT_REG_DWORD, NULL, &value, &size))
+            mode = value;
+        CoTaskMemFree(name);
+    }
+    apply_view_mode(info, mode);
 }
 
 static UINT get_view_mode(explorer_info *info)

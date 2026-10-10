@@ -253,19 +253,30 @@ static void rebuild(explorer_info *info)
         static const int places[] = { CSIDL_PERSONAL, CSIDL_COMMON_DOCUMENTS, CSIDL_DRIVES, CSIDL_NETWORK };
         LPITEMIDLIST parent = NULL, place;
 
-        WCHAR docs[MAX_PATH], place_path[MAX_PATH];
+        WCHAR docs[MAX_PATH], place_path[MAX_PATH], parent_path[MAX_PATH] = {0};
         BOOL in_docs = has_path && SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, docs)) &&
                        !wcsicmp(docs, path);
 
+        static const int media[] = { CSIDL_MYPICTURES, CSIDL_MYMUSIC, CSIDL_MYVIDEO };
+        BOOL in_media = FALSE;
+
+        /* the profile's Pictures, Music and Videos show as folders of My Documents (shellfolders.c) */
+        for (i = 0; i < ARRAY_SIZE(media) && has_path && !in_media; i++)
+            in_media = SUCCEEDED(SHGetFolderPathW(NULL, media[i], NULL, SHGFP_TYPE_CURRENT, place_path)) &&
+                       !wcsicmp(place_path, path);
+
         /* My Documents is on the Desktop in the namespace, also when opened by its path */
         if (in_docs) SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &parent);
+        else if (in_media) SHGetSpecialFolderLocation(NULL, CSIDL_PERSONAL, &parent);
         else if (info->pidl && !ILIsEmpty(info->pidl) && (parent = ILClone(info->pidl))) ILRemoveLastID(parent);
+        if (parent && !SHGetPathFromIDListW(parent, parent_path)) parent_path[0] = 0;
         if (parent && !add_place(parent)) parent = NULL;   /* the line owns it */
         for (i = 0; i < ARRAY_SIZE(places); i++)
         {
             if (FAILED(SHGetSpecialFolderLocation(NULL, places[i], &place))) continue;
             if ((parent && ILIsEqual(place, parent)) || (info->pidl && ILIsEqual(place, info->pidl)) ||
-                (has_path && SHGetPathFromIDListW(place, place_path) && !wcsicmp(place_path, path)))
+                (SHGetPathFromIDListW(place, place_path) &&
+                 ((has_path && !wcsicmp(place_path, path)) || (parent_path[0] && !wcsicmp(place_path, parent_path)))))
                 ILFree(place);
             else add_place(place);
         }
