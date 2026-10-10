@@ -51,6 +51,7 @@ typedef struct
     int icon_id;         /* shell32 icon resource id, 0 = none */
     BOOL detail_head;    /* bold first line of the Details group */
     BOOL plain;          /* detail text, not a link */
+    BOOL disabled;       /* grayed: not available on Wine */
     RECT rc;
 } LINE;
 
@@ -187,13 +188,38 @@ static void rebuild(explorer_info *info)
     {
         add_group(L"File and Folder Tasks", TRUE);
         if (!selected)
+        {
             add_line(L"Make a new folder", IDM_FILE_NEWFOLDER, -1, 0);
+            add_line(L"Publish this folder to the Web", 0, -1, 0)->disabled = TRUE;
+            add_line(L"Share this folder", 0, -1, 0)->disabled = TRUE;
+        }
+        else if (selected == 1)
+        {
+            /* Windows XP words the tasks by the kind of the item */
+            BOOL folder = !wcscmp(type, L"Folder") || !wcscmp(type, L"File Folder");
+            const WCHAR *kind = folder ? L"folder" : L"file";
+            WCHAR text[80];
+
+            swprintf(text, ARRAY_SIZE(text), L"Rename this %s", kind);
+            add_line(text, IDM_FILE_RENAME, -1, 0);
+            swprintf(text, ARRAY_SIZE(text), L"Move this %s", kind);
+            add_line(text, IDM_EDIT_MOVETO, -1, 0);
+            swprintf(text, ARRAY_SIZE(text), L"Copy this %s", kind);
+            add_line(text, IDM_EDIT_COPYTO, -1, 0);
+            swprintf(text, ARRAY_SIZE(text), L"Publish this %s to the Web", kind);
+            add_line(text, 0, -1, 0)->disabled = TRUE;
+            if (folder) add_line(L"Share this folder", 0, -1, 0)->disabled = TRUE;
+            else add_line(L"E-mail this file", 0, -1, 0)->disabled = TRUE;
+            swprintf(text, ARRAY_SIZE(text), L"Delete this %s", kind);
+            add_line(text, IDM_FILE_DELETE, -1, 0);
+        }
         else
         {
-            add_line(selected == 1 ? L"Rename this item" : L"Rename the selected items", IDM_FILE_RENAME, -1, 0);
-            add_line(selected == 1 ? L"Copy this item" : L"Copy the selected items", IDM_EDIT_COPY, -1, 0);
-            add_line(selected == 1 ? L"Delete this item" : L"Delete the selected items", IDM_FILE_DELETE, -1, 0);
-            add_line(L"Make a new folder", IDM_FILE_NEWFOLDER, -1, 0);
+            add_line(L"Move the selected items", IDM_EDIT_MOVETO, -1, 0);
+            add_line(L"Copy the selected items", IDM_EDIT_COPYTO, -1, 0);
+            add_line(L"Publish the selected items to the Web", 0, -1, 0)->disabled = TRUE;
+            add_line(L"E-mail the selected items", 0, -1, 0)->disabled = TRUE;
+            add_line(L"Delete the selected items", IDM_FILE_DELETE, -1, 0);
         }
     }
 
@@ -364,7 +390,7 @@ static void paint(HWND hwnd, HDC hdc)
         for (i = grp->first; i < grp->first + grp->count; i++)
         {
             LINE *l = &g_pane.lines[i];
-            BOOL hot = !l->plain && i == g_pane.hot_line;
+            BOOL hot = !l->plain && !l->disabled && i == g_pane.hot_line;
 
             if (l->icon_id)
             {
@@ -376,7 +402,8 @@ static void paint(HWND hwnd, HDC hdc)
                 }
             }
             SelectObject(hdc, l->detail_head ? bold : font);
-            SetTextColor(hdc, l->plain ? (l->detail_head ? RGB(0, 0, 0) : text_color) : (hot ? hot_color : link_color));
+            SetTextColor(hdc, l->disabled ? GetSysColor(COLOR_GRAYTEXT) :
+                         l->plain ? (l->detail_head ? RGB(0, 0, 0) : text_color) : (hot ? hot_color : link_color));
             {
                 RECT t = l->rc;
                 DrawTextW(hdc, l->text, -1, &t, DT_WORDBREAK | DT_NOPREFIX | DT_LEFT);
@@ -411,7 +438,7 @@ static void hit_test(int x, int y, int *line, int *group)
         if (PtInRect(&grp->head, pt)) { *group = g; return; }
         if (grp->collapsed) continue;
         for (i = grp->first; i < grp->first + grp->count; i++)
-            if (!g_pane.lines[i].plain && PtInRect(&g_pane.lines[i].rc, pt)) { *line = i; return; }
+            if (!g_pane.lines[i].plain && !g_pane.lines[i].disabled && PtInRect(&g_pane.lines[i].rc, pt)) { *line = i; return; }
     }
 }
 
