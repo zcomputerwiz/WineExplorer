@@ -31,3 +31,4 @@
 @ stdcall WexWmFocus(int64)
 @ stdcall WexAppsList(ptr long ptr)
 @ stdcall WexAppsLaunch(wstr)
+@ stdcall WexHardwareList(ptr long ptr)

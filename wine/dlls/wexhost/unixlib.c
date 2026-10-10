@@ -1386,6 +1386,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     wm_focus,
     apps_list,
     apps_launch,
+    hw_list,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

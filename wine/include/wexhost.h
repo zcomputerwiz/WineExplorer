@@ -245,6 +245,11 @@ DWORD WINAPI WexAppsList( char *buffer, DWORD size, DWORD *needed );
 /* Launch by desktop ID through GIO, without the shell's Wine environment. */
 DWORD WINAPI WexAppsLaunch( const WCHAR *id );
 
+/* The computer's hardware for Device Manager: a UTF-8 report of the devices (sysfs, the udev database) and their
+ * kernel modules (libkmod), one item per line; the format is described in dlls/wexhost/hardware.c.
+ * ERROR_MORE_DATA returns the required byte count, including the final NUL. */
+DWORD WINAPI WexHardwareList( char *buffer, DWORD size, DWORD *needed );
+
 #ifdef __cplusplus
 }
 #endif

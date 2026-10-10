@@ -50,6 +50,19 @@ DWORD WINAPI WexAppsList( char *buffer, DWORD size, DWORD *needed )
     return params.err;
 }
 
+DWORD WINAPI WexHardwareList( char *buffer, DWORD size, DWORD *needed )
+{
+    struct hw_list_params params = {0};
+    if (needed) *needed = 0;
+    if (!buffer && size) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.buffer = (ULONG_PTR)buffer;
+    params.size = size;
+    WEXHOST_CALL( hw_list, &params );
+    if (needed) *needed = params.needed;
+    return params.err;
+}
+
 DWORD WINAPI WexAppsLaunch( const WCHAR *id )
 {
     struct apps_launch_params params = {0};
