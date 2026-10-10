@@ -61,6 +61,20 @@ static IFolderView *current_folder_view(explorer_info *info)
     return view;
 }
 
+/* the window of the browser that hosts the view: it answers CWM_GETISHELLBROWSER for the menus' rename and New */
+static HWND menu_owner(explorer_info *info)
+{
+    IShellView *view = current_view(info);
+    HWND hwnd = NULL;
+
+    if (view)
+    {
+        if (SUCCEEDED(IShellView_GetWindow(view, &hwnd))) hwnd = GetParent(hwnd);
+        IShellView_Release(view);
+    }
+    return hwnd ? hwnd : info->main_window;
+}
+
 static void invoke_verb(explorer_info *info, int which, const char *verb)
 {
     IShellView *view = current_view(info);
@@ -72,7 +86,7 @@ static void invoke_verb(explorer_info *info, int which, const char *verb)
         HMENU popup = CreatePopupMenu();
         if (popup && SUCCEEDED(IContextMenu_QueryContextMenu(menu, popup, 0, 1, 0x7fff, CMF_NORMAL | CMF_CANRENAME)))
         {
-            CMINVOKECOMMANDINFO ici = { sizeof(ici), 0, info->main_window, verb, NULL, NULL, SW_SHOWNORMAL };
+            CMINVOKECOMMANDINFO ici = { sizeof(ici), 0, menu_owner(info), verb, NULL, NULL, SW_SHOWNORMAL };
             IContextMenu_InvokeCommand(menu, &ici);
         }
         if (popup) DestroyMenu(popup);
@@ -239,19 +253,117 @@ static void copy_to_folder(explorer_info *info, BOOL move)
 
 static HMENU g_favorites_menu;
 
+/* The File menu is the item menu of the selection with the New menu of the folder, as on Windows XP */
+#define FILE_ITEM_FIRST 0x1000
+#define FILE_ITEM_LAST  0x17ff
+#define FILE_BG_FIRST   0x1800
+#define FILE_BG_LAST    0x1fff
+
+static IContextMenu *file_item_menu, *file_bg_menu;
+
+static BOOL is_verb(IContextMenu *menu, UINT id, const WCHAR *verb)
+{
+    WCHAR name[32];
+
+    return SUCCEEDED(IContextMenu_GetCommandString(menu, id - FILE_ITEM_FIRST, GCS_VERBW, NULL, (char *)name, ARRAY_SIZE(name))) &&
+           !wcscmp(name, verb);
+}
+
+/* GetMenuState() mixes the item count of a submenu into its flags */
+static BOOL is_separator(HMENU menu, int pos)
+{
+    MENUITEMINFOW mi = { sizeof(mi), MIIM_FTYPE };
+
+    return GetMenuItemInfoW(menu, pos, TRUE, &mi) && (mi.fType & MFT_SEPARATOR);
+}
+
+/* the New submenu of the folder's background menu, detached from it */
+static HMENU take_new_menu(HMENU bg)
+{
+    WCHAR text[64], *p, *q;
+    HMENU sub;
+    int i;
+
+    for (i = 0; i < GetMenuItemCount(bg); i++)
+    {
+        MENUITEMINFOW mi = { sizeof(mi), MIIM_SUBMENU | MIIM_STRING };
+
+        mi.dwTypeData = text;
+        mi.cch = ARRAY_SIZE(text);
+        if (!GetMenuItemInfoW(bg, i, TRUE, &mi) || !mi.hSubMenu) continue;
+        for (p = q = text; *p; p++) if (*p != '&') *q++ = *p;
+        *q = 0;
+        if (wcscmp(text, L"New")) continue;
+        sub = mi.hSubMenu;
+        RemoveMenu(bg, i, MF_BYPOSITION);
+        return sub;
+    }
+    return NULL;
+}
+
+static void fill_file_menu(explorer_info *info, HMENU menu)
+{
+    IShellView *view = current_view(info);
+    HMENU bg = CreatePopupMenu(), new_menu;
+    UINT id;
+    int i, pos = 0;
+
+    while (GetMenuItemCount(menu) > 0) DeleteMenu(menu, 0, MF_BYPOSITION);
+    if (file_item_menu) IContextMenu_Release(file_item_menu);
+    if (file_bg_menu) IContextMenu_Release(file_bg_menu);
+    file_item_menu = file_bg_menu = NULL;
+
+    if (view)
+    {
+        if (item_count(info, SVGIO_SELECTION) > 0 &&
+            SUCCEEDED(IShellView_GetItemObject(view, SVGIO_SELECTION, &IID_IContextMenu, (void **)&file_item_menu)))
+            IContextMenu_QueryContextMenu(file_item_menu, menu, 0, FILE_ITEM_FIRST, FILE_ITEM_LAST, CMF_CANRENAME);
+        if (SUCCEEDED(IShellView_GetItemObject(view, SVGIO_BACKGROUND, &IID_IContextMenu, (void **)&file_bg_menu)))
+            IContextMenu_QueryContextMenu(file_bg_menu, bg, 0, FILE_BG_FIRST, FILE_BG_LAST, CMF_NORMAL);
+        IShellView_Release(view);
+    }
+
+    if (file_item_menu)
+    {
+        /* Cut, Copy and Paste are on the Edit menu; New goes before Create Shortcut */
+        for (i = GetMenuItemCount(menu) - 1; i >= 0; i--)
+        {
+            id = GetMenuItemID(menu, i);
+            if (id >= FILE_ITEM_FIRST && id <= FILE_ITEM_LAST &&
+                (is_verb(file_item_menu, id, L"cut") || is_verb(file_item_menu, id, L"copy") || is_verb(file_item_menu, id, L"paste")))
+                DeleteMenu(menu, i, MF_BYPOSITION);
+        }
+        for (pos = 0; pos < GetMenuItemCount(menu); pos++)
+            if (is_verb(file_item_menu, GetMenuItemID(menu, pos), L"link")) break;
+    }
+    else
+    {
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"Create &Shortcut");
+        AppendMenuW(menu, MF_STRING, IDM_FILE_DELETE, L"&Delete");
+        AppendMenuW(menu, MF_STRING, IDM_FILE_RENAME, L"Rena&me");
+        AppendMenuW(menu, MF_STRING, IDM_FILE_PROPERTIES, L"P&roperties");
+    }
+    if ((new_menu = take_new_menu(bg)))
+    {
+        InsertMenuW(menu, pos, MF_BYPOSITION | MF_POPUP, (UINT_PTR)new_menu, L"Ne&w");
+        InsertMenuW(menu, pos + 1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    }
+    DestroyMenu(bg);
+    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(menu, MF_STRING, IDM_FILE_CLOSE, L"&Close");
+
+    /* no leading or doubled separators */
+    for (i = GetMenuItemCount(menu) - 1; i >= 0; i--)
+        if (is_separator(menu, i) && (!i || is_separator(menu, i - 1))) DeleteMenu(menu, i, MF_BYPOSITION);
+}
+
 HMENU browser_create_menu(void)
 {
     HMENU bar = CreateMenu(), file = CreatePopupMenu(), edit = CreatePopupMenu(), view = CreatePopupMenu();
     HMENU favorites = CreatePopupMenu(), tools = CreatePopupMenu(), help = CreatePopupMenu();
-    HMENU new_menu = CreatePopupMenu(), toolbars = CreatePopupMenu(), bar_menu = CreatePopupMenu(), goto_menu = CreatePopupMenu();
+    HMENU toolbars = CreatePopupMenu(), bar_menu = CreatePopupMenu(), goto_menu = CreatePopupMenu();
 
-    AppendMenuW(new_menu, MF_STRING, IDM_FILE_NEWFOLDER, L"&Folder");
-    AppendMenuW(file, MF_POPUP, (UINT_PTR)new_menu, L"&New");
-    AppendMenuW(file, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(file, MF_STRING, IDM_FILE_DELETE, L"&Delete");
-    AppendMenuW(file, MF_STRING, IDM_FILE_RENAME, L"Rena&me");
-    AppendMenuW(file, MF_STRING, IDM_FILE_PROPERTIES, L"P&roperties");
-    AppendMenuW(file, MF_SEPARATOR, 0, NULL);
+    /* filled by fill_file_menu when it opens */
     AppendMenuW(file, MF_STRING, IDM_FILE_CLOSE, L"&Close");
 
     AppendMenuW(edit, MF_STRING | MF_GRAYED, IDM_EDIT_UNDO, L"&Undo\tCtrl+Z");
@@ -310,6 +422,7 @@ void browser_init_menu_popup(explorer_info *info, HMENU menu)
     UINT mode;
 
     if (menu == g_favorites_menu) { fill_favorites(info, menu); return; }
+    if (GetMenuState(menu, IDM_FILE_CLOSE, MF_BYCOMMAND) != (UINT)-1) fill_file_menu(info, menu);
 
     if (GetMenuState(menu, IDM_VIEW_STANDARD, MF_BYCOMMAND) != (UINT)-1)
     {
@@ -870,6 +983,14 @@ void browser_command(explorer_info *info, UINT id)
         break;
     default:
         if (id >= IDM_FAVORITES_FIRST && id < IDM_FAVORITES_FIRST + 100) open_favorite(info, id - IDM_FAVORITES_FIRST);
+        else if (id >= FILE_ITEM_FIRST && id <= FILE_BG_LAST)
+        {
+            IContextMenu *menu = id >= FILE_BG_FIRST ? file_bg_menu : file_item_menu;
+            CMINVOKECOMMANDINFO ici = { sizeof(ici), 0, menu_owner(info), NULL, NULL, NULL, SW_SHOWNORMAL };
+
+            ici.lpVerb = MAKEINTRESOURCEA(id - (id >= FILE_BG_FIRST ? FILE_BG_FIRST : FILE_ITEM_FIRST));
+            if (menu) IContextMenu_InvokeCommand(menu, &ici);
+        }
         break;
     }
 }
