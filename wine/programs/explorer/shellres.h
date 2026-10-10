@@ -43,6 +43,10 @@ HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id);
  * no alpha at all becomes opaque. */
 void shellres_premultiply(HBITMAP bitmap);
 
+/* The XP Go button of an address bar (a one-button toolbar sending WM_COMMAND id to parent), and its width */
+HWND shellres_go_button(HWND parent, UINT id);
+int shellres_go_width(HWND go);
+
 /* Drop the cached packs after the theme changed */
 void shellres_reset(void);
 

@@ -511,7 +511,7 @@ static LRESULT CALLBACK address_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
     {
         HWND combo = GetWindow(hwnd, GW_CHILD);
         HWND go = combo ? GetWindow(combo, GW_HWNDNEXT) : NULL;
-        int w = LOWORD(lparam), go_w = 62;
+        int w = LOWORD(lparam), go_w = go ? shellres_go_width(go) : 50;
         if (combo) SetWindowPos(combo, NULL, 0, 0, max(20, w - go_w - 4), 240, SWP_NOZORDER | SWP_NOACTIVATE);
         if (go) SetWindowPos(go, NULL, max(20, w - go_w - 2), 0, go_w, HIWORD(lparam), SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
@@ -727,11 +727,7 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
                                          0, 0, 400, 24, info->rebar, NULL, explorer_hInstance, NULL);
     info->path_box = CreateWindowW(WC_COMBOBOXEXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWN, 0, 0, 300, 240,
                                    info->address_band, NULL, explorer_hInstance, NULL);
-    {
-        HWND go = CreateWindowW(L"BUTTON", L"Go", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_FLAT, 0, 0, 60, 22,
-                                info->address_band, (HMENU)GO_BUTTON, explorer_hInstance, NULL);
-        SendMessageW(go, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), FALSE);
-    }
+    shellres_go_button(info->address_band, GO_BUTTON);
     GetWindowRect(info->path_box, &rc);
     band.fMask = RBBIM_STYLE | RBBIM_CHILD | RBBIM_CHILDSIZE | RBBIM_SIZE | RBBIM_TEXT;
     band.fStyle = RBBS_GRIPPERALWAYS | RBBS_CHILDEDGE | RBBS_BREAK;

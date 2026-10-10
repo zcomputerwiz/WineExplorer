@@ -21,8 +21,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
+#include <commctrl.h>
 
 #include "shellres.h"
+#include "resource.h"
 
 extern HINSTANCE explorer_hInstance;
 
@@ -238,6 +240,52 @@ HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id)
     if (pack) bmp = LoadImageW(pack, MAKEINTRESOURCEW(id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
     if (!bmp && fallback_id) bmp = LoadImageW(explorer_hInstance, MAKEINTRESOURCEW(fallback_id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
     return bmp;
+}
+
+/* The Go button of an address bar, as on Windows XP: a flat button with the green arrow and "Go".  The XP arrows
+ * are shell32 230 and 231 (20x20 with alpha; browseui's IDB_GO 290/291 are the gray classic ones), as are ReactOS'. */
+HWND shellres_go_button(HWND parent, UINT id)
+{
+    HWND go = CreateWindowExW(0, TOOLBARCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_LIST |
+                              TBSTYLE_TRANSPARENT | CCS_NORESIZE | CCS_NODIVIDER | CCS_NOPARENTALIGN, 0, 0, 60, 22,
+                              parent, NULL, explorer_hInstance, NULL);
+    TBBUTTON button = { 0, id, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_SHOWTEXT | BTNS_AUTOSIZE };
+    HBITMAP bmp;
+    int i;
+
+    SendMessageW(go, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
+    SendMessageW(go, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
+    for (i = 0; i < 2; i++)
+    {
+        HIMAGELIST list;
+        BITMAP bm;
+
+        if (!(bmp = shellres_bitmap(L"shell32", 230 + i, i ? IDB_BROWSER_GO_HOT : IDB_BROWSER_GO))) continue;
+        GetObjectW(bmp, sizeof(bm), &bm);
+        if (bm.bmBitsPixel == 32)
+        {
+            list = ImageList_Create(bm.bmWidth, bm.bmHeight, ILC_COLOR32, 1, 0);
+            ImageList_Add(list, bmp, NULL);
+        }
+        else
+        {
+            list = ImageList_Create(bm.bmWidth, bm.bmHeight, ILC_COLOR24 | ILC_MASK, 1, 0);
+            ImageList_AddMasked(list, bmp, RGB(255, 0, 255));
+        }
+        DeleteObject(bmp);
+        SendMessageW(go, i ? TB_SETHOTIMAGELIST : TB_SETIMAGELIST, 0, (LPARAM)list);
+    }
+    button.iString = SendMessageW(go, TB_ADDSTRINGW, 0, (LPARAM)L"Go ");
+    SendMessageW(go, TB_ADDBUTTONSW, 1, (LPARAM)&button);
+    SendMessageW(go, TB_AUTOSIZE, 0, 0);
+    return go;
+}
+
+/* width of the button made by shellres_go_button */
+int shellres_go_width(HWND go)
+{
+    RECT rc;
+    return SendMessageW(go, TB_GETITEMRECT, 0, (LPARAM)&rc) ? rc.right + 2 : 50;
 }
 
 void shellres_premultiply(HBITMAP bitmap)

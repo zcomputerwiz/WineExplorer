@@ -53,7 +53,7 @@ static int gripper_w(void)
 #define MAX_ITEMS       64
 #define IDC_ADDRESS     1
 #define IDC_GO          2
-#define GO_W            34
+#define GO_W            (tb->go ? shellres_go_width(tb->go) : 50)   /* needs tb in scope */
 #define IDC_SEARCHBOX   3
 #define SEARCH_ICON_W   20    /* the magnifier in front of the search box */
 #define IDM_CLOSE       1
@@ -879,9 +879,7 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             tb->combo = CreateWindowExW(0, L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | CBS_AUTOHSCROLL,
                                         0, 0, 100, 200, hwnd, (HMENU)IDC_ADDRESS, GetModuleHandleW(NULL), NULL);
             SendMessageW(tb->combo, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), FALSE);
-            tb->go = CreateWindowExW(0, L"BUTTON", L"Go", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, GO_W, 22, hwnd,
-                                     (HMENU)IDC_GO, GetModuleHandleW(NULL), NULL);
-            SendMessageW(tb->go, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), FALSE);
+            tb->go = shellres_go_button(hwnd, IDC_GO);
             load_address_history(tb);
         }
         else if (tb->kind == TOOLBAR_SEARCH)

@@ -35,7 +35,7 @@ folder handler).
 | 11 | Task pane (done) | Folder tasks include Publish to the Web and Share this folder (grayed or hidden here) | Make a new folder only | `browser_taskpane.c` |
 | 12 | Undo | Undo of rename, move, copy and delete | None | `browser_ui.c` / shell32 |
 | 13 | Taskbar grouping | "2 Windows Explorer" when crowded | One button per window | `taskband.c` |
-| 14 | Toolbar | The Go button has its green arrow | Text only | `browser_ui.c` |
+| 14 | Toolbar (Go done) | The Go button has its green arrow | Text only | `browser_ui.c` |
 
 Checked: Ctrl+A/C/X/V, Delete to the Recycle Bin with the XP confirmation. Not checked yet: drag and drop between
 windows and the desktop, F2 rename in place, keyboard navigation and type-ahead, file Properties pages, Search.
