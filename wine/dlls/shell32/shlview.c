@@ -1837,6 +1837,40 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 
 	  case NM_CUSTOMDRAW:
 	    TRACE("-- NM_CUSTOMDRAW %p\n",This);
+	    if (This->FolderSettings.ViewMode == FVM_THUMBNAIL && This->thumbnails)
+	    {
+	      /* Windows XP: a selected thumbnail keeps its picture and gets a thick frame of the selection color */
+	      NMLVCUSTOMDRAW *cd = (NMLVCUSTOMDRAW *)lpnmh;
+	      int item = cd->nmcd.dwItemSpec;
+	      RECT rc;
+
+	      if (cd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+	      if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) return CDRF_NOTIFYPOSTPAINT;
+	      if (cd->nmcd.dwDrawStage == CDDS_ITEMPOSTPAINT &&
+	          (SendMessageW(This->hWndList, LVM_GETITEMSTATE, item, LVIS_SELECTED) & LVIS_SELECTED))
+	      {
+	        LVITEMW lvitem = { LVIF_IMAGE, item };
+
+	        rc.left = LVIR_ICON;
+	        if (SendMessageW(This->hWndList, LVM_GETITEMRECT, item, (LPARAM)&rc) &&
+	            SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM)&lvitem))
+	        {
+	          HBRUSH brush = GetSysColorBrush(COLOR_HIGHLIGHT);
+	          RECT frame;
+	          int x = rc.left + (rc.right - rc.left - THUMBNAIL_SIZE) / 2, y = rc.top + (rc.bottom - rc.top - THUMBNAIL_SIZE) / 2;
+	          int i;
+
+	          ImageList_Draw(This->thumbnails, lvitem.iImage, cd->nmcd.hdc, x, y, ILD_NORMAL);
+	          SetRect(&frame, x, y, x + THUMBNAIL_SIZE, y + THUMBNAIL_SIZE);
+	          for (i = 0; i < 3; i++)
+	          {
+	            FrameRect(cd->nmcd.hdc, &frame, brush);
+	            InflateRect(&frame, -1, -1);
+	          }
+	        }
+	      }
+	      return CDRF_DODEFAULT;
+	    }
 	    return CDRF_DODEFAULT;
 
 	  case NM_RELEASEDCAPTURE:

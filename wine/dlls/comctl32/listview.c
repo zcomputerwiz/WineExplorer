@@ -4948,7 +4948,9 @@ static void LISTVIEW_DrawItemPart(LISTVIEW_INFO *infoPtr, LVITEMW *item, const N
     else
         background = &rcSelect;
 
-    if (nmlvcd->clrTextBk != CLR_NONE)
+    /* a selected item has its highlight also on a transparent text background (a watermark) */
+    if (nmlvcd->clrTextBk != CLR_NONE ||
+        ((item->state & LVIS_SELECTED) && (infoPtr->bFocus || (infoPtr->dwStyle & LVS_SHOWSELALWAYS))))
         ExtTextOutW(nmlvcd->nmcd.hdc, background->left, background->top, ETO_OPAQUE, background, NULL, 0, NULL);
 
     if (item->state & LVIS_FOCUSED)
