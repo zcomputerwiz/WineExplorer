@@ -82,6 +82,13 @@ the cyan area. The layout probe reports two visible icons with no overlap with
 each other, the task band, or clock, and no out-of-bounds windows. Hiding was left
 disabled in the VM for visual inspection.
 
+Follow-up verification with hiding enabled also passed: two visible icons with
+no chevron, two visible icons with a collapsed chevron, and three visible icons
+with an expanded chevron all remain inside the cyan content area without
+overlaps. A temporary Always hide test icon exercised the chevron states; both
+the icon and its temporary preference were removed afterward. The VM is now
+left with Hide inactive icons enabled, preserving existing per-icon preferences.
+
 ## Always-on-top verification (2026-10-09)
 
 The taskbar was verified against a blank Notepad window in the current X11 VM.
