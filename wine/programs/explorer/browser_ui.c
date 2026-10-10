@@ -133,7 +133,7 @@ static void set_view_mode(explorer_info *info, UINT mode)
 }
 
 /* the file system path of the folder the view shows: the target of a folder shortcut such as My Pictures */
-static BOOL view_folder_path(explorer_info *info, WCHAR *path)
+BOOL view_folder_path(explorer_info *info, WCHAR *path)
 {
     IFolderView *fv = current_folder_view(info);
     IPersistFolder2 *folder;

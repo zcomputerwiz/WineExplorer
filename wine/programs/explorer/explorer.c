@@ -315,7 +315,7 @@ void browser_search(explorer_info *info, BOOL show)
     if (!info->search)
     {
         if (!show) return;
-        if (!info->pidl || !SHGetPathFromIDListW(info->pidl, folder)) folder[0] = 0;
+        if (!info->pidl || !view_folder_path(info, folder)) folder[0] = 0;
         info->search = search_ui_create(info->main_window, folder[0] ? folder : NULL, FALSE);
         if (info->show_folders) browser_command(info, FOLDERS_BUTTON);   /* one Explorer bar at a time */
     }
@@ -379,6 +379,12 @@ static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationComplete(IExplore
     update_path_box(This->info);
     browser_navigation_state(This->info, FALSE);
     browser_apply_folder_view(This->info);
+    if (This->info->search)
+    {
+        /* the Search Companion looks in the folder shown */
+        WCHAR folder[MAX_PATH];
+        search_ui_set_scope(This->info->search, view_folder_path(This->info, folder) ? folder : NULL);
+    }
     {
         /* the window shows the icon of the folder it is in */
         SHFILEINFOW sfi = {0};

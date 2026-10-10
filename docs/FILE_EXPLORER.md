@@ -37,7 +37,7 @@ folder handler).
 | 13 | Taskbar grouping (done) | "2 Windows Explorer" when crowded | One button per window | `taskband.c` |
 | 14 | Toolbar (Go done) | The Go button has its green arrow | Text only | `browser_ui.c` |
 
-Checked: Ctrl+A/C/X/V, Delete to the Recycle Bin with the XP confirmation, F2, file Properties (XP General page), drag and drop onto folders, type-ahead. Not checked yet: drag and drop between
+Checked: Ctrl+A/C/X/V, Delete to the Recycle Bin with the XP confirmation, F2, file Properties (XP General page), drag and drop onto folders, type-ahead, Search (in the folder shown, also through folder shortcuts). Not checked yet: drag and drop between
 windows and the desktop, F2 rename in place, keyboard navigation and type-ahead, file Properties pages, Search.
 
 ## Stages
