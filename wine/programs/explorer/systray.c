@@ -478,9 +478,23 @@ static SIZE get_tray_chevron_size(void)
 static RECT get_tray_notify_rect(void)
 {
     RECT rc;
+    RECT background = {0, 0, 200, 30}, content;
+    HTHEME theme = theme_open( tray_window, L"TrayNotifyHoriz::TrayNotify" );
     int clock_width = taskbar_settings_get()->show_clock ? 64 : 0;
     int icons_width = nb_displayed > 0 ? (nb_displayed * icon_cx + 4) : 0;
-    int total_width = clock_width + icons_width + 4 + (chevron_visible() ? get_tray_chevron_size().cx : 0);
+    int left_padding = chevron_visible() ? get_tray_chevron_size().cx : 0;
+    int total_width;
+
+    /* The theme's left transition remains when the chevron is hidden.
+     * Keep icons inside its content area rather than over that transition. */
+    if (theme)
+    {
+        if (SUCCEEDED( GetThemeBackgroundContentRect( theme, NULL, TNP_BACKGROUND, 0,
+                                                     &background, &content ) ))
+            left_padding = max( left_padding, content.left - background.left );
+        CloseThemeData( theme );
+    }
+    total_width = clock_width + icons_width + 4 + left_padding;
 
     rc.right = tray_width - 2;
     rc.left = rc.right - total_width;

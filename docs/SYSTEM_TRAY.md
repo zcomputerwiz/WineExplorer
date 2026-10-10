@@ -64,6 +64,24 @@ original preferences were preserved and the temporary icon/registry entry remove
 `scripts/tray-layout-probe.c` checked actual visible child-window rectangles:
 two icons collapsed and three expanded passed with no overlap between icons,
 clock, or task band, and no icon outside the taskbar's bounds.
+
+### Themed boundary with hiding disabled
+
+Turning off Hide inactive icons exposed a separate background-boundary issue:
+the layout stopped reserving the chevron's width, but Luna's notification
+background retained its 19-pixel left content margin. Icons consequently painted
+over the dark blue transition outside the cyan content area. The notification
+area now reserves at least the theme's left content margin, obtained through
+`GetThemeBackgroundContentRect`, whether or not a chevron is present. When a
+chevron is present, the larger of its width and that margin is reserved. Classic
+retains its existing spacing.
+
+Reproduced through the live properties dialog, rebuilt and deployed Explorer,
+then verified with hiding disabled: both network and volume icons are inside
+the cyan area. The layout probe reports two visible icons with no overlap with
+each other, the task band, or clock, and no out-of-bounds windows. Hiding was left
+disabled in the VM for visual inspection.
+
 ## Always-on-top verification (2026-10-09)
 
 The taskbar was verified against a blank Notepad window in the current X11 VM.
