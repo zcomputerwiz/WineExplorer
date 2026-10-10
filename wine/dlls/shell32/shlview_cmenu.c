@@ -1867,6 +1867,10 @@ static HRESULT WINAPI BackgroundMenu_InvokeCommand(
         {
             do_paste(This, lpcmi->hwnd);
         }
+        else if (!strcmp(lpcmi->lpVerb, "pastelink"))
+        {
+            do_paste_shortcut(This);
+        }
         else
         {
             FIXME("please report: unknown verb %s\n", debugstr_a(lpcmi->lpVerb));

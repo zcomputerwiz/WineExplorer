@@ -171,6 +171,70 @@ static void new_folder(explorer_info *info)
     }
 }
 
+static int CALLBACK copy_to_callback(HWND hwnd, UINT msg, LPARAM lparam, LPARAM data)
+{
+    if (msg != BFFM_INITIALIZED) return 0;
+    SetWindowTextW(hwnd, data ? L"Move Items" : L"Copy Items");
+    SetDlgItemTextW(hwnd, IDOK, data ? L"Move" : L"Copy");
+    return 0;
+}
+
+/* Edit > Copy To Folder... / Move To Folder... of the selection */
+static void copy_to_folder(explorer_info *info, BOOL move)
+{
+    FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    WCHAR prompt[MAX_PATH + 128], name[MAX_PATH], dest[MAX_PATH + 1] = {0}, *files = NULL;
+    SHFILEOPSTRUCTW op = { info->main_window, move ? FO_MOVE : FO_COPY };
+    BROWSEINFOW bi = { info->main_window };
+    IShellView *view = current_view(info);
+    IDataObject *data = NULL;
+    STGMEDIUM medium;
+    UINT i, count, len, size = 1;
+    LPITEMIDLIST pidl;
+
+    if (!view) return;
+    IShellView_GetItemObject(view, SVGIO_SELECTION, &IID_IDataObject, (void **)&data);
+    IShellView_Release(view);
+    if (!data) return;
+    if (FAILED(IDataObject_GetData(data, &format, &medium))) { IDataObject_Release(data); return; }
+
+    /* the selection as a double-null-terminated list */
+    count = DragQueryFileW(medium.hGlobal, ~0u, NULL, 0);
+    for (i = 0; i < count; i++) size += DragQueryFileW(medium.hGlobal, i, NULL, 0) + 1;
+    if (count && (files = calloc(size, sizeof(WCHAR))))
+    {
+        for (i = 0, len = 0; i < count; i++) len += DragQueryFileW(medium.hGlobal, i, files + len, size - len) + 1;
+        lstrcpynW(name, PathFindFileNameW(files), ARRAY_SIZE(name));
+        if (count == 1) PathRemoveExtensionW(name);
+        if (count == 1)
+            swprintf(prompt, ARRAY_SIZE(prompt), L"Select the place where you want to %s '%s'. Then click the %s button.",
+                     move ? L"move" : L"copy", name, move ? L"Move" : L"Copy");
+        else
+            swprintf(prompt, ARRAY_SIZE(prompt), L"Select the place where you want to %s these %u items. Then click the %s button.",
+                     move ? L"move" : L"copy", count, move ? L"Move" : L"Copy");
+    }
+    ReleaseStgMedium(&medium);
+    IDataObject_Release(data);
+    if (!files) return;
+
+    bi.lpszTitle = prompt;
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    bi.lpfn = copy_to_callback;
+    bi.lParam = move;
+    if ((pidl = SHBrowseForFolderW(&bi)))
+    {
+        if (SHGetPathFromIDListW(pidl, dest))
+        {
+            op.pFrom = files;
+            op.pTo = dest;
+            op.fFlags = FOF_ALLOWUNDO;
+            SHFileOperationW(&op);
+        }
+        ILFree(pidl);
+    }
+    free(files);
+}
+
 /* ---- menu ---- */
 
 static HMENU g_favorites_menu;
@@ -190,9 +254,15 @@ HMENU browser_create_menu(void)
     AppendMenuW(file, MF_SEPARATOR, 0, NULL);
     AppendMenuW(file, MF_STRING, IDM_FILE_CLOSE, L"&Close");
 
+    AppendMenuW(edit, MF_STRING | MF_GRAYED, IDM_EDIT_UNDO, L"&Undo\tCtrl+Z");
+    AppendMenuW(edit, MF_SEPARATOR, 0, NULL);
     AppendMenuW(edit, MF_STRING, IDM_EDIT_CUT, L"Cu&t\tCtrl+X");
     AppendMenuW(edit, MF_STRING, IDM_EDIT_COPY, L"&Copy\tCtrl+C");
     AppendMenuW(edit, MF_STRING, IDM_EDIT_PASTE, L"&Paste\tCtrl+V");
+    AppendMenuW(edit, MF_STRING, IDM_EDIT_PASTELINK, L"Paste &Shortcut");
+    AppendMenuW(edit, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(edit, MF_STRING, IDM_EDIT_COPYTO, L"Cop&y To Folder...");
+    AppendMenuW(edit, MF_STRING, IDM_EDIT_MOVETO, L"Mo&ve To Folder...");
     AppendMenuW(edit, MF_SEPARATOR, 0, NULL);
     AppendMenuW(edit, MF_STRING, IDM_EDIT_SELECTALL, L"Select &All\tCtrl+A");
     AppendMenuW(edit, MF_STRING, IDM_EDIT_INVERT, L"&Invert Selection");
@@ -262,6 +332,8 @@ void browser_init_menu_popup(explorer_info *info, HMENU menu)
         for (i = IDM_FILE_DELETE; i <= IDM_FILE_PROPERTIES; i++) EnableMenuItem(menu, i, MF_BYCOMMAND | flag);
         EnableMenuItem(menu, IDM_EDIT_CUT, MF_BYCOMMAND | flag);
         EnableMenuItem(menu, IDM_EDIT_COPY, MF_BYCOMMAND | flag);
+        EnableMenuItem(menu, IDM_EDIT_COPYTO, MF_BYCOMMAND | flag);
+        EnableMenuItem(menu, IDM_EDIT_MOVETO, MF_BYCOMMAND | flag);
     }
 }
 
@@ -762,6 +834,9 @@ void browser_command(explorer_info *info, UINT id)
     case IDM_EDIT_CUT: invoke_verb(info, SVGIO_SELECTION, "cut"); break;
     case IDM_EDIT_COPY: invoke_verb(info, SVGIO_SELECTION, "copy"); break;
     case IDM_EDIT_PASTE: invoke_verb(info, SVGIO_BACKGROUND, "paste"); break;
+    case IDM_EDIT_PASTELINK: invoke_verb(info, SVGIO_BACKGROUND, "pastelink"); break;
+    case IDM_EDIT_COPYTO: copy_to_folder(info, FALSE); break;
+    case IDM_EDIT_MOVETO: copy_to_folder(info, TRUE); break;
     case IDM_EDIT_SELECTALL: select_all(info); break;
     case IDM_EDIT_INVERT: invert_selection(info); break;
     case IDM_VIEW_STANDARD:

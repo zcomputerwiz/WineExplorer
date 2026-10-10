@@ -252,7 +252,7 @@ static HRESULT SHELL32_CoCreateInitSF (LPCITEMIDLIST pidlRoot, LPCWSTR pathRoot,
  */
 /* A folder shortcut (as Windows makes for "My Network Places" entries and the like): a folder whose desktop.ini
  * names CLSID_FolderShortcut and whose target.lnk points to the folder it stands for. */
-static BOOL get_folder_shortcut_target(const WCHAR *folder, WCHAR *target)
+BOOL get_folder_shortcut_target(const WCHAR *folder, WCHAR *target)
 {
     WCHAR value[CHARS_IN_GUID], path[MAX_PATH];
     IPersistFile *file;

@@ -1672,10 +1672,42 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 * ShellView_OnChange()
 */
 
+/* The notifications are recursive: is the item directly in the folder of the view? Items of
+ * folders without a file system path are taken to be. */
+static BOOL item_in_view(IShellViewImpl *This, LPCITEMIDLIST pidl)
+{
+    WCHAR dir[MAX_PATH], path[MAX_PATH];
+    IPersistFolder2 *folder;
+    LPITEMIDLIST folder_pidl;
+    BOOL ret = FALSE;
+
+    if (!SHGetPathFromIDListW(pidl, path) || !PathRemoveFileSpecW(path)) return TRUE;
+    if (FAILED(IShellFolder_QueryInterface(This->pSFParent, &IID_IPersistFolder2, (void **)&folder))) return TRUE;
+    if (SUCCEEDED(IPersistFolder2_GetCurFolder(folder, &folder_pidl)))
+    {
+        ret = !SHGetPathFromIDListW(folder_pidl, dir) || !wcsicmp(dir, path);
+        ILFree(folder_pidl);
+    }
+    IPersistFolder2_Release(folder);
+    return ret;
+}
+
+/* a notification by path has a simple pidl without the file's size and dates: read the item again */
+static LPITEMIDLIST reparse_item(IShellViewImpl *This, LPCITEMIDLIST pidl)
+{
+    WCHAR name[MAX_PATH];
+    LPITEMIDLIST full;
+
+    if (_ILSimpleGetTextW(ILFindLastID(pidl), name, ARRAY_SIZE(name)) &&
+        SUCCEEDED(IShellFolder_ParseDisplayName(This->pSFParent, NULL, NULL, name, NULL, &full, NULL)))
+        return full;
+    return ILClone(ILFindLastID(pidl));
+}
+
 static LRESULT ShellView_OnChange(IShellViewImpl * This, const LPCITEMIDLIST *pidls, LONG event)
 {
-    LPCITEMIDLIST pidl;
-    BOOL ret = TRUE;
+    LPITEMIDLIST pidl;
+    BOOL ret = TRUE, old_in, new_in;
 
     TRACE("(%p)->(%p, %p, 0x%08lx)\n", This, pidls[0], pidls[1], event);
 
@@ -1683,30 +1715,34 @@ static LRESULT ShellView_OnChange(IShellViewImpl * This, const LPCITEMIDLIST *pi
     {
         case SHCNE_MKDIR:
         case SHCNE_CREATE:
-        {
-            /* a notification by path has a simple pidl without the file's size and dates: read the item again */
-            WCHAR name[MAX_PATH];
-            LPITEMIDLIST full;
-
-            if (LV_FindItemByPidl(This, ILFindLastID(pidls[0])) != -1) break;
-            if (_ILSimpleGetTextW(ILFindLastID(pidls[0]), name, ARRAY_SIZE(name)) &&
-                SUCCEEDED(IShellFolder_ParseDisplayName(This->pSFParent, NULL, NULL, name, NULL, &full, NULL)))
-                pidl = full;
-            else
-                pidl = ILClone(ILFindLastID(pidls[0]));
-            shellview_add_item(This, pidl);
+            if (!item_in_view(This, pidls[0]) || LV_FindItemByPidl(This, ILFindLastID(pidls[0])) != -1) break;
+            shellview_add_item(This, reparse_item(This, pidls[0]));
             break;
-        }
         case SHCNE_RMDIR:
         case SHCNE_DELETE:
         {
-            INT i = LV_FindItemByPidl(This, ILFindLastID(pidls[0]));
+            INT i;
+
+            if (!item_in_view(This, pidls[0])) break;
+            i = LV_FindItemByPidl(This, ILFindLastID(pidls[0]));
             ret = SendMessageW(This->hWndList, LVM_DELETEITEM, i, 0);
             break;
         }
         case SHCNE_RENAMEFOLDER:
         case SHCNE_RENAMEITEM:
-            LV_RenameItem(This, pidls[0], pidls[1]);
+            /* a move into or out of the folder shows as a rename */
+            old_in = item_in_view(This, pidls[0]);
+            new_in = item_in_view(This, pidls[1]);
+            if (old_in && new_in)
+            {
+                pidl = reparse_item(This, pidls[1]);
+                LV_RenameItem(This, pidls[0], pidl);
+                ILFree(pidl);
+            }
+            else if (old_in)
+                SendMessageW(This->hWndList, LVM_DELETEITEM, LV_FindItemByPidl(This, ILFindLastID(pidls[0])), 0);
+            else if (new_in && LV_FindItemByPidl(This, ILFindLastID(pidls[1])) == -1)
+                shellview_add_item(This, reparse_item(This, pidls[1]));
             break;
         case SHCNE_UPDATEITEM:
 	    break;

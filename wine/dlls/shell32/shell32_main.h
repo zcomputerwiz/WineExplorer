@@ -118,6 +118,7 @@ HRESULT WINAPI ApplicationDocumentLists_Constructor(IUnknown *outer, REFIID riid
 HRESULT WINAPI new_menu_create(IUnknown *outer, REFIID iid, void **out);
 
 /* openwith.c */
+BOOL get_folder_shortcut_target(const WCHAR *folder, WCHAR *target);
 struct open_with_menu;
 HRESULT open_with_choose(HWND parent, const WCHAR *file);
 struct open_with_menu *open_with_menu_add(HMENU hmenu, UINT pos, UINT first, const WCHAR *file);
