@@ -30,7 +30,7 @@ folder handler).
 | 6 | File extensions | Known extensions hidden (`HideFileExt=1`) | Shown | default in `wine.inf` |
 | 7 | Names (done: desktop.ini LocalizedResourceName on Documents, Pictures, Music, Videos) | "My Documents" from every entry point | Window titled "Documents" when opened from the desktop icon | desktop icon target / namespace |
 | 8 | Views | Thumbnails, Tiles, Icons, List, Details; My Documents and My Computer default to Tiles | Tiles not implemented in comctl32 (`LV_VIEW_TILE` FIXME); no Thumbnails | `comctl32/listview.c`, `shlview.c` |
-| 9 | My Computer | Groups (Files Stored on This Computer, Hard Disk Drives, Removable Storage); "Local Disk (C:)"; Control Panel only under Other Places | Flat list, "(C:)", Control Panel listed with the drives | `shfldr_mycomp.c`, list view groups |
+| 9 | My Computer (names, columns, Control Panel done; groups need comctl32) | Groups (Files Stored on This Computer, Hard Disk Drives, Removable Storage); "Local Disk (C:)"; Control Panel only under Other Places | Flat list, "(C:)", Control Panel listed with the drives | `shfldr_mycomp.c`, list view groups |
 | 10 | My Documents layout | Contains My Music, My Pictures and My Videos | Done: the folders stay in the profile (modern layout); Explorer puts folder shortcuts with the XP names and icons into My Documents | `shellfolders.c`, `shlfolder.c` |
 | 11 | Task pane | Folder tasks include Publish to the Web and Share this folder (grayed or hidden here) | Make a new folder only | `browser_taskpane.c` |
 | 12 | Undo | Undo of rename, move, copy and delete | None | `browser_ui.c` / shell32 |

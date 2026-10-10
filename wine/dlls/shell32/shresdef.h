@@ -153,6 +153,10 @@
 #define IDS_OPEN_WITH_PROGRAMS      193
 #define IDS_ALL_FILES               194
 #define IDS_DELETEMULTIPLE_CAPTION  195
+#define IDS_LOCAL_DISK              196
+#define IDS_CD_DRIVE                197
+#define IDS_REMOVABLE_DISK          198
+#define IDS_NETWORK_DRIVE           199
 
 /* Open With dialog */
 #define IDD_OPEN_WITH               10

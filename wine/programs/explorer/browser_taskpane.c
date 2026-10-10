@@ -198,10 +198,21 @@ static void rebuild(explorer_info *info)
     }
 
     add_group(L"Other Places", FALSE);
-    if (!computer) { l = add_line(L"My Computer", 0, CSIDL_DRIVES, 16); (void)l; }
-    add_line(L"My Documents", 0, CSIDL_PERSONAL, 235);
-    add_line(L"My Network Places", 0, CSIDL_NETWORK, 18);
-    add_line(L"Desktop", 0, CSIDL_DESKTOP, 35);
+    if (computer)
+    {
+        /* Windows XP: Control Panel is here rather than in the My Computer list */
+        add_line(L"My Network Places", 0, CSIDL_NETWORK, 18);
+        add_line(L"My Documents", 0, CSIDL_PERSONAL, 235);
+        add_line(L"Shared Documents", 0, CSIDL_COMMON_DOCUMENTS, 235);
+        add_line(L"Control Panel", 0, CSIDL_CONTROLS, 36);
+    }
+    else
+    {
+        add_line(L"My Computer", 0, CSIDL_DRIVES, 16);
+        add_line(L"My Documents", 0, CSIDL_PERSONAL, 235);
+        add_line(L"My Network Places", 0, CSIDL_NETWORK, 18);
+        add_line(L"Desktop", 0, CSIDL_DESKTOP, 35);
+    }
 
     add_group(L"Details", FALSE);
     if (selected == 1 && name[0])
