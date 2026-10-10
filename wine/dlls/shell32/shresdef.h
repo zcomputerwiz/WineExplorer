@@ -162,6 +162,11 @@
 #define IDS_UNDO_MOVE               232
 #define IDS_UNDO_COPY               233
 #define IDS_UNDO_DELETE             234
+#define IDS_DRIVES_SHAREDDOCS_GROUP 235
+#define IDS_DRIVES_FIXED_GROUP      236
+#define IDS_DRIVES_REMOVABLE_GROUP  237
+#define IDS_DRIVES_NETDRIVE_GROUP   238
+#define IDS_DRIVES_OTHER_GROUP      239
 
 /* Open With dialog */
 #define IDD_OPEN_WITH               10

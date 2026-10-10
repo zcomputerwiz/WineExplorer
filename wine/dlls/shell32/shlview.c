@@ -150,6 +150,7 @@ typedef struct
         UINT            tile_columns[2]; /* the type and size columns, the details of a tile */
         UINT            tile_column_count;
         HIMAGELIST      thumbnails;     /* the pictures of the Thumbnails view */
+        BOOL            drive_groups;   /* My Computer: its items in groups by the kind of drive */
         struct thumbnail *thumbnail_map; /* item -> picture */
         UINT            thumbnail_count;
 } IShellViewImpl;
@@ -844,6 +845,51 @@ static int LV_FindItemByPidl(
 	return -1;
 }
 
+/* Windows XP's groups of My Computer */
+static const UINT drive_group_ids[] = { IDS_DRIVES_SHAREDDOCS_GROUP, IDS_DRIVES_FIXED_GROUP, IDS_DRIVES_REMOVABLE_GROUP,
+                                        IDS_DRIVES_NETDRIVE_GROUP, IDS_DRIVES_OTHER_GROUP };
+
+static void create_drive_groups(IShellViewImpl *This)
+{
+    IPersist *persist;
+    CLSID clsid;
+    UINT i;
+
+    This->drive_groups = FALSE;
+    if (SUCCEEDED(IShellFolder_QueryInterface(This->pSFParent, &IID_IPersist, (void **)&persist)))
+    {
+        This->drive_groups = SUCCEEDED(IPersist_GetClassID(persist, &clsid)) && IsEqualCLSID(&clsid, &CLSID_MyComputer);
+        IPersist_Release(persist);
+    }
+    SendMessageW(This->hWndList, LVM_REMOVEALLGROUPS, 0, 0);
+    if (!This->drive_groups) return;
+    for (i = 0; i < ARRAY_SIZE(drive_group_ids); i++)
+    {
+        WCHAR header[64];
+        LVGROUP group = { sizeof(group), LVGF_HEADER | LVGF_GROUPID };
+
+        LoadStringW(shell32_hInstance, drive_group_ids[i], header, ARRAY_SIZE(header));
+        group.pszHeader = header;
+        group.iGroupId = drive_group_ids[i];
+        SendMessageW(This->hWndList, LVM_INSERTGROUP, -1, (LPARAM)&group);
+    }
+    SendMessageW(This->hWndList, LVM_ENABLEGROUPVIEW, TRUE, 0);
+}
+
+static UINT drive_group(LPCITEMIDLIST pidl)
+{
+    WCHAR root[MAX_PATH];
+
+    if (!_ILIsDrive(pidl) || !_ILSimpleGetTextW(pidl, root, ARRAY_SIZE(root))) return IDS_DRIVES_OTHER_GROUP;
+    switch (GetDriveTypeW(root))
+    {
+    case DRIVE_REMOVABLE:
+    case DRIVE_CDROM:  return IDS_DRIVES_REMOVABLE_GROUP;
+    case DRIVE_REMOTE: return IDS_DRIVES_NETDRIVE_GROUP;
+    default:           return IDS_DRIVES_FIXED_GROUP;
+    }
+}
+
 static void shellview_add_item(IShellViewImpl *shellview, LPCITEMIDLIST pidl)
 {
     LVITEMW item;
@@ -858,6 +904,8 @@ static void shellview_add_item(IShellViewImpl *shellview, LPCITEMIDLIST pidl)
     item.pszText = LPSTR_TEXTCALLBACKW;
     item.iImage = I_IMAGECALLBACK;
     item.iItem = SendMessageW(shellview->hWndList, LVM_INSERTITEMW, 0, (LPARAM)&item);
+    if (shellview->drive_groups)
+        SendMessageW(shellview->hWndList, LVM_MOVEITEMTOGROUP, item.iItem, drive_group(pidl));
     if (shellview->tile_column_count)
     {
         /* Windows XP shows the type and size of a file under its name, and nothing for a folder */
@@ -923,6 +971,7 @@ static HRESULT ShellView_FillList(IShellViewImpl *This)
 
     TRACE("(%p)\n", This);
     free_thumbnails(This);
+    create_drive_groups(This);
 
     /* get the itemlist from the shfolder*/
     hr = IShellFolder_EnumObjects(This->pSFParent, This->hWnd, SHCONTF_NONFOLDERS | SHCONTF_FOLDERS, &pEnumIDList);
