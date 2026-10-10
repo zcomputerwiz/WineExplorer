@@ -1018,7 +1018,9 @@ NTSTATUS wm_manage( void *args )
         pXConfigureWindow( display, window, CWBorderWidth, &changes );
         pXReparentWindow( display, window, params->parent, rc->left, rc->top );
         pXMoveResizeWindow( display, window, rc->left, rc->top, max( 1, rc->right - rc->left ), max( 1, rc->bottom - rc->top ) );
-        pXSelectInput( display, params->parent, FocusChangeMask );
+        /* Reparenting moves configure requests away from the root. Keep
+         * intercepting them on the host so clients cannot outgrow its frame. */
+        pXSelectInput( display, params->parent, FocusChangeMask | SubstructureRedirectMask );
         pXSync( display, False );
         if (x_error)
         {

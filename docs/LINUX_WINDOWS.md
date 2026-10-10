@@ -28,6 +28,7 @@ Mapping between X and Win32:
 |---|---|
 | MapRequest (normal, dialog, utility, splash) | Create the host, then `WexWmManage` (reparent, save set, `WM_STATE` Normal, `_NET_FRAME_EXTENTS`, synthetic ConfigureNotify). Docks, desktops, menus, tooltips and notifications are mapped unmanaged. |
 | `WM_TRANSIENT_FOR` | Owner window: no taskbar button, centered on the owner |
+| Automatic dialog placement / ConfigureRequest | Fit the full themed frame to the owner's monitor work area. Resizable dialogs shrink when their minimum size permits; oversized fixed-size dialogs retain their size with the caption on screen. Valid explicit positions remain unchanged. User dragging is unrestricted. |
 | `_MOTIF_WM_HINTS` without decorations (GTK/Steam client-side decorations) | `WS_POPUP` + `WS_EX_APPWINDOW` |
 | Click in foreign client / Win32 foreground change | Attach the foreground thread to Explorer's input queue while activating, then detach without rebuilding Explorer's queue. `WexWmFocus` and a foreground WinEvent hook synchronize X keyboard focus with the selected Win32 window. |
 | `WM_NORMAL_HINTS` | Min/max track size. A user position (`USPosition`) is kept; a program position only when it is not the origin. |
@@ -76,6 +77,8 @@ The submenu is sorted by localized display name and rebuilt on every opening. In
 The content stays intact when the frame repaints.
 
 Additional real-session checks under Luna: a Linux application launched from All Programs (NetworkManager connection editor) has no inherited `WINE*` variables; Linux client-area clicks after My Computer bring the host forward and deliver typed input to xterm; repeated switching and Alt+Tab work across both runtimes; maximizing a Linux host respects the work area and leaves the taskbar visible. The click path does not rely on cached native active-window metadata, and queued FocusIn events are validated against current X focus. Alt+Tab's completion runs after its keyboard hook returns.
+
+Dialog placement regression checks: build `scripts/linux-dialog-probe.c` with `cc -Wall -Wextra -o linux-dialog-probe linux-dialog-probe.c -lX11`, then run on a separate 800×600 Xvfb desktop with the 30-pixel taskbar. It checks a LibreOffice-sized save dialog, subsequent program move/resize requests, centering on an offscreen owner, valid explicit positioning, and oversized fixed-size dialogs. It also verifies that the foreign client fits inside its host, rather than merely clipping an oversized client with a smaller frame.
 
 VM note: with glamor (`modesetting` on VMSVGA), X drawing by non-Wine programs was broken: missing text and blank
 windows. Wine was unaffected because it draws through SHM images. `/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf`

@@ -24,6 +24,8 @@ Real-session testing found that clicking a Linux window's client area did not re
 
 ## Next work
 
+**Dialog placement follow-up:** LibreOffice Calc's Save window was reproduced at frame `(-162,-153)`, size `812×611` on an `800×600` desktop. Mapping and application ConfigureRequests now constrain dialogs to the monitor work area, shrinking resizable ones within their minimum-size constraints; fixed-size oversized dialogs keep their caption reachable. The WM selects SubstructureRedirect on each native host as well as the root, so client move/resize requests remain intercepted after reparenting. The isolated native regression probe passes eight cases, including client geometry and separate move/size requests. An actual LibreOffice Calc instance with a separate user profile also opens Save at `800×570` with all controls visible under the new code. Explorer and wexhost are built and installed, but this automatic-placement change takes effect on the **next desktop session**. The current LibreOffice dialog was repaired through Win32 `SetWindowPos` to frame `800×570`, client `792×536`, with Save/Cancel visible. LibreOffice and its document were kept open; the live session was not restarted for this change.
+
 1. Linux application menu icons/categories and pinned/MFU integration.
 2. Linux tray icons (StatusNotifierItem) and notifications; see [DBUS_PLAN.md](DBUS_PLAN.md).
 3. Exercise a real Steam/Proton application with its independent prefix. Native Linux/X11 window hosting is verified; no Proton application was launched in this continuation.

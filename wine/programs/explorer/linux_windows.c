@@ -276,6 +276,32 @@ static void manage( struct linux_window *lw )
     DestroyWindow( lw->host );
 }
 
+/* Applications may center a dialog using stale client geometry, or request a
+ * size larger than the desktop. Keep automatic placement inside the owner's
+ * monitor work area, including the themed frame and excluding the taskbar. */
+static void fit_dialog( const struct linux_window *lw, HWND owner, DWORD style, DWORD ex_style, RECT *rect )
+{
+    MONITORINFO monitor = { sizeof(monitor) };
+    RECT anchor = *rect, minimum = { 0, 0, lw->min_size.cx, lw->min_size.cy };
+    int width = rect->right - rect->left, height = rect->bottom - rect->top;
+
+    if (!owner && lw->window_type != WEX_WM_TYPE_DIALOG) return;
+    if (owner) GetWindowRect( owner, &anchor );
+    if (!GetMonitorInfoW( MonitorFromRect( &anchor, MONITOR_DEFAULTTONEAREST ), &monitor )) return;
+    AdjustWindowRectEx( &minimum, style, FALSE, ex_style );
+    if (style & WS_THICKFRAME)
+    {
+        width = min( width, max( minimum.right - minimum.left, monitor.rcWork.right - monitor.rcWork.left ) );
+        height = min( height, max( minimum.bottom - minimum.top, monitor.rcWork.bottom - monitor.rcWork.top ) );
+    }
+    /* If the minimum size exceeds the work area, preserve it and keep the
+     * caption reachable rather than centering part of it above the screen. */
+    rect->left = max( monitor.rcWork.left, min( rect->left, monitor.rcWork.right - width ) );
+    rect->top = max( monitor.rcWork.top, min( rect->top, monitor.rcWork.bottom - height ) );
+    rect->right = rect->left + width;
+    rect->bottom = rect->top + height;
+}
+
 static void map_window( const WEX_WM_EVENT *event )
 {
     struct linux_window *lw, *owner = event->owner ? find_window( event->owner ) : NULL;
@@ -325,6 +351,16 @@ static void map_window( const WEX_WM_EVENT *event )
         y = (work.top + work.bottom - height) / 2;
     }
 
+    if (x != CW_USEDEFAULT)
+    {
+        SetRect( &rect, x, y, x + width, y + height );
+        fit_dialog( lw, owner ? owner->host : NULL, style, ex_style, &rect );
+        x = rect.left;
+        y = rect.top;
+        width = rect.right - rect.left;
+        height = rect.bottom - rect.top;
+    }
+
     list_add_tail( &windows, &lw->entry );
     if (!CreateWindowExW( ex_style, host_class, L"", style, x, y, width, height, owner ? owner->host : NULL, 0,
                           GetModuleHandleW( NULL ), lw ))
@@ -350,14 +386,27 @@ static void map_window( const WEX_WM_EVENT *event )
 static void configure_window( struct linux_window *lw, const WEX_WM_EVENT *event )
 {
     RECT rect = event->rect, window;
+    DWORD style = GetWindowLongW( lw->host, GWL_STYLE ), ex_style = GetWindowLongW( lw->host, GWL_EXSTYLE );
     UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
 
     if (!lw->managed || lw->fullscreen || IsZoomed( lw->host ) || IsIconic( lw->host )) return;
     GetWindowRect( lw->host, &window );
-    AdjustWindowRectEx( &rect, GetWindowLongW( lw->host, GWL_STYLE ), FALSE, GetWindowLongW( lw->host, GWL_EXSTYLE ) );
+    AdjustWindowRectEx( &rect, style, FALSE, ex_style );
+    OffsetRect( &rect, event->rect.left - rect.left, event->rect.top - rect.top );
+    if (!(event->flags & WEX_WM_MOVE))
+        OffsetRect( &rect, window.left - rect.left, window.top - rect.top );
+    if (!(event->flags & WEX_WM_SIZE))
+    {
+        rect.right = rect.left + window.right - window.left;
+        rect.bottom = rect.top + window.bottom - window.top;
+    }
+    fit_dialog( lw, GetWindow( lw->host, GW_OWNER ), style, ex_style, &rect );
     if (!(event->flags & WEX_WM_MOVE)) flags |= SWP_NOMOVE;
     if (!(event->flags & WEX_WM_SIZE)) flags |= SWP_NOSIZE;
-    SetWindowPos( lw->host, NULL, event->rect.left, event->rect.top, rect.right - rect.left, rect.bottom - rect.top, flags );
+    if (rect.left != window.left || rect.top != window.top) flags &= ~SWP_NOMOVE;
+    if (rect.right - rect.left != window.right - window.left || rect.bottom - rect.top != window.bottom - window.top)
+        flags &= ~SWP_NOSIZE;
+    SetWindowPos( lw->host, NULL, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, flags );
 }
 
 static void drag_to( POINT pt )
