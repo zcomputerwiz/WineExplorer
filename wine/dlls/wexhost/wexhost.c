@@ -417,6 +417,11 @@ DWORD WINAPI WexWmClose( UINT64 window )
     return wm_window_call( unix_wm_close, window, NULL, NULL, 0 );
 }
 
+DWORD WINAPI WexWmFocus( UINT64 window )
+{
+    return wm_window_call( unix_wm_focus, window, NULL, NULL, 0 );
+}
+
 DWORD WINAPI WexWmRelease( UINT64 window, const RECT *screen )
 {
     return wm_window_call( unix_wm_release, window, NULL, screen, 0 );

@@ -10,11 +10,17 @@ Claude left an untracked `wine/dlls/wexhost/apps.c`. It is now integrated into t
 
 - **WineExplorer-VM**, SSH `2222`, user `wineuser`, key `D:/VirtualBox_VMs/vm_key`.
 - Guest source `~/src/wine`, build `~/build/wine64`, installed `/usr/local`; source is copied, not a guest Git checkout.
-- Visible desktop: GDM → Xorg `:0` → installed Wine Explorer `/desktop=Default,800x600 /shell`, prefix `~/.wine`. Xauthority `/run/user/1000/gdm/Xauthority`. The current Luna/Bliss session has My Computer and xterm open; preserve it during tests.
+- Visible desktop: GDM → Xorg `:0` → installed Wine Explorer `/desktop=Default,800x600 /shell`, prefix `~/.wine`. Xauthority `/run/user/1000/gdm/Xauthority`. The current Luna/Bliss session has My Computer and xterm open. The user authorized using and restarting this real session for verification.
 - Gamescope is not installed. There is no compositor pass-through service. `wexhost` supplies system D-Bus APIs and XRandR display control. The session script now starts directly on X11, matching Claude's WM design; Gamescope remains optional per application. A future service/compositor bridge needs separate design and validation.
 - Targeted build: `make -j8 dlls/wexhost/all programs/explorer/all` (directory names alone do not build them).
 - Launcher verification used Xvfb `:6` and `~/launcher-check/prefix`, not the visible desktop. `scripts/linux-apps-probe.c` provides enumeration and launch checks. Verified visibility filtering, oversized metadata serialization, Unicode/ampersands, clean launch environment, missing-ID errors, dynamic install/remove changes, and both menu styles. Screenshots/logs are under guest `~/launcher-check`; host screenshots under ignored `build/launcher-*.png`.
-- Changes are built and installed for the next desktop session. The visible session has not been restarted; it continues using the previously loaded code.
+- Changes are built, installed and running in the visible session. The user authorized real-session testing; GDM was restarted to load the new PE/Unix libraries. My Computer and xterm were restored. Verified the themed menu and a native NetworkManager editor launch, clean launch environment, repeated client-area click activation with typed input, cross-runtime Alt+Tab, and a maximized Linux window respecting the work area with the taskbar visible. Temporary focus tracing was removed.
+
+## Native focus follow-up
+
+Real-session testing found that clicking a Linux window's client area did not reliably activate it after a separate Wine process had focus, even though its title bar worked. The bridge now joins the input queues in the direction that preserves Explorer's queue when detaching; Wine recreates the first thread's input queue on detach and otherwise loses its active window and input time. Every foreign client click requests activation, rather than trusting cached `_NET_ACTIVE_WINDOW` state. FocusIn forwarding checks the current X focus so queued old events do not reclaim it.
+
+`WexWmFocus` synchronizes the session's X keyboard focus with selected Win32 windows, forwarding to the foreign child for native hosts. A foreground WinEvent hook keeps both focus and native focused-state properties current. Alt+Tab completes outside the low-level hook and preserves the shell input queue. Repeat tests checked actual X keyboard focus and typed commands, not just which window appeared on top. No additional stock X11-driver changes were retained from the investigation.
 
 ## Next work
 

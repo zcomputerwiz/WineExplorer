@@ -789,12 +789,21 @@ static void handle_event( XEvent *event )
         /* Wine focused the host's X window: the keyboard belongs to the program inside */
         if (event->xfocus.detail != NotifyInferior && event->xfocus.detail != NotifyPointer &&
             (client = find_client_by_parent( event->xfocus.window )))
-            focus_client( client );
+        {
+            Window focus;
+            int revert;
+            /* A queued FocusIn may outlive a switch to another Win32 process.
+             * Also leave focus on GTK child widgets instead of moving it back. */
+            pXGetInputFocus( display, &focus, &revert );
+            if (focus == client->parent) focus_client( client );
+        }
         break;
     case ButtonPress:
         TRACE( "button %u on %lx, active %lx\n", event->xbutton.button, event->xbutton.window, active_window );
         pXAllowEvents( display, ReplayPointer, CurrentTime );
-        if ((client = find_client( event->xbutton.window )) && client->window != active_window)
+        /* Win32 focus can change in another process before its deactivation
+         * reaches us. A cached active_window is not enough to suppress a click. */
+        if ((client = find_client( event->xbutton.window )))
             push_simple( WEX_WM_ACTIVATE, client->window, 0 );
         break;
     case MotionNotify:
@@ -1086,6 +1095,7 @@ NTSTATUS wm_set_state( void *args )
         set_wm_state( client->window, (states & WEX_WM_STATE_MINIMIZED) ? IconicState : NormalState );
         if (states & WEX_WM_STATE_FOCUSED)
         {
+            focus_client( client );
             active_window = client->window;
             pXChangeProperty( display, root, atoms[NET_ACTIVE_WINDOW], XA_WINDOW, 32, PropModeReplace,
                               (unsigned char *)&active_window, 1 );
@@ -1097,6 +1107,24 @@ NTSTATUS wm_set_state( void *args )
                               (unsigned char *)&active_window, 1 );
         }
     }
+    end_call();
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS wm_focus( void *args )
+{
+    struct wm_window_params *params = args;
+    struct client *client;
+    XWindowAttributes attrs;
+
+    if (!begin_call( &params->err )) return STATUS_SUCCESS;
+    params->err = ERROR_SUCCESS;
+    client = find_client( params->window );
+    if (!client) client = find_client_by_parent( params->window );
+    if (!pXGetWindowAttributes( display, params->window, &attrs ) || attrs.map_state != IsViewable)
+        params->err = ERROR_INVALID_WINDOW_HANDLE;
+    else if (client) focus_client( client );
+    else pXSetInputFocus( display, params->window, RevertToParent, CurrentTime );
     end_call();
     return STATUS_SUCCESS;
 }
@@ -1256,6 +1284,7 @@ STUB( wm_release, struct wm_window_params )
 STUB( wm_get_title, struct wm_get_title_params )
 STUB( wm_get_icon, struct wm_get_icon_params )
 STUB( wm_stop, struct wm_stop_params )
+STUB( wm_focus, struct wm_window_params )
 
 NTSTATUS wm_next_event( void *args )
 {

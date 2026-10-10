@@ -71,6 +71,8 @@ struct linux_window
 
 static struct list windows = LIST_INIT( windows );
 static HWND events_hwnd;
+static HWINEVENTHOOK foreground_hook;
+#define WM_LINUX_FOREGROUND (WM_APP + 91)
 
 /* a program moving or sizing its window from its own title bar (WEX_WM_MOVERESIZE) */
 static struct
@@ -385,6 +387,24 @@ static void drag_to( POINT pt )
                   SWP_NOZORDER | SWP_NOACTIVATE );
 }
 
+static void activate_host( HWND host )
+{
+    DWORD foreground_thread = GetWindowThreadProcessId( GetForegroundWindow(), NULL );
+    DWORD self = GetCurrentThreadId();
+    HWND target = GetLastActivePopup( host );
+    BOOL attached;
+
+    /* The click occurred in a foreign X client, so Wine did not give our thread
+     * the last input event. Join the current foreground queue while switching,
+     * just as Alt+Tab does when a different Wine process owns the keyboard. */
+    /* Preserve the shell's queue on detach; Wine rebuilds the first thread's
+     * queue and would otherwise drop our active host and last-input time. */
+    attached = foreground_thread && foreground_thread != self && AttachThreadInput( foreground_thread, self, TRUE );
+    if (IsIconic( host )) ShowWindow( host, SW_RESTORE );
+    SetForegroundWindow( target );
+    if (attached) AttachThreadInput( foreground_thread, self, FALSE );
+}
+
 static void handle_event( const WEX_WM_EVENT *event )
 {
     POINT pt = { event->rect.left, event->rect.top };
@@ -437,8 +457,10 @@ static void handle_event( const WEX_WM_EVENT *event )
         send_states( lw, GetForegroundWindow() == lw->host );
         break;
     case WEX_WM_ACTIVATE:
-        if (IsIconic( lw->host )) ShowWindow( lw->host, SW_RESTORE );
-        SetForegroundWindow( lw->host );
+        activate_host( lw->host );
+        /* A click can restore X focus without changing the Win32 foreground,
+         * in which case Wine sends no new WM_ACTIVATE to the host. */
+        send_states( lw, GetForegroundWindow() == lw->host );
         break;
     case WEX_WM_MINIMIZE:
         ShowWindow( lw->host, SW_MINIMIZE );
@@ -499,7 +521,7 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         if (lw && lw->managed) send_states( lw, GetForegroundWindow() == hwnd );
         break;
     case WM_ACTIVATE:
-        if (lw && lw->managed) send_states( lw, LOWORD(wp) != WA_INACTIVE );
+        if (lw && lw->managed) send_states( lw, LOWORD(wp) != WA_INACTIVE && GetForegroundWindow() == hwnd );
         break;
     case WM_CLOSE:
         /* the program decides: it closes the window (and we hear about it) or asks to save first */
@@ -553,12 +575,28 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
 
 static LRESULT CALLBACK events_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
 {
+    if (msg == WM_LINUX_FOREGROUND)
+    {
+        struct linux_window *lw;
+        HWND foreground = (HWND)wp;
+        if (!foreground || foreground != GetForegroundWindow()) return 0;
+        LIST_FOR_EACH_ENTRY( lw, &windows, struct linux_window, entry )
+            if (lw->managed) send_states( lw, lw->host == foreground );
+        WexWmFocus( (ULONG_PTR)GetPropW( foreground, whole_window_prop ) );
+        return 0;
+    }
     if (msg == WM_LINUX_EVENT)
     {
         handle_event( (const WEX_WM_EVENT *)lp );
         return 0;
     }
     return DefWindowProcW( hwnd, msg, wp, lp );
+}
+
+static void CALLBACK foreground_changed( HWINEVENTHOOK hook, DWORD event, HWND hwnd,
+                                        LONG object, LONG child, DWORD thread, DWORD time )
+{
+    if (events_hwnd) PostMessageW( events_hwnd, WM_LINUX_FOREGROUND, (WPARAM)hwnd, 0 );
 }
 
 /* on wexhost's thread: the hosts belong to the desktop thread */
@@ -593,6 +631,8 @@ void linux_windows_start(void)
         DestroyWindow( events_hwnd );
         events_hwnd = NULL;
     }
+    else foreground_hook = SetWinEventHook( EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, NULL,
+                                           foreground_changed, 0, 0, WINEVENT_OUTOFCONTEXT );
 }
 
 void linux_windows_stop(void)
@@ -600,6 +640,8 @@ void linux_windows_stop(void)
     struct linux_window *lw, *next;
 
     if (!events_hwnd) return;
+    if (foreground_hook) UnhookWinEvent( foreground_hook );
+    foreground_hook = NULL;
     WexWmStop();
     LIST_FOR_EACH_ENTRY_SAFE( lw, next, &windows, struct linux_window, entry )
     {

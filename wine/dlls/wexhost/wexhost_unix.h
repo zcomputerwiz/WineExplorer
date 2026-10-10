@@ -97,6 +97,7 @@ extern NTSTATUS wm_release(void *args);
 extern NTSTATUS wm_get_title(void *args);
 extern NTSTATUS wm_get_icon(void *args);
 extern NTSTATUS wm_stop(void *args);
+extern NTSTATUS wm_focus(void *args);
 
 enum wexhost_funcs
 {
@@ -133,6 +134,7 @@ enum wexhost_funcs
     unix_wm_get_title,
     unix_wm_get_icon,
     unix_wm_stop,
+    unix_wm_focus,
     unix_apps_list,
     unix_apps_launch,
     unix_funcs_count

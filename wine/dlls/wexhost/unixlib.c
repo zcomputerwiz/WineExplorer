@@ -1335,6 +1335,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     wm_get_title,
     wm_get_icon,
     wm_stop,
+    wm_focus,
     apps_list,
     apps_launch,
 };

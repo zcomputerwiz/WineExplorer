@@ -232,6 +232,8 @@ DWORD WINAPI WexWmGetTitle( UINT64 window, WCHAR *title, DWORD count );
 DWORD WINAPI WexWmGetIcon( UINT64 window, DWORD size, DWORD *pixels, DWORD max, DWORD *width, DWORD *height );
 /* Release every window to the root window and stop managing the display. */
 void  WINAPI WexWmStop( void );
+/* Synchronize X keyboard focus after switching a Win32 foreground window. */
+DWORD WINAPI WexWmFocus( UINT64 window );
 
 /* Visible freedesktop applications. UTF-8 rows: desktop ID, name, description,
  * categories, PNG path, separated by tabs and terminated by newline; final NUL.

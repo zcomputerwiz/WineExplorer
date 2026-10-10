@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include "alttab.h"
+#include <wexhost.h>
 #include "shellres.h"
 #include "taskband.h"
 
@@ -198,6 +199,10 @@ static void paint( HWND hwnd )
 
 #define VK_MASK     0xe8          /* unassigned virtual key */
 #define WM_MASK_ALT (WM_APP + 1)
+#define WM_SWITCH_TO (WM_APP + 2)
+static BOOL closing;
+
+static void switch_to( HWND hwnd );
 
 /* The program saw Alt go down but never sees the Tab we take: when Alt goes up DefWindowProc would enter its menu
  * bar (and keep the activation).  A key of no meaning in between tells it Alt was part of a combination.  Sent
@@ -221,6 +226,13 @@ static LRESULT CALLBACK switch_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     case WM_MASK_ALT:
         mask_alt();
         return 0;
+    case WM_SWITCH_TO:
+        ShowWindow( hwnd, SW_HIDE );
+        free_list();
+        selected = 0;
+        closing = FALSE;
+        if (IsWindow( (HWND)lp )) switch_to( (HWND)lp );
+        return 0;
     }
     return DefWindowProcW( hwnd, msg, wp, lp );
 }
@@ -230,23 +242,29 @@ static LRESULT CALLBACK switch_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
 static void switch_to( HWND hwnd )
 {
     DWORD thread = GetWindowThreadProcessId( GetForegroundWindow(), NULL ), self = GetCurrentThreadId();
-    BOOL attached;
+    BOOL attached, activated;
 
     if (!hwnd) return;
-    attached = thread && thread != self && AttachThreadInput( self, thread, TRUE );
+    /* Keep the shell's queue when detaching: Wine creates a fresh queue for
+     * the first argument, dropping its active window and input timestamp. */
+    attached = thread && thread != self && AttachThreadInput( thread, self, TRUE );
     if (IsIconic( hwnd )) ShowWindow( hwnd, SW_RESTORE );
-    SetForegroundWindow( GetLastActivePopup( hwnd ));
-    if (attached) AttachThreadInput( self, thread, FALSE );
+    hwnd = GetLastActivePopup( hwnd );
+    activated = SetForegroundWindow( hwnd );
+    if (attached) AttachThreadInput( thread, self, FALSE );
+    /* The session WM owns X keyboard focus across Wine and foreign clients. */
+    if (activated || GetForegroundWindow() == hwnd)
+        WexWmFocus( (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" ) );
 }
 
 static void complete( BOOL do_switch )
 {
     HWND target = do_switch && selected < count ? windows[selected] : NULL;
 
-    ShowWindow( switch_hwnd, SW_HIDE );
-    free_list();
-    selected = 0;
-    switch_to( target );
+    /* Cross-thread activation must run after the low-level keyboard hook has
+     * returned, so the target's input thread can process the activation. */
+    closing = TRUE;
+    PostMessageW( switch_hwnd, WM_SWITCH_TO, 0, (LPARAM)target );
 }
 
 static void open_switcher( BOOL backwards )
@@ -298,8 +316,10 @@ static void move_row( int step )
 
 BOOL alttab_key( DWORD vk, BOOL down )
 {
-    BOOL is_open = switch_hwnd && IsWindowVisible( switch_hwnd );
+    BOOL is_open = switch_hwnd && IsWindowVisible( switch_hwnd ) && !closing;
     BOOL shift = GetAsyncKeyState( VK_SHIFT ) < 0;
+
+    if (closing) return vk == VK_TAB;
 
     if (vk == VK_TAB && down && GetAsyncKeyState( VK_MENU ) < 0)
     {
@@ -310,7 +330,8 @@ BOOL alttab_key( DWORD vk, BOOL down )
     if (!is_open) return FALSE;
     if (!down)
     {
-        /* releasing Alt switches; the release itself goes on to the window that becomes active */
+        /* The mask key prevents the old window entering its menu while the
+         * switch is queued. Let Alt up through to release its keyboard state. */
         if (vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU) complete( TRUE );
         return vk == VK_TAB;
     }

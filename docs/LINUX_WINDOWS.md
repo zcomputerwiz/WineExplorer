@@ -29,6 +29,7 @@ Mapping between X and Win32:
 | MapRequest (normal, dialog, utility, splash) | Create the host, then `WexWmManage` (reparent, save set, `WM_STATE` Normal, `_NET_FRAME_EXTENTS`, synthetic ConfigureNotify). Docks, desktops, menus, tooltips and notifications are mapped unmanaged. |
 | `WM_TRANSIENT_FOR` | Owner window: no taskbar button, centered on the owner |
 | `_MOTIF_WM_HINTS` without decorations (GTK/Steam client-side decorations) | `WS_POPUP` + `WS_EX_APPWINDOW` |
+| Click in foreign client / Win32 foreground change | Attach the foreground thread to Explorer's input queue while activating, then detach without rebuilding Explorer's queue. `WexWmFocus` and a foreground WinEvent hook synchronize X keyboard focus with the selected Win32 window. |
 | `WM_NORMAL_HINTS` | Min/max track size. A user position (`USPosition`) is kept; a program position only when it is not the origin. |
 | ConfigureRequest | `SetWindowPos` on the host; the answer is always a synthetic ConfigureNotify |
 | `_NET_WM_STATE` (fullscreen, maximized, hidden, above), `WM_CHANGE_STATE` | Topmost borderless monitor rectangle, `SW_MAXIMIZE`, `SW_MINIMIZE`, `HWND_TOPMOST`. The host's state is written back, with `_NET_WM_STATE_FOCUSED` and `WM_STATE` Iconic/Normal. |
@@ -73,6 +74,8 @@ Application bridge checks use a separate Xvfb display and fresh prefix, leaving 
 The submenu is sorted by localized display name and rebuilt on every opening. Install/remove changes were checked without restarting Explorer. IDs remain separate from Windows shortcut paths; names containing ampersands are displayed literally. Missing GIO hides the submenu, and launch errors are reported. Current limits: 512 displayed entries, names up to 511 UTF-16 units, desktop IDs below 512 UTF-8 bytes; flat listing with no per-application menu icons or category hierarchy yet. The bridge returns category and PNG metadata for a later presentation pass.
 
 The content stays intact when the frame repaints.
+
+Additional real-session checks under Luna: a Linux application launched from All Programs (NetworkManager connection editor) has no inherited `WINE*` variables; Linux client-area clicks after My Computer bring the host forward and deliver typed input to xterm; repeated switching and Alt+Tab work across both runtimes; maximizing a Linux host respects the work area and leaves the taskbar visible. The click path does not rely on cached native active-window metadata, and queued FocusIn events are validated against current X focus. Alt+Tab's completion runs after its keyboard hook returns.
 
 VM note: with glamor (`modesetting` on VMSVGA), X drawing by non-Wine programs was broken: missing text and blank
 windows. Wine was unaffected because it draws through SHM images. `/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf`
