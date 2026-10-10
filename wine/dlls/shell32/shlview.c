@@ -642,6 +642,15 @@ static int LV_FindItemByPidl(
 	    return lvItem.iItem;
 	  }
   	}
+	/* a notification's simple pidl of an item that is gone does not compare equal: look for its name */
+	{
+	  WCHAR name[MAX_PATH], current[MAX_PATH];
+
+	  if (!_ILSimpleGetTextW(ILFindLastID(pidl), name, ARRAY_SIZE(name))) return -1;
+	  for (lvItem.iItem = 0; SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM)&lvItem); lvItem.iItem++)
+	    if (_ILSimpleGetTextW((LPCITEMIDLIST)lvItem.lParam, current, ARRAY_SIZE(current)) && !wcsicmp(name, current))
+	      return lvItem.iItem;
+	}
 	return -1;
 }
 
@@ -653,18 +662,17 @@ static void shellview_add_item(IShellViewImpl *shellview, LPCITEMIDLIST pidl)
     TRACE("(%p)(pidl=%p)\n", shellview, pidl);
 
     item.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
-    item.iItem = 0;
+    item.iItem = INT_MAX;   /* at the end, as Windows shows a new item until the folder is refreshed */
     item.iSubItem = 0;
     item.lParam = (LPARAM)pidl;
     item.pszText = LPSTR_TEXTCALLBACKW;
     item.iImage = I_IMAGECALLBACK;
-    SendMessageW(shellview->hWndList, LVM_INSERTITEMW, 0, (LPARAM)&item);
+    item.iItem = SendMessageW(shellview->hWndList, LVM_INSERTITEMW, 0, (LPARAM)&item);
 
     for (i = 1; i < shellview->columns; i++)
     {
         item.mask = LVIF_TEXT;
-        item.iItem = 0;
-        item.iSubItem = 1;
+        item.iSubItem = i;
         item.pszText = LPSTR_TEXTCALLBACKW;
         SendMessageW(shellview->hWndList, LVM_SETITEMW, 0, (LPARAM)&item);
     }
@@ -688,8 +696,11 @@ static BOOLEAN LV_RenameItem(IShellViewImpl * This, LPCITEMIDLIST pidlOld, LPCIT
 	  SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM) &lvItem);
 
 	  SHFree((LPITEMIDLIST)lvItem.lParam);
-	  lvItem.mask = LVIF_PARAM;
+	  /* the name comes from the new pidl again (an edited label is kept as fixed text) */
+	  lvItem.mask = LVIF_PARAM | LVIF_TEXT;
 	  lvItem.iItem = nItem;
+	  lvItem.iSubItem = 0;
+	  lvItem.pszText = LPSTR_TEXTCALLBACKW;
 	  lvItem.lParam = (LPARAM) ILClone(ILFindLastID(pidlNew));	/* set the item's data */
 	  SendMessageW(This->hWndList, LVM_SETITEMW, 0, (LPARAM) &lvItem);
 	  SendMessageW(This->hWndList, LVM_UPDATE, nItem, 0);
@@ -1670,6 +1681,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 	      case 'C':
 	      case 'X':
 	      case 'V':
+	      case 'Z':
 		if (GetKeyState(VK_CONTROL) >= 0 || GetKeyState(VK_MENU) < 0) break;
 		if (plvKeyDown->wVKey == 'A')
 		{
@@ -1678,6 +1690,8 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 		}
 		else if (plvKeyDown->wVKey == 'V')
 		  invoke_view_verb(This, SVGIO_BACKGROUND, "paste");
+		else if (plvKeyDown->wVKey == 'Z')
+		  invoke_view_verb(This, SVGIO_BACKGROUND, "undo");
 		else if (SendMessageW(This->hWndList, LVM_GETSELECTEDCOUNT, 0, 0))
 		  invoke_view_verb(This, SVGIO_SELECTION, plvKeyDown->wVKey == 'C' ? "copy" : "cut");
 		break;

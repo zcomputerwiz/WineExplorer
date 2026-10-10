@@ -413,6 +413,30 @@ HMENU browser_create_menu(void)
 
 static void fill_favorites(explorer_info *info, HMENU menu);
 
+/* Edit > Undo names what it undoes, as the folder's background menu does ("Undo Rename") */
+static void update_undo_item(explorer_info *info, HMENU menu)
+{
+    static const UINT undo_id = 1 + FCIDM_SHVIEW_UNDO - 0x7000;   /* the menu's first id is 1 */
+    IShellView *view = current_view(info);
+    HMENU temp = CreatePopupMenu();
+    IContextMenu *background;
+    WCHAR text[64] = L"&Undo\tCtrl+Z";
+    BOOL found = FALSE;
+
+    if (view)
+    {
+        if (SUCCEEDED(IShellView_GetItemObject(view, SVGIO_BACKGROUND, &IID_IContextMenu, (void **)&background)))
+        {
+            IContextMenu_QueryContextMenu(background, temp, 0, 1, 0x7fff, CMF_NORMAL);
+            found = GetMenuStringW(temp, undo_id, text, ARRAY_SIZE(text), MF_BYCOMMAND) > 0;
+            IContextMenu_Release(background);
+        }
+        IShellView_Release(view);
+    }
+    DestroyMenu(temp);
+    ModifyMenuW(menu, IDM_EDIT_UNDO, MF_BYCOMMAND | MF_STRING | (found ? MF_ENABLED : MF_GRAYED), IDM_EDIT_UNDO, text);
+}
+
 /* Fill the Favorites menu from the user's Favorites folder when it opens, tick and grey the other menus' items */
 void browser_init_menu_popup(explorer_info *info, HMENU menu)
 {
@@ -423,6 +447,7 @@ void browser_init_menu_popup(explorer_info *info, HMENU menu)
 
     if (menu == g_favorites_menu) { fill_favorites(info, menu); return; }
     if (GetMenuState(menu, IDM_FILE_CLOSE, MF_BYCOMMAND) != (UINT)-1) fill_file_menu(info, menu);
+    if (GetMenuState(menu, IDM_EDIT_UNDO, MF_BYCOMMAND) != (UINT)-1) update_undo_item(info, menu);
 
     if (GetMenuState(menu, IDM_VIEW_STANDARD, MF_BYCOMMAND) != (UINT)-1)
     {
@@ -944,6 +969,7 @@ void browser_command(explorer_info *info, UINT id)
     case IDM_EDIT_COPY: invoke_verb(info, SVGIO_SELECTION, "copy"); break;
     case IDM_EDIT_PASTE: invoke_verb(info, SVGIO_BACKGROUND, "paste"); break;
     case IDM_EDIT_PASTELINK: invoke_verb(info, SVGIO_BACKGROUND, "pastelink"); break;
+    case IDM_EDIT_UNDO: invoke_verb(info, SVGIO_BACKGROUND, "undo"); break;
     case IDM_EDIT_COPYTO: copy_to_folder(info, FALSE); break;
     case IDM_EDIT_MOVETO: copy_to_folder(info, TRUE); break;
     case IDM_EDIT_SELECTALL: select_all(info); break;

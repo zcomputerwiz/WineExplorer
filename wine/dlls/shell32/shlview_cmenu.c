@@ -1777,6 +1777,17 @@ static HRESULT WINAPI BackgroundMenu_QueryContextMenu(
         EnableMenuItem(hMenu, idCmdFirst + FCIDM_SHVIEW_INSERT - FCIDM_BASE, MF_BYCOMMAND | paste);
         EnableMenuItem(hMenu, idCmdFirst + FCIDM_SHVIEW_INSERTLINK - FCIDM_BASE, MF_BYCOMMAND | paste);
 
+        /* Windows XP: "Undo Rename" and the like after Paste Shortcut while there is something to undo */
+        if (undo_top() != UNDO_NONE)
+        {
+            WCHAR text[64];
+
+            for (pos = 0; pos < GetMenuItemCount(hMenu); pos++)
+                if (GetMenuItemID(hMenu, pos) == idCmdFirst + FCIDM_SHVIEW_INSERTLINK - FCIDM_BASE) break;
+            undo_menu_text(text, ARRAY_SIZE(text));
+            InsertMenuW(hMenu, pos + 1, MF_BYPOSITION | MF_STRING, idCmdFirst + FCIDM_SHVIEW_UNDO - FCIDM_BASE, text);
+        }
+
         /* New, above the separator before Properties */
         if (!This->new_menu && SUCCEEDED(get_parent_pidl(This, &pidl)))
         {
@@ -1871,6 +1882,10 @@ static HRESULT WINAPI BackgroundMenu_InvokeCommand(
         {
             do_paste_shortcut(This);
         }
+        else if (!strcmp(lpcmi->lpVerb, "undo"))
+        {
+            undo_run(lpcmi->hwnd);
+        }
         else
         {
             FIXME("please report: unknown verb %s\n", debugstr_a(lpcmi->lpVerb));
@@ -1903,6 +1918,10 @@ static HRESULT WINAPI BackgroundMenu_InvokeCommand(
         {
             case FCIDM_SHVIEW_INSERTLINK:
                 do_paste_shortcut(This);
+                break;
+
+            case FCIDM_SHVIEW_UNDO:
+                undo_run(lpcmi->hwnd);
                 break;
 
 	    case FCIDM_SHVIEW_REFRESH:

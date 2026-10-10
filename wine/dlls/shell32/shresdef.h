@@ -157,6 +157,11 @@
 #define IDS_CD_DRIVE                197
 #define IDS_REMOVABLE_DISK          198
 #define IDS_NETWORK_DRIVE           199
+#define IDS_UNDO                    230
+#define IDS_UNDO_RENAME             231
+#define IDS_UNDO_MOVE               232
+#define IDS_UNDO_COPY               233
+#define IDS_UNDO_DELETE             234
 
 /* Open With dialog */
 #define IDD_OPEN_WITH               10

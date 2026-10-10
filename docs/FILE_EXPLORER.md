@@ -26,14 +26,14 @@ folder handler).
 | 2 | New ▸ | Folder, Shortcut, then the `ShellNew` types (Text Document, Bitmap and so on) | Not shown; `new_menu.c` exists but the view does not use it | `shlview.c` / `new_menu.c` |
 | 3 | Paste into the same folder | Creates "Copy of X", then "Copy (2) of X" | Does nothing: `SHFileOperation` refuses to copy a file onto itself | `shlfileop.c` |
 | 4 | Item menu (Send To, Open With done) | Open, Edit, Print, Open With ▸, Send To ▸, Cut, Copy, Create Shortcut, Delete, Rename, Properties | Done except Edit (verb of the file type) | `shlview_cmenu.c`, `shell32.rc` |
-| 5 | File and Edit menus (done except Undo, grayed) | Undo, Cut, Copy, Paste, Paste Shortcut, Copy To Folder…, Move To Folder…, Select All, Invert Selection | Done: the File menu is the item menu of the selection with the folder's New ▸ (as XP); Edit has Paste Shortcut, Copy To Folder…, Move To Folder… (Copy Items / Move Items dialogs) | `browser_ui.c` |
+| 5 | File and Edit menus (done) | Undo, Cut, Copy, Paste, Paste Shortcut, Copy To Folder…, Move To Folder…, Select All, Invert Selection | Done: the File menu is the item menu of the selection with the folder's New ▸ (as XP); Edit has Paste Shortcut, Copy To Folder…, Move To Folder… (Copy Items / Move Items dialogs) | `browser_ui.c` |
 | 6 | File extensions | Known extensions hidden (`HideFileExt=1`) | Shown | default in `wine.inf` |
 | 7 | Names (done: desktop.ini LocalizedResourceName on Documents, Pictures, Music, Videos) | "My Documents" from every entry point | Window titled "Documents" when opened from the desktop icon | desktop icon target / namespace |
 | 8 | Views | Thumbnails, Tiles, Icons, List, Details; My Documents and My Computer default to Tiles | Tiles not implemented in comctl32 (`LV_VIEW_TILE` FIXME); no Thumbnails | `comctl32/listview.c`, `shlview.c` |
 | 9 | My Computer (names, columns, Control Panel done; groups need comctl32) | Groups (Files Stored on This Computer, Hard Disk Drives, Removable Storage); "Local Disk (C:)"; Control Panel only under Other Places | Flat list, "(C:)", Control Panel listed with the drives | `shfldr_mycomp.c`, list view groups |
 | 10 | My Documents layout | Contains My Music, My Pictures and My Videos | Done: the folders stay in the profile (modern layout); Explorer puts folder shortcuts with the XP names and icons into My Documents | `shellfolders.c`, `shlfolder.c` |
 | 11 | Task pane (done) | Folder tasks include Publish to the Web and Share this folder (grayed or hidden here) | Make a new folder only | `browser_taskpane.c` |
-| 12 | Undo | Undo of rename, move, copy and delete | None | `browser_ui.c` / shell32 |
+| 12 | Undo (done) | Undo of rename, move, copy and delete | None | `browser_ui.c` / shell32 |
 | 13 | Taskbar grouping (done) | "2 Windows Explorer" when crowded | One button per window | `taskband.c` |
 | 14 | Toolbar (Go done) | The Go button has its green arrow | Text only | `browser_ui.c` |
 

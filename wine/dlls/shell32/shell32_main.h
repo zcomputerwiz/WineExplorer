@@ -119,6 +119,16 @@ HRESULT WINAPI new_menu_create(IUnknown *outer, REFIID iid, void **out);
 
 /* openwith.c */
 BOOL get_folder_shortcut_target(const WCHAR *folder, WCHAR *target);
+
+/* undo.c: Edit > Undo of the shell's file operations */
+enum undo_kind { UNDO_NONE, UNDO_RENAME, UNDO_MOVE, UNDO_COPY, UNDO_DELETE };
+void undo_begin(enum undo_kind kind);
+void undo_add(const WCHAR *from, const WCHAR *to);
+void undo_end(void);
+enum undo_kind undo_top(void);
+void undo_menu_text(WCHAR *text, UINT size);
+BOOL undo_run(HWND hwnd);
+BOOL restore_trashed_file(const WCHAR *path);
 struct open_with_menu;
 HRESULT open_with_choose(HWND parent, const WCHAR *file);
 struct open_with_menu *open_with_menu_add(HMENU hmenu, UINT pos, UINT first, const WCHAR *file);
