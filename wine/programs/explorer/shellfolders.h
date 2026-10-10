@@ -49,4 +49,8 @@ int shellfolder_desktop_items(int *csidls, int max);
 BOOL shellfolder_on_desktop(int csidl);
 void shellfolder_set_on_desktop(int csidl, BOOL show);
 
+/* My Pictures, My Music and My Videos in My Documents as on Windows XP: folder shortcuts to the profile's folders,
+ * created when missing */
+void shellfolder_link_media_folders(void);
+
 #endif

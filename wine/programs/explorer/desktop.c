@@ -34,6 +34,7 @@
 #include "wine/debug.h"
 #include "explorer_private.h"
 #include "resource.h"
+#include "shellfolders.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -1414,6 +1415,7 @@ void manage_desktop( WCHAR *arg )
             desktop_view_create( hwnd, width, height );
             uac_agent_start();
             linux_windows_start();
+            shellfolder_link_media_folders();
         }
         else if (!using_root && enable_launchers) initialize_launchers( hwnd );
         initialize_systray( using_root, enable_shell, show_systray, no_tray_items );

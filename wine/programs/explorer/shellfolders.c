@@ -192,3 +192,63 @@ int shellfolder_desktop_items(int *csidls, int max)
         if (shellfolder_on_desktop(order[i])) csidls[n++] = order[i];
     return n;
 }
+
+/* A folder shortcut, as Windows makes them: a read-only folder whose desktop.ini names CLSID_FolderShortcut and
+ * whose target.lnk points to the folder.  Opening it shows the target; deleting it deletes only the shortcut. */
+static void create_folder_shortcut(const WCHAR *dir, const WCHAR *target, int icon)
+{
+    WCHAR ini[MAX_PATH], path[MAX_PATH], index[16];
+    IPersistFile *file;
+    IShellLinkW *link;
+
+    if (!CreateDirectoryW(dir, NULL)) return;
+
+    swprintf(path, ARRAY_SIZE(path), L"%s\\target.lnk", dir);
+    if (SUCCEEDED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&link)))
+    {
+        IShellLinkW_SetPath(link, target);
+        if (SUCCEEDED(IShellLinkW_QueryInterface(link, &IID_IPersistFile, (void **)&file)))
+        {
+            IPersistFile_Save(file, path, TRUE);
+            IPersistFile_Release(file);
+        }
+        IShellLinkW_Release(link);
+    }
+
+    swprintf(ini, ARRAY_SIZE(ini), L"%s\\desktop.ini", dir);
+    swprintf(index, ARRAY_SIZE(index), L"%d", -icon);
+    WritePrivateProfileStringW(L".ShellClassInfo", L"CLSID2", L"{0AFACED1-E828-11D1-9187-B532F1E9575D}", ini);
+    WritePrivateProfileStringW(L".ShellClassInfo", L"Flags", L"2", ini);
+    WritePrivateProfileStringW(L".ShellClassInfo", L"IconFile", L"%SystemRoot%\\system32\\shell32.dll", ini);
+    WritePrivateProfileStringW(L".ShellClassInfo", L"IconIndex", index, ini);
+    SetFileAttributesW(ini, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
+    SetFileAttributesW(path, FILE_ATTRIBUTE_HIDDEN);
+    SetFileAttributesW(dir, FILE_ATTRIBUTE_READONLY);
+}
+
+void shellfolder_link_media_folders(void)
+{
+    /* the names and shell32 icons of Windows XP */
+    static const struct { int csidl; const WCHAR *name; int icon; } media[] =
+    {
+        { CSIDL_MYPICTURES, L"My Pictures", 236 },
+        { CSIDL_MYMUSIC,    L"My Music",    237 },
+        { CSIDL_MYVIDEO,    L"My Videos",   238 },
+    };
+    WCHAR docs[MAX_PATH], target[MAX_PATH], dir[MAX_PATH];
+    unsigned int i;
+    size_t len;
+
+    if (FAILED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, docs))) return;
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    len = wcslen(docs);
+    for (i = 0; i < ARRAY_SIZE(media); i++)
+    {
+        if (FAILED(SHGetFolderPathW(NULL, media[i].csidl, NULL, SHGFP_TYPE_CURRENT, target))) continue;
+        /* already in My Documents (the Windows XP layout): nothing to link */
+        if (!wcsnicmp(target, docs, len) && target[len] == '\\') continue;
+        swprintf(dir, ARRAY_SIZE(dir), L"%s\\%s", docs, media[i].name);
+        if (GetFileAttributesW(dir) == INVALID_FILE_ATTRIBUTES) create_folder_shortcut(dir, target, media[i].icon);
+    }
+    CoUninitialize();
+}
