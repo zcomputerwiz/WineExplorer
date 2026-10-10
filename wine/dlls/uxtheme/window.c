@@ -92,6 +92,77 @@ void WINAPI UXTHEME_NonClientButtonDraw(HWND hwnd, HDC hdc, enum NONCLIENT_BUTTO
 
 /* ---- themed window frame (caption, borders and caption buttons) ---- */
 
+static const WCHAR theme_region_owned[] = L"__wine_theme_frame_region";
+static const WCHAR theme_region_updating[] = L"__wine_theme_frame_region_updating";
+static const WCHAR app_region_defined[] = L"__wine_app_frame_region";
+
+INT WINAPI UXTHEME_SetWindowRgn(HWND hwnd, HRGN region, BOOL redraw)
+{
+    HANDLE owned = GetPropW(hwnd, theme_region_owned), defined = GetPropW(hwnd, app_region_defined);
+    INT ret;
+
+    /* Explicit application shapes take precedence over the themed frame. */
+    RemovePropW(hwnd, theme_region_owned);
+    if (region) SetPropW(hwnd, app_region_defined, (HANDLE)1);
+    else RemovePropW(hwnd, app_region_defined);
+    ret = user_api.pSetWindowRgn(hwnd, region, redraw);
+    if (!ret)
+    {
+        if (owned) SetPropW(hwnd, theme_region_owned, owned);
+        if (defined) SetPropW(hwnd, app_region_defined, defined);
+        else RemovePropW(hwnd, app_region_defined);
+    }
+    return ret;
+}
+
+static void nc_update_region(HWND hwnd, HTHEME theme, int part, int state, int width, int height, int caption_height)
+{
+    HRGN region = NULL, current, body;
+    RECT caption = {0, 0, width, caption_height};
+    BOOL owned = !!GetPropW(hwnd, theme_region_owned);
+
+    if (GetPropW(hwnd, theme_region_updating) || GetPropW(hwnd, app_region_defined)) return;
+    if (!theme)
+    {
+        if (!owned) return;
+        SetPropW(hwnd, theme_region_updating, (HANDLE)1);
+        RemovePropW(hwnd, theme_region_owned);
+        user_api.pSetWindowRgn(hwnd, NULL, FALSE);
+        RemovePropW(hwnd, theme_region_updating);
+        return;
+    }
+    current = CreateRectRgn(0, 0, 0, 0);
+    if (GetWindowRgn(hwnd, current) != ERROR && !owned)
+    {
+        /* A region installed before uxtheme loaded also belongs to the app. */
+        SetPropW(hwnd, app_region_defined, (HANDLE)1);
+        DeleteObject(current);
+        return;
+    }
+    if (FAILED(GetThemeBackgroundRegion(theme, NULL, part, state, &caption, &region)) || !region)
+    {
+        DeleteObject(current);
+        return;
+    }
+    body = CreateRectRgn(0, caption_height, width, height);
+    CombineRgn(region, region, body, RGN_OR);
+    DeleteObject(body);
+    if (EqualRgn(current, region)) DeleteObject(region);
+    else
+    {
+        /* SetWindowRgn can synchronously repaint the non-client area. */
+        SetPropW(hwnd, theme_region_updating, (HANDLE)1);
+        SetPropW(hwnd, theme_region_owned, (HANDLE)1);
+        if (!user_api.pSetWindowRgn(hwnd, region, FALSE))
+        {
+            RemovePropW(hwnd, theme_region_owned);
+            DeleteObject(region);
+        }
+        RemovePropW(hwnd, theme_region_updating);
+    }
+    DeleteObject(current);
+}
+
 struct nc_button
 {
     int part, state;
@@ -164,7 +235,11 @@ BOOL WINAPI UXTHEME_NonClientFrameDraw(HWND hwnd, HDC hdc, RECT rect, DWORD styl
     RECT r;
     SIZE size;
 
-    if (!IsThemeActive()) return FALSE;
+    if (!IsThemeActive())
+    {
+        nc_update_region(hwnd, NULL, 0, 0, w, h, top_h);
+        return FALSE;
+    }
     theme = OpenThemeDataForDpi(NULL, L"Window", GetDpiForWindow(hwnd));
     if (!theme) return FALSE;
 
@@ -178,6 +253,8 @@ BOOL WINAPI UXTHEME_NonClientFrameDraw(HWND hwnd, HDC hdc, RECT rect, DWORD styl
         cap_part = (style & WS_MAXIMIZE) ? WP_MAXCAPTION : WP_CAPTION;
         left_part = WP_FRAMELEFT; right_part = WP_FRAMERIGHT; bottom_part = WP_FRAMEBOTTOM;
     }
+
+    if (!target) nc_update_region(hwnd, theme, cap_part, state, w, h, top_h);
 
     /* caption buttons, right to left */
     btn_sz = 21;

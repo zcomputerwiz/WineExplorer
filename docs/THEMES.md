@@ -31,6 +31,13 @@ The shell (`shellres.c`) loads `xpres_<module>.dll` from the active theme's fold
 - `Luna\Shell\<scheme>\shellstyle.dll` (Start panel pictures) still comes from the XP export.
 - Cursors, sounds and wallpaper are applied from the `.theme` file but not yet packaged.
 
+## Rounded frames and Start menu icons
+
+The non-client renderer derives the caption shape from `GetThemeBackgroundRegion`, combines it with the rectangular body, and applies it as a window region. This exposes the desktop at Luna's transparent corners rather than filling those pixels with the button-face color. Regions update on resize/maximize/restore and clear when visual styles are disabled. Explicit application regions take precedence; clearing an application region allows the theme shape again. A recursion guard protects non-client repainting during region updates.
+
+The XP Start panel uses the theme's user-pane region instead of a fixed-radius approximation. Start menu flyout and Classic icons use `HBMMENU_CALLBACK` to draw the original icon with its transparency over the normal/highlighted background, avoiding Wine's legacy `NOTSRCCOPY` treatment of ordinary menu bitmaps. Icon and bitmap resources are released when their menus close.
+
+
 ## Packages (built from the source tree)
 
 | Package | Theme files | Contents |

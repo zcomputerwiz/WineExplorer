@@ -177,7 +177,12 @@ static HICON load_app_icon(const WCHAR *exe_name, int fallback_shell_idx, int si
 }
 
 #define MAX_MENU_BITMAPS 512
-static HBITMAP g_menu_bitmaps[MAX_MENU_BITMAPS];
+static struct
+{
+    HBITMAP bitmap;
+    HICON icon;
+    int x, y, size;
+} g_menu_bitmaps[MAX_MENU_BITMAPS];
 static UINT g_menu_bitmap_count = 0;
 
 static void free_menu_bitmaps(void)
@@ -185,10 +190,68 @@ static void free_menu_bitmaps(void)
     UINT i;
     for (i = 0; i < g_menu_bitmap_count; i++)
     {
-        if (g_menu_bitmaps[i])
-            DeleteObject(g_menu_bitmaps[i]);
+        DeleteObject(g_menu_bitmaps[i].bitmap);
+        if (g_menu_bitmaps[i].icon) DestroyIcon(g_menu_bitmaps[i].icon);
     }
     g_menu_bitmap_count = 0;
+}
+
+static HBITMAP retain_menu_icon(HBITMAP bitmap, HICON icon, int x, int y, int size)
+{
+    if (!bitmap || g_menu_bitmap_count == MAX_MENU_BITMAPS)
+    {
+        if (bitmap) DeleteObject(bitmap);
+        if (icon) DestroyIcon(icon);
+        return NULL;
+    }
+    g_menu_bitmaps[g_menu_bitmap_count].bitmap = bitmap;
+    g_menu_bitmaps[g_menu_bitmap_count].icon = icon;
+    g_menu_bitmaps[g_menu_bitmap_count].x = x;
+    g_menu_bitmaps[g_menu_bitmap_count].y = y;
+    g_menu_bitmaps[g_menu_bitmap_count++].size = size;
+    return bitmap;
+}
+
+/* A normal menu bitmap uses Wine's legacy NOTSRCCOPY highlight. Draw just the
+ * icon through the menu bitmap callback, preserving its mask/alpha and colors
+ * over the menu's normal or highlighted background. */
+BOOL startmenu_view_menu_icon(UINT msg, LPARAM lp)
+{
+    ULONG_PTR data;
+    UINT i;
+    BITMAP bitmap;
+
+    if (msg == WM_MEASUREITEM)
+    {
+        MEASUREITEMSTRUCT *measure = (MEASUREITEMSTRUCT *)lp;
+        if (measure->CtlType != ODT_MENU) return FALSE;
+        data = measure->itemData;
+    }
+    else if (msg == WM_DRAWITEM)
+    {
+        DRAWITEMSTRUCT *draw = (DRAWITEMSTRUCT *)lp;
+        if (draw->CtlType != ODT_MENU) return FALSE;
+        data = draw->itemData;
+    }
+    else return FALSE;
+    for (i = 0; i < g_menu_bitmap_count; i++)
+        if ((ULONG_PTR)g_menu_bitmaps[i].bitmap == data) break;
+    if (i == g_menu_bitmap_count || !GetObjectW(g_menu_bitmaps[i].bitmap, sizeof(bitmap), &bitmap)) return FALSE;
+    if (msg == WM_MEASUREITEM)
+    {
+        MEASUREITEMSTRUCT *measure = (MEASUREITEMSTRUCT *)lp;
+        measure->itemWidth = bitmap.bmWidth;
+        measure->itemHeight = bitmap.bmHeight;
+    }
+    else
+    {
+        DRAWITEMSTRUCT *draw = (DRAWITEMSTRUCT *)lp;
+        int top = draw->rcItem.top + (draw->rcItem.bottom - draw->rcItem.top - bitmap.bmHeight) / 2;
+        if (g_menu_bitmaps[i].icon)
+            DrawIconEx(draw->hDC, draw->rcItem.left + g_menu_bitmaps[i].x, top + g_menu_bitmaps[i].y,
+                       g_menu_bitmaps[i].icon, g_menu_bitmaps[i].size, g_menu_bitmaps[i].size, 0, NULL, DI_NORMAL);
+    }
+    return TRUE;
 }
 
 static HBITMAP icon_to_menu_bitmap(HICON hIcon, int size)
@@ -218,8 +281,7 @@ static HBITMAP icon_to_menu_bitmap(HICON hIcon, int size)
     SelectObject(hdc, old_bm);
     DeleteDC(hdc);
     ReleaseDC(NULL, screen_dc);
-    DestroyIcon(hIcon);
-    return hbm;
+    return retain_menu_icon(hbm, hIcon, 0, (rc.bottom - size) / 2, size);
 }
 
 /* an icon on a canvas of the menu color, with room around it (the classic Start menu has 32 pixel icons and a gap) */
@@ -243,12 +305,11 @@ static HBITMAP get_padded_icon_bitmap_app(const WCHAR *app, int id, int size, in
     if (icon)
     {
         DrawIconEx(dc, left, 0, icon, size, size, 0, NULL, DI_NORMAL);
-        DestroyIcon(icon);
     }
     SelectObject(dc, old);
     DeleteDC(dc);
     ReleaseDC(NULL, screen);
-    return bmp;
+    return retain_menu_icon(bmp, icon, left, 0, size);
 }
 
 static HBITMAP get_shell32_icon_bitmap(int index, int size)
@@ -335,10 +396,9 @@ static void append_menu_item_icon(HMENU hMenu, UINT uFlags, UINT_PTR uIDNewItem,
 
     if (hbm)
     {
-        mii.fMask |= MIIM_BITMAP;
-        mii.hbmpItem = hbm;
-        if (g_menu_bitmap_count < MAX_MENU_BITMAPS)
-            g_menu_bitmaps[g_menu_bitmap_count++] = hbm;
+        mii.fMask |= MIIM_BITMAP | MIIM_DATA;
+        mii.hbmpItem = HBMMENU_CALLBACK;
+        mii.dwItemData = (ULONG_PTR)hbm;
     }
 
     InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
@@ -1961,6 +2021,7 @@ static void panel_tip_create(HWND hwnd)
 /* Two-column Start panel window procedure */
 static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
+    if (startmenu_view_menu_icon(msg, lparam)) return TRUE;
     switch (msg)
     {
     case WM_PAINT:
@@ -2191,11 +2252,18 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
         }
 
         {
-            HRGN rgn_top = CreateRoundRectRgn(0, 0, width + 1, 40, 12, 12);
-            HRGN rgn_body = CreateRectRgn(0, 12, width, height);
-            CombineRgn(rgn_body, rgn_body, rgn_top, RGN_OR);
-            SetWindowRgn(g_startmenu_wnd, rgn_body, TRUE);
-            DeleteObject(rgn_top);
+            HTHEME theme = theme_open(NULL, L"StartPanel");
+            HRGN top = NULL, body;
+            if (theme) GetThemeBackgroundRegion(theme, NULL, SPP_USERPANE, 0, &g_zone[ZONE_USER], &top);
+            if (top)
+            {
+                body = CreateRectRgn(0, g_zone[ZONE_USER].bottom, width, height);
+                CombineRgn(body, body, top, RGN_OR);
+                SetWindowRgn(g_startmenu_wnd, body, TRUE);
+                DeleteObject(top);
+            }
+            else SetWindowRgn(g_startmenu_wnd, NULL, TRUE);
+            if (theme) CloseThemeData(theme);
         }
 
         SetWindowPos(g_startmenu_wnd, HWND_TOPMOST, x, y, width, height, SWP_SHOWWINDOW);

@@ -4882,6 +4882,7 @@ struct user_api_hook
                                   const struct SCROLL_TRACKING_INFO *, BOOL, BOOL, RECT *, UINT,
                                   INT, INT, INT, BOOL);
     LRESULT (WINAPI *pScrollBarWndProc)(HWND, UINT, WPARAM, LPARAM, BOOL);
+    INT (WINAPI *pSetWindowRgn)(HWND, HRGN, BOOL);
 };
 
 WINUSERAPI BOOL WINAPI RegisterUserApiHook(const struct user_api_hook *new_hook, struct user_api_hook *old_hook);

@@ -61,6 +61,7 @@ void startmenu_run(UINT cmd, HWND tray);
 void startmenu_toggle(void);   /* Ctrl+Esc and the Windows key */
 BOOL startmenu_view_is_open(void);
 void startmenu_on_enter_menu_loop(void);
+BOOL startmenu_view_menu_icon(UINT msg, LPARAM lp);
 
 /* Start Button API */
 HWND startbutton_create(HWND parent_tray, int x, int y, int width, int height);

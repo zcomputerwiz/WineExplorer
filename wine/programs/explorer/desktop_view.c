@@ -215,6 +215,10 @@ void desktop_view_refresh(void)
     WCHAR common_desktop[MAX_PATH];
     THEME_CONFIG *theme = theme_get_current();
 
+    /* Theme notifications can arrive on a plain Wine desktop before the shell
+     * view exists. Its grid dimensions are not initialized until creation. */
+    if (!g_desktop_view.hwnd || !g_desktop_view.grid_cy) return;
+
     user_desktop[0] = 0;
     free_all_items();
     g_rb_full = -1;

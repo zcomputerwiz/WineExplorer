@@ -1880,12 +1880,14 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         return 0;
 
     case WM_DRAWITEM:
+        if (startmenu_view_menu_icon(msg, lparam)) return TRUE;
         if (((MEASUREITEMSTRUCT*)lparam)->CtlType == ODT_MENU)
             return menu_wndproc(hwnd, msg, wparam, lparam);
         paint_taskbar_button( (const DRAWITEMSTRUCT *)lparam );
         break;
 
     case WM_MEASUREITEM:
+        if (startmenu_view_menu_icon(msg, lparam)) return TRUE;
         if (((MEASUREITEMSTRUCT*)lparam)->CtlType == ODT_MENU)
             return menu_wndproc(hwnd, msg, wparam, lparam);
         break;
