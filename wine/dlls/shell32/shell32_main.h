@@ -119,6 +119,7 @@ HRESULT WINAPI new_menu_create(IUnknown *outer, REFIID iid, void **out);
 
 /* openwith.c */
 BOOL get_folder_shortcut_target(const WCHAR *folder, WCHAR *target);
+HRESULT create_shortcut(const WCHAR *target, const WCHAR *dir);   /* "Shortcut to target.lnk" in dir */
 
 /* undo.c: Edit > Undo of the shell's file operations */
 enum undo_kind { UNDO_NONE, UNDO_RENAME, UNDO_MOVE, UNDO_COPY, UNDO_DELETE };

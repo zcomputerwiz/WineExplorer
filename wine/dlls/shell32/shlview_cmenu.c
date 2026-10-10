@@ -508,7 +508,7 @@ static HRESULT get_parent_pidl(ContextMenu *This, ITEMIDLIST **pidl)
 }
 
 /* "Shortcut to name.lnk" in dir, then "Shortcut (2) to name.lnk" ..., as Windows Explorer names them */
-static HRESULT create_shortcut(const WCHAR *target, const WCHAR *dir)
+HRESULT create_shortcut(const WCHAR *target, const WCHAR *dir)
 {
     WCHAR base[MAX_PATH], format[64], name[MAX_PATH], path[MAX_PATH];
     IPersistFile *file;
