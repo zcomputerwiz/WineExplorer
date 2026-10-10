@@ -45,7 +45,7 @@ BEGIN
 	  POPUP "&View",                0x1f0
 	  BEGIN
 	    MENUITEM "Thumb&nails",	0x190, MFT_STRING, MFS_GRAYED
-	    MENUITEM "Tile&s",		0x191, MFT_STRING, MFS_GRAYED
+	    MENUITEM "Tile&s",		0x191
 	    MENUITEM "Ico&ns",		0x29
 	    MENUITEM "&List",		0x2b
 	    MENUITEM "&Details",	0x2c

@@ -54,6 +54,8 @@
 #include "winuser.h"
 #include "shlobj.h"
 #include "shobjidl.h"
+#include "commoncontrols.h"
+#include "stgprop.h"
 #include "shresdef.h"
 #include "wine/debug.h"
 
@@ -144,6 +146,8 @@ typedef struct
         UINT            cScrollDelay;   /* Send a WM_*SCROLL msg every 250 ms during drag-scroll */
         POINT           ptLastMousePos; /* Mouse position at last DragOver call */
         UINT            columns;        /* Number of shell folder columns */
+        UINT            tile_columns[2]; /* the type and size columns, the details of a tile */
+        UINT            tile_column_count;
 } IShellViewImpl;
 
 static inline IShellViewImpl *impl_from_IShellView3(IShellView3 *iface)
@@ -323,6 +327,42 @@ static void SetStyle(IShellViewImpl * This, DWORD dwAdd, DWORD dwRemove)
 	SetWindowLongW(This->hWndList, GWL_STYLE, dwAdd | (tmpstyle & ~dwRemove));
 }
 
+static DWORD ViewModeToListStyle(UINT ViewMode);
+
+#define FCIDM_SHVIEW_TILE 0x7191   /* "Tiles" of the View menu, MENU_002 */
+
+/* Switch the list to a view mode.  Tiles have the 48 pixel icons (SHIL_EXTRALARGE) and show the type and size
+ * of each item under its name, as on Windows XP. */
+static void shellview_set_view(IShellViewImpl *This, UINT mode)
+{
+    HIMAGELIST big_icons, small_icons;
+    IImageList *tile_icons = NULL;
+    DWORD view;
+
+    Shell_GetImageLists(&big_icons, &small_icons);
+    if (mode == FVM_TILE && FAILED(SHGetImageList(SHIL_EXTRALARGE, &IID_IImageList, (void **)&tile_icons)))
+        tile_icons = NULL;
+    SendMessageW(This->hWndList, LVM_SETIMAGELIST, LVSIL_NORMAL, (LPARAM)(tile_icons ? (HIMAGELIST)tile_icons : big_icons));
+    if (tile_icons) IImageList_Release(tile_icons);   /* the system image list stays */
+
+    SetStyle(This, ViewModeToListStyle(mode), LVS_TYPEMASK);
+    switch (mode)
+    {
+    case FVM_TILE:      view = LV_VIEW_TILE; break;
+    case FVM_DETAILS:   view = LV_VIEW_DETAILS; break;
+    case FVM_LIST:      view = LV_VIEW_LIST; break;
+    case FVM_SMALLICON: view = LV_VIEW_SMALLICON; break;
+    default:            view = LV_VIEW_ICON; break;
+    }
+    if (SendMessageW(This->hWndList, LVM_SETVIEW, view, 0) == -1 && mode == FVM_TILE)
+    {
+        mode = FVM_ICON;   /* no tiles in this comctl32 */
+        SendMessageW(This->hWndList, LVM_SETIMAGELIST, LVSIL_NORMAL, (LPARAM)big_icons);
+        SendMessageW(This->hWndList, LVM_SETVIEW, LV_VIEW_ICON, 0);
+    }
+    This->FolderSettings.ViewMode = mode;
+}
+
 static DWORD ViewModeToListStyle(UINT ViewMode)
 {
 	DWORD dwStyle;
@@ -335,6 +375,8 @@ static DWORD ViewModeToListStyle(UINT ViewMode)
 	  case FVM_DETAILS:	dwStyle = LVS_REPORT;		break;
 	  case FVM_SMALLICON:	dwStyle = LVS_SMALLICON;	break;
 	  case FVM_LIST:	dwStyle = LVS_LIST;		break;
+	  case FVM_TILE:	dwStyle = LVS_ICON;		break;   /* LVM_SETVIEW makes it tiles */
+	  case FVM_THUMBNAIL:	dwStyle = LVS_ICON;		break;
 	  default:
 	  {
 		FIXME("ViewMode %d not implemented\n", ViewMode);
@@ -395,7 +437,7 @@ static BOOL ShellView_CreateList (IShellViewImpl * This)
 	TRACE("%p\n",This);
 
 	dwStyle = WS_TABSTOP | WS_VISIBLE | WS_CHILDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN |
-		  LVS_SHAREIMAGELISTS | LVS_EDITLABELS | LVS_ALIGNLEFT | LVS_AUTOARRANGE | LVS_SHOWSELALWAYS;
+		  LVS_SHAREIMAGELISTS | LVS_EDITLABELS | LVS_AUTOARRANGE | LVS_SHOWSELALWAYS;
         dwExStyle = WS_EX_CLIENTEDGE;
 
         dwStyle |= ViewModeToListStyle(This->FolderSettings.ViewMode);
@@ -495,6 +537,24 @@ static void ShellView_InitList(IShellViewImpl *This)
         else
             hr = IShellDetails_GetDetailsOf(details, NULL, This->columns, &sd);
         if (FAILED(hr)) break;
+
+        if (This->pSF2Parent && This->tile_column_count < ARRAY_SIZE(This->tile_columns))
+        {
+            SHCOLUMNID scid;
+
+            if (SUCCEEDED(IShellFolder2_MapColumnToSCID(This->pSF2Parent, This->columns, &scid)) &&
+                IsEqualGUID(&scid.fmtid, &FMTID_Storage) && (scid.pid == PID_STG_STORAGETYPE || scid.pid == PID_STG_SIZE))
+            {
+                /* the type above the size */
+                if (scid.pid == PID_STG_STORAGETYPE && This->tile_column_count)
+                {
+                    This->tile_columns[1] = This->tile_columns[0];
+                    This->tile_columns[0] = This->columns;
+                    This->tile_column_count++;
+                }
+                else This->tile_columns[This->tile_column_count++] = This->columns;
+            }
+        }
 
         lvColumn.fmt = sd.fmt;
         lvColumn.cx = MulDiv(sd.cxChar, tm.tmAveCharWidth * 3, 2); /* chars->pixel */
@@ -668,6 +728,13 @@ static void shellview_add_item(IShellViewImpl *shellview, LPCITEMIDLIST pidl)
     item.pszText = LPSTR_TEXTCALLBACKW;
     item.iImage = I_IMAGECALLBACK;
     item.iItem = SendMessageW(shellview->hWndList, LVM_INSERTITEMW, 0, (LPARAM)&item);
+    if (shellview->tile_column_count)
+    {
+        /* Windows XP shows the type and size of a file under its name, and nothing for a folder */
+        LVTILEINFO tile = { sizeof(tile), item.iItem, _ILIsFolder(pidl) ? 0 : shellview->tile_column_count,
+                            shellview->tile_columns };
+        SendMessageW(shellview->hWndList, LVM_SETTILEINFO, 0, (LPARAM)&tile);
+    }
 
     for (i = 1; i < shellview->columns; i++)
     {
@@ -766,6 +833,8 @@ static LRESULT ShellView_OnCreate(IShellViewImpl *This)
     {
         ShellView_InitList(This);
         ShellView_FillList(This);
+        if (This->FolderSettings.ViewMode == FVM_TILE || This->FolderSettings.ViewMode == FVM_THUMBNAIL)
+            shellview_set_view(This, This->FolderSettings.ViewMode);
     }
 
     hr = IShellView3_QueryInterface(iface, &IID_IDropTarget, (void**)&pdt);
@@ -1128,8 +1197,13 @@ static void ShellView_DoContextMenu(IShellViewImpl * This, WORD x, WORD y, BOOL 
 	      /* the current view and arrangement, ids relative to FCIDM_SHVIEWFIRST */
 	      UINT current = This->FolderSettings.ViewMode == FVM_LIST ? FCIDM_SHVIEW_LISTVIEW :
 	                     This->FolderSettings.ViewMode == FVM_DETAILS ? FCIDM_SHVIEW_REPORTVIEW : FCIDM_SHVIEW_BIGICON;
-	      CheckMenuRadioItem(hMenu, FCIDM_SHVIEW_BIGICON - 0x7000, FCIDM_SHVIEW_REPORTVIEW - 0x7000,
-	                         current - 0x7000, MF_BYCOMMAND);
+	      EnableMenuItem(hMenu, FCIDM_SHVIEW_TILE - 0x7000, MF_BYCOMMAND | MF_ENABLED);
+	      if (This->FolderSettings.ViewMode == FVM_TILE)
+	          CheckMenuRadioItem(hMenu, FCIDM_SHVIEW_TILE - 0x7000, FCIDM_SHVIEW_TILE - 0x7000,
+	                             FCIDM_SHVIEW_TILE - 0x7000, MF_BYCOMMAND);
+	      else
+	          CheckMenuRadioItem(hMenu, FCIDM_SHVIEW_BIGICON - 0x7000, FCIDM_SHVIEW_REPORTVIEW - 0x7000,
+	                             current - 0x7000, MF_BYCOMMAND);
 	      if (This->FolderSettings.fFlags & FWF_AUTOARRANGE)
 	          CheckMenuItem(hMenu, FCIDM_SHVIEW_AUTOARRANGE - 0x7000, MF_BYCOMMAND | MF_CHECKED);
 	  }
@@ -1316,26 +1390,27 @@ static LRESULT ShellView_OnCommand(IShellViewImpl * This,DWORD dwCmdID, DWORD dw
 	switch(dwCmdID)
 	{
 	  case FCIDM_SHVIEW_SMALLICON:
-	    This->FolderSettings.ViewMode = FVM_SMALLICON;
-	    SetStyle (This, LVS_SMALLICON, LVS_TYPEMASK);
+	    shellview_set_view(This, FVM_SMALLICON);
 	    CheckToolbar(This);
 	    break;
 
 	  case FCIDM_SHVIEW_BIGICON:
-	    This->FolderSettings.ViewMode = FVM_ICON;
-	    SetStyle (This, LVS_ICON, LVS_TYPEMASK);
+	    shellview_set_view(This, FVM_ICON);
+	    CheckToolbar(This);
+	    break;
+
+	  case FCIDM_SHVIEW_TILE:
+	    shellview_set_view(This, FVM_TILE);
 	    CheckToolbar(This);
 	    break;
 
 	  case FCIDM_SHVIEW_LISTVIEW:
-	    This->FolderSettings.ViewMode = FVM_LIST;
-	    SetStyle (This, LVS_LIST, LVS_TYPEMASK);
+	    shellview_set_view(This, FVM_LIST);
 	    CheckToolbar(This);
 	    break;
 
 	  case FCIDM_SHVIEW_REPORTVIEW:
-	    This->FolderSettings.ViewMode = FVM_DETAILS;
-	    SetStyle (This, LVS_REPORT, LVS_TYPEMASK);
+	    shellview_set_view(This, FVM_DETAILS);
 	    CheckToolbar(This);
 	    break;
 
@@ -2830,7 +2905,6 @@ static HRESULT WINAPI FolderView_GetCurrentViewMode(IFolderView2 *iface, UINT *m
 static HRESULT WINAPI FolderView_SetCurrentViewMode(IFolderView2 *iface, UINT mode)
 {
     IShellViewImpl *shellview = impl_from_IFolderView2(iface);
-    DWORD style;
 
     TRACE("folder view %p, mode %u.\n", iface, mode);
 
@@ -2839,9 +2913,8 @@ static HRESULT WINAPI FolderView_SetCurrentViewMode(IFolderView2 *iface, UINT mo
 
     if (mode >= FVM_FIRST && mode <= FVM_LAST)
     {
-        style = ViewModeToListStyle(mode);
-        SetStyle(shellview, style, LVS_TYPEMASK);
-        shellview->FolderSettings.ViewMode = mode;
+        if (shellview->hWndList) shellview_set_view(shellview, mode);
+        else shellview->FolderSettings.ViewMode = mode;
     }
 
     return S_OK;

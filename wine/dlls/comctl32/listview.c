@@ -172,6 +172,9 @@ typedef struct tagITEM_INFO
   LPARAM lParam;
   INT iIndent;
   ITEM_ID *id;
+  UINT tile_columns[4];   /* the subitems shown under the name in the tile view (LVM_SETTILEINFO) */
+  UINT tile_column_count;
+  BOOL tile_columns_set;
 } ITEM_INFO;
 
 struct tagITEM_ID
@@ -217,6 +220,10 @@ typedef struct tagLISTVIEW_INFO
 {
   /* control window */
   HWND hwndSelf;
+
+  /* tile view (LVM_SETTILEVIEWINFO) */
+  SIZE tileSize;               /* 0: from the icon and the font */
+  INT tileLines;               /* lines of subitems under the name */
   RECT rcList;                 /* This rectangle is really the window
 				* client rectangle possibly reduced by the 
 				* horizontal scroll bar and/or header - see 
@@ -1373,7 +1380,7 @@ static BOOL iterator_frameditems_absolute(ITERATOR* i, const LISTVIEW_INFO* info
     if (infoPtr->nItemCount == 0)
         return TRUE;
 
-    if (infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_SMALLICON)
+    if (infoPtr->uView == LV_VIEW_ICON || (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE))
     {
 	INT nItem;
 	
@@ -1604,7 +1611,7 @@ static inline LRESULT CallWindowProcT(WNDPROC proc, HWND hwnd, UINT uMsg,
 static inline BOOL is_autoarrange(const LISTVIEW_INFO *infoPtr)
 {
     return (infoPtr->dwStyle & LVS_AUTOARRANGE) &&
-        (infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_SMALLICON);
+        (infoPtr->uView == LV_VIEW_ICON || (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE));
 }
 
 static void toggle_checkbox_state(LISTVIEW_INFO *infoPtr, INT nItem)
@@ -2287,7 +2294,7 @@ static void LISTVIEW_GetItemOrigin(const LISTVIEW_INFO *infoPtr, INT nItem, LPPO
 {
     assert(nItem >= 0 && nItem < infoPtr->nItemCount);
 
-    if ((infoPtr->uView == LV_VIEW_SMALLICON) || (infoPtr->uView == LV_VIEW_ICON))
+    if (((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)) || (infoPtr->uView == LV_VIEW_ICON))
     {
 	lpptPosition->x = (LONG_PTR)DPA_GetPtr(infoPtr->hdpaPosX, nItem);
 	lpptPosition->y = (LONG_PTR)DPA_GetPtr(infoPtr->hdpaPosY, nItem);
@@ -2350,6 +2357,65 @@ static void LISTVIEW_GetItemOrigin(const LISTVIEW_INFO *infoPtr, INT nItem, LPPO
  * RETURN:
  *   None.
  */
+#define TILE_PADDING     4
+#define TILE_TEXT_WIDTH  170   /* Windows XP tiles are 218 pixels wide with 48 pixel icons */
+
+static BOOL LISTVIEW_GetItemT( const LISTVIEW_INFO *infoPtr, LPLVITEMW lpLVItem, BOOL isW );
+
+/* the subitems shown under the name of a tile: those set by LVM_SETTILEINFO, else the first tileLines columns */
+static UINT tile_columns(const LISTVIEW_INFO *infoPtr, INT nItem, UINT *columns)
+{
+    UINT count = 0, i, total = DPA_GetPtrCount(infoPtr->hdpaColumns);
+    ITEM_INFO *item;
+    HDPA row;
+
+    if (nItem >= 0 && nItem < infoPtr->nItemCount && !(infoPtr->dwStyle & LVS_OWNERDATA) &&
+        (row = DPA_GetPtr(infoPtr->hdpaItems, nItem)) && (item = DPA_GetPtr(row, 0)) && item->tile_columns_set)
+    {
+        for (i = 0; i < item->tile_column_count && count < infoPtr->tileLines; i++)
+            if (item->tile_columns[i] < total) columns[count++] = item->tile_columns[i];
+        return count;
+    }
+    for (i = 1; i < total && count < infoPtr->tileLines; i++) columns[count++] = i;
+    return count;
+}
+
+static INT tile_column_count(const LISTVIEW_INFO *infoPtr, INT nItem)
+{
+    UINT columns[4];
+    return tile_columns(infoPtr, nItem, columns);
+}
+
+/* the text of one subitem line of a tile */
+static void tile_line_text(const LISTVIEW_INFO *infoPtr, INT nItem, UINT column, WCHAR *text, INT size)
+{
+    LVITEMW item;
+
+    text[0] = 0;
+    item.mask = LVIF_TEXT;
+    item.iItem = nItem;
+    item.iSubItem = column;
+    item.pszText = text;
+    item.cchTextMax = size;
+    if (!LISTVIEW_GetItemT(infoPtr, &item, TRUE)) text[0] = 0;
+    else if (item.pszText != text) lstrcpynW(text, is_text(item.pszText) ? item.pszText : L"", size);
+}
+
+/* the width of the widest subitem line of a tile */
+static INT tile_text_width(const LISTVIEW_INFO *infoPtr, INT nItem)
+{
+    UINT columns[4], count = tile_columns(infoPtr, nItem, columns), i;
+    WCHAR text[DISP_TEXT_SIZE];
+    INT width = 0;
+
+    for (i = 0; i < count; i++)
+    {
+        tile_line_text(infoPtr, nItem, columns[i], text, ARRAY_SIZE(text));
+        width = max(width, LISTVIEW_GetStringWidthT(infoPtr, text, TRUE));
+    }
+    return width;
+}
+
 static void LISTVIEW_GetItemMetrics(const LISTVIEW_INFO *infoPtr, const LVITEMW *lpLVItem,
 				    LPRECT lprcBox, LPRECT lprcSelectBox,
 				    LPRECT lprcIcon, LPRECT lprcStateIcon, LPRECT lprcLabel)
@@ -2405,7 +2471,19 @@ static void LISTVIEW_GetItemMetrics(const LISTVIEW_INFO *infoPtr, const LVITEMW 
 	if (infoPtr->himlState && lpLVItem->iSubItem == 0)
 	    state_width = infoPtr->iconStateSize.cx;
 
-	if (infoPtr->uView == LV_VIEW_ICON)
+	if (infoPtr->uView == LV_VIEW_TILE)
+	{
+	    Icon.left   = Box.left + state_width + TILE_PADDING;
+	    Icon.top    = Box.top + (infoPtr->nItemHeight - infoPtr->iconSize.cy) / 2;
+	    Icon.right  = Icon.left;
+	    Icon.bottom = Icon.top;
+	    if (infoPtr->himlNormal)
+	    {
+		Icon.right  += infoPtr->iconSize.cx;
+		Icon.bottom += infoPtr->iconSize.cy;
+	    }
+	}
+	else if (infoPtr->uView == LV_VIEW_ICON)
 	{
 	    Icon.left   = Box.left + state_width;
 	    if (infoPtr->himlNormal)
@@ -2527,6 +2605,16 @@ calc_label:
 		labelSize.cy *= infoPtr->ntmHeight;
 	     }
 	     Label.bottom = Label.top + labelSize.cy + HEIGHT_PADDING;
+	}
+	else if (infoPtr->uView == LV_VIEW_TILE)
+	{
+	    INT lines = 1 + tile_column_count(infoPtr, lpLVItem->iItem);
+
+	    Label.left = Icon.right + TILE_PADDING;
+	    Label.top = Box.top + (infoPtr->nItemHeight - lines * infoPtr->ntmHeight) / 2 - 1;
+	    Label.right = min(Label.left + max(labelSize.cx, tile_text_width(infoPtr, lpLVItem->iItem)) + 2,
+	                      Box.right - TILE_PADDING);
+	    Label.bottom = Label.top + lines * infoPtr->ntmHeight + 2;
 	}
 	else if (infoPtr->uView == LV_VIEW_DETAILS)
 	{
@@ -2806,7 +2894,7 @@ static BOOL LISTVIEW_Arrange(LISTVIEW_INFO *infoPtr, INT nAlignCode)
     POINT pos;
     INT i;
 
-    if (infoPtr->uView != LV_VIEW_ICON && infoPtr->uView != LV_VIEW_SMALLICON) return FALSE;
+    if (infoPtr->uView != LV_VIEW_ICON && infoPtr->uView != LV_VIEW_SMALLICON && infoPtr->uView != LV_VIEW_TILE) return FALSE;
   
     TRACE("nAlignCode=%d\n", nAlignCode);
 
@@ -2857,6 +2945,7 @@ static void LISTVIEW_GetAreaRect(const LISTVIEW_INFO *infoPtr, LPRECT lprcView)
     {
     case LV_VIEW_ICON:
     case LV_VIEW_SMALLICON:
+  case LV_VIEW_TILE:
 	for (i = 0; i < infoPtr->nItemCount; i++)
 	{
 	    x = (LONG_PTR)DPA_GetPtr(infoPtr->hdpaPosX, i);
@@ -2961,6 +3050,8 @@ static INT LISTVIEW_CalculateItemWidth(const LISTVIEW_INFO *infoPtr)
 
     if (infoPtr->uView == LV_VIEW_ICON)
 	nItemWidth = infoPtr->iconSpacing.cx;
+    else if (infoPtr->uView == LV_VIEW_TILE)
+	nItemWidth = infoPtr->tileSize.cx ? infoPtr->tileSize.cx : infoPtr->iconSize.cx + TILE_TEXT_WIDTH;
     else if (infoPtr->uView == LV_VIEW_DETAILS)
     {
 	if (DPA_GetPtrCount(infoPtr->hdpaColumns) > 0)
@@ -3021,6 +3112,9 @@ static INT LISTVIEW_CalculateItemHeight(const LISTVIEW_INFO *infoPtr)
 
     if (infoPtr->uView == LV_VIEW_ICON)
 	nItemHeight = infoPtr->iconSpacing.cy;
+    else if (infoPtr->uView == LV_VIEW_TILE)
+	nItemHeight = infoPtr->tileSize.cy ? infoPtr->tileSize.cy :
+	              max(infoPtr->iconSize.cy, (1 + infoPtr->tileLines) * infoPtr->ntmHeight) + 2 * TILE_PADDING;
     else
     {
 	nItemHeight = infoPtr->ntmHeight;
@@ -4627,6 +4721,30 @@ static BOOL LISTVIEW_FillBkgnd(const LISTVIEW_INFO *infoPtr, HDC hdc, const RECT
     return TRUE;
 }
 
+/* The text of a tile: the name, then its subitems in gray, one line each */
+static void LISTVIEW_DrawTileText(LISTVIEW_INFO *infoPtr, const LVITEMW *item, const NMLVCUSTOMDRAW *nmlvcd, const RECT *label)
+{
+    UINT columns[4], count = tile_columns(infoPtr, item->iItem, columns), i;
+    const UINT format = DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
+    WCHAR text[DISP_TEXT_SIZE];
+    COLORREF color = GetTextColor(nmlvcd->nmcd.hdc);
+    BOOL selected = (item->state & LVIS_SELECTED) && (infoPtr->bFocus || (infoPtr->dwStyle & LVS_SHOWSELALWAYS));
+    RECT line = *label;
+
+    line.left += 1;
+    line.top += 1;
+    line.bottom = line.top + infoPtr->ntmHeight;
+    DrawTextW(nmlvcd->nmcd.hdc, item->pszText, -1, &line, format);
+    if (!selected) SetTextColor(nmlvcd->nmcd.hdc, comctl32_color.clrGrayText);
+    for (i = 0; i < count; i++)
+    {
+        OffsetRect(&line, 0, infoPtr->ntmHeight);
+        tile_line_text(infoPtr, item->iItem, columns[i], text, ARRAY_SIZE(text));
+        DrawTextW(nmlvcd->nmcd.hdc, text, -1, &line, format);
+    }
+    SetTextColor(nmlvcd->nmcd.hdc, color);
+}
+
 /* Draw main item or subitem */
 static void LISTVIEW_DrawItemPart(LISTVIEW_INFO *infoPtr, LVITEMW *item, const NMLVCUSTOMDRAW *nmlvcd, const POINT *pos)
 {
@@ -4667,7 +4785,7 @@ static void LISTVIEW_DrawItemPart(LISTVIEW_INFO *infoPtr, LVITEMW *item, const N
     /* in detail mode, we want to paint background for label rect when
      * item is not selected or listview has full row select; otherwise paint
      * background for text only */
-    if ( infoPtr->uView == LV_VIEW_ICON ||
+    if ( infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_TILE ||
         (infoPtr->uView == LV_VIEW_DETAILS && (!(item->state & LVIS_SELECTED) ||
         (infoPtr->dwLvExStyle & LVS_EX_FULLROWSELECT))))
         background = &rcLabel;
@@ -4719,7 +4837,7 @@ static void LISTVIEW_DrawItemPart(LISTVIEW_INFO *infoPtr, LVITEMW *item, const N
     }
 
     /* item icons */
-    himl = (infoPtr->uView == LV_VIEW_ICON ? infoPtr->himlNormal : infoPtr->himlSmall);
+    himl = (infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_TILE ? infoPtr->himlNormal : infoPtr->himlSmall);
     if (himl && item->iImage >= 0 && !IsRectEmpty(&rcIcon))
     {
         UINT style;
@@ -4739,6 +4857,12 @@ static void LISTVIEW_DrawItemPart(LISTVIEW_INFO *infoPtr, LVITEMW *item, const N
 
     /* Don't bother painting item being edited */
     if (infoPtr->hwndEdit && item->iItem == infoPtr->nEditLabelItem && item->iSubItem == 0) return;
+
+    if (infoPtr->uView == LV_VIEW_TILE)
+    {
+        LISTVIEW_DrawTileText(infoPtr, item, nmlvcd, &rcLabel);
+        return;
+    }
 
     /* figure out the text drawing flags */
     format = (infoPtr->uView == LV_VIEW_ICON ? (focus ? LV_FL_DT_FLAGS : LV_ML_DT_FLAGS) : LV_SL_DT_FLAGS);
@@ -5443,7 +5567,7 @@ static DWORD LISTVIEW_ApproximateViewRect(const LISTVIEW_INFO *infoPtr, INT nIte
 
     dwViewRect = MAKELONG(wWidth, wHeight);
   }
-  else if (infoPtr->uView == LV_VIEW_SMALLICON)
+  else if ((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE))
     FIXME("uView == LV_VIEW_SMALLICON: not implemented\n");
 
   return dwViewRect;
@@ -5855,7 +5979,7 @@ static void LISTVIEW_ScrollOnInsert(LISTVIEW_INFO *infoPtr, INT nItem, INT dir)
 static BOOL LISTVIEW_DeleteItem(LISTVIEW_INFO *infoPtr, INT nItem)
 {
     LVITEMW item;
-    const BOOL is_icon = (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_ICON);
+    const BOOL is_icon = ((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE) || infoPtr->uView == LV_VIEW_ICON);
     INT focus = infoPtr->nFocusedItem;
 
     TRACE("(nItem=%d)\n", nItem);
@@ -6235,7 +6359,7 @@ static BOOL LISTVIEW_EnsureVisible(LISTVIEW_INFO *infoPtr, INT nItem, BOOL bPart
         /* scroll left/right, but in LV_VIEW_DETAILS mode */
         if (infoPtr->uView == LV_VIEW_LIST)
             nScrollPosWidth = infoPtr->nItemWidth;
-        else if ((infoPtr->uView == LV_VIEW_SMALLICON) || (infoPtr->uView == LV_VIEW_ICON))
+        else if (((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)) || (infoPtr->uView == LV_VIEW_ICON))
             nScrollPosWidth = 1;
 
 	if (rcItem.left < infoPtr->rcList.left)
@@ -6255,7 +6379,7 @@ static BOOL LISTVIEW_EnsureVisible(LISTVIEW_INFO *infoPtr, INT nItem, BOOL bPart
 	/* scroll up/down, but not in LVS_LIST mode */
         if (infoPtr->uView == LV_VIEW_DETAILS)
             nScrollPosHeight = infoPtr->nItemHeight;
-        else if ((infoPtr->uView == LV_VIEW_ICON) || (infoPtr->uView == LV_VIEW_SMALLICON))
+        else if ((infoPtr->uView == LV_VIEW_ICON) || ((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)))
             nScrollPosHeight = 1;
 
 	if (rcItem.top < infoPtr->rcList.top)
@@ -6338,7 +6462,7 @@ static INT LISTVIEW_FindItemW(const LISTVIEW_INFO *infoPtr, INT nStart,
         bWrap = TRUE;
 
     if ((lpFindInfo->flags & LVFI_NEARESTXY) && 
-	(infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_SMALLICON))
+	(infoPtr->uView == LV_VIEW_ICON || (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)))
     {
 	POINT Origin;
 	RECT rcArea;
@@ -6598,6 +6722,7 @@ static INT LISTVIEW_GetCountPerPage(const LISTVIEW_INFO *infoPtr)
     {
     case LV_VIEW_ICON:
     case LV_VIEW_SMALLICON:
+  case LV_VIEW_TILE:
 	return infoPtr->nItemCount;
     case LV_VIEW_DETAILS:
 	return LISTVIEW_GetCountPerColumn(infoPtr);
@@ -7443,7 +7568,7 @@ static INT LISTVIEW_GetNextItem(const LISTVIEW_INFO *infoPtr, INT nItem, UINT uF
             return nItem;
         }
       }
-      else if ((infoPtr->uView == LV_VIEW_SMALLICON) || (infoPtr->uView == LV_VIEW_ICON))
+      else if (((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)) || (infoPtr->uView == LV_VIEW_ICON))
       {
         /* Special case for autoarrange - move 'til the beginning of a row */
         if (is_autoarrange(infoPtr))
@@ -7479,7 +7604,7 @@ static INT LISTVIEW_GetNextItem(const LISTVIEW_INFO *infoPtr, INT nItem, UINT uF
             return nItem;
         }
       }
-      else if ((infoPtr->uView == LV_VIEW_SMALLICON) || (infoPtr->uView == LV_VIEW_ICON))
+      else if (((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)) || (infoPtr->uView == LV_VIEW_ICON))
       {
         /* Special case for autoarrange - move 'til the end of a row */
         if (is_autoarrange(infoPtr))
@@ -7913,7 +8038,7 @@ static INT LISTVIEW_InsertItemT(LISTVIEW_INFO *infoPtr, const LVITEMW *lpLVItem,
     if (!set_main_item(infoPtr, &item, TRUE, isW, &has_changed)) goto undo;
 
     /* make room for the position, if we are in the right mode */
-    if ((infoPtr->uView == LV_VIEW_SMALLICON) || (infoPtr->uView == LV_VIEW_ICON))
+    if (((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)) || (infoPtr->uView == LV_VIEW_ICON))
     {
         if (DPA_InsertPtr(infoPtr->hdpaPosX, nItem, 0) == -1)
 	    goto undo;
@@ -7933,7 +8058,7 @@ static INT LISTVIEW_InsertItemT(LISTVIEW_INFO *infoPtr, const LVITEMW *lpLVItem,
 	return -1;
 
     /* align items (set position of each item) */
-    if (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_ICON)
+    if ((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE) || infoPtr->uView == LV_VIEW_ICON)
     {
 	POINT pt;
 
@@ -8896,7 +9021,7 @@ static HIMAGELIST LISTVIEW_SetImageList(LISTVIEW_INFO *infoPtr, INT nType, HIMAG
     case LVSIL_NORMAL:
         himlOld = infoPtr->himlNormal;
         infoPtr->himlNormal = himl;
-        if (infoPtr->uView == LV_VIEW_ICON) set_icon_size(&infoPtr->iconSize, himl, FALSE);
+        if (infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_TILE) set_icon_size(&infoPtr->iconSize, himl, FALSE);
         if (infoPtr->autoSpacing)
             LISTVIEW_SetIconSpacing(infoPtr, -1, -1);
     break;
@@ -8904,7 +9029,7 @@ static HIMAGELIST LISTVIEW_SetImageList(LISTVIEW_INFO *infoPtr, INT nType, HIMAG
     case LVSIL_SMALL:
         himlOld = infoPtr->himlSmall;
         infoPtr->himlSmall = himl;
-        if (infoPtr->uView != LV_VIEW_ICON) set_icon_size(&infoPtr->iconSize, himl, TRUE);
+        if (infoPtr->uView != LV_VIEW_ICON && infoPtr->uView != LV_VIEW_TILE) set_icon_size(&infoPtr->iconSize, himl, TRUE);
         if (infoPtr->hwndHeader)
             SendMessageW(infoPtr->hwndHeader, HDM_SETIMAGELIST, 0, (LPARAM)himl);
     break;
@@ -8965,7 +9090,7 @@ static BOOL LISTVIEW_SetItemCount(LISTVIEW_INFO *infoPtr, INT nItems, DWORD dwFl
 	LISTVIEW_UpdateScroll(infoPtr);
 
 	/* the flags are valid only in ownerdata report and list modes */
-	if (infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_SMALLICON) dwFlags = 0;
+	if (infoPtr->uView == LV_VIEW_ICON || (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)) dwFlags = 0;
 
 	if (!(dwFlags & LVSICF_NOSCROLL) && infoPtr->nFocusedItem != -1)
 	    LISTVIEW_EnsureVisible(infoPtr, infoPtr->nFocusedItem, FALSE);
@@ -9046,7 +9171,7 @@ static BOOL LISTVIEW_SetItemPosition(LISTVIEW_INFO *infoPtr, INT nItem, const PO
     TRACE("(nItem=%d, pt=%s)\n", nItem, wine_dbgstr_point(pt));
 
     if (!pt || nItem < 0 || nItem >= infoPtr->nItemCount ||
-	!(infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_SMALLICON)) return FALSE;
+	!(infoPtr->uView == LV_VIEW_ICON || (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE))) return FALSE;
 
     Pt = *pt;
     LISTVIEW_GetOrigin(infoPtr, &Origin);
@@ -9312,11 +9437,9 @@ static INT LISTVIEW_SetView(LISTVIEW_INFO *infoPtr, DWORD nView)
   if (infoPtr->uView == nView) return 1;
 
   if ((INT)nView < 0 || nView > LV_VIEW_MAX) return -1;
-  if (nView == LV_VIEW_TILE)
-  {
-      FIXME("View LV_VIEW_TILE unimplemented\n");
-      return -1;
-  }
+#if __WINE_COMCTL32_VERSION != 6
+  if (nView == LV_VIEW_TILE) return -1;
+#endif
 
   infoPtr->uView = nView;
 
@@ -9326,13 +9449,15 @@ static INT LISTVIEW_SetView(LISTVIEW_INFO *infoPtr, DWORD nView)
   ShowScrollBar(infoPtr->hwndSelf, SB_BOTH, FALSE);
   SetRectEmpty(&infoPtr->rcFocus);
 
-  himl = (nView == LV_VIEW_ICON ? infoPtr->himlNormal : infoPtr->himlSmall);
-  set_icon_size(&infoPtr->iconSize, himl, nView != LV_VIEW_ICON);
+  himl = (nView == LV_VIEW_ICON || nView == LV_VIEW_TILE ? infoPtr->himlNormal : infoPtr->himlSmall);
+  set_icon_size(&infoPtr->iconSize, himl, nView != LV_VIEW_ICON && nView != LV_VIEW_TILE);
+  LISTVIEW_UpdateItemSize(infoPtr);   /* the arrangement below lays the items out at their new size */
 
   switch (nView)
   {
   case LV_VIEW_ICON:
   case LV_VIEW_SMALLICON:
+  case LV_VIEW_TILE:
       LISTVIEW_Arrange(infoPtr, LVA_DEFAULT);
       break;
   case LV_VIEW_DETAILS:
@@ -9363,6 +9488,64 @@ static INT LISTVIEW_SetView(LISTVIEW_INFO *infoPtr, DWORD nView)
   TRACE("nView %ld\n", nView);
 
   return 1;
+}
+
+static BOOL LISTVIEW_SetTileViewInfo(LISTVIEW_INFO *infoPtr, const LVTILEVIEWINFO *info)
+{
+    if (!info || info->cbSize != sizeof(*info)) return FALSE;
+    if (info->dwMask & LVTVIM_TILESIZE)
+    {
+        infoPtr->tileSize.cx = (info->dwFlags & (LVTVIF_FIXEDWIDTH | LVTVIF_FIXEDSIZE)) ? info->sizeTile.cx : 0;
+        infoPtr->tileSize.cy = (info->dwFlags & (LVTVIF_FIXEDHEIGHT | LVTVIF_FIXEDSIZE)) ? info->sizeTile.cy : 0;
+    }
+    if (info->dwMask & LVTVIM_COLUMNS) infoPtr->tileLines = max(0, min(info->cLines, 4));
+    if (infoPtr->uView == LV_VIEW_TILE)
+    {
+        LISTVIEW_UpdateItemSize(infoPtr);
+        LISTVIEW_Arrange(infoPtr, LVA_DEFAULT);
+        LISTVIEW_InvalidateList(infoPtr);
+    }
+    return TRUE;
+}
+
+static BOOL LISTVIEW_GetTileViewInfo(const LISTVIEW_INFO *infoPtr, LVTILEVIEWINFO *info)
+{
+    if (!info || info->cbSize != sizeof(*info)) return FALSE;
+    if (info->dwMask & LVTVIM_TILESIZE)
+    {
+        info->sizeTile.cx = infoPtr->uView == LV_VIEW_TILE ? infoPtr->nItemWidth : infoPtr->tileSize.cx;
+        info->sizeTile.cy = infoPtr->uView == LV_VIEW_TILE ? infoPtr->nItemHeight : infoPtr->tileSize.cy;
+        info->dwFlags = infoPtr->tileSize.cx || infoPtr->tileSize.cy ? LVTVIF_FIXEDSIZE : LVTVIF_AUTOSIZE;
+    }
+    if (info->dwMask & LVTVIM_COLUMNS) info->cLines = infoPtr->tileLines;
+    if (info->dwMask & LVTVIM_LABELMARGIN) SetRectEmpty(&info->rcLabelMargin);
+    return TRUE;
+}
+
+static BOOL LISTVIEW_SetTileInfo(LISTVIEW_INFO *infoPtr, const LVTILEINFO *info)
+{
+    ITEM_INFO *item;
+    HDPA row;
+    UINT i;
+
+    if (!info || info->iItem < 0 || info->iItem >= infoPtr->nItemCount || (infoPtr->dwStyle & LVS_OWNERDATA)) return FALSE;
+    if (!(row = DPA_GetPtr(infoPtr->hdpaItems, info->iItem)) || !(item = DPA_GetPtr(row, 0))) return FALSE;
+    item->tile_column_count = min(info->cColumns, ARRAY_SIZE(item->tile_columns));
+    for (i = 0; i < item->tile_column_count; i++) item->tile_columns[i] = info->puColumns[i];
+    item->tile_columns_set = TRUE;
+    if (infoPtr->uView == LV_VIEW_TILE) LISTVIEW_InvalidateItem(infoPtr, info->iItem);
+    return TRUE;
+}
+
+static BOOL LISTVIEW_GetTileInfo(const LISTVIEW_INFO *infoPtr, LVTILEINFO *info)
+{
+    UINT columns[4], count, i;
+
+    if (!info || info->iItem < 0 || info->iItem >= infoPtr->nItemCount) return FALSE;
+    count = tile_columns(infoPtr, info->iItem, columns);
+    for (i = 0; i < count && i < info->cColumns; i++) info->puColumns[i] = columns[i];
+    info->cColumns = i;
+    return TRUE;
 }
 
 /* LISTVIEW_SetWorkAreas */
@@ -9595,6 +9778,7 @@ static LRESULT LISTVIEW_NCCreate(HWND hwnd, WPARAM wParam, const CREATESTRUCTW *
   infoPtr->bNoItemMetrics = TRUE;
   infoPtr->notify_mask = NOTIFY_MASK_UNMASK_ALL;
   infoPtr->autoSpacing = TRUE;
+  infoPtr->tileLines = 2;   /* Windows XP shows two lines of details under the name */
   infoPtr->iconSpacing.cx = GetSystemMetrics(SM_CXICONSPACING) - GetSystemMetrics(SM_CXICON);
   infoPtr->iconSpacing.cy = GetSystemMetrics(SM_CYICONSPACING) - GetSystemMetrics(SM_CYICON);
   infoPtr->nEditLabelItem = -1;
@@ -9831,7 +10015,7 @@ static LRESULT LISTVIEW_VScroll(LISTVIEW_INFO *infoPtr, INT nScrollCode,
     scrollInfo.cbSize = sizeof(SCROLLINFO);
     scrollInfo.fMask = SIF_PAGE | SIF_POS | SIF_RANGE | SIF_TRACKPOS;
 
-    is_an_icon = ((infoPtr->uView == LV_VIEW_ICON) || (infoPtr->uView == LV_VIEW_SMALLICON));
+    is_an_icon = ((infoPtr->uView == LV_VIEW_ICON) || ((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)));
 
     if (!GetScrollInfo(infoPtr->hwndSelf, SB_VERT, &scrollInfo)) return 1;
 
@@ -9943,7 +10127,7 @@ static LRESULT LISTVIEW_HScroll(LISTVIEW_INFO *infoPtr, INT nScrollCode,
     scrollInfo.cbSize = sizeof(SCROLLINFO);
     scrollInfo.fMask = SIF_PAGE | SIF_POS | SIF_RANGE | SIF_TRACKPOS;
 
-    is_an_icon = ((infoPtr->uView == LV_VIEW_ICON) || (infoPtr->uView == LV_VIEW_SMALLICON));
+    is_an_icon = ((infoPtr->uView == LV_VIEW_ICON) || ((infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE)));
 
     if (!GetScrollInfo(infoPtr->hwndSelf, SB_HORZ, &scrollInfo)) return 1;
 
@@ -10024,6 +10208,7 @@ static LRESULT LISTVIEW_MouseWheel(LISTVIEW_INFO *infoPtr, INT wheelDelta)
     {
     case LV_VIEW_ICON:
     case LV_VIEW_SMALLICON:
+  case LV_VIEW_TILE:
        /*
         *  listview should be scrolled by a multiple of 37 dependently on its dimension or its visible item number
         *  should be fixed in the future.
@@ -10810,7 +10995,7 @@ static LRESULT LISTVIEW_Paint(LISTVIEW_INFO *infoPtr, HDC hdc)
     {
 	infoPtr->bNoItemMetrics = FALSE;
 	LISTVIEW_UpdateItemSize(infoPtr);
-	if (infoPtr->uView == LV_VIEW_ICON || infoPtr->uView == LV_VIEW_SMALLICON)
+	if (infoPtr->uView == LV_VIEW_ICON || (infoPtr->uView == LV_VIEW_SMALLICON || infoPtr->uView == LV_VIEW_TILE))
 	    LISTVIEW_Arrange(infoPtr, LVA_DEFAULT);
 	LISTVIEW_UpdateScroll(infoPtr);
     }
@@ -11612,9 +11797,11 @@ LISTVIEW_WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
   case LVM_GETTEXTCOLOR:
     return infoPtr->clrText;
 
-  /* case LVM_GETTILEINFO: */
+  case LVM_GETTILEINFO:
+    return LISTVIEW_GetTileInfo(infoPtr, (LVTILEINFO *)lParam);
 
-  /* case LVM_GETTILEVIEWINFO: */
+  case LVM_GETTILEVIEWINFO:
+    return LISTVIEW_GetTileViewInfo(infoPtr, (LVTILEVIEWINFO *)lParam);
 
   case LVM_GETTOOLTIPS:
     if( !infoPtr->hwndToolTip )
@@ -11778,9 +11965,11 @@ LISTVIEW_WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
   case LVM_SETTEXTCOLOR:
     return LISTVIEW_SetTextColor(infoPtr, (COLORREF)lParam);
 
-  /* case LVM_SETTILEINFO: */
+  case LVM_SETTILEINFO:
+    return LISTVIEW_SetTileInfo(infoPtr, (const LVTILEINFO *)lParam);
 
-  /* case LVM_SETTILEVIEWINFO: */
+  case LVM_SETTILEVIEWINFO:
+    return LISTVIEW_SetTileViewInfo(infoPtr, (const LVTILEVIEWINFO *)lParam);
 
   /* case LVM_SETTILEWIDTH: */
 
