@@ -45,3 +45,9 @@ windows and the desktop, F2 rename in place, keyboard navigation and type-ahead,
 1. Menus and paste: items 1-7.
 2. Views: item 8 (Tiles in comctl32, Thumbnails), item 9 and per-folder default views.
 3. Undo, task pane, toolbar and grouping: items 11-14, then the unchecked areas above.
+
+Also done: New > Shortcut with XP's Create Shortcut wizard (appwiz.cpl NewLinkHere), shell views that follow
+changes made by other programs (folder watcher), XP Properties page, drag and drop into folders, taskbar grouping.
+
+Left for later: details view groups, Picture Tasks and Music Tasks panes, Shared Pictures/Music for the media
+folders' Other Places, the drives' free space line in Tiles, Undo of New Folder.
