@@ -28,7 +28,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
-enum new_kind { NEW_DIRECTORY, NEW_NULL_FILE, NEW_DATA, NEW_TEMPLATE };
+enum new_kind { NEW_DIRECTORY, NEW_NULL_FILE, NEW_DATA, NEW_TEMPLATE, NEW_COMMAND };
 
 struct new_menu
 {
@@ -43,7 +43,7 @@ struct new_menu
         WCHAR *text;        /* menu text */
         WCHAR *ext;         /* file extension; NULL for a folder */
         enum new_kind kind;
-        BYTE *data;         /* NEW_DATA bytes or the NEW_TEMPLATE file name */
+        BYTE *data;         /* NEW_DATA bytes, the NEW_TEMPLATE file name or the NEW_COMMAND command line */
         DWORD size;
     } *items;
     size_t item_count;
@@ -263,9 +263,10 @@ static void add_file_type(struct new_menu *menu, const WCHAR *ext)
         }
     }
     else if ((item.data = (BYTE *)get_string(key, L"FileName"))) item.kind = NEW_TEMPLATE;
+    else if ((item.data = (BYTE *)get_string(key, L"Command"))) item.kind = NEW_COMMAND;   /* a wizard: Shortcut */
     else
     {
-        RegCloseKey(key);   /* Command handlers (wizards) are not supported */
+        RegCloseKey(key);
         return;
     }
 
@@ -288,9 +289,13 @@ static void add_file_type(struct new_menu *menu, const WCHAR *ext)
     menu->items[menu->item_count++] = item;
 }
 
+/* Windows XP: the wizards (Shortcut) come before the file types */
 static int __cdecl compare_items(const void *a, const void *b)
 {
-    return lstrcmpiW(((const struct new_item *)a)->text, ((const struct new_item *)b)->text);
+    const struct new_item *item1 = a, *item2 = b;
+
+    if ((item1->kind == NEW_COMMAND) != (item2->kind == NEW_COMMAND)) return item1->kind == NEW_COMMAND ? -1 : 1;
+    return lstrcmpiW(item1->text, item2->text);
 }
 
 static void load_items(struct new_menu *menu)
@@ -331,8 +336,9 @@ static HRESULT WINAPI context_menu_QueryContextMenu(IContextMenu3 *iface,
     submenu = CreatePopupMenu();
     for (i = 0; i < menu->item_count && min_id + 1 + i <= max_id && i < 0x3e; ++i)
     {
-        /* Windows XP: Folder, (Shortcut,) a separator, then the file types */
-        if (i && menu->items[i - 1].kind == NEW_DIRECTORY)
+        /* Windows XP: Folder, Shortcut, a separator, then the file types */
+        if (i && menu->items[i].kind != NEW_COMMAND &&
+            (menu->items[i - 1].kind == NEW_DIRECTORY || menu->items[i - 1].kind == NEW_COMMAND))
             AppendMenuW(submenu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(submenu, MF_STRING, min_id + 1 + i, menu->items[i].text);
     }
@@ -427,6 +433,29 @@ static HRESULT WINAPI context_menu_InvokeCommand(IContextMenu3 *iface, CMINVOKEC
     {
         ERR("Failed to get path.\n");
         return E_FAIL;
+    }
+
+    if (item->kind == NEW_COMMAND)
+    {
+        /* the wizard gets the name the new item would have, "%1", and makes it itself */
+        WCHAR full[MAX_PATH], command[MAX_PATH * 3], expanded[MAX_PATH * 3], *p;
+        STARTUPINFOW si = { sizeof(si) };
+        PROCESS_INFORMATION pi;
+
+        swprintf(full, ARRAY_SIZE(full), L"%s\\%s%s", path, item->name, item->ext ? item->ext : L"");
+        ExpandEnvironmentStringsW((WCHAR *)item->data, expanded, ARRAY_SIZE(expanded));
+        if ((p = wcsstr(expanded, L"%1")))
+        {
+            *p = 0;
+            swprintf(command, ARRAY_SIZE(command), L"%s%s%s", expanded, full, p + 2);
+        }
+        else lstrcpynW(command, expanded, ARRAY_SIZE(command));
+        TRACE("running %s\n", debugstr_w(command));
+        if (!CreateProcessW(NULL, command, NULL, NULL, FALSE, 0, NULL, path, &si, &pi))
+            return HRESULT_FROM_WIN32(GetLastError());
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return S_OK;
     }
 
     for (unsigned int i = 0; i < 1000; ++i)

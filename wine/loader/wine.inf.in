@@ -310,6 +310,7 @@ HKCR,inifile\shell\print\command,,2,"""%11%\notepad.exe"" /p ""%1"""
 HKCR,lnkfile,,2,"Shortcut"
 HKCR,lnkfile,"NeverShowExt",2,""
 HKCR,lnkfile,"IsShortcut",2,"yes"
+HKCR,.lnk\ShellNew,"Command",2,"rundll32.exe appwiz.cpl,NewLinkHere %1"
 HKCR,lnkfile\CLSID,,2,"{00021401-0000-0000-C000-000000000046}"
 HKCR,lnkfile\shellex\IconHandler,,2,"{00021401-0000-0000-C000-000000000046}"
 HKCR,lnkfile\shellex\ContextMenuHandlers\{00021401-0000-0000-C000-000000000046},,0x10,
