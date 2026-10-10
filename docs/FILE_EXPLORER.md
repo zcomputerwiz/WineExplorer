@@ -12,6 +12,12 @@ list itself is comctl32's list view.
 - Copy and paste into another folder, and New Folder from the task pane.
 - Details view with columns, and the Details task-pane section.
 
+## Done (stage 1, `afbfde1`)
+
+Items 1, 2, 3 and 6 below. Create Shortcut and Paste Shortcut work and are named "Shortcut to X". New items are
+selected for renaming. Not in New yet: Shortcut (XP's wizard), Briefcase, Compressed (zipped) Folder (needs a zip
+folder handler).
+
 ## Gaps (in work order)
 
 | # | Area | XP | Wine now | Where |
