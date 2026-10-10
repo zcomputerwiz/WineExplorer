@@ -37,6 +37,7 @@ typedef struct _TASK_ITEM
     BOOL        flashing;
     BOOL        minimized;
     BOOL        seen;
+    BOOL        icon_dirty; /* refresh after the publishing process finishes its X11 update */
     BOOL        hot;       /* mouse is over the button */
     BOOL        pressed;   /* left button held down on it */
     RECT        rect;

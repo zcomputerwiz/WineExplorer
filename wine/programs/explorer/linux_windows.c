@@ -174,6 +174,12 @@ static HICON get_icon( UINT64 window, DWORD size )
     return ret;
 }
 
+HICON linux_windows_copy_icon( HWND hwnd, DWORD size )
+{
+    UINT64 window = (ULONG_PTR)GetPropW( hwnd, whole_window_prop );
+    return window ? get_icon( window, size ) : NULL;
+}
+
 static void update_icon( struct linux_window *lw )
 {
     HICON icon = get_icon( lw->window, GetSystemMetrics( SM_CXICON ) );

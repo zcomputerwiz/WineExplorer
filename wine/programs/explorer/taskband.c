@@ -35,6 +35,7 @@
 #include "theme_engine.h"
 #include "taskband.h"
 #include "taskbar_props.h"
+#include "linux_windows.h"
 
 #define TASKBAND_CLASS L"MSTaskListWClass"
 
@@ -101,18 +102,6 @@ static BOOL is_window_taskbar_candidate(HWND hwnd)
     return TRUE;
 }
 
-/* Icon handles belong to the process that created them and Wine cannot draw another process's icon, so a
- * handle from WM_GETICON is only usable when GetIconInfo accepts it. */
-static BOOL icon_is_usable(HICON icon)
-{
-    ICONINFO info;
-
-    if (!icon || !GetIconInfo(icon, &info)) return FALSE;
-    if (info.hbmColor) DeleteObject(info.hbmColor);
-    if (info.hbmMask) DeleteObject(info.hbmMask);
-    return TRUE;
-}
-
 /* The small icon of the window's program, extracted from its executable (cached per process). */
 static HICON get_process_icon(HWND hwnd)
 {
@@ -150,12 +139,14 @@ static HICON get_window_task_icon(HWND hwnd)
 
     for (i = 0; i < ARRAY_SIZE(kinds) && !icon; i++)
         if (SendMessageTimeoutW(hwnd, WM_GETICON, kinds[i], 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &res) &&
-            icon_is_usable((HICON)res))
-            icon = (HICON)res;
-    if (!icon && icon_is_usable((HICON)GetClassLongPtrW(hwnd, GCLP_HICONSM)))
-        icon = (HICON)GetClassLongPtrW(hwnd, GCLP_HICONSM);
-    if (!icon) icon = get_process_icon(hwnd);
-    if (!icon) icon = LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION);
+            res)
+            icon = CopyIcon((HICON)res);
+    if (!icon && (res = GetClassLongPtrW(hwnd, GCLP_HICONSM))) icon = CopyIcon((HICON)res);
+    /* Wine icon handles are process-local. Use the actual window's published
+     * pixels before falling back to its executable, which loses folder icons. */
+    if (!icon) icon = linux_windows_copy_icon(hwnd, 16);
+    if (!icon && (res = (DWORD_PTR)get_process_icon(hwnd))) icon = CopyIcon((HICON)res);
+    if (!icon) icon = CopyIcon(LoadIconW(NULL, (const WCHAR *)IDI_APPLICATION));
     return icon;
 }
 
@@ -227,6 +218,8 @@ void taskband_add_window(HWND hwnd)
     item->minimized = IsIconic(hwnd);
     item->active = (hwnd == GetAncestor(GetForegroundWindow(), GA_ROOTOWNER));
     item->seen = TRUE;
+    item->icon_dirty = TRUE;
+    SetTimer(g_taskband.hwnd, 2, 100, NULL);
     item->next = NULL;
 
     if (!g_taskband.tasks)
@@ -299,6 +292,7 @@ void taskband_sync_windows(void)
         {
             TASK_ITEM *to_free = *curr;
             *curr = (*curr)->next;
+            if (to_free->icon) DestroyIcon(to_free->icon);
             free(to_free);
             g_taskband.task_count--;
             changed = TRUE;
@@ -322,6 +316,7 @@ void taskband_remove_window(HWND hwnd)
         {
             TASK_ITEM *to_free = *curr;
             *curr = (*curr)->next;
+            if (to_free->icon) DestroyIcon(to_free->icon);
             free(to_free);
             g_taskband.task_count--;
             taskband_relayout();
@@ -356,7 +351,13 @@ void taskband_update_window(HWND hwnd)
     }
 
     GetWindowTextW(hwnd, item->title, sizeof(item->title)/sizeof(WCHAR));
+    if (item->icon) DestroyIcon(item->icon);
     item->icon = get_window_task_icon(hwnd);
+    /* HSHELL_REDRAW can arrive before the other process's X11 property update.
+     * Refresh once after the notification has settled, rather than caching the
+     * previous folder's pixels until another shell event happens. */
+    item->icon_dirty = TRUE;
+    SetTimer(g_taskband.hwnd, 2, 100, NULL);
     item->minimized = IsIconic(hwnd);
 
     if (g_taskband.hwnd)
@@ -668,6 +669,20 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     }
 
     case WM_TIMER:
+        if (wparam == 2)
+        {
+            TASK_ITEM *item;
+            KillTimer(hwnd, 2);
+            for (item = g_taskband.tasks; item; item = item->next)
+            {
+                if (!item->icon_dirty) continue;
+                item->icon_dirty = FALSE;
+                if (item->icon) DestroyIcon(item->icon);
+                item->icon = get_window_task_icon(item->target_hwnd);
+                InvalidateRect(hwnd, &item->rect, FALSE);
+            }
+            return 0;
+        }
         if (wparam == 1)
         {
             taskband_sync_windows();
@@ -677,6 +692,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
 
     case WM_DESTROY:
         KillTimer(hwnd, 1);
+        KillTimer(hwnd, 2);
         return 0;
 
     case WM_NCHITTEST:
@@ -786,6 +802,7 @@ void taskband_destroy(void)
     while (curr)
     {
         TASK_ITEM *next = curr->next;
+        if (curr->icon) DestroyIcon(curr->icon);
         free(curr);
         curr = next;
     }
