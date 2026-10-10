@@ -43,6 +43,10 @@ HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id);
  * no alpha at all becomes opaque. */
 void shellres_premultiply(HBITMAP bitmap);
 
+/* A bitmap of the visual style's shellstyle.dll (Luna's Shell\<color>\shellstyle.dll): the task group icons and the
+ * folder watermarks of Windows XP.  NULL with Windows Classic or without the genuine theme.  Caller deletes it. */
+HBITMAP shellres_style_bitmap(int id);
+
 /* The XP Go button of an address bar (a one-button toolbar sending WM_COMMAND id to parent), and its width */
 HWND shellres_go_button(HWND parent, UINT id);
 int shellres_go_width(HWND go);

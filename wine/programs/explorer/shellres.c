@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <windows.h>
 #include <commctrl.h>
+#include <shlwapi.h>
+#include <uxtheme.h>
 
 #include "shellres.h"
 #include "resource.h"
@@ -286,6 +288,32 @@ int shellres_go_width(HWND go)
 {
     RECT rc;
     return SendMessageW(go, TB_GETITEMRECT, 0, (LPARAM)&rc) ? rc.right + 2 : 50;
+}
+
+HBITMAP shellres_style_bitmap(int id)
+{
+    WCHAR theme[MAX_PATH], color[64], path[MAX_PATH];
+    HMODULE style = NULL;
+    HBITMAP bmp = NULL;
+
+    if (IsThemeActive() && SUCCEEDED(GetCurrentThemeName(theme, MAX_PATH, color, ARRAY_SIZE(color), NULL, 0)))
+    {
+        PathRemoveFileSpecW(theme);
+        swprintf(path, MAX_PATH, L"%s\\Shell\\%s\\shellstyle.dll", theme, color);
+        style = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    }
+    if (!style)
+    {
+        GetSystemDirectoryW(path, MAX_PATH);
+        lstrcatW(path, L"\\shellstyle.dll");
+        style = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
+    }
+    if (style)
+    {
+        bmp = LoadImageW(style, MAKEINTRESOURCEW(id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+        FreeLibrary(style);
+    }
+    return bmp;
 }
 
 void shellres_premultiply(HBITMAP bitmap)

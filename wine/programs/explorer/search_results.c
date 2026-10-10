@@ -34,6 +34,7 @@
 #include <uxtheme.h>
 
 #include "search_ui.h"
+#include "shellres.h"
 
 extern HINSTANCE explorer_hInstance;
 
@@ -59,31 +60,9 @@ static RESULTS *get_results(HWND hwnd)
     return (RESULTS *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
 }
 
-/* the shellstyle.dll of the visual style in use, which holds the folder watermarks; Windows Classic has its own */
 static HBITMAP load_watermark(void)
 {
-    WCHAR theme[MAX_PATH], color[64], path[MAX_PATH];
-    HMODULE style = NULL;
-    HBITMAP bmp = NULL;
-
-    if (IsThemeActive() && SUCCEEDED(GetCurrentThemeName(theme, MAX_PATH, color, ARRAY_SIZE(color), NULL, 0)))
-    {
-        PathRemoveFileSpecW(theme);
-        swprintf(path, MAX_PATH, L"%s\\Shell\\%s\\shellstyle.dll", theme, color);
-        style = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
-    }
-    if (!style)
-    {
-        GetSystemDirectoryW(path, MAX_PATH);
-        lstrcatW(path, L"\\shellstyle.dll");
-        style = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
-    }
-    if (style)
-    {
-        bmp = LoadImageW(style, MAKEINTRESOURCEW(IDB_SEARCH_LISTVIEW_BMP), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
-        FreeLibrary(style);
-    }
-    return bmp;
+    return shellres_style_bitmap(IDB_SEARCH_LISTVIEW_BMP);
 }
 
 static void paint_background(RESULTS *res, HDC hdc)

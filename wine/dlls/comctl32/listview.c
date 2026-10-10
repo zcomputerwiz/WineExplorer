@@ -315,6 +315,8 @@ typedef struct tagLISTVIEW_INFO
   COLORREF clrText;
   COLORREF clrTextBk;
   HBITMAP hBkBitmap;
+  BOOL bkImageOffset;          /* LVM_SETBKIMAGE with offsets: the image stays in place in the window */
+  INT bkImageX, bkImageY;      /* where, in percent of the room left beside it */
 
   /* font */
   HFONT hDefaultFont;
@@ -4827,8 +4829,25 @@ static void LISTVIEW_DrawBackgroundBitmap(const LISTVIEW_INFO *infoPtr, HDC hdc,
 
     mem_hdc = CreateCompatibleDC(hdc);
     SelectObject(mem_hdc, infoPtr->hBkBitmap);
-    BitBlt(hdc, lprcBox->left, lprcBox->top, lprcBox->right - lprcBox->left,
-           lprcBox->bottom - lprcBox->top, mem_hdc, lprcBox->left, lprcBox->top, SRCCOPY);
+    if (infoPtr->bkImageOffset)
+    {
+        /* Windows Explorer's watermark: on the background color, at its place in the window */
+        RECT client, image, part;
+        BITMAP bm;
+
+        GetObjectW(infoPtr->hBkBitmap, sizeof(bm), &bm);
+        GetClientRect(infoPtr->hwndSelf, &client);
+        image.left = (client.right - bm.bmWidth) * infoPtr->bkImageX / 100;
+        image.top = (client.bottom - bm.bmHeight) * infoPtr->bkImageY / 100;
+        image.right = image.left + bm.bmWidth;
+        image.bottom = image.top + bm.bmHeight;
+        if (IntersectRect(&part, &image, lprcBox))
+            BitBlt(hdc, part.left, part.top, part.right - part.left, part.bottom - part.top, mem_hdc,
+                   part.left - image.left, part.top - image.top, SRCCOPY);
+    }
+    else
+        BitBlt(hdc, lprcBox->left, lprcBox->top, lprcBox->right - lprcBox->left,
+               lprcBox->bottom - lprcBox->top, mem_hdc, lprcBox->left, lprcBox->top, SRCCOPY);
     DeleteDC(mem_hdc);
 }
 
@@ -8369,8 +8388,9 @@ static BOOL LISTVIEW_SetBkImage(LISTVIEW_INFO *infoPtr, const LVBKIMAGEW *image,
     if (image->ulFlags & ~LVBKIF_SOURCE_MASK)
         FIXME("unsupported flags %08lx\n", image->ulFlags & ~LVBKIF_SOURCE_MASK);
 
-    if (image->xOffsetPercent || image->yOffsetPercent)
-        FIXME("unsupported offset %d,%d\n", image->xOffsetPercent, image->yOffsetPercent);
+    infoPtr->bkImageOffset = image->xOffsetPercent || image->yOffsetPercent;
+    infoPtr->bkImageX = max(0, min(100, image->xOffsetPercent));
+    infoPtr->bkImageY = max(0, min(100, image->yOffsetPercent));
 
     switch (image->ulFlags & LVBKIF_SOURCE_MASK)
     {
@@ -10225,7 +10245,9 @@ static inline BOOL LISTVIEW_EraseBkgnd(const LISTVIEW_INFO *infoPtr, HDC hdc)
  */
 static void scroll_list(LISTVIEW_INFO *infoPtr, INT dx, INT dy)
 {
-    /* now we can scroll the list */
+    /* now we can scroll the list; an image fixed in the window does not move with it */
+    if (infoPtr->hBkBitmap && infoPtr->bkImageOffset) InvalidateRect(infoPtr->hwndSelf, NULL, TRUE);
+    else
     ScrollWindowEx(infoPtr->hwndSelf, dx, dy, &infoPtr->rcList, 
 		   &infoPtr->rcList, 0, 0, SW_ERASE | SW_INVALIDATE);
     /* if we have focus, adjust rect */
@@ -11593,6 +11615,7 @@ static LRESULT LISTVIEW_Size(LISTVIEW_INFO *infoPtr, int Width, int Height)
     TRACE("(width=%d, height=%d)\n", Width, Height);
 
     LISTVIEW_UpdateSize(infoPtr);
+    if (infoPtr->hBkBitmap && infoPtr->bkImageOffset) InvalidateRect(infoPtr->hwndSelf, NULL, TRUE);   /* it moves */
     if (EqualRect(&rcOld, &infoPtr->rcList)) return 0;
   
     /* do not bother with display related stuff if we're not redrawing */ 

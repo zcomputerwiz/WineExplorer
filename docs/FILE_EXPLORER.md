@@ -53,7 +53,8 @@ Also done: Picture/Music/Video Tasks (Set as desktop background, Play all; slide
 grayed), Shared Pictures/Music/Video in Other Places, a scrolling task pane, live wallpaper changes.
 
 Also done: View as a slide show (full screen, 5 seconds a picture, arrows/click/Esc), the picture's preview and
-dimensions in Details.
+dimensions in Details, the visual style's task icons and watermarks (shellstyle.dll) on the media task groups
+and in the corner of their folders, XP's 210 pixel task pane.
 
 Left for later: details view groups, the drives' free space line in Tiles, Undo of New Folder, folder thumbnails
 showing their pictures, XP's blue frame around a selected thumbnail.

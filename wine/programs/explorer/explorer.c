@@ -379,6 +379,7 @@ static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationComplete(IExplore
     update_path_box(This->info);
     browser_navigation_state(This->info, FALSE);
     browser_apply_folder_view(This->info);
+    taskpane_set_watermark(This->info);
     if (This->info->search)
     {
         /* the Search Companion looks in the folder shown */

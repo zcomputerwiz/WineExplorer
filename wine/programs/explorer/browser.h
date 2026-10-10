@@ -68,10 +68,11 @@ enum
 #define IDT_BROWSER_STATUS 1
 #define IDT_BROWSER_BRAND  2
 
-#define TASKPANE_WIDTH 190
+#define TASKPANE_WIDTH 210   /* Windows XP's */
 
 HWND taskpane_create(explorer_info *info);
 void taskpane_update(explorer_info *info);
+void taskpane_set_watermark(explorer_info *info);   /* XP's picture, music or video watermark in the view */
 
 HMENU browser_create_menu(void);
 void browser_create_bars(explorer_info *info, const WCHAR *address_label);

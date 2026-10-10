@@ -63,6 +63,8 @@ typedef struct
     WCHAR title[64];
     BOOL special;        /* dark blue head, like "System Tasks" */
     int icon_id;         /* shell32 icon standing out of the head, as Picture Tasks has */
+    HBITMAP style_icon;  /* the visual style's own (shellstyle.dll), with alpha */
+    HBITMAP watermark;   /* the style's picture in the corner of the group */
     BOOL collapsed;
     int first, count;
     RECT head;
@@ -89,12 +91,13 @@ static void add_group(const WCHAR *title, BOOL special);
 /* the kinds of folder Windows XP gives tasks of their own */
 enum media { MEDIA_NONE, MEDIA_PICTURES, MEDIA_MUSIC, MEDIA_VIDEO };
 
-static const struct { int csidl, shared_csidl, icon; const WCHAR *exts; } media_info[] =
+/* style: the shellstyle.dll bitmaps of the kind, its task icon then the group's watermark */
+static const struct { int csidl, shared_csidl, icon, style; const WCHAR *exts; } media_info[] =
 {
     { 0 },
-    { CSIDL_MYPICTURES, CSIDL_COMMON_PICTURES, 236, L".bmp.jpg.jpeg.jpe.gif.png.tif.tiff.ico.dib" },
-    { CSIDL_MYMUSIC, CSIDL_COMMON_MUSIC, 237, L".mp3.wma.wav.mid.midi.ogg.flac.m4a.aac.au.aif.aiff" },
-    { CSIDL_MYVIDEO, CSIDL_COMMON_VIDEO, 238, L".avi.wmv.mpg.mpeg.mp4.mkv.webm.mov.asf" },
+    { CSIDL_MYPICTURES, CSIDL_COMMON_PICTURES, 236, 13, L".bmp.jpg.jpeg.jpe.gif.png.tif.tiff.ico.dib" },
+    { CSIDL_MYMUSIC, CSIDL_COMMON_MUSIC, 237, 10, L".mp3.wma.wav.mid.midi.ogg.flac.m4a.aac.au.aif.aiff" },
+    { CSIDL_MYVIDEO, CSIDL_COMMON_VIDEO, 238, 19, L".avi.wmv.mpg.mpeg.mp4.mkv.webm.mov.asf" },
 };
 
 /* My Pictures, My Music, My Videos and the folders in them, as XP's folder templates go */
@@ -288,6 +291,11 @@ static void rebuild(explorer_info *info)
         ILFree(g_pane.lines[i].pidl);
         if (g_pane.lines[i].preview) DeleteObject(g_pane.lines[i].preview);
     }
+    for (i = 0; i < g_pane.group_count; i++)
+    {
+        if (g_pane.groups[i].style_icon) DeleteObject(g_pane.groups[i].style_icon);
+        if (g_pane.groups[i].watermark) DeleteObject(g_pane.groups[i].watermark);
+    }
     g_pane.line_count = g_pane.group_count = 0;
 
     /* Picture Tasks, Music Tasks and Video Tasks above the folder's tasks, as Windows XP has them */
@@ -313,7 +321,12 @@ static void rebuild(explorer_info *info)
             l->disabled = !selected && !first_media_file(media_path, media, file);
             if (media == MEDIA_MUSIC) add_line(L"Shop for music online", 0, -1, 247)->disabled = TRUE;
         }
-        g_pane.groups[g_pane.group_count - 1].icon_id = media_info[media].icon;
+        {
+            GROUP *grp = &g_pane.groups[g_pane.group_count - 1];
+            grp->icon_id = media_info[media].icon;
+            if ((grp->style_icon = shellres_style_bitmap(media_info[media].style))) shellres_premultiply(grp->style_icon);
+            grp->watermark = shellres_style_bitmap(media_info[media].style + 1);
+        }
     }
 
     if (computer)
@@ -588,12 +601,40 @@ static void paint(HWND hwnd, HDC hdc)
             body.bottom = g_pane.lines[grp->first + grp->count - 1].rc.bottom + 8;
             if (theme) DrawThemeBackground(theme, hdc, body_part, 0, &body, NULL);
             else FillRect(hdc, &body, GetSysColorBrush(COLOR_WINDOW));
+            if (grp->watermark)
+            {
+                /* the style's faint picture in the bottom right corner of the group */
+                BITMAP bm;
+                HDC mem = CreateCompatibleDC(hdc);
+                HBITMAP old = SelectObject(mem, grp->watermark);
+                int w, h;
+
+                GetObjectW(grp->watermark, sizeof(bm), &bm);
+                w = min(bm.bmWidth, body.right - body.left - 1);
+                h = min(bm.bmHeight, body.bottom - body.top - 1);
+                BitBlt(hdc, body.right - w - 1, body.bottom - h - 1, w, h, mem, bm.bmWidth - w, bm.bmHeight - h, SRCCOPY);
+                SelectObject(mem, old);
+                DeleteDC(mem);
+            }
         }
         if (theme) DrawThemeBackground(theme, hdc, head_part, 0, &grp->head, NULL);
         else FillRect(hdc, &grp->head, GetSysColorBrush(COLOR_ACTIVECAPTION));
         text = grp->head;
         text.left += 10; text.right -= 28;
-        if (grp->icon_id)
+        if (grp->style_icon)
+        {
+            BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+            BITMAP bm;
+            HDC mem = CreateCompatibleDC(hdc);
+            HBITMAP old = SelectObject(mem, grp->style_icon);
+
+            GetObjectW(grp->style_icon, sizeof(bm), &bm);
+            AlphaBlend(hdc, grp->head.left + 2, grp->head.top - 6, bm.bmWidth, bm.bmHeight, mem, 0, 0, bm.bmWidth, bm.bmHeight, blend);
+            SelectObject(mem, old);
+            DeleteDC(mem);
+            text.left += 30;
+        }
+        else if (grp->icon_id)
         {
             HICON icon = shellres_icon(grp->icon_id, 32);
             if (icon)
@@ -865,4 +906,24 @@ void taskpane_update(explorer_info *info)
     rebuild(info);
     update_scroll(info->taskpane);
     InvalidateRect(info->taskpane, NULL, FALSE);
+}
+
+/* Windows XP's watermark of picture, music and video folders, in the corner of the view */
+void taskpane_set_watermark(explorer_info *info)
+{
+    LVBKIMAGEW image = { LVBKIF_SOURCE_NONE };
+    WCHAR path[MAX_PATH];
+    enum media media;
+    HWND list = current_list(info);
+
+    if (!list) return;
+    media = view_folder_path(info, path) ? folder_media(path) : MEDIA_NONE;
+    if (media != MEDIA_NONE && (image.hbm = shellres_style_bitmap(media_info[media].style + 2)))
+    {
+        image.ulFlags = LVBKIF_SOURCE_HBITMAP;
+        image.xOffsetPercent = image.yOffsetPercent = 100;   /* the bottom right corner */
+    }
+    SendMessageW(list, LVM_SETBKIMAGEW, 0, (LPARAM)&image);   /* the list owns the bitmap */
+    /* the names are written on the watermark, not in boxes */
+    SendMessageW(list, LVM_SETTEXTBKCOLOR, 0, image.hbm ? CLR_NONE : GetSysColor(COLOR_WINDOW));
 }
