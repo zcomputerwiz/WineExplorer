@@ -1345,6 +1345,17 @@ static LRESULT ShellView_OnCommand(IShellViewImpl * This,DWORD dwCmdID, DWORD dw
 	return 0;
 }
 
+/* a string verb of the item menu of the selection or of the background menu, for the keyboard shortcuts */
+static void invoke_view_verb(IShellViewImpl *This, UINT which, const char *verb)
+{
+    CMINVOKECOMMANDINFO info = { sizeof(info), 0, This->hWndParent, verb, NULL, NULL, SW_SHOWNORMAL };
+    IContextMenu *menu;
+
+    if (FAILED(IShellView3_GetItemObject(&This->IShellView3_iface, which, &IID_IContextMenu, (void **)&menu))) return;
+    IContextMenu_InvokeCommand(menu, &info);
+    IContextMenu_Release(menu);
+}
+
 /**********************************************************
 * ShellView_OnNotify()
 */
@@ -1653,6 +1664,22 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 		    IShellBrowser_BrowseObject(lpSb, NULL, SBSP_PARENT);
 		  }
 	        }
+		break;
+
+	      case 'A':
+	      case 'C':
+	      case 'X':
+	      case 'V':
+		if (GetKeyState(VK_CONTROL) >= 0 || GetKeyState(VK_MENU) < 0) break;
+		if (plvKeyDown->wVKey == 'A')
+		{
+		  LVITEMW item = { .state = LVIS_SELECTED, .stateMask = LVIS_SELECTED };
+		  SendMessageW(This->hWndList, LVM_SETITEMSTATE, -1, (LPARAM)&item);
+		}
+		else if (plvKeyDown->wVKey == 'V')
+		  invoke_view_verb(This, SVGIO_BACKGROUND, "paste");
+		else if (SendMessageW(This->hWndList, LVM_GETSELECTEDCOUNT, 0, 0))
+		  invoke_view_verb(This, SVGIO_SELECTION, plvKeyDown->wVKey == 'C' ? "copy" : "cut");
 		break;
 
 	      default:

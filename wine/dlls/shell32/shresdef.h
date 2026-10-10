@@ -152,6 +152,7 @@
 #define IDS_OPEN_WITH_OTHER         192
 #define IDS_OPEN_WITH_PROGRAMS      193
 #define IDS_ALL_FILES               194
+#define IDS_DELETEMULTIPLE_CAPTION  195
 
 /* Open With dialog */
 #define IDD_OPEN_WITH               10
