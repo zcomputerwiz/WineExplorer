@@ -36,6 +36,7 @@
 #include "theme_engine.h"
 #include "browser.h"
 #include "shellres.h"
+#include "slideshow.h"
 
 #define TASKPANE_CLASS L"BrowserTaskPane"
 #define MAX_LINES  40
@@ -53,6 +54,7 @@ typedef struct
     BOOL plain;          /* detail text, not a link */
     BOOL disabled;       /* grayed: not available on Wine */
     LPITEMIDLIST pidl;   /* a place to browse to, with its own icon (icon_id -1) */
+    HBITMAP preview;     /* Details: the selected picture */
     RECT rc;
 } LINE;
 
@@ -281,7 +283,11 @@ static void rebuild(explorer_info *info)
     if (g_pane.scroll_pidl != info->pidl) g_pane.scroll = 0;   /* another folder starts at the top */
     g_pane.scroll_pidl = info->pidl;
 
-    for (i = 0; i < g_pane.line_count; i++) ILFree(g_pane.lines[i].pidl);
+    for (i = 0; i < g_pane.line_count; i++)
+    {
+        ILFree(g_pane.lines[i].pidl);
+        if (g_pane.lines[i].preview) DeleteObject(g_pane.lines[i].preview);
+    }
     g_pane.line_count = g_pane.group_count = 0;
 
     /* Picture Tasks, Music Tasks and Video Tasks above the folder's tasks, as Windows XP has them */
@@ -294,7 +300,8 @@ static void rebuild(explorer_info *info)
         if (media == MEDIA_PICTURES)
         {
             add_group(L"Picture Tasks", TRUE);
-            add_line(L"View as a slide show", 0, -1, 249)->disabled = TRUE;
+            l = add_line(L"View as a slide show", 1012, -1, 249);
+            l->disabled = !first_media_file(media_path, MEDIA_PICTURES, file);
             add_line(L"Order prints online", 0, -1, 251)->disabled = TRUE;
             add_line(picture ? L"Print this picture" : L"Print pictures", 0, -1, 252)->disabled = TRUE;
             if (picture) add_line(L"Set as desktop background", 1010, -1, 250);
@@ -404,8 +411,25 @@ static void rebuild(explorer_info *info)
     add_group(L"Details", FALSE);
     if (selected == 1 && name[0])
     {
+        /* Windows XP shows a picture above its name, and its dimensions */
+        WCHAR file[MAX_PATH], text[80];
+        HBITMAP preview = NULL;
+        UINT cx = 0, cy = 0;
+
+        if (selected_path(info, file)) preview = picture_preview(file, TASKPANE_WIDTH - 60, 150, &cx, &cy);
+        if (preview)
+        {
+            l = add_line(L"", 0, -1, 0);
+            l->plain = TRUE;
+            l->preview = preview;
+        }
         l = add_line(name, 0, -1, 0); l->detail_head = TRUE; l->plain = TRUE;
         if (type[0]) { l = add_line(type, 0, -1, 0); l->plain = TRUE; }
+        if (preview)
+        {
+            swprintf(text, ARRAY_SIZE(text), L"Dimensions: %u x %u", cx, cy);
+            l = add_line(text, 0, -1, 0); l->plain = TRUE;
+        }
         if (date[0])
         {
             WCHAR text[160];
@@ -473,6 +497,16 @@ static int layout(HDC hdc, int width, HTHEME theme)
                 RECT calc = { 0, 0, width - 24 - 16 - text_x - (l->icon_id ? LINK_ICON + 4 : 0), 0 };
                 int left = 12 + 8 + (l->icon_id ? LINK_ICON + 4 : 0);
 
+                if (l->preview)
+                {
+                    /* the picture in the middle of the group */
+                    BITMAP bm;
+                    GetObjectW(l->preview, sizeof(bm), &bm);
+                    l->rc.left = 12 + (width - 24 - bm.bmWidth) / 2;
+                    SetRect(&l->rc, l->rc.left, y + 4, l->rc.left + bm.bmWidth, y + 4 + bm.bmHeight);
+                    y = l->rc.bottom + 10;
+                    continue;
+                }
                 DrawTextW(hdc, l->text, -1, &calc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
                 SetRect(&l->rc, left, y, width - 12 - 8, y + max(calc.bottom, LINK_ICON) + 2);
                 y = l->rc.bottom + 4;
@@ -592,6 +626,19 @@ static void paint(HWND hwnd, HDC hdc)
             LINE *l = &g_pane.lines[i];
             BOOL hot = !l->plain && !l->disabled && i == g_pane.hot_line;
 
+            if (l->preview)
+            {
+                HDC mem = CreateCompatibleDC(hdc);
+                HBITMAP old = SelectObject(mem, l->preview);
+                RECT frame = l->rc;
+
+                BitBlt(hdc, l->rc.left, l->rc.top, l->rc.right - l->rc.left, l->rc.bottom - l->rc.top, mem, 0, 0, SRCCOPY);
+                SelectObject(mem, old);
+                DeleteDC(mem);
+                InflateRect(&frame, 1, 1);
+                FrameRect(hdc, &frame, GetSysColorBrush(COLOR_BTNSHADOW));
+                continue;
+            }
             if (l->icon_id)
             {
                 SHFILEINFOW sfi;
@@ -677,6 +724,12 @@ static void activate(LINE *l)
         WCHAR file[MAX_PATH];
         if (selected_path(info, file))
             SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, file, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+        break;
+    }
+    case 1012:   /* View as a slide show, from the selected picture */
+    {
+        WCHAR file[MAX_PATH], dir[MAX_PATH];
+        if (view_folder_path(info, dir)) slideshow_start(dir, selected_path(info, file) ? file : NULL);
         break;
     }
     case 1011:   /* Play all / Play selection: the player opens the files */

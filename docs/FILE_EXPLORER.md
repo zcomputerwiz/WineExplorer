@@ -52,5 +52,8 @@ changes made by other programs (folder watcher), XP Properties page, drag and dr
 Also done: Picture/Music/Video Tasks (Set as desktop background, Play all; slide show, prints and the online stores
 grayed), Shared Pictures/Music/Video in Other Places, a scrolling task pane, live wallpaper changes.
 
-Left for later: details view groups, the drives' free space line in Tiles, Undo of New Folder, the slide show,
-the picture preview and dimensions in Details, folder thumbnails showing their pictures.
+Also done: View as a slide show (full screen, 5 seconds a picture, arrows/click/Esc), the picture's preview and
+dimensions in Details.
+
+Left for later: details view groups, the drives' free space line in Tiles, Undo of New Folder, folder thumbnails
+showing their pictures, XP's blue frame around a selected thumbnail.
