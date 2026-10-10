@@ -40,7 +40,11 @@ typedef struct _TASK_ITEM
     BOOL        icon_dirty; /* refresh after the publishing process finishes its X11 update */
     BOOL        hot;       /* mouse is over the button */
     BOOL        pressed;   /* left button held down on it */
-    RECT        rect;
+    RECT        rect;       /* empty for a window shown by its group's button */
+    WCHAR       group_key[MAX_PATH];   /* the program's path; empty: never grouped (Linux programs) */
+    WCHAR       group_name[64];        /* the program's description, "Windows Explorer" */
+    struct _TASK_ITEM *group;          /* the first window of its group when grouped, else NULL */
+    int         group_count;           /* on that first window: the windows of the group */
     struct _TASK_ITEM *next;
 } TASK_ITEM;
 

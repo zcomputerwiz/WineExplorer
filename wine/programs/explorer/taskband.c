@@ -31,6 +31,7 @@
 #include <shlobj.h>
 #include <commctrl.h>
 #include <uxtheme.h>
+#include <shlwapi.h>
 
 #include "theme_engine.h"
 #include "taskband.h"
@@ -150,6 +151,72 @@ static HICON get_window_task_icon(HWND hwnd)
     return icon;
 }
 
+/* Windows XP groups the buttons of one program: its path is the key, its description the group's name */
+static void fill_group_info(TASK_ITEM *item)
+{
+    struct { WORD lang, code; } *translation;
+    WCHAR cls[64], query[64], *value;
+    DWORD len = MAX_PATH, size;
+    HANDLE process;
+    void *data;
+    UINT n;
+
+    item->group_key[0] = item->group_name[0] = 0;
+    /* the hosts of Linux programs' windows all belong to Explorer */
+    if (GetClassNameW(item->target_hwnd, cls, ARRAY_SIZE(cls)) && !wcscmp(cls, L"WineExplorerLinuxWindow")) return;
+    if (!(process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, item->process_id))) return;
+    if (!QueryFullProcessImageNameW(process, 0, item->group_key, &len)) item->group_key[0] = 0;
+    CloseHandle(process);
+    if (!item->group_key[0]) return;
+
+    lstrcpynW(item->group_name, PathFindFileNameW(item->group_key), ARRAY_SIZE(item->group_name));
+    PathRemoveExtensionW(item->group_name);
+    if (!(size = GetFileVersionInfoSizeW(item->group_key, NULL)) || !(data = malloc(size))) return;
+    if (GetFileVersionInfoW(item->group_key, 0, size, data) &&
+        VerQueryValueW(data, L"\\VarFileInfo\\Translation", (void **)&translation, &n) && n >= sizeof(*translation))
+    {
+        swprintf(query, ARRAY_SIZE(query), L"\\StringFileInfo\\%04x%04x\\FileDescription", translation->lang, translation->code);
+        if (VerQueryValueW(data, query, (void **)&value, &n) && n > 1)
+            lstrcpynW(item->group_name, value, ARRAY_SIZE(item->group_name));
+    }
+    free(data);
+}
+
+/* the rectangle of the button that shows the window: its own or its group's */
+static RECT *button_rect(TASK_ITEM *item)
+{
+    return item->group ? &item->group->rect : &item->rect;
+}
+
+/* Group the buttons of the program with the most windows, then the next, until the buttons fit at full width
+ * (Windows XP does it only when the taskbar is crowded).  Returns the number of buttons. */
+static int group_buttons(int capacity)
+{
+    TASK_ITEM *a, *b, *best;
+    int buttons = g_taskband.task_count, count, best_count;
+
+    for (a = g_taskband.tasks; a; a = a->next) { a->group = NULL; a->group_count = 0; }
+    if (!taskbar_settings_get()->group_buttons) return buttons;
+
+    while (buttons > capacity)
+    {
+        best = NULL;
+        best_count = 1;
+        for (a = g_taskband.tasks; a; a = a->next)
+        {
+            if (a->group || !a->group_key[0]) continue;
+            for (count = 0, b = a; b; b = b->next)
+                if (!b->group && !wcsicmp(a->group_key, b->group_key)) count++;
+            if (count > best_count) { best = a; best_count = count; }
+        }
+        if (!best) break;
+        for (b = best; b; b = b->next)
+            if (!b->group && !wcsicmp(best->group_key, b->group_key)) { b->group = best; best->group_count++; }
+        buttons -= best_count - 1;
+    }
+    return buttons;
+}
+
 static TASK_ITEM *find_task_by_hwnd(HWND hwnd)
 {
     TASK_ITEM *curr = g_taskband.tasks;
@@ -163,7 +230,7 @@ static TASK_ITEM *find_task_by_hwnd(HWND hwnd)
 
 void taskband_relayout(void)
 {
-    int count = g_taskband.task_count;
+    int count;
     int available_width = g_taskband.max_width;
     int button_width = MAX_TASK_BUTTON_WIDTH;
     BOOL themed = theme_is_visual_styles_active();
@@ -172,6 +239,7 @@ void taskband_relayout(void)
     int per_row = max(1, available_width / MAX_TASK_BUTTON_WIDTH), i = 0;
     TASK_ITEM *curr;
 
+    count = group_buttons(rows * per_row);
     if (count <= 0)
     {
         if (g_taskband.hwnd) InvalidateRect(g_taskband.hwnd, NULL, TRUE);
@@ -186,9 +254,16 @@ void taskband_relayout(void)
     }
     g_taskband.button_width = button_width;
 
-    for (curr = g_taskband.tasks; curr; curr = curr->next, i++)
+    for (curr = g_taskband.tasks; curr; curr = curr->next)
     {
         int row = i / per_row, col = i % per_row;
+
+        if (curr->group && curr->group != curr)
+        {
+            SetRectEmpty(&curr->rect);   /* shown by its group's button */
+            continue;
+        }
+        i++;
 
         curr->rect.left = col * button_width;
         curr->rect.right = curr->rect.left + button_width - 2;
@@ -213,6 +288,7 @@ void taskband_add_window(HWND hwnd)
 
     item->target_hwnd = hwnd;
     GetWindowThreadProcessId(hwnd, &item->process_id);
+    fill_group_info(item);
     GetWindowTextW(hwnd, item->title, sizeof(item->title)/sizeof(WCHAR));
     item->icon = get_window_task_icon(hwnd);
     item->minimized = IsIconic(hwnd);
@@ -263,7 +339,7 @@ static BOOL CALLBACK sync_enum_windows_proc(HWND hwnd, LPARAM lparam)
             lstrcpynW(item->title, title, ARRAY_SIZE(item->title));
             item->active = active;
             item->minimized = minimized;
-            if (g_taskband.hwnd) InvalidateRect(g_taskband.hwnd, &item->rect, FALSE);
+            if (g_taskband.hwnd) InvalidateRect(g_taskband.hwnd, button_rect(item), FALSE);
         }
         item->seen = TRUE;
     }
@@ -361,7 +437,7 @@ void taskband_update_window(HWND hwnd)
     item->minimized = IsIconic(hwnd);
 
     if (g_taskband.hwnd)
-        InvalidateRect(g_taskband.hwnd, &item->rect, FALSE);
+        InvalidateRect(g_taskband.hwnd, button_rect(item), FALSE);
 }
 
 void taskband_flash_window(HWND hwnd)
@@ -371,7 +447,7 @@ void taskband_flash_window(HWND hwnd)
     {
         item->flashing = !item->flashing;
         if (g_taskband.hwnd)
-            InvalidateRect(g_taskband.hwnd, &item->rect, FALSE);
+            InvalidateRect(g_taskband.hwnd, button_rect(item), FALSE);
     }
 }
 
@@ -402,29 +478,38 @@ static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font_normal, HFONT 
     int icon_y, icon_x;
     RECT text_rc;
     COLORREF text_color = GetSysColor(COLOR_BTNTEXT);
+    BOOL group = item->group == item && item->group_count > 1, active = item->active, flashing = item->flashing;
+    WCHAR text[300];
+    TASK_ITEM *member;
+    HTHEME theme;
+
+    /* a group button is pressed while one of its windows is active */
+    if (group)
+        for (member = g_taskband.tasks; member; member = member->next)
+            if (member->group == item) { active |= member->active; flashing |= member->flashing && !member->active; }
 
     /* 1. Draw Button Edge & Background */
-    HTHEME theme = theme_open(NULL, item->flashing ? L"TaskBand" : L"TaskBand::Toolbar");
+    theme = theme_open(NULL, flashing ? L"TaskBand" : L"TaskBand::Toolbar");
     if (theme)
     {
         /* TaskBand::Toolbar button states: 1 normal, 5 checked (the active window); TaskBand flash button when flashing */
         /* button images: 1 normal, 2 hot, 3 pressed, 5 checked (the active window), 6 hot and checked */
-        int state = item->pressed ? 3 : (item->active ? (item->hot ? 6 : 5) : (item->hot ? 2 : 1));
-        DrawThemeBackground(theme, hdc, item->flashing ? 2 : 1, state, &rc, NULL);
-        GetThemeColor(theme, item->flashing ? 2 : 1, state, TMT_TEXTCOLOR, &text_color);
+        int state = item->pressed ? 3 : (active ? (item->hot ? 6 : 5) : (item->hot ? 2 : 1));
+        DrawThemeBackground(theme, hdc, flashing ? 2 : 1, state, &rc, NULL);
+        GetThemeColor(theme, flashing ? 2 : 1, state, TMT_TEXTCOLOR, &text_color);
         CloseThemeData(theme);
     }
     else
     {
         /* Authentic Windows Classic 3D button rendering */
-        if (item->flashing)
+        if (flashing)
         {
             HBRUSH flash_brush = CreateSolidBrush(RGB(255, 170, 0)); /* Highlight flash color */
             FillRect(hdc, &rc, flash_brush);
             DeleteObject(flash_brush);
             theme_draw_classic_bevel(hdc, &rc, EDGE_RAISED, BF_RECT | BF_ADJUST);
         }
-        else if (item->active)
+        else if (active)
         {
             /* Active button has sunken 3D bevel filled with 50% checkerboard dither pattern */
             COLORREF old_txt, old_bk;
@@ -445,8 +530,8 @@ static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font_normal, HFONT 
     }
 
     /* 2. Position icon and text - shifted by (+1, +1) when active (authentic pressed look) */
-    icon_x = item->rect.left + 4 + (item->active ? 1 : 0);
-    icon_y = item->rect.top + (item->rect.bottom - item->rect.top - icon_size) / 2 + (item->active ? 1 : 0);
+    icon_x = item->rect.left + 4 + (active ? 1 : 0);
+    icon_y = item->rect.top + (item->rect.bottom - item->rect.top - icon_size) / 2 + (active ? 1 : 0);
 
     if (item->icon)
     {
@@ -455,16 +540,32 @@ static void draw_task_button(HDC hdc, TASK_ITEM *item, HFONT font_normal, HFONT 
 
     /* 3. Draw Window Title Text (Bold for active, Normal for inactive) */
     text_rc.left = icon_x + icon_size + 4;
-    text_rc.top = item->rect.top + (item->active ? 1 : 0);
-    text_rc.right = item->rect.right - 4;
-    text_rc.bottom = item->rect.bottom + (item->active ? 1 : 0);
+    text_rc.top = item->rect.top + (active ? 1 : 0);
+    text_rc.right = item->rect.right - (group ? 16 : 4);
+    text_rc.bottom = item->rect.bottom + (active ? 1 : 0);
 
-    old_font = SelectObject(hdc, item->active ? font_bold : font_normal);
+    old_font = SelectObject(hdc, active ? font_bold : font_normal);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, text_color);
 
-    DrawTextW(hdc, item->title, -1, &text_rc,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    if (group) swprintf(text, ARRAY_SIZE(text), L"%d %s", item->group_count, item->group_name);
+    else lstrcpynW(text, item->title, ARRAY_SIZE(text));
+    DrawTextW(hdc, text, -1, &text_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    if (group)
+    {
+        /* the arrow of the group's window list */
+        int x = item->rect.right - 12 + (active ? 1 : 0), y = (item->rect.top + item->rect.bottom) / 2 - 1 + (active ? 1 : 0);
+        POINT arrow[3] = { { x, y }, { x + 6, y }, { x + 3, y + 3 } };
+        HBRUSH brush = CreateSolidBrush(text_color), old_brush = SelectObject(hdc, brush);
+        HPEN pen = CreatePen(PS_SOLID, 1, text_color), old_pen = SelectObject(hdc, pen);
+
+        Polygon(hdc, arrow, 3);
+        SelectObject(hdc, old_brush);
+        SelectObject(hdc, old_pen);
+        DeleteObject(brush);
+        DeleteObject(pen);
+    }
 
     SelectObject(hdc, old_font);
 }
@@ -522,6 +623,127 @@ static void show_task_context_menu(HWND hwnd, TASK_ITEM *item, POINT pt)
         {
             PostMessageW(item->target_hwnd, WM_CLOSE, 0, 0);
         }
+        break;
+    }
+    taskband_sync_windows();
+}
+
+/* a click on a window's button: minimize it when it is the active one, else bring it up */
+static void click_task(TASK_ITEM *item)
+{
+    HWND fg = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
+
+    if ((item->target_hwnd == fg || item->active) && !IsIconic(item->target_hwnd))
+        ShowWindow(item->target_hwnd, SW_MINIMIZE);
+    else
+    {
+        if (IsIconic(item->target_hwnd)) ShowWindow(item->target_hwnd, SW_RESTORE);
+        else ShowWindow(item->target_hwnd, SW_SHOWNORMAL);
+        SetForegroundWindow(item->target_hwnd);
+    }
+}
+
+/* a menu picture of a window's icon */
+static HBITMAP icon_bitmap(HICON icon)
+{
+    BITMAPINFO info = { { sizeof(BITMAPINFOHEADER), 22, -16, 1, 32, BI_RGB } };   /* margins around the icon */
+    HDC hdc = CreateCompatibleDC(NULL);
+    void *bits;
+    HBITMAP bitmap = CreateDIBSection(hdc, &info, DIB_RGB_COLORS, &bits, NULL, 0), old;
+
+    if (bitmap)
+    {
+        RECT rc = { 0, 0, 22, 16 };
+
+        old = SelectObject(hdc, bitmap);
+        FillRect(hdc, &rc, GetSysColorBrush(COLOR_MENU));   /* menus draw the bitmap without its alpha */
+        DrawIconEx(hdc, 2, 0, icon, 16, 16, 0, NULL, DI_NORMAL);
+        SelectObject(hdc, old);
+    }
+    DeleteDC(hdc);
+    return bitmap;
+}
+
+/* the list of a group's windows, under or above its button */
+static void show_group_list(HWND hwnd, TASK_ITEM *group)
+{
+    HMENU menu = CreatePopupMenu();
+    HBITMAP bitmaps[64];
+    TASK_ITEM *member, *members[64];
+    int n = 0, i;
+    POINT pt = { group->rect.left, group->rect.top };
+    UINT cmd;
+
+    for (member = g_taskband.tasks; member && n < ARRAY_SIZE(members); member = member->next)
+    {
+        MENUITEMINFOW mi = { sizeof(mi), MIIM_ID | MIIM_STRING | MIIM_BITMAP };
+
+        if (member->group != group) continue;
+        bitmaps[n] = member->icon ? icon_bitmap(member->icon) : NULL;
+        mi.wID = n + 1;
+        mi.dwTypeData = member->title;
+        mi.hbmpItem = bitmaps[n];
+        InsertMenuItemW(menu, n, TRUE, &mi);
+        members[n++] = member;
+    }
+    ClientToScreen(hwnd, &pt);
+    SetForegroundWindow(g_taskband.parent_tray ? g_taskband.parent_tray : hwnd);
+    cmd = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
+    DestroyMenu(menu);
+    for (i = 0; i < n; i++) if (bitmaps[i]) DeleteObject(bitmaps[i]);
+    if (cmd && cmd <= n)
+    {
+        member = members[cmd - 1];
+        if (IsIconic(member->target_hwnd)) ShowWindow(member->target_hwnd, SW_RESTORE);
+        SetForegroundWindow(member->target_hwnd);
+    }
+}
+
+#define IDM_GROUP_CASCADE    10
+#define IDM_GROUP_TILE_H     11
+#define IDM_GROUP_TILE_V     12
+#define IDM_GROUP_MINIMIZE   13
+#define IDM_GROUP_CLOSE      14
+
+/* the menu of a group's button: arrange, minimize or close all its windows */
+static void show_group_menu(HWND hwnd, TASK_ITEM *group, POINT pt)
+{
+    HMENU menu = CreatePopupMenu();
+    HWND windows[64];
+    TASK_ITEM *member;
+    UINT cmd, n = 0, i;
+
+    for (member = g_taskband.tasks; member && n < ARRAY_SIZE(windows); member = member->next)
+        if (member->group == group) windows[n++] = member->target_hwnd;
+
+    AppendMenuW(menu, MF_STRING, IDM_GROUP_CASCADE, L"&Cascade");
+    AppendMenuW(menu, MF_STRING, IDM_GROUP_TILE_H, L"Tile &Horizontally");
+    AppendMenuW(menu, MF_STRING, IDM_GROUP_TILE_V, L"Tile &Vertically");
+    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(menu, MF_STRING, IDM_GROUP_MINIMIZE, L"Mi&nimize Group");
+    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(menu, MF_STRING, IDM_GROUP_CLOSE, L"&Close Group");
+
+    SetForegroundWindow(g_taskband.parent_tray ? g_taskband.parent_tray : hwnd);
+    cmd = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
+    DestroyMenu(menu);
+
+    switch (cmd)
+    {
+    case IDM_GROUP_CASCADE:
+        for (i = 0; i < n; i++) if (IsIconic(windows[i])) ShowWindow(windows[i], SW_RESTORE);
+        CascadeWindows(NULL, 0, NULL, n, windows);
+        break;
+    case IDM_GROUP_TILE_H:
+    case IDM_GROUP_TILE_V:
+        for (i = 0; i < n; i++) if (IsIconic(windows[i])) ShowWindow(windows[i], SW_RESTORE);
+        TileWindows(NULL, cmd == IDM_GROUP_TILE_H ? MDITILE_HORIZONTAL : MDITILE_VERTICAL, NULL, n, windows);
+        break;
+    case IDM_GROUP_MINIMIZE:
+        for (i = 0; i < n; i++) ShowWindow(windows[i], SW_MINIMIZE);
+        break;
+    case IDM_GROUP_CLOSE:
+        for (i = 0; i < n; i++) PostMessageW(windows[i], WM_CLOSE, 0, 0);
         break;
     }
     taskband_sync_windows();
@@ -624,16 +846,9 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             curr->pressed = FALSE;
             if (was_pressed && PtInRect(&curr->rect, pt))
             {
-                /* the button acts when it is released, like on Windows */
-                HWND fg = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
-                if ((curr->target_hwnd == fg || curr->active) && !IsIconic(curr->target_hwnd))
-                    ShowWindow(curr->target_hwnd, SW_MINIMIZE);
-                else
-                {
-                    if (IsIconic(curr->target_hwnd)) ShowWindow(curr->target_hwnd, SW_RESTORE);
-                    else ShowWindow(curr->target_hwnd, SW_SHOWNORMAL);
-                    SetForegroundWindow(curr->target_hwnd);
-                }
+                /* the button acts when it is released, like on Windows; a group's button lists its windows */
+                if (curr->group == curr && curr->group_count > 1) show_group_list(hwnd, curr);
+                else click_task(curr);
                 taskband_sync_windows();
                 break;
             }
@@ -656,7 +871,8 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             {
                 POINT menu_pt = { curr->rect.left, curr->rect.top };
                 ClientToScreen(hwnd, &menu_pt);
-                show_task_context_menu(hwnd, curr, menu_pt);
+                if (curr->group == curr && curr->group_count > 1) show_group_menu(hwnd, curr, menu_pt);
+                else show_task_context_menu(hwnd, curr, menu_pt);
                 return 0;
             }
             curr = curr->next;
@@ -679,7 +895,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
                 item->icon_dirty = FALSE;
                 if (item->icon) DestroyIcon(item->icon);
                 item->icon = get_window_task_icon(item->target_hwnd);
-                InvalidateRect(hwnd, &item->rect, FALSE);
+                InvalidateRect(hwnd, button_rect(item), FALSE);
             }
             return 0;
         }

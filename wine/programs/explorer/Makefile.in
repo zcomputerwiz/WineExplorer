@@ -1,10 +1,11 @@
 MODULE    = explorer.exe
 IMPORTS   = rpcrt4 user32 gdi32 advapi32 win32u
-DELAYIMPORTS = wexhost msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32
+DELAYIMPORTS = wexhost msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32 version
 
 EXTRADLLFLAGS = -mwindows -municode
 
-VER_FILEDESCRIPTION_STR = "Wine Explorer Desktop Environment"
+# the XP name, which the taskbar's group buttons and Task Manager show
+VER_FILEDESCRIPTION_STR = "Windows Explorer"
 VER_PRODUCTVERSION      = 6,1,7601,17567
 
 SOURCES = \

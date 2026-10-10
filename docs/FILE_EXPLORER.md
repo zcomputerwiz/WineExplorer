@@ -34,7 +34,7 @@ folder handler).
 | 10 | My Documents layout | Contains My Music, My Pictures and My Videos | Done: the folders stay in the profile (modern layout); Explorer puts folder shortcuts with the XP names and icons into My Documents | `shellfolders.c`, `shlfolder.c` |
 | 11 | Task pane (done) | Folder tasks include Publish to the Web and Share this folder (grayed or hidden here) | Make a new folder only | `browser_taskpane.c` |
 | 12 | Undo | Undo of rename, move, copy and delete | None | `browser_ui.c` / shell32 |
-| 13 | Taskbar grouping | "2 Windows Explorer" when crowded | One button per window | `taskband.c` |
+| 13 | Taskbar grouping (done) | "2 Windows Explorer" when crowded | One button per window | `taskband.c` |
 | 14 | Toolbar (Go done) | The Go button has its green arrow | Text only | `browser_ui.c` |
 
 Checked: Ctrl+A/C/X/V, Delete to the Recycle Bin with the XP confirmation. Not checked yet: drag and drop between
