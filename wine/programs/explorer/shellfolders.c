@@ -226,20 +226,37 @@ static void create_folder_shortcut(const WCHAR *dir, const WCHAR *target, int ic
     SetFileAttributesW(dir, FILE_ATTRIBUTE_READONLY);
 }
 
+/* The profile folder keeps its name on disk ("Documents") and is shown by the Windows XP name ("My Documents"),
+ * as modern Windows does it: desktop.ini LocalizedResourceName with a shell32 string */
+static void set_display_name(int csidl, int string_id)
+{
+    WCHAR path[MAX_PATH], ini[MAX_PATH], value[MAX_PATH];
+
+    if (FAILED(SHGetFolderPathW(NULL, csidl, NULL, SHGFP_TYPE_CURRENT, path))) return;
+    swprintf(ini, ARRAY_SIZE(ini), L"%s\\desktop.ini", path);
+    if (GetPrivateProfileStringW(L".ShellClassInfo", L"LocalizedResourceName", L"", value, ARRAY_SIZE(value), ini))
+        return;
+    swprintf(value, ARRAY_SIZE(value), L"@%%SystemRoot%%\\system32\\shell32.dll,-%d", string_id);
+    WritePrivateProfileStringW(L".ShellClassInfo", L"LocalizedResourceName", value, ini);
+    SetFileAttributesW(ini, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
+}
+
 void shellfolder_link_media_folders(void)
 {
-    /* the names and shell32 icons of Windows XP */
-    static const struct { int csidl; const WCHAR *name; int icon; } media[] =
+    /* the names, shell32 icons and shell32 display-name strings of Windows XP */
+    static const struct { int csidl; const WCHAR *name; int icon; int string_id; } media[] =
     {
-        { CSIDL_MYPICTURES, L"My Pictures", 236 },
-        { CSIDL_MYMUSIC,    L"My Music",    237 },
-        { CSIDL_MYVIDEO,    L"My Videos",   238 },
+        { CSIDL_MYPICTURES, L"My Pictures", 236, 9228 },
+        { CSIDL_MYMUSIC,    L"My Music",    237, 9229 },
+        { CSIDL_MYVIDEO,    L"My Videos",   238, 9230 },
     };
     WCHAR docs[MAX_PATH], target[MAX_PATH], dir[MAX_PATH];
     unsigned int i;
     size_t len;
 
     if (FAILED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, docs))) return;
+    set_display_name(CSIDL_PERSONAL, 9227);
+    for (i = 0; i < ARRAY_SIZE(media); i++) set_display_name(media[i].csidl, media[i].string_id);
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     len = wcslen(docs);
     for (i = 0; i < ARRAY_SIZE(media); i++)

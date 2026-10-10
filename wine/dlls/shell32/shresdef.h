@@ -143,6 +143,8 @@
 #define IDS_SHORTCUT_TO             183
 #define IDS_SHORTCUT_N_TO           184
 #define IDS_NEW_ITEM                185
+#define IDS_SEND_TO                 186
+#define IDS_SEND_TO_DESKTOP         187
 
 #define IDS_LICENSE                 256
 #define IDS_LICENSE_CAPTION         257
@@ -161,6 +163,9 @@
 /* Note: this string is referenced from the registry*/
 #define IDS_RECYCLEBIN_FOLDER_NAME   8964
 #define IDS_MYDOCUMENTS_FOLDER_NAME  9227
+#define IDS_MYPICTURES_FOLDER_NAME   9228
+#define IDS_MYMUSIC_FOLDER_NAME      9229
+#define IDS_MYVIDEOS_FOLDER_NAME     9230
 
 /* Properties dialog */
 #define IDD_FILE_PROPERTIES        8

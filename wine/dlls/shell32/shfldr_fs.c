@@ -879,7 +879,26 @@ IShellFolder_fnGetDisplayNameOf (IShellFolder2 * iface, LPCITEMIDLIST pidl,
             get_display_name( pszPath, This->sPathTarget, pidl,
                               IsEqualCLSID( This->pclsid, &CLSID_UnixFolder ));
         }
-        else _ILSimpleGetTextW(pidl, pszPath, MAX_PATH);
+        else
+        {
+            _ILSimpleGetTextW(pidl, pszPath, MAX_PATH);
+            /* a folder can be shown by another name: desktop.ini LocalizedResourceName, as Windows does for
+             * "Documents" and the like */
+            if (_ILIsFolder(pidl) && !(GET_SHGDN_FOR(dwFlags) & (SHGDN_FORPARSING | SHGDN_FOREDITING)) &&
+                This->sPathTarget)
+            {
+                WCHAR ini[MAX_PATH], raw[MAX_PATH], value[MAX_PATH];
+
+                lstrcpynW(ini, This->sPathTarget, MAX_PATH);
+                PathAppendW(ini, pszPath);
+                PathAppendW(ini, L"desktop.ini");
+                if (GetPrivateProfileStringW(L".ShellClassInfo", L"LocalizedResourceName", L"", raw,
+                                             MAX_PATH, ini) &&
+                    ExpandEnvironmentStringsW(raw, value, MAX_PATH) &&
+                    FAILED(SHLoadIndirectString(value, pszPath, MAX_PATH, NULL)))
+                    _ILSimpleGetTextW(pidl, pszPath, MAX_PATH);
+            }
+        }
         if (!_ILIsFolder(pidl)) SHELL_FS_ProcessDisplayFilename(pszPath, dwFlags);
     } else {
         hr = SHELL32_GetDisplayNameOfChild(iface, pidl, dwFlags, pszPath, MAX_PATH);

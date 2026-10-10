@@ -25,10 +25,10 @@ folder handler).
 | 1 | Background menu | View ▸, Arrange Icons By ▸, Refresh, Paste, Paste Shortcut, Undo, New ▸, Properties | Line up Icons, Refresh, Paste, Paste as Link, Properties. The submenus are lost because the shell view asks for IDs from 0 and `MENU_002` submenus lie outside that range. | `shell32.rc` `MENU_002`, `shlview.c` `ShellView_DoContextMenu`, `shlview_cmenu.c` `BackgroundMenu_*` |
 | 2 | New ▸ | Folder, Shortcut, then the `ShellNew` types (Text Document, Bitmap and so on) | Not shown; `new_menu.c` exists but the view does not use it | `shlview.c` / `new_menu.c` |
 | 3 | Paste into the same folder | Creates "Copy of X", then "Copy (2) of X" | Does nothing: `SHFileOperation` refuses to copy a file onto itself | `shlfileop.c` |
-| 4 | Item menu | Open, Edit, Print, Open With ▸, Send To ▸, Cut, Copy, Create Shortcut, Delete, Rename, Properties | No Open With, Send To or Edit; says "Create Link" | `shlview_cmenu.c`, `shell32.rc` |
+| 4 | Item menu (Send To done) | Open, Edit, Print, Open With ▸, Send To ▸, Cut, Copy, Create Shortcut, Delete, Rename, Properties | No Open With, Send To or Edit; says "Create Link" | `shlview_cmenu.c`, `shell32.rc` |
 | 5 | Edit menu | Undo, Cut, Copy, Paste, Paste Shortcut, Copy To Folder…, Move To Folder…, Select All, Invert Selection | No Undo, Paste Shortcut, Copy To or Move To | `browser_ui.c` |
 | 6 | File extensions | Known extensions hidden (`HideFileExt=1`) | Shown | default in `wine.inf` |
-| 7 | Names | "My Documents" from every entry point | Window titled "Documents" when opened from the desktop icon | desktop icon target / namespace |
+| 7 | Names (done: desktop.ini LocalizedResourceName on Documents, Pictures, Music, Videos) | "My Documents" from every entry point | Window titled "Documents" when opened from the desktop icon | desktop icon target / namespace |
 | 8 | Views | Thumbnails, Tiles, Icons, List, Details; My Documents and My Computer default to Tiles | Tiles not implemented in comctl32 (`LV_VIEW_TILE` FIXME); no Thumbnails | `comctl32/listview.c`, `shlview.c` |
 | 9 | My Computer | Groups (Files Stored on This Computer, Hard Disk Drives, Removable Storage); "Local Disk (C:)"; Control Panel only under Other Places | Flat list, "(C:)", Control Panel listed with the drives | `shfldr_mycomp.c`, list view groups |
 | 10 | My Documents layout | Contains My Music, My Pictures and My Videos | Done: the folders stay in the profile (modern layout); Explorer puts folder shortcuts with the XP names and icons into My Documents | `shellfolders.c`, `shlfolder.c` |

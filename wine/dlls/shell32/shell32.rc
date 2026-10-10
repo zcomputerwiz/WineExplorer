@@ -148,6 +148,9 @@ STRINGTABLE
 	IDS_MYCOMPUTER		"My Computer"
 	IDS_RECYCLEBIN_FOLDER_NAME      "Recycle Bin"
 	IDS_MYDOCUMENTS_FOLDER_NAME     "My Documents"
+	IDS_MYPICTURES_FOLDER_NAME      "My Pictures"
+	IDS_MYMUSIC_FOLDER_NAME         "My Music"
+	IDS_MYVIDEOS_FOLDER_NAME        "My Videos"
 	IDS_CONTROLPANEL	"Control Panel"
 
         /* context menus */
@@ -240,6 +243,8 @@ the folder?"
         IDS_SHORTCUT_TO             "Shortcut to %1"
         IDS_SHORTCUT_N_TO           "Shortcut (%2!u!) to %1"
         IDS_NEW_ITEM                "New %1"
+        IDS_SEND_TO                 "Se&nd To"
+        IDS_SEND_TO_DESKTOP         "Desktop (create shortcut)"
 
 	IDS_CPANEL_TITLE            "Wine Control Panel"
 	IDS_CPANEL_NAME             "Name"

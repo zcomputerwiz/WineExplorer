@@ -45,6 +45,17 @@ WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 #define VERB_ID_OFFSET 0x200
 
+#define SENDTO_ID_OFFSET 0x300
+
+enum send_to_kind { SEND_TO_SHORTCUT, SEND_TO_COPY, SEND_TO_PROGRAM };
+
+struct send_to
+{
+    WCHAR *text;
+    WCHAR *path;   /* folder to copy to, folder for shortcuts or program to run */
+    enum send_to_kind kind;
+};
+
 struct verb
 {
     WCHAR *desc;
@@ -68,6 +79,10 @@ typedef struct
     LPITEMIDLIST  pidl;  /* root pidl */
     LPITEMIDLIST *apidl; /* array of child pidls */
     UINT cidl;
+
+    /* Send To targets of the item menu */
+    struct send_to *send_to;
+    UINT send_to_count;
 
     /* background menu data */
     BOOL desktop;
@@ -146,6 +161,12 @@ static ULONG WINAPI ContextMenu_Release(IContextMenu3 *iface)
         SHFree(This->pidl);
         _ILFreeaPidl(This->apidl, This->cidl);
         if (This->new_menu) IContextMenu3_Release(This->new_menu);
+        for (unsigned int i = 0; i < This->send_to_count; ++i)
+        {
+            free(This->send_to[i].text);
+            free(This->send_to[i].path);
+        }
+        free(This->send_to);
 
         for (unsigned int i = 0; i < This->verb_count; ++i)
         {
@@ -215,6 +236,9 @@ static UINT max_menu_id(HMENU hmenu, UINT offset, UINT last)
     return max_id;
 }
 
+static void add_send_to_menu(ContextMenu *This, HMENU hmenu, UINT pos, UINT first);
+static void do_send_to(ContextMenu *This, HWND hwnd, UINT index);
+
 static HRESULT WINAPI ItemMenu_QueryContextMenu(
 	IContextMenu3 *iface,
 	HMENU hmenu,
@@ -256,6 +280,11 @@ static HRESULT WINAPI ItemMenu_QueryContextMenu(
             mi.fType = MFT_SEPARATOR;
             InsertMenuItemW(hmenu, This->verb_count, MF_BYPOSITION, &mi);
         }
+
+        /* Windows XP: Send To and a separator after the verbs */
+        add_send_to_menu(This, hmenu, This->verb_count ? This->verb_count + 1 : 0, idCmdFirst);
+        if (This->send_to_count)
+            uIDMax = max(uIDMax, idCmdFirst + SENDTO_ID_OFFSET + This->send_to_count);
 
         SetMenuDefaultItem(hmenu, 0, MF_BYPOSITION);
 
@@ -498,6 +527,126 @@ static HRESULT create_shortcut(const WCHAR *target, const WCHAR *dir)
     IShellLinkW_Release(link);
     if (SUCCEEDED(hr)) SHChangeNotify(SHCNE_CREATE, SHCNF_PATHW, path, NULL);
     return hr;
+}
+
+static void add_send_to(ContextMenu *This, const WCHAR *text, const WCHAR *path, enum send_to_kind kind)
+{
+    struct send_to *entry;
+
+    if (!(entry = realloc(This->send_to, (This->send_to_count + 1) * sizeof(*entry)))) return;
+    This->send_to = entry;
+    entry += This->send_to_count++;
+    entry->text = wcsdup(text);
+    entry->path = wcsdup(path);
+    entry->kind = kind;
+}
+
+/* Send To, as on Windows XP: Desktop (create shortcut), My Documents, the shortcuts of the user's SendTo folder (to
+ * folders or programs) and the removable drives with media.  Mail Recipient and Compressed (zipped) Folder have no
+ * handler here. */
+static void add_send_to_menu(ContextMenu *This, HMENU hmenu, UINT pos, UINT first)
+{
+    WCHAR path[MAX_PATH], text[MAX_PATH], pattern[MAX_PATH], target[MAX_PATH], drive[] = L"A:\\";
+    WIN32_FIND_DATAW data;
+    SHFILEINFOW info;
+    HANDLE find;
+    HMENU submenu;
+    UINT i;
+
+    if (This->send_to_count || !This->cidl || !SHGetPathFromIDListW(This->pidl, path)) return;
+
+    LoadStringW(shell32_hInstance, IDS_SEND_TO_DESKTOP, text, ARRAY_SIZE(text));
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, SHGFP_TYPE_CURRENT, path)))
+        add_send_to(This, text, path, SEND_TO_SHORTCUT);
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, path)) &&
+        SHGetFileInfoW(path, 0, &info, sizeof(info), SHGFI_DISPLAYNAME))
+        add_send_to(This, info.szDisplayName, path, SEND_TO_COPY);
+
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_SENDTO, NULL, SHGFP_TYPE_CURRENT, path)))
+    {
+        swprintf(pattern, ARRAY_SIZE(pattern), L"%s\\*.lnk", path);
+        if ((find = FindFirstFileW(pattern, &data)) != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                IShellLinkW *link;
+                IPersistFile *file;
+
+                swprintf(pattern, ARRAY_SIZE(pattern), L"%s\\%s", path, data.cFileName);
+                if (FAILED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&link)))
+                    continue;
+                target[0] = 0;
+                if (SUCCEEDED(IShellLinkW_QueryInterface(link, &IID_IPersistFile, (void **)&file)))
+                {
+                    if (SUCCEEDED(IPersistFile_Load(file, pattern, STGM_READ)))
+                        IShellLinkW_GetPath(link, target, MAX_PATH, NULL, 0);
+                    IPersistFile_Release(file);
+                }
+                IShellLinkW_Release(link);
+                if (!target[0]) continue;
+                lstrcpynW(text, data.cFileName, MAX_PATH);
+                PathRemoveExtensionW(text);
+                add_send_to(This, text, target, PathIsDirectoryW(target) ? SEND_TO_COPY : SEND_TO_PROGRAM);
+            } while (FindNextFileW(find, &data));
+            FindClose(find);
+        }
+    }
+
+    for (drive[0] = 'A'; drive[0] <= 'Z'; drive[0]++)
+    {
+        if (GetDriveTypeW(drive) != DRIVE_REMOVABLE || GetFileAttributesW(drive) == INVALID_FILE_ATTRIBUTES) continue;
+        if (SHGetFileInfoW(drive, 0, &info, sizeof(info), SHGFI_DISPLAYNAME))
+            add_send_to(This, info.szDisplayName, drive, SEND_TO_COPY);
+    }
+
+    if (!This->send_to_count) return;
+    submenu = CreatePopupMenu();
+    for (i = 0; i < This->send_to_count; i++)
+        AppendMenuW(submenu, MF_STRING, first + SENDTO_ID_OFFSET + i, This->send_to[i].text);
+    LoadStringW(shell32_hInstance, IDS_SEND_TO, text, ARRAY_SIZE(text));
+    InsertMenuW(hmenu, pos, MF_BYPOSITION | MF_POPUP, (UINT_PTR)submenu, text);
+    InsertMenuW(hmenu, pos + 1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+}
+
+static void do_send_to(ContextMenu *This, HWND hwnd, UINT index)
+{
+    const struct send_to *target = &This->send_to[index];
+    WCHAR *paths, *p, *args;
+    SHFILEOPSTRUCTW op = { 0 };
+    size_t len = 0;
+
+    if (!(paths = build_source_paths(This->pidl, This->apidl, This->cidl))) return;
+    switch (target->kind)
+    {
+    case SEND_TO_SHORTCUT:
+        for (p = paths; *p; p += wcslen(p) + 1) create_shortcut(p, target->path);
+        break;
+    case SEND_TO_COPY:
+        op.hwnd = hwnd;
+        op.wFunc = FO_COPY;
+        op.pFrom = paths;
+        op.pTo = target->path;
+        op.fFlags = FOF_ALLOWUNDO;
+        SHFileOperationW(&op);
+        break;
+    case SEND_TO_PROGRAM:
+        /* the program gets the items as arguments */
+        for (p = paths; *p; p += wcslen(p) + 1) len += wcslen(p) + 3;
+        if ((args = calloc(len + 1, sizeof(WCHAR))))
+        {
+            for (p = paths; *p; p += wcslen(p) + 1)
+            {
+                if (args[0]) wcscat(args, L" ");
+                wcscat(args, L"\"");
+                wcscat(args, p);
+                wcscat(args, L"\"");
+            }
+            ShellExecuteW(hwnd, NULL, target->path, args, NULL, SW_SHOWNORMAL);
+            free(args);
+        }
+        break;
+    }
+    free(paths);
 }
 
 /* Create Shortcut: next to each selected item */
@@ -1120,6 +1269,12 @@ static HRESULT WINAPI ItemMenu_InvokeCommand(
     if (IS_INTRESOURCE(lpcmi->lpVerb))
     {
         unsigned int id = LOWORD(lpcmi->lpVerb);
+
+        if (id >= SENDTO_ID_OFFSET && id - SENDTO_ID_OFFSET < This->send_to_count)
+        {
+            do_send_to(This, lpcmi->hwnd, id - SENDTO_ID_OFFSET);
+            return S_OK;
+        }
 
         if (id >= VERB_ID_OFFSET && id - VERB_ID_OFFSET < This->verb_count)
         {
