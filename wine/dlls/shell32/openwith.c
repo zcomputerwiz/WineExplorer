@@ -429,7 +429,12 @@ static void dialog_init(struct open_with_dialog *dlg, HWND hwnd)
     if (!ext[0] || !ext[1] || PathIsExeAW(dlg->info->pcszFile))
         dlg->flags &= ~(OAIF_ALLOW_REGISTRATION | OAIF_FORCE_REGISTRATION | OAIF_REGISTER_EXT);
     if (!(dlg->flags & OAIF_ALLOW_REGISTRATION)) EnableWindow(GetDlgItem(hwnd, IDC_OPENWITH_ALWAYS), FALSE);
-    if (dlg->flags & OAIF_FORCE_REGISTRATION) CheckDlgButton(hwnd, IDC_OPENWITH_ALWAYS, BST_CHECKED);
+    if (dlg->flags & OAIF_FORCE_REGISTRATION)
+    {
+        /* Change... of the file's properties: always, as Windows XP shows it */
+        CheckDlgButton(hwnd, IDC_OPENWITH_ALWAYS, BST_CHECKED);
+        EnableWindow(GetDlgItem(hwnd, IDC_OPENWITH_ALWAYS), FALSE);
+    }
     if (dlg->flags & OAIF_HIDE_REGISTRATION) ShowWindow(GetDlgItem(hwnd, IDC_OPENWITH_ALWAYS), SW_HIDE);
 
     len = GetDlgItemTextW(hwnd, IDC_OPENWITH_FILE, text, ARRAY_SIZE(text));

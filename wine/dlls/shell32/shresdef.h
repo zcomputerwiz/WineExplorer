@@ -473,6 +473,8 @@ FIXME: Need to add them, but for now just let them use the same: searching.avi
 #define IDC_FPROP_READONLY          13019
 #define IDC_FPROP_HIDDEN            13020
 #define IDC_FPROP_ARCHIVE           13021
+#define IDC_FPROP_SIZEONDISK_LABEL  13022
+#define IDC_FPROP_SIZEONDISK        13023
 
 /* bitmaps */
 #define IDB_SORT_INCR           133
