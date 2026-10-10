@@ -102,11 +102,17 @@ Windows guest display drivers cannot drive the Linux kernel through Wine.
   virtual display driver. An xrdp / Enhanced Session setup is a separate display
   transport to evaluate; it is not automatically a graphics acceleration upgrade.
 
-Current VirtualBox audit: `vboxguest` and `vmwgfx` are loaded; VBoxService,
+Earlier VirtualBox audit: `vboxguest` and `vmwgfx` are loaded; VBoxService,
 VBoxDRMClient, and clipboard/session clients are running. Xorg reports
 `glamor X acceleration enabled on SVGA3D`, DRI3, and `SWcursor true` together.
 The cursor workaround therefore leaves accelerated X drawing enabled. This
-confirms an accelerated driver path, not a measured performance improvement.
+confirmed an accelerated driver path at that time, not a measured performance
+improvement. Subsequent native Linux window testing exposed broken core/Xrender
+drawing under glamor. The current configuration in
+`/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf` retains `SWcursor true`
+and sets `AccelMethod none`. Wine's SHM drawing and native application drawing
+work in this configuration. Acceleration must be retested independently; see
+[LINUX_WINDOWS.md](LINUX_WINDOWS.md) and [HANDOFF.md](HANDOFF.md).
 
 The cursor fault is localized to the hardware cursor presentation path: guest
 XFixes images changed correctly while the visible cursor remained stale.

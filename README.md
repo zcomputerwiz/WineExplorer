@@ -1,6 +1,6 @@
 # WineExplorer Desktop Environment (WineExplorer DE)
 
-A complete, lightweight, authentic Desktop Environment for Linux built by extending Wine and its Wine Explorer virtual desktop architecture.
+A desktop environment for Linux under development, built by extending Wine and its Wine Explorer virtual desktop architecture.
 
 ## Overview
 
@@ -15,13 +15,20 @@ The goal of this project is to evolve Wine's built-in `explorer.exe` and its vir
 
 ## Workspace Structure
 
+For the current deployed VM state, build instructions, verified changes and
+remaining work, read [the handoff](docs/HANDOFF.md). The live VM runs directly on
+X11 with customized Wine as the desktop; Proton remains an independent runtime.
+Linux tray integration, multi-monitor management and compositing are still
+planned features. [The roadmap](docs/ROADMAP.md) distinguishes current direction
+from earlier phases.
+
 ```
 D:\DeepThought\Projects\WineExplorer\
 ├── archives/               # Original repository zip archives
 ├── docs/                   # Architecture, design specifications, and guides
 │   ├── ARCHITECTURE.md     # System architecture and compositor integration
 │   ├── ROADMAP.md          # Phased development roadmap
-│   └── SHELL_SPEC.md       # Taskbar, Start Menu, Tray, and Desktop specifications
+│   └── HANDOFF.md          # Current VM state, verification and next pickup
 ├── references/             # Upstream reference codebases (READ-ONLY, excluded from git)
 │   ├── gamescope/          # Valve's Gamescope Wayland compositor
 │   ├── open-shell/         # Open-Shell start menu reference

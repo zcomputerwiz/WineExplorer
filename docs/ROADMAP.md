@@ -4,6 +4,13 @@
 
 Customized Wine remains the desktop runtime; Explorer manages X11 windows from native Linux and independent Wine/Proton applications. Proton is not replacing the desktop's Wine. The X11 WM, foreign-window hosts, XP Alt+Tab and Linux desktop-entry Start menu launcher are implemented. Next: application menu icons/categories, Linux tray/notifications, and real Steam/Proton runtime verification. Gamescope is optional per application; a session-wide compositor/service bridge is future work. See [HANDOFF.md](HANDOFF.md) and [LINUX_WINDOWS.md](LINUX_WINDOWS.md). Older completed phases below describe their original scope, not verification of a current Gamescope session.
 
+Recent verification completed: native client-area focus and keyboard input,
+cross-runtime Alt+Tab, native dialog work-area constraints, folder task-button
+icons/navigation refresh, Start menu highlight colors, Luna frame transparency,
+and tray alignment with icon hiding off/on and collapsed/expanded chevrons.
+These fixes are deployed to WineExplorer-VM. Current operational state, build
+steps and remaining limits are recorded in [HANDOFF.md](HANDOFF.md).
+
 ## Phase 1: Environment & Repository Baseline (Completed)
 - [x] Unpack all provided source archives into organized workspace.
 - [x] Establish read-only isolated references directory for clean-room inspection (`references/`).

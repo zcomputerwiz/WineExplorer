@@ -1,143 +1,99 @@
-# Current handoff (2026-10-09)
+# WineExplorer handoff — 2026-10-09
 
-**Active desktop work is back in `D:\DeepThought\Projects\WineExplorer`.** The user has superseded the full Proton desktop migration: customized Wine 11.19 remains the desktop runtime and window manager. Proton runs applications independently, with its normal runtimes and prefixes, as it would under another Linux desktop. The ProtonExplorer copy/VM remains a separate compatibility lab; its migration plan is historical, not the current desktop implementation plan.
+## Current direction and state
 
-Read [LINUX_WINDOWS.md](LINUX_WINDOWS.md) for the new implementation. Claude's `72a1faf`, `4f87754` and `4634367` added the X11 window manager, themed Win32 hosts for external windows, client-side title-bar move/resize, shell keys and XP Alt+Tab across threads. Review also moved the WM running-state check inside the X connection lock, preventing a late request from using a connection after shutdown.
+Active checkout: `D:\DeepThought\Projects\WineExplorer`, branch `master`. Customized Wine 11.19 remains the desktop runtime and X11 window manager. Proton is an independent application runtime with its own prefixes and Steam/launcher integration. The separate ProtonExplorer project/VM is a compatibility lab, not the replacement desktop.
 
-Claude left an untracked `wine/dlls/wexhost/apps.c`. It is now integrated into the Unix call table, PE exports and both Start menu styles. Programs / All Programs includes a sorted **Linux Applications** submenu, discovered through GIO and refreshed on opening. Launching by desktop ID strips the shell's `WINE*` variables from directly spawned clients. GIO handles desktop-entry field codes, visibility rules and terminal/D-Bus launches. Categories and per-application menu icons are the next presentation work; the current list is flat. See [START_MENU.md](START_MENU.md) and [LINUX_WINDOWS.md](LINUX_WINDOWS.md).
+The live stack is **GDM → Xorg → Wine virtual desktop → Explorer shell/window manager**. Explorer hosts native Linux and separate Wine/Proton X11 windows in themed Win32 frames. Gamescope is not installed in this VM; there is no session-wide Gamescope/pass-through service. `wexhost` provides X11 management, GIO application discovery/launch, system D-Bus services and XRandR display control. Gamescope per application remains a separate option.
 
-## Runtime and build
+Current visible session: WineExplorer-VM, Luna/Bliss, 800×600. My Computer and Documents were restored after the last reload; no LibreOffice document was open at that reload. Hide inactive icons is **enabled**. Temporary tray test icons and preferences were removed. Existing per-icon preferences remain intact. Recheck open applications before any future session restart.
 
-- **WineExplorer-VM**, SSH `2222`, user `wineuser`, key `D:/VirtualBox_VMs/vm_key`.
-- Guest source `~/src/wine`, build `~/build/wine64`, installed `/usr/local`; source is copied, not a guest Git checkout.
-- Visible desktop: GDM → Xorg `:0` → installed Wine Explorer `/desktop=Default,800x600 /shell`, prefix `~/.wine`. Xauthority `/run/user/1000/gdm/Xauthority`. The current Luna/Bliss session has My Computer and Documents open. The user authorized using and restarting this real session for verification.
-- Gamescope is not installed. There is no compositor pass-through service. `wexhost` supplies system D-Bus APIs and XRandR display control. The session script now starts directly on X11, matching Claude's WM design; Gamescope remains optional per application. A future service/compositor bridge needs separate design and validation.
-- Targeted build: `make -j8 dlls/wexhost/all programs/explorer/all` (directory names alone do not build them).
-- Launcher verification used Xvfb `:6` and `~/launcher-check/prefix`, not the visible desktop. `scripts/linux-apps-probe.c` provides enumeration and launch checks. Verified visibility filtering, oversized metadata serialization, Unicode/ampersands, clean launch environment, missing-ID errors, dynamic install/remove changes, and both menu styles. Screenshots/logs are under guest `~/launcher-check`; host screenshots under ignored `build/launcher-*.png`.
-- Changes are built, installed and running in the visible session. The user authorized real-session testing; GDM was restarted to load the new PE/Unix libraries. My Computer and xterm were restored. Verified the themed menu and a native NetworkManager editor launch, clean launch environment, repeated client-area click activation with typed input, cross-runtime Alt+Tab, and a maximized Linux window respecting the work area with the taskbar visible. Temporary focus tracing was removed.
+## Changes completed and deployed
 
-## Native focus follow-up
-
-Real-session testing found that clicking a Linux window's client area did not reliably activate it after a separate Wine process had focus, even though its title bar worked. The bridge now joins the input queues in the direction that preserves Explorer's queue when detaching; Wine recreates the first thread's input queue on detach and otherwise loses its active window and input time. Every foreign client click requests activation, rather than trusting cached `_NET_ACTIVE_WINDOW` state. FocusIn forwarding checks the current X focus so queued old events do not reclaim it.
-
-`WexWmFocus` synchronizes the session's X keyboard focus with selected Win32 windows, forwarding to the foreign child for native hosts. A foreground WinEvent hook keeps both focus and native focused-state properties current. Alt+Tab completes outside the low-level hook and preserves the shell input queue. Repeat tests checked actual X keyboard focus and typed commands, not just which window appeared on top. No additional stock X11-driver changes were retained from the investigation.
-
-## Next work
-
-**Luna appearance follow-up:** Start menu flyout/Classic icons draw through bitmap callbacks, preserving their colors and mask/alpha on highlight instead of Wine's legacy inverted bitmap operation. The XP Start panel's region now comes from its theme image. The non-client theme renderer applies caption regions, preserves explicit app regions, handles maximize/restore and removes its shape when returning to Classic. Verified screenshots and `scripts/themed-frame-probe.c` on an isolated Luna desktop; applying themes before a shell exists also no longer divides by an uninitialized desktop grid. Explorer, user32 and uxtheme are built/installed together and running in the visible session after an authorized GDM reload. Only My Computer and Documents were open at reload; both were restored at their prior positions. Real-session screenshots verify task icons, Luna caption/Start panel corners, and highlighted All Programs icons. See [THEMES.md](THEMES.md).
-
-**Task band folder icons:** folder browsers already obtain their small icon from `SHGetFileInfo(SHGFI_PIDL)`. The task band now copies usable local handles and otherwise imports the window's X11 icon pixels into its own process, before using an executable fallback. This fixes separate-process My Computer/Documents buttons without CLSID/name special cases. Every task owns its copied icon and releases it on replacement/removal. Verified distinct My Computer, My Documents and Control Panel buttons in an isolated desktop, and Control Panel → My Computer navigation updating the same task button. Redraw notifications queue one delayed refresh to allow the other process to finish publishing its X11 pixels. Built/installed and verified in the visible session after the Luna follow-up reload.
-
-**Dialog placement follow-up:** LibreOffice Calc's Save window was reproduced at frame `(-162,-153)`, size `812×611` on an `800×600` desktop. Mapping and application ConfigureRequests now constrain dialogs to the monitor work area, shrinking resizable ones within their minimum-size constraints; fixed-size oversized dialogs keep their caption reachable. The WM selects SubstructureRedirect on each native host as well as the root, so client move/resize requests remain intercepted after reparenting. The isolated native regression probe passes eight cases, including client geometry and separate move/size requests. An actual LibreOffice Calc instance with a separate user profile also opens Save at `800×570` with all controls visible under the new code. Explorer and wexhost are built/installed and now loaded after the later Luna follow-up reload. The observed LibreOffice dialog was repaired through Win32 `SetWindowPos` to frame `800×570`, client `792×536`, with Save/Cancel visible. LibreOffice and its document were kept open during that repair. LibreOffice was no longer running at the later session reload.
-
-1. Linux application menu icons/categories and pinned/MFU integration.
-2. Linux tray icons (StatusNotifierItem) and notifications; see [DBUS_PLAN.md](DBUS_PLAN.md).
-3. Exercise a real Steam/Proton application with its independent prefix. Native Linux/X11 window hosting is verified; no Proton application was launched in this continuation.
-4. Multi-monitor work areas/struts, foreign-window grouping and shell-crash recovery remain open. Native Wayland management and a session-wide Gamescope bridge are not implemented.
-
-**WebView2 update:** Claude's `66c09b0` recorded a positive rendering result on the separate ProtonExplorer VM using baseline Wine 11.19, Proton's per-app Windows 7 override for `msedgewebview2.exe`, and SwiftShader. See [WEBVIEW2.md](WEBVIEW2.md). This does not require migrating the desktop to Proton and is not yet a shell feature.
-
-The Date/Time notes below are historical context and may describe code since replaced; use the current implementation and topical docs first.
-
-# Historical handoff (2026-10-07)
-
-**Last area of work: `timedate.cpl` (Date and Time Properties)**, plus Start menu / tray polish in the same
-commits (`aa0c06c`, `504e692`, `d0809c3`). It now runs through the new D-Bus stack (see below). Full review: `docs/CODE_REVIEW.md`.
-
-## What exists
-
-`wine/dlls/timedate.cpl/` (~1.9k lines):
-
-| File | Role |
+| Commit | Change and verification |
 |---|---|
-| `timedate.c` | `CPlApplet` entry, builds the 2-page property sheet, activates manifest (res 124) |
-| `dateandtime.c` | Date & Time page: `SysMonthCal32`, `SysDateTimePick32` (time), analog clock, `PSN_APPLY` -> `date -s` through UAC |
-| `clock.c` | `TimeDateClock` owner-drawn analog clock; messages `CLM_STOPCLOCK/STARTCLOCK/SETTIME` |
-| `timezone.c` | Time Zone page: reads `HKLM\...\Time Zones` (53-entry fallback table), world map bitmap, DST checkbox, applies via `SetTimeZoneInformation`, registry, and `timedatectl set-timezone` through UAC |
-| `uac.c` | Vista-style consent/credential dialog; runs `sudo`/`su` via `/bin/sh` and temp files (see review A2) |
-| `world.bmp` | Map (ReactOS world map, updated in `aa0c06c`) |
+| `e75e717` | Dynamic Linux Applications submenu in both Start menu styles, launched by desktop ID through GIO. Checked visibility rules, Unicode/ampersands, metadata limits, missing IDs, dynamic install/remove and direct-launch environment isolation. |
+| `190b5e6` | Native client-area clicks activate and deliver keyboard input after switching from another Wine process. Correct input-queue attachment direction, X/Win32 focus synchronization and deferred Alt+Tab completion. Repeated real xterm typing and cross-runtime switching passed. |
+| `551bfaf` | Native dialogs fit the monitor work area; reparented client ConfigureRequests remain intercepted. Eight native regression cases passed, including actual client bounds. LibreOffice Save was repaired to a reachable 800×570 frame; separate-profile reopening was verified. |
+| `b0fb4a0` | Task buttons own local icon copies, importing X11 pixels when cross-process Wine icon handles cannot be copied. My Computer, Documents and Control Panel have distinct icons; navigation updates the same task button. |
+| `a32a08b` | Start menu highlight preserves icon colors/transparency. Luna caption and Start panel regions follow theme transparency, removing white square corners. Frame probe passed maximize/restore, explicit app regions and Classic reset. Theme-only startup no longer refreshes an uninitialized desktop grid. |
+| `99fcd88` | Tray reserves the theme's left content margin even without a chevron. Turning hiding off previously put icons over the dark blue transition; both icons now remain in the cyan content area. |
+| `1354742` | Recorded live checks with hiding enabled: no chevron, collapsed chevron and expanded chevron all align without overlaps. Removed temporary test icon and restored hiding to enabled. |
 
-Related changes made for it elsewhere:
-- `wine/dlls/comctl32/monthcal.c`: today-circle removed globally (review C1).
-- `wine/dlls/ntdll/unix/sync.c`: `NtSetSystemTime` falls back to `sudo -n date -s` (review A3).
-- `scripts/disable_timesync.py`: patches the VirtualBox Guest Additions init script in the Debian VM
-  (`/opt/VBoxGuestAdditions-7.2.20/init/vboxadd-service`) to add `--disable-timesync`, so a manually set guest
-  clock sticks. VM-only; re-run after Guest Additions upgrades.
-- `wine/programs/explorer/tray_clock.c`: double-click launches `control.exe timedate.cpl`.
-- `wine/programs/control/control.c`: `PRINTERS` etc. routed to the Printers folder (unrelated).
-- Registry used: `HKCU\Software\WineExplorer\Time\SelectedTimeZone` (persisted zone key; takes priority over
-  the host zone when the page opens), `HKLM\System\CurrentControlSet\Control\TimeZoneInformation\TimeZoneKeyName`.
+The code above is built, installed and loaded in the visible VM. The latest guest Explorer build, installed module and prefix `windows/explorer.exe` have matching SHA-256 hashes (checked during this handoff). No new application code was changed in the documentation pass.
 
-## Behavior verified as working (from commit messages; re-check on the VM)
-- Time editing with the clock freezing while editing and resuming on blur; date selection tracking;
-  `PSN_APPLY` persists across the VM's time-sync service (once `disable_timesync.py` has been run).
-- Time zone list sorted by bias, selection persisted, host zone synced via `timedatectl`.
-- 64-bit-safe subclassing of the DTP (`SetWindowSubclass`).
+## Runtime, build and deployment
 
-## Current state of timedate.cpl (after the D-Bus refactor)
-- Elevation is no longer done by the applet. `Apply` calls `wexhost` (`WexTimedateSetTime` / `SetTimezone`), which
-  calls systemd `timedate1` over the system bus. polkit then asks the session's authentication agent, which is
-  **explorer** (`programs/explorer/uac_agent.c`, registered at shell start); it shows the UAC-style dialog.
-  Verified in the VM: the agent registers (`polkitd: Registered Authentication Agent for unix-session:...`),
-  the dialog appears, dismissing it cancels, a correct password authorizes (PAM through `polkit-agent-helper-1`).
-- Time is set as a *relative* wall-clock delta (chosen - now), so Wine/host zone differences cannot shift it.
-- Zone selection prefers the host zone (`timedate1` property) over saved registry values; zone change goes to the
-  host first and only then to Wine's registry; unmapped zones update Wine only.
-- The calendar is created with `MCS_NOTODAY | MCS_NOTODAYCIRCLE` (matches XP; comctl32 is stock again).
-- `uac.c` and the UAC dialog resource left the applet; the dialog now lives in explorer.
+- VM: `WineExplorer-VM`. SSH: `wineuser@127.0.0.1`, port `2222`, host key file `D:/VirtualBox_VMs/vm_key`.
+- Guest source: `~/src/wine`; build: `~/build/wine64`; installation: `/usr/local`. Guest source is copied from this repository, not a Git checkout. Commit on the Windows host.
+- Live environment: `DISPLAY=:0`, `XAUTHORITY=/run/user/1000/gdm/Xauthority`, `WINEPREFIX=$HOME/.wine`.
+- Session entry point: `/usr/local/bin/wine-explorer-session.sh`. It reads the Winlogon Shell value, restores the accepted display mode and starts Explorer directly on X11. With the current configuration it runs `/desktop=Default,800x600 /shell`.
+- Log: `~/.wine-session.log` (previous log `.1`).
+- Host helper: `scripts/vm.sh`, run from Git Bash. Read its command header before using it; sync, build, install, screenshots and cursor selection are supported.
 
-## Time zone / audio / shell hook (done after the first handoff)
-- Wine follows the host zone (libc); `SetTimeZoneInformation` is a no-op in Wine, so the applet only changes the host
-  zone (`timedate1`) and no longer touches Wine's registry. The "DST checkbox" is informational. The stale-DST symptom
-  was a wineserver bug (bias only recomputed on year change): fixed in `server/fd.c`; ntdll's cache now follows
-  `/etc/localtime`. Verified live: changing the host zone updates the tray clock within seconds.
-- `IAudioEndpointVolume` really works now (set from a Wine process, `wpctl` shows the change). explorer's
-  `audio_backend.c` uses it again (no process spawns); `hostcmd.c` remains for nmcli.
-- `RegisterShellHookWindow` works; taskband gets created/destroyed/activated/redraw/flash events (the 2 s poll is
-  only a safety net). One hook window per desktop (it is stored as the taskman window).
-- VM gotcha: `pkill wineserver` leaves orphan Wine processes that block new clients; use `/tmp/cleanwine.sh`-style
-  cleanup (`wineserver -k`, kill `windows.system32` processes) before restarting the session.
+Typical guest targeted builds:
 
-## Known defects / unfinished (timedate)
-1. XP fidelity (compare with the XP VM, Control Panel -> Date and Time): add the **Internet Time** tab (use
-   `timedate1.SetNTP`, `NTPSynchronized`); the XP page uses month combo + year spinner above the grid and a
-   "Current time zone: ..." line; the time box needs a proper spinner look; remove "Current time is displayed above."
-   The analog clock face/hands differ from XP. World map: draw the selected zone's band (`draw_world_map` ignores
-   `selected_idx`).
-2. After a manual `SetTimeZoneInformation` the prefix can end up with a zone lacking DST rules (the VM showed
-   Wine at UTC-6 while the host was on CDT). Prefer the registry's full `TZI` data and re-derive from the host zone
-   at page open; generate `g_tz_iana_map` for every registry zone from CLDR `windowsZones.xml`.
-3. `timezone.c`: the fallback table's DST rules are wrong for many zones; `g_orig_map_proc` subclass should use
-   `SetWindowSubclass`.
-4. The UAC dialog still has Vista wording/layout; replace with Longhorn-beta art when resources are chosen. No
-   "verified publisher"-style fields are shown any more (they were invented).
-5. polkit agent: `unix-group` identities are expanded from `/etc/group` only (no LDAP/NSS users); only one prompt
-   at a time (a second request is cancelled).
+```sh
+cd ~/build/wine64
+make -j8 dlls/wexhost/all programs/explorer/all
+# If changing frame-region hooks:
+make -j8 dlls/user32/all dlls/uxtheme/all programs/explorer/all
+```
 
-## Everything else the next person needs to know
+Use the `/all` targets; directory names alone do not rebuild modules. Shared-header changes can require a broader rebuild. The frame-region work changed the internal user32/uxtheme hook structure: deploy matching user32 and uxtheme builds together.
 
-- Roadmap (`docs/ROADMAP.md`) says Phases 1-11 are complete; several boxes are overstated (review D2). Trust the
-  code and the review, not the checkboxes.
-- Highest-priority review items outside timedate: Wi-Fi command injection (A1), taskband `DestroyIcon` on
-  foreign icons (A4), virtual-desktop default-shell change (A5), `explorer.c` substring switch matching (A6).
-- Luna rendering does not exist yet (review D1); decide the approach before writing more shell GDI code.
+PE modules live in `/usr/local/lib/wine/x86_64-windows`; Unix libraries in `/usr/local/lib/wine/x86_64-unix`. The prefix also has builtin copies in `~/.wine/drive_c/windows/system32`, plus `~/.wine/drive_c/windows/explorer.exe`. Refresh all relevant copies. When replacing a loaded file, install to a temporary sibling then rename it atomically rather than truncating the mapped file. `scripts/vm.sh install` supplies the full-install workflow.
 
-## Working environment (known facts)
+A GDM restart loads the new shell/libraries and **closes graphical applications**. Prior user authorization covered real-session testing and restarts, but check for new unsaved work. Explorer is the session process: exiting it logs out. Restore desired folder windows afterward. Prefer isolated tests when a live reload is unnecessary; do not kill all wineservers when using an independent test prefix.
 
-- Windows host: repo at `D:\DeepThought\Projects\WineExplorer`; `wine/` is a copy of upstream Wine master with
-  our changes in-tree (not a submodule). `references/` is gitignored (ReactOS, Wine, Wayland, Open-Shell,
-- Debian VM (VirtualBox) with GDM autologin as user `wineuser`, Guest Additions 7.2.20; Wine built in
-  `/home/wineuser/build/wine64` (seen in `check_res.py`); installed under `/usr/local/bin/wine`; session script
-  `/usr/local/bin/wine-explorer-session.sh`, desktop entry `scripts/wine-explorer.desktop`.
-- Workflow stated by the owner: build on both the host and the VM; binaries are `scp`/`ssh`'d to the VM; VMs are
-  driven with `VBoxManage` (`C:\Program Files\Oracle\VirtualBox\VBoxManage.exe`, not on the bash PATH). A
-  Windows XP Pro VM is the visual and behavioral reference.
-- **Now known:** VMs `WineExplorer-VM` and `Windows XP Pro` (`VBoxManage controlvm <name> screenshotpng`); SSH `wineuser@127.0.0.1:2222` with key `D:\VirtualBox_VMsm_key` (NAT forward); source on the VM in `~/src/wine`, build in `~/build/wine64`; everything is wrapped by `scripts/vm.sh` (sync/build/install/shot/ssh). Gotchas: the VM clock was far in the future once (stale `.res` files stopped rebuilding; sync uses `tar -m` and `find -newermt` + `touch` fixes it); the prefix keeps copies of builtin modules in `system32` (`vm.sh install` refreshes them); `pkill -f control.exe` kills your own ssh command.
-- **Previously unknown (resolved above):** VM names, SSH host/port/key, exact `configure` and `make`
-  invocations, which `make` target to rebuild just one CPL/program, how screenshots are taken
-  (`VBoxManage controlvm <vm> screenshotpng`?), where the XP reference screenshots live inside `references/`.
-  Fill these into a `docs/WORKFLOW.md` or `CLAUDE.md` after the first successful build/deploy cycle.
+Host screenshot command (PowerShell):
 
-## Targets
-First visual target: **XP Classic and Luna** themes matching the XP VM pixel-for-pixel where feasible. Longhorn
-beta is a later source of UAC and possibly extra resources.
+```powershell
+& 'C:/Program Files/Oracle/VirtualBox/VBoxManage.exe' controlvm WineExplorer-VM screenshotpng 'D:/DeepThought/Projects/WineExplorer/build/check.png'
+```
+
+Windows XP Pro is the visual/behavioral reference VM. Reference source/assets live in ignored `references/`; generated screenshots, binaries and test scripts in ignored `build/` are not guaranteed handoff artifacts. Maintained probes are under `scripts/`.
+
+## Verification tools and limits
+
+| Probe / check | Purpose and environment |
+|---|---|
+| `scripts/linux-apps-probe.c` | Enumerate or launch a desktop ID through the bridge. Compile with MinGW; run through Wine. |
+| `scripts/linux-dialog-probe.c` | Eight native dialog placement/client geometry cases. Compile with `cc -Wall -Wextra ... -lX11`; use an isolated 800×600 Xvfb session with a 30-pixel taskbar. |
+| `scripts/themed-frame-probe.c` | Luna frame region, app-defined regions, maximize/restore and Classic reset. MinGW with `-lgdi32`; requires an English My Computer window. It moves/resizes the test window, so use an isolated session. |
+| `scripts/tray-layout-probe.c` | Read-only visible tray child bounds versus icons, clock and task band. MinGW `-mwindows`; writes `Z:\tmp\tray-layout-probe.txt`. Bounds alone do not validate the cyan themed boundary: also inspect screenshots. |
+| `scripts/display-output-probe.c` | XRandR versus read-only DRM scanout. See DISPLAY_OUTPUT_TESTING.md for build/run and supported topology. |
+
+Isolated GUI tests used Xvfb `:6` and `~/launcher-check/prefix`. Apply the theme in that prefix, stop **its** wineserver, then start a fresh `/shell` desktop: applying a theme first can create a plain desktop that otherwise gets reused without a taskbar. The server must match the Wine build/runtime.
+
+Latest tray evidence: host `build/tray-hide-off-fixed.png`, `tray-on-chevron-collapsed.png`, `tray-on-chevron-expanded.png`, `tray-on-final.png`. Two visible icons collapsed and three expanded passed actual child-window bounds checks; screenshots confirmed the theme content area. Settings key: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskbar`, `HideInactiveIcons=1`. Per-icon preferences: `HKCU\Software\WineExplorer\TrayIcons`.
+
+Keep-on-top behavior was verified earlier with Notepad activated, maximized and sized over the taskbar, including auto-hide/reveal. See SYSTEM_TRAY.md. Physical-output testing verified VirtualBox guest DRM scanout changes, Keep/No/timeout and restoration to 800×600; it did not test a host physical monitor, Hyper-V or VMware.
+
+## VM graphics caveats
+
+`/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf` currently sets `Driver "modesetting"`, `SWcursor "true"` and `AccelMethod "none"`. The software cursor avoids stale VirtualBox hardware cursor shapes. Glamor was subsequently disabled because native Linux Xrender/core drawing was blank or corrupt, while Wine's SHM drawing worked. Earlier notes describing accelerated glamor are historical. This is a working compatibility configuration, not a measured performance improvement or a universal hypervisor recommendation.
+
+Guest cursor images changed correctly during the original fault; a driver/hypervisor stale presentation cache is plausible but its exact cause was not proven. Hardware cursors and acceleration need independent retesting after graphics-stack updates.
+
+## Remaining work / next pickup
+
+1. Linux Applications menu icons/categories and pinned/MFU integration. Current menu is a flat, dynamically refreshed list capped at 512 entries.
+2. Linux tray icons (StatusNotifierItem) and notifications; see DBUS_PLAN.md.
+3. Launch and verify a real Steam/Proton application using its independent runtime/prefix. Native Linux hosting is verified; this continuation did not exercise a Proton application in WineExplorer-VM.
+4. Multi-monitor work areas/struts, foreign-window grouping and shell-crash recovery. Native Wayland window management and a session-wide Gamescope bridge are not implemented.
+5. Accelerated/per-hypervisor graphics and physical-output tests need suitable hardware. The VM currently reports CPU Vulkan; nested Gamescope output resizing is not evidence of changing physical scanout.
+6. WebView2 remains a separate lab. A positive baseline-Wine test on ProtonExplorer-VM used a per-app Windows 7 override for `msedgewebview2.exe` plus SwiftShader. Do not infer accelerated rendering or shell integration from it; see WEBVIEW2.md for exact provenance and remaining tests.
+
+## Documentation map
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): current desktop/runtime ownership.
+- [LINUX_WINDOWS.md](LINUX_WINDOWS.md): native hosts, focus, launch bridge and dialog constraints.
+- [START_MENU.md](START_MENU.md) / [THEMES.md](THEMES.md): shell settings, theme packages, menu icon and region behavior.
+- [SYSTEM_TRAY.md](SYSTEM_TRAY.md): hiding, chevrons, network activity, boundaries and topmost checks.
+- [DISPLAY.md](DISPLAY.md) / [DISPLAY_OUTPUT_TESTING.md](DISPLAY_OUTPUT_TESTING.md): graphical mode changes and output validation.
+- [STOCK_CHANGES.md](STOCK_CHANGES.md): changes outside the Explorer/wexhost modules.
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md): cursor and VM integration notes.
+- [HANDOFF_2026-10-07.md](HANDOFF_2026-10-07.md): archived earlier handoff; contains superseded statements. Current code and topical docs take precedence.
+
+Commit work regularly at coherent boundaries. The desktop runtime decision above supersedes the old full-Proton migration plan.

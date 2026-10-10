@@ -34,6 +34,19 @@ Advanced work, Remove... and Sort are disabled); the program Properties item of 
 
 ## Taskbar
 
+Task buttons own local copies of their window icons. Separate-process Explorer
+folders use their published X11 icon pixels when the Wine icon handle cannot be
+copied, preserving My Computer/Documents/Control Panel icons and updating during
+navigation. Start menu flyout and Classic highlights draw the original icons
+with their mask/alpha instead of inverting their colors. See
+[LINUX_WINDOWS.md](LINUX_WINDOWS.md) and [THEMES.md](THEMES.md).
+
+Notification background spacing accounts for the theme's left content margin
+even when hiding is disabled or no chevron is needed. Hiding off, hiding on,
+collapsed and expanded chevrons were checked in the live Luna session; icons
+remain in the cyan area without overlapping each other, the clock or task band.
+See [SYSTEM_TRAY.md](SYSTEM_TRAY.md) for settings and verification.
+
 * The taskbar menu (right-click) is the one of the shell: Toolbars (Address, Links, Desktop, Quick Launch, added
   toolbars, New Toolbar...), Cascade, Tile, Show the Desktop, **Undo** of the last Cascade/Tile/Minimize All, Task
   Manager, Lock the Taskbar, Properties. Right-click on the notification area or clock adds Adjust Date/Time and

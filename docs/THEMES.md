@@ -29,7 +29,8 @@ The shell (`shellres.c`) loads `xpres_<module>.dll` from the active theme's fold
 
 ## Not covered yet
 - `Luna\Shell\<scheme>\shellstyle.dll` (Start panel pictures) still comes from the XP export.
-- Cursors, sounds and wallpaper are applied from the `.theme` file but not yet packaged.
+- Accelerated compositing and native Wayland frame integration are not implemented.
+  Cursors, sounds and wallpaper are included in the packages described below.
 
 ## Rounded frames and Start menu icons
 
