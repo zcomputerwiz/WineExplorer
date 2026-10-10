@@ -138,6 +138,11 @@
 #define IDS_RECYCLEBIN_OVERWRITE_CAPTION 171
 
 #define IDS_NEW_MENU_FOLDER         180
+#define IDS_COPY_OF                 181
+#define IDS_COPY_N_OF               182
+#define IDS_SHORTCUT_TO             183
+#define IDS_SHORTCUT_N_TO           184
+#define IDS_NEW_ITEM                185
 
 #define IDS_LICENSE                 256
 #define IDS_LICENSE_CAPTION         257

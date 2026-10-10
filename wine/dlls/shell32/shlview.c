@@ -1113,6 +1113,15 @@ static void ShellView_DoContextMenu(IShellViewImpl * This, WORD x, WORD y, BOOL 
 
 	  BackgroundMenu_Constructor(This->pSFParent, FALSE, &IID_IContextMenu2, (void**)&pCM);
 	  IContextMenu2_QueryContextMenu(pCM, hMenu, 0, FCIDM_SHVIEWFIRST, FCIDM_SHVIEWLAST, 0);
+	  {
+	      /* the current view and arrangement, ids relative to FCIDM_SHVIEWFIRST */
+	      UINT current = This->FolderSettings.ViewMode == FVM_LIST ? FCIDM_SHVIEW_LISTVIEW :
+	                     This->FolderSettings.ViewMode == FVM_DETAILS ? FCIDM_SHVIEW_REPORTVIEW : FCIDM_SHVIEW_BIGICON;
+	      CheckMenuRadioItem(hMenu, FCIDM_SHVIEW_BIGICON - 0x7000, FCIDM_SHVIEW_REPORTVIEW - 0x7000,
+	                         current - 0x7000, MF_BYCOMMAND);
+	      if (This->FolderSettings.fFlags & FWF_AUTOARRANGE)
+	          CheckMenuItem(hMenu, FCIDM_SHVIEW_AUTOARRANGE - 0x7000, MF_BYCOMMAND | MF_CHECKED);
+	  }
 
 	  uCommand = TrackPopupMenu( hMenu, TPM_LEFTALIGN | TPM_RETURNCMD,x,y,0,This->hWnd,NULL);
 	  DestroyMenu(hMenu);
@@ -1674,9 +1683,20 @@ static LRESULT ShellView_OnChange(IShellViewImpl * This, const LPCITEMIDLIST *pi
     {
         case SHCNE_MKDIR:
         case SHCNE_CREATE:
-            pidl = ILClone(ILFindLastID(pidls[0]));
+        {
+            /* a notification by path has a simple pidl without the file's size and dates: read the item again */
+            WCHAR name[MAX_PATH];
+            LPITEMIDLIST full;
+
+            if (LV_FindItemByPidl(This, ILFindLastID(pidls[0])) != -1) break;
+            if (_ILSimpleGetTextW(ILFindLastID(pidls[0]), name, ARRAY_SIZE(name)) &&
+                SUCCEEDED(IShellFolder_ParseDisplayName(This->pSFParent, NULL, NULL, name, NULL, &full, NULL)))
+                pidl = full;
+            else
+                pidl = ILClone(ILFindLastID(pidls[0]));
             shellview_add_item(This, pidl);
             break;
+        }
         case SHCNE_RMDIR:
         case SHCNE_DELETE:
         {

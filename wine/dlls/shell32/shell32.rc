@@ -36,41 +36,38 @@ END
  shellview background menu
 */
 MENU_002 MENUEX
+/* Windows XP's folder background menu.  The ids are offsets from the caller's first id (shlview_cmenu.c):
+ * FCIDM_SHVIEW_* - FCIDM_BASE, 0x180+ sort columns, 0x190+ views not implemented yet; New is inserted before
+ * Properties by the New menu object. */
 BEGIN
 	POPUP ""
 	BEGIN
-	  POPUP "&View",                0x40   /* Submenus need ids <= FCIDM_SHVIEWLAST so they don't get removed by MergeMenu */
+	  POPUP "&View",                0x1f0
 	  BEGIN
-	    MENUITEM "Lar&ge Icons",	FCIDM_SHVIEW_BIGICON
-	    MENUITEM "S&mall Icons",	FCIDM_SHVIEW_SMALLICON
-	    MENUITEM "&List",		FCIDM_SHVIEW_LISTVIEW
-	    MENUITEM "&Details",	FCIDM_SHVIEW_REPORTVIEW
+	    MENUITEM "Thumb&nails",	0x190, MFT_STRING, MFS_GRAYED
+	    MENUITEM "Tile&s",		0x191, MFT_STRING, MFS_GRAYED
+	    MENUITEM "Ico&ns",		0x29
+	    MENUITEM "&List",		0x2b
+	    MENUITEM "&Details",	0x2c
 	  END
-	  MENUITEM SEPARATOR
-	  POPUP "Arrange &Icons",       0x41
+	  POPUP "Arrange &Icons By",    0x1f1
 	  BEGIN
-	    MENUITEM "By &Name",	0x30	/* column 0 */
-	    MENUITEM "By &Type",	0x32	/* column 2 */
-	    MENUITEM "By &Size",	0x31	/* ... */
-	    MENUITEM "By &Date",	0x33
+	    MENUITEM "&Name",		0x180
+	    MENUITEM "&Size",		0x181
+	    MENUITEM "&Type",		0x182
+	    MENUITEM "&Modified",	0x183
 	    MENUITEM SEPARATOR
-	    MENUITEM "&Auto Arrange",	FCIDM_SHVIEW_AUTOARRANGE
-	  END
-	  MENUITEM "Line up Icons",	FCIDM_SHVIEW_SNAPTOGRID
-	  MENUITEM SEPARATOR
-	  MENUITEM "Refresh",		FCIDM_SHVIEW_REFRESH
-	  MENUITEM SEPARATOR
-	  MENUITEM "Paste",		FCIDM_SHVIEW_INSERT
-	  MENUITEM "Paste as Link",	FCIDM_SHVIEW_INSERTLINK
-	  MENUITEM SEPARATOR
-	  POPUP "New",                  0x42
-	  BEGIN
-	    MENUITEM "New &Folder",	FCIDM_SHVIEW_NEWFOLDER
-	    MENUITEM "New &Link",	FCIDM_SHVIEW_NEWLINK
-	    MENUITEM SEPARATOR
+	    MENUITEM "Show in &Groups",	0x192, MFT_STRING, MFS_GRAYED
+	    MENUITEM "&Auto Arrange",	0x31
+	    MENUITEM "A&lign to Grid",	0x32
 	  END
 	  MENUITEM SEPARATOR
-	  MENUITEM "Properties",	FCIDM_SHVIEW_PROPERTIES
+	  MENUITEM "R&efresh",		0x100
+	  MENUITEM SEPARATOR
+	  MENUITEM "&Paste",		0x1a
+	  MENUITEM "Paste &Shortcut",	0x1c
+	  MENUITEM SEPARATOR
+	  MENUITEM "P&roperties",	0x13
 	END
 END
 
@@ -97,7 +94,7 @@ BEGIN
 	  MENUITEM "&Copy",		FCIDM_SHVIEW_COPY
 	  MENUITEM "&Paste",		FCIDM_SHVIEW_INSERT
 	  MENUITEM SEPARATOR
-	  MENUITEM "Create &Link",	FCIDM_SHVIEW_CREATELINK
+	  MENUITEM "Create &Shortcut",	FCIDM_SHVIEW_CREATELINK
 	  MENUITEM "&Delete",		FCIDM_SHVIEW_DELETE
 	  MENUITEM "&Rename",		FCIDM_SHVIEW_RENAME
 	  MENUITEM SEPARATOR
@@ -237,7 +234,12 @@ the folder?"
 
 	IDS_NEWFOLDER		"New Folder"
 
-        IDS_NEW_MENU_FOLDER         "New &Folder"
+        IDS_NEW_MENU_FOLDER         "&Folder"
+        IDS_COPY_OF                 "Copy of %1"
+        IDS_COPY_N_OF               "Copy (%2!u!) of %1"
+        IDS_SHORTCUT_TO             "Shortcut to %1"
+        IDS_SHORTCUT_N_TO           "Shortcut (%2!u!) to %1"
+        IDS_NEW_ITEM                "New %1"
 
 	IDS_CPANEL_TITLE            "Wine Control Panel"
 	IDS_CPANEL_NAME             "Name"
