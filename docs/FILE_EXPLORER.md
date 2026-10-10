@@ -49,5 +49,8 @@ windows and the desktop, F2 rename in place, keyboard navigation and type-ahead,
 Also done: New > Shortcut with XP's Create Shortcut wizard (appwiz.cpl NewLinkHere), shell views that follow
 changes made by other programs (folder watcher), XP Properties page, drag and drop into folders, taskbar grouping.
 
-Left for later: details view groups, Picture Tasks and Music Tasks panes, Shared Pictures/Music for the media
-folders' Other Places, the drives' free space line in Tiles, Undo of New Folder.
+Also done: Picture/Music/Video Tasks (Set as desktop background, Play all; slide show, prints and the online stores
+grayed), Shared Pictures/Music/Video in Other Places, a scrolling task pane, live wallpaper changes.
+
+Left for later: details view groups, the drives' free space line in Tiles, Undo of New Folder, the slide show,
+the picture preview and dimensions in Details, folder thumbnails showing their pictures.

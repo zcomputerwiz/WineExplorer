@@ -60,6 +60,7 @@ typedef struct
 {
     WCHAR title[64];
     BOOL special;        /* dark blue head, like "System Tasks" */
+    int icon_id;         /* shell32 icon standing out of the head, as Picture Tasks has */
     BOOL collapsed;
     int first, count;
     RECT head;
@@ -70,14 +71,100 @@ typedef struct
     explorer_info *info;
     LINE lines[MAX_LINES];
     int line_count;
-    GROUP groups[3];
+    GROUP groups[4];
     int group_count;
     int hot_line, hot_group;
     BOOL tracking;
+    int scroll;          /* pixels the groups are scrolled up, when they do not fit */
+    const void *scroll_pidl;   /* the folder the scroll position is for */
     WCHAR signature[512];
 } TASKPANE;
 
 static TASKPANE g_pane;
+
+static void add_group(const WCHAR *title, BOOL special);
+
+/* the kinds of folder Windows XP gives tasks of their own */
+enum media { MEDIA_NONE, MEDIA_PICTURES, MEDIA_MUSIC, MEDIA_VIDEO };
+
+static const struct { int csidl, shared_csidl, icon; const WCHAR *exts; } media_info[] =
+{
+    { 0 },
+    { CSIDL_MYPICTURES, CSIDL_COMMON_PICTURES, 236, L".bmp.jpg.jpeg.jpe.gif.png.tif.tiff.ico.dib" },
+    { CSIDL_MYMUSIC, CSIDL_COMMON_MUSIC, 237, L".mp3.wma.wav.mid.midi.ogg.flac.m4a.aac.au.aif.aiff" },
+    { CSIDL_MYVIDEO, CSIDL_COMMON_VIDEO, 238, L".avi.wmv.mpg.mpeg.mp4.mkv.webm.mov.asf" },
+};
+
+/* My Pictures, My Music, My Videos and the folders in them, as XP's folder templates go */
+static enum media folder_media(const WCHAR *path)
+{
+    WCHAR folder[MAX_PATH];
+    enum media m;
+    size_t len;
+
+    for (m = MEDIA_PICTURES; m <= MEDIA_VIDEO; m++)
+    {
+        if (FAILED(SHGetFolderPathW(NULL, media_info[m].csidl, NULL, SHGFP_TYPE_CURRENT, folder))) continue;
+        len = wcslen(folder);
+        if (!wcsnicmp(path, folder, len) && (!path[len] || path[len] == '\\')) return m;
+    }
+    return MEDIA_NONE;
+}
+
+static BOOL has_media_ext(const WCHAR *name, enum media m)
+{
+    const WCHAR *ext = PathFindExtensionW(name), *p;
+    size_t len = wcslen(ext);
+
+    if (len < 2) return FALSE;
+    for (p = media_info[m].exts; (p = StrStrIW(p, ext)); p += len)
+        if (!p[len] || p[len] == '.') return TRUE;
+    return FALSE;
+}
+
+/* the first file of the kind in the folder */
+static BOOL first_media_file(const WCHAR *dir, enum media m, WCHAR *found)
+{
+    WCHAR pattern[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    HANDLE find;
+    BOOL ret = FALSE;
+
+    swprintf(pattern, ARRAY_SIZE(pattern), L"%s\\*", dir);
+    if ((find = FindFirstFileW(pattern, &fd)) == INVALID_HANDLE_VALUE) return FALSE;
+    do
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && has_media_ext(fd.cFileName, m))
+        {
+            swprintf(found, MAX_PATH, L"%s\\%s", dir, fd.cFileName);
+            ret = TRUE;
+        }
+    while (!ret && FindNextFileW(find, &fd));
+    FindClose(find);
+    return ret;
+}
+
+/* the file of a single selection */
+static BOOL selected_path(explorer_info *info, WCHAR *path)
+{
+    FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    IShellView *view = NULL;
+    IDataObject *data = NULL;
+    STGMEDIUM medium;
+    BOOL ret = FALSE;
+
+    IExplorerBrowser_GetCurrentView(info->browser, &IID_IShellView, (void **)&view);
+    if (!view) return FALSE;
+    IShellView_GetItemObject(view, SVGIO_SELECTION, &IID_IDataObject, (void **)&data);
+    IShellView_Release(view);
+    if (!data) return FALSE;
+    if (SUCCEEDED(IDataObject_GetData(data, &format, &medium)))
+    {
+        ret = DragQueryFileW(medium.hGlobal, ~0u, NULL, 0) == 1 && DragQueryFileW(medium.hGlobal, 0, path, MAX_PATH);
+        ReleaseStgMedium(&medium);
+    }
+    IDataObject_Release(data);
+    return ret;
+}
 
 static void add_group(const WCHAR *title, BOOL special)
 {
@@ -85,6 +172,7 @@ static void add_group(const WCHAR *title, BOOL special)
     memset(g, 0, sizeof(*g));
     lstrcpynW(g->title, title, ARRAY_SIZE(g->title));
     g->special = special;
+    g->icon_id = 0;
     g->first = g_pane.line_count;
 }
 
@@ -169,7 +257,8 @@ static void rebuild(explorer_info *info)
     int selected = list ? (int)SendMessageW(list, LVM_GETSELECTEDCOUNT, 0, 0) : 0;
     WCHAR name[MAX_PATH], type[80], date[80], size[80], folder_name[MAX_PATH] = {0}, signature[512];
     BOOL computer = is_my_computer(info), has_path;
-    WCHAR path[MAX_PATH];
+    WCHAR path[MAX_PATH], media_path[MAX_PATH];
+    enum media media;
     SHFILEINFOW sfi = {0};
     LINE *l;
     int i;
@@ -189,9 +278,37 @@ static void rebuild(explorer_info *info)
     swprintf(signature, ARRAY_SIZE(signature), L"%p|%d|%d|%s|%s|%s|%s", info->pidl, selected, computer, name, type, date, size);
     if (!wcscmp(signature, g_pane.signature)) return;
     lstrcpynW(g_pane.signature, signature, ARRAY_SIZE(g_pane.signature));
+    if (g_pane.scroll_pidl != info->pidl) g_pane.scroll = 0;   /* another folder starts at the top */
+    g_pane.scroll_pidl = info->pidl;
 
     for (i = 0; i < g_pane.line_count; i++) ILFree(g_pane.lines[i].pidl);
     g_pane.line_count = g_pane.group_count = 0;
+
+    /* Picture Tasks, Music Tasks and Video Tasks above the folder's tasks, as Windows XP has them */
+    media = view_folder_path(info, media_path) ? folder_media(media_path) : MEDIA_NONE;
+    if (media != MEDIA_NONE)
+    {
+        WCHAR file[MAX_PATH];
+        BOOL picture = selected == 1 && selected_path(info, file) && has_media_ext(file, MEDIA_PICTURES);
+
+        if (media == MEDIA_PICTURES)
+        {
+            add_group(L"Picture Tasks", TRUE);
+            add_line(L"View as a slide show", 0, -1, 249)->disabled = TRUE;
+            add_line(L"Order prints online", 0, -1, 251)->disabled = TRUE;
+            add_line(picture ? L"Print this picture" : L"Print pictures", 0, -1, 252)->disabled = TRUE;
+            if (picture) add_line(L"Set as desktop background", 1010, -1, 250);
+        }
+        else
+        {
+            add_group(media == MEDIA_MUSIC ? L"Music Tasks" : L"Video Tasks", TRUE);
+            l = add_line(selected ? L"Play selection" : L"Play all", 1011, -1, 246);
+            l->disabled = !selected && !first_media_file(media_path, media, file);
+            if (media == MEDIA_MUSIC) add_line(L"Shop for music online", 0, -1, 247)->disabled = TRUE;
+        }
+        g_pane.groups[g_pane.group_count - 1].icon_id = media_info[media].icon;
+    }
+
     if (computer)
     {
         add_group(L"System Tasks", TRUE);
@@ -201,7 +318,7 @@ static void rebuild(explorer_info *info)
     }
     else if (has_path || selected)
     {
-        add_group(L"File and Folder Tasks", TRUE);
+        add_group(L"File and Folder Tasks", FALSE);
         if (!selected)
         {
             add_line(L"Make a new folder", IDM_FILE_NEWFOLDER, -1, 319);
@@ -250,7 +367,9 @@ static void rebuild(explorer_info *info)
     else
     {
         /* Windows XP: the parent folder, then the places that are neither it nor this folder */
-        static const int places[] = { CSIDL_PERSONAL, CSIDL_COMMON_DOCUMENTS, CSIDL_DRIVES, CSIDL_NETWORK };
+        /* the media folders have their shared counterpart, Shared Pictures and so on */
+        const int places[] = { CSIDL_PERSONAL, media != MEDIA_NONE ? media_info[media].shared_csidl : CSIDL_COMMON_DOCUMENTS,
+                               CSIDL_DRIVES, CSIDL_NETWORK };
         LPITEMIDLIST parent = NULL, place;
 
         WCHAR docs[MAX_PATH], place_path[MAX_PATH], parent_path[MAX_PATH] = {0};
@@ -341,6 +460,7 @@ static int layout(HDC hdc, int width, HTHEME theme)
         GROUP *grp = &g_pane.groups[g];
         int body_y;
 
+        if (grp->icon_id) y += 6;   /* the icon stands out above the head */
         SetRect(&grp->head, 12, y, width - 12, y + 25);
         y += 25;
         body_y = y;
@@ -367,6 +487,33 @@ static int layout(HDC hdc, int width, HTHEME theme)
     return y;
 }
 
+/* Windows XP's pane scrolls when its groups do not fit: the scroll bar follows the height of the groups */
+static void update_scroll(HWND hwnd)
+{
+    HTHEME theme = theme_open(hwnd, L"ExplorerBar");
+    SCROLLINFO si = { sizeof(si), SIF_RANGE | SIF_PAGE | SIF_POS };
+    HDC hdc = GetDC(hwnd);
+    RECT rc;
+    int height;
+
+    GetClientRect(hwnd, &rc);
+    height = layout(hdc, rc.right, theme);
+    ReleaseDC(hwnd, hdc);
+    if (theme) CloseThemeData(theme);
+    g_pane.scroll = max(0, min(g_pane.scroll, height - rc.bottom));
+    si.nMax = height - 1;
+    si.nPage = rc.bottom;
+    si.nPos = g_pane.scroll;
+    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+}
+
+static void scroll_to(HWND hwnd, int pos)
+{
+    g_pane.scroll = pos;
+    update_scroll(hwnd);
+    InvalidateRect(hwnd, NULL, FALSE);
+}
+
 static void paint(HWND hwnd, HDC hdc)
 {
     HTHEME theme = theme_open(hwnd, L"ExplorerBar");
@@ -379,6 +526,7 @@ static void paint(HWND hwnd, HDC hdc)
     else FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
 
     layout(hdc, rc.right, theme);
+    SetViewportOrgEx(hdc, 0, -g_pane.scroll, NULL);
     font = get_font(theme, hdc, EBP_NORMALGROUPBACKGROUND, FALSE);
     bold = get_font(theme, hdc, EBP_NORMALGROUPHEAD, TRUE);
     SetBkMode(hdc, TRANSPARENT);
@@ -411,6 +559,16 @@ static void paint(HWND hwnd, HDC hdc)
         else FillRect(hdc, &grp->head, GetSysColorBrush(COLOR_ACTIVECAPTION));
         text = grp->head;
         text.left += 10; text.right -= 28;
+        if (grp->icon_id)
+        {
+            HICON icon = shellres_icon(grp->icon_id, 32);
+            if (icon)
+            {
+                DrawIconEx(hdc, grp->head.left + 2, grp->head.top - 6, icon, 32, 32, 0, NULL, DI_NORMAL);
+                DestroyIcon(icon);
+            }
+            text.left += 30;
+        }
         SelectObject(hdc, bold);
         SetTextColor(hdc, head_color);
         DrawTextW(hdc, grp->title, -1, &text, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
@@ -476,7 +634,7 @@ static void paint(HWND hwnd, HDC hdc)
 
 static void hit_test(int x, int y, int *line, int *group)
 {
-    POINT pt = { x, y };
+    POINT pt = { x, y + g_pane.scroll };
     int g, i;
 
     *line = *group = -1;
@@ -514,6 +672,21 @@ static void activate(LINE *l)
     case 1000: ShellExecuteW(NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL); break;
     case 1001: ShellExecuteW(NULL, L"open", L"control.exe", L"appwiz.cpl", NULL, SW_SHOWNORMAL); break;
     case 1002: ShellExecuteW(NULL, L"open", L"control.exe", NULL, NULL, SW_SHOWNORMAL); break;
+    case 1010:   /* Set as desktop background */
+    {
+        WCHAR file[MAX_PATH];
+        if (selected_path(info, file))
+            SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, file, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+        break;
+    }
+    case 1011:   /* Play all / Play selection: the player opens the files */
+    {
+        WCHAR file[MAX_PATH], dir[MAX_PATH];
+        if (selected_path(info, file) ||
+            (view_folder_path(info, dir) && first_media_file(dir, folder_media(dir), file)))
+            ShellExecuteW(info->main_window, NULL, file, NULL, NULL, SW_SHOWNORMAL);
+        break;
+    }
     default: if (l->command) browser_command(info, l->command); break;
     }
 }
@@ -535,6 +708,7 @@ static LRESULT CALLBACK pane_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         bmp = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
         prev = SelectObject(mem, bmp);
         paint(hwnd, mem);
+        SetViewportOrgEx(mem, 0, 0, NULL);   /* the copy below takes the bitmap as it is */
         BitBlt(hdc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
         SelectObject(mem, prev);
         DeleteObject(bmp);
@@ -544,6 +718,32 @@ static LRESULT CALLBACK pane_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
     }
     case WM_ERASEBKGND:
         return 1;
+    case WM_SIZE:
+        update_scroll(hwnd);
+        break;
+    case WM_VSCROLL:
+    {
+        SCROLLINFO si = { sizeof(si), SIF_ALL };
+        int pos = g_pane.scroll;
+
+        GetScrollInfo(hwnd, SB_VERT, &si);
+        switch (LOWORD(wparam))
+        {
+        case SB_LINEUP:        pos -= 20; break;
+        case SB_LINEDOWN:      pos += 20; break;
+        case SB_PAGEUP:        pos -= si.nPage; break;
+        case SB_PAGEDOWN:      pos += si.nPage; break;
+        case SB_THUMBTRACK:
+        case SB_THUMBPOSITION: pos = si.nTrackPos; break;
+        case SB_TOP:           pos = 0; break;
+        case SB_BOTTOM:        pos = si.nMax; break;
+        }
+        scroll_to(hwnd, pos);
+        return 0;
+    }
+    case WM_MOUSEWHEEL:
+        scroll_to(hwnd, g_pane.scroll - GET_WHEEL_DELTA_WPARAM(wparam) * 60 / WHEEL_DELTA);
+        return 0;
     case WM_MOUSEMOVE:
     {
         int line, group;
@@ -577,6 +777,7 @@ static LRESULT CALLBACK pane_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         if (group >= 0)
         {
             g_pane.groups[group].collapsed = !g_pane.groups[group].collapsed;
+            update_scroll(hwnd);
             InvalidateRect(hwnd, NULL, FALSE);
         }
         else if (line >= 0) activate(&g_pane.lines[line]);
@@ -600,7 +801,7 @@ HWND taskpane_create(explorer_info *info)
     memset(&g_pane, 0, sizeof(g_pane));
     g_pane.info = info;
     g_pane.hot_line = g_pane.hot_group = -1;
-    return CreateWindowExW(0, TASKPANE_CLASS, NULL, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, 100, 100,
+    return CreateWindowExW(0, TASKPANE_CLASS, NULL, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_VSCROLL, 0, 0, 100, 100,
                            info->main_window, NULL, explorer_hInstance, NULL);
 }
 
@@ -609,5 +810,6 @@ void taskpane_update(explorer_info *info)
     if (!info->taskpane || !IsWindowVisible(info->taskpane)) return;
     g_pane.info = info;
     rebuild(info);
+    update_scroll(info->taskpane);
     InvalidateRect(info->taskpane, NULL, FALSE);
 }

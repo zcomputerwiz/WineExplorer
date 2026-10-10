@@ -254,7 +254,11 @@ void desktop_view_refresh(void)
     if (theme)
     {
         DWORD size; WCHAR text[16];
-        SystemParametersInfoW(SPI_GETDESKWALLPAPER,MAX_PATH,theme->wallpaper_path,0);
+        /* the registry, not SPI_GETDESKWALLPAPER: user32 keeps this process's value when another process sets it */
+        size = MAX_PATH * sizeof(WCHAR);
+        if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"Wallpaper", RRF_RT_REG_SZ, NULL,
+                         theme->wallpaper_path, &size))
+            SystemParametersInfoW(SPI_GETDESKWALLPAPER,MAX_PATH,theme->wallpaper_path,0);
         size=sizeof(text);
         if(!RegGetValueW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",L"WallpaperStyle",RRF_RT_REG_SZ,NULL,text,&size)) theme->wallpaper_style=wcstol(text,NULL,10);
         size=sizeof(text);
