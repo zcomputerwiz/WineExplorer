@@ -63,6 +63,7 @@ static DWORD g_last_close_tick = 0;
 static HHOOK g_mouse_hook = NULL;
 
 extern void power_mgmt_show_shutdown_dialog(HWND parent);
+extern void power_mgmt_show_logoff_dialog(HWND parent);
 
 #define MAX_PROGRAM_ENTRIES 256
 static WCHAR g_program_paths[MAX_PROGRAM_ENTRIES][MAX_PATH];
@@ -966,8 +967,7 @@ static void run_start_command(UINT cmd, HWND tray)
         taskbar_props_show(tray);
         break;
     case STARTMENU_CMD_LOGOFF:
-        if (MessageBoxW(tray, L"Are you sure you want to log off?", L"Log Off Windows", MB_YESNO | MB_ICONQUESTION) == IDYES)
-            ExitWindowsEx(EWX_LOGOFF, 0);
+        power_mgmt_show_logoff_dialog(tray);
         break;
     case STARTMENU_CMD_SHUTDOWN:
         power_mgmt_show_shutdown_dialog(tray);

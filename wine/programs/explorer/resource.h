@@ -171,6 +171,10 @@
 #define IDB_BROWSER_GO           1034
 #define IDB_BROWSER_GO_HOT       1035
 #define IDB_SEARCH_ROVER         1036
+#define IDB_POWER_BACKGROUND     1037   /* Turn off computer / Log Off Windows (ReactOS art) */
+#define IDB_POWER_FLAG           1038
+#define IDB_TURNOFF_STRIP        1039
+#define IDB_LOGOFF_STRIP         1040
 
 /* Tray Volume Dialog */
 #define IDD_TRAYMASTER           105

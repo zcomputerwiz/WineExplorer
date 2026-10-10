@@ -101,3 +101,5 @@ Modified Wine files keep their original header. ReactOS-derived programs keep th
 * `dlls/win32u/menu.c`: menus hide the accelerator underlines until a key is used while the menu is open (or
   `SPI_GETKEYBOARDCUES` is set), like Windows XP; menu items with a 32 pixel picture are exactly as high as the
   picture (the classic Start menu).
+
+| `dlls/wexhost` (`unixlib.c`), `include/wexhost.h` | WEX_POWER_LOGOFF (login1 TerminateSession of our session) and WEX_POWER_SWITCHUSER (GDM CreateTransientDisplay) | always |

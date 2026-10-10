@@ -60,6 +60,7 @@ WINE_DEFAULT_DEBUG_CHANNEL( wexhost );
 
 #define DBUS_FUNCS \
     DO_FUNC( dbus_bus_get_private ); \
+    DO_FUNC( dbus_bus_name_has_owner ); \
     DO_FUNC( dbus_connection_close ); \
     DO_FUNC( dbus_connection_flush ); \
     DO_FUNC( dbus_connection_pop_message ); \
@@ -379,6 +380,42 @@ static DWORD get_properties( const char *dest, const char *path, const char *ifa
 
 static const char *const power_methods[] = { "PowerOff", "Reboot", "Suspend", "Hibernate" };
 
+static BOOL find_session_id( DBusConnection *conn, char *out, size_t size );
+
+#define GDM_DEST "org.gnome.DisplayManager"
+
+/* Log off and Switch User: our own login session, and GDM's greeter for another user */
+static BOOL session_can( DWORD action )
+{
+    char session[64];
+    DBusConnection *bus = get_system_bus();
+
+    if (!bus) return FALSE;
+    if (action == WEX_POWER_LOGOFF) return find_session_id( bus, session, sizeof(session) );
+    return p_dbus_bus_name_has_owner( bus, GDM_DEST, NULL );
+}
+
+static DWORD session_do( DWORD action )
+{
+    DBusMessage *msg;
+    DWORD err;
+
+    if (action == WEX_POWER_LOGOFF)
+    {
+        char session[64];
+        const char *id = session;
+
+        if (!get_system_bus() || !find_session_id( get_system_bus(), session, sizeof(session) )) return ERROR_NOT_SUPPORTED;
+        msg = p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, "TerminateSession" );
+        if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &id, DBUS_TYPE_INVALID );
+    }
+    else msg = p_dbus_message_new_method_call( GDM_DEST, "/org/gnome/DisplayManager/LocalDisplayFactory",
+                                               "org.gnome.DisplayManager.LocalDisplayFactory", "CreateTransientDisplay" );
+    err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
+    return err;
+}
+
 static NTSTATUS power_can( void *args )
 {
     struct power_can_params *params = args;
@@ -388,6 +425,12 @@ static NTSTATUS power_can( void *args )
     const char *s;
 
     params->result = WEX_POWER_NO;
+    if (params->action == WEX_POWER_LOGOFF || params->action == WEX_POWER_SWITCHUSER)
+    {
+        params->err = load_dbus() ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+        if (!params->err && session_can( params->action )) params->result = WEX_POWER_YES;
+        return STATUS_SUCCESS;
+    }
     if (params->action >= ARRAYSIZE(power_methods)) { params->err = ERROR_INVALID_PARAMETER; return STATUS_SUCCESS; }
     snprintf( name, sizeof(name), "Can%s", power_methods[params->action] );
     msg = load_dbus() ? p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, name ) : NULL;
@@ -411,6 +454,11 @@ static NTSTATUS power_do( void *args )
     DBusMessage *msg;
     dbus_bool_t interactive = TRUE;
 
+    if (params->action == WEX_POWER_LOGOFF || params->action == WEX_POWER_SWITCHUSER)
+    {
+        params->err = load_dbus() ? session_do( params->action ) : ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
     if (params->action >= ARRAYSIZE(power_methods)) { params->err = ERROR_INVALID_PARAMETER; return STATUS_SUCCESS; }
     msg = load_dbus() ? p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, power_methods[params->action] ) : NULL;
     if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );

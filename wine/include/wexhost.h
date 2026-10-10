@@ -61,6 +61,8 @@ DWORD WINAPI WexTimedateListTimezones( char *buffer, DWORD size, DWORD *needed )
 #define WEX_POWER_REBOOT     1
 #define WEX_POWER_SUSPEND    2
 #define WEX_POWER_HIBERNATE  3
+#define WEX_POWER_LOGOFF     4   /* end this login session (login1 TerminateSession) */
+#define WEX_POWER_SWITCHUSER 5   /* show the display manager's greeter, the session stays (GDM) */
 
 #define WEX_POWER_NO         0
 #define WEX_POWER_YES        1
