@@ -64,6 +64,7 @@
 #include "pidl.h"
 #include "shell32_main.h"
 #include "shellfolder.h"
+#include "shfldr.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
@@ -1198,6 +1199,13 @@ static UINT drive_group(LPCITEMIDLIST pidl)
 {
     WCHAR root[MAX_PATH];
 
+    /* Shared Documents and the user's documents: "Files Stored on This Computer" */
+    if (_ILIsSpecialFolder(pidl))
+    {
+        GUID *guid = _ILGetGUIDPointer(pidl);
+        if (guid && (IsEqualGUID(guid, &CLSID_MyDocuments) || IsEqualGUID(guid, &CLSID_SharedDocuments)))
+            return IDS_DRIVES_SHAREDDOCS_GROUP;
+    }
     if (!_ILIsDrive(pidl) || !_ILSimpleGetTextW(pidl, root, ARRAY_SIZE(root))) return IDS_DRIVES_OTHER_GROUP;
     switch (GetDriveTypeW(root))
     {
@@ -1226,8 +1234,8 @@ static void shellview_add_item(IShellViewImpl *shellview, LPCITEMIDLIST pidl)
         SendMessageW(shellview->hWndList, LVM_MOVEITEMTOGROUP, item.iItem, drive_group(pidl));
     if (shellview->tile_column_count)
     {
-        /* Windows XP shows the type and size of a file under its name, and nothing for a folder */
-        LVTILEINFO tile = { sizeof(tile), item.iItem, _ILIsFolder(pidl) ? 0 : shellview->tile_column_count,
+        /* Windows XP shows the type and size of a file under its name, nothing for folders and drives */
+        LVTILEINFO tile = { sizeof(tile), item.iItem, _ILIsValue(pidl) ? shellview->tile_column_count : 0,
                             shellview->tile_columns };
         SendMessageW(shellview->hWndList, LVM_SETTILEINFO, 0, (LPARAM)&tile);
     }

@@ -39,6 +39,7 @@
 #include "wine/debug.h"
 #include "debughlp.h"
 #include "shfldr.h"
+#include "lmcons.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL (shell);
 
@@ -681,8 +682,14 @@ static HRESULT WINAPI ISF_MyComputer_fnGetDisplayNameOf (IShellFolder2 *iface,
                 }
                 else
                 {
-                    /* user friendly name */
-                    HCR_GetClassNameW (clsid, pszPath, MAX_PATH);
+                    /* user friendly name; Windows XP lists My Documents here as "<user>'s Documents" */
+                    WCHAR user[UNLEN + 1];
+                    DWORD len = ARRAY_SIZE(user);
+
+                    if (IsEqualGUID(clsid, &CLSID_MyDocuments) && GetUserNameW(user, &len))
+                        swprintf(pszPath, MAX_PATH, L"%s's Documents", user);
+                    else
+                        HCR_GetClassNameW (clsid, pszPath, MAX_PATH);
                 }
             }
             else
