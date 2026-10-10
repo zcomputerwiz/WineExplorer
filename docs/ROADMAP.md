@@ -60,7 +60,10 @@ steps and remaining limits are recorded in [HANDOFF.md](HANDOFF.md).
 
 ## Phase 7: Power Management & Display Manager Session (Completed)
 - [x] Implement `power_mgmt.c` / `power_mgmt.h`:
-  - [x] Authentic "Shut Down Windows" dialog (`IDD_SHUTDOWN`).
+  - [x] Windows XP's "Turn off computer" (Stand By, Turn Off, Restart) and "Log Off Windows" (Switch User, Log Off)
+        dialogs over the grayed screen (2026-10-10; the earlier dialog ignored its buttons).
+  - [x] Log Off ends the login session through logind (TerminateSession); Switch User shows GDM's greeter.
+        Tested on the VM: Log Off reaches the greeter, Restart reboots, Cancel returns.
   - [x] Clean Win32 process shutdown sequence.
   - [x] Linux system shutdown via systemd-logind D-Bus / `systemctl poweroff` / `systemctl reboot`.
 - [x] Gamescope Display Manager session scripts (`wine-explorer-session.sh` & `wine-explorer.desktop`).
