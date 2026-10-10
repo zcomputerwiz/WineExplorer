@@ -44,6 +44,7 @@ BEGIN
 	BEGIN
 	  POPUP "&View",                0x1f0
 	  BEGIN
+	    MENUITEM "Fil&mstrip",	0x193
 	    MENUITEM "Thumb&nails",	0x190
 	    MENUITEM "Tile&s",		0x191
 	    MENUITEM "Ico&ns",		0x29

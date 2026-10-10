@@ -157,6 +157,7 @@ typedef struct
         BOOL            drive_groups;   /* My Computer: its items in groups by the kind of drive */
         struct thumbnail *thumbnail_map; /* item -> picture */
         UINT            thumbnail_count;
+        HWND            preview;        /* Filmstrip: the picture of the selection above the thumbnails */
 } IShellViewImpl;
 
 static inline IShellViewImpl *impl_from_IShellView3(IShellView3 *iface)
@@ -341,6 +342,8 @@ static DWORD ViewModeToListStyle(UINT ViewMode);
 
 #define FCIDM_SHVIEW_TILE 0x7191   /* "Tiles" of the View menu, MENU_002 */
 #define FCIDM_SHVIEW_THUMBNAIL 0x7190
+#define FCIDM_SHVIEW_FILMSTRIP 0x7193   /* Windows XP: picture folders */
+#define HAS_THUMBNAILS(mode) ((mode) == FVM_THUMBNAIL || (mode) == FVM_THUMBSTRIP)
 
 #define THUMBNAIL_SIZE 96
 
@@ -526,6 +529,242 @@ static int thumbnail_index(IShellViewImpl *This, LPCITEMIDLIST pidl)
     return index;
 }
 
+/* ---- Filmstrip ---- */
+
+/* My Pictures, Shared Pictures and the folders in them */
+static BOOL is_picture_folder(IShellViewImpl *This)
+{
+    static const int csidls[] = { CSIDL_MYPICTURES, CSIDL_COMMON_PICTURES };
+    WCHAR path[MAX_PATH], pictures[MAX_PATH];
+    IPersistFolder2 *folder;
+    LPITEMIDLIST pidl;
+    BOOL ret = FALSE;
+    size_t len;
+    UINT i;
+
+    if (FAILED(IShellFolder_QueryInterface(This->pSFParent, &IID_IPersistFolder2, (void **)&folder))) return FALSE;
+    if (SUCCEEDED(IPersistFolder2_GetCurFolder(folder, &pidl)))
+    {
+        if (SHGetPathFromIDListW(pidl, path))
+            for (i = 0; i < ARRAY_SIZE(csidls) && !ret; i++)
+                ret = SUCCEEDED(SHGetFolderPathW(NULL, csidls[i], NULL, SHGFP_TYPE_CURRENT, pictures)) &&
+                      !wcsnicmp(path, pictures, (len = wcslen(pictures))) && (!path[len] || path[len] == '\\');
+        ILFree(pidl);
+    }
+    IPersistFolder2_Release(folder);
+    return ret;
+}
+
+#define PREVIEW_CLASS L"WineShellFilmstripPreview"
+#define BUTTON_SIZE   22
+enum { BUTTON_PREV, BUTTON_NEXT, BUTTON_ROTATE_CW, BUTTON_ROTATE_CCW, BUTTON_COUNT };
+
+/* the path of the focused (or first selected) item */
+static BOOL preview_item(IShellViewImpl *This, int *index, WCHAR *path)
+{
+    LVITEMW item = { LVIF_PARAM };
+    STRRET str;
+
+    item.iItem = SendMessageW(This->hWndList, LVM_GETNEXTITEM, -1, LVNI_SELECTED);
+    if (item.iItem < 0) return FALSE;
+    if (!SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM)&item)) return FALSE;
+    *index = item.iItem;
+    if (FAILED(IShellFolder_GetDisplayNameOf(This->pSFParent, (LPCITEMIDLIST)item.lParam, SHGDN_FORPARSING, &str)))
+        return FALSE;
+    return SUCCEEDED(StrRetToBufW(&str, (LPCITEMIDLIST)item.lParam, path, MAX_PATH));
+}
+
+static void button_rect(HWND hwnd, int button, RECT *rc)
+{
+    RECT client;
+    int width = BUTTON_COUNT * (BUTTON_SIZE + 4) + 12, x;
+
+    GetClientRect(hwnd, &client);
+    x = (client.right - width) / 2 + button * (BUTTON_SIZE + 4) + (button >= BUTTON_ROTATE_CW ? 12 : 0);
+    SetRect(rc, x, client.bottom - BUTTON_SIZE - 6, x + BUTTON_SIZE, client.bottom - 6);
+}
+
+/* XP's round blue buttons with white arrows; green arrows to turn a picture */
+static void draw_button(HDC hdc, int button, const RECT *rc, BOOL enabled)
+{
+    COLORREF fill = enabled ? RGB(0x2b, 0x5b, 0xd8) : RGB(0xb8, 0xc4, 0xe0);
+    HBRUSH brush = CreateSolidBrush(fill), white = GetStockObject(WHITE_BRUSH), old_brush;
+    HPEN pen = CreatePen(PS_SOLID, 1, enabled ? RGB(0x1c, 0x3c, 0x9c) : fill), old_pen;
+    int cx = (rc->left + rc->right) / 2, cy = (rc->top + rc->bottom) / 2;
+
+    old_pen = SelectObject(hdc, pen);
+    if (button <= BUTTON_NEXT)
+    {
+        POINT tri[3];
+        int dir = button == BUTTON_NEXT ? 1 : -1;
+
+        old_brush = SelectObject(hdc, brush);
+        Ellipse(hdc, rc->left + 2, rc->top + 2, rc->right - 2, rc->bottom - 2);
+        tri[0].x = cx - 3 * dir; tri[0].y = cy - 5;
+        tri[1].x = cx - 3 * dir; tri[1].y = cy + 5;
+        tri[2].x = cx + 4 * dir; tri[2].y = cy;
+        SelectObject(hdc, white);
+        SelectObject(hdc, GetStockObject(WHITE_PEN));
+        Polygon(hdc, tri, 3);
+        /* the bar of "first"/"last" look of XP's buttons */
+        MoveToEx(hdc, cx + 5 * dir, cy - 5, NULL);
+        LineTo(hdc, cx + 5 * dir, cy + 6);
+    }
+    else
+    {
+        HPEN green = CreatePen(PS_SOLID, 3, enabled ? RGB(0x3a, 0x9a, 0x2a) : RGB(0xb0, 0xd0, 0xa8));
+        POINT head[3];
+        int dir = button == BUTTON_ROTATE_CW ? 1 : -1;
+
+        SelectObject(hdc, green);
+        Arc(hdc, cx - 7, cy - 6, cx + 7, cy + 8, dir > 0 ? cx - 7 : cx + 7, cy + 1, dir > 0 ? cx + 7 : cx - 7, cy + 1);
+        SelectObject(hdc, pen);
+        old_brush = SelectObject(hdc, CreateSolidBrush(enabled ? RGB(0x3a, 0x9a, 0x2a) : RGB(0xb0, 0xd0, 0xa8)));
+        head[0].x = cx + 7 * dir; head[0].y = cy - 2;
+        head[1].x = cx + 3 * dir; head[1].y = cy + 3;
+        head[2].x = cx + 11 * dir; head[2].y = cy + 3;
+        Polygon(hdc, head, 3);
+        DeleteObject(SelectObject(hdc, old_brush));
+        old_brush = SelectObject(hdc, brush);
+        DeleteObject(green);
+    }
+    SelectObject(hdc, old_brush);
+    SelectObject(hdc, old_pen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+}
+
+static void paint_preview(IShellViewImpl *This, HWND hwnd)
+{
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(hwnd, &ps);
+    WCHAR path[MAX_PATH];
+    RECT client, area, rc;
+    BOOL picture;
+    int index, i;
+
+    GetClientRect(hwnd, &client);
+    FillRect(hdc, &client, GetSysColorBrush(COLOR_WINDOW));
+    picture = preview_item(This, &index, path) && is_picture(path);
+    SetRect(&area, 10, 10, client.right - 10, client.bottom - BUTTON_SIZE - 16);
+    if (picture && area.right > area.left && area.bottom > area.top) draw_picture(hdc, path, &area);
+    for (i = 0; i < BUTTON_COUNT; i++)
+    {
+        button_rect(hwnd, i, &rc);
+        draw_button(hdc, i, &rc, i <= BUTTON_NEXT || picture);
+    }
+    EndPaint(hwnd, &ps);
+}
+
+/* Turn the picture a quarter and save it in its own format, as XP's buttons do */
+static void rotate_picture(IShellViewImpl *This, const WCHAR *path, BOOL clockwise)
+{
+    WCHAR temp[MAX_PATH + 8];
+    ImageCodecInfo *codecs;
+    GpImage *image;
+    GUID format;
+    UINT count, size, i;
+    BOOL saved = FALSE;
+
+    if (GdipLoadImageFromFile(path, &image)) return;
+    GdipGetImageRawFormat(image, &format);   /* before turning it: it becomes a bitmap in memory */
+    GdipImageRotateFlip(image, clockwise ? Rotate90FlipNone : Rotate270FlipNone);
+    if (!GdipGetImageEncodersSize(&count, &size) && (codecs = malloc(size)))
+    {
+        if (!GdipGetImageEncoders(count, size, codecs))
+            for (i = 0; i < count && !saved; i++)
+                if (IsEqualGUID(&codecs[i].FormatID, &format))
+                {
+                    swprintf(temp, ARRAY_SIZE(temp), L"%s.new", path);
+                    saved = !GdipSaveImageToFile(image, temp, &codecs[i].Clsid, NULL);
+                }
+        free(codecs);
+    }
+    GdipDisposeImage(image);
+    if (saved && MoveFileExW(temp, path, MOVEFILE_REPLACE_EXISTING))
+    {
+        free_thumbnails(This);   /* drawn again from the file */
+        InvalidateRect(This->hWndList, NULL, TRUE);
+        SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, path, NULL);
+    }
+    else if (saved) DeleteFileW(temp);
+}
+
+static LRESULT CALLBACK preview_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    IShellViewImpl *This = (IShellViewImpl *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+    WCHAR path[MAX_PATH];
+    RECT rc;
+    int i, index, count;
+
+    switch (msg)
+    {
+    case WM_CREATE:
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)((CREATESTRUCTW *)lparam)->lpCreateParams);
+        return 0;
+    case WM_PAINT:
+        paint_preview(This, hwnd);
+        return 0;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_SIZE:
+        InvalidateRect(hwnd, NULL, TRUE);
+        return 0;
+    case WM_LBUTTONUP:
+    {
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+
+        for (i = 0; i < BUTTON_COUNT; i++)
+        {
+            button_rect(hwnd, i, &rc);
+            if (!PtInRect(&rc, pt)) continue;
+            count = SendMessageW(This->hWndList, LVM_GETITEMCOUNT, 0, 0);
+            if (!preview_item(This, &index, path)) index = -1;
+            if (i <= BUTTON_NEXT && count)
+            {
+                LVITEMW item = { 0 };
+                int next = i == BUTTON_NEXT ? (index + 1) % count : (index <= 0 ? count - 1 : index - 1);
+
+                item.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+                SendMessageW(This->hWndList, LVM_SETITEMSTATE, -1, (LPARAM)&item);
+                item.state = LVIS_SELECTED | LVIS_FOCUSED;
+                SendMessageW(This->hWndList, LVM_SETITEMSTATE, next, (LPARAM)&item);
+                SendMessageW(This->hWndList, LVM_ENSUREVISIBLE, next, FALSE);
+            }
+            else if (index >= 0 && is_picture(path)) rotate_picture(This, path, i == BUTTON_ROTATE_CW);
+            InvalidateRect(hwnd, NULL, TRUE);
+        }
+        return 0;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+static void show_preview(IShellViewImpl *This, BOOL show)
+{
+    RECT rc;
+
+    if (show && !This->preview)
+    {
+        WNDCLASSW wc = { 0 };
+
+        wc.lpfnWndProc = preview_proc;
+        wc.hInstance = shell32_hInstance;
+        wc.lpszClassName = PREVIEW_CLASS;
+        wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
+        RegisterClassW(&wc);
+        This->preview = CreateWindowExW(0, PREVIEW_CLASS, NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, This->hWnd, NULL,
+                                        shell32_hInstance, This);
+    }
+    else if (!show && This->preview)
+    {
+        DestroyWindow(This->preview);
+        This->preview = NULL;
+    }
+    GetClientRect(This->hWnd, &rc);
+    SendMessageW(This->hWnd, WM_SIZE, 0, MAKELPARAM(rc.right, rc.bottom));
+}
+
 /* Switch the list to a view mode.  Tiles have the 48 pixel icons (SHIL_EXTRALARGE) and show the type and size
  * of each item under its name, as on Windows XP. */
 static void shellview_set_view(IShellViewImpl *This, UINT mode)
@@ -538,7 +777,7 @@ static void shellview_set_view(IShellViewImpl *This, UINT mode)
     if (mode == FVM_TILE && FAILED(SHGetImageList(SHIL_EXTRALARGE, &IID_IImageList, (void **)&tile_icons)))
         tile_icons = NULL;
     free_thumbnails(This);
-    if (mode == FVM_THUMBNAIL)
+    if (HAS_THUMBNAILS(mode))
     {
         if (!This->thumbnails)
             This->thumbnails = ImageList_Create(THUMBNAIL_SIZE, THUMBNAIL_SIZE, ILC_COLOR24, 16, 16);
@@ -552,7 +791,7 @@ static void shellview_set_view(IShellViewImpl *This, UINT mode)
     }
     if (tile_icons) IImageList_Release(tile_icons);   /* the system image list stays */
 
-    SetStyle(This, ViewModeToListStyle(mode), LVS_TYPEMASK);
+    SetStyle(This, ViewModeToListStyle(mode), LVS_TYPEMASK | LVS_ALIGNMASK);
     switch (mode)
     {
     case FVM_TILE:      view = LV_VIEW_TILE; break;
@@ -567,8 +806,9 @@ static void shellview_set_view(IShellViewImpl *This, UINT mode)
         SendMessageW(This->hWndList, LVM_SETIMAGELIST, LVSIL_NORMAL, (LPARAM)big_icons);
         SendMessageW(This->hWndList, LVM_SETVIEW, LV_VIEW_ICON, 0);
     }
-    SendMessageW(This->hWndList, LVM_ARRANGE, LVA_DEFAULT, 0);
     This->FolderSettings.ViewMode = mode;
+    show_preview(This, mode == FVM_THUMBSTRIP);
+    SendMessageW(This->hWndList, LVM_ARRANGE, LVA_DEFAULT, 0);
 }
 
 static DWORD ViewModeToListStyle(UINT ViewMode)
@@ -585,6 +825,7 @@ static DWORD ViewModeToListStyle(UINT ViewMode)
 	  case FVM_LIST:	dwStyle = LVS_LIST;		break;
 	  case FVM_TILE:	dwStyle = LVS_ICON;		break;   /* LVM_SETVIEW makes it tiles */
 	  case FVM_THUMBNAIL:	dwStyle = LVS_ICON;		break;
+	  case FVM_THUMBSTRIP:	dwStyle = LVS_ICON | LVS_ALIGNLEFT;	break;   /* one row: columns of one item */
 	  default:
 	  {
 		FIXME("ViewMode %d not implemented\n", ViewMode);
@@ -1192,7 +1433,7 @@ static LRESULT ShellView_OnCreate(IShellViewImpl *This)
     {
         ShellView_InitList(This);
         ShellView_FillList(This);
-        if (This->FolderSettings.ViewMode == FVM_TILE || This->FolderSettings.ViewMode == FVM_THUMBNAIL)
+        if (This->FolderSettings.ViewMode == FVM_TILE || HAS_THUMBNAILS(This->FolderSettings.ViewMode))
             shellview_set_view(This, This->FolderSettings.ViewMode);
     }
 
@@ -1559,9 +1800,12 @@ static void ShellView_DoContextMenu(IShellViewImpl * This, WORD x, WORD y, BOOL 
 	                     This->FolderSettings.ViewMode == FVM_DETAILS ? FCIDM_SHVIEW_REPORTVIEW : FCIDM_SHVIEW_BIGICON;
 	      EnableMenuItem(hMenu, FCIDM_SHVIEW_TILE - 0x7000, MF_BYCOMMAND | MF_ENABLED);
 	      EnableMenuItem(hMenu, FCIDM_SHVIEW_THUMBNAIL - 0x7000, MF_BYCOMMAND | MF_ENABLED);
-	      if (This->FolderSettings.ViewMode == FVM_TILE || This->FolderSettings.ViewMode == FVM_THUMBNAIL)
+	      /* Windows XP offers Filmstrip in picture folders */
+	      if (!is_picture_folder(This)) DeleteMenu(hMenu, FCIDM_SHVIEW_FILMSTRIP - 0x7000, MF_BYCOMMAND);
+	      if (This->FolderSettings.ViewMode == FVM_TILE || HAS_THUMBNAILS(This->FolderSettings.ViewMode))
 	      {
-	          UINT id = This->FolderSettings.ViewMode == FVM_TILE ? FCIDM_SHVIEW_TILE : FCIDM_SHVIEW_THUMBNAIL;
+	          UINT id = This->FolderSettings.ViewMode == FVM_TILE ? FCIDM_SHVIEW_TILE :
+	                    This->FolderSettings.ViewMode == FVM_THUMBSTRIP ? FCIDM_SHVIEW_FILMSTRIP : FCIDM_SHVIEW_THUMBNAIL;
 	          CheckMenuRadioItem(hMenu, id - 0x7000, id - 0x7000, id - 0x7000, MF_BYCOMMAND);
 	      }
 	      else
@@ -1598,7 +1842,15 @@ static LRESULT ShellView_OnSize(IShellViewImpl * This, WORD wWidth, WORD wHeight
 	TRACE("%p width=%u height=%u\n",This, wWidth,wHeight);
 
 	/*resize the ListView to fit our window*/
-	if(This->hWndList)
+	if (This->hWndList && This->preview)
+	{
+	  /* Filmstrip: the picture above, the row of thumbnails with its scroll bar below */
+	  int strip = min(wHeight, THUMBNAIL_SIZE + 44 + GetSystemMetrics(SM_CYHSCROLL));
+	  MoveWindow(This->preview, 0, 0, wWidth, wHeight - strip, TRUE);
+	  MoveWindow(This->hWndList, 0, wHeight - strip, wWidth, strip, TRUE);
+	  SendMessageW(This->hWndList, LVM_ARRANGE, LVA_DEFAULT, 0);
+	}
+	else if(This->hWndList)
 	{
 	  MoveWindow(This->hWndList, 0, 0, wWidth, wHeight, TRUE);
 	}
@@ -1772,6 +2024,11 @@ static LRESULT ShellView_OnCommand(IShellViewImpl * This,DWORD dwCmdID, DWORD dw
 	    CheckToolbar(This);
 	    break;
 
+	  case FCIDM_SHVIEW_FILMSTRIP:
+	    shellview_set_view(This, FVM_THUMBSTRIP);
+	    CheckToolbar(This);
+	    break;
+
 	  case FCIDM_SHVIEW_LISTVIEW:
 	    shellview_set_view(This, FVM_LIST);
 	    CheckToolbar(This);
@@ -1837,7 +2094,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 
 	  case NM_CUSTOMDRAW:
 	    TRACE("-- NM_CUSTOMDRAW %p\n",This);
-	    if (This->FolderSettings.ViewMode == FVM_THUMBNAIL && This->thumbnails)
+	    if (HAS_THUMBNAILS(This->FolderSettings.ViewMode) && This->thumbnails)
 	    {
 	      /* Windows XP: a selected thumbnail keeps its picture and gets a thick frame of the selection color */
 	      NMLVCUSTOMDRAW *cd = (NMLVCUSTOMDRAW *)lpnmh;
@@ -1986,7 +2243,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 
 	    if(lpdi->item.mask & LVIF_IMAGE)	/* image requested */
 	    {
-	      if (This->FolderSettings.ViewMode == FVM_THUMBNAIL && This->thumbnails)
+	      if (HAS_THUMBNAILS(This->FolderSettings.ViewMode) && This->thumbnails)
 	        lpdi->item.iImage = thumbnail_index(This, pidl);
 	      else
 	        lpdi->item.iImage = SHMapPIDLToSystemImageListIndex(This->pSFParent, pidl, 0);
@@ -1995,6 +2252,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 
 	  case LVN_ITEMCHANGED:
 	    TRACE("-- LVN_ITEMCHANGED %p\n",This);
+	    if (This->preview) InvalidateRect(This->preview, NULL, TRUE);   /* the filmstrip shows the selection */
 	    OnStateChange(This, CDBOSC_SELCHANGE);  /* the browser will get the IDataObject now */
 	    break;
 

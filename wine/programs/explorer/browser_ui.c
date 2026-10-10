@@ -517,8 +517,9 @@ static void update_undo_item(explorer_info *info, HMENU menu)
 /* Fill the Favorites menu from the user's Favorites folder when it opens, tick and grey the other menus' items */
 void browser_init_menu_popup(explorer_info *info, HMENU menu)
 {
-    static const UINT view_ids[] = { IDM_VIEW_THUMBNAILS, IDM_VIEW_TILES, IDM_VIEW_ICONS, IDM_VIEW_LIST, IDM_VIEW_DETAILS };
-    static const UINT view_modes[] = { FVM_THUMBNAIL, FVM_TILE, FVM_ICON, FVM_LIST, FVM_DETAILS };
+    static const UINT view_ids[] = { IDM_VIEW_THUMBNAILS, IDM_VIEW_TILES, IDM_VIEW_ICONS, IDM_VIEW_LIST, IDM_VIEW_DETAILS,
+                                     IDM_VIEW_FILMSTRIP };
+    static const UINT view_modes[] = { FVM_THUMBNAIL, FVM_TILE, FVM_ICON, FVM_LIST, FVM_DETAILS, FVM_THUMBSTRIP };
     int i;
     UINT mode;
 
@@ -537,8 +538,20 @@ void browser_init_menu_popup(explorer_info *info, HMENU menu)
         CheckMenuItem(menu, IDM_VIEW_FOLDERS, MF_BYCOMMAND | (info->show_folders ? MF_CHECKED : MF_UNCHECKED));
     if (GetMenuState(menu, IDM_VIEW_DETAILS, MF_BYCOMMAND) != (UINT)-1)
     {
+        WCHAR path[MAX_PATH], pictures[MAX_PATH];
+        BOOL pictures_folder = view_folder_path(info, path) &&
+                               SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_MYPICTURES, NULL, SHGFP_TYPE_CURRENT, pictures)) &&
+                               !wcsnicmp(path, pictures, wcslen(pictures));
+
+        /* Windows XP offers Filmstrip in picture folders, first */
+        DeleteMenu(menu, IDM_VIEW_FILMSTRIP, MF_BYCOMMAND);
+        if (pictures_folder)
+        {
+            for (i = 0; i < GetMenuItemCount(menu); i++) if (GetMenuItemID(menu, i) == IDM_VIEW_THUMBNAILS) break;
+            InsertMenuW(menu, i, MF_BYPOSITION | MF_STRING, IDM_VIEW_FILMSTRIP, L"Fil&mstrip");
+        }
         mode = get_view_mode(info);
-        for (i = 0; i < 5; i++)
+        for (i = 0; i < 6; i++)
             CheckMenuItem(menu, view_ids[i], MF_BYCOMMAND | (view_modes[i] == mode ? MF_CHECKED : MF_UNCHECKED));
     }
     if (GetMenuState(menu, IDM_EDIT_CUT, MF_BYCOMMAND) != (UINT)-1 || GetMenuState(menu, IDM_FILE_DELETE, MF_BYCOMMAND) != (UINT)-1)
@@ -1067,6 +1080,7 @@ void browser_command(explorer_info *info, UINT id)
         relayout(info);
         break;
     case IDM_VIEW_THUMBNAILS: set_view_mode(info, FVM_THUMBNAIL); break;
+    case IDM_VIEW_FILMSTRIP: set_view_mode(info, FVM_THUMBSTRIP); break;
     case IDM_VIEW_TILES: set_view_mode(info, FVM_TILE); break;
     case IDM_VIEW_ICONS: set_view_mode(info, FVM_ICON); break;
     case IDM_VIEW_LIST: set_view_mode(info, FVM_LIST); break;
