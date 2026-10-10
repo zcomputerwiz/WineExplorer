@@ -371,6 +371,89 @@ static BOOL is_picture(const WCHAR *path)
 
 /* The picture of an item as Windows XP shows it in Thumbnails: an image scaled into a white square with a gray
  * frame, or the item's 48 pixel icon in that square. */
+/* a picture scaled into rc, smaller ones keeping their size */
+static BOOL draw_picture(HDC hdc, const WCHAR *path, const RECT *rc)
+{
+    GpImage *image;
+    GpGraphics *graphics;
+    UINT cx, cy, w, h, maxw = rc->right - rc->left, maxh = rc->bottom - rc->top;
+    BOOL drawn = FALSE;
+
+    if (GdipLoadImageFromFile(path, &image)) return FALSE;
+    if (!GdipGetImageWidth(image, &cx) && !GdipGetImageHeight(image, &cy) && cx && cy && !GdipCreateFromHDC(hdc, &graphics))
+    {
+        if (cx <= maxw && cy <= maxh) { w = cx; h = cy; }
+        else if ((ULONGLONG)cx * maxh >= (ULONGLONG)cy * maxw) { w = maxw; h = max(1, (UINT)((ULONGLONG)cy * maxw / cx)); }
+        else { h = maxh; w = max(1, (UINT)((ULONGLONG)cx * maxh / cy)); }
+        GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
+        drawn = !GdipDrawImageRectI(graphics, image, rc->left + (maxw - w) / 2, rc->top + (maxh - h) / 2, w, h);
+        GdipDeleteGraphics(graphics);
+    }
+    GdipDisposeImage(image);
+    return drawn;
+}
+
+/* the folder icon as the shell shows folders: the one of Shell Icons (the genuine XP pack), else shell32's */
+static HICON folder_icon(int size)
+{
+    WCHAR value[MAX_PATH + 16] = {0}, *comma;
+    DWORD len = sizeof(value);
+    HICON icon = NULL;
+
+    /* value 3: the index of the closed folder */
+    if (!RegGetValueW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Icons", L"3",
+                      RRF_RT_REG_SZ, NULL, value, &len) && (comma = wcsrchr(value, ',')))
+    {
+        WCHAR file[MAX_PATH];
+        HMODULE module;
+        int id = _wtoi(comma + 1);
+
+        *comma = 0;
+        ExpandEnvironmentStringsW(value, file, ARRAY_SIZE(file));
+        if ((module = LoadLibraryExW(file, NULL, LOAD_LIBRARY_AS_DATAFILE)))
+        {
+            if (id < 0) icon = LoadImageW(module, MAKEINTRESOURCEW(-id), IMAGE_ICON, size, size, 0);
+            else PrivateExtractIconsW(file, id, size, size, &icon, NULL, 1, 0);
+            FreeLibrary(module);
+        }
+    }
+    TRACE("Shell Icons folder: %s -> %p\n", debugstr_w(value), icon);
+    if (!icon) icon = LoadImageW(shell32_hInstance, MAKEINTRESOURCEW(IDI_SHELL_FOLDER), IMAGE_ICON, size, size, 0);
+    return icon;
+}
+
+/* Windows XP shows a folder in Thumbnails as a large folder holding small pictures of up to four of its pictures */
+static BOOL draw_folder_thumbnail(HDC hdc, const WCHAR *dir)
+{
+    WCHAR pattern[MAX_PATH], file[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    HANDLE find;
+    HICON icon;
+    int count = 0;
+
+    swprintf(pattern, ARRAY_SIZE(pattern), L"%s\\*", dir);
+    if ((find = FindFirstFileW(pattern, &fd)) == INVALID_HANDLE_VALUE) return FALSE;
+    /* the folder, as large as the thumbnail */
+    if ((icon = folder_icon(THUMBNAIL_SIZE - 8)))
+    {
+        DrawIconEx(hdc, 4, 4, icon, THUMBNAIL_SIZE - 8, THUMBNAIL_SIZE - 8, 0, NULL, DI_NORMAL);
+        DestroyIcon(icon);
+    }
+    do
+    {
+        RECT cell;
+        int col = count % 2, row = count / 2;
+
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || !is_picture(fd.cFileName)) continue;
+        swprintf(file, ARRAY_SIZE(file), L"%s\\%s", dir, fd.cFileName);
+        /* two by two in the body of the folder */
+        SetRect(&cell, 18 + col * 31, 30 + row * 26, 18 + col * 31 + 29, 30 + row * 26 + 24);
+        if (draw_picture(hdc, file, &cell)) count++;
+    } while (count < 4 && FindNextFileW(find, &fd));
+    FindClose(find);
+    return TRUE;
+}
+
 static HBITMAP make_thumbnail(IShellViewImpl *This, LPCITEMIDLIST pidl)
 {
     HDC screen = GetDC(NULL), hdc = CreateCompatibleDC(screen);
@@ -390,25 +473,14 @@ static HBITMAP make_thumbnail(IShellViewImpl *This, LPCITEMIDLIST pidl)
         StrRetToBufW(&str, pidl, path, ARRAY_SIZE(path));
     if (path[0] && !_ILIsFolder(pidl) && is_picture(path))
     {
-        GpImage *image;
-        GpGraphics *graphics;
-        UINT cx, cy, w, h, max = THUMBNAIL_SIZE - 6;
-
-        if (!GdipLoadImageFromFile(path, &image))
-        {
-            if (!GdipGetImageWidth(image, &cx) && !GdipGetImageHeight(image, &cy) && cx && cy &&
-                !GdipCreateFromHDC(hdc, &graphics))
-            {
-                /* smaller pictures keep their size */
-                if (cx <= max && cy <= max) { w = cx; h = cy; }
-                else if (cx >= cy) { w = max; h = max(1, cy * max / cx); }
-                else { h = max; w = max(1, cx * max / cy); }
-                GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
-                drawn = !GdipDrawImageRectI(graphics, image, (THUMBNAIL_SIZE - w) / 2, (THUMBNAIL_SIZE - h) / 2, w, h);
-                GdipDeleteGraphics(graphics);
-            }
-            GdipDisposeImage(image);
-        }
+        RECT inside = { 3, 3, THUMBNAIL_SIZE - 3, THUMBNAIL_SIZE - 3 };
+        drawn = draw_picture(hdc, path, &inside);
+    }
+    else if (path[0] && _ILIsFolder(pidl) && PathIsDirectoryW(path))
+    {
+        /* a folder shortcut such as My Pictures shows its target */
+        WCHAR target[MAX_PATH];
+        drawn = draw_folder_thumbnail(hdc, get_folder_shortcut_target(path, target) ? target : path);
     }
     if (!drawn)
     {

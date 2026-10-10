@@ -56,5 +56,5 @@ Also done: View as a slide show (full screen, 5 seconds a picture, arrows/click/
 dimensions in Details, the visual style's task icons and watermarks (shellstyle.dll) on the media task groups
 and in the corner of their folders, XP's 210 pixel task pane.
 
-Left for later: details view groups, the drives' free space line in Tiles, Undo of New Folder, folder thumbnails
-showing their pictures, XP's blue frame around a selected thumbnail.
+Left for later: details view groups, the drives' free space line in Tiles, Undo of New Folder, XP's blue frame
+around a selected thumbnail.

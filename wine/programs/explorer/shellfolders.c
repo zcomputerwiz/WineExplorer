@@ -129,10 +129,10 @@ HICON shellfolder_icon(int csidl, const WCHAR *state, int size)
     if (i < 0) return NULL;
     swprintf(key, ARRAY_SIZE(key), L"Software\\Classes\\CLSID\\%s\\DefaultIcon", folders[i].clsid);
     len = sizeof(spec);
-    if (RegGetValueW(HKEY_CURRENT_USER, key, state, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &len))
+    if (RegGetValueW(HKEY_CURRENT_USER, key, state, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND, NULL, spec, &len))
     {
         len = sizeof(spec);
-        if (RegGetValueW(HKEY_LOCAL_MACHINE, key, state, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, NULL, spec, &len))
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, key, state, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND, NULL, spec, &len))
             spec[0] = 0;
     }
     if (spec[0])
