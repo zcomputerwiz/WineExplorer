@@ -257,6 +257,15 @@ HKCR,.wri,,2,"wrifile"
 HKCR,*\shellex\ContextMenuHandlers,,16
 HKCR,AppID\{B8C54A54-355E-11D3-83EB-00A0C92A2F2D},,2,"Windows Media Player"
 HKCR,Applications\wmplayer.exe,,2,"Windows Media Player"
+HKCR,Applications\notepad.exe,"FriendlyAppName",2,"Notepad"
+HKCR,Applications\notepad.exe\shell\open\command,,2,"""%11%\notepad.exe"" ""%1"""
+HKCR,Applications\mspaint.exe,"FriendlyAppName",2,"Paint"
+HKCR,Applications\mspaint.exe\shell\open\command,,2,"""%11%\mspaint.exe"" ""%1"""
+HKCR,Applications\wordpad.exe,"FriendlyAppName",2,"WordPad"
+HKCR,Applications\wordpad.exe\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" ""%1"""
+HKCR,.txt\OpenWithList\wordpad.exe,,16
+HKCR,.bmp\OpenWithList\mspaint.exe,,16
+HKCR,.rtf\OpenWithList\wordpad.exe,,16
 HKCR,batfile,,2,"MS-DOS Batch File"
 HKCR,batfile\DefaultIcon,,2,"%11%\shell32.dll,-153"
 HKCR,batfile\shell\open\command,,2,"""%11%\cmd.exe"" /c ""%1"" %*"

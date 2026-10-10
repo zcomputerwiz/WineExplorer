@@ -245,6 +245,13 @@ the folder?"
         IDS_NEW_ITEM                "New %1"
         IDS_SEND_TO                 "Se&nd To"
         IDS_SEND_TO_DESKTOP         "Desktop (create shortcut)"
+        IDS_OPEN_WITH               "Open Wit&h"
+        IDS_OPEN_WITH_DOTS          "Open Wit&h..."
+        IDS_OPEN_WITH_CHOOSE        "&Choose Program..."
+        IDS_OPEN_WITH_RECOMMENDED   "Recommended Programs:"
+        IDS_OPEN_WITH_OTHER         "Other Programs:"
+        IDS_OPEN_WITH_PROGRAMS      "Programs"
+        IDS_ALL_FILES               "All Files"
 
 	IDS_CPANEL_TITLE            "Wine Control Panel"
 	IDS_CPANEL_NAME             "Name"
@@ -379,6 +386,23 @@ BEGIN
     AUTOCHECKBOX "&Read Only", IDC_FPROP_READONLY, 70, 110, 70, 10
     AUTOCHECKBOX "H&idden", IDC_FPROP_HIDDEN, 70, 125, 70, 10
     AUTOCHECKBOX "&Archive", IDC_FPROP_ARCHIVE, 70, 140, 70, 10
+END
+
+/* Open With, after the ReactOS dialog (LGPL) with Windows XP's texts */
+IDD_OPEN_WITH DIALOGEX 0, 0, 264, 256
+STYLE DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUPWINDOW | WS_CAPTION
+CAPTION "Open With"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    ICON IDI_SHELL_WINDOW, -1, 8, 12, 21, 20
+    LTEXT "Choose the program you want to use to open this file:", -1, 44, 12, 211, 10
+    LTEXT "File:    ", IDC_OPENWITH_FILE, 44, 25, 188, 20
+    GROUPBOX "&Programs", -1, 7, 42, 249, 187
+    CONTROL "Programs", IDC_OPENWITH_PROGRAMS, "SysTreeView32", WS_BORDER | WS_TABSTOP | 0x0020 /* TVS_SHOWSELALWAYS */, 16, 57, 230, 130
+    AUTOCHECKBOX "&Always use the selected program to open this kind of file", IDC_OPENWITH_ALWAYS, 16, 193, 232, 10
+    PUSHBUTTON "&Browse...", IDC_OPENWITH_BROWSE, 188, 207, 60, 14
+    DEFPUSHBUTTON "OK", IDOK, 150, 236, 50, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 206, 236, 50, 14
 END
 
 IDD_FILE_PROPERTIES DIALOGEX 0, 0, 240, 200

@@ -145,6 +145,20 @@
 #define IDS_NEW_ITEM                185
 #define IDS_SEND_TO                 186
 #define IDS_SEND_TO_DESKTOP         187
+#define IDS_OPEN_WITH               188
+#define IDS_OPEN_WITH_DOTS          189
+#define IDS_OPEN_WITH_CHOOSE        190
+#define IDS_OPEN_WITH_RECOMMENDED   191
+#define IDS_OPEN_WITH_OTHER         192
+#define IDS_OPEN_WITH_PROGRAMS      193
+#define IDS_ALL_FILES               194
+
+/* Open With dialog */
+#define IDD_OPEN_WITH               10
+#define IDC_OPENWITH_FILE           14001
+#define IDC_OPENWITH_PROGRAMS       14002
+#define IDC_OPENWITH_ALWAYS         14003
+#define IDC_OPENWITH_BROWSE         14004
 
 #define IDS_LICENSE                 256
 #define IDS_LICENSE_CAPTION         257

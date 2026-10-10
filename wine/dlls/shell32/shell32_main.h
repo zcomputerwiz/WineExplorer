@@ -117,6 +117,14 @@ HRESULT WINAPI ApplicationDocumentLists_Constructor(IUnknown *outer, REFIID riid
 
 HRESULT WINAPI new_menu_create(IUnknown *outer, REFIID iid, void **out);
 
+/* openwith.c */
+struct open_with_menu;
+HRESULT open_with_choose(HWND parent, const WCHAR *file);
+struct open_with_menu *open_with_menu_add(HMENU hmenu, UINT pos, UINT first, const WCHAR *file);
+UINT open_with_menu_count(const struct open_with_menu *menu);
+void open_with_menu_invoke(struct open_with_menu *menu, HWND hwnd, UINT index, const WCHAR *file);
+void open_with_menu_free(struct open_with_menu *menu);
+
 HRESULT IShellLink_ConstructFromFile(IUnknown * pUnkOuter, REFIID riid, LPCITEMIDLIST pidl, IUnknown **ppv);
 
 LPEXTRACTICONA	IExtractIconA_Constructor(LPCITEMIDLIST);
