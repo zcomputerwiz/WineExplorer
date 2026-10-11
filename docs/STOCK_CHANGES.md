@@ -59,6 +59,8 @@ rebasing on upstream Wine harder. Baseline = commit `03476d7`.
 | `loader/wine.inf.in` | file-type associations (.txt/.bat/.cmd/.log, folder open command); `HKCR\Applications` Notepad, Paint, WordPad and OpenWithList entries for .txt/.bmp/.rtf; the Windows icons of text, configuration, setup and batch files (shell32 -152, -151, -153) | always |
 | `programs/control/control.c` | `printers` opens the Printers folder; no argument opens the Control Panel folder in Explorer like Windows (Wine's own Control Panel window only if that fails) | always |
 | `programs/shell32`-visible: none | Run dialog placement is done by explorer (CBT hook), not by shell32 | - |
+| `loader/wine.inf.in` | `.msc` files open with `mmc.exe` (`MSCFile`); new `[MscFiles]` copies `devmgmt.msc` (a data file of `programs/mmc`) into system32 | always |
+
 
 ## Reverted (were changed earlier, now stock again)
 - `dlls/comctl32/monthcal.c` (today-circle removal): timedate.cpl now creates its calendar with

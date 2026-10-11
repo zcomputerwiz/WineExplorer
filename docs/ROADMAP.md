@@ -90,6 +90,12 @@ steps and remaining limits are recorded in [HANDOFF.md](HANDOFF.md).
   - [x] General page (`IDD_GENERAL`) with Windows emblem, OS version, registered owner/org, CPU specs, and RAM totals.
   - [x] Computer Name page (`IDD_COMPNAME`) with description, full computer name, and workgroup.
   - [x] Hardware page (`IDD_HARDWARE`) with Device Manager launcher and Hardware Profiles.
+  - [x] Device Manager (`dlls/devmgr`, opened by `devmgmt.msc` through a minimal `programs/mmc`): the Linux kernel's devices
+    (wexhost `WexHardwareList`: sysfs, udev database, ACPI companions, libkmod) shown as Windows XP would: devices by
+    type/connection, resources by type, hidden devices (virtual adapters, volumes, Non-Plug and Play Drivers = unbound
+    kernel modules); General/Driver/Details/Resources pages and Driver File Details. Update/Disable/Uninstall grayed.
+    Open: Resources by connection lists like by type (bridge windows need root); Power Management tab; class
+    properties; Show/Hide Console Tree and Action Pane do nothing.
   - [x] Advanced page (`IDD_ADVANCED`) with Performance Options, User Profiles, Startup & Recovery, and Environment Variables.
   - [x] Performance Options dialog (`IDD_PERFORMANCE`) with Visual Effects checklist (desktop icon drop shadows, window dragging, font smoothing).
   - [x] Environment Variables dialog (`IDD_ENVVARS`) for User and System variables.
