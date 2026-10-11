@@ -90,7 +90,7 @@ static const struct { const char *id; int cls; int name; } acpi_ids[] =
 {
     { "LNXSYSTM", CLASS_SYSTEM, DEVNAME_ACPI_SYSTEM },
     { "LNXPWRBN", CLASS_SYSTEM, DEVNAME_FIXED_BUTTON },
-    { "LNXSLPBN", CLASS_SYSTEM, DEVNAME_FIXED_BUTTON },
+    { "LNXSLPBN", CLASS_SYSTEM, DEVNAME_SLEEP_BUTTON },
     { "LNXTHERM", CLASS_SYSTEM, DEVNAME_THERMAL },
     { "PNP0C0C",  CLASS_SYSTEM, DEVNAME_POWER_BUTTON },
     { "PNP0C0E",  CLASS_SYSTEM, DEVNAME_SLEEP_BUTTON },
@@ -834,12 +834,22 @@ struct hardware *hardware_load( void )
         if (dev->owner == dev) dev->owner = NULL;
         if ((dev->mod = find_module( hw, dev->module ? dev->module : dev->driver ))) dev->mod->bound = TRUE;
     }
-    /* the DMA channels the kernel reserved belong to the DMA controller */
     for (i = 0; i < hw->count; i++)
     {
+        const char *irq;
+        int index;
+
         dev = &hw->devs[i];
-        if (dev->cls != CLASS_SYSTEM || !dev->acpi || acpi_id( dev_get( dev->acpi, 'A', "hid" ) ) < 0) continue;
-        if (acpi_ids[acpi_id( dev_get( dev->acpi, 'A', "hid" ) )].name != DEVNAME_DMA) continue;
+        /* a PCI function's interrupt line (the resource file has the windows only) */
+        if (!strcmp( dev->subsystem, "pci" ) && (irq = dev_get( dev, 'A', "irq" )) && atoi( irq ) > 0)
+        {
+            char text[16];
+            snprintf( text, sizeof(text), "irq %u", atoi( irq ) );
+            add_resource( dev, text );
+        }
+        /* the DMA channels the kernel reserved belong to the DMA controller */
+        index = acpi_id( dev_get( dev->acpi ? dev->acpi : dev, 'A', "hid" ) );
+        if (dev->cls != CLASS_SYSTEM || index < 0 || acpi_ids[index].name != DEVNAME_DMA) continue;
         for (j = 0; j < ARRAY_SIZE(hw->dma); j++)
         {
             char text[16];
