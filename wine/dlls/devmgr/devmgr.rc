@@ -1,0 +1,428 @@
+/*
+ * Device Manager resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+IDM_MAIN MENU
+{
+    POPUP "&File"
+    {
+        MENUITEM "&Options...", IDM_OPTIONS, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit", IDM_EXIT
+    }
+    POPUP "&Action"
+    {
+        MENUITEM "Scan for hardware changes", IDM_SCAN
+    }
+    POPUP "&View"
+    {
+        MENUITEM "Devices by t&ype", IDM_BY_TYPE
+        MENUITEM "Devices by co&nnection", IDM_BY_CONNECTION
+        MENUITEM "Resources by ty&pe", IDM_RES_BY_TYPE
+        MENUITEM "Resources by con&nection", IDM_RES_BY_CONNECTION
+        MENUITEM SEPARATOR
+        MENUITEM "Sho&w hidden devices", IDM_SHOW_HIDDEN
+        MENUITEM SEPARATOR
+        MENUITEM "C&ustomize...", IDM_CUSTOMIZE, GRAYED
+    }
+    POPUP "&Help"
+    {
+        MENUITEM "&Help Topics", IDM_HELP_TOPICS, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "&About Device Manager", IDM_ABOUT
+    }
+}
+
+IDM_MAIN ACCELERATORS
+{
+    VK_RETURN, IDM_PROPERTIES, VIRTKEY, ALT
+    VK_F5, IDM_SCAN, VIRTKEY
+}
+
+STRINGTABLE
+{
+    IDS_APPNAME "Device Manager"
+    IDS_WORKING "This device is working properly."
+    IDS_WORKING_HINT "If you are having problems with this device, click Troubleshoot to start the troubleshooter."
+    IDS_NO_DRIVER "The drivers for this device are not installed. (Code 28)"
+    IDS_NO_DRIVER_HINT "To reinstall the drivers for this device, click Reinstall Driver."
+    IDS_REINSTALL "&Reinstall Driver..."
+    IDS_TROUBLESHOOT "&Troubleshoot..."
+    IDS_USE_DEVICE "Use this device (enable)"
+    IDS_UNKNOWN "Unknown"
+    IDS_NOT_AVAILABLE "Not available"
+    IDS_NOT_SIGNED "Not digitally signed"
+    IDS_NO_FILES "No driver files are required or have been loaded for this device."
+    IDS_PROPERTIES_TITLE "%s Properties"
+    IDS_LOCATION_PCI "PCI bus %d, device %d, function %d"
+    IDS_LOCATION_ON "on %s"
+    IDS_LOCATION_USB "Port_#%04d.Hub_#%04d"
+    IDS_STANDARD_DEVICES "(Standard system devices)"
+    IDS_PROVIDER_LINUX "Linux"
+    IDS_NO_CONFLICTS "No conflicts."
+    IDS_RES_TYPE "Resource type"
+    IDS_RES_SETTING "Setting"
+    IDS_RES_MEMORY "Memory Range"
+    IDS_RES_IO "I/O Range"
+    IDS_RES_IRQ "IRQ"
+    IDS_RES_DMA "DMA"
+    IDS_RESTYPE_DMA "Direct memory access (DMA)"
+    IDS_RESTYPE_IO "Input/output (IO)"
+    IDS_RESTYPE_IRQ "Interrupt request (IRQ)"
+    IDS_RESTYPE_MEMORY "Memory"
+    IDS_NO_HOST "The hardware of this computer cannot be read."
+    IDS_PROVIDER_UNKNOWN "Unknown"
+    IDS_BASIC_CONFIG "Basic configuration 0000"
+    IDS_DISPLAY_ABOUT "Device Manager"
+    IDS_STD_DISK "(Standard disk drives)"
+    IDS_STD_CDROM "(Standard CD-ROM drives)"
+    IDS_STD_MONITOR "(Standard monitor types)"
+    IDS_STD_KEYBOARD "(Standard keyboards)"
+    IDS_STD_COMPUTER "(Standard computers)"
+    IDS_STD_NET "(Standard network adapters)"
+    IDS_MICROSOFT "Microsoft"
+    IDS_BUILTIN_SIGNER "Linux kernel image"
+
+    IDS_PROP_INSTANCE "Device Instance Id"
+    IDS_PROP_HARDWARE_IDS "Hardware Ids"
+    IDS_PROP_COMPATIBLE_IDS "Compatible Ids"
+    IDS_PROP_MATCHING_ID "Matching Device Id"
+    IDS_PROP_SERVICE "Service"
+    IDS_PROP_ENUMERATOR "Enumerator"
+    IDS_PROP_CLASS "Class"
+    IDS_PROP_CLASS_GUID "Class Guid"
+    IDS_PROP_DRIVER_KEY "Driver Key"
+    IDS_PROP_FIRMWARE "Firmware Revision"
+    IDS_PROP_PDO "Physical Device Object Name"
+
+    IDS_HINT_BASE + 0 "Changes the options for the user and/or the snap-in console."
+    IDS_HINT_BASE + 1 "Exits the console application."
+    IDS_HINT_BASE + 10 "Launches the Hardware Update Wizard for the selected device."
+    IDS_HINT_BASE + 11 "Enables the selected device."
+    IDS_HINT_BASE + 12 "Disables the selected device."
+    IDS_HINT_BASE + 13 "Uninstalls the driver for the selected device."
+    IDS_HINT_BASE + 14 "Scans for changed or new plug and play devices."
+    IDS_HINT_BASE + 15 "Adds legacy hardware."
+    IDS_HINT_BASE + 16 "Prints the current view."
+    IDS_HINT_BASE + 17 "Opens the property sheet for the current selection."
+    IDS_HINT_BASE + 18 "Opens Help for the current selection."
+    IDS_HINT_BASE + 20 "Displays devices by hardware type."
+    IDS_HINT_BASE + 21 "Displays devices by connection."
+    IDS_HINT_BASE + 22 "Displays resources by type."
+    IDS_HINT_BASE + 23 "Displays resources by connection."
+    IDS_HINT_BASE + 24 "Displays legacy devices and devices that are no longer installed."
+    IDS_HINT_BASE + 25 "Customizes the view."
+    IDS_HINT_BASE + 30 "Opens Help topics."
+    IDS_HINT_BASE + 31 "Displays version information about Device Manager."
+
+    IDS_LABEL_BASE + 10 "Update Driver..."
+    IDS_LABEL_BASE + 11 "Enable"
+    IDS_LABEL_BASE + 12 "Disable"
+    IDS_LABEL_BASE + 13 "Uninstall"
+    IDS_LABEL_BASE + 14 "Scan for hardware changes"
+    IDS_LABEL_BASE + 15 "Add legacy hardware"
+    IDS_LABEL_BASE + 16 "Print"
+    IDS_LABEL_BASE + 17 "Properties"
+    IDS_LABEL_BASE + 18 "Help"
+    IDS_LABEL_BASE + 40 "Back"
+    IDS_LABEL_BASE + 41 "Forward"
+    IDS_LABEL_BASE + 42 "Show/Hide Console Tree"
+    IDS_LABEL_BASE + 43 "Show/Hide Action Pane"
+
+    IDS_CLASS_BASE + 0 "Batteries"
+    IDS_CLASS_BASE + 1 "Bluetooth Radios"
+    IDS_CLASS_BASE + 2 "DVD/CD-ROM drives"
+    IDS_CLASS_BASE + 3 "Computer"
+    IDS_CLASS_BASE + 4 "Disk drives"
+    IDS_CLASS_BASE + 5 "Display adapters"
+    IDS_CLASS_BASE + 6 "Floppy disk controllers"
+    IDS_CLASS_BASE + 7 "Floppy disk drives"
+    IDS_CLASS_BASE + 8 "IDE ATA/ATAPI controllers"
+    IDS_CLASS_BASE + 9 "Human Interface Devices"
+    IDS_CLASS_BASE + 10 "IEEE 1394 Bus host controllers"
+    IDS_CLASS_BASE + 11 "Imaging devices"
+    IDS_CLASS_BASE + 12 "Infrared devices"
+    IDS_CLASS_BASE + 13 "Keyboards"
+    IDS_CLASS_BASE + 14 "Modems"
+    IDS_CLASS_BASE + 15 "Monitors"
+    IDS_CLASS_BASE + 16 "Mice and other pointing devices"
+    IDS_CLASS_BASE + 17 "Network adapters"
+    IDS_CLASS_BASE + 18 "Non-Plug and Play Drivers"
+    IDS_CLASS_BASE + 19 "Other devices"
+    IDS_CLASS_BASE + 20 "PCMCIA adapters"
+    IDS_CLASS_BASE + 21 "Ports (COM & LPT)"
+    IDS_CLASS_BASE + 22 "Printers"
+    IDS_CLASS_BASE + 23 "Processors"
+    IDS_CLASS_BASE + 24 "SCSI and RAID controllers"
+    IDS_CLASS_BASE + 25 "Secure Digital host controllers"
+    IDS_CLASS_BASE + 26 "Smart card readers"
+    IDS_CLASS_BASE + 27 "Sound, video and game controllers"
+    IDS_CLASS_BASE + 28 "Storage volumes"
+    IDS_CLASS_BASE + 29 "System devices"
+    IDS_CLASS_BASE + 30 "Tape drives"
+    IDS_CLASS_BASE + 31 "Universal Serial Bus controllers"
+
+    IDS_DEV_BASE + 0 "ACPI Multiprocessor PC"
+    IDS_DEV_BASE + 1 "ACPI Uniprocessor PC"
+    IDS_DEV_BASE + 2 "Microsoft ACPI-Compliant System"
+    IDS_DEV_BASE + 3 "ACPI Fixed Feature Button"
+    IDS_DEV_BASE + 4 "ACPI Power Button"
+    IDS_DEV_BASE + 5 "ACPI Sleep Button"
+    IDS_DEV_BASE + 6 "ACPI Lid"
+    IDS_DEV_BASE + 7 "PCI bus"
+    IDS_DEV_BASE + 8 "Programmable interrupt controller"
+    IDS_DEV_BASE + 9 "System timer"
+    IDS_DEV_BASE + 10 "High precision event timer"
+    IDS_DEV_BASE + 11 "Direct memory access controller"
+    IDS_DEV_BASE + 12 "System CMOS/real time clock"
+    IDS_DEV_BASE + 13 "System speaker"
+    IDS_DEV_BASE + 14 "System board"
+    IDS_DEV_BASE + 15 "Motherboard resources"
+    IDS_DEV_BASE + 16 "Numeric data processor"
+    IDS_DEV_BASE + 17 "Microsoft ACPI-Compliant Embedded Controller"
+    IDS_DEV_BASE + 18 "Fan"
+    IDS_DEV_BASE + 19 "Microsoft Windows Management Interface for ACPI"
+    IDS_DEV_BASE + 20 "ACPI Thermal Zone"
+    IDS_DEV_BASE + 21 "Standard 101/102-Key or Microsoft Natural PS/2 Keyboard"
+    IDS_DEV_BASE + 22 "PS/2 Compatible Mouse"
+    IDS_DEV_BASE + 23 "Printer Port (LPT%d)"
+    IDS_DEV_BASE + 24 "Communications Port (COM%d)"
+    IDS_DEV_BASE + 25 "Standard floppy disk controller"
+    IDS_DEV_BASE + 26 "Microsoft ACPI-Compliant Control Method Battery"
+    IDS_DEV_BASE + 27 "Microsoft AC Adapter"
+    IDS_DEV_BASE + 28 "USB Root Hub"
+    IDS_DEV_BASE + 29 "Generic USB Hub"
+    IDS_DEV_BASE + 30 "USB Composite Device"
+    IDS_DEV_BASE + 31 "USB Human Interface Device"
+    IDS_DEV_BASE + 32 "USB Mass Storage Device"
+    IDS_DEV_BASE + 33 "USB Audio Device"
+    IDS_DEV_BASE + 34 "USB Video Device"
+    IDS_DEV_BASE + 35 "Generic Bluetooth Radio"
+    IDS_DEV_BASE + 36 "USB Printing Support"
+    IDS_DEV_BASE + 37 "USB Device"
+    IDS_DEV_BASE + 38 "HID Keyboard Device"
+    IDS_DEV_BASE + 39 "HID-compliant mouse"
+    IDS_DEV_BASE + 40 "HID-compliant consumer control device"
+    IDS_DEV_BASE + 41 "HID-compliant device"
+    IDS_DEV_BASE + 42 "HID-compliant game controller"
+    IDS_DEV_BASE + 43 "Plug and Play Monitor"
+    IDS_DEV_BASE + 44 "Default Monitor"
+    IDS_DEV_BASE + 45 "Generic volume"
+    IDS_DEV_BASE + 46 "Loopback Adapter"
+    IDS_DEV_BASE + 47 "PCI Device"
+    IDS_DEV_BASE + 48 "Unknown device"
+    IDS_DEV_BASE + 49 "%s USB Device"
+    IDS_DEV_BASE + 50 "I2C HID Device"
+}
+
+IDD_GENERAL DIALOG 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "General"
+FONT 8, "MS Shell Dlg"
+{
+    ICON "", IDC_DEVICE_ICON, 7, 7, 20, 20
+    LTEXT "", IDC_NAME, 37, 13, 208, 8, SS_NOPREFIX
+    LTEXT "Device type:", -1, 37, 43, 60, 8
+    LTEXT "", IDC_TYPE, 100, 43, 145, 8, SS_NOPREFIX
+    LTEXT "Manufacturer:", -1, 37, 57, 60, 8
+    LTEXT "", IDC_MANUFACTURER, 100, 57, 145, 8, SS_NOPREFIX
+    LTEXT "Location:", -1, 37, 71, 60, 8
+    LTEXT "", IDC_LOCATION, 100, 71, 145, 8, SS_NOPREFIX
+    GROUPBOX "Device status", -1, 7, 84, 238, 103
+    EDITTEXT IDC_STATUS, 14, 96, 224, 61, ES_MULTILINE | ES_READONLY | WS_VSCROLL | NOT WS_TABSTOP
+    PUSHBUTTON "&Troubleshoot...", IDC_TROUBLESHOOT, 150, 165, 88, 14
+    LTEXT "Device &usage:", IDC_USAGE_LABEL, 7, 192, 100, 8
+    COMBOBOX IDC_USAGE, 7, 202, 238, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+}
+
+IDD_DRIVER DIALOG 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Driver"
+FONT 8, "MS Shell Dlg"
+{
+    ICON "", IDC_DEVICE_ICON, 7, 7, 20, 20
+    LTEXT "", IDC_NAME, 37, 13, 208, 8, SS_NOPREFIX
+    LTEXT "Driver Provider:", -1, 37, 43, 60, 8
+    LTEXT "", IDC_PROVIDER, 100, 43, 145, 8, SS_NOPREFIX
+    LTEXT "Driver Date:", IDC_DATE_LABEL, 37, 57, 60, 8
+    LTEXT "", IDC_DATE, 100, 57, 145, 8, SS_NOPREFIX
+    LTEXT "Driver Version:", IDC_VERSION_LABEL, 37, 71, 60, 8
+    LTEXT "", IDC_VERSION, 100, 71, 145, 8, SS_NOPREFIX
+    LTEXT "Digital Signer:", -1, 37, 85, 60, 8
+    LTEXT "", IDC_SIGNER, 100, 85, 145, 8, SS_NOPREFIX
+    PUSHBUTTON "Driver &Details...", IDC_DRIVER_DETAILS, 7, 107, 70, 14
+    LTEXT "To view details about the driver files.", -1, 87, 110, 158, 8
+    PUSHBUTTON "&Update Driver...", IDC_UPDATE_DRIVER, 7, 135, 70, 14
+    LTEXT "To update the driver for this device.", -1, 87, 138, 158, 8
+    PUSHBUTTON "&Roll Back Driver", IDC_ROLLBACK, 7, 163, 70, 14
+    LTEXT "If the device fails after updating the driver, roll back to the previously installed driver.", -1, 87, 162, 158, 16
+    PUSHBUTTON "&Uninstall", IDC_UNINSTALL, 7, 191, 70, 14
+    LTEXT "To uninstall the driver (Advanced).", -1, 87, 194, 158, 8
+}
+
+IDD_DETAILS DIALOG 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Details"
+FONT 8, "MS Shell Dlg"
+{
+    ICON "", IDC_DEVICE_ICON, 7, 7, 20, 20
+    LTEXT "", IDC_NAME, 37, 13, 208, 8, SS_NOPREFIX
+    COMBOBOX IDC_PROPERTY, 7, 37, 238, 150, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL "", IDC_VALUES, "SysListView32", LVS_REPORT | LVS_NOCOLUMNHEADER | LVS_SINGLESEL | LVS_SHOWSELALWAYS |
+            WS_BORDER | WS_TABSTOP, 7, 56, 238, 155
+}
+
+IDD_RESOURCES DIALOG 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Resources"
+FONT 8, "MS Shell Dlg"
+{
+    ICON "", IDC_DEVICE_ICON, 7, 7, 20, 20
+    LTEXT "", IDC_NAME, 37, 13, 208, 8, SS_NOPREFIX
+    LTEXT "&Resource settings:", -1, 7, 36, 100, 8
+    CONTROL "", IDC_RESOURCE_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER |
+            WS_BORDER | WS_TABSTOP, 7, 46, 238, 48
+    LTEXT "&Setting based on:", IDC_BASED_ON_LABEL, 7, 106, 60, 8
+    COMBOBOX IDC_BASED_ON, 69, 104, 176, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    CONTROL "U&se automatic settings", IDC_AUTOMATIC, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 69, 134, 100, 10
+    PUSHBUTTON "&Change Setting...", IDC_CHANGE_SETTING, 175, 132, 70, 14
+    LTEXT "Conflicting device list:", -1, 7, 154, 100, 8
+    EDITTEXT IDC_CONFLICTS, 7, 164, 238, 45, ES_MULTILINE | ES_READONLY | WS_VSCROLL | NOT WS_TABSTOP
+}
+
+IDD_DRIVER_FILES DIALOG 0, 0, 225, 252
+STYLE DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Driver File Details"
+FONT 8, "MS Shell Dlg"
+{
+    ICON "", IDC_DEVICE_ICON, 7, 7, 20, 20
+    LTEXT "", IDC_NAME, 37, 13, 181, 8, SS_NOPREFIX
+    LTEXT "&Driver files:", -1, 7, 35, 100, 8
+    CONTROL "", IDC_FILES, "SysListView32", LVS_REPORT | LVS_NOCOLUMNHEADER | LVS_SINGLESEL | LVS_SHOWSELALWAYS |
+            WS_BORDER | WS_TABSTOP, 7, 45, 211, 78
+    LTEXT "Provider:", -1, 14, 135, 55, 8
+    LTEXT "", IDC_FILE_PROVIDER, 75, 135, 143, 8, SS_NOPREFIX
+    LTEXT "File version:", -1, 14, 151, 55, 8
+    LTEXT "", IDC_FILE_VERSION, 75, 151, 143, 8, SS_NOPREFIX
+    LTEXT "Copyright:", -1, 14, 167, 55, 8
+    LTEXT "", IDC_FILE_COPYRIGHT, 75, 167, 143, 8, SS_NOPREFIX
+    LTEXT "Digital Signer:", -1, 14, 183, 55, 8
+    LTEXT "", IDC_FILE_SIGNER, 75, 183, 143, 16, SS_NOPREFIX
+    DEFPUSHBUTTON "OK", IDOK, 168, 231, 50, 14
+}
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+/* ReactOS art (devmgr, setupapi, mmsys, batt), and a toolbar strip from Wine's comctl32 and ReactOS devmgr art;
+ * the genuine Windows XP resources come from the resource pack when it is installed */
+
+/* @makedep: icons/devmgr.ico */
+IDI_DEVMGR ICON icons/devmgr.ico
+/* @makedep: icons/159.ico */
+IDI_RESOURCES ICON icons/159.ico
+/* @makedep: icons/battery.ico */
+IDI_BATTERY ICON icons/battery.ico
+/* @makedep: icons/media.ico */
+IDI_MEDIA ICON icons/media.ico
+/* @makedep: root.bmp */
+IDB_SYSDM16 BITMAP root.bmp
+/* @makedep: toolbar.bmp */
+IDB_TOOLBAR BITMAP toolbar.bmp
+
+/* the class icons, with setupapi.dll's ids (40 is also IDI_SIGNED, 41 IDI_BLANK) */
+/* @makedep: icons/1.ico */
+1 ICON icons/1.ico
+/* @makedep: icons/2.ico */
+2 ICON icons/2.ico
+/* @makedep: icons/3.ico */
+3 ICON icons/3.ico
+/* @makedep: icons/4.ico */
+4 ICON icons/4.ico
+/* @makedep: icons/5.ico */
+5 ICON icons/5.ico
+/* @makedep: icons/6.ico */
+6 ICON icons/6.ico
+/* @makedep: icons/7.ico */
+7 ICON icons/7.ico
+/* @makedep: icons/8.ico */
+8 ICON icons/8.ico
+/* @makedep: icons/9.ico */
+9 ICON icons/9.ico
+/* @makedep: icons/10.ico */
+10 ICON icons/10.ico
+/* @makedep: icons/11.ico */
+11 ICON icons/11.ico
+/* @makedep: icons/18.ico */
+18 ICON icons/18.ico
+/* @makedep: icons/19.ico */
+19 ICON icons/19.ico
+/* @makedep: icons/20.ico */
+20 ICON icons/20.ico
+/* @makedep: icons/21.ico */
+21 ICON icons/21.ico
+/* @makedep: icons/22.ico */
+22 ICON icons/22.ico
+/* @makedep: icons/23.ico */
+23 ICON icons/23.ico
+/* @makedep: icons/24.ico */
+24 ICON icons/24.ico
+/* @makedep: icons/25.ico */
+25 ICON icons/25.ico
+/* @makedep: icons/26.ico */
+26 ICON icons/26.ico
+/* @makedep: icons/27.ico */
+27 ICON icons/27.ico
+/* @makedep: icons/28.ico */
+28 ICON icons/28.ico
+/* @makedep: icons/40.ico */
+40 ICON icons/40.ico
+/* @makedep: icons/41.ico */
+41 ICON icons/41.ico
+/* @makedep: icons/42.ico */
+42 ICON icons/42.ico
+/* @makedep: icons/43.ico */
+43 ICON icons/43.ico
+/* @makedep: icons/50.ico */
+50 ICON icons/50.ico
+/* @makedep: icons/51.ico */
+51 ICON icons/51.ico
+/* @makedep: icons/52.ico */
+52 ICON icons/52.ico
+/* @makedep: icons/53.ico */
+53 ICON icons/53.ico
+/* @makedep: icons/54.ico */
+54 ICON icons/54.ico
+/* @makedep: icons/105.ico */
+105 ICON icons/105.ico
+/* @makedep: icons/159.ico */
+159 ICON icons/159.ico
+/* @makedep: icons/161.ico */
+161 ICON icons/161.ico
+/* @makedep: icons/500.ico */
+500 ICON icons/500.ico
+/* @makedep: icons/501.ico */
+501 ICON icons/501.ico
+/* @makedep: icons/502.ico */
+502 ICON icons/502.ico

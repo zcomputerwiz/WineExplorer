@@ -1,0 +1,9 @@
+MODULE    = devmgr.dll
+IMPORTLIB = devmgr
+IMPORTS   = wexhost comctl32 shell32 user32 gdi32 kernel32
+
+SOURCES = \
+	devmgr.c \
+	devmgr.rc \
+	hardware.c \
+	properties.c

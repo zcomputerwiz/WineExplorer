@@ -1,0 +1,10 @@
+MODULE    = mmc.exe
+IMPORTS   = shell32 user32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+VER_FILEDESCRIPTION_STR = "Microsoft Management Console"
+
+SOURCES = \
+	main.c \
+	mmc.rc

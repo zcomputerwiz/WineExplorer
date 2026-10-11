@@ -1147,6 +1147,7 @@ enable_ddraw
 enable_ddrawex
 enable_desk_cpl
 enable_devenum
+enable_devmgr
 enable_dhcpcsvc
 enable_dhcpcsvc6
 enable_dhtmled_ocx
@@ -1248,6 +1249,7 @@ enable_infosoft
 enable_initpki
 enable_inkobj
 enable_inseng
+enable_intl_cpl
 enable_iphlpapi
 enable_iprop
 enable_ir50_32
@@ -1831,6 +1833,7 @@ enable_klist
 enable_lodctr
 enable_lsass
 enable_makecab
+enable_mmc
 enable_mofcomp
 enable_mshta
 enable_msidb
@@ -22229,6 +22232,7 @@ wine_fn_config_makefile dlls/ddrawex/tests enable_tests
 wine_fn_config_makefile dlls/desk.cpl enable_desk_cpl
 wine_fn_config_makefile dlls/devenum enable_devenum
 wine_fn_config_makefile dlls/devenum/tests enable_tests
+wine_fn_config_makefile dlls/devmgr enable_devmgr
 wine_fn_config_makefile dlls/dhcpcsvc enable_dhcpcsvc
 wine_fn_config_makefile dlls/dhcpcsvc/tests enable_tests
 wine_fn_config_makefile dlls/dhcpcsvc6 enable_dhcpcsvc6
@@ -22381,6 +22385,7 @@ wine_fn_config_makefile dlls/infosoft/tests enable_tests
 wine_fn_config_makefile dlls/initpki enable_initpki
 wine_fn_config_makefile dlls/inkobj enable_inkobj
 wine_fn_config_makefile dlls/inseng enable_inseng
+wine_fn_config_makefile dlls/intl.cpl enable_intl_cpl
 wine_fn_config_makefile dlls/iphlpapi enable_iphlpapi
 wine_fn_config_makefile dlls/iphlpapi/tests enable_tests
 wine_fn_config_makefile dlls/iprop enable_iprop
@@ -23177,6 +23182,7 @@ wine_fn_config_makefile programs/klist enable_klist
 wine_fn_config_makefile programs/lodctr enable_lodctr
 wine_fn_config_makefile programs/lsass enable_lsass
 wine_fn_config_makefile programs/makecab enable_makecab
+wine_fn_config_makefile programs/mmc enable_mmc
 wine_fn_config_makefile programs/mofcomp enable_mofcomp
 wine_fn_config_makefile programs/mshta enable_mshta
 wine_fn_config_makefile programs/msidb enable_msidb

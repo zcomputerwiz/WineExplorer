@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<MMC_ConsoleFile ConsoleVersion="2.0" ProgramMode="UserSDI">
+  <!-- Wine's mmc.exe reads only the snap-in of a console -->
+  <SnapIns>
+    <SnapIn CLSID="{74246BFC-4C96-11D0-ABEF-0020AF6B0B7A}"/>
+  </SnapIns>
+  <StringTables>
+    <StringTable>
+      <Strings>
+        <String ID="1">Device Manager</String>
+      </Strings>
+    </StringTable>
+  </StringTables>
+</MMC_ConsoleFile>
