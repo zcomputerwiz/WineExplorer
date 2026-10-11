@@ -14,7 +14,14 @@
 #   scripts/vm.sh cursor software|hardware   select Xorg cursor rendering (requires graphical-session restart)
 # Override with VM_KEY / VM_PORT / VM_USER if the environment differs.
 set -e
-KEY="${VM_KEY:-/d/VirtualBox_VMs/vm_key}"
+KEY="${VM_KEY:-}"
+if [ -z "$KEY" ]; then
+    if [ -f "/d/Projects/VirtualBox_VMs/vm_key" ]; then
+        KEY="/d/Projects/VirtualBox_VMs/vm_key"
+    else
+        KEY="/d/VirtualBox_VMs/vm_key"
+    fi
+fi
 PORT="${VM_PORT:-2222}"
 USER_="${VM_USER:-wineuser}"
 VBM="/c/Program Files/Oracle/VirtualBox/VBoxManage.exe"

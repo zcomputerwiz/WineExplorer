@@ -1,0 +1,21 @@
+[SetupData]
+ProductName = "Debian GNU/Linux with WineExplorer"
+MajorVersion = 13
+MinorVersion = 0
+DefaultPath = \target
+OsLoadOptions = "/fastdetect"
+
+[DiskSpaceRequirements]
+FreeSysPartDiskSpace = 8192
+FreeRootDiskSpace = 15360
+
+[SourceDisksNames]
+1 = "Debian GNU/Linux with WineExplorer Installation CD", \live\filesystem.squashfs, , \setup
+
+[WinntDirectories]
+1 = \
+2 = \usr
+3 = \usr\local
+4 = \etc
+5 = \var
+6 = \home

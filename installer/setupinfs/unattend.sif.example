@@ -1,0 +1,28 @@
+; Unattended installation answer file for WineExplorer
+[Unattended]
+UnattendMode = FullUnattended
+OemSkipEula = Yes
+TargetDisk = /dev/sda
+Repartition = Yes
+
+[GuiUnattended]
+TimeZone = "UTC"
+AdminPassword = ""
+OEMSkipRegional = 1
+
+[UserData]
+FullName = "Administrator"
+OrgName = "WineExplorer Organization"
+ComputerName = "WEX-PC"
+
+[Networking]
+InstallDefaultComponents = Yes
+
+[Components]
+libreoffice = Off
+firefox = On
+samba = Off
+
+[WexOobe]
+User1 = "wineuser"
+User1Admin = 1

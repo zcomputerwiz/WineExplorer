@@ -1,0 +1,58 @@
+#!/bin/sh
+set -e
+# Customizes GRUB menu for WineExplorer ISO and links kernel/initrd
+
+# Ensure live/vmlinuz and live/initrd.img exist
+if [ -d live ]; then
+    VMLINUZ=$(cd live && ls vmlinuz-* 2>/dev/null | head -1 || true)
+    INITRD=$(cd live && ls initrd.img-* 2>/dev/null | head -1 || true)
+    if [ -n "$VMLINUZ" ] && [ ! -e live/vmlinuz ]; then
+        ln "live/$VMLINUZ" live/vmlinuz 2>/dev/null || cp -f "live/$VMLINUZ" live/vmlinuz
+    fi
+    if [ -n "$INITRD" ] && [ ! -e live/initrd.img ]; then
+        ln "live/$INITRD" live/initrd.img 2>/dev/null || cp -f "live/$INITRD" live/initrd.img
+    fi
+fi
+
+if [ -d boot/grub ]; then
+    cat > boot/grub/grub.cfg << 'EOF'
+set default=0
+set timeout=10
+
+set menu_color_normal=cyan/blue
+set menu_color_highlight=white/blue
+
+insmod all_video
+
+menuentry "Install Debian with WineExplorer" --hotkey=i {
+    linux /live/vmlinuz boot=live components wexsetup=textmode console=ttyS0,115200 console=tty1 quiet
+    initrd /live/initrd.img
+}
+
+menuentry "Start WineExplorer from CD" --hotkey=s {
+    linux /live/vmlinuz boot=live components username=wineuser user-fullname="Wine User" console=ttyS0,115200 console=tty1 quiet splash
+    initrd /live/initrd.img
+}
+
+menuentry "Install (unattended)" --hotkey=u {
+    linux /live/vmlinuz boot=live components wexsetup=textmode wexunattend=/setup/unattend.sif console=ttyS0,115200 console=tty1 quiet
+    initrd /live/initrd.img
+}
+
+submenu "Advanced options..." --hotkey=a {
+    menuentry "Start WineExplorer (failsafe)" {
+        linux /live/vmlinuz boot=live components memtest noapic noapm nodma nomce nolapic nomodeset nosmp nosplash vga=normal
+        initrd /live/initrd.img
+    }
+    menuentry "Rescue shell" {
+        linux /live/vmlinuz boot=live components rescue single
+        initrd /live/initrd.img
+    }
+    if [ "${grub_platform}" = "efi" ]; then
+        menuentry "UEFI Firmware Settings" {
+            fwsetup
+        }
+    fi
+}
+EOF
+fi

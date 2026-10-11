@@ -1,0 +1,36 @@
+#!/bin/sh
+set -e
+
+# Ensure display-manager is enabled and linked to gdm3
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /lib/systemd/system/gdm3.service /etc/systemd/system/display-manager.service
+ln -sf /lib/systemd/system/gdm3.service /etc/systemd/system/graphical.target.wants/display-manager.service
+
+# Ensure wex-textsetup, wex-setup, and wex-oobe are enabled in multi-user.target
+mkdir -p /etc/systemd/system/multi-user.target.wants
+ln -sf /lib/systemd/system/wex-textsetup.service /etc/systemd/system/multi-user.target.wants/wex-textsetup.service
+ln -sf /lib/systemd/system/wex-setup.service /etc/systemd/system/multi-user.target.wants/wex-setup.service
+ln -sf /lib/systemd/system/wex-oobe.service /etc/systemd/system/multi-user.target.wants/wex-oobe.service
+
+# Fix permissions on desktop file
+if [ -f /usr/share/xsessions/wine-explorer.desktop ]; then
+    chmod 644 /usr/share/xsessions/wine-explorer.desktop
+fi
+
+# Ensure standard permissions on system directories (755 for system root dirs)
+chmod 755 / /etc /usr /var /setup /home 2>/dev/null || true
+chmod 755 /etc/wineexplorer 2>/dev/null || true
+chmod 1777 /tmp /var/tmp 2>/dev/null || true
+
+# Explicitly ensure setuid bits are preserved on elevation binaries
+chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/pkexec /usr/bin/passwd /usr/bin/gpasswd /usr/bin/newgrp /usr/bin/chsh /usr/bin/chfn 2>/dev/null || true
+chmod 4755 /usr/lib/dbus-1/dbus-daemon-launch-helper 2>/dev/null || true
+chmod 4755 /usr/lib/polkit-1/polkit-agent-helper-1 2>/dev/null || true
+# Ensure setup executables and scripts are executable
+chmod 755 /setup/textsetup /usr/local/bin/wex-*.sh /usr/local/bin/*.exe 2>/dev/null || true
+
+# Ensure sudoers.d files have 0440 mode
+chmod 440 /etc/sudoers.d/* 2>/dev/null || true
+
+# Mask plymouth waiting services so they do not block headless or non-graphical boot
+systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true

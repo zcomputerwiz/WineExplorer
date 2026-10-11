@@ -1,0 +1,5 @@
+[Components]
+libreoffice = libreoffice-calc,libreoffice-writer,libreoffice-impress
+firefox = firefox-esr
+samba = samba,smbclient
+games = wine-games-support

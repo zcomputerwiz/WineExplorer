@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+# Runs mklayout.py over chroot to generate binary/setup/layout.inf and txtsetup.sif
+mkdir -p setup
+
+MKLAYOUT=""
+if [ -f /media/sf_WineExplorer/installer/tools/mklayout.py ]; then
+    MKLAYOUT="/media/sf_WineExplorer/installer/tools/mklayout.py"
+elif [ -f ../config/mklayout.py ]; then
+    MKLAYOUT="../config/mklayout.py"
+fi
+
+SIF_IN=""
+if [ -f /media/sf_WineExplorer/installer/setupinfs/txtsetup.sif.in ]; then
+    SIF_IN="/media/sf_WineExplorer/installer/setupinfs/txtsetup.sif.in"
+elif [ -f ../config/txtsetup.sif.in ]; then
+    SIF_IN="../config/txtsetup.sif.in"
+fi
+
+if [ -n "$MKLAYOUT" ] && [ -f "$MKLAYOUT" ]; then
+    python3 "$MKLAYOUT" ../chroot setup "$SIF_IN" || true
+fi
+
+# Copy eula.txt if available
+if [ -f /media/sf_WineExplorer/installer/setupinfs/eula.txt ]; then
+    cp -f /media/sf_WineExplorer/installer/setupinfs/eula.txt setup/eula.txt || true
+elif [ -f ../chroot/setup/eula.txt ]; then
+    cp -f ../chroot/setup/eula.txt setup/eula.txt || true
+fi

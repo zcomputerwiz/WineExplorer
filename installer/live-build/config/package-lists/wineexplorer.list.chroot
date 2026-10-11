@@ -1,0 +1,50 @@
+# Core Live System & Kernel
+live-boot
+live-config
+live-config-systemd
+linux-image-amd64
+
+# Display Server, Video Drivers & Display Manager
+xorg
+xserver-xorg-video-all
+xserver-xorg-input-all
+x11-xserver-utils
+x11-utils
+xdotool
+gdm3
+desktop-base
+
+# System Services & Desktop Integration
+dbus
+polkitd
+accountsservice
+network-manager
+systemd-timesyncd
+sudo
+eject
+pciutils
+curl
+wget
+nano
+
+# Disk Partitioning & Filesystem Tools
+libfdisk1
+libblkid1
+e2fsprogs
+dosfstools
+fdisk
+grub-pc
+grub-pc-bin
+grub-efi-amd64-bin
+grub-common
+grub2-common
+
+# Terminal & Text UI
+ncurses-bin
+ncurses-term
+libncursesw6
+
+# System Fonts
+fonts-dejavu-core
+fonts-liberation
+fonts-noto-mono
