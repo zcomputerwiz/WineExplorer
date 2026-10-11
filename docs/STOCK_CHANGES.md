@@ -61,7 +61,6 @@ rebasing on upstream Wine harder. Baseline = commit `03476d7`.
 | `programs/shell32`-visible: none | Run dialog placement is done by explorer (CBT hook), not by shell32 | - |
 | `loader/wine.inf.in` | `.msc` files open with `mmc.exe` (`MSCFile`); new `[MscFiles]` copies `devmgmt.msc` (a data file of `programs/mmc`) into system32 | always |
 
-
 ## Reverted (were changed earlier, now stock again)
 - `dlls/comctl32/monthcal.c` (today-circle removal): timedate.cpl now creates its calendar with
   `MCS_NOTODAY | MCS_NOTODAYCIRCLE`, which is what the XP applet looks like.
