@@ -28,6 +28,12 @@ A Live CD is not required. A "Start from CD" boot entry is wanted anyway, becaus
 - **Commit after each working step.** Never pass C escapes through Bash heredocs, `sed` or `python -c`: write the file
   with an editor or a script file instead (see `CLAUDE.md`, "Editing").
 
+**On another machine.** `references/` is not in git (it is in `.gitignore`), so a fresh clone has neither
+- **ReactOS** is public: clone `https://github.com/reactos/reactos` into `references/reactos`.
+  work order needs from it is summarized below, so it is optional.
+- The same goes for `references/xp_export`, the XP VM and its genuine resources: §4.7 works only where they exist. The
+  default build never needs them.
+
 ## 2. How Windows XP Setup works (research summary)
 
 ### 2.1 Media and the file lists
@@ -95,7 +101,12 @@ the copy phase and its progress bar.
      - Thank you!
    - Then "Welcome", and the desktop.
 
-### 2.3 Open-source clones you may port: ReactOS (`references/reactos`)
+
+The source tree has all of Setup. If it is available, read it to settle questions of behavior and wording.
+
+|---|---|
+
+### 2.4 Open-source clones you may port: ReactOS (`references/reactos`)
 
 | ReactOS | What it is |
 |---|---|
@@ -118,7 +129,8 @@ the copy phase and its progress bar.
 | **Cubic** (Custom Ubuntu ISO Creator) | Not suitable. It is an interactive GTK wizard that remasters an existing ISO, with no headless mode documented. Fine for experiments, unusable for a repeatable build. |
 | **udib** | Not suitable as the base. It injects a `preseed.cfg` into a debian-installer netinst ISO's initrd and repacks with xorriso. That keeps debian-installer's user interface, which is not what we want. It is useful only as a reference for the xorriso repack flags. Our own unattended mode (§4.6) replaces preseeding. |
 
-An earlier preseed exists in `D:\VirtualBox_VMs\debian_preseed.cfg`; it is how the current VM was installed. Use it as
+`installer/reference-vm-preseed.cfg` is the preseed the current development VM was installed with. It is a VirtualBox
+unattended-install template: VirtualBox fills in the `@@VBOX_…@@` placeholders, and no passwords are stored. Use it as
 the reference for partitioning defaults and the package selection.
 
 ## 4. Architecture
@@ -343,14 +355,26 @@ Do not touch `WineExplorer-VM`: it is the development machine. Build on it, test
 | M7 | Docs + polish | `docs/INSTALLER.md`; `STOCK_CHANGES.md` updated if stock Wine was touched; ISO size and install time recorded |
 
 **Reference screenshots.** The XP VM is already installed, so its Setup cannot be captured from it.
-- Ask the user for an XP installation ISO.
-- With it, record every Setup screen in a throwaway VM and save the PNGs to `references/screenshots/xp-setup/`, as
-  the other references are.
-- Until then, use ReactOS Setup's screens for layout and XP's wording from §2.2.
+- **Use now:** a complete walkthrough of XP Professional SP2 Setup, captured in VMware Player at 640×480.
+  - <https://www.dedoimedo.com/computers/install_xp.html>, with the steps on `install_xp_1.html` to
+    `install_xp_6.html`.
+  - The images are reachable directly. All have the base URL `https://www.dedoimedo.com/images/computers/`.
+  - Use them for layout and wording only. Measure positions, colors and sizes on a real capture.
+- **Later:** if the user provides an XP installation ISO, record every screen at native resolution in a throwaway VM,
+  and save the PNGs to `references/screenshots/xp-setup/`.
+
+| Stage | Images (base URL above) |
+|---|---|
+| Text mode | `xp_f6_for_drivers.png` (status bar "Press F6 if you need to install a third party SCSI or RAID driver"), `xp_welcome_to_setup.png`, `xp_eula.png`, `xp_partitioning.png`, `xp_make_primary.png`, `xp_primary_created.png`, `xp_make_logical.png`, `xp_logical_created.png`, `xp_install_here.png`, `xp_format_ntfs.png`, `xp_copying_files.png` (yellow bar, "Copying: driver.cab" in the status bar), `xp_rebooting.png` (red countdown) |
+| GUI mode (billboard + wizard) | `xp_starting_install_of_windows.jpg` (billboard: steps, "Setup will complete in approximately: 37 minutes", "Installing Devices" bar, "Stay up to date" panel), `xp_regional_and_language_settings.jpg`, `xp_user_name.jpg` (Personalize Your Software), `xp_product_key.jpg`, `xp_admin_password.jpg`, `xp_date_time_settings.jpg`, `xp_networking_settings.jpg`, `xp_networking_components.jpg` (Custom), `xp_workgroup.jpg`, `xp_continuing_install_of_windows.jpg` |
+| First boot | `xp_booting_into_windows.jpg`, `xp_display_settings.png`, `xp_monitor_settings.png` |
+| OOBE | `xp_welcome_to_windows.jpg`, `xp_automatic_updates.jpg`, `xp_internet_connections.jpg`, `xp_register.jpg`, `xp_users.jpg`, `xp_finished_install_of_windows.jpg` (Thank you!), `xp_inside_windows.jpg` (first desktop) |
+
+The boot-from-CD image (`xp_boot_from_cd.jpg`) is VMware's BIOS menu, not part of Setup.
 
 ## 7. Open questions for the user (ask before M3)
 
-1. Is an XP installation ISO available, to capture reference screenshots of every Setup stage?
+1. Is an XP installation ISO available, to capture full-resolution reference screenshots? The dedoimedo set (§6) is
 2. Disk layout: one ext4 root partition (XP-like simplicity), or a separate `/home`? Btrfs snapshots?
 3. "Administrator password": set the root password (closest to XP), or keep root locked and make the first OOBE user
    a sudoer only (the Debian default when no root password is given)?
