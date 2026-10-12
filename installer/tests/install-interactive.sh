@@ -88,4 +88,30 @@ T0=$(date +%s)
 $V wait "$VM" "My Documents" --timeout 240 || fail "no desktop for Bob Smith"
 $V wait "$VM" "Recycle Bin" --timeout 30 || fail "desktop icons missing"
 step desktop
-echo "PASS (desktop $(( $(date +%s) - T0 )) s after logon); screenshots in $STEPS"
+ELAPSED=$(( $(date +%s) - T0 ))
+
+# Check the flushed installed disk, including both users' actual session logs.
+$V shutdown "$VM" || fail "guest did not shut down cleanly"
+NBD=; CONNECTED=false; MOUNTED=false
+cleanup() {
+    if $MOUNTED; then umount "$STEPS/check-root"; fi
+    if $CONNECTED; then qemu-nbd --disconnect "$NBD" >/dev/null; fi
+}
+trap cleanup EXIT
+modprobe nbd max_part=16 || fail "cannot load NBD"
+for entry in /sys/block/nbd*; do
+    if [ ! -e "$entry/pid" ]; then NBD=/dev/${entry##*/}; break; fi
+done
+[ -n "$NBD" ] || fail "no unused NBD device"
+qemu-nbd --read-only --connect "$NBD" "/tmp/vmtest/$VM/disk.qcow2" || fail "cannot attach test disk"
+CONNECTED=true
+udevadm settle
+for attempt in $(seq 1 30); do
+    [ -b "${NBD}p1" ] && break
+    sleep 1
+done
+mkdir -p "$STEPS/check-root"
+mount -o ro,noload "${NBD}p1" "$STEPS/check-root" || fail "cannot mount installed root"
+MOUNTED=true
+python3 "$HERE/check-interactive-accounts.py" "$STEPS/check-root" "$PWFILE" || fail "installed account checks failed"
+echo "PASS (Bob desktop $ELAPSED s after logon); screenshots in $STEPS; VM stopped"
