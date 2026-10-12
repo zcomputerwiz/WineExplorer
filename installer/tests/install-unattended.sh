@@ -32,7 +32,7 @@ rm -rf "$STATE"
 "${V[@]}" wait "$VM" "My Documents" --timeout 900 || fail "no automatic desktop after setup"
 "${V[@]}" wait "$VM" "Recycle Bin" --timeout 30 || fail "desktop icons missing"
 "${V[@]}" shot "$VM" "$STATE/desktop.png" >/dev/null
-"${V[@]}" stop "$VM"
+"${V[@]}" shutdown "$VM"
 
 # Verify the installed disk, not merely a live desktop bearing the same label.
 modprobe nbd max_part=16
