@@ -580,6 +580,55 @@ static NTSTATUS user_get( void *args )
     return STATUS_SUCCESS;
 }
 
+/* The accounts the logon screen offers: AccountsService's cached users without system accounts, one per line as
+ * "name\treal name\ticon file".  needed gets the size including the terminating NUL. */
+static NTSTATUS users_list( void *args )
+{
+    struct users_list_params *params = args;
+    char *out = (char *)(ULONG_PTR)params->buffer;
+    DBusMessage *msg, *reply;
+    DBusMessageIter it, arr;
+    size_t used = 0;
+
+    params->needed = 0;
+    msg = load_dbus() ? p_dbus_message_new_method_call( "org.freedesktop.Accounts", "/org/freedesktop/Accounts",
+                                                        "org.freedesktop.Accounts", "ListCachedUsers" ) : NULL;
+    params->err = call_system( msg, &reply );
+    if (msg) p_dbus_message_unref( msg );
+    if (params->err) return STATUS_SUCCESS;
+
+    if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_ARRAY)
+    {
+        p_dbus_message_iter_recurse( &it, &arr );
+        while (p_dbus_message_iter_get_arg_type( &arr ) == DBUS_TYPE_OBJECT_PATH)
+        {
+            const char *path;
+            char name[64] = "", real[128] = "", icon[260] = "", line[512];
+            int system = 0, n;
+            struct prop props[] = {
+                { "UserName", DBUS_TYPE_STRING, name, sizeof(name) },
+                { "RealName", DBUS_TYPE_STRING, real, sizeof(real) },
+                { "IconFile", DBUS_TYPE_STRING, icon, sizeof(icon) },
+                { "SystemAccount", DBUS_TYPE_BOOLEAN, &system, 0 } };
+
+            p_dbus_message_iter_get_basic( &arr, &path );
+            p_dbus_message_iter_next( &arr );
+            if (get_properties( "org.freedesktop.Accounts", path, "org.freedesktop.Accounts.User", props, ARRAYSIZE(props) )
+                || system || !name[0] || strpbrk( name, "\t\n" ) || strpbrk( real, "\t\n" ) || strpbrk( icon, "\t\n" ))
+                continue;
+            n = snprintf( line, sizeof(line), "%s\t%s\t%s\n", name, real, icon );
+            if (n <= 0 || n >= sizeof(line)) continue;
+            if (out && used + n < params->size) memcpy( out + used, line, n );
+            used += n;
+        }
+    }
+    p_dbus_message_unref( reply );
+    params->needed = used + 1;
+    if (!out || used >= params->size) params->err = ERROR_MORE_DATA;
+    else out[used] = 0;
+    return STATUS_SUCCESS;
+}
+
 /* ------------------------------------------------------------------ NetworkManager */
 
 #define NM_DEST   "org.freedesktop.NetworkManager"
@@ -1356,6 +1405,7 @@ STUB( net_scan_wifi, struct net_scan_wifi_params )
 STUB( net_connect_wifi, struct net_connect_wifi_params )
 STUB( net_disconnect, struct net_disconnect_params )
 STUB( net_enable, struct net_enable_params )
+STUB( users_list, struct users_list_params )
 
 #endif
 
@@ -1398,6 +1448,13 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     apps_list,
     apps_launch,
     hw_list,
+    users_list,
+    greeter_connect,
+    greeter_authenticate,
+    greeter_respond,
+    greeter_cancel,
+    greeter_start_session,
+    greeter_read,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

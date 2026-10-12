@@ -1,0 +1,53 @@
+/*
+ * Windows Logon User Interface Host - resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
+
+#include <windef.h>
+#include <winuser.h>
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+STRINGTABLE
+{
+    IDS_TITLE "Log On to Windows"
+    IDS_BEGIN "To begin, click your user name"
+    IDS_FAILED "The system could not log you on. Make sure your User name and domain are correct, then type your password again. Letters in passwords must be typed using the correct case."
+    IDS_NO_GREETER "Windows logon must be started by the display manager."
+    IDS_SESSION_FAILED "Windows could not start your session."
+    IDS_LOCKED "This computer is locked. Only %s or an administrator can unlock this computer."
+    IDS_CHECKING "Checking your password..."
+}
+
+IDD_LOGON DIALOGEX 0, 0, 240, 180
+STYLE DS_SHELLFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT           "To begin, click your user name", -1, 10, 8, 220, 10
+    LISTBOX         IDC_USERS, 10, 22, 220, 70, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    LTEXT           "Type your password", IDC_PASSWORD_LABEL, 10, 98, 220, 10
+    EDITTEXT        IDC_PASSWORD, 10, 110, 160, 14, ES_PASSWORD | ES_AUTOHSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "OK", IDOK, 176, 110, 54, 14, WS_TABSTOP
+    LTEXT           "", IDC_STATUS, 10, 130, 220, 30
+    PUSHBUTTON      "&Turn off computer", IDC_TURNOFF, 10, 160, 90, 14, WS_TABSTOP
+}

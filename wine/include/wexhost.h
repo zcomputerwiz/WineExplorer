@@ -128,6 +128,16 @@ DWORD WINAPI WexNetEnable( void );
 typedef struct { char name[64]; char real_name[128]; char icon_file[260]; } WEX_USER;
 
 DWORD WINAPI WexUserGet( WEX_USER *info );
+/* The accounts for the logon screen, one per line: "name\treal name\ticon file". */
+DWORD WINAPI WexUsersList( char *buffer, DWORD size, DWORD *needed );
+
+/* The LightDM greeter protocol (logonui.exe).  WexGreeterRead returns one event as text; see dlls/wexhost/greeter.c. */
+DWORD WINAPI WexGreeterConnect( void );
+DWORD WINAPI WexGreeterAuthenticate( const char *user, DWORD *sequence );
+DWORD WINAPI WexGreeterRespond( const char *secret );
+DWORD WINAPI WexGreeterCancel( void );
+DWORD WINAPI WexGreeterStartSession( const char *session );
+DWORD WINAPI WexGreeterRead( char *buffer, DWORD size, DWORD timeout );
 
 /* polkit authentication agent */
 #define WEX_EVENT_STOP    0

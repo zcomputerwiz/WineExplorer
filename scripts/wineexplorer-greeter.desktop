@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=WineExplorer Logon
+Comment=Windows logon screen (logonui.exe) for LightDM
+Exec=/usr/local/bin/wex-greeter.sh
+Type=Application

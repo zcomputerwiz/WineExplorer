@@ -8,6 +8,7 @@ UNIX_LIBS   = $(PTHREAD_LIBS)
 SOURCES = \
 	apps.c \
 	display.c \
+	greeter.c \
 	hardware.c \
 	unixlib.c \
 	wexhost.c \

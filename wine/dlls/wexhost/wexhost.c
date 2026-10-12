@@ -203,6 +203,52 @@ DWORD WINAPI WexUserGet( WEX_USER *info )
     return params.err;
 }
 
+DWORD WINAPI WexUsersList( char *buffer, DWORD size, DWORD *needed )
+{
+    struct users_list_params params = {0};
+    if (needed) *needed = 0;
+    if (!buffer && size) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.buffer = (ULONG_PTR)buffer;
+    params.size = size;
+    WEXHOST_CALL( users_list, &params );
+    if (needed) *needed = params.needed;
+    return params.err;
+}
+
+static DWORD greeter_call( unsigned int func, const char *text, DWORD *value )
+{
+    struct greeter_params params = {0};
+    NTSTATUS status;
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (text && strlen( text ) >= sizeof(params.text)) return ERROR_INVALID_PARAMETER;
+    if (text) strcpy( params.text, text );
+    status = WINE_UNIX_CALL( func, &params );
+    SecureZeroMemory( params.text, sizeof(params.text) );
+    if (status) return ERROR_NOT_SUPPORTED;
+    if (value) *value = params.value;
+    return params.err;
+}
+
+DWORD WINAPI WexGreeterConnect( void ) { return greeter_call( unix_greeter_connect, NULL, NULL ); }
+DWORD WINAPI WexGreeterAuthenticate( const char *user, DWORD *sequence ) { return greeter_call( unix_greeter_authenticate, user, sequence ); }
+DWORD WINAPI WexGreeterRespond( const char *secret ) { return greeter_call( unix_greeter_respond, secret ? secret : "", NULL ); }
+DWORD WINAPI WexGreeterCancel( void ) { return greeter_call( unix_greeter_cancel, NULL, NULL ); }
+DWORD WINAPI WexGreeterStartSession( const char *session ) { return greeter_call( unix_greeter_start_session, session, NULL ); }
+
+DWORD WINAPI WexGreeterRead( char *buffer, DWORD size, DWORD timeout )
+{
+    struct greeter_read_params params = {0};
+    if (!buffer || !size) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.buffer = (ULONG_PTR)buffer;
+    params.size = size;
+    params.timeout = timeout;
+    WEXHOST_CALL( greeter_read, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexNetGetStatus( WEX_NET_STATUS *status )
 {
     struct net_get_status_params params;

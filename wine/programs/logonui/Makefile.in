@@ -1,0 +1,10 @@
+MODULE    = logonui.exe
+IMPORTS   = wexhost user32 gdi32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+VER_FILEDESCRIPTION_STR = "Windows Logon User Interface Host"
+
+SOURCES = \
+	logonui.c \
+	logonui.rc

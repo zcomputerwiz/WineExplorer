@@ -83,6 +83,16 @@ extern NTSTATUS apps_launch(void *args);
 struct hw_list_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
 extern NTSTATUS hw_list(void *args);
 
+struct users_list_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
+struct greeter_params { char text[512]; DWORD value; DWORD err; };
+struct greeter_read_params { ULONG64 buffer; DWORD size; DWORD timeout; DWORD err; };
+extern NTSTATUS greeter_connect(void *args);
+extern NTSTATUS greeter_authenticate(void *args);
+extern NTSTATUS greeter_respond(void *args);
+extern NTSTATUS greeter_cancel(void *args);
+extern NTSTATUS greeter_start_session(void *args);
+extern NTSTATUS greeter_read(void *args);
+
 struct wm_start_params { UINT64 desktop; DWORD err; };
 struct wm_next_event_params { WEX_WM_EVENT event; DWORD err; };
 struct wm_manage_params { UINT64 window; UINT64 parent; RECT client; RECT screen; DWORD err; };
@@ -141,6 +151,13 @@ enum wexhost_funcs
     unix_apps_list,
     unix_apps_launch,
     unix_hw_list,
+    unix_users_list,
+    unix_greeter_connect,
+    unix_greeter_authenticate,
+    unix_greeter_respond,
+    unix_greeter_cancel,
+    unix_greeter_start_session,
+    unix_greeter_read,
     unix_funcs_count
 };
 

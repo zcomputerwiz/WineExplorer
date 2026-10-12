@@ -1,6 +1,6 @@
 # Logon and window composition: plan
 
-Status (2026-10-12): W1 done (dev VM on LightDM); W2 next. This plan covers two projects:
+Status (2026-10-12): W1 and W2 done (dev VM on LightDM with logonui.exe as the greeter); W3 next; D1 in progress. This plan covers two projects:
 
 - **Winlogon**: XP's logon experience (Welcome screen, classic Log On to Windows dialog, Lock Computer, Switch
   User / fast user switching, Windows Security) on top of a real Linux display manager.
@@ -81,6 +81,26 @@ Turn Off was not exercised (unchanged path). Found on the way:
   opens them from `/proc/self/fd`).
 - Plain UI first: user list, password field, error text, Turn Off (login1 allows it from the greeter's session).
 - Keep `lightdm-gtk-greeter` installed and switchable in `lightdm.conf` while the new greeter matures.
+
+**Done (2026-10-12).** `wexhost/greeter.c` speaks the protocol (`WexGreeterConnect/Authenticate/Respond/Cancel/
+StartSession/Read`), `WexUsersList` reads AccountsService; `programs/logonui` is the plain greeter.
+`scripts/setup-greeter.sh` (root) installs `wex-greeter.sh` and `/usr/share/xgreeters/wineexplorer-greeter.desktop`
+and makes the prefix `/var/lib/lightdm/.wine-logon`; `setup-greeter.sh use` selects it, `setup-greeter.sh gtk` goes
+back. Verified on the dev VM:
+- The pipes reach the Windows process through `wine`, `explorer /desktop` and its child (checked with `/proc/<pid>/fd`).
+- Windows+L shows logonui (LightDM: "Greeter connected version=wineexplorer-logonui"), listing the AccountsService
+  accounts.
+- A wrong password: PAM's "Authentication failure" comes back and logonui shows XP's "The system could not log you
+  on" message.
+- A right password for a second account (`wextest`, test account on the VM; password in the gitignored
+  `build/w2/test-account.txt`) starts that user's shell on its own VT while `wineuser`'s session keeps running
+  (fast user switching).
+- Not exercised: Turn off computer from the greeter (it would power the VM off); returning to an existing session
+  through the greeter (needs `wineuser`'s password; `loginctl activate` was used instead).
+Notes: `Seat.Lock` sends `lock-screen=true` without `select-user`, so nothing is preselected; that matches XP's
+Welcome screen with fast user switching (the "computer is locked" text belongs to classic logon, W4). Debian sets
+`greeter-hide-users=true`; the Welcome screen ignores that hint, classic logon (W4) will honour it. A fresh user's
+prefix (`wextest`) showed no Recycle Bin icon on the open art set: to check.
 
 ### W3: the Welcome screen
 - The XP Welcome screen: the frame and the strips (ReactOS `NT5design.c`), user tiles with pictures, the password
