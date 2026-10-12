@@ -2,7 +2,8 @@
 
 P0 acceptance passed on 2026-10-12. All changed paths and text hunks are
 classified against the pinned release/source snapshots. No source modules
-have moved and no VM runtime has changed. P1 is next.
+have moved and installed VM runtimes remain intact. P1 is in progress;
+validated branches and regression evidence are in [UPSTREAM.md](UPSTREAM.md).
 
 ## Baseline and reproducible evidence
 

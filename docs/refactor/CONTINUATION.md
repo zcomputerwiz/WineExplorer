@@ -1,7 +1,8 @@
 # Refactor continuation — 2026-10-12
 
-P0 acceptance passed; source is still in its original layout. No guest was changed,
-restarted or built. Existing installer images and VM sessions remain intact.
+P0 acceptance passed; source is still in its original layout. P1 uses a separate
+build checkout/prefix on the Proton build VM. Existing installed runtimes,
+installer images and desktop sessions remain intact.
 User's `.gitignore` edit is preserved. A pre-existing `.claude/` worktree is
 untouched; `/.claude/` was added only to local `.git/info/exclude` after the app
 started thousands of untracked-file diff subprocesses for it. That exclusion
@@ -16,7 +17,9 @@ came unchanged from wine-mirror because the user's fork has no tags.
 Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
 paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
 containing twelve independent fix candidates. P0's strict acceptance command passes.
-The next step is P1: independent upstream branches and module tests on the build VM.
+P1 has two validated/pushed branches: imagelist-alpha (985db3ef) and
+empty-recycle-bin-icon (00d5a25f). The wizard-focus regression is running.
+See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
 The 68 import differences contain only modes, missing ntoskrnl files, open art
@@ -32,6 +35,56 @@ exists and the 60 GiB root filesystem has 19 GiB available. No guest was written
 `build/refactor/review-shell.py` added shell32, Explorer boundaries, build inputs
 and backport decisions. Local generators are scratch tooling; the committed
 REVIEWS.json is authoritative. The fork master still resolves to 081042ede6.
+
+P1 runtime: `~/wex-refactor/upstream` is a shallow fork clone, and
+`~/wex-refactor/build` is a full clean 64-bit build (completed). No installation
+was performed. `base-build.log` and `base-build.status` record completion.
+The active runner is `test-topic.sh wizard-focus comctl32 propsheet`, PID
+1313063 at launch, with `wizard-topic.log` and `results/wizard-focus/` evidence.
+Do not run another topic while this runner holds test-runner.lock.
+Topic results/prefixes are isolated under ~/wex-refactor. Old failed imagelist
+runner 1281780 was stopped and its patches reversed exactly before rebuilding
+master and rerunning; the successful imagelist run then confirmed six intended
+failures before the fix and zero after. All current topic source is open Wine
+code, with existing notices preserved.
+
+Host sparse worktrees are `build/refactor/upstream` (validated imagelist),
+`build/refactor/recyclebin` (validated resource fix), and
+`build/refactor/wizard` (draft). Fetch VM commits through SSH into
+refs/remotes/build/upstream/<topic>, verify the host worktree matches, then
+update only that worktree's index/HEAD and push its approved upstream branch.
+No WineHQ merge request was created. Git identity follows the user's configured
+handle; real-name authorship and sign-off remain the user's manual step.
+
+### P1 tooling failures and corrections
+
+* `rg -n 'static void test.*alpha|static void test.*draw|create_test_bitmap|check.*pixel|START_TEST|test_ImageList' build/refactor/upstream/dlls/comctl32/tests/imagelist.c`
+  failed with "The system cannot find the path specified" immediately after
+  worktree creation with --no-checkout. Sparse patterns did not populate the
+  empty index. `git -C build/refactor/upstream read-tree -mu HEAD` populated it.
+* `git --git-dir=build/refactor/wine.git show master:dlls/shell32/tests/icon.c`
+  failed: `fatal: path 'dlls/shell32/tests/icon.c' does not exist in 'master'`.
+  Listed the test tree and searched it; stock-icon tests are in shelllink.c.
+* The first attempt to write test-topic.sh used a JavaScript String.raw template
+  containing `root="${WEX_REFACTOR_ROOT:-$HOME/wex-refactor}"`. It failed before
+  any tool executed with `SyntaxError: Missing } in template expression`.
+  Used an ordinary quoted JavaScript string for the patch instead.
+* Initial imagelist baseline command failed with
+  `wine: chdir to /home/wineuser/wex-refactor/prefixes/imagelist-alpha : No such file or directory`.
+  Added the prefix-parent mkdir and explicit expected-assertion matching.
+  The guard command
+  `test "$(cat ~/wex-refactor/results/imagelist-alpha/status)" = WAITING_FOR_BASE_BUILD && kill 1281780`
+  returned 1 because the runner had already advanced. A second launch rejected
+  the dirty checkout. Stopped the original runner, killed only its Wine prefix's
+  server, reversed the exact input patches, rebuilt master, and reran successfully.
+  Added a checkout/build flock to prevent overlapping runners/status writes.
+* `python build/refactor/export-topics.py` failed with
+  `ValueError: Empty patch: dlls/comctl32/imagelist.c` after that topic had been
+  committed. The following
+  `scp -i D:/VirtualBox_VMs/vm_key -P 2223 -r build/refactor/topics/wizard-focus wineuser@127.0.0.1:wex-refactor/topics/`
+  failed because the wizard directory had not been created. Exporter now diffs
+  against fork master (including committed topic changes) and accepts a topic
+  argument. `python build/refactor/export-topics.py wizard-focus` and scp passed.
 
 ## Commands that failed or were interrupted
 
