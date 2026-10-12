@@ -488,6 +488,8 @@ static bool screen_delete_partition(DiskDevice *disk, PartitionEntry *pe)
 
 static void close_all_disks(DiskDevice *disks, int num_disks)
 {
+    char cmd[256];
+
     for (int d = 0; d < num_disks; ++d) {
         if (disks[d].cxt) {
             fdisk_deassign_device(disks[d].cxt, 0);
@@ -496,7 +498,12 @@ static void close_all_disks(DiskDevice *disks, int num_disks)
         }
     }
     system("udevadm settle >/dev/null 2>&1 || sleep 1");
-    system("blockdev --rereadpt /dev/sda 2>/dev/null || partx -u /dev/sda 2>/dev/null || true");
+    /* every disk, not only sda (NVMe, virtio); the names come from libblkid */
+    for (int d = 0; d < num_disks; ++d) {
+        snprintf(cmd, sizeof(cmd), "blockdev --rereadpt %s 2>/dev/null || partx -u %s 2>/dev/null || true",
+                 disks[d].device, disks[d].device);
+        system(cmd);
+    }
 }
 
 SetupStage screen_partition(SetupState *state)
