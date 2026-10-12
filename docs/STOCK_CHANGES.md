@@ -85,6 +85,12 @@ rebasing on upstream Wine harder. Baseline = commit `40c17e1` (the upstream impo
   image readback if needed), avoiding a cached desktop picture that lacks redirected children. Ownership is queried
   per read, so already-open screen DCs recover immediately after composition is disabled.
 
+## Backported from upstream Wine (drop when rebasing past them)
+
+| Upstream | Change |
+|---|---|
+| MR !12231 (merged 2026-10-08) | `dlls/user32/lstr.c`: `CharToOemBuffW` wrote more bytes than asked for with a multi-byte OEM code page (UTF-8); untranslatable characters become `_` |
+
 ## Reverted (were changed earlier, now stock again)
 - `dlls/comctl32/monthcal.c` (today-circle removal): timedate.cpl now creates its calendar with
   `MCS_NOTODAY | MCS_NOTODAYCIRCLE`, which is what the XP applet looks like.
