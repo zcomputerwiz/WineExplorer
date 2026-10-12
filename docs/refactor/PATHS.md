@@ -7,7 +7,7 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 
 | File | Change | Class | Target branch/location | Hunks |
 |---|---|---|---|---|
-| `.gitattributes` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `.gitattributes` | Removed generated-file attribute definition; restore upstream metadata | N | Restore tag attributes; no runtime commit | 1 |
 | `aclocal.m4` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 2 |
 | `configure` | Stock modification: hunk review pending | ? | Not yet assigned | 750 |
 | `configure.ac` | Stock modification: hunk review pending | ? | Not yet assigned | 26 |
@@ -23,11 +23,11 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/capi2032/unixlib.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/cldapi/cldapi.spec` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/cldapi/main.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/comctl32/comctl32.rc` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/comctl32/comctl32.rc` | Use XP's property-sheet title wording | X | wineexplorer/11.19: XP file Properties wording | 1 |
 | `dlls/comctl32/idi_dragarrow.ico` | Open replacement art: drawn by scripts/open_assets.py | X | wineexplorer/11.19: open resource substitutions | 0 |
-| `dlls/comctl32/imagelist.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/comctl32/imagelist.c` | Clear stale ILIF_ALPHA when replacing a non-alpha image | U | upstream/imagelist-alpha; retained WineExplorer fork fix | 1 |
 | `dlls/comctl32/listview.c` | Stock modification: hunk review pending | ? | Not yet assigned | 58 |
-| `dlls/comctl32/propsheet.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
+| `dlls/comctl32/propsheet.c` | Move wizard focus to the default button when the old button is disabled/hidden | U | upstream/wizard-focus; retained WineExplorer fork fix | 2 |
 | `dlls/comdlg32/itemdlg.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 7 |
 | `dlls/comdlg32/tests/itemdlg.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 4 |
 | `dlls/comm.drv16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -170,7 +170,7 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/kerberos/unixlib.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 40 |
 | `dlls/kerberos/unixlib.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/kernel32/tests/thread.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 3 |
-| `dlls/kernelbase/locale.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/kernelbase/locale.c` | Preserve a regional applet's selected locale while the remembered Unix locale stays the same; evaluate separately for upstream | X | wineexplorer/11.19: regional locale preference | 1 |
 | `dlls/keyboard.drv16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/krnl386.exe16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/lzexpand.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -255,7 +255,7 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/netshell/netshell.rc` | Project module or replacement module | M | src/dlls/netshell | 1 |
 | `dlls/netshell/netshell.spec` | Project module or replacement module | M | src/dlls/netshell | 1 |
 | `dlls/netshell/resource.h` | Project module or replacement module | M | src/dlls/netshell | 1 |
-| `dlls/ntdll/unix/system.c` | Stock modification: hunk review pending | ? | Not yet assigned | 4 |
+| `dlls/ntdll/unix/system.c` | Invalidate timezone cache on localtime metadata change; report battery presence in power capabilities using the existing stock helper | U | upstream/timezone-cache and upstream/power-capabilities (separate commits); retained WineExplorer fork fixes | 4 |
 | `dlls/ntdll/unix/thread.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 3 |
 | `dlls/ole2.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/ole2conv.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -290,9 +290,9 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/shell.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/shell32/Makefile.in` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
 | `dlls/shell32/brsfolder.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/shell32/changenotify.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/shell32/changenotify.c` | Notify watchers of both source and destination for two-item events | U | upstream/rename-notifications; retained WineExplorer fork fix | 1 |
 | `dlls/shell32/dialogs.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/shell32/folders.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
+| `dlls/shell32/folders.c` | Return desktop.ini IconFile path; fall back to a shortcut target's IExtractIconW | U | upstream/folder-custom-icon and upstream/shortcut-target-icon (separate commits); retained WineExplorer fork fixes | 2 |
 | `dlls/shell32/iconcache.c` | Stock modification: hunk review pending | ? | Not yet assigned | 6 |
 | `dlls/shell32/new_menu.c` | Stock modification: hunk review pending | ? | Not yet assigned | 11 |
 | `dlls/shell32/openwith.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
@@ -354,13 +354,13 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/typelib.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/unicows/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/user.exe16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/user32/cursoricon.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
+| `dlls/user32/cursoricon.c` | Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first | X | wineexplorer/11.19: cursor schemes | 2 |
 | `dlls/user32/hook.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
 | `dlls/user32/lstr.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/user32/misc.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
 | `dlls/user32/nonclient.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
 | `dlls/user32/tests/text.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 2 |
-| `dlls/user32/text.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/user32/text.c` | Honor DT_HIDEPREFIX when drawing mnemonic underscores | U | upstream/drawtext-hideprefix; retained WineExplorer fork fix | 1 |
 | `dlls/user32/user32.rc` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
 | `dlls/user32/user32.spec` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
 | `dlls/user32/user_main.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
@@ -749,7 +749,7 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `resources/themes/Classic.theme` | Project-authored theme definitions | M | src/resources/themes; assemble into resources/themes/ | 1 |
 | `resources/themes/Luna.theme` | Project-authored theme definitions | M | src/resources/themes; assemble into resources/themes/ | 1 |
 | `resources/themes/Royale.theme` | Project-authored theme definitions | M | src/resources/themes; assemble into resources/themes/ | 1 |
-| `server/fd.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
+| `server/fd.c` | Refresh shared timezone bias when tm_isdst changes | U | upstream/dst-bias; retained WineExplorer fork fix | 2 |
 | `server/protocol.def` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `server/request_handlers.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `server/request_trace.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |

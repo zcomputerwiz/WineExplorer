@@ -17,6 +17,19 @@ inherited import differences. Despite its VERSION file saying 11.19, its files
 also contain later upstream changes. Treating all differences against the tag
 as WineExplorer modifications would incorrectly claim those changes as ours.
 
+The imported stock code matches upstream snapshot
+`eba89375a0515957701928faac0f5007ef638b04` (October 5), **72 upstream commits
+after the release tag**. Its entire diff against the import is 68 paths:
+36 mode changes, the 20 omitted ntoskrnl files, eight open icon replacements,
+and four CRLF/LF conversions. There are no additional stock-code changes in
+that comparison. This provides a concrete original upstream series for P2,
+rather than manufacturing commits from the imported snapshot. Inspect it with:
+
+```text
+git --git-dir=build/refactor/wine.git diff --raw --no-renames eba89375a0515957701928faac0f5007ef638b04 40c17e1:wine
+git --git-dir=build/refactor/wine.git log --reverse --format="%H %s" wine-11.19..eba89375a0515957701928faac0f5007ef638b04
+```
+
 Run from the project root (Git and Python 3 required):
 
 ```text
@@ -45,11 +58,20 @@ python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output buil
 
 Coverage checks reject missing/duplicate paths, changed patch or hunk hashes,
 and mismatched snapshot revisions. Adding `--require-classified` is the P0
-acceptance gate; it currently fails deliberately because **97 stock paths**
+acceptance gate; it currently fails deliberately because **86 stock paths**
 still need hunk decisions. Do not mistake complete inventory coverage for
 completed classification. Whole-file classifications currently cover 434 M,
-202 B, 10 N and seven X paths. B includes one upstream deletion, and N includes
-four ws2_32 data files whose only difference is CRLF/LF conversion.
+202 B, 11 N, ten X and seven U paths. B includes one upstream deletion, and N includes
+four ws2_32 data files whose only difference is CRLF/LF conversion. The U paths
+contain nine independent fixes: alpha replacement, wizard focus, DST bias,
+timezone cache, power capability battery presence, custom folder IconFile,
+shortcut target icon, rename notifications and DrawText mnemonic suppression.
+Separate changes in the same file must become separate P1/P2 commits.
+
+[REVIEWS.json](refactor/REVIEWS.json) records the stock decisions against exact
+per-file patch hashes. A changed patch invalidates its review when regenerating
+the map. The seven U classifications establish scope only; P1 still requires
+Wine-style code, regression tests, build verification and branch pushes.
 
 Initial inventory: **750 paths, 1,876 text hunks, 140,420 patch lines**;
 six changes are mode-only. 217 paths are unchanged since the initial import,
@@ -93,6 +115,15 @@ These need explicit decisions during the remaining hunk review:
 
 These are proposals, not accepted P1 branches. No upstream branch has been
 created or pushed yet.
+
+The battery candidate is specifically `SystemPowerCapabilities`:
+`SystemBatteryState` already uses sysfs in the release tag. Do not submit or
+carry a redundant patch for that stock implementation.
+
+Verification passed for exact evidence regeneration and all-path/all-hunk
+coverage. Six negative checks also passed: missing path, duplicate path,
+changed patch hash, missing hunk, wrong snapshot, and unreviewed P0 acceptance
+all reject the map as expected.
 
 ## Remaining P0 acceptance work
 

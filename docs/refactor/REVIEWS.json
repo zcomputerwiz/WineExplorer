@@ -1,0 +1,79 @@
+{
+  "dlls/comctl32/imagelist.c": {
+    "patch_sha256": "05bb2078813cb5ba508f09e6a35b3263a94dac83a99057f6a9c40f3e73871369",
+    "class": "U",
+    "change": "Clear stale ILIF_ALPHA when replacing a non-alpha image",
+    "target": "upstream/imagelist-alpha; retained WineExplorer fork fix",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/comctl32/propsheet.c": {
+    "patch_sha256": "8af33a033f6775830612240ad4c8477977e1531f7e537ef8409ffed2b33be31f",
+    "class": "U",
+    "change": "Move wizard focus to the default button when the old button is disabled/hidden",
+    "target": "upstream/wizard-focus; retained WineExplorer fork fix",
+    "review": "stock-hunks-reviewed"
+  },
+  "server/fd.c": {
+    "patch_sha256": "5329fa64c79450cc450b4dcc47219eea4c0b741f0a04bfd0e754d57046218c17",
+    "class": "U",
+    "change": "Refresh shared timezone bias when tm_isdst changes",
+    "target": "upstream/dst-bias; retained WineExplorer fork fix",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/ntdll/unix/system.c": {
+    "patch_sha256": "16a8db7269fc2df68166758b29505a4f327519a1c77db3576c104aa5000e5fd7",
+    "class": "U",
+    "change": "Invalidate timezone cache on localtime metadata change; report battery presence in power capabilities using the existing stock helper",
+    "target": "upstream/timezone-cache and upstream/power-capabilities (separate commits); retained WineExplorer fork fixes",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/shell32/folders.c": {
+    "patch_sha256": "132f3391b3c6619684278a5697fd4b15e02fe254114024e3ae16e1b9a026cb83",
+    "class": "U",
+    "change": "Return desktop.ini IconFile path; fall back to a shortcut target's IExtractIconW",
+    "target": "upstream/folder-custom-icon and upstream/shortcut-target-icon (separate commits); retained WineExplorer fork fixes",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/shell32/changenotify.c": {
+    "patch_sha256": "222fc9dc063ac3759fcb97818101d55a2fe006d947e0b23b0b83162eddc3f181",
+    "class": "U",
+    "change": "Notify watchers of both source and destination for two-item events",
+    "target": "upstream/rename-notifications; retained WineExplorer fork fix",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/user32/text.c": {
+    "patch_sha256": "00c7505b620be951b0642f020082b45844ad106b18a0a485096293460b939cf7",
+    "class": "U",
+    "change": "Honor DT_HIDEPREFIX when drawing mnemonic underscores",
+    "target": "upstream/drawtext-hideprefix; retained WineExplorer fork fix",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/comctl32/comctl32.rc": {
+    "patch_sha256": "be25b3fb98c474d9a11692f97e1008efa5913156476358d090503ae8bc5cede7",
+    "class": "X",
+    "change": "Use XP's property-sheet title wording",
+    "target": "wineexplorer/11.19: XP file Properties wording",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/kernelbase/locale.c": {
+    "patch_sha256": "755138faf0fb30c38937e35af10eeb69c20d486d33d88fc17c0aa62130d52aab",
+    "class": "X",
+    "change": "Preserve a regional applet's selected locale while the remembered Unix locale stays the same; evaluate separately for upstream",
+    "target": "wineexplorer/11.19: regional locale preference",
+    "review": "stock-hunks-reviewed"
+  },
+  "dlls/user32/cursoricon.c": {
+    "patch_sha256": "b44d44b3d2edfca41d599770ebc68a04e337293a920cc9bef9b605f9964dc1df",
+    "class": "X",
+    "change": "Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first",
+    "target": "wineexplorer/11.19: cursor schemes",
+    "review": "stock-hunks-reviewed"
+  },
+  ".gitattributes": {
+    "patch_sha256": "8c061bc674abaa649d9c34c9202990cff29000fa653e87d5d2c0d77b7fd96883",
+    "class": "N",
+    "change": "Removed generated-file attribute definition; restore upstream metadata",
+    "target": "Restore tag attributes; no runtime commit",
+    "review": "stock-hunks-reviewed"
+  }
+}

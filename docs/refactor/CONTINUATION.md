@@ -13,6 +13,20 @@ tree. Keep that pin until actual Wine source changes are intentionally audited.
 The bare evidence repository is `build/refactor/wine.git`. The real release tag
 came unchanged from wine-mirror because the user's fork has no tags.
 
+Current map: 750 paths/1,876 hunks, 86 stock paths still pending. Eleven stock
+paths have explicit hash-pinned decisions in `REVIEWS.json`; seven are U paths
+containing nine independent fix candidates. The next step is the remaining
+mixed stock hunk review, particularly shell32 resources/behavior and explorer
+host/plugin boundaries. P1 has not started.
+
+The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
+The 68 import differences contain only modes, missing ntoskrnl files, open art
+and CRLF normalization. The search helper is local
+`build/refactor/find-import.py`; its bounded candidate search completed.
+`build/refactor/check-coverage.py` performs six negative checks, all passing.
+`build/refactor/record-reviews.py` created the first reviewed stock decisions;
+do not rerun it after adding more reviews, because it writes only those eleven.
+
 ## Commands that failed or were interrupted
 
 1. In PowerShell:

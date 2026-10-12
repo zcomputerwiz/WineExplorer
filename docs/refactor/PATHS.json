@@ -13,10 +13,10 @@
       "hunk_sha256": [
         "550f125a1ff1a93ae64306998c1027246898177181a40a3f8ee1e712a7db5642"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "N",
+      "change": "Removed generated-file attribute definition; restore upstream metadata",
+      "target": "Restore tag attributes; no runtime commit",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "aclocal.m4",
@@ -973,10 +973,10 @@
       "hunk_sha256": [
         "3d4be57b0ad7e98c6081b004a633f7f4810b6ebd552bd5aadb765e9181555648"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "X",
+      "change": "Use XP's property-sheet title wording",
+      "target": "wineexplorer/11.19: XP file Properties wording",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/comctl32/idi_dragarrow.ico",
@@ -993,10 +993,10 @@
       "hunk_sha256": [
         "3e722ab48f279c0218841a7ca508f685710eab7fc4ada7622c4a66306629070a"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "U",
+      "change": "Clear stale ILIF_ALPHA when replacing a non-alpha image",
+      "target": "upstream/imagelist-alpha; retained WineExplorer fork fix",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/comctl32/listview.c",
@@ -1073,10 +1073,10 @@
         "c69fb8786c97a59ecb04ef29fec7a65ee52c842a3e6ca38f1d39225c0c7e14b6",
         "44c3435ea4fc632ec5b88b8ad78b8bb6a0cf75ae0a9f8a234b767a8357a678b8"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "U",
+      "change": "Move wizard focus to the default button when the old button is disabled/hidden",
+      "target": "upstream/wizard-focus; retained WineExplorer fork fix",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/comdlg32/itemdlg.c",
@@ -2646,10 +2646,10 @@
       "hunk_sha256": [
         "586f8e3f4502c6e72910968cb8fd5d3d45f879594c7bb58335bd22ae7f2396b8"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "X",
+      "change": "Preserve a regional applet's selected locale while the remembered Unix locale stays the same; evaluate separately for upstream",
+      "target": "wineexplorer/11.19: regional locale preference",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/keyboard.drv16/Makefile.in",
@@ -3528,10 +3528,10 @@
         "da644d284af034799966849d809ed5350f067b4322df3c3b2b454be807c10f26",
         "79c453d34b19ee63f12ad741b3d92a6413668b40c5229df34a860ec01c8c34ae"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "U",
+      "change": "Invalidate timezone cache on localtime metadata change; report battery presence in power capabilities using the existing stock helper",
+      "target": "upstream/timezone-cache and upstream/power-capabilities (separate commits); retained WineExplorer fork fixes",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/ntdll/unix/thread.c",
@@ -3954,10 +3954,10 @@
       "hunk_sha256": [
         "5b39bfef711c2fcff902697766f1fd9e349ffa172d3da77698f0b79fa2ec3852"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "U",
+      "change": "Notify watchers of both source and destination for two-item events",
+      "target": "upstream/rename-notifications; retained WineExplorer fork fix",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/shell32/dialogs.c",
@@ -3977,10 +3977,10 @@
         "ed0e5ca001dffd95153167ac24a0b1051abc543936dd6667fd53a0a7c2e7b82a",
         "d958b74d300665d355d37eba75257599746effa19cbdbc061f78552de864dd6b"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "U",
+      "change": "Return desktop.ini IconFile path; fall back to a shortcut target's IExtractIconW",
+      "target": "upstream/folder-custom-icon and upstream/shortcut-target-icon (separate commits); retained WineExplorer fork fixes",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/shell32/iconcache.c",
@@ -4766,10 +4766,10 @@
         "e5eb6b69a40446390e8e359c7631c5c873f25bdf32a496078b002f47e004d8e3",
         "543260881a5e7574f49cfe66fa20680fa9640ae97c2a34902aa7b1f0535f490d"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "X",
+      "change": "Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first",
+      "target": "wineexplorer/11.19: cursor schemes",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/user32/hook.c",
@@ -4834,10 +4834,10 @@
       "hunk_sha256": [
         "05acb00f6d0eb0e656ec7e138b8478ecb57bf104e8c68f2ce18c43651583662b"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "U",
+      "change": "Honor DT_HIDEPREFIX when drawing mnemonic underscores",
+      "target": "upstream/drawtext-hideprefix; retained WineExplorer fork fix",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "dlls/user32/user32.rc",
@@ -9127,10 +9127,10 @@
         "44135379917764bd3f460e036f55eaf053d3d4c057ff921f54efe16c72f16d16",
         "93eec892a64a485e4566adbf22f264c6443da538950967a3521bf596f175e7de"
       ],
-      "class": "?",
-      "change": "Stock modification: hunk review pending",
-      "target": "Not yet assigned",
-      "review": "pending"
+      "class": "U",
+      "change": "Refresh shared timezone bias when tm_isdst changes",
+      "target": "upstream/dst-bias; retained WineExplorer fork fix",
+      "review": "stock-hunks-reviewed"
     },
     {
       "path": "server/protocol.def",
