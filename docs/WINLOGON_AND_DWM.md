@@ -1,6 +1,6 @@
 # Logon and window composition: plan
 
-Status (2026-10-12): W1 and W2 done (dev VM on LightDM with logonui.exe as the greeter); W3 next; D1 in progress. This plan covers two projects:
+Status (2026-10-12): W1 and W2 done (dev VM on LightDM with logonui.exe as the greeter); W3 next. D1 compositor core merged, off by default. This plan covers two projects:
 
 - **Winlogon**: XP's logon experience (Welcome screen, classic Log On to Windows dialog, Lock Computer, Switch
   User / fast user switching, Windows Security) on top of a real Linux display manager.
@@ -179,6 +179,27 @@ compositing manager, which our session does not have.
 - **D1: core compositor**, default off: both redirection levels, alpha, opacity, shapes, damage-driven repaint, clean
   enable and disable. Proves that layered windows blend correctly. Test on Xvfb with a probe: alpha ramps, color keys,
   `LWA_ALPHA`, overlapping moving windows, input through the overlay, resizing, repeated enable/disable.
+
+  **Implemented, awaiting build and VM validation (2026-10-12).** `wexhost/compose.c` shares the WM's Display,
+  mutex and event loop, with root/desktop manual redirection, XRender back buffer and input-transparent overlay,
+  Damage regions, bounding shapes, ARGB and `_NET_WM_WINDOW_OPACITY`, selection ownership and cleanup. The desktop
+  XID comes directly from `WexWmStart` (`linux_windows_start` reads Wine's `__wine_x11_whole_window` desktop property);
+  no window-name search is used. Set HKCU\Software\WineExplorer\Shell `Composition` (DWORD) to 1 and restart the shell;
+  missing/0 leaves it off. It currently requires `ManageLinuxWindows` enabled and a successfully started WM.
+  `WexCompositionSetEnabled` / `WexCompositionGetEnabled` are shell-process APIs, and `scripts/compose-probe.c`
+  exercises layered windows, movement, resize/remap, clicks and five API cycles on an isolated display.
+  Fullscreen bypass conservatively requires the topmost visible window to cover the entire X screen, with an
+  opaque non-ARGB visual, full opacity, no border and a rectangular shape. It suspends both parent redirections
+  and releases the overlay until that condition ends; no per-monitor bypass, tear-free presentation, capture,
+  or composition of deeper foreign ARGB clients inside opaque hosts. These remain later phases.
+  **Tested (2026-10-12, Proton lab VM, Xvfb with Composite, shell started with Composition 0 and 1).** With
+  composition the per-pixel alpha ramp blends over the desktop and over other windows (without it: raw colors over
+  black), `LWA_ALPHA` 50 % is translucent (without it: opaque), color-key holes stay holes and a click in the hole
+  reaches the desktop, the rest of the shell looks the same. Not yet tested: switching at run time and repeated
+  enable/disable (the probe's `--own-compositor` mode cannot show its own control window: its window manager takes it
+  for a foreign window), full-screen bypass, Linux ARGB clients, repaint cost. On the real dev-VM session (Xorg, no acceleration) the shell starts and works with Composition=1 (checked by eye: desktop, Start menu). Also seen: from a
+  process other than Explorer, `GetPropW(GetDesktopWindow(), "__wine_x11_whole_window")` reads 0; the probe takes the
+  desktop's X window as an argument instead.
 - **D2: XP effects and capture**: desktop capture through the compositor, menu and tooltip fades (`AnimateWindow`,
   `SPI_GETMENUANIMATION`), `CS_DROPSHADOW` shadows, translucent drag images and selection rectangles. Test on the real
   session with Linux ARGB clients.

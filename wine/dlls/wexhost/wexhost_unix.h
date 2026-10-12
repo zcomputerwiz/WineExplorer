@@ -112,6 +112,16 @@ extern NTSTATUS wm_get_icon(void *args);
 extern NTSTATUS wm_stop(void *args);
 extern NTSTATUS wm_focus(void *args);
 
+struct composition_params { BOOL enabled; DWORD err; };
+extern NTSTATUS composition_set(void *args);
+extern NTSTATUS composition_get(void *args);
+/* x11wm calls these with x_mutex held; Display/XEvent stay on the Unix side. */
+extern DWORD compose_set(void *display, unsigned long root, unsigned long desktop, int *x_error, BOOL enabled);
+extern BOOL compose_enabled(void);
+extern void compose_event(void *event);
+extern void compose_paint(void);
+extern long compose_event_mask(unsigned long window, long wm_mask);
+
 enum wexhost_funcs
 {
     unix_init,
@@ -158,6 +168,8 @@ enum wexhost_funcs
     unix_greeter_cancel,
     unix_greeter_start_session,
     unix_greeter_read,
+    unix_composition_set,
+    unix_composition_get,
     unix_funcs_count
 };
 

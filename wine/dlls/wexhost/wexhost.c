@@ -406,6 +406,25 @@ static HANDLE wm_thread;
 static WEX_WM_CALLBACK wm_callback;
 static void *wm_context;
 
+DWORD WINAPI WexCompositionSetEnabled( BOOL enabled )
+{
+    struct composition_params params = { enabled };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_set, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled )
+{
+    struct composition_params params = { 0 };
+    if (!enabled) return ERROR_INVALID_PARAMETER;
+    *enabled = FALSE;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_get, &params );
+    *enabled = params.enabled;
+    return params.err;
+}
+
 static DWORD WINAPI wm_event_thread( void *arg )
 {
     for (;;)

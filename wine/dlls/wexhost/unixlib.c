@@ -1455,6 +1455,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     greeter_cancel,
     greeter_start_session,
     greeter_read,
+    composition_set,
+    composition_get,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

@@ -29,6 +29,7 @@
 #include <shlobj.h>
 #include <shellapi.h>
 #include <ntuser.h>
+#include <wexhost.h>
 #include "exdisp.h"
 
 #include "wine/debug.h"
@@ -1415,6 +1416,13 @@ void manage_desktop( WCHAR *arg )
             desktop_view_create( hwnd, width, height );
             uac_agent_start();
             linux_windows_start();
+            {
+                DWORD composition = 0, size = sizeof(composition), err;
+                RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"Composition",
+                              RRF_RT_REG_DWORD, NULL, &composition, &size );
+                if (composition == 1 && (err = WexCompositionSetEnabled( TRUE )))
+                    WARN( "composition unavailable, error %lu\n", err );
+            }
             shellfolder_link_media_folders();
         }
         else if (!using_root && enable_launchers) initialize_launchers( hwnd );
@@ -1463,6 +1471,7 @@ void manage_desktop( WCHAR *arg )
     }
 
     if (pShellDDEInit) pShellDDEInit( FALSE );
+    WexCompositionSetEnabled( FALSE );
     linux_windows_stop();
 
     ExitProcess( 0 );

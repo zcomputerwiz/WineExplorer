@@ -248,6 +248,12 @@ void  WINAPI WexWmStop( void );
 /* Synchronize X keyboard focus after switching a Win32 foreground window. */
 DWORD WINAPI WexWmFocus( UINT64 window );
 
+/* Optional X11 composition, off by default. Requires WexWmStart's connection.
+ * Set returns ERROR_NOT_SUPPORTED for missing extensions, ERROR_ALREADY_EXISTS
+ * when another compositor owns the selection or manual redirection. */
+DWORD WINAPI WexCompositionSetEnabled( BOOL enabled );
+DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
+
 /* Visible freedesktop applications. UTF-8 rows: desktop ID, name, description,
  * categories, PNG path, separated by tabs and terminated by newline; final NUL.
  * ERROR_MORE_DATA returns the required byte count, including the final NUL. */

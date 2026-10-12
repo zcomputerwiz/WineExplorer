@@ -450,7 +450,7 @@ static void map_request( Window window, BOOL existing )
         return;
     }
 
-    pXSelectInput( display, window, PropertyChangeMask | StructureNotifyMask );
+    pXSelectInput( display, window, compose_event_mask( window, PropertyChangeMask | StructureNotifyMask ) );
     memset( &event, 0, sizeof(event) );
     event.type = WEX_WM_MAP;
     event.window = window;
@@ -492,7 +492,7 @@ static void withdraw( struct client *client, BOOL destroyed )
     end_replay_for( window );
     if (!destroyed)
     {
-        pXSelectInput( display, window, NoEventMask );
+        pXSelectInput( display, window, compose_event_mask( window, NoEventMask ) );
         if (managed)
         {
             grab_input( window, FALSE );
@@ -501,7 +501,7 @@ static void withdraw( struct client *client, BOOL destroyed )
         }
         set_wm_state( window, WithdrawnState );
     }
-    if (client->parent) pXSelectInput( display, client->parent, NoEventMask );
+    if (client->parent) pXSelectInput( display, client->parent, compose_event_mask( client->parent, NoEventMask ) );
     remove_client( client );
     if (managed) update_client_list();
     push_simple( WEX_WM_WITHDRAW, window, 0 );
@@ -761,6 +761,7 @@ static void handle_event( XEvent *event )
 {
     struct client *client;
 
+    compose_event( event );
     switch (event->type)
     {
     case MapRequest:
@@ -824,6 +825,7 @@ static void handle_event( XEvent *event )
 static void *wm_loop( void *arg )
 {
     struct pollfd fds[2];
+    BOOL pending;
 
     fds[0].fd = ConnectionNumber( display );
     fds[1].fd = wake_pipe[0];
@@ -836,11 +838,15 @@ static void *wm_loop( void *arg )
             pXNextEvent( display, &event );
             handle_event( &event );
         }
+        compose_paint();
         pXFlush( display );
+        /* Queries made while painting can read events into Xlib's queue. Do
+         * not sleep waiting for socket bytes that Xlib has already consumed. */
+        pending = pXPending( display ) != 0;
         pthread_mutex_unlock( &x_mutex );
 
         fds[0].events = fds[1].events = POLLIN;
-        if (poll( fds, 2, 1000 ) > 0 && (fds[1].revents & POLLIN))
+        if (poll( fds, 2, pending ? 0 : 1000 ) > 0 && (fds[1].revents & POLLIN))
         {
             char buffer[64];
             while (read( wake_pipe[0], buffer, sizeof(buffer) ) > 0) ;
@@ -993,6 +999,29 @@ static void end_call(void)
     wake_loop();
 }
 
+NTSTATUS composition_set( void *args )
+{
+    struct composition_params *params = args;
+    if (!begin_call( &params->err ))
+    {
+        if (!params->enabled) params->err = ERROR_SUCCESS;
+        return STATUS_SUCCESS;
+    }
+    params->err = compose_set( display, root, desktop_window, &x_error, params->enabled );
+    end_call();
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS composition_get( void *args )
+{
+    struct composition_params *params = args;
+    pthread_mutex_lock( &x_mutex );
+    params->enabled = running && compose_enabled();
+    params->err = ERROR_SUCCESS;
+    pthread_mutex_unlock( &x_mutex );
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS wm_manage( void *args )
 {
     struct wm_manage_params *params = args;
@@ -1020,7 +1049,8 @@ NTSTATUS wm_manage( void *args )
         pXMoveResizeWindow( display, window, rc->left, rc->top, max( 1, rc->right - rc->left ), max( 1, rc->bottom - rc->top ) );
         /* Reparenting moves configure requests away from the root. Keep
          * intercepting them on the host so clients cannot outgrow its frame. */
-        pXSelectInput( display, params->parent, FocusChangeMask | SubstructureRedirectMask );
+        pXSelectInput( display, params->parent,
+                       compose_event_mask( params->parent, FocusChangeMask | SubstructureRedirectMask ) );
         pXSync( display, False );
         if (x_error)
         {
@@ -1149,13 +1179,13 @@ static void release_client( struct client *client, const RECT *screen )
 {
     Window window = client->window;
 
-    pXSelectInput( display, window, NoEventMask );
+    pXSelectInput( display, window, compose_event_mask( window, NoEventMask ) );
     if (client->managed)
     {
         grab_input( window, FALSE );
         pXReparentWindow( display, window, root, screen->left, screen->top );
         pXChangeSaveSet( display, window, SetModeDelete );
-        pXSelectInput( display, client->parent, NoEventMask );
+        pXSelectInput( display, client->parent, compose_event_mask( client->parent, NoEventMask ) );
     }
     else pXMapWindow( display, window );   /* its host was never made: show it as it is */
     remove_client( client );
@@ -1249,6 +1279,7 @@ NTSTATUS wm_stop( void *args )
     params->err = ERROR_SUCCESS;
     if (!running) return STATUS_SUCCESS;
     pthread_mutex_lock( &x_mutex );
+    compose_set( display, root, desktop_window, &x_error, FALSE );
     while (client_count) release_client( &clients[0], &clients[0].screen );
     pXDeleteProperty( display, root, atoms[NET_SUPPORTING_WM_CHECK] );
     pXDeleteProperty( display, root, atoms[NET_CLIENT_LIST] );
@@ -1287,6 +1318,14 @@ STUB( wm_get_title, struct wm_get_title_params )
 STUB( wm_get_icon, struct wm_get_icon_params )
 STUB( wm_stop, struct wm_stop_params )
 STUB( wm_focus, struct wm_window_params )
+STUB( composition_set, struct composition_params )
+NTSTATUS composition_get( void *args )
+{
+    struct composition_params *params = args;
+    params->enabled = FALSE;
+    params->err = ERROR_SUCCESS;
+    return STATUS_SUCCESS;
+}
 
 NTSTATUS wm_next_event( void *args )
 {

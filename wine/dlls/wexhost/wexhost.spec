@@ -39,3 +39,5 @@
 @ stdcall WexGreeterCancel()
 @ stdcall WexGreeterStartSession(str)
 @ stdcall WexGreeterRead(ptr long long)
+@ stdcall WexCompositionSetEnabled(long)
+@ stdcall WexCompositionGetEnabled(ptr)
