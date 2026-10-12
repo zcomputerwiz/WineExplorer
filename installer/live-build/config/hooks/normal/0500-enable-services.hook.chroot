@@ -12,6 +12,7 @@ mkdir -p /etc/systemd/system/display-manager.service.d /etc/systemd/system/light
 cat > /etc/systemd/system/display-manager.service.d/override.conf << 'EOF'
 [Unit]
 ConditionKernelCommandLine=!wexsetup=textmode
+ConditionPathExists=!/etc/wineexplorer/setup/stage
 EOF
 cp -f /etc/systemd/system/display-manager.service.d/override.conf /etc/systemd/system/lightdm.service.d/override.conf
 

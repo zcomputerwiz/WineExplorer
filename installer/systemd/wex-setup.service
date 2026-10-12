@@ -2,7 +2,6 @@
 Description=WineExplorer GUI-mode Setup
 ConditionPathExists=/etc/wineexplorer/setup/stage
 Before=display-manager.service
-Conflicts=display-manager.service
 
 [Service]
 Type=simple

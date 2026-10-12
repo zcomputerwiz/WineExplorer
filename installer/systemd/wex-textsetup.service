@@ -4,7 +4,7 @@ ConditionKernelCommandLine=wexsetup=textmode
 DefaultDependencies=no
 After=systemd-udev-settle.service local-fs.target plymouth-quit.service plymouth-read-write.service
 Before=getty@tty1.service display-manager.service
-Conflicts=getty@tty1.service display-manager.service plymouth-start.service plymouth.service
+Conflicts=getty@tty1.service plymouth-start.service plymouth.service
 
 [Service]
 Type=simple
