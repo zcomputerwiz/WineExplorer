@@ -10,7 +10,7 @@ VM=${3:-wex-safety-codex}
 [[ "$VM" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name"; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 V=(python3 "$HERE/../../scripts/vmtest.py")
-STATE=/tmp/vmtest/$VM
+STATE=${VMTEST_DIR:-/tmp/vmtest}/$VM
 "${V[@]}" stop "$VM" 2>/dev/null || true
 rm -rf "$STATE"
 mkdir -p "$STATE"

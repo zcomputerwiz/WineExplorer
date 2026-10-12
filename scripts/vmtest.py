@@ -4,6 +4,7 @@
 
 Each VM lives in a state directory (default /tmp/vmtest/<name>) holding its disk, QMP socket, serial socket and
 screenshots, so every command is a separate invocation:
+Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
 
   vmtest.py start NAME [--iso PATH] [--disk-gb 20] [--mem 4096] [--efi]   boot (CD first when --iso is given)
   vmtest.py stop NAME                                                     power off

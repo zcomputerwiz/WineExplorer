@@ -11,15 +11,17 @@
 # go to /tmp/vmtest/VM_NAME/steps/.
 set -u
 ISO=$1; PWFILE=$2; VM=${3:-wex-install}
+[[ "$VM" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name"; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 V="python3 $HERE/../../scripts/vmtest.py"
-STEPS=/tmp/vmtest/$VM/steps
+STATE=${VMTEST_DIR:-/tmp/vmtest}/$VM
+STEPS=$STATE/steps
 P=$(tr -d '\r\n' < "$PWFILE")
 fail() { echo "FAIL: $*"; $V shot "$VM" "$STEPS/fail.png" >/dev/null; exit 1; }
 step() { N=$((N + 1)); echo "--- $*"; $V shot "$VM" "$STEPS/$(printf %02d "$N")-${1// /_}.png" >/dev/null; }
 N=0
 
-$V stop "$VM" 2>/dev/null; rm -rf "/tmp/vmtest/$VM"; mkdir -p "$STEPS"
+$V stop "$VM" 2>/dev/null; rm -rf "$STATE"; mkdir -p "$STEPS"
 $V start "$VM" --iso "$ISO" || exit 1
 
 # Text-mode setup
@@ -103,7 +105,7 @@ for entry in /sys/block/nbd*; do
     if [ ! -e "$entry/pid" ]; then NBD=/dev/${entry##*/}; break; fi
 done
 [ -n "$NBD" ] || fail "no unused NBD device"
-qemu-nbd --read-only --connect "$NBD" "/tmp/vmtest/$VM/disk.qcow2" || fail "cannot attach test disk"
+qemu-nbd --read-only --connect "$NBD" "$STATE/disk.qcow2" || fail "cannot attach test disk"
 CONNECTED=true
 udevadm settle
 for attempt in $(seq 1 30); do
