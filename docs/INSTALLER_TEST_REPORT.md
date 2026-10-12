@@ -14,6 +14,7 @@ must pass before merging/publishing the installer.
 | Package license documents | Both `.deb` archives contain GPL/LGPL texts and license summary under `/usr/share/doc/<package>/` |
 | License-header helper | Three regression tests pass, including GNU product names and wrapped/existing notices |
 | Clean interactive ISO rebuild | Pass; transferred SHA-256 `e418950ac100cd7e658bd1b14327bb2b706eafd9a9a6915121c7223e9c9651dc` |
+| Clean unattended ISO rebuild | Pass; transferred SHA-256 `e9ef7b985a4fd492d962dcf76debf3c85b0da295b3204afc4b9d74391665102c` |
 | Workspace/build-directory guards | Pass; reused live-build state and invalid build directory are rejected before staging |
 
 The initial four-job build was stopped with SIGTERM and resumed with eight jobs
@@ -31,7 +32,8 @@ the new image.
 
 | Scenario | Result |
 |---|---|
-| Interactive blank-disk install through Bob Smith's desktop | Pending |
+| Interactive blank-disk install through Bob Smith's desktop | Pass; corrected script rerun from blank disk without manual intervention, desktop in 8 seconds after logon |
+| Interactive installed-account checks | Pass; full names, root/Alice password hashes against fixture, Alice in sudo, Bob passwordless, setup account/state removed |
 | Missing answer file falls back to interactive setup, disk unchanged | Pass; welcome screen reached, `qemu-img compare`: Images are identical |
 | Specified unavailable target disk stops setup, disk unchanged | Pass; target error screen reached, `qemu-img compare`: Images are identical |
 | Zero-input install plus installed-disk cleanup/license checks | Pending |
@@ -76,6 +78,13 @@ gitignored `build/install-test/codex-interactive.log`.
   both cases. Tests exposed unclosed file warnings; file reads/writes now use
   context managers, and tests pass with Python warnings treated as errors.
 
+- Second interactive run reached Bob's desktop, but `timeout waiting for 'My
+  Computer'` followed by `FAIL: no desktop for Bob Smith` occurred because OCR
+  read `My Gomputer`. Both scripts now require `My Documents` and `Recycle Bin`.
+  The third full interactive run passed all checkpoints with no manual input.
+  Screenshot numbering also now increments in the parent shell rather than a
+  command-substitution subshell.
+
 Safety fixtures are reproducible with
 `installer/tests/prepare-safety-isos.py INTERACTIVE_ISO OUTPUT_DIR` (requires
 `xorriso`). It preserves the boot metadata, selects the unattended entry, and
@@ -84,3 +93,10 @@ adds an unavailable-target answer file only to the negative fixture. Run
 `/tmp/vmtest/wex-missing-answer-codex/` and
 `/tmp/vmtest/wex-wrong-target-codex/`; screenshot copies are also in the host's
 gitignored `build/install-test/`.
+
+The account check used `installer/tests/check-interactive-accounts.py ROOT
+PASSWORD_FILE` against a read-only mounted installed root after stopping the
+test VM. It compares hashes through libcrypt without printing the password or
+shadow entries. The interactive VM is now stopped; its disk/evidence remain in
+`/tmp/vmtest/wex-install-codex/`, and the desktop screenshot is copied to host
+`build/install-test/interactive-desktop.png`.
