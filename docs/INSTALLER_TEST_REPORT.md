@@ -1,8 +1,7 @@
 # Installer verification — 2026-10-12
 
-This records the current continuation on `installer-port`, separately from the
-imported milestone claims in INSTALLER.md. Runtime checks still pending below
-must pass before merging/publishing the installer.
+This records the verified continuation on `installer-port`, separately from the
+imported milestone claims in INSTALLER.md. All runtime scenarios below passed.
 
 ## Build and source checks
 
@@ -36,7 +35,7 @@ the new image.
 | Interactive installed-account checks | Pass; full names, root/Alice password hashes against fixture, Alice in sudo, Bob passwordless, setup account/state removed |
 | Missing answer file falls back to interactive setup, disk unchanged | Pass; welcome screen reached, `qemu-img compare`: Images are identical |
 | Specified unavailable target disk stops setup, disk unchanged | Pass; target error screen reached, `qemu-img compare`: Images are identical |
-| Zero-input install plus installed-disk cleanup/license checks | Pending |
+| Zero-input install plus installed-disk cleanup/license checks | Pass; no key/mouse input, normal ACPI shutdown, installed hostname/user/prefix, cleanup and license documents verified |
 
 `installer/tests/install-interactive.sh` checks partition creation, format,
 copy/restart, GUI wizard, OOBE, Enter on Finish and passwordless-user logon.
@@ -65,7 +64,7 @@ gitignored `build/install-test/codex-interactive.log`.
 - First interactive run: `timeout waiting for 'Typical settings'`, followed by
   `FAIL: no network page`. The screenshot showed the network page; OCR omitted
   the focused radio label. The test now waits for static `Networking software`
-  text and is being rerun from a blank disk without manual advancement.
+  text; the corrected full rerun passed without manual advancement.
 - Incremental unattended build: `cp: cannot stat 'chroot/boot/vmlinuz-*': No such
   file or directory`. The reused filesystem was a bootstrap chroot with no
   kernel/package payload while completed package-stage markers remained. The
@@ -84,6 +83,20 @@ gitignored `build/install-test/codex-interactive.log`.
   The third full interactive run passed all checkpoints with no manual input.
   Screenshot numbering also now increments in the parent shell rather than a
   command-substitution subshell.
+- The first unattended restart selected `Start WineExplorer from CD`: adding a
+  resume entry shifted default index 2 to the live entry. The menu now selects
+  index 0 inside the setup-in-progress condition. Both images' menus were
+  corrected with `installer/tools/update-iso-menu.py`, retaining their compiled
+  filesystem and boot metadata. Fresh negative fixtures and the complete
+  zero-input install passed after the correction.
+- The first offline cleanup check reported `FAIL: temporary setup account
+  remains`. The test had quit QEMU abruptly and mounted the filesystem with
+  journal replay disabled. After recovery, original OOBE logs showed account
+  provisioning and cleanup had completed; the apparent leftover state was an
+  unreplayed journal. `vmtest.py shutdown` now requests normal ACPI shutdown and
+  waits for QEMU to exit. A fresh full install passed the disk checks with this
+  corrected procedure. Hard `stop` remains appropriate for disposable boot
+  safety cases; do not use it to inspect a newly installed filesystem.
 
 Safety fixtures are reproducible with
 `installer/tests/prepare-safety-isos.py INTERACTIVE_ISO OUTPUT_DIR` (requires
@@ -100,3 +113,24 @@ test VM. It compares hashes through libcrypt without printing the password or
 shadow entries. The interactive VM is now stopped; its disk/evidence remain in
 `/tmp/vmtest/wex-install-codex/`, and the desktop screenshot is copied to host
 `build/install-test/interactive-desktop.png`.
+
+## Final local artifacts
+
+The clean build hashes above identify the pre-menu-correction baselines. Final
+candidate paths and hashes after the source-equivalent menu correction:
+
+| ISO | SHA-256 |
+|---|---|
+| `D:/VirtualBox_VMs/iso/wineexplorer.iso` | `497c2a06fcc4d84bc5031dbfa1970ebad2fc2a8b53b3cc981118ed5c1a824560` |
+| `D:/VirtualBox_VMs/iso/wineexplorer-unattended.iso` | `1ab8d25427562cf872681ad7983b076b5eaa0aa944e06181bac5e0e5a6108077` |
+
+Both negative cases were rerun against fixtures derived from the final menu.
+Host evidence/logs live in gitignored `build/install-test/`, including
+`codex-interactive.log`, `codex-unattended.log`, `missing-answer.log`,
+`wrong-target.log` and desktop/safety screenshots. All new QEMU test VMs are
+stopped, their disks remain in `/tmp/vmtest/`, and test-owned NBD mounts were
+released. No development desktop was installed over or restarted.
+
+These runs cover QEMU/KVM BIOS boot and a virtio disk. They do not revalidate the
+imported EFI claims or a physical-machine install. Remaining GUI/branding and
+LightDM integration work is listed in INSTALLER.md and WINLOGON_AND_DWM.md.

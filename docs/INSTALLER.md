@@ -6,11 +6,12 @@ This document specifies the architecture, implementation, testing procedures, an
 
 ## Current validation status (2026-10-12)
 
-The installer is on `installer-port`, not yet merged into master. The original
-milestone table below records the imported implementation's claims, not fresh
-acceptance evidence. Individual fixes were checked manually, but the current
-branch after the master/compositor merge still needs a full build and automated
-end-to-end verification. See [CODEX_HANDOFF.md](CODEX_HANDOFF.md).
+The installer continuation passed the full Wine build and scripted interactive
+and zero-input installations on QEMU/KVM. Missing-answer and unavailable-target
+boot cases also left the test disk unchanged. See
+[INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md) for evidence, final ISO
+hashes, corrections and test limits. The milestone table below records imported
+claims; the new report is the current acceptance evidence.
 
 Build only from the open-resource source tree on the build VM. Do not use the
 development VM's source overlay for an ISO. Never run an unstaged `make install`
@@ -52,12 +53,23 @@ Screenshots are saved under `/tmp/vmtest/wex-install/steps/`. Use
 Do not describe a timed-out test as passing or substitute manual clicks for an
 unmodified automated rerun.
 
+Use `vmtest.py shutdown NAME` for normal ACPI shutdown before installed-disk
+inspection; `stop` quits QEMU abruptly and can leave an unreplayed filesystem
+journal. `installer/tests/install-unattended.sh` now performs this shutdown
+before its read-only checks. `boot-safety.sh` compares logical disk contents for
+negative cases, using fixtures from `prepare-safety-isos.py`.
+
 Recent fixes include blank-disk enumeration, partition selection, license
 reflow, resume-from-disk boot entry, no live-medium eject prompt, template-prefix
 generation in the Linux runner, user-specific template paths on first logon,
 passwordless account mode, OOBE wording and wizard default-button focus.
 Setup/OOBE Win32 programs no longer use `system()` to run Linux commands through
 Wine's `cmd.exe`.
+
+The GRUB menu explicitly selects the resume entry when setup is in progress,
+including on media whose initial default is unattended installation. This
+prevents the added entry from shifting the numeric default to the live desktop
+after the first restart.
 
 Unattended mode requires both the kernel argument and a readable answer file.
 An absent file falls back to interactive setup. If a specified `TargetDisk`
