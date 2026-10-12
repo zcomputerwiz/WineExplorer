@@ -835,6 +835,12 @@ static NTSTATUS user_create( void *args )
             call_user( path, "SetXSession", DBUS_TYPE_STRING, &session );
             call_user( path, "SetSession", DBUS_TYPE_STRING, &session );
             if (params->password[0]) params->err = set_password( path, params->password );
+            else
+            {
+                /* no password: logs on without one, as on Windows (useradd leaves the account locked) */
+                dbus_int32_t mode = 2;
+                params->err = call_user( path, "SetPasswordMode", DBUS_TYPE_INT32, &mode );
+            }
         }
     }
     explicit_bzero( params->password, sizeof(params->password) );

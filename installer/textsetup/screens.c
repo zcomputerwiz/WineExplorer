@@ -304,13 +304,27 @@ SetupStage screen_license(SetupState *state)
     if (!f) f = fopen("/setup/eula.txt", "r");
     if (!f) f = fopen("setupinfs/eula.txt", "r");
 
-    char lines[160][80];
+    char lines[400][80];
     int line_count = 0;
+    int width = COLS - 2 * margin_x;
+    if (width > 76) width = 76;
+    if (width < 20) width = 20;
     if (f) {
-        char buf[256];
-        while (fgets(buf, sizeof(buf), f) && line_count < 160) {
+        char buf[1024];
+        while (fgets(buf, sizeof(buf), f) && line_count < 400) {
+            char *p = buf;
             buf[strcspn(buf, "\r\n")] = '\0';
-            snprintf(lines[line_count++], 80, "%s", buf);
+            /* word-wrap to the text column */
+            do {
+                int len = strlen(p), cut = len;
+                if (len > width) {
+                    for (cut = width; cut > 0 && p[cut] != ' '; --cut) ;
+                    if (!cut) cut = width;
+                }
+                snprintf(lines[line_count++], 80, "%.*s", cut, p);
+                p += cut;
+                while (*p == ' ') ++p;
+            } while (*p && line_count < 400);
         }
         fclose(f);
     } else {

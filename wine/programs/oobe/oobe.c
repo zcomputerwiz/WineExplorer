@@ -35,6 +35,7 @@
 
 typedef struct {
     char name[64];
+    char real_name[128];
     char password[128];
     bool is_admin;
 } UserAccount;
@@ -117,6 +118,7 @@ static void CheckUnattended(void)
                 int idx = g_ctx.user_count++;
                 WCHAR admin_key[32], pass_key[32];
                 snprintf(g_ctx.users[idx].name, sizeof(g_ctx.users[idx].name), "%s", clean);
+                snprintf(g_ctx.users[idx].real_name, sizeof(g_ctx.users[idx].real_name), "%s", raw);
                 swprintf(admin_key, 32, L"User%dAdmin", i);
                 g_ctx.users[idx].is_admin = (GetPrivateProfileIntW(L"WexOobe", admin_key, (idx == 0) ? 1 : 0, wpath) != 0);
                 swprintf(pass_key, 32, L"User%dPassword", i);
@@ -137,6 +139,7 @@ static void CheckUnattended(void)
             if (clean[0]) {
                 g_ctx.user_count = 1;
                 snprintf(g_ctx.users[0].name, sizeof(g_ctx.users[0].name), "%s", clean);
+                snprintf(g_ctx.users[0].real_name, sizeof(g_ctx.users[0].real_name), "%s", raw);
                 g_ctx.users[0].is_admin = true;
             }
         }
@@ -161,7 +164,7 @@ static void ProvisionUsers(void)
         LogOobe(logmsg);
 
         /* 1. CreateUser via AccountsService */
-        err = WexUserCreate(u->name, u->name, u->is_admin ? 1 : 0, u->password);
+        err = WexUserCreate(u->name, u->real_name[0] ? u->real_name : u->name, u->is_admin ? 1 : 0, u->password);
         snprintf(logmsg, sizeof(logmsg), "WexUserCreate('%s') result: %lu", u->name, err);
         LogOobe(logmsg);
 
@@ -209,7 +212,7 @@ static LRESULT CALLBACK BackgroundWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                 DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, "Tahoma");
             hOld = SelectObject(hdc, hFont);
-            TextOutA(hdc, 40, 30, "Welcome to Debian GNU/Linux with WineExplorer", 46);
+            TextOutA(hdc, 40, 30, "Welcome to Debian GNU/Linux with WineExplorer", 45);
             SelectObject(hdc, hOld);
             DeleteObject(hFont);
 
@@ -285,7 +288,7 @@ static INT_PTR CALLBACK OobeUsersProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
     switch (uMsg) {
         case WM_INITDIALOG:
             if (g_ctx.user_count > 0) {
-                SetDlgItemTextA(hwnd, IDC_USER1, g_ctx.users[0].name);
+                SetDlgItemTextA(hwnd, IDC_USER1, g_ctx.users[0].real_name[0] ? g_ctx.users[0].real_name : g_ctx.users[0].name);
             }
             return TRUE;
         case WM_NOTIFY: {
@@ -305,6 +308,7 @@ static INT_PTR CALLBACK OobeUsersProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                     if (clean[0]) {
                         int idx = g_ctx.user_count++;
                         snprintf(g_ctx.users[idx].name, sizeof(g_ctx.users[idx].name), "%s", clean);
+                        snprintf(g_ctx.users[idx].real_name, sizeof(g_ctx.users[idx].real_name), "%s", raw);
                         g_ctx.users[idx].is_admin = (idx == 0);
                     }
                 }

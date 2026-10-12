@@ -43,7 +43,7 @@ BEGIN
     LTEXT "Help protect your PC with Automatic Updates", IDC_STATIC, 15, 7, 287, 14
     LTEXT "Debian can routinely check for the latest important updates for your computer and install them automatically. These updates can include security updates, critical updates, and service packs.", IDC_STATIC, 15, 25, 287, 30
     AUTORADIOBUTTON "&Help protect my PC by turning on Automatic Updates now (recommended)", IDC_RADIO_UPDATES_ON, 15, 62, 287, 10, WS_GROUP | WS_TABSTOP
-    AUTORADIOBUTTON "&Not right now", IDC_RADIO_UPDATES_OFF, 15, 80, 287, 10
+    AUTORADIOBUTTON "N&ot right now", IDC_RADIO_UPDATES_OFF, 15, 80, 287, 10
     LTEXT "If you haven't turned on Automatic Updates, your computer might be vulnerable to security threats.", IDC_STATIC, 27, 95, 275, 20
 END
 

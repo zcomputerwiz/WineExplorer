@@ -4,6 +4,7 @@ This operating system distribution is comprised of software components
 developed by Debian, the Wine project, ReactOS, and the WineExplorer team.
 
 Each component is licensed under its own open-source license:
+- WineExplorer is licensed under the GNU General Public License version 2 or later.
 - The Linux kernel is licensed under the GNU General Public License version 2.
 - Wine is licensed under the GNU Lesser General Public License version 2.1 or later.
 - ReactOS components ported herein are licensed under the GNU General Public License

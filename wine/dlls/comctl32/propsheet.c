@@ -2647,8 +2647,9 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)
       /* Hide the Next button */
       ShowWindow(hwndNext, SW_HIDE);
       
-      /* Show the Finish button */
+      /* Show the Finish button; it takes the focus from the hidden Next button so Enter finishes */
       ShowWindow(hwndFinish, SW_SHOW);
+      if (GetFocus() == hwndNext) SetFocus(hwndFinish);
     }
     else
     {
@@ -2656,6 +2657,7 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)
       ShowWindow(hwndFinish, SW_HIDE);
       /* Show the Next button */
       ShowWindow(hwndNext, SW_SHOW);
+      if (GetFocus() == hwndFinish) SetFocus(hwndNext);
     }
   }
 }

@@ -13,9 +13,8 @@ echo "=== Starting WineExplorer Out-of-Box Experience (OOBE) ==="
 plymouth --quit 2>/dev/null || true
 
 # Ensure permissions on setup directory and logs
-mkdir -p /etc/wineexplorer/setup /var/lib/wexsetup /var/log /etc/gdm3
+mkdir -p /etc/wineexplorer/setup /var/lib/wexsetup /var/log
 touch /var/log/wineexplorer-oobe.log
-touch /etc/gdm3/daemon.conf
 
 # Ensure dedicated wexsetup user exists, with adm membership
 if ! id "wexsetup" >/dev/null 2>&1; then
@@ -28,8 +27,6 @@ chmod 755 /etc/wineexplorer /etc/wineexplorer/setup
 chmod 644 /etc/wineexplorer/setup/* 2>/dev/null || true
 chown wexsetup:adm /var/log/wineexplorer-oobe.log
 chmod 660 /var/log/wineexplorer-oobe.log
-chown wexsetup:root /etc/gdm3/daemon.conf
-chmod 664 /etc/gdm3/daemon.conf
 
 export DISPLAY=:0
 export XAUTHORITY=/var/lib/wexsetup/.Xauthority
@@ -81,8 +78,6 @@ rm -rf /var/lib/wexsetup
 rm -rf /etc/wineexplorer/setup
 rm -f /etc/polkit-1/rules.d/49-wexsetup.rules
 rm -f /etc/sudoers.d/wexsetup
-chown root:root /etc/gdm3/daemon.conf 2>/dev/null || true
-chmod 644 /etc/gdm3/daemon.conf 2>/dev/null || true
 mkdir -p /etc/wineexplorer
 chmod 755 /etc/wineexplorer 2>/dev/null || true
 chown root:adm /var/log/wineexplorer-*.log 2>/dev/null || true
