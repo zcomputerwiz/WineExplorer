@@ -1489,6 +1489,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     greeter_read,
     composition_set,
     composition_get,
+    composition_shadow,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

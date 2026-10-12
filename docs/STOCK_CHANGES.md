@@ -62,6 +62,13 @@ rebasing on upstream Wine harder. Baseline = commit `40c17e1` (the upstream impo
 | `programs/shell32`-visible: none | Run dialog placement is done by explorer (CBT hook), not by shell32 | - |
 | `loader/wine.inf.in` | `.msc` files open with `mmc.exe` (`MSCFile`); new `[MscFiles]` copies `devmgmt.msc` (a data file of `programs/mmc`) into system32 | always |
 
+## D2 compositor effects and capture
+
+- `dlls/winex11.drv/window.c`, `x11drv.h`: a private `_WEX_DROPSHADOW` CARDINAL on class-shadow windows carries
+  `SPI_GETDROPSHADOW` to the compositor at creation/show. Explorer's out-of-context hook cannot reliably read another
+  process's XID. The hint is only written when `_NET_WM_CM_S<screen>` has an owner; no input/shape/rendering changes
+  without one. The shared internal `X11DRV_has_compositor` queries ownership on the actual display's default screen.
+
 ## Reverted (were changed earlier, now stock again)
 - `dlls/comctl32/monthcal.c` (today-circle removal): timedate.cpl now creates its calendar with
   `MCS_NOTODAY | MCS_NOTODAYCIRCLE`, which is what the XP applet looks like.

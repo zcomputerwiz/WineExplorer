@@ -1022,6 +1022,15 @@ NTSTATUS composition_get( void *args )
     return STATUS_SUCCESS;
 }
 
+NTSTATUS composition_shadow( void *args )
+{
+    struct composition_shadow_params *params = args;
+    if (!begin_call( &params->err )) return STATUS_SUCCESS;
+    params->err = compose_shadow( params->window, params->shadow );
+    end_call();
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS wm_manage( void *args )
 {
     struct wm_manage_params *params = args;
@@ -1319,6 +1328,7 @@ STUB( wm_get_icon, struct wm_get_icon_params )
 STUB( wm_stop, struct wm_stop_params )
 STUB( wm_focus, struct wm_window_params )
 STUB( composition_set, struct composition_params )
+STUB( composition_shadow, struct composition_shadow_params )
 NTSTATUS composition_get( void *args )
 {
     struct composition_params *params = args;
