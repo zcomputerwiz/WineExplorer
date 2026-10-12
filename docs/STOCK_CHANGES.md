@@ -13,6 +13,7 @@ rebasing on upstream Wine harder. Baseline = commit `03476d7`.
 | `dlls/uxtheme` (`system.c`, `msstyles.c`, `metric.c`) | implement private ordinal 16 `OpenThemeDataFromFile`; metrics follow the supplied theme handle; activating a preview applies metrics even when its classes are already parsed | always |
 | `dlls/winex11.drv/window.c` | virtual desktop resize does not wait for fullscreen hint acknowledgements; standalone shell sessions have no host window manager to supply them | virtual desktop root window only |
 | `programs/wmplayer` | Wine's stub `main.c` replaced by ReactOS mplay32 | always |
+| `dlls/shdoclc` | icon 190 (Wine's `iexplore.ico`): `iexplore.inf` names it as the Internet Explorer desktop icon, stock Wine has none | always |
 | `programs/calc`, `programs/mspaint` | new programs (ReactOS calc; own mspaint) | always |
 | `dlls/ntdll/unix/system.c` | `SystemBatteryState` / `SystemPowerCapabilities` read `/sys/class/power_supply` | always (replaces a FIXME stub) |
 | `server/fd.c` | recompute the DST-adjusted timezone bias when DST starts/ends (a long-running session never saw it before) | always (bug fix, upstreamable) |

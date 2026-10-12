@@ -2339,7 +2339,23 @@ int startbutton_get_desired_width(void)
     {
         SIZE size = {0};
         HDC hdc = GetDC(NULL);
+        LOGFONTW tf;
         if (SUCCEEDED(GetThemePartSize(theme, hdc, 0, 1, NULL, TS_TRUE, &size)) && size.cx > 0) width = size.cx;
+        if (FAILED(GetThemeFont(theme, hdc, 0, 1, TMT_FONT, &tf)))
+        {
+            /* a style without Start::Button (see WM_PAINT): flag, gap and "start" in bold Tahoma, 6 pixels each side */
+            HFONT font, prev;
+            memset(&tf, 0, sizeof(tf));
+            tf.lfHeight = -11;
+            tf.lfWeight = FW_BOLD;
+            lstrcpyW(tf.lfFaceName, L"Tahoma");
+            font = CreateFontIndirectW(&tf);
+            prev = SelectObject(hdc, font);
+            GetTextExtentPoint32W(hdc, L"start", 5, &size);
+            SelectObject(hdc, prev);
+            DeleteObject(font);
+            width = max(width, 6 + 25 + 3 + size.cx + 6);
+        }
         ReleaseDC(NULL, hdc);
         CloseThemeData(theme);
     }
@@ -2406,8 +2422,12 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                         BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
                         int off = g_button_pressed ? 1 : 0;
                         HBITMAP prev = SelectObject(mem, flag);
-                        AlphaBlend(hdc, text_rc.left + off, (rc.bottom - rc.top - bm.bmHeight) / 2 + off, bm.bmWidth, bm.bmHeight,
-                                   mem, 0, 0, bm.bmWidth, bm.bmHeight, blend);
+                        int fy = (rc.bottom - rc.top - bm.bmHeight) / 2 + off;
+                        /* an open replacement may come without alpha: black is transparent then */
+                        if (bm.bmBitsPixel == 32)
+                            AlphaBlend(hdc, text_rc.left + off, fy, bm.bmWidth, bm.bmHeight, mem, 0, 0, bm.bmWidth, bm.bmHeight, blend);
+                        else
+                            TransparentBlt(hdc, text_rc.left + off, fy, bm.bmWidth, bm.bmHeight, mem, 0, 0, bm.bmWidth, bm.bmHeight, RGB(0, 0, 0));
                         SelectObject(mem, prev);
                         DeleteDC(mem);
                         text_rc.left += bm.bmWidth + 3;
@@ -2415,10 +2435,22 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                     }
                     if (flag) DeleteObject(flag);
                 }
-                GetThemeColor(theme, 0, state, TMT_TEXTCOLOR, &color);
+                /* a style without a Start::Button class falls back to Button, which has no font or colors:
+                 * use the button text color and the bold Tahoma of the classic button */
+                if (FAILED(GetThemeColor(theme, 0, state, TMT_TEXTCOLOR, &color)))
+                {
+                    color = shadow = GetSysColor(COLOR_BTNTEXT);
+                    offset.x = offset.y = 0;
+                }
                 GetThemeColor(theme, 0, state, TMT_TEXTSHADOWCOLOR, &shadow);
                 GetThemePosition(theme, 0, state, TMT_TEXTSHADOWOFFSET, &offset);
-                if (SUCCEEDED(GetThemeFont(theme, hdc, 0, state, TMT_FONT, &tf)))
+                if (FAILED(GetThemeFont(theme, hdc, 0, state, TMT_FONT, &tf)))
+                {
+                    memset(&tf, 0, sizeof(tf));
+                    tf.lfHeight = -11;
+                    tf.lfWeight = FW_BOLD;
+                    lstrcpyW(tf.lfFaceName, L"Tahoma");
+                }
                 {
                     HFONT tfont = CreateFontIndirectW(&tf), tprev = SelectObject(hdc, tfont);
                     RECT sr = text_rc;
