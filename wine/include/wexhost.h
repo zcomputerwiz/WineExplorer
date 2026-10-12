@@ -56,13 +56,14 @@ DWORD WINAPI WexTimedateSetNtp( HWND owner, BOOL enable );
 /* Newline separated list of IANA names; *needed gets the required size (including NUL). */
 DWORD WINAPI WexTimedateListTimezones( char *buffer, DWORD size, DWORD *needed );
 
-/* power actions: login1 */
+/* power actions: login1 and the display manager */
 #define WEX_POWER_SHUTDOWN   0
 #define WEX_POWER_REBOOT     1
 #define WEX_POWER_SUSPEND    2
 #define WEX_POWER_HIBERNATE  3
 #define WEX_POWER_LOGOFF     4   /* end this login session (login1 TerminateSession) */
-#define WEX_POWER_SWITCHUSER 5   /* show the display manager's greeter, the session stays (GDM) */
+#define WEX_POWER_SWITCHUSER 5   /* show the display manager's greeter, the session stays (LightDM or GDM) */
+#define WEX_POWER_LOCK       6   /* lock the session: show the greeter, the session stays (LightDM) */
 
 #define WEX_POWER_NO         0
 #define WEX_POWER_YES        1

@@ -2,7 +2,7 @@
  * WineExplorer Desktop Environment - Turn Off Computer and Log Off Windows
  *
  * Windows XP's dialogs over the grayed screen: Stand By, Turn Off and Restart; Switch User and Log Off.  The
- * actions go to systemd-logind (and GDM for Switch User) through wexhost.
+ * actions go to systemd-logind and the display manager through wexhost.
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
@@ -139,6 +139,11 @@ void power_mgmt_execute_action(int action)
 
     case POWER_ACTION_SWITCHUSER:
         report_power_error(owner, WexPowerDo(owner, WEX_POWER_SWITCHUSER));
+        break;
+
+    case POWER_ACTION_LOCK:
+        if (!power_can(WEX_POWER_LOCK)) report_power_error(owner, ERROR_NOT_SUPPORTED);
+        else report_power_error(owner, WexPowerDo(owner, WEX_POWER_LOCK));
         break;
 
     case POWER_ACTION_STANDBY:

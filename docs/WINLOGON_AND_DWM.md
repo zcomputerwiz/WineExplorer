@@ -1,6 +1,6 @@
 # Logon and window composition: plan
 
-Status (2026-10-12): planning; phase W1 in progress. This plan covers two projects:
+Status (2026-10-12): W1 done (dev VM on LightDM); W2 next. This plan covers two projects:
 
 - **Winlogon**: XP's logon experience (Welcome screen, classic Log On to Windows dialog, Lock Computer, Switch
   User / fast user switching, Windows Security) on top of a real Linux display manager.
@@ -57,6 +57,19 @@ session does not exist yet, and a crash would expose a locked desktop).
   comes from the session).
 - Test: autologin to the shell; Start > Log Off > Switch User shows the greeter while the session keeps running;
   logging in again returns to it; Windows+L locks; Log Off and Turn Off still work.
+
+**Done (2026-10-12).** `scripts/setup-default-session.sh` (run as root) installs
+`scripts/lightdm-wineexplorer.conf` and makes LightDM the display manager. Verified on the dev VM: autologin into the
+shell; Windows+L and Switch User show the greeter (LightDM: "Switching to existing greeter") with the session and its
+windows intact; `sudo loginctl activate <session>` returns to it without a password for tests; Log Off ends the session.
+Turn Off was not exercised (unchanged path). Found on the way:
+- A startup race lost the session every time under LightDM: `wineboot --init` starts `winemenubuilder`, whose window
+  makes Wine start its default desktop before ours, and our `explorer /desktop=Default` then fails (`aborted by
+  WM_NCCREATE`). The session script now disables `winemenubuilder`. GDM's slower start hid it most of the time; it is
+  likely the cause of the "often ends in the login screen" note in `scripts/ensure-shell.sh`.
+- A `~/.Xauthority` left over from GDM held wildcard entries (`<host>/unix:` without a display number) that win over
+  LightDM's new `unix:0` entry: "Invalid MIT-MAGIC-COOKIE-1 key". Delete the file once when switching.
+- GDM is disabled but still installed; the installer keeps GDM until W7.
 
 ### W2: greeter skeleton (`logonui.exe`)
 - `programs/logonui` (XP name) and a greeter link in wexhost: the LightDM greeter protocol (connect, authenticate,

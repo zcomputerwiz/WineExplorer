@@ -4,7 +4,7 @@
 #   scripts/vm.sh build [target]  make in ~/build/wine64 (default: all)
 #   scripts/vm.sh install         sudo make install (installs to /usr/local)
 #   scripts/vm.sh deploy          sync + build + install
-#   scripts/vm.sh restart-shell   clean every wine process and restart the session (GDM autologin)
+#   scripts/vm.sh restart-shell   clean every wine process and restart the session (display manager autologin)
 #   scripts/vm.sh clean           same, without restarting the session
 #   scripts/vm.sh shot [file]     screenshot of the VM display via VBoxManage (default vm_shot.png)
 #   scripts/vm.sh xpshot [file]   screenshot of the "Windows XP Pro" VM

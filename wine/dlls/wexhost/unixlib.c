@@ -383,32 +383,43 @@ static const char *const power_methods[] = { "PowerOff", "Reboot", "Suspend", "H
 static BOOL find_session_id( DBusConnection *conn, char *out, size_t size );
 
 #define GDM_DEST "org.gnome.DisplayManager"
+#define LIGHTDM_DEST "org.freedesktop.DisplayManager"
+#define LIGHTDM_IFACE "org.freedesktop.DisplayManager.Seat"
 
-/* Log off and Switch User: our own login session, and GDM's greeter for another user */
+/* Log off, Switch User and Lock: our own login session and the display manager's greeter */
 static BOOL session_can( DWORD action )
 {
     char session[64];
+    const char *seat = getenv( "XDG_SEAT_PATH" );
     DBusConnection *bus = get_system_bus();
 
     if (!bus) return FALSE;
     if (action == WEX_POWER_LOGOFF) return find_session_id( bus, session, sizeof(session) );
-    return p_dbus_bus_name_has_owner( bus, GDM_DEST, NULL );
+    if (seat && p_dbus_bus_name_has_owner( bus, LIGHTDM_DEST, NULL )) return TRUE;
+    return action == WEX_POWER_SWITCHUSER && p_dbus_bus_name_has_owner( bus, GDM_DEST, NULL );
 }
 
 static DWORD session_do( DWORD action )
 {
+    const char *seat = getenv( "XDG_SEAT_PATH" );
+    DBusConnection *bus = get_system_bus();
     DBusMessage *msg;
     DWORD err;
 
+    if (!bus) return ERROR_NOT_SUPPORTED;
     if (action == WEX_POWER_LOGOFF)
     {
         char session[64];
         const char *id = session;
 
-        if (!get_system_bus() || !find_session_id( get_system_bus(), session, sizeof(session) )) return ERROR_NOT_SUPPORTED;
+        if (!find_session_id( bus, session, sizeof(session) )) return ERROR_NOT_SUPPORTED;
         msg = p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, "TerminateSession" );
         if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &id, DBUS_TYPE_INVALID );
     }
+    else if (seat && p_dbus_bus_name_has_owner( bus, LIGHTDM_DEST, NULL ))
+        msg = p_dbus_message_new_method_call( LIGHTDM_DEST, seat, LIGHTDM_IFACE,
+                                               action == WEX_POWER_LOCK ? "Lock" : "SwitchToGreeter" );
+    else if (action == WEX_POWER_LOCK) return ERROR_NOT_SUPPORTED;
     else msg = p_dbus_message_new_method_call( GDM_DEST, "/org/gnome/DisplayManager/LocalDisplayFactory",
                                                "org.gnome.DisplayManager.LocalDisplayFactory", "CreateTransientDisplay" );
     err = call_system( msg, NULL );
@@ -425,7 +436,7 @@ static NTSTATUS power_can( void *args )
     const char *s;
 
     params->result = WEX_POWER_NO;
-    if (params->action == WEX_POWER_LOGOFF || params->action == WEX_POWER_SWITCHUSER)
+    if (params->action == WEX_POWER_LOGOFF || params->action == WEX_POWER_SWITCHUSER || params->action == WEX_POWER_LOCK)
     {
         params->err = load_dbus() ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
         if (!params->err && session_can( params->action )) params->result = WEX_POWER_YES;
@@ -454,7 +465,7 @@ static NTSTATUS power_do( void *args )
     DBusMessage *msg;
     dbus_bool_t interactive = TRUE;
 
-    if (params->action == WEX_POWER_LOGOFF || params->action == WEX_POWER_SWITCHUSER)
+    if (params->action == WEX_POWER_LOGOFF || params->action == WEX_POWER_SWITCHUSER || params->action == WEX_POWER_LOCK)
     {
         params->err = load_dbus() ? session_do( params->action ) : ERROR_NOT_SUPPORTED;
         return STATUS_SUCCESS;

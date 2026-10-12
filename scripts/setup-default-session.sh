@@ -1,25 +1,12 @@
 #!/bin/bash
+# Run as root on the VM: LightDM as the display manager, with automatic logon of wineuser into the WineExplorer
+# session (docs/WINLOGON_AND_DWM.md, phase W1).  Needs the lightdm and lightdm-gtk-greeter packages.
 set -e
+cd "$(dirname "$0")"
 
-# Configure GDM3 for autologin and Xorg
-cat > /etc/gdm3/daemon.conf << 'EOF'
-# GDM configuration storage
-[daemon]
-WaylandEnable=false
-AutomaticLoginEnable=true
-AutomaticLogin=wineuser
-DefaultSession=wine-explorer.desktop
+install -D -m 644 lightdm-wineexplorer.conf /etc/lightdm/lightdm.conf.d/50-wineexplorer.conf
 
-[security]
-
-[xdmcp]
-
-[chooser]
-
-[debug]
-EOF
-
-# Configure AccountsService default session for wineuser
+# AccountsService default session for wineuser (the greeter preselects it)
 mkdir -p /var/lib/AccountsService/users
 cat > /var/lib/AccountsService/users/wineuser << 'EOF'
 [User]
@@ -28,10 +15,11 @@ XSession=wine-explorer
 SystemAccount=false
 EOF
 
-# Set update-alternatives for x-session-manager if present
-if command -v update-alternatives >/dev/null 2>&1; then
-    update-alternatives --install /usr/bin/x-session-manager x-session-manager /usr/local/bin/wine-explorer-session.sh 100 || true
-    update-alternatives --set x-session-manager /usr/local/bin/wine-explorer-session.sh || true
-fi
+# make LightDM the display manager
+echo /usr/sbin/lightdm > /etc/X11/default-display-manager
+echo "lightdm shared/default-x-display-manager select lightdm" | debconf-set-selections
+systemctl disable gdm3 2>/dev/null || true
+ln -sf /usr/lib/systemd/system/lightdm.service /etc/systemd/system/display-manager.service
+systemctl daemon-reload
 
-echo "WineExplorer configured as default system session successfully."
+echo "LightDM configured; restart the display manager (systemctl restart display-manager) to apply."

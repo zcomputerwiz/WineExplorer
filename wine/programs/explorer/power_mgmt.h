@@ -31,6 +31,7 @@
 #define POWER_ACTION_LOGOFF   2
 #define POWER_ACTION_STANDBY  3
 #define POWER_ACTION_SWITCHUSER 4
+#define POWER_ACTION_LOCK     5
 
 /* Power Management API */
 void power_mgmt_show_shutdown_dialog(HWND parent);

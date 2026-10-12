@@ -47,6 +47,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(systray);
 #define IDHK_FIND           0x1f9
 #define IDHK_SYS_PROPERTIES 0x1fd
 #define IDHK_DESKTOP        0x1fe
+#define IDHK_LOCK           0x1ff
 #define TRAY_MINIMIZE_ALL_UNDO 416
 
 struct notify_data_icon
@@ -2001,6 +2002,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         case IDHK_EXPLORE: shellfolder_open( CSIDL_DRIVES, TRUE ); break;
         case IDHK_SYS_PROPERTIES: ShellExecuteW( NULL, L"open", L"control.exe", L"sysdm.cpl", NULL, SW_SHOWNORMAL ); break;
         case IDHK_RESTORE_ALL: undo_apply(); break;
+        case IDHK_LOCK: power_mgmt_execute_action( POWER_ACTION_LOCK ); break;
         case IDHK_MINIMIZE_ALL:
         case IDHK_DESKTOP:
             if (wparam == IDHK_MINIMIZE_ALL && toolbars_desktop_shown()) break;
@@ -2282,7 +2284,7 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
         {
             { IDHK_RUN, MOD_WIN, 'R' }, { IDHK_MINIMIZE_ALL, MOD_WIN, 'M' }, { IDHK_RESTORE_ALL, MOD_WIN | MOD_SHIFT, 'M' },
             { IDHK_EXPLORE, MOD_WIN, 'E' }, { IDHK_FIND, MOD_WIN, 'F' }, { IDHK_SYS_PROPERTIES, MOD_WIN, VK_PAUSE },
-            { IDHK_DESKTOP, MOD_WIN, 'D' },
+            { IDHK_DESKTOP, MOD_WIN, 'D' }, { IDHK_LOCK, MOD_WIN, 'L' },
         };
         unsigned int i;
         for (i = 0; i < ARRAY_SIZE(hotkeys); i++) RegisterHotKey( tray_window, hotkeys[i].id, hotkeys[i].mod, hotkeys[i].key );
