@@ -81,6 +81,38 @@ Acceptance: without the plugin, explorer behaves exactly like stock Wine; with i
 screenshots on Xvfb (desktop, Start menu both styles, taskbar, tray, Explorer window, Turn Off dialog) and run the
 dev VM session (`vm.sh`), the D1/D2 probes and the installer test.
 
+P3 moves code only: no renames, no behaviour changes, no splitting. That comes next, one module at a time.
+
+### P3b — Split wexshell along XP's own module boundaries
+`wexshell.dll` is the entry point stock explorer loads; it loads the rest. Everything still runs in the explorer
+process, as on Windows XP. Split only where there is a real seam (a self-contained feature with a small interface) or
+a second consumer; **do not split for its own sake** — every boundary is an interface to keep stable. Splitting the
+clock, Alt+Tab or the task band into their own DLLs, for example, is out of scope.
+
+| Code today (`programs/explorer`) | XP home | Target | Why split |
+|---|---|---|---|
+| `desktop.c` shell parts, `taskband`, `startmenu*`, `startprops`, `startsettings`, `taskbar_props`, `notifyprops`, `alttab`, `tray_clock`, `desktop_view`, systray host, `linux_windows`, `slideshow` | explorer.exe | **wexshell.dll** (stays) | the shell core |
+| `volumetray`, `trayvol_dialog`, `powertray`, `audio_backend`, `power_backend` | stobject.dll | **stobject.dll** | XP's tray loads it as a COM object listed under `HKLM\...\ShellServiceObjectDelayLoad`; doing the same makes tray applets registry-driven instead of hard-wired into the tray |
+| `nettray`, `net_props`, `net_backend`, `wlan_status` | netshell.dll | **netshell.dll** (ours, exists) | network UI already lives there on XP; second consumer: ncpa.cpl |
+| `wlan_dialog` | wzcdlg.dll | **wzcdlg.dll** | separate on XP, opened from netshell and ncpa.cpl |
+| `browser_ui`, `browser_taskpane`, `toolbars`, `browser.h` | browseui.dll / shdocvw.dll | **wexbrowse.dll** | folder/browser windows are a large self-contained subsystem |
+| `search_companion`, `search_engine`, `search_results`, `instant_search`, `agent_char` | Search Assistant | **wexsearch.dll** | self-contained; opened from the Start menu, browser and `SHFindFiles` |
+| `theme_engine` | themeui.dll | **themeui.dll** | second consumer: desk.cpl (and logonui later) |
+| `power_mgmt` (Turn Off / Log Off dialogs) | msgina.dll | **msgina.dll** | second consumer: logonui's Turn Off button (today it runs `explorer.exe /turnoff`) |
+| `shellres`, `shellfolders` (icon/bitmap lookup by Windows id, icon packs, namespace items) | shell32 / shellstyle | **one shared DLL** (name it in P0, e.g. `wexres.dll`) | used by nearly every module above; one copy of the resources and lookup code |
+| `uac_agent` (polkit agent dialog) | — | stays in wexshell (or wexhost if simpler) | no XP counterpart; no second consumer |
+
+Rules: extract one module per step, in an order that untangles dependencies first (shared resources first, then
+themeui and msgina, then stobject/netshell/wzcdlg, then wexsearch and wexbrowse). Each module gets one small header of
+exports (or a COM interface where XP used one, as for stobject), its own resources, and the GPL header. Calls that
+cross a boundary go through those exports only — no shared globals. If a planned split turns out to need a wide,
+chatty interface, stop and record why in the map instead of forcing it.
+
+Acceptance per extracted module: builds alone; the screenshot comparison and the feature's own check pass (tray icons
+and their menus/dialogs, Turn Off from the Start menu and from logonui, desk.cpl Themes tab, Search from the Start
+menu, an Explorer window with its task pane and toolbars); explorer still starts when an optional module (stobject,
+wexsearch, wexbrowse) is missing — the feature is simply absent.
+
 ### P4 — Repository restructure
 `wine/` becomes the submodule; our modules move to `src/`; add `scripts/assemble.sh`. Update everything that knows
 paths: `vm.sh`/`fe.sh` sync, `scripts/open_assets.py`, `scripts/add-license.py` (BASE becomes the tag), 
