@@ -825,6 +825,7 @@ static void handle_event( XEvent *event )
 static void *wm_loop( void *arg )
 {
     struct pollfd fds[2];
+    BOOL pending;
 
     fds[0].fd = ConnectionNumber( display );
     fds[1].fd = wake_pipe[0];
@@ -839,10 +840,13 @@ static void *wm_loop( void *arg )
         }
         compose_paint();
         pXFlush( display );
+        /* Queries made while painting can read events into Xlib's queue. Do
+         * not sleep waiting for socket bytes that Xlib has already consumed. */
+        pending = pXPending( display ) != 0;
         pthread_mutex_unlock( &x_mutex );
 
         fds[0].events = fds[1].events = POLLIN;
-        if (poll( fds, 2, 1000 ) > 0 && (fds[1].revents & POLLIN))
+        if (poll( fds, 2, pending ? 0 : 1000 ) > 0 && (fds[1].revents & POLLIN))
         {
             char buffer[64];
             while (read( wake_pipe[0], buffer, sizeof(buffer) ) > 0) ;

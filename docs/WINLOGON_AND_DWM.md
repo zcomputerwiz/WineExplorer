@@ -172,11 +172,14 @@ compositing manager, which our session does not have.
   opaque non-ARGB visual, full opacity, no border and a rectangular shape. It suspends both parent redirections
   and releases the overlay until that condition ends; no per-monitor bypass, tear-free presentation, capture,
   or composition of deeper foreign ARGB clients inside opaque hosts. These remain later phases.
-  No runtime behavior is verified yet: the Proton lab SSH connection reached port 2223 but could not read the
-  supplied key (`Permission denied`), so compilation/install, on/off shell comparison, alpha/color-key/motion,
-  input, resize/remap and repeat-toggle screenshots could not run. Local `git diff --check` passed. Core snapshot
-  `4089f7b` was committed externally during implementation; further commits from this session are blocked by
-  read-only shared worktree Git metadata. No VM state was changed.
+  **Tested (2026-10-12, Proton lab VM, Xvfb with Composite, shell started with Composition 0 and 1).** With
+  composition the per-pixel alpha ramp blends over the desktop and over other windows (without it: raw colors over
+  black), `LWA_ALPHA` 50 % is translucent (without it: opaque), color-key holes stay holes and a click in the hole
+  reaches the desktop, the rest of the shell looks the same. Not yet tested: switching at run time and repeated
+  enable/disable (the probe's `--own-compositor` mode cannot show its own control window: its window manager takes it
+  for a foreign window), full-screen bypass, the real VM session, Linux ARGB clients, repaint cost. Also seen: from a
+  process other than Explorer, `GetPropW(GetDesktopWindow(), "__wine_x11_whole_window")` reads 0; the probe takes the
+  desktop's X window as an argument instead.
 - **D2: XP effects and capture**: desktop capture through the compositor, menu and tooltip fades (`AnimateWindow`,
   `SPI_GETMENUANIMATION`), `CS_DROPSHADOW` shadows, translucent drag images and selection rectangles. Test on the real
   session with Linux ARGB clients.
