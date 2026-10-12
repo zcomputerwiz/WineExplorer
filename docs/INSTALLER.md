@@ -79,8 +79,8 @@ cannot be found, setup stops without falling back to another disk. An omitted
 against unchanged disk contents, and validate a complete zero-input install
 separately.
 
-Known gaps: the installed system uses GDM (LightDM/custom greeter integration is
-W7), Automatic Updates is recorded but not applied, timezone names are Linux
+LightDM/custom greeter integration (W7) is implemented; clean installed-system
+acceptance tests are pending. Known gaps: Automatic Updates is recorded but not applied, timezone names are Linux
 names, GUI pages need XP-style header/backdrop work, formatting labels expose
 device paths, new profiles may have a blank Recycle Bin icon, and installed GRUB
 still uses Debian's appearance.
@@ -159,8 +159,8 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
   - First user is provisioned with `AccountType=1` (administrator, automatically assigned to `sudo` group).
   - Copies template prefix from `/etc/skel/.wine` to `/home/<user>/.wine` with proper user ownership.
 - **Display Manager & Autologin**:
-  - If exactly one user was created and that user has no password: configures GDM autologin (`AutomaticLoginEnable=true`, `DefaultSession=wine-explorer`) in `/etc/gdm3/daemon.conf`.
-  - If multiple users or passwords exist: displays standard GDM greeter on boot.
+  - If exactly one user was created and that user has no password: the root OOBE runner validates the account and writes LightDM's `autologin-user` in `/etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf`.
+  - If multiple users or passwords exist: displays the Wine `logonui.exe` Welcome screen, running as the unprivileged `lightdm` account with its own `/var/lib/lightdm/.wine-logon` prefix. GTK greeter remains installed for recovery.
 - **Cleanup**:
   - Terminates running Wine instances and user processes.
   - Deletes temporary user `wexsetup` (`userdel -r -f wexsetup`).
@@ -168,7 +168,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
   - Deletes `/etc/polkit-1/rules.d/49-wexsetup.rules`.
   - Sets `/etc/wineexplorer` directory permissions to `755 root:root`.
   - Sets `/var/log/wineexplorer-*.log` permissions to `640 root:adm`.
-  - Disables setup systemd units and starts GDM.
+  - Disables setup systemd units and starts LightDM.
 
 ---
 
@@ -203,7 +203,7 @@ User1Admin = 1
 ```
 
 - Build with `--unattended --clean`: `sudo ./installer/build-iso.sh --unattended --clean` (sets GRUB default entry to `Install (unattended)`).
-- Boots directly into Stage 1, partitions `TargetDisk`, formats, copies files, reboots into Stage 2 (applies hostname, timezone, locale), transitions to Stage 3 (provisions `wineuser` as administrator), configures GDM autologin, cleans up temporary setup state, and launches into the WineExplorer desktop session without a single keystroke.
+- Boots directly into Stage 1, partitions `TargetDisk`, formats, copies files, reboots into Stage 2 (applies hostname, timezone, locale), transitions to Stage 3 (provisions `wineuser` as administrator), configures LightDM autologin, cleans up temporary setup state, and launches into the WineExplorer desktop session without a single keystroke.
 
 ---
 

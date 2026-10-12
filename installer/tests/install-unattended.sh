@@ -51,6 +51,7 @@ mkdir -p "$STATE/check-root"
 mount -o ro,noload "${NBD}p1" "$STATE/check-root"
 MOUNTED=true
 ROOT=$STATE/check-root
+python3 "$HERE/check-lightdm.py" "$ROOT" wineuser || fail "installed display manager checks failed"
 grep -qx 'WEX-PC' "$ROOT/etc/hostname" || fail "hostname was not applied"
 grep -q '^wineuser:' "$ROOT/etc/passwd" || fail "installed user missing"
 ! grep -q '^wexsetup:' "$ROOT/etc/passwd" || fail "temporary setup account remains"

@@ -66,6 +66,22 @@ step finish; $V key "$VM" ret          # Enter must press Finish
 $V wait "$VM" "Bob Smith" --timeout 300 || fail "no logon screen with both users"
 step logon
 
+# The installed custom Welcome screen must authenticate through LightDM/PAM.
+$V wait "$VM" "To begin" --timeout 30 || fail "custom Welcome screen missing"
+$V clicktext "$VM" "Alice" || fail "cannot click Alice"
+$V wait "$VM" "Type your password" --timeout 30 || fail "no password prompt for Alice"
+$V type "$VM" "incorrect-test-password"; $V key "$VM" ret
+$V wait "$VM" "Did you forget" --timeout 30 || fail "wrong password was not rejected"
+step rejected-password
+$V type "$VM" "$P"; $V key "$VM" ret
+$V wait "$VM" "My Documents" --timeout 240 || fail "correct Alice password did not log on"
+step alice-desktop
+
+# Win+L must return to the Welcome screen while preserving Alice's session.
+$V key "$VM" meta_l-l
+$V wait "$VM" "Bob Smith" --timeout 60 || fail "lock did not return to Welcome screen"
+step switch-user
+
 # First logon of the passwordless user: desktop from the template prefix, with icons
 $V clicktext "$VM" "Bob Smith" || fail "cannot click Bob Smith"
 T0=$(date +%s)

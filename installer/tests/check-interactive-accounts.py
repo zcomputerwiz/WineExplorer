@@ -5,6 +5,7 @@ import ctypes
 import ctypes.util
 from pathlib import Path
 import sys
+import subprocess
 
 root = Path(sys.argv[1])
 password = Path(sys.argv[2]).read_bytes().replace(b"\r", b"").replace(b"\n", b"")
@@ -27,4 +28,9 @@ sudo = next(row[3].split(",") for row in
 assert names["Alice"] in sudo, "first account is not in sudo"
 assert not any(row[0] == "wexsetup" for row in passwd), "setup account remains"
 assert not (root / "etc/wineexplorer/setup").exists(), "setup state remains"
+for fullname in ("Alice", "Bob Smith"):
+    username = names[fullname]
+    log = (root / "home" / username / ".wine-session.log").read_text()
+    assert f"USER={username} " in log, f"{fullname} did not start its own session"
+subprocess.run([sys.executable, str(Path(__file__).with_name("check-lightdm.py")), str(root)], check=True)
 print("PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership and setup cleanup")
