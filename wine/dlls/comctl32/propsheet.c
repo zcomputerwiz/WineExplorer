@@ -2623,6 +2623,7 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)
   HWND hwndNext   = GetDlgItem(hwndDlg, IDC_NEXT_BUTTON);
   HWND hwndFinish = GetDlgItem(hwndDlg, IDC_FINISH_BUTTON);
   BOOL enable_finish = ((dwFlags & PSWIZB_FINISH) || psInfo->hasFinish) && !(dwFlags & PSWIZB_DISABLEDFINISH);
+  HWND focus = GetFocus();
 
   TRACE("%lx\n", dwFlags);
 
@@ -2647,9 +2648,8 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)
       /* Hide the Next button */
       ShowWindow(hwndNext, SW_HIDE);
       
-      /* Show the Finish button; it takes the focus from the hidden Next button so Enter finishes */
+      /* Show the Finish button */
       ShowWindow(hwndFinish, SW_SHOW);
-      if (GetFocus() == hwndNext) SetFocus(hwndFinish);
     }
     else
     {
@@ -2657,8 +2657,16 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)
       ShowWindow(hwndFinish, SW_HIDE);
       /* Show the Next button */
       ShowWindow(hwndNext, SW_SHOW);
-      if (GetFocus() == hwndFinish) SetFocus(hwndNext);
     }
+  }
+
+  /* A wizard button that had the focus and is now disabled or hidden (Next swapped for Finish) left no focus at
+   * all, so keys went nowhere and Enter did not finish: give the focus to the default button. */
+  if (focus && (focus == hwndBack || focus == hwndNext || focus == hwndFinish) &&
+      (!IsWindowEnabled(focus) || !IsWindowVisible(focus)))
+  {
+    HWND def = GetDlgItem(hwndDlg, LOWORD(SendMessageW(hwndDlg, DM_GETDEFID, 0, 0)));
+    if (def && IsWindowEnabled(def) && IsWindowVisible(def)) SetFocus(def);
   }
 }
 
