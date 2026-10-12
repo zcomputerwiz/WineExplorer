@@ -99,24 +99,28 @@ def shutdown(name, timeout):
 
 SCALE = 3   # tesseract misses 8 pt GUI text and the 8x16 console font at 1x
 
-def ocr(name, fmt=None):
+def ocr(name, fmt=None, white_text=False):
     png = shot(name)
-    big = png[:-4] + "-ocr.png"
-    subprocess.run(["convert", png, "-resize", f"{SCALE * 100}%", "-colorspace", "Gray", big], check=True)
+    big = png[:-4] + ("-white-ocr.png" if white_text else "-ocr.png")
+    # Tesseract's automatic threshold loses white Welcome-screen text against
+    # its blue background. Retry only missed matches with an explicit threshold.
+    contrast = ["-threshold", "75%"] if white_text else []
+    subprocess.run(["convert", png, "-resize", f"{SCALE * 100}%", "-colorspace", "Gray", *contrast, big], check=True)
     return subprocess.run(["tesseract", big, "-", "--psm", "3"] + ([fmt] if fmt else []),
                           capture_output=True, text=True).stdout
 
 def find_text(name, text):
     """Screen position (centre) of TEXT, matched case-insensitively against consecutive OCR words on one line."""
-    rows = [r.split("\t") for r in ocr(name, "tsv").splitlines()[1:]]
-    words = [r for r in rows if len(r) == 12 and r[11].strip()]
     want = text.lower().split()
-    for i in range(len(words) - len(want) + 1):
-        run = words[i:i + len(want)]
-        if [w[11].lower() for w in run] == want and len({tuple(w[2:5]) for w in run}) == 1:
-            left = int(run[0][6]); top = int(run[0][7])
-            right = int(run[-1][6]) + int(run[-1][8]); bottom = top + int(run[0][9])
-            return (left + right) // 2 // SCALE, (top + bottom) // 2 // SCALE
+    for white_text in (False, True):
+        rows = [r.split("\t") for r in ocr(name, "tsv", white_text).splitlines()[1:]]
+        words = [r for r in rows if len(r) == 12 and r[11].strip()]
+        for i in range(len(words) - len(want) + 1):
+            run = words[i:i + len(want)]
+            if [w[11].lower() for w in run] == want and len({tuple(w[2:5]) for w in run}) == 1:
+                left = int(run[0][6]); top = int(run[0][7])
+                right = int(run[-1][6]) + int(run[-1][8]); bottom = top + int(run[0][9])
+                return (left + right) // 2 // SCALE, (top + bottom) // 2 // SCALE
     return None
 
 US = {**{c: c for c in "abcdefghijklmnopqrstuvwxyz0123456789"},
@@ -257,7 +261,7 @@ def main():
         end = time.time() + a.timeout
         want = a.text.lower()
         while time.time() < end:
-            if want in ocr(a.name).lower():
+            if want in ocr(a.name).lower() or want in ocr(a.name, white_text=True).lower():
                 print("found")
                 return
             time.sleep(2)
