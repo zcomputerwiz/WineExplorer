@@ -253,6 +253,7 @@ DWORD WINAPI WexWmFocus( UINT64 window );
  * when another compositor owns the selection or manual redirection. */
 DWORD WINAPI WexCompositionSetEnabled( BOOL enabled );
 DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
+DWORD WINAPI WexCompositionSetShadow( UINT64 xwindow, BOOL shadow );
 
 /* Visible freedesktop applications. UTF-8 rows: desktop ID, name, description,
  * categories, PNG path, separated by tabs and terminated by newline; final NUL.

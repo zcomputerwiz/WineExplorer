@@ -41,3 +41,4 @@
 @ stdcall WexGreeterRead(ptr long long)
 @ stdcall WexCompositionSetEnabled(long)
 @ stdcall WexCompositionGetEnabled(ptr)
+@ stdcall WexCompositionSetShadow(int64 long)
