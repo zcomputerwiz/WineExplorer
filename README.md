@@ -17,10 +17,13 @@ The goal of this project is to evolve Wine's built-in `explorer.exe` and its vir
 ## Workspace Structure
 
 For the current deployed VM state, build instructions, verified changes and
-remaining work, read [the handoff](docs/HANDOFF.md). The live VM runs directly on
+remaining work, read [the current handoff](docs/CODEX_HANDOFF.md). The live VM runs directly on
 X11 with customized Wine as the desktop; Proton remains an independent runtime.
-Linux tray integration, multi-monitor management and compositing are still
-planned features. [The roadmap](docs/ROADMAP.md) distinguishes current direction
+Linux tray integration and multi-monitor management remain planned. The optional
+compositor core/effects are implemented and disabled by default. The installer
+passed interactive and zero-input QEMU/KVM tests; see
+[installer verification](docs/INSTALLER_TEST_REPORT.md).
+[The roadmap](docs/ROADMAP.md) distinguishes current direction
 from earlier phases.
 
 ```

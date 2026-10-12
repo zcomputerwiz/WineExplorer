@@ -1,4 +1,16 @@
-# WineExplorer handoff — 2026-10-09
+# WineExplorer handoff — current entry point
+
+The current operational handoff is [CODEX_HANDOFF.md](CODEX_HANDOFF.md), updated
+2026-10-12 after the verified installer merge. Start there for branches, VM
+state, clean builds, test commands and remaining work. Current acceptance
+evidence is in [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md), and the
+logon/composition plan is in [WINLOGON_AND_DWM.md](WINLOGON_AND_DWM.md).
+
+The October 9 notes below are historical. Their VM state, resource configuration
+and commit IDs predate the licensing/history rewrite and later LightDM/compositor
+work; they do not describe the current running desktop or installer.
+
+# Historical handoff — 2026-10-09
 
 ## Current direction and state
 

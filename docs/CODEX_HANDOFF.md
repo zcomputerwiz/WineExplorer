@@ -42,8 +42,8 @@ Fixes in this continuation:
 
 ## Branches and worktrees
 
-The validated installer work is being merged into master and pushed at the end
-of this continuation. `installer-port` remains in `../WineExplorer-inst`; its
+The validated installer work is merged into master (`1e5de3da`) and published
+through `origin/master`. `installer-port` remains in `../WineExplorer-inst`; its
 files were ported onto the clean rewritten history. Do not import/push the old
 external installer history. `d2-effects` was already merged; its old worktree
 was not removed in this continuation.

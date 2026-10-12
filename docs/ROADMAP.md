@@ -1,6 +1,16 @@
 # WineExplorer DE Roadmap
 
-## Current direction (2026-10-09)
+## Latest verification (2026-10-12)
+
+The installer port is merged and its full Wine build, interactive installation,
+zero-input installation and negative boot/disk safety cases passed on QEMU/KVM.
+See [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md) and
+[CODEX_HANDOFF.md](CODEX_HANDOFF.md). W1-W3 and compositor D1-D2 are implemented;
+installed-system LightDM integration (W7), remaining logon phases, presentation
+polish and EFI/physical-machine verification are still open. The development
+desktop uses the new greeter; the current installer still installs GDM.
+
+## Desktop direction (2026-10-09)
 
 Customized Wine remains the desktop runtime; Explorer manages X11 windows from native Linux and independent Wine/Proton applications. Proton is not replacing the desktop's Wine. The X11 WM, foreign-window hosts, XP Alt+Tab and Linux desktop-entry Start menu launcher are implemented. Next: application menu icons/categories, Linux tray/notifications, and real Steam/Proton runtime verification. Gamescope is optional per application; a session-wide compositor/service bridge is future work. See [HANDOFF.md](HANDOFF.md) and [LINUX_WINDOWS.md](LINUX_WINDOWS.md). Older completed phases below describe their original scope, not verification of a current Gamescope session.
 
