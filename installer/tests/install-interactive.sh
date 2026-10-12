@@ -47,7 +47,7 @@ $V wait "$VM" "Computer name" --timeout 30 || fail "no computer page"
 $V key "$VM" tab; $V type "$VM" "$P"; $V key "$VM" tab; $V type "$VM" "$P"
 step computer; $V key "$VM" ret
 $V wait "$VM" "Time zone" --timeout 30 || fail "no time page"; $V key "$VM" ret
-$V wait "$VM" "Typical settings" --timeout 30 || fail "no network page"; $V key "$VM" ret
+$V wait "$VM" "Networking software" --timeout 30 || fail "no network page"; $V key "$VM" ret
 $V wait "$VM" "WORKGROUP" --timeout 30 || fail "no workgroup page"
 step workgroup; $V key "$VM" ret
 
