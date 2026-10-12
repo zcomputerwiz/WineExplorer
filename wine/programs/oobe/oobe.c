@@ -170,13 +170,20 @@ static void ProvisionUsers(void)
 
     }
 
-    /* 2. Automatic logon only for a single account without a password (as XP did); AccountsService writes the
-     * display manager's setting, the session is WineExplorer for everyone.  /etc/skel (with the template Wine
+    /* 2. Automatic logon only for a single account without a password (as XP did).
+     * The root runner applies LightDM's setting; the session is WineExplorer for everyone. /etc/skel (with the template Wine
      * prefix) was copied into each home by CreateUser. */
     autologin = (g_ctx.user_count == 1 && g_ctx.users[0].password[0] == '\0');
     LogOobe(autologin ? "Single account without a password: automatic logon." : "Automatic logon off.");
     for (i = 0; i < g_ctx.user_count; ++i)
         WexUserSetSession(g_ctx.users[i].name, "wine-explorer", autologin);
+
+    /* No credentials cross this handoff. The runner validates the actual Linux account. */
+    FILE *flogin = fopen("Z:\\etc\\wineexplorer\\setup\\autologin-user", "w");
+    if (flogin) {
+        fprintf(flogin, "%s\n", autologin ? g_ctx.users[0].name : "");
+        fclose(flogin);
+    }
 
     /* 4. Cleanup setup state */
     LogOobe("Cleaning up temporary setup files and permissions...");

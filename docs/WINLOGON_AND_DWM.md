@@ -69,7 +69,7 @@ Turn Off was not exercised (unchanged path). Found on the way:
   likely the cause of the "often ends in the login screen" note in `scripts/ensure-shell.sh`.
 - A `~/.Xauthority` left over from GDM held wildcard entries (`<host>/unix:` without a display number) that win over
   LightDM's new `unix:0` entry: "Invalid MIT-MAGIC-COOKIE-1 key". Delete the file once when switching.
-- GDM is disabled but still installed; the installer keeps GDM until W7.
+- GDM is disabled but still installed on the development VM. W7 removes it from new installer images.
 
 ### W2: greeter skeleton (`logonui.exe`)
 - `programs/logonui` (XP name) and a greeter link in wexhost: the LightDM greeter protocol (connect, authenticate,
@@ -146,7 +146,11 @@ AccountsService), the fades, scrolling for more accounts than fit, the open logo
 
 ### W7: installer
 - Package and OOBE switch from GDM to LightDM and our greeter; OOBE creates the first user through AccountsService.
-  This goes to Gemini as a work order once W3 is done, so it does not collide with the installer fixes in progress.
+- Implementation in progress: installer packages the custom greeter and GTK recovery greeter, selects LightDM,
+  and prepares the lightdm account's isolated Wine prefix on first use. Text setup clears both live-config's main
+  configuration and the live autologin snippet. OOBE's root runner applies the single passwordless account's
+  autologin request after validating the Linux account; multiple users get the Welcome screen.
+- Clean ISO and installed-system acceptance tests are pending; do not treat development VM tests as installer evidence.
 
 ## 3. Desktop Window Manager
 

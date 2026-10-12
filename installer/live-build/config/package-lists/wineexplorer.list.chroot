@@ -11,7 +11,8 @@ xserver-xorg-input-all
 x11-xserver-utils
 x11-utils
 xdotool
-gdm3
+lightdm
+lightdm-gtk-greeter
 desktop-base
 
 # System Services & Desktop Integration

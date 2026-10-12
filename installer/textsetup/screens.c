@@ -1459,12 +1459,17 @@ SetupStage screen_init(SetupState *state)
     system("rm -rf /target/etc/live /target/setup /target/home/wineuser /target/var/lib/AccountsService/users/wineuser");
     system("rm -f /target/usr/lib/systemd/system/wex-textsetup.service /target/etc/systemd/system/multi-user.target.wants/wex-textsetup.service");
 
-    /* Ensure GDM does NOT autologin on target */
-    system("mkdir -p /target/etc/gdm3");
-    FILE *fgdm = fopen("/target/etc/gdm3/daemon.conf", "w");
-    if (fgdm) {
-        fprintf(fgdm, "[daemon]\nWaylandEnable=false\nAutomaticLoginEnable=false\nDefaultSession=wine-explorer\n");
-        fclose(fgdm);
+    /* Remove the live desktop's automatic logon before installed setup. */
+    /* live-config also edits the main file, which takes precedence over conf.d. */
+    FILE *fmainlogin = fopen("/target/etc/lightdm/lightdm.conf", "w");
+    if (fmainlogin) {
+        fprintf(fmainlogin, "[Seat:*]\n");
+        fclose(fmainlogin);
+    }
+    FILE *flogin = fopen("/target/etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf", "w");
+    if (flogin) {
+        fprintf(flogin, "[Seat:*]\nautologin-user=\n");
+        fclose(flogin);
     }
 
     /* 4. Setup state and answer file */

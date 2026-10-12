@@ -68,6 +68,8 @@ echo "=== 2. Packaging wineexplorer-session ==="
 mkdir -p "$STAGE_SESSION/DEBIAN"
 mkdir -p "$STAGE_SESSION/usr/local/bin"
 mkdir -p "$STAGE_SESSION/usr/share/xsessions"
+mkdir -p "$STAGE_SESSION/usr/share/xgreeters"
+mkdir -p "$STAGE_SESSION/etc/lightdm/lightdm.conf.d"
 mkdir -p "$STAGE_SESSION/etc/X11/xorg.conf.d"
 mkdir -p "$STAGE_SESSION/lib/systemd/system"
 mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
@@ -76,11 +78,14 @@ mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 cp "$ROOT_DIR/scripts/wine-explorer-session.sh" "$STAGE_SESSION/usr/local/bin/wine-explorer-session.sh"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
+cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
 chmod 755 "$STAGE_SESSION/usr/local/bin/"*
 
 # Desktop session definition
 cp "$ROOT_DIR/scripts/wine-explorer.desktop" "$STAGE_SESSION/usr/share/xsessions/wine-explorer.desktop"
 chmod 644 "$STAGE_SESSION/usr/share/xsessions/wine-explorer.desktop"
+install -m644 "$ROOT_DIR/scripts/wineexplorer-greeter.desktop" "$STAGE_SESSION/usr/share/xgreeters/"
+install -m644 "$SCRIPT_DIR/live-build/config/includes.chroot/etc/lightdm/lightdm.conf.d/50-wineexplorer.conf" "$STAGE_SESSION/etc/lightdm/lightdm.conf.d/"
 
 # Xorg modesetting configuration
 cp "$ROOT_DIR/scripts/20-wineexplorer-modesetting.conf" "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
@@ -111,10 +116,10 @@ Section: x11
 Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
-Depends: wineexplorer, gdm3, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base
+Depends: wineexplorer, lightdm, lightdm-gtk-greeter, accountsservice, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
- Session scripts, Xorg configurations, GDM defaults and systemd setup units
+ Session scripts, Xorg configurations, LightDM greeter and systemd setup units
  for the WineExplorer Windows XP environment.
 EOF
 
