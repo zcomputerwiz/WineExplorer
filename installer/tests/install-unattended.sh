@@ -11,10 +11,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 V=(python3 "$HERE/../../scripts/vmtest.py")
 STATE=/tmp/vmtest/$VM
 NBD=
+CONNECTED=false
 MOUNTED=false
 cleanup() {
     if $MOUNTED; then umount "$STATE/check-root"; fi
-    if [ -n "$NBD" ]; then qemu-nbd --disconnect "$NBD" >/dev/null; fi
+    if $CONNECTED; then qemu-nbd --disconnect "$NBD" >/dev/null; fi
 }
 trap cleanup EXIT
 fail() {
@@ -39,6 +40,7 @@ for entry in /sys/block/nbd*; do
 done
 [ -n "$NBD" ] || fail "no unused NBD device"
 qemu-nbd --read-only --connect "$NBD" "$STATE/disk.qcow2"
+CONNECTED=true
 udevadm settle
 for attempt in $(seq 1 30); do
     [ -b "${NBD}p1" ] && break
