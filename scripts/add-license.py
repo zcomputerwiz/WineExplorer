@@ -42,7 +42,7 @@ def process(path, dry):
     raw = open(full, "rb").read().decode("utf-8", "replace")
     eol = "\r\n" if "\r\n" in raw else "\n"
     text = raw.replace("\r\n", "\n")
-    if re.search(r"GNU|Lesser General", text[:3000]):
+    if re.search(r"GNU\s+(?:Lesser\s+)?General\s+Public\s+License|SPDX-License-Identifier:", text[:3000]):
         return False
     m = re.match(r"\s*/\*(.*?)\*/\n?", text, re.S)
     if m:
