@@ -30,24 +30,51 @@ LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
 STRINGTABLE
 {
-    IDS_TITLE "Log On to Windows"
+    IDS_TITLE "Windows Logon"
     IDS_BEGIN "To begin, click your user name"
-    IDS_FAILED "The system could not log you on. Make sure your User name and domain are correct, then type your password again. Letters in passwords must be typed using the correct case."
     IDS_NO_GREETER "Windows logon must be started by the display manager."
     IDS_SESSION_FAILED "Windows could not start your session."
-    IDS_LOCKED "This computer is locked. Only %s or an administrator can unlock this computer."
-    IDS_CHECKING "Checking your password..."
+    IDS_TURNOFF "Turn off computer"
+    IDS_ACCOUNTS_HINT "After you log on, you can add or change accounts.\nJust go to Control Panel and click User Accounts."
+    IDS_TYPE_PASSWORD "Type your password"
+    IDS_LOGGED_ON "Logged on"
+    IDS_FORGOT_TITLE "Did you forget your password?"
+    IDS_FORGOT_TEXT "Please type your password again.\nBe sure to use the correct uppercase and lowercase letters."
+    IDS_LOADING "Loading your personal settings..."
 }
 
-IDD_LOGON DIALOGEX 0, 0, 240, 180
-STYLE DS_SHELLFONT | DS_CONTROL | WS_CHILD | WS_VISIBLE
-FONT 8, "MS Shell Dlg"
-{
-    LTEXT           "To begin, click your user name", -1, 10, 8, 220, 10
-    LISTBOX         IDC_USERS, 10, 22, 220, 70, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
-    LTEXT           "Type your password", IDC_PASSWORD_LABEL, 10, 98, 220, 10
-    EDITTEXT        IDC_PASSWORD, 10, 110, 160, 14, ES_PASSWORD | ES_AUTOHSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON   "OK", IDOK, 176, 110, 54, 14, WS_TABSTOP
-    LTEXT           "", IDC_STATUS, 10, 130, 220, 30
-    PUSHBUTTON      "&Turn off computer", IDC_TURNOFF, 10, 160, 90, 14, WS_TABSTOP
-}
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+/* open pictures (scripts/open_assets.py); magenta is transparent in the 24-bit ones */
+/* @makedep: shine.bmp */
+IDB_SHINE       BITMAP "shine.bmp"
+/* @makedep: editframe.bmp */
+IDB_EDITFRAME   BITMAP "editframe.bmp"
+/* @makedep: go.bmp */
+IDB_GO          BITMAP "go.bmp"
+/* @makedep: go_hot.bmp */
+IDB_GO_HOT      BITMAP "go_hot.bmp"
+/* @makedep: help.bmp */
+IDB_HELP        BITMAP "help.bmp"
+/* @makedep: help_hot.bmp */
+IDB_HELP_HOT    BITMAP "help_hot.bmp"
+/* @makedep: turnoff.bmp */
+IDB_TURNOFF     BITMAP "turnoff.bmp"
+/* @makedep: turnoff_hot.bmp */
+IDB_TURNOFF_HOT BITMAP "turnoff_hot.bmp"
+/* @makedep: tile.bmp */
+IDB_TILE        BITMAP "tile.bmp"
+/* @makedep: frame.bmp */
+IDB_FRAME       BITMAP "frame.bmp"
+/* @makedep: frame_hot.bmp */
+IDB_FRAME_HOT   BITMAP "frame_hot.bmp"
+/* @makedep: user.bmp */
+IDB_USER        BITMAP "user.bmp"
+/* @makedep: logo.bmp */
+IDB_LOGO        BITMAP "logo.bmp"
+/* @makedep: divider.bmp */
+IDB_DIVIDER     BITMAP "divider.bmp"
+/* @makedep: topstrip.bmp */
+IDB_TOPSTRIP    BITMAP "topstrip.bmp"
+/* @makedep: bottomstrip.bmp */
+IDB_BOTTOMSTRIP BITMAP "bottomstrip.bmp"

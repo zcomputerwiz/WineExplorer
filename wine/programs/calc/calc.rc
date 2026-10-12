@@ -4,6 +4,7 @@
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
 /* Icons */
+/* @makedep: res/calc.ico */
 IDI_CALC ICON "res/calc.ico"
 
 #include "lang/en-US.rc"

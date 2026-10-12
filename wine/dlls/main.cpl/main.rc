@@ -25,29 +25,48 @@
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
 /* Icons */
+/* @makedep: mouse.ico */
 IDI_MOUSE          ICON "mouse.ico"
+/* @makedep: keybd.ico */
 IDI_KEYBD          ICON "keybd.ico"
+/* @makedep: prtfldsh.ico */
 IDI_PRINT          ICON "prtfldsh.ico"
+/* @makedep: fntfldsh.ico */
 IDI_FONTS          ICON "fntfldsh.ico"
+/* @makedep: admfldsh.ico */
 IDI_ADM            ICON "admfldsh.ico"
 
+/* @makedep: pspeed.ico */
 IDI_PTSPEED        ICON "pspeed.ico"
+/* @makedep: delay.ico */
 IDI_DELAY          ICON "delay.ico"
+/* @makedep: repeat.ico */
 IDI_REPEAT         ICON "repeat.ico"
+/* @makedep: snapto.ico */
 IDI_SNAPDEF        ICON "snapto.ico"
+/* @makedep: sglclk.ico */
 IDI_SGLCLICK       ICON "sglclk.ico"
+/* @makedep: dblclk.ico */
 IDI_DBLCLICK       ICON "dblclk.ico"
 
+/* @makedep: pt02.ico */
 IDI_PTTRAILS       ICON "pt02.ico"
+/* @makedep: vanish.ico */
 IDI_PTVANISH       ICON "vanish.ico"
+/* @makedep: sonar.ico */
 IDI_PTSONAR        ICON "sonar.ico"
+/* @makedep: wheel.ico */
 IDI_WHEEL          ICON "wheel.ico"
 
+/* @makedep: fldr_clo.ico */
 ICON_FOLDER_CLOSED ICON "fldr_clo.ico"
+/* @makedep: fldr_opn.ico */
 ICON_FOLDER_OPEN   ICON "fldr_opn.ico"
+/* @makedep: clklock.ico */
 ICON_CLICKLOCK     ICON "clklock.ico"
 
 /* Bitmaps */
+/* @makedep: mouse.bmp */
 IDB_MOUSE          BITMAP "mouse.bmp"
 
 /* Strings */

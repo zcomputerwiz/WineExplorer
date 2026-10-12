@@ -345,6 +345,17 @@
   "source": "reactos/dll/shellext/netshell/res/nettrrec.ico"
  },
  {
+  "path": "wine/programs/explorer/res_power/dlg_bg.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/explorer/res_power/flag.bmp",
+  "kind": "wanted",
+  "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
+  "wanted": "Turn off / Log Off dialog logo, 48 x 40 on the title band blue (0,52,166); until then Wine's logo"
+ },
+ {
   "path": "wine/programs/explorer/rover.bmp",
   "kind": "wanted",
   "source": "placeholder",
@@ -372,6 +383,87 @@
   "kind": "wanted",
   "source": "placeholder",
   "wanted": "wireless network list strip, 8 x 16 px: checkbox off, checkbox on, access point, access point preferred (blue ring), access point unavailable (red X), ad hoc, ad hoc preferred, ad hoc unavailable"
+ },
+ {
+  "path": "wine/programs/logonui/bottomstrip.bmp",
+  "kind": "copy",
+  "source": "reactos/base/system/logonui/res/126.bmp"
+ },
+ {
+  "path": "wine/programs/logonui/divider.bmp",
+  "kind": "copy",
+  "source": "reactos/base/system/logonui/res/unknown.bmp"
+ },
+ {
+  "path": "wine/programs/logonui/editframe.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/frame.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/frame_hot.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/go.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/go_hot.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/help.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/help_hot.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/logo.bmp",
+  "kind": "wanted",
+  "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
+  "wanted": "Welcome screen logo, 137 x 86 on the panel blue (90,126,220); until then Wine's logo"
+ },
+ {
+  "path": "wine/programs/logonui/shine.bmp",
+  "kind": "copy",
+  "source": "reactos/base/system/logonui/res/100.bmp"
+ },
+ {
+  "path": "wine/programs/logonui/tile.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/topstrip.bmp",
+  "kind": "copy",
+  "source": "reactos/base/system/logonui/res/125.bmp"
+ },
+ {
+  "path": "wine/programs/logonui/turnoff.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/turnoff_hot.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/logonui/user.bmp",
+  "kind": "copy",
+  "source": "reactos/base/system/logonui/res/unknown2.bmp"
  },
  {
   "path": "wine/programs/regedit/bin.ico",

@@ -23,6 +23,7 @@
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
+/* @makedep: paint.ico */
 IDI_APP ICON "paint.ico"
 
 IDR_MAINMENU MENU

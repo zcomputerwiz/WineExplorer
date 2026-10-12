@@ -33,6 +33,7 @@
 #include "wlan_dialog.h"
 #include "wlan_status.h"
 #include "net_props.h"
+#include "power_mgmt.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -1018,6 +1019,12 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
             while (*p == ' ') p++;
             copy_path_string(file, p);
             if (theme_load_file(file, &cfg)) theme_apply(&cfg);
+            ExitProcess(0);
+        }
+        else if (wcsnicmp(p, L"/turnoff", 8) == 0 || wcsnicmp(p, L"-turnoff", 8) == 0)
+        {
+            /* the Welcome screen's Turn off computer (logonui.exe) */
+            power_mgmt_show_shutdown_dialog(NULL);
             ExitProcess(0);
         }
         else if (wcsnicmp(p, L"/wlan", 5) == 0 || wcsnicmp(p, L"-wlan", 5) == 0)

@@ -26,10 +26,15 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: mixrcont.ico */
 IDI_MIXER    ICON "mixrcont.ico"
+/* @makedep: mute.ico */
 IDI_MUTE     ICON "mute.ico"
+/* @makedep: asound.ico */
 IDI_TRAY     ICON "asound.ico"
+/* @makedep: lspeak.ico */
 IDI_LSPEAKER ICON "lspeak.ico"
+/* @makedep: rspeak.ico */
 IDI_RSPEAKER ICON "rspeak.ico"
 
 IDR_MIXERMENU MENU

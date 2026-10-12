@@ -580,8 +580,37 @@ static NTSTATUS user_get( void *args )
     return STATUS_SUCCESS;
 }
 
+/* logind's users that have a session now (Welcome screen: "Logged on"), as "\nname\n" entries in out */
+static void logged_on_users( char *out, size_t size )
+{
+    DBusMessage *msg, *reply;
+    DBusMessageIter it, arr, st;
+    size_t used = 1;
+
+    snprintf( out, size, "\n" );
+    msg = p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, "ListUsers" );
+    if (call_system( msg, &reply )) { if (msg) p_dbus_message_unref( msg ); return; }
+    p_dbus_message_unref( msg );
+    if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_ARRAY)
+    {
+        p_dbus_message_iter_recurse( &it, &arr );
+        while (p_dbus_message_iter_get_arg_type( &arr ) == DBUS_TYPE_STRUCT)   /* (uid, name, path) */
+        {
+            const char *name;
+            int n;
+            p_dbus_message_iter_recurse( &arr, &st );
+            p_dbus_message_iter_next( &st );
+            p_dbus_message_iter_get_basic( &st, &name );
+            n = snprintf( out + used, size - used, "%s\n", name );
+            if (n > 0 && used + n < size) used += n;
+            p_dbus_message_iter_next( &arr );
+        }
+    }
+    p_dbus_message_unref( reply );
+}
+
 /* The accounts the logon screen offers: AccountsService's cached users without system accounts, one per line as
- * "name\treal name\ticon file".  needed gets the size including the terminating NUL. */
+ * "name\treal name\ticon file\tlogged on (0 or 1)".  needed gets the size including the terminating NUL. */
 static NTSTATUS users_list( void *args )
 {
     struct users_list_params *params = args;
@@ -589,8 +618,10 @@ static NTSTATUS users_list( void *args )
     DBusMessage *msg, *reply;
     DBusMessageIter it, arr;
     size_t used = 0;
+    char logged[4096];
 
     params->needed = 0;
+    if (load_dbus()) logged_on_users( logged, sizeof(logged) );
     msg = load_dbus() ? p_dbus_message_new_method_call( "org.freedesktop.Accounts", "/org/freedesktop/Accounts",
                                                         "org.freedesktop.Accounts", "ListCachedUsers" ) : NULL;
     params->err = call_system( msg, &reply );
@@ -603,7 +634,7 @@ static NTSTATUS users_list( void *args )
         while (p_dbus_message_iter_get_arg_type( &arr ) == DBUS_TYPE_OBJECT_PATH)
         {
             const char *path;
-            char name[64] = "", real[128] = "", icon[260] = "", line[512];
+            char name[64] = "", real[128] = "", icon[260] = "", line[512], key[80];
             int system = 0, n;
             struct prop props[] = {
                 { "UserName", DBUS_TYPE_STRING, name, sizeof(name) },
@@ -616,7 +647,8 @@ static NTSTATUS users_list( void *args )
             if (get_properties( "org.freedesktop.Accounts", path, "org.freedesktop.Accounts.User", props, ARRAYSIZE(props) )
                 || system || !name[0] || strpbrk( name, "\t\n" ) || strpbrk( real, "\t\n" ) || strpbrk( icon, "\t\n" ))
                 continue;
-            n = snprintf( line, sizeof(line), "%s\t%s\t%s\n", name, real, icon );
+            snprintf( key, sizeof(key), "\n%s\n", name );
+            n = snprintf( line, sizeof(line), "%s\t%s\t%s\t%d\n", name, real, icon, strstr( logged, key ) != NULL );
             if (n <= 0 || n >= sizeof(line)) continue;
             if (out && used + n < params->size) memcpy( out + used, line, n );
             used += n;

@@ -26,6 +26,7 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: netfol.ico */
 IDI_NCPA ICON "netfol.ico"
 
 STRINGTABLE

@@ -24,7 +24,9 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: sysdm.ico */
 ICO_MAIN ICON "sysdm.ico"
+/* @makedep: windows.bmp */
 IDB_WINLOGO BITMAP "windows.bmp"
 
 STRINGTABLE

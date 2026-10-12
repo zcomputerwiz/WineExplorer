@@ -27,6 +27,7 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: explorer.ico */
 1 ICON "explorer.ico"
 
 STRINGTABLE
@@ -152,24 +153,43 @@ BEGIN
 END
 
 /* Network Tray and Wireless Icons */
+/* @makedep: net_blank.ico */
 IDI_NET_BLANK       ICON "net_blank.ico"
+/* @makedep: net_disconnect.ico */
 IDI_NET_DISCONNECT  ICON "net_disconnect.ico"
+/* @makedep: net_plugged.ico */
 IDI_NET_PLUGGED     ICON "net_plugged.ico"
+/* @makedep: net_recv.ico */
 IDI_NET_RECV        ICON "net_recv.ico"
+/* @makedep: net_xmit.ico */
 IDI_NET_XMIT        ICON "net_xmit.ico"
+/* @makedep: net_xmitrecv.ico */
 IDI_NET_XMITRECV    ICON "net_xmitrecv.ico"
+/* @makedep: net_sig0.ico */
 IDI_NET_SIG0        ICON "net_sig0.ico"
+/* @makedep: net_sig1.ico */
 IDI_NET_SIG1        ICON "net_sig1.ico"
+/* @makedep: net_sig2.ico */
 IDI_NET_SIG2        ICON "net_sig2.ico"
+/* @makedep: net_sig3.ico */
 IDI_NET_SIG3        ICON "net_sig3.ico"
+/* @makedep: net_sig4.ico */
 IDI_NET_SIG4        ICON "net_sig4.ico"
+/* @makedep: net_sig5.ico */
 IDI_NET_SIG5        ICON "net_sig5.ico"
+/* @makedep: net_wireless.ico */
 IDI_NET_WIRELESS    ICON "net_wireless.ico"
+/* @makedep: wzcui.bmp */
 IDB_WZC_LISTICONS   BITMAP "wzcui.bmp"
+/* @makedep: net_lan.ico */
 IDI_NET_LAN         ICON "net_lan.ico"
+/* @makedep: net_adapter.ico */
 IDI_NET_ADAPTER     ICON "net_adapter.ico"
+/* @makedep: net_client.ico */
 IDI_NET_CLIENT      ICON "net_client.ico"
+/* @makedep: net_service.ico */
 IDI_NET_SERVICE     ICON "net_service.ico"
+/* @makedep: net_protocol.ico */
 IDI_NET_PROTOCOL    ICON "net_protocol.ico"
 
 /* Connect to Wireless Network Dialog */
@@ -349,23 +369,40 @@ BEGIN
 END
 
 /* Additional System Tray Icons */
+/* @makedep: volume.ico */
 IDI_VOLUME          ICON "volume.ico"
+/* @makedep: mute.ico */
 IDI_MUTE            ICON "mute.ico"
+/* @makedep: battplug.ico */
 IDI_BATTERYPLUG     ICON "battplug.ico"
+/* @makedep: batt.ico */
 IDI_BATT            ICON "batt.ico"
+/* @makedep: hotplug.ico */
 IDI_HOTPLUG         ICON "hotplug.ico"
+/* @makedep: start.ico */
 IDI_START           ICON "start.ico"
+/* @makedep: startflag.bmp */
 IDB_STARTFLAG       BITMAP "startflag.bmp"
+/* @makedep: res_browser/toolbar.bmp */
 IDB_BROWSER_TB      BITMAP "res_browser/toolbar.bmp"
+/* @makedep: res_browser/toolbar_hot.bmp */
 IDB_BROWSER_TB_HOT  BITMAP "res_browser/toolbar_hot.bmp"
+/* @makedep: res_browser/brand.bmp */
 IDB_BROWSER_BRAND   BITMAP "res_browser/brand.bmp"
+/* @makedep: res_browser/go.bmp */
 IDB_BROWSER_GO      BITMAP "res_browser/go.bmp"
+/* @makedep: res_power/dlg_bg.bmp */
 IDB_POWER_BACKGROUND BITMAP "res_power/dlg_bg.bmp"
+/* @makedep: res_power/flag.bmp */
 IDB_POWER_FLAG      BITMAP "res_power/flag.bmp"
+/* @makedep: res_power/turnoff_strip.bmp */
 IDB_TURNOFF_STRIP   BITMAP "res_power/turnoff_strip.bmp"
+/* @makedep: res_power/logoff_strip.bmp */
 IDB_LOGOFF_STRIP    BITMAP "res_power/logoff_strip.bmp"
+/* @makedep: res_browser/go_hot.bmp */
 IDB_BROWSER_GO_HOT  BITMAP "res_browser/go_hot.bmp"
 /* Search Companion character at rest (Windows XP) */
+/* @makedep: rover.bmp */
 IDB_SEARCH_ROVER    BITMAP "rover.bmp"
 
 /* Authentic Windows XP / Server 2003 Tray Volume Dialog */

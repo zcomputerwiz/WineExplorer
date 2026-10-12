@@ -114,6 +114,30 @@ TABLE = {
     "programs/sndvol32/rspeak.ico": ("copy", "base/applications/sndvol32/resources/speaker_right.ico"),
     "programs/sndvol32/mixrcont.ico": ("copy", "base/applications/sndvol32/resources/sndvol32.ico"),
     "programs/sndvol32/mute.ico": ("copy", "dll/shellext/stobject/resources/4.ico"),
+    # the Welcome screen (programs/logonui): ReactOS's NT5 frame, our buttons; magenta is transparent
+    "programs/logonui/shine.bmp": ("copy", "base/system/logonui/res/100.bmp"),
+    "programs/logonui/topstrip.bmp": ("copy", "base/system/logonui/res/125.bmp"),
+    "programs/logonui/bottomstrip.bmp": ("copy", "base/system/logonui/res/126.bmp"),
+    "programs/logonui/divider.bmp": ("copy", "base/system/logonui/res/unknown.bmp"),
+    "programs/logonui/user.bmp": ("copy", "base/system/logonui/res/unknown2.bmp"),
+    "programs/logonui/logo.bmp": ("wanted", ("Welcome screen logo, 137 x 86 on the panel blue (90,126,220); until then "
+                                             "Wine's logo", "wine:dlls/user32/resources/oic_winlogo.ico",
+                                             ((137, 86), (90, 126, 220)))),
+    "programs/logonui/go.bmp": ("draw", ("button", "go", False)),
+    "programs/logonui/go_hot.bmp": ("draw", ("button", "go", True)),
+    "programs/logonui/help.bmp": ("draw", ("button", "help", False)),
+    "programs/logonui/help_hot.bmp": ("draw", ("button", "help", True)),
+    "programs/logonui/turnoff.bmp": ("draw", ("button", "turnoff", False)),
+    "programs/logonui/turnoff_hot.bmp": ("draw", ("button", "turnoff", True)),
+    "programs/logonui/tile.bmp": ("draw", ("tile",)),
+    "programs/logonui/frame.bmp": ("draw", ("frame", False)),
+    "programs/logonui/frame_hot.bmp": ("draw", ("frame", True)),
+    "programs/logonui/editframe.bmp": ("draw", ("editframe",)),
+    "programs/explorer/res_power/dlg_bg.bmp": ("draw", ("powerbg",)),
+    "programs/explorer/res_power/flag.bmp": ("wanted", ("Turn off / Log Off dialog logo, 48 x 40 on the title band "
+                                                        "blue (0,52,166); until then Wine's logo",
+                                                        "wine:dlls/user32/resources/oic_winlogo.ico",
+                                                        ((48, 40), (0, 52, 166)))),
 }
 
 
@@ -177,6 +201,76 @@ def glyph(kind, out):
     im.save(out)
 
 
+KEY = (255, 0, 255)   # transparent in the Welcome screen's 24-bit pictures
+
+
+def welcome(spec, out):
+    """The Welcome screen's buttons, picture frames, selected-tile background and password box (24-bit, magenta
+    outside the shapes).  Buttons are 26 x 26 rounded squares with a white glyph and a darker edge; hot is lighter."""
+    kind = spec[0]
+    if kind == "button":
+        glyph_kind, hot = spec[1], spec[2]
+        base = {"go": (46, 155, 46), "help": (40, 92, 210), "turnoff": (205, 60, 40)}[glyph_kind]
+        if hot: base = tuple(min(255, c + 45) for c in base)
+        im = Image.new("RGB", (26, 26), KEY)
+        d = ImageDraw.Draw(im)
+        d.rounded_rectangle([1, 1, 24, 24], 4, fill=tuple(c // 2 for c in base))   # shadow edge
+        d.rounded_rectangle([0, 0, 23, 23], 4, fill=base, outline=(255, 255, 255))
+        d.rectangle([2, 2, 21, 9], fill=tuple(min(255, c + 30) for c in base))     # upper shine
+        w = (255, 255, 255)
+        if glyph_kind == "go":
+            d.polygon([(5, 10), (12, 10), (12, 6), (19, 12), (12, 18), (12, 14), (5, 14)], fill=w)
+        elif glyph_kind == "help":
+            d.arc([7, 4, 16, 13], 180, 90, fill=w, width=2)
+            d.line([(12, 13), (12, 15)], fill=w, width=2)
+            d.rectangle([11, 17, 13, 19], fill=w)
+        else:
+            d.arc([5, 5, 18, 18], 300, 240, fill=w, width=2)
+            d.line([(11, 3), (11, 11)], fill=w, width=2)
+        im.save(out)
+    elif kind == "frame":
+        hot = spec[1]
+        im = Image.new("RGB", (58, 58), KEY)
+        d = ImageDraw.Draw(im)
+        d.rounded_rectangle([0, 0, 57, 57], 5, fill=(0, 34, 110))
+        d.rounded_rectangle([2, 2, 55, 55], 4, fill=(255, 204, 51) if hot else (255, 255, 255))
+        d.rectangle([5, 5, 52, 52], fill=(160, 180, 220))
+        im.save(out)
+    elif kind == "tile":
+        # the selected account: dark blue at the left fading to the panel blue at the right, rounded left corners
+        w, h = 308, 72
+        im = Image.new("RGB", (w, h), KEY)
+        grad = Image.new("RGB", (w, h))
+        gd = ImageDraw.Draw(grad)
+        for x in range(w):
+            t = min(1.0, x / (w * 0.75))
+            gd.line([(x, 0), (x, h)], fill=tuple(int(a + (b - a) * t) for a, b in zip((20, 58, 166), (90, 126, 220))))
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, w + 20, h - 1], 9, fill=255)
+        im.paste(grad, (0, 0), mask)
+        d = ImageDraw.Draw(im)
+        d.rounded_rectangle([0, 0, w + 20, h - 1], 9, outline=(120, 150, 230))
+        im.save(out)
+    elif kind == "powerbg":
+        # Turn off computer / Log Off Windows (explorer's power_mgmt.c): dark blue title band (0-47), the light blue
+        # panel with the three buttons and their white labels (48-159), dark blue band with Cancel (160-197)
+        w, h = 312, 198
+        im = Image.new("RGB", (w, h))
+        d = ImageDraw.Draw(im)
+        for y in range(h):
+            if y < 47: c = tuple(int(a + (b - a) * y / 46) for a, b in zip((0, 60, 180), (0, 44, 150)))
+            elif y == 47: c = (130, 160, 240)
+            elif y < 160: c = tuple(int(a + (b - a) * (y - 48) / 111) for a, b in zip((96, 132, 226), (74, 110, 210)))
+            else: c = tuple(int(a + (b - a) * (y - 160) / 37) for a, b in zip((0, 48, 160), (0, 36, 130)))
+            d.line([(0, y), (w, y)], fill=c)
+        im.save(out)
+    elif kind == "editframe":
+        im = Image.new("RGB", (171, 26), KEY)
+        d = ImageDraw.Draw(im)
+        d.rounded_rectangle([0, 0, 170, 25], 4, fill=(255, 255, 255), outline=(28, 56, 160))
+        im.save(out)
+
+
 def placeholder(desc, size, bg, out):
     """A neutral stand-in: a gray frame with a question mark, so missing art is obvious."""
     if out.endswith(".ico"):
@@ -212,12 +306,13 @@ def build():
             if isinstance(src, int): signal_icon(src, out)
             elif src == "dragarrow": drag_arrow(out)
             elif src == "blank": save_ico([Image.new("RGBA", (s, s), (0, 0, 0, 0)) for s in (32, 16)], out)
+            elif isinstance(src, tuple): welcome(src, out)
             else: glyph(src, out)
             entry["source"] = "drawn by scripts/open_assets.py"
         else:
             desc, size, bg = src
-            if isinstance(size, str) and bg:   # an interim stand-in from Wine, as a bitmap
-                icon2bmp(size, bg, (0, 0, 0), out)
+            if isinstance(size, str) and bg:   # an interim stand-in from Wine, as a bitmap: size, or (size, color)
+                icon2bmp(size, *(bg if isinstance(bg[0], tuple) else (bg, (0, 0, 0))), out)
                 entry["source"] = "wine/" + size[5:] + " (interim)"
             elif isinstance(size, str):   # an interim stand-in from Wine
                 with open(source_path(size), "rb") as f: data = f.read()

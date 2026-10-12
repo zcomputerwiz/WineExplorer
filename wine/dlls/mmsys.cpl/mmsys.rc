@@ -26,12 +26,18 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: speaker.ico */
 IDI_CPL_MMSYS ICON   "speaker.ico"
+/* @makedep: syssound.ico */
 IDI_SYSSOUND  ICON   "syssound.ico"
+/* @makedep: playback.ico */
 IDI_PLAYBACK  ICON   "playback.ico"
 
+/* @makedep: volspkr.bmp */
 IDB_VOLSPKR   BITMAP "volspkr.bmp"
+/* @makedep: play.bmp */
 IDB_PLAY      BITMAP "play.bmp"
+/* @makedep: stop.bmp */
 IDB_STOP      BITMAP "stop.bmp"
 
 STRINGTABLE

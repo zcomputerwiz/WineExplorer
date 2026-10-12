@@ -20,17 +20,32 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#define IDD_LOGON           100
-#define IDC_USERS           101
-#define IDC_PASSWORD        102
-#define IDC_STATUS          103
-#define IDC_TURNOFF         104
-#define IDC_PASSWORD_LABEL  105
+/* the Welcome screen's pictures; the numbers are the ones XP's logonui.exe uses */
+#define IDB_SHINE           100
+#define IDB_EDITFRAME       102
+#define IDB_GO              103
+#define IDB_GO_HOT          104
+#define IDB_HELP            105
+#define IDB_HELP_HOT        106
+#define IDB_TURNOFF         107
+#define IDB_TILE            112
+#define IDB_FRAME           113
+#define IDB_USER            114
+#define IDB_FRAME_HOT       119
+#define IDB_TURNOFF_HOT     121
+#define IDB_LOGO            123
+#define IDB_DIVIDER         124
+#define IDB_TOPSTRIP        125
+#define IDB_BOTTOMSTRIP     126
 
 #define IDS_TITLE           200
 #define IDS_BEGIN           201
-#define IDS_FAILED          202
 #define IDS_NO_GREETER      203
 #define IDS_SESSION_FAILED  204
-#define IDS_LOCKED          205
-#define IDS_CHECKING        206
+#define IDS_TURNOFF         207
+#define IDS_ACCOUNTS_HINT   208
+#define IDS_TYPE_PASSWORD   209
+#define IDS_LOGGED_ON       210
+#define IDS_FORGOT_TITLE    211
+#define IDS_FORGOT_TEXT     212
+#define IDS_LOADING         213

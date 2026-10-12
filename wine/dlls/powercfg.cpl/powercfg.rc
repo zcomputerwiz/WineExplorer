@@ -26,9 +26,13 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: pwrmng.ico */
 IDI_CPL_POWER ICON "pwrmng.ico"
+/* @makedep: batt.ico */
 IDI_BATT      ICON "batt.ico"
+/* @makedep: plug.ico */
 IDI_PLUG      ICON "plug.ico"
+/* @makedep: hibernate.ico */
 IDI_HIBERNATE ICON "hibernate.ico"
 
 STRINGTABLE

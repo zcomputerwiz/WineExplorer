@@ -41,6 +41,8 @@ matches, for example `network-wireless`.
 | `wine/programs/explorer/rover.bmp` | Search Companion still character (shown when no animated character is installed), 56 x 68, magenta background | placeholder |
 | `wine/programs/explorer/start.ico` | Start button logo, 16/24/32/48 px | Wine's logo |
 | `wine/programs/explorer/startflag.bmp` | the same logo as a 25 x 20 bitmap on black (the Start button draws it) | Wine's logo |
+| `wine/programs/explorer/res_power/flag.bmp` | the same logo, 48 x 40, on the title band blue (0,52,166) of Turn off computer / Log Off Windows | Wine's logo |
+| `wine/programs/logonui/logo.bmp` | the Welcome screen logo, 137 x 86, on the panel blue (90,126,220), left of "To begin, click your user name" | Wine's logo |
 | `wine/programs/explorer/wzcui.bmp` | wireless network list strip, 8 images of 16 x 16: checkbox off, checkbox on, access point, access point preferred (blue ring), access point unavailable (red X), ad hoc, ad hoc preferred, ad hoc unavailable | placeholder |
 | `wine/dlls/main.cpl/mouse.bmp` | Mouse Properties > Buttons picture, 83 x 80 on cyan; the code frames the left and right button at fixed offsets (8 px in, 16 px tall) | ReactOS mouse icon, scaled |
 

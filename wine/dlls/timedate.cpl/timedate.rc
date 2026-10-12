@@ -24,7 +24,9 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: timedate.ico */
 ICO_MAIN ICON "timedate.ico"
+/* @makedep: world.bmp */
 IDB_WORLD BITMAP "world.bmp"
 
 STRINGTABLE

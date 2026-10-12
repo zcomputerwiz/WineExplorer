@@ -26,7 +26,9 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
+/* @makedep: netfol.ico */
 IDI_NETSHELL ICON "netfol.ico"
+/* @makedep: foldwiz.ico */
 IDI_NCW      ICON "foldwiz.ico"
 
 STRINGTABLE

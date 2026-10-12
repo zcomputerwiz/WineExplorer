@@ -1,6 +1,6 @@
 # Logon and window composition: plan
 
-Status (2026-10-12): W1 and W2 done (dev VM on LightDM with logonui.exe as the greeter); W3 next. D1 compositor core merged, off by default. This plan covers two projects:
+Status (2026-10-12): W1-W3 done (dev VM on LightDM with the logonui.exe Welcome screen); W4 next. D1 compositor core merged, off by default. This plan covers two projects:
 
 - **Winlogon**: XP's logon experience (Welcome screen, classic Log On to Windows dialog, Lock Computer, Switch
   User / fast user switching, Windows Security) on top of a real Linux display manager.
@@ -108,6 +108,21 @@ prefix (`wextest`) showed no Recycle Bin icon on the open art set: to check.
   AccountsService `PasswordHint`), "N programs running" for users with a session, Turn off computer, the fades.
 - After a lock, the Welcome screen opens on the locked user.
 - Pictures stay open (ReactOS or our own); genuine pictures only through the local repository.
+
+**Done (2026-10-12).** `logonui.exe` paints the Welcome screen: bands, strips, shine and divider from ReactOS, a tile
+per account with its AccountsService picture (GDI+; else the default picture) and "Logged on" (logind `ListUsers`,
+fourth field of `WexUsersList`). Clicking a tile starts the authentication at once; when PAM asks for a password the
+tile opens with the password box, the arrow and the help button (accounts without a password log on directly). A
+wrong password shows XP's "Did you forget your password?" balloon and asks again. Turn off computer runs
+`explorer.exe /turnoff`, XP's Turn Off Computer dialog over the grayed screen. Keyboard: arrows, Enter, Escape. The
+resource numbers are XP's, so a local build can drop XP's pictures in. Verified on the dev VM: layout against the XP
+VM's Welcome screen, wrong password and balloon, logon of `wextest`, Turn Off dialog and Cancel.
+Found on the way: the Turn Off dialog's open background was ReactOS's dark one, on which the XP-white labels did not
+show (in every open build): `open_assets.py` now draws an XP-blue one. Our `.rc` files listed no pictures for
+makedep, so a changed picture never rebuilt the resource: `scripts/rc-makedep.py` added the `@makedep` lines (run it
+after adding pictures; `--check` reports missing ones).
+Not done: "N programs running" (needs a per-session count), the password hint text (`PasswordHint` is admin-only in
+AccountsService), the fades, scrolling for more accounts than fit, the open logo (wanted art, `docs/ASSETS.md`).
 
 ### W4: classic logon (`LogonType` 0)
 - "Welcome to Windows: press Ctrl+Alt+Delete" (unless `DisableCAD`), the Log On to Windows dialog with the options

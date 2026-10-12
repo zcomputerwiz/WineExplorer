@@ -14,6 +14,7 @@ BEGIN
     IDS_CPL_INFO        "Customizes your desktop display, themes, screen colors, and resolution."
 END
 
+/* @makedep: monitor.bmp */
 126 BITMAP "monitor.bmp"
 
 /* Themes Property Page */
