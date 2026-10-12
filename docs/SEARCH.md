@@ -1,7 +1,7 @@
 # Search: Windows XP, ReactOS, Wine and later Windows
 
 Analysis of 2026-10-08 for the Start menu's **Search**, the Explorer **Search** button, F3 / Win+F and
-it. ReactOS code (LGPL) may be ported.
+it. ReactOS code may be ported (the project is GPL-2.0-or-later, see `LICENSE.md`).
 
 ## 1. Windows XP / Server 2003 (from the source, by role)
 
@@ -98,7 +98,7 @@ the Windows Search OLE DB provider). Wine has none of them; this is a large sepa
 | **plocate** | GPL-2.0 | `updatedb` snapshot (daily timer, system-wide, root), trigram posting lists over zstd-compressed path blocks | names only, not live, whole system: not a fit; the trigram index is a good idea for huge name sets |
 
 GPL code is used out of process only (LocalSearch as a service over D-Bus); FSearch and plocate are design
-references, nothing is copied into the LGPL Wine tree.
+references; nothing is copied from them.
 
 **Separation from the Linux desktop: proven with the stock binary (2026-10-08, VM).** Run Debian's
 `/usr/libexec/localsearch-3` with:

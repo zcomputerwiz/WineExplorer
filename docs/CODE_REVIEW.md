@@ -180,6 +180,7 @@ blank values; keep mocks behind a `WINEEXPLORER_MOCK=1` env var for screenshot w
   and new files have no license notice. Wine is LGPL-2.1+; keep the headers on modified files and add an LGPL
   notice to new ones. `programs/calc` (ReactOS, GPL-2 text in `copying.txt`) and `mspaint` are separate
   executables - fine to ship, but record their licenses in a `docs/LICENSES.md`.
+  *Resolved 2026-10-11:* the project is GPL-2.0-or-later as a whole; `LICENSE.md` records the licenses of each part.
 - **C7. `programs/wmplayer/main.c`** (Wine's stub wmplayer) and `dlls/desk.cpl/desk.svg` were deleted from the
   baseline; only those two upstream files are missing vs `archives/wine-master.zip`.
 

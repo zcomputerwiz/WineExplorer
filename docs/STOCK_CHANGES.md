@@ -76,7 +76,7 @@ rebasing on upstream Wine harder. Baseline = commit `03476d7`.
 Native focus adds `WexWmFocus`, current-focus validation for queued X events, and foreground-event synchronization. Explorer attaches the old foreground thread to its own input queue so Wine's detach operation does not recreate Explorer's queue and discard its active window/input time. Alt+Tab defers completion until after the keyboard hook. These fixes stay in Explorer and `wexhost`; the diagnostic X11-driver experiments were removed.
 
 Rounded captions add `user_api_hook.pSetWindowRgn`, with the default user32 callback forwarding to `NtUserSetWindowRgn` and uxtheme tracking explicit application regions. The theme renderer combines the caption's transparent background region with its body, avoids recursive region repainting, and clears only its own region when styles are disabled. Start menu bitmap callbacks and its theme-derived panel shape stay in Explorer; ordinary application menu bitmaps retain upstream Wine behavior. See [THEMES.md](THEMES.md) for verification and references.
-New project files carry the Wine-style LGPL-2.1+ header (`scripts/add-license.py` adds it to anything missing it).
+The project is GPL-2.0-or-later as a whole (see `LICENSE.md`). New project files carry the GPL-2.0-or-later header (`scripts/add-license.py` adds it to anything missing it); older project files keep their LGPL-2.1-or-later header, which is compatible.
 Modified Wine files keep their original header. ReactOS-derived programs keep theirs:
 - `programs/calc` - ReactOS Calc, LGPL-2.1+ (header in each file); `copying.txt` is the GPL text shipped with it.
 - `programs/wmplayer` - ReactOS mplay32 (ReactOS license: GPL-2.0-or-later).

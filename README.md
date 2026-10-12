@@ -79,3 +79,10 @@ D:\DeepThought\Projects\WineExplorer\
    - Icon grid placement, selection marquee, and drag-and-drop.
    - Wallpaper management (centered, tiled, stretched).
    - Desktop context menu (Arrange, Refresh, New, Properties).
+
+---
+
+## License
+
+GPL-2.0-or-later as a whole; Wine code keeps its LGPL-2.1-or-later notices and ReactOS code its own. See
+[LICENSE.md](LICENSE.md) and [COPYING](COPYING).

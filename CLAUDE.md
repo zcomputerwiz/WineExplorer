@@ -9,6 +9,8 @@ Windows XP / Server 2003 shell on Wine for Debian. Docs live in `docs/` (start w
 - Keep changes to stock Wine small and list each in `docs/STOCK_CHANGES.md`.
 - Prefer D-Bus (wexhost) over spawning tools.
 - Commit after each working step.
+- License: GPL-2.0-or-later as a whole (`LICENSE.md`). New files get the GPL header (`scripts/add-license.py`); never
+  change the notices of Wine or ReactOS files. No code under GPLv2-incompatible licenses (Apache-2.0, GPL-3.0-only).
 
 ## Editing
 
