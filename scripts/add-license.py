@@ -9,7 +9,7 @@ Usage: scripts/add-license.py [--dry-run]
 import re, subprocess, sys, os
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-BASE = "03476d7"
+BASE = "40c17e1"   # "Import upstream Wine baseline" (hash after the 2026-10-11 history rewrite)
 SKIP = re.compile(r"programs/(calc|wmplayer)/|ntoskrnl|/lang/")
 COPY = " * Copyright 2026 WineExplorer Desktop Environment Project"
 LICENSE = """ * SPDX-License-Identifier: GPL-2.0-or-later

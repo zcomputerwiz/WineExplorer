@@ -1,7 +1,7 @@
 # Changes to stock Wine / third-party code
 
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
-rebasing on upstream Wine harder. Baseline = commit `03476d7`.
+rebasing on upstream Wine harder. Baseline = commit `40c17e1` (the upstream import).
 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
