@@ -34,9 +34,12 @@ assert (root / "etc/X11/default-display-manager").read_text().strip() == "/usr/s
 assert (root / "usr/local/bin/wex-greeter.sh").is_file(), "greeter launcher missing"
 assert (root / "usr/share/xgreeters/wineexplorer-greeter.desktop").is_file(), "greeter definition missing"
 assert (root / "usr/share/xgreeters/lightdm-gtk-greeter.desktop").is_file(), "recovery greeter missing"
+passwd = [line.split(":") for line in (root / "etc/passwd").read_text().splitlines()]
+account = next(row for row in passwd if row[0] == "lightdm")
+uid, gid = int(account[2]), int(account[3])
+home = root / "var/lib/lightdm"
+assert home.is_dir() and (home.stat().st_uid, home.stat().st_gid) == (uid, gid), "LightDM home ownership lost"
 if not autologin:
-    passwd = [line.split(":") for line in (root / "etc/passwd").read_text().splitlines()]
-    uid = int(next(row[2] for row in passwd if row[0] == "lightdm"))
     registry = root / "var/lib/lightdm/.wine-logon/system.reg"
     assert registry.is_file() and registry.stat().st_uid == uid, "greeter prefix not owned by lightdm"
 print("PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation")
