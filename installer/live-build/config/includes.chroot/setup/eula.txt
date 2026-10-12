@@ -14,8 +14,8 @@ Each component is licensed under its own open-source license:
 - ReactOS components ported herein are licensed under the GNU General
   Public License version 2 or the GNU Lesser General Public License
   version 2.1.
-- Debian system packages are subject to the Debian Free Software
-  Guidelines (DFSG).
+- Debian system packages retain their individual licenses, including
+  separately licensed firmware when included.
 
 NO WARRANTY
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS

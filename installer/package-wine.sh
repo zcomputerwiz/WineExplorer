@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Builds wineexplorer and wineexplorer-session deb packages.
 # Run on the Debian VM (or via scripts/vm.sh ssh).
 set -e
@@ -9,6 +10,16 @@ BUILD_DIR="${BUILD_DIR:-$HOME/build/wine64}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/live-build/config/packages.chroot}"
 
 mkdir -p "$OUT_DIR"
+
+stage_license_documents()
+{
+    local doc_dir="$1/usr/share/doc/$2"
+    mkdir -p "$doc_dir"
+    install -m644 "$ROOT_DIR/LICENSE.md" "$doc_dir/copyright"
+    install -m644 "$ROOT_DIR/COPYING" "$doc_dir/COPYING"
+    install -m644 "$ROOT_DIR/wine/LICENSE" "$doc_dir/WINE-LICENSE"
+    install -m644 "$ROOT_DIR/wine/COPYING.LIB" "$doc_dir/COPYING.LIB"
+}
 
 STAGE_WINE="/tmp/wexpkg-wine"
 STAGE_SESSION="/tmp/wexpkg-session"
@@ -48,6 +59,7 @@ Description: Wine customized and configured with Windows XP / Server 2003 shell
  matching the Windows XP and Windows Server 2003 shell experience.
 EOF
 
+stage_license_documents "$STAGE_WINE" wineexplorer
 dpkg-deb --build --root-owner-group "$STAGE_WINE" "$OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
 echo "Built $OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
 
@@ -105,6 +117,7 @@ Description: WineExplorer session scripts and desktop configuration
  for the WineExplorer Windows XP environment.
 EOF
 
+stage_license_documents "$STAGE_SESSION" wineexplorer-session
 dpkg-deb --build --root-owner-group "$STAGE_SESSION" "$OUT_DIR/wineexplorer-session_1.0-1_all.deb"
 echo "Built $OUT_DIR/wineexplorer-session_1.0-1_all.deb"
 
