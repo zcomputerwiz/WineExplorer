@@ -4,6 +4,71 @@ This document specifies the architecture, implementation, testing procedures, an
 
 ---
 
+## Current validation status (2026-10-12)
+
+The installer is on `installer-port`, not yet merged into master. The original
+milestone table below records the imported implementation's claims, not fresh
+acceptance evidence. Individual fixes were checked manually, but the current
+branch after the master/compositor merge still needs a full build and automated
+end-to-end verification. See [CODEX_HANDOFF.md](CODEX_HANDOFF.md).
+
+Build only from the open-resource source tree on the build VM. Do not use the
+development VM's source overlay for an ISO. Never run an unstaged `make install`
+in `~/inst/build`: the package script supplies `DESTDIR` to stage Wine into the
+package rather than replacing the build VM's installed desktop.
+
+Native text setup build dependencies include `build-essential`, `pkg-config`,
+`libfdisk-dev`, `libblkid-dev` and `libncurses-dev`, in addition to the Wine and
+Debian live-build toolchains.
+
+```sh
+cd ~/inst/build
+make -j4
+cd ~/inst
+sudo -n env BUILD_DIR="$HOME/inst/build" WORK_DIR=/home/wineuser/iso-build \
+    OUT_ISO="$HOME/inst/wineexplorer.iso" bash installer/build-iso.sh --clean
+```
+
+Run the scripted installation inside WSL2 Debian or Linux with QEMU/KVM,
+ImageMagick and Tesseract installed. It creates a disposable disk, partitions and
+formats it, leaves the CD attached across restart, completes GUI setup/OOBE, and
+logs on the passwordless second user. Use a dedicated VM name; the script
+replaces its state directory and disk.
+
+```sh
+bash installer/tests/install-interactive.sh /path/to/wineexplorer.iso \
+    /path/to/gitignored/password.txt wex-install
+```
+
+The password file must stay outside Git; Windows CR/LF is stripped by the test.
+Screenshots are saved under `/tmp/vmtest/wex-install/steps/`. Use
+`scripts/vmtest.py text`, `shot`, `key` and `clicktext` to investigate failures.
+Do not describe a timed-out test as passing or substitute manual clicks for an
+unmodified automated rerun.
+
+Recent fixes include blank-disk enumeration, partition selection, license
+reflow, resume-from-disk boot entry, no live-medium eject prompt, template-prefix
+generation in the Linux runner, user-specific template paths on first logon,
+passwordless account mode, OOBE wording and wizard default-button focus.
+Setup/OOBE Win32 programs no longer use `system()` to run Linux commands through
+Wine's `cmd.exe`.
+
+Unattended mode requires both the kernel argument and a readable answer file.
+An absent file falls back to interactive setup. If a specified `TargetDisk`
+cannot be found, setup stops without falling back to another disk. An omitted
+`TargetDisk` currently selects the first disk; specify it explicitly for tests
+(`/dev/vda` with the QEMU virtio configuration). Validate wrong-target behavior
+against unchanged disk contents, and validate a complete zero-input install
+separately.
+
+Known gaps: the installed system uses GDM (LightDM/custom greeter integration is
+W7), Automatic Updates is recorded but not applied, timezone names are Linux
+names, GUI pages need XP-style header/backdrop work, formatting labels expose
+device paths, new profiles may have a blank Recycle Bin icon, and installed GRUB
+still uses Debian's appearance.
+
+---
+
 ## 1. Architecture and Stages
 
 The installation medium is a bootable hybrid ISO image produced using Debian's `live-build` tool (`installer/build-iso.sh`). The boot environment and installed target payload share the same compressed root squashfs (`/live/filesystem.squashfs`).
@@ -67,7 +132,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **Execution Context**: Runs on second boot (`wex-oobe.service`) under `wexsetup` on Xorg `vt7`.
 - **Wizard Sequence**:
   1. *Welcome*: Windows XP Luna Blue background greeting.
-  2. *Automatic Updates*: Enables or disables automatic system updates.
+  2. *Automatic Updates*: Records the choice; applying system update policy is not implemented.
   3. *Internet Connectivity*: Checks network interface status via NetworkManager D-Bus.
   4. *User Account Creation*: Five user name fields, individual password entry dialogs.
   5. *Thank You*: Final transition summary.
@@ -125,6 +190,9 @@ User1Admin = 1
 ---
 
 ## 3. Milestones and Acceptance Evidence
+
+This is the imported milestone report. Its **DONE** labels have not yet been
+revalidated against the current merged branch by the automated install test.
 
 | Milestone | Description | Status | Evidence Location | Verification Summary |
 |---|---|---|---|---|
