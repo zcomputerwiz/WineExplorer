@@ -498,6 +498,5 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         fclose(fdone);
     }
 
-    system("wineserver -k 2>/dev/null || true");
     return 0;
 }

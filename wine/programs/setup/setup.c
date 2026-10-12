@@ -246,11 +246,8 @@ static void SaveSettings(void)
         LogSetup(logmsg);
     }
 
-    /* 7. Build /etc/skel/.wine prefix with wineboot (ensures instant first logon) */
-    LogSetup("Generating template user prefix in /etc/skel/.wine...");
-    system("mkdir -p /etc/skel/.wine 2>/dev/null || true");
-    system("WINEPREFIX=/etc/skel/.wine WINEDLLOVERRIDES='mscoree,mshtml=' WINEDEBUG=-all /usr/local/bin/wine wineboot -u >/dev/null 2>&1 || true");
-    LogSetup("Template prefix generation finished.");
+    /* The template prefix in /etc/skel/.wine is built by wex-gui-setup.sh once setup.exe has finished: system()
+     * here would run Wine's cmd.exe, not a Linux shell. */
 }
 
 /* Billboard Painting */
@@ -611,7 +608,6 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     InvalidateRect(hwnd, NULL, TRUE);
     UpdateWindow(hwnd);
     LogSetup("Stage: Installing Devices");
-    system("udevadm settle >/dev/null 2>&1 || true");
 
     WexHardwareList(NULL, 0, &hw_needed);
     snprintf(hw_log, sizeof(hw_log), "Detected hardware devices size: %lu bytes", hw_needed);
@@ -723,6 +719,5 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         fclose(fdone);
     }
 
-    system("wineserver -k 2>/dev/null || true");
     return 0;
 }

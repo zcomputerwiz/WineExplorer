@@ -1419,12 +1419,6 @@ SetupStage screen_init(SetupState *state)
         fclose(fgdm);
     }
 
-    /* Pre-seed /etc/skel/.wine prefix skeleton from live environment */
-    if (access("/home/wineuser/.wine", R_OK) == 0 && access("/target/etc/skel/.wine", R_OK) != 0) {
-        system("mkdir -p /target/etc/skel && cp -a /home/wineuser/.wine /target/etc/skel/.wine 2>/dev/null || true");
-        system("chown -R root:root /target/etc/skel/.wine 2>/dev/null || true");
-    }
-
     /* 4. Setup state and answer file */
     safe_mkdir_p("/target/etc/wineexplorer/setup");
     system("chmod 750 /target/etc/wineexplorer /target/etc/wineexplorer/setup");
