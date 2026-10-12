@@ -159,6 +159,24 @@ compositing manager, which our session does not have.
 - **D1: core compositor**, default off: both redirection levels, alpha, opacity, shapes, damage-driven repaint, clean
   enable and disable. Proves that layered windows blend correctly. Test on Xvfb with a probe: alpha ramps, color keys,
   `LWA_ALPHA`, overlapping moving windows, input through the overlay, resizing, repeated enable/disable.
+
+  **Implemented, awaiting build and VM validation (2026-10-12).** `wexhost/compose.c` shares the WM's Display,
+  mutex and event loop, with root/desktop manual redirection, XRender back buffer and input-transparent overlay,
+  Damage regions, bounding shapes, ARGB and `_NET_WM_WINDOW_OPACITY`, selection ownership and cleanup. The desktop
+  XID comes directly from `WexWmStart` (`linux_windows_start` reads Wine's `__wine_x11_whole_window` desktop property);
+  no window-name search is used. Set HKCU\Software\WineExplorer\Shell `Composition` (DWORD) to 1 and restart the shell;
+  missing/0 leaves it off. It currently requires `ManageLinuxWindows` enabled and a successfully started WM.
+  `WexCompositionSetEnabled` / `WexCompositionGetEnabled` are shell-process APIs, and `scripts/compose-probe.c`
+  exercises layered windows, movement, resize/remap, clicks and five API cycles on an isolated display.
+  Fullscreen bypass conservatively requires the topmost visible window to cover the entire X screen, with an
+  opaque non-ARGB visual, full opacity, no border and a rectangular shape. It suspends both parent redirections
+  and releases the overlay until that condition ends; no per-monitor bypass, tear-free presentation, capture,
+  or composition of deeper foreign ARGB clients inside opaque hosts. These remain later phases.
+  No runtime behavior is verified yet: the Proton lab SSH connection reached port 2223 but could not read the
+  supplied key (`Permission denied`), so compilation/install, on/off shell comparison, alpha/color-key/motion,
+  input, resize/remap and repeat-toggle screenshots could not run. Local `git diff --check` passed. Core snapshot
+  `4089f7b` was committed externally during implementation; further commits from this session are blocked by
+  read-only shared worktree Git metadata. No VM state was changed.
 - **D2: XP effects and capture**: desktop capture through the compositor, menu and tooltip fades (`AnimateWindow`,
   `SPI_GETMENUANIMATION`), `CS_DROPSHADOW` shadows, translucent drag images and selection rectangles. Test on the real
   session with Linux ARGB clients.

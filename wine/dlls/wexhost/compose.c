@@ -270,7 +270,8 @@ static struct window *track_window( Window id, Window parent )
         w->next = windows;
         windows = w;
     }
-    if (w->attr.width != attr.width || w->attr.height != attr.height || w->parent != parent)
+    if (w->attr.width != attr.width || w->attr.height != attr.height ||
+        w->attr.border_width != attr.border_width || w->parent != parent)
         free_surface( w );
     w->attr = attr;
     w->parent = parent;
@@ -440,9 +441,12 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
 static void paint_children( Window parent, BOOL skip_desktop, XserverRegion parent_clip )
 {
     Window dummy, *children = NULL;
-    unsigned int i, count;
+    unsigned int i, count, first = 0;
     if (!pXQueryTree( dpy, parent, &dummy, &dummy, &children, &count )) return;
-    for (i = 0; i < count; i++)
+    /* Root siblings below an opaque virtual desktop must stay below it. */
+    if (skip_desktop && find_window( desktop ))
+        for (i = 0; i < count; i++) if (children[i] == desktop) { first = i + 1; break; }
+    for (i = first; i < count; i++)
         if (!skip_desktop || children[i] != desktop) paint_window( find_window( children[i] ), parent_clip );
     if (children) pXFree( children );
 }
