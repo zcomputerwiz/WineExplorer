@@ -1,6 +1,6 @@
 # Work order: separate WineExplorer from stock Wine
 
-Status: planned 2026-10-12, not started. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
+Status: P0 started 2026-10-12; evidence and progress are in `REFACTOR_MAP.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
 
 ## Goal
 

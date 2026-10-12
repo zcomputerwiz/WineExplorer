@@ -1,7 +1,9 @@
 # Changes to stock Wine / third-party code
 
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
-rebasing on upstream Wine harder. Baseline = commit `40c17e1` (the upstream import).
+rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
+(`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.
+Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
