@@ -35,6 +35,22 @@ patch hash and line count, and each text hunk's hash and added/removed counts.
 Unmatched patch blocks are an error. `--verify` regenerates both artifacts
 and checks exact equality against the recorded Git revisions.
 
+The complete [path table](refactor/PATHS.md) and its
+[coverage index](refactor/PATHS.json) are committed. Generate and check them with:
+
+```text
+python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output build/refactor/baseline --verify --map docs/refactor/PATHS.md
+python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output build/refactor/baseline --verify --check-map docs/refactor/PATHS.json
+```
+
+Coverage checks reject missing/duplicate paths, changed patch or hunk hashes,
+and mismatched snapshot revisions. Adding `--require-classified` is the P0
+acceptance gate; it currently fails deliberately because **97 stock paths**
+still need hunk decisions. Do not mistake complete inventory coverage for
+completed classification. Whole-file classifications currently cover 434 M,
+202 B, 10 N and seven X paths. B includes one upstream deletion, and N includes
+four ws2_32 data files whose only difference is CRLF/LF conversion.
+
 Initial inventory: **750 paths, 1,876 text hunks, 140,420 patch lines**;
 six changes are mode-only. 217 paths are unchanged since the initial import,
 and 190 match the fork's current master exactly. Counts include added assets
@@ -54,6 +70,29 @@ P3 retains the shell in one module before any smaller-module extraction.
 | New project modules | M, pending complete path list | `src/dlls` and `src/programs` |
 | Existing explorer shell additions | H/M, pending hunk review | Small stock loader hook and `src/dlls/wexshell` |
 | Remaining stock differences | Pending | Review each hunk before assigning U/X/H/B/N |
+
+`dlls/ntoskrnl.exe` has already been restored in the current project tree and
+matches the release tag; it contributes no diff. Do not move it into `src/`.
+Own public headers will live in `src/include/`; own theme definitions will live
+in `src/resources/themes/`. Assembly must link those into Wine as well as
+DLLs/programs. Replacement desk.cpl, wlanui and wmplayer modules retain all
+Wine/ReactOS notices when moved; their existing stock directory names do not
+make their custom implementations new upstream fixes.
+
+## Stock items found beyond the initial candidate list
+
+These need explicit decisions during the remaining hunk review:
+
+| File/change | Proposed class | Target branch/commit |
+|---|---|---|
+| `dlls/kernelbase/locale.c`: preserve the locale chosen through the regional applet while the Unix locale is unchanged | U evaluation | `upstream/locale-preference`, if independently correct and tested; otherwise X |
+| `dlls/user32/cursoricon.c`: registry cursor-scheme loading/cache | U evaluation | Independent cursor-scheme fix after cache/refresh semantics review; otherwise X |
+| `dlls/shell32/changenotify.c`: notify watchers of either side of a rename/move | U evaluation | `upstream/rename-notifications` with a regression test |
+| `dlls/shell32/openwith.c`, `dialogs.c`, `shlexec.c`: Open With implementation and removed stubs | X/U evaluation | Keep XP UI separate from independently upstreamable API behavior |
+| `tools/make_makefiles`: monorepo `.git` fallback | N/build shim evaluation | Remove when wine becomes a submodule; no upstream MR |
+
+These are proposals, not accepted P1 branches. No upstream branch has been
+created or pushed yet.
 
 ## Remaining P0 acceptance work
 
