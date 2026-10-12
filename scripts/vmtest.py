@@ -10,6 +10,8 @@ screenshots, so every command is a separate invocation:
   vmtest.py eject NAME                                                    remove the CD
   vmtest.py shot NAME [FILE.png]                                          screenshot (default STATE/last.png)
   vmtest.py key NAME KEY...                                               QEMU key names: ret f8 alt-n ctrl-alt-f2
+  vmtest.py click NAME X Y [right]                                        click at screen pixel X,Y
+  vmtest.py clicktext NAME TEXT [--timeout 30]                            click the words TEXT (found by OCR)
   vmtest.py type NAME TEXT                                                type text (US layout)
   vmtest.py wait NAME TEXT [--timeout 120]                                wait until OCR finds TEXT on screen
   vmtest.py text NAME                                                     print the OCR text of the screen
@@ -53,7 +55,7 @@ def start(a):
             os.remove(os.path.join(d, sock))
     cmd = ["qemu-system-x86_64", "-enable-kvm", "-cpu", "host", "-smp", "2", "-m", str(a.mem), "-machine", "q35",
            "-drive", f"file={disk},if=virtio", "-vga", "std", "-display", "none",
-           "-nic", "user,model=virtio-net-pci",
+           "-nic", "user,model=virtio-net-pci", "-device", "qemu-xhci", "-device", "usb-tablet",
            "-qmp", f"unix:{d}/qmp.sock,server,nowait",
            "-serial", f"unix:{d}/serial.sock,server,nowait",
            "-drive", "if=none,id=cd,media=cdrom" + (f",file={a.iso}" if a.iso else ""),
@@ -82,12 +84,27 @@ def shot(name, path=None):
     subprocess.run(["convert", ppm, path], check=True)
     return path
 
-def ocr(name):
+SCALE = 3   # tesseract misses 8 pt GUI text and the 8x16 console font at 1x
+
+def ocr(name, fmt=None):
     png = shot(name)
-    # scale up: the 8x16 console font is too small for tesseract at 1x
     big = png[:-4] + "-ocr.png"
-    subprocess.run(["convert", png, "-resize", "200%", "-colorspace", "Gray", "-negate", big], check=True)
-    return subprocess.run(["tesseract", big, "-", "--psm", "3"], capture_output=True, text=True).stdout
+    subprocess.run(["convert", png, "-resize", f"{SCALE * 100}%", "-colorspace", "Gray", big], check=True)
+    return subprocess.run(["tesseract", big, "-", "--psm", "3"] + ([fmt] if fmt else []),
+                          capture_output=True, text=True).stdout
+
+def find_text(name, text):
+    """Screen position (centre) of TEXT, matched case-insensitively against consecutive OCR words on one line."""
+    rows = [r.split("\t") for r in ocr(name, "tsv").splitlines()[1:]]
+    words = [r for r in rows if len(r) == 12 and r[11].strip()]
+    want = text.lower().split()
+    for i in range(len(words) - len(want) + 1):
+        run = words[i:i + len(want)]
+        if [w[11].lower() for w in run] == want and len({tuple(w[2:5]) for w in run}) == 1:
+            left = int(run[0][6]); top = int(run[0][7])
+            right = int(run[-1][6]) + int(run[-1][8]); bottom = top + int(run[0][9])
+            return (left + right) // 2 // SCALE, (top + bottom) // 2 // SCALE
+    return None
 
 US = {**{c: c for c in "abcdefghijklmnopqrstuvwxyz0123456789"},
       " ": "spc", "-": "minus", "=": "equal", "[": "bracket_left", "]": "bracket_right", ";": "semicolon",
@@ -99,6 +116,26 @@ def keys(name, combos, hold=80):
     for combo in combos:
         qmp(name, "send-key", keys=[{"type": "qcode", "data": k} for k in combo.split("-")], **{"hold-time": hold})
         time.sleep(0.05)
+
+def click(name, x, y, button="left"):
+    w, h = screen_size(name)
+    pos = [{"type": "abs", "data": {"axis": "x", "value": x * 32767 // (w - 1)}},
+           {"type": "abs", "data": {"axis": "y", "value": y * 32767 // (h - 1)}}]
+    qmp(name, "input-send-event", events=pos)
+    for down in (True, False):
+        qmp(name, "input-send-event", events=[{"type": "btn", "data": {"down": down, "button": button}}])
+        time.sleep(0.08)
+
+def screen_size(name):
+    ppm = os.path.join(state(name), "size.ppm")
+    qmp(name, "screendump", filename=ppm)
+    with open(ppm, "rb") as f:
+        f.readline()
+        line = f.readline()
+        while line.startswith(b"#"):
+            line = f.readline()
+    w, h = map(int, line.split())
+    return w, h
 
 def type_text(name, text):
     seq = []
@@ -165,6 +202,10 @@ def main():
     s = sub.add_parser("shot"); s.add_argument("name"); s.add_argument("file", nargs="?")
     s = sub.add_parser("key"); s.add_argument("name"); s.add_argument("keys", nargs="+")
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
+    s = sub.add_parser("click"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
+    s.add_argument("button", nargs="?", default="left")
+    s = sub.add_parser("clicktext"); s.add_argument("name"); s.add_argument("text")
+    s.add_argument("--timeout", type=float, default=30)
     s = sub.add_parser("wait"); s.add_argument("name"); s.add_argument("text"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("sh"); s.add_argument("name"); s.add_argument("user"); s.add_argument("pwfile"); s.add_argument("command")
     s.add_argument("--timeout", type=float, default=60)
@@ -181,7 +222,19 @@ def main():
     elif a.op == "key":
         keys(a.name, a.keys)
     elif a.op == "type":
-        type_text(a.name, a.text)
+        type_text(a.name, a.text.rstrip("\r\n"))
+    elif a.op == "click":
+        click(a.name, a.x, a.y, a.button)
+    elif a.op == "clicktext":
+        end = time.time() + a.timeout
+        while time.time() < end:
+            pos = find_text(a.name, a.text)
+            if pos:
+                click(a.name, *pos)
+                print(f"clicked {pos[0]},{pos[1]}")
+                return
+            time.sleep(2)
+        sys.exit(f"text not found: {a.text!r}")
     elif a.op == "text":
         print(ocr(a.name))
     elif a.op == "wait":
