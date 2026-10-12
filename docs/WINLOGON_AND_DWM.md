@@ -148,8 +148,14 @@ AccountsService), the fades, scrolling for more accounts than fit, the open logo
 - Package and OOBE switch from GDM to LightDM and our greeter; OOBE creates the first user through AccountsService.
 - Implementation in progress: installer packages the custom greeter and GTK recovery greeter, selects LightDM,
   and prepares the lightdm account's isolated Wine prefix on first use. Text setup clears both live-config's main
-  configuration and the live autologin snippet. OOBE's root runner applies the single passwordless account's
-  autologin request after validating the Linux account; multiple users get the Welcome screen.
+  configuration and the live autologin snippet. Debian 13 AccountsService writes LightDM's automatic login setting
+  through the existing WexUserSetSession D-Bus call; multiple users get the Welcome screen.
+- The display manager is gated by the setup-stage file instead of conflicting with enabled setup units, whose
+  skipped conditions could cancel the live desktop's startup job. Removed stale duplicate setup units from includes.
+- Native text setup now copies directory ownership and permissions from WinntDirectories, including empty service
+  homes. Without this, LightDM's home was root-owned and its X authority write failed on the installed system.
+- Directory-copy regression tests pass. A stopped disposable disk repaired to the correct ownership has passed
+  wrong/correct password authentication, Win+L and passwordless user switching; a final clean ISO rerun is underway.
 - Clean ISO and installed-system acceptance tests are pending; do not treat development VM tests as installer evidence.
 
 ## 3. Desktop Window Manager

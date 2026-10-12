@@ -159,7 +159,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
   - First user is provisioned with `AccountType=1` (administrator, automatically assigned to `sudo` group).
   - Copies template prefix from `/etc/skel/.wine` to `/home/<user>/.wine` with proper user ownership.
 - **Display Manager & Autologin**:
-  - If exactly one user was created and that user has no password: the root OOBE runner validates the account and writes LightDM's `autologin-user` in `/etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf`.
+  - If exactly one user was created and that user has no password: `WexUserSetSession` asks AccountsService to enable automatic login. In Debian 13 this writes LightDM's main configuration (the legacy `[SeatDefaults]` section).
   - If multiple users or passwords exist: displays the Wine `logonui.exe` Welcome screen, running as the unprivileged `lightdm` account with its own `/var/lib/lightdm/.wine-logon` prefix. GTK greeter remains installed for recovery.
 - **Cleanup**:
   - Terminates running Wine instances and user processes.
