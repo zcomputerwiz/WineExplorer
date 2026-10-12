@@ -25,7 +25,7 @@ set menu_color_highlight=white/blue
 insmod all_video
 
 menuentry "Install Debian with WineExplorer" --hotkey=i {
-    linux /live/vmlinuz boot=live components wexsetup=textmode systemd.unit=multi-user.target noprompt quiet loglevel=3 systemd.show_status=false plymouth.enable=0
+    linux /live/vmlinuz boot=live components wexsetup=textmode systemd.unit=multi-user.target quiet loglevel=3 systemd.show_status=false plymouth.enable=0
     initrd /live/initrd.img
 }
 
@@ -35,7 +35,7 @@ menuentry "Start WineExplorer from CD" --hotkey=s {
 }
 
 menuentry "Install (unattended)" --hotkey=u {
-    linux /live/vmlinuz boot=live components wexsetup=textmode wexunattend=/setup/unattend.sif systemd.unit=multi-user.target noprompt quiet loglevel=3 systemd.show_status=false plymouth.enable=0
+    linux /live/vmlinuz boot=live components wexsetup=textmode wexunattend=/setup/unattend.sif systemd.unit=multi-user.target quiet loglevel=3 systemd.show_status=false plymouth.enable=0
     initrd /live/initrd.img
 }
 
