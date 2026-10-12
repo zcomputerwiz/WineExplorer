@@ -1,31 +1,25 @@
 #!/bin/sh
 set -e
-# Runs mklayout.py over chroot to generate binary/setup/layout.inf and txtsetup.sif
+# Scan the immutable payload, not the build chroot (binary-stage tools/cache
+# directories can be added to that chroot after squashfs has been created).
 mkdir -p setup
-
-MKLAYOUT=""
-if [ -f /media/sf_WineExplorer/installer/tools/mklayout.py ]; then
-    MKLAYOUT="/media/sf_WineExplorer/installer/tools/mklayout.py"
-elif [ -f ../config/mklayout.py ]; then
-    MKLAYOUT="../config/mklayout.py"
-fi
-
-SIF_IN=""
-if [ -f /media/sf_WineExplorer/installer/setupinfs/txtsetup.sif.in ]; then
-    SIF_IN="/media/sf_WineExplorer/installer/setupinfs/txtsetup.sif.in"
-elif [ -f ../config/txtsetup.sif.in ]; then
-    SIF_IN="../config/txtsetup.sif.in"
-fi
-
-if [ -n "$MKLAYOUT" ] && [ -f "$MKLAYOUT" ]; then
-    python3 "$MKLAYOUT" ../chroot setup "$SIF_IN" || true
-fi
+test -f ../config/mklayout.py
+test -f ../config/txtsetup.sif.in
+test -f live/filesystem.squashfs
+SOURCE_ROOT=$(mktemp -d /var/tmp/wex-layout.XXXXXX)
+MOUNTED=false
+cleanup() {
+    if $MOUNTED; then umount "$SOURCE_ROOT"; fi
+    rmdir "$SOURCE_ROOT"
+}
+trap cleanup EXIT HUP INT TERM
+mount -t squashfs -o ro,loop live/filesystem.squashfs "$SOURCE_ROOT"
+MOUNTED=true
+python3 ../config/mklayout.py "$SOURCE_ROOT" setup ../config/txtsetup.sif.in
 
 # Copy eula.txt if available
-if [ -f /media/sf_WineExplorer/installer/setupinfs/eula.txt ]; then
-    cp -f /media/sf_WineExplorer/installer/setupinfs/eula.txt setup/eula.txt || true
-elif [ -f ../chroot/setup/eula.txt ]; then
-    cp -f ../chroot/setup/eula.txt setup/eula.txt || true
+if [ -f "$SOURCE_ROOT/setup/eula.txt" ]; then
+    cp -f "$SOURCE_ROOT/setup/eula.txt" setup/eula.txt
 fi
 
 # Copy unattend.sif if present (unattended mode)
