@@ -32,3 +32,5 @@
 @ stdcall WexAppsList(ptr long ptr)
 @ stdcall WexAppsLaunch(wstr)
 @ stdcall WexHardwareList(ptr long ptr)
+@ stdcall WexCompositionSetEnabled(long)
+@ stdcall WexCompositionGetEnabled(ptr)

@@ -1398,6 +1398,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     apps_list,
     apps_launch,
     hw_list,
+    composition_set,
+    composition_get,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
