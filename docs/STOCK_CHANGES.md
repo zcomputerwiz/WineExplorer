@@ -90,6 +90,7 @@ rebasing on upstream Wine harder. Baseline = commit `40c17e1` (the upstream impo
 | Upstream | Change |
 |---|---|
 | MR !12231 (merged 2026-10-08) | `dlls/user32/lstr.c`: `CharToOemBuffW` wrote more bytes than asked for with a multi-byte OEM code page (UTF-8); untranslatable characters become `_` |
+| MR !7746 (open upstream when taken) | `dlls/shell32/shfldr_fs.c`, `shfldr_desktop.c`: sizes of files of 4 GiB and more (the pidl keeps only 32 bits); checked in Explorer's Details view |
 
 ## Reverted (were changed earlier, now stock again)
 - `dlls/comctl32/monthcal.c` (today-circle removal): timedate.cpl now creates its calendar with
