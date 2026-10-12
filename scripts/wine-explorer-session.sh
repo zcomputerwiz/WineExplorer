@@ -50,6 +50,20 @@ WIDTH="${WIDTH:-1920}"
 HEIGHT="${HEIGHT:-1080}"
 REFRESH="${REFRESH:-60}"
 
+# --- First logon of an account made by Setup: its prefix is a copy of /etc/skel/.wine, built by the setup account,
+# so the registry names that account's profile.  Point it at this user, then let shell32 create this user's profile
+# folders (Desktop, My Documents...) and shell folder entries; seconds instead of building a whole prefix.
+TEMPLATE_USER=wexsetup
+if [ "$USER" != "$TEMPLATE_USER" ] && grep -qs "users\\\\\\\\$TEMPLATE_USER\\\\\\\\" "$WINEPREFIX/user.reg"; then
+    echo "Making the template prefix this user's..."
+    sed -i -e 's/\\\\users\\\\'"$TEMPLATE_USER"'\\\\/\\\\users\\\\'"$USER"'\\\\/g' \
+           -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
+        "$WINEPREFIX/user.reg" "$WINEPREFIX/userdef.reg" "$WINEPREFIX/system.reg"
+    "$WINE" regsvr32.exe /s shell32.dll
+    "$(dirname "$WINE")/wineserver" -k
+    sleep 1
+fi
+
 # --- Prefix update after a Wine (re)install.  Doing it as a side effect of starting explorer kills the session
 # (the update runs in the first Wine client and a failure there ends it), so do it up front and start clean.
 NTDLL=$(ls /usr/local/lib/wine/x86_64-unix/ntdll.so 2>/dev/null)
