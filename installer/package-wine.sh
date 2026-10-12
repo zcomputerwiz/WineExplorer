@@ -11,6 +11,12 @@ OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/live-build/config/packages.chroot}"
 
 mkdir -p "$OUT_DIR"
 
+if [ ! -f "$BUILD_DIR/Makefile" ]; then
+    echo "BUILD_DIR must point to a configured Wine build: $BUILD_DIR"
+    echo "Refusing to package the build machine's installed runtime."
+    exit 1
+fi
+
 stage_license_documents()
 {
     local doc_dir="$1/usr/share/doc/$2"
@@ -29,13 +35,8 @@ echo "=== 1. Packaging wineexplorer ==="
 mkdir -p "$STAGE_WINE/DEBIAN"
 mkdir -p "$STAGE_WINE/usr/local"
 
-if [ -f "$BUILD_DIR/Makefile" ]; then
-    echo "Installing from $BUILD_DIR into staging..."
-    make -C "$BUILD_DIR" install DESTDIR="$STAGE_WINE" >/dev/null
-else
-    echo "Copying /usr/local into staging..."
-    cp -a /usr/local/* "$STAGE_WINE/usr/local/"
-fi
+echo "Installing from $BUILD_DIR into staging..."
+make -C "$BUILD_DIR" install DESTDIR="$STAGE_WINE" >/dev/null
 
 # Remove development include headers to save ISO squashfs space
 rm -rf "$STAGE_WINE/usr/local/include"

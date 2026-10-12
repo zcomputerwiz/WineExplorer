@@ -28,7 +28,7 @@ fi
 # live-build can restore a bootstrap chroot while retaining completed package
 # stage markers. Reusing it then skips kernel installation and produces an
 # incomplete image. Require a fresh workspace rather than patching that state.
-if [ "$DO_CLEAN" != true ] && [ -d "$WORK_DIR/chroot" ]; then
+if [ "$DO_CLEAN" != true ] && { [ -d "$WORK_DIR/chroot" ] || [ -d "$WORK_DIR/.build" ]; }; then
     echo "Existing live-build workspace requires --clean: $WORK_DIR"
     exit 1
 fi
@@ -89,34 +89,6 @@ if [ "$UNATTENDED" = true ]; then
 else
     rm -f "$WORK_DIR/config/includes.chroot/setup/unattend.sif"
     sed -i 's/^set default=.*/set default=0/' "$WORK_DIR/config/hooks/live/9000-grub-menu.binary" 2>/dev/null || true
-fi
-
-# 5. Sync includes and packages into existing chroot
-if [ -d "$WORK_DIR/chroot" ]; then
-    echo "=== Syncing includes.chroot and packages into existing chroot ==="
-    cp -a "$WORK_DIR/config/includes.chroot"/* "$WORK_DIR/chroot/" 2>/dev/null || true
-    mkdir -p "$WORK_DIR/chroot/setup"
-    cp -f "$WORK_DIR/config/includes.chroot/setup/textsetup" "$WORK_DIR/chroot/setup/textsetup"
-    chmod 755 "$WORK_DIR/chroot/setup/textsetup"
-    if [ "$UNATTENDED" = true ]; then
-        cp -f "$WORK_DIR/config/includes.chroot/setup/unattend.sif" "$WORK_DIR/chroot/setup/unattend.sif"
-    else
-        rm -f "$WORK_DIR/chroot/setup/unattend.sif"
-    fi
-    if [ -f "$WORK_DIR/config/packages.chroot/wineexplorer_11.19-wineexplorer1_amd64.deb" ]; then
-        echo "=== Updating wineexplorer packages in chroot ==="
-        cp -f "$WORK_DIR/config/packages.chroot"/wineexplorer*.deb "$WORK_DIR/chroot/tmp/" 2>/dev/null || true
-        chroot "$WORK_DIR/chroot" dpkg -i /tmp/wineexplorer_11.19-wineexplorer1_amd64.deb /tmp/wineexplorer-session_1.0-1_all.deb || true
-        rm -f "$WORK_DIR/chroot"/tmp/wineexplorer*.deb
-    fi
-    mkdir -p "$WORK_DIR/chroot/usr/local/bin"
-    cp -f "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$WORK_DIR/chroot/usr/local/bin/wex-gui-setup.sh"
-    cp -f "$SCRIPT_DIR/scripts/wex-oobe.sh" "$WORK_DIR/chroot/usr/local/bin/wex-oobe.sh"
-    chmod 755 "$WORK_DIR/chroot/usr/local/bin/wex-gui-setup.sh" "$WORK_DIR/chroot/usr/local/bin/wex-oobe.sh"
-    chmod 755 "$WORK_DIR/chroot/usr" "$WORK_DIR/chroot/usr/lib" "$WORK_DIR/chroot/etc" "$WORK_DIR/chroot/var" 2>/dev/null || true
-    chmod -R a+rX "$WORK_DIR/chroot/usr/lib" "$WORK_DIR/chroot/usr/local" "$WORK_DIR/chroot/usr/share" 2>/dev/null || true
-    rm -f "$WORK_DIR/.build/chroot_includes_after_packages"
-    rm -f "$WORK_DIR/.build/chroot_hooks"
 fi
 
 # 4. Configure live-build
