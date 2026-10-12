@@ -67,8 +67,9 @@ int main(int argc, char *argv[])
         if (fgets(cmdline, sizeof(cmdline), fcmd)) {
             char *p = strstr(cmdline, "wexunattend=");
             if (p) {
-                state.unattended = true;
                 sscanf(p + 12, "%255s", state.unattend_path);
+                /* a CD built without an answer file still has the menu entry: install interactively then */
+                state.unattended = access(state.unattend_path, R_OK) == 0;
             }
         }
         fclose(fcmd);

@@ -556,14 +556,33 @@ SetupStage screen_partition(SetupState *state)
 
     /* Unattended execution */
     if (state->unattended) {
-        int target_d = 0;
+        int target_d = 0;   /* no TargetDisk: the first disk, as XP's unattended Setup */
         if (state->target_disk[0]) {
+            target_d = -1;
             for (int d = 0; d < num_disks; ++d) {
                 if (strcmp(disks[d].device, state->target_disk) == 0 ||
                     strcmp(disks[d].name, state->target_disk) == 0) {
                     target_d = d;
                     break;
                 }
+            }
+        }
+        if (target_d < 0) {
+            /* never fall back to another disk: with Repartition = Yes it would be erased */
+            ui_clear_screen();
+            ui_draw_header("Debian GNU/Linux with WineExplorer Setup");
+            int err_y = (LINES > 25) ? (LINES - 25) / 3 + 3 : 8;
+            int err_x = (COLS > 80) ? (COLS - 80) / 4 + 6 : 6;
+            attron(COLOR_PAIR(PAIR_NORMAL));
+            mvprintw(err_y, err_x, "Setup cannot find the disk %s named by TargetDisk in the answer file.",
+                     state->target_disk);
+            mvprintw(err_y + 1, err_x, "No disk has been changed.");
+            mvprintw(err_y + 4, err_x, "Press F3 to quit Setup.");
+            attroff(COLOR_PAIR(PAIR_NORMAL));
+            ui_draw_status("F3=Quit");
+            while (1) {
+                int ch = ui_getch();
+                if (ch == KEY_F(3) || ch == 'q' || ch == 'Q') return STAGE_QUIT;
             }
         }
         DiskDevice *disk = &disks[target_d];

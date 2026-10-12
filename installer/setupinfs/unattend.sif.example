@@ -2,7 +2,7 @@
 [Unattended]
 UnattendMode = FullUnattended
 OemSkipEula = Yes
-TargetDisk = /dev/sda
+; TargetDisk = /dev/sda      (default: the first disk; Setup stops if the named disk is missing)
 Repartition = Yes
 
 [GuiUnattended]
