@@ -1,6 +1,6 @@
 # Logon and window composition: plan
 
-Status (2026-10-12): W1-W3 done (dev VM on LightDM with the logonui.exe Welcome screen); W4 next. D1 compositor core merged, off by default. This plan covers two projects:
+Status (2026-10-12): W1-W3 done (dev VM on LightDM with the logonui.exe Welcome screen); W4 next. D1 compositor core and D2 effects (shadows, blend fades, capture) merged, off by default. This plan covers two projects:
 
 - **Winlogon**: XP's logon experience (Welcome screen, classic Log On to Windows dialog, Lock Computer, Switch
   User / fast user switching, Windows Security) on top of a real Linux display manager.
@@ -218,6 +218,35 @@ compositing manager, which our session does not have.
 - **D2: XP effects and capture**: desktop capture through the compositor, menu and tooltip fades (`AnimateWindow`,
   `SPI_GETMENUANIMATION`), `CS_DROPSHADOW` shadows, translucent drag images and selection rectangles. Test on the real
   session with Linux ARGB clients.
+
+  **Merged (2026-10-12), tested on Xvfb with the shell and `compose-probe`:** with composition on, the class-shadow
+  popup has a soft right/bottom shadow; with it off, none. `AnimateWindow` blend in/out takes about 920 ms, restores
+  style and attributes in both modes, and `dwTime` 0 shows/hides at once. K/J/T captures return the composed screen
+  (alpha ramp, shadow) at full and half size. Not yet tested: menu shadows (P), fullscreen bypass, runtime toggling,
+  Linux ARGB clients, the real Xorg session. Menu and tooltip fades are deferred (see STOCK_CHANGES). The compositor
+  caches a small XRender shadow per marked window size, paints it below the window, and scales it with uniform opacity. Moves, caches a small
+  XRender shadow per marked window size, paints it below the window, and scales it with uniform opacity. Moves,
+  resize, unmap and property changes repaint through D1's damage/stacking machinery; no input window is added.
+  `WexCompositionSetShadow(UINT64, BOOL)` marks X windows while composition is enabled. Explorer installs a
+  SHOW/HIDE WinEvent hook after enabling composition. For cross-process XIDs that read zero, winex11 publishes
+  `_WEX_DROPSHADOW` (class style plus `SPI_GETDROPSHADOW`) before creation/show; compose.c reads that property. Thus
+  fresh/remapped popups from other processes work without PID/geometry matching. Already-visible foreign popups
+  first shown without a compositor need a hide/show after enabling it; SPI changes take effect on the next show.
+  `AnimateWindow(AW_BLEND)` fades through temporary layered alpha, preserving final visibility and uniform-alpha/
+  color-key attributes. Existing per-pixel layered surfaces keep immediate show/hide. Automatic popup menu fading
+  is deferred: `win32u/menu.c:show_popup` cannot call user32, and sharing the helper plus a compositor gate would
+  require a broader stock change. Other animation flags keep their old path. No new translucent drag/selection UI
+  is added in this effects/capture spec.
+  Screen/desktop BitBlt and image readback use the real root/overlay at the desktop's root offset while a compositor
+  owns `_NET_WM_CM_S<screen>`. XRender's scaled/converted screen reads use the same fallback; ordinary window reads
+  and all DC writes are unchanged. Stock edits and their gates are listed in `STOCK_CHANGES.md`.
+  `scripts/compose-probe.c`: S shadow show/hide, D shadow SPI, B 900 ms blend, U existing alpha blend, 0 zero duration,
+  P TrackPopupMenu, K compatible-bitmap capture, J DIB capture, T scaled capture. Captures write `Z:\tmp\capture.bmp`
+  and show a preview; the screen DC stays open across toggles. Coordinator: build Wine and the probe, run on the
+  real shell with Composition 0/1, check shadow movement/unmap/input, fades/style restoration, menu shadow,
+  captures against root screenshots, selection toggles and fullscreen bypass. Exact commands and expected results:
+  [D2_TEST_REPORT.md](D2_TEST_REPORT.md). No build, runtime or visual checks were run here.
+
 - **D3: thumbnails and presentation**: thumbnails for the shell (optional taskbar and Alt+Tab previews, off in XP
   mode), unredirecting full-screen windows, Present/vblank. Measure latency, CPU use and tearing on the real Xorg.
 - **D4 (optional)**: `dwmapi` (`DwmIsCompositionEnabled`, thumbnails, `DwmFlush`) for Vista-era programs. It changes how

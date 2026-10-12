@@ -1698,6 +1698,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     greeter_read,
     composition_set,
     composition_get,
+    composition_shadow,
     locale_set,
     root_pass_set,
     user_create,

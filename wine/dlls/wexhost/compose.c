@@ -86,7 +86,7 @@ static void (*pXDamageSubtract)( Display *, Damage, XserverRegion, XserverRegion
     FUNC(XSync) FUNC(XInternAtom) FUNC(XGetSelectionOwner) FUNC(XSetSelectionOwner) \
     FUNC(XCreateSimpleWindow) FUNC(XDestroyWindow) FUNC(XGetWindowProperty) \
     FUNC(XCreatePixmap) FUNC(XFreePixmap) FUNC(XTranslateCoordinates) FUNC(XSendEvent) \
-    FUNC(XGrabServer) FUNC(XUngrabServer)
+    FUNC(XGrabServer) FUNC(XUngrabServer) FUNC(XChangeProperty)
 #define COMPOSITE_FUNCS \
     FUNC(XCompositeQueryExtension) FUNC(XCompositeQueryVersion) FUNC(XCompositeRedirectSubwindows) \
     FUNC(XCompositeUnredirectSubwindows) FUNC(XCompositeNameWindowPixmap) \
@@ -99,7 +99,7 @@ static void (*pXDamageSubtract)( Display *, Damage, XserverRegion, XserverRegion
 #define RENDER_FUNCS \
     FUNC(XRenderQueryExtension) FUNC(XRenderQueryVersion) FUNC(XRenderFindVisualFormat) \
     FUNC(XRenderCreatePicture) FUNC(XRenderFreePicture) FUNC(XRenderComposite) \
-    FUNC(XRenderFillRectangle) FUNC(XRenderCreateSolidFill)
+    FUNC(XRenderFillRectangle) FUNC(XRenderCreateSolidFill) FUNC(XRenderFindStandardFormat)
 #define SHAPE_FUNCS FUNC(XShapeQueryExtension) FUNC(XShapeSelectInput) FUNC(XShapeInputSelected)
 #define FUNC(name) static typeof(name) *p##name;
 X11_FUNCS
@@ -118,15 +118,16 @@ struct window
     long added_mask;
     Bool added_shape;
     BOOL seen;
-    Pixmap pixmap;
-    Picture picture, alpha;
+    Pixmap pixmap, shadow_pixmap;
+    Picture picture, alpha, shadow_picture;
+    BOOL shadow;
     Damage damage;
     unsigned long opacity;
 };
 
 static Display *dpy;
 static Window root, desktop, owner, overlay;
-static Atom selection, opacity_atom;
+static Atom selection, opacity_atom, shadow_atom;
 static int *x_error, damage_base, shape_base;
 static BOOL enabled, redirected_root, redirected_desktop, tree_dirty, full_repaint, dirty;
 static BOOL libraries_tried, libraries_loaded;
@@ -182,7 +183,10 @@ static void free_surface( struct window *w )
 {
     if (w->picture) pXRenderFreePicture( dpy, w->picture );
     if (w->pixmap) pXFreePixmap( dpy, w->pixmap );
+    if (w->shadow_picture) pXRenderFreePicture( dpy, w->shadow_picture );
+    if (w->shadow_pixmap) pXFreePixmap( dpy, w->shadow_pixmap );
     w->picture = w->pixmap = 0;
+    w->shadow_picture = w->shadow_pixmap = 0;
 }
 
 static void free_window( struct window *w, BOOL destroyed )
@@ -216,24 +220,24 @@ static void remove_window( Window id, BOOL destroyed )
         }
 }
 
-static unsigned long get_opacity( Window id )
+static unsigned long get_cardinal( Window id, Atom atom, unsigned long fallback )
 {
     Atom actual;
     int format;
-    unsigned long count, left, opacity = 0xffffffff;
+    unsigned long count, left, value = fallback;
     unsigned char *data = NULL;
-    if (pXGetWindowProperty( dpy, id, opacity_atom, 0, 1, False, XA_CARDINAL,
+    if (pXGetWindowProperty( dpy, id, atom, 0, 1, False, XA_CARDINAL,
                              &actual, &format, &count, &left, &data ) == Success &&
         actual == XA_CARDINAL && format == 32 && count == 1)
-        opacity = *(unsigned long *)data;
+        value = *(unsigned long *)data;
     if (data) pXFree( data );
-    return opacity;
+    return value;
 }
 
 static void update_opacity( struct window *w )
 {
     XRenderColor color = { 0, 0, 0, 0 };
-    unsigned long opacity = get_opacity( w->id );
+    unsigned long opacity = get_cardinal( w->id, opacity_atom, 0xffffffff );
     if (opacity == w->opacity) return;
     if (w->alpha) pXRenderFreePicture( dpy, w->alpha );
     w->alpha = 0;
@@ -279,6 +283,7 @@ static struct window *track_window( Window id, Window parent )
     w->y = y;
     w->seen = TRUE;
     update_opacity( w );
+    w->shadow = !!get_cardinal( w->id, shadow_atom, 0 );
     return w;
 }
 
@@ -419,11 +424,51 @@ static BOOL name_surface( struct window *w )
     return TRUE;
 }
 
+/* Cache six overlapping translucent rectangles per size. Their nested edges
+ * approximate a short blur, with the body offset four pixels right/down.
+ * This is original code; no reference compositor implementation is copied. */
+static void paint_shadow( struct window *w, XserverRegion parent_clip )
+{
+    int i, border = w->attr.border_width;
+    int cx = w->attr.width + 2 * border + 8, cy = w->attr.height + 2 * border + 8;
+    if (!w->shadow) return;
+    if (!w->shadow_picture)
+    {
+        XRenderColor color = { 0, 0, 0, 0 };
+        XRenderPictFormat *format = pXRenderFindStandardFormat( dpy, PictStandardARGB32 );
+        if (!format) return;
+        *x_error = 0;
+        w->shadow_pixmap = pXCreatePixmap( dpy, root, cx, cy, 32 );
+        w->shadow_picture = pXRenderCreatePicture( dpy, w->shadow_pixmap, format, 0, NULL );
+        pXRenderFillRectangle( dpy, PictOpSrc, w->shadow_picture, &color, 0, 0, cx, cy );
+        for (i = 0; i < 6 && cx > 2 * i && cy > 2 * i; i++)
+        {
+            color.alpha = 600 + i * 650;
+            pXRenderFillRectangle( dpy, PictOpOver, w->shadow_picture, &color,
+                                  i, i, cx - 2 * i, cy - 2 * i );
+        }
+        if (!sync_ok())
+        {
+            if (w->shadow_picture) pXRenderFreePicture( dpy, w->shadow_picture );
+            if (w->shadow_pixmap) pXFreePixmap( dpy, w->shadow_pixmap );
+            w->shadow_picture = w->shadow_pixmap = 0;
+            return;
+        }
+    }
+    pXFixesUnionRegion( dpy, clip, damage_region, damage_region );
+    if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
+    pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+    /* A fading window fades its shadow too. No extra X window/input surface. */
+    pXRenderComposite( dpy, PictOpOver, w->shadow_picture, w->alpha, back_picture,
+                       0, 0, 0, 0, w->x - border, w->y - border, cx, cy );
+}
+
 static void paint_window( struct window *w, XserverRegion parent_clip )
 {
     XserverRegion shape;
     int border;
     if (!w || !name_surface( w )) return;
+    paint_shadow( w, parent_clip );
     shape = pXFixesCreateRegionFromWindow( dpy, w->id, WindowRegionBounding );
     pXFixesTranslateRegion( dpy, shape, w->x, w->y );
     pXFixesIntersectRegion( dpy, clip, damage_region, shape );
@@ -454,6 +499,21 @@ static void paint_children( Window parent, BOOL skip_desktop, XserverRegion pare
 BOOL compose_enabled(void)
 {
     return enabled;
+}
+
+DWORD compose_shadow( unsigned long id, BOOL shadow )
+{
+    unsigned long value = !!shadow;
+    XWindowAttributes attr;
+    if (!enabled) return ERROR_NOT_SUPPORTED;
+    if (!id || id == root || id == desktop || id == overlay || id == owner)
+        return ERROR_INVALID_PARAMETER;
+    *x_error = 0;
+    if (!pXGetWindowAttributes( dpy, id, &attr )) return ERROR_INVALID_WINDOW_HANDLE;
+    pXChangeProperty( dpy, id, shadow_atom, XA_CARDINAL, 32, PropModeReplace,
+                      (unsigned char *)&value, 1 );
+    tree_dirty = full_repaint = dirty = TRUE;
+    return sync_ok() ? ERROR_SUCCESS : ERROR_INVALID_WINDOW_HANDLE;
 }
 
 long compose_event_mask( unsigned long id, long wm_mask )
@@ -524,6 +584,7 @@ DWORD compose_set( void *display, unsigned long root_window, unsigned long deskt
     snprintf( name, sizeof(name), "_NET_WM_CM_S%d", DefaultScreen( dpy ) );
     selection = pXInternAtom( dpy, name, False );
     opacity_atom = pXInternAtom( dpy, "_NET_WM_WINDOW_OPACITY", False );
+    shadow_atom = pXInternAtom( dpy, "_WEX_DROPSHADOW", False );
     /* Selection check/claim is atomic with respect to other X clients. */
     pXGrabServer( dpy );
     if (pXGetSelectionOwner( dpy, selection ))
@@ -615,6 +676,11 @@ void compose_event( void *xevent )
         if (id == desktop) { compose_set( dpy, root, desktop, x_error, FALSE ); return; }
         break;
     case PropertyNotify:
+        if (event->xproperty.atom == shadow_atom && (w = find_window( event->xproperty.window )))
+        {
+            w->shadow = !!get_cardinal( w->id, shadow_atom, 0 );
+            full_repaint = dirty = TRUE;
+        }
         if (event->xproperty.atom == opacity_atom && (w = find_window( event->xproperty.window )))
         {
             update_opacity( w );
@@ -701,6 +767,7 @@ DWORD compose_set( void *display, unsigned long root, unsigned long desktop, int
     return enabled ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS;
 }
 BOOL compose_enabled(void) { return FALSE; }
+DWORD compose_shadow( unsigned long window, BOOL shadow ) { return ERROR_NOT_SUPPORTED; }
 void compose_event( void *event ) { }
 void compose_paint(void) { }
 long compose_event_mask( unsigned long window, long wm_mask ) { return wm_mask; }

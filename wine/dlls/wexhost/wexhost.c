@@ -473,6 +473,14 @@ DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled )
     return params.err;
 }
 
+DWORD WINAPI WexCompositionSetShadow( UINT64 window, BOOL shadow )
+{
+    struct composition_shadow_params params = { window, shadow };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_shadow, &params );
+    return params.err;
+}
+
 static DWORD WINAPI wm_event_thread( void *arg )
 {
     for (;;)

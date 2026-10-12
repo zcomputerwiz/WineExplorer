@@ -46,6 +46,24 @@ static const WCHAR default_driver[] = L"mac,x11,wayland";
 
 static BOOL using_root = TRUE;
 static BOOL shell_mode;   /* WineExplorer interactive shell: taskbar, Start menu, desktop view */
+static HWINEVENTHOOK composition_shadow_hook;
+
+static void CALLBACK composition_shadow_event( HWINEVENTHOOK hook, DWORD event, HWND hwnd,
+                                               LONG object, LONG child, DWORD thread, DWORD time )
+{
+    UINT64 window;
+    BOOL enabled = FALSE, shadow = FALSE;
+    if (!hwnd || object != OBJID_WINDOW || child != CHILDID_SELF ||
+        GetAncestor( hwnd, GA_ROOT ) != hwnd ||
+        !(GetClassLongW( hwnd, GCL_STYLE ) & CS_DROPSHADOW)) return;
+    if (WexCompositionGetEnabled( &enabled ) || !enabled) return;
+    if (event == EVENT_OBJECT_SHOW)
+        SystemParametersInfoW( SPI_GETDROPSHADOW, 0, &shadow, 0 );
+    window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
+    /* Cross-process property reads can be zero. In that case winex11 publishes
+     * _WEX_DROPSHADOW on the X window and compose.c reads it directly. */
+    if (window) WexCompositionSetShadow( window, shadow );
+}
 #define IDHK_TASKLIST 1   /* Ctrl+Esc on the shell window */
 
 struct launcher
@@ -1422,6 +1440,10 @@ void manage_desktop( WCHAR *arg )
                               RRF_RT_REG_DWORD, NULL, &composition, &size );
                 if (composition == 1 && (err = WexCompositionSetEnabled( TRUE )))
                     WARN( "composition unavailable, error %lu\n", err );
+                else if (composition == 1)
+                    composition_shadow_hook = SetWinEventHook( EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE,
+                                                               NULL, composition_shadow_event, 0, 0,
+                                                               WINEVENT_OUTOFCONTEXT );
             }
             shellfolder_link_media_folders();
         }
@@ -1471,6 +1493,7 @@ void manage_desktop( WCHAR *arg )
     }
 
     if (pShellDDEInit) pShellDDEInit( FALSE );
+    if (composition_shadow_hook) UnhookWinEvent( composition_shadow_hook );
     WexCompositionSetEnabled( FALSE );
     linux_windows_stop();
 

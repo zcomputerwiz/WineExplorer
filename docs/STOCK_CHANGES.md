@@ -63,6 +63,27 @@ rebasing on upstream Wine harder. Baseline = commit `40c17e1` (the upstream impo
 | `programs/shell32`-visible: none | Run dialog placement is done by explorer (CBT hook), not by shell32 | - |
 | `loader/wine.inf.in` | `.msc` files open with `mmc.exe` (`MSCFile`); new `[MscFiles]` copies `devmgmt.msc` (a data file of `programs/mmc`) into system32 | always |
 
+## D2 compositor effects and capture
+
+- `dlls/winex11.drv/window.c`, `x11drv.h`: a private `_WEX_DROPSHADOW` CARDINAL on class-shadow windows carries
+  `SPI_GETDROPSHADOW` to the compositor at creation/show. Explorer's out-of-context hook cannot reliably read another
+  process's XID. The hint is only written when `_NET_WM_CM_S<screen>` has an owner; no input/shape/rendering changes
+  without one. The shared internal `X11DRV_has_compositor` queries ownership on the actual display's default screen.
+- `dlls/user32/win.c`: `AnimateWindow(AW_BLEND)` steps temporary `WS_EX_LAYERED` uniform alpha at roughly 16 ms
+  intervals for `dwTime`, then restores the layered bit/attributes and the requested visibility. As allowed by the
+  D2 spec this path runs without an X11 selection query in user32; intermediate alpha is visible only with a
+  compositor (Wine's X11 driver only publishes opacity otherwise). Other animation flags retain the partial-stub
+  behavior. Existing per-pixel layered windows fall back to immediate show/hide to preserve their bitmap; uniform
+  alpha and color-key layered windows retain their attributes. Automatic popup menu fades are deferred: win32u's
+  `show_popup` cannot call user32's `AnimateWindow`, and a shared fade/compositor gate would broaden the stock change.
+- `dlls/winex11.drv/bitblt.c`: direct `X11DRV_StretchBlt` source copies and `X11DRV_GetImage` readback substitute the
+  real X root for a virtual-desktop source drawable and add its root offset to the source DC rectangle. Gate:
+  source equals Wine's `root_window`, that window differs from `DefaultRootWindow`, and `_NET_WM_CM_S<screen>` has
+  an owner at read time. The DC is copied locally; destination rendering/GCs and ordinary window reads stay as before.
+  `dlls/winex11.drv/xrender.c`: under the same gate, scaling/format conversions fall back to that core path (and GDI
+  image readback if needed), avoiding a cached desktop picture that lacks redirected children. Ownership is queried
+  per read, so already-open screen DCs recover immediately after composition is disabled.
+
 ## Reverted (were changed earlier, now stock again)
 - `dlls/comctl32/monthcal.c` (today-circle removal): timedate.cpl now creates its calendar with
   `MCS_NOTODAY | MCS_NOTODAYCIRCLE`, which is what the XP applet looks like.
