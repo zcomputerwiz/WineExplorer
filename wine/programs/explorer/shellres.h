@@ -2,6 +2,7 @@
  * WineExplorer Desktop Environment - shell resources (icons and bitmaps by Windows resource id)
  *
  * Icons and bitmaps are addressed by (module, id) like on Windows (shell32 id 32 = Recycle Bin ...).  If a genuine
+ * resource pack is installed (xpres_<module>.dll under %WinDir%\Resources\Icons, built locally, see docs/ASSETS.md) the shell uses
  * it; otherwise it uses Wine's shell32 and the bitmaps built into explorer.exe (ReactOS).
  *
  * Copyright 2026 WineExplorer Desktop Environment Project

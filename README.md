@@ -10,6 +10,7 @@ The goal of this project is to evolve Wine's built-in `explorer.exe` and its vir
 - **Proton** as an independent application runtime, retaining its own prefixes and normal Steam/launcher integration,
 - **Gamescope** as an optional per-application compositor for games,
 - **ReactOS Explorer** architecture as an open-source structural and algorithmic guide for NT-style shell components,
+- **Windows XP / Server 2003** as the visual and behavioral target for menus, icons, tray behavior, taskbar layout, and classic desktop styling, compared side by side with a Windows XP VM.
 
 ---
 
@@ -44,8 +45,9 @@ D:\DeepThought\Projects\WineExplorer\
 
 ---
 
-## Clean-Room Reference Policy
+## Reference Policy
 
+- **Windows XP**: the look and behavior are compared with a Windows XP VM. No Microsoft code or files are in this repository; genuine XP files used for local comparison stay on the developers' machines (see [docs/ASSETS.md](docs/ASSETS.md)).
 - **ReactOS / Open-Shell**: Open-source implementations used to study clean NT shell architecture, COM interfaces, and taskbar message handling.
 - **Wine**: The active base upstream tree where our extensions and enhancements are developed.
 

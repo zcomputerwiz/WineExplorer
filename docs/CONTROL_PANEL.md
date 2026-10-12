@@ -3,6 +3,7 @@
 Goal: the Control Panel of Windows XP, with applets that work. An applet that makes no sense in Wine on Linux is left
 out; an option inside an applet that cannot work is shown grayed out (disabled), as Windows does for options a policy
 or the hardware rules out. References: `references/screenshots/control_panel/` (XP VM), ReactOS `dll/cpl/*` (may be
+ported).
 
 ## The folder
 Windows XP opens Control Panel (`control.exe`, Start menu, My Computer's "Control Panel" link) as an Explorer folder

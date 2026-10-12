@@ -1,0 +1,431 @@
+[
+ {
+  "path": "wine/dlls/comctl32/idi_dragarrow.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/dlls/desk.cpl/desk.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/desk/resources/applet.ico"
+ },
+ {
+  "path": "wine/dlls/desk.cpl/monitor.bmp",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/desk/resources/monitor.bmp"
+ },
+ {
+  "path": "wine/dlls/devmgr/icons/21.ico",
+  "kind": "wanted",
+  "source": "placeholder",
+  "wanted": "Device Manager class icon: IEEE 1394 Bus host controllers, 16/32 px"
+ },
+ {
+  "path": "wine/dlls/devmgr/icons/22.ico",
+  "kind": "wanted",
+  "source": "placeholder",
+  "wanted": "Device Manager class icon: Infrared devices and Modems, 16/32 px"
+ },
+ {
+  "path": "wine/dlls/devmgr/icons/25.ico",
+  "kind": "wanted",
+  "source": "placeholder",
+  "wanted": "Device Manager class icon: Smart card readers, 16/32 px"
+ },
+ {
+  "path": "wine/dlls/devmgr/icons/41.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/dlls/main.cpl/admfldsh.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/admintools_folder.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/clklock.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/lock_key.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/dblclk.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_button.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/delay.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/repeat_delay.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/fldr_clo.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/folder_closed.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/fldr_opn.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/folder_open.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/fntfldsh.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/shell32/res/icons/39.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/keybd.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/keyboard.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/mouse.bmp",
+  "kind": "icon2bmp",
+  "source": "reactos/dll/cpl/main/resources/mouse.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/mouse.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/prtfldsh.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/shell32/res/icons/38.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/pspeed.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_speed.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/pt02.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_trails.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/pt03.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_speed.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/pt04.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_button.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/repeat.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/repeat_rate.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/sglclk.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_left.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/snapto.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_button.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/sonar.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_pointer.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/vanish.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_hide.ico"
+ },
+ {
+  "path": "wine/dlls/main.cpl/wheel.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/main/resources/mouse_wheel.ico"
+ },
+ {
+  "path": "wine/dlls/mmsys.cpl/play.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/dlls/mmsys.cpl/playback.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/mmsys/resources/3004.ico"
+ },
+ {
+  "path": "wine/dlls/mmsys.cpl/speaker.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/mmsys/resources/speaker.ico"
+ },
+ {
+  "path": "wine/dlls/mmsys.cpl/stop.bmp",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/dlls/mmsys.cpl/syssound.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/mmsys/resources/4353.ico"
+ },
+ {
+  "path": "wine/dlls/mmsys.cpl/volspkr.bmp",
+  "kind": "icon2bmp",
+  "source": "reactos/dll/cpl/mmsys/resources/speaker.ico"
+ },
+ {
+  "path": "wine/dlls/ncpa.cpl/netfol.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/netshell.ico"
+ },
+ {
+  "path": "wine/dlls/netshell/foldwiz.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/netsetup.ico"
+ },
+ {
+  "path": "wine/dlls/netshell/netfol.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/netshell.ico"
+ },
+ {
+  "path": "wine/dlls/powercfg.cpl/batt.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/powercfg/resources/batteryfull.ico"
+ },
+ {
+  "path": "wine/dlls/powercfg.cpl/hibernate.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/powercfg/resources/hibernate.ico"
+ },
+ {
+  "path": "wine/dlls/powercfg.cpl/plug.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/powercfg/resources/ac.ico"
+ },
+ {
+  "path": "wine/dlls/powercfg.cpl/pwrmng.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/powercfg/resources/acdc.ico"
+ },
+ {
+  "path": "wine/dlls/sysdm.cpl/sysdm.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/sysdm/resources/applet.ico"
+ },
+ {
+  "path": "wine/dlls/sysdm.cpl/windows.bmp",
+  "kind": "wanted",
+  "source": "placeholder",
+  "wanted": "the product logo on System Properties > General"
+ },
+ {
+  "path": "wine/dlls/timedate.cpl/timedate.ico",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/timedate/resources/applet.ico"
+ },
+ {
+  "path": "wine/dlls/timedate.cpl/world.bmp",
+  "kind": "copy",
+  "source": "reactos/dll/cpl/timedate/resources/world.bmp"
+ },
+ {
+  "path": "wine/programs/explorer/batt.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/stobject/resources/battery/5.ico"
+ },
+ {
+  "path": "wine/programs/explorer/battplug.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/stobject/resources/battery/charging4.ico"
+ },
+ {
+  "path": "wine/programs/explorer/explorer.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/shell32/res/icons/46.ico"
+ },
+ {
+  "path": "wine/programs/explorer/hotplug.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/stobject/resources/2.ico"
+ },
+ {
+  "path": "wine/programs/explorer/mute.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/stobject/resources/4.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_adapter.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/setupapi/res/5.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_blank.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/netidle.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_client.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/setupapi/res/7.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_disconnect.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/netoff.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_lan.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/netidle.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_plugged.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/neterror.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_protocol.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/setupapi/res/6.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_recv.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/netrec.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_service.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/setupapi/res/8.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_sig0.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/explorer/net_sig1.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/explorer/net_sig2.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/explorer/net_sig3.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/explorer/net_sig4.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/explorer/net_sig5.ico",
+  "kind": "draw",
+  "source": "drawn by scripts/open_assets.py"
+ },
+ {
+  "path": "wine/programs/explorer/net_wireless.ico",
+  "kind": "wanted",
+  "source": "placeholder",
+  "wanted": "wireless network adapter (antenna), 16/32/48 px"
+ },
+ {
+  "path": "wine/programs/explorer/net_xmit.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/nettrans.ico"
+ },
+ {
+  "path": "wine/programs/explorer/net_xmitrecv.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/netshell/res/nettrrec.ico"
+ },
+ {
+  "path": "wine/programs/explorer/rover.bmp",
+  "kind": "wanted",
+  "source": "placeholder",
+  "wanted": "Search Companion still character (shown when no animated character is installed), 56 x 68, magenta background"
+ },
+ {
+  "path": "wine/programs/explorer/start.ico",
+  "kind": "wanted",
+  "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
+  "wanted": "Start button logo, 16/24/32/48 px; until then Wine's logo"
+ },
+ {
+  "path": "wine/programs/explorer/startflag.bmp",
+  "kind": "wanted",
+  "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
+  "wanted": "Start button logo as a 25 x 20 bitmap on black (the Start button draws it); until then Wine's logo"
+ },
+ {
+  "path": "wine/programs/explorer/volume.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/stobject/resources/3.ico"
+ },
+ {
+  "path": "wine/programs/explorer/wzcui.bmp",
+  "kind": "wanted",
+  "source": "placeholder",
+  "wanted": "wireless network list strip, 8 x 16 px: checkbox off, checkbox on, access point, access point preferred (blue ring), access point unavailable (red X), ad hoc, ad hoc preferred, ad hoc unavailable"
+ },
+ {
+  "path": "wine/programs/regedit/bin.ico",
+  "kind": "copy",
+  "source": "reactos/base/applications/regedit/res/bin.ico"
+ },
+ {
+  "path": "wine/programs/regedit/computer.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/shell32/res/icons/16.ico"
+ },
+ {
+  "path": "wine/programs/regedit/folder.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/shell32/res/icons/4.ico"
+ },
+ {
+  "path": "wine/programs/regedit/folderopen.ico",
+  "kind": "copy",
+  "source": "reactos/dll/win32/shell32/res/icons/5.ico"
+ },
+ {
+  "path": "wine/programs/regedit/string.ico",
+  "kind": "copy",
+  "source": "reactos/base/applications/regedit/res/string.ico"
+ },
+ {
+  "path": "wine/programs/sndvol32/asound.ico",
+  "kind": "copy",
+  "source": "reactos/base/applications/sndvol32/resources/sndvol32.ico"
+ },
+ {
+  "path": "wine/programs/sndvol32/lspeak.ico",
+  "kind": "copy",
+  "source": "reactos/base/applications/sndvol32/resources/speaker_left.ico"
+ },
+ {
+  "path": "wine/programs/sndvol32/mixrcont.ico",
+  "kind": "copy",
+  "source": "reactos/base/applications/sndvol32/resources/sndvol32.ico"
+ },
+ {
+  "path": "wine/programs/sndvol32/mute.ico",
+  "kind": "copy",
+  "source": "reactos/dll/shellext/stobject/resources/4.ico"
+ },
+ {
+  "path": "wine/programs/sndvol32/rspeak.ico",
+  "kind": "copy",
+  "source": "reactos/base/applications/sndvol32/resources/speaker_right.ico"
+ },
+ {
+  "path": "wine/programs/taskmgr/windowsm.ico",
+  "kind": "copy",
+  "source": "reactos/base/applications/taskmgr/res/windowsm.ico"
+ }
+]

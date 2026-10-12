@@ -291,9 +291,11 @@ static void draw_sample(HWND hwnd,HDC dc,const RECT *rc,PREVIEW_STATE *s)
         if (!monitor) return;
         GetObjectW(monitor,sizeof(bm),&bm); x=(w-bm.bmWidth)/2; y=(h-bm.bmHeight)/2;
         mem=CreateCompatibleDC(dc); old=SelectObject(mem,monitor);
-        { HBRUSH brush=SelectObject(mem,GetSysColorBrush(COLOR_BTNFACE)); ExtFloodFill(mem,0,bm.bmHeight-1,GetPixel(mem,0,bm.bmHeight-1),FLOODFILLSURFACE); SelectObject(mem,brush); }
-        BitBlt(dc,x,y,bm.bmWidth,bm.bmHeight,mem,0,0,SRCCOPY);
-        SetRect(&r,x+16,y+17,x+168,y+129);
+        /* the picture's background colour (its bottom-left pixel) is transparent */
+        GdiTransparentBlt(dc,x,y,bm.bmWidth,bm.bmHeight,mem,0,0,bm.bmWidth,bm.bmHeight,GetPixel(mem,0,bm.bmHeight-1));
+        /* the screen inside the monitor picture: Windows XP's (185 x 163), else ReactOS's (160 x 120) */
+        if(bm.bmWidth==185) SetRect(&r,x+16,y+17,x+168,y+129);
+        else SetRect(&r,x+19,y+7,x+141,y+93);
         draw_wallpaper(dc,&r,s);
         if(id==IDC_SET_MONITOR_IMG)
         {

@@ -6,6 +6,9 @@ Windows XP / Server 2003 shell on Wine for Debian. Docs live in `docs/` (start w
 ## Rules
 
 - Pixel and functional parity with the XP VM; XP names; gray out what does not apply to Wine.
+- ReactOS code and art may be ported. Microsoft material (genuine XP files, reference sources) never enters this
+  repository and is never named in it: it lives in the local-only repository `../WineExplorer-local`
+  (`docs/ASSETS.md`). Pictures here are open: `scripts/open_assets.py`, `assets/open_assets.json`.
 - Keep changes to stock Wine small and list each in `docs/STOCK_CHANGES.md`.
 - Prefer D-Bus (wexhost) over spawning tools.
 - Commit after each working step.

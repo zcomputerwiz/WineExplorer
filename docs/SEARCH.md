@@ -1,14 +1,21 @@
 # Search: Windows XP, ReactOS, Wine and later Windows
 
 Analysis of 2026-10-08 for the Start menu's **Search**, the Explorer **Search** button, F3 / Win+F and
-it. ReactOS code may be ported (the project is GPL-2.0-or-later, see `LICENSE.md`).
+"Search..." on folders, from the behavior of Windows XP and the public documentation. ReactOS code may be ported (the project is GPL-2.0-or-later, see `LICENSE.md`).
 
-## 1. Windows XP / Server 2003 (from the source, by role)
+## 1. Windows XP / Server 2003 (behavior, by role)
 
 | Piece | Where | What it does |
 |---|---|---|
 | Entry points | `SHFindFiles(pidlFolder, pidlSavedSearch)`, `SHFindComputer`, F3/Win+F, Start > Search, toolbar Search, "Search..." verb on folders | open the search results folder with the search pane, optionally scoped to a folder or reopening a saved search (`.fnd`) |
-| Two engines | `CFindFilter` | without an index it walks the namespace (`CNamespaceEnum`, matching each item); when the Indexing Service catalog covers the scope and is running it turns the criteria into an Indexing Service query (OLE DB rowset that also reports later changes) |
+| Results folder | shell32, class **CLSID_FindFolder** `{E17D4FC0-5564-11D1-83F2-00A0C90DC849}` ("Search Results") | a virtual `IShellFolder2` holding items found in many folders; columns Name, In Folder, Size, Type, Date Modified (and Rank with the index); items keep their real parent so verbs, drag and drop and properties work |
+| Search command | shell32 (`ISearchCommandExt`, scriptable through `IDispatch`, events `DSearchCommandEvents`) | runs a search on a worker thread, adds results to the folder view, reports progress, stop/restart |
+| Criteria | shell32 (`IFindFilter`) | file name patterns, "a word or phrase in the file", Look in (several roots), date modified/created/accessed (last N days/months, or between two dates), size at least/at most, file type, and the advanced options: system folders, hidden files and folders, subfolders, case sensitive, tape backup. Saves/restores criteria in a stream |
+| Two engines | shell32 | without an index it walks the namespace (matching each item); when the Indexing Service catalog covers the scope and is running it turns the criteria into an Indexing Service query (OLE DB rowset that also reports later changes) |
+| Search pane | shell32 (`CLSID_FileSearchBand`, an Explorer bar band) | hosts either the Windows 2000 style pages (name and location, date, type, size, advanced) or the XP **Search Companion** |
+| Search Companion | shdocvw + `srchui.dll`, `srchctls.dll` and XML/XSL pages under `%windir%\srchasst`, Agent characters Rover, Courtney, Earl | the task-based XP pane ("What do you want to search for? Pictures, music, or video / Documents / All files and folders / Computers or people / ...") that drives the search command; also Internet search and preferences ("Change preferences": animated character, Indexing Service, ...) |
+| Computers / people | shell32, the Windows Address Book | "Computers or people" |
+| Indexing Service | the `cisvc` service ( catalogs, IFilter content filters, client `query.dll`) | off by default on XP; when on, content searches are fast and ranked |
 
 ## 2. ReactOS
 

@@ -18,21 +18,20 @@ A Live CD is not required. A "Start from CD" boot entry is wanted anyway, becaus
 
 - **XP parity.** Match the XP VM pixel for pixel and step for step, using XP's names and wording.
 - **Gray out what does not apply on Linux**, rather than hiding it. Where XP had no equivalent step, leave it out.
-  how Setup works, but never copy its code, data files or INF text.
+- **No Microsoft code, files or text** in the repository or the ISO. Work from XP's behavior, the reference
+  screenshots (§6) and public documentation.
 - **ReactOS code and art may be ported.** Keep their licence headers (GPL-2.0+ or LGPL).
 - **Genuine Microsoft art** (bitmaps, icons, OOBE images, sounds) never goes into the repository or the default ISO.
-  - The installer needs an open fallback for every genuine asset: ReactOS art, or our own.
+  - Genuine files live only in the developers' local-only repository (`docs/ASSETS.md`); a local build may add them.
+  - The installer needs open art for everything: ReactOS art, or our own (`scripts/open_assets.py`).
 - **Prefer the D-Bus services** over spawning command-line tools: systemd `locale1`, `timedate1` and `hostname1`,
   AccountsService, NetworkManager and polkit. Reuse `wine/dlls/wexhost`, which already wraps several of them.
 - **Keep changes to stock Wine small**, and list every one in `docs/STOCK_CHANGES.md`.
 - **Commit after each working step.** Never pass C escapes through Bash heredocs, `sed` or `python -c`: write the file
   with an editor or a script file instead (see `CLAUDE.md`, "Editing").
 
-**On another machine.** `references/` is not in git (it is in `.gitignore`), so a fresh clone has neither
-- **ReactOS** is public: clone `https://github.com/reactos/reactos` into `references/reactos`.
-  work order needs from it is summarized below, so it is optional.
-- The same goes for `references/xp_export`, the XP VM and its genuine resources: §4.7 works only where they exist. The
-  default build never needs them.
+**On another machine.** `references/` is not in git (it is in `.gitignore`). ReactOS is public: clone
+`https://github.com/reactos/reactos` into `references/reactos`.
 
 ## 2. How Windows XP Setup works (research summary)
 
@@ -49,9 +48,6 @@ the last letter of the extension (for example `NTOSKRNL.EX_`).
 | `SYSSETUP.INF` | GUI-mode Setup: which INFs to run, registry to write, components to register. |
 | `SYSOC.INF` | Optional Components (the Windows Components Wizard), handled by the OC Manager. |
 | `HIVE*.INF` | The default registry hives, which text-mode Setup builds. |
-
-- Build tools merge the fragments and filter lines by product. Prefixes such as `@w:` and `@s:` mark lines for
-  workstation-only or server-only builds.
 
 **Take the idea, not the text.** Our build generates one file list from the target filesystem, and that list drives
 the copy phase and its progress bar.
@@ -101,12 +97,7 @@ the copy phase and its progress bar.
      - Thank you!
    - Then "Welcome", and the desktop.
 
-
-The source tree has all of Setup. If it is available, read it to settle questions of behavior and wording.
-
-|---|---|
-
-### 2.4 Open-source clones you may port: ReactOS (`references/reactos`)
+### 2.3 Open-source clones you may port: ReactOS (`references/reactos`)
 
 | ReactOS | What it is |
 |---|---|
@@ -292,15 +283,10 @@ free.
 
 ### 4.7 Art and genuine resources
 
-  it again with `VBoxManage sharedfolder add … --transient` after a reboot) to fetch:
-  - `winntbb.dll` (billboard)
-  - `syssetup.dll` (wizard header and watermark)
-  - `msoobe.exe` and `%windir%\system32\oobe\` (images, `title.wma`, `*.htm` for reference only)
-  - `setupldr.bin` text strings (for reference only)
-  - `XP_FILES` for the DLLs.
-  - A file-copy path for the OOBE folder.
-- **Packaging.** `installer/build-iso.sh --genuine` adds the packs to `/setup/art/xp/` *only for the user's own local
-  build*. The default ISO uses the open art:
+- **Genuine XP assets** (billboard, wizard and OOBE pictures, sounds) are gathered and packed by the local-only
+  tooling on the developers' machines (`docs/ASSETS.md`), never in this repository.
+- **Packaging.** `installer/build-iso.sh --genuine` adds such packs to `/setup/art/xp/` *only for the user's own
+  local build*, reading them from the local-only repository. The default ISO uses the open art:
   - ReactOS `base/setup/reactos/res`, `dll/win32/syssetup/resources` and `base/setup/usetup` art.
   - Our own redraws where ReactOS has nothing.
 - **Fonts.** Tahoma for the GUI stages comes from `scripts/fonts.py` (genuine, local builds only). The open fallback
@@ -375,6 +361,7 @@ The boot-from-CD image (`xp_boot_from_cd.jpg`) is VMware's BIOS menu, not part o
 ## 7. Open questions for the user (ask before M3)
 
 1. Is an XP installation ISO available, to capture full-resolution reference screenshots? The dedoimedo set (§6) is
+   enough to start.
 2. Disk layout: one ext4 root partition (XP-like simplicity), or a separate `/home`? Btrfs snapshots?
 3. "Administrator password": set the root password (closest to XP), or keep root locked and make the first OOBE user
    a sudoer only (the Debian default when no root password is given)?

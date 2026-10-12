@@ -28,6 +28,9 @@ VBM="/c/Program Files/Oracle/VirtualBox/VBoxManage.exe"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SSH=(ssh -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no "$USER_@127.0.0.1")
 STAMP="$ROOT/.vm_synced_commit"   # gitignored; last commit whose tree was synced
+# The local-only repository with the genuine Windows XP files (never pushed; see docs/ASSETS.md).  sync puts its
+# copies over the open ones on the VM, so local builds look like XP while this repository holds open art only.
+LOCAL="${WEX_LOCAL:-$ROOT/../WineExplorer-local}"
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
@@ -39,10 +42,24 @@ sync)
         git ls-files --others --exclude-standard -- wine
     } 2>/dev/null | sort -u > /tmp/vm_sync_files
     git diff --name-only --diff-filter=D "$base" -- wine 2>/dev/null | sed 's#^wine/##' > /tmp/vm_sync_deleted || true
+    rm -f /tmp/vm_sync_local
+    if [ -d "$LOCAL/ms-assets/wine" ]; then
+        (cd "$LOCAL/ms-assets" && find wine -type f | sort) > /tmp/vm_sync_local
+        comm -23 /tmp/vm_sync_files /tmp/vm_sync_local > /tmp/vm_sync_open && mv /tmp/vm_sync_open /tmp/vm_sync_files
+    fi
     n=$(wc -l < /tmp/vm_sync_files)
     echo "syncing $n files"
     if [ "$n" -gt 0 ]; then
         tar -cf - -T /tmp/vm_sync_files | "${SSH[@]}" 'tar -xmf - -C ~/src'
+    fi
+    if [ -s /tmp/vm_sync_local ]; then
+        # only those that differ on the VM, touched so what is built from them is rebuilt
+        (cd "$LOCAL/ms-assets" && xargs md5sum < /tmp/vm_sync_local) |
+            "${SSH[@]}" 'cd ~/src && md5sum -c 2>/dev/null | grep -v ": OK$" | sed "s/: [A-Z].*$//"' > /tmp/vm_sync_overlay || true
+        if [ -s /tmp/vm_sync_overlay ]; then
+            tar -C "$LOCAL/ms-assets" -cf - -T /tmp/vm_sync_overlay | "${SSH[@]}" 'tar -xmf - -C ~/src'
+        fi
+        echo "genuine files from $LOCAL: $(wc -l < /tmp/vm_sync_overlay) updated"
     fi
     if [ -s /tmp/vm_sync_deleted ]; then
         "${SSH[@]}" 'cd ~/src/wine && xargs -r rm -f' < /tmp/vm_sync_deleted
@@ -112,6 +129,7 @@ resources)
     case "${1:-}" in
     xp)
         tar -C "$ROOT/references/xp_export" -cf - Resources Cursors Media Web srchasst | "${SSH[@]}" 'tar -C ~/.wine/drive_c/windows -xmf -'
+        python "$LOCAL/tools/xpres.py" pack
         echo "resources: genuine XP set installed" ;;
     open)
         "${SSH[@]}" 'cd ~/.wine/drive_c/windows && rm -rf Resources/Themes/Luna Resources/Themes/Luna.theme "Resources/Themes/Windows Classic.theme" Cursors Media Web/Wallpaper srchasst'

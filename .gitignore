@@ -45,7 +45,6 @@ Thumbs.db
 .vm_synced_commit
 vm_shot.png
 xp_shot.png
-assets/_ms_originals/
 installer/*.iso
 installer/*.vdi
 installer/*.deb

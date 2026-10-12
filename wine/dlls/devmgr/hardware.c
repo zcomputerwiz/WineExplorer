@@ -143,6 +143,7 @@ WCHAR *utf8_to_wide( const char *str, WCHAR *buffer, DWORD size )
     return buffer;
 }
 
+/* the genuine Windows XP resources, when a locally built resource pack is installed (docs/ASSETS.md) */
 HMODULE xp_resources( const WCHAR *module )
 {
     static struct { const WCHAR *name; HMODULE handle; BOOL tried; } packs[8];

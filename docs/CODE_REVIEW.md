@@ -207,10 +207,13 @@ blank values; keep mocks behind a `WINEEXPLORER_MOCK=1` env var for screenshot w
 - **D5. Two Settings tabs in desk.cpl.** The new `IDD_SETTINGS` page was added in front of Wine's original
   `IDD_DESKTOP` page, which is still in `pages[]` with its own resolution list and `ChangeDisplaySettings`
   apply **(verify)**. Remove or merge to avoid double-apply and a duplicate tab.
+- **D6. Microsoft-derived icons/bitmaps were committed** (`*.ico`, `*.bmp` in explorer,
   `main.cpl`, `mmsys.cpl`, `powercfg.cpl`, `ncpa.cpl`, `sndvol32`, `netshell`, `timedate.cpl`...). You described
   them as needed reference; the concern is redistribution if this repo is ever published or shared. Decide the
   policy (private repo only / keep a `scripts/extract-assets.py` that pulls from the local `references/` and
   gitignore the output / redraw). Not a code defect; flagging because it is hard to undo once pushed.
+  *Resolved 2026-10-11:* replaced by open art (`scripts/open_assets.py`); the genuine files live in the local-only
+  repository and the history was rewritten without them.
 - **D7. Session scripts.** `setup-default-session.sh` hard-codes the user `wineuser` and sets
   `WaylandEnable=false` (X11), while the project goal says GDM + Wayland + gamescope; `wine-explorer-session.sh`
   writes a fixed world-readable `/tmp/wine-session.log`, uses `exec gamescope` with no nested-session flags
