@@ -6,8 +6,37 @@ the latest W7 status is recorded separately.
 
 ## LightDM continuation (W7)
 
-The final clean image is rebuilding after fixing installed directory metadata.
-Fresh blank-disk acceptance results will be recorded here when complete.
+The final image passed fresh blank-disk acceptance on QEMU/KVM (BIOS, virtio).
+Its clean-build squashfs was retained byte-for-byte while layout.inf and
+txtsetup.sif were regenerated from the immutable payload. The new build hook
+does this directly on future clean builds.
+
+| Final W7 check | Result |
+|---|---|
+| Native directory regression tests | Pass, two tests; empty home, UID/GID, mode/setgid and traversal rejection |
+| Complete native directory preflight | Pass, all 5,015 payload directories |
+| Corrected binary layout hook | Pass; immutable squashfs mounted read-only and tables generated |
+| Repaired ISO payload comparison | Pass, extracted final squashfs compared byte-for-byte with clean build |
+| Live CD | Pass, automatic Wine desktop and normal ACPI shutdown |
+| Fresh interactive install | Pass, GUI/OOBE, custom Welcome screen, wrong Alice password rejection, correct password login, Win+L, passwordless Bob desktop in 5 seconds |
+| Interactive installed disk | Pass, root/Alice password hashes, full names, administrator membership, Bob passwordless state, both users' session logs, greeter/home ownership and setup cleanup |
+| Zero-input install | Pass, automatic installed Wine desktop, normal shutdown and installed-disk hostname/account/prefix/config/ownership/cleanup/license checks |
+
+Final host images:
+
+- `D:/VirtualBox_VMs/iso/wineexplorer-w7.iso`:
+  `bad479fea7f44b0a6913577860b7f9a397b8f5ce9b92874cb50a82899b8bdce2`.
+- `D:/VirtualBox_VMs/iso/wineexplorer-w7-unattended-test.iso` (derived test media
+  with an external CD answer file explicitly selecting `/dev/vda`):
+  `3b714a5ccf9110f654b76fc8295da75b2c9b21de10787081ab46a80ed506514a`.
+
+Final logs are ignored `build/install-test/w7-{interactive,unattended,live}.log`;
+screenshots are in `/var/tmp/wineexplorer-vmtest/` and copied to the host evidence
+directory. All three W7 test VMs end stopped. Earlier failed images/logs are
+diagnostics, not current acceptance artifacts.
+
+These tests do not exercise EFI/physical hardware, task retention after switching
+back to the first session, or an actual GTK recovery-greeter login.
 
 Already verified in this continuation:
 
@@ -18,7 +47,7 @@ Already verified in this continuation:
 - A stopped installed multi-user disk repaired to the correct LightDM home
   ownership passed wrong/correct Alice authentication, Win+L, Bob's passwordless
   desktop (5 seconds), normal shutdown and read-only account/config/prefix checks.
-  This is diagnostic confirmation; the final blank-disk rerun remains required.
+  This was diagnostic confirmation before the final blank-disk rerun passed.
 
 Corrections discovered:
 
@@ -38,6 +67,12 @@ Corrections discovered:
   QMP screenshot/ImageMagick failures. Preserve old stopped disks on persistent
   storage, and use VMTEST_DIR=/var/tmp/wineexplorer-vmtest for further runs;
   acceptance scripts now honor this existing vmtest setting.
+- The original layout was scanned from the mutable build chroot after squashfs
+  compression. It contained 122 directories absent from the payload (first
+  `/packages`), so the new strict directory pass correctly stopped. Generate
+  tables from mounted squashfs instead. The final ISO replaces only those two
+  tables; its extracted payload passed a byte-for-byte comparison. Xorriso was
+  initially absent on the build VM; it is now installed there as well as in WSL.
 
 Initial failed-run logs, diagnostic screenshots and the repaired-disk auth
 evidence are under the ignored `build/install-test/` directory. An NBD inspection

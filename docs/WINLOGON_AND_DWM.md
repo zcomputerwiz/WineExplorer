@@ -1,6 +1,6 @@
 # Logon and window composition: plan
 
-Status (2026-10-12): W1-W3 done (dev VM on LightDM with the logonui.exe Welcome screen); W4 next. D1 compositor core and D2 effects (shadows, blend fades, capture) merged, off by default. This plan covers two projects:
+Status (2026-10-12): W1-W3 and W7 done (LightDM/logonui.exe on the dev VM and verified installed images); W4 next. D1 compositor core and D2 effects (shadows, blend fades, capture) merged, off by default. This plan covers two projects:
 
 - **Winlogon**: XP's logon experience (Welcome screen, classic Log On to Windows dialog, Lock Computer, Switch
   User / fast user switching, Windows Security) on top of a real Linux display manager.
@@ -146,7 +146,7 @@ AccountsService), the fades, scrolling for more accounts than fit, the open logo
 
 ### W7: installer
 - Package and OOBE switch from GDM to LightDM and our greeter; OOBE creates the first user through AccountsService.
-- Implementation in progress: installer packages the custom greeter and GTK recovery greeter, selects LightDM,
+- Implemented: installer packages the custom greeter and GTK recovery greeter, selects LightDM,
   and prepares the lightdm account's isolated Wine prefix on first use. Text setup clears both live-config's main
   configuration and the live autologin snippet. Debian 13 AccountsService writes LightDM's automatic login setting
   through the existing WexUserSetSession D-Bus call; multiple users get the Welcome screen.
@@ -154,9 +154,11 @@ AccountsService), the fades, scrolling for more accounts than fit, the open logo
   skipped conditions could cancel the live desktop's startup job. Removed stale duplicate setup units from includes.
 - Native text setup now copies directory ownership and permissions from WinntDirectories, including empty service
   homes. Without this, LightDM's home was root-owned and its X authority write failed on the installed system.
-- Directory-copy regression tests pass. A stopped disposable disk repaired to the correct ownership has passed
-  wrong/correct password authentication, Win+L and passwordless user switching; a final clean ISO rerun is underway.
-- Clean ISO and installed-system acceptance tests are pending; do not treat development VM tests as installer evidence.
+- Generate setup tables from the immutable squashfs payload; the mutable build chroot added directories not present
+  on the live filesystem. Native directory regression tests and a full 5,015-directory preflight pass.
+- Fresh BIOS/virtio installations passed wrong/correct password authentication, Win+L, passwordless user switching,
+  unattended automatic login, normal shutdown and read-only account/ownership/cleanup checks. Live CD boot/shutdown
+  also passes. See INSTALLER_TEST_REPORT.md for exact final artifacts and limits.
 
 ## 3. Desktop Window Manager
 

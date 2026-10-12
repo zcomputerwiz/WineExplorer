@@ -6,9 +6,9 @@ The installer port is merged and its full Wine build, interactive installation,
 zero-input installation and negative boot/disk safety cases passed on QEMU/KVM.
 See [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md) and
 [CODEX_HANDOFF.md](CODEX_HANDOFF.md). W1-W3 and compositor D1-D2 are implemented;
-installed-system LightDM integration (W7), remaining logon phases, presentation
-polish and EFI/physical-machine verification are still open. The development
-desktop uses the new greeter; the current installer still installs GDM.
+installed-system LightDM integration (W7) now also passes live, multi-user and
+zero-input installation tests. Remaining logon phases, presentation polish and
+EFI/physical-machine verification are still open.
 
 ## Desktop direction (2026-10-09)
 
@@ -72,7 +72,7 @@ steps and remaining limits are recorded in [HANDOFF.md](HANDOFF.md).
 - [x] Implement `power_mgmt.c` / `power_mgmt.h`:
   - [x] Windows XP's "Turn off computer" (Stand By, Turn Off, Restart) and "Log Off Windows" (Switch User, Log Off)
         dialogs over the grayed screen (2026-10-10; the earlier dialog ignored its buttons).
-  - [x] Log Off ends the login session through logind (TerminateSession); Switch User shows GDM's greeter.
+  - [x] Log Off ends the login session through logind (TerminateSession); Switch User shows LightDM's custom Wine greeter.
         Tested on the VM: Log Off reaches the greeter, Restart reboots, Cancel returns.
   - [x] Clean Win32 process shutdown sequence.
   - [x] Linux system shutdown via systemd-logind D-Bus / `systemctl poweroff` / `systemctl reboot`.
