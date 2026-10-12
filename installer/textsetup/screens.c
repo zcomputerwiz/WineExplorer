@@ -21,6 +21,7 @@
  */
 
 #include "textsetup.h"
+#include "copydirs.h"
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mount.h>
@@ -1183,6 +1184,13 @@ SetupStage screen_copy(SetupState *state)
     if (layout_path) {
         FILE *lf = fopen(layout_path, "r");
         if (lf) {
+            if (!copy_layout_directories(lf, "", "/target")) {
+                fclose(lf);
+                ui_draw_status("Setup could not preserve installation directory ownership and permissions.");
+                sleep(5);
+                return STAGE_QUIT;
+            }
+            rewind(lf);
             char line[512];
             bool in_files = false;
             while (fgets(line, sizeof(line), lf)) {

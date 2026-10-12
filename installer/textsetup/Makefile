@@ -3,7 +3,7 @@ CFLAGS ?= -Wall -Wextra -O2 -std=gnu11 -D_GNU_SOURCE $(shell pkg-config --cflags
 LDFLAGS ?= -lncursesw $(shell pkg-config --libs fdisk blkid 2>/dev/null || echo "-lfdisk -lblkid")
 
 
-SRCS = main.c ui.c screens.c
+SRCS = main.c ui.c screens.c copydirs.c
 OBJS = $(SRCS:.c=.o)
 TARGET = textsetup
 
@@ -12,7 +12,7 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
-%.o: %.c textsetup.h
+%.o: %.c textsetup.h copydirs.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
