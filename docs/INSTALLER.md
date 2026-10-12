@@ -21,6 +21,12 @@ Native text setup build dependencies include `build-essential`, `pkg-config`,
 `libfdisk-dev`, `libblkid-dev` and `libncurses-dev`, in addition to the Wine and
 Debian live-build toolchains.
 
+Existing live-build state requires `--clean`; incremental chroot reuse is not
+supported. The builder fails early instead of reusing package-stage markers
+with a bootstrap filesystem that lacks the kernel. Packaging also requires a
+configured `BUILD_DIR` and never falls back to copying `/usr/local` from the
+build machine.
+
 ```sh
 cd ~/inst/build
 make -j4
@@ -184,7 +190,7 @@ User1 = "wineuser"
 User1Admin = 1
 ```
 
-- Build with `--unattended`: `sudo ./installer/build-iso.sh --unattended` (sets GRUB default entry to `Install (unattended)`).
+- Build with `--unattended --clean`: `sudo ./installer/build-iso.sh --unattended --clean` (sets GRUB default entry to `Install (unattended)`).
 - Boots directly into Stage 1, partitions `TargetDisk`, formats, copies files, reboots into Stage 2 (applies hostname, timezone, locale), transitions to Stage 3 (provisions `wineuser` as administrator), configures GDM autologin, cleans up temporary setup state, and launches into the WineExplorer desktop session without a single keystroke.
 
 ---

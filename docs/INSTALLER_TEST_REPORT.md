@@ -13,7 +13,8 @@ must pass before merging/publishing the installer.
 | Open-resource manifest | All 102 source asset hashes match the clean host checkout |
 | Package license documents | Both `.deb` archives contain GPL/LGPL texts and license summary under `/usr/share/doc/<package>/` |
 | License-header helper | Three regression tests pass, including GNU product names and wrapped/existing notices |
-| Clean ISO rebuild | In progress |
+| Clean interactive ISO rebuild | Pass; transferred SHA-256 `e418950ac100cd7e658bd1b14327bb2b706eafd9a9a6915121c7223e9c9651dc` |
+| Workspace/build-directory guards | Pass; reused live-build state and invalid build directory are rejected before staging |
 
 The initial four-job build was stopped with SIGTERM and resumed with eight jobs
 after the older packaging run finished. No unstaged `make install` was used;
@@ -31,8 +32,8 @@ the new image.
 | Scenario | Result |
 |---|---|
 | Interactive blank-disk install through Bob Smith's desktop | Pending |
-| Missing answer file falls back to interactive setup, disk unchanged | Pending |
-| Specified unavailable target disk stops setup, disk unchanged | Pending |
+| Missing answer file falls back to interactive setup, disk unchanged | Pass; welcome screen reached, `qemu-img compare`: Images are identical |
+| Specified unavailable target disk stops setup, disk unchanged | Pass; target error screen reached, `qemu-img compare`: Images are identical |
 | Zero-input install plus installed-disk cleanup/license checks | Pending |
 
 `installer/tests/install-interactive.sh` checks partition creation, format,
@@ -56,3 +57,30 @@ All test scripts replace the named disposable disk. Use dedicated names, such
 as `wex-install-codex`, `wex-safety-codex` and `wex-unattended-codex`. Evidence is
 under `/tmp/vmtest/<name>/`; the interactive log is also captured in the host's
 gitignored `build/install-test/codex-interactive.log`.
+
+## Failures and corrections in this continuation
+
+- First interactive run: `timeout waiting for 'Typical settings'`, followed by
+  `FAIL: no network page`. The screenshot showed the network page; OCR omitted
+  the focused radio label. The test now waits for static `Networking software`
+  text and is being rerun from a blank disk without manual advancement.
+- Incremental unattended build: `cp: cannot stat 'chroot/boot/vmlinuz-*': No such
+  file or directory`. The reused filesystem was a bootstrap chroot with no
+  kernel/package payload while completed package-stage markers remained. The
+  rebuild now uses `--unattended --clean`; the builder rejects existing chroot
+  or `.build` state unless `--clean` is supplied. The unreachable incremental
+  update block was removed.
+- The header helper originally mistook `GNU/Linux` text for an existing notice.
+  Its first stricter expression then missed licenses wrapped across C comment
+  lines. Comment-prefix normalization and three regression checks corrected
+  both cases. Tests exposed unclosed file warnings; file reads/writes now use
+  context managers, and tests pass with Python warnings treated as errors.
+
+Safety fixtures are reproducible with
+`installer/tests/prepare-safety-isos.py INTERACTIVE_ISO OUTPUT_DIR` (requires
+`xorriso`). It preserves the boot metadata, selects the unattended entry, and
+adds an unavailable-target answer file only to the negative fixture. Run
+`boot-safety.sh` against each variant. Observed evidence is in
+`/tmp/vmtest/wex-missing-answer-codex/` and
+`/tmp/vmtest/wex-wrong-target-codex/`; screenshot copies are also in the host's
+gitignored `build/install-test/`.
