@@ -29,7 +29,8 @@ rm -rf "$STATE"
 # No key, click or type commands: both transitions must be automatic.
 "${V[@]}" wait "$VM" "has completed successfully" --timeout 1200 || fail "text setup did not complete"
 "${V[@]}" shot "$VM" "$STATE/copied.png" >/dev/null
-"${V[@]}" wait "$VM" "My Computer" --timeout 900 || fail "no automatic desktop after setup"
+"${V[@]}" wait "$VM" "My Documents" --timeout 900 || fail "no automatic desktop after setup"
+"${V[@]}" wait "$VM" "Recycle Bin" --timeout 30 || fail "desktop icons missing"
 "${V[@]}" shot "$VM" "$STATE/desktop.png" >/dev/null
 "${V[@]}" stop "$VM"
 

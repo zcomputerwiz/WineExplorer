@@ -16,7 +16,7 @@ V="python3 $HERE/../../scripts/vmtest.py"
 STEPS=/tmp/vmtest/$VM/steps
 P=$(tr -d '\r\n' < "$PWFILE")
 fail() { echo "FAIL: $*"; $V shot "$VM" "$STEPS/fail.png" >/dev/null; exit 1; }
-step() { echo "--- $*"; $V shot "$VM" "$STEPS/$(printf %02d $((++N)))-${1// /_}.png" >/dev/null; }
+step() { N=$((N + 1)); echo "--- $*"; $V shot "$VM" "$STEPS/$(printf %02d "$N")-${1// /_}.png" >/dev/null; }
 N=0
 
 $V stop "$VM" 2>/dev/null; rm -rf "/tmp/vmtest/$VM"; mkdir -p "$STEPS"
@@ -69,6 +69,7 @@ step logon
 # First logon of the passwordless user: desktop from the template prefix, with icons
 $V clicktext "$VM" "Bob Smith" || fail "cannot click Bob Smith"
 T0=$(date +%s)
-$V wait "$VM" "My Computer" --timeout 240 || fail "no desktop for Bob Smith"
+$V wait "$VM" "My Documents" --timeout 240 || fail "no desktop for Bob Smith"
+$V wait "$VM" "Recycle Bin" --timeout 30 || fail "desktop icons missing"
 step desktop
 echo "PASS (desktop $(( $(date +%s) - T0 )) s after logon); screenshots in $STEPS"
