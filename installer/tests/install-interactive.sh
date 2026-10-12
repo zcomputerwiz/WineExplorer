@@ -79,7 +79,7 @@ $V type "$VM" "$P"; $V key "$VM" ret
 $V wait "$VM" "My Documents" --timeout 240 || fail "correct Alice password did not log on"
 step alice-desktop
 
-# Win+L must return to the Welcome screen while preserving Alice's session.
+# Win+L must return to the Welcome screen and allow Bob to log on.
 $V key "$VM" meta_l-l
 $V wait "$VM" "Bob Smith" --timeout 60 || fail "lock did not return to Welcome screen"
 step switch-user
