@@ -657,7 +657,7 @@ void compose_paint(void)
         DWORD result = redirect();
         if (result)
         {
-            WARN( "cannot resume composition, error %lu\n", result );
+            WARN( "cannot resume composition, error %u\n", (unsigned int)result );
             compose_set( dpy, root, desktop, x_error, FALSE );
             return;
         }
