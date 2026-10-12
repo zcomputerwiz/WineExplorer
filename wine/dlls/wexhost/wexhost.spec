@@ -41,3 +41,7 @@
 @ stdcall WexGreeterRead(ptr long long)
 @ stdcall WexCompositionSetEnabled(long)
 @ stdcall WexCompositionGetEnabled(ptr)
+@ stdcall WexLocaleSet(str str)
+@ stdcall WexRootPasswordSet(str)
+@ stdcall WexUserCreate(str str long str)
+@ stdcall WexUserSetSession(str str long)

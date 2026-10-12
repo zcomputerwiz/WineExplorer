@@ -1,12 +1,18 @@
 polkit.addRule(function(action, subject) {
     if (subject.user === "wexsetup") {
-        if (action.id.indexOf("org.freedesktop.locale1.") === 0 ||
-            action.id.indexOf("org.freedesktop.timedate1.") === 0 ||
-            action.id.indexOf("org.freedesktop.hostname1.") === 0 ||
-            action.id.indexOf("org.freedesktop.accounts.") === 0 ||
-            action.id.indexOf("org.freedesktop.NetworkManager.") === 0 ||
-            action.id.indexOf("org.freedesktop.packagekit.") === 0) {
-            return polkit.Result.YES;
+        try {
+            polkit.spawn(["/usr/bin/test", "-f", "/etc/wineexplorer/setup/stage"]);
+            if (action.id.indexOf("org.freedesktop.locale1.") === 0 ||
+                action.id.indexOf("org.freedesktop.timedate1.") === 0 ||
+                action.id.indexOf("org.freedesktop.hostname1.") === 0 ||
+                action.id.indexOf("org.freedesktop.accounts.") === 0 ||
+                action.id.indexOf("org.freedesktop.NetworkManager.") === 0 ||
+                action.id.indexOf("org.freedesktop.packagekit.") === 0) {
+                return polkit.Result.YES;
+            }
+        } catch (e) {
+            return polkit.Result.NO;
         }
     }
 });
+

@@ -1,0 +1,30 @@
+=== Milestone F5: Clean Target State & Bootloader Verification ===
+Date: 2026-10-11
+Target Disk: test_disk.vdi (Partition 2: /dev/sda2, mounted at /mnt/target)
+
+1. Package Cleanliness (No live-* packages):
+Command: dpkg --purge live-boot live-config live-config-systemd live-tools live-boot-doc live-config-doc live-boot-initramfs-tools
+Result: NO LIVE PACKAGES
+Verified via /mnt/target/var/lib/dpkg/status: 0 matching packages.
+
+2. User Cleanliness (No live user):
+Command: grep '^wineuser:' /mnt/target/etc/passwd
+Result: None found (CLEAN)
+Home directory /home/wineuser: Does not exist (CLEAN)
+
+3. Sudo Privileges Cleanliness:
+/mnt/target/etc/sudoers.d/live: None found (CLEAN)
+/mnt/target/etc/sudoers.d/wineuser: None found (CLEAN)
+
+4. Temporary Setup Files Cleanliness:
+/mnt/target/setup: None found (CLEAN)
+
+5. Swap File Configuration:
+File: /mnt/target/swapfile (5.8 GB, mode 600, root:root)
+Entry in /mnt/target/etc/fstab: /swapfile  none  swap  sw  0  0
+
+6. Bootloader (GRUB):
+Bootloader installed to MBR (/dev/sda).
+Device map generated: (hd0) /dev/sda
+Kernel command line: quiet loglevel=3 systemd.show_status=false
+System boots directly into Debian 13 with WineExplorer setup service.

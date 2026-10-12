@@ -1,0 +1,102 @@
+/*
+ * OOBE Wizard resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+IDD_OOBE_WELCOME DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Welcome to Debian GNU/Linux with WineExplorer"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Welcome to Debian GNU/Linux with WineExplorer", IDC_STATIC, 15, 10, 287, 16
+    LTEXT "Thank you for installing Debian GNU/Linux with WineExplorer.", IDC_STATIC, 15, 35, 287, 14
+    LTEXT "Let's spend a few minutes setting up your computer.", IDC_STATIC, 15, 55, 287, 14
+    LTEXT "To continue, click Next.", IDC_STATIC, 15, 110, 287, 12
+END
+
+IDD_OOBE_UPDATES DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Help protect your PC"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Help protect your PC with Automatic Updates", IDC_STATIC, 15, 7, 287, 14
+    LTEXT "Debian can routinely check for the latest important updates for your computer and install them automatically. These updates can include security updates, critical updates, and service packs.", IDC_STATIC, 15, 25, 287, 30
+    AUTORADIOBUTTON "&Help protect my PC by turning on Automatic Updates now (recommended)", IDC_RADIO_UPDATES_ON, 15, 62, 287, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "&Not right now", IDC_RADIO_UPDATES_OFF, 15, 80, 287, 10
+    LTEXT "If you haven't turned on Automatic Updates, your computer might be vulnerable to security threats.", IDC_STATIC, 27, 95, 275, 20
+END
+
+IDD_OOBE_CONNECTIVITY DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Checking your Internet connectivity"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Checking your Internet connectivity", IDC_STATIC, 15, 7, 287, 14
+    LTEXT "Please wait while Setup checks if your computer is connected to the Internet.", IDC_STATIC, 15, 28, 287, 18
+    LTEXT "Network connection is active and configured.", IDC_NET_STATUS, 15, 60, 287, 20
+END
+
+IDD_OOBE_USERS DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Who will use this computer?"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Who will use this computer?", IDC_STATIC, 15, 7, 287, 14
+    LTEXT "Type the name of each person who will use this computer. A user account will be created for each person, and the first user will have administrative privileges.", IDC_STATIC, 15, 22, 287, 24
+    LTEXT "&Your name:", IDC_STATIC, 15, 52, 60, 8
+    EDITTEXT IDC_USER1, 85, 50, 150, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL
+    LTEXT "2nd User:", IDC_STATIC, 15, 69, 60, 8
+    EDITTEXT IDC_USER2, 85, 67, 150, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL
+    LTEXT "3rd User:", IDC_STATIC, 15, 86, 60, 8
+    EDITTEXT IDC_USER3, 85, 84, 150, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL
+    LTEXT "4th User:", IDC_STATIC, 15, 103, 60, 8
+    EDITTEXT IDC_USER4, 85, 101, 150, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL
+    LTEXT "5th User:", IDC_STATIC, 15, 120, 60, 8
+    EDITTEXT IDC_USER5, 85, 118, 150, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL
+END
+
+IDD_OOBE_PASSWORD DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Set a password"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Set a password for your user account", IDC_STATIC, 15, 7, 287, 14
+    LTEXT "You can set a password to protect your account. If you leave the password empty, your account will have no password.", IDC_STATIC, 15, 24, 287, 20
+    LTEXT "User account:", IDC_PASS_USER_LABEL, 15, 52, 287, 10
+    LTEXT "&Password:", IDC_STATIC, 15, 70, 70, 8
+    EDITTEXT IDC_PASS_EDIT1, 90, 68, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_PASSWORD
+    LTEXT "&Confirm:", IDC_STATIC, 15, 90, 70, 8
+    EDITTEXT IDC_PASS_EDIT2, 90, 88, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_PASSWORD
+END
+
+IDD_OOBE_FINISH DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Thank you!"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Thank you!", IDC_STATIC, 15, 10, 287, 16
+    LTEXT "Congratulations, you are ready to go!", IDC_STATIC, 15, 35, 287, 14
+    LTEXT "Debian GNU/Linux with WineExplorer is now fully configured.", IDC_STATIC, 15, 55, 287, 20
+    LTEXT "To finish Setup and begin using your computer, click Finish.", IDC_STATIC, 15, 90, 287, 14
+END

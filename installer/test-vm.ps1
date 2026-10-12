@@ -16,16 +16,27 @@ param(
     [string]$Action = "shot",
 
     [string]$Firmware = "bios",
-    [string]$IsoPath = "D:\Projects\WineExplorer\installer\wineexplorer.iso",
-    [string]$OutFile = "D:\Projects\WineExplorer\build\test_vm_shot.png",
+    [string]$IsoPath = "",
+    [string]$OutFile = "",
     [string]$Key = "enter",
     [string]$Text = "",
+    [string]$DiskPath = "",
     [switch]$Gui
 )
 
+if (-not $PSScriptRoot) {
+    $PSScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
+}
+if (-not $IsoPath) {
+    $IsoPath = Join-Path $PSScriptRoot "wineexplorer.iso"
+}
+if (-not $OutFile) {
+    $OutFile = Join-Path $PSScriptRoot "..\build\test_vm_shot.png"
+}
+
 $VBM = "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
 $VM_NAME = "WineExplorer-Install-Test"
-$DISK_PATH = "D:\Projects\WineExplorer\installer\test_disk.vdi"
+$DISK_PATH = if ($DiskPath) { $DiskPath } else { Join-Path $PSScriptRoot "test_disk_responsive.vdi" }
 
 $ScanCodes = @{
     "enter"     = @("1c", "9c")
@@ -73,7 +84,7 @@ switch ($Action) {
         & $VBM modifyvm $VM_NAME --memory 4096 --cpus 2 --vram 64
         & $VBM modifyvm $VM_NAME --graphicscontroller "vmsvga"
         & $VBM modifyvm $VM_NAME --nic1 "nat"
-        $serialLog = "D:\Projects\WineExplorer\build\test_vm_serial.log"
+        $serialLog = "$PSScriptRoot\..\build\test_vm_serial.log"
         $buildDir = Split-Path $serialLog -Parent
         if (-not (Test-Path $buildDir)) { New-Item -ItemType Directory -Path $buildDir -Force | Out-Null }
         if (Test-Path $serialLog) { Remove-Item $serialLog -Force -ErrorAction SilentlyContinue }
@@ -124,7 +135,17 @@ switch ($Action) {
             Write-Error "Unknown key: $k"
             exit 1
         }
-        & $VBM controlvm $VM_NAME keyboardputscancode $ScanCodes[$k]
+        $codes = $ScanCodes[$k]
+        if ($codes.Count -ge 2) {
+            $half = [int]($codes.Count / 2)
+            $make = $codes[0..($half-1)]
+            $break = $codes[$half..($codes.Count-1)]
+            & $VBM controlvm $VM_NAME keyboardputscancode $make
+            Start-Sleep -Milliseconds 100
+            & $VBM controlvm $VM_NAME keyboardputscancode $break
+        } else {
+            & $VBM controlvm $VM_NAME keyboardputscancode $codes
+        }
     }
 
     "type" {

@@ -19,7 +19,9 @@ they parse text, poll, and force our own password handling. Other Linux desktops
 | Power actions | `org.freedesktop.login1.Manager` (`PowerOff`, `Reboot`, `Suspend`, `CanPowerOff` ...), inhibitors | shutdown dialog |
 | Battery / AC | `org.freedesktop.UPower` (+ `DisplayDevice`) | powertray, powercfg.cpl |
 | Volume | PipeWire native API or PulseAudio protocol (libpulse); change events via subscription | volumetray, sndvol32, mmsys.cpl |
-| Computer name | `org.freedesktop.hostname1` (`SetStaticHostname`, `SetPrettyHostname`) | sysdm.cpl Computer Name |
+| Computer name | `org.freedesktop.hostname1` (`SetStaticHostname`, `SetPrettyHostname`) | sysdm.cpl Computer Name, `setup.exe` |
+| Locale / keyboard | `org.freedesktop.locale1` (`SetLocale`, `SetX11Keyboard`): `WexLocaleSet` | `setup.exe` Regional page |
+| Accounts | `org.freedesktop.Accounts` (`CreateUser`, `SetPassword` with an in-process SHA-512 crypt hash, `SetXSession`, `SetAutomaticLogin`): `WexUserCreate`, `WexRootPasswordSet`, `WexUserSetSession` | `setup.exe`, `oobe.exe` |
 | User name / picture | `org.freedesktop.Accounts` (AccountsService) | Start menu user tile |
 | Tray icons from Linux apps | `org.kde.StatusNotifierWatcher` / StatusNotifierItem | systray |
 | Notifications | `org.freedesktop.Notifications` | balloon tips |

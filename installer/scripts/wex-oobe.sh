@@ -13,20 +13,23 @@ echo "=== Starting WineExplorer Out-of-Box Experience (OOBE) ==="
 plymouth --quit 2>/dev/null || true
 
 # Ensure permissions on setup directory and logs
-mkdir -p /etc/wineexplorer/setup /var/lib/wexsetup /var/log
-chmod -R a+rwX /etc/wineexplorer
+mkdir -p /etc/wineexplorer/setup /var/lib/wexsetup /var/log /etc/gdm3
 touch /var/log/wineexplorer-oobe.log
-chmod 666 /var/log/wineexplorer-oobe.log
+touch /etc/gdm3/daemon.conf
 
-# Ensure dedicated wexsetup user exists
+# Ensure dedicated wexsetup user exists, with adm membership
 if ! id "wexsetup" >/dev/null 2>&1; then
-    useradd -r -m -d /var/lib/wexsetup -s /usr/sbin/nologin -G audio,video,render,users wexsetup
+    useradd -r -m -d /var/lib/wexsetup -s /usr/sbin/nologin -G audio,video,render,users,adm wexsetup
+else
+    usermod -a -G adm wexsetup 2>/dev/null || true
 fi
-chown -R wexsetup:wexsetup /var/lib/wexsetup
-
-# Grant wexsetup sudo rights during OOBE
-echo "wexsetup ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wexsetup
-chmod 440 /etc/sudoers.d/wexsetup
+chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer
+chmod 755 /etc/wineexplorer /etc/wineexplorer/setup
+chmod 644 /etc/wineexplorer/setup/* 2>/dev/null || true
+chown wexsetup:adm /var/log/wineexplorer-oobe.log
+chmod 660 /var/log/wineexplorer-oobe.log
+chown wexsetup:root /etc/gdm3/daemon.conf
+chmod 664 /etc/gdm3/daemon.conf
 
 export DISPLAY=:0
 export XAUTHORITY=/var/lib/wexsetup/.Xauthority
@@ -43,66 +46,48 @@ fi
 chvt 7 2>/dev/null || true
 xhost +SI:localuser:wexsetup 2>/dev/null || true
 
+# Query active X resolution dynamically
+RES=$(DISPLAY=:0 xdpyinfo 2>/dev/null | grep 'dimensions:' | awk '{print $2}' || true)
+[ -z "$RES" ] && RES=$(DISPLAY=:0 xdotool getdisplaygeometry 2>/dev/null | awk '{print $1"x"$2}' || true)
+[ -z "$RES" ] && RES="1024x768"
+echo "Detected display resolution: $RES"
+
 # Run oobe.exe inside dedicated wine prefix as wexsetup
+rm -f /etc/wineexplorer/setup/stage-oobe-done
 su -s /bin/bash wexsetup -c '
+    RES="${1:-1024x768}"
     export DISPLAY=:0
     export WINEPREFIX=/var/lib/wexsetup/.wine
     export WINEDLLOVERRIDES="mscoree,mshtml="
     export WINEDEBUG=-all
-    /usr/local/bin/wine explorer /desktop=OOBE,1024x768 /usr/local/bin/oobe.exe
-'
+    /usr/local/bin/wine explorer /desktop=OOBE,$RES oobe.exe &
+    WINE_PID=$!
+    while [ ! -f /etc/wineexplorer/setup/stage-oobe-done ]; do
+        sleep 1
+    done
+    sleep 1
+    wineserver -k 2>/dev/null || true
+    wait $WINE_PID 2>/dev/null || true
+' bash "$RES"
 
 if [ -n "$X_PID" ]; then
     kill "$X_PID" 2>/dev/null || true
 fi
 
-# Clean up setup flags and temporary setup user
-rm -f /etc/wineexplorer/setup/stage /etc/wineexplorer/setup/stage-oobe
-userdel -r wexsetup 2>/dev/null || true
+# Clean up temporary setup user and files
+pkill -9 -u wexsetup 2>/dev/null || true
+userdel -r -f wexsetup 2>/dev/null || true
+rm -rf /var/lib/wexsetup
+rm -rf /etc/wineexplorer/setup
 rm -f /etc/polkit-1/rules.d/49-wexsetup.rules
 rm -f /etc/sudoers.d/wexsetup
-
-# Ensure wineuser exists with default password and groups
-if ! id "wineuser" >/dev/null 2>&1; then
-    useradd -m -s /bin/bash -G sudo,audio,video,render,users wineuser 2>/dev/null || true
-    echo "wineuser:wineuser" | chpasswd 2>/dev/null || true
-fi
-
-# Ensure wineuser home and initial prefix exist
-mkhomedir_helper wineuser 2>/dev/null || true
-if [ ! -d "/home/wineuser/.wine" ] && [ -d "/etc/skel/.wine" ]; then
-    cp -a /etc/skel/.wine /home/wineuser/.wine 2>/dev/null || true
-fi
-chown -R wineuser:wineuser /home/wineuser 2>/dev/null || true
-
-# Configure GDM autologin for wineuser
-mkdir -p /etc/gdm3
-cat << 'EOF' > /etc/gdm3/daemon.conf
-# GDM configuration for WineExplorer
-[daemon]
-WaylandEnable=false
-AutomaticLoginEnable=true
-AutomaticLogin=wineuser
-DefaultSession=wine-explorer
-
-[security]
-
-[xdmcp]
-
-[chooser]
-
-[debug]
-EOF
-
-# Configure AccountsService
-mkdir -p /var/lib/AccountsService/users
-cat << 'EOF' > /var/lib/AccountsService/users/wineuser
-[User]
-Language=
-XSession=wine-explorer
-Session=wine-explorer
-SystemAccount=false
-EOF
+chown root:root /etc/gdm3/daemon.conf 2>/dev/null || true
+chmod 644 /etc/gdm3/daemon.conf 2>/dev/null || true
+mkdir -p /etc/wineexplorer
+chmod 755 /etc/wineexplorer 2>/dev/null || true
+chown root:adm /var/log/wineexplorer-*.log 2>/dev/null || true
+chmod 640 /var/log/wineexplorer-*.log 2>/dev/null || true
+systemctl disable wex-setup.service wex-oobe.service 2>/dev/null || true
 
 # Start default display manager
 systemctl restart display-manager.service || systemctl restart gdm3.service || true

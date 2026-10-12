@@ -254,6 +254,13 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 DWORD WINAPI WexCompositionSetEnabled( BOOL enabled );
 DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
 
+/* Setup (setup.exe, oobe.exe): locale1 locale and keyboard layout; root's password; a new account through
+ * AccountsService (account_type 1: administrator), with its password when one is given; session and automatic logon. */
+DWORD WINAPI WexLocaleSet( const char *locale, const char *layout );
+DWORD WINAPI WexRootPasswordSet( const char *password );
+DWORD WINAPI WexUserCreate( const char *name, const char *real_name, int account_type, const char *password );
+DWORD WINAPI WexUserSetSession( const char *name, const char *session, BOOL autologin );
+
 /* Visible freedesktop applications. UTF-8 rows: desktop ID, name, description,
  * categories, PNG path, separated by tabs and terminated by newline; final NUL.
  * ERROR_MORE_DATA returns the required byte count, including the final NUL. */

@@ -49,3 +49,10 @@ installer/*.iso
 installer/*.vdi
 installer/*.deb
 sync.ffs_db
+installer/**/*.deb
+installer/**/*.iso
+installer/**/*.vdi
+installer/**/*.raw
+installer/textsetup/textsetup
+installer/live-build/config/includes.chroot/setup/textsetup
+wine/programs/*/*.exe

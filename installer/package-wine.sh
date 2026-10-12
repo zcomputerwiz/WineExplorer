@@ -63,12 +63,6 @@ mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 cp "$ROOT_DIR/scripts/wine-explorer-session.sh" "$STAGE_SESSION/usr/local/bin/wine-explorer-session.sh"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
-if [ -f "$ROOT_DIR/wine/programs/setup/setup.exe" ]; then
-    cp "$ROOT_DIR/wine/programs/setup/setup.exe" "$STAGE_SESSION/usr/local/bin/setup.exe"
-fi
-if [ -f "$ROOT_DIR/wine/programs/oobe/oobe.exe" ]; then
-    cp "$ROOT_DIR/wine/programs/oobe/oobe.exe" "$STAGE_SESSION/usr/local/bin/oobe.exe"
-fi
 chmod 755 "$STAGE_SESSION/usr/local/bin/"*
 
 # Desktop session definition

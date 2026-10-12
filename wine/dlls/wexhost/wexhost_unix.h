@@ -84,6 +84,10 @@ struct hw_list_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
 extern NTSTATUS hw_list(void *args);
 
 struct users_list_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
+struct locale_set_params { char locale[64]; char layout[64]; DWORD err; };
+struct root_pass_set_params { char password[128]; DWORD err; };
+struct user_create_params { char name[64]; char real_name[128]; int account_type; char password[128]; DWORD err; };
+struct user_set_session_params { char name[64]; char session[64]; BOOL autologin; DWORD err; };
 struct greeter_params { char text[512]; DWORD value; DWORD err; };
 struct greeter_read_params { ULONG64 buffer; DWORD size; DWORD timeout; DWORD err; };
 extern NTSTATUS greeter_connect(void *args);
@@ -170,6 +174,10 @@ enum wexhost_funcs
     unix_greeter_read,
     unix_composition_set,
     unix_composition_get,
+    unix_locale_set,
+    unix_root_pass_set,
+    unix_user_create,
+    unix_user_set_session,
     unix_funcs_count
 };
 

@@ -1,4 +1,5 @@
 #include "textsetup.h"
+#include <termios.h>
 
 void ui_init(void)
 {
@@ -7,7 +8,16 @@ void ui_init(void)
     noecho();
     keypad(stdscr, TRUE);
     curs_set(0);
-    set_escdelay(200);
+    set_escdelay(50);
+
+    /* Enforce non-canonical, no-echo mode on stdin */
+    struct termios tio;
+    if (tcgetattr(STDIN_FILENO, &tio) == 0) {
+        tio.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL);
+        tio.c_cc[VMIN] = 1;
+        tio.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+    }
 
     if (has_colors()) {
         start_color();
@@ -37,27 +47,32 @@ void ui_shutdown(void)
 void ui_clear_screen(void)
 {
     bkgd(COLOR_PAIR(PAIR_NORMAL));
+    erase();
     clear();
+    flushinp();
 }
 
 void ui_draw_header(const char *title)
 {
+    int cols = (COLS > 0) ? COLS : VGA_COLS;
     attron(COLOR_PAIR(PAIR_HEADER) | A_BOLD);
-    mvprintw(1, 4, "%s", title ? title : "Windows XP Professional Setup");
+    mvprintw(1, 4, "%s", title ? title : "Debian GNU/Linux with WineExplorer Setup");
     attroff(COLOR_PAIR(PAIR_HEADER) | A_BOLD);
 
-    /* Underline on row 2 */
+    /* Underline across entire display width */
     attron(COLOR_PAIR(PAIR_HEADER));
-    mvhline(2, 0, ACS_HLINE, VGA_COLS);
+    mvhline(2, 0, ACS_HLINE, cols);
     attroff(COLOR_PAIR(PAIR_HEADER));
 }
 
 void ui_draw_status(const char *status_text)
 {
+    int row = (LINES > 0) ? (LINES - 1) : (VGA_ROWS - 1);
+    int cols = (COLS > 0) ? COLS : VGA_COLS;
     attron(COLOR_PAIR(PAIR_STATUS));
-    mvhline(VGA_ROWS - 1, 0, ' ', VGA_COLS);
+    mvhline(row, 0, ' ', cols);
     if (status_text) {
-        mvprintw(VGA_ROWS - 1, 1, "%s", status_text);
+        mvprintw(row, 1, "%s", status_text);
     }
     attroff(COLOR_PAIR(PAIR_STATUS));
     refresh();
@@ -82,7 +97,7 @@ void ui_draw_progressbar(int y, int start_x, int width, int percentage, int colo
     }
     attroff(COLOR_PAIR(color_pair) | A_REVERSE);
 
-    /* Percentage text centered or on the right */
+    /* Percentage text centered above or on the bar */
     attron(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
     mvprintw(y - 1, start_x + (width / 2) - 3, "%3d%%", percentage);
     attroff(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
@@ -90,82 +105,35 @@ void ui_draw_progressbar(int y, int start_x, int width, int percentage, int colo
     refresh();
 }
 
+void ui_get_centered_bar_bounds(int *out_y, int *out_x, int *out_width)
+{
+    int cols = (COLS > 0) ? COLS : VGA_COLS;
+    int lines = (LINES > 0) ? LINES : VGA_ROWS;
+    int width = (cols > 80) ? (cols * 3 / 4) : (cols - 16);
+    if (width > 90) width = 90;
+    if (width < 40) width = 40;
+    if (out_width) *out_width = width;
+    if (out_x) *out_x = (cols - width) / 2;
+    if (out_y) *out_y = lines / 2;
+}
+
+void ui_draw_centered_progressbar(int percentage, int color_pair)
+{
+    int y, x, width;
+    ui_get_centered_bar_bounds(&y, &x, &width);
+    ui_draw_progressbar(y, x, width, percentage, color_pair);
+}
+
 int ui_getch(void)
 {
-    int ch = getch();
-    if (ch == 27) {
-        /* Check if part of an escape sequence */
-        halfdelay(2);
-        int ch2 = getch();
-        cbreak();
-        if (ch2 == ERR) {
-            return 27; /* standalone ESC */
-        }
-        if (ch2 == '[' || ch2 == 'O') {
-            halfdelay(2);
-            int ch3 = getch();
-            cbreak();
-            if (ch3 == '1' || ch3 == '2') {
-                halfdelay(2);
-                int ch4 = getch();
-                cbreak();
-                if (ch3 == '1' && ch4 == '9') {
-                    halfdelay(2);
-                    getch(); /* '~' */
-                    cbreak();
-                    return KEY_F(8);
-                }
-                if (ch3 == '1' && ch4 == '3') {
-                    halfdelay(2);
-                    getch(); /* '~' */
-                    cbreak();
-                    return KEY_F(3);
-                }
-                if (ch3 == '1' && ch4 == '7') {
-                    halfdelay(2);
-                    getch(); /* '~' */
-                    cbreak();
-                    return KEY_F(6);
-                }
-                if (ch3 == '1' && ch4 == '8') {
-                    halfdelay(2);
-                    getch(); /* '~' */
-                    cbreak();
-                    return KEY_F(7);
-                }
-            } else if (ch3 == '3') {
-                halfdelay(2);
-                getch();
-                cbreak();
-                return KEY_F(3);
-            } else if (ch3 == '5') {
-                halfdelay(2);
-                getch();
-                cbreak();
-                return KEY_PPAGE;
-            } else if (ch3 == '6') {
-                halfdelay(2);
-                getch();
-                cbreak();
-                return KEY_NPAGE;
-            } else if (ch3 == 'A') {
-                return KEY_UP;
-            } else if (ch3 == 'B') {
-                return KEY_DOWN;
-            } else if (ch3 == 'C') {
-                return KEY_RIGHT;
-            } else if (ch3 == 'D') {
-                return KEY_LEFT;
-            } else if (ch2 == '[' && ch3 == '[') {
-                halfdelay(2);
-                int ch4 = getch();
-                cbreak();
-                if (ch4 == 'C') return KEY_F(3);
-                if (ch4 == 'E') return KEY_F(8);
-            } else if (ch2 == 'O') {
-                if (ch3 == 'R') return KEY_F(3);
-            }
+    struct termios tio;
+    if (tcgetattr(STDIN_FILENO, &tio) == 0) {
+        if ((tio.c_lflag & (ICANON | ECHO)) != 0) {
+            tio.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL);
+            tio.c_cc[VMIN] = 1;
+            tio.c_cc[VTIME] = 0;
+            tcsetattr(STDIN_FILENO, TCSANOW, &tio);
         }
     }
-    return ch;
+    return getch();
 }

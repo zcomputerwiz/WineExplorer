@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <curses.h>
+#include <libfdisk/libfdisk.h>
+#include <blkid/blkid.h>
 
 #define VGA_COLS 80
 #define VGA_ROWS 25
@@ -34,28 +36,39 @@ typedef enum {
 
 typedef struct {
     char device[64];       /* e.g. /dev/sda */
-    char model[128];      /* disk model */
-    uint64_t size_mb;     /* total size in MB */
+    char name[32];         /* e.g. sda */
+    char model[128];       /* disk model e.g. "VBOX HARDDISK" */
+    char bus[32];          /* e.g. "atapi", "scsi", "nvme" */
+    uint64_t size_mb;      /* total size in MB */
+    uint64_t sector_size;
+    uint64_t nsectors;
+    bool is_gpt;
+    struct fdisk_context *cxt;
 } DiskDevice;
 
 typedef struct {
-    char device[64];       /* e.g. /dev/sda1 */
-    char fstype[32];       /* e.g. ext4, vfat, Unformatted */
+    char device[64];       /* e.g. /dev/sda1 or empty for free space */
+    char fstype[32];       /* e.g. ext4, vfat, ntfs, Unformatted */
     char label[64];
     uint64_t size_mb;
+    uint64_t start_sector;
+    uint64_t num_sectors;
+    size_t partno;
     bool is_free_space;
+    bool is_esp;
     int disk_index;
-    int part_num;
 } PartitionEntry;
 
 typedef struct {
     char target_disk[64];
     char target_part[64];
     char efi_part[64];
+    char target_fstype[32];
     bool is_uefi;
-    bool quick_format;
+    int format_choice;     /* 0=Quick ext4, 1=Full ext4, 2=Leave intact */
     bool unattended;
     char unattend_path[256];
+    bool repartition;
 } SetupState;
 
 /* Screen helper routines */
@@ -65,6 +78,8 @@ void ui_clear_screen(void);
 void ui_draw_header(const char *title);
 void ui_draw_status(const char *status_text);
 void ui_draw_progressbar(int y, int start_x, int width, int percentage, int color_pair);
+void ui_draw_centered_progressbar(int percentage, int color_pair);
+void ui_get_centered_bar_bounds(int *out_y, int *out_x, int *out_width);
 int ui_getch(void);
 
 /* Stage Screens */

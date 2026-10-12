@@ -3,14 +3,14 @@ Description=WineExplorer Text-mode Setup
 ConditionKernelCommandLine=wexsetup=textmode
 DefaultDependencies=no
 After=systemd-udev-settle.service local-fs.target
-Before=getty@tty1.service display-manager.service
-Conflicts=getty@tty1.service display-manager.service
+Before=getty@tty1.service display-manager.service gdm3.service gdm.service
+Conflicts=getty@tty1.service display-manager.service gdm3.service gdm.service
 
 [Service]
 Type=simple
 StandardInput=tty-force
-StandardOutput=inherit
-StandardError=inherit
+StandardOutput=tty
+StandardError=tty
 TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes

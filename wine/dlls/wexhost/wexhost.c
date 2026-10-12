@@ -249,6 +249,54 @@ DWORD WINAPI WexGreeterRead( char *buffer, DWORD size, DWORD timeout )
     return params.err;
 }
 
+DWORD WINAPI WexLocaleSet( const char *locale, const char *layout )
+{
+    struct locale_set_params params = {0};
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (locale) lstrcpynA( params.locale, locale, sizeof(params.locale) );
+    if (layout) lstrcpynA( params.layout, layout, sizeof(params.layout) );
+    WEXHOST_CALL( locale_set, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexRootPasswordSet( const char *password )
+{
+    struct root_pass_set_params params = {0};
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (password && strlen( password ) >= sizeof(params.password)) return ERROR_INVALID_PARAMETER;
+    if (password) strcpy( params.password, password );
+    WEXHOST_CALL( root_pass_set, &params );
+    SecureZeroMemory( params.password, sizeof(params.password) );
+    return params.err;
+}
+
+DWORD WINAPI WexUserCreate( const char *name, const char *real_name, int account_type, const char *password )
+{
+    struct user_create_params params = {0};
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (!name || strlen( name ) >= sizeof(params.name)) return ERROR_INVALID_PARAMETER;
+    if (password && strlen( password ) >= sizeof(params.password)) return ERROR_INVALID_PARAMETER;
+    strcpy( params.name, name );
+    if (real_name) lstrcpynA( params.real_name, real_name, sizeof(params.real_name) );
+    params.account_type = account_type;
+    if (password) strcpy( params.password, password );
+    WEXHOST_CALL( user_create, &params );
+    SecureZeroMemory( params.password, sizeof(params.password) );
+    return params.err;
+}
+
+DWORD WINAPI WexUserSetSession( const char *name, const char *session, BOOL autologin )
+{
+    struct user_set_session_params params = {0};
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (!name || strlen( name ) >= sizeof(params.name)) return ERROR_INVALID_PARAMETER;
+    strcpy( params.name, name );
+    if (session) lstrcpynA( params.session, session, sizeof(params.session) );
+    params.autologin = autologin;
+    WEXHOST_CALL( user_set_session, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexNetGetStatus( WEX_NET_STATUS *status )
 {
     struct net_get_status_params params;

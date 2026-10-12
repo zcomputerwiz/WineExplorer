@@ -1,7 +1,9 @@
 MODULE    = setup.exe
-IMPORTS   = user32 gdi32 comctl32 advapi32
+IMPORTS   = user32 gdi32 comctl32 advapi32 wexhost
 
-EXTRADLLFLAGS = -mwindows -municode
+EXTRADLLFLAGS = -mwindows
 
 SOURCES = \
-	setup.c
+	setup.c \
+	setup.rc
+
