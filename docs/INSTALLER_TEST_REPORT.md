@@ -37,6 +37,9 @@ diagnostics, not current acceptance artifacts.
 
 These tests do not exercise EFI/physical hardware, task retention after switching
 back to the first session, or an actual GTK recovery-greeter login.
+Claude's concurrent `a417c3be` empty Recycle Bin resource fix landed after the
+payload's `45fb8c6a` source snapshot. It is preserved on master but is not part of
+these tested images; include and verify it on the next Wine/ISO rebuild.
 
 Already verified in this continuation:
 

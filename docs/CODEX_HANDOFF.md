@@ -73,6 +73,9 @@ layout drift before its repair; the fresh final reruns passed without a hotfix.
   Sources `~/inst`; Wine build `~/inst/build`. NEVER run unstaged `make install`
   there. Packaging uses `make install DESTDIR=...`. Final payload came from a
   clean build through `45fb8c6a`; later product changes are binary-table tooling.
+  Claude's concurrent `a417c3be` empty Recycle Bin icon commit arrived after that
+  snapshot; preserved on master, but not in these tested images. Include it in
+  the next Wine/ISO rebuild rather than treating the blank icon as unfixed source.
   Xorriso is now installed on this VM too. Logs `~/inst/w7-iso-build.log`,
   `w7-layout-repair.log`, `w7-hook-test.log`; initial failed repair log retained.
 - Guest `~/inst/wineexplorer-w7.iso` is the pre-layout-fix clean baseline.
@@ -124,7 +127,7 @@ subdirectory target does not rebuild them. Existing live-build state requires
 
 1. Installer visual polish: GUI header/backdrop, display-friendly partition
    names, installed GRUB appearance and its missing unicode.pf2 warning,
-   new-profile Recycle Bin icon.
+   verify new-profile Recycle Bin icon after rebuilding with `a417c3be`.
 2. W4 classic login, W5 Windows Security/lock/password changes, W6 User Accounts;
    retain unprivileged greeter and D-Bus privilege boundary. Check task retention
    when switching back to a session explicitly rather than inferring it.

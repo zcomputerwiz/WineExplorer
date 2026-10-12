@@ -82,7 +82,8 @@ separately.
 LightDM/custom greeter integration (W7) passed fresh installed-system acceptance.
 Known gaps: Automatic Updates is recorded but not applied, timezone names are Linux
 names, GUI pages need XP-style header/backdrop work, formatting labels expose
-device paths, new profiles may have a blank Recycle Bin icon, and installed GRUB
+device paths, tested images still have a blank Recycle Bin icon (concurrent source
+fix `a417c3be` needs the next rebuild), and installed GRUB
 still uses Debian's appearance (a missing unicode.pf2 warning was also observed).
 
 ---
