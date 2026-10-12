@@ -71,29 +71,6 @@ if [ -n "$X_PID" ]; then
     kill "$X_PID" 2>/dev/null || true
 fi
 
-# LightDM does not consume AccountsService's AutomaticLogin setting. Accept only
-# an existing, non-system, passwordless account from OOBE's explicit request.
-AUTOLOGIN=
-read -r AUTOLOGIN < /etc/wineexplorer/setup/autologin-user || true
-if [ -n "$AUTOLOGIN" ]; then
-    if [[ ! "$AUTOLOGIN" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]; then
-        AUTOLOGIN=
-    else
-        ACCOUNT=$(getent passwd "$AUTOLOGIN" || true)
-        SHADOW=$(getent shadow "$AUTOLOGIN" || true)
-        IFS=: read -r LOGIN_NAME LOGIN_PASS LOGIN_UID REST <<< "$ACCOUNT"
-        IFS=: read -r SHADOW_NAME SHADOW_PASS REST <<< "$SHADOW"
-        if [ "$LOGIN_NAME" != "$AUTOLOGIN" ] || [[ ! "$LOGIN_UID" =~ ^[0-9]+$ ]] ||
-           [ "$LOGIN_UID" -lt 1000 ] || [ "$SHADOW_NAME" != "$AUTOLOGIN" ] || [ -n "$SHADOW_PASS" ]; then
-            AUTOLOGIN=
-        fi
-    fi
-fi
-mkdir -p /etc/lightdm/lightdm.conf.d
-printf '[Seat:*]\nautologin-user=%s\n' "$AUTOLOGIN" > /etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf
-chown root:root /etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf
-chmod 644 /etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf
-
 # Clean up temporary setup user and files
 pkill -9 -u wexsetup 2>/dev/null || true
 userdel -r -f wexsetup 2>/dev/null || true

@@ -11,11 +11,19 @@ import sys
 
 root = Path(sys.argv[1])
 autologin = sys.argv[2] if len(sys.argv) > 2 else ""
-config = configparser.ConfigParser(interpolation=None, strict=False)
-for directory in ("usr/share/lightdm/lightdm.conf.d", "etc/lightdm/lightdm.conf.d"):
-    config.read(sorted((root / directory).glob("*.conf")))
-config.read(root / "etc/lightdm/lightdm.conf")
-seat = config["Seat:*"]
+seat = {}
+files = []
+for directory in ("usr/share/lightdm/lightdm.conf.d", "usr/local/share/lightdm/lightdm.conf.d",
+                  "etc/xdg/lightdm/lightdm.conf.d", "etc/lightdm/lightdm.conf.d"):
+    files.extend(sorted((root / directory).glob("*.conf")))
+files.append(root / "etc/lightdm/lightdm.conf")
+for filename in files:
+    config = configparser.ConfigParser(interpolation=None, strict=False)
+    config.read(filename)
+    for section in config.sections():
+        # LightDM treats this deprecated name as Seat:*. AccountsService uses it.
+        if section in ("Seat:*", "SeatDefaults"):
+            seat.update(config[section])
 assert seat.get("greeter-session") == "wineexplorer-greeter", "custom greeter not selected"
 assert seat.get("user-session") == "wine-explorer", "wrong desktop session"
 assert seat.get("autologin-user", "") == autologin, "wrong automatic logon setting"
