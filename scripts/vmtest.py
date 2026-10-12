@@ -105,7 +105,7 @@ def ocr(name, fmt=None, white_text=False):
     big = png[:-4] + ("-white-ocr.png" if white_text else "-ocr.png")
     # Tesseract's automatic threshold loses white Welcome-screen text against
     # its blue background. Retry only missed matches with an explicit threshold.
-    contrast = ["-threshold", "75%"] if white_text else []
+    contrast = ["-threshold", "60%"] if white_text else []
     subprocess.run(["convert", png, "-resize", f"{SCALE * 100}%", "-colorspace", "Gray", *contrast, big], check=True)
     return subprocess.run(["tesseract", big, "-", "--psm", "3"] + ([fmt] if fmt else []),
                           capture_output=True, text=True).stdout

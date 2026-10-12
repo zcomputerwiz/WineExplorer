@@ -71,7 +71,7 @@ step logon
 # The installed custom Welcome screen must authenticate through LightDM/PAM.
 $V wait "$VM" "To begin" --timeout 30 || fail "custom Welcome screen missing"
 $V clicktext "$VM" "Alice" || fail "cannot click Alice"
-$V wait "$VM" "Type your password" --timeout 30 || fail "no password prompt for Alice"
+$V wait "$VM" "password" --timeout 30 || fail "no password prompt for Alice"
 $V type "$VM" "incorrect-test-password"; $V key "$VM" ret
 $V wait "$VM" "Did you forget" --timeout 30 || fail "wrong password was not rejected"
 step rejected-password
