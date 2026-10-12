@@ -822,7 +822,7 @@ static void animate_window_blend( HWND hwnd, DWORD time, DWORD flags )
     ULONGLONG start, elapsed;
     int show = hide ? SW_HIDE : (flags & AW_ACTIVATE) ? SW_SHOW : SW_SHOWNA;
 
-    if (layered && !GetLayeredWindowAttributes( hwnd, &key, &old_alpha, &old_flags ))
+    if (layered && !NtUserGetLayeredWindowAttributes( hwnd, &key, &old_alpha, &old_flags ))
         goto done;
     if (old_flags & LWA_ALPHA) target = old_alpha;
     if (!layered)
@@ -830,12 +830,12 @@ static void animate_window_blend( HWND hwnd, DWORD time, DWORD flags )
         SetWindowLongW( hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED );
         if (!(GetWindowLongW( hwnd, GWL_EXSTYLE ) & WS_EX_LAYERED)) goto done;
     }
-    if (!SetLayeredWindowAttributes( hwnd, key, hide ? target : 0, old_flags | LWA_ALPHA ))
+    if (!NtUserSetLayeredWindowAttributes( hwnd, key, hide ? target : 0, old_flags | LWA_ALPHA ))
         goto restore;
     if (!hide)
     {
         NtUserShowWindow( hwnd, show );
-        RedrawWindow( hwnd, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME |
+        NtUserRedrawWindow( hwnd, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME |
                                     RDW_ALLCHILDREN | RDW_UPDATENOW );
     }
     start = GetTickCount64();
@@ -846,19 +846,19 @@ static void animate_window_blend( HWND hwnd, DWORD time, DWORD flags )
         if (elapsed >= time) break;
         alpha = (ULONGLONG)target * elapsed / time;
         if (hide) alpha = target - alpha;
-        if (!SetLayeredWindowAttributes( hwnd, key, alpha, old_flags | LWA_ALPHA )) break;
+        if (!NtUserSetLayeredWindowAttributes( hwnd, key, alpha, old_flags | LWA_ALPHA )) break;
         Sleep( min( 16, time - elapsed ) );
     }
-    SetLayeredWindowAttributes( hwnd, key, hide ? 0 : target, old_flags | LWA_ALPHA );
+    NtUserSetLayeredWindowAttributes( hwnd, key, hide ? 0 : target, old_flags | LWA_ALPHA );
     if (hide) NtUserShowWindow( hwnd, SW_HIDE );
 restore:
-    if (layered) SetLayeredWindowAttributes( hwnd, key, old_alpha, old_flags );
+    if (layered) NtUserSetLayeredWindowAttributes( hwnd, key, old_alpha, old_flags );
     else SetWindowLongW( hwnd, GWL_EXSTYLE, GetWindowLongW( hwnd, GWL_EXSTYLE ) & ~WS_EX_LAYERED );
 done:
     /* Even on an unsupported window or a failed alpha update, finish with the
      * same visibility/activation as the nonanimated path. */
     NtUserShowWindow( hwnd, show );
-    if (!hide) RedrawWindow( hwnd, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME |
+    if (!hide) NtUserRedrawWindow( hwnd, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME |
                                           RDW_ALLCHILDREN | RDW_UPDATENOW );
 }
 
