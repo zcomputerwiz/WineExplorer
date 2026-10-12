@@ -1,7 +1,48 @@
 # Installer verification — 2026-10-12
 
 This records the verified continuation on `installer-port`, separately from the
-imported milestone claims in INSTALLER.md. All runtime scenarios below passed.
+imported milestone claims in INSTALLER.md. Earlier verified scenarios are below;
+the latest W7 status is recorded separately.
+
+## LightDM continuation (W7)
+
+The final clean image is rebuilding after fixing installed directory metadata.
+Fresh blank-disk acceptance results will be recorded here when complete.
+
+Already verified in this continuation:
+
+- Native directory-copy tests preserve an empty service account home, numeric
+  UID/GID, permissions and setgid; traversal outside the destination is rejected.
+- Live CD automatically reaches the Wine desktop and shuts down normally after
+  replacing setup/display-manager conflicts with a setup-stage condition.
+- A stopped installed multi-user disk repaired to the correct LightDM home
+  ownership passed wrong/correct Alice authentication, Win+L, Bob's passwordless
+  desktop (5 seconds), normal shutdown and read-only account/config/prefix checks.
+  This is diagnostic confirmation; the final blank-disk rerun remains required.
+
+Corrections discovered:
+
+- The installer copied file metadata but ignored WinntDirectories. Empty
+  `/var/lib/lightdm` became root-owned; the greeter failed to write X authority.
+  Native setup now creates and preserves every directory in the layout.
+- Enabled setup services' Conflicts could cancel display-manager startup even
+  when their conditions later skipped them. Gate LightDM with the setup-stage
+  file and remove those conflicts; remove stale duplicate include units.
+- Debian 13 AccountsService already writes LightDM's main configuration through
+  WexUserSetSession. Removed a redundant OOBE username handoff (its CRT text-mode
+  CRLF was also rejected by the shell's username validation). The checker now
+  accounts for LightDM's legacy SeatDefaults section.
+- Tesseract omitted white text on the blue Welcome screen. An explicit 60%
+  threshold fallback recognizes names and small antialiased password labels.
+- `/tmp` is a 32 GiB RAM filesystem in WSL. Accumulated disks filled it and caused
+  QMP screenshot/ImageMagick failures. Preserve old stopped disks on persistent
+  storage, and use VMTEST_DIR=/var/tmp/wineexplorer-vmtest for further runs;
+  acceptance scripts now honor this existing vmtest setting.
+
+Initial failed-run logs, diagnostic screenshots and the repaired-disk auth
+evidence are under the ignored `build/install-test/` directory. An NBD inspection
+initially raced partition node creation; the diagnostic helper was corrected to
+wait and disconnect on failure. No unrelated VM was stopped or changed.
 
 ## Build and source checks
 
