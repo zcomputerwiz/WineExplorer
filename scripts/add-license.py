@@ -39,10 +39,12 @@ def new_files():
 
 def process(path, dry):
     full = os.path.join(ROOT, path)
-    raw = open(full, "rb").read().decode("utf-8", "replace")
+    with open(full, "rb") as source:
+        raw = source.read().decode("utf-8", "replace")
     eol = "\r\n" if "\r\n" in raw else "\n"
     text = raw.replace("\r\n", "\n")
-    if re.search(r"GNU|Lesser General", text[:3000]):
+    notice = re.sub(r"(?m)^\s*\* ?", "", text[:3000])
+    if re.search(r"GNU\s+(?:Lesser\s+)?General\s+Public\s+License|SPDX-License-Identifier:", notice):
         return False
     m = re.match(r"\s*/\*(.*?)\*/\n?", text, re.S)
     if m:
@@ -59,7 +61,8 @@ def process(path, dry):
     lines += [LICENSE, " */"]
     result = "\n".join(lines) + "\n" + ("\n" if not body.startswith("\n") else "") + body
     if not dry:
-        open(full, "wb").write(result.replace("\n", eol).encode("utf-8"))
+        with open(full, "wb") as target:
+            target.write(result.replace("\n", eol).encode("utf-8"))
     return True
 
 

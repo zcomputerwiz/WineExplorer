@@ -3,22 +3,32 @@ set -e
 
 # Ensure display-manager is enabled and linked to gdm3
 mkdir -p /etc/systemd/system/graphical.target.wants
-ln -sf /lib/systemd/system/gdm3.service /etc/systemd/system/display-manager.service
-ln -sf /lib/systemd/system/gdm3.service /etc/systemd/system/graphical.target.wants/display-manager.service
+ln -sf /usr/lib/systemd/system/gdm3.service /etc/systemd/system/display-manager.service 2>/dev/null || ln -sf /lib/systemd/system/gdm3.service /etc/systemd/system/display-manager.service
+ln -sf /etc/systemd/system/display-manager.service /etc/systemd/system/graphical.target.wants/display-manager.service
+
+# Prevent display-manager and gdm3 from starting during text-mode setup
+mkdir -p /etc/systemd/system/display-manager.service.d /etc/systemd/system/gdm3.service.d
+cat > /etc/systemd/system/display-manager.service.d/override.conf << 'EOF'
+[Unit]
+ConditionKernelCommandLine=!wexsetup=textmode
+EOF
+cp -f /etc/systemd/system/display-manager.service.d/override.conf /etc/systemd/system/gdm3.service.d/override.conf
 
 # Ensure wex-textsetup, wex-setup, and wex-oobe are enabled in multi-user.target
 mkdir -p /etc/systemd/system/multi-user.target.wants
-ln -sf /lib/systemd/system/wex-textsetup.service /etc/systemd/system/multi-user.target.wants/wex-textsetup.service
-ln -sf /lib/systemd/system/wex-setup.service /etc/systemd/system/multi-user.target.wants/wex-setup.service
-ln -sf /lib/systemd/system/wex-oobe.service /etc/systemd/system/multi-user.target.wants/wex-oobe.service
+ln -sf /usr/lib/systemd/system/wex-textsetup.service /etc/systemd/system/multi-user.target.wants/wex-textsetup.service
+ln -sf /usr/lib/systemd/system/wex-setup.service /etc/systemd/system/multi-user.target.wants/wex-setup.service
+ln -sf /usr/lib/systemd/system/wex-oobe.service /etc/systemd/system/multi-user.target.wants/wex-oobe.service
 
 # Fix permissions on desktop file
 if [ -f /usr/share/xsessions/wine-explorer.desktop ]; then
     chmod 644 /usr/share/xsessions/wine-explorer.desktop
 fi
 
-# Ensure standard permissions on system directories (755 for system root dirs)
+# Ensure standard permissions on system directories and libraries
 chmod 755 / /etc /usr /var /setup /home 2>/dev/null || true
+chmod 755 /usr/lib /usr/lib64 /usr/local /usr/local/lib /usr/local/bin /usr/bin /usr/sbin 2>/dev/null || true
+chmod -R a+rX /usr/lib /usr/local /usr/share 2>/dev/null || true
 chmod 755 /etc/wineexplorer 2>/dev/null || true
 chmod 1777 /tmp /var/tmp 2>/dev/null || true
 

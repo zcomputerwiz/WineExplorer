@@ -27,3 +27,10 @@ if [ -f /media/sf_WineExplorer/installer/setupinfs/eula.txt ]; then
 elif [ -f ../chroot/setup/eula.txt ]; then
     cp -f ../chroot/setup/eula.txt setup/eula.txt || true
 fi
+
+# Copy unattend.sif if present (unattended mode)
+if [ -f ../config/includes.chroot/setup/unattend.sif ]; then
+    cp -f ../config/includes.chroot/setup/unattend.sif setup/unattend.sif || true
+else
+    rm -f setup/unattend.sif
+fi

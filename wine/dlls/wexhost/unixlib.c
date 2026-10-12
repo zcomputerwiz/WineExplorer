@@ -661,6 +661,211 @@ static NTSTATUS users_list( void *args )
     return STATUS_SUCCESS;
 }
 
+/* ------------------------------------------------------------------ Setup: locale, accounts (setup.exe, oobe.exe)
+ * The setup account is allowed these actions by installer/systemd/49-wexsetup.rules while Setup runs. */
+
+#define ACC_DEST  "org.freedesktop.Accounts"
+#define ACC_PATH  "/org/freedesktop/Accounts"
+#define ACC_USER  "org.freedesktop.Accounts.User"
+#define LOC_DEST  "org.freedesktop.locale1"
+#define LOC_PATH  "/org/freedesktop/locale1"
+
+/* crypt(3) SHA-512 with a random salt, for AccountsService SetPassword; libcrypt is loaded at run time */
+static BOOL hash_password( const char *password, char *out, size_t size )
+{
+    static const char chars[] = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    static char *(*p_crypt)( const char *, const char * );
+    unsigned char raw[16];
+    char salt[3 + 16 + 2];
+    const char *hash;
+    FILE *f;
+    int i;
+
+    if (!p_crypt)
+    {
+        void *lib = dlopen( "libcrypt.so.1", RTLD_NOW );
+        if (!lib) lib = dlopen( "libcrypt.so", RTLD_NOW );
+        if (lib) p_crypt = dlsym( lib, "crypt" );
+        if (!p_crypt) return FALSE;
+    }
+    if (!(f = fopen( "/dev/urandom", "rb" ))) return FALSE;
+    i = fread( raw, 1, sizeof(raw), f );
+    fclose( f );
+    if (i != sizeof(raw)) return FALSE;
+    strcpy( salt, "$6$" );
+    for (i = 0; i < sizeof(raw); i++) salt[3 + i] = chars[raw[i] % 64];
+    strcpy( salt + 3 + sizeof(raw), "$" );
+    hash = p_crypt( password, salt );
+    if (!hash || strncmp( hash, "$6$", 3 ) || strlen( hash ) >= size) return FALSE;   /* "*0" and the like: failure */
+    strcpy( out, hash );
+    return TRUE;
+}
+
+/* the AccountsService object of a user name */
+static BOOL find_user_path( const char *name, char *path, size_t size )
+{
+    DBusMessage *msg, *reply;
+    DBusMessageIter it;
+    const char *s;
+    BOOL ok = FALSE;
+
+    msg = p_dbus_message_new_method_call( ACC_DEST, ACC_PATH, "org.freedesktop.Accounts", "FindUserByName" );
+    if (!msg) return FALSE;
+    p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &name, DBUS_TYPE_INVALID );
+    if (!call_system( msg, &reply ))
+    {
+        if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_OBJECT_PATH)
+        {
+            p_dbus_message_iter_get_basic( &it, &s );
+            ok = snprintf( path, size, "%s", s ) < size;
+        }
+        p_dbus_message_unref( reply );
+    }
+    p_dbus_message_unref( msg );
+    return ok;
+}
+
+static DWORD call_user( const char *path, const char *method, int type, const void *value )
+{
+    DBusMessage *msg = p_dbus_message_new_method_call( ACC_DEST, path, ACC_USER, method );
+    DWORD err;
+    if (msg) p_dbus_message_append_args( msg, type, value, DBUS_TYPE_INVALID );
+    err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
+    return err;
+}
+
+static DWORD set_password( const char *path, char *password )
+{
+    char hash[256];
+    const char *h = hash, *hint = "";
+    DBusMessage *msg;
+    DWORD err;
+
+    if (!hash_password( password, hash, sizeof(hash) )) return ERROR_NOT_SUPPORTED;
+    msg = p_dbus_message_new_method_call( ACC_DEST, path, ACC_USER, "SetPassword" );
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &h, DBUS_TYPE_STRING, &hint, DBUS_TYPE_INVALID );
+    err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
+    explicit_bzero( hash, sizeof(hash) );
+    return err;
+}
+
+/* locale1: SetLocale(["LANG=<locale>"]) and SetX11Keyboard(layout), which also sets the console keymap */
+static NTSTATUS locale_set( void *args )
+{
+    struct locale_set_params *params = args;
+    dbus_bool_t interactive = TRUE, convert = TRUE;
+    DBusMessage *msg;
+
+    params->locale[sizeof(params->locale) - 1] = params->layout[sizeof(params->layout) - 1] = 0;
+    params->err = load_dbus() ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+    if (!params->err && params->locale[0])
+    {
+        char env[96];
+        const char *s = env;
+        DBusMessageIter it, arr;
+
+        snprintf( env, sizeof(env), "LANG=%s", params->locale );
+        msg = p_dbus_message_new_method_call( LOC_DEST, LOC_PATH, LOC_DEST, "SetLocale" );
+        if (msg)
+        {
+            p_dbus_message_iter_init_append( msg, &it );
+            p_dbus_message_iter_open_container( &it, DBUS_TYPE_ARRAY, "s", &arr );
+            p_dbus_message_iter_append_basic( &arr, DBUS_TYPE_STRING, &s );
+            p_dbus_message_iter_close_container( &it, &arr );
+            p_dbus_message_iter_append_basic( &it, DBUS_TYPE_BOOLEAN, &interactive );
+        }
+        params->err = call_system( msg, NULL );
+        if (msg) p_dbus_message_unref( msg );
+    }
+    if (!params->err && params->layout[0])
+    {
+        const char *layout = params->layout, *model = "pc105", *empty = "";
+        msg = p_dbus_message_new_method_call( LOC_DEST, LOC_PATH, LOC_DEST, "SetX11Keyboard" );
+        if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &layout, DBUS_TYPE_STRING, &model,
+                                             DBUS_TYPE_STRING, &empty, DBUS_TYPE_STRING, &empty,
+                                             DBUS_TYPE_BOOLEAN, &convert, DBUS_TYPE_BOOLEAN, &interactive,
+                                             DBUS_TYPE_INVALID );
+        params->err = call_system( msg, NULL );
+        if (msg) p_dbus_message_unref( msg );
+    }
+    return STATUS_SUCCESS;
+}
+
+/* the Administrator password: root's password, through AccountsService (an empty one leaves root locked) */
+static NTSTATUS root_pass_set( void *args )
+{
+    struct root_pass_set_params *params = args;
+    char path[128];
+
+    params->password[sizeof(params->password) - 1] = 0;
+    if (!params->password[0]) params->err = ERROR_SUCCESS;
+    else if (!load_dbus()) params->err = ERROR_NOT_SUPPORTED;
+    else if (!find_user_path( "root", path, sizeof(path) )) params->err = ERROR_NO_SUCH_USER;
+    else params->err = set_password( path, params->password );
+    explicit_bzero( params->password, sizeof(params->password) );
+    return STATUS_SUCCESS;
+}
+
+/* CreateUser (account type 1: administrator, the sudo group), the WineExplorer session, and the password when one is
+ * given; AccountsService copies /etc/skel, including the template Wine prefix, into the new home */
+static NTSTATUS user_create( void *args )
+{
+    struct user_create_params *params = args;
+    const char *name = params->name, *real = params->real_name, *session = "wine-explorer";
+    dbus_int32_t type = params->account_type;
+    DBusMessage *msg;
+    char path[128];
+
+    params->name[sizeof(params->name) - 1] = params->real_name[sizeof(params->real_name) - 1] = 0;
+    params->password[sizeof(params->password) - 1] = 0;
+    if (!load_dbus()) params->err = ERROR_NOT_SUPPORTED;
+    else if (!name[0]) params->err = ERROR_INVALID_PARAMETER;
+    else
+    {
+        msg = p_dbus_message_new_method_call( ACC_DEST, ACC_PATH, "org.freedesktop.Accounts", "CreateUser" );
+        if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &name, DBUS_TYPE_STRING, &real,
+                                             DBUS_TYPE_INT32, &type, DBUS_TYPE_INVALID );
+        params->err = call_system( msg, NULL );
+        if (msg) p_dbus_message_unref( msg );
+        if (!params->err && !find_user_path( name, path, sizeof(path) )) params->err = ERROR_NO_SUCH_USER;
+        if (!params->err)
+        {
+            call_user( path, "SetXSession", DBUS_TYPE_STRING, &session );
+            call_user( path, "SetSession", DBUS_TYPE_STRING, &session );
+            if (params->password[0]) params->err = set_password( path, params->password );
+            else
+            {
+                /* no password: logs on without one, as on Windows (useradd leaves the account locked) */
+                dbus_int32_t mode = 2;
+                params->err = call_user( path, "SetPasswordMode", DBUS_TYPE_INT32, &mode );
+            }
+        }
+    }
+    explicit_bzero( params->password, sizeof(params->password) );
+    return STATUS_SUCCESS;
+}
+
+/* the user's session and automatic logon (AccountsService writes the display manager's setting) */
+static NTSTATUS user_set_session( void *args )
+{
+    struct user_set_session_params *params = args;
+    const char *session = params->session;
+    dbus_bool_t autologin = params->autologin;
+    char path[128];
+
+    params->name[sizeof(params->name) - 1] = params->session[sizeof(params->session) - 1] = 0;
+    if (!load_dbus()) params->err = ERROR_NOT_SUPPORTED;
+    else if (!find_user_path( params->name, path, sizeof(path) )) params->err = ERROR_NO_SUCH_USER;
+    else
+    {
+        params->err = session[0] ? call_user( path, "SetXSession", DBUS_TYPE_STRING, &session ) : ERROR_SUCCESS;
+        if (!params->err) params->err = call_user( path, "SetAutomaticLogin", DBUS_TYPE_BOOLEAN, &autologin );
+    }
+    return STATUS_SUCCESS;
+}
+
 /* ------------------------------------------------------------------ NetworkManager */
 
 #define NM_DEST   "org.freedesktop.NetworkManager"
@@ -1438,6 +1643,10 @@ STUB( net_connect_wifi, struct net_connect_wifi_params )
 STUB( net_disconnect, struct net_disconnect_params )
 STUB( net_enable, struct net_enable_params )
 STUB( users_list, struct users_list_params )
+STUB( locale_set, struct locale_set_params )
+STUB( root_pass_set, struct root_pass_set_params )
+STUB( user_create, struct user_create_params )
+STUB( user_set_session, struct user_set_session_params )
 
 #endif
 
@@ -1490,6 +1699,10 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     composition_set,
     composition_get,
     composition_shadow,
+    locale_set,
+    root_pass_set,
+    user_create,
+    user_set_session,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );

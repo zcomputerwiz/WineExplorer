@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Builds the bootable hybrid ISO for Debian + WineExplorer.
 # Run on Debian VM as root (or via scripts/vm.sh ssh "sudo /path/to/build-iso.sh").
 set -e
@@ -8,13 +9,11 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT_ISO="${OUT_ISO:-$SCRIPT_DIR/wineexplorer.iso}"
 WORK_DIR="${WORK_DIR:-/home/wineuser/iso-build}"
 
-GENUINE=false
 UNATTENDED=false
 DO_CLEAN=false
 
 for arg in "$@"; do
     case "$arg" in
-        --genuine) GENUINE=true ;;
         --unattended) UNATTENDED=true ;;
         --clean) DO_CLEAN=true ;;
         *) echo "Unknown option: $arg"; exit 1 ;;
@@ -26,11 +25,19 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# live-build can restore a bootstrap chroot while retaining completed package
+# stage markers. Reusing it then skips kernel installation and produces an
+# incomplete image. Require a fresh workspace rather than patching that state.
+if [ "$DO_CLEAN" != true ] && { [ -d "$WORK_DIR/chroot" ] || [ -d "$WORK_DIR/.build" ]; }; then
+    echo "Existing live-build workspace requires --clean: $WORK_DIR"
+    exit 1
+fi
+
 echo "=== WineExplorer ISO Builder ==="
 echo "Source installer dir: $SCRIPT_DIR"
 echo "Working build dir:    $WORK_DIR"
 echo "Output ISO:           $OUT_ISO"
-echo "Options: genuine=$GENUINE, unattended=$UNATTENDED, clean=$DO_CLEAN"
+echo "Options: unattended=$UNATTENDED, clean=$DO_CLEAN"
 
 # Clean if requested
 if [ "$DO_CLEAN" = true ]; then
@@ -54,32 +61,23 @@ cp -a "$SCRIPT_DIR/setupinfs/txtsetup.sif.in" "$WORK_DIR/config/" 2>/dev/null ||
 mkdir -p "$WORK_DIR/config/packages.chroot"
 mkdir -p "$WORK_DIR/config/includes.chroot/setup/art"
 
-if [ -d "$WORK_DIR/chroot" ]; then
-    echo "=== Syncing includes.chroot into existing chroot ==="
-    cp -a "$WORK_DIR/config/includes.chroot"/* "$WORK_DIR/chroot/" 2>/dev/null || true
-    rm -f "$WORK_DIR/.build/chroot_includes_after_packages"
-    rm -f "$WORK_DIR/.build/chroot_hooks"
-fi
+# 1. Compile textsetup binary into work directory
+echo "=== Step 1: Compiling textsetup ==="
+make -C "$SCRIPT_DIR/textsetup" clean
+make -C "$SCRIPT_DIR/textsetup"
+mkdir -p "$WORK_DIR/config/includes.chroot/setup"
+cp -f "$SCRIPT_DIR/textsetup/textsetup" "$WORK_DIR/config/includes.chroot/setup/textsetup"
+chmod 755 "$WORK_DIR/config/includes.chroot/setup/textsetup"
+make -C "$SCRIPT_DIR/textsetup" clean
 
-# 1. Package Wine and session if needed
-if [ -d "$SCRIPT_DIR/live-build/config/packages.chroot" ]; then
-    cp -a "$SCRIPT_DIR/live-build/config/packages.chroot"/* "$WORK_DIR/config/packages.chroot/" 2>/dev/null || true
-fi
-if [ ! -f "$WORK_DIR/config/packages.chroot/wineexplorer_11.19-wineexplorer1_amd64.deb" ]; then
-    echo "=== Step 1: Packaging Wine and session ==="
-    OUT_DIR="$WORK_DIR/config/packages.chroot" "$SCRIPT_DIR/package-wine.sh"
-fi
+# 2. Package Wine and session
+echo "=== Step 2: Packaging Wine and session ==="
+OUT_DIR="$WORK_DIR/config/packages.chroot" "$SCRIPT_DIR/package-wine.sh"
 
-# 2. Setup genuine or open art
-if [ "$GENUINE" = true ]; then
-    echo "=== Genuine XP assets requested ==="
-    if [ -d "$ROOT_DIR/assets" ]; then
-        mkdir -p "$WORK_DIR/config/includes.chroot/setup/art/xp"
-        cp -a "$ROOT_DIR/assets"/* "$WORK_DIR/config/includes.chroot/setup/art/xp/" 2>/dev/null || true
-    fi
-fi
+# 3. The ISO carries the open pictures of the Wine build only: never genuine XP files (docs/ASSETS.md). Build it from a
+#    tree without the local overlay (vm.sh sync puts genuine pictures into ~/src on the dev VM).
 
-# 3. Setup unattended file if requested
+# 4. Setup unattended file if requested
 if [ "$UNATTENDED" = true ]; then
     echo "=== Unattended install mode enabled ==="
     if [ -f "$SCRIPT_DIR/setupinfs/unattend.sif" ]; then
@@ -87,6 +85,10 @@ if [ "$UNATTENDED" = true ]; then
     else
         cp "$SCRIPT_DIR/setupinfs/unattend.sif.example" "$WORK_DIR/config/includes.chroot/setup/unattend.sif"
     fi
+    sed -i 's/^set default=.*/set default=2/' "$WORK_DIR/config/hooks/live/9000-grub-menu.binary" 2>/dev/null || true
+else
+    rm -f "$WORK_DIR/config/includes.chroot/setup/unattend.sif"
+    sed -i 's/^set default=.*/set default=0/' "$WORK_DIR/config/hooks/live/9000-grub-menu.binary" 2>/dev/null || true
 fi
 
 # 4. Configure live-build
@@ -122,9 +124,10 @@ lb build
 
 ISO_BUILT=$(ls -t live-image-amd64.hybrid.iso live-image-amd64.iso 2>/dev/null | head -1 || true)
 if [ -n "$ISO_BUILT" ] && [ -f "$ISO_BUILT" ]; then
-    echo "=== Moving generated ISO to $OUT_ISO ==="
+    echo "=== Copying generated ISO to $OUT_ISO ==="
     mkdir -p "$(dirname "$OUT_ISO")"
-    mv -f "$ISO_BUILT" "$OUT_ISO"
+    cp -f "$ISO_BUILT" "$OUT_ISO"
+    rm -f "$ISO_BUILT"
     echo "=== Successfully built $OUT_ISO ==="
     ls -lh "$OUT_ISO"
 else

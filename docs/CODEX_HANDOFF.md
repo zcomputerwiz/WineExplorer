@@ -1,87 +1,127 @@
-# Handoff to Codex — 2026-10-12
+# Codex handoff — 2026-10-12 continuation complete
 
-Read `CLAUDE.md` first (rules: XP parity, no Microsoft material in this repo, small stock-Wine changes listed in
-`docs/STOCK_CHANGES.md`, D-Bus over spawning tools, commit after each working step, GPL headers, never pass C escapes
-through shell heredocs/sed/`python -c` — write a script file or use an editor; the last rule bit twice today).
+Read `CLAUDE.md` and `LICENSE.md` first. The project remains customized Wine as
+its desktop/window manager, with independent Proton application runtimes. This
+repository contains open resources; local reference/overlay material belongs in
+the separate local-only repository and must not enter installer builds.
 
-## Where things are
+## Completed work
 
-| Item | State |
-|---|---|
-| `master` (this checkout) | Pushed to origin at `2113eb3` + this doc. Contains W1–W3 (LightDM, greeter protocol, logonui Welcome screen), D1 compositor, D2 effects (merged `603a8ab`, tested), `scripts/vmtest.py`. |
-| `installer-port` branch | Worktree `../WineExplorer-inst`. **Not pushed, not merged.** Gemini's installer (taken as files, not their history — their history contains Microsoft material and must never be pushed) plus all fixes below. Master was merged into it (`f4e53e2`, conflict in wexhost call tables resolved by keeping both sets: composition_shadow first, then the installer calls). **That merge has not been compiled yet.** |
-| `d2-effects` branch | Merged into master; worktree `../WineExplorer-d1` can be removed. |
-| Plan docs | `docs/WINLOGON_AND_DWM.md` (W1–W7, D1–D4, status line at top), `docs/INSTALLER.md` (Gemini's; needs updating, see below). |
+The installer-port/master merge compiled successfully in a full Wine build.
+Both clean ISO builds completed from the open source tree. The interactive
+script then passed from a blank disk through GUI setup, OOBE, Enter on Finish,
+and Bob Smith's passwordless desktop (8 seconds after logon). Read-only account
+checks verified full names, root/Alice passwords against the private fixture,
+Alice's administrator membership, Bob's passwordless state and setup cleanup.
 
-## Machines
+The zero-input install also passed through the installed desktop and normal
+ACPI shutdown, followed by read-only checks of hostname, account, prefix,
+cleanup and installed license texts. Missing-answer and unavailable-target boot
+cases were reverified against the final menu, with unchanged logical disk bytes.
+See [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md) for hashes, exact
+failures/corrections and evidence. Imported older milestone claims are not the
+current test report.
 
-- **Proton VM** (VirtualBox, SSH `-p 2223 wineuser@127.0.0.1`, key `D:/VirtualBox_VMs/vm_key`): build box.
-  `~/inst` = installer-port sources, `~/inst/build` = its Wine build (prefix `/usr/local`, **never `make install`
-  there** — `package-wine.sh` stages into the ISO). `~/open` = master build into `~/open/inst` for Xvfb tests
-  (`~/open/d2test.sh`). Build targets for one dll: `make dlls/<name>/all` (plain `make dlls/<name>` does nothing).
-  ISO: `cd ~/inst && sudo -n env BUILD_DIR=$HOME/inst/build WORK_DIR=/home/wineuser/iso-build OUT_ISO=$HOME/inst/wineexplorer.iso bash installer/build-iso.sh --clean > ~/inst/iso.log 2>&1`
-  (~20 min). Sync sources with `git archive --format=tar HEAD <paths> | ssh ... 'tar -xmf - -C ~/inst'`.
-  A rebuild with every fix up to `0036319` minus the unattended-safety commit was running at handoff
-  (`~/inst/iso.log`); rebuild once more after syncing HEAD (textsetup/main.c + screens.c changed since).
-- **Dev VM** (WineExplorer-VM): on LightDM with the logonui greeter, session running as wineuser, Composition=0.
-  Holds the genuine overlay — never build the ISO there.
-- **XP VM**: reference, running headless.
-- **VirtualBox `WEX-Install-Test`**: old install with a TCP serial port (2240); superseded by QEMU below. Can be
-  powered off.
-- **WSL2 Debian 13** (`wsl -d Debian -u root`): QEMU/KVM (`/dev/kvm` works), os-autoinst, tesseract, imagemagick,
-  parted. Use this for install tests.
+Fixes in this continuation:
 
-## Test tooling (new today)
+- Package GPL/LGPL texts and the license summary in both installer packages.
+- Add GPL notices to native text setup without replacing existing notices;
+  repair/test the header helper's GNU-name and wrapped-comment detection.
+- Require `--clean` with existing live-build state. Incremental reuse had
+  retained completed stage markers with a bootstrap root lacking the kernel.
+- Require a configured Wine build for packaging; remove installed-runtime copy
+  fallback.
+- Select the resume menu entry whenever setup is in progress. Unattended default
+  index 2 otherwise shifted to the live desktop after the added resume entry.
+- Stabilize OCR checkpoints and screenshot sequencing. Network radio focus
+  caused a missed label; desktop OCR read Computer as Gomputer. The corrected
+  full interactive test passed without manual advancement.
+- Add `vmtest.py shutdown` (ACPI), negative boot/disk comparisons, zero-input
+  installation and read-only account verification. Abrupt QEMU quit plus a
+  no-journal-replay mount initially produced a false cleanup failure.
 
-`scripts/vmtest.py` (run inside WSL): `start NAME [--iso PATH]`, `stop`, `eject`, `shot`, `key` (QEMU key names:
-`ret f8 tab backspace ctrl-alt-f2`), `type`, `click X Y`, `clicktext "Bob Smith"` (OCR), `wait TEXT`, `text`,
-`sh NAME USER PWFILE CMD` (serial console; needs `serial-getty@ttyS0` enabled in the guest). VM state lives in
-`/tmp/vmtest/NAME`; to edit an installed disk while the VM is off: `qemu-nbd -c /dev/nbd0 disk.qcow2; mount /dev/nbd0p1`.
+## Branches and worktrees
 
-`installer/tests/install-interactive.sh ISO PASSWORD_FILE [VM]` (installer-port branch) runs the whole interactive
-install: blank disk → partition editor → copy → restart with the CD in → GUI setup → OOBE (Alice with password, Bob
-Smith without) → Bob's desktop. **Not yet run end-to-end** — written from the manual run. Test password:
-`build/install-test/password.txt` (gitignored; strip CR, it was written on Windows). Example:
+The validated installer work is being merged into master and pushed at the end
+of this continuation. `installer-port` remains in `../WineExplorer-inst`; its
+files were ported onto the clean rewritten history. Do not import/push the old
+external installer history. `d2-effects` was already merged; its old worktree
+was not removed in this continuation.
 
+Master's preexisting uncommitted `*.tmp` ignore addition and `.claude/` directory
+are user/other-agent work and must be preserved. The merge must not commit them
+as part of the installer changes. Check Git state before starting new work.
+
+## Machines and artifacts
+
+- Proton build VM: SSH port 2223, wineuser, key `D:/VirtualBox_VMs/vm_key`.
+  Sources `~/inst`, build `~/inst/build`. Never run an unstaged `make install`
+  there. Use `installer/package-wine.sh` to install only into `DESTDIR` staging.
+- Dev VM WineExplorer-VM: Claude reported LightDM/logonui, Composition=0. This
+  continuation did not install over or restart that desktop.
+- Existing XP and VirtualBox install-test VMs were not powered off or modified.
+- WSL2 Debian: QEMU/KVM tests, ImageMagick, Tesseract, qemu-nbd, qemu-io, xorriso.
+  New test VMs `wex-install-codex`, `wex-unattended-codex`,
+  `wex-missing-answer-codex`, `wex-wrong-target-codex` are all stopped. Disks and
+  evidence remain under `/tmp/vmtest/`; test NBD mounts were disconnected.
+- Final local images: `D:/VirtualBox_VMs/iso/wineexplorer.iso` and
+  `wineexplorer-unattended.iso`. Clean baseline filesystems were retained while
+  their menus were corrected through `installer/tools/update-iso-menu.py`.
+  Future clean builds use the corrected source hook directly. Final hashes
+  are in INSTALLER_TEST_REPORT.md.
+- Guest `~/inst/wineexplorer*.iso` are the pre-menu-correction clean baselines;
+  the final corrected candidates are on the Windows host. Do not substitute the
+  guest baselines for the final candidates.
+- Private test password remains in gitignored
+  `build/install-test/password.txt`. Logs/screenshots and detailed command
+  failure notes are in the same ignored directory. Do not commit credentials.
+
+## Build and repeat tests
+
+Sync using Git archives into `~/inst`; do not use the development overlay's sync
+path. Targets are `make -j8` for full Wine or `dlls/<name>/all` for targeted work.
+
+```sh
+cd ~/inst
+sudo -n env BUILD_DIR="$HOME/inst/build" WORK_DIR=/home/wineuser/iso-build \
+    OUT_ISO="$HOME/inst/wineexplorer.iso" bash installer/build-iso.sh --clean
+# For unattended: prepare an explicit target answer file, then add --unattended.
 ```
-wsl -d Debian -u root -- bash /mnt/d/DeepThought/Projects/WineExplorer-inst/installer/tests/install-interactive.sh \
-    /mnt/d/VirtualBox_VMs/iso/wineexplorer.iso /mnt/d/DeepThought/Projects/WineExplorer/build/install-test/password.txt
+
+In WSL, call scripts with Bash (they need not be executable on the Windows mount):
+
+```sh
+bash installer/tests/install-interactive.sh ISO PASSWORD_FILE wex-install-codex
+bash installer/tests/install-unattended.sh UNATTENDED_ISO wex-unattended-codex
+python3 installer/tests/prepare-safety-isos.py INTERACTIVE_ISO OUTPUT_DIR
+bash installer/tests/boot-safety.sh MISSING_ANSWER_ISO 'Welcome to Setup' wex-missing-answer-codex
+bash installer/tests/boot-safety.sh WRONG_TARGET_ISO 'Setup cannot find the disk' wex-wrong-target-codex
 ```
 
-Calling WSL from PowerShell: put multi-step commands in a script file (quoting through PowerShell breaks `$`); and
-don't `pkill -f` a pattern contained in your own command line.
+These scripts replace the named disposable disk. `install-unattended.sh` expects
+the example hostname/account (WEX-PC/wineuser) and verifies the installed disk,
+not merely a desktop screenshot. Account checks use
+`check-interactive-accounts.py MOUNTED_ROOT PASSWORD_FILE`, run as root against a
+read-only mounted installed filesystem. Shut down normally before mounting;
+`vmtest.py stop` quits abruptly. `vmtest.py start NAME` without `--iso` can boot
+an existing installed disk. Never attach its disk through NBD while QEMU runs.
 
-## Installer: fixed today (installer-port)
+Known command pitfalls from this continuation are recorded in the ignored
+failure notes and test report. The wexhost ABI header is `wexhost_unix.h`, not
+`unixlib.h`. Never pass C escapes through shell heredocs/sed/python -c; use an
+editor or saved script. Maintain GPL-compatible notices and list stock-Wine
+changes in STOCK_CHANGES.md.
 
-Verified in a VM unless marked: blank disks listed; partition editor; license wrap/reflow; GRUB "Continue Setup
-from the hard disk" when a disk has Setup in progress (*not yet verified*); CD eject without the live-medium prompt
-via `/etc/live/tools.conf` (*not yet verified*; `noprompt` does nothing); template prefix built by
-`wex-gui-setup.sh` (setup.exe used `system()`, which runs cmd.exe inside Wine — all `system()` calls in setup/oobe
-removed); first logon renames the template's `C:\users\wexsetup` paths to the user and runs `regsvr32 shell32.dll`
-(`scripts/wine-explorer-session.sh`; desktop 6 s); full names kept; passwordless accounts get password mode none
-(not locked); comctl32 wizard focus fix (traced: focus lands on Finish; *Enter→Finish not yet verified in an
-install*); OOBE title NUL glyph; "Not right now" mnemonic; unattended: missing `TargetDisk` stops Setup instead of
-erasing disk 0, no answer file → interactive (*not yet verified*).
+## Next work
 
-## Next steps, in order
+1. W7: integrate LightDM/custom greeter into the installed distribution; it
+   currently uses GDM even though the development VM uses the new greeter.
+2. Installer presentation: GUI header/backdrop, display-friendly partition
+   labels, installed GRUB appearance, new-profile Recycle Bin icon.
+3. Apply Automatic Updates policy (currently only recorded), improve timezone
+   labels, and exercise EFI/physical-machine installs separately. These new
+   runs cover QEMU/KVM BIOS and virtio disks only.
+4. Continue W4-W7 and D3-D4 / remaining D2 checks in WINLOGON_AND_DWM.md.
 
-1. Sync installer-port HEAD to `~/inst`, full `make` (checks the merge), rebuild ISO, copy to
-   `D:/VirtualBox_VMs/iso/wineexplorer.iso`, run `install-interactive.sh`. Fix what fails.
-2. Unattended: build with `--unattended` (uses `installer/setupinfs/unattend.sif` or the example), boot the
-   "Install (unattended)" entry in QEMU, verify it completes with no input; also verify a wrong `TargetDisk` stops.
-3. Update `docs/INSTALLER.md` (build deps: libfdisk-dev libblkid-dev libncurses-dev; test procedure; what changed),
-   then merge installer-port into master and push (the user has approved pushing master).
-4. Known gaps, not started: installed system still uses GDM (switching it to LightDM + our greeter is W7);
-   Automatic Updates choice is recorded but never applied; time zones shown as Linux names; GUI setup pages lack
-   the XP wizard header/backdrop; format screen shows `/dev/vda1` instead of "Partition1 … Disk 0"; Recycle Bin
-   icon blank in new profiles; GRUB on the installed system shows the Debian theme.
-5. Later plan phases: W4–W7 and D3–D4 in `docs/WINLOGON_AND_DWM.md`. D2 untested items listed there.
-
-## Other loose ends
-
-- `.claude/worktrees/agent-ab8e75e225a87aeeb` leftover dir; orphan VirtualBox diff image `{21d17fdd...}` (in use,
-  could not be closed); `.gitignore` has an uncommitted `*.tmp` line that is not ours.
-- Dev VM has a test account `wextest` (password in gitignored `build/w2/test-account.txt`).
-- An architecture question from the user was answered in chat: most of the code could ship as an add-on package
-  for stock Wine; the core changes (wineserver, win32u, winex11, ntdll) need upstreaming or a wine-staging-style
-  patch series. Offered, not started: generate that patch series from `STOCK_CHANGES.md` and mark upstreamable fixes.
+Commit after each working step. Preserve the independent-Proton desktop design
+and the open-resource boundary when building or publishing.

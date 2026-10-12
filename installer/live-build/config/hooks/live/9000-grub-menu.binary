@@ -24,18 +24,32 @@ set menu_color_highlight=white/blue
 
 insmod all_video
 
+# Setup in progress on a hard disk (the CD was left in, or a USB stick boots first): continue from the disk, as
+# Windows XP Setup does when no key is pressed.
+insmod part_msdos
+insmod part_gpt
+insmod ext2
+if search --no-floppy --file --set=wexdisk /etc/wineexplorer/setup/stage; then
+    set default=0
+    set timeout=5
+    menuentry "Continue Setup from the hard disk" --hotkey=c {
+        set root=$wexdisk
+        configfile /boot/grub/grub.cfg
+    }
+fi
+
 menuentry "Install Debian with WineExplorer" --hotkey=i {
-    linux /live/vmlinuz boot=live components wexsetup=textmode console=ttyS0,115200 console=tty1 quiet
+    linux /live/vmlinuz boot=live components wexsetup=textmode systemd.unit=multi-user.target quiet loglevel=3 systemd.show_status=false plymouth.enable=0
     initrd /live/initrd.img
 }
 
 menuentry "Start WineExplorer from CD" --hotkey=s {
-    linux /live/vmlinuz boot=live components username=wineuser user-fullname="Wine User" console=ttyS0,115200 console=tty1 quiet splash
+    linux /live/vmlinuz boot=live components username=wineuser user-fullname="Wine User" quiet splash
     initrd /live/initrd.img
 }
 
 menuentry "Install (unattended)" --hotkey=u {
-    linux /live/vmlinuz boot=live components wexsetup=textmode wexunattend=/setup/unattend.sif console=ttyS0,115200 console=tty1 quiet
+    linux /live/vmlinuz boot=live components wexsetup=textmode wexunattend=/setup/unattend.sif systemd.unit=multi-user.target quiet loglevel=3 systemd.show_status=false plymouth.enable=0
     initrd /live/initrd.img
 }
 

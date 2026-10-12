@@ -7,6 +7,7 @@ screenshots, so every command is a separate invocation:
 
   vmtest.py start NAME [--iso PATH] [--disk-gb 20] [--mem 4096] [--efi]   boot (CD first when --iso is given)
   vmtest.py stop NAME                                                     power off
+  vmtest.py shutdown NAME [--timeout 120]                                 ACPI shutdown and wait for exit
   vmtest.py eject NAME                                                    remove the CD
   vmtest.py shot NAME [FILE.png]                                          screenshot (default STATE/last.png)
   vmtest.py key NAME KEY...                                               QEMU key names: ret f8 alt-n ctrl-alt-f2
@@ -83,6 +84,18 @@ def shot(name, path=None):
     path = path or os.path.join(d, "last.png")
     subprocess.run(["convert", ppm, path], check=True)
     return path
+
+
+def shutdown(name, timeout):
+    """Flush the installed guest through normal shutdown before disk inspection."""
+    qmp(name, "system_powerdown")
+    end = time.time() + timeout
+    while time.time() < end:
+        if not os.path.exists(os.path.join(state(name), "qmp.sock")):
+            print(f"shut down {name}")
+            return
+        time.sleep(0.5)
+    sys.exit("guest did not shut down cleanly; disk inspection must not proceed")
 
 SCALE = 3   # tesseract misses 8 pt GUI text and the 8x16 console font at 1x
 
@@ -199,6 +212,7 @@ def main():
     s.add_argument("--disk-gb", type=int, default=20); s.add_argument("--mem", type=int, default=4096)
     for op in ("stop", "eject", "text"):
         sub.add_parser(op).add_argument("name")
+    s = sub.add_parser("shutdown"); s.add_argument("name"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("shot"); s.add_argument("name"); s.add_argument("file", nargs="?")
     s = sub.add_parser("key"); s.add_argument("name"); s.add_argument("keys", nargs="+")
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
@@ -215,6 +229,8 @@ def main():
         start(a)
     elif a.op == "stop":
         qmp(a.name, "quit")
+    elif a.op == "shutdown":
+        shutdown(a.name, a.timeout)
     elif a.op == "eject":
         qmp(a.name, "eject", id="cdrom", force=True)
     elif a.op == "shot":

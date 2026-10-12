@@ -29,9 +29,26 @@ def scan_chroot(chroot_dir):
         if rel_root == ".":
             rel_root = ""
 
-        # Skip virtual kernel filesystems
+        # Skip virtual filesystems and live-only directories
         if rel_root == "":
-            dirs[:] = [d for d in dirs if d not in ("proc", "sys", "dev", "run")]
+            dirs[:] = [d for d in dirs if d not in ("proc", "sys", "dev", "run", "setup", "tmp")]
+        elif rel_root == "etc":
+            dirs[:] = [d for d in dirs if d not in ("live",)]
+        elif rel_root == "home":
+            dirs[:] = [d for d in dirs if d not in ("wineuser",)]
+
+        # Check dirs for symlinks (such as root /bin, /sbin, /lib, /lib64 -> usr/*)
+        for d in list(dirs):
+            dpath = os.path.join(root, d)
+            try:
+                st = os.lstat(dpath)
+                if stat.S_ISLNK(st.st_mode):
+                    rel_d = (rel_root + "/" + d) if rel_root else d
+                    target = os.readlink(dpath)
+                    links.append((rel_d, target))
+                    dirs.remove(d)
+            except OSError:
+                pass
 
         norm_dir = "/" + rel_root if rel_root else "/"
 
@@ -47,6 +64,15 @@ def scan_chroot(chroot_dir):
         for name in filenames:
             full_path = os.path.join(root, name)
             rel_path = (rel_root + "/" + name) if rel_root else name
+
+            # Exclude live system specific files
+            if (rel_path.startswith("etc/sudoers.d/live") or
+                rel_path.startswith("etc/sudoers.d/wineuser") or
+                rel_path.startswith("var/lib/AccountsService/users/wineuser") or
+                rel_path.endswith("wex-textsetup.service") or
+                rel_path.startswith("etc/live/") or
+                rel_path.startswith("setup/")):
+                continue
 
             try:
                 lstat = os.lstat(full_path)

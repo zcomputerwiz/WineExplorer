@@ -1,0 +1,123 @@
+/*
+ * Setup Wizard resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+IDD_PAGE_REGIONAL DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Regional and Language Options"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "The system locale should match the language of the applications you want to use. The user locale controls how numbers, currencies, and dates appear.", IDC_STATIC, 15, 7, 287, 20
+    LTEXT "Standards and formats are currently set to English (United States).", IDC_LOCALETEXT, 15, 32, 287, 16
+    PUSHBUTTON "&Customize...", IDC_CUSTOMLOCALE, 245, 50, 57, 14
+    LTEXT "", IDC_STATIC, 15, 70, 287, 1, SS_ETCHEDHORZ
+    LTEXT "The keyboard layout controls the characters that appear when you type.", IDC_STATIC, 15, 78, 287, 12
+    LTEXT "Text input language and method is set to US keyboard layout.", IDC_LAYOUTTEXT, 15, 94, 287, 16
+    PUSHBUTTON "C&ustomize...", IDC_CUSTOMLAYOUT, 245, 114, 57, 14
+END
+
+IDD_PAGE_USERINFO DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Personalize Your Software"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Setup uses this information about yourself to personalize your system.", IDC_STATIC, 15, 7, 287, 18
+    LTEXT "Type your full name and the name of your company or organization.", IDC_STATIC, 15, 28, 287, 18
+    LTEXT "&Name:", IDC_STATIC, 15, 58, 60, 8
+    EDITTEXT IDC_OWNER_NAME, 80, 56, 180, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL
+    LTEXT "&Organization:", IDC_STATIC, 15, 80, 60, 8
+    EDITTEXT IDC_ORG_NAME, 80, 78, 180, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL
+END
+
+IDD_PAGE_COMPUTER DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Computer Name and Administrator Password"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Type a name for your computer that is 15 characters or less. If you are on a network, your computer name must be unique.", IDC_STATIC, 15, 7, 287, 20
+    LTEXT "&Computer name:", IDC_STATIC, 15, 33, 90, 8
+    EDITTEXT IDC_COMP_NAME, 115, 31, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_UPPERCASE
+    LTEXT "Setup will configure the Administrator (root) account. Type an Administrator password that is 127 characters or less.", IDC_STATIC, 15, 55, 287, 20
+    LTEXT "&Administrator password:", IDC_STATIC, 15, 82, 95, 8
+    EDITTEXT IDC_ADMIN_PASS1, 115, 80, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_PASSWORD
+    LTEXT "C&onfirm password:", IDC_STATIC, 15, 104, 95, 8
+    EDITTEXT IDC_ADMIN_PASS2, 115, 102, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_PASSWORD
+END
+
+IDD_PAGE_DATETIME DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Date and Time Settings"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Set the correct date and time for your computer.", IDC_STATIC, 15, 7, 287, 12
+    LTEXT "Time &zone:", IDC_STATIC, 15, 26, 60, 8
+    COMBOBOX IDC_TZ_COMBO, 15, 38, 287, 120, CBS_DROPDOWNLIST | WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL
+    AUTOCHECKBOX "Automatically adjust clock for &daylight saving changes", IDC_AUTODAYLIGHT, 15, 65, 250, 10
+END
+
+IDD_PAGE_NETWORK DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Networking Settings"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Networking software allows this computer to connect to other computers, networks, and the Internet.", IDC_STATIC, 15, 7, 287, 20
+    AUTORADIOBUTTON "&Typical settings", IDC_NET_TYPICAL, 15, 35, 287, 10, WS_GROUP | WS_TABSTOP
+    LTEXT "Creates network connections using standard networking components (DHCP, TCP/IP).", IDC_STATIC, 27, 48, 275, 18
+    AUTORADIOBUTTON "C&ustom settings", IDC_NET_CUSTOM, 15, 72, 287, 10
+    LTEXT "Allows you to manually configure networking components.", IDC_STATIC, 27, 85, 275, 18
+END
+
+IDD_PAGE_WORKGRP DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Workgroup or Computer Domain"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Do you want this computer to be a member of a domain or a workgroup?", IDC_STATIC, 15, 7, 287, 16
+    AUTORADIOBUTTON "&No, this computer is not on a network, or is on a network without a domain.", IDC_RADIO_WORKGROUP, 15, 28, 287, 10, WS_GROUP | WS_TABSTOP
+    LTEXT "Make this computer a member of the following workgroup:", IDC_STATIC, 27, 42, 275, 10
+    LTEXT "WORK&GROUP:", IDC_STATIC, 27, 56, 60, 8
+    EDITTEXT IDC_WORKGROUP, 95, 54, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_UPPERCASE
+    AUTORADIOBUTTON "&Yes, make this computer a member of this domain:", IDC_RADIO_DOMAIN, 15, 78, 287, 10
+    EDITTEXT IDC_DOMAIN, 95, 92, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_UPPERCASE | WS_DISABLED
+END
+
+STRINGTABLE
+BEGIN
+    IDS_TITLE_REGIONAL      "Regional and Language Options"
+    IDS_SUBTITLE_REGIONAL   "You can customize settings for different regions and languages."
+    IDS_TITLE_USERINFO      "Personalize Your Software"
+    IDS_SUBTITLE_USERINFO   "Setup uses this information about yourself to personalize your system."
+    IDS_TITLE_COMPUTER      "Computer Name and Administrator Password"
+    IDS_SUBTITLE_COMPUTER   "You must provide a name and an Administrator password for your computer."
+    IDS_TITLE_DATETIME      "Date and Time Settings"
+    IDS_SUBTITLE_DATETIME   "Set the correct date and time for your computer."
+    IDS_TITLE_NETWORK       "Networking Settings"
+    IDS_SUBTITLE_NETWORK    "Select whether to use typical or custom network settings."
+    IDS_TITLE_WORKGRP       "Workgroup or Computer Domain"
+    IDS_SUBTITLE_WORKGRP    "A workgroup is a simple collection of computers that share resources."
+    IDS_ERR_COMPNAME_EMPTY  "You must specify a computer name."
+    IDS_ERR_COMPNAME_INVALID "The computer name you entered is invalid. Computer names can contain up to 15 characters, but cannot contain spaces or any of the following characters: \\ / : * ? \" < > |"
+    IDS_ERR_PASS_MISMATCH   "The passwords you entered do not match. Please re-enter your password."
+END

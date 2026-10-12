@@ -1848,6 +1848,7 @@ enable_ngen
 enable_notepad
 enable_odbcad32
 enable_oleview
+enable_oobe
 enable_ping
 enable_plugplay
 enable_pnputil
@@ -1871,6 +1872,7 @@ enable_sdbinst
 enable_secedit
 enable_servicemodelreg
 enable_services
+enable_setup
 enable_setx
 enable_shutdown
 enable_sndvol32
@@ -23199,6 +23201,7 @@ wine_fn_config_makefile programs/ngen enable_ngen
 wine_fn_config_makefile programs/notepad enable_notepad
 wine_fn_config_makefile programs/odbcad32 enable_odbcad32
 wine_fn_config_makefile programs/oleview enable_oleview
+wine_fn_config_makefile programs/oobe enable_oobe
 wine_fn_config_makefile programs/ping enable_ping
 wine_fn_config_makefile programs/plugplay enable_plugplay
 wine_fn_config_makefile programs/pnputil enable_pnputil
@@ -23227,6 +23230,7 @@ wine_fn_config_makefile programs/secedit enable_secedit
 wine_fn_config_makefile programs/servicemodelreg enable_servicemodelreg
 wine_fn_config_makefile programs/services enable_services
 wine_fn_config_makefile programs/services/tests enable_tests
+wine_fn_config_makefile programs/setup enable_setup
 wine_fn_config_makefile programs/setx enable_setx
 wine_fn_config_makefile programs/shutdown enable_shutdown
 wine_fn_config_makefile programs/sndvol32 enable_sndvol32

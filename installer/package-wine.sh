@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Builds wineexplorer and wineexplorer-session deb packages.
 # Run on the Debian VM (or via scripts/vm.sh ssh).
 set -e
@@ -10,6 +11,22 @@ OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/live-build/config/packages.chroot}"
 
 mkdir -p "$OUT_DIR"
 
+if [ ! -f "$BUILD_DIR/Makefile" ]; then
+    echo "BUILD_DIR must point to a configured Wine build: $BUILD_DIR"
+    echo "Refusing to package the build machine's installed runtime."
+    exit 1
+fi
+
+stage_license_documents()
+{
+    local doc_dir="$1/usr/share/doc/$2"
+    mkdir -p "$doc_dir"
+    install -m644 "$ROOT_DIR/LICENSE.md" "$doc_dir/copyright"
+    install -m644 "$ROOT_DIR/COPYING" "$doc_dir/COPYING"
+    install -m644 "$ROOT_DIR/wine/LICENSE" "$doc_dir/WINE-LICENSE"
+    install -m644 "$ROOT_DIR/wine/COPYING.LIB" "$doc_dir/COPYING.LIB"
+}
+
 STAGE_WINE="/tmp/wexpkg-wine"
 STAGE_SESSION="/tmp/wexpkg-session"
 rm -rf "$STAGE_WINE" "$STAGE_SESSION"
@@ -18,13 +35,8 @@ echo "=== 1. Packaging wineexplorer ==="
 mkdir -p "$STAGE_WINE/DEBIAN"
 mkdir -p "$STAGE_WINE/usr/local"
 
-if [ -f "$BUILD_DIR/Makefile" ]; then
-    echo "Installing from $BUILD_DIR into staging..."
-    make -C "$BUILD_DIR" install DESTDIR="$STAGE_WINE" >/dev/null
-else
-    echo "Copying /usr/local into staging..."
-    cp -a /usr/local/* "$STAGE_WINE/usr/local/"
-fi
+echo "Installing from $BUILD_DIR into staging..."
+make -C "$BUILD_DIR" install DESTDIR="$STAGE_WINE" >/dev/null
 
 # Remove development include headers to save ISO squashfs space
 rm -rf "$STAGE_WINE/usr/local/include"
@@ -48,6 +60,7 @@ Description: Wine customized and configured with Windows XP / Server 2003 shell
  matching the Windows XP and Windows Server 2003 shell experience.
 EOF
 
+stage_license_documents "$STAGE_WINE" wineexplorer
 dpkg-deb --build --root-owner-group "$STAGE_WINE" "$OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
 echo "Built $OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
 
@@ -63,12 +76,6 @@ mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 cp "$ROOT_DIR/scripts/wine-explorer-session.sh" "$STAGE_SESSION/usr/local/bin/wine-explorer-session.sh"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
-if [ -f "$ROOT_DIR/wine/programs/setup/setup.exe" ]; then
-    cp "$ROOT_DIR/wine/programs/setup/setup.exe" "$STAGE_SESSION/usr/local/bin/setup.exe"
-fi
-if [ -f "$ROOT_DIR/wine/programs/oobe/oobe.exe" ]; then
-    cp "$ROOT_DIR/wine/programs/oobe/oobe.exe" "$STAGE_SESSION/usr/local/bin/oobe.exe"
-fi
 chmod 755 "$STAGE_SESSION/usr/local/bin/"*
 
 # Desktop session definition
@@ -111,6 +118,7 @@ Description: WineExplorer session scripts and desktop configuration
  for the WineExplorer Windows XP environment.
 EOF
 
+stage_license_documents "$STAGE_SESSION" wineexplorer-session
 dpkg-deb --build --root-owner-group "$STAGE_SESSION" "$OUT_DIR/wineexplorer-session_1.0-1_all.deb"
 echo "Built $OUT_DIR/wineexplorer-session_1.0-1_all.deb"
 
