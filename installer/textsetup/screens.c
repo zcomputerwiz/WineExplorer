@@ -158,6 +158,13 @@ static int scan_partitions(DiskDevice *disk, int disk_idx, PartitionEntry *entri
 
     int count = 0;
     struct fdisk_table *tb = NULL;
+
+    /* A blank disk has no partition table, so libfdisk reports no free space and the disk would not be listed.
+     * Give it one in memory (as the auto-partition path does); it is only written when a partition is created. */
+    if (!fdisk_has_label(disk->cxt)) {
+        bool uefi = access("/sys/firmware/efi", F_OK) == 0;
+        if (fdisk_create_disklabel(disk->cxt, uefi ? "gpt" : "dos") == 0) disk->is_gpt = uefi;
+    }
     fdisk_get_partitions(disk->cxt, &tb);
 
     if (tb) {
