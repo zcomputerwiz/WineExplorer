@@ -1,6 +1,6 @@
 # Logon and window composition: plan
 
-Status (2026-10-12): W1-W3 done (dev VM on LightDM with the logonui.exe Welcome screen); W4 next. D1 compositor core merged, off by default. This plan covers two projects:
+Status (2026-10-12): W1-W3 done (dev VM on LightDM with the logonui.exe Welcome screen); W4 next. D1 compositor core and D2 effects (shadows, blend fades, capture) merged, off by default. This plan covers two projects:
 
 - **Winlogon**: XP's logon experience (Welcome screen, classic Log On to Windows dialog, Lock Computer, Switch
   User / fast user switching, Windows Security) on top of a real Linux display manager.
@@ -219,7 +219,12 @@ compositing manager, which our session does not have.
   `SPI_GETMENUANIMATION`), `CS_DROPSHADOW` shadows, translucent drag images and selection rectangles. Test on the real
   session with Linux ARGB clients.
 
-  **Implemented locally, awaiting coordinator build/visual validation (2026-10-12).** The compositor caches a small
+  **Merged (2026-10-12), tested on Xvfb with the shell and `compose-probe`:** with composition on, the class-shadow
+  popup has a soft right/bottom shadow; with it off, none. `AnimateWindow` blend in/out takes about 920 ms, restores
+  style and attributes in both modes, and `dwTime` 0 shows/hides at once. K/J/T captures return the composed screen
+  (alpha ramp, shadow) at full and half size. Not yet tested: menu shadows (P), fullscreen bypass, runtime toggling,
+  Linux ARGB clients, the real Xorg session. Menu and tooltip fades are deferred (see STOCK_CHANGES). The compositor
+  caches a small XRender shadow per marked window size, paints it below the window, and scales it with uniform opacity. Moves, caches a small
   XRender shadow per marked window size, paints it below the window, and scales it with uniform opacity. Moves,
   resize, unmap and property changes repaint through D1's damage/stacking machinery; no input window is added.
   `WexCompositionSetShadow(UINT64, BOOL)` marks X windows while composition is enabled. Explorer installs a
