@@ -30,6 +30,7 @@ insmod part_msdos
 insmod part_gpt
 insmod ext2
 if search --no-floppy --file --set=wexdisk /etc/wineexplorer/setup/stage; then
+    set default=0
     set timeout=5
     menuentry "Continue Setup from the hard disk" --hotkey=c {
         set root=$wexdisk
