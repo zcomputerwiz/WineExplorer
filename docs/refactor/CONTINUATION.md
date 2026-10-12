@@ -13,9 +13,9 @@ tree. Keep that pin until actual Wine source changes are intentionally audited.
 The bare evidence repository is `build/refactor/wine.git`. The real release tag
 came unchanged from wine-mirror because the user's fork has no tags.
 
-Current map: 750 paths/1,876 hunks, 86 stock paths still pending. Eleven stock
-paths have explicit hash-pinned decisions in `REVIEWS.json`; seven are U paths
-containing nine independent fix candidates. The next step is the remaining
+Current map: 750 paths/1,876 hunks, 51 stock paths still pending. Forty-six stock
+paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eight include U hunks
+containing ten independent fix candidates. The next step is the remaining
 mixed stock hunk review, particularly shell32 resources/behavior and explorer
 host/plugin boundaries. P1 has not started.
 
@@ -26,6 +26,10 @@ and CRLF normalization. The search helper is local
 `build/refactor/check-coverage.py` performs six negative checks, all passing.
 `build/refactor/record-reviews.py` created the first reviewed stock decisions;
 do not rerun it after adding more reviews, because it writes only those eleven.
+`build/refactor/review-graphics.py` added the graphics, theming, shell-hook,
+work-area and endpoint volume decisions. It reads the pinned evidence and
+preserves existing review entries. Build VM connectivity was checked: Xvfb
+exists and the 60 GiB root filesystem has 19 GiB available. No guest was written.
 
 ## Commands that failed or were interrupted
 

@@ -4,76 +4,1309 @@
     "class": "U",
     "change": "Clear stale ILIF_ALPHA when replacing a non-alpha image",
     "target": "upstream/imagelist-alpha; retained WineExplorer fork fix",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "3e722ab48f279c0218841a7ca508f685710eab7fc4ada7622c4a66306629070a",
+        "header": "@@ -220,9 +220,10 @@ static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int he",
+        "class": "U",
+        "change": "Clear stale ILIF_ALPHA when replacing a non-alpha image",
+        "target": "upstream/imagelist-alpha; retained WineExplorer fork fix"
+      }
+    ]
   },
   "dlls/comctl32/propsheet.c": {
     "patch_sha256": "8af33a033f6775830612240ad4c8477977e1531f7e537ef8409ffed2b33be31f",
     "class": "U",
     "change": "Move wizard focus to the default button when the old button is disabled/hidden",
     "target": "upstream/wizard-focus; retained WineExplorer fork fix",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "c69fb8786c97a59ecb04ef29fec7a65ee52c842a3e6ca38f1d39225c0c7e14b6",
+        "header": "@@ -2623,6 +2623,7 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)",
+        "class": "U",
+        "change": "Move wizard focus to the default button when the old button is disabled/hidden",
+        "target": "upstream/wizard-focus; retained WineExplorer fork fix"
+      },
+      {
+        "sha256": "44c3435ea4fc632ec5b88b8ad78b8bb6a0cf75ae0a9f8a234b767a8357a678b8",
+        "header": "@@ -2658,6 +2659,15 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)",
+        "class": "U",
+        "change": "Move wizard focus to the default button when the old button is disabled/hidden",
+        "target": "upstream/wizard-focus; retained WineExplorer fork fix"
+      }
+    ]
   },
   "server/fd.c": {
     "patch_sha256": "5329fa64c79450cc450b4dcc47219eea4c0b741f0a04bfd0e754d57046218c17",
     "class": "U",
     "change": "Refresh shared timezone bias when tm_isdst changes",
     "target": "upstream/dst-bias; retained WineExplorer fork fix",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "44135379917764bd3f460e036f55eaf053d3d4c057ff921f54efe16c72f16d16",
+        "header": "@@ -314,7 +314,7 @@ static void set_user_shared_data_time(void)",
+        "class": "U",
+        "change": "Refresh shared timezone bias when tm_isdst changes",
+        "target": "upstream/dst-bias; retained WineExplorer fork fix"
+      },
+      {
+        "sha256": "93eec892a64a485e4566adbf22f264c6443da538950967a3521bf596f175e7de",
+        "header": "@@ -325,9 +325,12 @@ static void set_user_shared_data_time(void)",
+        "class": "U",
+        "change": "Refresh shared timezone bias when tm_isdst changes",
+        "target": "upstream/dst-bias; retained WineExplorer fork fix"
+      }
+    ]
   },
   "dlls/ntdll/unix/system.c": {
     "patch_sha256": "16a8db7269fc2df68166758b29505a4f327519a1c77db3576c104aa5000e5fd7",
     "class": "U",
-    "change": "Invalidate timezone cache on localtime metadata change; report battery presence in power capabilities using the existing stock helper",
-    "target": "upstream/timezone-cache and upstream/power-capabilities (separate commits); retained WineExplorer fork fixes",
-    "review": "stock-hunks-reviewed"
+    "change": "Invalidate timezone cache when localtime metadata changes",
+    "target": "upstream/timezone-cache; retained fork fix",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "779faa2a35f468c6b903f4de591cbd55d8c3b6665f57e59cf25aba76e64d4d88",
+        "header": "@@ -32,6 +32,7 @@",
+        "class": "U",
+        "change": "Invalidate timezone cache when localtime metadata changes",
+        "target": "upstream/timezone-cache; retained fork fix"
+      },
+      {
+        "sha256": "94faa52e64f71fcda0de6d261bc2324b520029caf27ea4ef8afeee49df2e612e",
+        "header": "@@ -3104,6 +3105,21 @@ static void get_timezone_info( RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi )",
+        "class": "U",
+        "change": "Invalidate timezone cache when localtime metadata changes",
+        "target": "upstream/timezone-cache; retained fork fix"
+      },
+      {
+        "sha256": "da644d284af034799966849d809ed5350f067b4322df3c3b2b454be807c10f26",
+        "header": "@@ -4625,9 +4641,10 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input,",
+        "class": "U",
+        "change": "Derive SystemBatteriesPresent from the existing battery-state helper",
+        "target": "upstream/power-capabilities; retained fork fix"
+      },
+      {
+        "sha256": "79c453d34b19ee63f12ad741b3d92a6413668b40c5229df34a860ec01c8c34ae",
+        "header": "@@ -4646,7 +4663,8 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input,",
+        "class": "U",
+        "change": "Derive SystemBatteriesPresent from the existing battery-state helper",
+        "target": "upstream/power-capabilities; retained fork fix"
+      }
+    ]
   },
   "dlls/shell32/folders.c": {
     "patch_sha256": "132f3391b3c6619684278a5697fd4b15e02fe254114024e3ae16e1b9a026cb83",
     "class": "U",
-    "change": "Return desktop.ini IconFile path; fall back to a shortcut target's IExtractIconW",
-    "target": "upstream/folder-custom-icon and upstream/shortcut-target-icon (separate commits); retained WineExplorer fork fixes",
-    "review": "stock-hunks-reviewed"
+    "change": "Use a shortcut target icon when the shortcut has no explicit icon",
+    "target": "upstream/shortcut-target-icon; retained fork fix",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "ed0e5ca001dffd95153167ac24a0b1051abc543936dd6667fd53a0a7c2e7b82a",
+        "header": "@@ -140,6 +140,8 @@ static HRESULT getIconLocationForFolder(IExtractIconWImpl *This, UINT uFlags, LP",
+        "class": "U",
+        "change": "Return the expanded desktop.ini IconFile path",
+        "target": "upstream/folder-custom-icon; retained fork fix"
+      },
+      {
+        "sha256": "d958b74d300665d355d37eba75257599746effa19cbdbc061f78552de864dd6b",
+        "header": "@@ -309,6 +311,28 @@ static HRESULT WINAPI IExtractIconW_fnGetIconLocation(IExtractIconW * iface, UIN",
+        "class": "U",
+        "change": "Use a shortcut target icon when the shortcut has no explicit icon",
+        "target": "upstream/shortcut-target-icon; retained fork fix"
+      }
+    ]
   },
   "dlls/shell32/changenotify.c": {
     "patch_sha256": "222fc9dc063ac3759fcb97818101d55a2fe006d947e0b23b0b83162eddc3f181",
     "class": "U",
     "change": "Notify watchers of both source and destination for two-item events",
     "target": "upstream/rename-notifications; retained WineExplorer fork fix",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "5b39bfef711c2fcff902697766f1fd9e349ffa172d3da77698f0b79fa2ec3852",
+        "header": "@@ -349,10 +349,11 @@ void WINAPI SHChangeNotify(LONG wEventId, UINT uFlags, LPCVOID dwItem1, LPCVOID",
+        "class": "U",
+        "change": "Notify watchers of both source and destination for two-item events",
+        "target": "upstream/rename-notifications; retained WineExplorer fork fix"
+      }
+    ]
   },
   "dlls/user32/text.c": {
     "patch_sha256": "00c7505b620be951b0642f020082b45844ad106b18a0a485096293460b939cf7",
     "class": "U",
     "change": "Honor DT_HIDEPREFIX when drawing mnemonic underscores",
     "target": "upstream/drawtext-hideprefix; retained WineExplorer fork fix",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "05acb00f6d0eb0e656ec7e138b8478ecb57bf104e8c68f2ce18c43651583662b",
+        "header": "@@ -1018,7 +1018,7 @@ INT WINAPI DrawTextExW( HDC hdc, LPWSTR str, INT i_count,",
+        "class": "U",
+        "change": "Honor DT_HIDEPREFIX when drawing mnemonic underscores",
+        "target": "upstream/drawtext-hideprefix; retained WineExplorer fork fix"
+      }
+    ]
   },
   "dlls/comctl32/comctl32.rc": {
     "patch_sha256": "be25b3fb98c474d9a11692f97e1008efa5913156476358d090503ae8bc5cede7",
     "class": "X",
     "change": "Use XP's property-sheet title wording",
     "target": "wineexplorer/11.19: XP file Properties wording",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "3d4be57b0ad7e98c6081b004a633f7f4810b6ebd552bd5aadb765e9181555648",
+        "header": "@@ -64,7 +64,7 @@ STRINGTABLE",
+        "class": "X",
+        "change": "Use XP's property-sheet title wording",
+        "target": "wineexplorer/11.19: XP file Properties wording"
+      }
+    ]
   },
   "dlls/kernelbase/locale.c": {
     "patch_sha256": "755138faf0fb30c38937e35af10eeb69c20d486d33d88fc17c0aa62130d52aab",
     "class": "X",
     "change": "Preserve a regional applet's selected locale while the remembered Unix locale stays the same; evaluate separately for upstream",
     "target": "wineexplorer/11.19: regional locale preference",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "586f8e3f4502c6e72910968cb8fd5d3d45f879594c7bb58335bd22ae7f2396b8",
+        "header": "@@ -2029,6 +2029,29 @@ void init_locale( HMODULE module )",
+        "class": "X",
+        "change": "Preserve a regional applet's selected locale while the remembered Unix locale stays the same; evaluate separately for upstream",
+        "target": "wineexplorer/11.19: regional locale preference"
+      }
+    ]
   },
   "dlls/user32/cursoricon.c": {
     "patch_sha256": "b44d44b3d2edfca41d599770ebc68a04e337293a920cc9bef9b605f9964dc1df",
     "class": "X",
     "change": "Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first",
     "target": "wineexplorer/11.19: cursor schemes",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "e5eb6b69a40446390e8e359c7631c5c873f25bdf32a496078b002f47e004d8e3",
+        "header": "@@ -1353,6 +1353,41 @@ end:",
+        "class": "X",
+        "change": "Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first",
+        "target": "wineexplorer/11.19: cursor schemes"
+      },
+      {
+        "sha256": "543260881a5e7574f49cfe66fa20680fa9640ae97c2a34902aa7b1f0535f490d",
+        "header": "@@ -1378,6 +1413,12 @@ static HICON CURSORICON_Load(HINSTANCE hInstance, LPCWSTR name,",
+        "class": "X",
+        "change": "Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first",
+        "target": "wineexplorer/11.19: cursor schemes"
+      }
+    ]
   },
   ".gitattributes": {
     "patch_sha256": "8c061bc674abaa649d9c34c9202990cff29000fa653e87d5d2c0d77b7fd96883",
     "class": "N",
     "change": "Removed generated-file attribute definition; restore upstream metadata",
     "target": "Restore tag attributes; no runtime commit",
-    "review": "stock-hunks-reviewed"
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "550f125a1ff1a93ae64306998c1027246898177181a40a3f8ee1e712a7db5642",
+        "header": "@@ -1,4 +1,3 @@",
+        "class": "N",
+        "change": "Removed generated-file attribute definition; restore upstream metadata",
+        "target": "Restore tag attributes; no runtime commit"
+      }
+    ]
+  },
+  "dlls/user32/hook.c": {
+    "patch_sha256": "c4c7e6691b7b3db408e8f085df24958f09941fdb3ca0cab66db4631acd2fa594",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "91ef44d7182a3e7c77c1d59abc2589f1aa5551e32ddaa4f377f4bd2d520aa105",
+        "header": "@@ -74,8 +74,10 @@ static struct user_api_hook original_user_api =",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "dlls/user32/nonclient.c": {
+    "patch_sha256": "6d09bebbbdb6b9e4502a2105b22f7af01b1c523772d5662ccdb3072b0b8a1ec8",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "1fa02f32ca60c1818517ed2efa37501feb0b52220d22d55cc9db9d64fd0dc046",
+        "header": "@@ -146,3 +146,8 @@ void WINAPI USER_NonClientButtonDraw( HWND hwnd, HDC hdc, enum NONCLIENT_BUTTON_",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "dlls/user32/user32.spec": {
+    "patch_sha256": "f6f52d9becb1936c22265590fa9c5f0eb4180e2a4b1259c5eefec4d8a0817745",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "149f33c13821835cea038889b541b9f86d8249fc1e04e52de2ebb457da4bc422",
+        "header": "@@ -1115,7 +1115,7 @@",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "dlls/user32/user_main.c": {
+    "patch_sha256": "8c8a16618c556f366f4dbc9d614025b758373bac4efa76e60beeb591f299b1b0",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "59bafa77eee78413e296ead5d5cc87d9945c59ed8c81b25581a09288a8ad2683",
+        "header": "@@ -50,6 +50,14 @@ static NTSTATUS WINAPI User32DrawNonClientButton( void *args, ULONG size )",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "dlls/user32/user_private.h": {
+    "patch_sha256": "c4af694cd817d1bddc9f7039c7a48189c6472e03873066261c2fabf4ef579ada",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "630a5b7f5de9e76d4e3a5fb3f478991dd3abbcce01c49e5742608de038c8b759",
+        "header": "@@ -165,6 +165,7 @@ extern struct user_api_hook *user_api;",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "dlls/wow64win/user.c": {
+    "patch_sha256": "e625e39c28a6c1bd143a209fb78dacd3dfceba91eb5cdc7f9667f104028c9e7c",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "f4b7d377876f88d8ed53a9d1a9a91bf1bb6df9434eb6e5c38f8080827dc2656a",
+        "header": "@@ -1225,6 +1225,34 @@ static NTSTATUS WINAPI wow64_NtUserDrawNonClientButton( void *arg, ULONG size )",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "include/winuser.h": {
+    "patch_sha256": "6474bb513ea87e9ee16a0f62228d6eb54fb5595ebf210e2e40d53a1324ae2053",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "9ea391533f618344321c7116a8c4e4f5d96e298eb64232db553179c307a46a98",
+        "header": "@@ -4864,14 +4864,25 @@ enum NONCLIENT_BUTTON_TYPE",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "dlls/uxtheme/window.c": {
+    "patch_sha256": "b04149f60beb5d80824dd918d60cb4883691d99e41b5e9b035bd6c0d12f787c2",
+    "class": "X",
+    "change": "Themed frame callback/renderer and SetWindowRgn interception",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "8eb123f6b22818353035971358dbfeda6e35871dc1553917dae28c5212534647",
+        "header": "@@ -89,3 +89,244 @@ void WINAPI UXTHEME_NonClientButtonDraw(HWND hwnd, HDC hdc, enum NONCLIENT_BUTTO",
+        "class": "X",
+        "change": "Themed frame callback/renderer and SetWindowRgn interception",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "include/ntuser.h": {
+    "patch_sha256": "ec1d16b94ed74bb21692e081d89abb87d905f69ac907b22357cc8b7bce8d7166",
+    "class": "X",
+    "change": "Themed-frame callback enum and marshalled parameters",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "917d97f65451fb417fc83b651c3317dbc617d33af801d5b153c4ae63fba6b879",
+        "header": "@@ -79,6 +79,7 @@ struct user_entry",
+        "class": "X",
+        "change": "Themed-frame callback enum and marshalled parameters",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "cce78250f722775c58162373a55dfe997e84eb6b5da6262445b0fc7a039f81fb",
+        "header": "@@ -391,6 +392,7 @@ C_ASSERT( sizeof(struct drag_drop_post_params) == offsetof(struct drag_drop_post",
+        "class": "X",
+        "change": "Opt-in persistent shell desktop flag",
+        "target": "wineexplorer/11.19: shell desktop lifetime"
+      },
+      {
+        "sha256": "7d61d86de259191693fa6624ccda0197be28b65f154d229efbe37dcfd026b0df",
+        "header": "@@ -590,6 +592,18 @@ struct draw_non_client_button_params",
+        "class": "X",
+        "change": "Themed-frame callback enum and marshalled parameters",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "server/winstation.c": {
+    "patch_sha256": "61c6a482449d07b2ad83e3dad559d0b20c39e92daeac2d364a1f5c41ea7e5d7c",
+    "class": "X",
+    "change": "Keep an opt-in shell desktop alive when its last application exits",
+    "target": "wineexplorer/11.19: shell desktop lifetime",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "36e4ab579ffe84c348d55e3ccefb552a92f7861e4fa92514b93b5f9201a58bc7",
+        "header": "@@ -421,6 +421,9 @@ static void remove_desktop_user( struct desktop *desktop, struct thread *thread",
+        "class": "X",
+        "change": "Keep an opt-in shell desktop alive when its last application exits",
+        "target": "wineexplorer/11.19: shell desktop lifetime"
+      }
+    ]
+  },
+  "dlls/user32/win.c": {
+    "patch_sha256": "21cd0943241a34d6e5660ed7a4fc9f82a520c7038f7c44d7ac03a9ebd8455e9c",
+    "class": "X",
+    "change": "Implement AW_BLEND using temporary uniform window alpha",
+    "target": "wineexplorer/11.19: AnimateWindow blend",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "2f7a7bdcd8defd75695a639d8eb8ed6ee383ccf19b6fe1c4c6408e4d3573e4b1",
+        "header": "@@ -30,6 +30,11 @@ WINE_DEFAULT_DEBUG_CHANNEL(win);",
+        "class": "X",
+        "change": "Implement AW_BLEND using temporary uniform window alpha",
+        "target": "wineexplorer/11.19: AnimateWindow blend"
+      },
+      {
+        "sha256": "a9ee90a61fa1861174b7462ca536e38d7bf03ceb7cda05cfff74a776f7bc148b",
+        "header": "@@ -804,13 +809,64 @@ BOOL WINAPI BringWindowToTop( HWND hwnd )",
+        "class": "X",
+        "change": "Implement AW_BLEND using temporary uniform window alpha",
+        "target": "wineexplorer/11.19: AnimateWindow blend"
+      },
+      {
+        "sha256": "f19592bbfb0d3f4d79a669ebc1ea4db9b5c507b8c711fc48de6334246e8d16d1",
+        "header": "@@ -819,7 +875,12 @@ BOOL WINAPI AnimateWindow( HWND hwnd, DWORD time, DWORD flags )",
+        "class": "X",
+        "change": "Implement AW_BLEND using temporary uniform window alpha",
+        "target": "wineexplorer/11.19: AnimateWindow blend"
+      }
+    ]
+  },
+  "dlls/uxtheme/metric.c": {
+    "patch_sha256": "c7f0d342a03fa06af2b0eb18ac8de29cf1e9bcfbdd99039b24d157a23da7cfca",
+    "class": "X",
+    "change": "Open theme data from a selected file; metrics follow that theme handle",
+    "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "d4e8dbf31b79e4f7991355322e5de79050cf8da03eec0b9365e3938a0b4e968f",
+        "header": "@@ -46,7 +46,7 @@ BOOL WINAPI GetThemeSysBool(HTHEME hTheme, int iBoolID)",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "b687204aecaa57e08295ca15a268f366d5af6a117456439a5f1a7ff55836db01",
+        "header": "@@ -76,7 +76,7 @@ COLORREF WINAPI GetThemeSysColor(HTHEME hTheme, int iColorID)",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "a2cf724a4965c49453e0d802541faf55ec089884d375142a3f090e72ffe66382",
+        "header": "@@ -107,7 +107,7 @@ HRESULT WINAPI GetThemeSysFont(HTHEME hTheme, int iFontID, LOGFONTW *plf)",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "7577ccf33f72f811a0ae19a3d076da38e253e800d46b4c42a5016e261516471b",
+        "header": "@@ -153,7 +153,7 @@ HRESULT WINAPI GetThemeSysInt(HTHEME hTheme, int iIntID, int *piValue)",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "751a6283c3eecddce84c98117d9003d02515de05af0b9e65795e1e7821970dda",
+        "header": "@@ -187,7 +187,7 @@ int WINAPI GetThemeSysSize(HTHEME hTheme, int iSizeID)",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "267abd80d174adc6c060aef61ad201e9575d8199952ef22823aede6ab4b947cb",
+        "header": "@@ -217,7 +217,7 @@ HRESULT WINAPI GetThemeSysString(HTHEME hTheme, int iStringID,",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      }
+    ]
+  },
+  "dlls/uxtheme/msstyles.h": {
+    "patch_sha256": "8e53213a7880ad2b7b669ce6f1d47b7ce4028421c06d5ae13d7c3641697b4d3a",
+    "class": "X",
+    "change": "Open theme data from a selected file; metrics follow that theme handle",
+    "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "9f9671e2305424a33f650088d702e630ddb0441c37d8866e9fb53494b585b9e6",
+        "header": "@@ -93,6 +93,7 @@ typedef struct _UXINI_FILE *PUXINI_FILE;",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "f97bebce8c17dde0e12bd5f1c9dc4f7f323b330a7f3ad4e10ae63cb7faa939ea",
+        "header": "@@ -103,7 +104,7 @@ UINT MSSTYLES_GetThemeDPI(PTHEME_CLASS tc);",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      }
+    ]
+  },
+  "dlls/uxtheme/uxtheme.spec": {
+    "patch_sha256": "a1c9563ab688a1f8d934f55489744979f60d9d51407932006e0c44af208607bc",
+    "class": "X",
+    "change": "Open theme data from a selected file; metrics follow that theme handle",
+    "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "51128f7d159606782904ca4646b71c6d5a566f48165ed19d12667438c2cfde27",
+        "header": "@@ -11,7 +11,7 @@",
+        "class": "X",
+        "change": "Open theme data from a selected file; metrics follow that theme handle",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      }
+    ]
+  },
+  "dlls/uxtheme/msstyles.c": {
+    "patch_sha256": "26e1f06c2fb328d00169dcc24b34eb5ceef5f45edc196403a22b12f6502344eb",
+    "class": "X",
+    "change": "Open classes and metrics from a selected theme file",
+    "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "6d77a671b5772ac5a0044b0cfdd46cd10ec55fef39049398eccbe9194e14c018",
+        "header": "@@ -238,7 +238,7 @@ HRESULT MSSTYLES_SetActiveTheme(PTHEME_FILE tf, BOOL setMetrics)",
+        "class": "X",
+        "change": "Reapply metrics without duplicating parsed classes",
+        "target": "wineexplorer/11.19: theme metric reapplication"
+      },
+      {
+        "sha256": "89c34c10fe73729580250dd8921066f023728402d1bf480a077e6cd68b282302",
+        "header": "@@ -626,10 +626,10 @@ static inline PTHEME_PROPERTY MSSTYLES_FFindMetric(PTHEME_FILE tf, int iProperty",
+        "class": "X",
+        "change": "Open classes and metrics from a selected theme file",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "c17c2a142fa4c8fa0c4dabe80b1d101b61225a520280ef7a32138fe05bbe9eed",
+        "header": "@@ -796,6 +796,8 @@ static BOOL parse_handle_nonclient_font (struct PARSENONCLIENTSTATE* state,",
+        "class": "X",
+        "change": "Convert theme point font heights to 96-DPI pixels",
+        "target": "wineexplorer/11.19: theme font metrics"
+      },
+      {
+        "sha256": "924beba7f13454dd80e7e27f89b0ed5d3817d89e50607e1d8bf32a9645366624",
+        "header": "@@ -906,6 +908,7 @@ static void parse_apply_nonclient (struct PARSENONCLIENTSTATE* state)",
+        "class": "X",
+        "change": "Reparse metrics while retaining existing classes",
+        "target": "wineexplorer/11.19: theme metric reapplication"
+      },
+      {
+        "sha256": "75ed6ab3e6917ddb36b4147680d66a395b4d42fe3575a43c56b3b572fb17cbae",
+        "header": "@@ -975,7 +978,7 @@ static void MSSTYLES_ParseThemeIni(PTHEME_FILE tf, BOOL setMetrics)",
+        "class": "X",
+        "change": "Avoid duplicating classes when reapplying metrics",
+        "target": "wineexplorer/11.19: theme metric reapplication"
+      },
+      {
+        "sha256": "22fc55df2779cafeba8d79921c83af85ed89a5733b45cd683b4be1e18884c5e5",
+        "header": "@@ -1049,7 +1052,7 @@ static void parse_app_class_name(LPCWSTR name, LPWSTR app_name, LPWSTR class_nam",
+        "class": "X",
+        "change": "Open classes and metrics from a selected theme file",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "df2f790ba887577d1fdf9b0606fadefbc0edc5b659d62ecd9ebda0a6dcdeef96",
+        "header": "@@ -1059,13 +1062,11 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U",
+        "class": "X",
+        "change": "Open classes and metrics from a selected theme file",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "39e860f66eb01ce0ac2cc3486b473498a09e52f39687572795dca5d9b6b64d36",
+        "header": "@@ -1079,9 +1080,9 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U",
+        "class": "X",
+        "change": "Open classes and metrics from a selected theme file",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "011da620588c0edc9470e446753aa5cecf55d65df5d22c3b19142ee938255211",
+        "header": "@@ -1092,13 +1093,13 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U",
+        "class": "X",
+        "change": "Open classes and metrics from a selected theme file",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "aa736a4f2ba0b48405054d7ede0717963f4ad5ff2761af555630e31d197e1fde",
+        "header": "@@ -1106,6 +1107,11 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U",
+        "class": "X",
+        "change": "Open classes and metrics from a selected theme file",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "9632bededbb8095e32a065dd9518af9fc1b33c2dcff12f9c0e67b59d947d0f6f",
+        "header": "@@ -1397,7 +1403,7 @@ static BOOL MSSTYLES_GetNextToken(LPCWSTR lpStringStart, LPCWSTR lpStringEnd, LP",
+        "class": "U",
+        "change": "Trim trailing whitespace before the token delimiter",
+        "target": "upstream/theme-token-trimming; retained fork fix"
+      }
+    ]
+  },
+  "dlls/uxtheme/system.c": {
+    "patch_sha256": "65cac8b87d1870d3e202b53b1d831f1e7c24227152574951926a87185f626c54",
+    "class": "X",
+    "change": "Follow ThemeManager registry changes across processes",
+    "target": "wineexplorer/11.19: theme registry reload across processes",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "b246254e3793bad590692dd9bdd12e2037392f84a12b5afe9e723677a3448d30",
+        "header": "@@ -135,7 +135,7 @@ static DWORD query_reg_path (HKEY hKey, LPCWSTR lpszValue,",
+        "class": "X",
+        "change": "Follow ThemeManager registry changes across processes",
+        "target": "wineexplorer/11.19: theme registry reload across processes"
+      },
+      {
+        "sha256": "c66b29d9881373a2b17a84d161836f0ce8d3435149277aeb1166835b79f3c29c",
+        "header": "@@ -184,7 +184,10 @@ static void UXTHEME_LoadTheme(void)",
+        "class": "X",
+        "change": "Follow ThemeManager registry changes across processes",
+        "target": "wineexplorer/11.19: theme registry reload across processes"
+      },
+      {
+        "sha256": "96546f071e669cb8982f943b64ab2bea5866943410fabc52ebbb12a92863bea0",
+        "header": "@@ -500,6 +503,29 @@ HRESULT UXTHEME_SetActiveTheme(PTHEME_FILE tf)",
+        "class": "X",
+        "change": "Follow ThemeManager registry changes across processes",
+        "target": "wineexplorer/11.19: theme registry reload across processes"
+      },
+      {
+        "sha256": "599461ae09619eaf54b5d810cdf26650431ce090acb1c5c4a58999e4e4e25e04",
+        "header": "@@ -510,7 +536,8 @@ void UXTHEME_InitSystem(HINSTANCE hInst)",
+        "class": "X",
+        "change": "Follow ThemeManager registry changes across processes",
+        "target": "wineexplorer/11.19: theme registry reload across processes"
+      },
+      {
+        "sha256": "725e3b3fe2a3f3e4e80db1bba608e8ad2edd00d3bd9b419adab2df027e483f9f",
+        "header": "@@ -539,6 +566,7 @@ BOOL WINAPI IsAppThemed(void)",
+        "class": "X",
+        "change": "Follow ThemeManager registry changes across processes",
+        "target": "wineexplorer/11.19: theme registry reload across processes"
+      },
+      {
+        "sha256": "90c2c09d28043242ebe77d96fd5fde13a2d74cb480a719b30b5ea8b725017643",
+        "header": "@@ -631,6 +659,7 @@ static HTHEME open_theme_data(HWND hwnd, LPCWSTR pszClassList, DWORD flags, UINT",
+        "class": "X",
+        "change": "Follow ThemeManager registry changes across processes",
+        "target": "wineexplorer/11.19: theme registry reload across processes"
+      },
+      {
+        "sha256": "6d6a5ef263c55df07ad2c920ea1126d019a4f21db678a0cd8397ddaeee0c310a",
+        "header": "@@ -680,6 +709,15 @@ HTHEME WINAPI OpenThemeData(HWND hwnd, LPCWSTR classlist)",
+        "class": "X",
+        "change": "Open preview data without activating the theme",
+        "target": "wineexplorer/11.19: isolated theme preview and handle-specific metrics"
+      },
+      {
+        "sha256": "d5bd7efd954026d6a7118559748350966d4d49973379d190db822bfd003154e4",
+        "header": "@@ -1242,8 +1280,10 @@ BOOL WINAPI ThemeHooksInstall(void)",
+        "class": "X",
+        "change": "Install frame-drawing and region hooks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      }
+    ]
+  },
+  "dlls/uxtheme/uxthemedll.h": {
+    "patch_sha256": "9a928fc5215ecac164db86d7d55171a8fd712353412daa45526932f45f87e20c",
+    "class": "X",
+    "change": "Declarations for preview, reload and non-client drawing",
+    "target": "wineexplorer/11.19: theme integration declarations",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "d989c514c498d76dba95f48844d036e1e0e902164300ee4a7f6fdead78834184",
+        "header": "@@ -86,6 +86,7 @@ HRESULT WINAPI OpenThemeFile(LPCWSTR pszThemeFileName, LPCWSTR pszColorName,",
+        "class": "X",
+        "change": "Declarations for preview, reload and non-client drawing",
+        "target": "wineexplorer/11.19: theme integration declarations"
+      },
+      {
+        "sha256": "a1a7e7aae0383ba75d17c042fae4f1824c80455ee1f0fb3a8af9b8733045065d",
+        "header": "@@ -104,9 +105,12 @@ BOOL WINAPI ThemeHooksRemove(void);",
+        "class": "X",
+        "change": "Declarations for preview, reload and non-client drawing",
+        "target": "wineexplorer/11.19: theme integration declarations"
+      }
+    ]
+  },
+  "dlls/user32/misc.c": {
+    "patch_sha256": "ef65679f9c8ff9f501095f8d747c277c1e4710c89abd1e26731c27a84ba32aef",
+    "class": "X",
+    "change": "Post SHELLHOOK messages to the desktop taskman window",
+    "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "fe61f47fb135e2b05126420fd67be5ece139d81afd1a3da57e8c2b5992a84963",
+        "header": "@@ -243,8 +243,9 @@ void WINAPI RegisterSystemThread(DWORD flags, DWORD reserved)",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      },
+      {
+        "sha256": "9331826914a428f44284e017db8cdafc383b1907293ba231d276ac91fa2f7274",
+        "header": "@@ -253,8 +254,9 @@ BOOL WINAPI RegisterShellHookWindow(HWND hWnd)",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      }
+    ]
+  },
+  "dlls/win32u/input.c": {
+    "patch_sha256": "dbe032fb5fb578561c5133e636e2b3383ed8a65c274431164cd6e35810729d3a",
+    "class": "X",
+    "change": "Post SHELLHOOK messages to the desktop taskman window",
+    "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "85288872232f69e8815145c03d8b2fd1600372c8be9133a02218d5b8dd57813d",
+        "header": "@@ -2159,6 +2159,7 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      }
+    ]
+  },
+  "dlls/win32u/window.c": {
+    "patch_sha256": "e1d3a9424ef2d250bc823908ee976c2ae4c6f150c8255b09afa92eeceb87373a",
+    "class": "X",
+    "change": "Post SHELLHOOK messages to the desktop taskman window",
+    "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "345cdacb83ebe70d402f21f7ef39168ad32dff5c7855fe23342c1501b744127a",
+        "header": "@@ -5280,6 +5280,7 @@ BOOL WINAPI NtUserFlashWindowEx( FLASHWINFO *info )",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      },
+      {
+        "sha256": "3691b388d34910bc64a642d98fe0f1a99a9dad584b85c7229b73661d23daf109",
+        "header": "@@ -5300,6 +5301,7 @@ BOOL WINAPI NtUserFlashWindowEx( FLASHWINFO *info )",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      },
+      {
+        "sha256": "782ef7838be013fda64b377b8c4eba3b5d01b7a15da11eae6a3c56f400822a9b",
+        "header": "@@ -5564,6 +5566,7 @@ static BOOL user_destroy_window( HWND hwnd, BOOL winevent )",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      },
+      {
+        "sha256": "5529582bbdd5dc4545d403c09e639c2d903cd14a72071be7049aef8128ce0d63",
+        "header": "@@ -6193,7 +6196,10 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      },
+      {
+        "sha256": "794a411209755c01dc0f8c4e8f556c32a95046c13f1bdd31edd55e12f5b89413",
+        "header": "@@ -6686,6 +6692,25 @@ HWND get_taskman_window(void)",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      }
+    ]
+  },
+  "dlls/win32u/win32u_private.h": {
+    "patch_sha256": "097760aa780bcfd8dff7ca25e3157ccdc10a4094ced2797581996c7d19ac69b1",
+    "class": "X",
+    "change": "Post SHELLHOOK messages to the desktop taskman window",
+    "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "1287ad80dc1c6475bcbdb78970f093239d9a62a53254dec72716febeff2af4fe",
+        "header": "@@ -328,6 +328,7 @@ extern HWND window_from_point( HWND hwnd, POINT pt, INT *hittest, BOOL send_nchi",
+        "class": "X",
+        "change": "Post SHELLHOOK messages to the desktop taskman window",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      }
+    ]
+  },
+  "dlls/win32u/defwnd.c": {
+    "patch_sha256": "58174f890dc48f93a43ccdbc599d2d9919733ec3b939f0f57bfab445d0448538",
+    "class": "X",
+    "change": "Dispatch caption/frame draws through user32 callbacks",
+    "target": "wineexplorer/11.19: themed non-client frame and application-region ownership",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "a27568a28858b3a37753ae69de065f5f3cbe662fe1bc3931a0f99656686231b4",
+        "header": "@@ -1464,6 +1464,26 @@ BOOL draw_frame_menu( HDC dc, RECT *r, UINT flags )",
+        "class": "X",
+        "change": "Dispatch caption/frame draws through user32 callbacks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "1c8d19430f404cc5d83af0109937c4c70c85527c257c2423adc633fd7d01a0ea",
+        "header": "@@ -1471,6 +1491,7 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )",
+        "class": "X",
+        "change": "Dispatch caption/frame draws through user32 callbacks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "ef04ca525e85ff6a7a96e498ed0ab26d13e3f5b5823350fee01e051f8d2453e9",
+        "header": "@@ -1509,6 +1530,7 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )",
+        "class": "X",
+        "change": "Dispatch caption/frame draws through user32 callbacks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "af1aea267b5ff2e58f437f63a35faedfae5ca06a45d5e5a827da255c2bbaeec6",
+        "header": "@@ -1532,6 +1554,7 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )",
+        "class": "X",
+        "change": "Dispatch caption/frame draws through user32 callbacks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "db6f2c6a55a41dda83c03a3eef5d4bc77cdc7a6fc863345967096ccaee0f7c99",
+        "header": "@@ -1715,6 +1738,25 @@ BOOL WINAPI NtUserDrawCaptionTemp( HWND hwnd, HDC hdc, const RECT *rect, HFONT f",
+        "class": "X",
+        "change": "Dispatch caption/frame draws through user32 callbacks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "549a7ac28224b13bd9c4aae83ab83e2a6edc1f6892432b4f34daeecc83965c00",
+        "header": "@@ -1762,6 +1804,17 @@ static void nc_paint( HWND hwnd, HRGN clip )",
+        "class": "X",
+        "change": "Dispatch caption/frame draws through user32 callbacks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "1c0b217d771b9948dbf969e823411bff7c3b304bc92dac543e139ff7499b3920",
+        "header": "@@ -1785,6 +1838,7 @@ static void nc_paint( HWND hwnd, HRGN clip )",
+        "class": "X",
+        "change": "Dispatch caption/frame draws through user32 callbacks",
+        "target": "wineexplorer/11.19: themed non-client frame and application-region ownership"
+      },
+      {
+        "sha256": "f1d6378e2e5500231e6285bbd9bdf728fb4213ac431de1c28ff6a36126012f07",
+        "header": "@@ -2624,7 +2678,11 @@ LRESULT default_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,",
+        "class": "X",
+        "change": "Post shell redraw events for title/icon changes",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      },
+      {
+        "sha256": "4d35692f2f3207aa280d70430d315527e6708f3588c84ffe6995a21041feec20",
+        "header": "@@ -2679,6 +2737,8 @@ LRESULT default_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,",
+        "class": "X",
+        "change": "Post shell redraw events for title/icon changes",
+        "target": "wineexplorer/11.19: shell-hook events (single receiver; upstream deferred)"
+      }
+    ]
+  },
+  "dlls/win32u/menu.c": {
+    "patch_sha256": "a875858ab1d6dd94f4edda8b1f80d69e72971b63026adfd3a2042362977a4d8f",
+    "class": "X",
+    "change": "Reveal accelerator cues on keyboard input",
+    "target": "wineexplorer/11.19: menu keyboard cues",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "3f158166d2635da9b96b00482c49ca9ae23083f5c50670b7f527921344c342ae",
+        "header": "@@ -156,6 +156,8 @@ static HMENU top_popup_hmenu;",
+        "class": "X",
+        "change": "Reveal accelerator cues on keyboard input",
+        "target": "wineexplorer/11.19: menu keyboard cues"
+      },
+      {
+        "sha256": "87b99d345f452886cd879e15afba6530a4ebf61afda2d9d77619f3079cf999c5",
+        "header": "@@ -2082,7 +2084,8 @@ static void calc_menu_item_size( HDC hdc, struct menu_item *item, HWND owner, IN",
+        "class": "X",
+        "change": "Remove extra padding around 32-pixel Start menu icons",
+        "target": "wineexplorer/11.19: classic Start menu row height"
+      },
+      {
+        "sha256": "f107dc78d7faa21de36bfad710f180ef59a198f3f2e8efe94e7ef71d8235ab7f",
+        "header": "@@ -2667,6 +2670,8 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,",
+        "class": "X",
+        "change": "Reveal accelerator cues on keyboard input",
+        "target": "wineexplorer/11.19: menu keyboard cues"
+      },
+      {
+        "sha256": "add363c031b162d0aab1b0c85997fb556423971939cc32e99ae8a49b6007ff8c",
+        "header": "@@ -4104,6 +4109,11 @@ static BOOL track_menu( HMENU hmenu, UINT flags, int x, int y, HWND hwnd, const",
+        "class": "X",
+        "change": "Reveal accelerator cues on keyboard input",
+        "target": "wineexplorer/11.19: menu keyboard cues"
+      },
+      {
+        "sha256": "04647d776c4a8b5342c9f98447bbabfd5cd3b7cb76084cc2a7a964ca1eda84fe",
+        "header": "@@ -4238,6 +4248,14 @@ static BOOL track_menu( HMENU hmenu, UINT flags, int x, int y, HWND hwnd, const",
+        "class": "X",
+        "change": "Reveal accelerator cues on keyboard input",
+        "target": "wineexplorer/11.19: menu keyboard cues"
+      }
+    ]
+  },
+  "dlls/win32u/sysparams.c": {
+    "patch_sha256": "2bc42f67247b2c8f0c361d3f31d6f17b5127c0de7c093b1b7479e8a0c9e0b692",
+    "class": "X",
+    "change": "Share shell work areas across processes and monitor rebuilds",
+    "target": "wineexplorer/11.19: shared monitor work area",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "6fb0f7f15eaa179aa35f2c5c434c70ca8f7843ab19d51e1e46bf627bfe0404df",
+        "header": "@@ -294,7 +294,6 @@ union sysparam_all_entry",
+        "class": "X",
+        "change": "Share shell work areas across processes and monitor rebuilds",
+        "target": "wineexplorer/11.19: shared monitor work area"
+      },
+      {
+        "sha256": "9798289f2302f87ef44a6c7c850ea4a6962db817275c6bf542e19639c771f50c",
+        "header": "@@ -2007,6 +2006,28 @@ static BOOL write_monitor_to_registry( struct monitor *monitor, const BYTE *edid",
+        "class": "X",
+        "change": "Share shell work areas across processes and monitor rebuilds",
+        "target": "wineexplorer/11.19: shared monitor work area"
+      },
+      {
+        "sha256": "c3dc60047a599ff84cc191653550e6fa3ada0e7ed0a7870dada9eccadd9a8ce8",
+        "header": "@@ -2037,6 +2058,7 @@ static void add_monitor( const struct gdi_monitor *gdi_monitor, void *param )",
+        "class": "X",
+        "change": "Share shell work areas across processes and monitor rebuilds",
+        "target": "wineexplorer/11.19: shared monitor work area"
+      },
+      {
+        "sha256": "374bd32764949a28f3ed41b27abe11bf34fbd071161143358ce9ada1eeb9b93c",
+        "header": "@@ -2934,6 +2956,79 @@ BOOL update_display_cache( BOOL force )",
+        "class": "X",
+        "change": "Share shell work areas across processes and monitor rebuilds",
+        "target": "wineexplorer/11.19: shared monitor work area"
+      },
+      {
+        "sha256": "3ccaf4d0838d59aaa60ecd7e4c66e17d8cd3026c667c002aee52437f84cbd3d7",
+        "header": "@@ -5803,16 +5898,6 @@ static USERPREF_ENTRY( CLIENTAREAANIMATION,      4, 0x02 );",
+        "class": "X",
+        "change": "Share shell work areas across processes and monitor rebuilds",
+        "target": "wineexplorer/11.19: shared monitor work area"
+      },
+      {
+        "sha256": "98be47b139fb198605abac4fda78080a309549ee5872e12069e93ba6dfa2f873",
+        "header": "@@ -6199,7 +6284,6 @@ BOOL WINAPI NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT w",
+        "class": "X",
+        "change": "Share shell work areas across processes and monitor rebuilds",
+        "target": "wineexplorer/11.19: shared monitor work area"
+      },
+      {
+        "sha256": "7044ab93293b7bd0b01e651478b8872e6ee4e2b02b18efa9733b418f38827d5e",
+        "header": "@@ -6440,37 +6524,30 @@ BOOL WINAPI NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT w",
+        "class": "X",
+        "change": "Share shell work areas across processes and monitor rebuilds",
+        "target": "wineexplorer/11.19: shared monitor work area"
+      },
+      {
+        "sha256": "801ddd3750e00453d03ceabbd048eb3a73c14fa16399dfa0d58f46d712fda2d4",
+        "header": "@@ -6692,7 +6769,9 @@ BOOL WINAPI NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT w",
+        "class": "X",
+        "change": "SPI_SETCURSORS acknowledges cursor schemes; cache refresh still incomplete",
+        "target": "wineexplorer/11.19: cursor schemes"
+      }
+    ]
+  },
+  "dlls/winex11.drv/event.c": {
+    "patch_sha256": "3ac7d23d613b2470b2c0c99d29562e0fccc1318d2f77782c905eb685e69649d0",
+    "class": "X",
+    "change": "Keep X stacking aligned with Win32 topmost order on activation",
+    "target": "wineexplorer/11.19: virtual desktop stacking and activation",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "f8f3cd3af62d693861dd7f30a6fff1a4bd9a00aae0e88258d5801c3f61e8512f",
+        "header": "@@ -478,8 +478,13 @@ static void set_input_focus( struct x11drv_win_data *data )",
+        "class": "X",
+        "change": "Keep X stacking aligned with Win32 topmost order on activation",
+        "target": "wineexplorer/11.19: virtual desktop stacking and activation"
+      },
+      {
+        "sha256": "157d190c5bc31ccb7d502d52daee58414325980b0bd4a64236639b0f59ffd719",
+        "header": "@@ -1241,7 +1246,7 @@ static BOOL X11DRV_PropertyNotify( HWND hwnd, XEvent *xev )",
+        "class": "X",
+        "change": "Keep X stacking aligned with Win32 topmost order on activation",
+        "target": "wineexplorer/11.19: virtual desktop stacking and activation"
+      },
+      {
+        "sha256": "2721236041668b5dbfdc55338d4dfd906a1bc552dad321880405be0ad7bf3bc7",
+        "header": "@@ -1256,10 +1261,15 @@ void X11DRV_ActivateWindow( HWND hwnd, HWND previous )",
+        "class": "X",
+        "change": "Keep X stacking aligned with Win32 topmost order on activation",
+        "target": "wineexplorer/11.19: virtual desktop stacking and activation"
+      }
+    ]
+  },
+  "dlls/winex11.drv/window.c": {
+    "patch_sha256": "fe23c4eec13e9afb69971a871f3f1c7d3e860c02252a86335948697b1ddf1082",
+    "class": "X",
+    "change": "Restack unmanaged virtual-desktop windows in Win32 order",
+    "target": "wineexplorer/11.19: virtual desktop stacking and activation",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "deab9283cedbf02c384324245e764e30e568e3abb536a5c3e2fa7b5518dc8da6",
+        "header": "@@ -978,6 +978,9 @@ static BOOL window_needs_net_wm_state_change_delay( struct x11drv_win_data *data",
+        "class": "X",
+        "change": "Do not wait for a WM resize acknowledgement for the desktop root",
+        "target": "wineexplorer/11.19: virtual desktop resize"
+      },
+      {
+        "sha256": "0f7eb017807882bb165751e9e9dc8930b9a2bda9b1527345f193528d8b127fdf",
+        "header": "@@ -2137,12 +2140,18 @@ void make_window_embedded( struct x11drv_win_data *data )",
+        "class": "X",
+        "change": "Restack unmanaged virtual-desktop windows in Win32 order",
+        "target": "wineexplorer/11.19: virtual desktop stacking and activation"
+      },
+      {
+        "sha256": "ae2c10e5a84e10d4c6f1c944019f5ffbf16a9da6140127d77a9cef1e4e36aa47",
+        "header": "@@ -2155,6 +2164,9 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags,",
+        "class": "X",
+        "change": "Restack unmanaged virtual-desktop windows in Win32 order",
+        "target": "wineexplorer/11.19: virtual desktop stacking and activation"
+      },
+      {
+        "sha256": "5ce66667b767a74e86dc252dfc1291b00b3884aad13b847a6560b614462c8eec",
+        "header": "@@ -2169,6 +2181,17 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags,",
+        "class": "X",
+        "change": "Restack unmanaged virtual-desktop windows in Win32 order",
+        "target": "wineexplorer/11.19: virtual desktop stacking and activation"
+      },
+      {
+        "sha256": "88a2916b3c844730d4aaee123a949da9f8bf0bedb3a4221cd13d5a1da29e422b",
+        "header": "@@ -2412,7 +2435,37 @@ Window create_client_window( HWND hwnd, RECT client_rect, const XVisualInfo *vis",
+        "class": "X",
+        "change": "Query compositor ownership and publish private shadow hints",
+        "target": "wineexplorer/11.19: compositor ownership and shadow hint"
+      },
+      {
+        "sha256": "cdbf290f87de1f309e172e9aa00f7d7386ba48dfd5f094e8d5ba76718e6b5d76",
+        "header": "@@ -2460,6 +2513,8 @@ static void create_whole_window( struct x11drv_win_data *data )",
+        "class": "X",
+        "change": "Publish shadow hints before mapping windows",
+        "target": "wineexplorer/11.19: compositor ownership and shadow hint"
+      },
+      {
+        "sha256": "30a44c7bad334f18596e60923e3f8f6c60fd4fb639420fdb138f73ef40558e46",
+        "header": "@@ -3328,6 +3383,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN",
+        "class": "X",
+        "change": "Refresh shadow hint when a window is shown",
+        "target": "wineexplorer/11.19: compositor ownership and shadow hint"
+      }
+    ]
+  },
+  "dlls/winex11.drv/x11drv.h": {
+    "patch_sha256": "1339da8f7cfeda51de985e0cd37a2d67ef86a28fd52da37c3aa67033670e3c1e",
+    "class": "X",
+    "change": "Declare compositor ownership query",
+    "target": "wineexplorer/11.19: compositor ownership and shadow hint",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "76093f9d151b99129215478f9e27d2048cf4206874df2202ede00410e0441f26",
+        "header": "@@ -1031,4 +1031,6 @@ static inline UINT asciiz_to_unicode( WCHAR *dst, const char *src )",
+        "class": "X",
+        "change": "Declare compositor ownership query",
+        "target": "wineexplorer/11.19: compositor ownership and shadow hint"
+      }
+    ]
+  },
+  "dlls/winex11.drv/bitblt.c": {
+    "patch_sha256": "99b353c4f930a1e3277d60345ac5e08eb2e2cba2b3cdceb480885052cb843dcc",
+    "class": "X",
+    "change": "Read composited desktop pixels from the real root including redirected children",
+    "target": "wineexplorer/11.19: compositor screen capture",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "5d867442562093e04ea1a834ebf80767f6f56cd2a9eca1eb3a67d6804548ce4a",
+        "header": "@@ -806,11 +806,29 @@ BOOL X11DRV_PatBlt( PHYSDEV dev, struct bitblt_coords *dst, DWORD rop )",
+        "class": "X",
+        "change": "Read composited desktop pixels from the real root including redirected children",
+        "target": "wineexplorer/11.19: compositor screen capture"
+      },
+      {
+        "sha256": "dde1dd51fdeb943eedd873f0ff8c22e7123d0b47cab030507792c9f506505a33",
+        "header": "@@ -825,6 +843,8 @@ BOOL X11DRV_StretchBlt( PHYSDEV dst_dev, struct bitblt_coords *dst,",
+        "class": "X",
+        "change": "Read composited desktop pixels from the real root including redirected children",
+        "target": "wineexplorer/11.19: compositor screen capture"
+      },
+      {
+        "sha256": "3ca2f8bfb479b7c61e4d7bd9682c61968e54b4a895ce131ad50fca606e7c6f9d",
+        "header": "@@ -1316,6 +1336,8 @@ DWORD X11DRV_GetImage( PHYSDEV dev, BITMAPINFO *info,",
+        "class": "X",
+        "change": "Read composited desktop pixels from the real root including redirected children",
+        "target": "wineexplorer/11.19: compositor screen capture"
+      },
+      {
+        "sha256": "9b92f2e12eeeb979236ff24649c3a5360ce94a6ef2fa0bb3a40c7a870287e5fa",
+        "header": "@@ -1357,6 +1379,9 @@ DWORD X11DRV_GetImage( PHYSDEV dev, BITMAPINFO *info,",
+        "class": "X",
+        "change": "Read composited desktop pixels from the real root including redirected children",
+        "target": "wineexplorer/11.19: compositor screen capture"
+      },
+      {
+        "sha256": "bfa833615f428058454b8ecc7cd3de0717ec9dc94894d1331cff0cc16e9ff503",
+        "header": "@@ -1378,6 +1403,7 @@ DWORD X11DRV_GetImage( PHYSDEV dev, BITMAPINFO *info,",
+        "class": "X",
+        "change": "Read composited desktop pixels from the real root including redirected children",
+        "target": "wineexplorer/11.19: compositor screen capture"
+      }
+    ]
+  },
+  "dlls/winex11.drv/xrender.c": {
+    "patch_sha256": "292a1af4e2e3462a2df9c398cc62e2267778d0aa05e97c2a7b63a678d8737e96",
+    "class": "X",
+    "change": "Read composited desktop pixels from the real root including redirected children",
+    "target": "wineexplorer/11.19: compositor screen capture",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "1448c139ab91b97ee74200d8960223ca324954ecf14b1edb54e1811c38ec3a16",
+        "header": "@@ -1743,6 +1743,12 @@ static BOOL xrenderdrv_StretchBlt( PHYSDEV dst_dev, struct bitblt_coords *dst,",
+        "class": "X",
+        "change": "Read composited desktop pixels from the real root including redirected children",
+        "target": "wineexplorer/11.19: compositor screen capture"
+      }
+    ]
+  },
+  "dlls/mmdevapi/audiovolume.c": {
+    "patch_sha256": "17a6f9e69baa74f27440f52b9e4283a78b1214da557b7ab993831f738401d505",
+    "class": "X",
+    "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+    "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "9b7c7e7c2369d7941245f7a13cdbdb563d4ec2f4684c303cd5749863e08b552c",
+        "header": "@@ -19,6 +19,8 @@",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "77d80b8e8c87cc38fe7ed3485b15ed7ab18f698f3b96e3cc9efae0925b0389d6",
+        "header": "@@ -42,8 +44,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(mmdevapi);",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "0a41d94bb869aaa0b76e1da06b15eaca4c423b74f883e5b4e796aef3f4193030",
+        "header": "@@ -110,58 +111,96 @@ static HRESULT WINAPI AEV_UnregisterControlChangeNotify(IAudioEndpointVolumeEx *",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "dc2107e697874e06baebdf7bcf53ca1197e213134bf9e78c69dd4b880e1c0dcc",
+        "header": "@@ -199,15 +238,14 @@ static HRESULT WINAPI AEV_GetChannelVolumeLevelScalar(IAudioEndpointVolumeEx *if",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "43b0dc73d721bfaaaf3d81e5bd47833318bd244354f62fdfe469f5cd0b5027d1",
+        "header": "@@ -218,33 +256,45 @@ static HRESULT WINAPI AEV_GetMute(IAudioEndpointVolumeEx *iface, BOOL *mute)",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "77c2746e770cb9c9290a518c97472c1c8d6d8bac02662a8e74cfa66a3f7aeb7e",
+        "header": "@@ -314,6 +364,7 @@ HRESULT AudioEndpointVolume_Create(MMDevice *parent, IAudioEndpointVolumeEx **pp",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      }
+    ]
+  },
+  "dlls/mmdevapi/unixlib.h": {
+    "patch_sha256": "f3f939c491d055fc2175142b045984b9d8dcd440d2fb17274493eabf4ce4bf86",
+    "class": "X",
+    "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+    "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "30d7d22722e34e8a2d5cc9d45233689a207aaf3ec65e85d36b6fbe32e8307b7b",
+        "header": "@@ -263,6 +263,15 @@ struct get_prop_value_params",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "9690cf5474d3e3eb863f07866b58cba0e86a17f5edccb1959215a7119cadf073",
+        "header": "@@ -358,5 +367,7 @@ enum unix_funcs",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      }
+    ]
+  },
+  "dlls/winepulse.drv/pulse.c": {
+    "patch_sha256": "cd6ab8fe310188d63befd99ed0e46be4e10bda2d50bafea402e19bbc2d1fdaa2",
+    "class": "X",
+    "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+    "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "1213f2d8b23da0c07e584980648f529bd9e2bafb693cd33b9e255200f877cb30",
+        "header": "@@ -2520,6 +2520,121 @@ fail:",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "a7cf490082dd25337094bbda57b0412cecbc1d9a5a4f04a33b94d969e9f0ee3f",
+        "header": "@@ -2567,6 +2682,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "2eaa31b301c53c34d9a51eca261f931a0411f00bbeb2ec96f754d269476b5165",
+        "header": "@@ -3059,6 +3176,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      }
+    ]
+  },
+  "dlls/winealsa.drv/alsa.c": {
+    "patch_sha256": "c88fcedf11606f7b96a2b46933d96dee006e7d84f11a7aa418a92f23b702ae42",
+    "class": "X",
+    "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+    "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "a24c2f7e8be223df5bba2472582433ceb6062cbdc126f7c75e595a00f4d18702",
+        "header": "@@ -2438,6 +2438,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "91751e1c88e2d560cc156c9a0a15cf40bb2f6532c53662dd72dd35b06d9e12c1",
+        "header": "@@ -2889,6 +2891,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      }
+    ]
+  },
+  "dlls/wineoss.drv/oss.c": {
+    "patch_sha256": "8863cb78e536125ab9ead2f738977a51702c664a4eb35cda68a51a4f0e407cc1",
+    "class": "X",
+    "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+    "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "154bfc6d9cbce70690d97c661973d66f9451b017e257d774188a5da67418d5a6",
+        "header": "@@ -1669,6 +1669,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "388fac829d66b36f6d0f9d181c4492938032897857e98a2be44912c2e6d3d6b7",
+        "header": "@@ -2159,6 +2161,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      }
+    ]
+  },
+  "dlls/winecoreaudio.drv/coreaudio.c": {
+    "patch_sha256": "3ede9dbac41257fc73a0191084ee414f8778a6e8441d8704eb6692e4917ca4d2",
+    "class": "X",
+    "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+    "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)",
+    "review": "stock-hunks-reviewed",
+    "hunks": [
+      {
+        "sha256": "86c5b40d0b9b72ceb62869e6d30b10194c781a67a222025933200255296d0ac8",
+        "header": "@@ -1977,6 +1977,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      },
+      {
+        "sha256": "08bae69208e37f48e85859a4b35eacab992d354e505658b327964a3ae968cf05",
+        "header": "@@ -2427,6 +2429,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =",
+        "class": "X",
+        "change": "Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs",
+        "target": "wineexplorer/11.19: endpoint volume backend (upstream deferred)"
+      }
+    ]
   }
 }

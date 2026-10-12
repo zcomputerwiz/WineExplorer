@@ -13,6 +13,8 @@ Commit `40c17e1` is the imperfect upstream import, which also includes post-tag 
 | `programs/explorer/explorer.c` | `/wlan`, `/netstatus`, `/netprops` helper switches; `::{CLSID}` paths and `/e` accepted | token-based, only when given as arguments |
 | `dlls/desk.cpl` | theme/background/appearance/settings pages added in front of Wine's Settings page; installed theme discovery, isolated style previews, theme-engine Apply, host-supported modes and keep/revert confirmation (see DISPLAY.md) | always |
 | `dlls/uxtheme` (`system.c`, `msstyles.c`, `metric.c`) | implement private ordinal 16 `OpenThemeDataFromFile`; metrics follow the supplied theme handle; activating a preview applies metrics even when its classes are already parsed | always |
+| `dlls/uxtheme/msstyles.c` | convert non-client theme font heights from points to 96-DPI pixels; trim token whitespace before a comma (`MSSTYLES_GetNextToken`) | always; token trimming is an independent upstream candidate |
+| `dlls/uxtheme/system.c`, `uxthemedll.h` | watch ThemeManager registry changes and reload the active theme in other processes without reapplying global metrics | theme queries/opening theme data |
 | `dlls/winex11.drv/window.c` | virtual desktop resize does not wait for fullscreen hint acknowledgements; standalone shell sessions have no host window manager to supply them | virtual desktop root window only |
 | `programs/wmplayer` | Wine's stub `main.c` replaced by ReactOS mplay32 | always |
 | `dlls/shdoclc` | icon 190 (Wine's `iexplore.ico`): `iexplore.inf` names it as the Internet Explorer desktop icon, stock Wine has none | always |

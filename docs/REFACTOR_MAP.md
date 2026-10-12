@@ -58,20 +58,29 @@ python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output buil
 
 Coverage checks reject missing/duplicate paths, changed patch or hunk hashes,
 and mismatched snapshot revisions. Adding `--require-classified` is the P0
-acceptance gate; it currently fails deliberately because **86 stock paths**
+acceptance gate; it currently fails deliberately because **51 stock paths**
 still need hunk decisions. Do not mistake complete inventory coverage for
-completed classification. Whole-file classifications currently cover 434 M,
-202 B, 11 N, ten X and seven U paths. B includes one upstream deletion, and N includes
+completed classification. Classification memberships currently cover 434 M,
+202 B, 11 N, 45 X and eight U paths (mixed files belong to multiple classes). B includes one upstream deletion, and N includes
 four ws2_32 data files whose only difference is CRLF/LF conversion. The U paths
 contain nine independent fixes: alpha replacement, wizard focus, DST bias,
 timezone cache, power capability battery presence, custom folder IconFile,
 shortcut target icon, rename notifications and DrawText mnemonic suppression.
+The newly reviewed `MSSTYLES_GetNextToken` whitespace fix is a tenth candidate.
 Separate changes in the same file must become separate P1/P2 commits.
 
 [REVIEWS.json](refactor/REVIEWS.json) records the stock decisions against exact
 per-file patch hashes. A changed patch invalidates its review when regenerating
-the map. The seven U classifications establish scope only; P1 still requires
+the map. The U classifications establish scope only; P1 still requires
 Wine-style code, regression tests, build verification and branch pushes.
+
+Reviewed stock files now have explicit decisions for every text hunk in the
+generated table and JSON. The acceptance gate also rejects a stock review
+that has file-level classification but no hunk decisions. Graphics/theming,
+shell lifetime, menu cues, X11 stacking/capture, and endpoint audio have been
+reviewed. Single-receiver shell hooks and incomplete endpoint volume remain X:
+upstream submission is deferred until their registration, channel, callback,
+driver and WoW64 semantics can be tested and completed.
 
 Initial inventory: **750 paths, 1,876 text hunks, 140,420 patch lines**;
 six changes are mode-only. 217 paths are unchanged since the initial import,

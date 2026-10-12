@@ -210,8 +210,8 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/mf/tests/nv12frame-crop-1d.bmp` | Executable-bit import noise | N | Restore tag mode; no content patch | 0 |
 | `dlls/mf/tests/nv12frame-crop-2d.bmp` | Executable-bit import noise | N | Restore tag mode; no content patch | 0 |
 | `dlls/mf/tests/nv12frame-crop.bmp` | Executable-bit import noise | N | Restore tag mode; no content patch | 0 |
-| `dlls/mmdevapi/audiovolume.c` | Stock modification: hunk review pending | ? | Not yet assigned | 6 |
-| `dlls/mmdevapi/unixlib.h` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
+| `dlls/mmdevapi/audiovolume.c` | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | X | wineexplorer/11.19: endpoint volume backend (upstream deferred) | 6 |
+| `dlls/mmdevapi/unixlib.h` | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | X | wineexplorer/11.19: endpoint volume backend (upstream deferred) | 2 |
 | `dlls/mmdevldr.vxd/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/mmsys.cpl/Makefile.in` | Project module or replacement module | M | src/dlls/mmsys.cpl | 1 |
 | `dlls/mmsys.cpl/mmsys.c` | Project module or replacement module | M | src/dlls/mmsys.cpl | 1 |
@@ -255,7 +255,7 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/netshell/netshell.rc` | Project module or replacement module | M | src/dlls/netshell | 1 |
 | `dlls/netshell/netshell.spec` | Project module or replacement module | M | src/dlls/netshell | 1 |
 | `dlls/netshell/resource.h` | Project module or replacement module | M | src/dlls/netshell | 1 |
-| `dlls/ntdll/unix/system.c` | Invalidate timezone cache on localtime metadata change; report battery presence in power capabilities using the existing stock helper | U | upstream/timezone-cache and upstream/power-capabilities (separate commits); retained WineExplorer fork fixes | 4 |
+| `dlls/ntdll/unix/system.c` | Invalidate timezone cache when localtime metadata changes | U | upstream/timezone-cache; retained fork fix | 4 |
 | `dlls/ntdll/unix/thread.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 3 |
 | `dlls/ole2.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/ole2conv.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -292,7 +292,7 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/shell32/brsfolder.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
 | `dlls/shell32/changenotify.c` | Notify watchers of both source and destination for two-item events | U | upstream/rename-notifications; retained WineExplorer fork fix | 1 |
 | `dlls/shell32/dialogs.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/shell32/folders.c` | Return desktop.ini IconFile path; fall back to a shortcut target's IExtractIconW | U | upstream/folder-custom-icon and upstream/shortcut-target-icon (separate commits); retained WineExplorer fork fixes | 2 |
+| `dlls/shell32/folders.c` | Use a shortcut target icon when the shortcut has no explicit icon | U | upstream/shortcut-target-icon; retained fork fix | 2 |
 | `dlls/shell32/iconcache.c` | Stock modification: hunk review pending | ? | Not yet assigned | 6 |
 | `dlls/shell32/new_menu.c` | Stock modification: hunk review pending | ? | Not yet assigned | 11 |
 | `dlls/shell32/openwith.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
@@ -355,24 +355,24 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/unicows/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/user.exe16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/user32/cursoricon.c` | Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first | X | wineexplorer/11.19: cursor schemes | 2 |
-| `dlls/user32/hook.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/user32/hook.c` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
 | `dlls/user32/lstr.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/user32/misc.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
-| `dlls/user32/nonclient.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/user32/misc.c` | Post SHELLHOOK messages to the desktop taskman window | X | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) | 2 |
+| `dlls/user32/nonclient.c` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
 | `dlls/user32/tests/text.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 2 |
 | `dlls/user32/text.c` | Honor DT_HIDEPREFIX when drawing mnemonic underscores | U | upstream/drawtext-hideprefix; retained WineExplorer fork fix | 1 |
 | `dlls/user32/user32.rc` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/user32/user32.spec` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/user32/user_main.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/user32/user_private.h` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/user32/win.c` | Stock modification: hunk review pending | ? | Not yet assigned | 3 |
-| `dlls/uxtheme/metric.c` | Stock modification: hunk review pending | ? | Not yet assigned | 6 |
-| `dlls/uxtheme/msstyles.c` | Stock modification: hunk review pending | ? | Not yet assigned | 11 |
-| `dlls/uxtheme/msstyles.h` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
-| `dlls/uxtheme/system.c` | Stock modification: hunk review pending | ? | Not yet assigned | 8 |
-| `dlls/uxtheme/uxtheme.spec` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/uxtheme/uxthemedll.h` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
-| `dlls/uxtheme/window.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/user32/user32.spec` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
+| `dlls/user32/user_main.c` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
+| `dlls/user32/user_private.h` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
+| `dlls/user32/win.c` | Implement AW_BLEND using temporary uniform window alpha | X | wineexplorer/11.19: AnimateWindow blend | 3 |
+| `dlls/uxtheme/metric.c` | Open theme data from a selected file; metrics follow that theme handle | X | wineexplorer/11.19: isolated theme preview and handle-specific metrics | 6 |
+| `dlls/uxtheme/msstyles.c` | Open classes and metrics from a selected theme file | U/X | wineexplorer/11.19: isolated theme preview and handle-specific metrics | 11 |
+| `dlls/uxtheme/msstyles.h` | Open theme data from a selected file; metrics follow that theme handle | X | wineexplorer/11.19: isolated theme preview and handle-specific metrics | 2 |
+| `dlls/uxtheme/system.c` | Follow ThemeManager registry changes across processes | X | wineexplorer/11.19: theme registry reload across processes | 8 |
+| `dlls/uxtheme/uxtheme.spec` | Open theme data from a selected file; metrics follow that theme handle | X | wineexplorer/11.19: isolated theme preview and handle-specific metrics | 1 |
+| `dlls/uxtheme/uxthemedll.h` | Declarations for preview, reload and non-client drawing | X | wineexplorer/11.19: theme integration declarations | 2 |
+| `dlls/uxtheme/window.c` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
 | `dlls/vbscript/lex.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 2 |
 | `dlls/vbscript/parser.y` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 5 |
 | `dlls/vbscript/tests/lang.vbs` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -400,18 +400,18 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/wexhost/wexhost_unix.h` | Project module or replacement module | M | src/dlls/wexhost | 1 |
 | `dlls/wexhost/x11wm.c` | Project module or replacement module | M | src/dlls/wexhost | 1 |
 | `dlls/win32s16.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/win32u/defwnd.c` | Stock modification: hunk review pending | ? | Not yet assigned | 9 |
-| `dlls/win32u/input.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/win32u/menu.c` | Stock modification: hunk review pending | ? | Not yet assigned | 5 |
+| `dlls/win32u/defwnd.c` | Dispatch caption/frame draws through user32 callbacks | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 9 |
+| `dlls/win32u/input.c` | Post SHELLHOOK messages to the desktop taskman window | X | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) | 1 |
+| `dlls/win32u/menu.c` | Reveal accelerator cues on keyboard input | X | wineexplorer/11.19: menu keyboard cues | 5 |
 | `dlls/win32u/opengl.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 12 |
-| `dlls/win32u/sysparams.c` | Stock modification: hunk review pending | ? | Not yet assigned | 8 |
-| `dlls/win32u/win32u_private.h` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/win32u/window.c` | Stock modification: hunk review pending | ? | Not yet assigned | 5 |
+| `dlls/win32u/sysparams.c` | Share shell work areas across processes and monitor rebuilds | X | wineexplorer/11.19: shared monitor work area | 8 |
+| `dlls/win32u/win32u_private.h` | Post SHELLHOOK messages to the desktop taskman window | X | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) | 1 |
+| `dlls/win32u/window.c` | Post SHELLHOOK messages to the desktop taskman window | X | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) | 5 |
 | `dlls/win87em.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/winaspi.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/windebug.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/winealsa.drv/alsa.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
-| `dlls/winecoreaudio.drv/coreaudio.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
+| `dlls/winealsa.drv/alsa.c` | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | X | wineexplorer/11.19: endpoint volume backend (upstream deferred) | 2 |
+| `dlls/winecoreaudio.drv/coreaudio.c` | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | X | wineexplorer/11.19: endpoint volume backend (upstream deferred) | 2 |
 | `dlls/wined3d/wined3d_gl.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/winegstreamer/main.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/winegstreamer/media_sink.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -422,17 +422,17 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/winegstreamer/wm_reader.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/winegstreamer/wma_decoder.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 2 |
 | `dlls/winemac.drv/cocoa_window.m` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/wineoss.drv/oss.c` | Stock modification: hunk review pending | ? | Not yet assigned | 2 |
+| `dlls/wineoss.drv/oss.c` | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | X | wineexplorer/11.19: endpoint volume backend (upstream deferred) | 2 |
 | `dlls/wineps16.drv16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/winepulse.drv/pulse.c` | Stock modification: hunk review pending | ? | Not yet assigned | 3 |
+| `dlls/winepulse.drv/pulse.c` | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | X | wineexplorer/11.19: endpoint volume backend (upstream deferred) | 3 |
 | `dlls/winevulkan/make_vulkan` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/winevulkan/vulkan_thunks.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 5 |
 | `dlls/winevulkan/winevulkan.json` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/winex11.drv/bitblt.c` | Stock modification: hunk review pending | ? | Not yet assigned | 5 |
-| `dlls/winex11.drv/event.c` | Stock modification: hunk review pending | ? | Not yet assigned | 3 |
-| `dlls/winex11.drv/window.c` | Stock modification: hunk review pending | ? | Not yet assigned | 7 |
-| `dlls/winex11.drv/x11drv.h` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
-| `dlls/winex11.drv/xrender.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/winex11.drv/bitblt.c` | Read composited desktop pixels from the real root including redirected children | X | wineexplorer/11.19: compositor screen capture | 5 |
+| `dlls/winex11.drv/event.c` | Keep X stacking aligned with Win32 topmost order on activation | X | wineexplorer/11.19: virtual desktop stacking and activation | 3 |
+| `dlls/winex11.drv/window.c` | Restack unmanaged virtual-desktop windows in Win32 order | X | wineexplorer/11.19: virtual desktop stacking and activation | 7 |
+| `dlls/winex11.drv/x11drv.h` | Declare compositor ownership query | X | wineexplorer/11.19: compositor ownership and shadow hint | 1 |
+| `dlls/winex11.drv/xrender.c` | Read composited desktop pixels from the real root including redirected children | X | wineexplorer/11.19: compositor screen capture | 1 |
 | `dlls/wing.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/winnls.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/winsock.dll16/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -445,7 +445,7 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `dlls/wow64/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/wow64cpu/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `dlls/wow64win/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `dlls/wow64win/user.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `dlls/wow64win/user.c` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
 | `dlls/ws2_32/hosts` | CRLF/LF import normalization only | N | Restore tag bytes; no behavior patch | 1 |
 | `dlls/ws2_32/networks` | CRLF/LF import normalization only | N | Restore tag bytes; no behavior patch | 1 |
 | `dlls/ws2_32/protocol` | CRLF/LF import normalization only | N | Restore tag bytes; no behavior patch | 1 |
@@ -455,11 +455,11 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `include/cfapi.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `include/config.h.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 5 |
 | `include/gdiplusenums.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `include/ntuser.h` | Stock modification: hunk review pending | ? | Not yet assigned | 3 |
+| `include/ntuser.h` | Themed-frame callback enum and marshalled parameters | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 3 |
 | `include/wexhost.h` | Project bridge public header | M | src/include/wexhost.h; assemble into include/ | 1 |
 | `include/wine/server_protocol.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 2 |
 | `include/wine/vulkan.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 5 |
-| `include/winuser.h` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `include/winuser.h` | Themed frame callback/renderer and SetWindowRgn interception | X | wineexplorer/11.19: themed non-client frame and application-region ownership | 1 |
 | `libs/c++/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `libs/c++abi/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `libs/fluidsynth/Makefile.in` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
@@ -754,6 +754,139 @@ Mixed stock files require explicit per-hunk decisions in the main map.
 | `server/request_handlers.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `server/request_trace.h` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
 | `server/thread.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 1 |
-| `server/winstation.c` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
+| `server/winstation.c` | Keep an opt-in shell desktop alive when its last application exits | X | wineexplorer/11.19: shell desktop lifetime | 1 |
 | `tools/make_makefiles` | Stock modification: hunk review pending | ? | Not yet assigned | 1 |
 | `tools/makedep.c` | Exact upstream post-tag file version | B | wineexplorer/11.19: retain upstream provenance; drop on rebase | 7 |
+
+## Reviewed stock hunks
+
+| File | Hunk | Class | Change | Target |
+|---|---|---|---|---|
+| `.gitattributes` | `@@ -1,4 +1,3 @@` | N | Removed generated-file attribute definition; restore upstream metadata | Restore tag attributes; no runtime commit |
+| `dlls/comctl32/comctl32.rc` | `@@ -64,7 +64,7 @@ STRINGTABLE` | X | Use XP's property-sheet title wording | wineexplorer/11.19: XP file Properties wording |
+| `dlls/comctl32/imagelist.c` | `@@ -220,9 +220,10 @@ static void add_dib_bits( HIMAGELIST himl, int pos, int count, int width, int he` | U | Clear stale ILIF_ALPHA when replacing a non-alpha image | upstream/imagelist-alpha; retained WineExplorer fork fix |
+| `dlls/comctl32/propsheet.c` | `@@ -2623,6 +2623,7 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)` | U | Move wizard focus to the default button when the old button is disabled/hidden | upstream/wizard-focus; retained WineExplorer fork fix |
+| `dlls/comctl32/propsheet.c` | `@@ -2658,6 +2659,15 @@ static void PROPSHEET_SetWizButtons(HWND hwndDlg, DWORD dwFlags)` | U | Move wizard focus to the default button when the old button is disabled/hidden | upstream/wizard-focus; retained WineExplorer fork fix |
+| `dlls/kernelbase/locale.c` | `@@ -2029,6 +2029,29 @@ void init_locale( HMODULE module )` | X | Preserve a regional applet's selected locale while the remembered Unix locale stays the same; evaluate separately for upstream | wineexplorer/11.19: regional locale preference |
+| `dlls/mmdevapi/audiovolume.c` | `@@ -19,6 +19,8 @@` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/mmdevapi/audiovolume.c` | `@@ -42,8 +44,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(mmdevapi);` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/mmdevapi/audiovolume.c` | `@@ -110,58 +111,96 @@ static HRESULT WINAPI AEV_UnregisterControlChangeNotify(IAudioEndpointVolumeEx *` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/mmdevapi/audiovolume.c` | `@@ -199,15 +238,14 @@ static HRESULT WINAPI AEV_GetChannelVolumeLevelScalar(IAudioEndpointVolumeEx *if` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/mmdevapi/audiovolume.c` | `@@ -218,33 +256,45 @@ static HRESULT WINAPI AEV_GetMute(IAudioEndpointVolumeEx *iface, BOOL *mute)` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/mmdevapi/audiovolume.c` | `@@ -314,6 +364,7 @@ HRESULT AudioEndpointVolume_Create(MMDevice *parent, IAudioEndpointVolumeEx **pp` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/mmdevapi/unixlib.h` | `@@ -263,6 +263,15 @@ struct get_prop_value_params` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/mmdevapi/unixlib.h` | `@@ -358,5 +367,7 @@ enum unix_funcs` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/ntdll/unix/system.c` | `@@ -32,6 +32,7 @@` | U | Invalidate timezone cache when localtime metadata changes | upstream/timezone-cache; retained fork fix |
+| `dlls/ntdll/unix/system.c` | `@@ -3104,6 +3105,21 @@ static void get_timezone_info( RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi )` | U | Invalidate timezone cache when localtime metadata changes | upstream/timezone-cache; retained fork fix |
+| `dlls/ntdll/unix/system.c` | `@@ -4625,9 +4641,10 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input,` | U | Derive SystemBatteriesPresent from the existing battery-state helper | upstream/power-capabilities; retained fork fix |
+| `dlls/ntdll/unix/system.c` | `@@ -4646,7 +4663,8 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input,` | U | Derive SystemBatteriesPresent from the existing battery-state helper | upstream/power-capabilities; retained fork fix |
+| `dlls/shell32/changenotify.c` | `@@ -349,10 +349,11 @@ void WINAPI SHChangeNotify(LONG wEventId, UINT uFlags, LPCVOID dwItem1, LPCVOID` | U | Notify watchers of both source and destination for two-item events | upstream/rename-notifications; retained WineExplorer fork fix |
+| `dlls/shell32/folders.c` | `@@ -140,6 +140,8 @@ static HRESULT getIconLocationForFolder(IExtractIconWImpl *This, UINT uFlags, LP` | U | Return the expanded desktop.ini IconFile path | upstream/folder-custom-icon; retained fork fix |
+| `dlls/shell32/folders.c` | `@@ -309,6 +311,28 @@ static HRESULT WINAPI IExtractIconW_fnGetIconLocation(IExtractIconW * iface, UIN` | U | Use a shortcut target icon when the shortcut has no explicit icon | upstream/shortcut-target-icon; retained fork fix |
+| `dlls/user32/cursoricon.c` | `@@ -1353,6 +1353,41 @@ end:` | X | Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first | wineexplorer/11.19: cursor schemes |
+| `dlls/user32/cursoricon.c` | `@@ -1378,6 +1413,12 @@ static HICON CURSORICON_Load(HINSTANCE hInstance, LPCWSTR name,` | X | Load and cache registry cursor schemes; upstream submission needs refresh/cache semantics first | wineexplorer/11.19: cursor schemes |
+| `dlls/user32/hook.c` | `@@ -74,8 +74,10 @@ static struct user_api_hook original_user_api =` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/user32/misc.c` | `@@ -243,8 +243,9 @@ void WINAPI RegisterSystemThread(DWORD flags, DWORD reserved)` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/user32/misc.c` | `@@ -253,8 +254,9 @@ BOOL WINAPI RegisterShellHookWindow(HWND hWnd)` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/user32/nonclient.c` | `@@ -146,3 +146,8 @@ void WINAPI USER_NonClientButtonDraw( HWND hwnd, HDC hdc, enum NONCLIENT_BUTTON_` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/user32/text.c` | `@@ -1018,7 +1018,7 @@ INT WINAPI DrawTextExW( HDC hdc, LPWSTR str, INT i_count,` | U | Honor DT_HIDEPREFIX when drawing mnemonic underscores | upstream/drawtext-hideprefix; retained WineExplorer fork fix |
+| `dlls/user32/user32.spec` | `@@ -1115,7 +1115,7 @@` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/user32/user_main.c` | `@@ -50,6 +50,14 @@ static NTSTATUS WINAPI User32DrawNonClientButton( void *args, ULONG size )` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/user32/user_private.h` | `@@ -165,6 +165,7 @@ extern struct user_api_hook *user_api;` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/user32/win.c` | `@@ -30,6 +30,11 @@ WINE_DEFAULT_DEBUG_CHANNEL(win);` | X | Implement AW_BLEND using temporary uniform window alpha | wineexplorer/11.19: AnimateWindow blend |
+| `dlls/user32/win.c` | `@@ -804,13 +809,64 @@ BOOL WINAPI BringWindowToTop( HWND hwnd )` | X | Implement AW_BLEND using temporary uniform window alpha | wineexplorer/11.19: AnimateWindow blend |
+| `dlls/user32/win.c` | `@@ -819,7 +875,12 @@ BOOL WINAPI AnimateWindow( HWND hwnd, DWORD time, DWORD flags )` | X | Implement AW_BLEND using temporary uniform window alpha | wineexplorer/11.19: AnimateWindow blend |
+| `dlls/uxtheme/metric.c` | `@@ -46,7 +46,7 @@ BOOL WINAPI GetThemeSysBool(HTHEME hTheme, int iBoolID)` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/metric.c` | `@@ -76,7 +76,7 @@ COLORREF WINAPI GetThemeSysColor(HTHEME hTheme, int iColorID)` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/metric.c` | `@@ -107,7 +107,7 @@ HRESULT WINAPI GetThemeSysFont(HTHEME hTheme, int iFontID, LOGFONTW *plf)` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/metric.c` | `@@ -153,7 +153,7 @@ HRESULT WINAPI GetThemeSysInt(HTHEME hTheme, int iIntID, int *piValue)` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/metric.c` | `@@ -187,7 +187,7 @@ int WINAPI GetThemeSysSize(HTHEME hTheme, int iSizeID)` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/metric.c` | `@@ -217,7 +217,7 @@ HRESULT WINAPI GetThemeSysString(HTHEME hTheme, int iStringID,` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -238,7 +238,7 @@ HRESULT MSSTYLES_SetActiveTheme(PTHEME_FILE tf, BOOL setMetrics)` | X | Reapply metrics without duplicating parsed classes | wineexplorer/11.19: theme metric reapplication |
+| `dlls/uxtheme/msstyles.c` | `@@ -626,10 +626,10 @@ static inline PTHEME_PROPERTY MSSTYLES_FFindMetric(PTHEME_FILE tf, int iProperty` | X | Open classes and metrics from a selected theme file | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -796,6 +796,8 @@ static BOOL parse_handle_nonclient_font (struct PARSENONCLIENTSTATE* state,` | X | Convert theme point font heights to 96-DPI pixels | wineexplorer/11.19: theme font metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -906,6 +908,7 @@ static void parse_apply_nonclient (struct PARSENONCLIENTSTATE* state)` | X | Reparse metrics while retaining existing classes | wineexplorer/11.19: theme metric reapplication |
+| `dlls/uxtheme/msstyles.c` | `@@ -975,7 +978,7 @@ static void MSSTYLES_ParseThemeIni(PTHEME_FILE tf, BOOL setMetrics)` | X | Avoid duplicating classes when reapplying metrics | wineexplorer/11.19: theme metric reapplication |
+| `dlls/uxtheme/msstyles.c` | `@@ -1049,7 +1052,7 @@ static void parse_app_class_name(LPCWSTR name, LPWSTR app_name, LPWSTR class_nam` | X | Open classes and metrics from a selected theme file | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -1059,13 +1062,11 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U` | X | Open classes and metrics from a selected theme file | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -1079,9 +1080,9 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U` | X | Open classes and metrics from a selected theme file | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -1092,13 +1093,13 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U` | X | Open classes and metrics from a selected theme file | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -1106,6 +1107,11 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U` | X | Open classes and metrics from a selected theme file | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.c` | `@@ -1397,7 +1403,7 @@ static BOOL MSSTYLES_GetNextToken(LPCWSTR lpStringStart, LPCWSTR lpStringEnd, LP` | U | Trim trailing whitespace before the token delimiter | upstream/theme-token-trimming; retained fork fix |
+| `dlls/uxtheme/msstyles.h` | `@@ -93,6 +93,7 @@ typedef struct _UXINI_FILE *PUXINI_FILE;` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/msstyles.h` | `@@ -103,7 +104,7 @@ UINT MSSTYLES_GetThemeDPI(PTHEME_CLASS tc);` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/system.c` | `@@ -135,7 +135,7 @@ static DWORD query_reg_path (HKEY hKey, LPCWSTR lpszValue,` | X | Follow ThemeManager registry changes across processes | wineexplorer/11.19: theme registry reload across processes |
+| `dlls/uxtheme/system.c` | `@@ -184,7 +184,10 @@ static void UXTHEME_LoadTheme(void)` | X | Follow ThemeManager registry changes across processes | wineexplorer/11.19: theme registry reload across processes |
+| `dlls/uxtheme/system.c` | `@@ -500,6 +503,29 @@ HRESULT UXTHEME_SetActiveTheme(PTHEME_FILE tf)` | X | Follow ThemeManager registry changes across processes | wineexplorer/11.19: theme registry reload across processes |
+| `dlls/uxtheme/system.c` | `@@ -510,7 +536,8 @@ void UXTHEME_InitSystem(HINSTANCE hInst)` | X | Follow ThemeManager registry changes across processes | wineexplorer/11.19: theme registry reload across processes |
+| `dlls/uxtheme/system.c` | `@@ -539,6 +566,7 @@ BOOL WINAPI IsAppThemed(void)` | X | Follow ThemeManager registry changes across processes | wineexplorer/11.19: theme registry reload across processes |
+| `dlls/uxtheme/system.c` | `@@ -631,6 +659,7 @@ static HTHEME open_theme_data(HWND hwnd, LPCWSTR pszClassList, DWORD flags, UINT` | X | Follow ThemeManager registry changes across processes | wineexplorer/11.19: theme registry reload across processes |
+| `dlls/uxtheme/system.c` | `@@ -680,6 +709,15 @@ HTHEME WINAPI OpenThemeData(HWND hwnd, LPCWSTR classlist)` | X | Open preview data without activating the theme | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/system.c` | `@@ -1242,8 +1280,10 @@ BOOL WINAPI ThemeHooksInstall(void)` | X | Install frame-drawing and region hooks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/uxtheme/uxtheme.spec` | `@@ -11,7 +11,7 @@` | X | Open theme data from a selected file; metrics follow that theme handle | wineexplorer/11.19: isolated theme preview and handle-specific metrics |
+| `dlls/uxtheme/uxthemedll.h` | `@@ -86,6 +86,7 @@ HRESULT WINAPI OpenThemeFile(LPCWSTR pszThemeFileName, LPCWSTR pszColorName,` | X | Declarations for preview, reload and non-client drawing | wineexplorer/11.19: theme integration declarations |
+| `dlls/uxtheme/uxthemedll.h` | `@@ -104,9 +105,12 @@ BOOL WINAPI ThemeHooksRemove(void);` | X | Declarations for preview, reload and non-client drawing | wineexplorer/11.19: theme integration declarations |
+| `dlls/uxtheme/window.c` | `@@ -89,3 +89,244 @@ void WINAPI UXTHEME_NonClientButtonDraw(HWND hwnd, HDC hdc, enum NONCLIENT_BUTTO` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -1464,6 +1464,26 @@ BOOL draw_frame_menu( HDC dc, RECT *r, UINT flags )` | X | Dispatch caption/frame draws through user32 callbacks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -1471,6 +1491,7 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )` | X | Dispatch caption/frame draws through user32 callbacks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -1509,6 +1530,7 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )` | X | Dispatch caption/frame draws through user32 callbacks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -1532,6 +1554,7 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )` | X | Dispatch caption/frame draws through user32 callbacks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -1715,6 +1738,25 @@ BOOL WINAPI NtUserDrawCaptionTemp( HWND hwnd, HDC hdc, const RECT *rect, HFONT f` | X | Dispatch caption/frame draws through user32 callbacks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -1762,6 +1804,17 @@ static void nc_paint( HWND hwnd, HRGN clip )` | X | Dispatch caption/frame draws through user32 callbacks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -1785,6 +1838,7 @@ static void nc_paint( HWND hwnd, HRGN clip )` | X | Dispatch caption/frame draws through user32 callbacks | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `dlls/win32u/defwnd.c` | `@@ -2624,7 +2678,11 @@ LRESULT default_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,` | X | Post shell redraw events for title/icon changes | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/defwnd.c` | `@@ -2679,6 +2737,8 @@ LRESULT default_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,` | X | Post shell redraw events for title/icon changes | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/input.c` | `@@ -2159,6 +2159,7 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/menu.c` | `@@ -156,6 +156,8 @@ static HMENU top_popup_hmenu;` | X | Reveal accelerator cues on keyboard input | wineexplorer/11.19: menu keyboard cues |
+| `dlls/win32u/menu.c` | `@@ -2082,7 +2084,8 @@ static void calc_menu_item_size( HDC hdc, struct menu_item *item, HWND owner, IN` | X | Remove extra padding around 32-pixel Start menu icons | wineexplorer/11.19: classic Start menu row height |
+| `dlls/win32u/menu.c` | `@@ -2667,6 +2670,8 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,` | X | Reveal accelerator cues on keyboard input | wineexplorer/11.19: menu keyboard cues |
+| `dlls/win32u/menu.c` | `@@ -4104,6 +4109,11 @@ static BOOL track_menu( HMENU hmenu, UINT flags, int x, int y, HWND hwnd, const` | X | Reveal accelerator cues on keyboard input | wineexplorer/11.19: menu keyboard cues |
+| `dlls/win32u/menu.c` | `@@ -4238,6 +4248,14 @@ static BOOL track_menu( HMENU hmenu, UINT flags, int x, int y, HWND hwnd, const` | X | Reveal accelerator cues on keyboard input | wineexplorer/11.19: menu keyboard cues |
+| `dlls/win32u/sysparams.c` | `@@ -294,7 +294,6 @@ union sysparam_all_entry` | X | Share shell work areas across processes and monitor rebuilds | wineexplorer/11.19: shared monitor work area |
+| `dlls/win32u/sysparams.c` | `@@ -2007,6 +2006,28 @@ static BOOL write_monitor_to_registry( struct monitor *monitor, const BYTE *edid` | X | Share shell work areas across processes and monitor rebuilds | wineexplorer/11.19: shared monitor work area |
+| `dlls/win32u/sysparams.c` | `@@ -2037,6 +2058,7 @@ static void add_monitor( const struct gdi_monitor *gdi_monitor, void *param )` | X | Share shell work areas across processes and monitor rebuilds | wineexplorer/11.19: shared monitor work area |
+| `dlls/win32u/sysparams.c` | `@@ -2934,6 +2956,79 @@ BOOL update_display_cache( BOOL force )` | X | Share shell work areas across processes and monitor rebuilds | wineexplorer/11.19: shared monitor work area |
+| `dlls/win32u/sysparams.c` | `@@ -5803,16 +5898,6 @@ static USERPREF_ENTRY( CLIENTAREAANIMATION,      4, 0x02 );` | X | Share shell work areas across processes and monitor rebuilds | wineexplorer/11.19: shared monitor work area |
+| `dlls/win32u/sysparams.c` | `@@ -6199,7 +6284,6 @@ BOOL WINAPI NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT w` | X | Share shell work areas across processes and monitor rebuilds | wineexplorer/11.19: shared monitor work area |
+| `dlls/win32u/sysparams.c` | `@@ -6440,37 +6524,30 @@ BOOL WINAPI NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT w` | X | Share shell work areas across processes and monitor rebuilds | wineexplorer/11.19: shared monitor work area |
+| `dlls/win32u/sysparams.c` | `@@ -6692,7 +6769,9 @@ BOOL WINAPI NtUserSystemParametersInfo( UINT action, UINT val, void *ptr, UINT w` | X | SPI_SETCURSORS acknowledges cursor schemes; cache refresh still incomplete | wineexplorer/11.19: cursor schemes |
+| `dlls/win32u/win32u_private.h` | `@@ -328,6 +328,7 @@ extern HWND window_from_point( HWND hwnd, POINT pt, INT *hittest, BOOL send_nchi` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/window.c` | `@@ -5280,6 +5280,7 @@ BOOL WINAPI NtUserFlashWindowEx( FLASHWINFO *info )` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/window.c` | `@@ -5300,6 +5301,7 @@ BOOL WINAPI NtUserFlashWindowEx( FLASHWINFO *info )` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/window.c` | `@@ -5564,6 +5566,7 @@ static BOOL user_destroy_window( HWND hwnd, BOOL winevent )` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/window.c` | `@@ -6193,7 +6196,10 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/win32u/window.c` | `@@ -6686,6 +6692,25 @@ HWND get_taskman_window(void)` | X | Post SHELLHOOK messages to the desktop taskman window | wineexplorer/11.19: shell-hook events (single receiver; upstream deferred) |
+| `dlls/winealsa.drv/alsa.c` | `@@ -2438,6 +2438,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/winealsa.drv/alsa.c` | `@@ -2889,6 +2891,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/winecoreaudio.drv/coreaudio.c` | `@@ -1977,6 +1977,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/winecoreaudio.drv/coreaudio.c` | `@@ -2427,6 +2429,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/wineoss.drv/oss.c` | `@@ -1669,6 +1669,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/wineoss.drv/oss.c` | `@@ -2159,6 +2161,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/winepulse.drv/pulse.c` | `@@ -2520,6 +2520,121 @@ fail:` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/winepulse.drv/pulse.c` | `@@ -2567,6 +2682,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/winepulse.drv/pulse.c` | `@@ -3059,6 +3176,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =` | X | Physical endpoint volume/mute via PulseAudio; unsupported drivers/WoW64 retain stubs | wineexplorer/11.19: endpoint volume backend (upstream deferred) |
+| `dlls/winex11.drv/bitblt.c` | `@@ -806,11 +806,29 @@ BOOL X11DRV_PatBlt( PHYSDEV dev, struct bitblt_coords *dst, DWORD rop )` | X | Read composited desktop pixels from the real root including redirected children | wineexplorer/11.19: compositor screen capture |
+| `dlls/winex11.drv/bitblt.c` | `@@ -825,6 +843,8 @@ BOOL X11DRV_StretchBlt( PHYSDEV dst_dev, struct bitblt_coords *dst,` | X | Read composited desktop pixels from the real root including redirected children | wineexplorer/11.19: compositor screen capture |
+| `dlls/winex11.drv/bitblt.c` | `@@ -1316,6 +1336,8 @@ DWORD X11DRV_GetImage( PHYSDEV dev, BITMAPINFO *info,` | X | Read composited desktop pixels from the real root including redirected children | wineexplorer/11.19: compositor screen capture |
+| `dlls/winex11.drv/bitblt.c` | `@@ -1357,6 +1379,9 @@ DWORD X11DRV_GetImage( PHYSDEV dev, BITMAPINFO *info,` | X | Read composited desktop pixels from the real root including redirected children | wineexplorer/11.19: compositor screen capture |
+| `dlls/winex11.drv/bitblt.c` | `@@ -1378,6 +1403,7 @@ DWORD X11DRV_GetImage( PHYSDEV dev, BITMAPINFO *info,` | X | Read composited desktop pixels from the real root including redirected children | wineexplorer/11.19: compositor screen capture |
+| `dlls/winex11.drv/event.c` | `@@ -478,8 +478,13 @@ static void set_input_focus( struct x11drv_win_data *data )` | X | Keep X stacking aligned with Win32 topmost order on activation | wineexplorer/11.19: virtual desktop stacking and activation |
+| `dlls/winex11.drv/event.c` | `@@ -1241,7 +1246,7 @@ static BOOL X11DRV_PropertyNotify( HWND hwnd, XEvent *xev )` | X | Keep X stacking aligned with Win32 topmost order on activation | wineexplorer/11.19: virtual desktop stacking and activation |
+| `dlls/winex11.drv/event.c` | `@@ -1256,10 +1261,15 @@ void X11DRV_ActivateWindow( HWND hwnd, HWND previous )` | X | Keep X stacking aligned with Win32 topmost order on activation | wineexplorer/11.19: virtual desktop stacking and activation |
+| `dlls/winex11.drv/window.c` | `@@ -978,6 +978,9 @@ static BOOL window_needs_net_wm_state_change_delay( struct x11drv_win_data *data` | X | Do not wait for a WM resize acknowledgement for the desktop root | wineexplorer/11.19: virtual desktop resize |
+| `dlls/winex11.drv/window.c` | `@@ -2137,12 +2140,18 @@ void make_window_embedded( struct x11drv_win_data *data )` | X | Restack unmanaged virtual-desktop windows in Win32 order | wineexplorer/11.19: virtual desktop stacking and activation |
+| `dlls/winex11.drv/window.c` | `@@ -2155,6 +2164,9 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags,` | X | Restack unmanaged virtual-desktop windows in Win32 order | wineexplorer/11.19: virtual desktop stacking and activation |
+| `dlls/winex11.drv/window.c` | `@@ -2169,6 +2181,17 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags,` | X | Restack unmanaged virtual-desktop windows in Win32 order | wineexplorer/11.19: virtual desktop stacking and activation |
+| `dlls/winex11.drv/window.c` | `@@ -2412,7 +2435,37 @@ Window create_client_window( HWND hwnd, RECT client_rect, const XVisualInfo *vis` | X | Query compositor ownership and publish private shadow hints | wineexplorer/11.19: compositor ownership and shadow hint |
+| `dlls/winex11.drv/window.c` | `@@ -2460,6 +2513,8 @@ static void create_whole_window( struct x11drv_win_data *data )` | X | Publish shadow hints before mapping windows | wineexplorer/11.19: compositor ownership and shadow hint |
+| `dlls/winex11.drv/window.c` | `@@ -3328,6 +3383,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN` | X | Refresh shadow hint when a window is shown | wineexplorer/11.19: compositor ownership and shadow hint |
+| `dlls/winex11.drv/x11drv.h` | `@@ -1031,4 +1031,6 @@ static inline UINT asciiz_to_unicode( WCHAR *dst, const char *src )` | X | Declare compositor ownership query | wineexplorer/11.19: compositor ownership and shadow hint |
+| `dlls/winex11.drv/xrender.c` | `@@ -1743,6 +1743,12 @@ static BOOL xrenderdrv_StretchBlt( PHYSDEV dst_dev, struct bitblt_coords *dst,` | X | Read composited desktop pixels from the real root including redirected children | wineexplorer/11.19: compositor screen capture |
+| `dlls/wow64win/user.c` | `@@ -1225,6 +1225,34 @@ static NTSTATUS WINAPI wow64_NtUserDrawNonClientButton( void *arg, ULONG size )` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `include/ntuser.h` | `@@ -79,6 +79,7 @@ struct user_entry` | X | Themed-frame callback enum and marshalled parameters | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `include/ntuser.h` | `@@ -391,6 +392,7 @@ C_ASSERT( sizeof(struct drag_drop_post_params) == offsetof(struct drag_drop_post` | X | Opt-in persistent shell desktop flag | wineexplorer/11.19: shell desktop lifetime |
+| `include/ntuser.h` | `@@ -590,6 +592,18 @@ struct draw_non_client_button_params` | X | Themed-frame callback enum and marshalled parameters | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `include/winuser.h` | `@@ -4864,14 +4864,25 @@ enum NONCLIENT_BUTTON_TYPE` | X | Themed frame callback/renderer and SetWindowRgn interception | wineexplorer/11.19: themed non-client frame and application-region ownership |
+| `server/fd.c` | `@@ -314,7 +314,7 @@ static void set_user_shared_data_time(void)` | U | Refresh shared timezone bias when tm_isdst changes | upstream/dst-bias; retained WineExplorer fork fix |
+| `server/fd.c` | `@@ -325,9 +325,12 @@ static void set_user_shared_data_time(void)` | U | Refresh shared timezone bias when tm_isdst changes | upstream/dst-bias; retained WineExplorer fork fix |
+| `server/winstation.c` | `@@ -421,6 +421,9 @@ static void remove_desktop_user( struct desktop *desktop, struct thread *thread` | X | Keep an opt-in shell desktop alive when its last application exits | wineexplorer/11.19: shell desktop lifetime |

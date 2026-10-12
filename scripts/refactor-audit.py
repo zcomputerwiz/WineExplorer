@@ -104,14 +104,21 @@ def write_map(repository, result, output, assets_path, reviews_path):
              "|---|---|---|---|---|"]
     for record in result["files"]:
         decision = classify(repository, record, modules, assets)
+        hunk_decisions = []
         if record["path"] in reviews:
             reviewed = reviews[record["path"]]
             if reviewed["patch_sha256"] != record["patch_sha256"]:
                 raise ValueError("Reviewed patch changed: " + record["path"])
             decision = {key: reviewed[key] for key in ("class", "change", "target", "review")}
+            if "hunks" in reviewed:
+                hunk_decisions = reviewed["hunks"]
+                if [item["sha256"] for item in hunk_decisions] != [item["sha256"] for item in record["hunks"]]:
+                    raise ValueError("Reviewed hunks changed: " + record["path"])
+                decision["class"] = "/".join(sorted({item["class"] for item in hunk_decisions} or {decision["class"]}))
         classified.append({"path": record["path"],
                            "patch_sha256": record["patch_sha256"],
                            "hunk_sha256": [hunk["sha256"] for hunk in record["hunks"]],
+                           "hunk_decisions": hunk_decisions,
                            **decision})
         cells = ["`" + record["path"] + "`", decision["change"], decision["class"],
                  decision["target"], str(len(record["hunks"]))]
@@ -121,7 +128,16 @@ def write_map(repository, result, output, assets_path, reviews_path):
     output.with_suffix(".json").write_text(json.dumps({
         "revisions": result["revisions"], "patch_sha256": result["patch_sha256"],
         "files": classified}, indent=2) + "\n", encoding="utf-8")
-    print("Classification counts:", {key: sum(row["class"] == key for row in classified)
+    details = ["", "## Reviewed stock hunks", "",
+               "| File | Hunk | Class | Change | Target |", "|---|---|---|---|---|"]
+    for row in classified:
+        for item in row["hunk_decisions"]:
+            cells = ["`" + row["path"] + "`", "`" + item["header"] + "`",
+                     item["class"], item["change"], item["target"]]
+            details.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+    if len(details) > 5:
+        output.write_text(output.read_text(encoding="utf-8") + "\n".join(details) + "\n", encoding="utf-8")
+    print("Classification memberships:", {key: sum(key in row["class"].split("/") for row in classified)
                                      for key in ("U", "X", "H", "M", "B", "N", "?")})
 
 
@@ -208,9 +224,19 @@ def check_map(result, path, require_classified):
         if (row["patch_sha256"] != record["patch_sha256"] or
                 row["hunk_sha256"] != [hunk["sha256"] for hunk in record["hunks"]]):
             raise SystemExit("Map hunk coverage changed: " + record["path"])
-        if row["class"] not in {"U", "X", "H", "M", "B", "N", "?"} or not row["target"]:
+        if not set(row["class"].split("/")) <= {"U", "X", "H", "M", "B", "N", "?"} or not row["target"]:
             raise SystemExit("Invalid classification: " + record["path"])
-        pending += row["class"] == "?" or row["review"] == "pending"
+        decisions = row.get("hunk_decisions", [])
+        missing_decisions = bool(record["hunks"] and row["review"] == "stock-hunks-reviewed" and not decisions)
+        if decisions:
+            if [item["sha256"] for item in decisions] != row["hunk_sha256"]:
+                raise SystemExit("Incomplete hunk decisions: " + record["path"])
+            for item in decisions:
+                if item["class"] not in {"U", "X", "H", "M", "B", "N", "?"} or not item["target"]:
+                    raise SystemExit("Invalid hunk decision: " + record["path"])
+            if set(row["class"].split("/")) != {item["class"] for item in decisions}:
+                raise SystemExit("File and hunk classifications disagree: " + record["path"])
+        pending += "?" in row["class"].split("/") or row["review"] == "pending" or missing_decisions
     print(f"Map covers all {len(rows)} paths; {pending} need stock-hunk review")
     if require_classified and pending:
         raise SystemExit("P0 acceptance incomplete: unclassified changes remain")
