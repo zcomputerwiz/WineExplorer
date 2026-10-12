@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Builds the bootable hybrid ISO for Debian + WineExplorer.
 # Run on Debian VM as root (or via scripts/vm.sh ssh "sudo /path/to/build-iso.sh").
 set -e
@@ -21,6 +22,14 @@ done
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root (or via sudo)."
+    exit 1
+fi
+
+# live-build can restore a bootstrap chroot while retaining completed package
+# stage markers. Reusing it then skips kernel installation and produces an
+# incomplete image. Require a fresh workspace rather than patching that state.
+if [ "$DO_CLEAN" != true ] && [ -d "$WORK_DIR/chroot" ]; then
+    echo "Existing live-build workspace requires --clean: $WORK_DIR"
     exit 1
 fi
 
