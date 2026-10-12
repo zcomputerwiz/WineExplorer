@@ -1,6 +1,6 @@
 # Refactor continuation — 2026-10-12
 
-P0 started; source is still in its original layout. No guest was changed,
+P0 acceptance passed; source is still in its original layout. No guest was changed,
 restarted or built. Existing installer images and VM sessions remain intact.
 User's `.gitignore` edit is preserved. A pre-existing `.claude/` worktree is
 untouched; `/.claude/` was added only to local `.git/info/exclude` after the app
@@ -13,11 +13,10 @@ tree. Keep that pin until actual Wine source changes are intentionally audited.
 The bare evidence repository is `build/refactor/wine.git`. The real release tag
 came unchanged from wine-mirror because the user's fork has no tags.
 
-Current map: 750 paths/1,876 hunks, 51 stock paths still pending. Forty-six stock
-paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eight include U hunks
-containing ten independent fix candidates. The next step is the remaining
-mixed stock hunk review, particularly shell32 resources/behavior and explorer
-host/plugin boundaries. P1 has not started.
+Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
+paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
+containing twelve independent fix candidates. P0's strict acceptance command passes.
+The next step is P1: independent upstream branches and module tests on the build VM.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
 The 68 import differences contain only modes, missing ntoskrnl files, open art
@@ -30,6 +29,9 @@ do not rerun it after adding more reviews, because it writes only those eleven.
 work-area and endpoint volume decisions. It reads the pinned evidence and
 preserves existing review entries. Build VM connectivity was checked: Xvfb
 exists and the 60 GiB root filesystem has 19 GiB available. No guest was written.
+`build/refactor/review-shell.py` added shell32, Explorer boundaries, build inputs
+and backport decisions. Local generators are scratch tooling; the committed
+REVIEWS.json is authoritative. The fork master still resolves to 081042ede6.
 
 ## Commands that failed or were interrupted
 

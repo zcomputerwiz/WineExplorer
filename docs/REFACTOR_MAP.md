@@ -1,8 +1,8 @@
 # Refactor map
 
-P0 is in progress. No source modules have moved and no VM runtime has changed.
-This document will become the reviewed file/hunk classification index; the
-inventory alone does not satisfy P0 acceptance.
+P0 acceptance passed on 2026-10-12. All changed paths and text hunks are
+classified against the pinned release/source snapshots. No source modules
+have moved and no VM runtime has changed. P1 is next.
 
 ## Baseline and reproducible evidence
 
@@ -58,15 +58,15 @@ python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output buil
 
 Coverage checks reject missing/duplicate paths, changed patch or hunk hashes,
 and mismatched snapshot revisions. Adding `--require-classified` is the P0
-acceptance gate; it currently fails deliberately because **51 stock paths**
-still need hunk decisions. Do not mistake complete inventory coverage for
-completed classification. Classification memberships currently cover 434 M,
-202 B, 11 N, 45 X and eight U paths (mixed files belong to multiple classes). B includes one upstream deletion, and N includes
+acceptance gate; it now passes with **zero unclassified paths**. Classification
+memberships cover 436 M, 205 B, 12 N, 82 X, nine H and eleven U paths (mixed
+files belong to multiple classes). B includes one upstream deletion, and N includes
 four ws2_32 data files whose only difference is CRLF/LF conversion. The U paths
-contain nine independent fixes: alpha replacement, wizard focus, DST bias,
+contain twelve independent fixes: alpha replacement, wizard focus, DST bias,
 timezone cache, power capability battery presence, custom folder IconFile,
 shortcut target icon, rename notifications and DrawText mnemonic suppression.
-The newly reviewed `MSSTYLES_GetNextToken` whitespace fix is a tenth candidate.
+Also classified U: `MSSTYLES_GetNextToken` whitespace trimming and missing
+empty Recycle Bin/Internet Explorer desktop icons, both using Wine's own art.
 Separate changes in the same file must become separate P1/P2 commits.
 
 [REVIEWS.json](refactor/REVIEWS.json) records the stock decisions against exact
@@ -78,7 +78,8 @@ Reviewed stock files now have explicit decisions for every text hunk in the
 generated table and JSON. The acceptance gate also rejects a stock review
 that has file-level classification but no hunk decisions. Graphics/theming,
 shell lifetime, menu cues, X11 stacking/capture, and endpoint audio have been
-reviewed. Single-receiver shell hooks and incomplete endpoint volume remain X:
+reviewed, together with shell32 menus/views, resources and the Explorer boundary.
+Single-receiver shell hooks and incomplete endpoint volume remain X:
 upstream submission is deferred until their registration, channel, callback,
 driver and WoW64 semantics can be tested and completed.
 
@@ -96,11 +97,11 @@ P3 retains the shell in one module before any smaller-module extraction.
 
 | File/change | Class | Target |
 |---|---|---|
-| Exact post-tag upstream blobs inherited by the import | B, pending provenance review | Original upstream commits on `wineexplorer/11.19`; no new upstream submission |
+| Exact post-tag upstream blobs inherited by the import | B | Original upstream commits on `wineexplorer/11.19`; no new upstream submission |
 | Executable-bit loss with identical content | N | Restore upstream modes during assembly |
-| New project modules | M, pending complete path list | `src/dlls` and `src/programs` |
-| Existing explorer shell additions | H/M, pending hunk review | Small stock loader hook and `src/dlls/wexshell` |
-| Remaining stock differences | Pending | Review each hunk before assigning U/X/H/B/N |
+| New project modules | M | `src/dlls` and `src/programs`; complete path list in PATHS.md |
+| Existing explorer shell additions | H/M | Small stock loader hook and `src/dlls/wexshell` |
+| Remaining stock differences | U/X/H/B/N | Explicit per-hunk targets in PATHS.md/REVIEWS.json |
 
 `dlls/ntoskrnl.exe` has already been restored in the current project tree and
 matches the release tag; it contributes no diff. Do not move it into `src/`.
@@ -112,7 +113,7 @@ make their custom implementations new upstream fixes.
 
 ## Stock items found beyond the initial candidate list
 
-These need explicit decisions during the remaining hunk review:
+The initial extra candidates have now been evaluated for extraction scope:
 
 | File/change | Proposed class | Target branch/commit |
 |---|---|---|
@@ -120,7 +121,7 @@ These need explicit decisions during the remaining hunk review:
 | `dlls/user32/cursoricon.c`: registry cursor-scheme loading/cache | U evaluation | Independent cursor-scheme fix after cache/refresh semantics review; otherwise X |
 | `dlls/shell32/changenotify.c`: notify watchers of either side of a rename/move | U evaluation | `upstream/rename-notifications` with a regression test |
 | `dlls/shell32/openwith.c`, `dialogs.c`, `shlexec.c`: Open With implementation and removed stubs | X/U evaluation | Keep XP UI separate from independently upstreamable API behavior |
-| `tools/make_makefiles`: monorepo `.git` fallback | N/build shim evaluation | Remove when wine becomes a submodule; no upstream MR |
+| `tools/make_makefiles`: monorepo `.git` fallback | H | Remove when wine becomes a submodule; no upstream MR |
 
 These are proposals, not accepted P1 branches. No upstream branch has been
 created or pushed yet.
@@ -129,14 +130,29 @@ The battery candidate is specifically `SystemPowerCapabilities`:
 `SystemBatteryState` already uses sysfs in the release tag. Do not submit or
 carry a redundant patch for that stock implementation.
 
-Verification passed for exact evidence regeneration and all-path/all-hunk
-coverage. Six negative checks also passed: missing path, duplicate path,
-changed patch hash, missing hunk, wrong snapshot, and unreviewed P0 acceptance
-all reject the map as expected.
+Verification passed for exact evidence regeneration, all-path/all-hunk
+coverage and `--require-classified`. Seven negative checks passed: missing path,
+duplicate path, changed patch hash, missing hunk, wrong snapshot, unreviewed
+classification and missing stock-hunk decisions all reject the map as expected.
 
-## Remaining P0 acceptance work
+## P0 acceptance and P1 extraction constraints
 
-Record classifications for all paths and all mixed stock-file hunks, including
-generated configure/protocol files, import omissions, assets and upstream
-snapshot changes. Then verify that the classification index accounts for the
-complete saved diff before preparing P1 branches.
+The complete diff is classified: 750 paths, 1,876 hunks and 140,420 patch lines.
+N configure output must be regenerated from the classified inputs, not dropped
+without replacement. The large-file MR 7746 backport is separate from XP
+drag/drop changes in shfldr_fs.c. The empty Recycle Bin resource is separate
+from XP wording/dialogs in shell32.rc. configure.ac's inherited upstream hunks
+are B; project module entries are H.
+
+FileIconInit remains X because the current cache/reload implementation includes
+the project's nonstandard negative-id icon overrides. SHFindFiles is H: it
+depends on our Search Results command and does not implement its folder/saved
+search inputs. Neither is ready for an independent upstream submission as-is.
+
+Explorer's browser state already moved into browser.h but is shared between
+Explorer callbacks, browser UI, task pane and Search Companion. P3 moves them
+together. P3b must first design an opaque browser/search boundary; do not export
+that mutable state structure or force a wide callback interface. Existing
+appwiz Create Shortcut and shell32 views/menus stay X until a real supported
+extension or smaller export boundary is available. Optional P5 extraction
+does not justify changing behavior during P3.
