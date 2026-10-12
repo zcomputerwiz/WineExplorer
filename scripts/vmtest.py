@@ -57,16 +57,21 @@ def start(a):
            "-qmp", f"unix:{d}/qmp.sock,server,nowait",
            "-serial", f"unix:{d}/serial.sock,server,nowait",
            "-drive", "if=none,id=cd,media=cdrom" + (f",file={a.iso}" if a.iso else ""),
-           "-device", "ide-cd,drive=cd,bus=ide.1", "-boot", "order=dc" if a.iso else "order=c"]
+           "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c"]
     if a.efi:
         cmd += ["-bios", "/usr/share/ovmf/OVMF.fd"]
     log = open(os.path.join(d, "qemu.log"), "w")
-    subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
+    proc = subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
     for _ in range(50):
-        if os.path.exists(os.path.join(d, "qmp.sock")):
-            print(f"started {a.name}")
-            return
         time.sleep(0.2)
+        if proc.poll() is not None:
+            break
+        if os.path.exists(os.path.join(d, "qmp.sock")):
+            time.sleep(1)
+            if proc.poll() is None:
+                print(f"started {a.name}")
+                return
+            break
     sys.exit("qemu did not start: " + open(os.path.join(d, "qemu.log")).read())
 
 def shot(name, path=None):
@@ -170,7 +175,7 @@ def main():
     elif a.op == "stop":
         qmp(a.name, "quit")
     elif a.op == "eject":
-        qmp(a.name, "eject", id="cd", force=True)
+        qmp(a.name, "eject", id="cdrom", force=True)
     elif a.op == "shot":
         print(shot(a.name, a.file))
     elif a.op == "key":
