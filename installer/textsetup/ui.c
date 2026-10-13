@@ -118,10 +118,12 @@ void ui_draw_progressbar(int y, int start_x, int width, int percentage, int colo
     }
     attroff(COLOR_PAIR(color_pair) | A_REVERSE);
 
-    /* Percentage text centered above or on the bar */
-    attron(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
-    mvprintw(y - 1, start_x + (width / 2) - 3, "%3d%%", percentage);
-    attroff(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
+    /* Percentage text centered above or on the bar (omitted for countdown reboot bar) */
+    if (color_pair != PAIR_REBOOT) {
+        attron(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
+        mvprintw(y - 1, start_x + (width / 2) - 3, "%3d%%", percentage);
+        attroff(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
+    }
 
     refresh();
 }

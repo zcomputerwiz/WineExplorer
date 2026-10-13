@@ -683,6 +683,12 @@ SetupStage screen_partition(SetupState *state)
             state->efi_part[0] = '\0';
         }
 
+        state->target_disk_idx = target_d;
+        state->target_partno = state->is_uefi ? 2 : 1;
+        state->target_size_mb = (total_sec * disk->sector_size) / (1024ULL * 1024ULL);
+        state->target_disk_size_mb = disk->size_mb;
+        snprintf(state->target_disk_bus, sizeof(state->target_disk_bus), "%s", disk->bus);
+        state->target_disk_is_gpt = disk->is_gpt;
         fdisk_write_disklabel(disk->cxt);
         close_all_disks(disks, num_disks);
         char probe_cmd[256];
@@ -745,8 +751,8 @@ SetupStage screen_partition(SetupState *state)
             if (d != cur_disk) {
                 cur_disk = d;
                 attron(COLOR_PAIR(PAIR_NORMAL) | A_BOLD);
-                mvprintw(cur_row++, margin_x + 2, "%5lu MB Disk %d (%s) on %s [%s]",
-                         (unsigned long)disk->size_mb, d, disk->model, disk->bus,
+                mvprintw(cur_row++, margin_x + 2, "%5lu MB Disk %d at Id %d on bus 0 on %s [%s]",
+                         (unsigned long)disk->size_mb, d, d, disk->bus,
                          disk->is_gpt ? "GPT" : "MBR");
                 attroff(COLOR_PAIR(PAIR_NORMAL) | A_BOLD);
             }
@@ -762,13 +768,19 @@ SetupStage screen_partition(SetupState *state)
                 mvprintw(cur_row++, margin_x + 4, "   Unpartitioned space                        %5lu MB        ",
                          (unsigned long)pe->size_mb);
             } else {
-                char desc[64];
+                char drive_letter = 'C' + (pe->partno > 0 ? (pe->partno - 1) : 0);
+                if (drive_letter > 'Z') drive_letter = 'Z';
+                const char *fs_display = pe->fstype;
+                if (!fs_display[0] || strcmp(fs_display, "Unformatted") == 0) fs_display = "New (Raw)";
+
+                char desc[80];
                 if (pe->is_esp) {
-                    snprintf(desc, sizeof(desc), "Partition%zu (EFI System) [%s]", pe->partno, pe->fstype);
+                    snprintf(desc, sizeof(desc), "%c: Partition%zu (EFI System) [%s]", drive_letter, pe->partno, fs_display);
                 } else {
-                    snprintf(desc, sizeof(desc), "Partition%zu [%s]", pe->partno, pe->fstype);
+                    snprintf(desc, sizeof(desc), "%c: Partition%zu [%s]", drive_letter, pe->partno, fs_display);
                 }
-                mvprintw(cur_row++, margin_x + 4, "-: %-42s %5lu MB        ", desc, (unsigned long)pe->size_mb);
+                mvprintw(cur_row++, margin_x + 4, "%-44s %5lu MB (%5lu MB free)",
+                         desc, (unsigned long)pe->size_mb, (unsigned long)pe->size_mb);
             }
 
             if (is_sel) {
@@ -875,6 +887,17 @@ SetupStage screen_partition(SetupState *state)
                     }
                 }
 
+                state->target_disk_idx = d;
+                state->target_disk_size_mb = disk->size_mb;
+                snprintf(state->target_disk_bus, sizeof(state->target_disk_bus), "%s", disk->bus);
+                state->target_disk_is_gpt = disk->is_gpt;
+                if (pe->is_free_space) {
+                    state->target_size_mb = (pe->num_sectors * disk->sector_size) / (1024ULL * 1024ULL);
+                } else {
+                    state->target_partno = pe->partno;
+                    state->target_size_mb = pe->size_mb;
+                }
+
                 /* Commit partition table upon exiting partition screen */
                 fdisk_write_disklabel(disk->cxt);
                 close_all_disks(disks, num_disks);
@@ -899,12 +922,26 @@ SetupStage screen_format(SetupState *state)
     int base_y = (LINES > 25) ? (LINES - 25) / 3 + 3 : 4;
     int margin_x = (COLS > 80) ? (COLS - 80) / 4 + 6 : 6;
 
+    char drive_letter = 'C' + (state->target_partno > 0 ? (state->target_partno - 1) : 0);
+    if (drive_letter > 'Z') drive_letter = 'Z';
+
+    const char *fs_display = state->target_fstype[0] ? state->target_fstype : "New (Raw)";
+    if (strcmp(fs_display, "Unformatted") == 0) fs_display = "New (Raw)";
+
     attron(COLOR_PAIR(PAIR_NORMAL));
-    mvprintw(base_y, margin_x, "A partition for Debian GNU/Linux with WineExplorer has been selected on");
-    mvprintw(base_y + 1, margin_x, "%s [%s].", state->target_part, state->target_disk);
-    mvprintw(base_y + 3, margin_x, "The partition must now be formatted.");
-    mvprintw(base_y + 5, margin_x, "Use the UP and DOWN ARROW keys to select the file system you want,");
-    mvprintw(base_y + 6, margin_x, "and then press ENTER.");
+    mvprintw(base_y, margin_x, "Setup will install Debian GNU/Linux with WineExplorer on partition");
+    attron(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
+    mvprintw(base_y + 2, margin_x + 4, "%c: Partition%zu [%s]   %lu MB ( %lu MB free)",
+             drive_letter, state->target_partno, fs_display,
+             (unsigned long)state->target_size_mb, (unsigned long)state->target_size_mb);
+    mvprintw(base_y + 3, margin_x + 4, "on %lu MB Disk %d at Id %d on bus 0 on %s [%s].",
+             (unsigned long)state->target_disk_size_mb, state->target_disk_idx, state->target_disk_idx,
+             state->target_disk_bus[0] ? state->target_disk_bus : "virtio",
+             state->target_disk_is_gpt ? "GPT" : "MBR");
+    attroff(COLOR_PAIR(PAIR_HIGHLIGHT) | A_BOLD);
+    mvprintw(base_y + 5, margin_x, "The partition must now be formatted.");
+    mvprintw(base_y + 7, margin_x, "Use the UP and DOWN ARROW keys to select the file system you want,");
+    mvprintw(base_y + 8, margin_x, "and then press ENTER.");
     attroff(COLOR_PAIR(PAIR_NORMAL));
 
     bool has_ext4 = (strcmp(state->target_fstype, "ext4") == 0);
