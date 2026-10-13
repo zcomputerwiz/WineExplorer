@@ -17,6 +17,8 @@ before submission.
 | [upstream/drawtext-hideprefix](https://github.com/zcomputerwiz/wine/tree/upstream/drawtext-hideprefix) | `72feeed7325cd6b8122eac756c6d96d7d0b7f90a` | user32 builds; full text suite passes under Xvfb. Unpatched upstream renders seven unwanted underline pixels. |
 | [upstream/folder-iconfile](https://github.com/zcomputerwiz/wine/tree/upstream/folder-iconfile) | `d942c4f40647c599e01d4b8a4accdcc5420d37b1` | shell32 builds; full shlfolder suite passes under Xvfb. Unpatched upstream fails both literal and environment-expanded icon-path assertions. |
 | [upstream/rename-source-notification](https://github.com/zcomputerwiz/wine/tree/upstream/rename-source-notification) | `f7038cc7d9b5077db349318b26b0d9ff9e294a52` | shell32 builds; full shlfolder suite passes under Xvfb. Unpatched upstream fails eight destination-watcher assertions. |
+| [upstream/power-capability-battery](https://github.com/zcomputerwiz/wine/tree/upstream/power-capability-battery) | `aee72c042a96f06a6e91d2d837b1494d263d7ed2` | ntdll builds; full info suite passes with synthetic battery and no-battery sysfs views. Unpatched upstream fails the battery-present assertion. |
+| [upstream/shortcut-target-icon](https://github.com/zcomputerwiz/wine/tree/upstream/shortcut-target-icon) | `23e9baeac0a07a4368a93332aee31f064e002f45` | shell32 builds; full shelllink suite passes. Unpatched upstream fails the folder target icon assertion. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
@@ -108,16 +110,47 @@ Validation: built shell32 on current upstream; the full shlfolder suite under
 Xvfb fails eight destination-watcher assertions without the fix and passes
 with it. Source and within-folder cases pass before and after the fix.
 
+### Battery capability — ready-to-paste MR description
+
+SystemPowerCapabilities always reports SystemBatteriesPresent as false, even
+when SystemBatteryState detects a system battery. Use the existing platform
+battery-state helper to fill that capability. Initialize its input structure
+because platforms with no battery leave BatteryPresent untouched.
+
+The regression checks consistency between both NtPowerInformation results.
+Validation: built ntdll on current upstream and ran the full info suite under
+Xvfb with both battery and no-battery synthetic sysfs views. The battery case
+fails the new assertion without the fix; both states pass with it. The fixture
+uses a private Linux mount namespace, runs Wine as the normal guest user, and
+does not alter real hardware state. Non-Linux and native Windows runs remain
+unperformed. The existing noexec-related skip occurs in both runs.
+
+### Shortcut target icon — ready-to-paste MR description
+
+A shortcut without an explicit icon falls back to shell32 icon zero rather
+than its target's icon. Obtain IExtractIconW for the target and use its icon
+location. Explicit shortcut icons retain priority. Avoid recursively following
+link targets, which may form cycles; those retain the existing fallback.
+
+The regression saves shortcuts with fully parsed target PIDLs, checks a folder
+target against its actual icon location, covers an executable target, and
+verifies an explicit icon override. Validation: built shell32 on current
+upstream; the full shelllink suite under Xvfb fails the folder assertion without
+the fix and passes with it. The executable case is a preservation control on
+this prefix, whose exe association returns the generic icon.
+
+The separate SetPath simplified-PIDL folder-type issue remains outside this
+branch. The link-target recursion guard has not yet been exercised by a cycle
+regression; add that coverage before final WineHQ submission.
+
 ## Remaining candidates
 
 | Topic | State/constraint |
 |---|---|
 | Server DST bias | Needs deterministic timezone-transition regression |
 | ntdll timezone cache | Needs localtime-change regression with host state isolated |
-| Power capability battery presence | Battery/no-battery namespace regressions running; initialize helper input |
-| Shortcut target icon | Needs file/folder/explicit-icon fallback coverage |
 | Theme token whitespace | Needs a compatible, project-authored theme fixture |
-| Internet Explorer desktop icon 190 | Use Wine's own existing icon; needs resource/API regression |
+| Internet Explorer desktop icon 190 | Existing Wine artwork and ExtractIconEx regression running |
 
 FileIconInit and endpoint volume remain fork patches pending smaller, complete
 API implementations. Shell-hook registration currently supports one receiver,

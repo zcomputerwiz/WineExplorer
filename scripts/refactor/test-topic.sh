@@ -80,6 +80,13 @@ git -C "$source" apply --check "$input/fix.patch"
 git -C "$source" apply "$input/fix.patch"
 printf '%s\n' BUILDING_FIX > "$output/status"
 targets=("dlls/$module/all" "dlls/$module/tests/all")
+if [ -f "$input/build-targets" ]; then
+    while IFS= read -r target; do
+        target="${target%$'\r'}"
+        [[ "$target" =~ ^dlls/[[:alnum:]_.-]+/all$ ]] || exit 2
+        targets+=("$target")
+    done < "$input/build-targets"
+fi
 if [ "$module" = comctl32 ]; then targets+=("dlls/comctl32_v6/all"); fi
 make -C "$build" -j8 "${targets[@]}" > "$output/fix-build.log" 2>&1
 printf '%s\n' RUNNING_FIXED_REGRESSION > "$output/status"
@@ -94,10 +101,11 @@ if [ "$after" -ne 0 ]; then
     exit 1
 fi
 git -C "$source" diff --check
+git -C "$source" add -A
 # Use the user's Git identity; final WineHQ authorship/sign-off is manual.
 # Never add generated co-author trailers.
 git -C "$source" -c user.name="${WEX_GIT_NAME:?Set WEX_GIT_NAME}" \
     -c user.email="${WEX_GIT_EMAIL:?Set WEX_GIT_EMAIL}" \
-    commit -am "$summary"
+    commit -m "$summary"
 git -C "$source" rev-parse HEAD > "$output/commit"
 printf '%s\n' TESTS_PASSED > "$output/status"

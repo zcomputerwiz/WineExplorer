@@ -17,12 +17,13 @@ came unchanged from wine-mirror because the user's fork has no tags.
 Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
 paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
 containing twelve independent fix candidates. P0's strict acceptance command passes.
-P1 has six validated/pushed branches: imagelist-alpha (985db3ef),
+P1 has eight validated/pushed branches: imagelist-alpha (985db3ef),
 empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c),
 drawtext-hideprefix (72feeed7), folder-iconfile (d942c4f4), and
-rename-source-notification (f7038cc7). Battery capability validation is running.
-Next: finish battery validation, shortcut target icon, theme token whitespace,
-IE resource 190, then isolated timezone/DST fixtures. P2 and later phases have
+rename-source-notification (f7038cc7), power-capability-battery (aee72c04), and
+shortcut-target-icon (23e9baea). IE resource validation is running.
+Next: finish IE resource validation, shortcut-cycle guard regression, theme
+token whitespace, then isolated timezone/DST fixtures. P2 and later phases have
 not started; these refactor phases precede the installer's layout update in P4.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
@@ -50,9 +51,12 @@ The VM checkout is clean on that branch. Switch master and rebuild before the
 next topic. `rename-topic.log` and `results/rename-source-notification/` hold
 eight expected baseline failures and zero fixed failures. All six topic suites
 pass. Disk has 11 GiB free; account for isolated prefixes before further builds.
-The active runner is `test-topic.sh power-capability-battery ntdll info`, PID
-1318810 at relaunch. `battery-topic.log` and `results/power-capability-battery/`
-record its progress. It uses scripts/refactor/power-fixture.sh and
+The active runner is `test-topic.sh ie-desktop-icon shell32 shelllink`, PID
+1321389 at launch. `ie-icon-topic.log` and `results/ie-desktop-icon/` hold evidence.
+Its build-targets also rebuilds shdoclc; the new icon is exactly fork master's
+programs/iexplore/iexplore.ico. The runner stages new files as well as edits.
+Battery validation completed: full info suite in both states, one expected
+failure before and none after. It uses scripts/refactor/power-fixture.sh and
 test-power-topic.sh through test-topic.sh's optional input/test-wrapper.sh.
 Both battery and no-battery sysfs views were verified inside a private mount
 namespace. The VM provides passwordless sudo for namespace/mount setup;
@@ -63,6 +67,10 @@ The topic initializes SYSTEM_BATTERY_STATE to zero: the existing project
 patch does not, while the stock helper expects the caller to initialize it.
 The audited main Wine source has not yet changed; carry that correction into
 the retained patch/P2 tree and update the audit when changing main source.
+Host worktrees build/refactor/battery and shortcut are validated; ie-icon is
+draft. Add a shortcut-cycle regression before manual upstream submission.
+SetPath loses the folder type in a simplified PIDL; the icon regression uses
+fully parsed PIDLs so that independent issue does not mask the tested fix.
 Topic results/prefixes are isolated under ~/wex-refactor. Old failed imagelist
 runner 1281780 was stopped and its patches reversed exactly before rebuilding
 master and rerunning; the successful imagelist run then confirmed six intended
@@ -80,6 +88,23 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* Initial shortcut run FIX_TEST_FAILED: SetPath used a simple PIDL identifying
+  the temporary folder as a file, so target icon extraction still returned the
+  generic icon. An isolated WINEDEBUG=+shell run confirmed that tmp extension
+  path. Evidence is archived in results/shortcut-target-icon-simple-pidl-failed,
+  including diagnostic.log. Added SetIDList with SHParseDisplayName's full PIDL;
+  the rerun showed the intended folder failure before and none after the fix.
+* An IE test patch in String.raw again contained Bash ${target%...}, triggering
+  SyntaxError: Missing } in template expression before any tool call. Split the
+  C patch from the Bash patch; pass Bash via a normal quoted JS string.
+* `git -C build/refactor/ie-icon add -N dlls/shdoclc/iexplore.ico` rejected a path
+  outside sparse-checkout. `sparse-checkout add --no-cone ...` then rejected
+  unknown option no-cone (add inherits the existing mode). Used
+  `sparse-checkout add dlls/shdoclc/iexplore.ico`, then add -N. Exported patch
+  now contains both the new binary and resource declaration. The initial
+  resource-only input was replaced while BUILDING_REGRESSION, before the fix
+  patch was applied; tests were unchanged.
 
 * Relaunch 1318032 also rejected the lock: winedevice 1317313 survived SIGTERM.
   Rechecked ps/fuser and killed only that orphan with SIGKILL; lock probe passed.
