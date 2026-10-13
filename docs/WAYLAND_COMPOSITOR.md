@@ -267,3 +267,13 @@ All items identified in the review above and in `docs/WAYLAND_COMPOSITOR_FIX_WOR
    - Added `policy-client` and comprehensive automated tests to `tests/wex/run.sh`.
    - All 25 tests pass headlessly with exit code 0.
 
+
+### Re-review (Claude, 2026-10-13)
+
+Fix work order verified on a fresh clone of `wexcomp` (`ad962566`): zero warnings, `tests/wex/run.sh` 25/25.
+Focus guard sits in `desktop_focus_view()` with a forced path used only by `activate()`; labwc actions that change a
+view are filtered for wex windows; the new `view.c` guards are on labwc-only operations (edge/snap/SSD/cycling), so
+the client's own `set_maximized`/`set_minimized` still work (covered by the maximize and unminimize tests); zone
+handles are opaque tokens and unknown handles fail; subsurface alpha updates on the subsurface's commit; §3.2 and
+§7 now say every shell-session Wine process connects only to `wex-shell-0`. The review's open items are closed.
+Nit: commit `ad962566` has an empty summary (`tests/wex:`). The compositor half is ready for Codex's Wine half.
