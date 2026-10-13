@@ -44,7 +44,7 @@ $V wait "$VM" "Customize" --timeout 600 || fail "GUI setup did not start after t
 
 # GUI setup
 step regional; $V key "$VM" ret
-$V wait "$VM" "Organization" --timeout 30 || fail "no name page"; $V key "$VM" ret
+$V wait "$VM" "Organization" --timeout 30 || fail "no name page"; $V type "$VM" "Wine User"; $V key "$VM" ret
 $V wait "$VM" "Computer name" --timeout 30 || fail "no computer page"
 $V key "$VM" tab; $V type "$VM" "$P"; $V key "$VM" tab; $V type "$VM" "$P"
 step computer; $V key "$VM" ret
