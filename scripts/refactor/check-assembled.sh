@@ -3,7 +3,11 @@
 # Copyright 2026 WineExplorer contributors
 # Run after build-assembled.sh; no installed runtime or user prefix is touched.
 set -euo pipefail
-root=/srv/protonexplorer/wex-refactor-p2
+root=${WEX_ASSEMBLED_ROOT:-/srv/protonexplorer/wex-refactor-p2}
+case "$root" in
+    /srv/protonexplorer/wex-refactor-p2|/srv/protonexplorer/wex-refactor-p3) ;;
+    *) echo 'Expected an isolated refactor directory.' >&2; exit 2 ;;
+esac
 mkdir -p "$root/checks" "$root/prefixes"
 exec 9>"$root/check.lock"
 flock -n 9

@@ -293,8 +293,10 @@ def placeholder(desc, size, bg, out):
 def build():
     manifest = []
     for target, (kind, src) in sorted(TABLE.items()):
-        out = os.path.join(WINE, target)
-        entry = {"path": "wine/" + target, "kind": kind}
+        relative = ("src/dlls/wexshell/" + target[len("programs/explorer/"):]
+                    if target.startswith("programs/explorer/") else "wine/" + target)
+        out = os.path.join(ROOT, relative)
+        entry = {"path": relative, "kind": kind}
         if kind == "copy":
             with open(source_path(src), "rb") as f: data = f.read()
             with open(out, "wb") as f: f.write(data)

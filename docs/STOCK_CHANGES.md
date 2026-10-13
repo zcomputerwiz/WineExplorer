@@ -8,7 +8,7 @@ Commit `40c17e1` is the imperfect upstream import, which also includes post-tag 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|
-| `programs/explorer/desktop.c`, `systray.c`, `explorer.c` | Windows-style shell (taskbar, Start menu, desktop view, tray applets) | only when the desktop has `EnableShell=1` (`HKCU\Software\Wine\Explorer\Desktops\<name>`) or is named `shell`; stock launchers/`PaintDesktop`/`WM_CLOSE` otherwise |
+| `programs/explorer/desktop.c`, `explorer.c`; `include/wexshell.h` | load the versioned wexshell.dll plugin for the Windows-style shell and route its browser/applet commands; all shell implementation/resources live in `src/dlls/wexshell`, while the stock host retains desktop creation, clipboard, COM registration and its message loop | shell startup only when `EnableShell=1` (`HKCU\Software\Wine\Explorer\Desktops\<name>`), named `shell`, or requested with `/shell`; missing/incompatible plugin uses stock behavior |
 | `programs/explorer/desktop.c` | `/shell` switch (before the program to run) enables the shell for that desktop; used by the Winlogon-style session script | only when given |
 | `programs/explorer/explorer.c` | `/wlan`, `/netstatus`, `/netprops` helper switches; `::{CLSID}` paths and `/e` accepted | token-based, only when given as arguments |
 | `dlls/desk.cpl` | theme/background/appearance/settings pages added in front of Wine's Settings page; installed theme discovery, isolated style previews, theme-engine Apply, host-supported modes and keep/revert confirmation (see DISPLAY.md) | always |

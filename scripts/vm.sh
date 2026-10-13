@@ -38,14 +38,16 @@ sync)
     cd "$ROOT"; "$ROOT/scripts/fix-eol.sh" >/dev/null
     base="$(cat "$STAMP" 2>/dev/null || git rev-list --max-parents=0 HEAD | head -1)"
     {
-        git diff --name-only --diff-filter=AM "$base" -- wine
-        git ls-files --others --exclude-standard -- wine
+        git diff --name-only --diff-filter=AM "$base" -- wine src
+        git ls-files --others --exclude-standard -- wine src
+        echo scripts/assemble.sh
     } 2>/dev/null | sort -u > /tmp/vm_sync_files
     git diff --name-only --diff-filter=D "$base" -- wine 2>/dev/null | sed 's#^wine/##' > /tmp/vm_sync_deleted || true
     rm -f /tmp/vm_sync_local
     if [ -d "$LOCAL/ms-assets/wine" ]; then
         (cd "$LOCAL/ms-assets" && find wine -type f | sort) > /tmp/vm_sync_local
-        comm -23 /tmp/vm_sync_files /tmp/vm_sync_local > /tmp/vm_sync_open && mv /tmp/vm_sync_open /tmp/vm_sync_files
+        sed 's#^wine/programs/explorer/#src/dlls/wexshell/#' /tmp/vm_sync_local | sort > /tmp/vm_sync_local_targets
+        comm -23 /tmp/vm_sync_files /tmp/vm_sync_local_targets > /tmp/vm_sync_open && mv /tmp/vm_sync_open /tmp/vm_sync_files
     fi
     n=$(wc -l < /tmp/vm_sync_files)
     echo "syncing $n files"
@@ -55,15 +57,18 @@ sync)
     if [ -s /tmp/vm_sync_local ]; then
         # only those that differ on the VM, touched so what is built from them is rebuilt
         (cd "$LOCAL/ms-assets" && xargs md5sum < /tmp/vm_sync_local) |
-            "${SSH[@]}" 'cd ~/src && md5sum -c 2>/dev/null | grep -v ": OK$" | sed "s/: [A-Z].*$//"' > /tmp/vm_sync_overlay || true
+            sed 's#  wine/programs/explorer/#  src/dlls/wexshell/#' |
+            "${SSH[@]}" 'cd ~/src && md5sum -c 2>/dev/null | grep -v ": OK$" | sed "s/: [A-Z].*$//"' |
+            sed 's#^src/dlls/wexshell/#wine/programs/explorer/#' > /tmp/vm_sync_overlay || true
         if [ -s /tmp/vm_sync_overlay ]; then
-            tar -C "$LOCAL/ms-assets" -cf - -T /tmp/vm_sync_overlay | "${SSH[@]}" 'tar -xmf - -C ~/src'
+            tar -C "$LOCAL/ms-assets" --transform='s#^wine/programs/explorer/#src/dlls/wexshell/#' -cf - -T /tmp/vm_sync_overlay | "${SSH[@]}" 'tar -xmf - -C ~/src'
         fi
         echo "genuine files from $LOCAL: $(wc -l < /tmp/vm_sync_overlay) updated"
     fi
     if [ -s /tmp/vm_sync_deleted ]; then
         "${SSH[@]}" 'cd ~/src/wine && xargs -r rm -f' < /tmp/vm_sync_deleted
     fi
+    "${SSH[@]}" 'bash ~/src/scripts/assemble.sh'
     git rev-parse HEAD > "$STAMP"
     ;;
 build)

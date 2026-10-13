@@ -1044,11 +1044,13 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
 
 BOOL WINAPI WexShellCommand(DWORD version, WCHAR *cmdline, int cmdshow)
 {
-    WCHAR *p = cmdline;
-    if (version != WEX_SHELL_VERSION) return FALSE;
-    while (iswspace(*p)) p++;
-    if (*p == '"') p++;
-    if (!wcsnicmp(p, L"/desktop", 8)) return FALSE;
+    WCHAR *p;
+    if (version != WEX_SHELL_VERSION || !cmdline) return FALSE;
+    for (p = cmdline; *p; p++)
+        if ((p == cmdline || iswspace(p[-1]) || p[-1] == ',' || p[-1] == '"') &&
+            !wcsnicmp(p, L"/desktop", 8) &&
+            (!p[8] || p[8] == '=' || p[8] == ',' || iswspace(p[8])))
+            return FALSE;
 
     parameters_struct   parameters;
     HRESULT hres;

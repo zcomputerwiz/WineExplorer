@@ -319,6 +319,30 @@ handle; real-name authorship and sign-off remain the user's manual step.
 
 ## Commands that failed or were interrupted
 
+P3 `check-p3-fallback.sh` first failed compiling shell-plugin-probe.c with
+`x86_64-w64-mingw32-gcc -Wall -I "$root/source/include" ...`: this mixed Wine
+and MinGW headers (`unknown type name WINOLEAPI` in propidl.h), and ARRAY_SIZE
+was undefined. Copy only the shared wexshell.h into the probe directory, use
+MinGW's own standard headers, and use sizeof for the array count. Compilation
+and enabled/disabled/version/ordered-desktop-switch checks then passed.
+Log retained as /srv/protonexplorer/p3-fallback-compile-failed.log.
+
+An apply_patch adding assemble.sh also contained a nonexistent P3.md context
+`build, then connect the src module for normal` and was rejected atomically.
+Reapplied the standalone file addition; no partial edit remained.
+The search command naming scripts/fe.sh reported a missing file: that helper
+does not exist in this checkout. vm.sh is the maintained sync helper.
+
+P3 full build, linked module build and all P2 smoke checks pass. The API
+fallback probe passes with the plugin enabled and disabled. Visual captures
+of both Start styles, My Computer and Turn Off match P2 pixel-for-pixel above
+the taskbar. The first click-based Classic capture showed a closed menu in
+both phases; rejected it and used a Start-button message/visibility probe.
+Feature captures and logs remain under each phase's checks/visual; installed
+VM desktops are unchanged. Main now has the minimal host and src move;
+retained fork is pushed through 43c797e7e6. Dev/composition/installer checks
+remain before P3 acceptance.
+
 P3 prototype: `git diff --cached --check` initially rejected new-file
 whitespace inherited from Makefile.in, explorer.rc, resource.h,
 startmenu_view.c and theme_engine.c, plus one trailing-whitespace line introduced

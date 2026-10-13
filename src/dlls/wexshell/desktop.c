@@ -49,6 +49,7 @@ static const WCHAR default_driver[] = L"mac,x11,wayland";
 
 static BOOL using_root = TRUE;
 static BOOL shell_mode;   /* WineExplorer interactive shell: taskbar, Start menu, desktop view */
+static HWND shell_desktop;
 static HWINEVENTHOOK composition_shadow_hook;
 
 static void CALLBACK composition_shadow_event( HWINEVENTHOOK hook, DWORD event, HWND hwnd,
@@ -1322,6 +1323,7 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
     if (version != WEX_SHELL_VERSION || !hwnd) return FALSE;
     shell_mode = TRUE;
     using_root = FALSE;
+    shell_desktop = hwnd;
     desktop_orig_wndproc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)desktop_wnd_proc);
     initialize_appbar();
             /* like on Windows, the desktop stays while the shell runs, with or without programs */
@@ -1358,8 +1360,9 @@ void WINAPI WexShellStop(void)
     if (composition_shadow_hook) UnhookWinEvent(composition_shadow_hook);
     WexCompositionSetEnabled(FALSE);
     linux_windows_stop();
-    if (shell_hwnd && desktop_orig_wndproc)
-        SetWindowLongPtrW(shell_hwnd, GWLP_WNDPROC, (LONG_PTR)desktop_orig_wndproc);
+    if (shell_desktop && desktop_orig_wndproc)
+        SetWindowLongPtrW(shell_desktop, GWLP_WNDPROC, (LONG_PTR)desktop_orig_wndproc);
+    shell_desktop = NULL;
     shell_mode = FALSE;
 }
 
