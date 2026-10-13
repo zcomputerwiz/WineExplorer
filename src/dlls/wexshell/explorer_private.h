@@ -34,7 +34,6 @@
 #include "alttab.h"
 #include "taskbar_props.h"
 #include "shellservices.h"
-#include "nettray.h"
 
 
 

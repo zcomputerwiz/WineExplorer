@@ -30,6 +30,7 @@
 
 #include "wine/debug.h"
 #include "resource.h"
+#include "wexnet.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ncpa);
 
@@ -37,8 +38,12 @@ static HINSTANCE g_hinst = NULL;
 
 static void open_network_connections(HWND hwnd)
 {
+    HMODULE module = LoadLibraryW(L"netshell.dll");
+    HRESULT (WINAPI *show)(HWND, DWORD, void *) = module ?
+        (void *)GetProcAddress(module, "StartNCW") : NULL;
     TRACE("Opening Network Connections\n");
-    ShellExecuteW(hwnd, L"open", L"explorer.exe", L"/wlan", NULL, SW_SHOWNORMAL);
+    if (show) show(hwnd, 0, NULL);
+    if (module) FreeLibrary(module);
 }
 
 LONG CALLBACK CPlApplet(HWND hwnd, UINT msg, LPARAM lparam1, LPARAM lparam2)

@@ -31,7 +31,7 @@
 #include <wexhost.h>
 
 #include "wine/debug.h"
-#include "net_backend.h"
+#include "wexnet.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 

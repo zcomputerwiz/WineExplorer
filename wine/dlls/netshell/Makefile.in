@@ -1,8 +1,0 @@
-MODULE    = netshell.dll
-IMPORTS   = shell32 user32 advapi32 ole32
-
-EXTRADLLFLAGS = -Wb,--prefer-native
-
-SOURCES = \
-	netshell.c \
-	netshell.rc

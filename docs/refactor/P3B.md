@@ -1,6 +1,6 @@
 # P3b subsystem extraction
 
-Shared resources, themeui, msgina and stobject accepted October 13, 2026. Other planned subsystem extractions
+Shared resources, themeui, msgina, stobject and netshell accepted October 13, 2026. Other planned subsystem extractions
 are pending; P4 repository restructure follows their acceptance.
 
 `src/dlls/wexres` owns the icon/bitmap packs, namespace lookup and resource
@@ -39,7 +39,7 @@ a fresh clone, complete build/install, ISO and interactive installer test.
 
 ## Remaining extraction order
 
-network/wireless UI, wexsearch,
+wireless selection UI (wzcdlg), wexsearch,
 then wexbrowse. Keep clock/taskband/Alt+Tab in wexshell. Every split must pass
 its feature check and visual comparison; optional modules must not prevent
 shell startup when absent. Record any seam that is too wide instead of
@@ -118,3 +118,36 @@ The live installed VM runtime is unchanged. Evidence:
 Public protocol references:
 [ReactOS service loader](https://github.com/reactos/reactos/blob/master/base/shell/explorer/shellservice.cpp)
 and [tray service](https://github.com/reactos/reactos/blob/master/dll/shellext/stobject/csystray.cpp).
+
+## Network module acceptance
+
+The existing project-owned netshell module now lives in src/dlls/netshell,
+with nettray/net_props/net_backend/wlan_status. Its shared interface is
+src/include/wexnet.h (copied status/scan records and operations, plus the two
+network dialogs). The Connection Tray COM object uses the same service
+lifecycle; Wine boot registers it and the shell no longer calls nettray
+directly. Resource templates and class instances belong to netshell; common
+icons remain in wexres. Packet directionality code is unchanged.
+
+To extract one DLL at a time, wireless selection still uses its original shell
+implementation through a typed export, preserving process and owner. The
+dispatcher prefers wzcdlg; the next step moves that implementation and removes
+the temporary shell export. No private settings/global pointers cross DLLs.
+Existing netshell entry points invoke the same dialogs directly.
+ncpa.cpl calls StartNCW in this DLL; its cancel-only entry-point probe confirms
+the dialog stays in the caller process instead of spawning explorer.
+
+Module/full builds pass; four full captures including taskbar/tray match P3
+exactly when masking only the clock. check-network.sh passes its read-only
+host-status check, Connection Tray activation/menu/stop, Status and Properties
+dialogs (own resources, within the display, Cancel), and startup with service
+present, DLL absent, registry entry disabled, then restored. All reports have
+zero failures: wex-refactor-p3b/checks/network/*.txt;
+/srv/protonexplorer/p3b-network-final.log and p3b-network-cpl.log. The additional
+ncpa build and full build pass in p3b-ncpa-check.log.
+
+The prototype preserves the old assembled public netshell tree as
+pre-split-netshell after exact comparison. Fresh Wine fork clones contain no
+stock netshell directory. assemble.sh accepts empty directories left by tracked
+file deletions, while still rejecting nonempty collisions. Public/private
+asset routing follows the move. Installed dev/build VM runtimes are untouched.

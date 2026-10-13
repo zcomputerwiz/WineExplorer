@@ -32,7 +32,7 @@
 
 #include "wine/debug.h"
 #include "resource.h"
-#include "net_backend.h"
+#include "wexnet.h"
 #include "net_props.h"
 #include "wlan_status.h"
 
@@ -163,7 +163,7 @@ static void update_status_controls(HWND hwnd)
     WCHAR pkts_recv_str[32];
     WCHAR speed_str[32];
     DWORD h, m, s;
-    HINSTANCE hInst = explorer_hInstance;
+    HINSTANCE hInst = netshell_module();
     HICON hActIcon;
     BOOL xmit, recv;
 
@@ -229,7 +229,7 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
     {
     case WM_INITDIALOG:
     {
-        HINSTANCE hInst = explorer_hInstance;
+        HINSTANCE hInst = netshell_module();
         HWND hTab = GetDlgItem(hwnd, IDC_STATMON_TAB);
         TCITEMW ti = {0};
         HICON hIconMain;
@@ -415,5 +415,5 @@ void wlan_status_show(HWND parent)
     InitCommonControlsEx(&icex);
     net_backend_get_status(&g_status_info);
     dlg_id = (g_status_info.conn_type == NET_TYPE_ETHERNET) ? IDD_STATMON_GENERAL_LAN : IDD_STATMON_GENERAL_WLAN;
-    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(dlg_id), parent, WlanStatusDlgProc, 0);
+    DialogBoxParamW(netshell_module(), MAKEINTRESOURCEW(dlg_id), parent, WlanStatusDlgProc, 0);
 }

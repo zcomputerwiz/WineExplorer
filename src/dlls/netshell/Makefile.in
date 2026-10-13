@@ -1,0 +1,16 @@
+MODULE    = netshell.dll
+IMPORTLIB = netshell
+IMPORTS   = user32 gdi32 advapi32
+DELAYIMPORTS = wexres wexhost shell32 ole32 comctl32 shlwapi iphlpapi ws2_32
+
+EXTRADLLFLAGS = -Wb,--prefer-native
+
+SOURCES = \
+	netshell.c \
+	service.c \
+	net_backend.c \
+	net_props.c \
+	nettray.c \
+	wlan_status.c \
+	wireless_dispatch.c \
+	netshell.rc

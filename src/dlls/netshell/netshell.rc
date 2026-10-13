@@ -1,0 +1,183 @@
+/*
+ * Network Connections Shell Extension Resource Script
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#include "windef.h"
+#include "winuser.h"
+#include "commctrl.h"
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+/* @makedep: netfol.ico */
+IDI_NETSHELL ICON "netfol.ico"
+/* @makedep: foldwiz.ico */
+IDI_NCW      ICON "foldwiz.ico"
+
+STRINGTABLE
+{
+    IDS_NETCON_NAME "Network Connections"
+    IDS_NETCON_INFO "Connects to other computers, networks, and the Internet."
+}
+
+/* Local Area Connection Status Dialog */
+IDD_STATMON_GENERAL_LAN DIALOGEX 0, 0, 226, 216
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Local Area Connection Status"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_STATMON_TAB, "SysTabControl32", WS_TABSTOP, 6, 6, 214, 180
+
+    /* General Tab Controls */
+    GROUPBOX        "Connection", IDC_GRP_SM_CONN, 14, 26, 198, 54
+    LTEXT           "Status:", IDC_LBL_SM_STATUS, 22, 38, 40, 8
+    RTEXT           "Connected", IDC_TXT_SM_STATUS, 72, 38, 132, 8
+    LTEXT           "Duration:", IDC_LBL_SM_DUR, 22, 51, 40, 8
+    RTEXT           "00:00:00", IDC_TXT_SM_DURATION, 72, 51, 132, 8
+    LTEXT           "Speed:", IDC_LBL_SM_SPEED, 22, 64, 40, 8
+    RTEXT           "100.0 Mbps", IDC_TXT_SM_SPEED, 72, 64, 132, 8
+
+    GROUPBOX        "Activity", IDC_GRP_SM_ACT, 14, 84, 198, 70
+    RTEXT           "Sent", IDC_LBL_SM_SENT, 56, 96, 28, 8
+    CONTROL         "", IDC_LBL_SM_DASH1, "Static", SS_ETCHEDHORZ, 86, 100, 14, 1
+    CONTROL         "", IDC_ICO_SM_ACTIVITY, "Static", SS_ICON, 104, 89, 20, 20
+    CONTROL         "", IDC_LBL_SM_DASH2, "Static", SS_ETCHEDHORZ, 126, 100, 14, 1
+    LTEXT           "Received", IDC_LBL_SM_RCVD, 144, 96, 40, 8
+    LTEXT           "Packets:", IDC_LBL_SM_PKTS, 22, 118, 36, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_TRANS, 60, 118, 46, 8
+    CONTROL         "", IDC_LBL_SM_DIVIDER, "Static", SS_ETCHEDVERT, 113, 116, 1, 12
+    LTEXT           "0", IDC_TXT_SM_PKTS_RCVD, 122, 118, 46, 8
+
+    PUSHBUTTON      "&Properties", IDC_BTN_SM_PROPERTIES, 14, 160, 50, 14
+    PUSHBUTTON      "&Disable", IDC_BTN_SM_DISABLE, 68, 160, 50, 14
+
+    /* Support Tab Controls (Init hidden) */
+    GROUPBOX        "Connection status", IDC_GRP_SM_SUPPORT, 14, 26, 198, 90, NOT WS_VISIBLE
+    CONTROL         "", IDC_ICO_SM_SUPPORT, "Static", SS_ICON, 20, 40, 20, 20, NOT WS_VISIBLE
+    LTEXT           "Address Type:", IDC_LBL_SM_TYPE, 48, 38, 60, 8, NOT WS_VISIBLE
+    RTEXT           "Assigned by DHCP", IDC_TXT_SM_DHCP, 110, 38, 94, 8, NOT WS_VISIBLE
+    LTEXT           "IP Address:", IDC_LBL_SM_IP, 48, 50, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_IP, 110, 50, 94, 8, NOT WS_VISIBLE
+    LTEXT           "Subnet Mask:", IDC_LBL_SM_SUBNET, 48, 62, 60, 8, NOT WS_VISIBLE
+    RTEXT           "255.255.255.0", IDC_TXT_SM_SUBNET, 110, 62, 94, 8, NOT WS_VISIBLE
+    LTEXT           "Default Gateway:", IDC_LBL_SM_GW, 48, 74, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_GATEWAY, 110, 74, 94, 8, NOT WS_VISIBLE
+    PUSHBUTTON      "&Details...", IDC_BTN_SM_DETAILS, 48, 88, 50, 14, NOT WS_VISIBLE
+
+    LTEXT           "Windows did not detect problems with this connection. If you cannot connect, click Repair.",
+                    IDC_TXT_SM_SUPPORT_NOTE, 14, 124, 136, 24, NOT WS_VISIBLE
+    PUSHBUTTON      "Re&pair", IDC_BTN_SM_REPAIR, 156, 128, 50, 14, NOT WS_VISIBLE
+
+    /* Bottom Dialog Buttons */
+    DEFPUSHBUTTON   "Close", IDCANCEL, 170, 194, 50, 14
+END
+
+/* Wireless Connection Status Dialog */
+IDD_STATMON_GENERAL_WLAN DIALOGEX 0, 0, 226, 216
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Wireless Network Connection Status"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_STATMON_TAB, "SysTabControl32", WS_TABSTOP, 6, 6, 214, 180
+
+    /* General Tab Controls */
+    GROUPBOX        "Connection", IDC_GRP_SM_CONN, 14, 26, 198, 66
+    LTEXT           "Status:", IDC_LBL_SM_STATUS, 22, 38, 40, 8
+    RTEXT           "Connected", IDC_TXT_SM_STATUS, 72, 38, 132, 8
+    LTEXT           "Network:", IDC_LBL_SM_SSID, 22, 50, 40, 8
+    RTEXT           "Default-WiFi", IDC_TXT_SM_SSID, 72, 50, 132, 8
+    LTEXT           "Duration:", IDC_LBL_SM_DUR, 22, 62, 40, 8
+    RTEXT           "00:00:00", IDC_TXT_SM_DURATION, 72, 62, 132, 8
+    LTEXT           "Speed:", IDC_LBL_SM_SPEED, 22, 74, 40, 8
+    RTEXT           "54.0 Mbps", IDC_TXT_SM_SPEED, 72, 74, 132, 8
+    LTEXT           "Signal Strength:", IDC_LBL_SM_SIGNAL, 22, 86, 56, 8
+    CONTROL         "", IDC_CTL_SM_SIGNAL, "Static", SS_OWNERDRAW, 140, 84, 64, 10
+
+    GROUPBOX        "Activity", IDC_GRP_SM_ACT, 14, 96, 198, 80
+    RTEXT           "Sent", IDC_LBL_SM_SENT, 60, 108, 40, 8
+    CONTROL         "", IDC_ICO_SM_ACTIVITY, "Static", SS_ICON, 107, 105, 20, 20
+    RTEXT           "Received", IDC_LBL_SM_RCVD, 138, 108, 40, 8
+    LTEXT           "Bytes:", IDC_LBL_SM_BYTES, 22, 126, 30, 8
+    RTEXT           "0", IDC_TXT_SM_BYTES_TRANS, 54, 126, 50, 8
+    RTEXT           "0", IDC_TXT_SM_BYTES_RCVD, 132, 126, 50, 8
+    LTEXT           "Packets:", IDC_LBL_SM_PKTS, 22, 140, 30, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_TRANS, 54, 140, 50, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_RCVD, 132, 140, 50, 8
+
+    PUSHBUTTON      "&Properties", IDC_BTN_SM_PROPERTIES, 14, 158, 50, 14
+    PUSHBUTTON      "&Disable", IDC_BTN_SM_DISABLE, 68, 158, 50, 14
+
+    /* Support Tab Controls (Init hidden) */
+    GROUPBOX        "Internet Protocol (TCP/IP)", IDC_GRP_SM_SUPPORT, 14, 26, 198, 96, NOT WS_VISIBLE
+    LTEXT           "Address Type:", IDC_LBL_SM_TYPE, 22, 42, 60, 8, NOT WS_VISIBLE
+    RTEXT           "Assigned by DHCP", IDC_TXT_SM_DHCP, 84, 42, 120, 8, NOT WS_VISIBLE
+    LTEXT           "IP Address:", IDC_LBL_SM_IP, 22, 58, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_IP, 84, 58, 120, 8, NOT WS_VISIBLE
+    LTEXT           "Subnet Mask:", IDC_LBL_SM_SUBNET, 22, 74, 60, 8, NOT WS_VISIBLE
+    RTEXT           "255.255.255.0", IDC_TXT_SM_SUBNET, 84, 74, 120, 8, NOT WS_VISIBLE
+    LTEXT           "Default Gateway:", IDC_LBL_SM_GW, 22, 90, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_GATEWAY, 84, 90, 120, 8, NOT WS_VISIBLE
+    PUSHBUTTON      "Re&pair", IDC_BTN_SM_REPAIR, 14, 128, 50, 14, NOT WS_VISIBLE
+
+    /* Bottom Dialog Buttons */
+    DEFPUSHBUTTON   "Close", IDCANCEL, 170, 194, 50, 14
+END
+
+/* Local Area Connection Properties Dialog */
+IDD_LAN_PROPERTIES DIALOGEX 0, 0, 240, 230
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Local Area Connection Properties"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_NETPROP_TAB, "SysTabControl32", WS_TABSTOP, 6, 6, 228, 196
+
+    /* General Tab Controls */
+    LTEXT           "Connect using:", -1, 14, 24, 120, 8
+    CONTROL         "", IDC_NETPROP_ADAPTER_ICO, "Static", SS_ICON, 18, 36, 16, 16
+    LTEXT           "AMD PCNET Family PCI Ethernet Adapter", IDC_NETPROP_ADAPTER_NAME, 38, 39, 124, 10, SS_NOPREFIX
+    PUSHBUTTON      "&Configure...", IDC_NETPROP_CONFIGURE, 168, 34, 58, 14
+
+    LTEXT           "This c&onnection uses the following items:", -1, 14, 54, 200, 8
+    CONTROL         "", IDC_NETPROP_COMPLIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOCOLUMNHEADER | WS_BORDER | WS_TABSTOP, 14, 64, 212, 54
+    PUSHBUTTON      "I&nstall...", IDC_NETPROP_INSTALL, 14, 122, 64, 14
+    PUSHBUTTON      "&Uninstall", IDC_NETPROP_UNINSTALL, 84, 122, 64, 14
+    PUSHBUTTON      "P&roperties", IDC_NETPROP_PROPERTIES, 162, 122, 64, 14
+
+    GROUPBOX        "Description", IDC_NETPROP_DESCGROUP, 14, 140, 212, 40
+    LTEXT           "Allows your computer to access resources on a Microsoft network.", IDC_NETPROP_DESC, 20, 150, 200, 26
+
+    AUTOCHECKBOX    "Sho&w icon in notification area when connected", IDC_NETPROP_SHOWICON, 14, 184, 212, 10
+    AUTOCHECKBOX    "&Notify me when this connection has limited or no connectivity", IDC_NETPROP_NOTIFY, 14, 196, 212, 10
+
+    /* Advanced Tab Controls (initially hidden) */
+    GROUPBOX        "Internet Connection Firewall", IDC_NETPROP_FW_GROUP, 14, 24, 212, 46, NOT WS_VISIBLE
+    AUTOCHECKBOX    "&Protect my computer and network by limiting or preventing access to this computer from the Internet", IDC_NETPROP_FIREWALL, 20, 36, 200, 18, BS_MULTILINE | NOT WS_VISIBLE
+    PUSHBUTTON      "Settin&gs...", IDC_NETPROP_FW_LINK, 162, 52, 58, 14, NOT WS_VISIBLE
+
+    GROUPBOX        "Internet Connection Sharing", IDC_NETPROP_ICS_GROUP, 14, 74, 212, 62, NOT WS_VISIBLE
+    AUTOCHECKBOX    "Allow other &network users to connect through this computer's Internet connection", IDC_NETPROP_ICS_SHARE, 20, 86, 200, 18, BS_MULTILINE | NOT WS_VISIBLE
+    AUTOCHECKBOX    "All&ow other network users to control or disable the shared Internet connection", IDC_NETPROP_ICS_BEACON, 20, 108, 200, 18, BS_MULTILINE | NOT WS_VISIBLE
+    PUSHBUTTON      "Settin&gs...", IDC_NETPROP_SETTINGS, 162, 140, 58, 14, NOT WS_VISIBLE
+
+    /* Dialog Buttons */
+    DEFPUSHBUTTON   "OK", IDOK, 126, 208, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 182, 208, 50, 14
+END

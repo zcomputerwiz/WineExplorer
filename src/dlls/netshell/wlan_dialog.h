@@ -1,5 +1,5 @@
 /*
- * Network Connections Shell Extension Resource Definitions
+ * WineExplorer Desktop Environment - Wireless Quick Connect Dialog Header
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
@@ -18,13 +18,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef __NETSHELL_RESOURCE_H
-#define __NETSHELL_RESOURCE_H
+#ifndef __WINE_WLAN_DIALOG_H
+#define __WINE_WLAN_DIALOG_H
 
-#define IDI_NETSHELL    100
-#define IDI_NCW         101
+#include <windows.h>
 
-#define IDS_NETCON_NAME 1001
-#define IDS_NETCON_INFO 1002
+void wlan_dialog_show(HWND parent);
 
-#endif /* __NETSHELL_RESOURCE_H */
+#endif /* __WINE_WLAN_DIALOG_H */

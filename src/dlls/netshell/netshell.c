@@ -32,6 +32,9 @@
 
 #include "wine/debug.h"
 #include "resource.h"
+#include "wexnet.h"
+#include "wlan_dialog.h"
+#include "module.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(netshell);
 
@@ -52,18 +55,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
     return TRUE;
 }
 
-HRESULT WINAPI DllCanUnloadNow(void)
-{
-    return S_OK;
-}
-
-HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
-{
-    TRACE("(%s, %s, %p)\n", wine_dbgstr_guid(rclsid), wine_dbgstr_guid(riid), ppv);
-    if (!ppv) return E_INVALIDARG;
-    *ppv = NULL;
-    return CLASS_E_CLASSNOTAVAILABLE;
-}
+HINSTANCE netshell_module(void) { return g_hinst; }
 
 HRESULT WINAPI DllRegisterServer(void)
 {
@@ -105,10 +97,16 @@ HRESULT WINAPI DllRegisterServer(void)
         RegCloseKey(hKey);
     }
 
-    /* Register Connection Tray ShellServiceObjectDelayLoad */
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
-                      L"Software\\Microsoft\\Windows\\CurrentVersion\\ShellServiceObjectDelayLoad",
-                      0, KEY_WRITE, &hKey) == ERROR_SUCCESS)
+    wsprintfW(subkey, L"CLSID\\%s\\InProcServer32", wszCLSID_NetTray);
+    if (!RegCreateKeyExW(HKEY_CLASSES_ROOT, subkey, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL))
+    {
+        RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE *)L"netshell.dll", sizeof(L"netshell.dll"));
+        RegSetValueExW(hKey, L"ThreadingModel", 0, REG_SZ, (const BYTE *)L"Apartment", sizeof(L"Apartment"));
+        RegCloseKey(hKey);
+    }
+    if (!RegCreateKeyExW(HKEY_LOCAL_MACHINE,
+                        L"Software\\Microsoft\\Windows\\CurrentVersion\\ShellServiceObjectDelayLoad",
+                        0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL))
     {
         RegSetValueExW(hKey, L"Connections Tray", 0, REG_SZ, (const BYTE *)wszCLSID_NetTray, sizeof(wszCLSID_NetTray));
         RegCloseKey(hKey);
@@ -121,6 +119,16 @@ HRESULT WINAPI DllRegisterServer(void)
 HRESULT WINAPI DllUnregisterServer(void)
 {
     WCHAR subkey[256];
+    HKEY key;
+
+    wsprintfW(subkey, L"CLSID\\%s", wszCLSID_NetTray);
+    RegDeleteTreeW(HKEY_CLASSES_ROOT, subkey);
+    if (!RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\ShellServiceObjectDelayLoad",
+                       0, KEY_SET_VALUE, &key))
+    {
+        RegDeleteValueW(key, L"Connections Tray");
+        RegCloseKey(key);
+    }
 
     wsprintfW(subkey, L"CLSID\\%s", wszCLSID_NetCon);
     RegDeleteTreeW(HKEY_CLASSES_ROOT, subkey);
@@ -135,7 +143,7 @@ HRESULT WINAPI DllUnregisterServer(void)
 HRESULT WINAPI StartNCW(HWND hwndParent, DWORD dwFlags, PVOID pReserved)
 {
     TRACE("(%p, 0x%lx, %p)\n", hwndParent, dwFlags, pReserved);
-    ShellExecuteW(hwndParent, L"open", L"explorer.exe", L"/wlan", NULL, SW_SHOWNORMAL);
+    wlan_dialog_show(hwndParent);
     return S_OK;
 }
 
@@ -168,7 +176,7 @@ VOID WINAPI NcFreeNetconProperties(PVOID pProps)
 HRESULT WINAPI HrLaunchConnection(LPCWSTR pszName)
 {
     TRACE("(%s)\n", wine_dbgstr_w(pszName));
-    ShellExecuteW(NULL, L"open", L"explorer.exe", L"/wlan", NULL, SW_SHOWNORMAL);
+    wlan_dialog_show(NULL);
     return S_OK;
 }
 
@@ -182,7 +190,7 @@ HRESULT WINAPI HrLaunchConnectionEx(LPCWSTR pszName, DWORD dwFlags)
 HRESULT WINAPI RepairConnection(HWND hwndParent)
 {
     TRACE("(%p)\n", hwndParent);
-    ShellExecuteW(hwndParent, L"open", L"explorer.exe", L"/netstatus", NULL, SW_SHOWNORMAL);
+    wlan_status_show(hwndParent);
     return S_OK;
 }
 

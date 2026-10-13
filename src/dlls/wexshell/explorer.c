@@ -32,8 +32,7 @@
 #include "search_ui.h"
 #include "shellres.h"
 #include "wlan_dialog.h"
-#include "wlan_status.h"
-#include "net_props.h"
+#include "wexnet.h"
 #include "wexpower.h"
 
 #include <windows.h>

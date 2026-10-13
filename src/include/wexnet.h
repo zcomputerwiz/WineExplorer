@@ -79,4 +79,8 @@ BOOL net_backend_repair(void);
 BOOL net_backend_get_show_tray_icon(void);
 void net_backend_set_show_tray_icon(BOOL show);
 
+void net_props_show(HWND parent);
+void wlan_status_show(HWND parent);
+HRESULT WINAPI StartNCW(HWND parent, DWORD flags, void *reserved);
+
 #endif /* __WINE_NET_BACKEND_H */

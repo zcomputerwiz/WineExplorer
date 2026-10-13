@@ -31,9 +31,8 @@
 
 #include "wine/debug.h"
 #include "resource.h"
-#include "net_backend.h"
+#include "wexnet.h"
 #include "wlan_dialog.h"
-#include "wlan_status.h"
 
 #include "module.h"
 #include "wexres.h"

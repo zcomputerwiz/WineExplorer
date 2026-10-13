@@ -32,7 +32,7 @@
 
 #include "wine/debug.h"
 #include "resource.h"
-#include "net_backend.h"
+#include "wexnet.h"
 #include "wlan_dialog.h"
 #include "wlan_status.h"
 #include "net_props.h"
@@ -101,7 +101,7 @@ static int ethernet_activity_icon(const NET_STATUS_INFO *status)
 
 static void update_tray_icon_and_tooltip(HWND hwnd)
 {
-    HINSTANCE hInst = explorer_hInstance;
+    HINSTANCE hInst = netshell_module();
     int new_icon_id = 0;
     WCHAR new_tip[128] = {0};
     BOOL should_show = net_backend_get_show_tray_icon();
@@ -324,7 +324,7 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
 BOOL nettray_init(HWND hwnd_tray)
 {
     WNDCLASSEXW wc = {0};
-    HINSTANCE hInst = explorer_hInstance;
+    HINSTANCE hInst = netshell_module();
 
     if (g_hwnd_nettray) return TRUE;
 
@@ -349,7 +349,7 @@ void nettray_shutdown(void)
     {
         DestroyWindow(g_hwnd_nettray);
         g_hwnd_nettray = NULL;
-        UnregisterClassW(NETTRAY_CLASS_NAME, explorer_hInstance);
+        UnregisterClassW(NETTRAY_CLASS_NAME, netshell_module());
     }
 }
 

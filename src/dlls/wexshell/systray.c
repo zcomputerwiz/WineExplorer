@@ -1802,7 +1802,6 @@ static void do_show_systray(void)
         taskband_create( tray_window, taskband_x, tray_top, taskband_w, tray_height );
         taskband_resize( taskband_x, tray_top, taskband_w, tray_height );
 
-        nettray_init( tray_window );
         shellservices_start();
     }
 
@@ -1841,7 +1840,6 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     switch (msg)
     {
     case WM_DESTROY:
-        nettray_shutdown();
         shellservices_stop();
         break;
 

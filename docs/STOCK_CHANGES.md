@@ -8,11 +8,13 @@ Commit `40c17e1` is the imperfect upstream import, which also includes post-tag 
 P3b project modules now include wexres (shared resources), themeui (shared theme
 engine, used directly by desk.cpl) and msgina (Turn Off/Log Off, called directly
 by logonui), plus stobject's registry-driven COM volume/power tray service.
-Wine's boot DLL registration list includes stobject; the shell enumerates
+Netshell now lives under src/dlls, owns network tray/status/properties/backend,
+and exposes the shared UI to ncpa.cpl. Wine's boot DLL registration list includes
+stobject and netshell; the shell enumerates
 ShellServiceObjectDelayLoad and tolerates missing optional DLLs/services.
 Their implementation and interfaces live under src/. Configure
 and header installation entries are retained on wineexplorer/11.19 through
-ef8de25d12. See refactor/P3B.md for acceptance and the remaining extractions.
+41f35202f8. See refactor/P3B.md for acceptance and the remaining extractions.
 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |

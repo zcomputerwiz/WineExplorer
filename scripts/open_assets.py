@@ -293,7 +293,9 @@ def placeholder(desc, size, bg, out):
 def build():
     manifest = []
     for target, (kind, src) in sorted(TABLE.items()):
-        if target.startswith("programs/explorer/res_power/"):
+        if target.startswith("dlls/netshell/"):
+            relative = "src/" + target
+        elif target.startswith("programs/explorer/res_power/"):
             relative = "src/dlls/msgina/res_power/" + target[len("programs/explorer/res_power/"):]
         elif target.startswith("programs/explorer/"):
             relative = "src/dlls/wexres/" + target[len("programs/explorer/"):]

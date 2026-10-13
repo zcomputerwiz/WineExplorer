@@ -31,7 +31,7 @@
 
 #include "wine/debug.h"
 #include "resource.h"
-#include "net_backend.h"
+#include "wexnet.h"
 #include "nettray.h"
 #include "net_props.h"
 
@@ -128,7 +128,7 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
     {
     case WM_INITDIALOG:
     {
-        HINSTANCE hInst = explorer_hInstance;
+        HINSTANCE hInst = netshell_module();
         HWND hTab = GetDlgItem(hwnd, IDC_NETPROP_TAB);
         HWND hList = GetDlgItem(hwnd, IDC_NETPROP_COMPLIST);
         TCITEMW ti = {0};
@@ -331,5 +331,5 @@ void net_props_show(HWND parent)
     icex.dwSize = sizeof(icex);
     icex.dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&icex);
-    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(IDD_LAN_PROPERTIES), parent, LanPropertiesDlgProc, 0);
+    DialogBoxParamW(netshell_module(), MAKEINTRESOURCEW(IDD_LAN_PROPERTIES), parent, LanPropertiesDlgProc, 0);
 }

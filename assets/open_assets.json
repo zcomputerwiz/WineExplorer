@@ -178,12 +178,12 @@
   "source": "reactos/dll/shellext/netshell/res/netshell.ico"
  },
  {
-  "path": "wine/dlls/netshell/foldwiz.ico",
+  "path": "src/dlls/netshell/foldwiz.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/netsetup.ico"
  },
  {
-  "path": "wine/dlls/netshell/netfol.ico",
+  "path": "src/dlls/netshell/netfol.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/netshell.ico"
  },

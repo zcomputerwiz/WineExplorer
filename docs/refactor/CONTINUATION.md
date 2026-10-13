@@ -10,11 +10,30 @@ cancel-only). Stobject is accepted with COM lifecycle, slider/menus and
 optional-service startup checks. Four full desktop/taskbar/tray comparisons
 masking only the clock have zero differing pixels. The last source guard
 stops service enumeration on errors other than an oversized entry; its module
-rebuild passes. Next: network/wireless extraction,
+rebuild passes. Netshell now passes host-status, COM/menu/dialog and optional
+service checks, with all four full screenshots identical except the masked
+clock. Its implementation has moved to src/dlls/netshell; the prior assembled
+public directory is preserved in p3b/pre-split-netshell. ncpa.cpl now calls
+the shared DLL directly; its real applet entry-point Cancel check passes in
+the same caller process. The extra module/full build also passes. Wine fork
+build/header/registration integration is pushed through 41f35202f8.
+Next: wzcdlg extraction
+(remove the temporary wlan_dialog_show export from wexshell),
 then remaining P3b modules, P4, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
 Failed commands during this prototype:
+
+- The staged netshell diff check found a new blank line at netshell.rc EOF
+  after resource extraction. Removed that extra blank line; no code behavior
+  changed and the staged diff check passes.
+
+- The first netshell resource build failed at netshell.rc:159:58 with a syntax
+  error: moved LAN Properties templates use LVS_* constants, but the old
+  netshell.rc did not include commctrl.h. Added that include. The prototype
+  also preserved its old public module directory as pre-split-netshell after
+  exact comparison with the untouched P3 baseline; no stock module was replaced
+  (upstream has no netshell directory).
 
 - The first service acceptance probe failed `registered service activates`.
   A full-taskbar comparison (masking only the clock) also showed missing
