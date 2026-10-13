@@ -36,6 +36,7 @@
 #include <time.h>
 
 #include "wexhost.h"
+#include <wextimezone.h>
 #include "resource.h"
 
 typedef struct {
@@ -176,7 +177,11 @@ static void CheckUnattended(void)
         WideCharToMultiByte(CP_UTF8, 0, buf, -1, g_ctx.admin_pass, sizeof(g_ctx.admin_pass), NULL, NULL);
     }
     if (GetPrivateProfileStringW(L"GuiUnattended", L"TimeZone", L"", buf, 256, wpath)) {
-        WideCharToMultiByte(CP_UTF8, 0, buf, -1, g_ctx.timezone, sizeof(g_ctx.timezone), NULL, NULL);
+        char raw[128];
+        WideCharToMultiByte(CP_UTF8, 0, buf, -1, raw, sizeof(raw), NULL, NULL);
+        if (wex_resolve_timezone(raw, g_ctx.timezone, sizeof(g_ctx.timezone), NULL, 0) == NULL) {
+            snprintf(g_ctx.timezone, sizeof(g_ctx.timezone), "%s", raw);
+        }
     }
 
     /* [Identification] */
@@ -478,26 +483,103 @@ static INT_PTR CALLBACK DateTimePageProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
         case WM_INITDIALOG: {
             int i;
             HWND hCombo = GetDlgItem(hwnd, IDC_TZ_COMBO);
-            const char *tzs[] = {
-                "Etc/UTC", "America/New_York", "America/Chicago", "America/Denver",
-                "America/Los_Angeles", "Europe/London", "Europe/Paris", "Europe/Berlin",
-                "Asia/Tokyo", "Asia/Shanghai", NULL
-            };
-            for (i = 0; tzs[i]; ++i) {
-                SendMessageA(hCombo, CB_ADDSTRING, 0, (LPARAM)tzs[i]);
+            HWND hDate = GetDlgItem(hwnd, IDC_DATEPICKER);
+            HWND hTime = GetDlgItem(hwnd, IDC_TIMEPICKER);
+            SYSTEMTIME st;
+            int sel = -1;
+            const WCHAR *matched_key = NULL;
+
+            GetLocalTime(&st);
+            if (hDate) SendMessageW(hDate, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&st);
+            if (hTime) SendMessageW(hTime, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&st);
+
+            SendMessageW(hCombo, CB_RESETCONTENT, 0, 0);
+            for (i = 0; i < ARRAY_SIZE(g_xp_timezones); ++i) {
+                int idx = (int)SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)g_xp_timezones[i].display);
+                SendMessageW(hCombo, CB_SETITEMDATA, idx, (LPARAM)i);
             }
-            SendMessageA(hCombo, CB_SETCURSEL, 0, 0);
+
+            if (g_ctx.timezone[0]) {
+                matched_key = wex_key_for_iana(g_ctx.timezone);
+            }
+            if (!matched_key) {
+                DYNAMIC_TIME_ZONE_INFORMATION dtzi;
+                if (GetDynamicTimeZoneInformation(&dtzi) != TIME_ZONE_ID_INVALID && dtzi.TimeZoneKeyName[0]) {
+                    matched_key = dtzi.TimeZoneKeyName;
+                }
+            }
+
+            if (matched_key) {
+                for (i = 0; i < ARRAY_SIZE(g_xp_timezones); ++i) {
+                    if (!_wcsicmp(g_xp_timezones[i].key, matched_key) ||
+                        !_wcsicmp(g_xp_timezones[i].std, matched_key)) {
+                        sel = i;
+                        break;
+                    }
+                }
+            }
+
+            if (sel < 0) {
+                for (i = 0; i < ARRAY_SIZE(g_xp_timezones); ++i) {
+                    if (!_wcsicmp(g_xp_timezones[i].key, L"GMT Standard Time")) {
+                        sel = i;
+                        break;
+                    }
+                }
+            }
+            if (sel < 0) sel = 0;
+
+            SendMessageW(hCombo, CB_SETCURSEL, sel, 0);
+
+            CheckDlgButton(hwnd, IDC_AUTODAYLIGHT,
+                           g_xp_timezones[sel].has_dst ? BST_CHECKED : BST_UNCHECKED);
+            EnableWindow(GetDlgItem(hwnd, IDC_AUTODAYLIGHT), FALSE);
             return TRUE;
         }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDC_TZ_COMBO && HIWORD(wParam) == CBN_SELCHANGE) {
+                int sel = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETCURSEL, 0, 0);
+                if (sel >= 0 && sel < ARRAY_SIZE(g_xp_timezones)) {
+                    int tz_idx = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETITEMDATA, sel, 0);
+                    if (tz_idx >= 0 && tz_idx < ARRAY_SIZE(g_xp_timezones)) {
+                        CheckDlgButton(hwnd, IDC_AUTODAYLIGHT,
+                                       g_xp_timezones[tz_idx].has_dst ? BST_CHECKED : BST_UNCHECKED);
+                    }
+                }
+                return TRUE;
+            }
+            break;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
                 SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
                 return TRUE;
             } else if (pnmh->code == PSN_WIZNEXT) {
-                char tz[128];
-                GetDlgItemTextA(hwnd, IDC_TZ_COMBO, tz, sizeof(tz));
-                if (tz[0]) snprintf(g_ctx.timezone, sizeof(g_ctx.timezone), "%s", tz);
+                int sel = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETCURSEL, 0, 0);
+                if (sel >= 0 && sel < ARRAY_SIZE(g_xp_timezones)) {
+                    int tz_idx = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETITEMDATA, sel, 0);
+                    if (tz_idx >= 0 && tz_idx < ARRAY_SIZE(g_xp_timezones)) {
+                        const char *iana = wex_iana_for_key(g_xp_timezones[tz_idx].key);
+                        if (iana) {
+                            snprintf(g_ctx.timezone, sizeof(g_ctx.timezone), "%s", iana);
+                        }
+                    }
+                }
+                {
+                    HWND hDate = GetDlgItem(hwnd, IDC_DATEPICKER);
+                    HWND hTime = GetDlgItem(hwnd, IDC_TIMEPICKER);
+                    SYSTEMTIME stDate, stTime, stCombined;
+                    if (hDate && hTime &&
+                        SendMessageW(hDate, DTM_GETSYSTEMTIME, 0, (LPARAM)&stDate) == GDT_VALID &&
+                        SendMessageW(hTime, DTM_GETSYSTEMTIME, 0, (LPARAM)&stTime) == GDT_VALID) {
+                        stCombined = stDate;
+                        stCombined.wHour = stTime.wHour;
+                        stCombined.wMinute = stTime.wMinute;
+                        stCombined.wSecond = stTime.wSecond;
+                        stCombined.wMilliseconds = 0;
+                        SetLocalTime(&stCombined);
+                    }
+                }
             }
             break;
         }
@@ -684,7 +766,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     g_hInstance = hInstance;
     SetThemeAppProperties(0);
-    InitCommonControls();
+    {
+        INITCOMMONCONTROLSEX iccex;
+        iccex.dwSize = sizeof(iccex);
+        iccex.dwICC = ICC_DATE_CLASSES | ICC_UPDOWN_CLASS | ICC_WIN95_CLASSES;
+        InitCommonControlsEx(&iccex);
+    }
 
     memset(&g_ctx, 0, sizeof(g_ctx));
     g_ctx.owner[0] = '\0';

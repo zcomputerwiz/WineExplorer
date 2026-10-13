@@ -25,6 +25,7 @@
 #include <math.h>
 
 #include <wexhost.h>
+#include <wextimezone.h>
 #include "timedate.h"
 
 typedef struct
@@ -53,70 +54,6 @@ static WNDPROC g_orig_map_proc = NULL;
 static HBITMAP g_hWorldBmp = NULL;
 static int g_bm_width = 0;
 static int g_bm_height = 0;
-
-static const struct {
-    const WCHAR *key;
-    const WCHAR *display;
-    const WCHAR *std;
-    const WCHAR *dlt;
-    LONG bias;
-    BOOL has_dst;
-} g_fallback_tzs[] = {
-    { L"Dateline Standard Time", L"(GMT-12:00) International Date Line West", L"Dateline Standard Time", L"Dateline Daylight Time", 720, FALSE },
-    { L"Samoa Standard Time", L"(GMT-11:00) Midway Island, Samoa", L"Samoa Standard Time", L"Samoa Daylight Time", 660, FALSE },
-    { L"Hawaiian Standard Time", L"(GMT-10:00) Hawaii", L"Hawaiian Standard Time", L"Hawaiian Daylight Time", 600, FALSE },
-    { L"Alaskan Standard Time", L"(GMT-09:00) Alaska", L"Alaskan Standard Time", L"Alaskan Daylight Time", 540, TRUE },
-    { L"Pacific Standard Time", L"(GMT-08:00) Pacific Time (US & Canada); Tijuana", L"Pacific Standard Time", L"Pacific Daylight Time", 480, TRUE },
-    { L"Mountain Standard Time", L"(GMT-07:00) Mountain Time (US & Canada)", L"Mountain Standard Time", L"Mountain Daylight Time", 420, TRUE },
-    { L"US Mountain Standard Time", L"(GMT-07:00) Arizona", L"US Mountain Standard Time", L"US Mountain Daylight Time", 420, FALSE },
-    { L"Central Standard Time", L"(GMT-06:00) Central Time (US & Canada)", L"Central Standard Time", L"Central Daylight Time", 360, TRUE },
-    { L"Canada Central Standard Time", L"(GMT-06:00) Saskatchewan", L"Canada Central Standard Time", L"Canada Central Daylight Time", 360, FALSE },
-    { L"Eastern Standard Time", L"(GMT-05:00) Eastern Time (US & Canada)", L"Eastern Standard Time", L"Eastern Daylight Time", 300, TRUE },
-    { L"US Eastern Standard Time", L"(GMT-05:00) Indiana (East)", L"US Eastern Standard Time", L"US Eastern Daylight Time", 300, FALSE },
-    { L"Atlantic Standard Time", L"(GMT-04:00) Atlantic Time (Canada)", L"Atlantic Standard Time", L"Atlantic Daylight Time", 240, TRUE },
-    { L"SA Western Standard Time", L"(GMT-04:00) Caracas, La Paz", L"SA Western Standard Time", L"SA Western Daylight Time", 240, FALSE },
-    { L"Newfoundland Standard Time", L"(GMT-03:30) Newfoundland", L"Newfoundland Standard Time", L"Newfoundland Daylight Time", 210, TRUE },
-    { L"E. South America Standard Time", L"(GMT-03:00) Brasilia", L"E. South America Standard Time", L"E. South America Daylight Time", 180, TRUE },
-    { L"Greenland Standard Time", L"(GMT-03:00) Greenland", L"Greenland Standard Time", L"Greenland Daylight Time", 180, TRUE },
-    { L"Mid-Atlantic Standard Time", L"(GMT-02:00) Mid-Atlantic", L"Mid-Atlantic Standard Time", L"Mid-Atlantic Daylight Time", 120, TRUE },
-    { L"Azores Standard Time", L"(GMT-01:00) Azores", L"Azores Standard Time", L"Azores Daylight Time", 60, TRUE },
-    { L"Cape Verde Standard Time", L"(GMT-01:00) Cape Verde Is.", L"Cape Verde Standard Time", L"Cape Verde Daylight Time", 60, FALSE },
-    { L"GMT Standard Time", L"(GMT) Greenwich Mean Time : Dublin, Edinburgh, Lisbon, London", L"GMT Standard Time", L"GMT Daylight Time", 0, TRUE },
-    { L"Greenwich Standard Time", L"(GMT) Monrovia, Reykjavik", L"Greenwich Standard Time", L"Greenwich Daylight Time", 0, FALSE },
-    { L"W. Europe Standard Time", L"(GMT+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna", L"W. Europe Standard Time", L"W. Europe Daylight Time", -60, TRUE },
-    { L"Romance Standard Time", L"(GMT+01:00) Brussels, Copenhagen, Madrid, Paris", L"Romance Standard Time", L"Romance Daylight Time", -60, TRUE },
-    { L"GTB Standard Time", L"(GMT+02:00) Athens, Bucharest, Istanbul", L"GTB Standard Time", L"GTB Daylight Time", -120, TRUE },
-    { L"Egypt Standard Time", L"(GMT+02:00) Cairo", L"Egypt Standard Time", L"Egypt Daylight Time", -120, TRUE },
-    { L"Israel Standard Time", L"(GMT+02:00) Jerusalem", L"Israel Standard Time", L"Israel Daylight Time", -120, TRUE },
-    { L"Russian Standard Time", L"(GMT+03:00) Moscow, St. Petersburg, Volgograd", L"Russian Standard Time", L"Russian Daylight Time", -180, TRUE },
-    { L"Arab Standard Time", L"(GMT+03:00) Kuwait, Riyadh", L"Arab Standard Time", L"Arab Daylight Time", -180, FALSE },
-    { L"Iran Standard Time", L"(GMT+03:30) Tehran", L"Iran Standard Time", L"Iran Daylight Time", -210, TRUE },
-    { L"Arabian Standard Time", L"(GMT+04:00) Abu Dhabi, Muscat", L"Arabian Standard Time", L"Arabian Daylight Time", -240, FALSE },
-    { L"Caucasus Standard Time", L"(GMT+04:00) Baku, Tbilisi, Yerevan", L"Caucasus Standard Time", L"Caucasus Daylight Time", -240, TRUE },
-    { L"Afghanistan Standard Time", L"(GMT+04:30) Kabul", L"Afghanistan Standard Time", L"Afghanistan Daylight Time", -270, FALSE },
-    { L"Ekaterinburg Standard Time", L"(GMT+05:00) Ekaterinburg", L"Ekaterinburg Standard Time", L"Ekaterinburg Daylight Time", -300, TRUE },
-    { L"West Asia Standard Time", L"(GMT+05:00) Islamabad, Karachi, Tashkent", L"West Asia Standard Time", L"West Asia Daylight Time", -300, FALSE },
-    { L"India Standard Time", L"(GMT+05:30) Chennai, Kolkata, Mumbai, New Delhi", L"India Standard Time", L"India Daylight Time", -330, FALSE },
-    { L"Nepal Standard Time", L"(GMT+05:45) Kathmandu", L"Nepal Standard Time", L"Nepal Daylight Time", -345, FALSE },
-    { L"Central Asia Standard Time", L"(GMT+06:00) Astana, Almaty, Dhaka", L"Central Asia Standard Time", L"Central Daylight Time", -360, FALSE },
-    { L"Myanmar Standard Time", L"(GMT+06:30) Yangon (Rangoon)", L"Myanmar Standard Time", L"Myanmar Daylight Time", -390, FALSE },
-    { L"SE Asia Standard Time", L"(GMT+07:00) Bangkok, Hanoi, Jakarta", L"SE Asia Standard Time", L"SE Asia Daylight Time", -420, FALSE },
-    { L"China Standard Time", L"(GMT+08:00) Beijing, Chongqing, Hong Kong, Urumqi", L"China Standard Time", L"China Daylight Time", -480, FALSE },
-    { L"Singapore Standard Time", L"(GMT+08:00) Kuala Lumpur, Singapore", L"Singapore Standard Time", L"Singapore Daylight Time", -480, FALSE },
-    { L"Taipei Standard Time", L"(GMT+08:00) Taipei", L"Taipei Standard Time", L"Taipei Daylight Time", -480, FALSE },
-    { L"Tokyo Standard Time", L"(GMT+09:00) Osaka, Sapporo, Tokyo", L"Tokyo Standard Time", L"Tokyo Daylight Time", -540, FALSE },
-    { L"Korea Standard Time", L"(GMT+09:00) Seoul", L"Korea Standard Time", L"Korea Daylight Time", -540, FALSE },
-    { L"Yakutsk Standard Time", L"(GMT+09:00) Yakutsk", L"Yakutsk Standard Time", L"Yakutsk Daylight Time", -540, TRUE },
-    { L"Cen. Australia Standard Time", L"(GMT+09:30) Adelaide", L"Cen. Australia Standard Time", L"Cen. Australia Daylight Time", -570, TRUE },
-    { L"AUS Central Standard Time", L"(GMT+09:30) Darwin", L"AUS Central Standard Time", L"AUS Central Daylight Time", -570, FALSE },
-    { L"E. Australia Standard Time", L"(GMT+10:00) Brisbane", L"E. Australia Standard Time", L"E. Australia Daylight Time", -600, FALSE },
-    { L"AUS Eastern Standard Time", L"(GMT+10:00) Canberra, Melbourne, Sydney", L"AUS Eastern Standard Time", L"AUS Eastern Daylight Time", -600, TRUE },
-    { L"Vladivostok Standard Time", L"(GMT+10:00) Vladivostok", L"Vladivostok Standard Time", L"Vladivostok Daylight Time", -600, TRUE },
-    { L"Central Pacific Standard Time", L"(GMT+11:00) Magadan, Solomon Is., New Caledonia", L"Central Pacific Standard Time", L"Central Pacific Daylight Time", -660, FALSE },
-    { L"New Zealand Standard Time", L"(GMT+12:00) Auckland, Wellington", L"New Zealand Standard Time", L"New Zealand Daylight Time", -720, TRUE },
-    { L"Fiji Standard Time", L"(GMT+12:00) Fiji, Kamchatka, Marshall Is.", L"Fiji Standard Time", L"Fiji Daylight Time", -720, FALSE },
-    { L"Tonga Standard Time", L"(GMT+13:00) Nuku'alofa", L"Tonga Standard Time", L"Tonga Daylight Time", -780, FALSE }
-};
 
 /* Sort by Bias descending (so UTC-12 is first, up to UTC+13), then by display_name */
 static int tz_compare(const void *a, const void *b)
@@ -191,20 +128,20 @@ static void init_timezones(void)
     if (g_tz_count == 0)
     {
         /* Fallback table */
-        int count = ARRAY_SIZE(g_fallback_tzs);
+        int count = ARRAY_SIZE(g_xp_timezones);
         g_tz_entries = calloc(count, sizeof(TZ_ENTRY));
         if (!g_tz_entries) return;
         g_tz_count = count;
 
         for (i = 0; i < count; i++)
         {
-            wcsncpy(g_tz_entries[i].key_name, g_fallback_tzs[i].key, ARRAY_SIZE(g_tz_entries[i].key_name) - 1);
-            wcsncpy(g_tz_entries[i].display_name, g_fallback_tzs[i].display, ARRAY_SIZE(g_tz_entries[i].display_name) - 1);
-            wcsncpy(g_tz_entries[i].std_name, g_fallback_tzs[i].std, ARRAY_SIZE(g_tz_entries[i].std_name) - 1);
-            wcsncpy(g_tz_entries[i].dlt_name, g_fallback_tzs[i].dlt, ARRAY_SIZE(g_tz_entries[i].dlt_name) - 1);
+            wcsncpy(g_tz_entries[i].key_name, g_xp_timezones[i].key, ARRAY_SIZE(g_tz_entries[i].key_name) - 1);
+            wcsncpy(g_tz_entries[i].display_name, g_xp_timezones[i].display, ARRAY_SIZE(g_tz_entries[i].display_name) - 1);
+            wcsncpy(g_tz_entries[i].std_name, g_xp_timezones[i].std, ARRAY_SIZE(g_tz_entries[i].std_name) - 1);
+            wcsncpy(g_tz_entries[i].dlt_name, g_xp_timezones[i].dlt, ARRAY_SIZE(g_tz_entries[i].dlt_name) - 1);
             memset(&g_tz_entries[i].tzi, 0, sizeof(g_tz_entries[i].tzi));
-            g_tz_entries[i].tzi.Bias = g_fallback_tzs[i].bias;
-            if (g_fallback_tzs[i].has_dst)
+            g_tz_entries[i].tzi.Bias = g_xp_timezones[i].bias;
+            if (g_xp_timezones[i].has_dst)
             {
                 g_tz_entries[i].tzi.DaylightBias = -60;
                 g_tz_entries[i].tzi.StandardDate.wMonth = 10;
@@ -220,76 +157,6 @@ static void init_timezones(void)
     {
         qsort(g_tz_entries, g_tz_count, sizeof(TZ_ENTRY), tz_compare);
     }
-}
-
-static const struct {
-    const WCHAR *win_name;
-    const char *iana_name;
-} g_tz_iana_map[] = {
-    { L"Dateline Standard Time", "Etc/GMT+12" },
-    { L"Samoa Standard Time", "Pacific/Apia" },
-    { L"Hawaiian Standard Time", "Pacific/Honolulu" },
-    { L"Alaskan Standard Time", "America/Anchorage" },
-    { L"Pacific Standard Time", "America/Los_Angeles" },
-    { L"Mountain Standard Time", "America/Denver" },
-    { L"US Mountain Standard Time", "America/Phoenix" },
-    { L"Central Standard Time", "America/Chicago" },
-    { L"Canada Central Standard Time", "America/Regina" },
-    { L"Eastern Standard Time", "America/New_York" },
-    { L"US Eastern Standard Time", "America/Indiana/Indianapolis" },
-    { L"Atlantic Standard Time", "America/Halifax" },
-    { L"SA Western Standard Time", "America/La_Paz" },
-    { L"Newfoundland Standard Time", "America/St_Johns" },
-    { L"E. South America Standard Time", "America/Sao_Paulo" },
-    { L"Greenland Standard Time", "America/Godthab" },
-    { L"Mid-Atlantic Standard Time", "Etc/GMT+2" },
-    { L"Azores Standard Time", "Atlantic/Azores" },
-    { L"Cape Verde Standard Time", "Atlantic/Cape_Verde" },
-    { L"GMT Standard Time", "Europe/London" },
-    { L"Greenwich Standard Time", "Atlantic/Reykjavik" },
-    { L"W. Europe Standard Time", "Europe/Berlin" },
-    { L"Romance Standard Time", "Europe/Paris" },
-    { L"GTB Standard Time", "Europe/Athens" },
-    { L"Egypt Standard Time", "Africa/Cairo" },
-    { L"Israel Standard Time", "Asia/Jerusalem" },
-    { L"Russian Standard Time", "Europe/Moscow" },
-    { L"Arab Standard Time", "Asia/Riyadh" },
-    { L"Iran Standard Time", "Asia/Tehran" },
-    { L"Arabian Standard Time", "Asia/Dubai" },
-    { L"Caucasus Standard Time", "Asia/Yerevan" },
-    { L"Afghanistan Standard Time", "Asia/Kabul" },
-    { L"Ekaterinburg Standard Time", "Asia/Yekaterinburg" },
-    { L"West Asia Standard Time", "Asia/Karachi" },
-    { L"India Standard Time", "Asia/Kolkata" },
-    { L"Nepal Standard Time", "Asia/Kathmandu" },
-    { L"Central Asia Standard Time", "Asia/Dhaka" },
-    { L"Myanmar Standard Time", "Asia/Yangon" },
-    { L"SE Asia Standard Time", "Asia/Bangkok" },
-    { L"China Standard Time", "Asia/Shanghai" },
-    { L"Singapore Standard Time", "Asia/Singapore" },
-    { L"Taipei Standard Time", "Asia/Taipei" },
-    { L"Tokyo Standard Time", "Asia/Tokyo" },
-    { L"Korea Standard Time", "Asia/Seoul" },
-    { L"Yakutsk Standard Time", "Asia/Yakutsk" },
-    { L"Cen. Australia Standard Time", "Australia/Adelaide" },
-    { L"AUS Central Standard Time", "Australia/Darwin" },
-    { L"E. Australia Standard Time", "Australia/Brisbane" },
-    { L"AUS Eastern Standard Time", "Australia/Sydney" },
-    { L"Vladivostok Standard Time", "Asia/Vladivostok" },
-    { L"Central Pacific Standard Time", "Pacific/Guadalcanal" },
-    { L"New Zealand Standard Time", "Pacific/Auckland" },
-    { L"Fiji Standard Time", "Pacific/Fiji" },
-    { L"Tonga Standard Time", "Pacific/Tongatapu" },
-    { L"UTC", "UTC" }
-};
-
-/* Host zone name for a Windows zone key; NULL if we have no mapping. */
-static const char *iana_for_key(const WCHAR *tz_key_name)
-{
-    DWORD i;
-    for (i = 0; i < ARRAY_SIZE(g_tz_iana_map); i++)
-        if (!_wcsicmp(g_tz_iana_map[i].win_name, tz_key_name)) return g_tz_iana_map[i].iana_name;
-    return NULL;
 }
 
 static void draw_world_map(HDC hdc, const RECT *rc, int selected_idx)
@@ -343,17 +210,14 @@ static BOOL get_active_timezone_key(WCHAR *key_buf, DWORD max_len)
 {
     DYNAMIC_TIME_ZONE_INFORMATION dtzi;
     WEX_TIMEDATE td;
-    DWORD i;
 
     if (!WexTimedateGet(&td) && td.timezone[0])
     {
-        for (i = 0; i < ARRAY_SIZE(g_tz_iana_map); i++)
+        const WCHAR *k = wex_key_for_iana(td.timezone);
+        if (k)
         {
-            if (!_stricmp(g_tz_iana_map[i].iana_name, td.timezone))
-            {
-                lstrcpynW(key_buf, g_tz_iana_map[i].win_name, max_len);
-                return TRUE;
-            }
+            lstrcpynW(key_buf, k, max_len);
+            return TRUE;
         }
     }
 
@@ -501,7 +365,7 @@ INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             if (g_tz_modified && g_selected_tz_idx >= 0 && g_selected_tz_idx < g_tz_count)
             {
                 /* Wine reads the host zone, so changing the host's zone is the whole job */
-                const char *iana = iana_for_key(g_tz_entries[g_selected_tz_idx].key_name);
+                const char *iana = wex_iana_for_key(g_tz_entries[g_selected_tz_idx].key_name);
                 DWORD err = iana ? WexTimedateSetTimezone(GetParent(hwnd), iana) : ERROR_NOT_SUPPORTED;
 
                 if (err)
