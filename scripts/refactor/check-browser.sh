@@ -7,7 +7,7 @@ test "$(cat "$root/build.status")" = BUILD_PASSED
 mkdir -p "$root/checks/browser"
 echo BROWSER_CHECK_RUNNING > "$root/checks/browser/status"
 trap 'echo BROWSER_CHECK_FAILED > "$root/checks/browser/status"' ERR
-x86_64-w64-mingw32-gcc -Wall -I "$root/src/include" "$root/checks/browser-module-probe.c" \
+x86_64-w64-mingw32-gcc -Wall -I "$root/src/include" -I "$root/wine/include" "$root/checks/browser-module-probe.c" \
     -mwindows -o "$root/checks/browser/probe.exe"
 export WINEPREFIX="$root/prefixes/browser" WINESERVER="$root/build/server/wineserver"
 export WINELOADER="$root/build/loader/wine" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml='

@@ -63,6 +63,46 @@ Source sync tests remain isolated; the real dev source/session is unchanged.
 
 Failed commands during this prototype:
 
+- Installed services and network checks now pass. Browser probe compilation
+  failed at wexshell.h: the host ABI header is in the Wine fork, while that
+  runner only included src/include. Add wine/include to the compiler path
+  and resume browser/captures; accepted suites need no repetition.
+  The interactive p4-submodule install passes, including account/LightDM
+  checks and Bob's desktop in seven seconds; its VM is stopped.
+
+- The resumed power checks pass (standalone/greeter/Start menu). Services
+  timed out during wineboot while build-VM connectivity was stalled; no
+  service COM report was produced. Restart services/remaining suites after
+  NAT forwarding recovery; do not repeat the accepted smoke/theme/power suites.
+  Log: p4-services-final.log. The public ISO builds successfully, SHA-256
+  ac893403a55de24da9d4ed918c83f54c6f56745f82d044e1d1213a9e56c3ba7d.
+
+- The detached WSL installer launcher returned PID 356 but its process exited
+  before QEMU started (no Python/QEMU process or QMP socket, empty log).
+  Running install-interactive.sh as a foreground WSL exec session starts
+  p4-submodule correctly and reaches format/copy. Keep exec session 73500
+  alive; it carries the test progress, without printing the password.
+
+- Build-VM SSH on port 2223 timed out while the VM remained running.
+  Pause/resume preserved the VM but did not fix connectivity. Recreated the
+  existing runtime NAT forwarding rule ssh,tcp,127.0.0.1,2223,,22; SSH
+  recovered. No reset/poweroff or installed-runtime change occurred.
+  VBoxManage controlvm --help reported Not enough parameters; its usage
+  output confirmed the runtime NAT commands.
+
+- The first inline PowerShell -> WSL bash -lc installer launch copied its
+  runner/password fixture but returned no PID and created no install.log
+  or VM state. Retry via a saved native Bash launcher with setsid, avoiding
+  nested command-string/background quoting. No installer VM was started by
+  the failed launch.
+
+- The installed P4 smoke and theme checks pass, but power's greeter fixture
+  failed its prefix safety assertion: the copied fixture still pinned p3b's
+  root. Updated that guard to p4-fresh and resume power/remaining suites;
+  no product change. A read of build/refactor/greeter-fixture.py failed because
+  the fixture existed only on the VM; downloaded its inert test script to
+  p4-checks before editing it.
+
 - The direct web open of Wine mirror's commits/master page returned restricted
   URL. git ls-remote independently verified upstream master as 081042ede6a.
   Git cat-file found blob 77a40aad... in the Wine cache but not the main
