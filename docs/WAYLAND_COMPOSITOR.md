@@ -162,3 +162,32 @@ The compositor half of the Wayland architecture is complete, verified, and pushe
 - Normal Wine windows can be arranged within output zones via `xx-zones-v1` (`xx_zone_item_v1.set_position`).
 - Windows with `WS_EX_TOPMOST` should call `wex_window_v1.set_layer(topmost)`.
 - Transparent windows with `LWA_ALPHA` should bind `wp_alpha_modifier_v1` on their `wl_surface`.
+
+---
+
+## 8. Review (Claude, 2026-10-13)
+
+Independent check on a fresh clone of `wexcomp` (`43d20d84`) in the `wexcomp` WSL distribution: builds with zero
+warnings; `tests/wex/run.sh` passes 16/16; regression with stock clients passes (foot and xmessage via XWayland map,
+decorate and stack normally on a headless output). Alt+Tab exclusion of `desktop`/`shell`, per-surface alpha and the
+privileged-socket filter are implemented as described.
+
+**Open items (must be fixed before the Wine half relies on them):**
+
+1. **Focus and state policy is not implemented**, although §3.2 says so. `src/input/cursor.c` is unchanged and
+   `desktop_focus_view()` still focuses every window on click; it only skips *raising* for the `desktop` and `shell`
+   layers. Required by the work order: for every window that has a `wex_window_v1` (all layers), a click must change
+   neither keyboard focus nor stacking — deliver the button event only; focus/raise come from `activate()` /
+   `place_*`. labwc must also not minimize, maximize, move, resize-snap or show its window menu for these windows
+   (keybindings, `action.c`, SSD buttons, snapping). Add the missing acceptance tests: click on a `wex` window
+   without `activate()` → focus and stacking unchanged; labwc keybinding actions have no effect on it.
+2. **Handoff §7 is wrong about sockets.** A `wex_window_v1` is created from an `xdg_toplevel`, and Wayland objects
+   cannot cross connections, so a Wine process cannot use `wayland-0` for its surfaces and `wex-shell-0` for
+   `wex-window-v1`. Every Wine process of the shell session must connect **only** to `wex-shell-0`
+   (`WAYLAND_DISPLAY=wex-shell-0`); that socket offers all normal globals plus `wex_window_manager_v1`.
+3. **Not reported:** the work order's Wine regression check (notepad and menus under this compositor) — skipped;
+   Codex runs it with the Wine half.
+
+**Minor (note for later):** zone handles are output names (`HEADLESS-1`), guessable by any client, and an unknown
+handle silently falls back to the default output instead of failing; alpha is re-applied only on the toplevel's
+commit, so a subsurface that changes its own alpha updates on the parent's next commit.
