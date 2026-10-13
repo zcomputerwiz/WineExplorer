@@ -16,6 +16,10 @@ if [ ! -f "$BUILD_DIR/Makefile" ]; then
     echo "Refusing to package the build machine's installed runtime."
     exit 1
 fi
+if [ "$(realpath "$BUILD_DIR")" = /home/wineuser/inst/build ]; then
+    echo "The legacy inst/build directory must not run make install."
+    exit 1
+fi
 
 stage_license_documents()
 {
@@ -27,16 +31,17 @@ stage_license_documents()
     install -m644 "$ROOT_DIR/wine/COPYING.LIB" "$doc_dir/COPYING.LIB"
 }
 
-STAGE_WINE="/tmp/wexpkg-wine"
-STAGE_SESSION="/tmp/wexpkg-session"
-rm -rf "$STAGE_WINE" "$STAGE_SESSION"
+PACKAGE_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/wexpkg.XXXXXXXX")
+trap 'rm -rf -- "$PACKAGE_STAGE"' EXIT
+STAGE_WINE="$PACKAGE_STAGE/wine"
+STAGE_SESSION="$PACKAGE_STAGE/session"
 
 echo "=== 1. Packaging wineexplorer ==="
 mkdir -p "$STAGE_WINE/DEBIAN"
 mkdir -p "$STAGE_WINE/usr/local"
 
 echo "Installing from $BUILD_DIR into staging..."
-make -C "$BUILD_DIR" install DESTDIR="$STAGE_WINE" >/dev/null
+make -C "$BUILD_DIR" install prefix=/usr/local DESTDIR="$STAGE_WINE" >/dev/null
 
 # Remove development include headers to save ISO squashfs space
 rm -rf "$STAGE_WINE/usr/local/include"

@@ -25,9 +25,9 @@ test "$(cat "$root/build.status")" = BUILD_PASSED
 printf '%s\n' CHECK_RUNNING > "$root/checks/status"
 x86_64-w64-mingw32-gcc -Wall -Wextra "$root/checks/tray-layout-probe.c" -mwindows -o "$root/checks/tray-layout-probe.exe"
 cc -Wall -Wextra "$root/checks/linux-dialog-probe.c" -lX11 -o "$root/checks/linux-dialog-probe"
-export WINEPREFIX="$root/prefixes/smoke"
-export WINESERVER="$root/build/server/wineserver"
-export WINELOADER="$root/build/loader/wine"
+export WINEPREFIX="${WEX_CHECK_PREFIX:-$root/prefixes/smoke}"
+export WINESERVER="${WEX_CHECK_SERVER:-$root/build/server/wineserver}"
+export WINELOADER="${WEX_CHECK_WINE:-$root/build/loader/wine}"
 export WINEDEBUG=-all
 export WINEDLLOVERRIDES='mscoree,mshtml='
 export WINETEST_INTERACTIVE=0 WINETEST_DEBUG=1

@@ -319,6 +319,20 @@ handle; real-name authorship and sign-off remain the user's manual step.
 
 ## Commands that failed or were interrupted
 
+October 13 continuation: dev build repair passed and reports zero future-dated
+files. Live Explorer PID 50228 maps /usr/local/lib/wine/x86_64-windows/wexshell.dll.
+The public P3 runtime was staged under stage-probe/usr/local using make install
+prefix=/usr/local DESTDIR=... (never inst/build); the relocated runtime passes
+tray and all eight native-dialog checks. The first staged check stopped before
+launch because the earlier module rebuild had reset build.status to
+MODULE_BUILD_PASSED. Repeated full make successfully, then reran the check:
+CHECK_PASSED. No stage prefix/session was created by the rejected first run.
+
+Concurrent commits 091b73e1, 531aa984 and c419eb94 add a Wayland plan/L0 lab
+and prior-art notes. They are preserved; this task continues the separate
+REFACTOR_WORKORDER sequence. User renewed the instruction to continue all
+workorder items after the token interruption, and to commit frequently.
+
 Dev sync first reported only 53 files and Autoconf CRLF warnings such as
 `AC_CHECK_HEADERS(\\\r): you should use literals`. The legacy helper's
 `git diff --diff-filter=AM` excluded rename destinations and fix-eol.sh only
