@@ -33,6 +33,7 @@
  * a TrackPopupMenu (automatic menu fade is deferred), D toggles the drop-shadow
  * SPI and remaps the popup. K captures through a compatible bitmap, J through
  * a DIB; T captures a half-size StretchBlt through a compatible bitmap. All
+ * --stationary starts with motion paused for repeatable placement captures.
  * save Z:\\tmp\\capture.bmp and show a preview. The screen DC stays
  * open across compositor toggles. Esc exits. Clicking solid pixels logs a click; a color-key hole must let a
  * desktop click through. stdout is a machine-readable observation log.
@@ -381,6 +382,7 @@ int main( int argc, char **argv )
     WNDCLASSW cls = { 0 };
     MSG msg;
     HMODULE host = NULL;
+    if (argc > 1 && !strcmp( argv[1], "--stationary" )) moving = FALSE;
     if (argc > 1 && !strcmp( argv[1], "--own-compositor" ))
     {
         DWORD (WINAPI *start)( UINT64, WEX_WM_CALLBACK, void * );
