@@ -23,6 +23,11 @@
 #define _WIN32_IE 0x0501
 #include <windows.h>
 #include <commctrl.h>
+#include <uxtheme.h>
+
+#ifndef PSH_WIZARD97
+#define PSH_WIZARD97 PSH_WIZARD97_NEW
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -310,7 +315,7 @@ static void PaintBillboard(HWND hwnd, HDC hdc)
 
     y = 90;
     for (i = 0; i < 5; ++i) {
-        if (i == g_ctx.install_step + 1) {
+        if (i == g_ctx.install_step) {
             SetTextColor(hdc, RGB(100, 255, 100));
             TextOutA(hdc, 15, y, "->", 2);
             SetTextColor(hdc, RGB(255, 255, 255));
@@ -395,10 +400,20 @@ static INT_PTR CALLBACK UserInfoPageProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
             SetDlgItemTextA(hwnd, IDC_OWNER_NAME, g_ctx.owner);
             SetDlgItemTextA(hwnd, IDC_ORG_NAME, g_ctx.org);
             return TRUE;
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDC_OWNER_NAME && HIWORD(wParam) == EN_CHANGE) {
+                BOOL has_name = (GetWindowTextLengthA(GetDlgItem(hwnd, IDC_OWNER_NAME)) > 0);
+                SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0,
+                             (LPARAM)(has_name ? (PSWIZB_BACK | PSWIZB_NEXT) : PSWIZB_BACK));
+                return TRUE;
+            }
+            break;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
-                SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
+                BOOL has_name = (GetWindowTextLengthA(GetDlgItem(hwnd, IDC_OWNER_NAME)) > 0);
+                SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0,
+                             (LPARAM)(has_name ? (PSWIZB_BACK | PSWIZB_NEXT) : PSWIZB_BACK));
                 return TRUE;
             } else if (pnmh->code == PSN_WIZNEXT) {
                 GetDlgItemTextA(hwnd, IDC_OWNER_NAME, g_ctx.owner, sizeof(g_ctx.owner));
@@ -540,6 +555,8 @@ static int CALLBACK PropSheetCallback(HWND hwndDlg, UINT uMsg, LPARAM lParam)
         if (screen_w < 800) screen_w = 1024;
         if (screen_h < 600) screen_h = 768;
 
+        SetWindowTheme(hwndDlg, L"", L"");
+
         GetWindowRect(hwndDlg, &rc);
         w = rc.right - rc.left;
         h = rc.bottom - rc.top;
@@ -565,26 +582,28 @@ static void ShowSetupWizard(HWND hParent)
 
     memset(psp, 0, sizeof(psp));
 
-    #define ADD_PAGE(id, proc) do { \
+    #define ADD_PAGE(id, proc, title_id, subtitle_id) do { \
         psp[page_count].dwSize = sizeof(PROPSHEETPAGEA); \
-        psp[page_count].dwFlags = PSP_USETITLE; \
+        psp[page_count].dwFlags = PSP_USETITLE | PSP_USEHEADERTITLE | PSP_USEHEADERSUBTITLE; \
         psp[page_count].hInstance = g_hInstance; \
         psp[page_count].pszTemplate = MAKEINTRESOURCEA(id); \
         psp[page_count].pfnDlgProc = proc; \
         psp[page_count].pszTitle = "Setup"; \
+        psp[page_count].pszHeaderTitle = MAKEINTRESOURCEA(title_id); \
+        psp[page_count].pszHeaderSubTitle = MAKEINTRESOURCEA(subtitle_id); \
         page_count++; \
     } while(0)
 
-    ADD_PAGE(IDD_PAGE_REGIONAL, RegionalPageProc);
-    ADD_PAGE(IDD_PAGE_USERINFO, UserInfoPageProc);
-    ADD_PAGE(IDD_PAGE_COMPUTER, ComputerPageProc);
-    ADD_PAGE(IDD_PAGE_DATETIME, DateTimePageProc);
-    ADD_PAGE(IDD_PAGE_NETWORK,  NetworkPageProc);
-    ADD_PAGE(IDD_PAGE_WORKGRP,  WorkgrpPageProc);
+    ADD_PAGE(IDD_PAGE_REGIONAL, RegionalPageProc, IDS_TITLE_REGIONAL, IDS_SUBTITLE_REGIONAL);
+    ADD_PAGE(IDD_PAGE_USERINFO, UserInfoPageProc, IDS_TITLE_USERINFO, IDS_SUBTITLE_USERINFO);
+    ADD_PAGE(IDD_PAGE_COMPUTER, ComputerPageProc, IDS_TITLE_COMPUTER, IDS_SUBTITLE_COMPUTER);
+    ADD_PAGE(IDD_PAGE_DATETIME, DateTimePageProc, IDS_TITLE_DATETIME, IDS_SUBTITLE_DATETIME);
+    ADD_PAGE(IDD_PAGE_NETWORK,  NetworkPageProc,  IDS_TITLE_NETWORK,  IDS_SUBTITLE_NETWORK);
+    ADD_PAGE(IDD_PAGE_WORKGRP,  WorkgrpPageProc,  IDS_TITLE_WORKGRP,  IDS_SUBTITLE_WORKGRP);
 
     memset(&psh, 0, sizeof(psh));
     psh.dwSize = sizeof(PROPSHEETHEADERA);
-    psh.dwFlags = PSH_PROPSHEETPAGE | PSH_WIZARD | PSH_USECALLBACK;
+    psh.dwFlags = PSH_PROPSHEETPAGE | PSH_WIZARD97 | PSH_HEADER | PSH_USECALLBACK;
     psh.pfnCallback = PropSheetCallback;
     psh.hwndParent = hParent;
     psh.hInstance = g_hInstance;
@@ -602,8 +621,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     char hw_log[128];
     FILE *fstage;
 
-    /* Step 0: Installing Devices */
-    g_ctx.install_step = 0;
+    /* Step 1: Dynamic update / Installing Devices */
+    g_ctx.install_step = 1;
     g_ctx.minutes_remaining = 32;
     InvalidateRect(hwnd, NULL, TRUE);
     UpdateWindow(hwnd);
@@ -614,8 +633,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     LogSetup(hw_log);
     PumpEvents(2000);
 
-    /* Step 1: Installing Network */
-    g_ctx.install_step = 1;
+    /* Step 2: Preparing installation / Installing Network */
+    g_ctx.install_step = 2;
     g_ctx.minutes_remaining = 25;
     g_ctx.panel_index = (g_ctx.panel_index + 1) % g_panelCount;
     InvalidateRect(hwnd, NULL, TRUE);
@@ -624,8 +643,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     WexNetEnable();
     PumpEvents(2000);
 
-    /* Step 2: Copying and configuring components */
-    g_ctx.install_step = 2;
+    /* Step 3: Installing Debian & Wine / Copying and configuring components */
+    g_ctx.install_step = 3;
     g_ctx.minutes_remaining = 10;
     g_ctx.panel_index = (g_ctx.panel_index + 1) % g_panelCount;
     InvalidateRect(hwnd, NULL, TRUE);
@@ -634,8 +653,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     SaveSettings();
     PumpEvents(2000);
 
-    /* Step 3: Finalizing installation */
-    g_ctx.install_step = 3;
+    /* Step 4: Finalizing installation */
+    g_ctx.install_step = 4;
     g_ctx.minutes_remaining = 1;
     g_ctx.panel_index = (g_ctx.panel_index + 1) % g_panelCount;
     InvalidateRect(hwnd, NULL, TRUE);
@@ -664,10 +683,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     (void)nCmdShow;
 
     g_hInstance = hInstance;
+    SetThemeAppProperties(0);
     InitCommonControls();
 
     memset(&g_ctx, 0, sizeof(g_ctx));
-    snprintf(g_ctx.owner, sizeof(g_ctx.owner), "Wine User");
+    g_ctx.owner[0] = '\0';
     snprintf(g_ctx.org, sizeof(g_ctx.org), "Home");
     snprintf(g_ctx.comp_name, sizeof(g_ctx.comp_name), "WEX-PC");
     snprintf(g_ctx.workgroup, sizeof(g_ctx.workgroup), "WORKGROUP");
