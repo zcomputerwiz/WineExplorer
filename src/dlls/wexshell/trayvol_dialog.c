@@ -32,6 +32,7 @@
 #include "trayvol_dialog.h"
 
 #include "module.h"
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -139,7 +140,7 @@ void trayvol_toggle(HWND hwnd_tray_icon, POINT pt_cursor)
     if (GetTickCount() - g_dismiss_tick < 500) return;
 
     HINSTANCE hInst = explorer_hInstance;
-    g_hwnd_trayvol = CreateDialogW(hInst, MAKEINTRESOURCEW(IDD_TRAYMASTER), NULL, TrayVolDlgProc);
+    g_hwnd_trayvol = CreateDialogW(WexResModule(), MAKEINTRESOURCEW(IDD_TRAYMASTER), NULL, TrayVolDlgProc);
     if (!g_hwnd_trayvol)
     {
         ERR("Failed to create IDD_TRAYMASTER dialog\n");

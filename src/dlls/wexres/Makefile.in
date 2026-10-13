@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE = wexres.dll
+IMPORTLIB = wexres
+IMPORTS = user32 gdi32 advapi32
+DELAYIMPORTS = shell32 shlwapi ole32 comctl32 uxtheme
+SOURCES = \
+    module.c \
+    shellfolders.c \
+    shellres.c \
+    resources.rc

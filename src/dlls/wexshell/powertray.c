@@ -35,6 +35,7 @@
 #include "powertray.h"
 
 #include "module.h"
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -109,7 +110,7 @@ static void update_pwr_tray_icon_and_tooltip(HWND hwnd)
         g_pwr_nid.uID = 1003;
         g_pwr_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
         g_pwr_nid.uCallbackMessage = WM_POWERTRAY_NOTIFY;
-        g_pwr_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id));
+        g_pwr_nid.hIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(new_icon_id));
         lstrcpynW(g_pwr_nid.szTip, new_tip, 128);
 
         Shell_NotifyIconW(NIM_ADD, &g_pwr_nid);
@@ -119,7 +120,7 @@ static void update_pwr_tray_icon_and_tooltip(HWND hwnd)
     {
         g_current_pwr_icon = new_icon_id;
         if (g_pwr_nid.hIcon) DestroyIcon(g_pwr_nid.hIcon);
-        g_pwr_nid.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(new_icon_id));
+        g_pwr_nid.hIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(new_icon_id));
         lstrcpynW(g_pwr_nid.szTip, new_tip, 128);
 
         Shell_NotifyIconW(NIM_MODIFY, &g_pwr_nid);

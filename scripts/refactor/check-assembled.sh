@@ -5,7 +5,7 @@
 set -euo pipefail
 root=${WEX_ASSEMBLED_ROOT:-/srv/protonexplorer/wex-refactor-p2}
 case "$root" in
-    /srv/protonexplorer/wex-refactor-p2|/srv/protonexplorer/wex-refactor-p3) ;;
+    /srv/protonexplorer/wex-refactor-p2|/srv/protonexplorer/wex-refactor-p3|/srv/protonexplorer/wex-refactor-p3b) ;;
     *) echo 'Expected an isolated refactor directory.' >&2; exit 2 ;;
 esac
 mkdir -p "$root/checks" "$root/prefixes"

@@ -29,6 +29,7 @@
 #include "shellres.h"
 #include "theme_engine.h"
 #include "module.h"
+#include "wexres.h"
 
 
 static TASKBAR_SETTINGS g_settings = {
@@ -493,14 +494,14 @@ void taskbar_props_show(HWND parent)
     /* Page 1: Taskbar */
     pages[0].dwSize = sizeof(PROPSHEETPAGEW);
     pages[0].dwFlags = PSP_DEFAULT;
-    pages[0].hInstance = hInst;
+    pages[0].hInstance = WexResModule();
     pages[0].pszTemplate = MAKEINTRESOURCEW(IDD_TASKBARPROP);
     pages[0].pfnDlgProc = taskbar_page_proc;
 
     /* Page 2: Start Menu */
     pages[1].dwSize = sizeof(PROPSHEETPAGEW);
     pages[1].dwFlags = PSP_DEFAULT;
-    pages[1].hInstance = hInst;
+    pages[1].hInstance = WexResModule();
     pages[1].pszTemplate = MAKEINTRESOURCEW(IDD_STARTMENUPROP);
     pages[1].pfnDlgProc = startmenu_page_proc;
 
@@ -509,7 +510,7 @@ void taskbar_props_show(HWND parent)
     psh.dwFlags = PSH_PROPSHEETPAGE | PSH_USECALLBACK;
     psh.pfnCallback = prop_sheet_callback;
     psh.hwndParent = parent;
-    psh.hInstance = hInst;
+    psh.hInstance = WexResModule();
     psh.pszCaption = L"Taskbar and Start Menu Properties";
     psh.nPages = ARRAY_SIZE(pages);
     psh.ppsp = pages;

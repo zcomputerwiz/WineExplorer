@@ -41,6 +41,7 @@
 #include "agent_char.h"
 #include "search_ui.h"
 #include "shellres.h"
+#include "wexres.h"
 
 extern HINSTANCE explorer_hInstance;
 
@@ -1740,7 +1741,7 @@ SEARCH_UI *search_ui_create(HWND parent, const WCHAR *scope, BOOL results)
         swprintf(path, MAX_PATH, L"%s\\srchasst\\srchui.dll", dir);
         ui->srchui = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     }
-    ui->rover = LoadImageW(explorer_hInstance, MAKEINTRESOURCEW(IDB_SEARCH_ROVER), IMAGE_BITMAP, 0, 0, 0);
+    ui->rover = LoadImageW(WexResModule(), MAKEINTRESOURCEW(IDB_SEARCH_ROVER), IMAGE_BITMAP, 0, 0, 0);
 
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     ui->font = CreateFontIndirectW(&ncm.lfMessageFont);

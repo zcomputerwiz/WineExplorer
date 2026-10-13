@@ -43,6 +43,7 @@
 #include <shlwapi.h>
 #include <commoncontrols.h>
 #include <commctrl.h>
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -553,8 +554,8 @@ static void make_explorer_window(parameters_struct *params)
         }
     }
 
-    LoadStringW(explorer_hInstance,IDS_EXPLORER_TITLE,explorer_title, ARRAY_SIZE( explorer_title ));
-    LoadStringW(explorer_hInstance,IDS_PATHBOX_LABEL,pathbox_label, ARRAY_SIZE( pathbox_label ));
+    LoadStringW(WexResModule(),IDS_EXPLORER_TITLE,explorer_title, ARRAY_SIZE( explorer_title ));
+    LoadStringW(WexResModule(),IDS_PATHBOX_LABEL,pathbox_label, ARRAY_SIZE( pathbox_label ));
 
     hdc = GetDC(0);
     dpix = GetDeviceCaps(hdc, LOGPIXELSX);

@@ -1,5 +1,44 @@
 # Refactor continuation — 2026-10-12
 
+October 13 P3b shared resources accepted: the build VM has a separate source/build under
+`/srv/protonexplorer/wex-refactor-p3b`. The full build, runtime and screenshot
+checks pass; see P3B.md. Wine fork build integration is pushed as bd86fda234.
+No installed runtime/session was changed. Next: themeui and msgina extraction,
+then remaining P3b modules, P4, P5 evaluation and P6. The API presence/absence
+probe passes with zero failures in both runs.
+
+Failed commands during this prototype:
+
+- `rg -n 'resource.h|shellres|shellfolder' wine/dlls/desk.cpl/*.c` and
+  `rg -n 'WexResModule' src/dlls/wexshell/*.c` reported Windows filename syntax
+  error 123. Use `rg -g '*.c'` with a directory instead of a positional glob.
+- The first `make -j8 dlls/wexres/all dlls/wexshell/all programs/explorer/all`
+  failed linking wexres: undefined `IID_IShellLinkW`, `CLSID_ShellLink`, and
+  `IID_IPersistFile`. Added initguid.h before windows.h/shlobj.h in its module
+  translation unit. The next build repeated the same linker error because
+  `sync-archive.py` uses tar entries with epoch timestamps and `tar -xf` kept
+  them, making the corrected source older than the object. Changed this
+  prototype's extraction to `tar -xmf`; both DLLs and the full build then passed.
+  The first failure log is preserved as `/srv/protonexplorer/p3b-guid-failed.log`.
+- Reading `wine/dlls/themeui/Makefile.in` and `themeui.spec` failed because
+  upstream has no themeui module in this tree. Its new module can be assembled
+  without replacing an existing stock directory.
+- `capture-shell.sh p3b` reached the menu probe but exited with one menu failure,
+  without creating screenshots. The startup API probe then reported two
+  failures (no taskbar/controls). `WINEDEBUG=+explorer` showed failed graphics
+  initialization and `nodrv_CreateWindow`. wexres had made the previously
+  delayed shell32/shlwapi/ole32/comctl32/uxtheme dependencies eager imports.
+  Restored DELAYIMPORTS; startup and all four screenshot comparisons then
+  passed (zero changed pixels above the clock strip). The tray and eight native
+  dialog placement checks also pass. The full build passes.
+- Diagnostic `ls` of `build/dlls/winex11.drv/x86_64-unix/winex11.drv.so` and
+  `x86_64-windows/winex11.drv.dll` failed: this Wine tree uses `winex11.so` in
+  the module directory and `x86_64-windows/winex11.drv`. Both actual files exist;
+  no missing driver build or dependency problem was found.
+- `Get-Content scripts/fe.sh` failed because the old helper is no longer in
+  this repository. Use the maintained `scripts/vm.sh` workflow.
+
+
 Latest checkpoint (October 13): P0–P3 acceptance passes. P3b is next, then P4,
 P5 evaluation and P6 rebase drill. See P3_TEST_REPORT.md. The older chronological
 entries below describe their state at the time and do not override this.

@@ -36,6 +36,7 @@
 #include "wlan_status.h"
 
 #include "module.h"
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -188,7 +189,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         int i;
 
         /* Set Dialog and Warning Icons */
-        hIconMain = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_WIRELESS));
+        hIconMain = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_WIRELESS));
         SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
         SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconMain);
 
@@ -214,7 +215,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         g_hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 6, 1);
         for (i = 0; i <= 5; i++)
         {
-            HICON hSig = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_SIG0 + i));
+            HICON hSig = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_SIG0 + i));
             ImageList_AddIcon(g_hImageList, hSig ? hSig : hIconMain);
         }
         SendMessageW(hList, LVM_SETIMAGELIST, LVSIL_SMALL, (LPARAM)g_hImageList);
@@ -347,5 +348,5 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
 void wlan_dialog_show(HWND parent)
 {
-    DialogBoxParamW(explorer_hInstance, MAKEINTRESOURCEW(IDD_WZCQCFG), parent, WlanSelectDlgProc, 0);
+    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(IDD_WZCQCFG), parent, WlanSelectDlgProc, 0);
 }

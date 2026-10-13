@@ -28,8 +28,6 @@
 
 #include "shellfolders.h"
 #include "shellres.h"
-#include "theme_engine.h"
-#include "taskbar_props.h"
 
 /* the classes of the virtual folders and the shell32 icon that stands in when the registry names none we can use */
 static const struct
@@ -158,38 +156,38 @@ HICON shellfolder_icon(int csidl, const WCHAR *state, int size)
 }
 
 /* "Desktop Items" keeps a list per Start menu style; a value of 1 hides the icon */
-static const WCHAR *hidden_icons_key(void)
+static const WCHAR *hidden_icons_key(int style)
 {
-    return taskbar_settings_get()->start_menu_style == THEME_STARTMENU_CLASSIC ?
+    return style == 0 ?
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\ClassicStartMenu" :
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel";
 }
 
-BOOL shellfolder_on_desktop(int csidl)
+BOOL shellfolder_on_desktop_style(int csidl, int style)
 {
     DWORD hidden = 0, size = sizeof(hidden);
     const WCHAR *clsid = shellfolder_clsid(csidl);
 
     if (!clsid) return FALSE;
-    RegGetValueW(HKEY_CURRENT_USER, hidden_icons_key(), clsid, RRF_RT_REG_DWORD, NULL, &hidden, &size);
+    RegGetValueW(HKEY_CURRENT_USER, hidden_icons_key(style), clsid, RRF_RT_REG_DWORD, NULL, &hidden, &size);
     return !hidden;
 }
 
-void shellfolder_set_on_desktop(int csidl, BOOL show)
+void shellfolder_set_on_desktop_style(int csidl, BOOL show, int style)
 {
     DWORD hidden = !show;
     const WCHAR *clsid = shellfolder_clsid(csidl);
 
-    if (clsid) RegSetKeyValueW(HKEY_CURRENT_USER, hidden_icons_key(), clsid, REG_DWORD, &hidden, sizeof(hidden));
+    if (clsid) RegSetKeyValueW(HKEY_CURRENT_USER, hidden_icons_key(style), clsid, REG_DWORD, &hidden, sizeof(hidden));
 }
 
-int shellfolder_desktop_items(int *csidls, int max)
+int shellfolder_desktop_items_style(int *csidls, int max, int style)
 {
     static const int order[] = { CSIDL_PERSONAL, CSIDL_DRIVES, CSIDL_NETWORK, CSIDL_BITBUCKET, CSIDL_INTERNET };
     int i, n = 0;
 
     for (i = 0; i < ARRAY_SIZE(order) && n < max; i++)
-        if (shellfolder_on_desktop(order[i])) csidls[n++] = order[i];
+        if (shellfolder_on_desktop_style(order[i], style)) csidls[n++] = order[i];
     return n;
 }
 

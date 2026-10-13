@@ -37,6 +37,7 @@
 #include "wlan_status.h"
 
 #include "module.h"
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -202,13 +203,13 @@ static void update_status_controls(HWND hwnd)
     g_last_status_recv = g_status_info.packets_received;
 
     if (xmit && recv)
-        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_XMITRECV));
+        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_XMITRECV));
     else if (xmit)
-        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_XMIT));
+        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_XMIT));
     else if (recv)
-        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_RECV));
+        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_RECV));
     else
-        hActIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_BLANK));
+        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_BLANK));
 
     SendMessageW(GetDlgItem(hwnd, IDC_ICO_SM_ACTIVITY), STM_SETICON, (WPARAM)hActIcon, 0);
 
@@ -239,12 +240,12 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
         if (g_status_info.conn_type == NET_TYPE_ETHERNET)
         {
-            hIconMain = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_LAN));
+            hIconMain = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_LAN));
             SetWindowTextW(hwnd, L"Local Area Connection Status");
         }
         else
         {
-            hIconMain = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_WIRELESS));
+            hIconMain = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_WIRELESS));
             SetWindowTextW(hwnd, L"Wireless Network Connection Status");
         }
         SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
@@ -414,5 +415,5 @@ void wlan_status_show(HWND parent)
     InitCommonControlsEx(&icex);
     net_backend_get_status(&g_status_info);
     dlg_id = (g_status_info.conn_type == NET_TYPE_ETHERNET) ? IDD_STATMON_GENERAL_LAN : IDD_STATMON_GENERAL_WLAN;
-    DialogBoxParamW(explorer_hInstance, MAKEINTRESOURCEW(dlg_id), parent, WlanStatusDlgProc, 0);
+    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(dlg_id), parent, WlanStatusDlgProc, 0);
 }

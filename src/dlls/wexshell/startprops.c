@@ -32,6 +32,7 @@
 #include "startsettings.h"
 #include "startprops.h"
 #include "module.h"
+#include "wexres.h"
 
 
 static START_SETTINGS g_edit;
@@ -394,7 +395,7 @@ void startprops_customize(HWND parent)
     startsettings_load(&g_edit);
     memset(pages, 0, sizeof(pages));
     pages[0].dwSize = sizeof(pages[0]);
-    pages[0].hInstance = inst;
+    pages[0].hInstance = WexResModule();
     pages[0].pszTemplate = MAKEINTRESOURCEW(IDD_START_GENERAL);
     pages[0].pfnDlgProc = general_proc;
     pages[1] = pages[0];
@@ -406,7 +407,7 @@ void startprops_customize(HWND parent)
     psh.dwFlags = PSH_PROPSHEETPAGE | PSH_USECALLBACK | PSH_NOCONTEXTHELP;
     psh.pfnCallback = sheet_callback;
     psh.hwndParent = parent;
-    psh.hInstance = inst;
+    psh.hInstance = WexResModule();
     psh.pszCaption = L"Customize Start Menu";
     psh.nPages = 2;
     psh.ppsp = pages;
@@ -517,5 +518,5 @@ void startprops_customize_classic(HWND parent)
     INITCOMMONCONTROLSEX init = { sizeof(init), ICC_TREEVIEW_CLASSES };
 
     InitCommonControlsEx(&init);
-    DialogBoxParamW(explorer_hInstance, MAKEINTRESOURCEW(IDD_CLASSIC_CUSTOMIZE), parent, classic_proc, 0);
+    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(IDD_CLASSIC_CUSTOMIZE), parent, classic_proc, 0);
 }

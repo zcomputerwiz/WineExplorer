@@ -23,5 +23,17 @@ for kind in dlls programs; do
         fi
     done
 done
+for source in "$root/src/include/"*; do
+    [ -f "$source" ] || continue
+    target="$wine_root/include/$(basename "$source")"
+    if [ -L "$target" ]; then
+        test "$(realpath "$target")" = "$(realpath "$source")" || exit 1
+    elif [ -e "$target" ]; then
+        echo "Header destination already exists: $target" >&2
+        exit 1
+    else
+        ln -s "$(realpath --relative-to="$(dirname "$target")" "$source")" "$target"
+    fi
+done
 # Retained configure.ac contains project entries; configure is generated upstream output.
 (cd "$wine_root" && autoconf -f)

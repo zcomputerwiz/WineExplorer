@@ -24,6 +24,7 @@
 #include "resource.h"
 #include "notifyprops.h"
 #include "module.h"
+#include "wexres.h"
 
 
 #define MAX_ICONS 64
@@ -138,5 +139,5 @@ void notifyprops_show(HWND parent)
     INITCOMMONCONTROLSEX init = { sizeof(init), ICC_LISTVIEW_CLASSES };
 
     InitCommonControlsEx(&init);
-    DialogBoxParamW(explorer_hInstance, MAKEINTRESOURCEW(IDD_NOTIFY_CUSTOMIZE), parent, notify_proc, 0);
+    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(IDD_NOTIFY_CUSTOMIZE), parent, notify_proc, 0);
 }

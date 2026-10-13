@@ -293,7 +293,7 @@ def placeholder(desc, size, bg, out):
 def build():
     manifest = []
     for target, (kind, src) in sorted(TABLE.items()):
-        relative = ("src/dlls/wexshell/" + target[len("programs/explorer/"):]
+        relative = ("src/dlls/wexres/" + target[len("programs/explorer/"):]
                     if target.startswith("programs/explorer/") else "wine/" + target)
         out = os.path.join(ROOT, relative)
         entry = {"path": relative, "kind": kind}

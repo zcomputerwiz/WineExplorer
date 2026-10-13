@@ -34,6 +34,7 @@
 #include "uac_agent.h"
 
 #include "module.h"
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -396,7 +397,7 @@ static LRESULT CALLBACK agent_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
                 req.ev = *ev;
                 MultiByteToWideChar(CP_UTF8, 0, ev->message, -1, req.message, ARRAY_SIZE(req.message));
                 lstrcpynA(g_dialog_cookie, ev->cookie, sizeof(g_dialog_cookie));
-                DialogBoxParamW(explorer_hInstance, MAKEINTRESOURCEW(IDD_UAC), NULL, uac_dlg_proc, (LPARAM)&req);
+                DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(IDD_UAC), NULL, uac_dlg_proc, (LPARAM)&req);
             }
         }
         else if (ev->type == WEX_EVENT_CANCEL && g_dialog && !strcmp(ev->cookie, g_dialog_cookie))

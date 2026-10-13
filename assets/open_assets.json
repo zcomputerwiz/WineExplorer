@@ -229,157 +229,157 @@
   "source": "reactos/dll/cpl/timedate/resources/world.bmp"
  },
  {
-  "path": "src/dlls/wexshell/batt.ico",
+  "path": "src/dlls/wexres/batt.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/stobject/resources/battery/5.ico"
  },
  {
-  "path": "src/dlls/wexshell/battplug.ico",
+  "path": "src/dlls/wexres/battplug.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/stobject/resources/battery/charging4.ico"
  },
  {
-  "path": "src/dlls/wexshell/explorer.ico",
+  "path": "src/dlls/wexres/explorer.ico",
   "kind": "copy",
   "source": "reactos/dll/win32/shell32/res/icons/46.ico"
  },
  {
-  "path": "src/dlls/wexshell/hotplug.ico",
+  "path": "src/dlls/wexres/hotplug.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/stobject/resources/2.ico"
  },
  {
-  "path": "src/dlls/wexshell/mute.ico",
+  "path": "src/dlls/wexres/mute.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/stobject/resources/4.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_adapter.ico",
+  "path": "src/dlls/wexres/net_adapter.ico",
   "kind": "copy",
   "source": "reactos/dll/win32/setupapi/res/5.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_blank.ico",
+  "path": "src/dlls/wexres/net_blank.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/netidle.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_client.ico",
+  "path": "src/dlls/wexres/net_client.ico",
   "kind": "copy",
   "source": "reactos/dll/win32/setupapi/res/7.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_disconnect.ico",
+  "path": "src/dlls/wexres/net_disconnect.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/netoff.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_lan.ico",
+  "path": "src/dlls/wexres/net_lan.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/netidle.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_plugged.ico",
+  "path": "src/dlls/wexres/net_plugged.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/neterror.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_protocol.ico",
+  "path": "src/dlls/wexres/net_protocol.ico",
   "kind": "copy",
   "source": "reactos/dll/win32/setupapi/res/6.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_recv.ico",
+  "path": "src/dlls/wexres/net_recv.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/netrec.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_service.ico",
+  "path": "src/dlls/wexres/net_service.ico",
   "kind": "copy",
   "source": "reactos/dll/win32/setupapi/res/8.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_sig0.ico",
+  "path": "src/dlls/wexres/net_sig0.ico",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexshell/net_sig1.ico",
+  "path": "src/dlls/wexres/net_sig1.ico",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexshell/net_sig2.ico",
+  "path": "src/dlls/wexres/net_sig2.ico",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexshell/net_sig3.ico",
+  "path": "src/dlls/wexres/net_sig3.ico",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexshell/net_sig4.ico",
+  "path": "src/dlls/wexres/net_sig4.ico",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexshell/net_sig5.ico",
+  "path": "src/dlls/wexres/net_sig5.ico",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexshell/net_wireless.ico",
+  "path": "src/dlls/wexres/net_wireless.ico",
   "kind": "wanted",
   "source": "placeholder",
   "wanted": "wireless network adapter (antenna), 16/32/48 px"
  },
  {
-  "path": "src/dlls/wexshell/net_xmit.ico",
+  "path": "src/dlls/wexres/net_xmit.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/nettrans.ico"
  },
  {
-  "path": "src/dlls/wexshell/net_xmitrecv.ico",
+  "path": "src/dlls/wexres/net_xmitrecv.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/netshell/res/nettrrec.ico"
  },
  {
-  "path": "src/dlls/wexshell/res_power/dlg_bg.bmp",
+  "path": "src/dlls/wexres/res_power/dlg_bg.bmp",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexshell/res_power/flag.bmp",
+  "path": "src/dlls/wexres/res_power/flag.bmp",
   "kind": "wanted",
   "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
   "wanted": "Turn off / Log Off dialog logo, 48 x 40 on the title band blue (0,52,166); until then Wine's logo"
  },
  {
-  "path": "src/dlls/wexshell/rover.bmp",
+  "path": "src/dlls/wexres/rover.bmp",
   "kind": "wanted",
   "source": "placeholder",
   "wanted": "Search Companion still character (shown when no animated character is installed), 56 x 68, magenta background"
  },
  {
-  "path": "src/dlls/wexshell/start.ico",
+  "path": "src/dlls/wexres/start.ico",
   "kind": "wanted",
   "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
   "wanted": "Start button logo, 16/24/32/48 px; until then Wine's logo"
  },
  {
-  "path": "src/dlls/wexshell/startflag.bmp",
+  "path": "src/dlls/wexres/startflag.bmp",
   "kind": "wanted",
   "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
   "wanted": "Start button logo as a 25 x 20 bitmap on black (the Start button draws it); until then Wine's logo"
  },
  {
-  "path": "src/dlls/wexshell/volume.ico",
+  "path": "src/dlls/wexres/volume.ico",
   "kind": "copy",
   "source": "reactos/dll/shellext/stobject/resources/3.ico"
  },
  {
-  "path": "src/dlls/wexshell/wzcui.bmp",
+  "path": "src/dlls/wexres/wzcui.bmp",
   "kind": "wanted",
   "source": "placeholder",
   "wanted": "wireless network list strip, 8 x 16 px: checkbox off, checkbox on, access point, access point preferred (blue ring), access point unavailable (red X), ad hoc, ad hoc preferred, ad hoc unavailable"

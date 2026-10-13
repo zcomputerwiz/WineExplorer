@@ -1,5 +1,5 @@
 MODULE    = wexshell.dll
-IMPORTS   = rpcrt4 user32 gdi32 advapi32 win32u
+IMPORTS   = wexres rpcrt4 user32 gdi32 advapi32 win32u
 DELAYIMPORTS = wexhost msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32 version gdiplus
 
 # the XP name, which the taskbar's group buttons and Task Manager show
@@ -30,8 +30,7 @@ SOURCES = \
 	search_engine.c \
 	search_results.c \
 	slideshow.c \
-	shellfolders.c \
-	shellres.c \
+	folders_adapter.c \
 	startmenu.c \
 	startmenu_view.c \
 	startsettings.c \

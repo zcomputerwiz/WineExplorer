@@ -36,6 +36,7 @@
 #include "net_props.h"
 
 #include "module.h"
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -141,12 +142,12 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
         init_components();
 
         /* Set Dialog Window Icon (network cable/NIC) */
-        hIconWin = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_LAN));
+        hIconWin = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_LAN));
         SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconWin);
         SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconWin);
 
         /* Set Adapter Icon */
-        hIconAdapter = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_ADAPTER));
+        hIconAdapter = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_ADAPTER));
         SendDlgItemMessageW(hwnd, IDC_NETPROP_ADAPTER_ICO, STM_SETICON, (WPARAM)hIconAdapter, 0);
 
         /* Query Adapter Status and Name */
@@ -167,7 +168,7 @@ static INT_PTR CALLBACK LanPropertiesDlgProc(HWND hwnd, UINT msg, WPARAM wparam,
                      (LPARAM)(LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_SUBITEMIMAGES));
 
         himl = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 1, 1);
-        hIconProtocol = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_NET_PROTOCOL));
+        hIconProtocol = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_PROTOCOL));
         ImageList_AddIcon(himl, hIconProtocol);
         SendMessageW(hList, LVM_SETIMAGELIST, (WPARAM)LVSIL_SMALL, (LPARAM)himl);
 
@@ -330,5 +331,5 @@ void net_props_show(HWND parent)
     icex.dwSize = sizeof(icex);
     icex.dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&icex);
-    DialogBoxParamW(explorer_hInstance, MAKEINTRESOURCEW(IDD_LAN_PROPERTIES), parent, LanPropertiesDlgProc, 0);
+    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(IDD_LAN_PROPERTIES), parent, LanPropertiesDlgProc, 0);
 }

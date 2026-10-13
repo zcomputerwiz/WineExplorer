@@ -28,7 +28,7 @@
 #include "shellres.h"
 #include "resource.h"
 
-extern HINSTANCE explorer_hInstance;
+extern HINSTANCE resources_instance;
 
 #define MAX_PACKS 8
 
@@ -240,7 +240,7 @@ HBITMAP shellres_bitmap(const WCHAR *module, int id, int fallback_id)
     HBITMAP bmp = NULL;
 
     if (pack) bmp = LoadImageW(pack, MAKEINTRESOURCEW(id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
-    if (!bmp && fallback_id) bmp = LoadImageW(explorer_hInstance, MAKEINTRESOURCEW(fallback_id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+    if (!bmp && fallback_id) bmp = LoadImageW(resources_instance, MAKEINTRESOURCEW(fallback_id), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
     return bmp;
 }
 
@@ -250,7 +250,7 @@ HWND shellres_go_button(HWND parent, UINT id)
 {
     HWND go = CreateWindowExW(0, TOOLBARCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_LIST |
                               TBSTYLE_TRANSPARENT | CCS_NORESIZE | CCS_NODIVIDER | CCS_NOPARENTALIGN, 0, 0, 60, 22,
-                              parent, NULL, explorer_hInstance, NULL);
+                              parent, NULL, resources_instance, NULL);
     TBBUTTON button = { 0, id, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_SHOWTEXT | BTNS_AUTOSIZE };
     HBITMAP bmp;
     int i;

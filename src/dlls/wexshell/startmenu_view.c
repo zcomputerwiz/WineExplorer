@@ -48,6 +48,7 @@
 #include "toolbars.h"
 #include "wlan_dialog.h"
 #include "module.h"
+#include "wexres.h"
 
 
 #define STARTBUTTON_CLASS L"Start"
@@ -2382,7 +2383,7 @@ static LRESULT CALLBACK startbutton_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         /* 1. Draw Windows Logo Icon */
         if (!g_winlogo_icon)
         {
-            g_winlogo_icon = (HICON)LoadImageW(explorer_hInstance, MAKEINTRESOURCEW(IDI_START),
+            g_winlogo_icon = (HICON)LoadImageW(WexResModule(), MAKEINTRESOURCEW(IDI_START),
                                                IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
             if (!g_winlogo_icon)
                 g_winlogo_icon = (HICON)LoadImageW(NULL, (const WCHAR *)IDI_WINLOGO,
