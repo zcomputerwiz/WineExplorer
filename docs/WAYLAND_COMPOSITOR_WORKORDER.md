@@ -74,11 +74,23 @@ Write `protocols/wex-window-v1.xml` (MIT). Interfaces (names may be refined, doc
     in window cycling), `shell` (taskbar: above topmost, not in window cycling);
   - `set_exclusive_edge(uint edge, uint size)` for `shell` windows: reserve that edge like layer-shell's exclusive
     zone, so maximized windows and the zone's usable area shrink;
-  - `activate()` — give keyboard focus and raise within its layer, no xdg-activation token needed;
+  - `activate()` — give keyboard focus and raise within its layer, no xdg-activation token needed; **if the
+    window is minimized, restore it first** (xdg-shell has `set_minimized` but no way for a client to
+    un-minimize itself, and Win32 restores minimized windows all the time);
   - events: `stacking_changed` is not needed; keep it request-only for v1.
 - **Trust:** expose this global only on a second, privileged socket: the compositor opens `wex-shell-0` next to
   `wayland-0` in `$XDG_RUNTIME_DIR` (or the name given by an environment variable / labwc config option), and binds
   `wex_window_manager_v1` only for clients that connected through it. Document the mechanism.
+- **Focus and state policy for windows that have a `wex_window_v1`** (i.e. Wine's): the compositor never changes
+  keyboard focus or stacking on its own — no click-to-focus, no raise-on-click, no focus-follows-mouse; it delivers
+  the click and Wine decides through `activate()` / `place_*` (Win32 has windows that must never take focus:
+  `WS_EX_NOACTIVATE`, `MA_NOACTIVATE`, tooltips, the taskbar's own popups). Likewise labwc must not minimize,
+  maximize or move these windows on its own (keybindings, its window menu, snapping); state changes come from Wine.
+  Windows without a `wex_window_v1` (Linux apps) keep labwc's normal behavior; Explorer will control those through
+  the standard foreign-toplevel protocol later (L2), which already has minimize/restore/activate.
+- Popups need nothing here: Wine's Wayland driver does not use `xdg_popup` at all — menus, combo lists and tooltips
+  are subsurfaces of their owner at offsets Wine computes from its own Win32 rectangles (verified in L0). Only
+  toplevels go into a zone.
 - Interaction with labwc: windows of these layers ignore labwc's raise-on-focus where it would break Win32 z-order;
   `desktop` and `shell` windows get no SSD, are skipped by Alt+Tab/window switcher and by labwc's own placement.
 
@@ -110,6 +122,8 @@ table, screenshots in `docs/wayland-compositor/` — small PNGs only):
   shares the zone; `position_failed` for an off-zone request; labwc's centering not applied.
 - `stack-client`: desktop below everything; shell window at the bottom edge above topmost and normal; topmost above
   normal; `place_above/below` reorder as asked; clicking a normal window does not raise it above topmost/shell;
+  clicking a window that has a `wex_window_v1` changes neither focus nor stacking until the client calls
+  `activate()`; `activate()` on a minimized window restores and focuses it;
   maximizing a normal window stops at the shell window's exclusive edge; `desktop`/`shell` absent from Alt+Tab.
 - `wex_window_manager_v1` is not available on `wayland-0`, only on the privileged socket.
 - `alpha-client` renders at 50%; `warp-client` receives motion at the warped position.
