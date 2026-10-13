@@ -52,4 +52,6 @@ Never run make install in the legacy inst/build directory.
 An existing live-build workspace requires --clean; keep test output on the
 secondary disk rather than filling the build VM's root filesystem.
 
-P4 acceptance and remaining work are tracked in refactor/P4.md.
+P4 acceptance is complete, with source pins and evidence in refactor/P4.md.
+The real dev VM currently runs packages from that fresh public build; its
+older ~/build/wine64 must be reconfigured/rebuilt before future installation.

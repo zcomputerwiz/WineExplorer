@@ -1,5 +1,25 @@
 # Refactor continuation — 2026-10-12
 
+Final state, October 13: all REFACTOR_WORKORDER items are complete. P4 fresh
+full build/install, installed module suites, five exact screenshots (clock
+only masked), public ISO, interactive QEMU install and real dev session pass.
+P5 assessment is complete. P6 candidate full build and runtime smoke pass
+(tray plus eight native dialog placement cases). Production pin remains d0;
+candidate branch codex/rebase-drill remains separately pushed. Full evidence
+and machine/source paths are in P4.md, REBASE.md and CODEX_HANDOFF.md.
+Dev desktop runs installed P4 packages, 1024x768/Luna; live API probe has zero
+failures, tray has one visible icon and zero overlaps/out-of-bounds. Temporary
+99-refactor-test.conf was moved into ~/build/refactor-p4-deploy/autologin-test.conf.
+QEMU p4-submodule is stopped. All VirtualBox VMs remain running.
+
+Final documentation edit failures: a patch combining Delete File and Add File
+for P4.md was rejected as multiple operations on the same path; no edits ran.
+Use one Update File operation, preserving checkpoints as explicitly historical.
+A combined cleanup/commit command was rejected by automatic policy review
+before execution because it included recursive removal of scripts/__pycache__.
+No cache/source files were removed. Commit/push ran separately and succeeded
+as 1e924a4e; the harmless generated cache is retained locally.
+
 October 13 final acceptance continuation: P6 full build is REBASE_BUILD_PASSED
 at /srv/protonexplorer/wex-refactor-p6. Installed P4 feature suites all pass.
 The corrected real dev source sync completes with zero private files needing

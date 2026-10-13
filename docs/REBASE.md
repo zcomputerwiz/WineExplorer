@@ -30,8 +30,16 @@ The other retained file-size backport remains in the series; it was not
 silently dropped. Upstream bug-fix topics remain prepared for manual WineHQ
 submission by the user.
 
-The source replay and range checks pass. This report does not yet claim a
-build/runtime test of the candidate; P4's full build/install runs on the
-production pin, and its ISO/runtime acceptance is being completed separately.
+The source replay, range checks and full 64-bit candidate build pass.
+Evidence: /srv/protonexplorer/wex-refactor-p6/build.status is
+REBASE_BUILD_PASSED, with complete compiler log in p6-build.log.
+An isolated candidate runtime smoke check also passes (checks/status:
+CHECK_PASSED): tray bounds and all eight native dialog placement cases.
+Log: /srv/protonexplorer/p6-smoke.log. The candidate is not installed on the
+dev VM and does not replace the production submodule pin.
+The build uses the public P4 project sources assembled with the candidate;
+unchanged input timestamps were preserved only after byte equality checks.
+P4's full build/install, ISO, interactive installation and live dev acceptance
+pass on the production pin, recorded in refactor/P4.md.
 Use a clean fork checkout for future rebases; assembly links deliberately
 modify build checkouts and preserve stock stubs under ignored build output.

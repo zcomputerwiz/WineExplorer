@@ -26,7 +26,10 @@ d0a0af0681. Search now lives in optional wexsearch with an opaque UI interface;
 its class/resource ownership, file search, cancellation and absent-module
 checks pass. Browser windows now live in optional wexbrowse behind one
 string/flag entry point; taskbar toolbars remain core. See refactor/P3B.md
-for acceptance and the remaining work.
+for extraction acceptance. The complete repository/build/install acceptance
+is in refactor/P4.md; P5 assessment keeps unsupported extension replacements
+as X commits. The separately pushed P6 candidate passes full build/runtime
+smoke without changing the production pin (REBASE.md).
 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |

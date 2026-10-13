@@ -1,4 +1,87 @@
-# Codex handoff — 2026-10-12 W7 complete
+# Codex handoff — 2026-10-13 refactor complete
+
+Read CLAUDE.md, LICENSE.md and STOCK_CHANGES.md first. All items in
+REFACTOR_WORKORDER.md are complete, including P3b extraction, P4 fresh
+build/install/ISO/interactive/dev acceptance, optional P5 assessment and P6
+rebase drill. Wine remains the desktop runtime; Proton remains independent.
+Public source/resources only for installer builds; private assets stay in
+../WineExplorer-local and ignored dev evidence. Commit each working step.
+
+## Current source and build state
+
+- Main: master. Wine submodule: zcomputerwiz/wine, wineexplorer/11.19,
+  d0a0af068194c306bb36659b35bb2d4e0eff43c1. Project code/resources are under src.
+- Assembly links owned modules into Wine. Declared desk.cpl, wlanui and
+  wmplayer replacements preserve pristine stock originals in ignored build
+  output. Never reset or rebase the assembled live tree; use a clean fork.
+- Twelve upstream topic branches are pushed/tested; UPSTREAM.md contains
+  prepared descriptions. WineHQ submissions are manual user actions.
+- Rebase candidate codex/rebase-drill is pushed at
+  95fa31a9a8c31725d291cd482b7e5b93822fa064, based on upstream master
+  081042ede6a165a36bf9988350dd584b440d7a3d. Ninety-three retained commits
+  replay unchanged in 52.798 seconds with zero conflicts; already-applied
+  backports are omitted. Full build and isolated runtime smoke pass.
+  Production pin stays d0a0af0681. Details/timings: REBASE.md and P6_REBASE.json.
+- BUILDING.md is the current build/package guide. NEVER make install in
+  ~/inst/build, even staged. Packaging requires this checkout's configured
+  source and defaults to build/wine64. Historical commands below are obsolete.
+
+## Machines and acceptance evidence
+
+- ProtonExplorer build VM: SSH 2223, wineuser, key D:/VirtualBox_VMs/vm_key.
+  Fresh accepted root /srv/protonexplorer/wex-refactor-p4-fresh; main snapshot
+  965c5287, pinned public Wine submodule. Main was cloned from a verified Git
+  bundle because the VM has no private-main-repository credentials; Wine was
+  fetched normally. No private overlay. Full build/install and every installed
+  module suite pass; all five visual comparisons match P3 except the clock.
+  See refactor/P4.md for hashes, suite evidence and logs.
+- Fresh public ISO there: wineexplorer.iso; host build/refactor/installer-p4.iso.
+  SHA-256 ac893403a55de24da9d4ed918c83f54c6f56745f82d044e1d1213a9e56c3ba7d.
+  Interactive setup/OOBE/accounts/Welcome/switch-user/desktop and read-only
+  filesystem checks pass. WSL VM p4-submodule is stopped; evidence under
+  /var/tmp/wineexplorer-vmtest/p4-submodule/steps. BIOS/virtio verified;
+  EFI and physical installation remain separate future work.
+- Rebase build root /srv/protonexplorer/wex-refactor-p6; statuses
+  REBASE_BUILD_PASSED and CHECK_PASSED; p6-build.log / p6-smoke.log.
+  No candidate runtime was installed on the dev VM.
+- WineExplorer dev VM: SSH 2222. Tested public runtime/session packages are
+  installed, LightDM restarted, Wine User desktop running 1024x768/Luna.
+  Live plugin API and tray bounds pass; new DLL mappings verified. Private
+  prefix art/themes remain intact. Backup root ~/build/refactor-p4-deploy
+  contains installed-before, lightdm-before, xorg-before and prefix-before.
+  Temporary acceptance autologin is removed from LightDM configuration and
+  retained as autologin-test.conf in that backup root.
+- Dev sources: ~/src/wine is now the fork Git checkout with assembly links;
+  ~/src/src contains owned modules. Prior sources are backed up below
+  ~/src/build/wine-source-backup.*. vm.sh sync passes, including private
+  overlay and repeat checks. ~/build/wine64 is the old build: reconfigure
+  and rebuild against migrated source before any future installation.
+  Current runtime came from the fresh accepted public Debian packages.
+- Live environment DISPLAY=:0, XAUTHORITY=/home/wineuser/.Xauthority,
+  WINEPREFIX=$HOME/.wine. Log ~/.wine-session.log. The greeter has its own
+  /var/lib/lightdm/.wine-logon prefix and Xauthority. Do not mix them.
+- All four VirtualBox VMs remain running; XP/old install-test were not changed.
+  The QEMU acceptance VM is stopped. Do not assume older unrelated test VM
+  states; inspect them before use. Preserve the user's .gitignore *.tmp edit.
+
+## Continuation and separate work
+
+Every failure/correction and intermediate state is recorded in
+refactor/CONTINUATION.md. Historical P0 maps remain hash-pinned. Public build
+snapshots and ignored test drivers should not be mistaken for current master.
+Use foreground persistent WSL sessions and VMTEST_DIR=/var/tmp/wineexplorer-vmtest
+for installer tests; never print/commit the ignored password fixture.
+
+Gemini owns INSTALLER_POLISH_WORKORDER.md (installer visual polish, Automatic
+Updates and friendly timezone names), branch gemini/installer-polish, WSL
+wexbuild. Do not overlap that assignment. Other future work includes W4/W5/W6,
+explicit switch-back task retention, EFI/physical-output tests and the separate
+Wayland/composition work orders. None are unfinished refactor acceptance items.
+
+## Historical W7 handoff — 2026-10-12
+
+The notes below preserve the earlier installer milestone. Its runtime paths,
+VM states and build commands are superseded by the current handoff above.
 
 Read `CLAUDE.md` and `LICENSE.md` first. Customized Wine remains the desktop/window
 manager; Proton application runtimes remain independent. Use only the tracked

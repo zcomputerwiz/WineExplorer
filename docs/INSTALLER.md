@@ -237,3 +237,13 @@ revalidated against the current merged branch by the automated install test.
 1. **Text-Mode Repair Subsystem**: The "To repair Debian GNU/Linux with WineExplorer... press R" option is disabled/grayed out in Stage 1 until an automated recovery console and prefix verification tool is implemented.
 2. **Offline PackageKit Repository (`/pool`)**: Dynamic component installation (e.g. LibreOffice, Samba) from an offline optical pool repository during Stage 2 is stubbed; all default system packages are currently pre-installed in the base squashfs.
 3. **Active Directory / Domain Join**: Stage 2 and OOBE currently support Workgroup membership (`[Identification] JoinWorkgroup`); Windows Domain joining via SSSD/Realmd is not yet implemented.
+# Refactor acceptance — 2026-10-13
+
+The installer now packages the same checkout's assembled Wine submodule
+and owned src modules. Fresh full build/install, public ISO build and
+interactive QEMU installation pass; see [refactor/P4.md](refactor/P4.md)
+for source pins, ISO hash and exact evidence. Default build directory is
+build/wine64. Packaging rejects a different configured source and the legacy
+~/inst/build; never run make install there, including staged installation.
+Current build instructions are [BUILDING.md](BUILDING.md).
+

@@ -1,6 +1,6 @@
 # Work order: separate WineExplorer from stock Wine
 
-Status: P0–P3 acceptance passed 2026-10-13; P3b acceptance complete; P4 ownership moves and submodule/sync migration complete; fresh build/install/ISO acceptance underway. Evidence and progress are in `REFACTOR_MAP.md`, `UPSTREAM.md`, `refactor/P2.md`, `refactor/P3_TEST_REPORT.md` and `refactor/P3B.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
+Status: COMPLETE, 2026-10-13. P0–P4 acceptance passes; P5 optional extension assessment is complete; P6 rebase drill and full candidate build pass. Evidence is in `REFACTOR_MAP.md`, `UPSTREAM.md`, `refactor/P2.md`, `refactor/P3_TEST_REPORT.md`, `refactor/P3B.md`, `refactor/P4.md`, `refactor/P5.md` and `REBASE.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first. WineHQ submissions remain manual user actions; Proton/Steam is separate future work.
 
 ## Goal
 

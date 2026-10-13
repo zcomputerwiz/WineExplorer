@@ -1,9 +1,9 @@
 # WineExplorer handoff — current entry point
 
 The current operational handoff is [CODEX_HANDOFF.md](CODEX_HANDOFF.md), updated
-2026-10-12 after the verified installer merge. Start there for branches, VM
+2026-10-13 after the completed refactor and fresh installer acceptance. Start there for branches, VM
 state, clean builds, test commands and remaining work. Current acceptance
-evidence is in [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md), and the
+evidence is in [refactor/P4.md](refactor/P4.md) and [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md), and the
 logon/composition plan is in [WINLOGON_AND_DWM.md](WINLOGON_AND_DWM.md).
 
 The October 9 notes below are historical. Their VM state, resource configuration
