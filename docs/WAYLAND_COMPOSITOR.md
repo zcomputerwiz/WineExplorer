@@ -38,19 +38,32 @@ All commits have been pushed to branch `wexcomp` at `https://github.com/zcompute
 | `d3d498eb` | `seat: expose pointer and keyboard capabilities on headless backend` |
 | `f153f019` | `seat: properly detect headless backend and empty inputs` |
 | `43d20d84` | `tests/wex: add automated protocol test suite and clients` (`zones-client`, `stack-client`, `alpha-client`, `warp-client`, `shm-common`, `verify.py`, `run.sh`, `Makefile`) |
+| `1325880d` | `xx-zones-v1: use opaque token for handles and fail unknown handles` (generates 128-bit random hex UUID via `/dev/urandom`, returns invalid size (-1, -1) and empty handle for unmatched handles) |
+| `49c77355` | `alpha-modifier: apply opacity updates on subsurface commits` (tracks subsurfaces on `xdg_surface->surface->events.new_subsurface` and updates buffer opacities on subsurface commits) |
+| `87dac69d` | `wex-window-v1: implement strict focus, stacking, and state policy` (compositor never changes focus/stacking for wex windows except via `activate()` / `place_*`; labwc actions/keybinds/switcher/snapping skip wex windows; non-wex clients retain stock behavior) |
+| `737325aa` | `protocols: vendor wlr-virtual-pointer and virtual-keyboard protocols` (vendored from wlroots/wayland-protocols for automated input testing) |
+| `ad962566` | `tests/wex: add focus and state policy, subsurface alpha, and handle rejection tests` (virtual input policy client covering tests 1, 2, 3, 4, 5, 7, subsurface alpha, unknown zone handle rejection) |
 
 ---
 
 ## 3. Protocol Architecture & Implementation Details
 
 ### 3.1 `xx-zones-v1`
-- **Zone Management**: Outputs correspond to zones. Zone handles are keyed to output names (e.g. `HEADLESS-1`). When cooperating Wine processes join using `get_zone_from_handle(handle)`, they connect to the exact same coordinate zone.
+- **Zone Management**: Outputs correspond to zones. Zone handles are opaque, 128-bit random hex UUID tokens (e.g. `fbece10b-800d-5872-35a1-ae2fe42eef01`) generated from `/dev/urandom` rather than predictable output names. When cooperating Wine processes join using `get_zone_from_handle(handle)`, they connect to the exact same coordinate zone. If an unknown or unmatched handle is queried, the request fails per protocol by emitting an invalid zone size (`-1x-1`) and an empty handle (`""`) without falling back to the default output.
 - **Explicit Placement**: Window positions requested via `xx_zone_item_v1.set_position(x, y)` explicitly set `view->pending.x` and `view->pending.y` on mapping, setting `view->zone_positioned = true`. This deliberately bypasses labwc's `rc.placement_policy` (e.g. automatic centering).
 - **Extents & Offsets**: Server-side decorations and client-side margins are factored using `ssd_get_margin()`. Zone item coordinates refer strictly to the top-left corner of the window frame.
 - **Bounds Checking**: If a client requests a window position where the entire window would lie outside the zone boundaries, the request is rejected with a `position_failed` event without changing window geometry.
 
 ### 3.2 `wex-window-v1`
-- **Privileged Socket Security**: The compositor creates a secondary privileged socket (`wex-shell-0` by default or configurable via `LABWC_WEX_SHELL_SOCKET`). In `src/server.c:server_global_filter`, incoming client file descriptors are inspected via `getsockname(wl_client_get_fd(client))` in `wex_client_is_privileged()`. If a client connected through standard `wayland-0`, `wex_window_manager_v1` is filtered from registry advertisements.
+- **Single-Socket Architecture**: Every Wine process of the shell session connects **only** to the privileged socket (`wex-shell-0`, set via `WAYLAND_DISPLAY=wex-shell-0`). Because Wayland objects (`xdg_toplevel` -> `wex_window_v1`) cannot cross display connections, `wex-shell-0` advertises all standard Wayland globals in addition to `wex_window_manager_v1`. Standard unprivileged clients connecting to `wayland-0` have `wex_window_manager_v1` filtered out from registry advertisements and cannot bind it.
+- **Strict Focus & Stacking Policy**: For all views possessing a `wex_window_v1` (across all layers):
+  - **The compositor never changes keyboard focus or stacking by itself.** Pointer events (enter, motion, buttons, axis) are delivered to the surface under the pointer as normal so that Wine can decide whether to activate (`WS_EX_NOACTIVATE`, `MA_NOACTIVATE`, tooltips, popups). Focus and stacking changes happen strictly via client requests: `wex_window_v1.activate()` and `place_above` / `place_below` / `place_bottom` / `set_layer`.
+  - On view mapping (`view-impl-common.c`), newly mapped wex windows receive no keyboard focus until `activate()` is called.
+  - On view unmap / close (`desktop_topmost_focusable_view()`), the compositor defocuses rather than stealing focus to another wex window.
+  - labwc never changes wex window state on its own: actions (`action.c`) for minimize (`ICONIFY`), maximize, fullscreen, move, resize, snap (`SNAP_TO_EDGE`), edge movements (`MOVE_TO_EDGE`), window switcher (`NEXT_WINDOW` / `A-Tab`), and window menu (`SHOW_MENU` / `A-Space`) skip wex windows entirely.
+  - Client-initiated requests (`xdg_toplevel.set_maximized`, `set_minimized`, `set_fullscreen`, `move`, `resize`, and `xx_zone_item_v1.set_position`) continue working normally.
+  - Wex windows have server-side decorations permanently forced to `LAB_SSD_MODE_NONE`.
+  - Non-wex clients (Linux apps, foot, XWayland) retain stock labwc behavior (click-to-focus, keybinding actions, window menu, switcher, SSD).
 - **Window Layering**:
   - `desktop` (enum 2): Reparented to `server->desktop_tree` (placed below workspaces/normal windows), SSD disabled (`LAB_SSD_MODE_NONE`), excluded from Alt+Tab window cycling.
   - `normal` (enum 0): Attached to the workspace tree.
@@ -58,11 +71,10 @@ All commits have been pushed to branch `wexcomp` at `https://github.com/zcompute
   - `shell` (enum 3): Reparented to `server->shell_tree` (above topmost/popups), SSD disabled, excluded from window cycling.
 - **Exclusive Edge Reservations**: Shell windows call `set_exclusive_edge(edge, size)`. For example, a bottom taskbar of 30px calls `set_exclusive_edge(edge=bottom, size=30)`. This updates `output->usable_area`, reducing the available workspace height from 800px to 770px. When normal windows are maximized (`xdg_toplevel.set_maximized`), their configure geometry conforms to 1280x770, cleanly stopping above the taskbar.
 - **Stacking Reordering**: `place_above` and `place_below` manipulate the scene graph using `wlr_scene_node_place_above()` / `wlr_scene_node_place_below()` and reorder `view->link` within `server->views`.
-- **Activation & Restore**: Calling `activate()` raises the window to the top of its layer and assigns keyboard focus (`seat_focus_surface()`). If `view->minimized` is true, it calls `view_minimize(view, false)` first, guaranteeing that minimized windows are restored upon activation.
-- **Passive Focus Policy**: Windows associated with `wex_window_v1` do not steal focus on clicks; focus and stacking are governed exclusively by client requests (`activate()`, `place_*`).
+- **Activation & Restore**: Calling `activate()` raises the window to the top of its layer and assigns keyboard focus (`desktop_focus_view_forced()`). If `view->minimized` is true, it calls `view_minimize(view, false)` first, guaranteeing that minimized windows are restored upon activation.
 
 ### 3.3 Missing Globals
-- **`wp_alpha_modifier_v1`**: Supported via `wlr_alpha_modifier_v1`. On commit in `src/xdg.c:handle_commit`, the view scene tree is traversed with `wlr_scene_node_for_each_buffer()`. If an alpha modifier multiplier is set for the surface, `wlr_scene_buffer_set_opacity(buffer, (float)state->multiplier)` is applied.
+- **`wp_alpha_modifier_v1`**: Supported via `wlr_alpha_modifier_v1`. Opacity is applied not only on toplevel commits but also on subsurface commits via `xdg_surface->surface->events.new_subsurface` tracking in `src/xdg.c`. If an alpha modifier multiplier is set for any surface or subsurface, `wlr_scene_buffer_set_opacity(buffer, (float)state->multiplier)` is immediately applied.
 - **`wp_pointer_warp_v1`**: Implemented in `src/protocols/pointer-warp.c`. When requested for a focused surface within surface bounds, calls `wlr_cursor_warp(seat->cursor, NULL, lx, ly)`, followed by `wlr_seat_pointer_notify_motion()` and `wlr_seat_pointer_notify_frame()`.
 - **Headless Capabilities**: Updated `src/seat.c` to advertise `WL_SEAT_CAPABILITY_POINTER` and `WL_SEAT_CAPABILITY_KEYBOARD` when running on headless backends, enabling full pointer enter, motion, and warp interactions in automated testing.
 
@@ -96,6 +108,20 @@ WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_HEADLESS_OUTPUTS=1 tests/wex/run.s
 | 15 | Alpha Modifier 50% | Red window with multiplier `0x7fffffff` over white background | Blended pixel at (100, 100, 200, 200) matches RGB (255, 128, 128) | **PASS** |
 | 16 | Pointer Warp | Warp pointer to (350, 250) on focused surface | Client receives `wl_pointer.motion` at exact warped coordinates (350, 250) | **PASS** |
 
+### 4.2 Follow-up Focus & State Policy Test Results Table (Fix Work Order)
+
+| # | Test Name | Scenario / Operation | Expected Result | Status |
+|---|---|---|---|---|
+| 17 | Unknown Zone Handle Rejection | Query unknown handle token via `get_zone_from_handle` | Emits invalid size `-1x-1` and empty handle `""` without falling back to default output | **PASS** |
+| 18 | Subsurface Alpha 50% | 50% multiplier applied to subsurface committing over green parent | Blended pixels at (150, 150, 200, 200) match Yellow RGB (128, 128, 0) | **PASS** |
+| 19 | Policy 1: Click Without Focus Steal | Window B (Blue) active; click Window A (Red) at (120, 120) | Window A receives `wl_pointer.button`; **no** `wl_keyboard.enter` for A; Window B remains above A at overlap (175, 175) Blue | **PASS** |
+| 20 | Policy 1: `activate(A)` Raises & Focuses | Call `wex_window_v1.activate(A)` after click | Window A receives `wl_keyboard.enter`; raised above Window B at overlap (175, 175) Red | **PASS** |
+| 21 | Policy 2: Map Unfocused | Newly mapped wex window commits initial buffer | Window receives no `wl_keyboard.enter` on map; receives focus only after `activate()` | **PASS** |
+| 22 | Policy 3: Close Unfocused | Two wex windows open; focused window closes | Compositor defocuses rather than transferring keyboard focus to remaining wex window | **PASS** |
+| 23 | Policy 4: Keybinds Ignored | Active wex window receives `W-a` (maximize), `A-Left` (snap), `A-Space` (menu) | Geometry unchanged; no window menu popup drawn; screenshot comparison identical | **PASS** |
+| 24 | Policy 5: Switcher Ignored | Active wex window receives `A-Tab` (window switcher) | Switcher skips wex windows; unactivated wex window not selected | **PASS** |
+| 25 | Policy 7: Non-wex Stock Behavior | Plain xdg client (no `wex_window_v1`) receives clicks & `W-a` | Stock click-to-focus works normally; `W-a` maximizes plain window (200px -> 1280px) | **PASS** |
+
 ---
 
 ## 5. Visual Artifacts
@@ -125,6 +151,23 @@ Maximized normal window cleanly stops at the 30px shell panel boundary (height 7
 ### 5.6 Alpha Modifier 50% Blending (`06_alpha_50.png`)
 Red surface rendered at 50% uniform opacity over white background, producing exact RGB (255, 128, 128):  
 ![06_alpha_50](wayland-compositor/06_alpha_50.png)
+
+### 5.7 Subsurface Alpha 50% Blending (`06b_subsurface_alpha_50.png`)
+Red subsurface at 50% opacity committed directly over green parent surface, producing exact Yellow RGB (128, 128, 0):  
+![06b_subsurface_alpha_50](wayland-compositor/06b_subsurface_alpha_50.png)
+
+### 5.8 Passive Focus: Click A Without Stacking Change (`07_click_no_steal.png`)
+Window A (Red) clicked with virtual pointer while Window B (Blue) active; Window B remains visually stacked above Window A at overlap (175, 175) Blue:  
+![07_click_no_steal](wayland-compositor/07_click_no_steal.png)
+
+### 5.9 Client-Driven Raise: `activate(A)` Raises Window A (`08_activate_raised.png`)
+Window A explicitly calls `activate()`, raising it above Window B at overlap (175, 175) Red and receiving keyboard focus:  
+![08_activate_raised](wayland-compositor/08_activate_raised.png)
+
+### 5.10 Policy Keybindings Ignored (`09_wex_keybinds_before.png` / `10_wex_keybinds_after.png`)
+Window before keybinds vs after `W-a` (maximize), `A-Left` (snap), and `A-Space` (window menu); screenshots are 100% pixel-identical (geometry unchanged, no menu shown):  
+![09_wex_keybinds_before](wayland-compositor/09_wex_keybinds_before.png)
+![10_wex_keybinds_after](wayland-compositor/10_wex_keybinds_after.png)
 
 ---
 
@@ -156,12 +199,12 @@ All tests execute headlessly without requiring a display or GPU, taking ~15 seco
 ## 7. Hand-off for Wine & Codex (Tasks 4–6)
 
 The compositor half of the Wayland architecture is complete, verified, and pushed. When Codex integrates Wine's Wayland driver and WineExplorer:
-- Wine processes should connect to `wayland-0` for standard surfaces and connect to `wex-shell-0` for privileged shell management (`wex_window_manager_v1`).
+- Every Wine process of the shell session connects **only** to `wex-shell-0` (`WAYLAND_DISPLAY=wex-shell-0`). Because Wayland protocol objects (`xdg_toplevel` -> `wex_window_v1`) cannot cross connections, `wex-shell-0` provides all standard Wayland protocols alongside `wex_window_manager_v1`.
 - Explorer's desktop window should bind to `wex-window-v1` and call `set_layer(desktop)`.
 - The Explorer taskbar should bind to `wex-window-v1` and call `set_layer(shell)` and `set_exclusive_edge(edge=bottom, size=30)`.
 - Normal Wine windows can be arranged within output zones via `xx-zones-v1` (`xx_zone_item_v1.set_position`).
 - Windows with `WS_EX_TOPMOST` should call `wex_window_v1.set_layer(topmost)`.
-- Transparent windows with `LWA_ALPHA` should bind `wp_alpha_modifier_v1` on their `wl_surface`.
+- Transparent windows with `LWA_ALPHA` should bind `wp_alpha_modifier_v1` on their `wl_surface` (or subsurfaces).
 
 ---
 
@@ -191,3 +234,36 @@ privileged-socket filter are implemented as described.
 **Minor (note for later):** zone handles are output names (`HEADLESS-1`), guessable by any client, and an unknown
 handle silently falls back to the default output instead of failing; alpha is re-applied only on the toplevel's
 commit, so a subsurface that changes its own alpha updates on the parent's next commit.
+
+---
+
+## 9. Fix Work Order Resolution (Gemini, 2026-10-13)
+
+All items identified in the review above and in `docs/WAYLAND_COMPOSITOR_FIX_WORKORDER.md` have been fully resolved, verified with automated tests, and pushed to `wexcomp`:
+
+1. **Strict Focus & Stacking Policy Implemented (`87dac69d`)**:
+   - `view_is_wex(view)` helper added to `include/view.h`.
+   - `desktop_focus_view()` split into a guarded public function (returns early if `view_is_wex()`) and an internal `desktop_focus_view_forced()` invoked exclusively by `wex_window_v1.activate()` and client-initiated `xdg_activation`.
+   - `desktop_topmost_focusable_view()` skips wex windows so window close/unmap defocuses instead of stealing focus.
+   - Pointer events (enter, motion, button, axis) continue to reach the surface under the cursor without altering focus or stacking.
+   - `actions_run()` checks `action_modifies_view()` and skips view actions (`ICONIFY`, `MAXIMIZE`, `TOGGLE_MAXIMIZE`, `SHOW_MENU`, `MOVE`, `RESIZE`, `SNAP_TO_EDGE`, etc.) if `view_is_wex(view)`.
+   - `matches_criteria()` skips wex windows for the window switcher (`A-Tab`).
+   - Server-side decorations are forced to `LAB_SSD_MODE_NONE` for wex windows.
+   - Snapping and edge dragging (`interactive_finish`, `snap_to_edge`, `snap_to_region`, `view_move_to_edge`, `view_grow_to_edge`, `view_shrink_to_edge`) skip wex windows.
+   - Non-wex clients retain complete stock labwc behavior.
+
+2. **Single-Socket Clarification (§3.2, §7)**:
+   - Hand-off §7 and architecture §3.2 updated: Wine processes of the shell session connect only to `wex-shell-0` (`WAYLAND_DISPLAY=wex-shell-0`).
+
+3. **Zone Handles Opaque Tokens & Rejection (`1325880d`)**:
+   - Zone handles are now generated as 128-bit random hex UUID tokens from `/dev/urandom` rather than output names.
+   - Queries to `get_zone_from_handle()` with unknown or invalid handles emit an invalid zone size (`-1x-1`) and empty handle (`""`) per protocol without falling back to default outputs.
+
+4. **Subsurface Alpha Immediate Updates (`49c77355`)**:
+   - Compositor tracks subsurfaces via `xdg_surface->surface->events.new_subsurface` and applies opacity multiplier immediately upon subsurface buffer commits.
+
+5. **Automated Input & Policy Test Suite (`ad962566`, `737325aa`)**:
+   - Vendored `wlr-virtual-pointer-unstable-v1` and `virtual-keyboard-unstable-v1`.
+   - Added `policy-client` and comprehensive automated tests to `tests/wex/run.sh`.
+   - All 25 tests pass headlessly with exit code 0.
+

@@ -1,6 +1,6 @@
 # Fix work order (Gemini): wexcomp focus and state policy
 
-Status: ready, 2026-10-13. Follow-up to `docs/WAYLAND_COMPOSITOR_WORKORDER.md`; the review that found this is
+Status: done, see docs/WAYLAND_COMPOSITOR.md. Follow-up to `docs/WAYLAND_COMPOSITOR_WORKORDER.md`; the review that found this is
 `docs/WAYLAND_COMPOSITOR.md` §8. Same environment and boundaries as the original work order (WSL distribution
 `wexcomp`, clone `/root/wexcomp`, branch `wexcomp` of `zcomputerwiz/labwc`; in the WineExplorer repo only your report
 and the status lines of the two work orders; never the Proton VM, never `git add -A`, never force-push).
