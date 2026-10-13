@@ -65,7 +65,8 @@ if [ "$before" -eq 0 ] || [ "$before" -eq 124 ]; then
     printf '%s\n' REGRESSION_NOT_CONFIRMED > "$output/status"
     exit 1
 fi
-if ! grep -E "Test failed:.*($(cat "$input/failure-pattern"))" "$output/before.log"; then
+failure_pattern="$(tr -d '\r\n' < "$input/failure-pattern")"
+if ! grep -E "Test failed:.*($failure_pattern)" "$output/before.log"; then
     printf '%s\n' EXPECTED_REGRESSION_NOT_FOUND > "$output/status"
     exit 1
 fi

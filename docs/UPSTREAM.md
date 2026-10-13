@@ -13,6 +13,7 @@ before submission.
 |---|---|---|
 | [upstream/imagelist-alpha](https://github.com/zcomputerwiz/wine/tree/upstream/imagelist-alpha) | `985db3efad8382b5a72063f6be61ccc8f5374aa4` | comctl32 and comctl32_v6 build; full imagelist suite passes under Xvfb. Unpatched upstream fails six new assertions. |
 | [upstream/empty-recycle-bin-icon](https://github.com/zcomputerwiz/wine/tree/upstream/empty-recycle-bin-icon) | `00d5a25fd4b118195f144553081b3c68e33c485e` | shell32 builds; full shelllink suite passes under Xvfb. Unpatched upstream fails the empty Recycle Bin icon assertion. |
+| [upstream/wizard-focus](https://github.com/zcomputerwiz/wine/tree/upstream/wizard-focus) | `94a5845ccd86f34ec858ae0004cc67190b517432` | comctl32 and comctl32_v6 build; full propsheet suite passes under Xvfb. Unpatched upstream fails eight new focus assertions. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
@@ -48,18 +49,30 @@ introduced.
 Validation: built shell32 on current upstream; the shelllink suite under Xvfb
 fails the icon-handle assertion without the resource and passes with it.
 
+### Wizard navigation focus — ready-to-paste MR description
+
+Changing wizard navigation buttons can hide or disable the focused button,
+leaving keyboard focus on an unavailable control. When this happens, move
+focus to the current enabled, visible default button. Preserve valid button
+focus and focus within the page.
+
+The regression checks Next/Finish/Back/Cancel transitions and preservation of
+page-edit focus, with both v5 and v6 common controls.
+
+Validation: built comctl32/comctl32_v6 on current upstream; the full propsheet
+suite under Xvfb fails eight new assertions without the fix and passes with it.
+
 ## Remaining candidates
 
 | Topic | State/constraint |
 |---|---|
-| Wizard focus | Local topic drafted; regression run in progress |
 | Server DST bias | Needs deterministic timezone-transition regression |
 | ntdll timezone cache | Needs localtime-change regression with host state isolated |
 | Power capability battery presence | Use stock battery-state helper; test battery/no-battery cases |
 | Folder custom IconFile | Independent two-line fix; needs folder attribute/icon regression |
 | Shortcut target icon | Needs file/folder/explicit-icon fallback coverage |
 | Rename notifications | Needs source/destination watcher coverage |
-| DrawText DT_HIDEPREFIX | Needs rendering regression in user32 tests |
+| DrawText DT_HIDEPREFIX | Rendering regression running on the isolated build VM |
 | Theme token whitespace | Needs a compatible, project-authored theme fixture |
 | Internet Explorer desktop icon 190 | Use Wine's own existing icon; needs resource/API regression |
 
