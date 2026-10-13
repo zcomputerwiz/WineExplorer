@@ -1,6 +1,6 @@
 # Wayland: plan and research
 
-Status (2026-10-12): research only. The shipping stack stays **LightDM → Xorg → Wine virtual desktop → Explorer**
+Status (2026-10-12): research only; L0 spike done, results in `docs/WAYLAND_L0.md`. The shipping stack stays **LightDM → Xorg → Wine virtual desktop → Explorer**
 (X11 window manager, D1/D2 compositor). This document records what a Wayland session would take, so the work can
 start when it is worth it (Xorg is still maintained in Debian 13; GNOME/Ubuntu and KDE now default to Wayland).
 
