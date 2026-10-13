@@ -319,6 +319,20 @@ handle; real-name authorship and sign-off remain the user's manual step.
 
 ## Commands that failed or were interrupted
 
+P2 build finished with BUILD_PASSED. The first `check-assembled.sh` run failed
+with `FAIL: no visible shell taskbar`: it launched the probe on the default
+desktop instead of RefactorP2. A second run via `explorer /desktop=RefactorP2`
+reported CHECK_PASSED but copied the earlier FAIL report before the child
+completed. That result was rejected. Added report removal, completion polling
+and an explicit PASS assertion. The third run still failed because a separate
+Explorer launcher did not reliably run the child before polling expired.
+Corrected by passing the probe as the `/shell` startup program, launched after
+shell initialization on the same desktop. The fourth run (PID 1461093) passed:
+two tray icons, zero overlaps/out-of-bounds; all eight native-dialog cases pass.
+Desktop screenshot copied to build/refactor/p2-desktop.png and inspected.
+Failed harness evidence is in checks-first/second/third; installed desktops
+were untouched. No refactor runner remains active. P2 acceptance now passes.
+
 An apply_patch update to P2.md failed with `Failed to find expected lines`
 for the context `installed VM runtimes are unchanged. Next: finish this build`
 followed by `and runtime verification before P3.` The actual first line begins

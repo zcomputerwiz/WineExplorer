@@ -1,6 +1,6 @@
 # Work order: separate WineExplorer from stock Wine
 
-Status: P0 and P1 acceptance passed 2026-10-12; P2 assembled source equality passes and its isolated build/runtime verification is in progress. Evidence and progress are in `REFACTOR_MAP.md`, `UPSTREAM.md` and `refactor/P2.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
+Status: P0, P1 and P2 acceptance passed 2026-10-12; P3 is next. Evidence and progress are in `REFACTOR_MAP.md`, `UPSTREAM.md` and `refactor/P2.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
 
 ## Goal
 

@@ -35,10 +35,15 @@ timeout 180 xvfb-run -a -s '-screen 0 800x600x24' bash -eu -o pipefail -c '
     timeout 90 "$WINELOADER" wineboot -u > "$root/checks/wineboot.log" 2>&1
     "$WINESERVER" -k
     "$WINESERVER" -w
-    "$WINELOADER" explorer /desktop=RefactorP2,800x600 /shell > "$root/checks/shell.log" 2>&1 &
-    sleep 8
-    "$WINELOADER" "$root/checks/tray-layout-probe.exe" > "$root/checks/tray-run.log" 2>&1
+    rm -f /tmp/tray-layout-probe.txt
+    "$WINELOADER" explorer /desktop=RefactorP2,800x600 /shell "$root/checks/tray-layout-probe.exe" > "$root/checks/shell.log" 2>&1 &
+    # The shell launches the probe after startup, on its own desktop.
+    for ((attempt=0; attempt<100; ++attempt)); do
+        if grep -qE "^(PASS|FAIL):" /tmp/tray-layout-probe.txt 2>/dev/null; then break; fi
+        sleep 0.1
+    done
     cp /tmp/tray-layout-probe.txt "$root/checks/tray-layout.txt"
+    grep -q "^PASS:" "$root/checks/tray-layout.txt"
     import -window root "$root/checks/desktop.png"
     "$root/checks/linux-dialog-probe" > "$root/checks/linux-dialog.log" 2>&1
 ' 9>&-
