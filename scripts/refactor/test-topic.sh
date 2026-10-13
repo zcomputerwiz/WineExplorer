@@ -51,6 +51,12 @@ run_test()
     local phase="$1"
     local target="dlls/$module/tests/x86_64-windows/$test_name.ok"
     rm -f "$build/$target"
+    if [ -f "$input/test-wrapper.sh" ]; then
+        WEX_TEST_BUILD="$build" timeout 600 bash "$input/test-wrapper.sh" \
+            xvfb-run -a -s '-screen 0 1280x1024x24' make -C "$build" "$target" \
+            > "$output/$phase.log" 2>&1
+        return
+    fi
     timeout 600 xvfb-run -a -s '-screen 0 1280x1024x24' \
         make -C "$build" "$target" > "$output/$phase.log" 2>&1
 }

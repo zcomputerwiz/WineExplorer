@@ -20,9 +20,10 @@ containing twelve independent fix candidates. P0's strict acceptance command pas
 P1 has six validated/pushed branches: imagelist-alpha (985db3ef),
 empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c),
 drawtext-hideprefix (72feeed7), folder-iconfile (d942c4f4), and
-rename-source-notification (f7038cc7). No runner remains active.
-Next: shortcut target icon, theme token whitespace, IE resource 190, then the
-isolated battery/timezone/DST fixtures. P2 and later phases have not started.
+rename-source-notification (f7038cc7). Battery capability validation is running.
+Next: finish battery validation, shortcut target icon, theme token whitespace,
+IE resource 190, then isolated timezone/DST fixtures. P2 and later phases have
+not started; these refactor phases precede the installer's layout update in P4.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
@@ -49,8 +50,16 @@ The VM checkout is clean on that branch. Switch master and rebuild before the
 next topic. `rename-topic.log` and `results/rename-source-notification/` hold
 eight expected baseline failures and zero fixed failures. All six topic suites
 pass. Disk has 11 GiB free; account for isolated prefixes before further builds.
-An `unshare -Urnm true` probe passed, enabling investigation of isolated host
-fixtures without changing the guest's actual sysfs/timezone or clock.
+The active runner is `test-topic.sh power-capability-battery ntdll info`, PID
+1317075 at launch. `battery-topic.log` and `results/power-capability-battery/`
+record its progress. It uses scripts/refactor/power-fixture.sh and
+test-power-topic.sh through test-topic.sh's optional input/test-wrapper.sh.
+Both battery and no-battery sysfs views were verified inside unshare -Urnm;
+outside the mount namespace the real AC-only view remains unchanged.
+The topic initializes SYSTEM_BATTERY_STATE to zero: the existing project
+patch does not, while the stock helper expects the caller to initialize it.
+The audited main Wine source has not yet changed; carry that correction into
+the retained patch/P2 tree and update the audit when changing main source.
 Topic results/prefixes are isolated under ~/wex-refactor. Old failed imagelist
 runner 1281780 was stopped and its patches reversed exactly before rebuilding
 master and rerunning; the successful imagelist run then confirmed six intended

@@ -114,7 +114,7 @@ with it. Source and within-folder cases pass before and after the fix.
 |---|---|
 | Server DST bias | Needs deterministic timezone-transition regression |
 | ntdll timezone cache | Needs localtime-change regression with host state isolated |
-| Power capability battery presence | Use stock battery-state helper; test battery/no-battery cases |
+| Power capability battery presence | Battery/no-battery namespace regressions running; initialize helper input |
 | Shortcut target icon | Needs file/folder/explicit-icon fallback coverage |
 | Theme token whitespace | Needs a compatible, project-authored theme fixture |
 | Internet Explorer desktop icon 190 | Use Wine's own existing icon; needs resource/API regression |
