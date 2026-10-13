@@ -1,11 +1,11 @@
 {
   "revisions": {
     "baseline": "455e3509b98a6919fd4ad1def4803e08c41c03b2",
-    "source": "52842ca444a7c3b75a623b7c530b0204c5ea34c4",
+    "source": "31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7",
     "import": "40c17e1db47ac0f8ae08506268bc2491f7bf1ef0",
     "fork_master": "081042ede6a165a36bf9988350dd584b440d7a3d"
   },
-  "patch_sha256": "e9032fd68dd6501a1a088b49593da33cfd218c99bee85d07cf5aed832cf71ead",
+  "patch_sha256": "6e463820a9ddc757692a5fbb564abb1b54ddb42c7d0607d57f483fe542f5afb1",
   "files": [
     {
       "path": ".gitattributes",
@@ -9762,11 +9762,11 @@
     },
     {
       "path": "dlls/ntdll/unix/system.c",
-      "patch_sha256": "16a8db7269fc2df68166758b29505a4f327519a1c77db3576c104aa5000e5fd7",
+      "patch_sha256": "c5bcfdd398f315c52245f31582a2cb937486a989a1097183bd96e7f1acd02d7b",
       "hunk_sha256": [
         "779faa2a35f468c6b903f4de591cbd55d8c3b6665f57e59cf25aba76e64d4d88",
         "94faa52e64f71fcda0de6d261bc2324b520029caf27ea4ef8afeee49df2e612e",
-        "da644d284af034799966849d809ed5350f067b4322df3c3b2b454be807c10f26",
+        "9fac622dfcb2b7dd56738ca084987288130a081b103d5d435e719c78180f8512",
         "79c453d34b19ee63f12ad741b3d92a6413668b40c5229df34a860ec01c8c34ae"
       ],
       "hunk_decisions": [
@@ -9785,10 +9785,10 @@
           "target": "upstream/timezone-cache; retained fork fix"
         },
         {
-          "sha256": "da644d284af034799966849d809ed5350f067b4322df3c3b2b454be807c10f26",
+          "sha256": "9fac622dfcb2b7dd56738ca084987288130a081b103d5d435e719c78180f8512",
           "header": "@@ -4625,9 +4641,10 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input,",
           "class": "U",
-          "change": "Derive SystemBatteriesPresent from the existing battery-state helper",
+          "change": "Derive SystemBatteriesPresent from the existing battery-state helper; initialize helper input to preserve no-battery results",
           "target": "upstream/power-capabilities; retained fork fix"
         },
         {

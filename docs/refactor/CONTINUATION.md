@@ -9,7 +9,7 @@ started thousands of untracked-file diff subprocesses for it. That exclusion
 is not a project policy change and is not committed.
 
 Read `REFACTOR_MAP.md` and `PATHS.md` for current audit state. The audited source
-is pinned to `52842ca4`; later documentation/tool commits do not change its Wine
+is pinned to `31f7896a`; later documentation/tool commits do not change its Wine
 tree. Keep that pin until actual Wine source changes are intentionally audited.
 The bare evidence repository is `build/refactor/wine.git`. The real release tag
 came unchanged from wine-mirror because the user's fork has no tags.
@@ -23,12 +23,16 @@ drawtext-hideprefix (72feeed7), folder-iconfile (d942c4f4), and
 rename-source-notification (f7038cc7), power-capability-battery (aee72c04), and
 shortcut-target-icon (794d2015, fix 23e9baea), ie-desktop-icon (1fab750b),
 theme-token-whitespace (acfcdd57), timezone-cache (eaf8a9ed), and
-server-dst-bias (5372d43d). P2 is next; P3 and later phases have not started.
+server-dst-bias (5372d43d). P2 is in progress; P3 and later phases have not started.
 These refactor phases precede the installer's layout update in P4.
 VM is clean on upstream/server-dst-bias. No runner is active; switch master and
 rebuild before any further P1 work. All twelve topics are pushed, no MRs opened.
-The original P0 source pin is still current; the battery initialization
-correction must be carried into main and the map refreshed before P2 equality.
+P0 has been refreshed after applying the tested battery initialization fix in
+main (31f7896a). Only one reviewed ntdll hunk changed; strict coverage still
+passes all 750 paths/1,876 hunks. P2's sparse checkout is build/refactor/fork,
+branch wineexplorer/11.19, retaining the original 72 B commits and first own
+stock commit 31dd0e88 (power capabilities). This branch is pushed; full P2
+assembly/build acceptance is pending. See P2.md for next steps.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
@@ -99,6 +103,13 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* P2's first power-case comparison asserted full text equality with main and
+  failed on main's reworded comment and blank line. Fork-to-tested-upstream
+  equality had already passed; PowerCaps statements are unchanged. Normalize
+  comments/whitespace for the main comparison; both executable cases pass.
+  The PowerShell shell continued to commit/push after that assertion failure;
+  verified the comparison and clean fork status afterward. No runtime installed.
 
 * Initial DST run had the same failures before and after: the in-tree loader
   selects build_dir/server/wineserver before considering WINESERVER, so the

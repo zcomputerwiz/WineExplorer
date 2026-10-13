@@ -62,7 +62,7 @@
     ]
   },
   "dlls/ntdll/unix/system.c": {
-    "patch_sha256": "16a8db7269fc2df68166758b29505a4f327519a1c77db3576c104aa5000e5fd7",
+    "patch_sha256": "c5bcfdd398f315c52245f31582a2cb937486a989a1097183bd96e7f1acd02d7b",
     "class": "U",
     "change": "Invalidate timezone cache when localtime metadata changes",
     "target": "upstream/timezone-cache; retained fork fix",
@@ -83,10 +83,10 @@
         "target": "upstream/timezone-cache; retained fork fix"
       },
       {
-        "sha256": "da644d284af034799966849d809ed5350f067b4322df3c3b2b454be807c10f26",
+        "sha256": "9fac622dfcb2b7dd56738ca084987288130a081b103d5d435e719c78180f8512",
         "header": "@@ -4625,9 +4641,10 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input,",
         "class": "U",
-        "change": "Derive SystemBatteriesPresent from the existing battery-state helper",
+        "change": "Derive SystemBatteriesPresent from the existing battery-state helper; initialize helper input to preserve no-battery results",
         "target": "upstream/power-capabilities; retained fork fix"
       },
       {

@@ -11,7 +11,10 @@ Use the real annotated `wine-11.19` tag, whose release commit is
 `455e3509b98a6919fd4ad1def4803e08c41c03b2`. The fork currently has no tags;
 the unchanged tag was fetched from `https://github.com/wine-mirror/wine`.
 The fork's `master` was `081042ede6a165a36bf9988350dd584b440d7a3d`.
-The audited project commit is `52842ca444a7c3b75a623b7c530b0204c5ea34c4`.
+The audited project commit is `31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7`.
+This refresh includes the P1-tested battery initialization correction; all
+other path and hunk decisions remain unchanged. P2 progress is in
+[refactor/P2.md](refactor/P2.md).
 
 `40c17e1db47ac0f8ae08506268bc2491f7bf1ef0` is useful only to identify
 inherited import differences. Despite its VERSION file saying 11.19, its files
@@ -36,7 +39,7 @@ Run from the project root (Git and Python 3 required):
 ```text
 git clone --bare --filter=blob:none --single-branch https://github.com/zcomputerwiz/wine.git build/refactor/wine.git
 git --git-dir=build/refactor/wine.git fetch --no-tags https://github.com/wine-mirror/wine.git refs/tags/wine-11.19:refs/tags/wine-11.19
-git --git-dir=build/refactor/wine.git fetch --no-tags . 52842ca444a7c3b75a623b7c530b0204c5ea34c4:refs/audit/wineexplorer
+git --git-dir=build/refactor/wine.git fetch --no-tags . 31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7:refs/audit/wineexplorer
 python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output build/refactor/baseline
 python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output build/refactor/baseline --verify
 ```
