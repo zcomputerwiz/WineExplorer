@@ -1,6 +1,6 @@
 # Work order (Gemini): installer polish — setup screens, time zones, Automatic Updates, boot
 
-Status: ready, 2026-10-13. Taken from Codex's "Next work" items 1 and 3 (`docs/CODEX_HANDOFF.md`); Codex is told
+Status: done, 2026-10-13. Taken from Codex's "Next work" items 1 and 3 (`docs/CODEX_HANDOFF.md`); Codex is told
 these are Gemini's. Background: `docs/INSTALLER.md`, `docs/BUILDING.md`, `installer/tests/install-interactive.sh`.
 
 ## Working alongside Codex — boundaries
