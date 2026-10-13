@@ -51,7 +51,7 @@ next topic. `rename-topic.log` and `results/rename-source-notification/` hold
 eight expected baseline failures and zero fixed failures. All six topic suites
 pass. Disk has 11 GiB free; account for isolated prefixes before further builds.
 The active runner is `test-topic.sh power-capability-battery ntdll info`, PID
-1318032 at relaunch. `battery-topic.log` and `results/power-capability-battery/`
+1318810 at relaunch. `battery-topic.log` and `results/power-capability-battery/`
 record its progress. It uses scripts/refactor/power-fixture.sh and
 test-power-topic.sh through test-topic.sh's optional input/test-wrapper.sh.
 Both battery and no-battery sysfs views were verified inside a private mount
@@ -80,6 +80,16 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* Relaunch 1318032 also rejected the lock: winedevice 1317313 survived SIGTERM.
+  Rechecked ps/fuser and killed only that orphan with SIGKILL; lock probe passed.
+* Run 1318095 reached a fixed battery suite with zero failures, but wrapper
+  returned 1 before the no-battery suite. Its redundant outside-namespace
+  wineserver -k failed because inside cleanup had already stopped the server.
+  Removed that redundant call, archived evidence as
+  results/power-capability-battery-cleanup-exit-failed, reversed both patches,
+  rebuilt master and relaunched both states. No fix was committed from either
+  rejected fixture run.
 
 * The initial battery user-namespace run started Wine as mapped uid 0. Cleanup
   outside that namespace did not find its server, which survived into the next

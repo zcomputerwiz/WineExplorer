@@ -9,6 +9,5 @@ result=0
 for mode in battery none; do
     rm -f "$build/dlls/ntdll/tests/x86_64-windows/info.ok"
     bash "$root/power-fixture.sh" "$mode" "$@" || result=$?
-    "$WINESERVER" -k
 done
 exit "$result"
