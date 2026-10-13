@@ -5,6 +5,13 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
+P4 now tracks Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
+Project CPLs/programs, wexhost and theme definitions live under src.
+Display Properties, wireless UI and media player replace stock stub modules
+through explicit assembly entries, with pristine originals preserved.
+Those implementations are project modules rather than source patches in
+the retained fork. VM sync resolves the gitlink separately from owned source.
+
 P3b project modules now include wexres (shared resources), themeui (shared theme
 engine, used directly by desk.cpl) and msgina (Turn Off/Log Off, called directly
 by logonui), plus stobject's registry-driven COM volume/power tray service.

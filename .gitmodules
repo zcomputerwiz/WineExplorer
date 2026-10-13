@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+[submodule "wine"]
+	path = wine
+	url = https://github.com/zcomputerwiz/wine.git
+	branch = wineexplorer/11.19

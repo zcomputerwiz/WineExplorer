@@ -1,2 +1,0 @@
-MODULE    = iprop.dll
-ENABLE_ARCHS = i386

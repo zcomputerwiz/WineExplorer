@@ -40,7 +40,46 @@ wine/ project paths no longer exist. The accepted P3b VM tree is intact.
 Use package-p4.py/build-p4-owned.sh for this prototype. The fork tag wine-11.19
 was pushed unchanged. The submodule and installer acceptance are still pending.
 
+The Windows gitlink is initialized at d0a0af0681, clean, after a direct shallow
+public clone plus release-tag fetch. The first isolated vm.sh sync passes
+at /srv/protonexplorer/p4-sync-check (501 files, three preserved replacements);
+per-destination stamps live under ignored build/vm-sync. Installed dev source
+and session are unchanged. Ownership build is OWNED_BUILD_PASSED in
+p4-owned-final.log. The full recursive-clone/install/ISO acceptance remains
+pending. The original embedded source is in ignored pre-submodule-wine.
+check-p4-move.py now reads its immutable pre-move b68f039a source, not HEAD.
+The second sync passes with WINE_SOURCE_CURRENT and five helper/config files.
+The P4 ownership build passes; both original source backup and all three
+preserved stock stubs remain available. No installed runtime was changed.
+
 Failed commands during this prototype:
+
+- A later P4 status/commit patch bundle again failed at JavaScript parsing
+  because its String.raw context included Markdown backticks. No patch or
+  commit executed. Used a plain-line anchor for STOCK_CHANGES and reapplied.
+
+- The isolated vm.sh sync invocation from non-login Git Bash failed before
+  contacting the VM: dirname, sha256sum and cut were not on the inherited
+  PowerShell PATH. Retry through Git Bash's login profile, which adds its
+  Unix tools. This test uses VM_PORT=2223, VM_SOURCE=/srv/protonexplorer/p4-sync-check
+  and an absent private-overlay directory, never the installed dev source.
+
+- The Windows reference/dissociate clone failed during repack with fatal:
+  unable to read 77a40aad2e3aae480ec234b385698ed67e3003d4, then cannot repack
+  to clean up. start-submodule.ps1 stopped before registering the gitlink.
+  The original Wine directory is preserved in build/refactor/pre-submodule-wine;
+  its tracked stock paths are removed only from the main index. Preserve the
+  incomplete clone separately, then retry a direct public-fork shallow clone
+  without the reference cache and fetch the unchanged release tag.
+  The first complete-submodule.ps1 retry stopped at Resolve-Path: Git's failed
+  clone had already removed the incomplete directory. Made preservation
+  conditional on its existence; the original source backup remains intact.
+
+- A private-overlay routing patch bundle failed to parse with JavaScript
+  Invalid or unexpected token because its String.raw text included Bash's
+  dollar-brace SSH array expansion. No calls executed. Replaced dollar signs
+  in that patch context with a placeholder, then substituted them before
+  apply_patch. The Python mapper/archive helpers and vm.sh patch applied.
 
 - P4 preparation then failed at checkout with fatal: unable to read tree
   (d0a0af068194c306bb36659b35bb2d4e0eff43c1). The fetched commit was present

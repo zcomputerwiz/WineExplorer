@@ -26,8 +26,11 @@ PORT="${VM_PORT:-2222}"
 USER_="${VM_USER:-wineuser}"
 VBM="/c/Program Files/Oracle/VirtualBox/VBoxManage.exe"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SSH=(ssh -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no "$USER_@127.0.0.1")
-STAMP="$ROOT/.vm_synced_commit"   # gitignored; last commit whose tree was synced
+SSH=(ssh -i "$KEY" -p "$PORT" -o BatchMode=yes -o IPQoS=none -o StrictHostKeyChecking=no "$USER_@127.0.0.1")
+VM_SOURCE="${VM_SOURCE:-/home/$USER_/src}"
+source_id=$(printf '%s:%s:%s' "$USER_" "$PORT" "$VM_SOURCE" | sha256sum | cut -c1-16)
+mkdir -p "$ROOT/build/vm-sync"
+STAMP="$ROOT/build/vm-sync/$source_id.commit"
 # The local-only repository with the genuine Windows XP files (never pushed; see docs/ASSETS.md).  sync puts its
 # copies over the open ones on the VM, so local builds look like XP while this repository holds open art only.
 LOCAL="${WEX_LOCAL:-$ROOT/../WineExplorer-local}"
@@ -36,39 +39,42 @@ cmd="${1:-}"; shift || true
 case "$cmd" in
 sync)
     cd "$ROOT"; "$ROOT/scripts/fix-eol.sh" >/dev/null
-    base="$(cat "$STAMP" 2>/dev/null || git rev-list --max-parents=0 HEAD | head -1)"
-    {
-        git diff --no-renames --name-only --diff-filter=AM "$base" -- wine src
-        git ls-files --others --exclude-standard -- wine src
-        echo scripts/assemble.sh
-    } 2>/dev/null | sort -u > /tmp/vm_sync_files
-    git diff --no-renames --name-only --diff-filter=D "$base" -- wine 2>/dev/null | sed 's#^wine/##' > /tmp/vm_sync_deleted || true
+    source_q=$(printf '%q' "$VM_SOURCE")
+    wine_pin=$(git -C "$ROOT/wine" rev-parse HEAD)
+    prepared=$("${SSH[@]}" "bash -s -- $source_q $wine_pin" < "$ROOT/scripts/prepare-wine.sh")
+    echo "$prepared"
+    full=()
+    if [ -f "$STAMP" ]; then base=$(cat "$STAMP"); else base=$(git rev-parse HEAD); full=(--full); fi
+    if [[ "$prepared" == *WINE_SOURCE_PREPARED* ]]; then full=(--full); fi
+    python "$ROOT/scripts/sync-files.py" "$base" "${full[@]}" > /tmp/vm_sync_files
+    python "$ROOT/scripts/sync-files.py" "$base" --deleted > /tmp/vm_sync_deleted
+    if [ -s /tmp/vm_sync_deleted ]; then
+        "${SSH[@]}" "mkdir -p $source_q/scripts && cat > $source_q/scripts/sync-delete.py" < "$ROOT/scripts/sync-delete.py"
+        "${SSH[@]}" "python3 $source_q/scripts/sync-delete.py $source_q" < /tmp/vm_sync_deleted
+    fi
     rm -f /tmp/vm_sync_local
     if [ -d "$LOCAL/ms-assets/wine" ]; then
         (cd "$LOCAL/ms-assets" && find wine -type f | sort) > /tmp/vm_sync_local
-        sed 's#^wine/dlls/netshell/#src/dlls/netshell/#;s#^wine/programs/explorer/res_power/#src/dlls/msgina/res_power/#;s#^wine/programs/explorer/rover.bmp#src/dlls/wexsearch/rover.bmp#;s#^wine/programs/explorer/#src/dlls/wexres/#' /tmp/vm_sync_local | sort > /tmp/vm_sync_local_targets
+        python "$ROOT/scripts/source_layout.py" < /tmp/vm_sync_local | sort > /tmp/vm_sync_local_targets
         comm -23 /tmp/vm_sync_files /tmp/vm_sync_local_targets > /tmp/vm_sync_open && mv /tmp/vm_sync_open /tmp/vm_sync_files
     fi
     n=$(wc -l < /tmp/vm_sync_files)
     echo "syncing $n files"
     if [ "$n" -gt 0 ]; then
-        python "$ROOT/scripts/sync-archive.py" /tmp/vm_sync_files | "${SSH[@]}" 'tar -xmf - -C ~/src'
+        python "$ROOT/scripts/sync-archive.py" /tmp/vm_sync_files | "${SSH[@]}" "tar -xmf - -C $source_q"
     fi
     if [ -s /tmp/vm_sync_local ]; then
         # only those that differ on the VM, touched so what is built from them is rebuilt
         (cd "$LOCAL/ms-assets" && xargs md5sum < /tmp/vm_sync_local) |
-            sed 's#  wine/dlls/netshell/#  src/dlls/netshell/#;s#  wine/programs/explorer/res_power/#  src/dlls/msgina/res_power/#;s#  wine/programs/explorer/rover.bmp#  src/dlls/wexsearch/rover.bmp#;s#  wine/programs/explorer/#  src/dlls/wexres/#' |
-            "${SSH[@]}" 'cd ~/src && md5sum -c 2>/dev/null | grep -v ": OK$" | sed "s/: [A-Z].*$//"' |
-            sed 's#^src/dlls/netshell/#wine/dlls/netshell/#;s#^src/dlls/msgina/res_power/#wine/programs/explorer/res_power/#;s#^src/dlls/wexsearch/rover.bmp#wine/programs/explorer/rover.bmp#;s#^src/dlls/wexres/#wine/programs/explorer/#' > /tmp/vm_sync_overlay || true
+            python "$ROOT/scripts/source_layout.py" --checksum |
+            "${SSH[@]}" "cd $source_q && md5sum -c 2>/dev/null | grep -v ': OK$' | sed 's/: [A-Z].*$//'" |
+            python "$ROOT/scripts/source_layout.py" --reverse > /tmp/vm_sync_overlay || true
         if [ -s /tmp/vm_sync_overlay ]; then
-            tar -C "$LOCAL/ms-assets" --transform='s#^wine/dlls/netshell/#src/dlls/netshell/#;s#^wine/programs/explorer/res_power/#src/dlls/msgina/res_power/#;s#^wine/programs/explorer/rover.bmp#src/dlls/wexsearch/rover.bmp#;s#^wine/programs/explorer/#src/dlls/wexres/#' -cf - -T /tmp/vm_sync_overlay | "${SSH[@]}" 'tar -xmf - -C ~/src'
+            python "$ROOT/scripts/sync-overlay.py" "$LOCAL/ms-assets" /tmp/vm_sync_overlay | "${SSH[@]}" "tar -xmf - -C $source_q"
         fi
         echo "genuine files from $LOCAL: $(wc -l < /tmp/vm_sync_overlay) updated"
     fi
-    if [ -s /tmp/vm_sync_deleted ]; then
-        "${SSH[@]}" 'cd ~/src/wine && xargs -r rm -f' < /tmp/vm_sync_deleted
-    fi
-    "${SSH[@]}" 'bash ~/src/scripts/assemble.sh'
+    "${SSH[@]}" "bash $source_q/scripts/assemble.sh"
     git rev-parse HEAD > "$STAMP"
     ;;
 build)

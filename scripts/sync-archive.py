@@ -16,6 +16,12 @@ for entry in subprocess.check_output(['git', 'ls-files', '--stage', '-z'], cwd=r
     if entry:
         metadata, path = entry.split(b'\t', 1)
         modes[path.decode()] = int(metadata.split()[0], 8) & 0o777
+# The main index contains only a gitlink for Wine after P4.
+if (root / 'wine/.git').exists():
+    for entry in subprocess.check_output(['git', '-C', str(root / 'wine'), 'ls-files', '--stage', '-z']).split(b'\0'):
+        if entry:
+            metadata, path = entry.split(b'\t', 1)
+            modes['wine/' + path.decode()] = int(metadata.split()[0], 8) & 0o777
 with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
     for name in Path(sys.argv[1]).read_text().splitlines():
         path = (root / name).resolve()
