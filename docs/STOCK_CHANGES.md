@@ -19,7 +19,7 @@ Commit `40c17e1` is the imperfect upstream import, which also includes post-tag 
 | `programs/wmplayer` | Wine's stub `main.c` replaced by ReactOS mplay32 | always |
 | `dlls/shdoclc` | icon 190 (Wine's `iexplore.ico`): `iexplore.inf` names it as the Internet Explorer desktop icon, stock Wine has none | always |
 | `programs/calc`, `programs/mspaint` | new programs (ReactOS calc; own mspaint) | always |
-| `dlls/ntdll/unix/system.c` | `SystemPowerCapabilities.SystemBatteriesPresent` uses Wine's existing `fill_battery_state` helper; `SystemBatteryState` and its sysfs implementation are already stock in wine-11.19 | always (replaces the hard-coded FALSE capability) |
+| `dlls/ntdll/unix/system.c` | `SystemPowerCapabilities.SystemBatteriesPresent` uses Wine's existing `fill_battery_state` helper with zero-initialized state; `SystemBatteryState` and its sysfs implementation are already stock in wine-11.19 | always (replaces the hard-coded FALSE capability; no-battery state remains FALSE) |
 | `server/fd.c` | recompute the DST-adjusted timezone bias when DST starts/ends (a long-running session never saw it before) | always (bug fix, upstreamable) |
 | `dlls/ntdll/unix/system.c` | drop the cached zone info when `/etc/localtime` changes | always (bug fix) |
 | `dlls/kernelbase/locale.c` | preserve a locale selected through Regional and Language Options while the remembered Unix locale remains unchanged; a changed Unix locale becomes the new default | always; upstream suitability requires review in P0 |

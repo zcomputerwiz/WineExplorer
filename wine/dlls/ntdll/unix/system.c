@@ -4641,7 +4641,7 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input, 
     case SystemPowerCapabilities:
     {
         PSYSTEM_POWER_CAPABILITIES PowerCaps = output;
-        SYSTEM_BATTERY_STATE bs;
+        SYSTEM_BATTERY_STATE bs = {0};
         FIXME("semi-stub: SystemPowerCapabilities\n");
         if (out_size < sizeof(SYSTEM_POWER_CAPABILITIES)) return STATUS_BUFFER_TOO_SMALL;
         /* Fill power capabilities */
