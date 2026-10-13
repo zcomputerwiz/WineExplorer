@@ -33,7 +33,7 @@
 
 #include "resource.h"
 #include "browser.h"
-#include "search_ui.h"
+#include "search_dispatch.h"
 #include "shellres.h"
 
 #define ADDRESS_CLASS L"BrowserAddressBand"

@@ -356,7 +356,7 @@
   "wanted": "Turn off / Log Off dialog logo, 48 x 40 on the title band blue (0,52,166); until then Wine's logo"
  },
  {
-  "path": "src/dlls/wexres/rover.bmp",
+  "path": "src/dlls/wexsearch/rover.bmp",
   "kind": "wanted",
   "source": "placeholder",
   "wanted": "Search Companion still character (shown when no animated character is installed), 56 x 68, magenta background"

@@ -18,11 +18,10 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef __WINE_EXPLORER_SEARCH_UI_H
-#define __WINE_EXPLORER_SEARCH_UI_H
+#ifndef __WEX_SEARCH_H
+#define __WEX_SEARCH_H
 
 #include <windows.h>
-#include "search_engine.h"
 
 /* "Search Results", CLSID_FindFolder: what explorer.exe ::{E17D4FC0-...} and SHFindFiles open */
 #define FIND_FOLDER_PATH L"::{E17D4FC0-5564-11D1-83F2-00A0C90DC849}"
@@ -49,11 +48,10 @@ void search_ui_show_pane(SEARCH_UI *ui, BOOL show);
 void search_ui_set_scope(SEARCH_UI *ui, const WCHAR *folder);
 BOOL search_ui_translate(SEARCH_UI *ui, MSG *msg);   /* Tab, Enter: call from the message loop */
 
-/* the parts, in search_companion.c and search_results.c */
-HWND search_results_create(HWND parent);
-void search_results_clear(HWND results, BOOL searched);
-void search_results_add(HWND results, SEARCH_RESULT *r);   /* takes r */
-void search_results_done(HWND results);
-int search_results_count(HWND results, BOOL selected);
+
+void instant_search_update(HWND edit, const WCHAR *text);
+BOOL instant_search_key(UINT vk);
+void instant_search_hide(void);
+BOOL instant_search_owns(HWND hwnd);
 
 #endif

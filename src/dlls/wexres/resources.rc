@@ -218,8 +218,6 @@ IDB_BROWSER_GO      BITMAP "res_browser/go.bmp"
 /* @makedep: res_browser/go_hot.bmp */
 IDB_BROWSER_GO_HOT  BITMAP "res_browser/go_hot.bmp"
 /* Search Companion character at rest (Windows XP) */
-/* @makedep: rover.bmp */
-IDB_SEARCH_ROVER    BITMAP "rover.bmp"
 
 /* polkit authentication prompt (UAC style) */
 IDD_UAC DIALOGEX 0, 0, 246, 170

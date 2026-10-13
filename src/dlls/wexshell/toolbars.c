@@ -37,7 +37,7 @@
 #include "toolbars.h"
 #include "shellfolders.h"
 #include "shellres.h"
-#include "instant_search.h"
+#include "search_dispatch.h"
 #include "module.h"
 
 
@@ -890,6 +890,7 @@ static LRESULT CALLBACK toolbar_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
                                        hwnd, (HMENU)IDC_SEARCHBOX, explorer_hInstance, NULL);
             SendMessageW(tb->edit, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), FALSE);
             SendMessageW(tb->edit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Type here to search");
+            EnableWindow(tb->edit, wexsearch_available());
             tb->search_icon = shellres_icon(23, 16);
         }
         return 0;
@@ -1088,7 +1089,7 @@ static LRESULT CALLBACK search_edit_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 
 BOOL toolbars_search_available(void)
 {
-    return g_tb[TOOLBAR_SEARCH].edit != NULL;
+    return g_tb[TOOLBAR_SEARCH].edit != NULL && wexsearch_available();
 }
 
 /* Typing in the Start menu goes on in the search box, like on Windows 10 and 11 */

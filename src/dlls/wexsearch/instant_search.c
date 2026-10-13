@@ -35,9 +35,9 @@
 #include "instant_search.h"
 #include "search_engine.h"
 #include "search_ui.h"
-#include "shellres.h"
+#include "wexres.h"
 
-extern HINSTANCE explorer_hInstance;
+#include "module.h"
 
 #define FLYOUT_CLASS    L"WineInstantSearch"
 #define LIST_WIDTH      300
@@ -629,13 +629,13 @@ static void create_window(void)
     SHFILEINFOW sfi;
 
     wc.lpfnWndProc = flyout_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = wexsearch_module();
     wc.lpszClassName = FLYOUT_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     wc.style = CS_DROPSHADOW;
     RegisterClassW(&wc);
     g.wnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, FLYOUT_CLASS, NULL, WS_POPUP,
-                            0, 0, LIST_WIDTH + PREVIEW_WIDTH, FLYOUT_HEIGHT, NULL, NULL, explorer_hInstance, NULL);
+                            0, 0, LIST_WIDTH + PREVIEW_WIDTH, FLYOUT_HEIGHT, NULL, NULL, wexsearch_module(), NULL);
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     g.font = CreateFontIndirectW(&ncm.lfMessageFont);
     ncm.lfMessageFont.lfWeight = FW_BOLD;

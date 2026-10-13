@@ -7,7 +7,6 @@ VER_FILEDESCRIPTION_STR = "Windows Explorer"
 VER_PRODUCTVERSION      = 6,1,7601,17567
 
 SOURCES = \
-	agent_char.c \
 	module.c \
 	alttab.c \
 	appbar.c \
@@ -17,14 +16,11 @@ SOURCES = \
 	desktop_view.c \
 	explorer.c \
 	explorer.rc \
-	instant_search.c \
 	linux_windows.c \
-	search_companion.c \
-	search_engine.c \
-	search_results.c \
 	slideshow.c \
 	folders_adapter.c \
 	shellservices.c \
+	search_dispatch.c \
 	startmenu.c \
 	startmenu_view.c \
 	startsettings.c \

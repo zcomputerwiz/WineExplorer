@@ -295,6 +295,8 @@ def build():
     for target, (kind, src) in sorted(TABLE.items()):
         if target.startswith("dlls/netshell/"):
             relative = "src/" + target
+        elif target == "programs/explorer/rover.bmp":
+            relative = "src/dlls/wexsearch/rover.bmp"
         elif target.startswith("programs/explorer/res_power/"):
             relative = "src/dlls/msgina/res_power/" + target[len("programs/explorer/res_power/"):]
         elif target.startswith("programs/explorer/"):

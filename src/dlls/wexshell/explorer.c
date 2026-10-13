@@ -29,7 +29,7 @@
 #include "resource.h"
 #include "browser.h"
 #include "wexshell.h"
-#include "search_ui.h"
+#include "search_dispatch.h"
 #include "shellres.h"
 #include "wexwlan.h"
 #include "wexnet.h"
@@ -510,6 +510,11 @@ static void make_explorer_window(parameters_struct *params)
 
     if (!wcsicmp(params->root, FIND_FOLDER_PATH))
     {
+        if (!wexsearch_available())
+        {
+            if (sw) IShellWindows_Release(sw);
+            return;
+        }
         /* "Search Results" (SHFindFiles, Start > Search): the Search Companion over the desktop */
         params->root[0] = 0;
         search_window = TRUE;

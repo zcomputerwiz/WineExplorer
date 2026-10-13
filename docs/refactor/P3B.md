@@ -171,3 +171,25 @@ pixel-identical across the entire 800x600 image; all four standard desktop/
 taskbar/tray captures also match except the masked clock.
 Evidence: p3b-wzcdlg-final.log, p3b-wzcdlg-optional.log,
 p3b-wireless-visual.log and checks/network/{wireless,wireless_absent,cpl}.txt.
+
+## Search module
+
+Search Companion, results, engine, instant search and agent animation now live
+in src/dlls/wexsearch. Its public wexsearch.h exposes an opaque UI handle,
+layout/visibility operations and instant-search operations. Window classes
+and the Rover bitmap belong to the DLL; common icons remain in wexres.
+The shell retains its optional loader for process lifetime, so live window
+procedures and asynchronous workers cannot be unloaded between calls.
+Missing search disables the taskbar edit and consumes a Search Results request
+without opening an empty window.
+
+Module and full builds pass. check-search.sh passes standalone ownership,
+one real file result, pane reopen, cancellation during destruction, instant
+navigation/Escape and hide/cancel checks. Search runs independently without
+loading wexshell. Shell startup and actual Search Results commands pass with
+the DLL present and disabled; present results-view visibility is checked.
+Four standard full desktop/taskbar/tray captures and the actual Search
+Companion capture match P3 exactly except the masked taskbar clock.
+Evidence: p3b-search-full.log, p3b-search-visible.log,
+p3b-search-visual-final.log and checks/search/{standalone,present,absent}.txt.
+Fork configure/header integration is pushed as 1743400e44.

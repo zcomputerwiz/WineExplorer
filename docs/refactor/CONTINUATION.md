@@ -20,10 +20,53 @@ build/header/registration integration is pushed through 41f35202f8.
 Wzcdlg is accepted: its standalone/cpl/missing-DLL checks pass and its entire
 dialog capture equals P3. The temporary wlan_dialog_show shell export/fallback
 was removed. Fork build/header integration is pushed through 51b8e6ed5b.
-Next: wexsearch and wexbrowse, then P4, P5 evaluation and P6. The API presence/absence
+Wexsearch is accepted: module/full builds, standalone real-file/cancel/focus
+operations and actual shell requests with the DLL present/disabled pass.
+All four standard captures plus Search Companion match except the masked clock.
+Its configure/header integration is pushed as 1743400e44. Installed runtimes
+are unchanged. Next: wexbrowse, then P4, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
 Failed commands during this prototype:
+
+- The first standalone Search Companion image comparison failed:
+  compare-search.py asserted after differences at (4,30)-(640,480).
+  Five-second captures outside a named desktop showed differing window positions
+  and a partially initialized new browser. Changed both capture runs to the same
+  named 800x600 shell desktop and waited 15 seconds for the browser. Added actual
+  results-view visibility to the shell request probe. This is not accepted as a
+  visual pass until the corrected captures are compared.
+  The corrected captures differed only at (765,581)-(770,589), the taskbar
+  clock. The initial whole-image assertion therefore also failed; after
+  applying the same clock-only mask used for standard captures, comparison
+  passes with zero differences.
+  A second JavaScript patch bundle hit the same Markdown backtick parse error;
+  separated the long workorder status-line replacement into a saved script.
+
+- Search extraction reads failed before editing: the PowerShell command using
+  src/dlls/wexshell/{search_companion.c,search_results.c,instant_search.c,explorer.c}
+  raised Missing argument in parameter list (Bash brace syntax). Used directory
+  searches with -g. Positional scripts/*probe.c and build/refactor/*.txt
+  rg searches raised Windows OS error 123; use directory plus -g instead.
+  An unnecessary rg of build/refactor/nonexistent.log raised OS error 2.
+  Reads of scripts/shell-menu-probe.c, browser_ui.h and browser_taskpane.h
+  failed because those files do not exist; rg --files found shell-plugin-probe.c
+  and browser.h. None of these read failures mutated files.
+
+- The first search module link failed with undefined IID_IContextMenu,
+  IID_IImageList, IID_IShellFolder, theme functions and AlphaBlend. Those had
+  been supplied by the old shell compilation unit/imports. Define GUIDs in
+  the new module.c via initguid/shlobj/commoncontrols and delay-import uxtheme
+  and msimg32. Its module/full rebuild passes.
+
+- The first search runtime runner stopped at probe compilation:
+  FindResourceW's RT_BITMAP was the ANSI macro in this non-UNICODE test.
+  Used MAKEINTRESOURCEW(2) explicitly. No runtime checks had executed;
+  restarted the runner with the corrected probe.
+
+- The initial patch recording these failures itself failed to parse:
+  JavaScript String.raw contained Markdown backticks. Nothing executed.
+  Removed the Markdown backticks from the patch and reapplied it.
 
 - A functions.exec bundle failed to parse with `SyntaxError: Missing } in
   template expression`: its JavaScript String.raw template contained Bash's

@@ -34,9 +34,9 @@
 #include <uxtheme.h>
 
 #include "search_ui.h"
-#include "shellres.h"
+#include "wexres.h"
 
-extern HINSTANCE explorer_hInstance;
+#include "module.h"
 
 #define RESULTS_CLASS L"SearchResultsView"
 #define IDC_RESULTS_LIST 100
@@ -374,7 +374,7 @@ static LRESULT CALLBACK results_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)res);
         res->list = CreateWindowExW(0, WC_LISTVIEWW, NULL,
                                     WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | LVS_REPORT | LVS_SHOWSELALWAYS |
-                                    LVS_SHAREIMAGELISTS, 0, 0, 0, 0, hwnd, (HMENU)IDC_RESULTS_LIST, explorer_hInstance, NULL);
+                                    LVS_SHAREIMAGELISTS, 0, 0, 0, 0, hwnd, (HMENU)IDC_RESULTS_LIST, wexsearch_module(), NULL);
         SendMessageW(res->list, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_HEADERDRAGDROP, LVS_EX_HEADERDRAGDROP);
         SendMessageW(res->list, LVM_SETTEXTBKCOLOR, 0, CLR_NONE);
         if (SUCCEEDED(SHGetImageList(SHIL_SMALL, &IID_IImageList, (void **)&images)))
@@ -422,12 +422,12 @@ HWND search_results_create(HWND parent)
     WNDCLASSW wc = {0};
 
     wc.lpfnWndProc = results_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = wexsearch_module();
     wc.lpszClassName = RESULTS_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
     return CreateWindowExW(WS_EX_CLIENTEDGE, RESULTS_CLASS, NULL, WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0, parent, NULL,
-                           explorer_hInstance, NULL);
+                           wexsearch_module(), NULL);
 }
 
 void search_results_clear(HWND results, BOOL searched)

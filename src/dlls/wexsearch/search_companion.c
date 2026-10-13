@@ -40,10 +40,9 @@
 #include "resource.h"
 #include "agent_char.h"
 #include "search_ui.h"
-#include "shellres.h"
 #include "wexres.h"
 
-extern HINSTANCE explorer_hInstance;
+#include "module.h"
 
 #define PANE_CLASS    L"SearchCompanionPane"
 #define CONTENT_CLASS L"SearchCompanionContent"
@@ -416,7 +415,7 @@ static HWND add_control(SEARCH_UI *ui, const WCHAR *cls, const WCHAR *text, DWOR
 {
     ITEM *it = add_item(ui, ITEM_CONTROL, NULL, 0, 0);
     it->ctl = CreateWindowExW(0, cls, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 10, height, ui->content, (HMENU)(UINT_PTR)id,
-                              explorer_hInstance, NULL);
+                              wexsearch_module(), NULL);
     it->height = height;
     it->indent = indent;
     SendMessageW(it->ctl, WM_SETFONT, (WPARAM)ui->font, FALSE);
@@ -548,7 +547,7 @@ static void build_all_page(SEARCH_UI *ui)
         {
             HWND spin = CreateWindowExW(0, UPDOWN_CLASSW, NULL, WS_CHILD | WS_VISIBLE | UDS_ALIGNRIGHT | UDS_SETBUDDYINT |
                                         UDS_ARROWKEYS | UDS_NOTHOUSANDS, 0, 0, 0, 0, ui->content, (HMENU)IDC_SIZE_SPIN,
-                                        explorer_hInstance, NULL);
+                                        wexsearch_module(), NULL);
             SendMessageW(spin, UDM_SETBUDDY, (WPARAM)ctl, 0);
             SendMessageW(spin, UDM_SETRANGE32, 0, 0x7fffffff);
             SendMessageW(spin, UDM_SETPOS32, 0, ui->size_kb);
@@ -963,11 +962,11 @@ static LRESULT CALLBACK chooser_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         for (i = 0; i < 2; i++)
         {
             button = CreateWindowExW(0, WC_BUTTONW, i ? L"Next" : L"&Back", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                                     0, 0, 58, 22, hwnd, (HMENU)(UINT_PTR)(i ? IDC_CHAR_NEXT : IDC_CHAR_PREV), explorer_hInstance, NULL);
+                                     0, 0, 58, 22, hwnd, (HMENU)(UINT_PTR)(i ? IDC_CHAR_NEXT : IDC_CHAR_PREV), wexsearch_module(), NULL);
             SendMessageW(button, WM_SETFONT, (WPARAM)ui->font, FALSE);
         }
         ui->tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_BALLOON | TTS_NOPREFIX | TTS_ALWAYSTIP,
-                                  0, 0, 0, 0, hwnd, NULL, explorer_hInstance, NULL);
+                                  0, 0, 0, 0, hwnd, NULL, wexsearch_module(), NULL);
         ti.lpszText = (WCHAR *)L"";
         SendMessageW(ui->tip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
         SendMessageW(ui->tip, TTM_SETMAXTIPWIDTH, 0, 180);
@@ -1714,7 +1713,7 @@ SEARCH_UI *search_ui_create(HWND parent, const WCHAR *scope, BOOL results)
 
     if (!ui) return NULL;
     wc.lpfnWndProc = pane_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = wexsearch_module();
     wc.lpszClassName = PANE_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
@@ -1741,7 +1740,7 @@ SEARCH_UI *search_ui_create(HWND parent, const WCHAR *scope, BOOL results)
         swprintf(path, MAX_PATH, L"%s\\srchasst\\srchui.dll", dir);
         ui->srchui = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     }
-    ui->rover = LoadImageW(WexResModule(), MAKEINTRESOURCEW(IDB_SEARCH_ROVER), IMAGE_BITMAP, 0, 0, 0);
+    ui->rover = LoadImageW(wexsearch_module(), MAKEINTRESOURCEW(IDB_SEARCH_ROVER), IMAGE_BITMAP, 0, 0, 0);
 
     SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
     ui->font = CreateFontIndirectW(&ncm.lfMessageFont);
@@ -1751,14 +1750,14 @@ SEARCH_UI *search_ui_create(HWND parent, const WCHAR *scope, BOOL results)
     ui->name_font = CreateFontIndirectW(&ncm.lfMessageFont);
 
     ui->pane = CreateWindowExW(WS_EX_CONTROLPARENT, PANE_CLASS, NULL, WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-                               0, 0, PANE_WIDTH + SPLITTER, 100, parent, NULL, explorer_hInstance, NULL);
+                               0, 0, PANE_WIDTH + SPLITTER, 100, parent, NULL, wexsearch_module(), NULL);
     SetWindowLongPtrW(ui->pane, GWLP_USERDATA, (LONG_PTR)ui);
     ui->content = CreateWindowExW(WS_EX_CONTROLPARENT, CONTENT_CLASS, NULL, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_VSCROLL,
-                                  0, 0, 10, 10, ui->pane, NULL, explorer_hInstance, NULL);
+                                  0, 0, 10, 10, ui->pane, NULL, wexsearch_module(), NULL);
     ui->back = CreateWindowExW(0, WC_BUTTONW, L"&Back", WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 72, 22, ui->pane,
-                               (HMENU)IDC_BACK, explorer_hInstance, NULL);
+                               (HMENU)IDC_BACK, wexsearch_module(), NULL);
     ui->action = CreateWindowExW(0, WC_BUTTONW, L"Search", WS_CHILD | WS_TABSTOP | BS_DEFPUSHBUTTON, 0, 0, 72, 22, ui->pane,
-                                 (HMENU)IDC_SEARCH, explorer_hInstance, NULL);
+                                 (HMENU)IDC_SEARCH, wexsearch_module(), NULL);
     SendMessageW(ui->back, WM_SETFONT, (WPARAM)ui->font, FALSE);
     SendMessageW(ui->action, WM_SETFONT, (WPARAM)ui->font, FALSE);
     ui->results = search_results_create(parent);

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE = wexsearch.dll
+IMPORTS = wexres user32 gdi32 advapi32
+DELAYIMPORTS = shell32 shlwapi ole32 comctl32 gdiplus uxtheme msimg32
+SOURCES = module.c search_companion.c search_engine.c search_results.c instant_search.c agent_char.c wexsearch.rc
