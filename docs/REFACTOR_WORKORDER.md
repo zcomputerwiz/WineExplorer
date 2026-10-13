@@ -1,6 +1,6 @@
 # Work order: separate WineExplorer from stock Wine
 
-Status: P0 acceptance passed 2026-10-12; P1 is starting. Evidence and progress are in `REFACTOR_MAP.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
+Status: P0 acceptance passed 2026-10-12; P1 is in progress. Evidence and progress are in `REFACTOR_MAP.md` and `UPSTREAM.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
 
 ## Goal
 

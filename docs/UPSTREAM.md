@@ -16,11 +16,12 @@ before submission.
 | [upstream/wizard-focus](https://github.com/zcomputerwiz/wine/tree/upstream/wizard-focus) | `94a5845ccd86f34ec858ae0004cc67190b517432` | comctl32 and comctl32_v6 build; full propsheet suite passes under Xvfb. Unpatched upstream fails eight new focus assertions. |
 | [upstream/drawtext-hideprefix](https://github.com/zcomputerwiz/wine/tree/upstream/drawtext-hideprefix) | `72feeed7325cd6b8122eac756c6d96d7d0b7f90a` | user32 builds; full text suite passes under Xvfb. Unpatched upstream renders seven unwanted underline pixels. |
 | [upstream/folder-iconfile](https://github.com/zcomputerwiz/wine/tree/upstream/folder-iconfile) | `d942c4f40647c599e01d4b8a4accdcc5420d37b1` | shell32 builds; full shlfolder suite passes under Xvfb. Unpatched upstream fails both literal and environment-expanded icon-path assertions. |
+| [upstream/rename-source-notification](https://github.com/zcomputerwiz/wine/tree/upstream/rename-source-notification) | `f7038cc7d9b5077db349318b26b0d9ff9e294a52` | shell32 builds; full shlfolder suite passes under Xvfb. Unpatched upstream fails eight destination-watcher assertions. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
 not been performed. First-prefix creation in the 64-bit build prints a missing
-syswow64/rundll32 warning; both regression suites still pass. X connection
+syswow64/rundll32 warning; the regression suites still pass. X connection
 shutdown messages after Xvfb exits are expected.
 
 ### Image-list alpha replacement — ready-to-paste MR description
@@ -91,6 +92,22 @@ the test environment variable and removes the temporary folder.
 Validation: built shell32 on current upstream; the full shlfolder suite under
 Xvfb fails both new icon-path assertions without the fix and passes with it.
 
+### Rename notifications — ready-to-paste MR description
+
+SHChangeNotify's source-item condition also includes two-item events, making
+its destination-item branch unreachable. Renames into a watched folder then
+produce no notification. Check both source and destination for two-item events
+and retain the source-only check for one-item events.
+
+The regression covers file and folder renames into, out of, and within the
+watched folder. It verifies both PIDLs and event types with ANSI and Unicode
+paths, using legacy and shared-memory notification delivery. Within-folder
+renames must deliver exactly one notification.
+
+Validation: built shell32 on current upstream; the full shlfolder suite under
+Xvfb fails eight destination-watcher assertions without the fix and passes
+with it. Source and within-folder cases pass before and after the fix.
+
 ## Remaining candidates
 
 | Topic | State/constraint |
@@ -99,7 +116,6 @@ Xvfb fails both new icon-path assertions without the fix and passes with it.
 | ntdll timezone cache | Needs localtime-change regression with host state isolated |
 | Power capability battery presence | Use stock battery-state helper; test battery/no-battery cases |
 | Shortcut target icon | Needs file/folder/explicit-icon fallback coverage |
-| Rename notifications | Source/destination/within-folder regression running on isolated VM |
 | Theme token whitespace | Needs a compatible, project-authored theme fixture |
 | Internet Explorer desktop icon 190 | Use Wine's own existing icon; needs resource/API regression |
 

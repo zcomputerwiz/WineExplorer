@@ -17,10 +17,12 @@ came unchanged from wine-mirror because the user's fork has no tags.
 Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
 paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
 containing twelve independent fix candidates. P0's strict acceptance command passes.
-P1 has five validated/pushed branches: imagelist-alpha (985db3ef),
-empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c), and
-drawtext-hideprefix (72feeed7), and folder-iconfile (d942c4f4).
-Rename notification validation is running.
+P1 has six validated/pushed branches: imagelist-alpha (985db3ef),
+empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c),
+drawtext-hideprefix (72feeed7), folder-iconfile (d942c4f4), and
+rename-source-notification (f7038cc7). No runner remains active.
+Next: shortcut target icon, theme token whitespace, IE resource 190, then the
+isolated battery/timezone/DST fixtures. P2 and later phases have not started.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
@@ -41,10 +43,14 @@ REVIEWS.json is authoritative. The fork master still resolves to 081042ede6.
 P1 runtime: `~/wex-refactor/upstream` is a shallow fork clone, and
 `~/wex-refactor/build` is a full clean 64-bit build (completed). No installation
 was performed. `base-build.log` and `base-build.status` record completion.
-The active runner is `test-topic.sh rename-source-notification shell32 shlfolder`,
-PID 1315670 at launch, with `rename-topic.log` and
-`results/rename-source-notification/` evidence.
-Do not run another topic while this runner holds test-runner.lock.
+The last runner was `test-topic.sh rename-source-notification shell32 shlfolder`,
+PID 1316175 at relaunch; it finished with TESTS_PASSED and committed f7038cc7.
+The VM checkout is clean on that branch. Switch master and rebuild before the
+next topic. `rename-topic.log` and `results/rename-source-notification/` hold
+eight expected baseline failures and zero fixed failures. All six topic suites
+pass. Disk has 11 GiB free; account for isolated prefixes before further builds.
+An `unshare -Urnm true` probe passed, enabling investigation of isolated host
+fixtures without changing the guest's actual sysfs/timezone or clock.
 Topic results/prefixes are isolated under ~/wex-refactor. Old failed imagelist
 runner 1281780 was stopped and its patches reversed exactly before rebuilding
 master and rerunning; the successful imagelist run then confirmed six intended
@@ -54,7 +60,7 @@ code, with existing notices preserved.
 Host sparse worktrees are `build/refactor/upstream` (validated imagelist),
 `build/refactor/recyclebin` (validated resource fix), and
 `build/refactor/wizard` and `build/refactor/drawtext` (validated), and
-`build/refactor/folder-icon` (validated), and `build/refactor/rename` (draft).
+`build/refactor/folder-icon` and `build/refactor/rename` (validated).
 Fetch VM commits through SSH into
 refs/remotes/build/upstream/<topic>, verify the host worktree matches, then
 update only that worktree's index/HEAD and push its approved upstream branch.
@@ -62,6 +68,16 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* The initial rename draft changed only the destination branch, overlooking
+  that the preceding condition also includes all two-item events. Baseline
+  failed eight destination assertions; the runner rejected the incorrect
+  source-only expected pattern with EXPECTED_REGRESSION_NOT_FOUND before
+  applying any source fix. Removed two-item events from the preceding condition
+  so the both-path check is reachable, changed the expected pattern to
+  destination, reversed the exact tests-only patch, rebuilt master, and reran.
+  The attempted scp update arrived after the runner had already rejected the
+  pattern; no running test/code patch was modified. Tests are unchanged.
 
 * `git --git-dir=build/refactor/wine.git diff master refs/audit/wineexplorer -- dlls/shell32/changenotify.c`
   produced a misleading deletion because the project ref stores that file under
