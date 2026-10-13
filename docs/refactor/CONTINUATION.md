@@ -1,5 +1,13 @@
 # Refactor continuation — 2026-10-12
 
+Latest checkpoint (October 13): P0–P3 acceptance passes. P3b is next, then P4,
+P5 evaluation and P6 rebase drill. See P3_TEST_REPORT.md. The older chronological
+entries below describe their state at the time and do not override this.
+The dev VM runs the installed plugin; build VM source/build is isolated under
+/srv/protonexplorer/wex-refactor-p3. The public ISO install test passed and its
+QEMU VM is stopped. Source/fork changes are committed regularly; preserve the
+user's .gitignore edit and concurrent Wayland documentation/lab commits.
+
 P0 acceptance passed; source is still in its original layout. P1 uses a separate
 build checkout/prefix on the Proton build VM. Existing installed runtimes,
 installer images and desktop sessions remain intact.
@@ -318,6 +326,35 @@ handle; real-name authorship and sign-off remain the user's manual step.
   argument. `python build/refactor/export-topics.py wizard-focus` and scp passed.
 
 ## Commands that failed or were interrupted
+
+P3 installer ISO built and the interactive QEMU/KVM test passed; ISO hash and
+scope are in P3_TEST_REPORT.md. VM p3-plugin was shut down normally. WSL state
+uses /var/tmp/wineexplorer-vmtest, not RAM /tmp; no other VM was stopped.
+The dev VM repaired runtime was reinstalled and the session restarted; its
+live shell-plugin-probe reports zero failures. An unnecessary copy of the
+public p3-input.tar.gz to ~/build/p3-input-validation.tar.gz on the dev VM was
+not unpacked; it contains no private resources and can be discarded later.
+
+The first check-compose.sh run produced screenshots but no stdout because
+Explorer launches children without inheriting its redirected handles. Its
+log-count assertion rejected the run. Launch the console probe directly after
+the shell, using the configured named desktop, and remove capture.bmp before
+each capture; both P2/P3 modes then pass blend/capture/input checks. Failed
+evidence is checks/composition-first. The initial check-compose-own.sh failed
+before launching the probe: it searched for a desktop after a fixed two-second
+sleep, and xwininfo showed zero children. Poll the observed Own desktop until
+visible, then use its XID; five cycles and two toggles pass with zero API errors.
+
+Pixel analysis `python -c "... print([(p,im.getpixel(p)) for p in
+[(950,450),(913,420),(919,425),(915,470),(909,472),(800,477),(658,477)]]])"`
+failed with an extra closing bracket. Assign the points list first, then print
+the comprehension; the corrected read-only analysis succeeded. No image was
+edited. Samples outside the popup show the background color, a baseline
+shadow limitation to retain in the report.
+
+The first grouped-folder capture opened My Computer three times; namespace
+navigation reused one window, so that screenshot did not validate grouping.
+Use three distinct real directories for the grouping check instead.
 
 October 13 continuation: dev build repair passed and reports zero future-dated
 files. Live Explorer PID 50228 maps /usr/local/lib/wine/x86_64-windows/wexshell.dll.

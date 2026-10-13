@@ -157,7 +157,8 @@ static HICON get_window_task_icon(HWND hwnd)
 static void fill_group_info(TASK_ITEM *item)
 {
     struct { WORD lang, code; } *translation;
-    WCHAR cls[64], query[64], *value;
+    WCHAR cls[64], query[64], description_path[MAX_PATH], *value;
+    const WCHAR *description_file;
     DWORD len = MAX_PATH, size;
     HANDLE process;
     void *data;
@@ -173,8 +174,13 @@ static void fill_group_info(TASK_ITEM *item)
 
     lstrcpynW(item->group_name, PathFindFileNameW(item->group_key), ARRAY_SIZE(item->group_name));
     PathRemoveExtensionW(item->group_name);
-    if (!(size = GetFileVersionInfoSizeW(item->group_key, NULL)) || !(data = malloc(size))) return;
-    if (GetFileVersionInfoW(item->group_key, 0, size, data) &&
+    description_file = item->group_key;
+    /* The shell's version resources moved into the plugin; the executable is stock Wine. */
+    if (!lstrcmpiW(PathFindFileNameW(item->group_key), L"explorer.exe") &&
+        GetModuleFileNameW(explorer_hInstance, description_path, ARRAY_SIZE(description_path)))
+        description_file = description_path;
+    if (!(size = GetFileVersionInfoSizeW(description_file, NULL)) || !(data = malloc(size))) return;
+    if (GetFileVersionInfoW(description_file, 0, size, data) &&
         VerQueryValueW(data, L"\\VarFileInfo\\Translation", (void **)&translation, &n) && n >= sizeof(*translation))
     {
         swprintf(query, ARRAY_SIZE(query), L"\\StringFileInfo\\%04x%04x\\FileDescription", translation->lang, translation->code);
