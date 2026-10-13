@@ -1,6 +1,6 @@
 # P3b subsystem extraction
 
-Shared resources and themeui accepted October 13, 2026. Other planned subsystem extractions
+Shared resources, themeui and msgina accepted October 13, 2026. Other planned subsystem extractions
 are pending; P4 repository restructure follows their acceptance.
 
 `src/dlls/wexres` owns the icon/bitmap packs, namespace lookup and resource
@@ -39,7 +39,7 @@ a fresh clone, complete build/install, ISO and interactive installer test.
 
 ## Remaining extraction order
 
-msgina, stobject COM applets and network/wireless UI, wexsearch,
+stobject COM applets and network/wireless UI, wexsearch,
 then wexbrowse. Keep clock/taskband/Alt+Tab in wexshell. Every split must pass
 its feature check and visual comparison; optional modules must not prevent
 shell startup when absent. Record any seam that is too wide instead of
@@ -69,3 +69,22 @@ its list after a rename. The real shell background pixel is the fixture's
 RGB(12,34,56), confirming cross-process rendering. Logs:
 `/srv/protonexplorer/p3b-theme-final2.log`, `p3b-theme-trace.log`, and
 `wex-refactor-p3b/checks/theme/result.txt`.
+
+## Power dialog acceptance
+
+`src/dlls/msgina` owns power_mgmt.c and its four fallback bitmaps. Its interface
+is `src/include/wexpower.h`: Turn Off, Log Off and action dispatch. Resource-pack
+lookup remains shared; fallback artwork loads from the feature DLL. The shell
+calls the same three functions. logonui loads this DLL directly instead of
+spawning another explorer process. Asset generation and private overlay sync
+route the power artwork to msgina; there is no image duplication.
+
+Module/greeter builds and the complete Wine build pass. Four baseline captures
+remain pixel-identical above the clock strip. `scripts/refactor/check-power.sh`
+passes: standalone Turn Off and Log Off show within the display, cancel and
+remove their dimming overlay without loading wexshell in the caller; the real
+Start menu opens/cancels Turn Off; logonui's button opens/cancels it in logonui's
+own process. A test-only inert LightDM pipe fixture supplies connection setup,
+with no authentication or session-start messages. No power action is requested.
+Reports are `wex-refactor-p3b/checks/power/{standalone,greeter,start-menu}.txt`;
+all have zero failures. Runner log: `/srv/protonexplorer/p3b-power-final.log`.

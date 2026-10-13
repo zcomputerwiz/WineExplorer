@@ -391,14 +391,6 @@ IDB_BROWSER_TB_HOT  BITMAP "res_browser/toolbar_hot.bmp"
 IDB_BROWSER_BRAND   BITMAP "res_browser/brand.bmp"
 /* @makedep: res_browser/go.bmp */
 IDB_BROWSER_GO      BITMAP "res_browser/go.bmp"
-/* @makedep: res_power/dlg_bg.bmp */
-IDB_POWER_BACKGROUND BITMAP "res_power/dlg_bg.bmp"
-/* @makedep: res_power/flag.bmp */
-IDB_POWER_FLAG      BITMAP "res_power/flag.bmp"
-/* @makedep: res_power/turnoff_strip.bmp */
-IDB_TURNOFF_STRIP   BITMAP "res_power/turnoff_strip.bmp"
-/* @makedep: res_power/logoff_strip.bmp */
-IDB_LOGOFF_STRIP    BITMAP "res_power/logoff_strip.bmp"
 /* @makedep: res_browser/go_hot.bmp */
 IDB_BROWSER_GO_HOT  BITMAP "res_browser/go_hot.bmp"
 /* Search Companion character at rest (Windows XP) */

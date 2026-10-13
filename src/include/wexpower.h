@@ -34,6 +34,7 @@
 #define POWER_ACTION_LOCK     5
 
 /* Power Management API */
+typedef void (__cdecl *WEX_POWER_SHOW_DIALOG)(HWND parent);
 void power_mgmt_show_shutdown_dialog(HWND parent);
 void power_mgmt_execute_action(int action);
 void power_mgmt_show_logoff_dialog(HWND parent);

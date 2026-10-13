@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE = msgina.dll
+IMPORTLIB = msgina
+IMPORTS = themeui wexres user32 gdi32
+DELAYIMPORTS = wexhost msimg32 uxtheme
+SOURCES = power_mgmt.c power.rc

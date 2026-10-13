@@ -1,0 +1,16 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2026 WineExplorer contributors
+ */
+#include "windef.h"
+#include "winuser.h"
+#include "resource.h"
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+/* @makedep: res_power/dlg_bg.bmp */
+IDB_POWER_BACKGROUND BITMAP "res_power/dlg_bg.bmp"
+/* @makedep: res_power/flag.bmp */
+IDB_POWER_FLAG      BITMAP "res_power/flag.bmp"
+/* @makedep: res_power/turnoff_strip.bmp */
+IDB_TURNOFF_STRIP   BITMAP "res_power/turnoff_strip.bmp"
+/* @makedep: res_power/logoff_strip.bmp */
+IDB_LOGOFF_STRIP    BITMAP "res_power/logoff_strip.bmp"

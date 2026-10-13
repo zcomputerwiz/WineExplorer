@@ -5,11 +5,25 @@ October 13 P3b shared resources accepted: the build VM has a separate source/bui
 checks pass; see P3B.md. Wine fork build integration is pushed as bd86fda234.
 No installed runtime/session was changed. Themeui is also accepted (P3B.md),
 including direct Display Properties Apply and actual Classic palette rendering.
-Next: msgina extraction,
+Msgina is accepted with standalone, real Start menu and logonui tests (all
+cancel-only). Next: stobject and network/wireless extraction,
 then remaining P3b modules, P4, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
 Failed commands during this prototype:
+
+- The first power UI runner recorded POWER_CHECK_FAILED after successful
+  standalone and greeter reports, without a Start menu report. Launching the
+  controller after opening a modal dialog stalled; moved it before activation.
+  The second attempt reported `FAIL consumer opens power dialog`: starting
+  the controller after opening the menu and using the `u` key did not activate
+  the menu item. Start the controller before opening the menu and click the
+  Turn Off row at 80,550, observed in the fixed 800x600 Classic menu capture.
+  The final runner passed all three reports and POWER_CHECK_PASSED.
+- `ls .../checks/power/start-menu.txt` failed during the incomplete first
+  runner because that report had not been created. It now exists and passes.
+- ReactOS reference fetch of `dll/shellext/stobject/stobject.rgs` returned
+  HTTP 404; use its actual registration resource/source inventory when needed.
 
 - A work-order status apply_patch failed because its context ended midway
   through the actual long line. No change was applied. Reapplied with the

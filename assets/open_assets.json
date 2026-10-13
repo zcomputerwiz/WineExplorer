@@ -345,12 +345,12 @@
   "source": "reactos/dll/shellext/netshell/res/nettrrec.ico"
  },
  {
-  "path": "src/dlls/wexres/res_power/dlg_bg.bmp",
+  "path": "src/dlls/msgina/res_power/dlg_bg.bmp",
   "kind": "draw",
   "source": "drawn by scripts/open_assets.py"
  },
  {
-  "path": "src/dlls/wexres/res_power/flag.bmp",
+  "path": "src/dlls/msgina/res_power/flag.bmp",
   "kind": "wanted",
   "source": "wine/dlls/user32/resources/oic_winlogo.ico (interim)",
   "wanted": "Turn off / Log Off dialog logo, 48 x 40 on the title band blue (0,52,166); until then Wine's logo"

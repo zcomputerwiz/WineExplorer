@@ -45,6 +45,7 @@
 #include <gdiplus.h>
 
 #include "wexhost.h"
+#include "wexpower.h"
 #include "resource.h"
 #include "wine/debug.h"
 
@@ -499,16 +500,13 @@ static DWORD WINAPI reader_thread( void *arg )
     }
 }
 
-static void turn_off( void )
+static void turn_off( HWND owner )
 {
-    WCHAR cmd[] = L"explorer.exe /turnoff";
-    STARTUPINFOW si = { sizeof(si) };
-    PROCESS_INFORMATION pi;
-    if (CreateProcessW( NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi ))
-    {
-        CloseHandle( pi.hThread );
-        CloseHandle( pi.hProcess );
-    }
+    HMODULE module = LoadLibraryW(L"msgina.dll");
+    WEX_POWER_SHOW_DIALOG show = module ?
+        (WEX_POWER_SHOW_DIALOG)GetProcAddress(module, "power_mgmt_show_shutdown_dialog") : NULL;
+    if (show) show(owner);
+    if (module) FreeLibrary(module);
 }
 
 /* ------------------------------------------------------------------ window */
@@ -628,7 +626,7 @@ static LRESULT CALLBACK main_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         {
         case HOT_GO:      send_password(); break;
         case HOT_HELP:    show_balloon(); break;
-        case HOT_TURNOFF: turn_off(); break;
+        case HOT_TURNOFF: turn_off(hwnd); break;
         case HOT_TILE:    if (u != selected) begin_logon( u ); break;
         case HOT_NONE:    cancel_logon(); break;
         }

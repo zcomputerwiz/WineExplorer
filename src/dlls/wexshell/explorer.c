@@ -34,7 +34,7 @@
 #include "wlan_dialog.h"
 #include "wlan_status.h"
 #include "net_props.h"
-#include "power_mgmt.h"
+#include "wexpower.h"
 
 #include <windows.h>
 #include <shellapi.h>

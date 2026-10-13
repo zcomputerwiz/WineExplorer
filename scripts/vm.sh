@@ -46,7 +46,7 @@ sync)
     rm -f /tmp/vm_sync_local
     if [ -d "$LOCAL/ms-assets/wine" ]; then
         (cd "$LOCAL/ms-assets" && find wine -type f | sort) > /tmp/vm_sync_local
-        sed 's#^wine/programs/explorer/#src/dlls/wexres/#' /tmp/vm_sync_local | sort > /tmp/vm_sync_local_targets
+        sed 's#^wine/programs/explorer/res_power/#src/dlls/msgina/res_power/#;s#^wine/programs/explorer/#src/dlls/wexres/#' /tmp/vm_sync_local | sort > /tmp/vm_sync_local_targets
         comm -23 /tmp/vm_sync_files /tmp/vm_sync_local_targets > /tmp/vm_sync_open && mv /tmp/vm_sync_open /tmp/vm_sync_files
     fi
     n=$(wc -l < /tmp/vm_sync_files)
@@ -57,11 +57,11 @@ sync)
     if [ -s /tmp/vm_sync_local ]; then
         # only those that differ on the VM, touched so what is built from them is rebuilt
         (cd "$LOCAL/ms-assets" && xargs md5sum < /tmp/vm_sync_local) |
-            sed 's#  wine/programs/explorer/#  src/dlls/wexres/#' |
+            sed 's#  wine/programs/explorer/res_power/#  src/dlls/msgina/res_power/#;s#  wine/programs/explorer/#  src/dlls/wexres/#' |
             "${SSH[@]}" 'cd ~/src && md5sum -c 2>/dev/null | grep -v ": OK$" | sed "s/: [A-Z].*$//"' |
-            sed 's#^src/dlls/wexres/#wine/programs/explorer/#' > /tmp/vm_sync_overlay || true
+            sed 's#^src/dlls/msgina/res_power/#wine/programs/explorer/res_power/#;s#^src/dlls/wexres/#wine/programs/explorer/#' > /tmp/vm_sync_overlay || true
         if [ -s /tmp/vm_sync_overlay ]; then
-            tar -C "$LOCAL/ms-assets" --transform='s#^wine/programs/explorer/#src/dlls/wexres/#' -cf - -T /tmp/vm_sync_overlay | "${SSH[@]}" 'tar -xmf - -C ~/src'
+            tar -C "$LOCAL/ms-assets" --transform='s#^wine/programs/explorer/res_power/#src/dlls/msgina/res_power/#;s#^wine/programs/explorer/#src/dlls/wexres/#' -cf - -T /tmp/vm_sync_overlay | "${SSH[@]}" 'tar -xmf - -C ~/src'
         fi
         echo "genuine files from $LOCAL: $(wc -l < /tmp/vm_sync_overlay) updated"
     fi

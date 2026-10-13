@@ -28,7 +28,7 @@
 #include "startmenu_view.h"
 #include "tray_clock.h"
 #include "toolbars.h"
-#include "power_mgmt.h"
+#include "wexpower.h"
 #include "uac_agent.h"
 #include "linux_windows.h"
 #include "alttab.h"

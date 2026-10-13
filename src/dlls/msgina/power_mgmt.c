@@ -33,13 +33,23 @@
 
 #include "wine/debug.h"
 #include "wextheme.h"
-#include "power_mgmt.h"
-#include "shellres.h"
+#include "wexpower.h"
+#include "wexres.h"
 #include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
-extern HINSTANCE explorer_hInstance;
+static HINSTANCE msgina_instance;
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
+{
+    if (reason == DLL_PROCESS_ATTACH)
+    {
+        msgina_instance = instance;
+        DisableThreadLibraryCalls(instance);
+    }
+    return TRUE;
+}
 
 /* ---- the actions ---- */
 
@@ -202,11 +212,11 @@ static HWND dim_screen(void)
     }
 
     wc.lpfnWndProc = dim_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = msgina_instance;
     wc.lpszClassName = DIM_CLASS;
     RegisterClassW(&wc);
     hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, DIM_CLASS, NULL, WS_POPUP, 0, 0, width, height,
-                           NULL, NULL, explorer_hInstance, NULL);
+                           NULL, NULL, msgina_instance, NULL);
     if (!hwnd) { DeleteObject(bitmap); return NULL; }
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)bitmap);
     ShowWindow(hwnd, SW_SHOWNA);
@@ -445,6 +455,16 @@ static LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+/* Resource-pack lookup is shared; this feature owns its fallback artwork. */
+static HBITMAP power_bitmap(const WCHAR *module, int id, int fallback_id)
+{
+    HBITMAP bitmap = shellres_bitmap(module, id, 0);
+    if (!bitmap && fallback_id)
+        bitmap = LoadImageW(msgina_instance, MAKEINTRESOURCEW(fallback_id),
+                           IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+    return bitmap;
+}
+
 /* The bitmaps of the dialog: Windows XP's from the resource pack, else ReactOS' */
 static void load_art(struct dialog *dlg, BOOL logoff)
 {
@@ -452,19 +472,19 @@ static void load_art(struct dialog *dlg, BOOL logoff)
 
     if (logoff)
     {
-        dlg->background = shellres_bitmap(L"shell32", 14354, IDB_POWER_BACKGROUND);
-        dlg->flag = shellres_bitmap(L"shell32", 14355, IDB_POWER_FLAG);
-        dlg->strip = shellres_bitmap(L"shell32", 14356, IDB_LOGOFF_STRIP);
+        dlg->background = power_bitmap(L"shell32", 14354, IDB_POWER_BACKGROUND);
+        dlg->flag = power_bitmap(L"shell32", 14355, IDB_POWER_FLAG);
+        dlg->strip = power_bitmap(L"shell32", 14356, IDB_LOGOFF_STRIP);
     }
     else
     {
-        dlg->background = shellres_bitmap(L"msgina", 20142, IDB_POWER_BACKGROUND);
-        dlg->flag = shellres_bitmap(L"msgina", 20143, IDB_POWER_FLAG);
-        dlg->strip = shellres_bitmap(L"msgina", 20150, 0);
+        dlg->background = power_bitmap(L"msgina", 20142, IDB_POWER_BACKGROUND);
+        dlg->flag = power_bitmap(L"msgina", 20143, IDB_POWER_FLAG);
+        dlg->strip = power_bitmap(L"msgina", 20150, 0);
         if (!dlg->strip)
         {
             /* ReactOS' strip has Restart before Stand By */
-            dlg->strip = shellres_bitmap(L"explorer", 0, IDB_TURNOFF_STRIP);
+            dlg->strip = power_bitmap(L"explorer", 0, IDB_TURNOFF_STRIP);
             dlg->choices[0].image = 6;
             dlg->choices[2].image = 3;
         }
@@ -487,7 +507,7 @@ static int run_dialog(HWND parent, struct dialog *dlg)
     dlg->hot = dlg->pressed = dlg->result = -1;
 
     wc.lpfnWndProc = dialog_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = msgina_instance;
     wc.lpszClassName = DIALOG_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
@@ -505,7 +525,7 @@ static int run_dialog(HWND parent, struct dialog *dlg)
     }
     dim = dim_screen();
     hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, DIALOG_CLASS, dlg->title, WS_POPUP | WS_BORDER,
-                           x, y, DIALOG_W, DIALOG_H, NULL, NULL, explorer_hInstance, dlg);
+                           x, y, DIALOG_W, DIALOG_H, NULL, NULL, msgina_instance, dlg);
     if (hwnd)
     {
         ShowWindow(hwnd, SW_SHOW);

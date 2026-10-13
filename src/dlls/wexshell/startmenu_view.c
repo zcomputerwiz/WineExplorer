@@ -39,6 +39,7 @@
 
 #include "resource.h"
 #include "wextheme.h"
+#include "wexpower.h"
 #include "desktop_view.h"
 #include "shellfolders.h"
 #include "shellres.h"
@@ -65,8 +66,6 @@ static HICON g_winlogo_icon = NULL;
 static DWORD g_last_close_tick = 0;
 static HHOOK g_mouse_hook = NULL;
 
-extern void power_mgmt_show_shutdown_dialog(HWND parent);
-extern void power_mgmt_show_logoff_dialog(HWND parent);
 
 #define MAX_PROGRAM_ENTRIES 256
 static WCHAR g_program_paths[MAX_PROGRAM_ENTRIES][MAX_PATH];
