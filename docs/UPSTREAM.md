@@ -18,7 +18,8 @@ before submission.
 | [upstream/folder-iconfile](https://github.com/zcomputerwiz/wine/tree/upstream/folder-iconfile) | `d942c4f40647c599e01d4b8a4accdcc5420d37b1` | shell32 builds; full shlfolder suite passes under Xvfb. Unpatched upstream fails both literal and environment-expanded icon-path assertions. |
 | [upstream/rename-source-notification](https://github.com/zcomputerwiz/wine/tree/upstream/rename-source-notification) | `f7038cc7d9b5077db349318b26b0d9ff9e294a52` | shell32 builds; full shlfolder suite passes under Xvfb. Unpatched upstream fails eight destination-watcher assertions. |
 | [upstream/power-capability-battery](https://github.com/zcomputerwiz/wine/tree/upstream/power-capability-battery) | `aee72c042a96f06a6e91d2d837b1494d263d7ed2` | ntdll builds; full info suite passes with synthetic battery and no-battery sysfs views. Unpatched upstream fails the battery-present assertion. |
-| [upstream/shortcut-target-icon](https://github.com/zcomputerwiz/wine/tree/upstream/shortcut-target-icon) | `23e9baeac0a07a4368a93332aee31f064e002f45` | shell32 builds; full shelllink suite passes. Unpatched upstream fails the folder target icon assertion. |
+| [upstream/shortcut-target-icon](https://github.com/zcomputerwiz/wine/tree/upstream/shortcut-target-icon) | `794d2015441eb02df809218bc7b5ba7422c4b240` (fix `23e9bae`) | shell32 builds; full shelllink suite passes, including a self-referencing link. Unpatched upstream fails the folder target icon assertion. |
+| [upstream/ie-desktop-icon](https://github.com/zcomputerwiz/wine/tree/upstream/ie-desktop-icon) | `1fab750bcaac50f29fe87c83b16058b22f85acd1` | shdoclc and shell32 build; full shelllink suite passes after isolated prefix refresh. Unpatched upstream fails three resource-190 assertions. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
@@ -140,8 +141,23 @@ the fix and passes with it. The executable case is a preservation control on
 this prefix, whose exe association returns the generic icon.
 
 The separate SetPath simplified-PIDL folder-type issue remains outside this
-branch. The link-target recursion guard has not yet been exercised by a cycle
-regression; add that coverage before final WineHQ submission.
+branch. A follow-up regression saves a self-referencing shortcut and checks
+that icon lookup completes with a nonempty fallback path; the full shelllink
+suite passes with that case. Native Windows has not been tested.
+
+### Internet Explorer desktop icon — ready-to-paste MR description
+
+iexplore.inf registers shdoclc.dll resource 190 as the Internet Explorer
+desktop item's default icon, but that resource is missing. Define it using an
+unchanged copy of Wine's existing programs/iexplore/iexplore.ico. No external
+art is introduced.
+
+The regression calls ExtractIconExW for resource 190 at large and small sizes
+and checks both handles. Validation: built shdoclc and shell32 on current
+upstream; the full shelllink suite under Xvfb fails three assertions without
+the resource and passes with it. The isolated prefix is refreshed with
+wineboot -u before both phases, so file-based extraction reads the DLL just
+built. Installed runtimes are untouched. Systems lacking shdoclc skip the case.
 
 ## Remaining candidates
 
@@ -150,7 +166,6 @@ regression; add that coverage before final WineHQ submission.
 | Server DST bias | Needs deterministic timezone-transition regression |
 | ntdll timezone cache | Needs localtime-change regression with host state isolated |
 | Theme token whitespace | Needs a compatible, project-authored theme fixture |
-| Internet Explorer desktop icon 190 | Existing Wine artwork and ExtractIconEx regression running |
 
 FileIconInit and endpoint volume remain fork patches pending smaller, complete
 API implementations. Shell-hook registration currently supports one receiver,
@@ -177,6 +192,11 @@ checks the base revision/clean checkout, holds a checkout/build lock, uses
 an isolated Wine prefix and Xvfb, requires the expected baseline assertion
 failure, rebuilds the changed module(s), and commits only after the fixed
 suite passes. It does not push branches or submit merge requests.
+
+For a resource fix in another module, optional build-targets lists additional
+dlls/<module>/all targets; update-prefix refreshes only the isolated prefix
+before each phase. For hardware fixtures, optional test-wrapper.sh runs the
+same suite in each synthetic state. New patch files are staged before commit.
 
 Only one runner may use this checkout/build at a time. After accepting a
 topic, switch back to master and run make before starting another, so the

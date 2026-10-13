@@ -17,13 +17,12 @@ came unchanged from wine-mirror because the user's fork has no tags.
 Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
 paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
 containing twelve independent fix candidates. P0's strict acceptance command passes.
-P1 has eight validated/pushed branches: imagelist-alpha (985db3ef),
+P1 has nine validated/pushed branches: imagelist-alpha (985db3ef),
 empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c),
 drawtext-hideprefix (72feeed7), folder-iconfile (d942c4f4), and
 rename-source-notification (f7038cc7), power-capability-battery (aee72c04), and
-shortcut-target-icon (23e9baea). IE resource validation is running.
-Next: finish IE resource validation, shortcut-cycle guard regression, theme
-token whitespace, then isolated timezone/DST fixtures. P2 and later phases have
+shortcut-target-icon (794d2015, fix 23e9baea), and ie-desktop-icon (1fab750b).
+Next: theme token whitespace, then isolated timezone/DST fixtures. P2 and later phases have
 not started; these refactor phases precede the installer's layout update in P4.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
@@ -51,14 +50,19 @@ The VM checkout is clean on that branch. Switch master and rebuild before the
 next topic. `rename-topic.log` and `results/rename-source-notification/` hold
 eight expected baseline failures and zero fixed failures. All six topic suites
 pass. Disk has 11 GiB free; account for isolated prefixes before further builds.
-The active runner is `test-topic.sh ie-desktop-icon shell32 shelllink`, PID
-1322526 at relaunch. `ie-icon-topic.log` and `results/ie-desktop-icon/` hold evidence.
+The last runner was `test-topic.sh ie-desktop-icon shell32 shelllink`, PID
+1323418 at relaunch, and completed with TESTS_PASSED. No runner is active.
+`ie-icon-topic.log` and `results/ie-desktop-icon/` hold three expected baseline
+failures and zero fixed failures. Its topic is committed and pushed.
 Its build-targets also rebuilds shdoclc; the new icon is exactly fork master's
 programs/iexplore/iexplore.ico. The runner stages new files as well as edits.
 Its update-prefix flag runs isolated wineboot -u before each test phase because
 ExtractIconEx opens the physical prefix DLL rather than the loaded build DLL.
-The shortcut worktree now has an uncommitted self-referencing-link test; apply
-that test-only delta to its existing VM topic after IE validation finishes.
+The shortcut self-referencing-link test passed the full shelllink suite and
+was committed/pushed as 794d2015. VM is clean on upstream/shortcut-target-icon.
+Cycle evidence: shortcut-cycle-build.log and shortcut-cycle-test.log. Host
+battery, shortcut and ie-icon worktrees all match their validated VM commits.
+Switch master and rebuild before the next topic. Disk has 8.5 GiB free.
 Battery validation completed: full info suite in both states, one expected
 failure before and none after. It uses scripts/refactor/power-fixture.sh and
 test-power-topic.sh through test-topic.sh's optional input/test-wrapper.sh.
@@ -71,8 +75,6 @@ The topic initializes SYSTEM_BATTERY_STATE to zero: the existing project
 patch does not, while the stock helper expects the caller to initialize it.
 The audited main Wine source has not yet changed; carry that correction into
 the retained patch/P2 tree and update the audit when changing main source.
-Host worktrees build/refactor/battery and shortcut are validated; ie-icon is
-draft. Add a shortcut-cycle regression before manual upstream submission.
 SetPath loses the folder type in a simplified PIDL; the icon regression uses
 fully parsed PIDLs so that independent issue does not mask the tested fix.
 Topic results/prefixes are isolated under ~/wex-refactor. Old failed imagelist
@@ -92,6 +94,14 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* After prefix refresh, IE extraction returned count 2 when both sizes were
+  requested together, contrary to the draft's assertion of 1. Changed the
+  regression to extract each size separately (each must return 1); baseline
+  then failed both counts and both-handle presence, and the fix passed.
+  Evidence archived as ie-desktop-icon-two-sizes-count-failed. A tail of
+  after.log before prefix refresh completed reported No such file: the test
+  log is created after refresh. Use status and optional file existence guards.
 
 * IE test compile failed because rpcndr.h defines small as char; local variable
   `HICON large = NULL, small = NULL` expanded into invalid C. Renamed the two
