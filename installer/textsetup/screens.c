@@ -1560,6 +1560,21 @@ SetupStage screen_init(SetupState *state)
 
     /* 7. Install GRUB */
     safe_mkdir_p("/target/boot/grub");
+    safe_mkdir_p("/target/etc/default/grub.d");
+    remove("/target/etc/default/grub.d/desktop-base.cfg");
+    {
+        FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
+        if (f_grub) {
+            fprintf(f_grub,
+                    "# Silent instant boot for single-OS WineExplorer installation\n"
+                    "GRUB_TIMEOUT_STYLE=hidden\n"
+                    "GRUB_TIMEOUT=0\n"
+                    "GRUB_TERMINAL=console\n"
+                    "GRUB_THEME=\"\"\n"
+                    "GRUB_BACKGROUND=\"\"\n");
+            fclose(f_grub);
+        }
+    }
     if (!state->target_disk[0]) {
         if (state->target_part[0]) {
             snprintf(state->target_disk, sizeof(state->target_disk), "%s", state->target_part);
