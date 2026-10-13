@@ -125,6 +125,10 @@ subdirectory target does not rebuild them. Existing live-build state requires
 
 ## Next work
 
+**2026-10-13:** item 1 (installer visual polish) and the Automatic Updates and timezone-name parts of item 3 are
+assigned to Gemini — `docs/INSTALLER_POLISH_WORKORDER.md`, branch `gemini/installer-polish`, environment WSL
+`wexbuild`. Skip them; Gemini will not touch logonui, greeters, LightDM, wexhost, the shell or the Wine fork.
+
 1. Installer visual polish: GUI header/backdrop, display-friendly partition
    names, installed GRUB appearance and its missing unicode.pf2 warning,
    verify new-profile Recycle Bin icon after rebuilding with `a417c3be`.
