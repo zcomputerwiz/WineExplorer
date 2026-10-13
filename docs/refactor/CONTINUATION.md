@@ -24,10 +24,22 @@ Wexsearch is accepted: module/full builds, standalone real-file/cancel/focus
 operations and actual shell requests with the DLL present/disabled pass.
 All four standard captures plus Search Companion match except the masked clock.
 Its configure/header integration is pushed as 1743400e44. Installed runtimes
-are unchanged. Next: wexbrowse, then P4, P5 evaluation and P6. The API presence/absence
+are unchanged. Wexbrowse is also accepted: full build, three independent folder
+cases (including icons/search/teardown), optional availability/host fallback
+and Search Companion checks pass. All five captures match except the clock.
+Fork configure/header integration is d0a0af0681; the final header cleanup's
+module rebuild passes. No P3b runtime is installed. Next: P4 repository
+restructure, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
 Failed commands during this prototype:
+
+- The first browser runtime suite passed its three standalone folder/UI cases
+  but failed the unavailable-browser command assertion. The startup probe is
+  a separate process: GetModuleHandle(wexshell.dll) cannot see the desktop's
+  loaded DLL. LoadLibrary in the probe before resolving WexShellCommand; this
+  exercises the same core export in the probe process. No product fix needed.
+  Reading scripts/fe.sh also failed: that path does not exist in this checkout.
 
 - The first standalone Search Companion image comparison failed:
   compare-search.py asserted after differences at (4,30)-(640,480).

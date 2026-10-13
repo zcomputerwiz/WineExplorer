@@ -2,8 +2,16 @@
 
 P0 acceptance passed on 2026-10-12. All changed paths and text hunks are
 classified against the pinned release/source snapshots. No source modules
-have moved and installed VM runtimes remain intact. P1 acceptance passed;
+had moved at that checkpoint. P1 acceptance passed;
 validated branches and regression evidence are in [UPSTREAM.md](UPSTREAM.md).
+
+P3b implementation progress is in refactor/P3B.md. Its browser boundary
+moves explorer.c, browser_ui, browser_taskpane, browser.h and slideshow into
+wexbrowse. The planned toolbars.c move is intentionally omitted: it implements
+taskbar toolbars and depends on taskbar settings/layout. Browser bars already
+live in browser_ui. Keeping taskbar code together avoids a wide interface;
+one string/flag browser entry point leaves browser state private.
+The historical P0 path/hunk hashes and source pin remain unchanged.
 
 ## Baseline and reproducible evidence
 

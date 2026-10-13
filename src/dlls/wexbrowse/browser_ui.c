@@ -34,7 +34,7 @@
 #include "resource.h"
 #include "browser.h"
 #include "search_dispatch.h"
-#include "shellres.h"
+#include "wexres.h"
 
 #define ADDRESS_CLASS L"BrowserAddressBand"
 #define BRAND_CLASS   L"BrowserBrand"
@@ -43,7 +43,7 @@
 /* positions in the toolbar picture strip */
 enum { IMG_BACK = 0, IMG_FORWARD = 1, IMG_SEARCH = 17, IMG_FOLDERS = 21, IMG_VIEWS = 20, IMG_UP = 28, IMG_GO = 33 };
 
-extern HINSTANCE explorer_hInstance;
+#include "module.h"
 
 /* ---- helpers on the current view ---- */
 
@@ -762,7 +762,7 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
     int n = 0;
 
     wc.lpfnWndProc = address_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = wexbrowse_module();
     wc.lpszClassName = ADDRESS_CLASS;
     RegisterClassW(&wc);
     wc.lpfnWndProc = brand_proc;
@@ -774,12 +774,12 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
 
     info->rebar = CreateWindowExW(WS_EX_TOOLWINDOW, REBARCLASSNAMEW, NULL,
                                   WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | RBS_VARHEIGHT | RBS_BANDBORDERS |
-                                  CCS_TOP | CCS_NODIVIDER, 0, 0, 0, 0, info->main_window, NULL, explorer_hInstance, NULL);
+                                  CCS_TOP | CCS_NODIVIDER, 0, 0, 0, 0, info->main_window, NULL, wexbrowse_module(), NULL);
 
     /* Standard Buttons */
     info->toolbar = CreateWindowExW(0, TOOLBARCLASSNAMEW, NULL,
                                     WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_LIST | TBSTYLE_TOOLTIPS | TBSTYLE_TRANSPARENT |
-                                    CCS_NORESIZE | CCS_NODIVIDER, 0, 0, 0, 0, info->rebar, NULL, explorer_hInstance, NULL);
+                                    CCS_NORESIZE | CCS_NODIVIDER, 0, 0, 0, 0, info->rebar, NULL, wexbrowse_module(), NULL);
     SendMessageW(info->toolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
     SendMessageW(info->toolbar, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS | TBSTYLE_EX_DRAWDDARROWS);
     info->tb_normal = load_strip(214, IDB_BROWSER_TB);
@@ -828,7 +828,7 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
         int size, frames;
         brand_bitmap(&size, &frames);
         size = max(size, 22);
-        info->brand = CreateWindowExW(0, BRAND_CLASS, NULL, WS_CHILD | WS_VISIBLE, 0, 0, size + 18, band.cyChild, info->rebar, NULL, explorer_hInstance, NULL);
+        info->brand = CreateWindowExW(0, BRAND_CLASS, NULL, WS_CHILD | WS_VISIBLE, 0, 0, size + 18, band.cyChild, info->rebar, NULL, wexbrowse_module(), NULL);
         SetWindowLongPtrW(info->brand, GWLP_USERDATA, (LONG_PTR)info);
         band.fStyle = RBBS_FIXEDSIZE | RBBS_NOGRIPPER;
         band.hwndChild = info->brand;
@@ -839,9 +839,9 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
 
     /* Address bar: label, path box, Go */
     info->address_band = CreateWindowExW(0, ADDRESS_CLASS, NULL, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                                         0, 0, 400, 24, info->rebar, NULL, explorer_hInstance, NULL);
+                                         0, 0, 400, 24, info->rebar, NULL, wexbrowse_module(), NULL);
     info->path_box = CreateWindowW(WC_COMBOBOXEXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWN, 0, 0, 300, 240,
-                                   info->address_band, NULL, explorer_hInstance, NULL);
+                                   info->address_band, NULL, wexbrowse_module(), NULL);
     shellres_go_button(info->address_band, GO_BUTTON);
     GetWindowRect(info->path_box, &rc);
     band.fMask = RBBIM_STYLE | RBBIM_CHILD | RBBIM_CHILDSIZE | RBBIM_SIZE | RBBIM_TEXT;
@@ -855,7 +855,7 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
 
     info->taskpane = taskpane_create(info);
     info->status = CreateWindowExW(0, STATUSCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-                                   info->main_window, NULL, explorer_hInstance, NULL);
+                                   info->main_window, NULL, wexbrowse_module(), NULL);
     SetTimer(info->main_window, IDT_BROWSER_STATUS, 400, NULL);
     SetTimer(info->main_window, IDT_BROWSER_BRAND, 70, NULL);
 }

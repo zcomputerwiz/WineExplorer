@@ -1,4 +1,5 @@
 MODULE    = wexshell.dll
+PARENTSRC = ../wexsearch
 IMPORTS   = msgina themeui wexres rpcrt4 user32 gdi32 advapi32 win32u
 DELAYIMPORTS = netshell wexhost msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32 version gdiplus
 
@@ -10,14 +11,11 @@ SOURCES = \
 	module.c \
 	alttab.c \
 	appbar.c \
-	browser_taskpane.c \
-	browser_ui.c \
 	desktop.c \
 	desktop_view.c \
-	explorer.c \
+	command.c \
 	explorer.rc \
 	linux_windows.c \
-	slideshow.c \
 	folders_adapter.c \
 	shellservices.c \
 	search_dispatch.c \

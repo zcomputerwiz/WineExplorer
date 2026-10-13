@@ -228,7 +228,7 @@ void slideshow_start(const WCHAR *folder, const WCHAR *first)
     for (i = 0; first && i < show->count; i++) if (!wcsicmp(show->files[i], first)) start = i;
 
     wc.lpfnWndProc = slideshow_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = wexbrowse_module();
     wc.lpszClassName = SLIDESHOW_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);

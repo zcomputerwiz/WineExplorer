@@ -1,7 +1,8 @@
 # P3b subsystem extraction
 
-Shared resources, themeui, msgina, stobject, netshell and wzcdlg accepted October 13, 2026. Other planned subsystem extractions
-are pending; P4 repository restructure follows their acceptance.
+Shared resources, themeui, msgina, stobject, netshell, wzcdlg, wexsearch and
+wexbrowse accepted October 13, 2026. P3b is complete; P4 repository restructure
+is next.
 
 `src/dlls/wexres` owns the icon/bitmap packs, namespace lookup and resource
 templates formerly in wexshell. `src/include/wexres.h` defines the exports.
@@ -37,10 +38,9 @@ the accepted P3 build; this isolated step has not installed a new runtime.
 No new ISO/install test is claimed for this resource extraction. P4 requires
 a fresh clone, complete build/install, ISO and interactive installer test.
 
-## Remaining extraction order
+## Extraction scope
 
-wexsearch,
-then wexbrowse. Keep clock/taskband/Alt+Tab in wexshell. Every split must pass
+Keep clock/taskband/Alt+Tab in wexshell. Every split must pass
 its feature check and visual comparison; optional modules must not prevent
 shell startup when absent. Record any seam that is too wide instead of
 forcing it across DLLs.
@@ -193,3 +193,37 @@ Companion capture match P3 exactly except the masked taskbar clock.
 Evidence: p3b-search-full.log, p3b-search-visible.log,
 p3b-search-visual-final.log and checks/search/{standalone,present,absent}.txt.
 Fork configure/header integration is pushed as 1743400e44.
+
+## Browser module
+
+src/dlls/wexbrowse owns explorer.c, browser_ui, browser_taskpane, browser.h
+and slideshow. WexBrowseOpen takes folder/selection strings and flags; all
+browser structs, COM callbacks and window procedures remain private.
+The core retains command parsing and applet dispatch, and holds the optional
+browser DLL while its classes/callbacks can be live. If loading fails, its
+command export returns FALSE so stock explorer handles the command.
+Browser images remain in shared wexres; class instances belong to wexbrowse.
+
+The optional search client adapter has one source copy in wexsearch.
+Wine's PARENTSRC compiles it into both callers, each with its own private
+load-once state. This shares implementation without cross-DLL globals or
+a runtime dependency on wexshell. The browser standalone probe confirms
+that it never loads wexshell.
+
+Scope refinement: toolbars.c is exclusively taskbar toolbar code (ordering,
+resizing, settings, search edit and task button space), rather than browser
+chrome. Moving it would expose taskbar state across the boundary. It stays
+with the taskband in wexshell. Browser-specific bars are in browser_ui and
+move together. Slideshow has only browser consumers, so it moves with them.
+
+Module/full builds pass. Three standalone cases (filesystem folder,
+My Computer and My Documents) pass class ownership, display bounds, bars,
+task pane, taskband icon, Search Companion open/close and window teardown.
+Optional startup passes with the DLL present and disabled. The actual core
+command export returns FALSE when the browser is unavailable and leaves no
+empty XP window, preserving host fallback. Search tests still pass after
+the move. Four full desktop/taskbar/tray captures plus Search Companion match
+P3 exactly after masking only the changing taskbar clock.
+Evidence: p3b-browser-build.log, p3b-browser-final.log,
+p3b-browser-header.log and checks/browser/{standalone,present,absent}.txt.
+The header-only cleanup rebuild passes. Fork integration is d0a0af0681.

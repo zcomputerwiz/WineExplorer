@@ -35,14 +35,14 @@
 
 #include "wextheme.h"
 #include "browser.h"
-#include "shellres.h"
+#include "wexres.h"
 #include "slideshow.h"
 
 #define TASKPANE_CLASS L"BrowserTaskPane"
 #define MAX_LINES  40
 #define LINK_ICON  16
 
-extern HINSTANCE explorer_hInstance;
+#include "module.h"
 
 typedef struct
 {
@@ -888,7 +888,7 @@ HWND taskpane_create(explorer_info *info)
     WNDCLASSW wc = {0};
 
     wc.lpfnWndProc = pane_proc;
-    wc.hInstance = explorer_hInstance;
+    wc.hInstance = wexbrowse_module();
     wc.lpszClassName = TASKPANE_CLASS;
     wc.hCursor = LoadCursorW(NULL, (const WCHAR *)IDC_ARROW);
     RegisterClassW(&wc);
@@ -896,7 +896,7 @@ HWND taskpane_create(explorer_info *info)
     g_pane.info = info;
     g_pane.hot_line = g_pane.hot_group = -1;
     return CreateWindowExW(0, TASKPANE_CLASS, NULL, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_VSCROLL, 0, 0, 100, 100,
-                           info->main_window, NULL, explorer_hInstance, NULL);
+                           info->main_window, NULL, wexbrowse_module(), NULL);
 }
 
 void taskpane_update(explorer_info *info)

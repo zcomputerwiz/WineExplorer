@@ -15,9 +15,11 @@ stobject and netshell; the shell enumerates
 ShellServiceObjectDelayLoad and tolerates missing optional DLLs/services.
 Their implementation and interfaces live under src/. Configure
 and header installation entries are retained on wineexplorer/11.19 through
-1743400e44. Search now lives in optional wexsearch with an opaque UI interface;
+d0a0af0681. Search now lives in optional wexsearch with an opaque UI interface;
 its class/resource ownership, file search, cancellation and absent-module
-checks pass. See refactor/P3B.md for acceptance and the remaining extractions.
+checks pass. Browser windows now live in optional wexbrowse behind one
+string/flag entry point; taskbar toolbars remain core. See refactor/P3B.md
+for acceptance and the remaining work.
 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
