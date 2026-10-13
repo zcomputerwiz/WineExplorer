@@ -67,3 +67,53 @@ that compositor extension. Zone integration can proceed independently.
 - git sparse-checkout add --no-cone rejected the unknown option; add uses the
   existing mode. The following read/patch for include/Makefile.in failed since
   it had not been populated. sparse-checkout add include/Makefile.in works.
+- First native /shell session exited with "Failed to create PIDL for Z:\\shell".
+  The updated host executable/prefix hashes match, but wexshell's command
+  dispatcher intercepts commands before host parsing and still treats /shell
+  as a browser path. Exclude the /shell token just as /desktop is excluded.
+  Its compositor and nested Xvfb stopped normally. A screenshot attempt after
+  exit failed to create display, then SCP/view failed because no PNG existed.
+- The candidate fork commit staged include/Makefile.in but Git refused the new
+  include/wexwayland.h outside the sparse patterns. The shell/driver commit
+  ce019d67c7 and host commit d7d46937a3 were followed immediately by explicit
+  git add --sparse and header commit 996f87f33f. Candidate head is complete and
+  pushed; production pin is unchanged. Never use the intermediate candidate
+  without its header commit.
+- Native /shell now starts successfully at 1024x768. The public-resource desktop
+  and taskbar are visible at the bottom; candidate driver and wexshell loaded.
+  Session /srv/protonexplorer/wex-wayland-l1/checks/sessions/session.4h50U8
+  is running nested on Xvfb :20 for acceptance; shell/activation checks ongoing.
+- Archive generation later failed on include/wexwayland.h after a sparse pattern
+  update hid the newly tracked header. PowerShell continued with a partial tar;
+  only the isolated lab source was affected. The generator now reads tracked
+  sparse-hidden content from HEAD, and a complete tar/rebuild was repeated.
+- The first action sequence failed its focus assertion: commands read state
+  immediately and the new probe launched another Notepad while an earlier one
+  remained. Reuse an existing Notepad, poll foreground state after real clicks,
+  and wait only for the finite topmost client rather than the long-lived probe.
+  Activation now passes, including WS_EX_NOACTIVATE after the two-line generic
+  win32u click-style check. Windows behavior reference:
+  https://devblogs.microsoft.com/oldnewthing/20240919-00/?p=110283
+  That fix and X11 fallback validation are still candidate work.
+- Failed reads of warp/maximized reports and SCP/view of topmost.png occurred
+  after the failed assertion stopped their generation; no image acceptance was
+  claimed. A small patch using the wrong ${wine_bin} text failed to match the
+  fixture; corrected to its actual $wine_bin spelling.
+- A later docs/DWM* and docs/COMPOSITION* rg call failed because PowerShell
+  does not expand those file globs for rg. Use a directory with -g instead.
+- Successful checks: work area (0,0)-(1024,738), taskbar (0,738)-(1024,768);
+  physical clicks select red/blue, green NoActivate preserves red;
+  topmost yellow overlays maximized Notepad but not the taskbar; pointer warp
+  returns (950,600). Restore/map activation is now deferred until a buffer commit,
+  with a Win32 foreground check to discard stale activation requests. Retesting.
+- Taskbar-click minimize initially restored Notepad immediately. Trace shows the
+  driver's preexisting heuristic treats any configure while minimized as a
+  compositor restore. For private wex views, acknowledge such configures without
+  SC_RESTORE: this compositor restores only on explicit activation. Actual taskbar
+  clicks now pass minimize (IsIconic=1) and restore (IsIconic=0, foreground Notepad);
+  keyboard Alt+F opens its File menu. Status TASKBAR_CHECK_PASSED.
+- The first X11 comparison failed its NoActivate assertion, then the adjusted run
+  failed the tray probe. The named /desktop=X11Check applies only to Explorer;
+  terminal probes were joining a different default desktop. Set the prefix's
+  Explorer Desktop/Desktops registry entries before launching every process;
+  repeat the old/new X11 comparison and the original 800x600 smoke fixture.
