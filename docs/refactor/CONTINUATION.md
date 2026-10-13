@@ -54,6 +54,20 @@ preserved stock stubs remain available. No installed runtime was changed.
 
 Failed commands during this prototype:
 
+- update-p4-build-docs.py failed at README's box-drawing tree marker with
+  ValueError: substring not found. Windows Python's default encoding is
+  cp1252, while README is UTF-8. No docs were written by that script.
+  PowerShell continued and committed the independently verified package/
+  session/build-script changes as d74810c2. Use explicit UTF-8 reads/writes
+  in this docs script, then commit its documentation changes separately.
+
+- The first fresh recursive clone failed with could not read Username for
+  https://github.com: No such device or address. The build VM lacks private
+  WineExplorer repository credentials (the Wine fork clone works anonymously).
+  Use a hash-verified Git bundle from the committed main branch as the main
+  clone transport; --recurse-submodules still fetches the actual pinned public
+  Wine fork. No access token is copied into the VM.
+
 - The first BUILDING/README/installer-docs bundle failed at JavaScript parsing:
   Markdown backticks remained inside a saved Python script literal. No edits,
   commit or build start executed. Replaced all such characters with the

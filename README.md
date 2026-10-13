@@ -39,11 +39,15 @@ D:\DeepThought\Projects\WineExplorer\
 │   ├── reactos/            # ReactOS shell and explorer implementation
 │   └── wayland/            # Wayland protocol and core libraries
 ├── scripts/                # Development, build, and runner scripts
-└── wine/                   # Active Wine codebase under development
-    ├── programs/explorer/  # Primary target: Wine Explorer desktop environment
-    ├── dlls/shell32/       # Shell API, desktop folder handling, shortcuts
-    ├── dlls/user32/        # Window management and message routing
-    └── dlls/winewayland.drv/ # Wayland driver integration
+├── src/                    # Owned shell, applet, program, header and theme source
+│   ├── dlls/               # wexshell, wexbrowse, wexsearch, applets and services
+│   ├── programs/           # logonui, setup, oobe, applications
+│   ├── include/            # Shared module interfaces
+│   └── resources/themes/   # Project-authored theme definitions
+└── wine/                   # Git submodule: retained zcomputerwiz/wine fork
+    ├── programs/explorer/  # Stock host with the versioned shell plugin hook
+    ├── dlls/shell32/       # Retained namespace and file-operation changes
+    └── dlls/win32u/        # Retained window/input changes
 ```
 
 ---
@@ -52,9 +56,11 @@ D:\DeepThought\Projects\WineExplorer\
 
 - **Windows XP**: the look and behavior are compared with a Windows XP VM. No Microsoft code or files are in this repository; genuine XP files used for local comparison stay on the developers' machines (see [docs/ASSETS.md](docs/ASSETS.md)).
 - **ReactOS / Open-Shell**: Open-source implementations used to study clean NT shell architecture, COM interfaces, and taskbar message handling.
-- **Wine**: The active base upstream tree where our extensions and enhancements are developed.
+- **Wine**: A pinned fork submodule carrying reviewed stock changes; project implementations live in `src/`.
 
 ---
+
+See [docs/BUILDING.md](docs/BUILDING.md) for recursive clone, assembly, build, VM sync and packaging.
 
 ## Core Components
 

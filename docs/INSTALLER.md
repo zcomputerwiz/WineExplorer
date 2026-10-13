@@ -25,14 +25,14 @@ Debian live-build toolchains.
 Existing live-build state requires `--clean`; incremental chroot reuse is not
 supported. The builder fails early instead of reusing package-stage markers
 with a bootstrap filesystem that lacks the kernel. Packaging also requires a
-configured `BUILD_DIR` and never falls back to copying `/usr/local` from the
+configured `BUILD_DIR` from the same checkout and never falls back to copying `/usr/local` from the
 build machine.
 
 ```sh
 cd ~/inst/build
 make -j4
 cd ~/inst
-sudo -n env BUILD_DIR="$HOME/inst/build" WORK_DIR=/home/wineuser/iso-build \
+sudo -n env BUILD_DIR="$HOME/src/build/wine64" WORK_DIR=/home/wineuser/iso-build \
     OUT_ISO="$HOME/inst/wineexplorer.iso" bash installer/build-iso.sh --clean
 ```
 

@@ -10,7 +10,7 @@ flock -n 9
 trap 'echo FRESH_BUILD_FAILED > "$root/build.status"' ERR
 echo FRESH_CLONING > "$root/build.status"
 if [ ! -d "$root/source" ]; then
-    git clone --recurse-submodules https://github.com/zcomputerwiz/WineExplorer.git "$root/source"
+    git clone --recurse-submodules "${PROJECT_SOURCE:-https://github.com/zcomputerwiz/WineExplorer.git}" "$root/source"
 fi
 git -C "$root/source" rev-parse HEAD > "$root/project.commit"
 git -C "$root/source/wine" rev-parse HEAD > "$root/wine.commit"
