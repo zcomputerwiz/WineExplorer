@@ -74,6 +74,18 @@ if [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -
     sleep 2
 fi
 
+# Install project-authored theme definitions without replacing user themes.
+THEME_DATA_DIR="${WEX_THEME_DATA_DIR:-/usr/local/share/wineexplorer/themes}"
+if [ -d "$THEME_DATA_DIR" ]; then
+    THEME_PREFIX_DIR="$WINEPREFIX/drive_c/windows/Resources/Themes"
+    mkdir -p "$THEME_PREFIX_DIR"
+    for theme_file in "$THEME_DATA_DIR/"*.theme; do
+        [ -f "$theme_file" ] || continue
+        theme_target="$THEME_PREFIX_DIR/$(basename "$theme_file")"
+        [ -e "$theme_target" ] || install -m644 "$theme_file" "$theme_target"
+    done
+fi
+
 # --- Winlogon: which shell?  (no prefix yet = first boot = the default)
 SHELL_CMD=""
 if [ -r "$WINEPREFIX/system.reg" ]; then

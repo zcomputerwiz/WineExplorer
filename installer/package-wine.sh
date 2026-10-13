@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-$HOME/build/wine64}"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/wine64}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/live-build/config/packages.chroot}"
 
 mkdir -p "$OUT_DIR"
@@ -18,6 +18,12 @@ if [ ! -f "$BUILD_DIR/Makefile" ]; then
 fi
 if [ "$(realpath "$BUILD_DIR")" = /home/wineuser/inst/build ]; then
     echo "The legacy inst/build directory must not run make install."
+    exit 1
+fi
+build_source=$(sed -n 's/^srcdir = //p' "$BUILD_DIR/Makefile" | head -1)
+case "$build_source" in /*) ;; *) build_source="$BUILD_DIR/$build_source" ;; esac
+if [ "$(realpath "$build_source")" != "$(realpath "$ROOT_DIR/wine")" ]; then
+    echo "BUILD_DIR belongs to another Wine source checkout: $build_source"
     exit 1
 fi
 
@@ -42,6 +48,8 @@ mkdir -p "$STAGE_WINE/usr/local"
 
 echo "Installing from $BUILD_DIR into staging..."
 make -C "$BUILD_DIR" install prefix=/usr/local DESTDIR="$STAGE_WINE" >/dev/null
+mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
+install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 
 # Remove development include headers to save ISO squashfs space
 rm -rf "$STAGE_WINE/usr/local/include"

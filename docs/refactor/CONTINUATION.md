@@ -54,6 +54,16 @@ preserved stock stubs remain available. No installed runtime was changed.
 
 Failed commands during this prototype:
 
+- The first BUILDING/README/installer-docs bundle failed at JavaScript parsing:
+  Markdown backticks remained inside a saved Python script literal. No edits,
+  commit or build start executed. Replaced all such characters with the
+  same placeholder used for Markdown fences, then applied the bundle.
+
+- Optional docs/BUILD.md was absent; installer/README.md read also failed.
+  Found installer guidance in docs/INSTALLER.md and CODEX_HANDOFF.md.
+  A positional scripts/wex-* rg search raised Windows OS error 123; reran
+  against scripts with -g filters instead.
+
 - A later P4 status/commit patch bundle again failed at JavaScript parsing
   because its String.raw context included Markdown backticks. No patch or
   commit executed. Used a plain-line anchor for STOCK_CHANGES and reapplied.
