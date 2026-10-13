@@ -46,6 +46,12 @@ The isolated assembled build is running (PID 1329961) at
 status wex-refactor-p2/build.status. Actual guest tree equality and patch hash
 passed before autoconf/configure. No installation occurs. P1 source/build and
 installed runtimes remain unchanged. See P2.md for next steps.
+Runtime probe compilation passed without diagnostics. The smoke runner is
+queued (PID 1425116, check-assembled.sh --wait-for-build); it waits for the
+full build to pass, then uses its own prefix/Xvfb display. Status/results are
+under wex-refactor-p2/checks, log /srv/protonexplorer/p2-check.log. Inspect
+the resulting desktop.png visually. At the latest check, BUILD_RUNNING and
+CHECK_WAITING_FOR_BUILD were reported; runtime acceptance is still pending.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
@@ -312,6 +318,12 @@ handle; real-name authorship and sign-off remain the user's manual step.
   argument. `python build/refactor/export-topics.py wizard-focus` and scp passed.
 
 ## Commands that failed or were interrupted
+
+An apply_patch update to P2.md failed with `Failed to find expected lines`
+for the context `installed VM runtimes are unchanged. Next: finish this build`
+followed by `and runtime verification before P3.` The actual first line begins
+`builds and all installed VM runtimes`. No edits were applied. Read the tail
+and reapplied using the exact second line as context; the update succeeded.
 
 During smoke-check preparation, `rg -n 'D1|D2|Xvfb|screenshot'
 docs/HANDOFF.md docs/CODEX_HANDOFF.md docs/TESTING.md scripts/vmtest.py`

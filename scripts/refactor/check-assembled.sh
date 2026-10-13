@@ -4,11 +4,20 @@
 # Run after build-assembled.sh; no installed runtime or user prefix is touched.
 set -euo pipefail
 root=/srv/protonexplorer/wex-refactor-p2
-test "$(cat "$root/build.status")" = BUILD_PASSED
 mkdir -p "$root/checks" "$root/prefixes"
 exec 9>"$root/check.lock"
 flock -n 9
 trap 'printf "%s\n" CHECK_FAILED > "$root/checks/status"' ERR
+if [ "${1:-}" = --wait-for-build ]; then
+    printf '%s\n' CHECK_WAITING_FOR_BUILD > "$root/checks/status"
+    for ((attempt=0; attempt<720; ++attempt)); do
+        state=$(cat "$root/build.status")
+        if [ "$state" = BUILD_PASSED ]; then break; fi
+        test "$state" != BUILD_FAILED
+        sleep 5
+    done
+fi
+test "$(cat "$root/build.status")" = BUILD_PASSED
 printf '%s\n' CHECK_RUNNING > "$root/checks/status"
 x86_64-w64-mingw32-gcc -Wall -Wextra "$root/checks/tray-layout-probe.c" -mwindows -o "$root/checks/tray-layout-probe.exe"
 cc -Wall -Wextra "$root/checks/linux-dialog-probe.c" -lX11 -o "$root/checks/linux-dialog-probe"
