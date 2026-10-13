@@ -13,7 +13,7 @@
 #   scripts/vm.sh ssh <cmd...>    run a command on the VM
 #   scripts/vm.sh cursor software|hardware   select Xorg cursor rendering (requires graphical-session restart)
 # Override with VM_KEY / VM_PORT / VM_USER if the environment differs.
-set -e
+set -eo pipefail
 KEY="${VM_KEY:-}"
 if [ -z "$KEY" ]; then
     if [ -f "/d/Projects/VirtualBox_VMs/vm_key" ]; then
@@ -38,11 +38,11 @@ sync)
     cd "$ROOT"; "$ROOT/scripts/fix-eol.sh" >/dev/null
     base="$(cat "$STAMP" 2>/dev/null || git rev-list --max-parents=0 HEAD | head -1)"
     {
-        git diff --name-only --diff-filter=AM "$base" -- wine src
+        git diff --no-renames --name-only --diff-filter=AM "$base" -- wine src
         git ls-files --others --exclude-standard -- wine src
         echo scripts/assemble.sh
     } 2>/dev/null | sort -u > /tmp/vm_sync_files
-    git diff --name-only --diff-filter=D "$base" -- wine 2>/dev/null | sed 's#^wine/##' > /tmp/vm_sync_deleted || true
+    git diff --no-renames --name-only --diff-filter=D "$base" -- wine 2>/dev/null | sed 's#^wine/##' > /tmp/vm_sync_deleted || true
     rm -f /tmp/vm_sync_local
     if [ -d "$LOCAL/ms-assets/wine" ]; then
         (cd "$LOCAL/ms-assets" && find wine -type f | sort) > /tmp/vm_sync_local
@@ -52,7 +52,7 @@ sync)
     n=$(wc -l < /tmp/vm_sync_files)
     echo "syncing $n files"
     if [ "$n" -gt 0 ]; then
-        tar -cf - -T /tmp/vm_sync_files | "${SSH[@]}" 'tar -xmf - -C ~/src'
+        python "$ROOT/scripts/sync-archive.py" /tmp/vm_sync_files | "${SSH[@]}" 'tar -xmf - -C ~/src'
     fi
     if [ -s /tmp/vm_sync_local ]; then
         # only those that differ on the VM, touched so what is built from them is rebuilt

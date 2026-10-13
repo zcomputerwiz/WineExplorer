@@ -23,3 +23,5 @@ for kind in dlls programs; do
         fi
     done
 done
+# Retained configure.ac contains project entries; configure is generated upstream output.
+(cd "$wine_root" && autoconf -f)

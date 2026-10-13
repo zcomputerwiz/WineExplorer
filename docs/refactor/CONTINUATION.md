@@ -319,6 +319,30 @@ handle; real-name authorship and sign-off remain the user's manual step.
 
 ## Commands that failed or were interrupted
 
+Dev sync first reported only 53 files and Autoconf CRLF warnings such as
+`AC_CHECK_HEADERS(\\\r): you should use literals`. The legacy helper's
+`git diff --diff-filter=AM` excluded rename destinations and fix-eol.sh only
+processed uncommitted changes, leaving committed Windows CRLF text intact.
+Added --no-renames and sync-archive.py (LF text plus Git file modes), restored
+the previous generated stamp 7c5f4628d50de2a8ffd516902c68fbb84a4e95c3, and
+resynced: 128 public files and 28 local-only artwork files updated without
+Autoconf warnings. Enabled pipefail so a failed archive cannot advance the
+stamp. No private artwork was read into or committed to public Git.
+
+Dev VM full build passed; vm.sh install and restart-shell completed. A live
+Luna desktop screenshot is under build/refactor/p3-dev-first.png. Installation
+reported `make: warning: Clock skew detected. Your build may be incomplete.`
+Read-only inspection found 323 old generated build files dated November 8,
+ahead of the guest's October 13 UTC clock; source has no future-dated files.
+Repair those generated artifacts and repeat verification before trusting this
+dev build. No system clock was changed. Existing user files were preserved.
+`tail ~/.wineexplorer-session.log` failed because that log path does not exist;
+use the session's actual configured log path. A later /proc/50073/maps read
+failed because the restarted transient desktop process had exited; re-query
+current PIDs rather than treating that stale PID as the shell.
+`Get-Content docs/COMPOSITION.md` failed because that document does not exist;
+the maintained composition instructions are in D2_TEST_REPORT.md.
+
 P3 `check-p3-fallback.sh` first failed compiling shell-plugin-probe.c with
 `x86_64-w64-mingw32-gcc -Wall -I "$root/source/include" ...`: this mixed Wine
 and MinGW headers (`unknown type name WINOLEAPI` in propidl.h), and ARRAY_SIZE
