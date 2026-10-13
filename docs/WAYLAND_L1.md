@@ -35,3 +35,16 @@ that compositor extension. Zone integration can proceed independently.
 - First compositor acceptance run failed with ModuleNotFoundError: PIL in
   tests/wex/verify.py. Install Debian python3-pil and rerun. The runner stopped
   its disposable headless compositor normally; no shipping session was touched.
+- The next compositor run reached the shell-layer pixel check but raised
+  IndexError: the output was still at the backend's default size because
+  wlr-randr was missing and the runner suppresses that command's failure.
+  Installed wlr-randr; the complete existing suite now passes 25/25.
+- Initial Wine driver compile rejected Unix swprintf and L-string arguments:
+  host wchar_t is 32-bit, Wine WCHAR is 16-bit. Use ASCII formatting and UTF-16
+  u literals. Linking then rejected RtlOpenCurrentUser, which is not exported
+  by Unix ntdll; use native token/SID lookup and NtOpenKey instead. Driver builds.
+- Reading src/dlls/wexshell/plugin.c failed; exports are in desktop.c.
+- The first placement capture still showed centered windows. Move config
+  initialization before toplevel creation, send the requested zone position
+  before its initial commit, and ignore the initial add-item position event.
+  Placement acceptance remains pending the corrected capture.
