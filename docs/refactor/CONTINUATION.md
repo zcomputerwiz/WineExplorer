@@ -52,9 +52,13 @@ next topic. `rename-topic.log` and `results/rename-source-notification/` hold
 eight expected baseline failures and zero fixed failures. All six topic suites
 pass. Disk has 11 GiB free; account for isolated prefixes before further builds.
 The active runner is `test-topic.sh ie-desktop-icon shell32 shelllink`, PID
-1321389 at launch. `ie-icon-topic.log` and `results/ie-desktop-icon/` hold evidence.
+1322526 at relaunch. `ie-icon-topic.log` and `results/ie-desktop-icon/` hold evidence.
 Its build-targets also rebuilds shdoclc; the new icon is exactly fork master's
 programs/iexplore/iexplore.ico. The runner stages new files as well as edits.
+Its update-prefix flag runs isolated wineboot -u before each test phase because
+ExtractIconEx opens the physical prefix DLL rather than the loaded build DLL.
+The shortcut worktree now has an uncommitted self-referencing-link test; apply
+that test-only delta to its existing VM topic after IE validation finishes.
 Battery validation completed: full info suite in both states, one expected
 failure before and none after. It uses scripts/refactor/power-fixture.sh and
 test-power-topic.sh through test-topic.sh's optional input/test-wrapper.sh.
@@ -88,6 +92,23 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* IE test compile failed because rpcndr.h defines small as char; local variable
+  `HICON large = NULL, small = NULL` expanded into invalid C. Renamed the two
+  variables large_icon/small_icon. Archived the failed build in
+  results/ie-desktop-icon-small-macro-failed, reversed tests, and reran. Runner
+  now traps command errors as COMMAND_FAILED rather than leaving a stale
+  BUILDING_REGRESSION status when no process remains.
+* IE fixed resource run still failed ExtractIconEx's count assertion: the DLL
+  copied into the prefix predated the new resource. wineboot -u in that prefix
+  changed its shdoclc.dll SHA256 from f7833def... to the build's 81ee2b82...;
+  installed runtimes were untouched. Added optional update-prefix before both
+  baseline and fixed runs, archived results as
+  ie-desktop-icon-stale-prefix-failed, reversed both patches, rebuilt master
+  and restarted. Do not refresh only the fixed phase if reusing a prefix.
+* `rg -n 'UINT WINAPI ExtractIconExW|ExtractIconExW' wine/dlls/shell32/iconcache.c wine/dlls/shell32/*.c`
+  failed os error 123 because rg received the wildcard literally in PowerShell.
+  Read the known file and used git grep for the other definition.
 
 * Initial shortcut run FIX_TEST_FAILED: SetPath used a simple PIDL identifying
   the temporary folder as a file, so target icon extraction still returned the

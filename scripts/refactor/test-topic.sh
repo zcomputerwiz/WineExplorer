@@ -21,6 +21,7 @@ mkdir -p "$root"
 exec 9> "$root/test-runner.lock"
 flock -n 9 || { echo 'Another topic runner holds the checkout/build lock.' >&2; exit 1; }
 mkdir -p "$output" "$root/prefixes"
+trap 'printf "%s\n" COMMAND_FAILED > "$output/status"' ERR
 printf '%s\n' WAITING_FOR_BASE_BUILD > "$output/status"
 for ((attempt=0; attempt<720; ++attempt)); do
     if [ -f "$root/base-build.status" ]; then break; fi
@@ -50,6 +51,11 @@ run_test()
 {
     local phase="$1"
     local target="dlls/$module/tests/x86_64-windows/$test_name.ok"
+    if [ -f "$input/update-prefix" ]; then
+        timeout 60 xvfb-run -a -s '-screen 0 1280x1024x24' \
+            "$WINELOADER" wineboot -u > "$output/$phase-prefix-update.log" 2>&1 9>&- || return $?
+        "$WINESERVER" -k || true
+    fi
     rm -f "$build/$target"
     if [ -f "$input/test-wrapper.sh" ]; then
         WEX_TEST_BUILD="$build" timeout 600 bash "$input/test-wrapper.sh" \
