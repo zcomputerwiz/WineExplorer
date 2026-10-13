@@ -33,8 +33,8 @@
 #include <uxtheme.h>
 
 #include "wine/debug.h"
-#include "theme_engine.h"
-#include "shellres.h"
+#include "wextheme.h"
+#include "wexres.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -276,6 +276,8 @@ static void apply_registry_sections(const WCHAR *path)
             apply_registry_section(path, sec, L"Software\\Classes", TRUE);
         else if (!wcsicmp(sec, L"Control Panel\\Cursors"))
             apply_registry_section(path, sec, L"", TRUE);
+        else if (!wcsicmp(sec, L"Control Panel\\Colors"))
+            apply_registry_section(path, sec, L"", FALSE);
     }
     HeapFree(GetProcessHeap(), 0, sections);
 }
@@ -379,9 +381,29 @@ BOOL theme_apply(THEME_CONFIG *cfg)
     return TRUE;
 }
 
-THEME_CONFIG *theme_get_current(void)
+void theme_get_current(THEME_CONFIG *config)
 {
-    return &current_theme;
+    *config = current_theme;
+}
+
+BOOL theme_apply_file(const WCHAR *path)
+{
+    THEME_CONFIG config;
+    DWORD attrs;
+    HWND tray;
+
+    if (!path || !*path) return FALSE;
+    attrs = GetFileAttributesW(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) return FALSE;
+    if (!theme_load_file(path, &config) || !theme_apply(&config)) return FALSE;
+    /* Reload the shell after all registry sections and wallpaper are applied. */
+    if ((tray = FindWindowW(L"Shell_TrayWnd", NULL))) PostMessageW(tray, WM_THEMECHANGED, 0, 0);
+    return TRUE;
+}
+
+void theme_set_start_menu_style(int style)
+{
+    current_theme.start_menu_style = style;
 }
 
 BOOL theme_is_visual_styles_active(void)
@@ -555,4 +577,18 @@ void theme_draw_raised_button(HDC hdc, const RECT *rc, BOOL pressed, BOOL focuse
         InflateRect(&r, -1, -1);
         DrawFocusRect(hdc, &r);
     }
+}
+
+void theme_refresh_wallpaper(void)
+{
+        DWORD size; WCHAR text[16];
+        /* the registry, not SPI_GETDESKWALLPAPER: user32 keeps this process's value when another process sets it */
+        size = MAX_PATH * sizeof(WCHAR);
+        if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"Wallpaper", RRF_RT_REG_SZ, NULL,
+                         current_theme.wallpaper_path, &size))
+            SystemParametersInfoW(SPI_GETDESKWALLPAPER,MAX_PATH,current_theme.wallpaper_path,0);
+        size=sizeof(text);
+        if(!RegGetValueW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",L"WallpaperStyle",RRF_RT_REG_SZ,NULL,text,&size)) current_theme.wallpaper_style=wcstol(text,NULL,10);
+        size=sizeof(text);
+        if(!RegGetValueW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",L"TileWallpaper",RRF_RT_REG_SZ,NULL,text,&size)) current_theme.tile_wallpaper=wcstol(text,NULL,10)!=0;
 }

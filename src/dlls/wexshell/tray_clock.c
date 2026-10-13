@@ -35,7 +35,7 @@
 #include <shlobj.h>
 #include <uxtheme.h>
 
-#include "theme_engine.h"
+#include "wextheme.h"
 #include "tray_clock.h"
 #include "taskbar_props.h"
 #include "module.h"

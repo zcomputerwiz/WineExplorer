@@ -32,7 +32,7 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 
-#include "theme_engine.h"
+#include "wextheme.h"
 #include "taskbar_props.h"
 #include "toolbars.h"
 #include "shellfolders.h"

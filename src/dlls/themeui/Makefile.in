@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE = themeui.dll
+IMPORTLIB = themeui
+IMPORTS = user32 gdi32 advapi32
+DELAYIMPORTS = wexres shell32 shlwapi uxtheme winmm
+SOURCES = theme_engine.c

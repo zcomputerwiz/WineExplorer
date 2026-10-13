@@ -33,7 +33,7 @@
 #include <vsstyle.h>
 #include <vssym32.h>
 
-#include "theme_engine.h"
+#include "wextheme.h"
 #include "browser.h"
 #include "shellres.h"
 #include "slideshow.h"

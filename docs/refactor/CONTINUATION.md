@@ -3,11 +3,77 @@
 October 13 P3b shared resources accepted: the build VM has a separate source/build under
 `/srv/protonexplorer/wex-refactor-p3b`. The full build, runtime and screenshot
 checks pass; see P3B.md. Wine fork build integration is pushed as bd86fda234.
-No installed runtime/session was changed. Next: themeui and msgina extraction,
+No installed runtime/session was changed. Themeui is also accepted (P3B.md),
+including direct Display Properties Apply and actual Classic palette rendering.
+Next: msgina extraction,
 then remaining P3b modules, P4, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
 Failed commands during this prototype:
+
+- A work-order status apply_patch failed because its context ended midway
+  through the actual long line. No change was applied. Reapplied with the
+  complete line; the accepted themeui status update succeeded.
+
+- The first post-persistence theme runner recorded THEME_CHECK_FAILED despite
+  a zero-failure probe and a saved screenshot. Its outer 180-second timeout is
+  a possible cause, but the log did not preserve the exit reason; do not claim
+  that run passed. A separate `bash -x check-theme.sh` rerun exited normally
+  and wrote THEME_CHECK_PASSED. The captured desktop pixel is RGB(12,34,56).
+  All four final baseline screenshots have zero changed pixels above the clock.
+
+- Two Windows OpenSSH reads of the build VM stalled during public-key
+  authentication despite IPQoS=none. Cancelled the read-only sessions with
+  Ctrl+C; no guest command ran in those sessions. A verbose third connection
+  eventually authenticated after the stall. Git's bundled
+  `C:/Program Files/Git/usr/bin/ssh.exe` connects immediately and is the current
+  fallback (same key/port, no guest SSH changes). `Get-Process VirtualBoxVM`
+  failed because these VMs run as VBoxHeadless; queried those actual processes.
+  All four VMs remain running; only isolated prefixes are used by tests.
+
+- After a successful theme rebuild, the capture runner ended with
+  `capture-shell.sh: line 53: unexpected EOF while looking for matching '"'`.
+  I had copied an updated capture helper over the running script, changing
+  its offsets while Bash was reading it. `bash -n` passes on both local/remote
+  complete files. Restarted only the isolated capture/theme tests after the
+  first runner exited. Do not overwrite a script while it is executing.
+
+- The first theme UI probe reported failure creating its .theme fixture and
+  consequently could not discover it. Its standalone MinGW `swprintf` used
+  `%s` for a WCHAR string; changed it to standard `%ls` and placed the fixture
+  under the isolated user's APPDATA theme directory. The corrected fixture is
+  discovered and the Themes page Apply/list refresh work.
+- The probe's assertion that its windowless process immediately observes another
+  process's SetSysColors failed. Wine caches colors per process (the existing
+  engine has theme_sync_colors for this reason). Check the persisted color and
+  the actual shell's rendered desktop instead; do not change product color
+  behavior to satisfy that windowless probe.
+- The corrected registry assertion exposed a real theme-engine gap:
+  apply_registry_sections imported cursors/sounds/icons but skipped Colors;
+  SetSysColors alone uses temporary values. The shell's existing
+  theme_sync_colors subsequently reloaded the previous persistent palette.
+  Persist the theme's Colors section alongside its other registry sections so
+  Classic colors survive the required cross-process reload. Validate actual
+  desktop rendering with the fixture after this fix.
+- The first theme screenshot run stalled in wineboot with `unimplemented
+  function themeui.dll.theme_init`, although explicit LoadLibrary/GetProcAddress
+  in the fresh theme prefix found working exports. Switched this required engine
+  to ordinary imports in wexshell and desk.cpl (its own shell32 dependencies
+  remain delayed); rebuilding and retesting before acceptance. Prior visual
+  status files were stale, so the capture helper now clears images and marks
+  running/failure explicitly before every run.
+
+- `python build/refactor/extract-theme.py` stopped at its no-shared-state
+  assertion after moving the two source/header files: the byte replacement
+  expected LF but the Windows working file used CRLF. No C transformation was
+  written before the assertion. Made the initial moves restartable and
+  normalized input bytes before the replacement, then reran successfully.
+- The first theme configure failed: `explorer_private.h:24: error:
+  theme_engine.h: No such file or directory`. The extraction had updated C
+  includes but missed the private header. Changed it to wextheme.h; configure,
+  themeui, shell, desk.cpl and the full build pass.
+- `git diff --check` found trailing whitespace at appearance_page.c:150 after
+  removing its obsolete COPYDATASTRUCT declaration. Removed the trailing space.
 
 - `rg -n 'resource.h|shellres|shellfolder' wine/dlls/desk.cpl/*.c` and
   `rg -n 'WexResModule' src/dlls/wexshell/*.c` reported Windows filename syntax

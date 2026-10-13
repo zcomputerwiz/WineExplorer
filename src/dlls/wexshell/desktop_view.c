@@ -40,7 +40,7 @@
 
 #include "wine/debug.h"
 #include "resource.h"
-#include "theme_engine.h"
+#include "wextheme.h"
 #include <wincodec.h>
 #include "desktop_view.h"
 #include "shellfolders.h"
@@ -215,7 +215,8 @@ void desktop_view_refresh(void)
     int row = 0, col = 0;
     WCHAR user_desktop[MAX_PATH];
     WCHAR common_desktop[MAX_PATH];
-    THEME_CONFIG *theme = theme_get_current();
+    THEME_CONFIG config, *theme = &config;
+    theme_get_current(theme);
 
     /* Theme notifications can arrive on a plain Wine desktop before the shell
      * view exists. Its grid dimensions are not initialized until creation. */
@@ -255,16 +256,8 @@ void desktop_view_refresh(void)
     /* 3. Reload wallpaper if configured */
     if (theme)
     {
-        DWORD size; WCHAR text[16];
-        /* the registry, not SPI_GETDESKWALLPAPER: user32 keeps this process's value when another process sets it */
-        size = MAX_PATH * sizeof(WCHAR);
-        if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"Wallpaper", RRF_RT_REG_SZ, NULL,
-                         theme->wallpaper_path, &size))
-            SystemParametersInfoW(SPI_GETDESKWALLPAPER,MAX_PATH,theme->wallpaper_path,0);
-        size=sizeof(text);
-        if(!RegGetValueW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",L"WallpaperStyle",RRF_RT_REG_SZ,NULL,text,&size)) theme->wallpaper_style=wcstol(text,NULL,10);
-        size=sizeof(text);
-        if(!RegGetValueW(HKEY_CURRENT_USER,L"Control Panel\\Desktop",L"TileWallpaper",RRF_RT_REG_SZ,NULL,text,&size)) theme->tile_wallpaper=wcstol(text,NULL,10)!=0;
+        theme_refresh_wallpaper();
+        theme_get_current(theme);
         desktop_view_load_wallpaper(theme->wallpaper_path);
     }
 
@@ -423,7 +416,8 @@ void desktop_view_load_wallpaper(const WCHAR *path)
 
 static void draw_wallpaper(HDC hdc, int screen_w, int screen_h)
 {
-    THEME_CONFIG *theme = theme_get_current();
+    THEME_CONFIG config, *theme = &config;
+    theme_get_current(theme);
     HBRUSH bg_brush = CreateSolidBrush(GetSysColor(COLOR_BACKGROUND));
     RECT screen_rc = {0, 0, screen_w, screen_h};
 

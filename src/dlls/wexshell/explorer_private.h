@@ -21,7 +21,7 @@
 #ifndef __WINE_EXPLORER_PRIVATE_H
 #define __WINE_EXPLORER_PRIVATE_H
 
-#include "theme_engine.h"
+#include "wextheme.h"
 
 #include "desktop_view.h"
 #include "taskband.h"

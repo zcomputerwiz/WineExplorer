@@ -100,7 +100,11 @@ void theme_cleanup(void);
 
 BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *out_config);
 BOOL theme_apply(THEME_CONFIG *config);
-THEME_CONFIG *theme_get_current(void);
+/* Copy current settings; callers never receive writable DLL state. */
+void theme_get_current(THEME_CONFIG *config);
+void theme_set_start_menu_style(int style);
+void theme_refresh_wallpaper(void);
+BOOL theme_apply_file(const WCHAR *path);
 
 BOOL theme_is_visual_styles_active(void);
 int theme_taskbar_first_row(void);   /* height of the first row of the taskbar */

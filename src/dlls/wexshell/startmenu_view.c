@@ -38,7 +38,7 @@
 #include <wexhost.h>
 
 #include "resource.h"
-#include "theme_engine.h"
+#include "wextheme.h"
 #include "desktop_view.h"
 #include "shellfolders.h"
 #include "shellres.h"
@@ -2196,7 +2196,8 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
 
 void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
 {
-    THEME_CONFIG *theme = theme_get_current();
+    THEME_CONFIG config, *theme = &config;
+    theme_get_current(theme);
     TASKBAR_SETTINGS *settings;
     int style = THEME_STARTMENU_CLASSIC;
 

@@ -20,6 +20,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "wextheme.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <shlwapi.h>
@@ -90,9 +91,7 @@ INT_PTR CALLBACK theme_page_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
         }
         if(((NMHDR *)lp)->code==PSN_APPLY && dirty)
         {
-            COPYDATASTRUCT data={WEX_APPLY_THEME,(lstrlenW(selected)+1)*sizeof(WCHAR),selected};
-            HWND tray=FindWindowW(L"Shell_TrayWnd",NULL);
-            if(!selected[0] || !tray || !SendMessageW(tray,WM_COPYDATA,(WPARAM)hwnd,(LPARAM)&data))
+            if (!theme_apply_file(selected))
             {
                 MessageBoxW(hwnd,L"The selected theme could not be applied.",L"Display Properties",MB_OK|MB_ICONEXCLAMATION);
                 SetWindowLongPtrW(hwnd,DWLP_MSGRESULT,PSNRET_INVALID_NOCHANGEPAGE);

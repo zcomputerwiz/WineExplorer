@@ -33,7 +33,7 @@
 #include <uxtheme.h>
 #include <shlwapi.h>
 
-#include "theme_engine.h"
+#include "wextheme.h"
 #include "taskband.h"
 #include "taskbar_props.h"
 #include "linux_windows.h"

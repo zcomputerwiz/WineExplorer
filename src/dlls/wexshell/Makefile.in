@@ -1,5 +1,5 @@
 MODULE    = wexshell.dll
-IMPORTS   = wexres rpcrt4 user32 gdi32 advapi32 win32u
+IMPORTS   = themeui wexres rpcrt4 user32 gdi32 advapi32 win32u
 DELAYIMPORTS = wexhost msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32 version gdiplus
 
 # the XP name, which the taskbar's group buttons and Task Manager show
@@ -40,7 +40,6 @@ SOURCES = \
 	taskband.c \
 	toolbars.c \
 	taskbar_props.c \
-	theme_engine.c \
 	tray_clock.c \
 	trayvol_dialog.c \
 	uac_agent.c \

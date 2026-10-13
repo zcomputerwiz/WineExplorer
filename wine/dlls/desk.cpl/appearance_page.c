@@ -20,6 +20,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include "wextheme.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <uxtheme.h>
@@ -146,7 +147,7 @@ static BOOL apply_appearance(HWND hwnd)
 {
     WCHAR dir[MAX_PATH],path[MAX_PATH],current[MAX_PATH],section[4096];
     WCHAR wallpaper_style[16]; PREVIEW_DATA live;
-    DWORD bytes=sizeof(current); int style,color; COPYDATASTRUCT data;
+    DWORD bytes=sizeof(current); int style,color;
     if(pending.theme_path[0])
     {
         typedef HRESULT (WINAPI *OPEN)(LPCWSTR,LPCWSTR,LPCWSTR,HANDLE *,DWORD);
@@ -178,8 +179,7 @@ static BOOL apply_appearance(HWND hwnd)
         GetPrivateProfileSectionW(L"Control Panel\\Colors",section,4096,classic[color]);
         if(!WritePrivateProfileSectionW(L"Control Panel\\Colors",section,path)) return FALSE;
     }
-    data.dwData=WEX_APPLY_THEME; data.cbData=(lstrlenW(path)+1)*sizeof(WCHAR); data.lpData=path;
-    return SendMessageW(FindWindowW(L"Shell_TrayWnd",NULL),WM_COPYDATA,(WPARAM)hwnd,(LPARAM)&data)!=0;
+    return theme_apply_file(path);
 }
 
 INT_PTR CALLBACK appearance_page_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)

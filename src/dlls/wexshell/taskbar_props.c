@@ -27,7 +27,7 @@
 #include "startprops.h"
 #include "notifyprops.h"
 #include "shellres.h"
-#include "theme_engine.h"
+#include "wextheme.h"
 #include "module.h"
 #include "wexres.h"
 
@@ -426,10 +426,9 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
         NMHDR *nmhdr = (NMHDR *)lparam;
         if (nmhdr->code == PSN_APPLY)
         {
-            THEME_CONFIG *theme = theme_get_current();
             HWND hTray = FindWindowW(L"Shell_TrayWnd", NULL);
             g_settings.start_menu_style = s_preview_style;
-            if (theme) theme->start_menu_style = s_preview_style;
+            theme_set_start_menu_style(s_preview_style);
             taskbar_settings_save();
             if (hTray) PostMessageW(hTray, WM_SETTINGCHANGE, 0, 0);
             return TRUE;

@@ -32,7 +32,7 @@
 #include <wexhost.h>
 
 #include "wine/debug.h"
-#include "theme_engine.h"
+#include "wextheme.h"
 #include "power_mgmt.h"
 #include "shellres.h"
 #include "resource.h"

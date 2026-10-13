@@ -1,6 +1,6 @@
 # P3b subsystem extraction
 
-Shared resources accepted October 13, 2026. Other planned subsystem extractions
+Shared resources and themeui accepted October 13, 2026. Other planned subsystem extractions
 are pending; P4 repository restructure follows their acceptance.
 
 `src/dlls/wexres` owns the icon/bitmap packs, namespace lookup and resource
@@ -39,8 +39,33 @@ a fresh clone, complete build/install, ISO and interactive installer test.
 
 ## Remaining extraction order
 
-themeui and msgina, stobject COM applets and network/wireless UI, wexsearch,
+msgina, stobject COM applets and network/wireless UI, wexsearch,
 then wexbrowse. Keep clock/taskband/Alt+Tab in wexshell. Every split must pass
 its feature check and visual comparison; optional modules must not prevent
 shell startup when absent. Record any seam that is too wide instead of
 forcing it across DLLs.
+
+## Theme engine acceptance
+
+`src/dlls/themeui` owns theme_engine.c. Its single interface is
+`src/include/wextheme.h`; callers receive copied settings, with explicit Start
+menu style and wallpaper-refresh operations. Display Properties calls the same
+engine directly for Themes/Appearance Apply. The existing shell IPC command
+remains compatible. This required engine uses ordinary imports; its dependent
+shell libraries remain delayed, preserving graphics startup order.
+
+The split exposed a Classic palette persistence gap: SetSysColors changed
+temporary values, but the shell's reload read the previous persistent colors.
+The engine now imports the theme's Colors section into HKCU with its other
+registry sections. This is the only intentional behavior correction in this
+step.
+
+The standalone themeui/shell/desk.cpl builds and complete Wine build pass.
+Four screenshots again match accepted P3 with zero changed pixels above the
+clock strip. `scripts/refactor/check-theme.sh` passes its UI/API probe with
+zero failures: state snapshots cannot mutate DLL globals; missing files are
+rejected; the Themes page discovers a new fixture, applies it, and refreshes
+its list after a rename. The real shell background pixel is the fixture's
+RGB(12,34,56), confirming cross-process rendering. Logs:
+`/srv/protonexplorer/p3b-theme-final2.log`, `p3b-theme-trace.log`, and
+`wex-refactor-p3b/checks/theme/result.txt`.
