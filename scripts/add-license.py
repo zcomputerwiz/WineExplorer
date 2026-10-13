@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Give every project-authored C/H/RC file the project's GPL-2.0-or-later header (see LICENSE.md).
 
-Targets: files added since the upstream Wine import, excluding code that came from ReactOS (programs/calc,
+Targets: project src files and Wine files added since the release tag, excluding code from ReactOS (programs/calc,
 programs/wmplayer) or upstream Wine (dlls/ntoskrnl.exe).  Files that already mention the GNU license are left alone,
 so older project files keep their LGPL-2.1-or-later header (compatible).
 Usage: scripts/add-license.py [--dry-run]
@@ -9,7 +9,7 @@ Usage: scripts/add-license.py [--dry-run]
 import re, subprocess, sys, os
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-BASE = "40c17e1"   # "Import upstream Wine baseline" (hash after the 2026-10-11 history rewrite)
+BASE = "wine-11.19"   # The real release tag in the Wine submodule.
 SKIP = re.compile(r"programs/(calc|wmplayer)/|ntoskrnl|/lang/")
 COPY = " * Copyright 2026 WineExplorer Desktop Environment Project"
 LICENSE = """ * SPDX-License-Identifier: GPL-2.0-or-later
@@ -30,10 +30,16 @@ LICENSE = """ * SPDX-License-Identifier: GPL-2.0-or-later
 
 
 def new_files():
-    out = subprocess.check_output(["git", "diff", "--name-only", "--diff-filter=A", BASE, "HEAD", "--", "wine"],
+    out = subprocess.check_output(["git", "ls-files", "--", "src"],
                                   cwd=ROOT, stderr=subprocess.DEVNULL).decode().split("\n")
-    out += subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", "wine"],
+    out += subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", "src"],
                                    cwd=ROOT, stderr=subprocess.DEVNULL).decode().split("\n")
+    wine = os.path.join(ROOT, "wine")
+    top = subprocess.check_output(["git", "-C", wine, "rev-parse", "--show-toplevel"]).decode().strip()
+    if os.path.normcase(os.path.realpath(top)) == os.path.normcase(os.path.realpath(wine)):
+        added = subprocess.check_output(["git", "-C", wine, "diff", "--name-only", "--diff-filter=A",
+                                         BASE, "HEAD"], stderr=subprocess.DEVNULL).decode().splitlines()
+        out += ["wine/" + path for path in added]
     return sorted({f for f in out if f.endswith((".c", ".h", ".rc")) and not SKIP.search(f)})
 
 

@@ -7,39 +7,6 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 wine_root="${1:-$root/wine}"
 wine_root="$(realpath "$wine_root")"
 test -f "$wine_root/configure.ac"
-for kind in dlls programs; do
-    for source in "$root/src/$kind/"*; do
-        [ -f "$source/Makefile.in" ] || continue
-        target="$wine_root/$kind/$(basename "$source")"
-        if [ -L "$target" ]; then
-            test "$(realpath "$target")" = "$(realpath "$source")" || {
-                echo "Unexpected module link: $target" >&2; exit 1;
-            }
-        elif [ -e "$target" ]; then
-            # Deleting old tracked files during a layout migration can leave an
-            # empty directory. Never replace a nonempty source tree.
-            if [ -d "$target" ] && rmdir "$target" 2>/dev/null; then
-                ln -s "$(realpath --relative-to="$(dirname "$target")" "$source")" "$target"
-            else
-                echo "Module destination already exists: $target" >&2
-                exit 1
-            fi
-        else
-            ln -s "$(realpath --relative-to="$(dirname "$target")" "$source")" "$target"
-        fi
-    done
-done
-for source in "$root/src/include/"*; do
-    [ -f "$source" ] || continue
-    target="$wine_root/include/$(basename "$source")"
-    if [ -L "$target" ]; then
-        test "$(realpath "$target")" = "$(realpath "$source")" || exit 1
-    elif [ -e "$target" ]; then
-        echo "Header destination already exists: $target" >&2
-        exit 1
-    else
-        ln -s "$(realpath --relative-to="$(dirname "$target")" "$source")" "$target"
-    fi
-done
+python3 "$root/scripts/assemble.py" --wine-root "$wine_root"
 # Retained configure.ac contains project entries; configure is generated upstream output.
 (cd "$wine_root" && autoconf -f)

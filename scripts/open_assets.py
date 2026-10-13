@@ -5,11 +5,12 @@ Every icon and bitmap in this table comes from ReactOS (references/reactos, GPL;
 from Wine, or is drawn here.  The genuine XP files are never committed: a developer with a local copy puts them over
 these (see docs/ASSETS.md).  Entries marked "wanted" still need art of their own; docs/ASSETS.md lists them.
 
-  open_assets.py build    write the files under wine/ and assets/open_assets.json
+  open_assets.py build    write files at their owned/stock locations and assets/open_assets.json
   open_assets.py list     print the table
 """
 import json, os, sys
 from PIL import Image, ImageDraw
+from source_layout import project_path
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 ROS = os.path.join(ROOT, "references", "reactos")
@@ -293,16 +294,7 @@ def placeholder(desc, size, bg, out):
 def build():
     manifest = []
     for target, (kind, src) in sorted(TABLE.items()):
-        if target.startswith("dlls/netshell/"):
-            relative = "src/" + target
-        elif target == "programs/explorer/rover.bmp":
-            relative = "src/dlls/wexsearch/rover.bmp"
-        elif target.startswith("programs/explorer/res_power/"):
-            relative = "src/dlls/msgina/res_power/" + target[len("programs/explorer/res_power/"):]
-        elif target.startswith("programs/explorer/"):
-            relative = "src/dlls/wexres/" + target[len("programs/explorer/"):]
-        else:
-            relative = "wine/" + target
+        relative = project_path(target)
         out = os.path.join(ROOT, relative)
         entry = {"path": relative, "kind": kind}
         if kind == "copy":

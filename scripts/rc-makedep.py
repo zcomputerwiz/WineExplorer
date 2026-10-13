@@ -16,7 +16,8 @@ STOCK = ("dlls/oledlg/", "programs/progman/")   # upstream Wine files we leave a
 
 
 def files():
-    out = subprocess.check_output(["git", "ls-files", "wine/*.rc", "src/*.rc"], cwd=ROOT).decode().split()
+    out = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard",
+                                   "src/*.rc"], cwd=ROOT).decode().split()
     return [f for f in out if not any(s in f for s in STOCK)]
 
 

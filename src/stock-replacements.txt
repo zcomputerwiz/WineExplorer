@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Project implementations replace these stock Wine stub modules.
+dlls/desk.cpl
+dlls/wlanui
+programs/wmplayer

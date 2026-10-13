@@ -32,7 +32,32 @@ module rebuild passes. No P3b runtime is installed. Next: P4 repository
 restructure, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
+P4 has started: 324 remaining module/header/theme paths moved to src. New
+assembly replacement guards pass disposable safety tests. P4.md records the
+incomplete checkpoint. Its prototype root is /srv/protonexplorer/wex-refactor-p4.
+Do not rerun package-p3b.py/build-p3b.sh against the changed main layout: old
+wine/ project paths no longer exist. The accepted P3b VM tree is intact.
+Use package-p4.py/build-p4-owned.sh for this prototype. The fork tag wine-11.19
+was pushed unchanged. The submodule and installer acceptance are still pending.
+
 Failed commands during this prototype:
+
+- P4 preparation then failed at checkout with fatal: unable to read tree
+  (d0a0af068194c306bb36659b35bb2d4e0eff43c1). The fetched commit was present
+  in the VM's source repository only through FETCH_HEAD. The shallow local
+  clone did not contain it and had no shared alternates file. Promoted the
+  fetched ref to origin/wineexplorer/11.19 and fetched that explicit ref into
+  the clone before retrying checkout. The helper now validates object presence
+  and does this fallback explicitly. Its no-checkout status read printed many
+  staged deletions; no source had been checked out or deleted there.
+
+- The P4 fork fetch produced no output for almost two minutes. A bounded curl
+  to github.com returned HTTP 200. Prepared a 403299-byte offline Git bundle
+  as a fallback. A targeted TERM of the previously observed git-remote-https
+  PID 1725241 returned No such process: that helper had handed off to index-pack.
+  Inspection showed the fetch still active, indexing 1341937 objects.
+  No process was terminated; the bundle was not imported. A subsequent ls of
+  p4/scripts failed because extraction follows the still-running fetch.
 
 - The first browser runtime suite passed its three standalone folder/UI cases
   but failed the unavailable-browser command assertion. The startup probe is
