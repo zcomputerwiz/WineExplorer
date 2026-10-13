@@ -1,0 +1,36 @@
+{
+  "source": "31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7",
+  "branch": "wineexplorer/11.19",
+  "head": "6ff1e41c77382035a17680b15428206b3f6b4e99",
+  "stock_pending": [
+    {
+      "path": "dlls/shell32/shlview.c",
+      "classes": [
+        "X"
+      ],
+      "target": "wineexplorer/11.19: XP shell views (split by STOCK_CHANGES view/watch/group rows)"
+    },
+    {
+      "path": "dlls/shell32/shlview_cmenu.c",
+      "classes": [
+        "X"
+      ],
+      "target": "wineexplorer/11.19: XP shell menus (split by STOCK_CHANGES menu/Properties/Send To rows)"
+    }
+  ],
+  "owned_files_pending": 436,
+  "intentional_noise_differences": [
+    ".gitattributes",
+    "configure",
+    "dlls/iyuv_32/tests/i420frame.bmp",
+    "dlls/mf/tests/nv12frame-crop-1d.bmp",
+    "dlls/mf/tests/nv12frame-crop-2d.bmp",
+    "dlls/mf/tests/nv12frame-crop.bmp",
+    "dlls/ndfapi/ndfapi.spec",
+    "dlls/wkscli/wkscli.spec",
+    "dlls/ws2_32/hosts",
+    "dlls/ws2_32/networks",
+    "dlls/ws2_32/protocol",
+    "dlls/ws2_32/services"
+  ]
+}

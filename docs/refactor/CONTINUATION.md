@@ -30,8 +30,16 @@ rebuild before any further P1 work. All twelve topics are pushed, no MRs opened.
 P0 has been refreshed after applying the tested battery initialization fix in
 main (31f7896a). Only one reviewed ntdll hunk changed; strict coverage still
 passes all 750 paths/1,876 hunks. P2's sparse checkout is build/refactor/fork,
-branch wineexplorer/11.19, retaining the original 72 B commits and first own
-stock commit 31dd0e88 (power capabilities). This branch is pushed; full P2
+branch wineexplorer/11.19, retaining the original 72 B commits and 73 subsequent
+commits through 6ff1e41c77 (all pushed). P2_SERIES.json records each commit/path;
+P2_PROGRESS.json shows only shlview.c and shlview_cmenu.c still differing in
+stock code, with 436 M paths reserved for assembly and twelve N differences.
+U, 47 X groups, H integration and two additional B backports are retained.
+Shared declarations were split into feature commits. The two remaining shell
+files need finer view/menu row splits before assembly/build acceptance.
+P1's additional shortcut cycle guard is not in the source pin; reconcile it
+before full P2 build rather than blindly cherry-picking the P1 topic.
+This branch is pushed; full P2
 assembly/build acceptance is pending. See P2.md for next steps.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
@@ -103,6 +111,20 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* During P2, `Get-Content build/refactor/fork/dlls/uxtheme/uxthemedll.h`
+  failed Cannot find path because the header was outside the sparse checkout.
+  Added both shell/theme headers to the sparse definition before editing.
+* `python build/refactor/retain-h-series.py` stopped at git diff --check (exit 2)
+  on the audited Explorer Makefile's added blank line at EOF. Reversed the exact
+  h-00 patch, then reran using core.whitespace=-blank-at-eof for that inherited
+  source whitespace; other whitespace errors still fail. All four H commits
+  then completed. No patch/commit was skipped or staged after the first failure.
+* Bare topic extraction/commit helpers are ignored scratch files under
+  build/refactor; authoritative inputs are the committed hash-pinned map.
+  scripts/refactor-series.py and refactor-progress.py are committed reusable
+  tools. Three deliberate negative inputs were rejected without emitting a
+  patch. Strict P0 coverage still passes; no VM build/install was run this turn.
 
 * P2's first power-case comparison asserted full text equality with main and
   failed on main's reworded comment and blank line. Fork-to-tested-upstream
