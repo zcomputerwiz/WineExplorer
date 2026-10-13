@@ -1,6 +1,6 @@
 # Work order (Gemini): Wayland compositor — labwc fork "wexcomp"
 
-Status: ready, 2026-10-13. This is the **compositor half** of `docs/WAYLAND_L1_WORKORDER.md` (its tasks 1–3). The
+Status: done, see docs/WAYLAND_COMPOSITOR.md. This is the **compositor half** of `docs/WAYLAND_L1_WORKORDER.md` (its tasks 1–3). The
 Wine half (tasks 4–6: Wine's Wayland driver and Explorer) belongs to Codex after its refactor reaches P4 — do not
 start it. Background: `docs/WAYLAND_PLAN.md`, `docs/WAYLAND_L0.md` (spike results, screenshots).
 
