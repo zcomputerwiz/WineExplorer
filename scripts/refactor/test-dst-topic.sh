@@ -25,6 +25,8 @@ for start in 0 1; do
     printf '%s\n' "$epoch" > "$fixture/clock"
     export WINETEST_DST_START="$start"
     printf 'Server DST fixture: initial summer %s\n' "$start"
+    # In-tree loaders prefer their build server over WINESERVER; start ours first.
+    "$WINESERVER" -p
     rm -f "$build/dlls/ntdll/tests/x86_64-windows/time.ok"
     "$@" || result=$?
     "$WINESERVER" -k || true

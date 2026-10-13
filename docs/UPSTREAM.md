@@ -1,6 +1,7 @@
 # Upstream Wine fixes
 
-P1 is in progress. Branches are based on fork master
+P1 acceptance passed: all twelve candidates build and their regression suites
+pass on the isolated 64-bit VM. Branches are based on fork master
 `081042ede6a165a36bf9988350dd584b440d7a3d`. No WineHQ merge requests have been
 submitted. The user opens them manually and supplies final real-name authorship
 and sign-off. Prepared commits use the existing Git identity `zcomputerwiz`
@@ -22,6 +23,7 @@ before submission.
 | [upstream/ie-desktop-icon](https://github.com/zcomputerwiz/wine/tree/upstream/ie-desktop-icon) | `1fab750bcaac50f29fe87c83b16058b22f85acd1` | shdoclc and shell32 build; full shelllink suite passes after isolated prefix refresh. Unpatched upstream fails three resource-190 assertions. |
 | [upstream/theme-token-whitespace](https://github.com/zcomputerwiz/wine/tree/upstream/theme-token-whitespace) | `acfcdd57b02e12f91c9f921cbb72b6d4065dc1ad` | uxtheme builds; full system suite passes. Unpatched upstream fails three font-token assertions. |
 | [upstream/timezone-cache](https://github.com/zcomputerwiz/wine/tree/upstream/timezone-cache) | `eaf8a9edca9bcdb556b5c466f8ea30dd22ad5498` | ntdll builds; full time suite passes with isolated same-offset rule changes. Unpatched upstream retains stale DST rules. |
+| [upstream/server-dst-bias](https://github.com/zcomputerwiz/wine/tree/upstream/server-dst-bias) | `5372d43d2f15c96582ce6756d7b4f09007d1de38` | server builds; full ntdll time suite passes with winter and summer warm starts. Unpatched upstream fails both transition assertions. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
@@ -193,11 +195,23 @@ check confirms the guest's actual /etc/localtime remains unchanged. The test
 skips when the optional fixture environment is absent; native Windows has not
 been tested. Fixture: scripts/refactor/timezone-fixture.sh in WineExplorer.
 
-## Remaining candidates
+### Server DST bias — ready-to-paste MR description
 
-| Topic | State/constraint |
-|---|---|
-| Server DST bias | Needs deterministic timezone-transition regression |
+The server caches its DST-adjusted shared timezone bias by year and standard
+offset. Crossing a DST boundary within the same year leaves that value stale.
+Recompute when tm_isdst changes as well.
+
+The regression reads KUSER_SHARED_DATA.TimeZoneBias while an isolated server
+clock changes between January and July 2026. It tests winter→summer→winter
+and summer→winter→summer. Validation: built server on current upstream; the
+full ntdll time suite under Xvfb fails the two transition assertions without
+the fix and passes with it. A server-only preload shim controls time(); real
+system time, monotonic clocks and the installed desktop remain untouched.
+The optional fixture uses a process-local POSIX TZ rule and skips when absent.
+Fixture code is in WineExplorer scripts/refactor/test-dst-topic.sh,
+server-clock.sh and fake-server-time.c. Native Windows has not been tested.
+
+## Evaluated candidates retained in the fork
 
 FileIconInit and endpoint volume remain fork patches pending smaller, complete
 API implementations. Shell-hook registration currently supports one receiver,

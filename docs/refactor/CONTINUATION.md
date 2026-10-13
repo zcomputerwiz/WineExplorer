@@ -17,14 +17,18 @@ came unchanged from wine-mirror because the user's fork has no tags.
 Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
 paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
 containing twelve independent fix candidates. P0's strict acceptance command passes.
-P1 has eleven validated/pushed branches: imagelist-alpha (985db3ef),
+P1 acceptance passed, with twelve validated/pushed branches: imagelist-alpha (985db3ef),
 empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c),
 drawtext-hideprefix (72feeed7), folder-iconfile (d942c4f4), and
 rename-source-notification (f7038cc7), power-capability-battery (aee72c04), and
 shortcut-target-icon (794d2015, fix 23e9baea), ie-desktop-icon (1fab750b),
-theme-token-whitespace (acfcdd57), and timezone-cache (eaf8a9ed).
-Next: finish isolated DST fixture validation. P2 and later phases have
-not started; these refactor phases precede the installer's layout update in P4.
+theme-token-whitespace (acfcdd57), timezone-cache (eaf8a9ed), and
+server-dst-bias (5372d43d). P2 is next; P3 and later phases have not started.
+These refactor phases precede the installer's layout update in P4.
+VM is clean on upstream/server-dst-bias. No runner is active; switch master and
+rebuild before any further P1 work. All twelve topics are pushed, no MRs opened.
+The original P0 source pin is still current; the battery initialization
+correction must be carried into main and the map refreshed before P2 equality.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
@@ -95,6 +99,18 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* Initial DST run had the same failures before and after: the in-tree loader
+  selects build_dir/server/wineserver before considering WINESERVER, so the
+  proxy's preload library was never used. Winter initial-state assertions
+  failed, correctly exposing that fixture error. Archived as
+  server-dst-bias-uninstrumented-server-failed, reversed both patches and
+  rebuilt master. Prestart the instrumented server with proxy -p; the loader
+  then connects to that server. Rerun: both initial states pass, exactly two
+  transition failures before, zero after. Each scenario kills/waits its server.
+* `head -65 ~/wex-refactor/build/wine` read ELF bytes because build/wine is a
+  binary, not a launcher script. Discarded that output; inspected the loader
+  source's exec_wineserver precedence instead. No file changed.
 
 * Initial theme fixture called OpenThemeDataFromFile, which is a stub on fork
   master (it is implemented only in our fork changes). Wine aborted at that
