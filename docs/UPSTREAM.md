@@ -15,6 +15,7 @@ before submission.
 | [upstream/empty-recycle-bin-icon](https://github.com/zcomputerwiz/wine/tree/upstream/empty-recycle-bin-icon) | `00d5a25fd4b118195f144553081b3c68e33c485e` | shell32 builds; full shelllink suite passes under Xvfb. Unpatched upstream fails the empty Recycle Bin icon assertion. |
 | [upstream/wizard-focus](https://github.com/zcomputerwiz/wine/tree/upstream/wizard-focus) | `94a5845ccd86f34ec858ae0004cc67190b517432` | comctl32 and comctl32_v6 build; full propsheet suite passes under Xvfb. Unpatched upstream fails eight new focus assertions. |
 | [upstream/drawtext-hideprefix](https://github.com/zcomputerwiz/wine/tree/upstream/drawtext-hideprefix) | `72feeed7325cd6b8122eac756c6d96d7d0b7f90a` | user32 builds; full text suite passes under Xvfb. Unpatched upstream renders seven unwanted underline pixels. |
+| [upstream/folder-iconfile](https://github.com/zcomputerwiz/wine/tree/upstream/folder-iconfile) | `d942c4f40647c599e01d4b8a4accdcc5420d37b1` | shell32 builds; full shlfolder suite passes under Xvfb. Unpatched upstream fails both literal and environment-expanded icon-path assertions. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
@@ -76,6 +77,20 @@ Validation: built user32 on current upstream; the full text suite under Xvfb
 fails the new assertion with seven differing pixels without the fix and passes
 with it.
 
+### Custom folder icon path — ready-to-paste MR description
+
+IExtractIconW reads desktop.ini's IconFile and IconIndex, but leaves the output
+icon path unset. Return IconFile after expanding environment variables, with
+the existing literal path as a fallback if expansion fails.
+
+The regression creates a temporary system/read-only folder with desktop.ini,
+obtains IExtractIconW through its parent shell folder, and checks literal and
+environment-expanded icon paths plus the negative resource index. It restores
+the test environment variable and removes the temporary folder.
+
+Validation: built shell32 on current upstream; the full shlfolder suite under
+Xvfb fails both new icon-path assertions without the fix and passes with it.
+
 ## Remaining candidates
 
 | Topic | State/constraint |
@@ -83,9 +98,8 @@ with it.
 | Server DST bias | Needs deterministic timezone-transition regression |
 | ntdll timezone cache | Needs localtime-change regression with host state isolated |
 | Power capability battery presence | Use stock battery-state helper; test battery/no-battery cases |
-| Folder custom IconFile | Literal/environment-expanded path regression running on isolated VM |
 | Shortcut target icon | Needs file/folder/explicit-icon fallback coverage |
-| Rename notifications | Needs source/destination watcher coverage |
+| Rename notifications | Source/destination/within-folder regression running on isolated VM |
 | Theme token whitespace | Needs a compatible, project-authored theme fixture |
 | Internet Explorer desktop icon 190 | Use Wine's own existing icon; needs resource/API regression |
 
