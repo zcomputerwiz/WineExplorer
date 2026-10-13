@@ -18,8 +18,9 @@ build/wayland/wine, branch codex/wayland-integration from production d0a0af0681.
 wex-window-v1 v1's sibling arguments are connection-local objects. Sharing the
 privileged socket does not permit a Wine process to reference another process's
 Wayland window object. Relative cross-process stacking needs a protocol extension
-with shared window handles; the user has been asked which team should implement
-that compositor extension. Zone integration can proceed independently.
+with shared window handles. The user approved Codex implementing the compositor
+extension on 2026-10-13. Candidate branch: codex/wex-window-handles in the Proton
+VM clone. No Gemini WSL or shipping desktop changes.
 
 ## Command failures and corrections
 
@@ -117,3 +118,58 @@ that compositor extension. Zone integration can proceed independently.
   terminal probes were joining a different default desktop. Set the prefix's
   Explorer Desktop/Desktops registry entries before launching every process;
   repeat the old/new X11 comparison and the original 800x600 smoke fixture.
+- The corrected X11 comparison passes normal activation and tray bounds. Old
+  runtime activates NoActivate green; the corrected core preserves red. The
+  800x600 smoke fixture first timed out during fresh-prefix wineboot (no tray
+  report yet); repeat on the initialized prefix passes tray bounds and all eight
+  native placement cases (checks/status CHECK_PASSED, x11-smoke-final.log).
+- Maximized Notepad initially left a four-pixel gap. Wayland configure sizes
+  describe xdg window geometry, not Win32's full rectangle. The first correction
+  used visible/window differences, which are zero here; using WS_THICKFRAME
+  alone then produced a two-pixel deficit. Include WS_BORDER, preserve the
+  maximized resize borders, and track xdg geometry offsets in zone coordinates.
+  The final correction sets the private maximized rectangle from SPI work area
+  plus the resize borders and clears SWP_NOMOVE. Raw Notepad rectangle is now
+  (-4,-4)-(1028,742); its visible frame exactly meets (0,0)-(1024,738).
+
+## Additional verification and continuation
+
+- Full isolated Wine build completed: full.status FULL_BUILD_PASSED. The new
+  private version 2 driver also compiles successfully; runtime checks pending.
+- Current 100% positions match X11 exactly. At 150%, six windows and a second
+  process match within one pixel. The fractional output is 1280x799 versus the
+  X11 1280x800 baseline; the checker now allows the requested one-pixel tolerance
+  for image dimensions as well as rectangles.
+- Native shell checks pass click activation, NoActivate, actual taskbar minimize
+  and restore, menu input, taskbar-over-topmost, alpha blending, and work area.
+  A pointer-entered probe reports SetCursorPos success and subsequent screen
+  motion (950,600). Stock labwc fallback opens Notepad and its File menu.
+- Mixed foot and XWayland windows render alongside maximized Notepad with the
+  taskbar visible. X11 smoke passes all eight native placement cases and tray
+  bounds. D1 own-compositor enable/disable passes five cycles. D2 records click,
+  requested shadow, opacity/color-key rendering and completed 900 ms blend
+  (elapsed 921 ms, styles/attributes restored); shadow pixels were not asserted.
+- Version 2 compositor builds; all existing v1 clients pass 25/25 checks.
+  Three independent version 2 clients now exercise relative ordering, self,
+  stale/unknown handles and cross-layer no-ops. These new checks are running.
+
+Additional command failures/corrections:
+
+- git apply from the Wine worktree could not open the relative host patch path;
+  use the absolute D:/DeepThought/Projects/WineExplorer/build/wayland path.
+- The fractional checker initially rejected 1280x799 output before examining
+  window rectangles. Allow image-size differences within --tolerance as above;
+  the repeated position comparison passes. Pillow warned that getdata will be
+  deprecated; use get_flattened_data when available with an older-version fallback.
+- Restoring owned source files left stale Git modification metadata but no diff.
+  git add of those exact four files refreshed the index; no source change staged.
+- Cached GetCursorPos alone did not establish actual pointer motion. Added an
+  entered-window warp probe and observed its motion event. The first alpha
+  capture was after its 30-second client exited; repeat while alive shows blend.
+- pgrep found no XWayland process because it starts lazily. ss identified the
+  compositor's X1 socket; launching xmessage on DISPLAY=:1 started it correctly.
+- rg is absent on the Debian build VM; use grep there. The exploratory test*.c
+  read also found no such filenames: actual clients are tests/wex/*-client.c.
+- cat full.status returned missing while the full build was still running; it
+  now contains FULL_BUILD_PASSED. Only the opt-in nested lab shell remains running
+  on Xvfb :20; shipping VM and build VM's existing X11 desktop are unchanged.
