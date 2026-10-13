@@ -16,6 +16,8 @@ def main():
     parser.add_argument('--class', dest='classification', choices=['U', 'X', 'H', 'B'], default='U')
     parser.add_argument('--target', help='Target before the first semicolon, exactly as in the map')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--hunk', action='append', default=[],
+                        help='Export only these exact SHA-256 hunks within the target (repeatable)')
     args = parser.parse_args()
     evidence = json.loads(args.evidence.with_suffix('.json').read_text())
     mapping = json.loads(args.map.read_text())
@@ -53,6 +55,13 @@ def main():
     if not args.output:
         parser.error('--target requires --output')
     files = groups[args.target]
+    if args.hunk:
+        requested = set(args.hunk)
+        available = {hashlib.sha256(h).hexdigest() for hunks in files.values() for h in hunks}
+        assert requested <= available, 'Selected hunk is absent from the reviewed target'
+        files = {path: [h for h in hunks if hashlib.sha256(h).hexdigest() in requested]
+                 for path, hunks in files.items()}
+        files = {path: hunks for path, hunks in files.items() if hunks}
     output = bytearray()
     for path, hunks in sorted(files.items()):
         if path in whole_files:

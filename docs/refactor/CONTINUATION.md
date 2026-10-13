@@ -308,6 +308,14 @@ handle; real-name authorship and sign-off remain the user's manual step.
 
 ## Commands that failed or were interrupted
 
+October 12 shell split: `python build/refactor/retain-shell-series.py` first
+stopped at `AssertionError: Plan must cover each generic hunk once` before
+changing the retained checkout. The initial plan omitted two generic shell
+keyboard/lookup hunks and the Properties size-formatting hunk. Added explicit
+groups for those hunks; the rerun committed all eleven groups and exact file
+comparison passed. The retained branch is pushed through 3fb5308752, with zero
+stock paths pending. No VM commands or builds ran during this step.
+
 1. In PowerShell:
 
    ```text

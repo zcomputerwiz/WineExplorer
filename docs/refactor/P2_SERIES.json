@@ -574,6 +574,83 @@
       "paths": [
         "dlls/uxtheme/uxthemedll.h"
       ]
+    },
+    {
+      "commit": "a5c6b2c667a90170ce9aa6db526391e8257c7eb0",
+      "subject": "shell32: Retain Shared Tiles, Thumbnails and Filmstrip helpers (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview.c"
+      ]
+    },
+    {
+      "commit": "ef705583c8d49f5d85320c3feaaa9cf3fbdd3fad",
+      "subject": "shell32: Retain Folder disk watching and selection-preserving synchronization (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview.c"
+      ]
+    },
+    {
+      "commit": "bc7d69c97ae4f2a26a9426954a2a66c3da44b5c7",
+      "subject": "shell32: Retain Tiles, My Computer drive groups and view selection (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview.c"
+      ]
+    },
+    {
+      "commit": "851644b2bb210bf0008f5c65ef5b9ec46d946129",
+      "subject": "shell32: Retain Filmstrip preview layout (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview.c"
+      ]
+    },
+    {
+      "commit": "daacc646f71bfeb7d489573eebeff3c5370203f9",
+      "subject": "shell32: Retain Thumbnail rendering, selection frames and image lifetime (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview.c"
+      ]
+    },
+    {
+      "commit": "30d9e98fdeef2111d576d84948871c8ee4579a25",
+      "subject": "shell32: Retain Shell clipboard keys and notification item lookup (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview.c"
+      ]
+    },
+    {
+      "commit": "099449f538db615ff0033ba4897ab8b30fcbeb50",
+      "subject": "shell32: Retain Shared Send To, Open With, New and shortcut menu helpers (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview_cmenu.c"
+      ]
+    },
+    {
+      "commit": "60c7e9c8378b94d416db3bc78223e10547fbe754",
+      "subject": "shell32: Retain Open With and Send To item menu routing (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview_cmenu.c"
+      ]
+    },
+    {
+      "commit": "5fea203b71f9e6b8a30e5676b1f960ebc41bd3f3",
+      "subject": "shell32: Retain Paste copy naming and Create Shortcut verbs (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview_cmenu.c"
+      ]
+    },
+    {
+      "commit": "6eb9d59a30d50754a0985b853d5a85303f703932",
+      "subject": "shell32: Retain XP Properties exact byte size formatting (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview_cmenu.c"
+      ]
+    },
+    {
+      "commit": "3fb530875227a2842216225041348c9435f440be",
+      "subject": "shell32: Retain XP background New, Paste Shortcut and Undo menu routing (STOCK_CHANGES).",
+      "paths": [
+        "dlls/shell32/shlview_cmenu.c"
+      ]
     }
   ]
 }

@@ -1,23 +1,8 @@
 {
   "source": "31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7",
   "branch": "wineexplorer/11.19",
-  "head": "6ff1e41c77382035a17680b15428206b3f6b4e99",
-  "stock_pending": [
-    {
-      "path": "dlls/shell32/shlview.c",
-      "classes": [
-        "X"
-      ],
-      "target": "wineexplorer/11.19: XP shell views (split by STOCK_CHANGES view/watch/group rows)"
-    },
-    {
-      "path": "dlls/shell32/shlview_cmenu.c",
-      "classes": [
-        "X"
-      ],
-      "target": "wineexplorer/11.19: XP shell menus (split by STOCK_CHANGES menu/Properties/Send To rows)"
-    }
-  ],
+  "head": "3fb530875227a2842216225041348c9435f440be",
+  "stock_pending": [],
   "owned_files_pending": 436,
   "intentional_noise_differences": [
     ".gitattributes",
