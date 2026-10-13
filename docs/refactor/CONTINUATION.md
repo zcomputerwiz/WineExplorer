@@ -313,6 +313,16 @@ handle; real-name authorship and sign-off remain the user's manual step.
 
 ## Commands that failed or were interrupted
 
+During smoke-check preparation, `rg -n 'D1|D2|Xvfb|screenshot'
+docs/HANDOFF.md docs/CODEX_HANDOFF.md docs/TESTING.md scripts/vmtest.py`
+reported `docs/TESTING.md: The system cannot find the file specified` because
+that document does not exist. Used the maintained probe table in HANDOFF.md.
+`rg -n 'ManageLinuxWindows|Composition|WexWmStart|WexWmSetWorkArea'
+wine/programs/explorer/*.c wine/dlls/wexhost/*.c scripts/vm.sh` reported invalid
+filename syntax on Windows because rg does not expand those positional globs.
+Corrected with `rg -n -g '*.c' ... wine/programs/explorer wine/dlls/wexhost`.
+Both were read-only searches; no VM/session changes resulted.
+
 P2 background launch command ended with `& echo \$!`; Bash therefore printed
 the literal `$!` instead of the PID. The build itself launched successfully.
 `pgrep -af build-assembled.sh` identified PID 1329961; no second runner was
