@@ -64,6 +64,23 @@ On all of them Wine apps run through XWayland by default; the Wayland driver is 
   windows across a VM boundary we do not have, copies frames, and its RDP layer (FreeRDP) is Apache-2.0.
 - **Cost**: wlroots breaks its API every release — pin a version, budget updates.
 
+### Borrow before writing (prior art, by need)
+
+| Need | Take from | License | How |
+|---|---|---|---|
+| The compositor itself | **labwc** | GPL-2.0-only | **Fork it** rather than grow tinywl: stacking WM, XWayland, layer-shell, foreign-toplevel, session-lock, screencopy, output management, keybindings, menus are done; rebasing on labwc releases also absorbs wlroots API churn. The compositor is its own program, so it simply stays GPL-2.0-only. |
+| Win32 window **positions** | **xx-zones-v1** (wayland-protocols, experimental, merged Feb 2026; KWin has a plugin, `kwin-zones`) | MIT (protocol) | Standard per-client coordinate space with `set_position` and position feedback. Implement it in our compositor and in Wine's Wayland driver — the driver part is then **upstreamable**, not a fork-only commit. |
+| Stacking, topmost band, roles (desktop, taskbar) | KDE **plasma-shell** / plasma-window-management protocols (plasma-wayland-protocols) | LGPL-2.1+ (XML) | Design reference for the part xx-zones lacks (it has no stacking); our `wex-window-v1` shrinks to stacking + topmost + roles. |
+| D2 effects: shadows, rounded corners, blur, fades | **scenefx** (drop-in `wlr_scene` replacement used by SwayFX); **Wayfire** plugins (animate, fade) | MIT | Shadows/fades without writing a renderer. |
+| Taskbar client (wexhost side) | **waybar** / **sfwbar** taskbar modules (wlr-foreign-toplevel client) | MIT / GPL-3.0 (sfwbar: reference only) | Client code for listing/activating/minimizing windows. |
+| Tray for Linux apps (Steam) — also useful on X11 now | **waybar** tray (StatusNotifierItem host), **snixembed** (SNI ↔ XEmbed bridge) | MIT / ISC | SNI host; snixembed lets old XEmbed-only apps show up too. |
+| Lock screen | **swaylock** (`ext-session-lock` client) | MIT | Pattern for logonui as the lock surface. |
+| Greeter on Wayland | **cage** (kiosk compositor) running the Wine logonui; **greetd** as an alternative to LightDM | MIT / GPL-3.0 (greetd: as a separate program only) | Logon screen without the full shell. |
+| Display settings backend (desk.cpl) | **wlr-randr**, **kanshi** (`zwlr_output_manager` clients) | MIT | Mode/position/scale apply-and-test logic. |
+| Screen capture for `GetDC(NULL)` / D2 capture | **grim** (screencopy client) | MIT | Capture path for the driver hook. |
+| Global shortcuts for apps | **xdg-desktop-portal-wlr** / **-hyprland** GlobalShortcuts | MIT / BSD-3 | Portal side; shell hotkeys stay compositor keybindings forwarded to Explorer. |
+| Test automation | wlroots **headless** backend + virtual pointer/keyboard (`wlrctl`, `ydotool`) | MIT / AGPL-3.0 (ydotool: tool only) | CI for the compositor without a display, like `scripts/vmtest.py` for X11. |
+
 ## Phases
 
 | Phase | Work | Size |
