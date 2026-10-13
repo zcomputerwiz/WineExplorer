@@ -1,0 +1,444 @@
+/*
+ * Explorer resources
+ *
+ * Copyright 2011 Jay Yang
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#include "windef.h"
+#include "winuser.h"
+#include "commctrl.h"
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+/* @makedep: explorer.ico */
+1 ICON "explorer.ico"
+
+STRINGTABLE
+{
+    IDS_EXPLORER_TITLE  "Wine Explorer"
+    IDS_PATHBOX_LABEL   "Address"
+    IDS_START_LABEL     "Start"
+    IDS_RUN             "&Run..."
+    IDS_EXIT_LABEL      "E&xit desktop"
+    IDS_EXIT_PROMPT     "Are you sure you want to close all programs and exit the virtual desktop?"
+    IDS_DESKTOP_TITLE   "Wine Desktop"
+}
+
+/* Taskbar Property Page (DLG_TRAY_OPTIONS of the Windows shell) */
+IDD_TASKBARPROP DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Taskbar"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Taskbar appearance", -1, 6, 6, 240, 104
+    CONTROL         "", IDC_TASKBAR_PREVIEW, "Static", SS_OWNERDRAW | SS_SUNKEN, 13, 18, 224, 23
+    AUTOCHECKBOX    "&Lock the taskbar", IDC_LOCKTASKBAR, 13, 45, 200, 10, WS_TABSTOP
+    AUTOCHECKBOX    "A&uto-hide the taskbar", IDC_AUTOHIDETASKBAR, 13, 58, 200, 10, WS_TABSTOP
+    AUTOCHECKBOX    "Keep the &taskbar on top of other windows", IDC_ONTOPTASKBAR, 13, 71, 200, 10, WS_TABSTOP
+    AUTOCHECKBOX    "&Group similar taskbar buttons", IDC_GROUPTASKBAR, 13, 84, 200, 10, WS_TABSTOP
+    AUTOCHECKBOX    "Show &Quick Launch", IDC_QUICKLAUNCH, 13, 97, 200, 10, WS_TABSTOP
+
+    GROUPBOX        "Notification area", -1, 6, 114, 240, 98
+    CONTROL         "", IDC_NOTIFY_PREVIEW, "Static", SS_OWNERDRAW | SS_SUNKEN, 13, 126, 224, 23
+    AUTOCHECKBOX    "Show the cloc&k", IDC_SHOWCLOCK, 13, 153, 200, 10, WS_TABSTOP
+    LTEXT           "You can keep the notification area uncluttered by hiding icons that you have not clicked recently.", -1, 13, 169, 223, 16
+    AUTOCHECKBOX    "&Hide inactive icons", IDC_HIDEINACTIVEICONS, 13, 191, 125, 10, WS_TABSTOP
+    PUSHBUTTON      "&Customize...", IDC_CUSTOMIZE, 188, 191, 50, 14
+END
+
+/* Start Menu Property Page (DLG_START of the Windows shell) */
+IDD_STARTMENUPROP DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Start Menu"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_START_PREVIEW, "Static", SS_OWNERDRAW | SS_SUNKEN, 7, 7, 200, 120
+    AUTORADIOBUTTON "&Start menu", IDC_NEWSCHOOL, 7, 135, 105, 10, WS_GROUP | WS_TABSTOP
+    LTEXT           "Select this menu style for easy access to the Internet, e-mail, and your favorite programs.", IDC_NEWSCHOOLDESCRIPTION, 20, 145, 150, 24
+    AUTORADIOBUTTON "Classic Start &menu", IDC_OLDSCHOOL, 7, 175, 105, 10
+    LTEXT           "Select this option to use the menu style from earlier versions of Windows.", -1, 20, 185, 150, 24
+    PUSHBUTTON      "&Customize...", IDC_NEWSTARTCUSTOMIZE, 192, 132, 53, 14
+    PUSHBUTTON      "&Customize...", IDC_OLDSTARTCUSTOMIZE, 192, 172, 53, 14
+END
+
+/* Customize Start Menu: General */
+IDD_START_GENERAL DIALOGEX 0, 0, 251, 198
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "General"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Select an icon size for programs ", -1, 7, 7, 238, 37
+    AUTORADIOBUTTON "&Large icons", IDC_SPCUST_LARGE, 43, 25, 80, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "&Small icons", IDC_SPCUST_SMALL, 177, 25, 60, 10
+    GROUPBOX        "Programs ", -1, 7, 49, 238, 70
+    LTEXT           "The Start menu contains shortcuts to the programs you use most often.  Clearing the list of shortcuts does not delete the programs.", -1, 14, 63, 224, 20
+    LTEXT           "&Number of programs on Start menu:", -1, 14, 86, 112, 8
+    EDITTEXT        IDC_SPCUST_MINPROGS, 133, 84, 27, 12, ES_RIGHT | ES_NUMBER | WS_TABSTOP | WS_GROUP
+    CONTROL         "", IDC_SPCUST_MINPROGS_ARROW, "msctls_updown32", UDS_AUTOBUDDY | UDS_ALIGNRIGHT | UDS_ARROWKEYS | UDS_SETBUDDYINT | UDS_NOTHOUSANDS | WS_GROUP, 160, 84, 11, 12
+    PUSHBUTTON      "&Clear List", IDB_SPCUST_CLEARPROG, 182, 98, 57, 14
+    GROUPBOX        "Show on Start menu ", -1, 7, 126, 238, 63
+    AUTOCHECKBOX    "&Internet:", IDC_SPCUST_INTERNET, 14, 140, 42, 10, WS_TABSTOP
+    COMBOBOX        IDC_SPCUST_INTERNETCB, 98, 138, 140, 200, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "&E-mail:", IDC_SPCUST_EMAIL, 14, 157, 37, 10, WS_TABSTOP
+    COMBOBOX        IDC_SPCUST_EMAILCB, 98, 155, 140, 200, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+END
+
+/* Customize Start Menu: Advanced */
+IDD_START_ADVANCED DIALOGEX 0, 0, 251, 198
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Advanced"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Start menu settings ", -1, 7, 7, 238, 42
+    AUTOCHECKBOX    "&Open submenus when I pause on them with my mouse", IDC_SPCUST_HOVEROPEN, 14, 21, 224, 10, WS_TABSTOP
+    AUTOCHECKBOX    "Highlight &newly installed programs", IDC_SPCUST_NOTIFYNEW, 14, 35, 224, 10, WS_TABSTOP
+    LTEXT           "Start &menu items:", -1, 7, 53, 238, 8
+    CONTROL         "StartMenuSe&ttings", IDC_STARTMENUSETTINGS, "SysTreeView32", TVS_HASBUTTONS | WS_BORDER | WS_TABSTOP, 7, 63, 238, 67, WS_EX_CLIENTEDGE
+    GROUPBOX        "Recent documents ", -1, 7, 133, 238, 56
+    LTEXT           "Select this option to provide quick access to the documents you opened most recently.  Clearing this list does not delete the documents.", -1, 14, 144, 224, 21
+    AUTOCHECKBOX    "List my most &recently opened documents", IDC_SPCUST_RECENT, 14, 168, 147, 10, WS_TABSTOP
+    PUSHBUTTON      "&Clear List", IDB_SPCUST_CLEARDOCS, 182, 168, 55, 14
+END
+
+/* Customize Classic Start Menu (DLG_STARTMENU_CONFIG of the Windows shell) */
+IDD_CLASSIC_CUSTOMIZE DIALOGEX 0, 0, 232, 240
+STYLE DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Customize Classic Start Menu"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Start menu", -1, 8, 7, 218, 114
+    LTEXT           "You can customize your Start menu by adding or removing items.", -1, 48, 17, 108, 39
+    PUSHBUTTON      "A&dd...", IDC_ADDSHORTCUT, 162, 18, 53, 14
+    PUSHBUTTON      "&Remove...", IDC_DELSHORTCUT, 162, 33, 53, 14
+    PUSHBUTTON      "Ad&vanced", IDC_EXPLOREMENUS, 162, 49, 53, 14
+    PUSHBUTTON      "&Sort", IDC_RESORT, 162, 65, 53, 14
+    LTEXT           "To remove records of recently accessed documents, programs, and Web sites, click Clear.", -1, 49, 85, 108, 33
+    PUSHBUTTON      "&Clear", IDC_KILLDOCUMENTS, 162, 94, 53, 14
+    LTEXT           "Advanced S&tart menu options:", -1, 8, 129, 150, 8
+    CONTROL         "StartMenuSe&ttings", IDC_STARTMENUSETTINGS, "SysTreeView32", WS_BORDER | WS_TABSTOP | TVS_HASBUTTONS, 8, 139, 218, 72, WS_EX_CLIENTEDGE
+    DEFPUSHBUTTON   "OK", IDOK, 122, 220, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 176, 220, 50, 14
+END
+
+/* Customize Notifications (DLG_NOTIFY of the Windows shell) */
+IDD_NOTIFY_CUSTOMIZE DIALOGEX 0, 0, 232, 240
+STYLE DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Customize Notifications"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Windows displays icons for active and urgent notifications, and hides inactive ones. You can change this behavior for items in the list below.", -1, 6, 6, 220, 30
+    LTEXT           "Select an item, then choose its notification behavior:", -1, 6, 40, 220, 10
+    CONTROL         "List1", IDC_NOTIFY_ITEMS, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_NOSORTHEADER | LVS_SHOWSELALWAYS | WS_CLIPSIBLINGS | WS_BORDER | WS_TABSTOP, 6, 50, 220, 128
+    COMBOBOX        IDC_COMBO_ACTION, 103, 178, 78, 200, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP | WS_CLIPSIBLINGS
+    PUSHBUTTON      "&Restore Defaults", IDB_NOTIFY_RESTOREDEFAULTS, 164, 200, 62, 14
+    DEFPUSHBUTTON   "OK", IDOK, 122, 220, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 176, 220, 50, 14
+END
+
+/* Network Tray and Wireless Icons */
+/* @makedep: net_blank.ico */
+IDI_NET_BLANK       ICON "net_blank.ico"
+/* @makedep: net_disconnect.ico */
+IDI_NET_DISCONNECT  ICON "net_disconnect.ico"
+/* @makedep: net_plugged.ico */
+IDI_NET_PLUGGED     ICON "net_plugged.ico"
+/* @makedep: net_recv.ico */
+IDI_NET_RECV        ICON "net_recv.ico"
+/* @makedep: net_xmit.ico */
+IDI_NET_XMIT        ICON "net_xmit.ico"
+/* @makedep: net_xmitrecv.ico */
+IDI_NET_XMITRECV    ICON "net_xmitrecv.ico"
+/* @makedep: net_sig0.ico */
+IDI_NET_SIG0        ICON "net_sig0.ico"
+/* @makedep: net_sig1.ico */
+IDI_NET_SIG1        ICON "net_sig1.ico"
+/* @makedep: net_sig2.ico */
+IDI_NET_SIG2        ICON "net_sig2.ico"
+/* @makedep: net_sig3.ico */
+IDI_NET_SIG3        ICON "net_sig3.ico"
+/* @makedep: net_sig4.ico */
+IDI_NET_SIG4        ICON "net_sig4.ico"
+/* @makedep: net_sig5.ico */
+IDI_NET_SIG5        ICON "net_sig5.ico"
+/* @makedep: net_wireless.ico */
+IDI_NET_WIRELESS    ICON "net_wireless.ico"
+/* @makedep: wzcui.bmp */
+IDB_WZC_LISTICONS   BITMAP "wzcui.bmp"
+/* @makedep: net_lan.ico */
+IDI_NET_LAN         ICON "net_lan.ico"
+/* @makedep: net_adapter.ico */
+IDI_NET_ADAPTER     ICON "net_adapter.ico"
+/* @makedep: net_client.ico */
+IDI_NET_CLIENT      ICON "net_client.ico"
+/* @makedep: net_service.ico */
+IDI_NET_SERVICE     ICON "net_service.ico"
+/* @makedep: net_protocol.ico */
+IDI_NET_PROTOCOL    ICON "net_protocol.ico"
+
+/* Connect to Wireless Network Dialog */
+IDD_WZCQCFG DIALOGEX 0, 0, 240, 222
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Connect to Wireless Network"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "The following wireless network(s) are available. To access a wireless network, select it from the list, and then click Connect.",
+                    IDC_WZCQCFG_LBL_INFO, 8, 7, 224, 22
+    LTEXT           "Available wireless &networks:", IDC_WZCQCFG_LBL_NETWORKS, 8, 30, 185, 9
+    CONTROL         "", IDC_WZCQCFG_NETWORKS, "SysListView32",
+                    LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP,
+                    8, 41, 224, 62
+    CONTROL         "", IDC_WZCQCFG_ICO_WARN, "Static", SS_ICON | NOT WS_VISIBLE, 10, 109, 21, 20
+    LTEXT           "This wireless network is not secure. Because a network key is not used for authentication or encryption, data sent over this network might be subject to unauthorized access.",
+                    IDC_WZCQCFG_LBL_NOWKINFO, 36, 109, 196, 28, NOT WS_VISIBLE
+    AUTOCHECKBOX    "Allow &me to connect to the selected wireless network, even though it is not secure",
+                    IDC_WZCQCFG_CHK_NOWK, 20, 140, 212, 18, BS_MULTILINE | NOT WS_VISIBLE
+    LTEXT           "This wireless network requires the use of a network key. To access this network, type the key, then click Connect.",
+                    IDC_WZCQCFG_LBL_WKINFO, 8, 109, 224, 18, NOT WS_VISIBLE
+    LTEXT           "Network &key:", IDC_WZCQCFG_LBL_WEPK, 8, 129, 68, 12, NOT WS_VISIBLE
+    EDITTEXT        IDC_WZCQCFG_WEPK, 78, 127, 154, 13, ES_PASSWORD | ES_AUTOHSCROLL | NOT WS_VISIBLE
+    LTEXT           "C&onfirm key:", IDC_WZCQCFG_LBL_WEPK2, 8, 145, 68, 12, NOT WS_VISIBLE
+    EDITTEXT        IDC_WZCQCFG_WEPK2, 78, 143, 154, 13, ES_PASSWORD | ES_AUTOHSCROLL | NOT WS_VISIBLE
+    AUTOCHECKBOX    "Show network key", IDC_WZCQCFG_CHK_SHOWPWD, 78, 159, 100, 10, NOT WS_VISIBLE
+    LTEXT           "If you are having difficulty connecting to a network, click Refresh or Advanced.",
+                    -1, 8, 177, 224, 14
+    PUSHBUTTON      "&Refresh", IDC_WZCQCFG_REFRESH, 8, 197, 46, 14
+    PUSHBUTTON      "&Advanced...", IDC_WZCQCFG_ADVANCED, 58, 197, 52, 14
+    DEFPUSHBUTTON   "&Connect", IDC_WZCQCFG_CONNECT, 136, 197, 46, 14
+    PUSHBUTTON      "Close", IDCANCEL, 186, 197, 46, 14
+END
+
+/* Local Area Connection Status Dialog */
+IDD_STATMON_GENERAL_LAN DIALOGEX 0, 0, 226, 216
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Local Area Connection Status"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_STATMON_TAB, "SysTabControl32", WS_TABSTOP, 6, 6, 214, 180
+
+    /* General Tab Controls */
+    GROUPBOX        "Connection", IDC_GRP_SM_CONN, 14, 26, 198, 54
+    LTEXT           "Status:", IDC_LBL_SM_STATUS, 22, 38, 40, 8
+    RTEXT           "Connected", IDC_TXT_SM_STATUS, 72, 38, 132, 8
+    LTEXT           "Duration:", IDC_LBL_SM_DUR, 22, 51, 40, 8
+    RTEXT           "00:00:00", IDC_TXT_SM_DURATION, 72, 51, 132, 8
+    LTEXT           "Speed:", IDC_LBL_SM_SPEED, 22, 64, 40, 8
+    RTEXT           "100.0 Mbps", IDC_TXT_SM_SPEED, 72, 64, 132, 8
+
+    GROUPBOX        "Activity", IDC_GRP_SM_ACT, 14, 84, 198, 70
+    RTEXT           "Sent", IDC_LBL_SM_SENT, 56, 96, 28, 8
+    CONTROL         "", IDC_LBL_SM_DASH1, "Static", SS_ETCHEDHORZ, 86, 100, 14, 1
+    CONTROL         "", IDC_ICO_SM_ACTIVITY, "Static", SS_ICON, 104, 89, 20, 20
+    CONTROL         "", IDC_LBL_SM_DASH2, "Static", SS_ETCHEDHORZ, 126, 100, 14, 1
+    LTEXT           "Received", IDC_LBL_SM_RCVD, 144, 96, 40, 8
+    LTEXT           "Packets:", IDC_LBL_SM_PKTS, 22, 118, 36, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_TRANS, 60, 118, 46, 8
+    CONTROL         "", IDC_LBL_SM_DIVIDER, "Static", SS_ETCHEDVERT, 113, 116, 1, 12
+    LTEXT           "0", IDC_TXT_SM_PKTS_RCVD, 122, 118, 46, 8
+
+    PUSHBUTTON      "&Properties", IDC_BTN_SM_PROPERTIES, 14, 160, 50, 14
+    PUSHBUTTON      "&Disable", IDC_BTN_SM_DISABLE, 68, 160, 50, 14
+
+    /* Support Tab Controls (Init hidden) */
+    GROUPBOX        "Connection status", IDC_GRP_SM_SUPPORT, 14, 26, 198, 90, NOT WS_VISIBLE
+    CONTROL         "", IDC_ICO_SM_SUPPORT, "Static", SS_ICON, 20, 40, 20, 20, NOT WS_VISIBLE
+    LTEXT           "Address Type:", IDC_LBL_SM_TYPE, 48, 38, 60, 8, NOT WS_VISIBLE
+    RTEXT           "Assigned by DHCP", IDC_TXT_SM_DHCP, 110, 38, 94, 8, NOT WS_VISIBLE
+    LTEXT           "IP Address:", IDC_LBL_SM_IP, 48, 50, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_IP, 110, 50, 94, 8, NOT WS_VISIBLE
+    LTEXT           "Subnet Mask:", IDC_LBL_SM_SUBNET, 48, 62, 60, 8, NOT WS_VISIBLE
+    RTEXT           "255.255.255.0", IDC_TXT_SM_SUBNET, 110, 62, 94, 8, NOT WS_VISIBLE
+    LTEXT           "Default Gateway:", IDC_LBL_SM_GW, 48, 74, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_GATEWAY, 110, 74, 94, 8, NOT WS_VISIBLE
+    PUSHBUTTON      "&Details...", IDC_BTN_SM_DETAILS, 48, 88, 50, 14, NOT WS_VISIBLE
+
+    LTEXT           "Windows did not detect problems with this connection. If you cannot connect, click Repair.",
+                    IDC_TXT_SM_SUPPORT_NOTE, 14, 124, 136, 24, NOT WS_VISIBLE
+    PUSHBUTTON      "Re&pair", IDC_BTN_SM_REPAIR, 156, 128, 50, 14, NOT WS_VISIBLE
+
+    /* Bottom Dialog Buttons */
+    DEFPUSHBUTTON   "Close", IDCANCEL, 170, 194, 50, 14
+END
+
+/* Wireless Connection Status Dialog */
+IDD_STATMON_GENERAL_WLAN DIALOGEX 0, 0, 226, 216
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Wireless Network Connection Status"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_STATMON_TAB, "SysTabControl32", WS_TABSTOP, 6, 6, 214, 180
+
+    /* General Tab Controls */
+    GROUPBOX        "Connection", IDC_GRP_SM_CONN, 14, 26, 198, 66
+    LTEXT           "Status:", IDC_LBL_SM_STATUS, 22, 38, 40, 8
+    RTEXT           "Connected", IDC_TXT_SM_STATUS, 72, 38, 132, 8
+    LTEXT           "Network:", IDC_LBL_SM_SSID, 22, 50, 40, 8
+    RTEXT           "Default-WiFi", IDC_TXT_SM_SSID, 72, 50, 132, 8
+    LTEXT           "Duration:", IDC_LBL_SM_DUR, 22, 62, 40, 8
+    RTEXT           "00:00:00", IDC_TXT_SM_DURATION, 72, 62, 132, 8
+    LTEXT           "Speed:", IDC_LBL_SM_SPEED, 22, 74, 40, 8
+    RTEXT           "54.0 Mbps", IDC_TXT_SM_SPEED, 72, 74, 132, 8
+    LTEXT           "Signal Strength:", IDC_LBL_SM_SIGNAL, 22, 86, 56, 8
+    CONTROL         "", IDC_CTL_SM_SIGNAL, "Static", SS_OWNERDRAW, 140, 84, 64, 10
+
+    GROUPBOX        "Activity", IDC_GRP_SM_ACT, 14, 96, 198, 80
+    RTEXT           "Sent", IDC_LBL_SM_SENT, 60, 108, 40, 8
+    CONTROL         "", IDC_ICO_SM_ACTIVITY, "Static", SS_ICON, 107, 105, 20, 20
+    RTEXT           "Received", IDC_LBL_SM_RCVD, 138, 108, 40, 8
+    LTEXT           "Bytes:", IDC_LBL_SM_BYTES, 22, 126, 30, 8
+    RTEXT           "0", IDC_TXT_SM_BYTES_TRANS, 54, 126, 50, 8
+    RTEXT           "0", IDC_TXT_SM_BYTES_RCVD, 132, 126, 50, 8
+    LTEXT           "Packets:", IDC_LBL_SM_PKTS, 22, 140, 30, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_TRANS, 54, 140, 50, 8
+    RTEXT           "0", IDC_TXT_SM_PKTS_RCVD, 132, 140, 50, 8
+
+    PUSHBUTTON      "&Properties", IDC_BTN_SM_PROPERTIES, 14, 158, 50, 14
+    PUSHBUTTON      "&Disable", IDC_BTN_SM_DISABLE, 68, 158, 50, 14
+
+    /* Support Tab Controls (Init hidden) */
+    GROUPBOX        "Internet Protocol (TCP/IP)", IDC_GRP_SM_SUPPORT, 14, 26, 198, 96, NOT WS_VISIBLE
+    LTEXT           "Address Type:", IDC_LBL_SM_TYPE, 22, 42, 60, 8, NOT WS_VISIBLE
+    RTEXT           "Assigned by DHCP", IDC_TXT_SM_DHCP, 84, 42, 120, 8, NOT WS_VISIBLE
+    LTEXT           "IP Address:", IDC_LBL_SM_IP, 22, 58, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_IP, 84, 58, 120, 8, NOT WS_VISIBLE
+    LTEXT           "Subnet Mask:", IDC_LBL_SM_SUBNET, 22, 74, 60, 8, NOT WS_VISIBLE
+    RTEXT           "255.255.255.0", IDC_TXT_SM_SUBNET, 84, 74, 120, 8, NOT WS_VISIBLE
+    LTEXT           "Default Gateway:", IDC_LBL_SM_GW, 22, 90, 60, 8, NOT WS_VISIBLE
+    RTEXT           "0.0.0.0", IDC_TXT_SM_GATEWAY, 84, 90, 120, 8, NOT WS_VISIBLE
+    PUSHBUTTON      "Re&pair", IDC_BTN_SM_REPAIR, 14, 128, 50, 14, NOT WS_VISIBLE
+
+    /* Bottom Dialog Buttons */
+    DEFPUSHBUTTON   "Close", IDCANCEL, 170, 194, 50, 14
+END
+
+/* Local Area Connection Properties Dialog */
+IDD_LAN_PROPERTIES DIALOGEX 0, 0, 240, 230
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Local Area Connection Properties"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "", IDC_NETPROP_TAB, "SysTabControl32", WS_TABSTOP, 6, 6, 228, 196
+
+    /* General Tab Controls */
+    LTEXT           "Connect using:", -1, 14, 24, 120, 8
+    CONTROL         "", IDC_NETPROP_ADAPTER_ICO, "Static", SS_ICON, 18, 36, 16, 16
+    LTEXT           "AMD PCNET Family PCI Ethernet Adapter", IDC_NETPROP_ADAPTER_NAME, 38, 39, 124, 10, SS_NOPREFIX
+    PUSHBUTTON      "&Configure...", IDC_NETPROP_CONFIGURE, 168, 34, 58, 14
+
+    LTEXT           "This c&onnection uses the following items:", -1, 14, 54, 200, 8
+    CONTROL         "", IDC_NETPROP_COMPLIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOCOLUMNHEADER | WS_BORDER | WS_TABSTOP, 14, 64, 212, 54
+    PUSHBUTTON      "I&nstall...", IDC_NETPROP_INSTALL, 14, 122, 64, 14
+    PUSHBUTTON      "&Uninstall", IDC_NETPROP_UNINSTALL, 84, 122, 64, 14
+    PUSHBUTTON      "P&roperties", IDC_NETPROP_PROPERTIES, 162, 122, 64, 14
+
+    GROUPBOX        "Description", IDC_NETPROP_DESCGROUP, 14, 140, 212, 40
+    LTEXT           "Allows your computer to access resources on a Microsoft network.", IDC_NETPROP_DESC, 20, 150, 200, 26
+
+    AUTOCHECKBOX    "Sho&w icon in notification area when connected", IDC_NETPROP_SHOWICON, 14, 184, 212, 10
+    AUTOCHECKBOX    "&Notify me when this connection has limited or no connectivity", IDC_NETPROP_NOTIFY, 14, 196, 212, 10
+
+    /* Advanced Tab Controls (initially hidden) */
+    GROUPBOX        "Internet Connection Firewall", IDC_NETPROP_FW_GROUP, 14, 24, 212, 46, NOT WS_VISIBLE
+    AUTOCHECKBOX    "&Protect my computer and network by limiting or preventing access to this computer from the Internet", IDC_NETPROP_FIREWALL, 20, 36, 200, 18, BS_MULTILINE | NOT WS_VISIBLE
+    PUSHBUTTON      "Settin&gs...", IDC_NETPROP_FW_LINK, 162, 52, 58, 14, NOT WS_VISIBLE
+
+    GROUPBOX        "Internet Connection Sharing", IDC_NETPROP_ICS_GROUP, 14, 74, 212, 62, NOT WS_VISIBLE
+    AUTOCHECKBOX    "Allow other &network users to connect through this computer's Internet connection", IDC_NETPROP_ICS_SHARE, 20, 86, 200, 18, BS_MULTILINE | NOT WS_VISIBLE
+    AUTOCHECKBOX    "All&ow other network users to control or disable the shared Internet connection", IDC_NETPROP_ICS_BEACON, 20, 108, 200, 18, BS_MULTILINE | NOT WS_VISIBLE
+    PUSHBUTTON      "Settin&gs...", IDC_NETPROP_SETTINGS, 162, 140, 58, 14, NOT WS_VISIBLE
+
+    /* Dialog Buttons */
+    DEFPUSHBUTTON   "OK", IDOK, 126, 208, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 182, 208, 50, 14
+END
+
+/* Additional System Tray Icons */
+/* @makedep: volume.ico */
+IDI_VOLUME          ICON "volume.ico"
+/* @makedep: mute.ico */
+IDI_MUTE            ICON "mute.ico"
+/* @makedep: battplug.ico */
+IDI_BATTERYPLUG     ICON "battplug.ico"
+/* @makedep: batt.ico */
+IDI_BATT            ICON "batt.ico"
+/* @makedep: hotplug.ico */
+IDI_HOTPLUG         ICON "hotplug.ico"
+/* @makedep: start.ico */
+IDI_START           ICON "start.ico"
+/* @makedep: startflag.bmp */
+IDB_STARTFLAG       BITMAP "startflag.bmp"
+/* @makedep: res_browser/toolbar.bmp */
+IDB_BROWSER_TB      BITMAP "res_browser/toolbar.bmp"
+/* @makedep: res_browser/toolbar_hot.bmp */
+IDB_BROWSER_TB_HOT  BITMAP "res_browser/toolbar_hot.bmp"
+/* @makedep: res_browser/brand.bmp */
+IDB_BROWSER_BRAND   BITMAP "res_browser/brand.bmp"
+/* @makedep: res_browser/go.bmp */
+IDB_BROWSER_GO      BITMAP "res_browser/go.bmp"
+/* @makedep: res_power/dlg_bg.bmp */
+IDB_POWER_BACKGROUND BITMAP "res_power/dlg_bg.bmp"
+/* @makedep: res_power/flag.bmp */
+IDB_POWER_FLAG      BITMAP "res_power/flag.bmp"
+/* @makedep: res_power/turnoff_strip.bmp */
+IDB_TURNOFF_STRIP   BITMAP "res_power/turnoff_strip.bmp"
+/* @makedep: res_power/logoff_strip.bmp */
+IDB_LOGOFF_STRIP    BITMAP "res_power/logoff_strip.bmp"
+/* @makedep: res_browser/go_hot.bmp */
+IDB_BROWSER_GO_HOT  BITMAP "res_browser/go_hot.bmp"
+/* Search Companion character at rest (Windows XP) */
+/* @makedep: rover.bmp */
+IDB_SEARCH_ROVER    BITMAP "rover.bmp"
+
+/* Authentic Windows XP / Server 2003 Tray Volume Dialog */
+IDD_TRAYMASTER DIALOGEX 0, 0, 52, 90
+STYLE DS_MODALFRAME | WS_POPUP
+EXSTYLE WS_EX_TOOLWINDOW
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CTEXT           "Volume", IDC_TRAY_VOLUME_LABEL, 0, 4, 52, 8
+    CONTROL         "", IDC_TRAY_VOLUME_SLIDER, "msctls_trackbar32",
+                    TBS_VERT | TBS_BOTH | TBS_NOTICKS | WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                    16, 14, 20, 60
+    AUTOCHECKBOX    "&Mute", IDC_TRAY_VOLUME_MUTE, 4, 76, 44, 10
+END
+
+/* polkit authentication prompt (UAC style) */
+IDD_UAC DIALOGEX 0, 0, 246, 170
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "User Account Control"
+FONT 8, "Tahoma"
+BEGIN
+    CONTROL         "", IDC_UAC_BANNER, "Static", SS_OWNERDRAW, 0, 0, 246, 38
+    LTEXT           "Action:", -1, 12, 46, 34, 8
+    LTEXT           "", IDC_UAC_PROGRAM, 50, 46, 184, 24
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 12, 74, 222, 1
+    LTEXT           "", IDC_UAC_PROMPT, 12, 80, 222, 18
+    CONTROL         "", IDC_UAC_USERTILE, "Static", SS_OWNERDRAW | WS_CHILD | WS_VISIBLE, 18, 106, 22, 24
+    COMBOBOX        IDC_UAC_ACCOUNT, 46, 106, 184, 80, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Password:", IDC_UAC_PW_LABEL, 46, 127, 38, 8
+    EDITTEXT        IDC_UAC_PASSWORD, 86, 125, 144, 13, ES_PASSWORD | ES_AUTOHSCROLL
+    LTEXT           "", IDC_UAC_ERROR, 12, 150, 118, 16
+    DEFPUSHBUTTON   "&Yes", IDYES, 132, 149, 50, 14
+    PUSHBUTTON      "&No", IDNO, 186, 149, 50, 14
+END
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+/* @makedep: explorer.manifest */
+1 RT_MANIFEST explorer.manifest

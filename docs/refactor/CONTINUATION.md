@@ -319,6 +319,22 @@ handle; real-name authorship and sign-off remain the user's manual step.
 
 ## Commands that failed or were interrupted
 
+P3 prototype: `git diff --cached --check` initially rejected new-file
+whitespace inherited from Makefile.in, explorer.rc, resource.h,
+startmenu_view.c and theme_engine.c, plus one trailing-whitespace line introduced
+by extracting startup. Removed trailing whitespace/blank EOF lines from text
+copies; staged diff check passes. The original Wine files remain unchanged.
+`git diff --no-index --numstat wine/programs/explorer/desktop.c
+build/refactor/p3-host/programs/explorer/desktop.c` returned 1 as expected for
+differing files, reporting 26 additions/163 removals versus the old modified
+host; this is not a compile failure. Stock-hook size must be measured against
+upstream, not that modified file.
+
+P3 prototype build launched at /srv/protonexplorer/wex-refactor-p3 (PID 1461516).
+P2 source/build are preserved. New source is solely copied from committed
+public c9f9440d, with mechanical DLL entry/resource ownership adjustments.
+Main's original Explorer is still in place; plugin acceptance is pending.
+
 P2 build finished with BUILD_PASSED. The first `check-assembled.sh` run failed
 with `FAIL: no visible shell taskbar`: it launched the probe on the default
 desktop instead of RefactorP2. A second run via `explorer /desktop=RefactorP2`
