@@ -246,4 +246,3 @@ for source pins, ISO hash and exact evidence. Default build directory is
 build/wine64. Packaging rejects a different configured source and the legacy
 ~/inst/build; never run make install there, including staged installation.
 Current build instructions are [BUILDING.md](BUILDING.md).
-

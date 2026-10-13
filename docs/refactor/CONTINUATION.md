@@ -19,6 +19,11 @@ A combined cleanup/commit command was rejected by automatic policy review
 before execution because it included recursive removal of scripts/__pycache__.
 No cache/source files were removed. Commit/push ran separately and succeeded
 as 1e924a4e; the harmless generated cache is retained locally.
+The final diff check reported docs/INSTALLER.md:249 new blank line at EOF;
+the documentation commit contained that formatting-only line. Removed it
+in the final documentation cleanup and reran the check. Product src/installer
+and the Wine pin are unchanged from the fresh accepted snapshot; only tested
+sync/probe helpers and documentation differ.
 
 October 13 final acceptance continuation: P6 full build is REBASE_BUILD_PASSED
 at /srv/protonexplorer/wex-refactor-p6. Installed P4 feature suites all pass.
