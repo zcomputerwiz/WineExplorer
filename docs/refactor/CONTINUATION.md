@@ -63,6 +63,12 @@ Source sync tests remain isolated; the real dev source/session is unchanged.
 
 Failed commands during this prototype:
 
+- The direct web open of Wine mirror's commits/master page returned restricted
+  URL. git ls-remote independently verified upstream master as 081042ede6a.
+  Git cat-file found blob 77a40aad... in the Wine cache but not the main
+  project repository; the reference-clone failure is therefore not treated
+  as proof that the public fork lacks that object. The direct clone works.
+
 - The next installer-guide/acceptance-note patch bundle hit the same JavaScript
   Markdown-fence parse error in its saved Python string. Nothing executed.
   Replaced the fence characters with placeholders before applying.

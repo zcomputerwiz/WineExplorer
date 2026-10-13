@@ -1,0 +1,849 @@
+{
+  "old": "d0a0af068194c306bb36659b35bb2d4e0eff43c1",
+  "newbase": "081042ede6a165a36bf9988350dd584b440d7a3d",
+  "head": "95fa31a9a8c31725d291cd482b7e5b93822fa064",
+  "elapsed_seconds": 52.798356771469116,
+  "upstream_import_commits_now_ancestors": 72,
+  "dropped_backport": "0b34bd48e3f87e2d7305596af4a9157386fc7294",
+  "commits": [
+    {
+      "old": "31dd0e888341132604e5b63617b9824ef83c39d5",
+      "started": 1791917306.7019632,
+      "utc": "2026-10-13T18:48:26.701965+00:00",
+      "new": "dab00fd2c7bf0f69d84865a11246fd4cf47c7c41",
+      "seconds": 0.4671649932861328,
+      "subject": "ntdll: Report battery presence (STOCK_CHANGES: power capabilities).",
+      "conflicts": []
+    },
+    {
+      "old": "3e22a141b13bef472f705334893523ad9f0284e8",
+      "started": 1791917307.466523,
+      "utc": "2026-10-13T18:48:27.466525+00:00",
+      "new": "0bb4ae727d4eeb123f8cdb237beddda0a2e403ff",
+      "seconds": 0.35030150413513184,
+      "subject": "ntdll: Preserve audited capability formatting (STOCK_CHANGES: power capabilities).",
+      "conflicts": []
+    },
+    {
+      "old": "fa50de18b215923321045b183483066bf2c0a570",
+      "started": 1791917308.0538313,
+      "utc": "2026-10-13T18:48:28.053833+00:00",
+      "new": "c1d5d3681d625439adfefea15abd8a7df0b5a5c9",
+      "seconds": 0.3548123836517334,
+      "subject": "user32: Honor DT_HIDEPREFIX (STOCK_CHANGES: DrawText).",
+      "conflicts": []
+    },
+    {
+      "old": "128d41ee39e1f01042466f27d994a3d9b1f7d2ff",
+      "started": 1791917308.6395109,
+      "utc": "2026-10-13T18:48:28.639515+00:00",
+      "new": "c3e7d9f5e5d7f579894f37ce152a24c2857a59fa",
+      "seconds": 0.38907718658447266,
+      "subject": "server: Refresh DST bias (STOCK_CHANGES: server/fd.c).",
+      "conflicts": []
+    },
+    {
+      "old": "14cdd9a9d67af04abbb5f5182866d52cdce03669",
+      "started": 1791917309.2539442,
+      "utc": "2026-10-13T18:48:29.253947+00:00",
+      "new": "b5d913355bbfb327f99a8bbd6671c5468c42e230",
+      "seconds": 0.33555150032043457,
+      "subject": "shell32: Add the empty Recycle Bin icon (STOCK_CHANGES: shell32 icons).",
+      "conflicts": []
+    },
+    {
+      "old": "c3db6dca8ffcb21840595b688182fe40015af120",
+      "started": 1791917309.8178751,
+      "utc": "2026-10-13T18:48:29.817879+00:00",
+      "new": "26bfb005b87fdf9dd6993fe537fd189baaab4c8b",
+      "seconds": 0.370086669921875,
+      "subject": "shell32: Return custom folder icon paths (STOCK_CHANGES: desktop.ini IconFile).",
+      "conflicts": []
+    },
+    {
+      "old": "84b73e7e918bcc5964e0c1ee56f48c1f574f012c",
+      "started": 1791917310.430285,
+      "utc": "2026-10-13T18:48:30.430288+00:00",
+      "new": "2b37cd1df1047f4c5e1e7e48a27125879e156da7",
+      "seconds": 0.34960412979125977,
+      "subject": "shdoclc: Add icon 190 (STOCK_CHANGES: IE desktop icon).",
+      "conflicts": []
+    },
+    {
+      "old": "37db3c24d20510ddb49227d85213d8730fc6e8f3",
+      "started": 1791917311.0368612,
+      "utc": "2026-10-13T18:48:31.036865+00:00",
+      "new": "0d62dc775c766619523040e5166e206dd63c6cac",
+      "seconds": 0.3811192512512207,
+      "subject": "comctl32: Clear stale alpha flags (STOCK_CHANGES: ImageList replacement).",
+      "conflicts": []
+    },
+    {
+      "old": "ef8832bd030572c85d5aa96b99f86a249b22e337",
+      "started": 1791917311.67063,
+      "utc": "2026-10-13T18:48:31.670632+00:00",
+      "new": "7feb984a55890a0a9104c8ca86f8549c48942dd3",
+      "seconds": 0.37918591499328613,
+      "subject": "shell32: Notify both rename paths (STOCK_CHANGES: SHChangeNotify).",
+      "conflicts": []
+    },
+    {
+      "old": "2990b74387941cda4e1eaf2d50fe26030115275b",
+      "started": 1791917312.2662022,
+      "utc": "2026-10-13T18:48:32.266204+00:00",
+      "new": "c27f614d2f9459ed8ea5c0b3316ee7c87502894d",
+      "seconds": 0.3606252670288086,
+      "subject": "shell32: Use shortcut target icons (STOCK_CHANGES: shortcut icons).",
+      "conflicts": []
+    },
+    {
+      "old": "a077db399137b1fb094c32b477981f77dae422f6",
+      "started": 1791917312.8431728,
+      "utc": "2026-10-13T18:48:32.843176+00:00",
+      "new": "929dbbd0a77ee1a639e4772939132c7eb6a59a00",
+      "seconds": 0.3977501392364502,
+      "subject": "uxtheme: Trim font tokens (STOCK_CHANGES: theme token whitespace).",
+      "conflicts": []
+    },
+    {
+      "old": "e5bd4539bdad9b45eec070d73a844c269333eb9c",
+      "started": 1791917313.500277,
+      "utc": "2026-10-13T18:48:33.500280+00:00",
+      "new": "16d18ca413a9e15c617e7bc1eff3b0b93c52e90a",
+      "seconds": 0.363140344619751,
+      "subject": "ntdll: Invalidate timezone cache (STOCK_CHANGES: localtime changes).",
+      "conflicts": []
+    },
+    {
+      "old": "851f624ab8cf4906fece02679ec56dabd8d14352",
+      "started": 1791917314.1182163,
+      "utc": "2026-10-13T18:48:34.118218+00:00",
+      "new": "f782f9b1b5a6b9cf9709e6a8b0b9c8d13d3406e4",
+      "seconds": 0.3445096015930176,
+      "subject": "comctl32: Restore wizard focus (STOCK_CHANGES: wizard navigation).",
+      "conflicts": []
+    },
+    {
+      "old": "d2368cf84680b6e8e830955c026f7a5a75b59df8",
+      "started": 1791917314.7152233,
+      "utc": "2026-10-13T18:48:34.715226+00:00",
+      "new": "3dabaffa70de18d5af9db354842e6871e3f329b4",
+      "seconds": 0.39481425285339355,
+      "subject": "user32: Retain AnimateWindow blend (STOCK_CHANGES: AnimateWindow blend).",
+      "conflicts": []
+    },
+    {
+      "old": "b63c8998255fc78cdf50eddd31809291b9a45fe5",
+      "started": 1791917315.327793,
+      "utc": "2026-10-13T18:48:35.327795+00:00",
+      "new": "bc00d14d77c5d73369afcbd54574af19b143978d",
+      "seconds": 0.33454227447509766,
+      "subject": "winex11.drv: Retain virtual desktop resize (STOCK_CHANGES: virtual desktop resize).",
+      "conflicts": []
+    },
+    {
+      "old": "1d25b5be9c73d9a5f6c99fb0c7c101aaa6929faa",
+      "started": 1791917315.889735,
+      "utc": "2026-10-13T18:48:35.889740+00:00",
+      "new": "2df04229d5809e7593664cb2f6fdadde9c1a79d0",
+      "seconds": 0.4023935794830322,
+      "subject": "winex11.drv: Retain virtual desktop stacking and activation (STOCK_CHANGES: virtual desktop stacking and activation).",
+      "conflicts": []
+    },
+    {
+      "old": "57c570ba33a2cfe7f0f23e973138e0ccde2e7a61",
+      "started": 1791917316.5417345,
+      "utc": "2026-10-13T18:48:36.541737+00:00",
+      "new": "414a13435a50d05198d83bb820bb41283339f026",
+      "seconds": 1.0908195972442627,
+      "subject": "win32u: Retain shared monitor work area (STOCK_CHANGES: shared monitor work area).",
+      "conflicts": []
+    },
+    {
+      "old": "e67f29b57e5f2a3285c0b222fdd1d053fc3aac5c",
+      "started": 1791917317.803803,
+      "utc": "2026-10-13T18:48:37.803805+00:00",
+      "new": "1d3335016ce9e1fe5dc2b75f76cb06119ec41dcd",
+      "seconds": 0.601273775100708,
+      "subject": "kernelbase: Retain regional locale preference (STOCK_CHANGES: regional locale preference).",
+      "conflicts": []
+    },
+    {
+      "old": "7b7eb6cda896a1392ec3b1c096de6fa834b065cc",
+      "started": 1791917318.568885,
+      "utc": "2026-10-13T18:48:38.568886+00:00",
+      "new": "8cb816a0cbe4a19ba311e9ce9a4891d1c79c5596",
+      "seconds": 0.6142690181732178,
+      "subject": "user32: Retain cursor schemes (STOCK_CHANGES: cursor schemes).",
+      "conflicts": []
+    },
+    {
+      "old": "89619384dd96dc39397f16ea9f062e1e433fb431",
+      "started": 1791917319.3549023,
+      "utc": "2026-10-13T18:48:39.354904+00:00",
+      "new": "065118db4cf8996b90018efc083a679dd1528272",
+      "seconds": 0.26618027687072754,
+      "subject": "win32u: Retain classic Start menu row height (STOCK_CHANGES: classic Start menu row height).",
+      "conflicts": []
+    },
+    {
+      "old": "22066277c946db32750c5d8e30bef8fcf33226c0",
+      "started": 1791917319.8011851,
+      "utc": "2026-10-13T18:48:39.801187+00:00",
+      "new": "6af648761c53ac588ce8d36a3bdec7c56a9391dd",
+      "seconds": 0.2665290832519531,
+      "subject": "win32u: Retain menu keyboard cues (STOCK_CHANGES: menu keyboard cues).",
+      "conflicts": []
+    },
+    {
+      "old": "18f13428141b73d8dea900ae1632fb45b6ead940",
+      "started": 1791917320.2639616,
+      "utc": "2026-10-13T18:48:40.263965+00:00",
+      "new": "a65aac4f7f723ae7abb2b3ed22179c05007be35e",
+      "seconds": 0.26712918281555176,
+      "subject": "user32: Retain XP system menu (STOCK_CHANGES: XP system menu).",
+      "conflicts": []
+    },
+    {
+      "old": "88d98af3d09b97b5081f5609749e107d864860b7",
+      "started": 1791917320.723449,
+      "utc": "2026-10-13T18:48:40.723451+00:00",
+      "new": "5abffd508b6bad1e1e9ad031f178242f443b1188",
+      "seconds": 0.28092098236083984,
+      "subject": "comctl32: Retain XP listview tiles/groups (STOCK_CHANGES: XP listview tiles/groups).",
+      "conflicts": []
+    },
+    {
+      "old": "6dd09a5344d6f505f8262a098835acce0ac3ac34",
+      "started": 1791917321.203206,
+      "utc": "2026-10-13T18:48:41.203208+00:00",
+      "new": "0016dc5650f2eb2186d480c0f616e26d4d1a3c15",
+      "seconds": 0.2602412700653076,
+      "subject": "comctl32: Retain XP listview tile/selection painting (STOCK_CHANGES: XP listview tile/selection painting).",
+      "conflicts": []
+    },
+    {
+      "old": "bdfaf416bef6ab07f8bf1557e0ad10a3465f2407",
+      "started": 1791917321.643531,
+      "utc": "2026-10-13T18:48:41.643533+00:00",
+      "new": "9f14437b89e77b6524501ea3dd769a8642f41656",
+      "seconds": 0.27095961570739746,
+      "subject": "comctl32: Retain XP listview group painting (STOCK_CHANGES: XP listview group painting).",
+      "conflicts": []
+    },
+    {
+      "old": "ff1e6068594b02e93f96413b6444cb2e5401d92b",
+      "started": 1791917322.0890138,
+      "utc": "2026-10-13T18:48:42.089016+00:00",
+      "new": "f029e9ea5324c5ade8788e9318af25d46ad68f6a",
+      "seconds": 0.283489465713501,
+      "subject": "comctl32: Retain listview background offsets (STOCK_CHANGES: listview background offsets).",
+      "conflicts": []
+    },
+    {
+      "old": "1373a8ad7dfc8e49a041302acad98b92e8f01ee0",
+      "started": 1791917322.5536523,
+      "utc": "2026-10-13T18:48:42.553654+00:00",
+      "new": "6f8f31702dc00c3a21b8735cb30eb11934c162f6",
+      "seconds": 0.2990269660949707,
+      "subject": "comctl32: Retain listview type-ahead spaces (STOCK_CHANGES: listview type-ahead spaces).",
+      "conflicts": []
+    },
+    {
+      "old": "1f6058ab157ab3bdd6675736940a70c23796bb17",
+      "started": 1791917323.0354207,
+      "utc": "2026-10-13T18:48:43.035422+00:00",
+      "new": "f1776c06cd495c1bf4df28ad4c202d835a4b485d",
+      "seconds": 0.27882862091064453,
+      "subject": "comctl32: Retain XP file Properties wording (STOCK_CHANGES: XP file Properties wording).",
+      "conflicts": []
+    },
+    {
+      "old": "3a8780a7af069bd2ab9cf09ef8aa8ce6e53a1b3e",
+      "started": 1791917323.482897,
+      "utc": "2026-10-13T18:48:43.482899+00:00",
+      "new": "7eef90a09a4127bbc1fc3b4963d252d0aa0b4a92",
+      "seconds": 0.2765681743621826,
+      "subject": "control: Retain Control Panel folder routing (STOCK_CHANGES: Control Panel folder routing).",
+      "conflicts": []
+    },
+    {
+      "old": "d6a9bedfafe624036aa170f1b65e92bd93c40993",
+      "started": 1791917323.9303565,
+      "utc": "2026-10-13T18:48:43.930358+00:00",
+      "new": "9a6d8b59117598068879f8730202272a8741ec3a",
+      "seconds": 0.30126070976257324,
+      "subject": "iexplore: Retain XP namespace names (STOCK_CHANGES: XP namespace names).",
+      "conflicts": []
+    },
+    {
+      "old": "f8041557a1ea6f93c3bc741b3be5f6214b43fec3",
+      "started": 1791917324.4052753,
+      "utc": "2026-10-13T18:48:44.405277+00:00",
+      "new": "c54f4f5b96c847437333e3b475611fbff8dfda19",
+      "seconds": 0.2759745121002197,
+      "subject": "shell32: Retain XP collision-copy names (STOCK_CHANGES: XP collision-copy names).",
+      "conflicts": []
+    },
+    {
+      "old": "8ee234b6a7a888f7f0a7422c4d2c5be5a9ec7c27",
+      "started": 1791917324.854468,
+      "utc": "2026-10-13T18:48:44.854470+00:00",
+      "new": "029082a41f7e8eb8c84af0ad37ac538ca54b2080",
+      "seconds": 0.2800319194793701,
+      "subject": "winex11.drv: Retain compositor ownership and shadow hint (STOCK_CHANGES: compositor ownership and shadow hint).",
+      "conflicts": []
+    },
+    {
+      "old": "b814a869e41a3a41544e1cb15817748f0f815ffc",
+      "started": 1791917325.3357542,
+      "utc": "2026-10-13T18:48:45.335756+00:00",
+      "new": "d59dcc8c819275123d72b6514772527975b2b07b",
+      "seconds": 0.27231717109680176,
+      "subject": "winex11.drv: Retain compositor screen capture (STOCK_CHANGES: compositor screen capture).",
+      "conflicts": []
+    },
+    {
+      "old": "83952bca8bb8654e203f5c157b1e925fa9260b92",
+      "started": 1791917325.8034294,
+      "utc": "2026-10-13T18:48:45.803432+00:00",
+      "new": "ee326092ce888e641078220ed17c42229413ac0f",
+      "seconds": 0.28415846824645996,
+      "subject": "mmdevapi: Retain endpoint volume backend (upstream deferred) (STOCK_CHANGES: endpoint volume backend (upstream deferred)).",
+      "conflicts": []
+    },
+    {
+      "old": "37409bb2ba1f9607614cd149d7a301930196940d",
+      "started": 1791917326.2653463,
+      "utc": "2026-10-13T18:48:46.265348+00:00",
+      "new": "d3356f6c3b896ebc8db3e952368194c4f64756da",
+      "seconds": 0.2426590919494629,
+      "subject": "user32: Retain shell-hook events (single receiver (STOCK_CHANGES: shell-hook events (single receiver).",
+      "conflicts": []
+    },
+    {
+      "old": "aecfbebc8205d06fbfaeeafb30f10c872a9b3959",
+      "started": 1791917326.6516335,
+      "utc": "2026-10-13T18:48:46.651636+00:00",
+      "new": "4c033bd9d5a597831786010612909aebdb8589e2",
+      "seconds": 0.27286219596862793,
+      "subject": "uxtheme: Retain isolated theme preview and handle-specific metrics (STOCK_CHANGES: isolated theme preview and handle-specific metrics).",
+      "conflicts": []
+    },
+    {
+      "old": "031d47d8b8ea031fc2cb40767d7bd191021fc559",
+      "started": 1791917327.0743306,
+      "utc": "2026-10-13T18:48:47.074332+00:00",
+      "new": "e3579a5441291e38d236584bafe32b50e2d09f45",
+      "seconds": 0.2849287986755371,
+      "subject": "uxtheme: Retain theme font metrics (STOCK_CHANGES: theme font metrics).",
+      "conflicts": []
+    },
+    {
+      "old": "55cd2b8a3534c92f84d796543abf87cb59796087",
+      "started": 1791917327.5408332,
+      "utc": "2026-10-13T18:48:47.540836+00:00",
+      "new": "cc4402a9beb394c41c4d7701dc03e624976e6101",
+      "seconds": 0.26679515838623047,
+      "subject": "uxtheme: Retain theme metric reapplication (STOCK_CHANGES: theme metric reapplication).",
+      "conflicts": []
+    },
+    {
+      "old": "1ff4f04be120976aaff092952cba2e21bcf7e75a",
+      "started": 1791917327.98896,
+      "utc": "2026-10-13T18:48:47.988963+00:00",
+      "new": "fee8d3a9f334e3b47c46d99e5239df599e474ed3",
+      "seconds": 0.27221012115478516,
+      "subject": "uxtheme: Retain theme registry reload across processes (STOCK_CHANGES: theme registry reload across processes).",
+      "conflicts": []
+    },
+    {
+      "old": "37e48f399b07f334847253858196bb6ae3ef311a",
+      "started": 1791917328.4547038,
+      "utc": "2026-10-13T18:48:48.454705+00:00",
+      "new": "0a870cedff8da2f279842432769f068c48214bdf",
+      "seconds": 0.28763580322265625,
+      "subject": "user32: Retain themed non-client frame and application-region ownership (STOCK_CHANGES: themed non-client frame and application-region ownership).",
+      "conflicts": []
+    },
+    {
+      "old": "289e41394d0aa45e2356bcaa8ca0e8b72757ae4b",
+      "started": 1791917328.9403777,
+      "utc": "2026-10-13T18:48:48.940380+00:00",
+      "new": "e4240c53af7181f4c174d550a2d9f40a85824986",
+      "seconds": 0.28723740577697754,
+      "subject": "shell32: Retain XP My Computer drive presentation (STOCK_CHANGES: XP My Computer drive presentation).",
+      "conflicts": []
+    },
+    {
+      "old": "c173551eee37ce3727412b17b61b8cd8b43df96c",
+      "started": 1791917329.4292314,
+      "utc": "2026-10-13T18:48:49.429234+00:00",
+      "new": "ced809b4f061e99acb48c39446a5431838684a53",
+      "seconds": 0.29773998260498047,
+      "subject": "shell32: Retain XP My Computer namespace (STOCK_CHANGES: XP My Computer namespace).",
+      "conflicts": []
+    },
+    {
+      "old": "204122402b871658f88dd07e747e5c4abddd1d27",
+      "started": 1791917329.9352608,
+      "utc": "2026-10-13T18:48:49.935263+00:00",
+      "new": "e40099147bc2685f31871e443572ee108b792382",
+      "seconds": 0.2750372886657715,
+      "subject": "shell32: Retain XP folder drag/drop and display names (STOCK_CHANGES: XP folder drag/drop and display names).",
+      "conflicts": []
+    },
+    {
+      "old": "822ae18002f12e6419b2c4309984cc53bfc11e65",
+      "started": 1791917330.4134037,
+      "utc": "2026-10-13T18:48:50.413406+00:00",
+      "new": "bb9b3265199c0c4821702fc9bb20bd2d0590aa11",
+      "seconds": 0.2634694576263428,
+      "subject": "shell32: Retain XP folder type wording (STOCK_CHANGES: XP folder type wording).",
+      "conflicts": []
+    },
+    {
+      "old": "b6c5780bb67126a2d7cc84a5c62dc4780dc1b533",
+      "started": 1791917330.8513129,
+      "utc": "2026-10-13T18:48:50.851315+00:00",
+      "new": "6a6f5eb93b49b32632febf58eb87a28075c524e0",
+      "seconds": 0.26526856422424316,
+      "subject": "shell32: Retain folder shortcut resolution (STOCK_CHANGES: folder shortcut resolution).",
+      "conflicts": []
+    },
+    {
+      "old": "4a04cdaf85aaefc6a1259b2aff208af5f211b1e0",
+      "started": 1791917331.285517,
+      "utc": "2026-10-13T18:48:51.285519+00:00",
+      "new": "2db301e938f1af59eaf9b2d4dad65add90e4bc24",
+      "seconds": 0.2837560176849365,
+      "subject": "shell32: Retain folder view notifications (STOCK_CHANGES: folder view notifications).",
+      "conflicts": []
+    },
+    {
+      "old": "51ffb99d770cfd5febc57f39399c5a55275dea35",
+      "started": 1791917331.7510197,
+      "utc": "2026-10-13T18:48:51.751022+00:00",
+      "new": "61595e5ba1e0f68d6e7676cece5c15f9eb18a810",
+      "seconds": 0.3052384853363037,
+      "subject": "shell32: Retain shell view commands and clipboard (STOCK_CHANGES: shell view commands and clipboard).",
+      "conflicts": []
+    },
+    {
+      "old": "631aec6a46b3f3014a46bef0e1d5ee1c15c17e62",
+      "started": 1791917332.2253182,
+      "utc": "2026-10-13T18:48:52.225321+00:00",
+      "new": "cf86407fba78cbf9871c21ab2488de6f7d0732f8",
+      "seconds": 0.2698841094970703,
+      "subject": "shell32: Retain XP file-operation confirmations (STOCK_CHANGES: XP file-operation confirmations).",
+      "conflicts": []
+    },
+    {
+      "old": "b315730463143223c39a4a33bfe72f65561406fa",
+      "started": 1791917332.6597047,
+      "utc": "2026-10-13T18:48:52.659706+00:00",
+      "new": "9904feb7c540cd52e81cfe303b395ee4588534e9",
+      "seconds": 0.2809112071990967,
+      "subject": "shell32: Retain XP file Properties (STOCK_CHANGES: XP file Properties).",
+      "conflicts": []
+    },
+    {
+      "old": "51f49e60b1cb95d7e69b1e06c6184a159d637d29",
+      "started": 1791917333.1296902,
+      "utc": "2026-10-13T18:48:53.129692+00:00",
+      "new": "f78b2d2aa4bc3d193fd47f26eceafa3223e17cb7",
+      "seconds": 0.2917485237121582,
+      "subject": "shell32: Retain XP New menu and ShellNew (STOCK_CHANGES: XP New menu and ShellNew).",
+      "conflicts": []
+    },
+    {
+      "old": "d9c40ac03df438268de0f43a18d4f4925cef0bbd",
+      "started": 1791917333.5969713,
+      "utc": "2026-10-13T18:48:53.596973+00:00",
+      "new": "55ec1722a24319814867d879472285cd87a843b2",
+      "seconds": 0.26981639862060547,
+      "subject": "wine.inf.in: Retain XP prefix defaults and MMC file association (STOCK_CHANGES: XP prefix defaults and MMC file association).",
+      "conflicts": []
+    },
+    {
+      "old": "4af0cf0d4c73bdbdd92c219d34feeb60a882f6cf",
+      "started": 1791917334.045214,
+      "utc": "2026-10-13T18:48:54.045217+00:00",
+      "new": "d819af45666c3347f03789eeebaca6a9f4723572",
+      "seconds": 0.26299309730529785,
+      "subject": "shell32: Retain XP shell resource definitions (STOCK_CHANGES: XP shell resource definitions).",
+      "conflicts": []
+    },
+    {
+      "old": "2a1acc81f9bef156df3666d51d9b9caf78bcde58",
+      "started": 1791917334.5075147,
+      "utc": "2026-10-13T18:48:54.507517+00:00",
+      "new": "4d2892d25456c624408fcad69c8762d502e3996d",
+      "seconds": 0.28465747833251953,
+      "subject": "appwiz.cpl: Retain Create Shortcut wizard (STOCK_CHANGES: Create Shortcut wizard).",
+      "conflicts": []
+    },
+    {
+      "old": "977ff529c32fb23a9c6f3107e4079603ca5f3235",
+      "started": 1791917334.9840028,
+      "utc": "2026-10-13T18:48:54.984005+00:00",
+      "new": "4992550f819e494fb5ce836c8df328d59bef7308",
+      "seconds": 0.2936744689941406,
+      "subject": "shell32: Retain Open With dialog (STOCK_CHANGES: Open With dialog).",
+      "conflicts": []
+    },
+    {
+      "old": "1677f424ebbe877fd95721b677bfca8d938bbcc1",
+      "started": 1791917335.4612484,
+      "utc": "2026-10-13T18:48:55.461250+00:00",
+      "new": "deb47bc6c8889f6aa20bd24666c23ea8b2660ec4",
+      "seconds": 0.27831053733825684,
+      "subject": "shell32: Retain shell file-operation Undo (STOCK_CHANGES: shell file-operation Undo).",
+      "conflicts": []
+    },
+    {
+      "old": "863ce8e16054280c91229289b07d5b8d7ecceea0",
+      "started": 1791917335.9268923,
+      "utc": "2026-10-13T18:48:55.926895+00:00",
+      "new": "1ee6997cf92224a00f008343eaed3994359bda44",
+      "seconds": 0.288433313369751,
+      "subject": "shell32: Retain Open With and Undo build integration (STOCK_CHANGES: Open With and Undo build integration).",
+      "conflicts": []
+    },
+    {
+      "old": "e9c3b17994c713ea5ecd8c9502dc4b22fddd3c26",
+      "started": 1791917336.4164712,
+      "utc": "2026-10-13T18:48:56.416474+00:00",
+      "new": "b621cfa5a886146e7dda31dda04f558932caf694",
+      "seconds": 0.27767372131347656,
+      "subject": "shell32: Retain Shell Icons and FileIconInit (upstream deferred) (STOCK_CHANGES: Shell Icons and FileIconInit (upstream deferred)).",
+      "conflicts": []
+    },
+    {
+      "old": "4b328e8076d8d1081447104a44f82b3dec04d013",
+      "started": 1791917336.8704748,
+      "utc": "2026-10-13T18:48:56.870477+00:00",
+      "new": "0568b4d645e9631ff91322f84484935a3b6a2e5b",
+      "seconds": 0.2759826183319092,
+      "subject": "ntuser.h: Retain shell desktop lifetime (STOCK_CHANGES: shell desktop lifetime).",
+      "conflicts": []
+    },
+    {
+      "old": "c8c99f91a7b2c63ec999edb5e82d88088a8e59ae",
+      "started": 1791917337.3194373,
+      "utc": "2026-10-13T18:48:57.319439+00:00",
+      "new": "a50f431cdbd6f73fd7f31823bc6ba8b7dccf2c76",
+      "seconds": 0.2861649990081787,
+      "subject": "shell32: Retain XP shell resources (STOCK_CHANGES: XP shell resources).",
+      "conflicts": []
+    },
+    {
+      "old": "5bd7989af02ceaac8e5e2ca500bf869182a6e71e",
+      "started": 1791917337.7898438,
+      "utc": "2026-10-13T18:48:57.789846+00:00",
+      "new": "a7a157da38b408fd0c67c6576ca0a2aba224c438",
+      "seconds": 0.29867124557495117,
+      "subject": "comctl32: Retain open resource substitutions (STOCK_CHANGES: open resource substitutions).",
+      "conflicts": []
+    },
+    {
+      "old": "5dc4da4c2f7a9558019da799ce61767a7b29d8c3",
+      "started": 1791917338.2680936,
+      "utc": "2026-10-13T18:48:58.268095+00:00",
+      "new": "17a9f5c6e43c76b830a958a12c964156c7d45a18",
+      "seconds": 0.2780735492706299,
+      "subject": "shell32: Read 64-bit file sizes (STOCK_CHANGES: MR !7746).",
+      "conflicts": []
+    },
+    {
+      "old": "f6aceac0ccc0fcbf06e377134eb3018e43781b77",
+      "started": 1791917338.7167919,
+      "utc": "2026-10-13T18:48:58.716793+00:00",
+      "new": "e838d4e1c49f67cd68cf3c4dfccd1a0bc02805fe",
+      "seconds": 0.2893099784851074,
+      "subject": "explorer: Retain shell integration pending plugin (STOCK_CHANGES: Windows-style shell).",
+      "conflicts": []
+    },
+    {
+      "old": "76504066ad082d3d36856bad6c8835c18de91515",
+      "started": 1791917339.191733,
+      "utc": "2026-10-13T18:48:59.191735+00:00",
+      "new": "a8343ce54f63fd1c64a1754f8e5063907ccaac4b",
+      "seconds": 0.2780649662017822,
+      "subject": "tools: Retain the parent checkout shim until P4 (STOCK_CHANGES: make_makefiles).",
+      "conflicts": []
+    },
+    {
+      "old": "8649c0b2197e58a807f71199328c84b0c9450618",
+      "started": 1791917339.648968,
+      "utc": "2026-10-13T18:48:59.648970+00:00",
+      "new": "ec59d59698f2ae86155c340aa0161d3839ea99c0",
+      "seconds": 1.1543095111846924,
+      "subject": "configure: Register project modules and headers (STOCK_CHANGES: build integration).",
+      "conflicts": []
+    },
+    {
+      "old": "eaa705420c45995c1361e2fbb188d7e5faa639f7",
+      "started": 1791917340.978409,
+      "utc": "2026-10-13T18:49:00.978411+00:00",
+      "new": "07c95f0772af5905949c0b7356fc9904ee35bfd9",
+      "seconds": 0.29381799697875977,
+      "subject": "shell32: Route search to Explorer (STOCK_CHANGES: SHFindFiles).",
+      "conflicts": []
+    },
+    {
+      "old": "e64e59774bcb079bb37c020fd5de17a0cea2b617",
+      "started": 1791917341.4446096,
+      "utc": "2026-10-13T18:49:01.444612+00:00",
+      "new": "e17cb2a1f1666752039036751344fe8193b86f88",
+      "seconds": 0.2886230945587158,
+      "subject": "shell32: Declare Shared Documents (STOCK_CHANGES: XP My Computer namespace).",
+      "conflicts": []
+    },
+    {
+      "old": "6aa5e0cdde4a2b79d93937f290366b3b32b50d8f",
+      "started": 1791917341.9030573,
+      "utc": "2026-10-13T18:49:01.903059+00:00",
+      "new": "856604470d7eecc0381ba138144694da8433800e",
+      "seconds": 0.29290151596069336,
+      "subject": "shell32: Declare shortcut helpers (STOCK_CHANGES: folder shortcuts and Create Shortcut).",
+      "conflicts": []
+    },
+    {
+      "old": "3dfa7d487a49ff5756198d3d986417bfe9e86321",
+      "started": 1791917342.3764002,
+      "utc": "2026-10-13T18:49:02.376402+00:00",
+      "new": "1b92b9e81b2d8d02498abda4e5fba6ea28900e71",
+      "seconds": 0.28694868087768555,
+      "subject": "shell32: Declare operation Undo (STOCK_CHANGES: shell file-operation Undo).",
+      "conflicts": []
+    },
+    {
+      "old": "48c01734107e011f36526d2799f0bb9dab181e2e",
+      "started": 1791917342.83754,
+      "utc": "2026-10-13T18:49:02.837542+00:00",
+      "new": "046cd64554eb7ed1d224b43d3bd8b4ac841710b0",
+      "seconds": 0.27517271041870117,
+      "subject": "shell32: Declare Open With menus (STOCK_CHANGES: Open With dialog).",
+      "conflicts": []
+    },
+    {
+      "old": "ab9614c5424125f7015408e234b25ed2e3f3d056",
+      "started": 1791917343.3021977,
+      "utc": "2026-10-13T18:49:03.302199+00:00",
+      "new": "7c22ca019665df05aa29b3bcf163d01395f13b0a",
+      "seconds": 0.2868225574493408,
+      "subject": "uxtheme: Declare isolated theme preview (STOCK_CHANGES: OpenThemeDataFromFile).",
+      "conflicts": []
+    },
+    {
+      "old": "ba344c15cac253c14afffa268fbf45a8b6ab44be",
+      "started": 1791917343.7864957,
+      "utc": "2026-10-13T18:49:03.786498+00:00",
+      "new": "b39e8b3d31a2fdc22030fa1f77a5e1a47a15a9d7",
+      "seconds": 0.27002692222595215,
+      "subject": "uxtheme: Declare cross-process reload (STOCK_CHANGES: theme registry reload).",
+      "conflicts": []
+    },
+    {
+      "old": "6ff1e41c77382035a17680b15428206b3f6b4e99",
+      "started": 1791917344.2449698,
+      "utc": "2026-10-13T18:49:04.244972+00:00",
+      "new": "171f0795ae195dfc9a5a09dcab9f22f47f3d382a",
+      "seconds": 0.26207876205444336,
+      "subject": "uxtheme: Declare themed frame hooks (STOCK_CHANGES: non-client region ownership).",
+      "conflicts": []
+    },
+    {
+      "old": "a5c6b2c667a90170ce9aa6db526391e8257c7eb0",
+      "started": 1791917344.6842875,
+      "utc": "2026-10-13T18:49:04.684290+00:00",
+      "new": "fea113850541a2578bb2dd73359dab5791ce5572",
+      "seconds": 0.27470874786376953,
+      "subject": "shell32: Retain Shared Tiles, Thumbnails and Filmstrip helpers (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "ef705583c8d49f5d85320c3feaaa9cf3fbdd3fad",
+      "started": 1791917345.1487188,
+      "utc": "2026-10-13T18:49:05.148721+00:00",
+      "new": "53e33884cd7cd5371f2756b30848825e34a1e71e",
+      "seconds": 0.2715725898742676,
+      "subject": "shell32: Retain Folder disk watching and selection-preserving synchronization (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "bc7d69c97ae4f2a26a9426954a2a66c3da44b5c7",
+      "started": 1791917345.6087456,
+      "utc": "2026-10-13T18:49:05.608749+00:00",
+      "new": "41b29b640afa2ec22f659f99e128cdfb921b31f6",
+      "seconds": 0.2785518169403076,
+      "subject": "shell32: Retain Tiles, My Computer drive groups and view selection (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "851644b2bb210bf0008f5c65ef5b9ec46d946129",
+      "started": 1791917346.0673633,
+      "utc": "2026-10-13T18:49:06.067365+00:00",
+      "new": "cc079913b41c46c820a3a0c5d900ff0ee40485a0",
+      "seconds": 0.259784460067749,
+      "subject": "shell32: Retain Filmstrip preview layout (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "daacc646f71bfeb7d489573eebeff3c5370203f9",
+      "started": 1791917346.499887,
+      "utc": "2026-10-13T18:49:06.499888+00:00",
+      "new": "cdcd2a82dd9216797776408bf4b6b061deb4751b",
+      "seconds": 0.294325590133667,
+      "subject": "shell32: Retain Thumbnail rendering, selection frames and image lifetime (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "30d9e98fdeef2111d576d84948871c8ee4579a25",
+      "started": 1791917346.978394,
+      "utc": "2026-10-13T18:49:06.978396+00:00",
+      "new": "404f77de670d59f2b1c8281ad670100c9a4901a0",
+      "seconds": 0.2990577220916748,
+      "subject": "shell32: Retain Shell clipboard keys and notification item lookup (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "099449f538db615ff0033ba4897ab8b30fcbeb50",
+      "started": 1791917347.4557211,
+      "utc": "2026-10-13T18:49:07.455723+00:00",
+      "new": "0a12521fb2a9286c288e114397e308200102c033",
+      "seconds": 0.2821497917175293,
+      "subject": "shell32: Retain Shared Send To, Open With, New and shortcut menu helpers (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "60c7e9c8378b94d416db3bc78223e10547fbe754",
+      "started": 1791917347.9138613,
+      "utc": "2026-10-13T18:49:07.913863+00:00",
+      "new": "96a5a3d7dbd2a7ec5a0ee769f23c3ac5c6a5a182",
+      "seconds": 0.28841376304626465,
+      "subject": "shell32: Retain Open With and Send To item menu routing (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "5fea203b71f9e6b8a30e5676b1f960ebc41bd3f3",
+      "started": 1791917348.381629,
+      "utc": "2026-10-13T18:49:08.381631+00:00",
+      "new": "4b45784496bcfde13577d7ea9c8c124b98d1611d",
+      "seconds": 0.2767910957336426,
+      "subject": "shell32: Retain Paste copy naming and Create Shortcut verbs (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "6eb9d59a30d50754a0985b853d5a85303f703932",
+      "started": 1791917348.8541358,
+      "utc": "2026-10-13T18:49:08.854137+00:00",
+      "new": "28e286732eff85f14329f3612df68394e1dd13b1",
+      "seconds": 0.2721133232116699,
+      "subject": "shell32: Retain XP Properties exact byte size formatting (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "3fb530875227a2842216225041348c9435f440be",
+      "started": 1791917349.2970889,
+      "utc": "2026-10-13T18:49:09.297091+00:00",
+      "new": "fbcc530412f366154c1fa9328d0531791ecb09a3",
+      "seconds": 0.26259732246398926,
+      "subject": "shell32: Retain XP background New, Paste Shortcut and Undo menu routing (STOCK_CHANGES).",
+      "conflicts": []
+    },
+    {
+      "old": "916ffefabc33f4e42f5235a990d51664dba01f70",
+      "started": 1791917349.7369933,
+      "utc": "2026-10-13T18:49:09.736996+00:00",
+      "new": "0a58e3d2b601bd087df42fae7cdd3535c762557d",
+      "seconds": 0.29947614669799805,
+      "subject": "shell32: Guard shortcut icon cycles (STOCK_CHANGES: shortcut target icon).",
+      "conflicts": []
+    },
+    {
+      "old": "43c797e7e617814e4c5aa2b7615fe085eabd4da1",
+      "started": 1791917350.216287,
+      "utc": "2026-10-13T18:49:10.216289+00:00",
+      "new": "74b261aac3d05d4662ea6ef0cf52794efbda26f4",
+      "seconds": 0.2921872138977051,
+      "subject": "explorer: Load the versioned shell plugin (STOCK_CHANGES: Windows-style shell).",
+      "conflicts": []
+    },
+    {
+      "old": "bd86fda23436de1bbb69405fee32971e9c21cffd",
+      "started": 1791917350.7006795,
+      "utc": "2026-10-13T18:49:10.700682+00:00",
+      "new": "bbc78364fa7ebc5cd62e6bee577b8f12eaff7c6e",
+      "seconds": 0.3262641429901123,
+      "subject": "configure: Register shared shell resources (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    },
+    {
+      "old": "f213a1f7876a8eba36f19c5599317e0727bb9021",
+      "started": 1791917351.2345235,
+      "utc": "2026-10-13T18:49:11.234526+00:00",
+      "new": "ca844036e290aec2cadcedf07631ce01ddcd3d38",
+      "seconds": 1.0967974662780762,
+      "subject": "configure: Register the shared theme engine (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    },
+    {
+      "old": "598918e9aae5be6c46904ac6543b9ca5ba015609",
+      "started": 1791917352.5062308,
+      "utc": "2026-10-13T18:49:12.506232+00:00",
+      "new": "4f6e420c9ac4c05e15b05b2ca600365557eac78c",
+      "seconds": 0.2770061492919922,
+      "subject": "configure: Register shared power dialogs (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    },
+    {
+      "old": "ef8de25d1210e56f0c87649c943cfc4ab0a84952",
+      "started": 1791917352.989473,
+      "utc": "2026-10-13T18:49:12.989476+00:00",
+      "new": "4d1c5e8608aeb17031f3be7eb879b8346894159d",
+      "seconds": 0.2971217632293701,
+      "subject": "loader: Register tray shell services (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    },
+    {
+      "old": "41f35202f803f58eb1c8b61ed496ace5208a5571",
+      "started": 1791917353.4687223,
+      "utc": "2026-10-13T18:49:13.468724+00:00",
+      "new": "52dcfefff686b00b10809fb5b54d4847300001b4",
+      "seconds": 0.9212267398834229,
+      "subject": "loader: Register the network shell service (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    },
+    {
+      "old": "51b8e6ed5bac0bbacf2510cb433ea9a4b748606c",
+      "started": 1791917354.5577786,
+      "utc": "2026-10-13T18:49:14.557781+00:00",
+      "new": "461ddd7a0c3aa3ef1d61c8a257b84a2b27db37b5",
+      "seconds": 1.198784589767456,
+      "subject": "configure: Register wireless selection UI (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    },
+    {
+      "old": "1743400e4429e2cd673185be186463501cee491e",
+      "started": 1791917355.9351547,
+      "utc": "2026-10-13T18:49:15.935156+00:00",
+      "new": "669388ce4ba96a14ab071264bddf6047d1b84b86",
+      "seconds": 1.2169692516326904,
+      "subject": "configure: Configure optional search module (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    },
+    {
+      "old": "d0a0af068194c306bb36659b35bb2d4e0eff43c1",
+      "started": 1791917357.3214364,
+      "utc": "2026-10-13T18:49:17.321439+00:00",
+      "new": "95fa31a9a8c31725d291cd482b7e5b93822fa064",
+      "seconds": 1.2298829555511475,
+      "subject": "configure: Configure optional browser module (STOCK_CHANGES: project module integration).",
+      "conflicts": []
+    }
+  ],
+  "conflicts": [],
+  "range_diff_unchanged": 93
+}
