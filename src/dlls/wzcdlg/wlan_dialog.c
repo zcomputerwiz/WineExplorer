@@ -32,10 +32,21 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "wexnet.h"
-#include "wlan_dialog.h"
+#include "wexwlan.h"
 
-#include "module.h"
 #include "wexres.h"
+
+static HINSTANCE wlan_instance;
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
+{
+    if (reason == DLL_PROCESS_ATTACH)
+    {
+        wlan_instance = instance;
+        DisableThreadLibraryCalls(instance);
+    }
+    return TRUE;
+}
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -180,7 +191,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
     {
     case WM_INITDIALOG:
     {
-        HINSTANCE hInst = explorer_hInstance;
+        HINSTANCE hInst = wlan_instance;
         HWND hList = GetDlgItem(hwnd, IDC_WZCQCFG_NETWORKS);
         HWND hWarnIco = GetDlgItem(hwnd, IDC_WZCQCFG_ICO_WARN);
         LVCOLUMNW col = {0};
@@ -347,5 +358,5 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
 void wlan_dialog_show(HWND parent)
 {
-    DialogBoxParamW(WexResModule(), MAKEINTRESOURCEW(IDD_WZCQCFG), parent, WlanSelectDlgProc, 0);
+    DialogBoxParamW(wlan_instance, MAKEINTRESOURCEW(IDD_WZCQCFG), parent, WlanSelectDlgProc, 0);
 }

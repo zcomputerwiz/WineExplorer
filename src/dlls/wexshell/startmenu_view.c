@@ -47,7 +47,7 @@
 #include "startsettings.h"
 #include "taskbar_props.h"
 #include "toolbars.h"
-#include "wlan_dialog.h"
+#include "wexwlan.h"
 #include "module.h"
 #include "wexres.h"
 

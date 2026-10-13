@@ -31,7 +31,7 @@
 #include "wexshell.h"
 #include "search_ui.h"
 #include "shellres.h"
-#include "wlan_dialog.h"
+#include "wexwlan.h"
 #include "wexnet.h"
 #include "wexpower.h"
 

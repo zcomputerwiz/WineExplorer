@@ -36,4 +36,4 @@ SOURCES = \
 	taskbar_props.c \
 	tray_clock.c \
 	uac_agent.c \
-	wlan_dialog.c
+	wireless_dispatch.c

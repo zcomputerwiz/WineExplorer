@@ -42,7 +42,7 @@ static DWORD WINAPI cancel_dialog(void *unused)
             GetWindowThreadProcessId(dialog, &pid);
             CHECK(pid == GetCurrentProcessId(), "ncpa uses shared UI in its own caller process");
         }
-        else CHECK((HMODULE)GetWindowLongPtrW(dialog, GWLP_HINSTANCE) == module, "dialog resources belong to network DLL");
+        else CHECK((HMODULE)GetWindowLongPtrW(dialog, GWLP_HINSTANCE) == module, "dialog resources belong to feature DLL");
         GetWindowRect(dialog, &rect);
         CHECK(rect.left >= 0 && rect.top >= 0 && rect.right <= GetSystemMetrics(SM_CXSCREEN) &&
               rect.bottom <= GetSystemMetrics(SM_CYSCREEN), "network dialog within display");
@@ -59,6 +59,25 @@ static void CALLBACK cancel_menu(HWND hwnd, UINT msg, UINT_PTR id, DWORD time)
 
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, char *command, int show)
 {
+    if (!strcmp(command, "wireless"))
+    {
+        void (__cdecl *show_dialog)(HWND);
+        report = fopen("Z:\\tmp\\network-module-probe.txt", "w");
+        if (!report) return 2;
+        module = LoadLibraryW(L"wzcdlg.dll");
+        show_dialog = module ? (void *)GetProcAddress(module, "wlan_dialog_show") : NULL;
+        CHECK(show_dialog != NULL, "wireless DLL export available");
+        if (show_dialog)
+        {
+            HANDLE worker = CreateThread(NULL, 0, cancel_dialog, NULL, 0, NULL);
+            show_dialog(NULL);
+            WaitForSingleObject(worker, 15000);
+            CloseHandle(worker);
+            CHECK(!FindWindowW(L"#32770", NULL), "wireless dialog cancels");
+        }
+        if (module) FreeLibrary(module);
+        goto done;
+    }
     if (!strcmp(command, "cpl"))
     {
         HMODULE cpl = LoadLibraryW(L"ncpa.cpl");

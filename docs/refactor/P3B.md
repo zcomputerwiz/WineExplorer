@@ -1,6 +1,6 @@
 # P3b subsystem extraction
 
-Shared resources, themeui, msgina, stobject and netshell accepted October 13, 2026. Other planned subsystem extractions
+Shared resources, themeui, msgina, stobject, netshell and wzcdlg accepted October 13, 2026. Other planned subsystem extractions
 are pending; P4 repository restructure follows their acceptance.
 
 `src/dlls/wexres` owns the icon/bitmap packs, namespace lookup and resource
@@ -39,7 +39,7 @@ a fresh clone, complete build/install, ISO and interactive installer test.
 
 ## Remaining extraction order
 
-wireless selection UI (wzcdlg), wexsearch,
+wexsearch,
 then wexbrowse. Keep clock/taskband/Alt+Tab in wexshell. Every split must pass
 its feature check and visual comparison; optional modules must not prevent
 shell startup when absent. Record any seam that is too wide instead of
@@ -133,6 +133,8 @@ To extract one DLL at a time, wireless selection still uses its original shell
 implementation through a typed export, preserving process and owner. The
 dispatcher prefers wzcdlg; the next step moves that implementation and removes
 the temporary shell export. No private settings/global pointers cross DLLs.
+This describes the netshell checkpoint; wzcdlg now replaces that temporary
+bridge as recorded below.
 Existing netshell entry points invoke the same dialogs directly.
 ncpa.cpl calls StartNCW in this DLL; its cancel-only entry-point probe confirms
 the dialog stays in the caller process instead of spawning explorer.
@@ -151,3 +153,21 @@ pre-split-netshell after exact comparison. Fresh Wine fork clones contain no
 stock netshell directory. assemble.sh accepts empty directories left by tracked
 file deletions, while still rejecting nonempty collisions. Public/private
 asset routing follows the move. Installed dev/build VM runtimes are untouched.
+
+## Wireless selection acceptance
+
+src/dlls/wzcdlg owns wlan_dialog.c and its template; src/include/wexwlan.h
+contains its single entry point. Backend/status calls use wexnet.h, and common
+icons use wexres. The shell and netshell dispatch through a typed DLL export;
+missing wzcdlg simply leaves wireless selection unavailable. The temporary
+shell export and fallback were removed. There are no shared globals across
+these modules or new helper processes.
+
+The module and full build pass. The standalone wireless dialog has its own
+resource instance, fits the display and cancels. ncpa's actual applet entry
+still shows it in the caller process. The full network suite passes, including
+shell startup with wzcdlg disabled. The wireless dialog capture against P3 is
+pixel-identical across the entire 800x600 image; all four standard desktop/
+taskbar/tray captures also match except the masked clock.
+Evidence: p3b-wzcdlg-final.log, p3b-wzcdlg-optional.log,
+p3b-wireless-visual.log and checks/network/{wireless,wireless_absent,cpl}.txt.

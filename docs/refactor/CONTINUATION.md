@@ -17,12 +17,27 @@ public directory is preserved in p3b/pre-split-netshell. ncpa.cpl now calls
 the shared DLL directly; its real applet entry-point Cancel check passes in
 the same caller process. The extra module/full build also passes. Wine fork
 build/header/registration integration is pushed through 41f35202f8.
-Next: wzcdlg extraction
-(remove the temporary wlan_dialog_show export from wexshell),
-then remaining P3b modules, P4, P5 evaluation and P6. The API presence/absence
+Wzcdlg is accepted: its standalone/cpl/missing-DLL checks pass and its entire
+dialog capture equals P3. The temporary wlan_dialog_show shell export/fallback
+was removed. Fork build/header integration is pushed through 51b8e6ed5b.
+Next: wexsearch and wexbrowse, then P4, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
 Failed commands during this prototype:
+
+- A functions.exec bundle failed to parse with `SyntaxError: Missing } in
+  template expression`: its JavaScript String.raw template contained Bash's
+  `${1:?p3 or p3b}`. Nothing in that bundle executed. Used a dollar placeholder
+  in the patch string and replaced it before apply_patch.
+
+- The first wzcdlg configure failed because netshell/nettray.c still included
+  the now-removed private wlan_dialog.h. Updated it to the shared wexwlan.h;
+  other consumers were already updated. Rebuilding the isolated tree.
+
+- `extract-wzcdlg.py` stopped at its directory-absence assertion because the
+  preceding patch had already created the new Makefile/spec directory. No
+  files moved. Changed the guard to require absence of wlan_dialog.c and allow
+  the existing scaffolding directory, then reran.
 
 - The staged netshell diff check found a new blank line at netshell.rc EOF
   after resource extraction. Removed that extra blank line; no code behavior

@@ -31,13 +31,22 @@ timeout 240 xvfb-run -a -s '-screen 0 800x600x24' bash -eu -o pipefail -c '
     grep -q "^COMPLETE: 0 failures" "$root/checks/network/cpl.txt"
     "$WINESERVER" -k
     "$WINESERVER" -w
+    if [ -f "$root/build/dlls/wzcdlg/x86_64-windows/wzcdlg.dll" ]; then
+        timeout 40 "$WINELOADER" "$root/checks/network/probe.exe" wireless
+        cp /tmp/network-module-probe.txt "$root/checks/network/wireless.txt"
+        grep -q "^COMPLETE: 0 failures" "$root/checks/network/wireless.txt"
+        "$WINESERVER" -k
+        "$WINESERVER" -w
+    fi
     key="HKLM\Software\Microsoft\Windows\CurrentVersion\ShellServiceObjectDelayLoad"
-    for state in present absent disabled restored; do
+    for state in present absent disabled restored wireless_absent; do
         expected=present
         export WINEDLLOVERRIDES="mscoree,mshtml="
         if [ "$state" = absent ]; then
             export WINEDLLOVERRIDES="netshell=;mscoree,mshtml="
             expected=absent
+        elif [ "$state" = wireless_absent ]; then
+            export WINEDLLOVERRIDES="wzcdlg=;mscoree,mshtml="
         elif [ "$state" = disabled ]; then
             "$WINELOADER" reg delete "$key" /v "Connections Tray" /f >/dev/null
             expected=absent

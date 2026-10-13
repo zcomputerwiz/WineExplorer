@@ -1,0 +1,56 @@
+/*
+ * Network Connections Shell Extension Resource Script
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#include "windef.h"
+#include "winuser.h"
+#include "commctrl.h"
+#include "resource.h"
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+/* Connect to Wireless Network Dialog */
+IDD_WZCQCFG DIALOGEX 0, 0, 240, 222
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Connect to Wireless Network"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "The following wireless network(s) are available. To access a wireless network, select it from the list, and then click Connect.",
+                    IDC_WZCQCFG_LBL_INFO, 8, 7, 224, 22
+    LTEXT           "Available wireless &networks:", IDC_WZCQCFG_LBL_NETWORKS, 8, 30, 185, 9
+    CONTROL         "", IDC_WZCQCFG_NETWORKS, "SysListView32",
+                    LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP,
+                    8, 41, 224, 62
+    CONTROL         "", IDC_WZCQCFG_ICO_WARN, "Static", SS_ICON | NOT WS_VISIBLE, 10, 109, 21, 20
+    LTEXT           "This wireless network is not secure. Because a network key is not used for authentication or encryption, data sent over this network might be subject to unauthorized access.",
+                    IDC_WZCQCFG_LBL_NOWKINFO, 36, 109, 196, 28, NOT WS_VISIBLE
+    AUTOCHECKBOX    "Allow &me to connect to the selected wireless network, even though it is not secure",
+                    IDC_WZCQCFG_CHK_NOWK, 20, 140, 212, 18, BS_MULTILINE | NOT WS_VISIBLE
+    LTEXT           "This wireless network requires the use of a network key. To access this network, type the key, then click Connect.",
+                    IDC_WZCQCFG_LBL_WKINFO, 8, 109, 224, 18, NOT WS_VISIBLE
+    LTEXT           "Network &key:", IDC_WZCQCFG_LBL_WEPK, 8, 129, 68, 12, NOT WS_VISIBLE
+    EDITTEXT        IDC_WZCQCFG_WEPK, 78, 127, 154, 13, ES_PASSWORD | ES_AUTOHSCROLL | NOT WS_VISIBLE
+    LTEXT           "C&onfirm key:", IDC_WZCQCFG_LBL_WEPK2, 8, 145, 68, 12, NOT WS_VISIBLE
+    EDITTEXT        IDC_WZCQCFG_WEPK2, 78, 143, 154, 13, ES_PASSWORD | ES_AUTOHSCROLL | NOT WS_VISIBLE
+    AUTOCHECKBOX    "Show network key", IDC_WZCQCFG_CHK_SHOWPWD, 78, 159, 100, 10, NOT WS_VISIBLE
+    LTEXT           "If you are having difficulty connecting to a network, click Refresh or Advanced.",
+                    -1, 8, 177, 224, 14
+    PUSHBUTTON      "&Refresh", IDC_WZCQCFG_REFRESH, 8, 197, 46, 14
+    PUSHBUTTON      "&Advanced...", IDC_WZCQCFG_ADVANCED, 58, 197, 52, 14
+    DEFPUSHBUTTON   "&Connect", IDC_WZCQCFG_CONNECT, 136, 197, 46, 14
+    PUSHBUTTON      "Close", IDCANCEL, 186, 197, 46, 14
+END

@@ -33,7 +33,7 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "wexnet.h"
-#include "wlan_dialog.h"
+#include "wexwlan.h"
 #include "module.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(netshell);

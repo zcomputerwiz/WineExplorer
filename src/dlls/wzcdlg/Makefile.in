@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE = wzcdlg.dll
+IMPORTS = netshell wexres user32 gdi32
+DELAYIMPORTS = comctl32
+SOURCES = wlan_dialog.c wzcdlg.rc

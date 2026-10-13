@@ -33,7 +33,7 @@
 #include "wine/debug.h"
 #include "resource.h"
 #include "wexnet.h"
-#include "wlan_dialog.h"
+#include "wexwlan.h"
 #include "wlan_status.h"
 #include "net_props.h"
 #include "nettray.h"

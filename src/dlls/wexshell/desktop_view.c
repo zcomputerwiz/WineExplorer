@@ -45,7 +45,7 @@
 #include "desktop_view.h"
 #include "shellfolders.h"
 #include "shellres.h"
-#include "wlan_dialog.h"
+#include "wexwlan.h"
 
 #include "module.h"
 
