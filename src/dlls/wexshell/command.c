@@ -213,10 +213,14 @@ BOOL WINAPI WexShellCommand(DWORD version, WCHAR *cmdline, int cmdshow)
     WCHAR *p;
     if (version != WEX_SHELL_VERSION || !cmdline) return FALSE;
     for (p = cmdline; *p; p++)
+    {
+        if ((p == cmdline || iswspace(p[-1])) && !wcsnicmp(p, L"/shell", 6) &&
+            (!p[6] || iswspace(p[6]))) return FALSE;
         if ((p == cmdline || iswspace(p[-1]) || p[-1] == ',' || p[-1] == '"') &&
             !wcsnicmp(p, L"/desktop", 8) &&
             (!p[8] || p[8] == '=' || p[8] == ',' || iswspace(p[8])))
             return FALSE;
+    }
 
     parameters_struct   parameters;
 

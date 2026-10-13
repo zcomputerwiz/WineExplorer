@@ -587,6 +587,7 @@ static void position_taskbar(void)
     /* like Windows XP: the taskbar only takes its place out of the work area when it stays on top and does not hide */
     RECT work = { 0, 0, screen_w, (s->autohide || !s->always_on_top) ? screen_h : screen_h - total }, current;
 
+    appbar_publish_reservation(tray_window, ABE_BOTTOM, (s->autohide || !s->always_on_top) ? 0 : total);
     SetWindowPos( tray_window, (s->always_on_top || s->autohide) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, y,
                   tray_width, total, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOCOPYBITS );
     /* Off-screen auto-hide pixels cannot be reused when the tray is revealed. */

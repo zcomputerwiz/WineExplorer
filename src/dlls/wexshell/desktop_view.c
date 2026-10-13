@@ -33,6 +33,7 @@
 
 #define COBJMACROS
 #include <windows.h>
+#include <wexwayland.h>
 #include <shlobj.h>
 #include <shellapi.h>
 #include <shlwapi.h>
@@ -1209,8 +1210,11 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
                                           parent_desktop, NULL, wc.hInstance, NULL);
 
     if (g_desktop_view.hwnd)
+    {
+        SetPropW(g_desktop_view.hwnd, WEX_WAYLAND_ROLE_PROP, (HANDLE)WEX_WAYLAND_DESKTOP);
         SetWindowPos(g_desktop_view.hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
 
     desktop_view_refresh();
     SetTimer(g_desktop_view.hwnd, 1, 3000, NULL);

@@ -29,12 +29,23 @@
 
 #include "windows.h"
 #include "shellapi.h"
+#include "wexwayland.h"
 #include "wine/debug.h"
 #include "explorer_private.h"
 
 #include "wine/list.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(appbar);
+
+/* Shared with the built-in taskbar. Scalar properties are inert on X11. */
+void appbar_publish_reservation(HWND hwnd, UINT edge, UINT size)
+{
+    static const UINT edges[] = {WEX_WAYLAND_EDGE_LEFT, WEX_WAYLAND_EDGE_TOP,
+                                WEX_WAYLAND_EDGE_RIGHT, WEX_WAYLAND_EDGE_BOTTOM};
+    SetPropW(hwnd, WEX_WAYLAND_ROLE_PROP, (HANDLE)WEX_WAYLAND_SHELL);
+    SetPropW(hwnd, WEX_WAYLAND_EDGE_PROP, (HANDLE)(ULONG_PTR)(size && edge < 4 ? edges[edge] : 0));
+    SetPropW(hwnd, WEX_WAYLAND_SIZE_PROP, (HANDLE)(ULONG_PTR)size);
+}
 
 struct appbar_data_msg  /* platform-independent data */
 {
@@ -163,6 +174,11 @@ static UINT_PTR handle_appbarmessage(DWORD msg, struct appbar_data_msg *abd)
         {
             list_remove(&data->entry);
 
+            RemovePropW(hwnd, WEX_WAYLAND_ROLE_PROP);
+            RemovePropW(hwnd, WEX_WAYLAND_EDGE_PROP);
+            RemovePropW(hwnd, WEX_WAYLAND_SIZE_PROP);
+            SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
             send_poschanged(hwnd);
 
             free( data );
@@ -191,6 +207,10 @@ static UINT_PTR handle_appbarmessage(DWORD msg, struct appbar_data_msg *abd)
             data->edge = abd->uEdge;
             data->rc = abd->rc;
             data->space_reserved = TRUE;
+            appbar_publish_reservation(hwnd, data->edge,
+                data->edge == ABE_LEFT || data->edge == ABE_RIGHT ?
+                data->rc.right - data->rc.left : data->rc.bottom - data->rc.top);
+            SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
         else
         {
