@@ -14,9 +14,9 @@ hashes, corrections and test limits. The milestone table below records imported
 claims; the new report is the current acceptance evidence.
 
 Build only from the open-resource source tree on the build VM. Do not use the
-development VM's source overlay for an ISO. Never run an unstaged `make install`
-in `~/inst/build`: the package script supplies `DESTDIR` to stage Wine into the
-package rather than replacing the build VM's installed desktop.
+development VM's source overlay for an ISO. Never run make install in
+~/inst/build. The package script uses a configured build from the same
+assembled checkout and stages it with DESTDIR.
 
 Native text setup build dependencies include `build-essential`, `pkg-config`,
 `libfdisk-dev`, `libblkid-dev` and `libncurses-dev`, in addition to the Wine and
@@ -29,11 +29,16 @@ configured `BUILD_DIR` from the same checkout and never falls back to copying `/
 build machine.
 
 ```sh
-cd ~/inst/build
-make -j4
-cd ~/inst
-sudo -n env BUILD_DIR="$HOME/src/build/wine64" WORK_DIR=/home/wineuser/iso-build \
-    OUT_ISO="$HOME/inst/wineexplorer.iso" bash installer/build-iso.sh --clean
+cd ~/src
+bash scripts/assemble.sh
+mkdir -p build/wine64
+cd build/wine64
+../../wine/configure --enable-win64 --prefix="$PWD/install"
+make -j8
+cd ../..
+sudo -n env BUILD_DIR="$PWD/build/wine64" \
+    WORK_DIR=/srv/protonexplorer/wineexplorer-iso-work \
+    OUT_ISO=/srv/protonexplorer/wineexplorer.iso bash installer/build-iso.sh
 ```
 
 Run the scripted installation inside WSL2 Debian or Linux with QEMU/KVM,

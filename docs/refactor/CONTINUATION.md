@@ -52,7 +52,20 @@ The second sync passes with WINE_SOURCE_CURRENT and five helper/config files.
 The P4 ownership build passes; both original source backup and all three
 preserved stock stubs remain available. No installed runtime was changed.
 
+Fresh recursive clone/build/install is running under
+/srv/protonexplorer/wex-refactor-p4-fresh via build-recursive.sh. Main source
+is the hash-verified p4-project.bundle at 965c5287; Wine is the normal public
+submodule clone pinned at d0a0af0681. Log: /srv/protonexplorer/p4-fresh-final.log.
+The runner PID was 1756221 (verify before use). This has not yet passed full
+build/install/ISO/live-session acceptance. Local main commits d74810c2 and
+965c5287 wire packaging/theme definitions and update UTF-8 build docs.
+Source sync tests remain isolated; the real dev source/session is unchanged.
+
 Failed commands during this prototype:
+
+- The next installer-guide/acceptance-note patch bundle hit the same JavaScript
+  Markdown-fence parse error in its saved Python string. Nothing executed.
+  Replaced the fence characters with placeholders before applying.
 
 - update-p4-build-docs.py failed at README's box-drawing tree marker with
   ValueError: substring not found. Windows Python's default encoding is
