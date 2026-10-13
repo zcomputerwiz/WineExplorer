@@ -66,9 +66,10 @@ sync)
     if [ -s /tmp/vm_sync_local ]; then
         # only those that differ on the VM, touched so what is built from them is rebuilt
         (cd "$LOCAL/ms-assets" && xargs md5sum < /tmp/vm_sync_local) |
-            python "$ROOT/scripts/source_layout.py" --checksum |
-            "${SSH[@]}" "cd $source_q && md5sum -c 2>/dev/null | grep -v ': OK$' | sed 's/: [A-Z].*$//'" |
-            python "$ROOT/scripts/source_layout.py" --reverse > /tmp/vm_sync_overlay || true
+            python "$ROOT/scripts/source_layout.py" --checksum > /tmp/vm_sync_hashes
+        "${SSH[@]}" "cd $source_q && md5sum -c 2>/dev/null | grep -v ': OK$' | sed 's/: [A-Z].*$//'" \
+            < /tmp/vm_sync_hashes > /tmp/vm_sync_mismatches
+        python "$ROOT/scripts/source_layout.py" --reverse < /tmp/vm_sync_mismatches > /tmp/vm_sync_overlay
         if [ -s /tmp/vm_sync_overlay ]; then
             python "$ROOT/scripts/sync-overlay.py" "$LOCAL/ms-assets" /tmp/vm_sync_overlay | "${SSH[@]}" "tar -xmf - -C $source_q"
         fi

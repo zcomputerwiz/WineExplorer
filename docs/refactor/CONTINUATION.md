@@ -1,5 +1,28 @@
 # Refactor continuation — 2026-10-12
 
+October 13 final acceptance continuation: P6 full build is REBASE_BUILD_PASSED
+at /srv/protonexplorer/wex-refactor-p6. Installed P4 feature suites all pass.
+The corrected real dev source sync completes with zero private files needing
+updates on repeat. The first LightDM restart reached Welcome, leaving the
+old Wine User session listed as logged on; a temporary 99-refactor-test.conf
+enables dev-only autologin for the acceptance restart. Remove it once the
+new desktop starts. All prior runtime/prefix/config backups are intact.
+
+Final-check command failures: reads of scripts/refactor/check-smoke.sh,
+installer/session/wine-explorer-session.sh, build/refactor/capture-shell.py
+and docs/VM.md failed because these paths do not exist. Use check-assembled.sh,
+scripts/wine-explorer-session.sh, capture-shell.sh and HANDOFF.md instead.
+Get-Command VBoxManage found no PATH entry; use its installed absolute path.
+The guessed ~/.local/share/wineexplorer/session.log was absent; the actual
+log is ~/.wine-session.log. Non-root /proc/maps and private /tmp reads were
+denied; inspect the specific process via sudo. XAUTHORITY=~/.Xauthority
+failed against the greeter; its process specifies /var/lib/lightdm/.Xauthority.
+The inline PowerShell Python image comparison lost quotes and raised an
+unterminated string SyntaxError; use the saved compare-p4.py instead.
+That comparison passes both Start menus but fails folder.png: the installed
+capture shows the desktop before the folder opens. Increase the capture's
+four-second wait to fifteen seconds and rerun before accepting the image.
+
 October 13 P3b shared resources accepted: the build VM has a separate source/build under
 `/srv/protonexplorer/wex-refactor-p3b`. The full build, runtime and screenshot
 checks pass; see P3B.md. Wine fork build integration is pushed as bd86fda234.
@@ -62,6 +85,20 @@ build/install/ISO/live-session acceptance. Local main commits d74810c2 and
 Source sync tests remain isolated; the real dev source/session is unchanged.
 
 Failed commands during this prototype:
+
+- The real dev source sync prepared the fork and public modules but its private
+  checksum mapper rejected Git Bash's GNU binary checksum marker (space-star
+  instead of two spaces). The old mismatch pipeline's trailing true hid the
+  mapper error and stamped the sync. Accept/normalize both GNU formats and
+  split checksum generation, remote mismatch checking and reverse mapping
+  into checked steps; then resync the private overlay. Installed tested public
+  packages succeeded separately, and original runtime/prefix backups exist
+  under ~/build/refactor-p4-deploy.
+
+- Adding all of wine/include to the MinGW browser probe mixed Wine and
+  MinGW Windows SDK definitions, producing duplicate shobjidl interfaces.
+  Copy only the standalone wexshell.h ABI header into the probe include
+  directory, as the power probe already does. No product code changed.
 
 - Installed services and network checks now pass. Browser probe compilation
   failed at wexshell.h: the host ABI header is in the Wine fork, while that

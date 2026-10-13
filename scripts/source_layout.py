@@ -46,9 +46,9 @@ if __name__ == '__main__':
         if not line:
             continue
         if args.checksum:
-            digest, separator, path = line.partition('  ')
-            if not separator:
-                raise ValueError('Expected checksum followed by two spaces')
-            print(digest + separator + transform(path))
+            digest, separator, path = line[:32], line[32:34], line[34:]
+            if len(digest) != 32 or any(c not in '0123456789abcdefABCDEF' for c in digest) or separator not in ('  ', ' *'):
+                raise ValueError('Expected GNU MD5 text or binary checksum line')
+            print(digest + '  ' + transform(path))
         else:
             print(transform(line))
