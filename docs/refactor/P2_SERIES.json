@@ -1,6 +1,6 @@
 {
   "base": "eba89375a0515957701928faac0f5007ef638b04",
-  "source": "31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7",
+  "source": "c9f9440dfc105d0c92fd3ecc7ffe53bfc4bd9a5b",
   "commits": [
     {
       "commit": "31dd0e888341132604e5b63617b9824ef83c39d5",
@@ -650,6 +650,13 @@
       "subject": "shell32: Retain XP background New, Paste Shortcut and Undo menu routing (STOCK_CHANGES).",
       "paths": [
         "dlls/shell32/shlview_cmenu.c"
+      ]
+    },
+    {
+      "commit": "916ffefabc33f4e42f5235a990d51664dba01f70",
+      "subject": "shell32: Guard shortcut icon cycles (STOCK_CHANGES: shortcut target icon).",
+      "paths": [
+        "dlls/shell32/folders.c"
       ]
     }
   ]

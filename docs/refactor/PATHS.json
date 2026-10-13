@@ -1,11 +1,11 @@
 {
   "revisions": {
     "baseline": "455e3509b98a6919fd4ad1def4803e08c41c03b2",
-    "source": "31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7",
+    "source": "c9f9440dfc105d0c92fd3ecc7ffe53bfc4bd9a5b",
     "import": "40c17e1db47ac0f8ae08506268bc2491f7bf1ef0",
     "fork_master": "081042ede6a165a36bf9988350dd584b440d7a3d"
   },
-  "patch_sha256": "6e463820a9ddc757692a5fbb564abb1b54ddb42c7d0607d57f483fe542f5afb1",
+  "patch_sha256": "5e724a2e4d8e434fdc54051dcb5445855524b65219b497db4b2f9c85998f30e5",
   "files": [
     {
       "path": ".gitattributes",
@@ -10319,10 +10319,10 @@
     },
     {
       "path": "dlls/shell32/folders.c",
-      "patch_sha256": "132f3391b3c6619684278a5697fd4b15e02fe254114024e3ae16e1b9a026cb83",
+      "patch_sha256": "a2c9e441ca5a06d600491db14be2459f452b10a2df54b4ee8c1d7f6ce8179dd1",
       "hunk_sha256": [
         "ed0e5ca001dffd95153167ac24a0b1051abc543936dd6667fd53a0a7c2e7b82a",
-        "d958b74d300665d355d37eba75257599746effa19cbdbc061f78552de864dd6b"
+        "866eb4bcecf506b9f5eb9ad065d32349c3d3191b0b203b12f7e1d0e05eea78da"
       ],
       "hunk_decisions": [
         {
@@ -10333,10 +10333,10 @@
           "target": "upstream/folder-custom-icon; retained fork fix"
         },
         {
-          "sha256": "d958b74d300665d355d37eba75257599746effa19cbdbc061f78552de864dd6b",
-          "header": "@@ -309,6 +311,28 @@ static HRESULT WINAPI IExtractIconW_fnGetIconLocation(IExtractIconW * iface, UIN",
+          "sha256": "866eb4bcecf506b9f5eb9ad065d32349c3d3191b0b203b12f7e1d0e05eea78da",
+          "header": "@@ -309,6 +311,30 @@ static HRESULT WINAPI IExtractIconW_fnGetIconLocation(IExtractIconW * iface, UIN",
           "class": "U",
-          "change": "Use a shortcut target icon when the shortcut has no explicit icon",
+          "change": "Use a shortcut target icon when the shortcut has no explicit icon; skip shortcut targets to prevent recursive icon lookup cycles (P1 regression verified)",
           "target": "upstream/shortcut-target-icon; retained fork fix"
         }
       ],

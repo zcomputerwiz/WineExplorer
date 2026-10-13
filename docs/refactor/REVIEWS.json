@@ -99,7 +99,7 @@
     ]
   },
   "dlls/shell32/folders.c": {
-    "patch_sha256": "132f3391b3c6619684278a5697fd4b15e02fe254114024e3ae16e1b9a026cb83",
+    "patch_sha256": "a2c9e441ca5a06d600491db14be2459f452b10a2df54b4ee8c1d7f6ce8179dd1",
     "class": "U",
     "change": "Use a shortcut target icon when the shortcut has no explicit icon",
     "target": "upstream/shortcut-target-icon; retained fork fix",
@@ -113,10 +113,10 @@
         "target": "upstream/folder-custom-icon; retained fork fix"
       },
       {
-        "sha256": "d958b74d300665d355d37eba75257599746effa19cbdbc061f78552de864dd6b",
-        "header": "@@ -309,6 +311,28 @@ static HRESULT WINAPI IExtractIconW_fnGetIconLocation(IExtractIconW * iface, UIN",
+        "sha256": "866eb4bcecf506b9f5eb9ad065d32349c3d3191b0b203b12f7e1d0e05eea78da",
+        "header": "@@ -309,6 +311,30 @@ static HRESULT WINAPI IExtractIconW_fnGetIconLocation(IExtractIconW * iface, UIN",
         "class": "U",
-        "change": "Use a shortcut target icon when the shortcut has no explicit icon",
+        "change": "Use a shortcut target icon when the shortcut has no explicit icon; skip shortcut targets to prevent recursive icon lookup cycles (P1 regression verified)",
         "target": "upstream/shortcut-target-icon; retained fork fix"
       }
     ]

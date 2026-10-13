@@ -9,7 +9,7 @@ started thousands of untracked-file diff subprocesses for it. That exclusion
 is not a project policy change and is not committed.
 
 Read `REFACTOR_MAP.md` and `PATHS.md` for current audit state. The audited source
-is pinned to `31f7896a`; later documentation/tool commits do not change its Wine
+is pinned to `c9f9440d`; later documentation/tool commits do not change its Wine
 tree. Keep that pin until actual Wine source changes are intentionally audited.
 The bare evidence repository is `build/refactor/wine.git`. The real release tag
 came unchanged from wine-mirror because the user's fork has no tags.
@@ -30,17 +30,22 @@ rebuild before any further P1 work. All twelve topics are pushed, no MRs opened.
 P0 has been refreshed after applying the tested battery initialization fix in
 main (31f7896a). Only one reviewed ntdll hunk changed; strict coverage still
 passes all 750 paths/1,876 hunks. P2's sparse checkout is build/refactor/fork,
-branch wineexplorer/11.19, retaining the original 72 B commits and 73 subsequent
-commits through 6ff1e41c77 (all pushed). P2_SERIES.json records each commit/path;
-P2_PROGRESS.json shows only shlview.c and shlview_cmenu.c still differing in
-stock code, with 436 M paths reserved for assembly and twelve N differences.
+branch wineexplorer/11.19, retaining the original 72 B commits and 85 subsequent
+commits through 916ffefabc (all pushed). P2_SERIES.json records each commit/path;
+P2_PROGRESS.json shows zero stock differences, with 436 M paths reserved for
+assembly and twelve N differences.
 U, 47 X groups, H integration and two additional B backports are retained.
-Shared declarations were split into feature commits. The two remaining shell
-files need finer view/menu row splits before assembly/build acceptance.
-P1's additional shortcut cycle guard is not in the source pin; reconcile it
-before full P2 build rather than blindly cherry-picking the P1 topic.
-This branch is pushed; full P2
-assembly/build acceptance is pending. See P2.md for next steps.
+Shared declarations were split into feature commits. The final shell files
+were split into eleven helper/feature commits and match the pin exactly.
+P1's additional shortcut cycle guard was reconciled in main c9f9440d and the
+retained branch; only that reviewed hunk changed in the refreshed audit.
+Assembly equality passes: tree bd2441a2b82d51a63b90ad059589e4f71a53dceb,
+zero unexpected differences, twelve classified N differences.
+The isolated assembled build is running (PID 1329961) at
+/srv/protonexplorer/wex-refactor-p2. Logs /srv/protonexplorer/p2-build.log;
+status wex-refactor-p2/build.status. Actual guest tree equality and patch hash
+passed before autoconf/configure. No installation occurs. P1 source/build and
+installed runtimes remain unchanged. See P2.md for next steps.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
@@ -307,6 +312,14 @@ handle; real-name authorship and sign-off remain the user's manual step.
   argument. `python build/refactor/export-topics.py wizard-focus` and scp passed.
 
 ## Commands that failed or were interrupted
+
+P2 background launch command ended with `& echo \$!`; Bash therefore printed
+the literal `$!` instead of the PID. The build itself launched successfully.
+`pgrep -af build-assembled.sh` identified PID 1329961; no second runner was
+launched. An immediate diagnostic `cat .../build.status` reported
+`No such file or directory` while configure was still preparing; added a
+BUILD_PREPARING status before preparation for future launches. The running
+copy had already advanced to BUILD_RUNNING and was left running unchanged.
 
 October 12 shell split: `python build/refactor/retain-shell-series.py` first
 stopped at `AssertionError: Plan must cover each generic hunk once` before

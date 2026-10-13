@@ -11,7 +11,7 @@ Use the real annotated `wine-11.19` tag, whose release commit is
 `455e3509b98a6919fd4ad1def4803e08c41c03b2`. The fork currently has no tags;
 the unchanged tag was fetched from `https://github.com/wine-mirror/wine`.
 The fork's `master` was `081042ede6a165a36bf9988350dd584b440d7a3d`.
-The audited project commit is `31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7`.
+The audited project commit is `c9f9440dfc105d0c92fd3ecc7ffe53bfc4bd9a5b`.
 This refresh includes the P1-tested battery initialization correction; all
 other path and hunk decisions remain unchanged. P2 progress is in
 [refactor/P2.md](refactor/P2.md).
@@ -39,7 +39,7 @@ Run from the project root (Git and Python 3 required):
 ```text
 git clone --bare --filter=blob:none --single-branch https://github.com/zcomputerwiz/wine.git build/refactor/wine.git
 git --git-dir=build/refactor/wine.git fetch --no-tags https://github.com/wine-mirror/wine.git refs/tags/wine-11.19:refs/tags/wine-11.19
-git --git-dir=build/refactor/wine.git fetch --no-tags . 31f7896a7fbe95b62e1d7c767c8cdac9b1ebf8a7:refs/audit/wineexplorer
+git --git-dir=build/refactor/wine.git fetch --no-tags . c9f9440dfc105d0c92fd3ecc7ffe53bfc4bd9a5b:refs/audit/wineexplorer
 python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output build/refactor/baseline
 python scripts/refactor-audit.py --git-dir build/refactor/wine.git --output build/refactor/baseline --verify
 ```
@@ -87,7 +87,7 @@ Single-receiver shell hooks and incomplete endpoint volume remain X:
 upstream submission is deferred until their registration, channel, callback,
 driver and WoW64 semantics can be tested and completed.
 
-Initial inventory: **750 paths, 1,876 text hunks, 140,420 patch lines**;
+Initial inventory: **750 paths, 1,876 text hunks, 140,422 patch lines**;
 six changes are mode-only. 217 paths are unchanged since the initial import,
 and 190 match the fork's current master exactly. Counts include added assets
 and treat moves as deletion/addition so no path is silently hidden by rename
@@ -141,7 +141,7 @@ classification and missing stock-hunk decisions all reject the map as expected.
 
 ## P0 acceptance and P1 extraction constraints
 
-The complete diff is classified: 750 paths, 1,876 hunks and 140,420 patch lines.
+The complete diff is classified: 750 paths, 1,876 hunks and 140,422 patch lines.
 N configure output must be regenerated from the classified inputs, not dropped
 without replacement. The large-file MR 7746 backport is separate from XP
 drag/drop changes in shfldr_fs.c. The empty Recycle Bin resource is separate
