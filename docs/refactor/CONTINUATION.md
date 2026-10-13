@@ -6,11 +6,40 @@ checks pass; see P3B.md. Wine fork build integration is pushed as bd86fda234.
 No installed runtime/session was changed. Themeui is also accepted (P3B.md),
 including direct Display Properties Apply and actual Classic palette rendering.
 Msgina is accepted with standalone, real Start menu and logonui tests (all
-cancel-only). Next: stobject and network/wireless extraction,
+cancel-only). Stobject is accepted with COM lifecycle, slider/menus and
+optional-service startup checks. Four full desktop/taskbar/tray comparisons
+masking only the clock have zero differing pixels. The last source guard
+stops service enumeration on errors other than an oversized entry; its module
+rebuild passes. Next: network/wireless extraction,
 then remaining P3b modules, P4, P5 evaluation and P6. The API presence/absence
 probe passes with zero failures in both runs.
 
 Failed commands during this prototype:
+
+- The first service acceptance probe failed `registered service activates`.
+  A full-taskbar comparison (masking only the clock) also showed missing
+  applet pixels at 692..728,578..593; the upper-desktop comparison alone would
+  have missed this. `WINEDEBUG=+regsvr32,+atl` showed the registrar rejecting
+  the `.rgs` SPDX C comment as a root key named `/*`. Wine's ATL parser does
+  not support comments in this input. Moved its GPL/SPDX notice to the REUSE
+  `.rgs.license` sidecar and kept the registry script comment-free; rebuilding
+  and rerunning registration, COM, optional-service and full-taskbar checks.
+
+- The second stobject build failed compiling systray.c: implicit declarations
+  of shellservices_start/stop. The old applet declarations came transitively
+  from explorer_private.h, so replacing direct includes in systray.c did not
+  add the new declaration. Added shellservices.h to that private header and
+  rebuilt. No installed runtime was touched.
+
+- The first stobject configure failed with `module.c:16: error:
+  wine/library.h: No such file or directory`. Searches/reads of that header
+  also failed: this Wine release declares its resource registration helpers
+  in rpcproxy.h, with no HINSTANCE argument. Switched to that header and the
+  existing Wine DLL registration signatures; rebuilding before acceptance.
+- ReactOS fetch of `dll/shellext/stobject/res/stobject.rgs` was unavailable.
+  The local public reference has `resources/rgs/systray.rgs`; it confirms
+  CLSID {35CEC8A3-2BE6-11D2-8773-92E220524153}. The service NEW/SAVE contract
+  was checked against public csystray.cpp and explorer/shellservice.cpp.
 
 - The first power UI runner recorded POWER_CHECK_FAILED after successful
   standalone and greeter reports, without a Start menu report. Launching the

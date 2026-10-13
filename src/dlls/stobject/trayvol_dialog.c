@@ -139,8 +139,8 @@ void trayvol_toggle(HWND hwnd_tray_icon, POINT pt_cursor)
     /* the press on the speaker icon just closed it: the release must not open it again */
     if (GetTickCount() - g_dismiss_tick < 500) return;
 
-    HINSTANCE hInst = explorer_hInstance;
-    g_hwnd_trayvol = CreateDialogW(WexResModule(), MAKEINTRESOURCEW(IDD_TRAYMASTER), NULL, TrayVolDlgProc);
+    HINSTANCE hInst = stobject_module();
+    g_hwnd_trayvol = CreateDialogW(stobject_module(), MAKEINTRESOURCEW(IDD_TRAYMASTER), NULL, TrayVolDlgProc);
     if (!g_hwnd_trayvol)
     {
         ERR("Failed to create IDD_TRAYMASTER dialog\n");

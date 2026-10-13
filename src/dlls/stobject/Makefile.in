@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE = stobject.dll
+IMPORTS = user32 gdi32 advapi32
+DELAYIMPORTS = wexres wexhost shell32 ole32 comctl32 shlwapi
+SOURCES = \
+    module.c \
+    volumetray.c \
+    trayvol_dialog.c \
+    powertray.c \
+    audio_backend.c \
+    power_backend.c \
+    stobject.rc

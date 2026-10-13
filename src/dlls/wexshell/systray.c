@@ -1803,8 +1803,7 @@ static void do_show_systray(void)
         taskband_resize( taskband_x, tray_top, taskband_w, tray_height );
 
         nettray_init( tray_window );
-        volumetray_init( tray_window );
-        powertray_init( tray_window );
+        shellservices_start();
     }
 
     sync_taskbar_buttons();
@@ -1843,8 +1842,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     {
     case WM_DESTROY:
         nettray_shutdown();
-        volumetray_shutdown();
-        powertray_shutdown();
+        shellservices_stop();
         break;
 
     case WM_COPYDATA:

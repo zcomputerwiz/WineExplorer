@@ -1,6 +1,6 @@
 # P3b subsystem extraction
 
-Shared resources, themeui and msgina accepted October 13, 2026. Other planned subsystem extractions
+Shared resources, themeui, msgina and stobject accepted October 13, 2026. Other planned subsystem extractions
 are pending; P4 repository restructure follows their acceptance.
 
 `src/dlls/wexres` owns the icon/bitmap packs, namespace lookup and resource
@@ -39,7 +39,7 @@ a fresh clone, complete build/install, ISO and interactive installer test.
 
 ## Remaining extraction order
 
-stobject COM applets and network/wireless UI, wexsearch,
+network/wireless UI, wexsearch,
 then wexbrowse. Keep clock/taskband/Alt+Tab in wexshell. Every split must pass
 its feature check and visual comparison; optional modules must not prevent
 shell startup when absent. Record any seam that is too wide instead of
@@ -88,3 +88,33 @@ own process. A test-only inert LightDM pipe fixture supplies connection setup,
 with no authentication or session-start messages. No power action is requested.
 Reports are `wex-refactor-p3b/checks/power/{standalone,greeter,start-menu}.txt`;
 all have zero failures. Runner log: `/srv/protonexplorer/p3b-power-final.log`.
+
+## Tray service acceptance
+
+`src/dlls/stobject` owns volume/power applets, their audio/power backends and
+the volume popup template. Shared icons stay in wexres; no image duplication.
+The boundary is standard IOleCommandTarget, using CGID_ShellServiceObject with
+NEW/SAVE. The shell enumerates HKLM ShellServiceObjectDelayLoad, retaining each
+successful service until shutdown and skipping malformed/unavailable entries.
+No hard-wired volume/power calls or settings globals cross the DLL boundary.
+Wine's boot registration list adds stobject; its registration script supplies
+the class and service entry. The ATL parser rejects comments, so its GPL/SPDX
+notice uses the `.rgs.license` sidecar.
+
+The module and full Wine build pass. All four captures match the accepted P3
+desktop **including taskbar and tray**, masking only the changing clock
+rectangle (734,570)-(800,600): zero differing pixels. This stronger comparison
+caught the initial registration failure that an upper-desktop crop missed.
+
+`scripts/refactor/check-tray-services.sh` passes the COM lifecycle, resource
+ownership, slider/menu and unload checks. Repeated NEW is idempotent; another
+active client keeps applets alive; final release/SAVE cleans their windows;
+restart works. Startup passes with the DLL present, disabled via DLL override,
+removed from the registry, then restored. All reports have zero failures.
+The live installed VM runtime is unchanged. Evidence:
+`/srv/protonexplorer/p3b-services-final.log` and
+`wex-refactor-p3b/checks/services/{com,present,absent,disabled,restored}.txt`.
+
+Public protocol references:
+[ReactOS service loader](https://github.com/reactos/reactos/blob/master/base/shell/explorer/shellservice.cpp)
+and [tray service](https://github.com/reactos/reactos/blob/master/dll/shellext/stobject/csystray.cpp).

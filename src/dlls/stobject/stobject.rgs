@@ -1,0 +1,17 @@
+HKCR
+{
+    NoRemove CLSID
+    {
+        ForceRemove '{35CEC8A3-2BE6-11D2-8773-92E220524153}' = s 'System Tray'
+        {
+            InprocServer32 = s '%MODULE%' { val ThreadingModel = s 'Apartment' }
+        }
+    }
+}
+HKLM
+{
+    NoRemove 'Software\Microsoft\Windows\CurrentVersion\ShellServiceObjectDelayLoad'
+    {
+        val SysTray = s '{35CEC8A3-2BE6-11D2-8773-92E220524153}'
+    }
+}

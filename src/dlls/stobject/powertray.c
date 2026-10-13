@@ -60,7 +60,7 @@ static const WCHAR *g_scheme_names[] = {
 
 static void update_pwr_tray_icon_and_tooltip(HWND hwnd)
 {
-    HINSTANCE hInst = explorer_hInstance;
+    HINSTANCE hInst = stobject_module();
     int new_icon_id;
     WCHAR new_tip[128] = {0};
 
@@ -228,7 +228,7 @@ BOOL powertray_init(HWND hwnd_tray)
     if (g_hwnd_powertray) return TRUE;
 
     memset(&wc, 0, sizeof(wc));
-    hInst = explorer_hInstance;
+    hInst = stobject_module();
 
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = PowerTrayWndProc;

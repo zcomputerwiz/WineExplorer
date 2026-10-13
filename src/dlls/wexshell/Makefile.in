@@ -11,7 +11,6 @@ SOURCES = \
 	module.c \
 	alttab.c \
 	appbar.c \
-	audio_backend.c \
 	browser_taskpane.c \
 	browser_ui.c \
 	desktop.c \
@@ -23,13 +22,12 @@ SOURCES = \
 	net_backend.c \
 	net_props.c \
 	nettray.c \
-	power_backend.c \
-	powertray.c \
 	search_companion.c \
 	search_engine.c \
 	search_results.c \
 	slideshow.c \
 	folders_adapter.c \
+	shellservices.c \
 	startmenu.c \
 	startmenu_view.c \
 	startsettings.c \
@@ -40,8 +38,6 @@ SOURCES = \
 	toolbars.c \
 	taskbar_props.c \
 	tray_clock.c \
-	trayvol_dialog.c \
 	uac_agent.c \
-	volumetray.c \
 	wlan_dialog.c \
 	wlan_status.c

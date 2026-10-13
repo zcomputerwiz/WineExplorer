@@ -1,6 +1,6 @@
 # Work order: separate WineExplorer from stock Wine
 
-Status: P0–P3 acceptance passed 2026-10-13; P3b shared resources, themeui and msgina accepted, remaining subsystem extractions underway. Evidence and progress are in `REFACTOR_MAP.md`, `UPSTREAM.md`, `refactor/P2.md`, `refactor/P3_TEST_REPORT.md` and `refactor/P3B.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
+Status: P0–P3 acceptance passed 2026-10-13; P3b shared resources, themeui, msgina and stobject accepted, remaining subsystem extractions underway. Evidence and progress are in `REFACTOR_MAP.md`, `UPSTREAM.md`, `refactor/P2.md`, `refactor/P3_TEST_REPORT.md` and `refactor/P3B.md`. Read `CLAUDE.md` and `docs/STOCK_CHANGES.md` first.
 
 ## Goal
 

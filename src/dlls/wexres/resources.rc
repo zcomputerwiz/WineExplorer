@@ -397,19 +397,6 @@ IDB_BROWSER_GO_HOT  BITMAP "res_browser/go_hot.bmp"
 /* @makedep: rover.bmp */
 IDB_SEARCH_ROVER    BITMAP "rover.bmp"
 
-/* Authentic Windows XP / Server 2003 Tray Volume Dialog */
-IDD_TRAYMASTER DIALOGEX 0, 0, 52, 90
-STYLE DS_MODALFRAME | WS_POPUP
-EXSTYLE WS_EX_TOOLWINDOW
-FONT 8, "MS Shell Dlg"
-BEGIN
-    CTEXT           "Volume", IDC_TRAY_VOLUME_LABEL, 0, 4, 52, 8
-    CONTROL         "", IDC_TRAY_VOLUME_SLIDER, "msctls_trackbar32",
-                    TBS_VERT | TBS_BOTH | TBS_NOTICKS | WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                    16, 14, 20, 60
-    AUTOCHECKBOX    "&Mute", IDC_TRAY_VOLUME_MUTE, 4, 76, 44, 10
-END
-
 /* polkit authentication prompt (UAC style) */
 IDD_UAC DIALOGEX 0, 0, 246, 170
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU

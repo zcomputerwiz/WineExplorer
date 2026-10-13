@@ -1,0 +1,5 @@
+SPDX-FileCopyrightText: 2026 WineExplorer contributors
+SPDX-License-Identifier: GPL-2.0-or-later
+
+The Wine ATL registrar does not accept comments in .rgs input. This sidecar
+supplies the license notice without adding a spurious registry root or value.
