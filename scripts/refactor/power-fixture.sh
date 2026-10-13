@@ -4,14 +4,24 @@
 # Substitute only this process tree's power_supply view; never change real sysfs.
 set -euo pipefail
 if [ "${1:-}" != --inside ]; then
-    exec unshare -Urnm -- bash "$0" --inside "$@"
+    exec sudo -n --preserve-env=WINEPREFIX,WINESERVER,WINELOADER,WINEDEBUG,WINEDLLOVERRIDES,WINETEST_INTERACTIVE,WINETEST_DEBUG \
+        unshare --mount -- bash "$0" --inside "$@"
 fi
 shift
 mode="${1:?Usage: power-fixture.sh battery|none command [args...]}"
 shift
 case "$mode" in battery|none) ;; *) exit 2 ;; esac
 fixture="$(mktemp -d /tmp/wex-power.XXXXXXXX)"
-trap 'umount /sys/class/power_supply; rm -rf -- "$fixture"' EXIT
+cleanup()
+{
+    if [ -n "${WINESERVER:-}" ]; then
+        runuser -u "${SUDO_USER:?Missing original user}" --preserve-environment -- "$WINESERVER" -k
+        runuser -u "$SUDO_USER" --preserve-environment -- "$WINESERVER" -w
+    fi
+    umount /sys/class/power_supply
+    rm -rf -- "$fixture"
+}
+trap cleanup EXIT
 mkdir -p "$fixture/AC"
 printf '%s\n' Mains > "$fixture/AC/type"
 printf '%s\n' 1 > "$fixture/AC/online"
@@ -24,6 +34,7 @@ if [ "$mode" = battery ]; then
     printf '%s\n' 2000000 > "$fixture/BAT0/charge_now"
     printf '%s\n' 0 > "$fixture/BAT0/current_now"
 fi
+chmod -R a+rX "$fixture"
 mount --bind "$fixture" /sys/class/power_supply
 printf 'Power fixture: %s\n' "$mode"
-"$@"
+runuser -u "${SUDO_USER:?Missing original user}" --preserve-environment -- "$@"

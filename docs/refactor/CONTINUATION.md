@@ -51,11 +51,14 @@ next topic. `rename-topic.log` and `results/rename-source-notification/` hold
 eight expected baseline failures and zero fixed failures. All six topic suites
 pass. Disk has 11 GiB free; account for isolated prefixes before further builds.
 The active runner is `test-topic.sh power-capability-battery ntdll info`, PID
-1317075 at launch. `battery-topic.log` and `results/power-capability-battery/`
+1318032 at relaunch. `battery-topic.log` and `results/power-capability-battery/`
 record its progress. It uses scripts/refactor/power-fixture.sh and
 test-power-topic.sh through test-topic.sh's optional input/test-wrapper.sh.
-Both battery and no-battery sysfs views were verified inside unshare -Urnm;
-outside the mount namespace the real AC-only view remains unchanged.
+Both battery and no-battery sysfs views were verified inside a private mount
+namespace. The VM provides passwordless sudo for namespace/mount setup;
+runuser executes Wine and its cleanup as wineuser. Outside the namespace the
+real AC-only view remains unchanged. The fixture directory is readable by that
+user, and the isolated wineserver is killed and waited for before unmounting.
 The topic initializes SYSTEM_BATTERY_STATE to zero: the existing project
 patch does not, while the stock helper expects the caller to initialize it.
 The audited main Wine source has not yet changed; carry that correction into
@@ -77,6 +80,29 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* The initial battery user-namespace run started Wine as mapped uid 0. Cleanup
+  outside that namespace did not find its server, which survived into the next
+  fixture. Fixed tests then reported server_init_process_done assertion errors
+  and process-token access failures. Stopped only runner 1317075, timeout
+  1317400 and isolated server 1317202; archived evidence under
+  results/power-capability-battery-userns-failed. Reversed both exact patches
+  and rebuilt master. Installed server 1434 and the live desktop were untouched.
+* The attempted `unshare --user --map-current-user --mount --net` fixture failed
+  `mount: /sys/class/power_supply: must be superuser to use mount.` Bash exec
+  loses the setup capabilities with a nonzero uid. Replaced it with sudo -n
+  unshare --mount and runuser; Wine keeps its normal uid/groups.
+* `bash ~/wex-refactor/power-fixture.sh none ls /sys/class/power_supply`
+  initially failed Permission denied: sudo's mktemp directory had mode 0700.
+  Added chmod -R a+rX for the temporary fixture before mounting; both modes
+  then listed correctly as wineuser.
+* Relaunch 1317887 rejected with `Another topic runner holds the checkout/build
+  lock.` Five orphaned Wine services from the failed user namespace inherited
+  lock fd 9. fuser and ps identified 1317206,1317259,1317289,1317295,1317313;
+  stopped only those verified processes. Runner now closes fd 9 for the test
+  child while retaining its own lock. Relaunch 1318032 started normally.
+* Status reads immediately after rejected relaunch failed with No such file
+  or directory; its output was in battery-topic.log, before result creation.
 
 * The initial rename draft changed only the destination branch, overlooking
   that the preceding condition also includes all two-item events. Baseline
