@@ -1,7 +1,11 @@
 ; Unattended installation answer file for WineExplorer
+[Data]
+AutomaticUpdates = Yes
+
 [Unattended]
 UnattendMode = FullUnattended
 OemSkipEula = Yes
+AutomaticUpdates = Yes
 ; TargetDisk = /dev/sda      (default: the first disk; Setup stops if the named disk is missing)
 Repartition = Yes
 

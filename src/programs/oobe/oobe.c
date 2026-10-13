@@ -145,6 +145,21 @@ static void CheckUnattended(void)
         }
     }
 
+    {
+        WCHAR auto_up[64];
+        auto_up[0] = 0;
+        if (!GetPrivateProfileStringW(L"Data", L"AutomaticUpdates", L"", auto_up, 64, wpath) || !auto_up[0]) {
+            GetPrivateProfileStringW(L"Unattended", L"AutomaticUpdates", L"", auto_up, 64, wpath);
+        }
+        if (auto_up[0]) {
+            if (!_wcsicmp(auto_up, L"no") || !_wcsicmp(auto_up, L"0") || !_wcsicmp(auto_up, L"false") || !_wcsicmp(auto_up, L"off")) {
+                g_ctx.automatic_updates = false;
+            } else if (!_wcsicmp(auto_up, L"yes") || !_wcsicmp(auto_up, L"1") || !_wcsicmp(auto_up, L"true") || !_wcsicmp(auto_up, L"on")) {
+                g_ctx.automatic_updates = true;
+            }
+        }
+    }
+
     LogOobe("Parsed unattended OOBE accounts.");
 }
 
@@ -177,6 +192,16 @@ static void ProvisionUsers(void)
     LogOobe(autologin ? "Single account without a password: automatic logon." : "Automatic logon off.");
     for (i = 0; i < g_ctx.user_count; ++i)
         WexUserSetSession(g_ctx.users[i].name, "wine-explorer", autologin);
+
+    /* 3. Record automatic updates choice for wex-oobe.sh */
+    {
+        FILE *fup = fopen("Z:\\etc\\wineexplorer\\setup\\automatic-updates", "w");
+        if (!fup) fup = fopen("/etc/wineexplorer/setup/automatic-updates", "w");
+        if (fup) {
+            fprintf(fup, "%s\n", g_ctx.automatic_updates ? "on" : "off");
+            fclose(fup);
+        }
+    }
 
     /* 4. Cleanup setup state */
     LogOobe("Cleaning up temporary setup files and permissions...");
@@ -250,7 +275,7 @@ static INT_PTR CALLBACK OobeUpdatesProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 {
     switch (uMsg) {
         case WM_INITDIALOG:
-            CheckRadioButton(hwnd, IDC_RADIO_UPDATES_ON, IDC_RADIO_UPDATES_OFF, IDC_RADIO_UPDATES_ON);
+            CheckRadioButton(hwnd, IDC_RADIO_UPDATES_ON, IDC_RADIO_UPDATES_OFF, g_ctx.automatic_updates ? IDC_RADIO_UPDATES_ON : IDC_RADIO_UPDATES_OFF);
             return TRUE;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
@@ -491,11 +516,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DestroyWindow(g_hBackground);
 
     /* Signal completion to runner script */
-    FILE *fdone = fopen("Z:\\etc\\wineexplorer\\setup\\stage-oobe-done", "w");
-    if (!fdone) fdone = fopen("/etc/wineexplorer/setup/stage-oobe-done", "w");
-    if (fdone) {
-        fprintf(fdone, "done\n");
-        fclose(fdone);
+    {
+        FILE *fdone = fopen("Z:\\etc\\wineexplorer\\setup\\stage-oobe-done", "w");
+        if (!fdone) fdone = fopen("/etc/wineexplorer/setup/stage-oobe-done", "w");
+        if (fdone) {
+            fprintf(fdone, "done\n");
+            fclose(fdone);
+        }
     }
 
     return 0;
