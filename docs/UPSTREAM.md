@@ -255,3 +255,29 @@ Logs, exit codes and commit ids live in
 `build/refactor/wine.git`; sparse topic worktrees are local and ignored.
 Fetch validated commits over the existing SSH connection and push from the
 host, keeping GitHub credentials off the guest.
+
+## Wine Wayland zones — 2026-10-13
+
+Branch: upstream/winewayland-zones, commit aed8b9599c46db289fd8f193e045e1ad11628bad,
+based on upstream master 081042ede6a165a36bf9988350dd584b440d7a3d.
+Submission remains manual; no WineHQ MR has been opened.
+
+Proposed title: winewayland: Position toplevel windows in shared zones when supported.
+
+Proposed description: Bind optional xx-zones-v1 and place Wine toplevels in one
+coordinate space shared across processes. A volatile per-socket registry value
+publishes the opaque handle; a named mutant serializes creation, accepting
+informational existing-object and abandoned-wait results. Terminal-launched
+programs join without an inherited token. Place before the first mapping commit
+and on geometry changes, account for surface scale/frame extents, process
+position feedback and rejoin/re-place on zone changes. Keep existing behavior
+when the protocol is absent. Vendor the MIT XML unchanged; new driver code is
+available under LGPL-2.1-or-later or GPL-2.0-or-later.
+
+Validation: Wine Wayland driver builds on Debian 13; six stationary windows match
+X11 captures pixel-for-pixel, and a second process joins the same handle and
+places its seventh window exactly at (740,50). Maintained probes:
+scripts/wayland-position-probe.c and scripts/check-wayland-positions.py.
+The compositor's existing protocol suite passes 25/25. Final integration
+acceptance, stock-labwc fallback and fractional-DPI coverage remain in progress
+in WAYLAND_L1.md; this topic is prepared but not yet marked fully submission-ready.

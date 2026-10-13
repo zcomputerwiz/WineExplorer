@@ -48,3 +48,22 @@ that compositor extension. Zone integration can proceed independently.
   initialization before toplevel creation, send the requested zone position
   before its initial commit, and ignore the initial add-item position event.
   Placement acceptance remains pending the corrected capture.
+- The stationary two-process comparison then found the first process centered
+  while the second placed correctly. NtCreateMutant returns the successful
+  informational STATUS_OBJECT_NAME_EXISTS when another process holds the
+  creation guard; the initial nonzero-status check wrongly disabled zones.
+  Accept all nonnegative NTSTATUS values, including abandoned-wait recovery,
+  and rerun. Minimized sentinel rectangles are excluded from placement requests.
+- Corrected placement passes: six stationary windows exactly match X11 pixels;
+  a second process shares the same opaque handle and lands at (740,50).
+  Upstream zone branch aed8b9599c is pushed; retained integration commit
+  853c5b02c7 is local on codex/wayland-integration. Production pin is unchanged.
+- Private patch transfer failed because directly SCP'd driver files contained
+  mixed CRLF/LF, so Git's LF patch context did not match. No partial patch was
+  applied. Transfer the complete changed text inputs with LF-normalizing tar
+  instead. The following shell build then stopped in makedep: wexwayland.h
+  existed but was not listed in include/Makefile.in. Register the header;
+  driver, wexshell and stock Explorer host then build successfully together.
+- git sparse-checkout add --no-cone rejected the unknown option; add uses the
+  existing mode. The following read/patch for include/Makefile.in failed since
+  it had not been populated. sparse-checkout add include/Makefile.in works.
