@@ -89,7 +89,7 @@ targets=("dlls/$module/all" "dlls/$module/tests/all")
 if [ -f "$input/build-targets" ]; then
     while IFS= read -r target; do
         target="${target%$'\r'}"
-        [[ "$target" =~ ^dlls/[[:alnum:]_.-]+/all$ ]] || exit 2
+        [[ "$target" =~ ^(dlls/[[:alnum:]_.-]+|server)/all$ ]] || exit 2
         targets+=("$target")
     done < "$input/build-targets"
 fi

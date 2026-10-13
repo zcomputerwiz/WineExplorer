@@ -20,6 +20,8 @@ before submission.
 | [upstream/power-capability-battery](https://github.com/zcomputerwiz/wine/tree/upstream/power-capability-battery) | `aee72c042a96f06a6e91d2d837b1494d263d7ed2` | ntdll builds; full info suite passes with synthetic battery and no-battery sysfs views. Unpatched upstream fails the battery-present assertion. |
 | [upstream/shortcut-target-icon](https://github.com/zcomputerwiz/wine/tree/upstream/shortcut-target-icon) | `794d2015441eb02df809218bc7b5ba7422c4b240` (fix `23e9bae`) | shell32 builds; full shelllink suite passes, including a self-referencing link. Unpatched upstream fails the folder target icon assertion. |
 | [upstream/ie-desktop-icon](https://github.com/zcomputerwiz/wine/tree/upstream/ie-desktop-icon) | `1fab750bcaac50f29fe87c83b16058b22f85acd1` | shdoclc and shell32 build; full shelllink suite passes after isolated prefix refresh. Unpatched upstream fails three resource-190 assertions. |
+| [upstream/theme-token-whitespace](https://github.com/zcomputerwiz/wine/tree/upstream/theme-token-whitespace) | `acfcdd57b02e12f91c9f921cbb72b6d4065dc1ad` | uxtheme builds; full system suite passes. Unpatched upstream fails three font-token assertions. |
+| [upstream/timezone-cache](https://github.com/zcomputerwiz/wine/tree/upstream/timezone-cache) | `eaf8a9edca9bcdb556b5c466f8ea30dd22ad5498` | ntdll builds; full time suite passes with isolated same-offset rule changes. Unpatched upstream retains stale DST rules. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
@@ -159,13 +161,43 @@ the resource and passes with it. The isolated prefix is refreshed with
 wineboot -u before both phases, so file-based extraction reads the DLL just
 built. Installed runtimes are untouched. Systems lacking shdoclc skip the case.
 
+### Theme font tokens — ready-to-paste MR description
+
+Comma-separated theme tokens retain spaces preceding the comma, and the final
+token can lose its last character when followed by whitespace. Trim from the
+character preceding the token end, bounded by the token start.
+
+The regression builds an original text-theme fixture in a temporary copy of
+the test image using UpdateResource. It compares normal and spaced font names
+and bold/italic/underline/strikeout attributes through GetThemeFont, then
+restores the prior theme and deletes the fixture. No existing theme art or
+external resources are used. Validation: built uxtheme on current upstream;
+the full system suite under Xvfb fails three new assertions without the fix
+and passes with it. Platforms rejecting unsigned text themes skip the case;
+native Windows has not been tested. Existing display/DPI/light-theme skips
+occur in both runs.
+
+### Timezone cache invalidation — ready-to-paste MR description
+
+ntdll caches timezone rules by year and UTC bias. Replacing /etc/localtime
+with a zone having the same standard offset but different DST rules leaves
+the old rules cached. Invalidate when the file's device, inode or mtime changes.
+
+The regression queries RtlQueryTimeZoneInformation in one process before and
+after externally coordinated rule changes. The Linux fixture compiles two
+original zones with the same standard offset, switches DST to fixed-offset
+and back in a private mount namespace, and runs Wine as the normal guest user.
+Validation: built ntdll on current upstream; the full time suite under Xvfb
+fails the stale-DST assertion without the fix and passes with it. A SHA256
+check confirms the guest's actual /etc/localtime remains unchanged. The test
+skips when the optional fixture environment is absent; native Windows has not
+been tested. Fixture: scripts/refactor/timezone-fixture.sh in WineExplorer.
+
 ## Remaining candidates
 
 | Topic | State/constraint |
 |---|---|
 | Server DST bias | Needs deterministic timezone-transition regression |
-| ntdll timezone cache | Needs localtime-change regression with host state isolated |
-| Theme token whitespace | Needs a compatible, project-authored theme fixture |
 
 FileIconInit and endpoint volume remain fork patches pending smaller, complete
 API implementations. Shell-hook registration currently supports one receiver,

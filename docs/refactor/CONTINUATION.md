@@ -17,12 +17,13 @@ came unchanged from wine-mirror because the user's fork has no tags.
 Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
 paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
 containing twelve independent fix candidates. P0's strict acceptance command passes.
-P1 has nine validated/pushed branches: imagelist-alpha (985db3ef),
+P1 has eleven validated/pushed branches: imagelist-alpha (985db3ef),
 empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c),
 drawtext-hideprefix (72feeed7), folder-iconfile (d942c4f4), and
 rename-source-notification (f7038cc7), power-capability-battery (aee72c04), and
-shortcut-target-icon (794d2015, fix 23e9baea), and ie-desktop-icon (1fab750b).
-Next: theme token whitespace, then isolated timezone/DST fixtures. P2 and later phases have
+shortcut-target-icon (794d2015, fix 23e9baea), ie-desktop-icon (1fab750b),
+theme-token-whitespace (acfcdd57), and timezone-cache (eaf8a9ed).
+Next: finish isolated DST fixture validation. P2 and later phases have
 not started; these refactor phases precede the installer's layout update in P4.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
@@ -94,6 +95,24 @@ No WineHQ merge request was created. Git identity follows the user's configured
 handle; real-name authorship and sign-off remain the user's manual step.
 
 ### P1 tooling failures and corrections
+
+* Initial theme fixture called OpenThemeDataFromFile, which is a stub on fork
+  master (it is implemented only in our fork changes). Wine aborted at that
+  export; runner rejected EXPECTED_REGRESSION_NOT_FOUND. Archived as
+  theme-token-whitespace-file-api-stub-failed, reversed tests and rebuilt master.
+  Used implemented ApplyTheme/OpenThemeData and restored the original theme.
+  Also corrected fixture property TextFont to the actual Font property.
+* Timezone baseline confirmed the stale-rule assertion; fixed build failed
+  `implicit declaration of function stat`: the port omitted sys/stat.h. Added
+  the header; archived as timezone-cache-stat-header-failed and reran both
+  phases after exact patch reversal/master rebuild.
+* Initial timezone fixture cleanup failed `rm: cannot remove
+  '/tmp/wex-timezone.6T5NLxWS/WexDST': Device or resource busy`. Capture the
+  real target before binding, use --no-canonicalize, and unmount every layer
+  at that exact target. After the old namespace exited, inspected the single
+  leftover file, removed it with sudo rm -f, then rmdir. Actual host timezone
+  hash checked unchanged. runuser now resets its normal HOME automatically,
+  avoiding the prior /root/.cache permission warning.
 
 * After prefix refresh, IE extraction returned count 2 when both sizes were
   requested together, contrary to the draft's assertion of 1. Changed the
