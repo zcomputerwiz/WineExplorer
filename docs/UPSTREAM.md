@@ -14,6 +14,7 @@ before submission.
 | [upstream/imagelist-alpha](https://github.com/zcomputerwiz/wine/tree/upstream/imagelist-alpha) | `985db3efad8382b5a72063f6be61ccc8f5374aa4` | comctl32 and comctl32_v6 build; full imagelist suite passes under Xvfb. Unpatched upstream fails six new assertions. |
 | [upstream/empty-recycle-bin-icon](https://github.com/zcomputerwiz/wine/tree/upstream/empty-recycle-bin-icon) | `00d5a25fd4b118195f144553081b3c68e33c485e` | shell32 builds; full shelllink suite passes under Xvfb. Unpatched upstream fails the empty Recycle Bin icon assertion. |
 | [upstream/wizard-focus](https://github.com/zcomputerwiz/wine/tree/upstream/wizard-focus) | `94a5845ccd86f34ec858ae0004cc67190b517432` | comctl32 and comctl32_v6 build; full propsheet suite passes under Xvfb. Unpatched upstream fails eight new focus assertions. |
+| [upstream/drawtext-hideprefix](https://github.com/zcomputerwiz/wine/tree/upstream/drawtext-hideprefix) | `72feeed7325cd6b8122eac756c6d96d7d0b7f90a` | user32 builds; full text suite passes under Xvfb. Unpatched upstream renders seven unwanted underline pixels. |
 
 Validation uses a clean **64-bit** upstream build on the Proton build VM,
 not WineExplorer's modified runtime. Native Windows and 32-bit/WoW64 runs have
@@ -62,6 +63,19 @@ page-edit focus, with both v5 and v6 common controls.
 Validation: built comctl32/comctl32_v6 on current upstream; the full propsheet
 suite under Xvfb fails eight new assertions without the fix and passes with it.
 
+### DrawText hidden prefix — ready-to-paste MR description
+
+DrawText removes the prefix ampersand with DT_HIDEPREFIX, but still draws the
+mnemonic underline. Skip underline drawing when that flag is set.
+
+The regression compares the rendered RGB pixels of hidden-prefix text with
+plain text. A visible-prefix control must produce different pixels, confirming
+that the rendering comparison detects the underline.
+
+Validation: built user32 on current upstream; the full text suite under Xvfb
+fails the new assertion with seven differing pixels without the fix and passes
+with it.
+
 ## Remaining candidates
 
 | Topic | State/constraint |
@@ -69,10 +83,9 @@ suite under Xvfb fails eight new assertions without the fix and passes with it.
 | Server DST bias | Needs deterministic timezone-transition regression |
 | ntdll timezone cache | Needs localtime-change regression with host state isolated |
 | Power capability battery presence | Use stock battery-state helper; test battery/no-battery cases |
-| Folder custom IconFile | Independent two-line fix; needs folder attribute/icon regression |
+| Folder custom IconFile | Literal/environment-expanded path regression running on isolated VM |
 | Shortcut target icon | Needs file/folder/explicit-icon fallback coverage |
 | Rename notifications | Needs source/destination watcher coverage |
-| DrawText DT_HIDEPREFIX | Rendering regression running on the isolated build VM |
 | Theme token whitespace | Needs a compatible, project-authored theme fixture |
 | Internet Explorer desktop icon 190 | Use Wine's own existing icon; needs resource/API regression |
 

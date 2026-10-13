@@ -17,9 +17,9 @@ came unchanged from wine-mirror because the user's fork has no tags.
 Current map: 750 paths/1,876 hunks, zero unclassified paths. Ninety-seven stock
 paths have explicit hash-pinned, per-hunk decisions in `REVIEWS.json`; eleven include U hunks
 containing twelve independent fix candidates. P0's strict acceptance command passes.
-P1 has three validated/pushed branches: imagelist-alpha (985db3ef),
-empty-recycle-bin-icon (00d5a25f), and wizard-focus (94a5845c).
-DrawText DT_HIDEPREFIX rendering validation is running.
+P1 has four validated/pushed branches: imagelist-alpha (985db3ef),
+empty-recycle-bin-icon (00d5a25f), wizard-focus (94a5845c), and
+drawtext-hideprefix (72feeed7). Folder IconFile validation is running.
 See UPSTREAM.md for statuses, descriptions and exact validation scope.
 
 The import's upstream snapshot is `eba89375` (72 commits after wine-11.19).
@@ -40,8 +40,8 @@ REVIEWS.json is authoritative. The fork master still resolves to 081042ede6.
 P1 runtime: `~/wex-refactor/upstream` is a shallow fork clone, and
 `~/wex-refactor/build` is a full clean 64-bit build (completed). No installation
 was performed. `base-build.log` and `base-build.status` record completion.
-The active runner is `test-topic.sh drawtext-hideprefix user32 text`, with
-`drawtext-topic.log` and `results/drawtext-hideprefix/` evidence.
+The active runner is `test-topic.sh folder-iconfile shell32 shlfolder`, PID
+1314923 at launch, with `folder-topic.log` and `results/folder-iconfile/` evidence.
 Do not run another topic while this runner holds test-runner.lock.
 Topic results/prefixes are isolated under ~/wex-refactor. Old failed imagelist
 runner 1281780 was stopped and its patches reversed exactly before rebuilding
@@ -51,7 +51,8 @@ code, with existing notices preserved.
 
 Host sparse worktrees are `build/refactor/upstream` (validated imagelist),
 `build/refactor/recyclebin` (validated resource fix), and
-`build/refactor/wizard` (validated), and `build/refactor/drawtext` (draft).
+`build/refactor/wizard` and `build/refactor/drawtext` (validated), and
+`build/refactor/folder-icon` (draft).
 Fetch VM commits through SSH into
 refs/remotes/build/upstream/<topic>, verify the host worktree matches, then
 update only that worktree's index/HEAD and push its approved upstream branch.
