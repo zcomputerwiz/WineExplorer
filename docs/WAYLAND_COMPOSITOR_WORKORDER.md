@@ -9,17 +9,25 @@ start it. Background: `docs/WAYLAND_PLAN.md`, `docs/WAYLAND_L0.md` (spike result
 Codex is in the middle of a large refactor in `D:\DeepThought\Projects\WineExplorer` (master) and its worktrees, and
 builds on the Proton VM under `/srv/protonexplorer/wex-refactor-p3b`, `~/open` and `~/inst`.
 
-- **Your code lives in its own clone:** `D:\DeepThought\Projects\wexcomp` (clone of
-  `https://github.com/zcomputerwiz/labwc`). Do not edit anything under `WineExplorer*`, `ProtonExplorer`,
-  `WineExplorer-local` or `WineExplorer-old-git`.
+- **Your environment is your own:** a dedicated WSL2 distribution **`wexcomp`** (Debian 13.5, wlroots 0.18.2, all
+  build deps, grim, foot, Xwayland, Xvfb installed; stock labwc 0.8.3 was test-built there). Enter it with
+  `wsl -d wexcomp -u root`. Git identity and the Windows credential manager are configured, so pushing to
+  `zcomputerwiz/labwc` works. Clone into the Linux filesystem for build speed: `/root/wexcomp` (clone of
+  `https://github.com/zcomputerwiz/labwc`). Do **not** use the `Debian` WSL distribution (Codex's installer tests
+  use it) and you do **not** need the Proton VM at all.
+- **Calling WSL from PowerShell:** put multi-step commands in a script file and run `wsl -d wexcomp -u root -- bash
+  /mnt/c/.../script.sh` — inline quoting through PowerShell breaks `$`, `|` and quotes.
+- Do not edit anything under `WineExplorer*`, `ProtonExplorer`, `WineExplorer-local` or `WineExplorer-old-git`
+  (exception below). If you ever need a second machine, you may create a new VM (the host has plenty of RAM and
+  storage) — never reuse Codex's VMs.
 - **In the WineExplorer repo you may only add/edit:** `docs/WAYLAND_COMPOSITOR.md` (your report) and, at the end,
   the status line of this file. Commit only those paths (`git add <path>`; never `git add -A`/`.`), pull before
   committing, never rebase or force-push master, never touch other branches or worktrees.
-- **On the Proton VM** (`ssh -i D:/VirtualBox_VMs/vm_key -p 2223 wineuser@127.0.0.1`): work only in
-  `~/wexcomp` (source/build) and `/tmp/wexcomp` (runtime). Do not touch `~/open`, `~/inst`, `/srv/protonexplorer`,
-  `~/l0-prefix` or `/usr/local`; do not run `make install` anywhere; do not `pkill` broad patterns (Codex runs
-  Xvfb/Wine there) — kill only PIDs you started. Use display `:11` (not `:7`, `:8`, `:9`). Run builds with `nice -n 10`.
-- Installing Debian build packages on the Proton VM with `sudo -n apt-get install` is fine.
+- **Do not use the Proton VM** (Codex builds there). The only part that needs Wine is the final regression check
+  ("Wine notepad and menus still work"): do that last, on the Proton VM, only with `scripts/wayland-spike-env.sh`
+  pointed at your binary, display `:11`, prefix `~/l0-prefix`, killing only PIDs you started — or skip it and say so
+  in the report; Codex reruns it when it does the Wine half.
+- Installing packages in `wexcomp` with `apt-get install` is fine.
 - Pushing branch `wexcomp` to `zcomputerwiz/labwc` is approved. Do not open PRs upstream.
 
 ## Rules (from CLAUDE.md)
@@ -34,8 +42,8 @@ builds on the Proton VM under `/srv/protonexplorer/wex-refactor-p3b`, `~/open` a
 
 ## Base
 
-- Branch `wexcomp` from upstream tag **`0.8.3`** (`8cf708ee77ceb4926b76c0bf110963be704857a6`; fetch tags from
-  `labwc/labwc` — the fork's master equals upstream master). This matches Debian 13: **wlroots 0.18.2**
+- Branch `wexcomp` from upstream tag **`0.8.3`** (commit `1fe4797a9d29`; fetch tags from `labwc/labwc` — the fork's
+  master equals upstream master and has no tags). This matches Debian 13: **wlroots 0.18.2**
   (`libwlroots-0.18-dev` 0.18.2-3), which is what we build against. Keep the binary name `labwc` for now.
 - Build deps (Debian 13): `meson ninja-build pkg-config libwlroots-0.18-dev wayland-protocols libwayland-dev
   libxkbcommon-dev libinput-dev libxml2-dev libpango1.0-dev libcairo2-dev libglib2.0-dev libpng-dev librsvg2-dev
