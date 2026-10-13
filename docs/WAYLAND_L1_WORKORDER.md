@@ -1,6 +1,8 @@
 # Work order: Wayland L1 — Wine places and stacks its windows under our compositor
 
-Status: ready, 2026-10-13. Background: `docs/WAYLAND_PLAN.md` (design, prior art), `docs/WAYLAND_L0.md` (spike
+Status: ready, 2026-10-13. **Split:** tasks 1–3 (compositor) are assigned to Gemini in
+`docs/WAYLAND_COMPOSITOR_WORKORDER.md`; tasks 4–6 (Wine driver, Explorer) are Codex's, after the refactor's P4.
+Background: `docs/WAYLAND_PLAN.md` (design, prior art), `docs/WAYLAND_L0.md` (spike
 results and screenshots). The X11 session stays the shipping stack; nothing here changes it.
 
 ## Goal
