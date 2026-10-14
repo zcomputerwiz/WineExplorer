@@ -112,7 +112,30 @@ wayland-0 or inheriting the outer session's DISPLAY for native launches.
 Initial build failed because HAVE_XWAYLAND was tested before labwc.h supplied
 the configuration definitions, skipping the required XWayland type header.
 Move that conditional include after labwc.h, then rerun the suite.
+The rerun passed 27/27; log: ~/wexcomp-build/l2-environment-acceptance.log.
+A separate -Dxwayland=disabled build also passed, followed by the complete
+foreign-client scenario against that compositor, explicitly asserting an empty
+X11 endpoint. Build log: ~/wexcomp-build/l2-no-xwayland-build.log. Runtime logs:
+/srv/protonexplorer/wex-wayland-l2/no-x-session.KDd0v9. The test compositor exited.
 
 An inspection used scripts/build-assembled.sh, which is absent; the maintained
 script is scripts/refactor/build-assembled.sh. A PowerShell positional wildcard
 for session scripts was rejected; use rg on scripts with -g instead.
+
+## Resume point
+
+Completed foundations: backend-neutral PE dispatch/binding, working 32/64-bit
+Unix-call tables, privileged supplemental native observation and trusted native
+launch endpoint discovery. All are committed and pushed. Main runtime Wine pin
+and production compositor branch remain unchanged; only the user's .gitignore
+edit is pending in the main checkout. Wine's codex/wayland-l2 has no edits yet.
+
+Next implementation is the wexhost Wayland client and native/frame association:
+consume standard inventory plus supplemental snapshots, publish the native
+lifetime token through a generic HWND property, map owned proxy dialogs as
+independent toplevels, and have the compositor bind/group the frame and native
+view. Keep AUTO Wayland unsupported until binding/rendering/input can safely
+adopt a window. Distinguish observed state from requests and logical foreground
+from physical native keyboard focus. Then wire native launch context and the
+test session's private D-Bus activation environment to the discovered endpoints.
+This is a foundation checkpoint, not complete L2 or deployment acceptance.
