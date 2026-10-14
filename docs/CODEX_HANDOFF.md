@@ -4,6 +4,19 @@
 Wine gitlink and `wineexplorer/11.19` are now `51c870b85b7` (your `05286f7c90` plus uxtheme only). Run
 `git submodule update` before the next build. A combined WoW64 build passes; uxtheme tests pass 64/32-bit.
 
+**Review cleanup (Codex, 2026-10-14):** current pin is 75bb32c on wineexplorer/11.19,
+which keeps Claude's fixes and adds complete licensing, removes unused tables,
+and builds synthetic test resources from source. Full fork WoW64 build passes;
+v4 (62 checks) and system (22,252 checks) pass both architectures. Windows 11
+focused 32/64 tests skip because private theme-file APIs are unavailable; no
+native rendering claim. Clean four-commit upstream candidate ends at 276e12bd46;
+fresh upstream build is pending. Original topic is saved on
+archive/uxtheme-msstyles-v4-pre-cleanup. No WineHQ MR opened.
+Use /srv/protonexplorer/uxtheme-v4-upstream for that clean source/build. Existing
+assembled fork lab root was updated without resetting its old Git checkout;
+uxtheme-review-* logs/statuses are under its checks directory. No WSL or real
+desktop changes. Details and failed-command corrections: UXTHEME_V4.md.
+
 Current work order WAYLAND_INTEGRATION_WORKORDER.md is complete. Read
 WAYLAND_L1.md for acceptance, failed-command corrections and public screenshots.
 The older refactor/installer notes below are historical; preserve their safety

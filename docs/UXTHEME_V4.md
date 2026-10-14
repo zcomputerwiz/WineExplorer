@@ -107,9 +107,70 @@ header, list box, menu) built 32- and 64-bit, compared with Xvfb screenshots bet
 Windows 10 21H2 and Windows 11 `aero.msstyles` now draw the controls and the window frame (Vista-style caption and
 buttons, opaque) instead of falling back to classic. Screenshots of the genuine styles stay local.
 
-Left for the upstream MR (not blocking our use): the file header of `msstyles_v4.c` names "Wine project authors"
+Original upstream review items (addressed in the cleanup below): the file header of `msstyles_v4.c` names "Wine project authors"
 and a mixed SPDX line where Wine expects a named copyright holder and LGPL text (keep the libmsstyle MIT notice in
 full); `msstyles_v4_tables.h` is mostly unused generated tables (only the type enum and platform detection are
 used); the synthetic style is a binary blob in `tests/synthetic_msstyles.h` where upstream prefers a resource built
 from source; the filename display-name fallback and some expectations are Wine-only behaviour that a Windows test
 run would contradict; the series should be squashed with the three fixes before submission.
+
+## Upstream cleanup (Codex, 2026-10-14)
+
+The submodule was synchronized to Claude's 51c870b before editing. Fork cleanup
+is on codex/uxtheme-v4-cleanup, through 75bb32c; upstream candidate is
+codex/uxtheme-v4-upstream-clean, through 276e12bd46. Final publication/build
+status will be recorded here after clean upstream acceptance.
+
+- msstyles_v4.c names the existing Git author identity zcomputerwiz as holder
+  of the new implementation. It keeps the prior attribution, adds the actual
+  upstream copyright (2019 Jakob K.) and complete MIT permission/warranty
+  text, followed by Wine's LGPL notice. Source: the [upstream msstyleEditor
+  LICENSE](https://github.com/nptr/msstyleEditor/blob/master/LICENSE);
+  the abbreviated mixed SPDX expression is removed.
+- Removed msstyles_v4_tables.h entirely. All primitive types already use
+  vssym32.h except the local high-contrast type 241 constant. Platform detection
+  only fed TRACE and had no parsing behavior; remove it and its extra allocation.
+- v4_style.c/rc build an ordinary test DLL using Wine's makedep testdll support.
+  CMAP strings, named property records, font strings and small synthetic PNG
+  resources are source data; no opaque PE blob or proprietary resources remain.
+- Focused tests moved from system.c to v4.c. Corruption targets the VARIANT
+  resource by its actual file offset instead of a hard-coded byte range.
+  Previous theme restoration remains in place.
+- Removed filename/documentation and fabricated display-name expectations.
+  Invalid schemes require failure rather than Wine's particular HRESULT or
+  output-handle clearing. Missing private APIs and unsupported unsigned styles
+  skip cleanly. Fork convenience fallbacks stay; their implementation is omitted
+  from the upstream candidate.
+- Rebuilt the upstream topic as four commits: typed storage/zero initialization;
+  parser/system-metrics application with the string-length correction;
+  PNG/DPI/atlas rendering and transparency; source-built tests with restoration.
+  Fixes are folded into those commits, rather than appended as repair commits.
+
+Fork acceptance: full WoW64 build and targeted module/test build pass. Both architectures
+execute 62 v4 checks (zero failures/skips) and 22,252 existing system checks
+(zero failures, 17 existing todo and four skips). On the Windows 11 host,
+32/64 focused suites exit successfully with one skip each: private theme-file
+entry points are unavailable. This verifies the skip path, not native rendering.
+No host or real VM desktop theme was changed.
+
+### Command failures and corrections
+
+- A PowerShell rg positional glob wine/dlls/*/tests/Makefile.in was rejected;
+  search the directory with -g Makefile.in. Reading ntdll/tests/resource.rc
+  failed because that file does not exist; use makedep.c and kernel32 examples.
+- Fixture DLL compilation first failed on unknown va_list in winbase.h;
+  add stdarg.h before Wine headers. WRC then rejected quoted custom resource
+  identifiers at line 33; use CMAP CMAP / NORMAL VARIANT identifiers. It next
+  rejected a trailing comma at the end of the VARIANT block (line 97); remove
+  final commas from raw resource blocks. Both architectures then build and test.
+- Replaying the zero-initialization fix before adding the parser caused a
+  modify/delete conflict for msstyles_v4.c. Quit the isolated cherry-pick
+  sequencer, keep the typed-storage/calloc edits and remove the premature parser
+  from that index. Replay its part of the fix after adding the parser. No live
+  assembled checkout was reset or rebased.
+- The native open-only preflight printed no result; explicit exit-code checks
+  found code 3 (private ordinals absent), not a crash. Both focused tests then
+  took the missing-entry-point skip without applying a host theme.
+- Root filesystem is almost full (1.4 GB free), while /srv/protonexplorer has
+  39 GB free. All new source/build/prefix output uses the latter disk. Test
+  Xvfb :34 and its isolated Wine prefix were stopped; shipping desktops remain.
