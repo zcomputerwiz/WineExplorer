@@ -36,6 +36,10 @@ NTSTATUS wm_start_ex(void *args)
     if (selected == WEX_WM_BACKEND_AUTO)
         selected = params->desktop ? WEX_WM_BACKEND_X11 : WEX_WM_BACKEND_WAYLAND;
     if (selected == WEX_WM_BACKEND_X11) ops = &x11_wm_backend;
+    /* Explicit selection enables observation/control tests. AUTO remains
+     * disabled until the frame binding capability is implemented. */
+    if (selected == WEX_WM_BACKEND_WAYLAND && params->backend != WEX_WM_BACKEND_AUTO)
+        ops = &wayland_wm_backend;
     if (selected > WEX_WM_BACKEND_WAYLAND) params->err = ERROR_INVALID_PARAMETER;
     else if (!ops) params->err = ERROR_NOT_SUPPORTED;
     else
@@ -98,6 +102,16 @@ DISPATCH(wm_release, struct wm_window_params, release)
 DISPATCH(wm_get_title, struct wm_get_title_params, get_title)
 DISPATCH(wm_get_icon, struct wm_get_icon_params, get_icon)
 DISPATCH(wm_focus, struct wm_window_params, focus)
+
+NTSTATUS wm_native_info(void *args)
+{
+    struct wm_native_info_params *params = args;
+    const struct wm_backend_ops *ops = get_backend();
+    memset(&params->info, 0, sizeof(params->info));
+    if (ops && ops->native_info) return ops->native_info(args);
+    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
+    return STATUS_SUCCESS;
+}
 
 NTSTATUS wm_stop(void *args)
 {

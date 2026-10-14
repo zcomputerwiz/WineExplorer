@@ -22,6 +22,7 @@
 @ stdcall WexWmStart(int64 ptr ptr)
 @ stdcall WexWmStartEx(long int64 ptr ptr)
 @ stdcall WexWmGetCapabilities(ptr ptr)
+@ stdcall WexWmGetNativeInfo(int64 ptr)
 @ stdcall WexWmBindHost(int64 ptr ptr ptr)
 @ stdcall WexWmManage(int64 int64 ptr ptr)
 @ stdcall WexWmConfigure(int64 ptr ptr)

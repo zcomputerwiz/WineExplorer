@@ -139,3 +139,58 @@ adopt a window. Distinguish observed state from requests and logical foreground
 from physical native keyboard focus. Then wire native launch context and the
 test session's private D-Bus activation environment to the discovered endpoints.
 This is a foundation checkpoint, not complete L2 or deployment acceptance.
+
+## Wine-side native inventory and control
+
+wexhost now has an explicit Wayland backend. It connects using the caller's
+WAYLAND_DISPLAY, requires private manager v3 and standard wlr inventory v3,
+and reports native map/withdraw/title/icon metadata plus WEX_WM_OBSERVED full
+state snapshots. Observations are separate from Win32 control requests. The
+new GetNativeInfo ABI returns the native token, UTF-8 app ID and this compositor's
+normal native endpoints; its argument records work in both PE architectures.
+Identifiers increase across backend restart and are never reused. Closed
+resources are collected once both protocols have closed them. Repeated pending
+metadata/state snapshots are coalesced rather than accumulating resize events.
+
+The reader follows Wayland prepare/read/cancel rules, holds no bridge lock while
+polling, and releases all reader/queue resources on stop. Standard minimize,
+restore, activate and graceful close are wired. Frame binding, geometry control,
+topmost and custom native icons remain unsupported. AUTO Wayland remains
+disabled, so Explorer does not yet adopt native Wayland windows. Coordinates
+are compositor logical client coordinates until frame/DPI conversion is added.
+
+Verified in the combined --enable-archs=i386,x86_64 build, with real foot clients:
+inventory, positive client geometry, native identity/endpoints, UTF-16 title,
+minimize/restore and activation acknowledgements, graceful close, withdrawal,
+stale identifiers, stop/restart and compositor transport loss. Both PE probes
+pass with zero failures. A private test D-Bus session prevents activation from
+escaping to the real desktop. Reproduce with scripts/check-wayland-backend.sh
+and an isolated WEX_CHECK_PREFIX. Logs: checks/l2-waylandwm-validation.log and
+checks/wayland-backend.9uY8YV under /srv/protonexplorer/wex-wayland-l1.
+Both real-X11 binding probes and the 800x600 tray/eight-dialog smoke pass again.
+
+The module uses Wine's normal scanner-generated protocol code and Wayland
+client library flags. The three XML sources retain their original notices
+(private wex MIT, unmodified wlr permission notice and Wine's xdg-shell copy).
+libwayland-client0 is already an explicit runtime package dependency in
+installer/package-wine.sh. This checkpoint requires the project's existing
+Wayland-enabled build configuration/development dependencies; compilation with
+Wayland disabled is not yet supported or claimed.
+
+Corrections in this checkpoint:
+
+- The first runner stopped after a successful 64-bit probe because closing foot
+  sends SIGHUP to its child and foot returns that status. Assert graceful-close
+  withdrawal in the probe, then reap the terminal without treating child SIGHUP
+  as a bridge failure. Both architectures pass afterward.
+- Some SSH checks stalled when IPQoS=none was omitted. Restoring the documented
+  option returned promptly; uptime/load confirmed a running, idle guest. One
+  test run timed out before reaching its compositor, during prefix setup. Its
+  rerun passed; no VM restart or real desktop changes were made.
+- An X11 probe overlapped another test using the same prefix and was interrupted.
+  Add a shared check.lock to both maintained backend runners, close the lock FD
+  in child sessions, and rerun Wayland, X11 ABI and smoke sequentially. All pass.
+
+Next remains native/frame binding in the compositor and Wine driver, followed
+by Explorer adoption, physical/logical focus separation and native launch wiring.
+The Wine submodule and compositor production branch have not been advanced.

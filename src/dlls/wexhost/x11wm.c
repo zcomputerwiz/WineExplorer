@@ -1353,5 +1353,5 @@ const struct wm_backend_ops x11_wm_backend =
     WEX_WM_BACKEND_X11, WEX_WM_CAP_X11_PARENT,
     x11_wm_start, x11_wm_next_event, x11_wm_manage, x11_wm_configure,
     x11_wm_set_state, x11_wm_close, x11_wm_release, x11_wm_get_title,
-    x11_wm_get_icon, x11_wm_stop, x11_wm_focus
+    x11_wm_get_icon, x11_wm_stop, x11_wm_focus, NULL
 };

@@ -2,8 +2,8 @@ MODULE    = wexhost.dll
 IMPORTLIB = wexhost
 IMPORTS   = user32
 UNIXLIB   = wexhost.so
-UNIX_CFLAGS = $(DBUS_CFLAGS) $(X_CFLAGS)
-UNIX_LIBS   = $(PTHREAD_LIBS)
+UNIX_CFLAGS = $(DBUS_CFLAGS) $(X_CFLAGS) $(WAYLAND_CLIENT_CFLAGS)
+UNIX_LIBS   = $(PTHREAD_LIBS) $(WAYLAND_CLIENT_LIBS)
 
 SOURCES = \
 	apps.c \
@@ -12,6 +12,10 @@ SOURCES = \
 	greeter.c \
 	hardware.c \
 	unixlib.c \
+	waylandwm.c \
+	wex-window-v1.xml \
+	wlr-foreign-toplevel-management-unstable-v1.xml \
+	xdg-shell.xml \
 	wm.c \
 	wexhost.c \
 	x11wm.c

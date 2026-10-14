@@ -6,6 +6,8 @@ set -euo pipefail
 root=${WEX_ASSEMBLED_ROOT:-/srv/protonexplorer/wex-wayland-l1}
 b=${WEX_CHECK_BUILD:-$root/wow64-source/build/wine64}
 source_root=${WEX_CHECK_SOURCE:-$root/wow64-source}
+exec 9>"$root/check.lock"
+flock -n 9
 export WINEPREFIX=${WEX_CHECK_PREFIX:?Set WEX_CHECK_PREFIX to an isolated test prefix}
 export WINELOADER="$b/loader/wine" WINESERVER="$b/server/wineserver"
 export WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml='
@@ -37,4 +39,4 @@ timeout 90 xvfb-run -a -s '-screen 0 800x600x24' bash -eu -c '
         "$WINESERVER" -k
         "$WINESERVER" -w
     done
-'
+' 9>&-

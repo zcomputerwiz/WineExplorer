@@ -106,6 +106,8 @@ struct wm_get_icon_params { UINT64 window; DWORD size; ULONG64 pixels; DWORD max
 struct wm_stop_params { DWORD err; };
 struct wm_start_ex_params { UINT64 desktop; DWORD backend; DWORD err; };
 struct wm_capabilities_params { DWORD backend; DWORD capabilities; DWORD err; };
+struct wm_native_info_params { UINT64 window; WEX_NATIVE_WINDOW info; DWORD err; };
+extern NTSTATUS wm_native_info(void *args);
 extern NTSTATUS wm_start_ex(void *args);
 extern NTSTATUS wm_capabilities(void *args);
 extern NTSTATUS wm_start(void *args);
@@ -126,8 +128,10 @@ struct wm_backend_ops
     DWORD backend, capabilities;
     unixlib_entry_t start, next_event, manage, configure, set_state, close;
     unixlib_entry_t release, get_title, get_icon, stop, focus;
+    unixlib_entry_t native_info;
 };
 extern const struct wm_backend_ops x11_wm_backend;
+extern const struct wm_backend_ops wayland_wm_backend;
 #endif
 
 struct composition_params { BOOL enabled; DWORD err; };
@@ -198,6 +202,7 @@ enum wexhost_funcs
     unix_user_set_session,
     unix_wm_start_ex,
     unix_wm_capabilities,
+    unix_wm_native_info,
     unix_funcs_count
 };
 

@@ -1705,6 +1705,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     user_set_session,
     wm_start_ex,
     wm_capabilities,
+    wm_native_info,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -1767,6 +1768,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     user_set_session,
     wm_start_ex,
     wm_capabilities,
+    wm_native_info,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif

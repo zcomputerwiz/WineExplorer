@@ -192,6 +192,7 @@ DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist);
                                * left, as _NET_WM_MOVERESIZE), 8 move; rect.left/top: pointer on the screen */
 #define WEX_WM_DRAG      12   /* the pointer moved during it (rect.left/top), value 1 when the button is released */
 #define WEX_WM_MENU      13   /* show the window menu at rect.left/top */
+#define WEX_WM_OBSERVED  14   /* complete observed state, not a request */
 
 #define WEX_WM_TYPE_NORMAL   0
 #define WEX_WM_TYPE_DIALOG   1
@@ -217,11 +218,21 @@ DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist);
 #define WEX_WM_CAP_X11_PARENT   0x01
 #define WEX_WM_CAP_FOREIGN_FRAME 0x02
 #define WEX_WM_CAP_NATIVE_ENV   0x04
+#define WEX_WM_CAP_OBSERVE      0x08
+
+typedef struct
+{
+    char token[33];             /* native view lifetime token */
+    char app_id[256];           /* UTF-8 desktop application identifier */
+    char wayland_display[108];  /* compositor's normal socket */
+    char xwayland_display[128]; /* empty when unavailable */
+} WEX_NATIVE_WINDOW;
+DWORD WINAPI WexWmGetNativeInfo( UINT64 window, WEX_NATIVE_WINDOW *info );
 
 typedef struct
 {
     DWORD  type;          /* WEX_WM_* */
-    UINT64 window;        /* the program's X window */
+    UINT64 window;        /* backend-local native window identifier */
     UINT64 owner;         /* MAP: the window it belongs to (WM_TRANSIENT_FOR), 0 if none */
     RECT   rect;          /* MAP, CONFIGURE: client area in screen coordinates */
     DWORD  window_type;   /* MAP: WEX_WM_TYPE_* */

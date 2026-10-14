@@ -547,6 +547,18 @@ DWORD WINAPI WexWmBindHost( UINT64 window, HWND host, const RECT *client, const 
     return WexWmManage( window, parent, client, screen );
 }
 
+DWORD WINAPI WexWmGetNativeInfo( UINT64 window, WEX_NATIVE_WINDOW *info )
+{
+    struct wm_native_info_params params = {0};
+    if (!info) return ERROR_INVALID_PARAMETER;
+    memset(info, 0, sizeof(*info));
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.window = window;
+    WEXHOST_CALL(wm_native_info, &params);
+    if (!params.err) *info = params.info;
+    return params.err;
+}
+
 DWORD WINAPI WexWmManage( UINT64 window, UINT64 parent, const RECT *client, const RECT *screen )
 {
     struct wm_manage_params params;
