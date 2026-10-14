@@ -15,17 +15,25 @@ mkdir -p "$root/checks"
 make -C "$b" -j8 dlls/wexhost/all dlls/wexhost/x86_64-windows/libwexhost.a dlls/wexhost/i386-windows/libwexhost.a
 x86_64-w64-mingw32-gcc "$probe" -I"$source_root/src/include" -L"$b/dlls/wexhost/x86_64-windows" -lwexhost -luser32 -o "$root/checks/wm-backend64.exe"
 i686-w64-mingw32-gcc "$probe" -I"$source_root/src/include" -L"$b/dlls/wexhost/i386-windows" -lwexhost -luser32 -o "$root/checks/wm-backend32.exe"
+cc "$(dirname "$probe")/wex-wm-backend-native.c" -lX11 -o "$root/checks/wm-backend-native"
 timeout 90 xvfb-run -a -s '-screen 0 800x600x24' bash -eu -c '
     trap '\''"$WINESERVER" -k || true'\'' EXIT
     for bits in 64 32; do
         report="$WEX_BACKEND_ROOT/checks/l2-backend$bits.log"
         : > "$report"
-        "$WINELOADER" explorer /desktop=BackendProbe,800x600 "$WEX_BACKEND_ROOT/checks/wm-backend$bits.exe" "Z:$report" > "$WEX_BACKEND_ROOT/checks/l2-backend-launch$bits.log" 2>&1 &
+        "$WINELOADER" explorer /desktop=BackendProbe,800x600 "$WEX_BACKEND_ROOT/checks/wm-backend$bits.exe" "Z:$report" native > "$WEX_BACKEND_ROOT/checks/l2-backend-launch$bits.log" 2>&1 &
+        native_pid=
         for ((attempt=0; attempt<200; ++attempt)); do
+            if [ -z "$native_pid" ] && grep -q "READY_NATIVE" "$report"; then
+                "$WEX_BACKEND_ROOT/checks/wm-backend-native" &
+                native_pid=$!
+            fi
             if grep -q "BACKEND_ABI_" "$report"; then break; fi
             sleep 0.1
         done
         grep "BACKEND_ABI_PASSED bits=$bits failures=0" "$report"
+        test -n "$native_pid"
+        wait "$native_pid"
         "$WINESERVER" -k
         "$WINESERVER" -w
     done

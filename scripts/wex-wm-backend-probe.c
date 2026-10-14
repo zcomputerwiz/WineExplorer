@@ -6,7 +6,12 @@
 #include <stdio.h>
 #include <wexhost.h>
 static unsigned failures;
-static void CALLBACK event_callback(const WEX_WM_EVENT *event, void *context) { }
+static DECLSPEC_ALIGN(8) LONG64 native_window;
+static void CALLBACK event_callback(const WEX_WM_EVENT *event, void *context)
+{
+    if (event->type == WEX_WM_MAP)
+        InterlockedCompareExchange64(&native_window, event->window, 0);
+}
 static void check(const char *label, DWORD actual, DWORD expected)
 {
     if (actual != expected)
@@ -45,6 +50,33 @@ int main(int argc, char **argv)
         check("duplicate start", WexWmStart(desktop,event_callback,NULL), ERROR_ALREADY_EXISTS);
         check("invalid host", WexWmBindHost(0,NULL,&client,&screen), ERROR_INVALID_WINDOW_HANDLE);
         check("missing native window", WexWmBindHost(0,host,&client,&screen), ERROR_INVALID_WINDOW_HANDLE);
+        if (argc > 2 && i == 1)
+        {
+            DWORD started = GetTickCount();
+            MSG message;
+            UINT64 window;
+            puts("READY_NATIVE");
+            while (!InterlockedCompareExchange64(&native_window, 0, 0)
+                    && GetTickCount() - started < 10000)
+            {
+                while (PeekMessageW(&message,NULL,0,0,PM_REMOVE))
+                {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                Sleep(10);
+            }
+            window = InterlockedCompareExchange64(&native_window, 0, 0);
+            if (!window) { puts("FAIL native map callback timed out"); ++failures; }
+            else
+            {
+                WCHAR title[128];
+                check("native title", WexWmGetTitle(window,title,128), ERROR_SUCCESS);
+                if (lstrcmpW(title,L"Wex backend native ABI")) { puts("FAIL native title data"); ++failures; }
+                check("native bind", WexWmBindHost(window,host,&client,&screen), ERROR_SUCCESS);
+                check("native release", WexWmRelease(window,&screen), ERROR_SUCCESS);
+            }
+        }
         WexWmStop();
         check("stopped", WexWmGetCapabilities(&backend,&capabilities), ERROR_NOT_READY);
         WexWmStop();

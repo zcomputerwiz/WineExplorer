@@ -92,3 +92,27 @@ Corrections:
   mode 0644 to four existing executable files. No fast-forward occurred. Preserve
   Git's tracked modes in subsequent tar transfers and restore these modes;
   the source contents already match bc3ee676. Unrelated guest logs remain intact.
+
+## Additional bridge and metadata checks
+
+The maintained backend probe now launches a real native X11 client after the
+bridge is ready. Both 32-bit and 64-bit probes passed map-event delivery,
+UTF-16 title retrieval, binding the native window to a Wine HWND, and releasing
+it again, with zero failures. This exercises the added WoW64 table beyond error
+returns. Changes are independent of the pending Wayland frame bridge.
+
+Compositor 202b9089 adds coverage for live logical placement at 317,229 and
+SSD/CSD changes. A decoration request must notify observers even when effective
+SSD geometry remains unchanged or the window is shaded/fullscreen. The full
+suite passed 27/27 again; log: ~/wexcomp-build/l2-live-acceptance.log.
+
+The next protocol increment publishes this compositor's normal Wayland socket
+and its own XWayland endpoint to privileged clients. This avoids guessing
+wayland-0 or inheriting the outer session's DISPLAY for native launches.
+Initial build failed because HAVE_XWAYLAND was tested before labwc.h supplied
+the configuration definitions, skipping the required XWayland type header.
+Move that conditional include after labwc.h, then rerun the suite.
+
+An inspection used scripts/build-assembled.sh, which is absent; the maintained
+script is scripts/refactor/build-assembled.sh. A PowerShell positional wildcard
+for session scripts was rejected; use rg on scripts with -g instead.
