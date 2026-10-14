@@ -6,12 +6,18 @@ Scope: WAYLAND_INTEGRATION_WORKORDER.md; shipping X11 stays unchanged.
 
 ## Environment
 
-ProtonExplorer-VM (SSH 2223) only. Compositor source/build is
-~/wexcomp-build, branch wexcomp at ad962566bd169c3c27fafdaac9780a599fb7624a.
+Compositor development uses ProtonExplorer-VM (SSH 2223). Source/build is
+~/wexcomp-build, candidate codex/wex-window-handles at 192ab62b, from
+wexcomp ad962566bd169c3c27fafdaac9780a599fb7624a.
 Debian wlroots 0.18.2 development packages installed; meson/ninja build passes.
 No dev runtime or ISO defaults are changed. Gemini's WSL wexcomp/wexbuild
 distributions are untouched. Wine edits use the separate host fork worktree
-build/wayland/wine, branch codex/wayland-integration from production d0a0af0681.
+build/wayland/wine, branch codex/wayland-integration, now 3bb585c4ee. It includes
+the concurrent production f5016cf theme fix. Owned source is on the experimental
+project branch codex/wayland-l1 at 1e94efb9; master still ships X11.
+Final WoW64 build is /srv/protonexplorer/wex-wayland-l1/wow64-source/build/wine64,
+configured with --enable-archs=i386,x86_64. Historical win64-only evidence below
+predates the new mandatory build rule; final WoW64 acceptance remains pending.
 
 ## Integration finding
 
@@ -230,3 +236,17 @@ Additional command failures/corrections:
 - The restart-time rg docs/CODEX_HANDOFF* read failed because PowerShell does not
   expand positional globs; use rg docs -g 'CODEX_HANDOFF*'. Guest i686 MinGW was
   absent; install gcc-mingw-w64-i686 for the required WoW64 build.
+- The first current-project archive named nonexistent configs/include paths;
+  Git rejected configs. Archive the complete tracked candidate instead. Reading
+  scripts/refactor/assemble.py also failed: the current wrapper is assemble.sh
+  calling scripts/assemble.py. The fresh WoW64 source was cloned separately,
+  assembled with that wrapper and never reset over the older assembled tree.
+- WoW64 configure warned that x86_64 C++17 was unavailable. Install the matching
+  g++-mingw-w64-x86-64 package alongside i686 GCC/G++; reconfigure after the
+  current build stops, then compile the newly enabled modules too.
+- A multi-file report patch matched the helper but failed the report's combined
+  paragraph context. Read the actual first lines and patch the report separately.
+- Post-restart click/covered-window checks pass with 624720e2b6: background restore
+  is visible without focus theft, real clicks raise it, and clicking covered
+  pixels stays in Notepad. Private activation now synchronizes Wine's logical
+  z-order with the compositor raise. The f5016cf merge is 3bb585c4ee.

@@ -62,6 +62,12 @@ int main(int argc, char **argv)
             }
             return 0;
         }
+        else if (!strcmp(argv[1],"composition-close"))
+        {
+            hwnd=FindWindowW(L"WineExplorerCompositionProbe",L"Composition probe controls");
+            if (!hwnd) return 2;
+            PostMessageW(hwnd,WM_KEYDOWN,VK_ESCAPE,0); return 0;
+        }
         else if (!strcmp(argv[1],"composition-cycles"))
         {
             hwnd = FindWindowW(L"WineExplorerCompositionProbe",L"Composition probe controls");
