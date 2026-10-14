@@ -284,3 +284,65 @@ The compositor's protocol suite passes 26/26. Stock-labwc fallback and X11
 regression checks pass; final integration evidence is in WAYLAND_L1.md.
 This standard-only topic is ready for manual submission; private wex-window-v1
 and shell roles remain fork-only and are not part of this upstream branch.
+
+## Native Windows Vista through 11 .msstyles visual style reader in uxtheme — 2026-10-14
+
+Branch: `upstream/uxtheme-msstyles-v4`, commit `8a7ab2e91b8`,
+based on upstream master `081042ede6a165a36bf9988350dd584b440d7a3d`.
+
+Proposed series:
+1. `eeb3bef9370` uxtheme: Add support for typed theme property storage.
+2. `5372cc96ed3` uxtheme: Implement Vista+ v4 msstyles format detection and stream parser.
+3. `d9865b003b5` uxtheme/tests: Add unit tests for v4 visual style parsing.
+4. `84be42c2e44` uxtheme: Add WIC PNG image decoding support.
+5. `dc682c65dd1` uxtheme: Implement DPI image selection and fallback.
+6. `9f5463df2f4` uxtheme: Implement image atlas support.
+7. `d468fa8f0ce` uxtheme/tests: Add tests for v4 PNG images, DPI selection, and atlas rendering.
+8. `7a5d6ccec37` uxtheme: Fix property allocation to zero initialized memory.
+9. `52c0f0825ce` uxtheme: Fall back to theme name and default display names in theme enumeration.
+10. `ccc04b24a19` uxtheme: Check atlas rect in IsThemeBackgroundPartiallyTransparent.
+11. `8a7ab2e91b8` uxtheme/tests: Add tests for v4 theme enumeration, documentation, and properties.
+
+Proposed MR title: uxtheme: Support Windows Vista through 11 .msstyles visual styles.
+
+Proposed MR description:
+Wine's uxtheme currently only supports Windows XP-era visual styles (PACKTHEM_VERSION 3,
+text INI files, and BMP images). Windows Vista through 11 styles use a completely different
+binary format containing a CMAP class table, a VARIANT typed binary property stream,
+PNG images, and image atlases (STREAM). As a result, Wine fails to load any modern visual
+style.
+
+This patch series implements native support for Windows Vista through 11 .msstyles files:
+- Detection: MSSTYLES_OpenThemeFile detects the file format at load time. XP styles continue
+  through the existing INI parser, while modern styles are dispatched to the new v4 stream
+  parser in msstyles_v4.c.
+- Compatibility with existing code: Parsed classes and properties populate Wine's existing
+  internal structures (THEME_FILE, THEME_CLASS, THEME_PARTSTATE, THEME_PROPERTY), so that all
+  existing drawing routines (draw.c) and external callers continue to work seamlessly.
+- Typed storage: Rather than converting binary properties to strings and parsing them back on
+  use, THEME_PROPERTY gains typed binary storage for values, with the getters updated to read
+  typed values directly.
+- WIC PNG decoding: PNG images in IMAGE resources are decoded via windowscodecs (WIC) into
+  32-bit premultiplied ARGB DIBs.
+- High-DPI selection: Selects the appropriate DPI variant (IMAGEFILE1..IMAGEFILE5 based on
+  MINDPI1..MINDPI5), falling back gracefully to the base image.
+- Image atlases: Supports Windows 8+ STREAM image atlases sliced by ATLASRECT.
+- Enumeration & Documentation: EnumThemeColors/EnumThemeSizes return standard schemes, and
+  GetThemeDocumentationProperty inspects adjacent MUI string tables or derives defaults from
+  the filename, enabling winecfg and desk.cpl to discover and apply modern styles.
+- Safety & Fuzzing: Untrusted files are thoroughly bounds-checked; malformed streams fail
+  cleanly without crashing.
+
+Provenance and licensing: Format knowledge is derived exclusively from libmsstyle (MIT
+license, independent reverse-engineering of the file format, no Microsoft code). All committed
+unit tests use a synthetic, open-resource visual style generated entirely from open code and
+minimal programmatic PNGs.
+
+Validation:
+- Builds cleanly on current upstream Wine with -Wdeclaration-after-statement and C90 compliance.
+- Passes all 22,305 uxtheme tests in dlls/uxtheme/tests/system.c with zero failures on both
+  64-bit and 32-bit WoW64.
+- Tested locally against the host's Windows 11 aero.msstyles: all classes, parts, states, and
+  properties match expected libmsstyle JSON dumps. Common controls (buttons, edits, combos,
+  scroll bars, progress, tabs, headers, menus, frames) render correctly.
+- Live switching between Luna, Royale, Aero, and Classic functions without restarting.

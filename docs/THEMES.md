@@ -1,7 +1,9 @@
 # Themes: how they are built, packaged and installed
 
-## Visual styles (.msstyles)
-A visual style is a resource-only DLL. Wine's uxtheme reads the layout Windows XP uses (`dlls/uxtheme/msstyles.c`):
+A visual style is a resource-only DLL. Wine's uxtheme natively supports both Windows XP and Windows Vista through 11 visual styles:
+
+### Windows XP layout (msstyles v3)
+Read by `dlls/uxtheme/msstyles.c`:
 
 | Resource | Holds |
 |---|---|
@@ -10,6 +12,17 @@ A visual style is a resource-only DLL. Wine's uxtheme reads the layout Windows X
 | `BITMAP` resources named after the image path (`Blue\StartButton.bmp` -> `BLUE_STARTBUTTON_BMP`) | the images the class data names |
 
 `COMBODATA` is `cColors, cSizes` followed by, per size, the index of the file serving each colour.
+
+### Windows Vista through 11 layout (msstyles v4)
+Read by `dlls/uxtheme/msstyles_v4.c`:
+
+| Resource | Holds |
+|---|---|
+| `CMAP` (`PATH` 1) | String table mapping class names to class IDs |
+| `VARIANT` (`NORMAL` 1) | Binary property stream containing typed properties (`INT`, `BOOL`, `COLOR`, `MARGINS`, `RECT`, `POSITION`, `STRING`, `FONT`, `INTLIST`, `DISKSTREAM`, `FILENAME`) |
+| `IMAGE` (PNG resources) | PNG images decoded via WIC into 32-bit premultiplied ARGB DIBs; DPI scaling selects `IMAGEFILE1`..`IMAGEFILE5` per screen DPI (`MINDPI1`..`MINDPI5`) |
+| `STREAM` (Atlas PNGs) | Shared image atlas bitmap streams sliced via `ATLASRECT` (Windows 8+) |
+| `AMAP` (Animations) | Animation duration maps and transitions |
 
 ## Packages
 A theme package is a zip: `theme.json`, `<Name>.theme`, `<Name>/<name>.msstyles`, `<Name>/Icons/xpres_*.dll`, plus
@@ -38,9 +51,7 @@ own). Switching themes reloads them (`WM_THEMECHANGED`).
 ## Not covered yet
 - The Start panel pictures (`Luna\Shell\<scheme>\shellstyle.dll`) come only with a locally built package.
 - Accelerated compositing and native Wayland frame integration are not implemented.
-- Vista–11 `.msstyles` (binary property stream, PNG images, atlases): planned as a native uxtheme reader,
-  `docs/UXTHEME_V4_WORKORDER.md`. Start menu skins in Open-Shell's format and Windows 7/11 shell layouts are
-  separate plans.
+- Start menu skins in Open-Shell's format and Windows 7/11 shell layouts are separate plans (Vista through 11 `.msstyles` visual styles are now natively supported in `uxtheme`; see `docs/UXTHEME_V4.md`).
 
 ## Rounded frames and Start menu icons
 
