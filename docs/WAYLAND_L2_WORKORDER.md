@@ -36,7 +36,9 @@ explicit lab gate now passes actual 64/32 shell adoption, observed-state handlin
 native click/rendering, real menu focus, two-way minimize/restore and withdrawal.
 Real task-button activation/minimize/restore, visual active-state transitions,
 and context-menu cancellation/Minimize/Restore/Close now pass with both actual
-Explorer architectures. Owner/transient and broader application coverage remain.
+Explorer architectures. Initial owned SSD adoption, parent removal/reassignment,
+owner frame withdrawal/return and native parent closure now pass with the same
+child proxy surviving. Broader transient/application coverage remains.
 Native resize negotiation and complete acceptance remain pending.
 AUTO is still disabled. See WAYLAND_L2.md for limits.
 

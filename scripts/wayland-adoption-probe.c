@@ -65,6 +65,46 @@ static BOOL gate(const char *report,const char *suffix)
     if (!(file=fopen(path,"r"))) return FALSE;
     fclose(file); return TRUE;
 }
+static int owners(const char *report)
+{
+    HWND parent,child,old;
+    WAIT("owner proxy",(parent=FindWindowW(L"WineExplorerLinuxWindow",L"L2 Wine association peer")) &&
+         (ULONG_PTR)GetPropW(parent,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    puts("READY_OWNER_CHILD");
+    WAIT("owned proxy",(child=FindWindowW(L"WineExplorerLinuxWindow",L"L2 Shell child")) &&
+         GetWindow(child,GW_OWNER)==parent &&
+         (ULONG_PTR)GetPropW(child,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    count=0; EnumWindows(count_host,0);
+    if (count!=2 || !size_is(child,240,180)) { puts("FAIL owned proxy count or size"); return 1; }
+    pixel(child,"CHILD"); puts("READY_OWNER_CLEAR");
+    WAIT("owner removed",!GetWindow(child,GW_OWNER));
+    puts("READY_OWNER_SET");
+    WAIT("owner restored",GetWindow(child,GW_OWNER)==parent);
+    old=parent; puts("READY_OWNER_CSD");
+    WAIT("unsupported parent frame removed",!IsWindow(old));
+    WAIT("child survives parent frame withdrawal",IsWindow(child) && !GetWindow(child,GW_OWNER) &&
+         (ULONG_PTR)GetPropW(child,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    puts("READY_OWNER_SSD");
+    WAIT("returning owner proxy relinked",(parent=FindWindowW(L"WineExplorerLinuxWindow",L"L2 Wine association peer")) &&
+         GetWindow(child,GW_OWNER)==parent &&
+         (ULONG_PTR)GetPropW(parent,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    count=0; EnumWindows(count_host,0);
+    if (count!=2) { puts("FAIL returning owner proxy count"); return 1; }
+    puts("READY_OWNER_CLOSE");
+    WAIT("closed parent removed",!IsWindow(parent));
+    WAIT("native child survives parent closure",IsWindow(child) && !GetWindow(child,GW_OWNER) &&
+         (ULONG_PTR)GetPropW(child,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    count=0; EnumWindows(count_host,0);
+    if (count!=1) { puts("FAIL surviving child proxy count"); return 1; }
+    puts("READY_CHILD_CLOSE");
+    WAIT("child close gate",gate(report,"close-child"));
+    PostMessageW(child,WM_CLOSE,0,0);
+    WAIT("child proxy removed",!IsWindow(child));
+    count=0; EnumWindows(count_host,0);
+    if (count) { puts("FAIL stale owned proxy"); return 1; }
+    printf("SHELL_OWNERS_PASSED bits=%u\n",(unsigned)(8*sizeof(void *)));
+    return 0;
+}
 int main(int argc,char **argv)
 {
     HWND host,old;
@@ -82,6 +122,7 @@ int main(int argc,char **argv)
     { puts("FAIL shell architecture"); if (shell_process) CloseHandle(shell_process); return 1; }
     CloseHandle(shell_process);
     puts("READY_SHELL");
+    if (!strcmp(argv[1],"owners")) return owners(argv[2]);
     if (!strcmp(argv[1],"disabled"))
     {
         DWORD start=GetTickCount();

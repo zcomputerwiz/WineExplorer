@@ -701,3 +701,56 @@ Next: owned/transient windows and parent changes/closure, then interactive
 move/resize negotiation, CSD task representation and scaling/state/application
 launch acceptance. Ordinary task-button/menu checks do not establish grouped
 task menus, native global shortcuts or completion of L2. AUTO stays disabled.
+
+## Owned native windows checkpoint (2026-10-14)
+
+The isolated full-shell runner has an additional WEX_SHELL_TEST_OWNERS=1 mode.
+Both actual 64-bit and 32-bit Explorer now pass a native SSD child mapped with
+an existing native parent: two distinct proxy HWNDs, correct Win32 ownership,
+active scene groups and screenshot-verified native child content. The native
+client removes and reassigns its parent after mapping; Explorer follows both.
+The parent then switches to CSD and back to SSD: the same child HWND survives
+the parent's frame withdrawal and relinks to the returning proxy. Finally the
+native parent closes while the child stays open; the same child remains hosted,
+unowned, with one proxy and no duplicate. Forwarding the child's Close removes
+its native surface and the last proxy.
+
+This exposed two independent failures, fixed at their owning layers:
+
+- checks/l2-owner-first.log: owner removal never reached Explorer. The compositor
+  initialized foreign ownership only on map. Topic 7cf88027 listens to the xdg
+  toplevel set_parent signal, updates the standard foreign-toplevel relationship
+  (including NULL), and removes its listener on destruction. Initial map and
+  later changes share the same helper. No private protocol extension is needed.
+- checks/l2-owner-parent-listener.log: parent changes worked, but parent closure
+  destroyed the child's proxy. Wine's DestroyWindow recursively destroys owned
+  windows on the same thread, independently of their native lifetimes. Explorer
+  now detaches directly owned native proxy HWNDs before removing an owner host,
+  across withdrawal, unsupported-policy, failed-binding and shutdown paths.
+  The native owner ID is retained for later relinking. This applies only to the
+  explicit Wayland gate; the shipping X11 path keeps its existing behavior.
+
+The test publisher adds initial owned mapping, parent changes and independent
+parent destruction. The normal taskbar scenario still uses its original mode.
+No tests or fixes change production pins or enable automatic native adoption.
+
+Verification on the Proton VM, under /srv/protonexplorer/wex-wayland-l1:
+
+- checks/l2-owner-shell-build.log: combined WoW64 wexshell target passes.
+- checks/l2-owner-lifetime.log: initial owned/parent-change/closure scenario
+  passes both architectures before the additional policy-return coverage.
+- checks/l2-owner-acceptance.log, state shell-adoption.io_hpx02: expanded scenario
+  passes both architectures, including CSD withdrawal and SSD parent relinking.
+- checks/l2-owner-taskbar-regression.log, state shell-adoption.op16lqnd: full
+  task-button/menu/native rendering scenario still passes both architectures.
+- checks/l2-owner-x11-smoke.log: CHECK_PASSED, two tray icons without overlap or
+  out-of-bounds placement and all eight dialog-placement checks pass.
+- ~/wexcomp-build/l2-owner-suite.log and l2-owner-no-x-suite.log: full compositor
+  suites pass 37/37 with and without XWayland. Retained output directories are
+  /srv/protonexplorer/wex-wayland-l2/owner-suite-output and
+  /srv/protonexplorer/wex-wayland-l2/owner-no-x-suite-output.
+
+Remaining owner acceptance includes initially unmapped/late native parents,
+real application modality/popups and more complex owner trees. This checkpoint
+does not complete L2. Native move/resize negotiation, CSD task representation,
+scaling/state/workspace and launch/application acceptance remain pending.

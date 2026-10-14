@@ -98,6 +98,21 @@ static struct linux_window *find_window( UINT64 window )
     return NULL;
 }
 
+static void destroy_host( struct linux_window *lw )
+{
+    struct linux_window *child;
+
+    /* DestroyWindow also destroys same-thread owned windows. Native children
+     * have independent lifetimes: detach their proxies before removing a frame,
+     * even if the compositor's parent-change observation is still queued. Keep
+     * the native owner ID so a returning owner proxy can be linked again. */
+    if (wayland_mode)
+        LIST_FOR_EACH_ENTRY( child, &windows, struct linux_window, entry )
+            if (child != lw && GetWindow( child->host, GW_OWNER ) == lw->host)
+                SetWindowLongPtrW( child->host, GWLP_HWNDPARENT, 0 );
+    DestroyWindow( lw->host );
+}
+
 static void host_style( const struct linux_window *lw, BOOL owned, DWORD *style, DWORD *ex_style )
 {
     *ex_style = 0;
@@ -299,7 +314,7 @@ static void manage( struct linux_window *lw )
     if (wayland_mode) WexWmRelease(lw->window,NULL);
     else WexWmManage( lw->window, 0, NULL, NULL );
     lw->gone = TRUE;
-    DestroyWindow( lw->host );
+    destroy_host( lw );
 }
 
 /* Applications may center a dialog using stale client geometry, or request a
@@ -421,7 +436,7 @@ static void map_window( const WEX_WM_EVENT *event )
         {
             lw->gone = TRUE;
             WexWmRelease(lw->window,NULL);
-            DestroyWindow(lw->host);
+            destroy_host(lw);
             return;
         }
         LIST_FOR_EACH_ENTRY(child,&windows,struct linux_window,entry)
@@ -444,7 +459,7 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
     {
         /* Keep observing: a later supported policy/state can be adopted again. */
         lw->gone = TRUE;
-        DestroyWindow(lw->host);
+        destroy_host(lw);
         return;
     }
     lw->reconciling = TRUE;
@@ -584,7 +599,7 @@ static void handle_event( const WEX_WM_EVENT *event )
     {
     case WEX_WM_WITHDRAW:
         lw->gone = TRUE;
-        DestroyWindow( lw->host );
+        destroy_host( lw );
         break;
     case WEX_WM_CONFIGURE:
         configure_window( lw, event );
@@ -798,7 +813,7 @@ void linux_windows_stop(void)
     LIST_FOR_EACH_ENTRY_SAFE( lw, next, &windows, struct linux_window, entry )
     {
         lw->gone = TRUE;   /* released by WexWmStop */
-        DestroyWindow( lw->host );
+        destroy_host( lw );
     }
     DestroyWindow( events_hwnd );
     events_hwnd = NULL;

@@ -15,6 +15,8 @@ wine, server = os.environ["WINELOADER"], os.environ["WINESERVER"]
 state = Path(tempfile.mkdtemp(prefix="shell-adoption.", dir=root / "checks"))
 comp = Path.home() / "wexcomp-build"
 enabled = os.environ.get("WEX_SHELL_TEST_DISABLED") != "1"
+owners = os.environ.get("WEX_SHELL_TEST_OWNERS") == "1"
+assert not owners or enabled, "owner tests require the explicit adoption gate"
 
 def report_wait(report, marker, process):
     deadline = time.monotonic() + 20
@@ -64,7 +66,7 @@ for bits in ((64, 32) if enabled else (64,)):
                                  stdout=(case / "shell.log").open("w"), stderr=subprocess.STDOUT)
         report = case / "probe.log"
         probe = subprocess.Popen([wine, str(root / f"checks/shell-adoption{bits}.exe"),
-                                  "enabled" if enabled else "disabled", "Z:" + str(report)], env=env,
+                                  "owners" if owners else "enabled" if enabled else "disabled", "Z:" + str(report)], env=env,
                                  stdout=(case / "launch.log").open("w"), stderr=subprocess.STDOUT)
         if peer is None:
             report_wait(report, "READY_SHELL", probe)
@@ -82,6 +84,26 @@ for bits in ((64, 32) if enabled else (64,)):
                 with Image.open(path) as image:
                     pixel = image.convert("RGB").getpixel((int(match[1]), int(match[2])))
                 assert pixel == (0x33, 0x88, 0x55), (phase, pixel)
+
+            if owners:
+                report_wait(report, "READY_OWNER_CHILD", probe)
+                command("child")
+                capture(report_wait(report, "READY_OWNER_CLEAR", probe), "CHILD")
+                command("orphan")
+                report_wait(report, "READY_OWNER_SET", probe)
+                command("parent")
+                report_wait(report, "READY_OWNER_CSD", probe)
+                command("csd")
+                report_wait(report, "READY_OWNER_SSD", probe)
+                command("ssd")
+                report_wait(report, "READY_OWNER_CLOSE", probe)
+                command("parent-close")
+                report_wait(report, "READY_CHILD_CLOSE", probe)
+                Path(str(report) + ".close-child").write_text("close\n")
+                assert probe.wait(timeout=25) == 0, report.read_text(errors="replace")
+                assert peer.wait(timeout=10) == 0, "native child did not honor close"
+                print(report.read_text(), flush=True)
+                continue
 
             capture(report_wait(report, "READY_TITLE", probe), "INITIAL")
             command("title")
