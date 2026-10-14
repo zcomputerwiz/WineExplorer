@@ -51,7 +51,13 @@ timeout 120 xvfb-run -a -s '-screen 0 800x600x24' bash -eu -c '
         sleep .5
         report="$state/backend$bits.log"
         timeout 55 "$WINELOADER" "$WEX_BACKEND_ROOT/checks/wayland-backend$bits.exe" "Z:$report" disconnect > "$state/launch$bits.log" 2>&1 & probe_pid=$!
+        peer_started=0
         for ((i=0;i<500;++i)); do
+            if [ "$peer_started" = 0 ] && grep -q READY_PEER "$report" 2>/dev/null; then
+                wait "$native" || true
+                WAYLAND_DISPLAY=wayland-0 foot --title=WexWaylandPeer sh -c "sleep 90" > "$state/peer$bits.log" 2>&1 & native=$!
+                peer_started=1
+            fi
             if grep -q READY_DISCONNECT "$report" 2>/dev/null; then
                 kill "$compositor"
                 wait "$compositor" || true

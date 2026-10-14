@@ -231,6 +231,7 @@ static const struct wl_registry_listener registry_listener = { global,removed };
 
 static void *read_events(void *unused)
 {
+    struct native_window *window;
     pthread_mutex_lock(&wl_mutex);
     while (running)
     {
@@ -250,6 +251,9 @@ static void *read_events(void *unused)
         if (ret < 0 || (fd.revents & (POLLERR|POLLHUP|POLLNVAL)) || wl_display_dispatch_pending(display) < 0) break;
     }
     running = FALSE;
+    /* The event thread drains these before STOP. Future shell adoption must
+     * destroy its proxies when the host connection disappears, too. */
+    for (window=windows;window;window=window->next) withdraw(window);
     pthread_mutex_unlock(&wl_mutex);
     stop_queue();
     return NULL;

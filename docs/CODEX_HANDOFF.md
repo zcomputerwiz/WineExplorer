@@ -1,5 +1,24 @@
 # Codex handoff — 2026-10-14 Wayland L1 complete
 
+**Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
+WAYLAND_L2.md before the historical L1/installer notes below. Main source now
+contains an explicit wexhost Wayland inventory/control backend and fixed-width
+32/64-bit native-info API (e5adf5bb plus recovery follow-up). Both architectures
+pass real foot inventory, control, close, stale-ID, restart and transport-loss
+withdrawal probes. X11 ABI and tray/eight-dialog regression checks pass. AUTO
+Wayland adoption remains disabled pending safe native/frame binding. No default
+session or installed runtime changes. Compositor codex/wayland-l2 is pushed at
+8a5a73ed; production wexcomp remains 9a47d74f and Wine pin remains f0108dc.
+Host compositor checkout: build/wayland-l2/wexcomp. Guest tested source is in
+~/wexcomp-build, on codex/wayland-l2 with the tested patches applied over its
+old base. Wine's host codex/wayland-l2 branch has no driver changes yet. Keep
+the user's .gitignore edit untouched. Use SSH with IPQoS=none and serialize test
+prefixes through check.lock; do not run backend tests concurrently.
+Next: generic HWND native token, Wine independent owned proxy toplevels,
+compositor native/frame groups with client-area rendering/input exclusion and
+physical/logical focus separation. Then wire native launch and private test
+D-Bus activation environments to compositor-supplied endpoints.
+
 **Pin update (Claude, 2026-10-14):** Gemini's Vista+ msstyles series (`docs/UXTHEME_V4.md`) is merged; master's
 Wine gitlink and `wineexplorer/11.19` are now `51c870b85b7` (your `05286f7c90` plus uxtheme only). Run
 `git submodule update` before the next build. A combined WoW64 build passes; uxtheme tests pass 64/32-bit.

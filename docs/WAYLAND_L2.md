@@ -194,3 +194,13 @@ Corrections in this checkpoint:
 Next remains native/frame binding in the compositor and Wine driver, followed
 by Explorer adoption, physical/logical focus separation and native launch wiring.
 The Wine submodule and compositor production branch have not been advanced.
+
+Transport recovery follow-up: after a backend restart, the probe maps a second
+native client and checks that its identifier differs from the first. The harness
+then terminates only its own headless compositor. The reader emits withdrawals
+for every live announced native entry before STOP, allowing the future shell
+bridge to remove its proxies. Both architectures verify withdrawal delivery,
+ERROR_NOT_READY after transport loss and clean stop with zero failures. Logs:
+checks/l2-waylandwm-recovery.log and checks/wayland-backend.jK7iA5. No test
+compositors or test Wine servers remain running. Main source checkpoint is
+e5adf5bb plus this recovery follow-up; production runtime pins remain unchanged.

@@ -75,10 +75,22 @@ int main(int argc,char **argv)
     if (argc > 2)
     {
         DWORD start = GetTickCount(), status;
+        EnterCriticalSection(&lock);
+        memset(&snapshot,0,sizeof(snapshot));
+        withdrawn = FALSE;
+        LeaveCriticalSection(&lock);
+        puts("READY_PEER");
+        check("new native inventory after restart",wait_state(WEX_WM_STATE_MINIMIZED,FALSE,FALSE));
+        EnterCriticalSection(&lock);
+        check("identifiers not reused",snapshot.window && snapshot.window != window);
+        window = snapshot.window;
+        LeaveCriticalSection(&lock);
         puts("READY_DISCONNECT");
+        start = GetTickCount();
         do { status = WexWmGetNativeInfo(window,&info); if (status == ERROR_NOT_READY) break; Sleep(10); }
         while (GetTickCount()-start < 10000);
         check("transport loss wakes reader",status == ERROR_NOT_READY);
+        check("transport loss withdraws native entries",wait_state(0,FALSE,TRUE));
     }
     WexWmStop();
     DeleteCriticalSection(&lock);
