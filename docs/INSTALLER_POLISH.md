@@ -9,7 +9,7 @@
 
 ## 1. Overview and Completed Tasks
 
-All six tasks defined in [`docs/INSTALLER_POLISH_WORKORDER.md`](file:///root/WineExplorer/docs/INSTALLER_POLISH_WORKORDER.md) have been implemented, cleanly committed, and end-to-end verified in QEMU/KVM test environments.
+All six tasks defined in [`docs/INSTALLER_POLISH_WORKORDER.md`](INSTALLER_POLISH_WORKORDER.md) have been implemented, cleanly committed, and end-to-end verified in QEMU/KVM test environments.
 
 ### Task 1: GUI Setup Visual Parity (`src/programs/setup`)
 - **Wizard97 Headers**: Configured property sheet pages with `PSH_WIZARD97 | PSH_HEADER` and `PSP_USEHEADERTITLE | PSP_USEHEADERSUBTITLE` using standard title and subtitle resources matching Windows XP setup dialogs.
@@ -24,7 +24,7 @@ All six tasks defined in [`docs/INSTALLER_POLISH_WORKORDER.md`](file:///root/Win
 - **Commit**: `6bf11981` — `setup: implement Wizard97 headers, classic styling, and billboard step advancement`
 
 ### Task 2: Date and Time Page XP Time Zones (`src/programs/setup`, `src/dlls/timedate.cpl`)
-- **Shared Header**: Created [`src/include/wextimezone.h`](file:///root/WineExplorer/src/include/wextimezone.h) under the Unicode License v3 (CLDR release 45 / typeVersion 2021a) and LGPL 2.1+, containing:
+- **Shared Header**: Created [`src/include/wextimezone.h`](../src/include/wextimezone.h) under the Unicode License v3 (CLDR release 45 / typeVersion 2021a) and LGPL 2.1+, containing:
   - All 54 Windows XP time zones (`g_xp_timezones`).
   - Full Unicode CLDR mapping between Windows zone names and IANA zone identifiers (`g_wex_tz_iana_map`).
   - Resolution helpers `wex_iana_for_key()`, `wex_key_for_iana()`, and `wex_resolve_timezone()`.
@@ -62,7 +62,7 @@ All six tasks defined in [`docs/INSTALLER_POLISH_WORKORDER.md`](file:///root/Win
 - **Commit**: `0ceb6a25` — `installer: configure silent instant boot in installed GRUB`
 
 ### Task 6: Documentation, Test Anchors, and Recycle Bin Verification
-- **Documentation**: Updated [`docs/INSTALLER.md`](file:///root/WineExplorer/docs/INSTALLER.md) with details on the polish changes, new answer-file keys, and instructions for running tests in `wexbuild`.
+- **Documentation**: Updated [`docs/INSTALLER.md`](INSTALLER.md) with details on the polish changes, new answer-file keys, and instructions for running tests in `wexbuild`.
 - **Test Anchor Update**: Updated line 47 of `installer/tests/install-interactive.sh` to type `"Wine User"` before pressing Enter on the Name page (required because Name now starts empty and disables Next until text is entered).
 - **Recycle Bin Verification**: Confirmed Recycle Bin desktop icon appears on first logon of the user (tested with Bob's passwordless session in `install-interactive.sh` step 17).
 - **Commit**: `cff29321` — `docs, tests: update installer documentation and interactive test name input`
@@ -82,7 +82,7 @@ All six tasks defined in [`docs/INSTALLER_POLISH_WORKORDER.md`](file:///root/Win
   - GUI-mode setup wizard: Regional, Owner Name ("Wine User"), Computer name/passwords, Time zone, Networking, Workgroup.
   - Stage 3 OOBE: Welcome, Automatic Updates, Connectivity, User accounts (Alice with password, Bob Smith passwordless).
   - Logon and session verification: LightDM custom greeter authentication, incorrect password rejection, Alice desktop logon, Win+L user switch, Bob Smith first desktop logon with Recycle Bin and desktop icons in 6 seconds.
-  - Screenshots recorded to [`docs/installer-polish/`](file:///root/WineExplorer/docs/installer-polish/).
+  - Screenshots recorded to [`docs/installer-polish/`](installer-polish/).
 
 ### 3. Unattended Install with AutomaticUpdates=No
 - Answer File: Created answer file containing:
@@ -108,7 +108,7 @@ All six tasks defined in [`docs/INSTALLER_POLISH_WORKORDER.md`](file:///root/Win
 
 ## 3. Screenshots
 
-All 17 step screenshots from the interactive test run are archived in [`docs/installer-polish/`](file:///root/WineExplorer/docs/installer-polish/):
+All 17 step screenshots from the interactive test run are archived in [`docs/installer-polish/`](installer-polish/):
 - `01-welcome.png`: Text setup welcome screen.
 - `02-license.png`: EULA screen.
 - `03-partitions.png`: Partition editor with XP bus and disk index formatting.

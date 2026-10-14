@@ -703,8 +703,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     char hw_log[128];
     FILE *fstage;
 
-    /* Step 1: Dynamic update / Installing Devices */
-    g_ctx.install_step = 1;
+    /* Installing Devices (XP shows "Installing Windows" through GUI-mode setup) */
+    g_ctx.install_step = 3;
     g_ctx.minutes_remaining = 32;
     InvalidateRect(hwnd, NULL, TRUE);
     UpdateWindow(hwnd);
@@ -715,8 +715,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     LogSetup(hw_log);
     PumpEvents(2000);
 
-    /* Step 2: Preparing installation / Installing Network */
-    g_ctx.install_step = 2;
+    /* Installing Network */
+    g_ctx.install_step = 3;
     g_ctx.minutes_remaining = 25;
     g_ctx.panel_index = (g_ctx.panel_index + 1) % g_panelCount;
     InvalidateRect(hwnd, NULL, TRUE);
@@ -783,7 +783,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     snprintf(g_ctx.layout, sizeof(g_ctx.layout), "us");
     g_ctx.typical_net = true;
     g_ctx.minutes_remaining = 33;
-    g_ctx.install_step = 0;
+    g_ctx.install_step = 3;   /* the pages are collected under "Installing Debian & Wine", as on XP */
 
     LogSetup("=== WineExplorer GUI-mode Setup (setup.exe) Started ===");
     CheckUnattended();
