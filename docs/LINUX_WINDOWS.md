@@ -1,9 +1,17 @@
 # Linux windows in the shell
 
-The shell is a Wine virtual desktop: one X window that covers the screen, with no X window manager. Programs of
+The shipping X11 path uses a Wine virtual desktop: one X window that covers the screen, with no X window manager. Programs of
 our wineserver live inside it. Anything else, such as native Linux programs, the Steam client, Proton games or a
 second Wine, maps its windows on the X root window. Without a window manager those windows would have no frame,
 no taskbar button and no stacking with Win32 windows.
+
+The separate Wayland L2 lab path uses native compositor surfaces and explicit
+Wine proxy frames rather than X reparenting. `WEX_WAYLAND_NATIVE_WINDOWS=1` enables
+Explorer's experimental SSD adoption in an isolated native Wayland shell; it is
+off by default. Read [WAYLAND_L2.md](WAYLAND_L2.md) for matching topic builds,
+limits, recovery, acceptance and `scripts/check-wayland-shell.sh`. CSD/fullscreen
+and initially minimized windows remain native in this first lab gate, and
+interactive resize/maximize is disabled pending native negotiation.
 
 ## Design: Wine is the window manager
 
@@ -16,8 +24,8 @@ come from code we already have. Cygwin/X's multiwindow mode does the same in the
 |---|---|---|
 | X side | `dlls/wexhost/x11wm.c` (unix) | Own X connection with `SubstructureRedirect` on the root. Turns MapRequest, ConfigureRequest, Unmap/Destroy, PropertyNotify and ClientMessage into `WEX_WM_EVENT`s. Reparents, configures, closes and releases windows. Forwards keyboard focus. Grabs click-to-activate and the shell keys. Publishes EWMH. |
 | API | `include/wexhost.h` (`WexWm*`), `dlls/wexhost/wexhost.c` | Event thread like the polkit agent's; the calls the shell makes. |
-| Hosts | `programs/explorer/linux_windows.c` | One host per window: style from the window type and Motif hints, title, `_NET_WM_ICON`, position (NorthWest gravity), size limits, states, fullscreen. |
-| Start | `programs/explorer/desktop.c` | `linux_windows_start()` in shell mode. `HKCU\Software\WineExplorer\Shell` `ManageLinuxWindows`=0 turns it off. |
+| Hosts | `src/dlls/wexshell/linux_windows.c` | One host per window: style from the window type and Motif hints, title, `_NET_WM_ICON`, position (NorthWest gravity), size limits, states, fullscreen. |
+| Start | `src/dlls/wexshell/desktop.c` | `linux_windows_start()` in shell mode. `HKCU\Software\WineExplorer\Shell` `ManageLinuxWindows`=0 turns it off. |
 | Applications | `dlls/wexhost/apps.c`, `WexAppsList` / `WexAppsLaunch`, `startmenu_view.c` | GIO discovers visible freedesktop entries and launches their desktop IDs. Both Start menu styles have a Linux Applications submenu. |
 
 The desktop remains on customized Wine. Steam/Proton and other Wine installations use their own runtimes and prefixes, connecting to the same X server as normal Linux applications. The session launcher runs Explorer directly on X11. There is no implemented Gamescope service bridge; use Gamescope per application. A compositor/service bridge can be designed separately without changing the desktop's Wine runtime.

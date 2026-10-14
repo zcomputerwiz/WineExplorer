@@ -8,7 +8,7 @@ Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains
 ~/wexcomp-build, used only for isolated nested tests. No default/session deployment.
 Current L2 topics: Wine 786643b (host worktree build/wayland-l2/wine), compositor
-fe3abb94 (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
+efb40ac9 (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
 detached at its production f0108dc gitlink; neither production pin was advanced.
 
 ## Planning inspection corrections
@@ -561,3 +561,90 @@ and withdrawal cleanup. Complete real menu/taskbar/application, native resize,
 fullscreen/workspace, scaling and launch routing acceptance before AUTO or
 shipping session changes. No real desktop, installed runtime or production pin
 was changed by these tests.
+
+## Explorer lab adoption checkpoint
+
+Main 97707ed6 adds the explicit WEX_WAYLAND_NATIVE_WINDOWS=1 environment gate.
+It applies only without an X11 virtual-desktop window; X11 and the default native
+session retain their previous selection. This is a test-session switch, not an
+ISO/session default or completed L2 acceptance. Use the matching Wine 786643b
+and compositor efb40ac9 topics. No production gitlink/branch was advanced.
+
+Explorer now binds eligible SSD proxies before ShowWindow, preserving independent
+owned toplevel mapping. Existing native client coordinates remain the anchor.
+Wayland skips the X11 pixel-format/reparenting workaround. Complete OBSERVED
+snapshots update native geometry, ownership, constraints and minimize state with
+echo suppression. Pending minimize requests are tracked separately from observed
+state, so an earlier observation cannot reverse a newer request. Foreground
+events use Wine's existing driver acknowledgement path rather than X11 handles
+or repeated native activation calls. Native size changes adjust the proxy and
+reattach after matching buffers; observations from that movement are not requests.
+
+This first gate leaves CSD/borderless, initially minimized, maximized and fullscreen
+windows independently managed by the compositor. Active proxies are withdrawn
+when the native view switches to an unsupported decoration/fullscreen/maximize
+state, while observation continues so supported states can be adopted later.
+Interactive resize/maximize affordances are disabled until native negotiation
+exists. Taskbar coverage, owner/transient dialogs, scaling, fullscreen/workspace
+transitions and native launch routing still need broader acceptance.
+
+The compositor fix efb40ac9 removes a real adoption race. Hiding native SSD used
+to emit a temporary NONE decoration snapshot before the frame scene pointer was
+published. A shell could interpret that as a CSD switch and destroy its new
+proxy, depending on reader/event-thread scheduling. Publish the fully allocated
+group before the decoration notification; a raw observer regression asserts that
+the SSD policy never briefly downgrades during activation. That assertion fails
+against the old code and passes after the fix. Genuine native CSD changes still
+detach and report CLIENT normally.
+
+Maintained tests: scripts/check-wayland-shell.sh, check-wayland-shell.py and
+wayland-adoption-probe.c. The runner creates isolated headless compositor,
+private D-Bus, prefix/server and an actual explorer /shell. It matches the L1
+session's disabled default keybindings. A 64-bit Explorer adopts a pre-existing
+native SSD client; a 32-bit Explorer adopts one launched after its taskbar is
+ready. The probes verify Explorer's architecture as well as their own.
+
+Both cases pass one-proxy enumeration, native rendering before/after resize,
+frame-edge hit testing, live title updates, native client pointer/button delivery
+and logical proxy activation, a real Win32 system menu opening with frame keyboard
+focus and cancellation restoring native focus, minimize/restore in both directions,
+CSD proxy removal, SSD readoption, forwarded close and withdrawal cleanup. The
+test-only native publisher now accepts title/resize/policy/state/click commands
+and honors close requests. Its view stays in the compositor's normal scene graph.
+
+Corrections and inspection notes:
+
+- A raw decoration regression reproduced the intermediate NONE snapshot before
+  the fix: ~/wexcomp-build/l2-shell-decoration-regression-before.log. Keep the
+  passing final log separate; no coalescing delay is used to hide the transition.
+- A test filename collision overwrote the existing L1 wayland-shell-probe.c in
+  the working tree. It was caught before commit and restored byte-for-byte from
+  HEAD; the new test is wayland-adoption-probe.c. Existing L1 callers are intact.
+- PowerShell positional taskbar/session globs failed; use rg --files or rg with
+  directory plus -g. No source changes resulted from those inspection errors.
+
+Next: complete real taskbar interactions, transient/owner and late-state coverage,
+native resize negotiation and move loops, then CSD task representation, scaling,
+fullscreen/workspace and native application/launch acceptance. AUTO remains
+disabled. The lab's working menu test does not establish native global-hotkey
+forwarding, which remains L4.
+
+Final verification logs on the Proton VM:
+
+- checks/l2-shell-adoption-build.log: combined WoW64 wexshell target passes.
+- checks/l2-shell-acceptance.log, state shell-adoption.0jq8rjhv: actual 64/32
+  Explorer/PE probe pairs pass the complete lab scenario and screenshot checks;
+  32-bit Explorer's native peer is launched after shell readiness. Each case
+  retains initial.png, resized.png, menu.png, shell/peer/compositor logs.
+- checks/l2-shell-disabled-acceptance.log, state shell-adoption.dwognx6x: the same
+  SSD client stays unadopted with the gate absent after taskbar readiness.
+- checks/l2-shell-x11-smoke.log: CHECK_PASSED, two tray icons with zero overlaps
+  and all eight native dialog-placement assertions pass.
+- ~/wexcomp-build/l2-shell-decoration-regression-final.log and
+  l2-shell-no-xwayland-final.log: full compositor suite passes 37/37 with and
+  without XWayland after the atomic decoration fix. The new assertion observes
+  every raw decoration event, independent of bridge queue coalescing.
+
+The check paths above share /srv/protonexplorer/wex-wayland-l1 as their root.
+No test compositor or Wine server remains in use, and all screenshots originate
+from isolated tests. No proprietary reference assets were added.

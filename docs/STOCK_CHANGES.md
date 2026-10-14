@@ -10,7 +10,7 @@ Current pin is f0108dc, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
 L2 opt-in topic codex/wayland-l2 (786643b, not the production pin) extends the
-private protocol to v4 and adds native/controller atom properties plus an
+private protocol through v7, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
 behavior. The standard wlr XML is vendored only to satisfy private protocol
@@ -19,13 +19,16 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing. All
-changes are fork-only. Compositor topic fe3abb94 provides v5 active scene grouping
+changes are fork-only. Compositor topic efb40ac9 provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
 servers remains. Owned wexhost now binds explicit SSD hosts through the v7
 properties with UI-thread lifetime, region and focus-loop management; Explorer
-adoption and AUTO remain disabled. This adds no further Wine fork changes. No production pin
+adoption is now gated by WEX_WAYLAND_NATIVE_WINDOWS=1 for isolated tests; AUTO
+remains disabled. The compositor also publishes replacement decoration policy
+atomically, avoiding a false CSD notification during activation. This adds no
+further Wine fork changes. No production pin
 changes. See WAYLAND_L2.md for 32/64 verification and worktree paths.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.

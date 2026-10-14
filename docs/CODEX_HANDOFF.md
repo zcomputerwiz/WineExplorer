@@ -2,7 +2,7 @@
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
 WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 786643b, compositor
-codex/wayland-l2 at fe3abb94. Host Wine topic now lives in
+codex/wayland-l2 at efb40ac9. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 f0108dc gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32
@@ -28,9 +28,18 @@ checks, inventory/recovery and X11 ABI/smoke regressions.
 Both architectures also pass screenshot pixel checks of native content rendered
 inside the Wine frame, beyond protocol status assertions.
 Read WAYLAND_L2.md for exact logs, commands, failures and correction notes.
-Next is Explorer's explicit lab adoption gate, binding before map, observed-state
-reconciliation and withdrawal cleanup, actual shell menu/taskbar integration and
-native resize negotiation, then AUTO adoption. CSD binding is deliberately rejected.
+Main 97707ed6 adds Explorer's explicit lab gate WEX_WAYLAND_NATIVE_WINDOWS=1,
+binding before map and OBSERVED reconciliation/withdrawal cleanup. Both actual
+64/32 Explorer shells pass native rendering/title/size changes, client clicks,
+real system-menu focus restoration, two-way minimize/restore, CSD withdrawal,
+SSD readoption and close cleanup. The 32-bit case also covers late native map.
+Default gate-off and X11 remain unchanged. Compositor efb40ac9 fixes a reproduced
+transient NONE-decoration notification during adoption; raw regression passes.
+Use check-wayland-shell.sh and the separately named wayland-adoption-probe.c;
+the existing L1 wayland-shell-probe.c is intact. Read WAYLAND_L2.md for logs.
+Next: real taskbar controls, owner/transient/state coverage, native resize and
+move loops, then scaling/fullscreen/workspace and launch acceptance. CSD binding
+is deliberately rejected, and resize/maximize UI is disabled in the lab gate.
 Fullscreen/workspace, CSD, native popup, scaling and
 application coverage remain acceptance work. No deployed runtime or session changes.
 
