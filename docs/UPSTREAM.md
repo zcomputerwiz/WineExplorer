@@ -287,9 +287,9 @@ and shell roles remain fork-only and are not part of this upstream branch.
 
 ## Binary Vista-format visual styles in uxtheme — 2026-10-14
 
-Clean candidate: `codex/uxtheme-v4-upstream-clean`, `43c139255b`, based on
-upstream `081042ede6a165a36bf9988350dd584b440d7a3d`. Canonical topic publication
-awaits clean-build acceptance. Original fourteen-commit topic at d6a91d09b2 is
+Canonical topic: `upstream/uxtheme-msstyles-v4`, and candidate
+`codex/uxtheme-v4-upstream-clean`, at `43c139255b`, based on upstream
+`081042ede6a165a36bf9988350dd584b440d7a3d`. Original fourteen-commit topic at d6a91d09b2 is
 preserved on `archive/uxtheme-msstyles-v4-pre-cleanup`. No WineHQ MR opened;
 submission and final real-name authorship/sign-off remain manual user actions.
 
@@ -327,10 +327,12 @@ The filename/documentation and fabricated scheme display-name fallbacks remain
 WineExplorer fork-only; neither their implementation nor Wine-specific
 expectations are included in this upstream series.
 
-Validation so far: full fork WoW64 build passes, with focused v4 (59 final checks)
-and existing system (22,252 checks, zero failures) passing in both architectures.
+Validation: full clean upstream and fork WoW64 builds pass. Focused v4 (59 checks)
+and existing system (22,252 checks, zero failures) pass in both architectures;
+system retains 17 todo and four skips. New upstream root is
+/srv/protonexplorer/uxtheme-v4-upstream, UPSTREAM_V4_FINAL_ACCEPTANCE_PASSED.
 The Windows 11 host's 32/64 focused tests skip because private theme-file APIs
 are unavailable; this validates the skip path, not native Windows rendering.
-Clean upstream WoW64 build and tests are pending. See UXTHEME_V4.md for exact
+See UXTHEME_V4.md for exact
 results, command corrections and historical genuine-style checks, whose assets
 remain local and are not part of the patch or its test data.

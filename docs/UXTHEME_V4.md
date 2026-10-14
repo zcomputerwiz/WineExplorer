@@ -80,9 +80,9 @@ Wine historically parsed text tokens on demand (`lpValue` string pointer into IN
 | Repository | Branch | Status |
 |---|---|---|
 | `zcomputerwiz/msstyleEditor` | `master` | Pushed (commit `13709ea`: CLI `--dump` JSON tool, synthetic generator, tests) |
-| `zcomputerwiz/wine` | `upstream/uxtheme-msstyles-v4` | Pushed (commits `eeb3bef9370`..`8a7ab2e91b8`; review fixes on top, now ends at `d6a91d09b2a`) |
-| `zcomputerwiz/wine` | `wineexplorer/11.19` | Pushed (commits `fcdf93c551e`..`6d7ccf81a1f`; review fixes on top, now ends at `51c870b85b7`) |
-| `zcomputerwiz/WineExplorer` | `master` | Documentation updated (`docs/UPSTREAM.md`, `docs/STOCK_CHANGES.md`, `docs/THEMES.md`, `docs/UXTHEME_V4.md`); Wine gitlink moved to `51c870b85b7` after review |
+| `zcomputerwiz/wine` | `upstream/uxtheme-msstyles-v4` | Clean four-commit series through `43c139255b`; original `d6a91d09b2` archived on `archive/uxtheme-msstyles-v4-pre-cleanup` |
+| `zcomputerwiz/wine` | `wineexplorer/11.19` | Review fixes plus cleanup, fast-forwarded through `f0108dc25e` |
+| `zcomputerwiz/WineExplorer` | `master` | Wine gitlink at `f0108dc25e`; acceptance and submission notes updated |
 
 ## Review (Claude, 2026-10-14)
 
@@ -117,9 +117,10 @@ run would contradict; the series should be squashed with the three fixes before 
 ## Upstream cleanup (Codex, 2026-10-14)
 
 The submodule was synchronized to Claude's 51c870b before editing. Fork cleanup
-is on codex/uxtheme-v4-cleanup, through f0108dc; upstream candidate is
-codex/uxtheme-v4-upstream-clean, through 43c139255b. Final publication/build
-status will be recorded here after clean upstream acceptance.
+is on codex/uxtheme-v4-cleanup, through f0108dc; upstream clean topic and
+codex/uxtheme-v4-upstream-clean end at 43c139255b. All five review items are
+addressed. The canonical topic is replaced with a lease check after preserving
+its prior head on the archive branch; the production fork is only fast-forwarded.
 
 - msstyles_v4.c names the existing Git author identity zcomputerwiz as holder
   of the new implementation. It keeps the prior attribution, adds the actual
@@ -152,6 +153,13 @@ execute 59 final v4 checks (zero failures/skips) and 22,252 existing system chec
 32/64 focused suites exit successfully with one skip each: private theme-file
 entry points are unavailable. This verifies the skip path, not native rendering.
 No host or real VM desktop theme was changed.
+
+Clean upstream acceptance: /srv/protonexplorer/uxtheme-v4-upstream/source,
+head 43c139255b, new WoW64 build with both MinGW C++17 compilers. Full build
+passes. Focused v4 (59 checks, no skips) and system (22,252 checks, zero failures,
+17 todo/four skips) pass on both architectures. Final status is
+UPSTREAM_V4_FINAL_ACCEPTANCE_PASSED. All test Xvfb/Wine processes were stopped.
+No WineHQ MR was opened; authorship/sign-off and submission remain manual.
 
 Replay with a WoW64 build, isolated WINEPREFIX and nested Xvfb DISPLAY (not a
 real user session): build dlls/uxtheme/all and dlls/uxtheme/tests/all, then run

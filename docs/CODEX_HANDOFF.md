@@ -10,7 +10,8 @@ and builds synthetic test resources from source. Full fork WoW64 build passes;
 v4 (59 final checks) and system (22,252 checks) pass both architectures. Windows 11
 focused 32/64 tests skip because private theme-file APIs are unavailable; no
 native rendering claim. Clean four-commit upstream candidate ends at 43c139255b;
-fresh upstream build is pending. Original topic is saved on
+fresh upstream WoW64 build and both v4/system suites pass. Canonical
+upstream/uxtheme-msstyles-v4 now has that squashed four-commit series. Original topic is saved on
 archive/uxtheme-msstyles-v4-pre-cleanup. No WineHQ MR opened.
 Use /srv/protonexplorer/uxtheme-v4-upstream for that clean source/build. Existing
 assembled fork lab root was updated without resetting its old Git checkout;
