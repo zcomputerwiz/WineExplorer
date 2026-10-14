@@ -7,6 +7,9 @@ Scope and agreed decisions: WAYLAND_L2_WORKORDER.md. Project source is on master
 Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains
 ~/wexcomp-build, used only for isolated nested tests. No default/session deployment.
+Current L2 topics: Wine 925b10c (host worktree build/wayland-l2/wine), compositor
+5893c35c (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
+detached at its production f0108dc gitlink; neither production pin was advanced.
 
 ## Planning inspection corrections
 
@@ -204,3 +207,67 @@ ERROR_NOT_READY after transport loss and clean stop with zero failures. Logs:
 checks/l2-waylandwm-recovery.log and checks/wayland-backend.jK7iA5. No test
 compositors or test Wine servers remain running. Main source checkpoint is
 e5adf5bb plus this recovery follow-up; production runtime pins remain unchanged.
+
+## Native/frame reservation and Wine forwarding
+
+Compositor v4 adds controller-specific lifetime handles and associate_foreign,
+while retaining the existing v1/v2/v3 contracts. A native view token identifies
+the view; a controller handle identifies the live bridge observer. A frame can
+reserve exactly one eligible native view and one live controller across separate
+Wayland connections. Stale, mismatched and competing handles are rejected;
+repeating a pair is idempotent. Explicit release, native/controller/frame
+destruction, controller disconnect and switching the frame to a shell/desktop
+role clear the reservation. PREPARED changes no native scene, focus, geometry or
+decorations, and is not an acknowledgement of hosted content. Atomic rendering
+and input preparation remain required before adoption.
+
+Wine 925b10c forwards native/controller global atom properties through this
+protocol, reports asynchronous status as another scalar HWND property, and
+serializes association requests to suppress outdated responses when properties
+change. The bridge owns atom references; no process-local pointers cross the
+boundary. An owned proxy with a native token maps as an independent Wayland
+toplevel under private v4 while retaining its Win32 owner. Ordinary owned
+windows keep their existing subsurface path. Native endpoint events are consumed
+without changing Wine's privileged graphics environment. These are fork-only
+changes recorded in STOCK_CHANGES.md.
+
+Verification:
+
+- Compositor full protocol suite passes 28/28 (including v3 observation and new
+  reservation lifecycle checks); log ~/wexcomp-build/l2-association-acceptance.log.
+- Compositor without XWayland builds and passes both foreign observation and
+  reservation scenarios; log ~/wexcomp-build/l2-association-no-x-test.log,
+  runtime /srv/protonexplorer/wex-wayland-l2/no-x-session.PlmsRk.
+- Combined WoW64 driver build passes. Real Wayland Wine probes pass 32/64-bit
+  owned independent proxy, preserved Win32 owner, invalid-controller rejection,
+  valid-pair restoration and controller expiration. No hosted rendering claim.
+- Mixed 32/64-bit L1 cross-process stacking passes all screenshot/order/foreground
+  assertions with v4. Driver logs: checks/l2-association-driver-build.log and
+  checks/l2-driver-association.log under /srv/protonexplorer/wex-wayland-l1.
+
+Reproduce the Wine checks using scripts/check-wayland-association.sh with an
+isolated WEX_CHECK_PREFIX, the patched combined build and compositor L2 checkout.
+The runner compiles both PE probes, uses a private D-Bus session and its own
+headless compositor, then cleans up. Its SDK include path uses -idirafter so
+MinGW's standard Windows headers are not mixed with Wine's incomplete generated
+SDK headers. Test scripts take check.lock to serialize prefix use.
+
+Corrections:
+
+- The initial probe compile used -I for Wine's include directory and mixed Wine
+  and MinGW COM headers, failing on WINBOOL/IActivationFilter. Use -idirafter;
+  both compilers and the actual driver probes then pass.
+- The initial stacking screenshot showed blue instead of green because a fixed
+  one-second delay did not ensure all processes had visible, handle-published
+  windows. Add a read-only ready command and poll it before taking screenshots.
+  The original color/order/foreground assertions remain and pass.
+- All stacking assertions passed but the test's ten-second Wine shutdown limit
+  expired. Increase that limit to 45 seconds and always terminate the owned
+  compositor in a nested finally block, even if server shutdown fails. The one
+  leftover test compositor was identified by its recorded PID/config path and
+  stopped. The complete rerun passes and cleans up.
+
+Next: add the compositor's atomic native/frame scene group and client-area
+render/input exclusion, then physical/native focus acknowledgements and frame
+menu focus handling. Only after those checks can wexhost BindHost claim hosting
+and Explorer AUTO adopt windows. Native launch/D-Bus activation routing follows.

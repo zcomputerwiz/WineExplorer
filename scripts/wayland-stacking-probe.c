@@ -40,6 +40,12 @@ int main(int argc, char **argv)
     {
         hwnd = find(argv[2]);
         if (!hwnd) return 2;
+        if (!strcmp(argv[3], "ready"))
+        {
+            printf("READY %s visible=%d atom=%p\n",argv[2],IsWindowVisible(hwnd),
+                   GetPropW(hwnd,L"__wine_wayland_window_handle"));
+            return !IsWindowVisible(hwnd) || !GetPropW(hwnd,L"__wine_wayland_window_handle");
+        }
         if (!strcmp(argv[3], "top")) after = HWND_TOP;
         else if (!strcmp(argv[3], "bottom")) after = HWND_BOTTOM;
         else if (!strcmp(argv[3], "topmost")) after = HWND_TOPMOST;

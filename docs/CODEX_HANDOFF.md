@@ -1,6 +1,18 @@
 # Codex handoff — 2026-10-14 Wayland L1 complete
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
+WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 925b10c, compositor
+codex/wayland-l2 at 5893c35c. Host Wine topic now lives in
+build/wayland-l2/wine; ordinary wine/ is restored to its detached production
+f0108dc gitlink. Private protocol v4 reserves a native view with a live
+controller handle; Wine forwards scalar atom properties and preserves Win32
+ownership while mapping owned native proxies independently. PREPARED does not
+mean rendered/hosted. Full compositor 28/28 and no-XWayland cases pass; 32/64
+Wayland driver association probes and mixed-architecture L1 stacking pass.
+Next is scene/input grouping and native physical vs. Wine logical focus, then
+bridge hosting/AUTO and launch routing. No deployed runtime or session changes.
+
+Earlier L2 bridge checkpoint: read
 WAYLAND_L2.md before the historical L1/installer notes below. Main source now
 contains an explicit wexhost Wayland inventory/control backend and fixed-width
 32/64-bit native-info API (e5adf5bb plus recovery follow-up). Both architectures

@@ -21,6 +21,11 @@ frame binding capabilities. Keep all v1/v2 requests. wexhost and Wine use separa
 connections; associate views with compositor-generated lifetime tokens, never
 foreign connection-local objects, titles, app IDs, pointers or process IDs.
 
+Implementation versioning note: committed v3 supplies supplemental observation
+and native endpoints. v4 adds the controller-lifetime handle and prepared frame
+association without breaking v3 clients. PREPARED reserves identity/lifetime only;
+active scene/input hosting and focus acknowledgements are still pending.
+
 Reuse proxy HWNDs and existing taskbar/window-state/dialog handling. Owned foreign
 dialogs retain Win32 ownership but map as independent Wayland toplevels. Exclude
 the host client area from frame rendering and input. Native buffers stay in the
