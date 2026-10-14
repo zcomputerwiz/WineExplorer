@@ -285,64 +285,52 @@ regression checks pass; final integration evidence is in WAYLAND_L1.md.
 This standard-only topic is ready for manual submission; private wex-window-v1
 and shell roles remain fork-only and are not part of this upstream branch.
 
-## Native Windows Vista through 11 .msstyles visual style reader in uxtheme â€” 2026-10-14
+## Binary Vista-format visual styles in uxtheme — 2026-10-14
 
-Branch: `upstream/uxtheme-msstyles-v4`, commit `8a7ab2e91b8`,
-based on upstream master `081042ede6a165a36bf9988350dd584b440d7a3d`.
+Clean candidate: `codex/uxtheme-v4-upstream-clean`, `276e12bd46`, based on
+upstream `081042ede6a165a36bf9988350dd584b440d7a3d`. Canonical topic publication
+awaits clean-build acceptance. Original fourteen-commit topic at d6a91d09b2 is
+preserved on `archive/uxtheme-msstyles-v4-pre-cleanup`. No WineHQ MR opened;
+submission and final real-name authorship/sign-off remain manual user actions.
 
-Proposed series:
-1. `eeb3bef9370` uxtheme: Add support for typed theme property storage.
-2. `5372cc96ed3` uxtheme: Implement Vista+ v4 msstyles format detection and stream parser.
-3. `d9865b003b5` uxtheme/tests: Add unit tests for v4 visual style parsing.
-4. `84be42c2e44` uxtheme: Add WIC PNG image decoding support.
-5. `dc682c65dd1` uxtheme: Implement DPI image selection and fallback.
-6. `9f5463df2f4` uxtheme: Implement image atlas support.
-7. `d468fa8f0ce` uxtheme/tests: Add tests for v4 PNG images, DPI selection, and atlas rendering.
-8. `7a5d6ccec37` uxtheme: Fix property allocation to zero initialized memory.
-9. `52c0f0825ce` uxtheme: Fall back to theme name and default display names in theme enumeration.
-10. `ccc04b24a19` uxtheme: Check atlas rect in IsThemeBackgroundPartiallyTransparent.
-11. `8a7ab2e91b8` uxtheme/tests: Add tests for v4 theme enumeration, documentation, and properties.
+Squashed series (review corrections are folded into the relevant commits):
 
-Proposed MR title: uxtheme: Support Windows Vista through 11 .msstyles visual styles.
+1. `c16f0bda39` uxtheme: Store typed visual style properties.
+2. `a92f9293bd` uxtheme: Parse binary Vista-format visual styles and apply system metrics.
+3. `fa4718fc67` uxtheme: Decode PNG images and select DPI variants and atlas regions.
+4. `276e12bd46` uxtheme/tests: Exercise v4 properties and rendering with a source-built style.
 
-Proposed MR description:
-Wine's uxtheme currently only supports Windows XP-era visual styles (PACKTHEM_VERSION 3,
-text INI files, and BMP images). Windows Vista through 11 styles use a completely different
-binary format containing a CMAP class table, a VARIANT typed binary property stream,
-PNG images, and image atlases (STREAM). As a result, Wine fails to load any modern visual
-style.
+Proposed MR title: uxtheme: Read binary Vista-format visual styles.
 
-This patch series implements native support for Windows Vista through 11 .msstyles files:
-- Detection: MSSTYLES_OpenThemeFile detects the file format at load time. XP styles continue
-  through the existing INI parser, while modern styles are dispatched to the new v4 stream
-  parser in msstyles_v4.c.
-- Compatibility with existing code: Parsed classes and properties populate Wine's existing
-  internal structures (THEME_FILE, THEME_CLASS, THEME_PARTSTATE, THEME_PROPERTY), so that all
-  existing drawing routines (draw.c) and external callers continue to work seamlessly.
-- Typed storage: Rather than converting binary properties to strings and parsing them back on
-  use, THEME_PROPERTY gains typed binary storage for values, with the getters updated to read
-  typed values directly.
-- WIC PNG decoding: PNG images in IMAGE resources are decoded via windowscodecs (WIC) into
-  32-bit premultiplied ARGB DIBs.
-- High-DPI selection: Selects the appropriate DPI variant (IMAGEFILE1..IMAGEFILE5 based on
-  MINDPI1..MINDPI5), falling back gracefully to the base image.
-- Image atlases: Supports Windows 8+ STREAM image atlases sliced by ATLASRECT.
-- Enumeration & Documentation: EnumThemeColors/EnumThemeSizes return standard schemes, and
-  GetThemeDocumentationProperty inspects adjacent MUI string tables or derives defaults from
-  the filename, enabling winecfg and desk.cpl to discover and apply modern styles.
-- Safety & Fuzzing: Untrusted files are thoroughly bounds-checked; malformed streams fail
-  cleanly without crashing.
+Proposed description:
 
-Provenance and licensing: Format knowledge is derived exclusively from libmsstyle (MIT
-license, independent reverse-engineering of the file format, no Microsoft code). All committed
-unit tests use a synthetic, open-resource visual style generated entirely from open code and
-minimal programmatic PNGs.
+Vista-format styles store classes and typed properties in CMAP/VARIANT
+resources instead of XP's theme INI. Add a reader that populates existing
+uxtheme classes/properties, supports PNG images through WIC and selects DPI
+variants and atlas rectangles. Preserve the existing XP reader. Applying a
+binary style reads typed SysMetrics instead of dereferencing a missing INI;
+string copies use character lengths correctly.
 
-Validation:
-- Builds cleanly on current upstream Wine with -Wdeclaration-after-statement and C90 compliance.
-- Passes all 22,305 uxtheme tests in dlls/uxtheme/tests/system.c with zero failures on both
-  64-bit and 32-bit WoW64.
-- Tested locally against the host's Windows 11 aero.msstyles: all classes, parts, states, and
-  properties match expected libmsstyle JSON dumps. Common controls (buttons, edits, combos,
-  scroll bars, progress, tabs, headers, menus, frames) render correctly.
-- Live switching between Luna, Royale, Aero, and Classic functions without restarting.
+Format knowledge derives from MIT-licensed libmsstyle. The new reader names
+its holder, retains the full MIT notice and Wine LGPL text, and uses existing
+TMT primitive constants with one local high-contrast type. Unused generated
+tables and a logging-only platform detector are removed.
+
+Tests build a synthetic style DLL from CMAP/VARIANT resource source, font
+strings and small programmatic PNG data using Wine's testdll rules. They check
+typed properties, state overrides, DPI image selection, atlas rendering and
+malformed files. Corruption locates the actual VARIANT resource; no opaque PE
+blob or assumed byte offset. The previous theme is restored. Missing private
+APIs or unsupported unsigned styles skip cleanly.
+
+The filename/documentation and fabricated scheme display-name fallbacks remain
+WineExplorer fork-only; neither their implementation nor Wine-specific
+expectations are included in this upstream series.
+
+Validation so far: full fork WoW64 build passes, with focused v4 (62 checks)
+and existing system (22,252 checks, zero failures) passing in both architectures.
+The Windows 11 host's 32/64 focused tests skip because private theme-file APIs
+are unavailable; this validates the skip path, not native Windows rendering.
+Clean upstream WoW64 build and tests are pending. See UXTHEME_V4.md for exact
+results, command corrections and historical genuine-style checks, whose assets
+remain local and are not part of the patch or its test data.
