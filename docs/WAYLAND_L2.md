@@ -8,7 +8,7 @@ Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains
 ~/wexcomp-build, used only for isolated nested tests. No default/session deployment.
 Current L2 topics: Wine 925b10c (host worktree build/wayland-l2/wine), compositor
-5893c35c (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
+7c7143d4 (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
 detached at its production f0108dc gitlink; neither production pin was advanced.
 
 ## Planning inspection corrections
@@ -342,3 +342,53 @@ Next is the physical/native versus Wine logical focus handshake, then dynamic
 rectangle/resize and policy recovery. Wire v5 into Wine and wexhost BindHost only
 with explicit group acknowledgements and a Win32 client-area input exclusion.
 Existing desktop sessions and production runtime pins remain unchanged.
+
+## Physical focus acknowledgement checkpoint
+
+Compositor 7c7143d4, private protocol v6, adds set_foreign_focus(epoch, target) and an observed
+foreign_focus(epoch, target) event. It retains all v1-v5 requests. The compositor
+echoes the client's most recent activation epoch rather than inventing a Win32
+foreground decision. Queries and rejected requests return actual physical focus;
+seat focus changes also report it. Native activation raises the group. Temporary
+frame focus and native restoration apply only if keyboard focus already belongs
+to the group, preventing a late menu completion from stealing focus from another
+application. Clients must additionally retain the Wine foreground/epoch guards.
+
+Each active scene listens to wlroots' existing keyboard focus-change signal.
+Surface ancestry resolves subsurfaces and xdg popup parents to the associated
+native or frame root. Unrelated/layer surfaces and null focus report none. The
+listener is removed before scene destruction; detached groups always report none.
+Requests do not manufacture a wl_keyboard enter or redirect key events: the
+ordinary compositor seat focus path determines their recipient.
+
+The synthetic scene probe now binds v6 and verifies native/frame/native focus
+roundtrips with actual virtual-keyboard press/release delivery to only the
+selected connection. It also checks epoch echoes, unsolicited external-focus
+loss, rejected late frame-focus/restoration requests, explicit reactivation,
+minimize/restore focus state and queries after controller loss. Existing scene,
+input, rendering and abrupt connection-loss checks remain in the same suite.
+
+Wine remains a v4 client and wexhost remains v3. No Wine foreground-retention or
+menu-loop implementation is claimed by these compositor tests. Driver adoption
+must consume observed group/focus acknowledgements, reject old epochs and retain
+logical proxy activation while physical focus belongs to its associated native.
+Only a current foreground proxy may request menu-completion restoration. Resize,
+decoration-policy recovery and full application/scaling coverage remain required
+before enabling hosting/AUTO.
+
+The Wine regression runner also addresses the previous checkpoint's startup
+timeout: a timed-out read-only readiness query retries within a fixed 30-second
+window deadline, logs the retry and continues checking that the created process
+is alive. Mutations still have their original limits and are never retried. The
+outer stacking budget is 180 seconds to cover three possible cold starts plus
+the unchanged screenshot/foreground assertions and cleanup.
+
+Verification: full compositor suite passes 37/37 with XWayland and 37/37 without
+XWayland, including the added key-delivery and focus-state assertions. Final logs
+are ~/wexcomp-build/l2-focus-final.log and l2-focus-no-xwayland-final.log. Wine's
+32/64 association and mixed-process L1 stacking tests pass unchanged assertions
+against v6, with the bounded readiness retry enabled. Log:
+/srv/protonexplorer/wex-wayland-l1/checks/l2-focus-driver-regression.log; runtime
+checks/association.jbmccbjp. No new test failures; the readiness retry itself was
+not triggered on this successful run. Owned test compositors/Wine server were
+cleaned up, and production sessions/pins remain unchanged.

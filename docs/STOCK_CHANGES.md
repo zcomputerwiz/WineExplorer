@@ -16,9 +16,10 @@ native proxy HWNDs as independent toplevels while keeping ordinary owned-window
 behavior. The standard wlr XML is vendored only to satisfy private protocol
 interface definitions, with its original notice. Reservation leaves native
 composition/focus unchanged; active scene hosting remains pending. All these
-changes are fork-only. Compositor topic c16220d9 provides v5 active scene grouping
-with frame-ring render/input exclusion and disconnect recovery; Wine remains a
-v4 client until focus/resize and bridge hosting are ready. No production pin
+changes are fork-only. Compositor topic 7c7143d4 provides v5 active scene grouping
+with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
+physical focus acknowledgements and guarded frame/native restoration. Wine remains a
+v4 client until acknowledgement consumption, resize and bridge hosting are ready. No production pin
 changes. See WAYLAND_L2.md for 32/64 verification and worktree paths.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.

@@ -2,7 +2,7 @@
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
 WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 925b10c, compositor
-codex/wayland-l2 at c16220d9. Host Wine topic now lives in
+codex/wayland-l2 at 7c7143d4. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 f0108dc gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32
@@ -10,11 +10,15 @@ ownership while mapping owned native proxies independently. PREPARED does not
 mean rendered/hosted. Compositor v5 adds explicit scene commit/group status,
 frame-ring cropping and native input routing, grouped move/minimize/restore and
 controller/frame/native disconnect recovery. Its full suite passes 37/37 both
-with and without XWayland. Wine still binds v4: 32/64 association probes and
-mixed-architecture L1 stacking pass against v5. See WAYLAND_L2.md for logs and
-the initial startup timeout before the complete successful rerun.
-Next is native physical vs. Wine logical focus, dynamic resize/policy recovery,
-then driver/bridge hosting and AUTO adoption. CSD, native popup, scaling and
+with and without XWayland. V6 adds epoch-tagged observed physical focus and
+guarded temporary frame/native restoration. Actual key delivery and prevention
+of late menu focus stealing pass in both compositor variants. Wine still binds
+v4: 32/64 association probes and mixed-architecture L1 stacking pass against v6.
+Read WAYLAND_L2.md for logs and readiness-runner hardening after the earlier
+startup timeout. The final successful run did not need a readiness retry.
+Next is consuming group/focus acknowledgements in Wine with existing foreground
+epoch guards and explicit opt-in hosting, plus dynamic resize/policy recovery,
+then bridge hosting and AUTO adoption. CSD, native popup, scaling and
 application coverage remain acceptance work. No deployed runtime or session changes.
 
 Earlier L2 bridge checkpoint: read

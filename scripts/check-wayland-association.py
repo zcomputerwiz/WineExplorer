@@ -63,7 +63,7 @@ try:
         subprocess.run([sys.executable, str(Path(__file__).with_name("check-wayland-stacking.py")),
                         str(wine), str(root / "checks/association-stack64.exe"), str(state / "stack"),
                         "--second-probe", str(root / "checks/association-stack32.exe")],
-                       env=env, check=True, timeout=90)
+                       env=env, check=True, timeout=180)
 finally:
     for process in (probe, peer):
         if process and process.poll() is None:

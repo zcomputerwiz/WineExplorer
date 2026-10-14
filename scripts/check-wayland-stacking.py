@@ -47,9 +47,18 @@ try:
     for name, color in [('StackA', 'FF0000'), ('StackB', '0000FF'), ('StackC', '00FF00')]:
         executable = args.second_probe if name == 'StackB' and args.second_probe else probe
         clients.append((name, subprocess.Popen([wine, executable, 'create', name, color])))
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 30
         while True:
-            ready = subprocess.run([wine, probe, 'set', name, 'ready'], capture_output=True, text=True, timeout=10)
+            remaining = deadline - time.monotonic()
+            assert clients[-1][1].poll() is None and remaining > 0, (name, 'window readiness timed out')
+            try:
+                ready = subprocess.run([wine, probe, 'set', name, 'ready'], capture_output=True,
+                                       text=True, timeout=min(10, remaining))
+            except subprocess.TimeoutExpired:
+                # A cold Wine server can outlive one read-only readiness query.
+                # Retry within the overall deadline; never retry mutations.
+                print('WAIT', name, 'readiness query timed out', flush=True)
+                continue
             if ready.returncode == 0: break
             assert clients[-1][1].poll() is None and time.monotonic() < deadline, (name, ready.stdout, ready.stderr)
             time.sleep(.1)

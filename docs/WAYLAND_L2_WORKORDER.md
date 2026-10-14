@@ -26,7 +26,9 @@ and native endpoints. v4 adds the controller-lifetime handle and prepared frame
 association without breaking v3 clients. PREPARED reserves identity/lifetime only;
 v5 adds explicit active scene grouping and frame root render/input exclusion;
 the synthetic suite passes with and without XWayland. Wine still binds v4 and
-the bridge v3. Focus acknowledgements, resize/policy recovery and driver/bridge
+the bridge v3. V6 supplies epoch-tagged compositor focus acknowledgements and
+guards late frame-menu focus restoration; actual key delivery passes in both
+compositor builds. Wine consumption, resize/policy recovery and driver/bridge
 hosting remain pending. See WAYLAND_L2.md for the verified checkpoint and limits.
 
 Reuse proxy HWNDs and existing taskbar/window-state/dialog handling. Owned foreign
