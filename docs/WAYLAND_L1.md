@@ -278,6 +278,35 @@ Additional command failures/corrections:
 
 ## Replaying the maintained probes
 
+### Restart recovery and final fixture corrections — 2026-10-14
+
+- The restarted host has both VMs running. The opt-in WoW64 Wayland session
+  uses Xvfb :30 and checks/sessions-wow64/session.XcERjE; production X11 is untouched.
+- Composition comparison first failed because Notepad covered the background,
+  while the X11 reference used the desktop. Minimize Notepad before capture.
+  The next capture preceded painting despite valid rectangles; wait for
+  `probe ready` and two seconds. Corrected placement/alpha comparison passes.
+- The first 32-bit Notepad taskbar fixture left stale composition windows and
+  failed its minimize assertion. Stop only the isolated prefix and restart.
+  An immediate repeat still failed; the warm fresh-Notepad repeat passes actual
+  taskbar minimize/restore, foreground return, Alt+F and maximized work-area bounds.
+- Staged make install builds extra SDK import libraries after make all; it
+  completed successfully. The public WoW64 runtime archive is about 543 MB.
+- Dev-VM native 800x600 dialog test initially failed `LibreOffice-sized dialog:
+  not hosted`; its six-second sleep did not establish shell readiness. Poll the
+  visible Shell_TrayWnd before creating dialogs. All eight cases then pass.
+- After restart, an attempted /srv/protonexplorer/wex-wayland-l1/wow64-phase.sh
+  invocation failed because the ignored helper was not stored there. Upload the
+  required helper explicitly to /tmp. Reading traytasks.c failed because this
+  shell's taskband implementation is taskband.c; subsequent reads use it.
+- Final WoW64 XWayland xmessage and 32-bit Notepad render together; clicking
+  back restores foreground and Alt+F input. XWAYLAND_AND_WINE_FOCUS_RETURN_PASSED.
+- Fetching Wine's branch did not create an origin/wineexplorer/11.19 tracking
+  ref in the sparse worktree, so two log/diff commands failed. Inspect FETCH_HEAD.
+  Concurrent visual-style commits through 70e6378514 merge cleanly; combined
+  build acceptance is pending. A compositor ls-remote using origin failed because
+  its bare cache has no origin; use the explicit public repository URL.
+
 The helper scripts are test tools, not session/ISO defaults. Compile dependencies:
 both MinGW GCC architectures; capture/input dependencies: grim, ImageMagick,
 xdotool, foot and Python Pillow. Use only public source/resources and an isolated

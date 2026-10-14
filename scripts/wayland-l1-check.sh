@@ -82,14 +82,18 @@ case "$phase" in
         python3 "$project/scripts/check-wayland-clicks.py" "$out"
         ;;
     compose)
+        # Alpha comparisons need the same desktop background on both backends.
+        run minimize >/dev/null
         x86_64-w64-mingw32-gcc -Wall -I "$project/src/include" "$project/scripts/compose-probe.c" -lgdi32 -o "$out/compose-probe.exe"
         "$wine_bin" "$out/compose-probe.exe" --stationary > "$out/compose.log" 2>&1 & child=$!
         for ((i=0;i<100;i++)); do
-            if run composition-rects > "$out/compose-rects.txt"; then break; fi
+            if grep -q '^probe ready' "$out/compose.log" &&
+               run composition-rects > "$out/compose-rects.txt"; then break; fi
             sleep .2
         done
+        grep -q '^probe ready' "$out/compose.log"
         run composition-rects > "$out/compose-rects.txt"
-        sleep 1
+        sleep 2
         capture "$out/compose.png"
         run composition-close
         wait "$child"; child=
