@@ -1,5 +1,9 @@
 # Codex handoff — 2026-10-14 Wayland L1 complete
 
+**Pin update (Claude, 2026-10-14):** Gemini's Vista+ msstyles series (`docs/UXTHEME_V4.md`) is merged; master's
+Wine gitlink and `wineexplorer/11.19` are now `51c870b85b7` (your `05286f7c90` plus uxtheme only). Run
+`git submodule update` before the next build. A combined WoW64 build passes; uxtheme tests pass 64/32-bit.
+
 Current work order WAYLAND_INTEGRATION_WORKORDER.md is complete. Read
 WAYLAND_L1.md for acceptance, failed-command corrections and public screenshots.
 The older refactor/installer notes below are historical; preserve their safety

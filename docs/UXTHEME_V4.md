@@ -80,6 +80,36 @@ Wine historically parsed text tokens on demand (`lpValue` string pointer into IN
 | Repository | Branch | Status |
 |---|---|---|
 | `zcomputerwiz/msstyleEditor` | `master` | Pushed (commit `13709ea`: CLI `--dump` JSON tool, synthetic generator, tests) |
-| `zcomputerwiz/wine` | `upstream/uxtheme-msstyles-v4` | Pushed (commits `eeb3bef9370`..`8a7ab2e91b8`: 11 clean commits ready for upstream MR) |
-| `zcomputerwiz/wine` | `wineexplorer/11.19` | Pushed (rebased & fast-forwarded with commits `fcdf93c551e`..`6d7ccf81a1f`) |
-| `zcomputerwiz/WineExplorer` | `master` | Documentation updated (`docs/UPSTREAM.md`, `docs/STOCK_CHANGES.md`, `docs/THEMES.md`, `docs/UXTHEME_V4.md`) |
+| `zcomputerwiz/wine` | `upstream/uxtheme-msstyles-v4` | Pushed (commits `eeb3bef9370`..`8a7ab2e91b8`; review fixes on top, now ends at `d6a91d09b2a`) |
+| `zcomputerwiz/wine` | `wineexplorer/11.19` | Pushed (commits `fcdf93c551e`..`6d7ccf81a1f`; review fixes on top, now ends at `51c870b85b7`) |
+| `zcomputerwiz/WineExplorer` | `master` | Documentation updated (`docs/UPSTREAM.md`, `docs/STOCK_CHANGES.md`, `docs/THEMES.md`, `docs/UXTHEME_V4.md`); Wine gitlink moved to `51c870b85b7` after review |
+
+## Review (Claude, 2026-10-14)
+
+Checked in `wexbuild` on a fresh WoW64 build (`--enable-archs=i386,x86_64`) of master `a7421942` with Wine
+`6d7ccf81a1f` (Wayland L1 and this series combined). The build passes without new warnings. Three defects were
+found and fixed on both branches above:
+
+- **`ApplyTheme` with a Vista+ style crashed** (NULL read in `UXINI_GetNextLine`): `MSSTYLES_ParseThemeIni` assumed
+  a theme ini. Vista+ styles now apply their typed `[SysMetrics]` (colors, fonts, sizes, flat menus) instead
+  (`ef3da6f1a2a`). This is the path desk.cpl takes, so the "live theme switching" result in section 2 above could not
+  have been obtained with the pushed code.
+- **System metric strings were copied truncated and unterminated** (`dwValueLen` is characters, not bytes), a heap
+  over-read when fonts were applied (`af0fedcfa68`).
+- **`test_msstyles_v4` left the synthetic style applied** after deleting its file. It runs first, so the rest of
+  `system.c` failed (199 failures on 64-bit, 202 on 32-bit, after the crash fix; before it the test process died
+  with no output). It now restores the previous theme (`51c870b85b7`).
+
+Results after the fixes: `uxtheme_test.exe system` 22,328 tests, 0 failures, 64- and 32-bit. A small manifest-enabled
+controls program (buttons, check/radio, group, edit, combo, scroll bar, progress, trackbar, tabs, list view
+header, list box, menu) built 32- and 64-bit, compared with Xvfb screenshots between the pre-series `uxtheme.dll`
+(`f5016cf`) and the new one: Wine's own style, ReactOS Lunar, XP Luna and classic are pixel-identical; the local
+Windows 10 21H2 and Windows 11 `aero.msstyles` now draw the controls and the window frame (Vista-style caption and
+buttons, opaque) instead of falling back to classic. Screenshots of the genuine styles stay local.
+
+Left for the upstream MR (not blocking our use): the file header of `msstyles_v4.c` names "Wine project authors"
+and a mixed SPDX line where Wine expects a named copyright holder and LGPL text (keep the libmsstyle MIT notice in
+full); `msstyles_v4_tables.h` is mostly unused generated tables (only the type enum and platform detection are
+used); the synthetic style is a binary blob in `tests/synthetic_msstyles.h` where upstream prefers a resource built
+from source; the filename display-name fallback and some expectations are Wine-only behaviour that a Windows test
+run would contradict; the series should be squashed with the three fixes before submission.
