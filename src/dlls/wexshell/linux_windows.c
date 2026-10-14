@@ -23,7 +23,9 @@
  * the host is an ordinary window: taskbar button, Alt+Tab, frame and caption from the visual style, z-order,
  * minimize and maximize.  The host passes what happens to it on to the program (size, close, states) and the
  * program's requests (title, icon, size, fullscreen, activation) come back as WEX_WM_EVENTs.
- * See docs/LINUX_WINDOWS.md. */
+ * The opt-in Wayland lab path instead binds a proxy through wexhost, consumes
+ * complete observations separately from requests, and leaves unsupported native
+ * decoration/window states unmanaged. See docs/LINUX_WINDOWS.md and WAYLAND_L2.md. */
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -57,6 +59,9 @@ struct linux_window
     UINT64 window;          /* the program's X window */
     HWND   host;
     BOOL   managed;         /* placed into the host */
+    BOOL   reconciling, state_pending;
+    DWORD  observed_states, requested_states;
+    UINT64 owner;
     BOOL   gone;            /* the program let it go: nothing to release */
     int    retries;
     DWORD  window_type;
@@ -74,6 +79,7 @@ struct linux_window
 static struct list windows = LIST_INIT( windows );
 static HWND events_hwnd;
 static HWINEVENTHOOK foreground_hook;
+static BOOL wayland_mode;
 #define WM_LINUX_FOREGROUND (WM_APP + 91)
 
 /* a program moving or sizing its window from its own title bar (WEX_WM_MOVERESIZE) */
@@ -131,6 +137,17 @@ static void client_geometry( const struct linux_window *lw, RECT *client, RECT *
 static void send_states( struct linux_window *lw, BOOL focused )
 {
     DWORD states = 0;
+
+    if (wayland_mode)
+    {
+        if (lw->reconciling) return;
+        states = IsIconic(lw->host) ? WEX_WM_STATE_MINIMIZED : 0;
+        if ((lw->state_pending ? lw->requested_states : lw->observed_states) == states) return;
+        lw->requested_states = states;
+        lw->state_pending = TRUE;
+        if (WexWmSetState(lw->window,states)) lw->state_pending = FALSE;
+        return;
+    }
 
     if (IsIconic( lw->host )) states |= WEX_WM_STATE_MINIMIZED;
     else if (lw->fullscreen) states |= WEX_WM_STATE_FULLSCREEN;
@@ -267,6 +284,7 @@ static void manage( struct linux_window *lw )
     if (!WexWmBindHost( lw->window, lw->host, &client, &screen ))
     {
         lw->managed = TRUE;
+        if (wayland_mode) return; /* observations are not state requests */
         for (state = WEX_WM_STATE_FULLSCREEN; state <= WEX_WM_STATE_ABOVE; state <<= 1)
             if (lw->initial_states & state) apply_state( lw, state, TRUE );
         send_states( lw, GetForegroundWindow() == lw->host );
@@ -278,8 +296,9 @@ static void manage( struct linux_window *lw )
         return;
     }
     ERR( "could not place window %I64x into %p, showing it without a frame\n", lw->window, lw->host );
+    if (wayland_mode) WexWmRelease(lw->window,NULL);
+    else WexWmManage( lw->window, 0, NULL, NULL );
     lw->gone = TRUE;
-    WexWmManage( lw->window, 0, NULL, NULL );
     DestroyWindow( lw->host );
 }
 
@@ -316,19 +335,25 @@ static void map_window( const WEX_WM_EVENT *event )
     RECT rect = event->rect, work;
     int x, y, width, height;
 
+    if (wayland_mode && ((event->flags & WEX_WM_NO_BORDER) ||
+        (event->states & (WEX_WM_STATE_MINIMIZED | WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))) return;
+
     if (find_window( event->window ) || !(lw = calloc( 1, sizeof(*lw) ))) return;
     lw->window = event->window;
     lw->window_type = event->window_type;
     lw->flags = event->flags;
     lw->initial_states = event->states;
+    lw->observed_states = event->states & WEX_WM_STATE_MINIMIZED;
+    lw->owner = event->owner;
     lw->min_size = event->min_size;
     lw->max_size = event->max_size;
     host_style( lw, owner != NULL, &style, &ex_style );
+    if (wayland_mode) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX); /* native resize negotiation is pending */
 
     AdjustWindowRectEx( &rect, style, FALSE, ex_style );
     width = rect.right - rect.left;
     height = rect.bottom - rect.top;
-    if (event->flags & WEX_WM_EXISTING)
+    if (wayland_mode || (event->flags & WEX_WM_EXISTING))
     {
         /* already on the screen: the program's content stays where it is */
         x = rect.left;
@@ -361,7 +386,7 @@ static void map_window( const WEX_WM_EVENT *event )
     if (x != CW_USEDEFAULT)
     {
         SetRect( &rect, x, y, x + width, y + height );
-        fit_dialog( lw, owner ? owner->host : NULL, style, ex_style, &rect );
+        if (!wayland_mode) fit_dialog( lw, owner ? owner->host : NULL, style, ex_style, &rect );
         x = rect.left;
         y = rect.top;
         width = rect.right - rect.left;
@@ -375,7 +400,8 @@ static void map_window( const WEX_WM_EVENT *event )
         ERR( "could not create a host for window %I64x\n", event->window );
         list_remove( &lw->entry );
         free( lw );
-        WexWmManage( event->window, 0, NULL, NULL );
+        if (wayland_mode) WexWmRelease(event->window,NULL);
+        else WexWmManage( event->window, 0, NULL, NULL );
         return;
     }
     TRACE( "window %I64x host %p\n", lw->window, lw->host );
@@ -383,11 +409,70 @@ static void map_window( const WEX_WM_EVENT *event )
      * (format -1, as for Vulkan) keeps the client area out of the host's surface, as for OpenGL windows.
      * SendMessageTimeout, because SendMessage within a thread calls the window procedure from user32 directly
      * and only win32u handles Wine's internal messages. */
-    SendMessageTimeoutW( lw->host, WM_WINE_SETPIXELFORMAT, (WPARAM)-1, TRUE, SMTO_NORMAL, 1000, NULL );
+    if (!wayland_mode)
+        SendMessageTimeoutW( lw->host, WM_WINE_SETPIXELFORMAT, (WPARAM)-1, TRUE, SMTO_NORMAL, 1000, NULL );
     update_title( lw );
     update_icon( lw );
-    ShowWindow( lw->host, (event->flags & WEX_WM_EXISTING) ? SW_SHOWNOACTIVATE : SW_SHOWNORMAL );
+    if (wayland_mode)
+    {
+        DWORD err = WexWmBindHost(lw->window,lw->host,NULL,NULL);
+        struct linux_window *child;
+        if (err != ERROR_SUCCESS && err != ERROR_IO_PENDING)
+        {
+            lw->gone = TRUE;
+            WexWmRelease(lw->window,NULL);
+            DestroyWindow(lw->host);
+            return;
+        }
+        LIST_FOR_EACH_ENTRY(child,&windows,struct linux_window,entry)
+            if (child != lw && child->owner == lw->window)
+                SetWindowLongPtrW(child->host,GWLP_HWNDPARENT,(LONG_PTR)lw->host);
+    }
+    ShowWindow( lw->host, (wayland_mode || (event->flags & WEX_WM_EXISTING)) ? SW_SHOWNOACTIVATE : SW_SHOWNORMAL );
     manage( lw );
+}
+
+static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *event)
+{
+    RECT frame=event->rect, client, screen, current;
+    struct linux_window *owner;
+    HWND wanted_owner;
+    DWORD style, ex_style;
+    BOOL minimized;
+    if ((event->flags & WEX_WM_NO_BORDER) ||
+        (event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))
+    {
+        /* Keep observing: a later supported policy/state can be adopted again. */
+        lw->gone = TRUE;
+        DestroyWindow(lw->host);
+        return;
+    }
+    lw->reconciling = TRUE;
+    lw->min_size=event->min_size; lw->max_size=event->max_size;
+    lw->owner=event->owner;
+    owner=event->owner ? find_window(event->owner) : NULL;
+    wanted_owner=owner ? owner->host : NULL;
+    if (GetWindow(lw->host,GW_OWNER) != wanted_owner)
+        SetWindowLongPtrW(lw->host,GWLP_HWNDPARENT,(LONG_PTR)wanted_owner);
+    minimized=!!(event->states & WEX_WM_STATE_MINIMIZED);
+    lw->observed_states=event->states & WEX_WM_STATE_MINIMIZED;
+    if (lw->state_pending && lw->requested_states == lw->observed_states) lw->state_pending=FALSE;
+    if (!lw->state_pending && !!IsIconic(lw->host) != minimized)
+        ShowWindow(lw->host,minimized ? SW_SHOWMINNOACTIVE : SW_SHOWNOACTIVATE);
+    if (!minimized && !(event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))
+    {
+        client_geometry(lw,&client,&screen);
+        if (!EqualRect(&screen,&event->rect))
+        {
+            style=GetWindowLongW(lw->host,GWL_STYLE); ex_style=GetWindowLongW(lw->host,GWL_EXSTYLE);
+            AdjustWindowRectEx(&frame,style,FALSE,ex_style);
+            GetWindowRect(lw->host,&current);
+            if (!EqualRect(&frame,&current))
+                SetWindowPos(lw->host,NULL,frame.left,frame.top,frame.right-frame.left,frame.bottom-frame.top,
+                             SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
+        }
+    }
+    lw->reconciling = FALSE;
 }
 
 static void configure_window( struct linux_window *lw, const WEX_WM_EVENT *event )
@@ -470,6 +555,12 @@ static void handle_event( const WEX_WM_EVENT *event )
     if (event->type == WEX_WM_MAP)
     {
         map_window( event );
+        return;
+    }
+    if (wayland_mode && event->type == WEX_WM_OBSERVED)
+    {
+        if ((lw=find_window(event->window))) observe_wayland_window(lw,event);
+        else map_window(event);
         return;
     }
     if (event->type == WEX_WM_KEY)
@@ -638,6 +729,7 @@ static LRESULT CALLBACK events_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         if (!foreground || foreground != GetForegroundWindow()) return 0;
         LIST_FOR_EACH_ENTRY( lw, &windows, struct linux_window, entry )
             if (lw->managed) send_states( lw, lw->host == foreground );
+        if (wayland_mode) return 0; /* driver activation already targets native content */
         WexWmFocus( (ULONG_PTR)GetPropW( foreground, whole_window_prop ) );
         return 0;
     }
@@ -666,10 +758,13 @@ void linux_windows_start(void)
     UINT64 desktop = (ULONG_PTR)GetPropW( GetDesktopWindow(), whole_window_prop );
     DWORD enabled = 1, size = sizeof(enabled), err;
     WNDCLASSW cls = { 0 };
+    WCHAR opt_in[2];
 
     RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"ManageLinuxWindows", RRF_RT_REG_DWORD,
                   NULL, &enabled, &size );
     if (!enabled) return;
+    wayland_mode = !desktop && GetEnvironmentVariableW(L"WEX_WAYLAND_NATIVE_WINDOWS",opt_in,ARRAY_SIZE(opt_in)) == 1 &&
+                   opt_in[0] == '1';
 
     cls.lpfnWndProc = host_proc;
     cls.hInstance = explorer_hInstance;
@@ -681,7 +776,8 @@ void linux_windows_start(void)
     RegisterClassW( &cls );
     events_hwnd = CreateWindowExW( 0, events_class, NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, 0, explorer_hInstance, NULL );
 
-    if ((err = WexWmStart( desktop, wm_callback, NULL )))
+    if ((err = wayland_mode ? WexWmStartEx(WEX_WM_BACKEND_WAYLAND,0,wm_callback,NULL) :
+                             WexWmStart( desktop, wm_callback, NULL )))
     {
         WARN( "not managing Linux windows, error %lu\n", err );
         DestroyWindow( events_hwnd );
