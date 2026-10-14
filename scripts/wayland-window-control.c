@@ -38,7 +38,31 @@ int main(int argc, char **argv)
     if (argc > 1)
     {
         printf("ACTION %s hwnd=%p style=%08lx\n",argv[1],hwnd,GetWindowLongW(hwnd,GWL_STYLE));
-        if (!strcmp(argv[1],"composition-cycles"))
+        if (!strcmp(argv[1],"zorder"))
+        {
+            for (hwnd=GetTopWindow(NULL);hwnd;hwnd=GetWindow(hwnd,GW_HWNDNEXT))
+            {
+                if (!IsWindowVisible(hwnd)) continue;
+                GetWindowTextW(hwnd,title,128);
+                printf("Z %p ex=%08lx role=%p atom=%p %ls\n",hwnd,GetWindowLongW(hwnd,GWL_EXSTYLE),
+                    GetPropW(hwnd,L"__wine_wayland_role"),GetPropW(hwnd,L"__wine_wayland_window_handle"),title);
+            }
+            return 0;
+        }
+        else if (!strcmp(argv[1],"composition-rects"))
+        {
+            static const WCHAR *names[] = {L"Composition probe controls", L"Composition alpha ramp",
+                L"Composition uniform alpha", L"Composition color key", L"Class shadow popup"};
+            unsigned i;
+            for (i=0;i<5;i++)
+            {
+                hwnd=FindWindowW(NULL,names[i]);
+                if (!hwnd || !GetWindowRect(hwnd,&rect)) return 2;
+                printf("RECT %u %ld %ld %ld %ld\n",i,rect.left,rect.top,rect.right,rect.bottom);
+            }
+            return 0;
+        }
+        else if (!strcmp(argv[1],"composition-cycles"))
         {
             hwnd = FindWindowW(L"WineExplorerCompositionProbe",L"Composition probe controls");
             if (!hwnd) return 2;

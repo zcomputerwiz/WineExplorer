@@ -21,6 +21,9 @@ Keep every v1 request unchanged. Advertise manager/window version 2 and add:
   Resolve the token to a live private window, then reuse existing same-layer
   stacking code. Unknown/stale handles are harmless no-ops; cross-layer requests
   cannot violate desktop/normal/topmost/shell bands. No imported Wayland objects.
+- Window request restore(), which clears minimization without activating or
+  raising the view. Wine can restore a background window while foreground-lock
+  rules deny activation; using activate() for that case would steal focus.
 
 The existing privileged-socket gate applies. Normal-socket clients cannot obtain
 these controls. Do not accept client-chosen names or expose raw pointer values.

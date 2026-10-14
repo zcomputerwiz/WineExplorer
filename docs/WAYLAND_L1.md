@@ -151,7 +151,8 @@ VM clone. No Gemini WSL or shipping desktop changes.
   (elapsed 921 ms, styles/attributes restored); shadow pixels were not asserted.
 - Version 2 compositor builds; all existing v1 clients pass 25/25 checks.
   Three independent version 2 clients now exercise relative ordering, self,
-  stale/unknown handles and cross-layer no-ops. These new checks are running.
+  stale/unknown handles and cross-layer no-ops. All 26 checks pass, including
+  restore without keyboard focus. Compositor candidate heads ebdbf66/192ab62.
 
 Additional command failures/corrections:
 
@@ -173,3 +174,59 @@ Additional command failures/corrections:
 - cat full.status returned missing while the full build was still running; it
   now contains FULL_BUILD_PASSED. Only the opt-in nested lab shell remains running
   on Xvfb :20; shipping VM and build VM's existing X11 desktop are unchanged.
+
+## Later fixes and host restart
+
+- GitHub push from the guest failed with no Username credential. Export its
+  commits in a bundle and push from the host. The first fetch into an empty
+  host bare cache failed on missing parent 737325aa: the guest clone is shallow.
+  Fetch the public wexcomp base history first, then import and push the bundle.
+- A new composition comparator initially expected pure blue, but compose-probe
+  paints RGB(0,80,255). Correct that fixture color; rectangles and alpha regions
+  now match X11. A separate comparison hung bootstrapping an X11 prefix because
+  its wrapper omitted WINELOADER; export the build loader explicitly, stop that
+  isolated prefix/server/Xvfb :24, and repeat under a new script filename.
+- Reading host restored.txt/maximized.txt failed because those guest reports
+  had not been copied; read the guest checks directory instead.
+- Extra click/pixel checks exposed intermittent blank clients and stale focus.
+  Queued WM_WAYLAND_SET_FOREGROUND acknowledgements echoed Wine's own private
+  activation requests, repeatedly alternating old windows. Candidate 89735ec1ef
+  ignores those acknowledgements only when the private manager is present.
+- Initial GDB PID selection matched the pre-exec loader command and missed the
+  renamed PE process; use its actual executable path. GDB then reported no
+  shared libraries due to Wine's preloader. Load symbols at their /proc/maps
+  bases; native backtraces show the repeated foreground/nonclient operations.
+  GDB's libthread_db auto-load warning was left alone; no global debug policy changed.
+- Background ShowWindow restore clears Win32 minimization but foreground-lock
+  rules can deny SetForegroundWindow from the controller. Version 2 now has
+  restore() without activation, tested with native clients. Pending activation
+  also flushes against an existing committed buffer after restore, without
+  depending on a new paint. Additional click/hit-test ordering checks continue.
+- Desktop activation bypassed WM_WINDOWPOSCHANGING using SWP_NOSENDCHANGING,
+  leaving Wine hit testing inconsistent with the compositor's bottom band.
+  The shell now reasserts HWND_BOTTOM in WM_WINDOWPOSCHANGED. Experimental
+  project checkpoint ab4a1691 preserves this alongside the role changes.
+- A three-second startup delay found no probe/Notepad in a later run. Poll all
+  four window titles before issuing clicks. Failed captures/assertions were not
+  counted as acceptance. A covered-window click now also checks that compositor
+  activation and Wine's logical hit-test order remain consistent.
+- On the dev VM, transferring the Linux probe through Windows lost its execute
+  bit: Permission denied. chmod +x fixes it. The 800x600-native fixture was also
+  wrongly run at 1024x768; its hard-coded 800x570 limits correctly reject that
+  capture. Separate the native 800x600 run from 1024x768 focus/tray checks.
+- The first D1 dev check could not find its desktop after three seconds. Poll
+  visible D1Cycles/Wine desktop titles. Re-running wineboot -u on an already
+  initialized X11 prefix also hit BadWindow; bootstrap only missing system.reg.
+  Dev isolated X11/native checks, D1 five cycles and D2 capture then pass.
+- A staged public runtime was created from this lab build (not ~/inst/build)
+  using DESTDIR under /srv/protonexplorer/wex-wayland-l1/staging, then unpacked
+  into ~/wex-wayland-l1/runtime on the dev VM. Its installed /usr/local runtime,
+  real prefix and visible desktop were never replaced or restarted.
+- The Windows host restarted. Both dev/build VMs are running again; old nested
+  test sessions stopped. Uncommitted driver/probe edits and saved screenshots
+  survived. Main advanced concurrently to a1210c5d, with Wine f5016cf and the
+  mandatory WoW64-build rule. The next build must incorporate that theme fix and
+  use --enable-archs=i386,x86_64; previous win64-only evidence is historical.
+- The restart-time rg docs/CODEX_HANDOFF* read failed because PowerShell does not
+  expand positional globs; use rg docs -g 'CODEX_HANDOFF*'. Guest i686 MinGW was
+  absent; install gcc-mingw-w64-i686 for the required WoW64 build.
