@@ -23,6 +23,11 @@
 #define _WIN32_IE 0x0501
 #include <windows.h>
 #include <commctrl.h>
+#include <uxtheme.h>
+
+#ifndef PSH_WIZARD97
+#define PSH_WIZARD97 PSH_WIZARD97_NEW
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +36,7 @@
 #include <time.h>
 
 #include "wexhost.h"
+#include <wextimezone.h>
 #include "resource.h"
 
 typedef struct {
@@ -171,7 +177,11 @@ static void CheckUnattended(void)
         WideCharToMultiByte(CP_UTF8, 0, buf, -1, g_ctx.admin_pass, sizeof(g_ctx.admin_pass), NULL, NULL);
     }
     if (GetPrivateProfileStringW(L"GuiUnattended", L"TimeZone", L"", buf, 256, wpath)) {
-        WideCharToMultiByte(CP_UTF8, 0, buf, -1, g_ctx.timezone, sizeof(g_ctx.timezone), NULL, NULL);
+        char raw[128];
+        WideCharToMultiByte(CP_UTF8, 0, buf, -1, raw, sizeof(raw), NULL, NULL);
+        if (wex_resolve_timezone(raw, g_ctx.timezone, sizeof(g_ctx.timezone), NULL, 0) == NULL) {
+            snprintf(g_ctx.timezone, sizeof(g_ctx.timezone), "%s", raw);
+        }
     }
 
     /* [Identification] */
@@ -310,7 +320,7 @@ static void PaintBillboard(HWND hwnd, HDC hdc)
 
     y = 90;
     for (i = 0; i < 5; ++i) {
-        if (i == g_ctx.install_step + 1) {
+        if (i == g_ctx.install_step) {
             SetTextColor(hdc, RGB(100, 255, 100));
             TextOutA(hdc, 15, y, "->", 2);
             SetTextColor(hdc, RGB(255, 255, 255));
@@ -395,10 +405,20 @@ static INT_PTR CALLBACK UserInfoPageProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
             SetDlgItemTextA(hwnd, IDC_OWNER_NAME, g_ctx.owner);
             SetDlgItemTextA(hwnd, IDC_ORG_NAME, g_ctx.org);
             return TRUE;
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDC_OWNER_NAME && HIWORD(wParam) == EN_CHANGE) {
+                BOOL has_name = (GetWindowTextLengthA(GetDlgItem(hwnd, IDC_OWNER_NAME)) > 0);
+                SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0,
+                             (LPARAM)(has_name ? (PSWIZB_BACK | PSWIZB_NEXT) : PSWIZB_BACK));
+                return TRUE;
+            }
+            break;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
-                SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
+                BOOL has_name = (GetWindowTextLengthA(GetDlgItem(hwnd, IDC_OWNER_NAME)) > 0);
+                SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0,
+                             (LPARAM)(has_name ? (PSWIZB_BACK | PSWIZB_NEXT) : PSWIZB_BACK));
                 return TRUE;
             } else if (pnmh->code == PSN_WIZNEXT) {
                 GetDlgItemTextA(hwnd, IDC_OWNER_NAME, g_ctx.owner, sizeof(g_ctx.owner));
@@ -463,26 +483,103 @@ static INT_PTR CALLBACK DateTimePageProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
         case WM_INITDIALOG: {
             int i;
             HWND hCombo = GetDlgItem(hwnd, IDC_TZ_COMBO);
-            const char *tzs[] = {
-                "Etc/UTC", "America/New_York", "America/Chicago", "America/Denver",
-                "America/Los_Angeles", "Europe/London", "Europe/Paris", "Europe/Berlin",
-                "Asia/Tokyo", "Asia/Shanghai", NULL
-            };
-            for (i = 0; tzs[i]; ++i) {
-                SendMessageA(hCombo, CB_ADDSTRING, 0, (LPARAM)tzs[i]);
+            HWND hDate = GetDlgItem(hwnd, IDC_DATEPICKER);
+            HWND hTime = GetDlgItem(hwnd, IDC_TIMEPICKER);
+            SYSTEMTIME st;
+            int sel = -1;
+            const WCHAR *matched_key = NULL;
+
+            GetLocalTime(&st);
+            if (hDate) SendMessageW(hDate, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&st);
+            if (hTime) SendMessageW(hTime, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&st);
+
+            SendMessageW(hCombo, CB_RESETCONTENT, 0, 0);
+            for (i = 0; i < ARRAY_SIZE(g_xp_timezones); ++i) {
+                int idx = (int)SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)g_xp_timezones[i].display);
+                SendMessageW(hCombo, CB_SETITEMDATA, idx, (LPARAM)i);
             }
-            SendMessageA(hCombo, CB_SETCURSEL, 0, 0);
+
+            if (g_ctx.timezone[0]) {
+                matched_key = wex_key_for_iana(g_ctx.timezone);
+            }
+            if (!matched_key) {
+                DYNAMIC_TIME_ZONE_INFORMATION dtzi;
+                if (GetDynamicTimeZoneInformation(&dtzi) != TIME_ZONE_ID_INVALID && dtzi.TimeZoneKeyName[0]) {
+                    matched_key = dtzi.TimeZoneKeyName;
+                }
+            }
+
+            if (matched_key) {
+                for (i = 0; i < ARRAY_SIZE(g_xp_timezones); ++i) {
+                    if (!_wcsicmp(g_xp_timezones[i].key, matched_key) ||
+                        !_wcsicmp(g_xp_timezones[i].std, matched_key)) {
+                        sel = i;
+                        break;
+                    }
+                }
+            }
+
+            if (sel < 0) {
+                for (i = 0; i < ARRAY_SIZE(g_xp_timezones); ++i) {
+                    if (!_wcsicmp(g_xp_timezones[i].key, L"GMT Standard Time")) {
+                        sel = i;
+                        break;
+                    }
+                }
+            }
+            if (sel < 0) sel = 0;
+
+            SendMessageW(hCombo, CB_SETCURSEL, sel, 0);
+
+            CheckDlgButton(hwnd, IDC_AUTODAYLIGHT,
+                           g_xp_timezones[sel].has_dst ? BST_CHECKED : BST_UNCHECKED);
+            EnableWindow(GetDlgItem(hwnd, IDC_AUTODAYLIGHT), FALSE);
             return TRUE;
         }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDC_TZ_COMBO && HIWORD(wParam) == CBN_SELCHANGE) {
+                int sel = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETCURSEL, 0, 0);
+                if (sel >= 0 && sel < ARRAY_SIZE(g_xp_timezones)) {
+                    int tz_idx = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETITEMDATA, sel, 0);
+                    if (tz_idx >= 0 && tz_idx < ARRAY_SIZE(g_xp_timezones)) {
+                        CheckDlgButton(hwnd, IDC_AUTODAYLIGHT,
+                                       g_xp_timezones[tz_idx].has_dst ? BST_CHECKED : BST_UNCHECKED);
+                    }
+                }
+                return TRUE;
+            }
+            break;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
                 SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
                 return TRUE;
             } else if (pnmh->code == PSN_WIZNEXT) {
-                char tz[128];
-                GetDlgItemTextA(hwnd, IDC_TZ_COMBO, tz, sizeof(tz));
-                if (tz[0]) snprintf(g_ctx.timezone, sizeof(g_ctx.timezone), "%s", tz);
+                int sel = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETCURSEL, 0, 0);
+                if (sel >= 0 && sel < ARRAY_SIZE(g_xp_timezones)) {
+                    int tz_idx = (int)SendDlgItemMessageW(hwnd, IDC_TZ_COMBO, CB_GETITEMDATA, sel, 0);
+                    if (tz_idx >= 0 && tz_idx < ARRAY_SIZE(g_xp_timezones)) {
+                        const char *iana = wex_iana_for_key(g_xp_timezones[tz_idx].key);
+                        if (iana) {
+                            snprintf(g_ctx.timezone, sizeof(g_ctx.timezone), "%s", iana);
+                        }
+                    }
+                }
+                {
+                    HWND hDate = GetDlgItem(hwnd, IDC_DATEPICKER);
+                    HWND hTime = GetDlgItem(hwnd, IDC_TIMEPICKER);
+                    SYSTEMTIME stDate, stTime, stCombined;
+                    if (hDate && hTime &&
+                        SendMessageW(hDate, DTM_GETSYSTEMTIME, 0, (LPARAM)&stDate) == GDT_VALID &&
+                        SendMessageW(hTime, DTM_GETSYSTEMTIME, 0, (LPARAM)&stTime) == GDT_VALID) {
+                        stCombined = stDate;
+                        stCombined.wHour = stTime.wHour;
+                        stCombined.wMinute = stTime.wMinute;
+                        stCombined.wSecond = stTime.wSecond;
+                        stCombined.wMilliseconds = 0;
+                        SetLocalTime(&stCombined);
+                    }
+                }
             }
             break;
         }
@@ -540,6 +637,8 @@ static int CALLBACK PropSheetCallback(HWND hwndDlg, UINT uMsg, LPARAM lParam)
         if (screen_w < 800) screen_w = 1024;
         if (screen_h < 600) screen_h = 768;
 
+        SetWindowTheme(hwndDlg, L"", L"");
+
         GetWindowRect(hwndDlg, &rc);
         w = rc.right - rc.left;
         h = rc.bottom - rc.top;
@@ -565,26 +664,28 @@ static void ShowSetupWizard(HWND hParent)
 
     memset(psp, 0, sizeof(psp));
 
-    #define ADD_PAGE(id, proc) do { \
+    #define ADD_PAGE(id, proc, title_id, subtitle_id) do { \
         psp[page_count].dwSize = sizeof(PROPSHEETPAGEA); \
-        psp[page_count].dwFlags = PSP_USETITLE; \
+        psp[page_count].dwFlags = PSP_USETITLE | PSP_USEHEADERTITLE | PSP_USEHEADERSUBTITLE; \
         psp[page_count].hInstance = g_hInstance; \
         psp[page_count].pszTemplate = MAKEINTRESOURCEA(id); \
         psp[page_count].pfnDlgProc = proc; \
         psp[page_count].pszTitle = "Setup"; \
+        psp[page_count].pszHeaderTitle = MAKEINTRESOURCEA(title_id); \
+        psp[page_count].pszHeaderSubTitle = MAKEINTRESOURCEA(subtitle_id); \
         page_count++; \
     } while(0)
 
-    ADD_PAGE(IDD_PAGE_REGIONAL, RegionalPageProc);
-    ADD_PAGE(IDD_PAGE_USERINFO, UserInfoPageProc);
-    ADD_PAGE(IDD_PAGE_COMPUTER, ComputerPageProc);
-    ADD_PAGE(IDD_PAGE_DATETIME, DateTimePageProc);
-    ADD_PAGE(IDD_PAGE_NETWORK,  NetworkPageProc);
-    ADD_PAGE(IDD_PAGE_WORKGRP,  WorkgrpPageProc);
+    ADD_PAGE(IDD_PAGE_REGIONAL, RegionalPageProc, IDS_TITLE_REGIONAL, IDS_SUBTITLE_REGIONAL);
+    ADD_PAGE(IDD_PAGE_USERINFO, UserInfoPageProc, IDS_TITLE_USERINFO, IDS_SUBTITLE_USERINFO);
+    ADD_PAGE(IDD_PAGE_COMPUTER, ComputerPageProc, IDS_TITLE_COMPUTER, IDS_SUBTITLE_COMPUTER);
+    ADD_PAGE(IDD_PAGE_DATETIME, DateTimePageProc, IDS_TITLE_DATETIME, IDS_SUBTITLE_DATETIME);
+    ADD_PAGE(IDD_PAGE_NETWORK,  NetworkPageProc,  IDS_TITLE_NETWORK,  IDS_SUBTITLE_NETWORK);
+    ADD_PAGE(IDD_PAGE_WORKGRP,  WorkgrpPageProc,  IDS_TITLE_WORKGRP,  IDS_SUBTITLE_WORKGRP);
 
     memset(&psh, 0, sizeof(psh));
     psh.dwSize = sizeof(PROPSHEETHEADERA);
-    psh.dwFlags = PSH_PROPSHEETPAGE | PSH_WIZARD | PSH_USECALLBACK;
+    psh.dwFlags = PSH_PROPSHEETPAGE | PSH_WIZARD97 | PSH_HEADER | PSH_USECALLBACK;
     psh.pfnCallback = PropSheetCallback;
     psh.hwndParent = hParent;
     psh.hInstance = g_hInstance;
@@ -602,8 +703,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     char hw_log[128];
     FILE *fstage;
 
-    /* Step 0: Installing Devices */
-    g_ctx.install_step = 0;
+    /* Installing Devices (XP shows "Installing Windows" through GUI-mode setup) */
+    g_ctx.install_step = 3;
     g_ctx.minutes_remaining = 32;
     InvalidateRect(hwnd, NULL, TRUE);
     UpdateWindow(hwnd);
@@ -614,8 +715,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     LogSetup(hw_log);
     PumpEvents(2000);
 
-    /* Step 1: Installing Network */
-    g_ctx.install_step = 1;
+    /* Installing Network */
+    g_ctx.install_step = 3;
     g_ctx.minutes_remaining = 25;
     g_ctx.panel_index = (g_ctx.panel_index + 1) % g_panelCount;
     InvalidateRect(hwnd, NULL, TRUE);
@@ -624,8 +725,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     WexNetEnable();
     PumpEvents(2000);
 
-    /* Step 2: Copying and configuring components */
-    g_ctx.install_step = 2;
+    /* Step 3: Installing Debian & Wine / Copying and configuring components */
+    g_ctx.install_step = 3;
     g_ctx.minutes_remaining = 10;
     g_ctx.panel_index = (g_ctx.panel_index + 1) % g_panelCount;
     InvalidateRect(hwnd, NULL, TRUE);
@@ -634,8 +735,8 @@ static void RunAutomaticSetupSteps(HWND hwnd)
     SaveSettings();
     PumpEvents(2000);
 
-    /* Step 3: Finalizing installation */
-    g_ctx.install_step = 3;
+    /* Step 4: Finalizing installation */
+    g_ctx.install_step = 4;
     g_ctx.minutes_remaining = 1;
     g_ctx.panel_index = (g_ctx.panel_index + 1) % g_panelCount;
     InvalidateRect(hwnd, NULL, TRUE);
@@ -664,10 +765,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     (void)nCmdShow;
 
     g_hInstance = hInstance;
-    InitCommonControls();
+    SetThemeAppProperties(0);
+    {
+        INITCOMMONCONTROLSEX iccex;
+        iccex.dwSize = sizeof(iccex);
+        iccex.dwICC = ICC_DATE_CLASSES | ICC_UPDOWN_CLASS | ICC_WIN95_CLASSES;
+        InitCommonControlsEx(&iccex);
+    }
 
     memset(&g_ctx, 0, sizeof(g_ctx));
-    snprintf(g_ctx.owner, sizeof(g_ctx.owner), "Wine User");
+    g_ctx.owner[0] = '\0';
     snprintf(g_ctx.org, sizeof(g_ctx.org), "Home");
     snprintf(g_ctx.comp_name, sizeof(g_ctx.comp_name), "WEX-PC");
     snprintf(g_ctx.workgroup, sizeof(g_ctx.workgroup), "WORKGROUP");
@@ -676,7 +783,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     snprintf(g_ctx.layout, sizeof(g_ctx.layout), "us");
     g_ctx.typical_net = true;
     g_ctx.minutes_remaining = 33;
-    g_ctx.install_step = 0;
+    g_ctx.install_step = 3;   /* the pages are collected under "Installing Debian & Wine", as on XP */
 
     LogSetup("=== WineExplorer GUI-mode Setup (setup.exe) Started ===");
     CheckUnattended();

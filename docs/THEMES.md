@@ -38,6 +38,9 @@ own). Switching themes reloads them (`WM_THEMECHANGED`).
 ## Not covered yet
 - The Start panel pictures (`Luna\Shell\<scheme>\shellstyle.dll`) come only with a locally built package.
 - Accelerated compositing and native Wayland frame integration are not implemented.
+- Vista–11 `.msstyles` (binary property stream, PNG images, atlases): planned as a native uxtheme reader,
+  `docs/UXTHEME_V4_WORKORDER.md`. Start menu skins in Open-Shell's format and Windows 7/11 shell layouts are
+  separate plans.
 
 ## Rounded frames and Start menu icons
 

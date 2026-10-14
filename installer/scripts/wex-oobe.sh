@@ -71,6 +71,26 @@ if [ -n "$X_PID" ]; then
     kill "$X_PID" 2>/dev/null || true
 fi
 
+# Apply automatic updates choice
+UPDATES_CHOICE="on"
+if [ -f /etc/wineexplorer/setup/automatic-updates ]; then
+    UPDATES_CHOICE=$(tr -d ' \r\n' < /etc/wineexplorer/setup/automatic-updates | tr '[:upper:]' '[:lower:]')
+fi
+mkdir -p /etc/apt/apt.conf.d
+if [ "$UPDATES_CHOICE" = "off" ] || [ "$UPDATES_CHOICE" = "no" ] || [ "$UPDATES_CHOICE" = "0" ]; then
+    echo "Disabling automatic updates (/etc/apt/apt.conf.d/20auto-upgrades)..."
+    cat <<'EOF' > /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Unattended-Upgrade "0";
+EOF
+else
+    echo "Enabling automatic updates (/etc/apt/apt.conf.d/20auto-upgrades)..."
+    cat <<'EOF' > /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+fi
+
 # Clean up temporary setup user and files
 pkill -9 -u wexsetup 2>/dev/null || true
 userdel -r -f wexsetup 2>/dev/null || true

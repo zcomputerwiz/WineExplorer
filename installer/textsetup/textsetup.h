@@ -91,6 +91,12 @@ typedef struct {
     bool unattended;
     char unattend_path[256];
     bool repartition;
+    int target_disk_idx;
+    size_t target_partno;
+    uint64_t target_size_mb;
+    uint64_t target_disk_size_mb;
+    char target_disk_bus[32];
+    bool target_disk_is_gpt;
 } SetupState;
 
 /* Screen helper routines */

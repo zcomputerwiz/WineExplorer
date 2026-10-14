@@ -71,10 +71,12 @@ STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Date and Time Settings"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    LTEXT "Set the correct date and time for your computer.", IDC_STATIC, 15, 7, 287, 12
-    LTEXT "Time &zone:", IDC_STATIC, 15, 26, 60, 8
-    COMBOBOX IDC_TZ_COMBO, 15, 38, 287, 120, CBS_DROPDOWNLIST | WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL
-    AUTOCHECKBOX "Automatically adjust clock for &daylight saving changes", IDC_AUTODAYLIGHT, 15, 65, 250, 10
+    GROUPBOX        "Date & &Time", IDC_STATIC, 15, 7, 287, 43
+    CONTROL         "", IDC_DATEPICKER, "SysDateTimePick32", DTS_SHORTDATEFORMAT | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 25, 24, 130, 14
+    CONTROL         "", IDC_TIMEPICKER, "SysDateTimePick32", DTS_TIMEFORMAT | WS_CHILD | WS_VISIBLE | WS_TABSTOP, 170, 24, 120, 14
+    GROUPBOX        "Time &Zone", IDC_STATIC, 15, 56, 287, 72
+    COMBOBOX        IDC_TZ_COMBO, 25, 72, 267, 120, CBS_DROPDOWNLIST | WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL
+    AUTOCHECKBOX    "Automatically adjust clock for &daylight saving changes", IDC_AUTODAYLIGHT, 25, 104, 260, 10
 END
 
 IDD_PAGE_NETWORK DIALOGEX 0, 0, 317, 143

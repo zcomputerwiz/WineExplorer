@@ -33,7 +33,7 @@ cd ~/src
 bash scripts/assemble.sh
 mkdir -p build/wine64
 cd build/wine64
-../../wine/configure --enable-win64 --prefix="$PWD/install"
+../../wine/configure --enable-archs=i386,x86_64 --prefix="$PWD/install"   # WoW64: 32-bit programs are required
 make -j8
 cd ../..
 sudo -n env BUILD_DIR="$PWD/build/wine64" \
@@ -85,11 +85,13 @@ against unchanged disk contents, and validate a complete zero-input install
 separately.
 
 LightDM/custom greeter integration (W7) passed fresh installed-system acceptance.
-Known gaps: Automatic Updates is recorded but not applied, timezone names are Linux
-names, GUI pages need XP-style header/backdrop work, formatting labels expose
-device paths, tested images still have a blank Recycle Bin icon (concurrent source
-fix `a417c3be` needs the next rebuild), and installed GRUB
-still uses Debian's appearance (a missing unicode.pf2 warning was also observed).
+The installer polish work completed the visual parity and integration items:
+- GUI setup uses Wizard97 headers, classic styling without themes, sequential billboard step indicator advancement, and an initially empty Owner Name field.
+- Date and Time settings use a shared XP time zone list (`wextimezone.h`) with full Unicode CLDR Windows<->IANA mapping, date and time pickers, and DST indicator.
+- Automatic Updates choice from OOBE is written to `/etc/wineexplorer/setup/automatic-updates` and applied to `/etc/apt/apt.conf.d/20auto-upgrades` via `unattended-upgrades`; `AutomaticUpdates=Yes/No` is supported in answer files.
+- Text setup partition and format screens use Windows XP wording (`C: Partition1 ... on Disk 0 at Id 0 on bus 0 ... [MBR]`) with disk bus adaptation, keeping Linux device paths in logs only; the reboot countdown bar is red/brown without percentage text.
+- Installed GRUB boots straight through (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=0`, `GRUB_TERMINAL=console`, Debian theme removed).
+- The desktop template properly displays the Recycle Bin icon on first logon.
 
 ---
 
@@ -184,9 +186,13 @@ An unattended response file (`unattend.sif`) can automate the complete installat
 
 ```ini
 ; Unattended installation answer file for WineExplorer
+[Data]
+AutomaticUpdates = Yes
+
 [Unattended]
 UnattendMode = FullUnattended
 OemSkipEula = Yes
+AutomaticUpdates = Yes
 TargetDisk = /dev/sda
 Repartition = Yes
 
@@ -210,6 +216,19 @@ User1Admin = 1
 
 - Build with `--unattended --clean`: `sudo ./installer/build-iso.sh --unattended --clean` (sets GRUB default entry to `Install (unattended)`).
 - Boots directly into Stage 1, partitions `TargetDisk`, formats, copies files, reboots into Stage 2 (applies hostname, timezone, locale), transitions to Stage 3 (provisions `wineuser` as administrator), configures LightDM autologin, cleans up temporary setup state, and launches into the WineExplorer desktop session without a single keystroke.
+
+### Running Automated Install Tests in WSL2 (`wexbuild`)
+From the repository root inside `wexbuild`:
+```bash
+# 1. Package Wine into the live-build staging area
+./installer/package-wine.sh
+
+# 2. Build the live hybrid ISO
+WORK_DIR=/root/iso-work/work OUT_ISO=/root/iso-work/wineexplorer.iso ./installer/build-iso.sh --clean
+
+# 3. Run interactive end-to-end installation test in QEMU/KVM
+./installer/tests/install-interactive.sh /root/iso-work/wineexplorer.iso /root/install-test-password.txt wex-test-vm
+```
 
 ---
 
