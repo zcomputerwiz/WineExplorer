@@ -16,6 +16,8 @@ exec 9>"$root/check.lock"
 flock -n 9
 x86_64-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -idirafter "$source_root/wine/include" -luser32 -o "$root/checks/association64.exe"
 i686-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -idirafter "$source_root/wine/include" -luser32 -o "$root/checks/association32.exe"
+x86_64-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -DWEX_TEST_HOSTING -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/hosting64.exe"
+i686-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -DWEX_TEST_HOSTING -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/hosting32.exe"
 x86_64-w64-mingw32-gcc "$scripts/wayland-stacking-probe.c" -lgdi32 -o "$root/checks/association-stack64.exe"
 i686-w64-mingw32-gcc "$scripts/wayland-stacking-probe.c" -lgdi32 -o "$root/checks/association-stack32.exe"
 timeout 100 xvfb-run -a bash -eu -c '
@@ -25,4 +27,4 @@ timeout 100 xvfb-run -a bash -eu -c '
     "$WINESERVER" -k
     "$WINESERVER" -w
 ' 9>&-
-WEX_ASSOCIATION_STACK=1 dbus-run-session -- python3 "$scripts/check-wayland-association.py" 9>&-
+WEX_ASSOCIATION_STACK=${WEX_ASSOCIATION_STACK:-1} dbus-run-session -- python3 "$scripts/check-wayland-association.py" 9>&-

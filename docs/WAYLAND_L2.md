@@ -7,8 +7,8 @@ Scope and agreed decisions: WAYLAND_L2_WORKORDER.md. Project source is on master
 Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains
 ~/wexcomp-build, used only for isolated nested tests. No default/session deployment.
-Current L2 topics: Wine 925b10c (host worktree build/wayland-l2/wine), compositor
-7c7143d4 (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
+Current L2 topics: Wine 786643b (host worktree build/wayland-l2/wine), compositor
+fe3abb94 (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
 detached at its production f0108dc gitlink; neither production pin was advanced.
 
 ## Planning inspection corrections
@@ -392,3 +392,99 @@ against v6, with the bounded readiness retry enabled. Log:
 checks/association.jbmccbjp. No new test failures; the readiness retry itself was
 not triggered on this successful run. Owned test compositors/Wine server were
 cleaned up, and production sessions/pins remain unchanged.
+
+## Opt-in Wine hosting and safe reconfiguration
+
+Private protocol v7 adds numbered configure_foreign and uncommit_foreign requests
+with configured_foreign completion replies. Unsolicited detached notifications
+therefore cannot be mistaken for completion of a pending configure. Uncommit
+restores native decorations and hides the old proxy, preserving the reservation
+for a later matching commit. The compositor also detaches on a native commit
+whose client size or decoration policy no longer matches the group. The fixed
+rectangle path now fails safely during changes; full interactive native resize
+negotiation, fullscreen and workspace handling are still pending.
+Compositor checkpoint is fe3abb94; Wine checkpoint is 786643b, both pushed on
+their codex/wayland-l2 branches. Production gitlinks/branches are unchanged.
+
+Wine binds up to v7, preserving its existing fallback for older compositors.
+WEX_WAYLAND_HOST_PROP explicitly enables hosting only after a prepared
+association. Reservation alone never hosts. The driver derives the client cutout
+from the same captured window rectangles and surface scale as its frame, and
+serializes numbered group requests. A rectangle change first uncommits the old
+group. A mismatch reports NOT_READY, leaving the native application independently
+usable; matching geometry can reattach. Removing the opt-in detaches without
+discarding the reservation. No reconfiguration retry loop runs after failure:
+the bridge can notify a retry using SetWindowPos with SWP_FRAMECHANGED.
+
+The caller must exclude native client content from Win32 hit testing before
+enabling the property. The synthetic PE probe supplies a ring window region and
+checks WindowFromPoint cannot select the proxy through its client hole. This
+contract is not yet implemented by wexhost BindHost or Explorer. AUTO adoption
+remains disabled, and no native hosting capability is advertised by wexhost.
+
+Group and physical-focus status are published as scalar HWND properties. Wine
+consumes focus acknowledgements only for the current activation epoch; UI-thread
+messages preserve the logical foreground proxy while physical keyboard focus
+belongs to its native client or temporary frame menu. Native focus can activate
+its logical proxy, subject to WS_EX_NOACTIVATE. One-shot frame/native restoration
+commands are consumed only for the current foreground proxy. Existing L1
+keyboard-leave messages cannot clear a proxy whose group retains native/frame
+focus. Group loss and external focus deactivate normally. Driver surface
+destruction removes its published reservation/group/focus status.
+
+Maintained reproduction uses scripts/check-wayland-association.sh. Set
+WEX_ASSOCIATION_HOSTING=1 for the new SSD hosting probes; omit it for reservation
+only. Both build 32/64 PE binaries and use an isolated prefix, private D-Bus and
+headless compositor. Mixed-process stacking remains enabled by default; set
+WEX_ASSOCIATION_STACK=0 for focused reruns after its assertions already passed.
+The native publisher's --publish-hosting mode requests server decorations;
+the original --publish-association mode retains its previous behavior.
+
+Corrections during this checkpoint:
+
+- Changing only xdg window geometry while keeping the old buffer extent is
+  ignored by labwc's existing Qt compatibility rule. The resize probe now
+  attaches an actual resized buffer and restores the original afterward.
+- The native resize assertion initially still saw the preceding group state:
+  scene_pump drained the bridge before sending native requests. Drain the
+  bridge again after the native roundtrip so cross-connection events are
+  observed before assertions. The resize and CSD-policy recovery checks pass.
+- A temporary compositor diagnostic was lost when the runner cleaned its
+  runtime directory. Remove the diagnostic and retain compositor.log in the
+  screenshot/output directory during cleanup for future failures. Initial
+  failing logs are l2-hosting-acceptance.log, l2-hosting-acceptance-retry.log and
+  l2-hosting-debug.log under ~/wexcomp-build; final passing log is separate.
+
+Next: implement the bridge's opt-in binding and client input exclusion, wire
+actual frame menu/move/resize loops and native resize negotiation, then complete
+CSD, popup, scaling, real application, fullscreen/workspace and launch routing
+acceptance. Synthetic focus commands do not constitute real shell-menu coverage.
+
+Verified results on the Proton VM:
+
+- Compositor suite: 37/37 with XWayland and 37/37 without. Logs:
+  ~/wexcomp-build/l2-hosting-final.log and l2-hosting-no-xwayland.log; output
+  directories tests/wex/output and
+  /srv/protonexplorer/wex-wayland-l2/no-x-hosting-output retain compositor.log.
+- Combined WoW64 winewayland driver target builds successfully; log
+  /srv/protonexplorer/wex-wayland-l1/checks/l2-hosting-driver-build.log.
+- 32/64 PE hosting probes pass client hit exclusion, actual group activation,
+  native logical foreground retention, temporary frame focus, native restore,
+  rejected late restore, safe size mismatch, reattachment, opt-out/re-enable and
+  controller loss. Final run after status-cleanup changes:
+  checks/l2-hosting-cleanup-final.log, state association.omwqyjvw. Previous full
+  hosting plus mixed-process stacking run also passes unchanged stacking and
+  foreground assertions: l2-hosting-driver-final.log, state association.dsgfw0fv.
+- Screenshot assertions additionally verify native pixels inside the Wine client
+  rectangle in both architectures (HOSTING_RENDER_PASSED). Log
+  l2-hosting-render-final.log, state association.bx75eg28; hosting32.png and
+  hosting64.png retain the screenshots. The pixel is sampled inside the native
+  client and away from the raised owner, rather than inferred from an ACTIVE ack.
+- Reservation-only probes still pass both architectures, including an explicit
+  assertion that reservation alone never hosts: l2-hosting-opt-out-final.log,
+  state association.qsoa4wdf. Opt-in counterpart: l2-hosting-opt-in-final.log,
+  state association.r6wo5va4. These files/states share the same checks directory.
+- Shipping X11 smoke passes: two tray icons, zero overlaps/out-of-bounds windows
+  and all eight native dialog geometry cases. Log l2-hosting-x11-smoke.log and
+  checks/status=CHECK_PASSED; tray-layout.txt and linux-dialog.log hold assertions.
+  It used prefixes/smoke-l2, with no real desktop/session changes.

@@ -9,17 +9,21 @@ P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
 Current pin is f0108dc, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (925b10c, not the production pin) extends the
+L2 opt-in topic codex/wayland-l2 (786643b, not the production pin) extends the
 private protocol to v4 and adds native/controller atom properties plus an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
 behavior. The standard wlr XML is vendored only to satisfy private protocol
 interface definitions, with its original notice. Reservation leaves native
-composition/focus unchanged; active scene hosting remains pending. All these
-changes are fork-only. Compositor topic 7c7143d4 provides v5 active scene grouping
+composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
+configuration and focus acknowledgements, preserving logical foreground during
+native input and guarded temporary frame focus. Client size changes detach
+before retry; callers must exclude the client area from Win32 hit testing. All
+changes are fork-only. Compositor topic fe3abb94 provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
-physical focus acknowledgements and guarded frame/native restoration. Wine remains a
-v4 client until acknowledgement consumption, resize and bridge hosting are ready. No production pin
+physical focus acknowledgements and guarded frame/native restoration, plus v7
+numbered configuration and native size/policy recovery. Driver fallback for old
+servers remains; wexhost binding and AUTO adoption are still disabled. No production pin
 changes. See WAYLAND_L2.md for 32/64 verification and worktree paths.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.

@@ -25,11 +25,13 @@ Implementation versioning note: committed v3 supplies supplemental observation
 and native endpoints. v4 adds the controller-lifetime handle and prepared frame
 association without breaking v3 clients. PREPARED reserves identity/lifetime only;
 v5 adds explicit active scene grouping and frame root render/input exclusion;
-the synthetic suite passes with and without XWayland. Wine still binds v4 and
-the bridge v3. V6 supplies epoch-tagged compositor focus acknowledgements and
+the synthetic suite passes with and without XWayland. V6 supplies epoch-tagged compositor focus acknowledgements and
 guards late frame-menu focus restoration; actual key delivery passes in both
-compositor builds. Wine consumption, resize/policy recovery and driver/bridge
-hosting remain pending. See WAYLAND_L2.md for the verified checkpoint and limits.
+compositor builds. V7 numbers group configure/uncommit completions. Wine now
+consumes v7 under explicit hosting opt-in, with 32/64 tests for foreground
+retention, temporary frame focus and resize mismatch recovery. Native size or
+policy changes detach safely. wexhost remains v3; bridge binding, native resize
+negotiation and complete acceptance remain pending. See WAYLAND_L2.md for limits.
 
 Reuse proxy HWNDs and existing taskbar/window-state/dialog handling. Owned foreign
 dialogs retain Win32 ownership but map as independent Wayland toplevels. Exclude

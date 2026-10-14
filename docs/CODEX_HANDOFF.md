@@ -1,8 +1,8 @@
 # Codex handoff — 2026-10-14 Wayland L1 complete
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
-WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 925b10c, compositor
-codex/wayland-l2 at 7c7143d4. Host Wine topic now lives in
+WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 786643b, compositor
+codex/wayland-l2 at fe3abb94. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 f0108dc gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32
@@ -12,13 +12,19 @@ frame-ring cropping and native input routing, grouped move/minimize/restore and
 controller/frame/native disconnect recovery. Its full suite passes 37/37 both
 with and without XWayland. V6 adds epoch-tagged observed physical focus and
 guarded temporary frame/native restoration. Actual key delivery and prevention
-of late menu focus stealing pass in both compositor variants. Wine still binds
-v4: 32/64 association probes and mixed-architecture L1 stacking pass against v6.
-Read WAYLAND_L2.md for logs and readiness-runner hardening after the earlier
-startup timeout. The final successful run did not need a readiness retry.
-Next is consuming group/focus acknowledgements in Wine with existing foreground
-epoch guards and explicit opt-in hosting, plus dynamic resize/policy recovery,
-then bridge hosting and AUTO adoption. CSD, native popup, scaling and
+of late menu focus stealing pass in both compositor variants. V7 numbers group
+configure/uncommit completion separately from unsolicited state. Native size or
+decoration changes detach safely. Wine now binds v7 and consumes group/focus
+acknowledgements under an explicit HOST property, retaining epoch/foreground
+guards. 32/64 hosting and reservation-only probes pass, as do mixed-process L1
+stacking and X11 tray/eight-dialog smoke. The caller must supply Win32 client
+hit exclusion; probes do so with a ring region and check WindowFromPoint.
+Both architectures also pass screenshot pixel checks of native content rendered
+inside the Wine frame, beyond protocol status assertions.
+Read WAYLAND_L2.md for exact logs, commands, failures and correction notes.
+Next is wexhost BindHost/Explorer opt-in binding and hit exclusion, actual shell
+menu/move/resize integration and native resize negotiation, then AUTO adoption.
+Fullscreen/workspace, CSD, native popup, scaling and
 application coverage remain acceptance work. No deployed runtime or session changes.
 
 Earlier L2 bridge checkpoint: read
