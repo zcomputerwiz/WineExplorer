@@ -153,6 +153,13 @@ execute 59 final v4 checks (zero failures/skips) and 22,252 existing system chec
 entry points are unavailable. This verifies the skip path, not native rendering.
 No host or real VM desktop theme was changed.
 
+Replay with a WoW64 build, isolated WINEPREFIX and nested Xvfb DISPLAY (not a
+real user session): build dlls/uxtheme/all and dlls/uxtheme/tests/all, then run
+loader/wine dlls/uxtheme/tests/x86_64-windows/uxtheme_test.exe v4 and system;
+repeat with i386-windows. Xvfb is needed because these tests exercise GDI and
+ApplyTheme. The new test style is embedded as TESTDLL v4_style.dll automatically
+by makedep. A four-patch export is retained in ignored build/uxtheme-v4/patches.
+
 ### Command failures and corrections
 
 - A PowerShell rg positional glob wine/dlls/*/tests/Makefile.in was rejected;
