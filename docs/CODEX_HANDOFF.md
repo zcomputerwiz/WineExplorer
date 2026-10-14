@@ -208,6 +208,8 @@ subdirectory target does not rebuild them. Existing live-build state requires
 
 ## Next work
 
+**2026-10-13, merged by Claude:** `gemini/installer-polish` is in master (`930b6665`), with fixes for the XP step marker, the full Unicode License v3 notice in `src/include/wextimezone.h` and report links. The Wine fork `wineexplorer/11.19` moved to `f5016cf` (uxtheme honors `SetThemeAppProperties`: classic frame/controls when an application clears `STAP_ALLOW_NONCLIENT`/`STAP_ALLOW_CONTROLS`; listed in `STOCK_CHANGES.md`) and the master gitlink points there. Pull master and `git submodule update` before building; rebase your fork work on `f5016cf`. Open item kept for later: XP's time zone list has ~75 entries, ours 54 (pre-existing).
+
 **2026-10-13, first priority: 32-bit Windows programs are required (user decision).** Every Wine build so far used
 `--enable-win64` only, so nothing 32-bit runs (Open-Shell's 32-bit setup: `failed to load
 ...\syswow64\ntdll.dll`). Switch every build to WoW64, `--enable-archs=i386,x86_64` (`CLAUDE.md` rule,
