@@ -260,12 +260,11 @@ static BOOL has_state( struct linux_window *lw, DWORD state )
 
 static void manage( struct linux_window *lw )
 {
-    UINT64 parent = (ULONG_PTR)GetPropW( lw->host, whole_window_prop );
     RECT client, screen;
     DWORD state;
 
     client_geometry( lw, &client, &screen );
-    if (parent && !WexWmManage( lw->window, parent, &client, &screen ))
+    if (!WexWmBindHost( lw->window, lw->host, &client, &screen ))
     {
         lw->managed = TRUE;
         for (state = WEX_WM_STATE_FULLSCREEN; state <= WEX_WM_STATE_ABOVE; state <<= 1)
@@ -670,7 +669,7 @@ void linux_windows_start(void)
 
     RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"ManageLinuxWindows", RRF_RT_REG_DWORD,
                   NULL, &enabled, &size );
-    if (!enabled || !desktop) return;   /* not an X11 virtual desktop */
+    if (!enabled) return;
 
     cls.lpfnWndProc = host_proc;
     cls.hInstance = explorer_hInstance;

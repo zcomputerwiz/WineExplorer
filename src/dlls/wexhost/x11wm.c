@@ -28,7 +28,7 @@
  * (c) 2013-2022 Valve Corporation: size hints, unmanaged map and configure requests).  Openbox was consulted for
  * behavior only.
  *
- * Threads: one unix thread reads X events and queues WEX_WM_EVENTs for wm_next_event; the shell's calls run on its
+ * Threads: one unix thread reads X events and queues WEX_WM_EVENTs for x11_wm_next_event; the shell's calls run on its
  * own threads.  Every use of our Display holds x_mutex.  Errors on our Display are expected (windows vanish at any
  * time) and only recorded; errors on other displays go to the previous handler (winex11's). */
 
@@ -429,7 +429,7 @@ static BOOL no_border( Window window )
     return ret;
 }
 
-/* A window asks to be shown: describe it to the shell, which creates its host and calls wm_manage. */
+/* A window asks to be shown: describe it to the shell, which creates its host and calls x11_wm_manage. */
 static void map_request( Window window, BOOL existing )
 {
     XWindowAttributes attr;
@@ -901,7 +901,7 @@ static void scan(void)
     if (children) pXFree( children );
 }
 
-NTSTATUS wm_start( void *args )
+NTSTATUS x11_wm_start( void *args )
 {
     struct wm_start_params *params = args;
 
@@ -954,7 +954,7 @@ NTSTATUS wm_start( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_next_event( void *args )
+NTSTATUS x11_wm_next_event( void *args )
 {
     struct wm_next_event_params *params = args;
 
@@ -1031,7 +1031,7 @@ NTSTATUS composition_shadow( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_manage( void *args )
+NTSTATUS x11_wm_manage( void *args )
 {
     struct wm_manage_params *params = args;
     struct client *client;
@@ -1089,7 +1089,7 @@ NTSTATUS wm_manage( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_configure( void *args )
+NTSTATUS x11_wm_configure( void *args )
 {
     struct wm_window_params *params = args;
     struct client *client;
@@ -1109,7 +1109,7 @@ NTSTATUS wm_configure( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_set_state( void *args )
+NTSTATUS x11_wm_set_state( void *args )
 {
     struct wm_window_params *params = args;
     struct client *client;
@@ -1152,7 +1152,7 @@ NTSTATUS wm_set_state( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_focus( void *args )
+NTSTATUS x11_wm_focus( void *args )
 {
     struct wm_window_params *params = args;
     struct client *client;
@@ -1170,7 +1170,7 @@ NTSTATUS wm_focus( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_close( void *args )
+NTSTATUS x11_wm_close( void *args )
 {
     struct wm_window_params *params = args;
     struct client *client;
@@ -1200,7 +1200,7 @@ static void release_client( struct client *client, const RECT *screen )
     remove_client( client );
 }
 
-NTSTATUS wm_release( void *args )
+NTSTATUS x11_wm_release( void *args )
 {
     struct wm_window_params *params = args;
     struct client *client;
@@ -1217,7 +1217,7 @@ NTSTATUS wm_release( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_get_title( void *args )
+NTSTATUS x11_wm_get_title( void *args )
 {
     struct wm_get_title_params *params = args;
     XTextProperty text;
@@ -1242,7 +1242,7 @@ NTSTATUS wm_get_title( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_get_icon( void *args )
+NTSTATUS x11_wm_get_icon( void *args )
 {
     struct wm_get_icon_params *params = args;
     unsigned long *data, count, pos, best = 0, best_size = 0, size;
@@ -1281,7 +1281,7 @@ NTSTATUS wm_get_icon( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_stop( void *args )
+NTSTATUS x11_wm_stop( void *args )
 {
     struct wm_stop_params *params = args;
 
@@ -1317,16 +1317,16 @@ NTSTATUS wm_stop( void *args )
 
 #define STUB( name, params_type ) \
     NTSTATUS name( void *args ) { ((params_type *)args)->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
-STUB( wm_start, struct wm_start_params )
-STUB( wm_manage, struct wm_manage_params )
-STUB( wm_configure, struct wm_window_params )
-STUB( wm_set_state, struct wm_window_params )
-STUB( wm_close, struct wm_window_params )
-STUB( wm_release, struct wm_window_params )
-STUB( wm_get_title, struct wm_get_title_params )
-STUB( wm_get_icon, struct wm_get_icon_params )
-STUB( wm_stop, struct wm_stop_params )
-STUB( wm_focus, struct wm_window_params )
+STUB( x11_wm_start, struct wm_start_params )
+STUB( x11_wm_manage, struct wm_manage_params )
+STUB( x11_wm_configure, struct wm_window_params )
+STUB( x11_wm_set_state, struct wm_window_params )
+STUB( x11_wm_close, struct wm_window_params )
+STUB( x11_wm_release, struct wm_window_params )
+STUB( x11_wm_get_title, struct wm_get_title_params )
+STUB( x11_wm_get_icon, struct wm_get_icon_params )
+STUB( x11_wm_stop, struct wm_stop_params )
+STUB( x11_wm_focus, struct wm_window_params )
 STUB( composition_set, struct composition_params )
 STUB( composition_shadow, struct composition_shadow_params )
 NTSTATUS composition_get( void *args )
@@ -1337,7 +1337,7 @@ NTSTATUS composition_get( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_next_event( void *args )
+NTSTATUS x11_wm_next_event( void *args )
 {
     struct wm_next_event_params *params = args;
     memset( &params->event, 0, sizeof(params->event) );
@@ -1347,3 +1347,11 @@ NTSTATUS wm_next_event( void *args )
 }
 
 #endif
+
+const struct wm_backend_ops x11_wm_backend =
+{
+    WEX_WM_BACKEND_X11, WEX_WM_CAP_X11_PARENT,
+    x11_wm_start, x11_wm_next_event, x11_wm_manage, x11_wm_configure,
+    x11_wm_set_state, x11_wm_close, x11_wm_release, x11_wm_get_title,
+    x11_wm_get_icon, x11_wm_stop, x11_wm_focus
+};

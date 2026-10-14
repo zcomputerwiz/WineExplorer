@@ -18,3 +18,41 @@ Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remai
 - The raw GitLab wlr protocol URL was unavailable through the web tool. Existing
   installed wlroots headers, labwc source and protocol documentation establish
   the available interface and public resource lists.
+
+## Backend-dispatch checkpoint
+
+The existing X11 manager now implements a backend table. New StartEx and
+capability APIs preserve the legacy call indexes; BindHost moves the X11 parent
+lookup out of Explorer's binding path. AUTO selects X11 for an X11 desktop and
+reserves the no-X-desktop path for Wayland. Wayland still returns not supported
+at this checkpoint; native Wayland integration is not yet implemented.
+
+The WoW64 build exposed the missing wexhost WoW64 Unix-call export. Both tables
+now use the same fixed-width bridge records, including ULONG64 pointer slots.
+The 32-bit and 64-bit backend probes both passed with zero failures, including
+invalid selection, capabilities, duplicate start, invalid host and repeated
+start/stop. The X11 800x600 smoke passed: two tray icons, zero overlaps or
+out-of-bounds windows, plus all eight native dialog placement cases.
+
+Build: Proton VM, /srv/protonexplorer/wex-wayland-l1/wow64-source/build/wine64,
+configured --enable-archs=i386,x86_64. Module log: checks/l2-dispatch-build.log.
+Probe logs: checks/l2-backend{32,64}.log. Prefix: prefixes/smoke-l2. Reproduce
+with scripts/check-wm-backend.sh, setting WEX_CHECK_PREFIX to an isolated prefix.
+No installed runtime or real desktop changes.
+
+Corrections during this checkpoint:
+
+- The first multi-file patch was rejected for a mismatched wm_thread context;
+  no files were changed by that attempt. Reapplied with the actual context.
+- wm.c initially included winbase.h without its prerequisite NT types, causing
+  RTL_CRITICAL_SECTION errors. Use winerror.h and the shared header's NT types.
+- The backend table was exposed to PE compilation, where unixlib_entry_t is
+  absent. Guard the table with WINE_UNIX_LIB. Both module architectures now build.
+- Linking the probe initially used stale import libraries: the module 'all'
+  target does not regenerate them. Explicitly build both libwexhost.a targets.
+- Explorer launches detached applications, so redirected launcher stdout did
+  not contain the probe report. Give the probe an explicit output file and poll
+  for completion; do not use Explorer's exit as application completion.
+- The first 32-bit probe returned ERROR_NOT_SUPPORTED because wexhost lacked
+  __wine_unix_call_wow64_funcs. Added the fixed-width ABI table and reran both
+  architectures successfully. Failed logs were superseded by successful reruns.

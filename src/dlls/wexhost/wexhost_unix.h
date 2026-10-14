@@ -104,6 +104,10 @@ struct wm_window_params { UINT64 window; RECT client; RECT screen; DWORD value; 
 struct wm_get_title_params { UINT64 window; char title[1024]; DWORD err; };
 struct wm_get_icon_params { UINT64 window; DWORD size; ULONG64 pixels; DWORD max; DWORD width; DWORD height; DWORD err; };
 struct wm_stop_params { DWORD err; };
+struct wm_start_ex_params { UINT64 desktop; DWORD backend; DWORD err; };
+struct wm_capabilities_params { DWORD backend; DWORD capabilities; DWORD err; };
+extern NTSTATUS wm_start_ex(void *args);
+extern NTSTATUS wm_capabilities(void *args);
 extern NTSTATUS wm_start(void *args);
 extern NTSTATUS wm_next_event(void *args);
 extern NTSTATUS wm_manage(void *args);
@@ -115,6 +119,16 @@ extern NTSTATUS wm_get_title(void *args);
 extern NTSTATUS wm_get_icon(void *args);
 extern NTSTATUS wm_stop(void *args);
 extern NTSTATUS wm_focus(void *args);
+
+#ifdef WINE_UNIX_LIB
+struct wm_backend_ops
+{
+    DWORD backend, capabilities;
+    unixlib_entry_t start, next_event, manage, configure, set_state, close;
+    unixlib_entry_t release, get_title, get_icon, stop, focus;
+};
+extern const struct wm_backend_ops x11_wm_backend;
+#endif
 
 struct composition_params { BOOL enabled; DWORD err; };
 extern NTSTATUS composition_set(void *args);
@@ -182,6 +196,8 @@ enum wexhost_funcs
     unix_root_pass_set,
     unix_user_create,
     unix_user_set_session,
+    unix_wm_start_ex,
+    unix_wm_capabilities,
     unix_funcs_count
 };
 

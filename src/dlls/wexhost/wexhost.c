@@ -496,16 +496,55 @@ static DWORD WINAPI wm_event_thread( void *arg )
 
 DWORD WINAPI WexWmStart( UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context )
 {
-    struct wm_start_params params = { desktop_window };
+    return WexWmStartEx( WEX_WM_BACKEND_AUTO, desktop_window, callback, context );
+}
+
+DWORD WINAPI WexWmStartEx( DWORD backend, UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context )
+{
+    struct wm_start_ex_params params = { desktop_window, backend };
 
     if (!unix_ready || !callback) return ERROR_NOT_SUPPORTED;
     if (wm_thread) return ERROR_ALREADY_EXISTS;
     wm_callback = callback;
     wm_context = context;
-    WEXHOST_CALL( wm_start, &params );
+    WEXHOST_CALL( wm_start_ex, &params );
     if (params.err) return params.err;
     wm_thread = CreateThread( NULL, 0, wm_event_thread, NULL, 0, NULL );
-    return wm_thread ? ERROR_SUCCESS : ERROR_GEN_FAILURE;
+    if (!wm_thread)
+    {
+        struct wm_stop_params stop;
+        WEXHOST_CALL( wm_stop, &stop );
+        wm_callback = NULL;
+        wm_context = NULL;
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+    return ERROR_SUCCESS;
+}
+
+DWORD WINAPI WexWmGetCapabilities( DWORD *backend, DWORD *capabilities )
+{
+    struct wm_capabilities_params params = {0};
+    if (!backend || !capabilities) return ERROR_INVALID_PARAMETER;
+    *backend = WEX_WM_BACKEND_AUTO;
+    *capabilities = 0;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( wm_capabilities, &params );
+    *backend = params.backend;
+    *capabilities = params.capabilities;
+    return params.err;
+}
+
+DWORD WINAPI WexWmBindHost( UINT64 window, HWND host, const RECT *client, const RECT *screen )
+{
+    DWORD backend, capabilities, err;
+    UINT64 parent;
+    if (!IsWindow( host )) return ERROR_INVALID_WINDOW_HANDLE;
+    if ((err = WexWmGetCapabilities( &backend, &capabilities ))) return err;
+    if (backend != WEX_WM_BACKEND_X11 || !(capabilities & WEX_WM_CAP_X11_PARENT))
+        return ERROR_NOT_SUPPORTED;
+    parent = (ULONG_PTR)GetPropW( host, L"__wine_x11_whole_window" );
+    if (!parent) return ERROR_INVALID_WINDOW_HANDLE;
+    return WexWmManage( window, parent, client, screen );
 }
 
 DWORD WINAPI WexWmManage( UINT64 window, UINT64 parent, const RECT *client, const RECT *screen )

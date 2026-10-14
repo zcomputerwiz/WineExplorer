@@ -211,6 +211,13 @@ DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist);
 #define WEX_WM_STATE_ABOVE       0x08
 #define WEX_WM_STATE_FOCUSED     0x10
 
+#define WEX_WM_BACKEND_AUTO     0
+#define WEX_WM_BACKEND_X11      1
+#define WEX_WM_BACKEND_WAYLAND  2
+#define WEX_WM_CAP_X11_PARENT   0x01
+#define WEX_WM_CAP_FOREIGN_FRAME 0x02
+#define WEX_WM_CAP_NATIVE_ENV   0x04
+
 typedef struct
 {
     DWORD  type;          /* WEX_WM_* */
@@ -231,6 +238,12 @@ typedef void (CALLBACK *WEX_WM_CALLBACK)( const WEX_WM_EVENT *event, void *conte
 /* desktop_window: the X window of the shell's virtual desktop, which is not managed.  ERROR_ALREADY_EXISTS: another
  * window manager runs on the display. */
 DWORD WINAPI WexWmStart( UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context );
+/* AUTO selects X11 for an X desktop, otherwise the private Wayland backend.
+ * Missing backend/protocol support returns ERROR_NOT_SUPPORTED. */
+DWORD WINAPI WexWmStartEx( DWORD backend, UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context );
+DWORD WINAPI WexWmGetCapabilities( DWORD *backend, DWORD *capabilities );
+/* Backend-neutral host binding; platform window identifiers stay in wexhost. */
+DWORD WINAPI WexWmBindHost( UINT64 window, HWND host, const RECT *client, const RECT *screen );
 /* Put window into the host's X window (parent) at client (the host's client area, relative to parent) and show it;
  * screen is the same area on the screen.  parent 0 shows it unmanaged instead.  ERROR_INVALID_WINDOW_HANDLE: one of
  * the windows does not exist (yet). */

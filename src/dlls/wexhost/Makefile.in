@@ -12,5 +12,6 @@ SOURCES = \
 	greeter.c \
 	hardware.c \
 	unixlib.c \
+	wm.c \
 	wexhost.c \
 	x11wm.c
