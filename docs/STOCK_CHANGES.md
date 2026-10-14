@@ -157,6 +157,7 @@ Modified Wine files keep their original header. ReactOS-derived programs keep th
 - `dlls/win32u/defwnd.c`: `nc_paint` and the caption-button redraws ask the hook first; if it draws, only the rectangle is advanced.
 - `dlls/user32/{user_main.c,hook.c,nonclient.c,user_private.h}`, `dlls/wow64win/user.c`: callback plumbing and default (declines).
 - `dlls/uxtheme/{window.c,system.c,uxthemedll.h}`: `UXTHEME_NonClientFrameDraw` draws `Window` caption, frame and buttons from the active msstyles.
+- `dlls/uxtheme/{window.c,system.c,uxthemedll.h}`: the themed frame draws classic when the application cleared `STAP_ALLOW_NONCLIENT` (`SetThemeAppProperties`) and opens its theme through `UXTHEME_OpenNonClientTheme`; `OpenThemeData` returns no theme when `STAP_ALLOW_CONTROLS` is cleared, as on Windows (stock Wine ignored both; the `OpenThemeData` part is upstreamable). Used by GUI-mode setup for XP's classic look.
 
 ## Explorer window (file browser)
 - `dlls/shell32/shell32.rc`: shell view column titles "File"/"Modified" are now "Name"/"Date Modified" (Windows wording).
