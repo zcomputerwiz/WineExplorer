@@ -29,7 +29,8 @@ assert env["WINEPREFIX"] != str(Path.home() / ".wine")
 compositor = subprocess.Popen([str(compositor_dir / "build/labwc"), "-C", str(config)], env=env,
                              stdout=(state / "compositor.log").open("w"), stderr=subprocess.STDOUT)
 peer = probe = None
-hosting = os.environ.get("WEX_ASSOCIATION_HOSTING") == "1"
+binding = os.environ.get("WEX_ASSOCIATION_BRIDGE") == "1"
+hosting = binding or os.environ.get("WEX_ASSOCIATION_HOSTING") == "1"
 try:
     deadline = time.monotonic() + 10
     while not (runtime / "wex-shell-0").exists():
@@ -44,7 +45,7 @@ try:
         values = peer.stdout.readline().strip().split()
         assert len(values) == 3 and values[0] == "LEASE", values
         report = state / f"probe{bits}.log"
-        binary = "hosting" if hosting else "association"
+        binary = "binding" if binding else "hosting" if hosting else "association"
         probe = subprocess.Popen([str(wine), str(root / f"checks/{binary}{bits}.exe"), *values[1:], f"Z:{report}"],
                                  env=env, stdout=(state / f"launch{bits}.log").open("w"), stderr=subprocess.STDOUT)
         deadline = time.monotonic() + (120 if hosting else 20)
@@ -63,7 +64,9 @@ try:
             print(f"HOSTING_RENDER_PASSED bits={bits}", flush=True)
         peer.stdin.write("release\n")
         peer.stdin.flush()
-        assert probe.wait(timeout=15) == 0, report.read_text(encoding="utf-8", errors="replace")
+        if binding:
+            Path(str(report) + ".continue").write_text("render captured\n", encoding="utf-8")
+        assert probe.wait(timeout=30 if binding else 15) == 0, report.read_text(encoding="utf-8", errors="replace")
         result = report.read_text(encoding="utf-8", errors="replace")
         assert f"ASSOCIATION_PASSED bits={bits} failures=0" in result, result
         print(result.strip(), flush=True)

@@ -107,6 +107,8 @@ struct wm_stop_params { DWORD err; };
 struct wm_start_ex_params { UINT64 desktop; DWORD backend; DWORD err; };
 struct wm_capabilities_params { DWORD backend; DWORD capabilities; DWORD err; };
 struct wm_native_info_params { UINT64 window; WEX_NATIVE_WINDOW info; DWORD err; };
+struct wm_binding_params { UINT64 window; char token[33], controller[33]; DWORD err; };
+extern NTSTATUS wm_binding(void *args);
 extern NTSTATUS wm_native_info(void *args);
 extern NTSTATUS wm_start_ex(void *args);
 extern NTSTATUS wm_capabilities(void *args);
@@ -129,6 +131,7 @@ struct wm_backend_ops
     unixlib_entry_t start, next_event, manage, configure, set_state, close;
     unixlib_entry_t release, get_title, get_icon, stop, focus;
     unixlib_entry_t native_info;
+    unixlib_entry_t binding, get_capabilities;
 };
 extern const struct wm_backend_ops x11_wm_backend;
 extern const struct wm_backend_ops wayland_wm_backend;
@@ -203,6 +206,7 @@ enum wexhost_funcs
     unix_wm_start_ex,
     unix_wm_capabilities,
     unix_wm_native_info,
+    unix_wm_binding,
     unix_funcs_count
 };
 

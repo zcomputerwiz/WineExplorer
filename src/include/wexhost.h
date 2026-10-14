@@ -249,11 +249,16 @@ typedef void (CALLBACK *WEX_WM_CALLBACK)( const WEX_WM_EVENT *event, void *conte
 /* desktop_window: the X window of the shell's virtual desktop, which is not managed.  ERROR_ALREADY_EXISTS: another
  * window manager runs on the display. */
 DWORD WINAPI WexWmStart( UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context );
-/* AUTO selects X11 for an X desktop, otherwise the private Wayland backend.
- * Missing backend/protocol support returns ERROR_NOT_SUPPORTED. */
+/* AUTO selects X11 for an X desktop. Native Wayland adoption still requires
+ * explicit selection until complete acceptance. Missing support returns ERROR_NOT_SUPPORTED. */
 DWORD WINAPI WexWmStartEx( DWORD backend, UINT64 desktop_window, WEX_WM_CALLBACK callback, void *context );
 DWORD WINAPI WexWmGetCapabilities( DWORD *backend, DWORD *capabilities );
-/* Backend-neutral host binding; platform window identifiers stay in wexhost. */
+/* Backend-neutral host binding; platform window identifiers stay in wexhost.
+ * Explicit Wayland backend: bind before ShowWindow (especially owned HWNDs).
+ * ERROR_IO_PENDING means the request is installed; repeat on the owning UI
+ * thread until success after the driver's group acknowledgement. Binding,
+ * configure, release and stop belong to that UI thread. X11 behavior is unchanged.
+ */
 DWORD WINAPI WexWmBindHost( UINT64 window, HWND host, const RECT *client, const RECT *screen );
 /* Put window into the host's X window (parent) at client (the host's client area, relative to parent) and show it;
  * screen is the same area on the screen.  parent 0 shows it unmanaged instead.  ERROR_INVALID_WINDOW_HANDLE: one of

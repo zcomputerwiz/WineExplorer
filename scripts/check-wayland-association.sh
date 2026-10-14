@@ -18,6 +18,8 @@ x86_64-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -idirafter "$sourc
 i686-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -idirafter "$source_root/wine/include" -luser32 -o "$root/checks/association32.exe"
 x86_64-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -DWEX_TEST_HOSTING -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/hosting64.exe"
 i686-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -DWEX_TEST_HOSTING -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/hosting32.exe"
+x86_64-w64-mingw32-gcc "$scripts/wex-wayland-binding-probe.c" -I"$source_root/src/include" -idirafter "$source_root/wine/include" -L"$b/dlls/wexhost/x86_64-windows" -lwexhost -luser32 -lgdi32 -o "$root/checks/binding64.exe"
+i686-w64-mingw32-gcc "$scripts/wex-wayland-binding-probe.c" -I"$source_root/src/include" -idirafter "$source_root/wine/include" -L"$b/dlls/wexhost/i386-windows" -lwexhost -luser32 -lgdi32 -o "$root/checks/binding32.exe"
 x86_64-w64-mingw32-gcc "$scripts/wayland-stacking-probe.c" -lgdi32 -o "$root/checks/association-stack64.exe"
 i686-w64-mingw32-gcc "$scripts/wayland-stacking-probe.c" -lgdi32 -o "$root/checks/association-stack32.exe"
 timeout 100 xvfb-run -a bash -eu -c '

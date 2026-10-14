@@ -47,8 +47,8 @@ int main(int argc,char **argv)
     check("AUTO not adopting",WexWmStart(0,event,NULL) == ERROR_NOT_SUPPORTED);
     check("explicit Wayland start",WexWmStartEx(WEX_WM_BACKEND_WAYLAND,0,event,NULL) == ERROR_SUCCESS);
     check("capability call",WexWmGetCapabilities(&backend,&capabilities) == ERROR_SUCCESS);
-    check("observes without frame claim",backend == WEX_WM_BACKEND_WAYLAND &&
-        capabilities == (WEX_WM_CAP_OBSERVE|WEX_WM_CAP_NATIVE_ENV));
+    check("observes with opt-in binding capability",backend == WEX_WM_BACKEND_WAYLAND &&
+        capabilities == (WEX_WM_CAP_OBSERVE|WEX_WM_CAP_NATIVE_ENV|WEX_WM_CAP_FOREIGN_FRAME));
     puts("READY_NATIVE");
     check("native inventory",wait_state(WEX_WM_STATE_MINIMIZED,FALSE,FALSE));
     EnterCriticalSection(&lock);

@@ -26,7 +26,7 @@ struct native_window
     struct zwlr_foreign_toplevel_handle_v1 *handle;
     struct wex_foreign_window_v1 *foreign;
     WEX_WM_EVENT snapshot;
-    char title[1024], app_id[256], token[33];
+    char title[1024], app_id[256], token[33], controller[33];
     BOOL standard_ready, supplemental_ready, announced, rejected, dead, released, foreign_closed;
 };
 struct queued_event { struct queued_event *next; WEX_WM_EVENT event; };
@@ -74,7 +74,8 @@ static void queue_event(struct native_window *window, DWORD type)
 static void publish(struct native_window *window)
 {
     if (window->dead || window->rejected || window->released ||
-        !window->standard_ready || !window->supplemental_ready || !window->token[0]) return;
+        !window->standard_ready || !window->supplemental_ready || !window->token[0] ||
+        (wex_window_manager_v1_get_version(manager) >= 4 && !window->controller[0])) return;
     queue_event(window, window->announced ? WEX_WM_OBSERVED : WEX_WM_MAP);
     window->announced = TRUE;
 }
@@ -89,7 +90,7 @@ static void collect_closed(struct native_window *window)
     if (!window->dead || !window->foreign_closed) return;
     for (cursor=&windows;*cursor;cursor=&(*cursor)->next)
         if (*cursor == window) { *cursor = window->next; break; }
-    wex_foreign_window_v1_destroy(window->foreign);
+    if (window->foreign) wex_foreign_window_v1_destroy(window->foreign);
     zwlr_foreign_toplevel_handle_v1_destroy(window->handle);
     free(window);
 }
@@ -105,6 +106,14 @@ static void got_geometry(void *data, struct wex_foreign_window_v1 *obj,
 {
     struct native_window *window = data;
     window->snapshot.rect = (RECT){x,y,x+width,y+height};
+}
+static void got_controller(void *data, struct wex_foreign_window_v1 *obj, const char *handle)
+{
+    struct native_window *window = data;
+    if (strlen(handle) != 32 || strspn(handle,"0123456789abcdef") != 32)
+    { window->rejected = TRUE; return; }
+    memcpy(window->controller, handle, sizeof(window->controller));
+    publish(window);
 }
 static void got_decoration(void *data, struct wex_foreign_window_v1 *obj, uint32_t mode)
 {
@@ -135,6 +144,7 @@ static void got_closed(void *data, struct wex_foreign_window_v1 *obj)
 static const struct wex_foreign_window_v1_listener supplement_listener = {
     .token=got_token, .geometry=got_geometry, .decoration=got_decoration,
     .size_hints=got_hints, .done=got_done, .closed=got_closed,
+    .controller_handle=got_controller,
 };
 static void title(void *data, struct zwlr_foreign_toplevel_handle_v1 *obj, const char *title)
 {
@@ -216,7 +226,7 @@ static void global(void *data, struct wl_registry *registry,uint32_t name,const 
 {
     if (!strcmp(interface,"wex_window_manager_v1") && version >= 3)
     {
-        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,3);
+        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 7 ? version : 7);
         wex_window_manager_v1_add_listener(manager,&manager_listener,NULL);
     }
     else if (!strcmp(interface,"zwlr_foreign_toplevel_manager_v1") && version >= 3)
@@ -385,7 +395,13 @@ static NTSTATUS control(void *args, unsigned action)
                 zwlr_foreign_toplevel_handle_v1_activate(window->handle,seat);
             }
         }
-        else if (action == 2) window->released = TRUE;
+        else if (action == 2)
+        {
+            window->released = TRUE;
+            window->foreign_closed = TRUE;
+            if (window->foreign) wex_foreign_window_v1_destroy(window->foreign);
+            window->foreign = NULL;
+        }
         else if (params->value & WEX_WM_STATE_ABOVE) params->err = ERROR_NOT_SUPPORTED;
         else
         {
@@ -414,8 +430,43 @@ static NTSTATUS wayland_icon(void *args)
     params->err = ERROR_NOT_SUPPORTED;
     return STATUS_SUCCESS;
 }
+static NTSTATUS wayland_binding(void *args)
+{
+    struct wm_binding_params *params = args;
+    struct native_window *window;
+    pthread_mutex_lock(&wl_mutex);
+    params->err = running ? ERROR_INVALID_WINDOW_HANDLE : ERROR_NOT_READY;
+    if (running && manager && wex_window_manager_v1_get_version(manager) < 7)
+        params->err = ERROR_NOT_SUPPORTED;
+    else if (running && (window = find_window(params->window)) && window->announced)
+    {
+        if (!window->controller[0] || (window->snapshot.flags & WEX_WM_NO_BORDER))
+            params->err = ERROR_NOT_SUPPORTED; /* CSD/borderless adoption has separate acceptance. */
+        else
+        {
+            memcpy(params->token,window->token,sizeof(params->token));
+            memcpy(params->controller,window->controller,sizeof(params->controller));
+            params->err = ERROR_SUCCESS;
+        }
+    }
+    pthread_mutex_unlock(&wl_mutex);
+    return STATUS_SUCCESS;
+}
+static NTSTATUS wayland_capabilities(void *args)
+{
+    struct wm_capabilities_params *params = args;
+    pthread_mutex_lock(&wl_mutex);
+    params->backend = WEX_WM_BACKEND_WAYLAND;
+    params->capabilities = WEX_WM_CAP_OBSERVE | WEX_WM_CAP_NATIVE_ENV;
+    if (manager && wex_window_manager_v1_get_version(manager) >= 7)
+        params->capabilities |= WEX_WM_CAP_FOREIGN_FRAME;
+    params->err = running ? ERROR_SUCCESS : ERROR_NOT_READY;
+    pthread_mutex_unlock(&wl_mutex);
+    return STATUS_SUCCESS;
+}
 const struct wm_backend_ops wayland_wm_backend = {
     WEX_WM_BACKEND_WAYLAND, WEX_WM_CAP_OBSERVE | WEX_WM_CAP_NATIVE_ENV,
     wayland_start,wayland_next_event,wayland_manage,wayland_configure,wayland_state,
     wayland_close,wayland_release,wayland_title,wayland_icon,wayland_stop,wayland_focus,wayland_info,
+    wayland_binding,wayland_capabilities,
 };

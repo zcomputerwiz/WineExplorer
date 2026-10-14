@@ -71,6 +71,7 @@ NTSTATUS wm_capabilities(void *args)
     struct wm_capabilities_params *params = args;
     const struct wm_backend_ops *ops = get_backend();
     params->backend = ops ? ops->backend : WEX_WM_BACKEND_AUTO;
+    if (ops && ops->get_capabilities) return ops->get_capabilities(args);
     params->capabilities = ops ? ops->capabilities : 0;
     params->err = ops ? ERROR_SUCCESS : ERROR_NOT_READY;
     return STATUS_SUCCESS;
@@ -109,6 +110,17 @@ NTSTATUS wm_native_info(void *args)
     const struct wm_backend_ops *ops = get_backend();
     memset(&params->info, 0, sizeof(params->info));
     if (ops && ops->native_info) return ops->native_info(args);
+    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS wm_binding(void *args)
+{
+    struct wm_binding_params *params = args;
+    const struct wm_backend_ops *ops = get_backend();
+    memset(params->token, 0, sizeof(params->token));
+    memset(params->controller, 0, sizeof(params->controller));
+    if (ops && ops->binding) return ops->binding(args);
     params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
     return STATUS_SUCCESS;
 }

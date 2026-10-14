@@ -29,6 +29,7 @@
 
 #include "wine/debug.h"
 #include "wexhost_unix.h"
+#include "waylandhost.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL( wexhost );
 
@@ -540,6 +541,8 @@ DWORD WINAPI WexWmBindHost( UINT64 window, HWND host, const RECT *client, const 
     UINT64 parent;
     if (!IsWindow( host )) return ERROR_INVALID_WINDOW_HANDLE;
     if ((err = WexWmGetCapabilities( &backend, &capabilities ))) return err;
+    if (backend == WEX_WM_BACKEND_WAYLAND && (capabilities & WEX_WM_CAP_FOREIGN_FRAME))
+        return wayland_host_bind(window,host);
     if (backend != WEX_WM_BACKEND_X11 || !(capabilities & WEX_WM_CAP_X11_PARENT))
         return ERROR_NOT_SUPPORTED;
     parent = (ULONG_PTR)GetPropW( host, L"__wine_x11_whole_window" );
@@ -589,6 +592,9 @@ static DWORD wm_window_call( unsigned int code, UINT64 window, const RECT *clien
 
 DWORD WINAPI WexWmConfigure( UINT64 window, const RECT *client, const RECT *screen )
 {
+    DWORD backend, capabilities;
+    if (!WexWmGetCapabilities(&backend,&capabilities) && backend == WEX_WM_BACKEND_WAYLAND)
+        return wayland_host_configure(window);
     return wm_window_call( unix_wm_configure, window, client, screen, 0 );
 }
 
@@ -609,6 +615,8 @@ DWORD WINAPI WexWmFocus( UINT64 window )
 
 DWORD WINAPI WexWmRelease( UINT64 window, const RECT *screen )
 {
+    DWORD err=wayland_host_release(window);
+    if (err) return err;
     return wm_window_call( unix_wm_release, window, NULL, screen, 0 );
 }
 
@@ -653,6 +661,7 @@ void WINAPI WexWmStop( void )
     MSG msg;
 
     if (!unix_ready || !wm_thread) return;
+    wayland_host_stop();
     WEXHOST_CALL( wm_stop, &params );
     /* the event thread may be sending its last events to this thread */
     while (MsgWaitForMultipleObjects( 1, &wm_thread, FALSE, 5000, QS_SENDMESSAGE ) == WAIT_OBJECT_0 + 1)
