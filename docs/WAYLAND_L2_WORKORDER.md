@@ -24,7 +24,10 @@ foreign connection-local objects, titles, app IDs, pointers or process IDs.
 Implementation versioning note: committed v3 supplies supplemental observation
 and native endpoints. v4 adds the controller-lifetime handle and prepared frame
 association without breaking v3 clients. PREPARED reserves identity/lifetime only;
-active scene/input hosting and focus acknowledgements are still pending.
+v5 adds explicit active scene grouping and frame root render/input exclusion;
+the synthetic suite passes with and without XWayland. Wine still binds v4 and
+the bridge v3. Focus acknowledgements, resize/policy recovery and driver/bridge
+hosting remain pending. See WAYLAND_L2.md for the verified checkpoint and limits.
 
 Reuse proxy HWNDs and existing taskbar/window-state/dialog handling. Owned foreign
 dialogs retain Win32 ownership but map as independent Wayland toplevels. Exclude

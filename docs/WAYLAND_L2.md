@@ -271,3 +271,74 @@ Next: add the compositor's atomic native/frame scene group and client-area
 render/input exclusion, then physical/native focus acknowledgements and frame
 menu focus handling. Only after those checks can wexhost BindHost claim hosting
 and Explorer AUTO adopt windows. Native launch/D-Bus activation routing follows.
+
+## Active scene grouping checkpoint
+
+The compositor L2 topic c16220d9 now offers private protocol v5 commit_foreign and a
+separate ACTIVE/DETACHED/NOT_READY group acknowledgement. PREPARED remains a
+reservation only. Activation of a group requires mapped buffers and matching
+native client dimensions. Invalid rectangles preserve the existing reservation
+and group. Wine still binds v4, and wexhost still binds v3; this checkpoint is
+exercised by synthetic clients, not enabled Explorer adoption.
+
+The native view's complete scene tree is reparented under the frame's outer view
+tree. Four ordinary wlroots scene-surface nodes draw only the frame ring, with
+source/destination crops and translated input coordinates. The original frame
+root buffer is disabled while its subsurfaces remain above the native content.
+Native buffers, transparency and input regions stay under wlroots control;
+there is no capture or pixel-copy path. Movement and minimize/restore operate
+on the group, and raising native content raises the frame root. Private
+activation directs physical keyboard focus to the native view. Full Wine
+logical activation and menu focus acknowledgements are still required.
+
+Controller loss restores native decorations and removes the obsolete proxy.
+Surface and scene-buffer destruction listeners handle abrupt frame/native
+connection loss. A lost root buffer detaches rather than leaving a half-hosted
+view. CSD/borderless clients require a full-root cutout, but their complete
+acceptance tests, viewport/transform cases and 150% scaling remain pending.
+This stage supports a fixed client rectangle; resize negotiation, decoration
+policy changes, workspace/fullscreen transitions and focus handshake must be
+completed before any bridge hosting capability or AUTO adoption is enabled.
+
+Verification on the Proton VM:
+
+- Full compositor suite passes 37/37 with XWayland and 37/37 without XWayland.
+  It checks frame-ring and native input routing, input holes, alpha blending,
+  grouped movement, minimize/restore, Wine menu layering, controller recovery
+  and abrupt frame/native connection loss, alongside the existing L1 checks.
+- Logs: ~/wexcomp-build/l2-scene-acceptance.log and
+  ~/wexcomp-build/l2-scene-no-xwayland.log. Screenshots are under
+  ~/wexcomp-build/tests/wex/output and
+  /srv/protonexplorer/wex-wayland-l2/no-x-scene-output.
+- tests/wex/run.sh accepts WEX_CHECK_COMP_BUILD to exercise the same suite
+  against the no-XWayland build. Set WEX_EXPECT_NO_XWAYLAND=1 for that variant.
+- Existing Wine v4 probes pass 32/64 association and all mixed-process L1
+  stacking/foreground assertions against v5. Log:
+  /srv/protonexplorer/wex-wayland-l1/checks/l2-scene-driver-regression-retry.log;
+  state checks/association.aey1fhz7. This is compatibility verification, not a
+  Wine v5 hosting claim.
+
+Corrections and reference work:
+
+- The initial frame pixel at (105,105) overlapped the cursor. The screenshot
+  showed its antialiasing, not a frame-rendering error; sample (200,110) instead.
+- The first minimize screenshot was taken before the request was flushed on
+  the controller's separate connection. Roundtrip that connection and assert
+  its observed minimized state before capture. An initial assertion used a
+  nonexistent minimized field; correct it to the existing standard state bit.
+- Official GitLab and sources.debian.org source access failed. A guessed Debian
+  .tar.gz URL returned 404; the official pool lists .tar.bz2. Read matching
+  wlroots 0.18.2 source from that archive in an ignored guest reference directory.
+  Implementation uses public scene APIs rather than private clip fields; no
+  third-party source was copied into the new implementation.
+- The first mixed-process Wine regression timed out in its ten-second readiness
+  subprocess after both association probes had passed. Cleanup terminated the
+  owned Wine server and compositor; no clients remained. A complete sequential
+  rerun passed all original assertions without changes or enlarged limits.
+  Preserve l2-scene-driver-regression.log and state association.xl9qcjlt alongside
+  the passing log; startup timing remains a harness robustness item.
+
+Next is the physical/native versus Wine logical focus handshake, then dynamic
+rectangle/resize and policy recovery. Wire v5 into Wine and wexhost BindHost only
+with explicit group acknowledgements and a Win32 client-area input exclusion.
+Existing desktop sessions and production runtime pins remain unchanged.

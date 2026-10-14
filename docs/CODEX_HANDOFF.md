@@ -2,15 +2,20 @@
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
 WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 925b10c, compositor
-codex/wayland-l2 at 5893c35c. Host Wine topic now lives in
+codex/wayland-l2 at c16220d9. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 f0108dc gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32
 ownership while mapping owned native proxies independently. PREPARED does not
-mean rendered/hosted. Full compositor 28/28 and no-XWayland cases pass; 32/64
-Wayland driver association probes and mixed-architecture L1 stacking pass.
-Next is scene/input grouping and native physical vs. Wine logical focus, then
-bridge hosting/AUTO and launch routing. No deployed runtime or session changes.
+mean rendered/hosted. Compositor v5 adds explicit scene commit/group status,
+frame-ring cropping and native input routing, grouped move/minimize/restore and
+controller/frame/native disconnect recovery. Its full suite passes 37/37 both
+with and without XWayland. Wine still binds v4: 32/64 association probes and
+mixed-architecture L1 stacking pass against v5. See WAYLAND_L2.md for logs and
+the initial startup timeout before the complete successful rerun.
+Next is native physical vs. Wine logical focus, dynamic resize/policy recovery,
+then driver/bridge hosting and AUTO adoption. CSD, native popup, scaling and
+application coverage remain acceptance work. No deployed runtime or session changes.
 
 Earlier L2 bridge checkpoint: read
 WAYLAND_L2.md before the historical L1/installer notes below. Main source now
