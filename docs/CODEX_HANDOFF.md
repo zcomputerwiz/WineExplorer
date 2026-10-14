@@ -1,4 +1,56 @@
-# Codex handoff — 2026-10-13 refactor complete
+# Codex handoff — 2026-10-14 Wayland L1 complete
+
+Current work order WAYLAND_INTEGRATION_WORKORDER.md is complete. Read
+WAYLAND_L1.md for acceptance, failed-command corrections and public screenshots.
+The older refactor/installer notes below are historical; preserve their safety
+rules, but use these current pins for new builds.
+
+- Project master includes the five owned shell role/appbar/native-host changes
+  through merge 2853f509. Wine gitlink and wineexplorer/11.19 are
+  05286f7c90db81182be43ec257234b7cb3805672. This merges the accepted Wayland
+  integration through ea0654efdb with concurrent visual-style work through
+  70e6378514. Compositor wexcomp and codex/wex-window-handles are
+  9a47d74f365c4b42310b51e81916592a40d3046f. All updates are fast-forwards.
+- Every new Wine build must use --enable-archs=i386,x86_64 with both MinGW
+  C++17 compilers. Full combined build passes; 32-bit Notepad and mixed 32/64
+  cross-process stacking pass. No Gemini WSL distributions were used.
+- The new native explorer /shell path uses the compositor's desktop and output
+  modes. Standard optional xx-zones handles placement/shared coordinates;
+  private wex-window v2 uses opaque compositor handles published through shared
+  Win32 atoms for cross-process stacking. v1 requests remain compatible.
+- Click/NoActivate, desktop-bottom, taskbar minimize/restore and reservation,
+  topmost, menu, Start, pointer warp, alpha/color key, foot/XWayland focus and
+  DPI placement pass. Compositor suite 26/26. Stock labwc/v1 fallback pass.
+  Shipping X11, D1/D2 and native dialog bounds pass on isolated build/dev sessions.
+- Wine Wayland standard-only branch upstream/winewayland-zones ends at
+  01607e166c, with prepared description in UPSTREAM.md. User submits WineHQ MRs
+  manually. No MR was opened. Private protocol/roles remain fork-only.
+- Host restarted during testing. Both VirtualBox VMs are running: dev SSH 2222,
+  Proton build SSH 2223, wineuser, key D:/VirtualBox_VMs/vm_key. Real production
+  desktops were not restarted or replaced. User's .gitignore *.tmp edit is
+  intentionally uncommitted.
+- The final nested Wayland test session on Xvfb :30 was stopped after captures;
+  its compositor and isolated Wine processes exited. Both real desktops remain
+  running. Logs/screenshots are retained under the build root's checks directory.
+- Accepted build root: /srv/protonexplorer/wex-wayland-l1/wow64-source/build/wine64
+  on Proton VM. Assembled source was updated without resetting/rebasing its Git
+  checkout: its version string still names 3bb585c4ee, while checks/source-candidate.txt
+  and SHA-256 verification of all 25 changed integration/theme files identify
+  05286f7c90. Do not reset this assembled tree. Build status is
+  checks/wow64-current-theme-build.status CURRENT_THEME_WOW64_BUILD_PASSED.
+- The packaged public runtime-wow64-public.tar.gz (host build/wayland, guest
+  root above; dev ~/wex-wayland-l1/runtime-wow64) contains accepted ea0654efdb
+  code before the later visual-style merge. Dev X11 acceptance used this package.
+  Repackage the combined 05286f7c90 source before any deployment/ISO work; no
+  globally installed runtime or ISO default was changed for L1.
+- Maintained replay tools: scripts/wayland-session.sh and wayland-l1-check.sh,
+  plus C/Python probes described in WAYLAND_L1.md. Lab prefixes are isolated from
+  ~/.wine. Test-only session defaults to ~/wexcomp-build/build/labwc and private
+  wex-shell-0 for every Wine process. Normal Linux apps use the normal socket.
+  CS_DROPSHADOW pixels remain the known Wayland D3 gap; global hotkey forwarding
+  is L4. Foreign Linux window frames are L2. These are separate work orders.
+
+## Historical refactor handoff — 2026-10-13
 
 Read CLAUDE.md, LICENSE.md and STOCK_CHANGES.md first. All items in
 REFACTOR_WORKORDER.md are complete, including P3b extraction, P4 fresh

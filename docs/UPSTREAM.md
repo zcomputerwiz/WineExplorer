@@ -256,9 +256,10 @@ Logs, exit codes and commit ids live in
 Fetch validated commits over the existing SSH connection and push from the
 host, keeping GitHub credentials off the guest.
 
-## Wine Wayland zones — 2026-10-13
+## Wine Wayland zones — 2026-10-14
 
-Branch: upstream/winewayland-zones, commit aed8b9599c46db289fd8f193e045e1ad11628bad,
+Branch: upstream/winewayland-zones, initial commit aed8b9599c46db289fd8f193e045e1ad11628bad
+and geometry correction 01607e166c (branch head),
 based on upstream master 081042ede6a165a36bf9988350dd584b440d7a3d.
 Submission remains manual; no WineHQ MR has been opened.
 
@@ -274,10 +275,12 @@ position feedback and rejoin/re-place on zone changes. Keep existing behavior
 when the protocol is absent. Vendor the MIT XML unchanged; new driver code is
 available under LGPL-2.1-or-later or GPL-2.0-or-later.
 
-Validation: Wine Wayland driver builds on Debian 13; six stationary windows match
-X11 captures pixel-for-pixel, and a second process joins the same handle and
-places its seventh window exactly at (740,50). Maintained probes:
+Validation: complete WoW64 build on Debian 13; six stationary windows match
+X11 captures pixel-for-pixel at 100%, and a second process joins the same handle
+and places its seventh window exactly at (740,50). At 150% all seven placements
+are within 1 px of X11. Maintained probes:
 scripts/wayland-position-probe.c and scripts/check-wayland-positions.py.
-The compositor's existing protocol suite passes 25/25. Final integration
-acceptance, stock-labwc fallback and fractional-DPI coverage remain in progress
-in WAYLAND_L1.md; this topic is prepared but not yet marked fully submission-ready.
+The compositor's protocol suite passes 26/26. Stock-labwc fallback and X11
+regression checks pass; final integration evidence is in WAYLAND_L1.md.
+This standard-only topic is ready for manual submission; private wex-window-v1
+and shell roles remain fork-only and are not part of this upstream branch.

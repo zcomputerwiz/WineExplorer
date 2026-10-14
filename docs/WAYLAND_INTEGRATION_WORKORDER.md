@@ -99,6 +99,10 @@ compositor) or `wexbuild` (Gemini's installer work). Never use the dev VM's genu
 
 ## Acceptance (record in `docs/WAYLAND_L1.md`, screenshots in `docs/wayland-l1/`)
 
+Completed 2026-10-14: [acceptance and restart record](WAYLAND_L1.md).
+Wine pin 05286f7c90 and compositor wexcomp 9a47d74f include the accepted
+integration. Wayland session is opt-in; shipping X11 defaults stay in place.
+
 Re-run the L0 matrix (`docs/WAYLAND_L0.md`) and add:
 - `compose-probe` windows at their requested positions, within 1 px of the same probe on X11 Xvfb, including a
   second process;

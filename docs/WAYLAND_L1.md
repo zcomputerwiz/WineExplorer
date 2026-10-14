@@ -1,23 +1,54 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Wayland L1 Wine integration
 
-Status: in progress, 2026-10-13. Acceptance is not yet claimed.
+Status: complete, 2026-10-14. Accepted integration is merged and pushed.
 Scope: WAYLAND_INTEGRATION_WORKORDER.md; shipping X11 stays unchanged.
 
 ## Environment
 
 Compositor development uses ProtonExplorer-VM (SSH 2223). Source/build is
-~/wexcomp-build, candidate codex/wex-window-handles at 192ab62b, from
+~/wexcomp-build, candidate codex/wex-window-handles at 9a47d74, from
 wexcomp ad962566bd169c3c27fafdaac9780a599fb7624a.
 Debian wlroots 0.18.2 development packages installed; meson/ninja build passes.
 No dev runtime or ISO defaults are changed. Gemini's WSL wexcomp/wexbuild
 distributions are untouched. Wine edits use the separate host fork worktree
-build/wayland/wine, branch codex/wayland-integration, now 3bb585c4ee. It includes
-the concurrent production f5016cf theme fix. Owned source is on the experimental
-project branch codex/wayland-l1 at 1e94efb9; master still ships X11.
+build/wayland/wine, branch codex/wayland-integration, now 05286f7c90. It includes
+the concurrent production theme commits through 70e6378514 and the verified
+Wayland integration through ea0654efdb. wineexplorer/11.19 is fast-forwarded
+to 05286f7c90; compositor wexcomp to 9a47d74f. Owned source and the Wine pin
+are merged into project master through 2853f509. Master still defaults to X11.
 Final WoW64 build is /srv/protonexplorer/wex-wayland-l1/wow64-source/build/wine64,
 configured with --enable-archs=i386,x86_64. Historical win64-only evidence below
-predates the new mandatory build rule; final WoW64 acceptance remains pending.
+predates the new mandatory build rule. Final WoW64 results are below.
+
+## Final WoW64 acceptance
+
+All tests use public resources and isolated prefixes. Recorded results on the
+ea0654efdb runtime, followed by a complete combined 05286f7c90 WoW64 build
+and click, native focus, composition, 32-bit Notepad and shell capture rechecks:
+
+| Requirement | Result / evidence |
+|---|---|
+| Full WoW64 build, both MinGW C++17 compilers | FINAL_WOW64_BUILD_PASSED; staged install and runtime package complete |
+| Shared coordinates, independently launched second process | Seven placements exactly match X11 at 100%; within 1 px at 150% |
+| Cross-process stacking, mixed bitness | WIN32_SHARED_STACKING_PASSED; 64-bit A/C and 32-bit B, relative orders, topmost and no focus theft |
+| Native `/shell`, desktop bottom, work area | 1024x768 desktop, taskbar at y=738, SPI_GETWORKAREA=(0,0)-(1024,738); no display-mode call |
+| Click activation and covered-window input | CLICK_RAISES_AND_DESKTOP_BOTTOM_PASSED; NoActivate preserves foreground; restored Notepad receives a covered-area click |
+| Taskbar minimize/restore, menus, 32-bit program | NOTEPAD32_TASKBAR_AND_MAXIMIZE_PASSED; real taskbar clicks, Alt+F, maximized visible frame stops at y=738; menu-wow64.png/maximized-wow64.png |
+| Topmost and shell layer | Topmost probe above maximized Notepad and below taskbar; topmost-wow64.png; Start menu opens in start-wow64.png |
+| Alpha, color key and requested rectangles | COMPOSE_PLACEMENT_AND_ALPHA_PASSED; five rectangles within 1 px; per-pixel ramp, 50% blue and key hole match X11 within one color value; compose-*-wow64.png |
+| Pointer warp | POINTER_PROTOCOL_AND_MOTION_PASSED; actual wp_pointer_warp_v1 request and motion at (950,600) |
+| Native Wayland keyboard focus roundtrip | NATIVE_FOCUS_RETURN_PASSED; Wine receives a/c, foot receives b; queued deactivation cannot clear newer activation |
+| XWayland alongside Wine | XWAYLAND_AND_WINE_FOCUS_RETURN_PASSED; mixed-xwayland-wow64.png |
+| Stock labwc / private v1 fallback | STOCK_CAPTURED / V1_FALLBACK_PASSED; menu screenshots, v1 minimize/restore without v2 handles |
+| Compositor protocol regression | 26/26, including three independent v2 clients, stale/self/cross-layer isolation and non-raising inactive restore |
+| X11 on build and dev VMs | Focus/NoActivate/tray bounds pass; eight 800x600 native-dialog cases pass after readiness polling |
+| X11 D1/D2 on build and dev VMs | Five D1 cycles pass; D2 blending and restored styles/attributes pass; d2-effects-wow64.png |
+
+CS_DROPSHADOW pixels under Wayland remain the known L0 gap (D3 work), and are
+not claimed here. This is an opt-in test session; no ISO or shipping session
+default changes. Existing screenshots without a WoW64 suffix are historical;
+the table distinguishes them from final WoW64 evidence.
 
 ## Integration finding
 
@@ -306,6 +337,22 @@ Additional command failures/corrections:
   Concurrent visual-style commits through 70e6378514 merge cleanly; combined
   build acceptance is pending. A compositor ls-remote using origin failed because
   its bare cache has no origin; use the explicit public repository URL.
+- First combined-build transfer used TarInfo's default 1970 timestamp; make
+  skipped the changed sources and printed success without compiling the new
+  msstyles_v4 file. That status is rejected. Set current archive timestamps,
+  re-extract and rebuild; Makefile contains both architectures' new module and
+  CURRENT_THEME_WOW64_BUILD_PASSED follows actual compilation. Tar warned that
+  host timestamps were 2-3 seconds ahead of the VM; make completed correctly.
+- First combined-session click run reached the readiness deadline before the
+  shell was visible; its log was empty and later phases were not run. Warm repeat
+  passes click/covered input, native focus and composition comparison. An attempted
+  explorer.log read failed; the launcher's file is shell.log. Combined-build
+  32-bit Notepad taskbar/menu/maximize and Start/topmost captures also pass.
+- SHA-256 source manifest matches all 25 integration/theme files to 05286f7c90;
+  the assembled checkout's old Git version string is not its effective source
+  identity. checks/source-candidate.txt records the verified candidate. Do not
+  reset the assembled tree. Final nested session.Y9Dz8L/Xvfb :30 is stopped;
+  isolated Wine/compositor exited, both real VM desktops remain running.
 
 The helper scripts are test tools, not session/ISO defaults. Compile dependencies:
 both MinGW GCC architectures; capture/input dependencies: grim, ImageMagick,

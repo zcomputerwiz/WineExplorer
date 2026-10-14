@@ -5,7 +5,9 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
-P4 now tracks Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
+P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
+Current pin is 05286f7c90, including accepted opt-in Wayland L1 integration
+and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.
@@ -37,8 +39,7 @@ smoke without changing the production pin (REBASE.md).
 | `dlls/winewayland.drv` xx-zones-v1 | optional shared per-socket coordinate zone; volatile registry token supports independently launched processes; map/move positioning and feedback with surface scaling and tracked xdg geometry offset | only when compositor advertises xx_zone_manager_v1; upstream/winewayland-zones aed8b9599c + 01607e166c; retained 853c5b02c7 + 1bab2dda87 on codex/wayland-integration; seven placements match X11 exactly at 100% and within 1 px at 150% |
 | `dlls/winewayland.drv`; `include/wexwayland.h` | privileged layers, shared-handle cross-process relative stacking, native activation hook and minimized restore; generic scalar role/edge/size properties, no class checks | optional wex_window_manager_v1; ce019d67c7 + header correction 996f87f33f; activation/configure a83412b0ed; maximized work-area borders e3be0174be; shared atoms 97eb62958c; focus acknowledgement 89735ec1ef; background restore/logical stacking 624720e2b6; native focus loss with stale-event guard ea0654efdb; v1 same-connection fallback; v2 compositor 9a47d74 passes 26/26 |
 | `dlls/win32u/message.c` | skip implicit click activation of a WS_EX_NOACTIVATE root | generic Win32 style fix 8f1717c8f3; verified private Wayland and X11; upstream baseline incorrectly activated it |
-| `programs/explorer/desktop.c`, `explorer.c` | /shell without /desktop starts the plugin on the driver's desktop and skips display mode changes | explicit /shell only; candidate d7d46937a3, isolated Wayland shell starts; shipping pin remains unchanged pending acceptance |
-| `dlls/win32u/message.c` | do not mouse-activate a top-level carrying WS_EX_NOACTIVATE; explicit programmatic activation and MA_NOACTIVATE remain separate | generic candidate bug fix; real click tests pass under private Wayland and X11; old X11 baseline activates the NoActivate window, corrected build preserves the preceding foreground window |
+| `programs/explorer/desktop.c`, `explorer.c` | /shell without /desktop starts the plugin on the driver's desktop and skips display mode changes | explicit /shell only; d7d46937a3 included in accepted 05286f7c90; native Wayland shell passes |
 | `programs/explorer/desktop.c`, `explorer.c`; `include/wexshell.h` | load the versioned wexshell.dll plugin for the Windows-style shell and route its browser/applet commands; implementation lives in project modules under `src/dlls` (wexshell, wexres, themeui, msgina), while the stock host retains desktop creation, clipboard, COM registration and its message loop | shell startup only when `EnableShell=1` (`HKCU\Software\Wine\Explorer\Desktops\<name>`), named `shell`, or requested with `/shell`; missing/incompatible plugin uses stock behavior |
 | `programs/explorer/desktop.c` | `/shell` switch (before the program to run) enables the shell for that desktop; used by the Winlogon-style session script | only when given |
 | `programs/explorer/explorer.c` | `/wlan`, `/netstatus`, `/netprops` helper switches; `::{CLSID}` paths and `/e` accepted | token-based, only when given as arguments |

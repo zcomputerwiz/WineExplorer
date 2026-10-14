@@ -86,7 +86,7 @@ On all of them Wine apps run through XWayland by default; the Wayland driver is 
 | Phase | Work | Size |
 |---|---|---|
 | **L0 spike** | Measure the gaps (work order below) | days |
-| L1 | Compositor skeleton (tinywl/labwc) + layer-shell roles in Wine's driver + `wex-window-v1` + the Wine driver commit for it | weeks |
+| L1 | Compositor skeleton (tinywl/labwc) + layer-shell roles in Wine's driver + `wex-window-v1` + the Wine driver commit for it | Completed 2026-10-14; opt-in session, acceptance in WAYLAND_L1.md |
 | L2 | Linux apps: foreign toplevels, Explorer frames, XWayland | weeks |
 | L3 | D1/D2 effects and capture in the compositor | 1–2 weeks |
 | L4 | Hotkeys, session lock, Wayland greeter (LightDM), output management, multi-monitor | weeks |

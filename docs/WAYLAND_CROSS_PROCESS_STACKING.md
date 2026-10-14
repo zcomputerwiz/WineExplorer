@@ -1,14 +1,15 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Private protocol extension for cross-process stacking
 
-Status: user approved the compositor extension on 2026-10-13. Implementation and
-acceptance tests are in progress on codex/wex-window-handles in the Proton VM
-clone. Gemini's WSL distributions remain untouched.
+Status: implemented and verified, 2026-10-14. The user approved the extension
+on 2026-10-13. Compositor candidate codex/wex-window-handles is 9a47d74f;
+Wine integration through ea0654efdb is included in 05286f7c90. Gemini's WSL
+distributions remain untouched. Detailed acceptance: WAYLAND_L1.md.
 
 The v1 place_above/place_below sibling arguments are Wayland objects. They can
 reference only objects on the caller's connection. All shell Wine processes
 connecting to wex-shell-0 does not make their objects interchangeable.
-Wine's HWND list spans processes; current v1 integration can preserve layers
+Wine's HWND list spans processes; v1 integration can preserve layers
 and same-process relative order, but cannot express a foreign-process sibling.
 
 ## Version 2
@@ -43,3 +44,10 @@ a sibling in another process, SWP_NOACTIVATE, HWND_BOTTOM, topmost transitions,
 and activation/minimize/restore. Confirm v1/stock-labwc fallback and X11.
 Use the Proton VM clone and a separate codex branch; do not enter Gemini's WSL
 distributions or alter ISO/session defaults.
+
+Completed: compositor suite passes 26/26, including three independent v2
+clients, both relative orders, stale/unknown/self handles, cross-layer guards,
+normal-socket isolation and inactive restore preserving focus and normal order.
+The maintained Win32 harness passes with two 64-bit processes and a 32-bit
+process sharing HWND atoms. Private v1 and stock-labwc fallback, X11, real
+click activation, taskbar minimize/restore and native-app focus return pass.
