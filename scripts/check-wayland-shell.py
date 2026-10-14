@@ -98,7 +98,32 @@ for bits in ((64, 32) if enabled else (64,)):
             report_wait(report, "READY_MENU_CAPTURE", probe)
             subprocess.run(["grim", str(case / "menu.png")], env=env, check=True, timeout=10)
             Path(str(report) + ".menu").write_text("menu captured\n")
+            content = report_wait(report, "READY_TASK_MINIMIZE", probe)
+            task = re.search(r"TASK_POINT (\d+) (\d+)", content)
+            assert task, content
+            x, y = int(task[1]), int(task[2])
+            # Exclude the hover border and icon; the active title is bold.
+            crop = (x + 10, y - 6, x + 120, y + 6)
+            active = case / "task-active.png"
+            subprocess.run(["grim", str(active)], env=env, check=True, timeout=10)
+            with Image.open(active) as image:
+                active_title = image.convert("RGB").crop(crop).tobytes()
+
+            def task_click(button="click", point=task):
+                assert point, report.read_text()
+                command(f"{button} {point[1]} {point[2]}")
+                assert select.select([peer.stdout], [], [], 5)[0]
+                reply = peer.stdout.readline().strip().split()
+                assert len(reply) == 4 and reply[0] == "CLICK", reply
+
+            def menu_key(key):
+                command(f"key {key}")  # Linux input-event codes, US menu mnemonics
+                assert select.select([peer.stdout], [], [], 5)[0]
+                assert peer.stdout.readline().strip() == "KEY"
+
+            task_click()
             report_wait(report, "READY_MINIMIZED", probe)
+            minimized = case / "task-minimized.png"
             deadline = time.monotonic() + 5
             while True:
                 command("state")
@@ -107,7 +132,44 @@ for bits in ((64, 32) if enabled else (64,)):
                     break
                 assert time.monotonic() < deadline, "native did not minimize"
                 time.sleep(.05)
+            deadline = time.monotonic() + 5
+            while True:
+                subprocess.run(["grim", str(minimized)], env=env, check=True, timeout=10)
+                with Image.open(minimized) as image:
+                    inactive = image.convert("RGB").crop(crop).tobytes()
+                if inactive != active_title:
+                    break
+                assert time.monotonic() < deadline, "minimized task button kept its active appearance"
+                time.sleep(.05)
             Path(str(report) + ".restore").write_text("native minimized\n")
+            report_wait(report, "READY_TASK_RESTORE", probe)
+            task_click()
+            report_wait(report, "READY_TASK_MENU_CANCEL", probe)
+            restored = case / "task-restored.png"
+            # The only eligible task occupies the first button. Compare with
+            # the pointer in the same place so hover cannot explain the change.
+            deadline = time.monotonic() + 5
+            while True:
+                subprocess.run(["grim", str(restored)], env=env, check=True, timeout=10)
+                with Image.open(restored) as image:
+                    if inactive != image.convert("RGB").crop(crop).tobytes():
+                        break
+                assert time.monotonic() < deadline, "task button did not repaint its active appearance"
+                time.sleep(.05)
+            task_click("right")
+            report_wait(report, "\nMENU_CANCEL\n", probe)
+            menu_key(1)  # Escape
+            report_wait(report, "READY_TASK_DEACTIVATE", probe)
+            task_click(point=(None, "1200", "100"))  # unoccupied desktop
+            report_wait(report, "READY_TASK_ACTIVATE", probe)
+            task_click()
+            for action in ("MINIMIZE", "RESTORE"):
+                report_wait(report, f"READY_TASK_MENU_{action}", probe)
+                task_click("right")
+                report_wait(report, f"\nMENU_{action}\n", probe)
+                subprocess.run(["grim", str(case / f"task-menu-{action.lower()}.png")],
+                               env=env, check=True, timeout=10)
+                menu_key(49 if action == "MINIMIZE" else 19)  # N / R
             report_wait(report, "READY_NATIVE_MINIMIZE", probe)
             command("minimize")
             report_wait(report, "READY_NATIVE_RESTORE", probe)
@@ -116,6 +178,10 @@ for bits in ((64, 32) if enabled else (64,)):
             command("csd")
             report_wait(report, "READY_SSD", probe)
             command("ssd")
+            report_wait(report, "READY_TASK_MENU_CLOSE", probe)
+            task_click("right")
+            report_wait(report, "\nMENU_CLOSE\n", probe)
+            menu_key(46)  # C
         assert probe.wait(timeout=25) == 0, report.read_text(errors="replace")
         print(report.read_text(), flush=True)
         if enabled:

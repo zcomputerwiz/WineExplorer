@@ -34,6 +34,9 @@ policy changes detach safely. wexhost now binds up to v7 and implements explicit
 SSD HWND binding/lifetime/hit exclusion with 32/64 real API probes. Explorer's
 explicit lab gate now passes actual 64/32 shell adoption, observed-state handling,
 native click/rendering, real menu focus, two-way minimize/restore and withdrawal.
+Real task-button activation/minimize/restore, visual active-state transitions,
+and context-menu cancellation/Minimize/Restore/Close now pass with both actual
+Explorer architectures. Owner/transient and broader application coverage remain.
 Native resize negotiation and complete acceptance remain pending.
 AUTO is still disabled. See WAYLAND_L2.md for limits.
 

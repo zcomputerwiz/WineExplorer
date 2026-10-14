@@ -6,6 +6,27 @@
 #include <stdio.h>
 #include <wexwayland.h>
 static unsigned count;
+static HWND taskband;
+static BOOL CALLBACK find_taskband(HWND hwnd,LPARAM arg)
+{
+    WCHAR name[128];
+    GetClassNameW(hwnd,name,128);
+    if (!lstrcmpW(name,L"MSTaskListWClass")) taskband=hwnd;
+    return TRUE;
+}
+static void task_point(void)
+{
+    RECT rect;
+    POINT point={20,0};
+    GetClientRect(taskband,&rect); point.y=rect.bottom/2;
+    ClientToScreen(taskband,&point);
+    printf("TASK_POINT %ld %ld\n",point.x,point.y);
+}
+static BOOL menu_ready(void)
+{
+    HWND popup=FindWindowW(L"#32768",NULL);
+    return popup && IsWindowVisible(popup);
+}
 static BOOL CALLBACK count_host(HWND hwnd,LPARAM arg)
 {
     WCHAR name[128];
@@ -94,11 +115,30 @@ int main(int argc,char **argv)
     WAIT("menu capture gate",gate(argv[2],"menu"));
     PostMessageW(host,WM_CANCELMODE,0,0);
     WAIT("closing real menu restores native focus",(ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
-    ShowWindow(host,SW_MINIMIZE);
+    EnumChildWindows(FindWindowW(L"Shell_TrayWnd",NULL),find_taskband,0);
+    if (!taskband) { puts("FAIL taskband missing"); return 1; }
+    task_point(); puts("READY_TASK_MINIMIZE");
     WAIT("proxy minimized",IsIconic(host)); puts("READY_MINIMIZED");
     WAIT("native minimize confirmation",gate(argv[2],"restore"));
-    ShowWindow(host,SW_RESTORE);
-    WAIT("proxy restored",!IsIconic(host)); puts("READY_NATIVE_MINIMIZE");
+    puts("READY_TASK_RESTORE");
+    WAIT("task button restores native focus",!IsIconic(host) && GetForegroundWindow()==host &&
+         (ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
+    puts("READY_TASK_MENU_CANCEL");
+    WAIT("task menu opens",menu_ready()); puts("MENU_CANCEL");
+    WAIT("task menu closes",!menu_ready());
+    puts("READY_TASK_DEACTIVATE");
+    WAIT("desktop click deactivates proxy",GetForegroundWindow()!=host);
+    puts("READY_TASK_ACTIVATE");
+    WAIT("inactive task button activates native focus",!IsIconic(host) && GetForegroundWindow()==host &&
+         (ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
+    puts("READY_TASK_MENU_MINIMIZE");
+    WAIT("task menu opens",menu_ready()); puts("MENU_MINIMIZE");
+    WAIT("task menu minimizes",IsIconic(host));
+    puts("READY_TASK_MENU_RESTORE");
+    WAIT("task menu opens",menu_ready()); puts("MENU_RESTORE");
+    WAIT("task menu restores native focus",!IsIconic(host) && GetForegroundWindow()==host &&
+         (ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
+    puts("READY_NATIVE_MINIMIZE");
     WAIT("observed native minimize",IsIconic(host)); puts("READY_NATIVE_RESTORE");
     WAIT("observed native restore",!IsIconic(host) &&
          (ULONG_PTR)GetPropW(host,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
@@ -109,7 +149,8 @@ int main(int argc,char **argv)
     puts("READY_SSD");
     WAIT("SSD proxy returns",(host=FindWindowW(L"WineExplorerLinuxWindow",L"L2 Shell renamed"))!=NULL &&
          (ULONG_PTR)GetPropW(host,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
-    PostMessageW(host,WM_CLOSE,0,0);
+    puts("READY_TASK_MENU_CLOSE");
+    WAIT("task menu opens",menu_ready()); puts("MENU_CLOSE");
     WAIT("native close withdraws proxy",!IsWindow(host));
     count=0; EnumWindows(count_host,0);
     if (count) { puts("FAIL stale shell proxy"); return 1; }

@@ -648,3 +648,56 @@ Final verification logs on the Proton VM:
 The check paths above share /srv/protonexplorer/wex-wayland-l1 as their root.
 No test compositor or Wine server remains in use, and all screenshots originate
 from isolated tests. No proprietary reference assets were added.
+
+## Real taskbar input checkpoint (2026-10-14)
+
+The maintained full-shell test now operates the native application's task
+button with actual compositor virtual-pointer events. Both 64-bit and 32-bit
+Explorer pass active-button minimize, minimized-button restore, inactive-button
+activation after a desktop click, and native keyboard-focus restoration.
+Right-click menus are opened through the same pointer; a virtual keyboard sends
+Escape or the visible menu's N/R/C mnemonic for cancellation, Minimize, Restore
+and Close. The final Close still waits for the native application to honor the
+request and for its proxy to disappear. Existing native rendering, title/size,
+system-menu focus and CSD withdrawal/readoption checks remain in the sequence.
+
+The isolated one-client case locates MSTaskListWClass under Shell_TrayWnd and
+samples the first button using its actual screen origin. It retains active,
+minimized, restored and context-menu screenshots. Bounded screenshot polling
+waits for title pixels to change on both minimize and restore; it excludes the
+hover border/icon. This checks the lab's current theme, not XP visual fidelity
+or acceptance across every theme. No production introspection hooks were added.
+Compositor topic 50646994 adds only right-button and virtual-keyboard commands
+to the existing test publisher; production pins and Wine topic are unchanged.
+
+Corrections:
+
+- The first menu probe tried GetMenuBarInfo/GetMenuItemRect across processes.
+  Wine menu handles are process-local, so that failed at the minimize entry
+  (checks/l2-taskbar-controls-first.log). Replace that inspection with actual
+  keyboard menu input; popup readiness still uses its visible window.
+- Immediate minimize screenshots could still contain the active button's last
+  frame. Waiting only for the restore repaint compared two active images and
+  failed (l2-taskbar-controls-final.log, l2-taskbar-controls-repaint.log and
+  l2-taskbar-controls-fix.log). A tentative minimized-state guard was tested,
+  then removed: the original taskband code passes once both image transitions
+  are awaited. l2-taskbar-before-regression.log records that original-code pass;
+  no taskband fix or unresolved visual defect is claimed by this checkpoint.
+- Inspection commands included a nonexistent search path and README filename;
+  no files were changed. The topic worktree has no origin remote, so its first
+  push failed; pushing to the documented zcomputerwiz/labwc URL succeeded.
+
+Final logs under /srv/protonexplorer/wex-wayland-l1/checks:
+
+- l2-taskbar-final-build.log: combined WoW64 wexshell target passes with the
+  original taskband source restored.
+- l2-taskbar-acceptance.log, state shell-adoption.cvz50gf_: complete scenario
+  passes in both actual Explorer architectures, including visual transitions.
+- l2-taskbar-disabled.log: absent lab gate leaves the native client unadopted.
+- l2-taskbar-x11-smoke.log: CHECK_PASSED, two tray icons with zero overlap or
+  out-of-bounds placement and all eight native dialog-placement cases pass.
+
+Next: owned/transient windows and parent changes/closure, then interactive
+move/resize negotiation, CSD task representation and scaling/state/application
+launch acceptance. Ordinary task-button/menu checks do not establish grouped
+task menus, native global shortcuts or completion of L2. AUTO stays disabled.

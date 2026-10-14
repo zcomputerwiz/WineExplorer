@@ -2,7 +2,7 @@
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
 WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 786643b, compositor
-codex/wayland-l2 at efb40ac9. Host Wine topic now lives in
+codex/wayland-l2 at 50646994. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 f0108dc gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32
@@ -37,7 +37,15 @@ Default gate-off and X11 remain unchanged. Compositor efb40ac9 fixes a reproduce
 transient NONE-decoration notification during adoption; raw regression passes.
 Use check-wayland-shell.sh and the separately named wayland-adoption-probe.c;
 the existing L1 wayland-shell-probe.c is intact. Read WAYLAND_L2.md for logs.
-Next: real taskbar controls, owner/transient/state coverage, native resize and
+Taskbar checkpoint: actual virtual-pointer task-button minimize/restore and
+inactive activation, virtual-keyboard context-menu cancellation and
+Minimize/Restore/Close pass in both Explorer architectures. Screenshot probes
+wait for both inactive and active title repaint; immediate captures were stale,
+not a taskbar defect. A proposed taskband guard was removed after the original
+code passed the corrected test. No taskband production change is needed.
+Compositor 50646994 adds only publisher input commands. See WAYLAND_L2.md for
+the final logs and retained screenshots.
+Next: owner/transient/state coverage, native resize and
 move loops, then scaling/fullscreen/workspace and launch acceptance. CSD binding
 is deliberately rejected, and resize/maximize UI is disabled in the lab gate.
 Fullscreen/workspace, CSD, native popup, scaling and
