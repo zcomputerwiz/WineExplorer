@@ -56,3 +56,39 @@ Corrections during this checkpoint:
 - The first 32-bit probe returned ERROR_NOT_SUPPORTED because wexhost lacked
   __wine_unix_call_wow64_funcs. Added the fixed-width ABI table and reran both
   architectures successfully. Failed logs were superseded by successful reruns.
+
+## Compositor observation checkpoint
+
+Private manager version 3 adds get_foreign against the same connection's
+standard wlr foreign-toplevel inventory. The supplemental object reports a
+view-lifetime token, logical client geometry, decoration policy and labwc size
+hints. It does not adopt windows or change focus/decorations. Native view tokens
+remain identical across privileged observers; Wine-controlled views are
+ineligible. Standard metadata and ordinary controls remain on the wlr protocol.
+Live geometry/decoration updates use view_moved/view_set_ssd_mode. Native
+destruction closes the object and leaves refresh inert; disconnecting one
+observer leaves other observers and the native view intact.
+
+Meson build passed on the Proton VM. tests/wex/run.sh passed 27/27, including
+all 26 previous checks and the new foreign-client scenario: SSD/CSD, existing
+and late inventory, shared/distinct tokens, geometry/minimum sizes, standard
+title/minimize/restore, independent observer disconnection, Wine-frame exclusion
+and stale-object lifetime. Log: ~/wexcomp-build/l2-acceptance.log. Native/frame
+binding and shell Wayland adoption remain unimplemented; L2 acceptance is open.
+Verified source is compositor commit bc3ee676 on codex/wayland-l2, pushed to
+zcomputerwiz/labwc. Production wexcomp remains at 9a47d74f. The guest branch has
+the tested patch applied over that base; no production branch was advanced.
+
+Corrections:
+
+- A read assumed tests/wex/run-acceptance.sh; the actual harness is run.sh.
+- Supplemental callback was initially named foreign_toplevel_destroy, colliding
+  with the existing public API. Renamed before compilation.
+- Initial compositor linking failed because wlroots does not export the standard
+  foreign-toplevel protocol interface symbols. Vendor the unmodified upstream
+  wlr XML with its original permission notice and generate private interface
+  definitions in Meson and test clients. Build and full suite then passed.
+- A guest fast-forward preflight failed because the transport tar assigned
+  mode 0644 to four existing executable files. No fast-forward occurred. Preserve
+  Git's tracked modes in subsequent tar transfers and restore these modes;
+  the source contents already match bc3ee676. Unrelated guest logs remain intact.
