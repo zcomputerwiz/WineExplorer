@@ -832,6 +832,16 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
             ((WINDOWPOS *)lparam)->hwndInsertAfter = HWND_BOTTOM;
         return 0;
 
+    case WM_WINDOWPOSCHANGED:
+        /* Activation can use SWP_NOSENDCHANGING and bypass the handler above.
+         * Keep Win32 hit testing consistent with the compositor's desktop band
+         * even when the desktop takes keyboard focus. */
+        if (!(((WINDOWPOS *)lparam)->flags & SWP_NOZORDER) &&
+            ((WINDOWPOS *)lparam)->hwndInsertAfter != HWND_BOTTOM)
+            SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        return 0;
+
     case WM_SETFOCUS:
     case WM_KILLFOCUS:
         type_prefix[0] = 0;
