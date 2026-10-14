@@ -6,7 +6,7 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is 75bb32c, including accepted opt-in Wayland L1 integration
+Current pin is f0108dc, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
 Display Properties, wireless UI and media player replace stock stub modules
@@ -44,7 +44,7 @@ smoke without changing the production pin (REBASE.md).
 | `programs/explorer/desktop.c` | `/shell` switch (before the program to run) enables the shell for that desktop; used by the Winlogon-style session script | only when given |
 | `programs/explorer/explorer.c` | `/wlan`, `/netstatus`, `/netprops` helper switches; `::{CLSID}` paths and `/e` accepted | token-based, only when given as arguments |
 | `dlls/desk.cpl` | theme/background/appearance/settings pages added in front of Wine's Settings page; installed theme discovery, isolated style previews, direct shared themeui Apply, host-supported modes and keep/revert confirmation (see DISPLAY.md); themeui now persists Classic colors before cross-process reload | always |
-| `dlls/uxtheme` (`msstyles.c`, `msstyles_v4.c`, `draw.c`, `property.c`, `msstyles.h`) | Binary Vista-format VARIANT parsing, typed properties, WIC PNG decoding, DPI variants and atlas regions; ApplyTheme reads typed SysMetrics | always; reviewed fork through 75bb32c; standard-only four-commit upstream candidate c16f0bda39..276e12bd46, including fixes; full MIT notice, no unused generated tables; source-built tests pass both architectures |
+| `dlls/uxtheme` (`msstyles.c`, `msstyles_v4.c`, `draw.c`, `property.c`, `msstyles.h`) | Binary Vista-format VARIANT parsing, typed properties, WIC PNG decoding, DPI variants and atlas regions; ApplyTheme reads typed SysMetrics | always; reviewed fork through f0108dc; standard-only four-commit upstream candidate c16f0bda39..43c139255b, including fixes; full MIT notice, no unused generated tables; source-built tests pass both architectures |
 | `dlls/uxtheme/system.c` | MUI/filename documentation and fabricated scheme display-name fallbacks for installed styles lacking localized strings | fork-only convenience behavior; excluded from the cleaned upstream series and its assertions |
 | `dlls/uxtheme` (`system.c`, `msstyles.c`, `metric.c`) | implement private ordinal 16 `OpenThemeDataFromFile`; metrics follow the supplied theme handle; activating a preview applies metrics even when its classes are already parsed | always |
 | `dlls/uxtheme/msstyles.c` | convert non-client theme font heights from points to 96-DPI pixels; trim token whitespace before a comma (`MSSTYLES_GetNextToken`) | always; token trimming is an independent upstream candidate |

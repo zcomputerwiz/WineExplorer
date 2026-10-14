@@ -53,8 +53,8 @@ Wine historically parsed text tokens on demand (`lpValue` string pointer into IN
 - **Suite**: `dlls/uxtheme/tests/system.c` (`test_msstyles_v4`).
 - **Synthetic Style**: Minimal open-resource PE DLL containing synthetic `CMAP`, `VARIANT` stream (covering `INT`, `BOOL`, `COLOR`, `MARGINS`, `RECT`, `POSITION`, `STRING`, `ENUM`, `INTLIST`, `FILENAME`, `DISKSTREAM`, `ATLASRECT`), PNG images at 96 and 144 DPI, and an image atlas stream.
 - **Results**:
-  - 64-bit: **22,305 tests executed, 0 failures** in `test_msstyles_v4`.
-  - 32-bit WoW64: **22,305 tests executed, 0 failures** in `test_msstyles_v4`.
+  - Original author report: 22,305 total suite checks per architecture, not
+    22,305 focused v4 checks. The verified post-review counts are below.
   - Pixel verification: exact pixel sampling on memory DIB sections confirmed correct RGB rendering for both 96 DPI and 144 DPI PNG variants, as well as cropped atlas tiles.
   - Fuzzing: truncated headers (512 bytes) and corrupted VARIANT data streams (byte noise) cleanly rejected.
 
@@ -117,8 +117,8 @@ run would contradict; the series should be squashed with the three fixes before 
 ## Upstream cleanup (Codex, 2026-10-14)
 
 The submodule was synchronized to Claude's 51c870b before editing. Fork cleanup
-is on codex/uxtheme-v4-cleanup, through 75bb32c; upstream candidate is
-codex/uxtheme-v4-upstream-clean, through 276e12bd46. Final publication/build
+is on codex/uxtheme-v4-cleanup, through f0108dc; upstream candidate is
+codex/uxtheme-v4-upstream-clean, through 43c139255b. Final publication/build
 status will be recorded here after clean upstream acceptance.
 
 - msstyles_v4.c names the existing Git author identity zcomputerwiz as holder
@@ -137,8 +137,8 @@ status will be recorded here after clean upstream acceptance.
   resource by its actual file offset instead of a hard-coded byte range.
   Previous theme restoration remains in place.
 - Removed filename/documentation and fabricated display-name expectations.
-  Invalid schemes require failure rather than Wine's particular HRESULT or
-  output-handle clearing. Missing private APIs and unsupported unsigned styles
+  Scheme-name defaults, invalid-scheme HRESULTs and output-handle clearing
+  are not asserted without native evidence; only the active style path is checked. Missing private APIs and unsupported unsigned styles
   skip cleanly. Fork convenience fallbacks stay; their implementation is omitted
   from the upstream candidate.
 - Rebuilt the upstream topic as four commits: typed storage/zero initialization;
@@ -147,7 +147,7 @@ status will be recorded here after clean upstream acceptance.
   Fixes are folded into those commits, rather than appended as repair commits.
 
 Fork acceptance: full WoW64 build and targeted module/test build pass. Both architectures
-execute 62 v4 checks (zero failures/skips) and 22,252 existing system checks
+execute 59 final v4 checks (zero failures/skips) and 22,252 existing system checks
 (zero failures, 17 existing todo and four skips). On the Windows 11 host,
 32/64 focused suites exit successfully with one skip each: private theme-file
 entry points are unavailable. This verifies the skip path, not native rendering.
@@ -171,6 +171,15 @@ No host or real VM desktop theme was changed.
 - The native open-only preflight printed no result; explicit exit-code checks
   found code 3 (private ordinals absent), not a crash. Both focused tests then
   took the missing-entry-point skip without applying a host theme.
+- Final test review removed default NormalColor/NormalSize assertions and
+  invalid-scheme expectations without native evidence. The active style path
+  remains checked. Focused counts changed from 62 to 59, passing both bitnesses;
+  the correction is folded into the final upstream test commit 43c139255b.
+- A documentation patch failed because a Windows Python helper had written a
+  new em dash in locale CP1252 instead of UTF-8. Replace that byte with its UTF-8
+  encoding and validate the file; use explicit UTF-8 for subsequent doc writes.
+  A second patch assumed the first transaction had applied partially; it had
+  applied nothing. Reapply the complete correction with matching context.
 - Root filesystem is almost full (1.4 GB free), while /srv/protonexplorer has
   39 GB free. All new source/build/prefix output uses the latter disk. Test
   Xvfb :34 and its isolated Wine prefix were stopped; shipping desktops remain.

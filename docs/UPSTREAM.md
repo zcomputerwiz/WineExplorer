@@ -285,9 +285,9 @@ regression checks pass; final integration evidence is in WAYLAND_L1.md.
 This standard-only topic is ready for manual submission; private wex-window-v1
 and shell roles remain fork-only and are not part of this upstream branch.
 
-## Binary Vista-format visual styles in uxtheme — 2026-10-14
+## Binary Vista-format visual styles in uxtheme â€” 2026-10-14
 
-Clean candidate: `codex/uxtheme-v4-upstream-clean`, `276e12bd46`, based on
+Clean candidate: `codex/uxtheme-v4-upstream-clean`, `43c139255b`, based on
 upstream `081042ede6a165a36bf9988350dd584b440d7a3d`. Canonical topic publication
 awaits clean-build acceptance. Original fourteen-commit topic at d6a91d09b2 is
 preserved on `archive/uxtheme-msstyles-v4-pre-cleanup`. No WineHQ MR opened;
@@ -298,7 +298,7 @@ Squashed series (review corrections are folded into the relevant commits):
 1. `c16f0bda39` uxtheme: Store typed visual style properties.
 2. `a92f9293bd` uxtheme: Parse binary Vista-format visual styles and apply system metrics.
 3. `fa4718fc67` uxtheme: Decode PNG images and select DPI variants and atlas regions.
-4. `276e12bd46` uxtheme/tests: Exercise v4 properties and rendering with a source-built style.
+4. `43c139255b` uxtheme/tests: Exercise v4 properties and rendering with a source-built style.
 
 Proposed MR title: uxtheme: Read binary Vista-format visual styles.
 
@@ -327,7 +327,7 @@ The filename/documentation and fabricated scheme display-name fallbacks remain
 WineExplorer fork-only; neither their implementation nor Wine-specific
 expectations are included in this upstream series.
 
-Validation so far: full fork WoW64 build passes, with focused v4 (62 checks)
+Validation so far: full fork WoW64 build passes, with focused v4 (59 final checks)
 and existing system (22,252 checks, zero failures) passing in both architectures.
 The Windows 11 host's 32/64 focused tests skip because private theme-file APIs
 are unavailable; this validates the skip path, not native Windows rendering.
