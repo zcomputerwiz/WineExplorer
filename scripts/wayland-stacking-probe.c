@@ -52,6 +52,8 @@ int main(int argc, char **argv)
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
     if (strcmp(argv[1], "create")) return 4;
+    printf("PROCESS %s bits=%u\n", argv[2], (unsigned)(8*sizeof(void*)));
+    fflush(stdout);
     unsigned rgb = strtoul(argv[3], NULL, 16);
     color = RGB(rgb >> 16, (rgb >> 8) & 255, rgb & 255);
     cls.lpfnWndProc = proc; cls.hInstance = GetModuleHandleW(NULL);
