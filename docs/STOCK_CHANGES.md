@@ -23,7 +23,9 @@ changes are fork-only. Compositor topic fe3abb94 provides v5 active scene groupi
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
-servers remains; wexhost binding and AUTO adoption are still disabled. No production pin
+servers remains. Owned wexhost now binds explicit SSD hosts through the v7
+properties with UI-thread lifetime, region and focus-loop management; Explorer
+adoption and AUTO remain disabled. This adds no further Wine fork changes. No production pin
 changes. See WAYLAND_L2.md for 32/64 verification and worktree paths.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.

@@ -488,3 +488,76 @@ Verified results on the Proton VM:
   and all eight native dialog geometry cases. Log l2-hosting-x11-smoke.log and
   checks/status=CHECK_PASSED; tray-layout.txt and linux-dialog.log hold assertions.
   It used prefixes/smoke-l2, with no real desktop/session changes.
+
+## wexhost HWND binding checkpoint
+
+Main b41028b1 implements WexWmBindHost for the explicitly selected Wayland
+backend. It retains the existing WEX_NATIVE_WINDOW layout and all Unix-call
+indexes, appending one fixed-width internal binding query to both 64-bit and
+WoW64 tables. That query retrieves the compositor view token and this bridge
+observer's controller handle; no connection-local objects or pointers cross
+the boundary. The bridge binds private protocol up to v7, with dynamic frame
+capability reporting only when the compositor offers v7. Older protocol peers
+retain observation-only behavior. AUTO adoption remains disabled.
+
+The PE helper owns global atoms, installs generic Wine properties before
+ShowWindow and uses a standard window subclass for the host lifetime. BindHost
+returns ERROR_IO_PENDING while the driver's group acknowledgement is pending;
+repeat on the host's UI thread until success. Bind, configure, release and stop
+belong to that thread; wrong-thread bind/configure/release are rejected. One
+native view cannot use two hosts and one host cannot bind multiple native IDs.
+Only server-decorated views are eligible at this checkpoint; CSD/borderless
+requests return ERROR_NOT_SUPPORTED rather than installing an unverified proxy.
+
+The helper subtracts the client area from a copy of the original window region,
+updates that input hole on geometry changes and restores the original on
+release. Callback references protect binding storage through reentrant HWND
+notifications. Nested WM_ENTERMENULOOP/WM_ENTERSIZEMOVE notifications request
+temporary frame focus and restore native focus only after the last loop exits
+and the proxy is still foreground. Release, WM_NCDESTROY and UI-thread backend
+stop remove owned atoms/properties/subclasses. Releasing the bridge observer
+also destroys its compositor controller, restoring native decorations even
+across the separate Wine graphics connection.
+
+Verification uses WEX_ASSOCIATION_BRIDGE=1 with the maintained association
+runner. Both 32/64 tests pass real wexhost API binding before map, native pixel
+rendering, owner preservation, client hit exclusion before/after focus and
+geometry changes, nested focus notifications, size mismatch/retry, wrong-thread
+rejection, duplicate/stale binding rejection, exact original-region restoration,
+atom cleanup, release, host destruction, backend restart and stop. The screenshot
+capture is acknowledged through a test file gate before release, avoiding a
+timing-based capture delay. These are notification-path tests, not acceptance of
+real interactive shell menus or native resize negotiation.
+
+Logs under /srv/protonexplorer/wex-wayland-l1/checks:
+
+- l2-bridge-bind-build.log: combined WoW64 wexhost/Unix library build passes.
+- l2-bridge-bind-verified.log, state association.txvqqlip: both PE binding/render
+  probes and the original mixed-process L1 stacking assertions pass.
+- l2-bridge-observation-regression.log, state wayland-backend.5vqsjt: both PE
+  inventory/control/restart/transport-loss withdrawal probes pass.
+- l2-bridge-x11-abi.log: both X11 bind/manage/release ABI probes pass.
+- l2-bridge-x11-smoke.log: tray two icons, zero overlaps and eight native dialog
+  geometry cases pass; checks/status is CHECK_PASSED.
+
+Corrections:
+
+- The probe's helper name bind conflicted with MinGW's Winsock declaration.
+  Rename it wait_binding; both architectures then compile.
+- An exact-region assertion used the constructed rounded shape as its baseline,
+  but GetWindowRgn already reported a different shape before binding. Moving
+  restoration after FRAMECHANGED alone did not resolve the assertion. Capture
+  the actual GetWindowRgn state immediately before binding and compare that
+  exact region after release; both architectures pass. Failed diagnostics are
+  l2-bridge-bind-final.log, l2-bridge-bind-region-retry.log and
+  l2-bridge-bind-region-debug.log; passing baseline log is
+  l2-bridge-bind-region-baseline.log. No diagnostic print remains in the probe.
+- An inspection guessed a nonexistent check-wayland-backend.py. The maintained
+  backend runner is the self-contained check-wayland-backend.sh.
+
+Next is Explorer's explicit lab-only adoption gate, binding before map,
+WEX_WM_OBSERVED reconciliation without request loops, and correct CSD exclusion
+and withdrawal cleanup. Complete real menu/taskbar/application, native resize,
+fullscreen/workspace, scaling and launch routing acceptance before AUTO or
+shipping session changes. No real desktop, installed runtime or production pin
+was changed by these tests.

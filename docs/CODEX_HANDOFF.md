@@ -17,13 +17,20 @@ configure/uncommit completion separately from unsolicited state. Native size or
 decoration changes detach safely. Wine now binds v7 and consumes group/focus
 acknowledgements under an explicit HOST property, retaining epoch/foreground
 guards. 32/64 hosting and reservation-only probes pass, as do mixed-process L1
-stacking and X11 tray/eight-dialog smoke. The caller must supply Win32 client
-hit exclusion; probes do so with a ring region and check WindowFromPoint.
+stacking and X11 tray/eight-dialog smoke. Main b41028b1 adds wexhost BindHost's
+explicit Wayland path: owned atoms, client hit exclusion preserving the original
+region, UI-thread subclass lifetime/focus-loop hooks and release/stop cleanup.
+Wexhost now binds up to v7 and reports the frame capability only for v7 peers;
+WEX_NATIVE_WINDOW and existing Unix-call indexes are preserved. Bind before
+ShowWindow, then poll ERROR_IO_PENDING to success on the owning UI thread.
+Both architectures pass the real bridge API tests, wrong-thread/lifecycle/region
+checks, inventory/recovery and X11 ABI/smoke regressions.
 Both architectures also pass screenshot pixel checks of native content rendered
 inside the Wine frame, beyond protocol status assertions.
 Read WAYLAND_L2.md for exact logs, commands, failures and correction notes.
-Next is wexhost BindHost/Explorer opt-in binding and hit exclusion, actual shell
-menu/move/resize integration and native resize negotiation, then AUTO adoption.
+Next is Explorer's explicit lab adoption gate, binding before map, observed-state
+reconciliation and withdrawal cleanup, actual shell menu/taskbar integration and
+native resize negotiation, then AUTO adoption. CSD binding is deliberately rejected.
 Fullscreen/workspace, CSD, native popup, scaling and
 application coverage remain acceptance work. No deployed runtime or session changes.
 

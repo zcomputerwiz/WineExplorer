@@ -30,8 +30,10 @@ guards late frame-menu focus restoration; actual key delivery passes in both
 compositor builds. V7 numbers group configure/uncommit completions. Wine now
 consumes v7 under explicit hosting opt-in, with 32/64 tests for foreground
 retention, temporary frame focus and resize mismatch recovery. Native size or
-policy changes detach safely. wexhost remains v3; bridge binding, native resize
-negotiation and complete acceptance remain pending. See WAYLAND_L2.md for limits.
+policy changes detach safely. wexhost now binds up to v7 and implements explicit
+SSD HWND binding/lifetime/hit exclusion with 32/64 real API probes. Explorer's
+gated adoption, native resize negotiation and complete acceptance remain pending.
+AUTO is still disabled. See WAYLAND_L2.md for limits.
 
 Reuse proxy HWNDs and existing taskbar/window-state/dialog handling. Owned foreign
 dialogs retain Win32 ownership but map as independent Wayland toplevels. Exclude
