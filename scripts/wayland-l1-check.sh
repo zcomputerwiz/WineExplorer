@@ -6,7 +6,8 @@ phase=${1:?Usage: wayland-l1-check.sh stack|click|compose|pointer output-directo
 out=$(realpath -m "${2:?Provide an output directory}")
 project=$(cd "$(dirname "$0")/.." && pwd)
 wine_bin=$(command -v "${WEX_WINE_BIN:-wine}")
-export WINESERVER=$(command -v "${WEX_WINESERVER_BIN:-wineserver}") WINELOADER="$wine_bin"
+server_bin=$(command -v "${WEX_WINESERVER_BIN:-wineserver}")
+export WINESERVER="$server_bin" WINELOADER="$wine_bin"
 export WINEDEBUG=${WINEDEBUG:--all}
 export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
 test -n "${WINEPREFIX:-}" && test "$WINEPREFIX" != "$HOME/.wine"
