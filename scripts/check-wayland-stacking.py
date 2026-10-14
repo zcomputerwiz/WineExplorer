@@ -6,13 +6,20 @@ XDG_RUNTIME_DIR and WAYLAND_DISPLAY=wex-shell-0. Pass Wine, the compiled
 wayland-stacking-probe.exe, and an output directory. No shipping prefix is used.
 """
 import pathlib
+import argparse
 import re
 import subprocess
 import sys
 import time
 from PIL import Image
 
-wine, probe, output = sys.argv[1:]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('wine')
+parser.add_argument('probe')
+parser.add_argument('output')
+parser.add_argument('--second-probe', help='Optional 32-bit probe for the second process')
+args = parser.parse_args()
+wine, probe, output = args.wine, args.probe, args.output
 output = pathlib.Path(output)
 output.mkdir(parents=True, exist_ok=True)
 clients = []
@@ -38,7 +45,8 @@ def pixel(name, color):
     print('PASS', name, flush=True)
 try:
     for name, color in [('StackA', 'FF0000'), ('StackB', '0000FF'), ('StackC', '00FF00')]:
-        clients.append((name, subprocess.Popen([wine, probe, 'create', name, color])))
+        executable = args.second_probe if name == 'StackB' and args.second_probe else probe
+        clients.append((name, subprocess.Popen([wine, executable, 'create', name, color])))
         time.sleep(1)
     pixel('initial', (0, 255, 0))
     action('StackA', 'top'); pixel('above-foreign', (255, 0, 0))
@@ -57,6 +65,9 @@ try:
 finally:
     for name, p in clients:
         if p.poll() is None:
-            subprocess.run([wine, probe, 'set', name, 'close'], timeout=10)
+            try:
+                subprocess.run([wine, probe, 'set', name, 'close'], timeout=10)
+            except subprocess.TimeoutExpired:
+                p.terminate()
             try: p.wait(timeout=10)
             except subprocess.TimeoutExpired: p.terminate(); p.wait(timeout=5)

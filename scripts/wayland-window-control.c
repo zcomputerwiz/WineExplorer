@@ -10,6 +10,9 @@ static LRESULT CALLBACK proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
 {
     if (warp_mode && message == WM_KEYDOWN && wp == 'W')
     {
+        POINT before;
+        GetCursorPos(&before);
+        printf("WARP_BEFORE %ld %ld foreground=%p own=%p\n",before.x,before.y,GetForegroundWindow(),hwnd);
         printf("WARP_OWN %d\n",SetCursorPos(950,600)); fflush(stdout); return 0;
     }
     if (warp_mode && message == WM_MOUSEMOVE)
@@ -38,7 +41,13 @@ int main(int argc, char **argv)
     if (argc > 1)
     {
         printf("ACTION %s hwnd=%p style=%08lx\n",argv[1],hwnd,GetWindowLongW(hwnd,GWL_STYLE));
-        if (!strcmp(argv[1],"zorder"))
+        if (!strcmp(argv[1],"shell-ready"))
+        {
+            hwnd=FindWindowW(L"Shell_TrayWnd",NULL);
+            if (!hwnd || !IsWindowVisible(hwnd)) return 2;
+            printf("SHELL_READY %p\n",hwnd); return 0;
+        }
+        else if (!strcmp(argv[1],"zorder"))
         {
             for (hwnd=GetTopWindow(NULL);hwnd;hwnd=GetWindow(hwnd,GW_HWNDNEXT))
             {
@@ -61,6 +70,12 @@ int main(int argc, char **argv)
                 printf("RECT %u %ld %ld %ld %ld\n",i,rect.left,rect.top,rect.right,rect.bottom);
             }
             return 0;
+        }
+        else if (!strcmp(argv[1],"composition-close"))
+        {
+            hwnd=FindWindowW(L"WineExplorerCompositionProbe",L"Composition probe controls");
+            if (!hwnd) return 2;
+            PostMessageW(hwnd,WM_KEYDOWN,VK_ESCAPE,0); return 0;
         }
         else if (!strcmp(argv[1],"composition-cycles"))
         {
@@ -85,6 +100,7 @@ int main(int argc, char **argv)
             BOOL alpha = !strcmp(argv[1],"alpha");
             warp_mode = !strcmp(argv[1],"warp-own");
             cls.lpfnWndProc=proc; cls.hInstance=GetModuleHandleW(NULL); cls.lpszClassName=L"WineWaylandLayerProbe";
+            cls.hCursor=LoadCursorW(NULL,(LPCWSTR)IDC_ARROW);
             RegisterClassW(&cls);
             hwnd = CreateWindowExW(warp_mode ? 0 : WS_EX_TOPMOST | WS_EX_NOACTIVATE | (alpha ? WS_EX_LAYERED : 0),
                 cls.lpszClassName,warp_mode ? L"Pointer warp probe" : L"Topmost layer probe",
