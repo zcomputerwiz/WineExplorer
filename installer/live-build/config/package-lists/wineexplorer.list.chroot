@@ -21,6 +21,7 @@ polkitd
 accountsservice
 network-manager
 systemd-timesyncd
+unattended-upgrades
 sudo
 eject
 pciutils
