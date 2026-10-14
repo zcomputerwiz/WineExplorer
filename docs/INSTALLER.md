@@ -33,7 +33,7 @@ cd ~/src
 bash scripts/assemble.sh
 mkdir -p build/wine64
 cd build/wine64
-../../wine/configure --enable-win64 --prefix="$PWD/install"
+../../wine/configure --enable-archs=i386,x86_64 --prefix="$PWD/install"   # WoW64: 32-bit programs are required
 make -j8
 cd ../..
 sudo -n env BUILD_DIR="$PWD/build/wine64" \

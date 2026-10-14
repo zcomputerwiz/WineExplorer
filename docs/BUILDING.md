@@ -10,10 +10,17 @@ cd WineExplorer
 bash scripts/assemble.sh
 mkdir -p build/wine64
 cd build/wine64
-../../wine/configure --enable-win64 --prefix="$PWD/install"
+../../wine/configure --enable-archs=i386,x86_64 --prefix="$PWD/install"
 make -j8
 make install
 ```
+
+**32-bit Windows programs are required, not optional.** Build Wine in WoW64 mode
+(`--enable-archs=i386,x86_64`): 32-bit programs run inside the 64-bit build, and only the
+i686 and x86_64 MinGW cross compilers (`gcc-mingw-w64-i686`, `gcc-mingw-w64-x86-64`, and the
+matching `g++` packages for C++ modules) are needed, no 32-bit Linux libraries. A build with
+`--enable-win64` alone has no `syswow64` and cannot start any 32-bit program or installer
+(`failed to load ...\syswow64\ntdll.dll`, found 2026-10-13 with Open-Shell's setup).
 
 Wine's build dependencies and MinGW are required. Assembly also requires
 Python 3 and autoconf. The release baseline is wine-11.19; the retained

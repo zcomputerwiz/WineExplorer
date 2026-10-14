@@ -208,6 +208,17 @@ subdirectory target does not rebuild them. Existing live-build state requires
 
 ## Next work
 
+**2026-10-13, first priority: 32-bit Windows programs are required (user decision).** Every Wine build so far used
+`--enable-win64` only, so nothing 32-bit runs (Open-Shell's 32-bit setup: `failed to load
+...\syswow64\ntdll.dll`). Switch every build to WoW64, `--enable-archs=i386,x86_64` (`CLAUDE.md` rule,
+`docs/BUILDING.md`): `scripts/refactor/build-assembled.sh`, `scripts/refactor/build-recursive.sh`, the dev VM
+and Proton VM builds (`vm.sh` sync / their `build/wine64` configure), `installer/package-wine.sh` and the ISO
+(check `syswow64` and the i386 PE DLLs land in the package), prefixes created by setup (template prefix) and
+first logon. Add a 32-bit test program to the regression checks (e.g. a 32-bit build of `compose-probe`, or
+`winecfg`/`notepad` from the i386 side: `wine C:\\windows\\syswow64\\notepad.exe`). Install
+`g++-mingw-w64-i686` too (C++ modules). Claude will verify a WoW64 build of master in `wexbuild` and report in
+this file.
+
 **2026-10-13:** item 1 (installer visual polish) and the Automatic Updates and timezone-name parts of item 3 are
 assigned to Gemini — `docs/INSTALLER_POLISH_WORKORDER.md`, branch `gemini/installer-polish`, environment WSL
 `wexbuild`. Skip them; Gemini will not touch logonui, greeters, LightDM, wexhost, the shell or the Wine fork.
