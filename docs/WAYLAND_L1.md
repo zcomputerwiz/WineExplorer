@@ -250,3 +250,69 @@ Additional command failures/corrections:
   is visible without focus theft, real clicks raise it, and clicking covered
   pixels stays in Notepad. Private activation now synchronizes Wine's logical
   z-order with the compositor raise. The f5016cf merge is 3bb585c4ee.
+- The first mixed-bitness stacking run started while fresh-prefix wineboot was
+  still finishing: initial screenshot was black and cleanup of StackB timed out.
+  Wait for a visible Shell_TrayWnd before testing, and make timed-out cleanup
+  continue through all clients. Warm retry passes with StackB reporting bits=32.
+- A stricter pointer assertion found no warp trace because it enabled only
+  waylanddrv; wayland_pointer.c uses the cursor channel. Enable +cursor and set
+  the probe's class cursor explicitly. Confirm WARP_BEFORE (800,500), the actual
+  wp_pointer_warp_v1 request (local 250,200; screen 950,600), and motion (950,600).
+- The final WoW64 build, including both C++17 compilers, passes at
+  wow64-final.status WOW64_COMPLETE_BUILD_PASSED. Do not use the first-pass
+  configure that omitted the x86_64 C++ modules.
+- A native foot focus roundtrip passed its initial 'a' but failed to deliver 'c'
+  after clicking an already-active Wine root window again. Keyboard leave left
+  its owning Win32 input queue active. A private-only queued deactivation now
+  checks the current keyboard/foreground state and an activation epoch before
+  clearing the owning queue; old leave events cannot undo a newer Wine activation.
+- That driver build first failed on implicit declaration of the existing static
+  wayland_keyboard_get_focused_hwnd helper. Export it internally and declare it
+  in waylanddrv.h; targeted build then passes. The first wrapper lacked set -e
+  and started the old lab binary after the failed make; stop that isolated prefix
+  and use a strict wrapper before the corrected build/session.
+- Native foot roundtrip and repeated click/covered-window checks now pass on
+  WoW64 with ea0654efdb. The root probe receives 'a' before foot takes focus and
+  'c' after clicking back; 'b' stays in foot. The private activation epoch prevents
+  queued focus-loss messages from clearing a newer activation.
+
+## Replaying the maintained probes
+
+The helper scripts are test tools, not session/ISO defaults. Compile dependencies:
+both MinGW GCC architectures; capture/input dependencies: grim, ImageMagick,
+xdotool, foot and Python Pillow. Use only public source/resources and an isolated
+prefix. Do not run these in the user's real desktop prefix.
+
+Start scripts/wayland-session.sh with WEX_WINE_BIN, WEX_WINESERVER_BIN and
+WEX_WAYLAND_PREFIX selecting the WoW64 lab runtime/prefix. Its log prints the
+session directory. In a second terminal set:
+
+```bash
+export WINEPREFIX=/srv/protonexplorer/wex-wayland-l1/prefix-shell-wow64
+export WEX_WINE_BIN=/srv/protonexplorer/wex-wayland-l1/wow64-source/build/wine64/loader/wine
+export WEX_WINESERVER_BIN=/srv/protonexplorer/wex-wayland-l1/wow64-source/build/wine64/server/wineserver
+export XDG_RUNTIME_DIR="$session/runtime" WAYLAND_DISPLAY=wex-shell-0
+export WEX_L1_XDISPLAY=:30 # nested Xvfb backing this particular lab session
+unset DISPLAY
+bash scripts/wayland-l1-check.sh stack /tmp/l1-stack
+bash scripts/wayland-l1-check.sh click /tmp/l1-click
+bash scripts/wayland-l1-check.sh compose /tmp/l1-compose
+bash scripts/wayland-l1-check.sh pointer /tmp/l1-pointer
+bash scripts/wayland-l1-check.sh mixed /tmp/l1-mixed
+```
+
+Set session to the exact directory printed by the launcher first. Stack uses two
+64-bit processes and one 32-bit process and logs their bitness. Click checks
+actual pixels, foreground, NoActivate, desktop-bottom behavior and a second click
+in an area covered by restored Notepad. Pointer checks an entered, visible-cursor
+window, the cursor debug channel's real protocol request and resulting motion.
+Mixed checks input returning from a normal-socket foot client to an already-active
+Wine root window. All these fixtures use the lab's 1024x768 output at scale 1.
+
+For the X11 comparison, launch the same --stationary composition probe in an
+isolated 1024x768 named X11 desktop, with all processes sharing its Desktop and
+Desktops registry entries. Capture with the compose phase (DISPLAY set,
+WAYLAND_DISPLAY unset). Compare its compose.png/compose-rects.txt with the Wayland
+outputs using scripts/check-compose-placement.py. Position/150% comparisons use
+scripts/wayland-position-probe.c and scripts/check-wayland-positions.py; the latter
+checks a second process at (740,50) as well as six primary windows.

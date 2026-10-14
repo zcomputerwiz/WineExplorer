@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Run in an isolated lab session. See docs/WAYLAND_L1.md for environment setup.
 set -euo pipefail
-phase=${1:?Usage: wayland-l1-check.sh stack|click|compose|pointer output-directory}
+phase=${1:?Usage: wayland-l1-check.sh stack|click|compose|pointer|mixed output-directory}
 out=$(realpath -m "${2:?Provide an output directory}")
 project=$(cd "$(dirname "$0")/.." && pwd)
 wine_bin=$(command -v "${WEX_WINE_BIN:-wine}")
@@ -21,8 +21,19 @@ capture() {
 click() { DISPLAY=${WEX_L1_XDISPLAY:?Provide the nested Xvfb display} xdotool mousemove "$1" "$2" click 1; sleep 1; }
 keys() { DISPLAY=${WEX_L1_XDISPLAY:?Provide the nested Xvfb display} xdotool key "$@"; }
 child=
-cleanup() { if [ -n "$child" ]; then kill "$child" 2>/dev/null || true; wait "$child" || true; fi; }
+native=
+cleanup() {
+    if [ -n "$native" ]; then kill "$native" 2>/dev/null || true; wait "$native" || true; fi
+    if [ -n "$child" ]; then kill "$child" 2>/dev/null || true; wait "$child" || true; fi
+}
 trap cleanup EXIT
+if [ "${WAYLAND_DISPLAY:-}" = wex-shell-0 ]; then
+    for ((i=0;i<100;i++)); do
+        if run shell-ready > "$out/shell-ready.txt"; then break; fi
+        sleep .2
+    done
+    run shell-ready > "$out/shell-ready.txt"
+fi
 case "$phase" in
     stack)
         test "${WAYLAND_DISPLAY:-}" = wex-shell-0
@@ -85,7 +96,7 @@ case "$phase" in
         ;;
     pointer)
         test "${WAYLAND_DISPLAY:-}" = wex-shell-0
-        WINEDEBUG=+waylanddrv "$wine_bin" "$control" warp-own > "$out/pointer.log" 2>&1 & child=$!
+        WINEDEBUG=+waylanddrv,+cursor "$wine_bin" "$control" warp-own > "$out/pointer.log" 2>&1 & child=$!
         sleep 3
         click 800 500; keys w
         sleep 1
@@ -93,6 +104,34 @@ case "$phase" in
         grep -q 'MOTION 950 600' "$out/pointer.log"
         grep -q 'warp_pointer hwnd=' "$out/pointer.log"
         echo POINTER_PROTOCOL_AND_MOTION_PASSED
+        ;;
+    mixed)
+        test "${WAYLAND_DISPLAY:-}" = wex-shell-0
+        x86_64-w64-mingw32-gcc -Wall "$project/scripts/wayland-shell-probe.c" -lgdi32 -o "$out/mixed-focus.exe"
+        "$wine_bin" "$out/mixed-focus.exe" > "$out/mixed-probe.log" 2>&1 & child=$!
+        for ((i=0;i<100;i++)); do
+            run zorder > "$out/mixed-ready.txt"
+            grep -q 'Activation red' "$out/mixed-ready.txt" && break
+            sleep .2
+        done
+        grep -q 'Activation red' "$out/mixed-ready.txt"
+        sleep 1
+        run minimize >/dev/null
+        sleep 1
+        click 130 160; keys a
+        sleep 1
+        grep -q 'value=97' "$out/mixed-probe.log"
+        WAYLAND_DISPLAY=wayland-0 foot --window-size-pixels=400x200 --title=L1FocusPeer sh -c 'sleep 20' > "$out/mixed-foot.log" 2>&1 & native=$!
+        sleep 3
+        keys b; sleep 1
+        capture "$out/mixed-foot.png"
+        click 130 160; keys c
+        sleep 1
+        capture "$out/mixed-return.png"
+        run > "$out/mixed-focus.txt"
+        grep -q 'value=99' "$out/mixed-probe.log"
+        ! grep -q 'value=98' "$out/mixed-probe.log"
+        echo NATIVE_FOCUS_RETURN_PASSED
         ;;
     *) echo "Unknown phase: $phase" >&2; exit 2 ;;
 esac

@@ -8,6 +8,10 @@ static HWND windows[3];
 static FILE *report;
 static LRESULT CALLBACK proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
 {
+    if (message == WM_CHAR)
+    {
+        printf("CHAR hwnd=%p value=%u\n",hwnd,(unsigned)wp); fflush(stdout);
+    }
     if (message == WM_PAINT)
     {
         PAINTSTRUCT paint;

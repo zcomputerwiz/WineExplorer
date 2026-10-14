@@ -65,6 +65,9 @@ try:
 finally:
     for name, p in clients:
         if p.poll() is None:
-            subprocess.run([wine, probe, 'set', name, 'close'], timeout=10)
+            try:
+                subprocess.run([wine, probe, 'set', name, 'close'], timeout=10)
+            except subprocess.TimeoutExpired:
+                p.terminate()
             try: p.wait(timeout=10)
             except subprocess.TimeoutExpired: p.terminate(); p.wait(timeout=5)
