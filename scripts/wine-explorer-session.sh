@@ -78,11 +78,11 @@ fi
 THEME_DATA_DIR="${WEX_THEME_DATA_DIR:-/usr/local/share/wineexplorer/themes}"
 if [ -d "$THEME_DATA_DIR" ]; then
     THEME_PREFIX_DIR="$WINEPREFIX/drive_c/windows/Resources/Themes"
-    mkdir -p "$THEME_PREFIX_DIR"
+    mkdir -p "$THEME_PREFIX_DIR" 2>/dev/null || true
     for theme_file in "$THEME_DATA_DIR/"*.theme; do
         [ -f "$theme_file" ] || continue
         theme_target="$THEME_PREFIX_DIR/$(basename "$theme_file")"
-        [ -e "$theme_target" ] || install -m644 "$theme_file" "$theme_target"
+        [ -e "$theme_target" ] || install -m644 "$theme_file" "$theme_target" 2>/dev/null || true
     done
 fi
 

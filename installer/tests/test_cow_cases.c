@@ -82,6 +82,27 @@ int test_delete_symlink(void)
     return 0;
 }
 
+int test_relative_symlink_target(void)
+{
+    printf("=== Test: Symlink with relative target path breaks on write ===\n");
+    const char *path = "C:\\windows\\system32\\rel_target_test.dll";
+    HANDLE h = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+        printf("FAIL: CreateFileA(%s) failed: %lu\n", path, GetLastError());
+        return 1;
+    }
+    const char data[] = "REL_TARGET_COW_MODIFIED";
+    DWORD written = 0;
+    if (!WriteFile(h, data, sizeof(data), &written, NULL) || written != sizeof(data)) {
+        printf("FAIL: WriteFile failed: %lu\n", GetLastError());
+        CloseHandle(h);
+        return 2;
+    }
+    CloseHandle(h);
+    printf("SUCCESS: Wrote %lu bytes, broke relative-target symlink\n", written);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "z_symlink"))
@@ -90,11 +111,14 @@ int main(int argc, char **argv)
         return test_relative_open();
     if (argc > 1 && !strcmp(argv[1], "delete_symlink"))
         return test_delete_symlink();
+    if (argc > 1 && !strcmp(argv[1], "relative_target"))
+        return test_relative_symlink_target();
 
     printf("Running all COW tests...\n");
     int r = 0;
     r |= test_z_symlink();
     r |= test_relative_open();
     r |= test_delete_symlink();
+    r |= test_relative_symlink_target();
     return r;
 }

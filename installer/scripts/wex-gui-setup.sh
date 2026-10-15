@@ -82,7 +82,12 @@ su -s /bin/bash wexsetup -c '
 ' || echo "Template prefix generation failed"
 rm -rf /etc/skel/.wine/drive_c/users/wexsetup /var/lib/wexsetup/.wine
 find /etc/skel/.wine -name "*.tmp" -delete 2>/dev/null || true
-chown -R root:root /etc/skel/.wine 2>/dev/null || true
+
+# Split prefix into shared machine root (/var/lib/wineexplorer/machine) and per-user symlinks
+if [ -x /usr/local/bin/wex-setup-machine.sh ]; then
+    /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
+fi
+
 chown root:adm /var/log/wineexplorer-setup.log 2>/dev/null || true
 chmod 640 /var/log/wineexplorer-setup.log 2>/dev/null || true
 
