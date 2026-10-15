@@ -944,3 +944,109 @@ fresh automatic rounded-caption regions. This checkpoint correctly follows live
 explicit shape updates but does not solve that theme/mask ownership interaction.
 Keep native resize/maximize controls disabled until it and asynchronous native
 size negotiation pass the work order's acceptance. Tray SNI follows completed L2.
+
+## 2026-10-15: automatic themed outer shapes and minimized-group recovery
+
+Wine topic: dd18609 (uxtheme ownership), then 3fd4865 (driver recovery).
+Compositor topic: e7be9560. Production Wine remains 2e8bcfa. Native resize and
+maximize UI remain disabled; this completes their live-theme-region prerequisite.
+
+The bridge publishes its borrowed outer HRGN only within the HWND's process/UI
+thread and marks its own region installations with a scoped mask-update flag.
+Uxtheme preserves theme/application ownership during those installations and
+compares a new themed shape with the outer region, rather than the client-hole
+ring. Explicit application shapes retain precedence. Mask repaints are queued
+asynchronously so nested themed painting cannot overwrite a half-installed mask.
+The properties are removed at release/destroy and never enter Wayland IPC.
+Owned compatibility definitions permit compilation at the existing production
+pin; an older uxtheme ignores this optional runtime extension.
+
+scripts/wayland-frame-style.py generates an original rounded-caption BMP and a
+readable XP-format style resource. MinGW windres/linking builds the test style;
+no binary fixture or third-party artwork is stored. The bridge probe saves and
+restores its isolated prefix's previous theme, compares hosted shapes against an
+ordinary themed HWND through grow/shrink and non-client theme off/on, and checks
+that a released frame still updates its rounded shape after another resize.
+The existing explicit custom-shape, native-pixel, hit-exclusion and lifecycle
+checks remain. Both actual PE architectures run all of these checks.
+
+Async repaint revealed two previously timing-dependent group-state problems:
+
+- Wine's minimized iconic caption can upload a 160x31 buffer, invalidating a
+  previously valid native/frame pair. Hosted minimized windows now retain the
+  normal buffer and cached contents, and group geometry ignores iconic sizing.
+  A rejected preparation can retry when committed content dimensions change.
+- A delayed focus request after restore could reopen a newer native minimize.
+  Restoration is now a separate state operation; minimized groups reject focus
+  requests, while activate/restore still restore them explicitly. Wine clears
+  the previous epoch's focus observation on new activation. An active group's
+  minimize/restore follows its Wine frame, avoiding duplicate state commands on
+  the bridge's independent connection; non-active groups retain that fallback.
+
+Reproduction/corrections, with logs under
+/srv/protonexplorer/wex-wayland-l1/checks unless otherwise stated:
+
+- Initial `WEX_CHECK_PREFIX=.../prefixes/association-l2 WEX_ASSOCIATION_BRIDGE=1
+  WEX_ASSOCIATION_STACK=0 bash .../check-scripts/check-wayland-association.sh`
+  in l2-theme-mask-before.log used the default rectangular style, so its rounded
+  corner checks were invalid. Replaced that reference with the generated style.
+- l2-theme-rounded-before.log and l2-theme-mask-after.log: MinGW windres emitted
+  narrow custom-resource strings, but Wine's style reader expects WCHAR data.
+  Explicit L-prefixed resource strings fix the fixture. With the corrected
+  fixture and unchanged bridge/uxtheme, l2-theme-rounded-baseline.log reproduces
+  four lost-hole checks and lost theme ownership. The restoration trap then puts
+  the candidate source back with fresh timestamps and rebuilds it.
+- l2-theme-rounded-after.log passes both architectures (association.jrydyxga).
+  l2-theme-mask-final.log adds themed release checks and shared stacking, passing
+  both architectures (association.ljdm_e_s). l2-theme-mask-acceptance.log also
+  passes after an initial pinned-source build (association.psbcbasm).
+- `WEX_CHECK_PREFIX=.../prefixes/association-l2 bash .../check-wayland-shell.sh`
+  in l2-theme-mask-shell.log fails taskbar restore. New failure-only HOST_STATE
+  diagnostics initially failed linking (l2-theme-mask-shell-diagnostic.log:
+  CreateRectRgn/GetRgnBox/DeleteObject undefined); link the probe with gdi32.
+  Diagnostic2 then shows restored/foreground HWND but group=NOT_READY. Content
+  retry alone (l2-theme-retry-shell.log) was insufficient. WEX_SHELL_TEST_DEBUG=1
+  plus WINEDEBUG=+waylanddrv in l2-theme-debug-shell.log shows the 160x31 frame
+  buffer and minimized native. Normal-buffer retention fixes this transition.
+- l2-theme-minimized-shell.log reaches the subsequent native minimize but it is
+  immediately undone. Independent-connection deduplication alone does not fix it
+  (l2-theme-state-owner-shell.log), nor does clearing stale focus alone
+  (l2-theme-focus-epoch-shell.log). l2-theme-state-debug-shell.log identifies the
+  delayed native-focus request as the restore trigger. Separate restoration plus
+  the compositor's minimized-focus guard fixes it: l2-theme-restore-state-shell.log
+  passes full actual 64/32 shell acceptance (shell-adoption.codnudbp).
+- The first state-owner build failed because linux_windows.c had not included
+  wexwayland.h (l2-theme-state-owner-build.log); adding the production-pinned
+  header fixes it (l2-theme-state-owner-fixed-build.log).
+- Early rg inspections used unsupported PowerShell path globs/nonexistent source
+  paths; locate actual files with rg --files. A `tail -1` wildcard invocation was
+  ambiguous with multiple logs; read explicit paths with `tail -n 2` instead.
+  One documentation patch and one multi-file patch had unmatched context and
+  applied no changes; reran each with the actual context.
+
+Verification:
+
+- l2-theme-mask-uxtheme-{x86_64,i386}-system.log: 22,252 checks each, zero failures
+  (17 todo, four skips each). Corresponding v4 logs: 59 each, zero failures/skips.
+- ~/wexcomp-build/l2-theme-suite.log and l2-theme-no-x-suite.log: 38/38 in each
+  build, with screenshots under /srv/protonexplorer/wex-wayland-l2/theme-suite-output
+  and theme-no-x-suite-output. The scene test now sends delayed focus at both the
+  old and a newer epoch while minimized, verifies no restore, then explicitly
+  activates and verifies native keyboard focus/rendering.
+- l2-theme-mask-production-pin-build.log: latest owned code builds successfully
+  in combined WoW64 at exact production 2e8bcfa versions of topic-modified Wine
+  files. l2-theme-final-topic-build.log restores/rebuilds the complete topic.
+- l2-theme-final-bridge.log, association.fnb6lavq: real 64/32 API, generated
+  rounded-theme/custom-shape/release/native-pixel checks and shared stacking pass.
+  l2-theme-final-owners.log, shell-adoption.s90m13ww: actual 64/32 owned-window
+  adoption, parent remap/reassignment/closure and child survival pass.
+  l2-theme-final-disabled.log, shell-adoption.pubaixe1: default gate-off passes.
+- l2-theme-final-x11.log and checks/status: CHECK_PASSED; tray layout retains
+  two icons with zero overlaps/out-of-bounds placement; eight native dialog
+  checks pass. No isolated test Wine/compositor process is left running.
+
+All work remains in the isolated Proton VM lab. Gemini's installer/session,
+fakedll/registry and unixlib.c user_create work is untouched. Next is the native
+size-request/xdg-ack/committed-buffer protocol and its constrained/delayed-client
+acceptance, then remaining L2 scaling, policy and real-application checks. Tray
+SNI remains the next work order after L2; L2 is not complete.

@@ -13,8 +13,8 @@ flock -n 9
 export WINELOADER="$b/loader/wine" WINESERVER="$b/server/wineserver"
 export WINEDEBUG=${WINEDEBUG:--all}
 export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
-x86_64-w64-mingw32-gcc "$scripts/wayland-adoption-probe.c" -idirafter "$source_root/wine/include" -luser32 -o "$root/checks/shell-adoption64.exe"
-i686-w64-mingw32-gcc "$scripts/wayland-adoption-probe.c" -idirafter "$source_root/wine/include" -luser32 -o "$root/checks/shell-adoption32.exe"
+x86_64-w64-mingw32-gcc "$scripts/wayland-adoption-probe.c" -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/shell-adoption64.exe"
+i686-w64-mingw32-gcc "$scripts/wayland-adoption-probe.c" -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/shell-adoption32.exe"
 timeout 100 xvfb-run -a bash -eu -c '
     trap '\''"$WINESERVER" -k || true'\'' EXIT
     unset WAYLAND_DISPLAY

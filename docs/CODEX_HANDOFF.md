@@ -1,15 +1,19 @@
-# Codex handoff — 2026-10-14 Wayland L1 complete
+# Codex handoff — 2026-10-15 Wayland L2 in progress
 
-**L2 live-shape checkpoint (Codex, 2026-10-15):** pulled master through ea756e53;
-production Wine remains 2e8bcfa. The bridge now distinguishes the current outer
-shape from its installed client-hole mask, notices same-size SetWindowRgn changes,
-and restores the latest shape on release/stop. New 64/32 API checks cover larger
-rounded shapes, rectangular reset and stop restoration. See WAYLAND_L2.md for
-verification. This does **not** finish rounded-theme resizing: the existing
-uxtheme hook treats bridge SetWindowRgn calls as explicit application shapes and
-therefore suppresses its automatic theme-region updates. Resolve that ownership
-interaction before native resize/maximize, which remain disabled. Wine and
-compositor topic revisions are unchanged. Stay out of Gemini's prefix-split
+**L2 themed-frame checkpoint (Codex, 2026-10-15):** production Wine remains
+2e8bcfa; L2 Wine topic is 3fd4865 (including dd18609), compositor e7be9560.
+Automatic rounded-theme shape updates now work while hosted: uxtheme retains
+the outer shape and the bridge owns only client-hole clipping. Real 64/32 API
+checks compare against ordinary themed windows through grow/shrink, non-client
+theme off/on and release, including custom application shapes. The test style
+is original and generated from readable source, with no stored binary fixture.
+Async repaint exposed minimized iconic-buffer and delayed-focus races; hosted
+groups now retain normal buffers, restoration is explicit, and focus requests
+cannot reopen minimized groups. Full actual 64/32 shell move/taskbar/native
+state checks pass. Both compositor builds pass 38/38. See WAYLAND_L2.md for
+verification and corrected failed attempts. Native resize/maximize remain
+disabled: asynchronous size negotiation is next, followed by broader L2
+acceptance. Stay out of Gemini's prefix-split
 installer/session/fakedll/registry work and unixlib.c user_create change.
 After L2, default next work is TRAY_SNI_WORKORDER.md.
 
@@ -23,8 +27,8 @@ Open point for native resize: `waylandhost.c` snapshots the host's window region
 later theme region change (rounded captions) after a size change is combined with the stale snapshot.
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
-WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 903ac75, compositor
-codex/wayland-l2 at deb9e06a. Host Wine topic now lives in
+WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 3fd4865, compositor
+codex/wayland-l2 at e7be9560. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 2e8bcfa gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32

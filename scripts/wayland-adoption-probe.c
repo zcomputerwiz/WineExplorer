@@ -63,9 +63,26 @@ static void pump(void)
     while (PeekMessageW(&msg,NULL,0,0,PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
     Sleep(10);
 }
+static BOOL CALLBACK dump_host(HWND hwnd, LPARAM unused)
+{
+    RECT bounds, region_box;
+    HRGN region;
+    int type;
+    if (!GetPropW(hwnd,WEX_WAYLAND_HOST_PROP)) return TRUE;
+    region=CreateRectRgn(0,0,0,0);
+    type=GetWindowRgn(hwnd,region); GetRgnBox(region,&region_box); GetWindowRect(hwnd,&bounds);
+    printf("HOST_STATE hwnd=%p foreground=%p iconic=%d group=%llu focus=%llu bounds=%ld,%ld,%ld,%ld region=%d:%ld,%ld,%ld,%ld\n",
+           hwnd,GetForegroundWindow(),IsIconic(hwnd),
+           (unsigned long long)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP),
+           (unsigned long long)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_FOCUS_PROP),
+           bounds.left,bounds.top,bounds.right,bounds.bottom,type,
+           region_box.left,region_box.top,region_box.right,region_box.bottom);
+    DeleteObject(region);
+    return TRUE;
+}
 #define WAIT(label,expr) do { DWORD start=GetTickCount(); BOOL ok; \
     do { pump(); ok=!!(expr); } while (!ok && GetTickCount()-start<15000); \
-    if (!ok) { printf("FAIL %s\n",label); return 1; } } while (0)
+    if (!ok) { EnumWindows(dump_host,0); printf("FAIL %s\n",label); return 1; } } while (0)
 static void pixel(HWND hwnd,const char *phase)
 {
     RECT client;

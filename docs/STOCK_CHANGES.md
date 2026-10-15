@@ -9,7 +9,7 @@ P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
 Current pin is 2e8bcfa, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (903ac75, not the production pin) extends the
+L2 opt-in topic codex/wayland-l2 (3fd4865, not the production pin) extends the
 private protocol through v8, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
@@ -19,7 +19,7 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing.
-Private hosting changes are fork-only. Compositor topic deb9e06a provides v5 active scene grouping
+Private hosting changes are fork-only. Compositor topic e7be9560 provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
@@ -33,6 +33,22 @@ them through the standard foreign-toplevel interface. Explorer detaches native
 child proxies before destroying their owner frame, preserving native lifetimes.
 These owner-lifetime fixes add no further Wine fork changes. See WAYLAND_L2.md
 for 32/64 verification and worktree paths; L2 remains separate from production.
+
+L2 dd18609 adds a fork-only in-process uxtheme/bridge region contract. A borrowed
+outer HRGN and a scoped mask-update flag preserve automatic theme-region ownership
+while wexhost excludes the native client. The HRGN is read only on the owning UI
+thread; neither property is serialized to the driver/compositor. Existing explicit
+application regions keep precedence. Owned code retains compatibility definitions
+so master still builds at its production Wine pin. That pin does not gain this
+runtime feature until the L2 topic is integrated. In 3fd4865, hosted minimized
+frames retain normal content instead of uploading iconic-caption buffers; group
+geometry ignores iconic dimensions, readiness can retry after a buffer-size
+change, and activation clears the preceding epoch's focus observation. Restore
+is explicit before requesting native focus. Compositor e7be9560 rejects focus
+requests for minimized groups, preventing a delayed request from reopening them.
+An active group's state is driven once through its Wine frame; wexhost's separate
+control connection remains the fallback outside an active group. No new protocol
+version, WEX_NATIVE_WINDOW field, Unix-call index or public Windows API is added.
 
 The L2 move checkpoint adds fork-only v8 frame pointer capture and its Wine
 SetCapture hook, guarded by the current focus epoch and active HOST state.

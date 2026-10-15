@@ -15,6 +15,13 @@
 #include "waylandhost.h"
 #include "wexwayland.h"
 
+/* Optional in-process uxtheme contract. Keep building at the production Wine
+ * pin, whose uxtheme simply ignores these properties. Never cross Wayland IPC. */
+#ifndef WEX_WAYLAND_FRAME_OUTER_PROP
+#define WEX_WAYLAND_FRAME_OUTER_PROP L"__wine_wayland_frame_outer_region"
+#define WEX_WAYLAND_FRAME_MASK_UPDATING_PROP L"__wine_wayland_frame_mask_updating"
+#endif
+
 struct host_binding
 {
     struct host_binding *next;
@@ -72,11 +79,25 @@ static BOOL refresh_shape(struct host_binding *binding, BOOL *changed)
     }
     if (*changed)
     {
+        if (current && !SetPropW(binding->hwnd,WEX_WAYLAND_FRAME_OUTER_PROP,current))
+        { DeleteObject(current); return FALSE; }
+        if (!current) RemovePropW(binding->hwnd,WEX_WAYLAND_FRAME_OUTER_PROP);
         if (binding->outer) DeleteObject(binding->outer);
         binding->outer=current;
     }
     else if (current) DeleteObject(current);
     return TRUE;
+}
+static BOOL set_mask(HWND hwnd, HRGN region)
+{
+    BOOL result;
+    if (!SetPropW(hwnd,WEX_WAYLAND_FRAME_MASK_UPDATING_PROP,(HANDLE)1)) return FALSE;
+    /* Repaint asynchronously: synchronous themed painting could replace the
+     * region while update_mask is still installing it. */
+    result=SetWindowRgn(hwnd,region,FALSE);
+    RemovePropW(hwnd,WEX_WAYLAND_FRAME_MASK_UPDATING_PROP);
+    if (result) RedrawWindow(hwnd,NULL,NULL,RDW_FRAME|RDW_INVALIDATE);
+    return result;
 }
 static void detach(struct host_binding *binding, BOOL destroying)
 {
@@ -96,8 +117,10 @@ static void detach(struct host_binding *binding, BOOL destroying)
         SetWindowPos(binding->hwnd,NULL,0,0,0,0,
                      SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
         refresh_shape(binding,&changed);
-        if (SetWindowRgn(binding->hwnd,binding->outer,TRUE)) binding->outer=NULL;
+        if (set_mask(binding->hwnd,binding->outer)) binding->outer=NULL;
     }
+    RemovePropW(binding->hwnd,WEX_WAYLAND_FRAME_OUTER_PROP);
+    RemovePropW(binding->hwnd,WEX_WAYLAND_FRAME_MASK_UPDATING_PROP);
     unref(binding); /* list reference; callback/caller retains its own */
 }
 static BOOL update_mask(struct host_binding *binding)
@@ -126,7 +149,7 @@ static BOOL update_mask(struct host_binding *binding)
     previous=binding->mask;
     binding->mask=mask;
     binding->updating=TRUE;
-    result=SetWindowRgn(binding->hwnd,ring,TRUE);
+    result=set_mask(binding->hwnd,ring);
     if (!result)
     { DeleteObject(ring); DeleteObject(mask); binding->mask=previous; }
     else
@@ -183,7 +206,8 @@ DWORD wayland_host_bind(UINT64 window, HWND host)
     for (binding=bindings;binding;binding=binding->next)
         if (binding->hwnd == host) return ERROR_BUSY;
     if (GetPropW(host,WEX_WAYLAND_NATIVE_PROP) || GetPropW(host,WEX_WAYLAND_CONTROLLER_PROP) ||
-        GetPropW(host,WEX_WAYLAND_HOST_PROP)) return ERROR_ALREADY_EXISTS;
+        GetPropW(host,WEX_WAYLAND_HOST_PROP) || GetPropW(host,WEX_WAYLAND_FRAME_OUTER_PROP) ||
+        GetPropW(host,WEX_WAYLAND_FRAME_MASK_UPDATING_PROP)) return ERROR_ALREADY_EXISTS;
     params.window=window;
     WEXHOST_CALL(wm_binding,&params);
     if (params.err) return params.err;
@@ -198,7 +222,7 @@ DWORD wayland_host_bind(UINT64 window, HWND host)
         !SetWindowSubclass(host,host_subclass,subclass_id,(DWORD_PTR)binding)) goto failed;
     if (!SetPropW(host,WEX_WAYLAND_NATIVE_PROP,(HANDLE)(ULONG_PTR)binding->native) ||
         !SetPropW(host,WEX_WAYLAND_CONTROLLER_PROP,(HANDLE)(ULONG_PTR)binding->controller) ||
-        !update_mask(binding) || !SetPropW(host,WEX_WAYLAND_HOST_PROP,(HANDLE)1)) goto failed;
+        !SetPropW(host,WEX_WAYLAND_HOST_PROP,(HANDLE)1) || !update_mask(binding)) goto failed;
     SetWindowPos(host,NULL,0,0,0,0,
                  SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
     result=binding->removed ? ERROR_INVALID_WINDOW_HANDLE : ERROR_IO_PENDING;

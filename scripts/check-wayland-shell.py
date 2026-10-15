@@ -43,7 +43,10 @@ for bits in ((64, 32) if enabled else (64,)):
     env.pop("WEX_WAYLAND_NATIVE_WINDOWS", None)
     if enabled:
         env["WEX_WAYLAND_NATIVE_WINDOWS"] = "1"
-    compositor = subprocess.Popen([str(comp / "build/labwc"), "-C", str(config)], env=env,
+    comp_args = [str(comp / "build/labwc"), "-C", str(config)]
+    if os.environ.get("WEX_SHELL_TEST_DEBUG") == "1":
+        comp_args.append("-d")
+    compositor = subprocess.Popen(comp_args, env=env,
                                   stdout=(case / "compositor.log").open("w"), stderr=subprocess.STDOUT)
     peer = shell = probe = None
     try:

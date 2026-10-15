@@ -14,12 +14,19 @@ export WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
 export WEX_ASSEMBLED_ROOT="$root"
 exec 9>"$root/check.lock"
 flock -n 9
+if [ "${WEX_ASSOCIATION_BRIDGE:-0}" = 1 ]; then
+    python3 "$scripts/wayland-frame-style.py" "$root/checks/frame-style"
+    (cd "$root/checks/frame-style" &&
+        x86_64-w64-mingw32-windres rounded.rc -O coff -o rounded.o &&
+        x86_64-w64-mingw32-gcc -shared rounded.o -o rounded.msstyles)
+    export WEX_FRAME_TEST_STYLE="Z:$root/checks/frame-style/rounded.msstyles"
+fi
 x86_64-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -idirafter "$source_root/wine/include" -luser32 -o "$root/checks/association64.exe"
 i686-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -idirafter "$source_root/wine/include" -luser32 -o "$root/checks/association32.exe"
 x86_64-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -DWEX_TEST_HOSTING -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/hosting64.exe"
 i686-w64-mingw32-gcc "$scripts/wayland-association-probe.c" -DWEX_TEST_HOSTING -idirafter "$source_root/wine/include" -luser32 -lgdi32 -o "$root/checks/hosting32.exe"
-x86_64-w64-mingw32-gcc "$scripts/wex-wayland-binding-probe.c" -I"$source_root/src/include" -idirafter "$source_root/wine/include" -L"$b/dlls/wexhost/x86_64-windows" -lwexhost -luser32 -lgdi32 -o "$root/checks/binding64.exe"
-i686-w64-mingw32-gcc "$scripts/wex-wayland-binding-probe.c" -I"$source_root/src/include" -idirafter "$source_root/wine/include" -L"$b/dlls/wexhost/i386-windows" -lwexhost -luser32 -lgdi32 -o "$root/checks/binding32.exe"
+x86_64-w64-mingw32-gcc "$scripts/wex-wayland-binding-probe.c" -I"$source_root/src/include" -idirafter "$source_root/wine/include" -L"$b/dlls/wexhost/x86_64-windows" -lwexhost -luser32 -lgdi32 -luxtheme -o "$root/checks/binding64.exe"
+i686-w64-mingw32-gcc "$scripts/wex-wayland-binding-probe.c" -I"$source_root/src/include" -idirafter "$source_root/wine/include" -L"$b/dlls/wexhost/i386-windows" -lwexhost -luser32 -lgdi32 -luxtheme -o "$root/checks/binding32.exe"
 x86_64-w64-mingw32-gcc "$scripts/wayland-stacking-probe.c" -lgdi32 -o "$root/checks/association-stack64.exe"
 i686-w64-mingw32-gcc "$scripts/wayland-stacking-probe.c" -lgdi32 -o "$root/checks/association-stack32.exe"
 timeout 100 xvfb-run -a bash -eu -c '

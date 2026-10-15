@@ -4,11 +4,25 @@
  */
 #include <windows.h>
 #include <stdio.h>
+#include <uxtheme.h>
 #include <wexhost.h>
 #include <wexwayland.h>
 static CRITICAL_SECTION lock;
 static UINT64 native_id;
 static unsigned failures;
+static HRESULT (WINAPI *open_theme)(LPCWSTR,LPCWSTR,LPCWSTR,HANDLE *,DWORD);
+static HRESULT (WINAPI *apply_theme)(HANDLE,HWND,LPCWSTR);
+static HRESULT (WINAPI *close_theme)(HANDLE);
+static WCHAR previous_theme[MAX_PATH], previous_color[128], previous_size[128];
+static BOOL previous_active;
+static void apply_style(LPCWSTR path, LPCWSTR color, LPCWSTR size)
+{
+    HANDLE theme=NULL;
+    HRESULT result=path ? open_theme(path,color,size,&theme,0) : S_OK;
+    if (SUCCEEDED(result)) result=apply_theme(theme,NULL,NULL);
+    if (theme) close_theme(theme);
+    if (FAILED(result)) { printf("FAIL apply test theme %#lx\n",result); failures++; }
+}
 struct worker_args { UINT64 id; HWND hwnd; DWORD bind, configure, release; };
 static DWORD WINAPI wrong_thread(void *arg)
 {
@@ -92,6 +106,48 @@ static HRGN change_shape(HWND hwnd, int width, int height)
     check_mask(hwnd,copy);
     return copy;
 }
+static void repaint_frame(HWND hwnd)
+{
+    RedrawWindow(hwnd,NULL,NULL,RDW_FRAME|RDW_INVALIDATE|RDW_UPDATENOW);
+    pump(50);
+}
+static void check_themed_shape(HWND host, HWND reference)
+{
+    HRGN outer=CreateRectRgn(0,0,0,0);
+    repaint_frame(reference); repaint_frame(host);
+    check("reference has themed outer shape",GetWindowRgn(reference,outer)!=ERROR);
+    check("reference caption has rounded corner",!PtInRegion(outer,0,0));
+    check_mask(host,outer);
+    DeleteObject(outer);
+}
+static void check_theme_changes(HWND host)
+{
+    HWND reference=create_proxy(NULL);
+    RECT bounds;
+    DWORD properties=GetThemeAppProperties();
+    SetWindowPos(reference,NULL,550,80,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+    ShowWindow(reference,SW_SHOWNOACTIVATE);
+    check_themed_shape(host,reference);
+    GetWindowRect(host,&bounds);
+    SetWindowPos(host,NULL,0,0,bounds.right-bounds.left+40,bounds.bottom-bounds.top+30,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    SetWindowPos(reference,NULL,0,0,bounds.right-bounds.left+40,bounds.bottom-bounds.top+30,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    check_themed_shape(host,reference);
+    SetThemeAppProperties(properties & ~STAP_ALLOW_NONCLIENT);
+    repaint_frame(host); check_mask(host,NULL);
+    SetThemeAppProperties(properties | STAP_ALLOW_NONCLIENT);
+    check_themed_shape(host,reference);
+    SetWindowPos(host,NULL,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    SetWindowPos(reference,NULL,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    check_themed_shape(host,reference);
+    check("theme changes leave frame ownership with uxtheme",
+          !GetPropW(host,L"__wine_app_frame_region"));
+    SetThemeAppProperties(properties);
+    DestroyWindow(reference);
+}
 int main(int argc,char **argv)
 {
     WNDCLASSW cls={0};
@@ -108,6 +164,19 @@ int main(int argc,char **argv)
     HRGN original,region;
     if (argc!=4 || !freopen(argv[3],"w",stdout)) return 2;
     setvbuf(stdout,NULL,_IONBF,0);
+    {
+        HMODULE module=LoadLibraryW(L"uxtheme.dll");
+        WCHAR path[MAX_PATH];
+        open_theme=(void *)GetProcAddress(module,MAKEINTRESOURCEA(2));
+        close_theme=(void *)GetProcAddress(module,MAKEINTRESOURCEA(3));
+        apply_theme=(void *)GetProcAddress(module,MAKEINTRESOURCEA(4));
+        if (!open_theme || !apply_theme || !close_theme ||
+            !GetEnvironmentVariableW(L"WEX_FRAME_TEST_STYLE",path,MAX_PATH)) return 2;
+        previous_active=SUCCEEDED(GetCurrentThemeName(previous_theme,MAX_PATH,
+                                                     previous_color,128,previous_size,128));
+        apply_style(path,NULL,NULL);
+        check("test theme active",IsThemeActive());
+    }
     InitializeCriticalSection(&lock);
     check("AUTO remains disabled",WexWmStart(0,observed,NULL)==ERROR_NOT_SUPPORTED);
     check("explicit backend",WexWmStartEx(WEX_WM_BACKEND_WAYLAND,0,observed,NULL)==ERROR_SUCCESS);
@@ -194,6 +263,8 @@ int main(int argc,char **argv)
     check("rebind new host before map",WexWmBindHost(id,second,NULL,NULL)==ERROR_IO_PENDING);
     ShowWindow(second,SW_SHOWNOACTIVATE);
     check("second host active",wait_binding(id,second));
+    check_theme_changes(second);
+    check("themed resize returns to active native binding",wait_binding(id,second));
     DestroyWindow(second); pump(100);
     check("destroy drops bridge atom reference",!GlobalFindAtomA(argv[1]));
     second=create_proxy(owner);
@@ -230,8 +301,33 @@ int main(int argc,char **argv)
     check("stop removes binding props",!GetPropW(second,WEX_WAYLAND_NATIVE_PROP));
     check("stop clears group",wait_prop(second,WEX_WAYLAND_GROUP_PROP,WEX_WAYLAND_GROUP_DETACHED));
     check("stop drops native atom reference",!GlobalFindAtomA(argv[1]));
+    DestroyWindow(second);
+    EnterCriticalSection(&lock); native_id=0; LeaveCriticalSection(&lock);
+    check("themed release backend restart",WexWmStartEx(WEX_WM_BACKEND_WAYLAND,0,observed,NULL)==ERROR_SUCCESS);
+    start=GetTickCount();
+    do { EnterCriticalSection(&lock); id=native_id; LeaveCriticalSection(&lock); if (id) break; pump(10); }
+    while (GetTickCount()-start<10000);
+    second=create_proxy(owner);
+    check("themed release bind before map",WexWmBindHost(id,second,NULL,NULL)==ERROR_IO_PENDING);
+    ShowWindow(second,SW_SHOWNOACTIVATE);
+    check("themed release host active",wait_binding(id,second));
+    repaint_frame(second);
+    WexWmStop();
+    check("themed release clears borrowed region property",!GetPropW(second,L"__wine_wayland_frame_outer_region"));
+    check("themed release preserves theme ownership",!GetPropW(second,L"__wine_app_frame_region"));
+    GetWindowRect(second,&bounds);
+    SetWindowPos(second,NULL,0,0,bounds.right-bounds.left+40,bounds.bottom-bounds.top+30,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    repaint_frame(second);
+    region=CreateRectRgn(0,0,0,0);
+    check("released frame keeps automatic themed shape",GetWindowRgn(second,region)!=ERROR && !PtInRegion(region,0,0));
+    GetRgnBox(region,&client);
+    check("released theme resizes beyond the former mask",client.right==bounds.right-bounds.left+40 &&
+          client.bottom==bounds.bottom-bounds.top+30);
+    DeleteObject(region);
     DestroyWindow(second); DestroyWindow(proxy); DestroyWindow(owner);
     DeleteCriticalSection(&lock);
+    apply_style(previous_active ? previous_theme : NULL,previous_color,previous_size);
     printf("ASSOCIATION_%s bits=%u failures=%u\n",failures?"FAILED":"PASSED",(unsigned)(8*sizeof(void *)),failures);
     return failures!=0;
 }

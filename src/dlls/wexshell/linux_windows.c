@@ -34,6 +34,7 @@
 #include <windows.h>
 #include <ntuser.h>
 #include <wexhost.h>
+#include <wexwayland.h>
 
 #include "wine/debug.h"
 #include "wine/list.h"
@@ -163,7 +164,11 @@ static void send_states( struct linux_window *lw, BOOL focused )
         if ((lw->state_pending ? lw->requested_states : lw->observed_states) == states) return;
         lw->requested_states = states;
         lw->state_pending = TRUE;
-        if (WexWmSetState(lw->window,states)) lw->state_pending = FALSE;
+        /* An active hosted group already follows the Wine frame's minimize /
+         * restore through the driver. Sending the same operation on the bridge's
+         * independent connection can arrive after a newer native-side change. */
+        if ((ULONG_PTR)GetPropW(lw->host,WEX_WAYLAND_GROUP_PROP) != WEX_WAYLAND_GROUP_ACTIVE &&
+            WexWmSetState(lw->window,states)) lw->state_pending = FALSE;
         return;
     }
 
