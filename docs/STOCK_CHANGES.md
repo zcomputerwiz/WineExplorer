@@ -8,8 +8,18 @@ Commit `40c17e1` is the imperfect upstream import, which also includes post-tag 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
 Current pin is 71572805, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
+The L2 topic's cf365e5 binds private protocol v10 and adds a scalar resize
+request/commit/cancel transport. Each compositor transition is queued separately
+and delivered on the HWND's owning UI thread with a scoped property snapshot;
+no Unix pointer enters WoW64 PE and no application call holds win_data_mutex.
+Surface generations protect destruction/replacement during reentrant delivery.
+Accepted transactions preserve hosting while the frame catches up; only matching
+serial completion updates the accepted client hole. Protocol availability is
+distinct from native-client eligibility and from enabled sizing controls.
+This is fork-only and does not add a driver ABI hook or enable interactive
+resize/maximize. See WAYLAND_L2_RESIZE_REVIEW.md for the next boundary review.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (ac4a1b3, including 180d405, not the production pin) extends the
+L2 opt-in topic codex/wayland-l2 (cf365e5, including 180d405, not the production pin) extends the
 private protocol through v10, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
@@ -19,7 +29,7 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing.
-Private hosting changes are fork-only. Compositor topic 9e4e3d4a provides v5 active scene grouping
+Private hosting changes are fork-only. Compositor topic d859bdf1 provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old

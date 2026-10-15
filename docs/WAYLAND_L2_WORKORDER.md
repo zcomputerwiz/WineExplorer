@@ -115,7 +115,15 @@ acknowledged empty commits as native buffer readiness; both final suites pass
 XWayland resize requests explicitly return unavailable. This is a compositor
 checkpoint, not interactive resize acceptance.
 
-Next, consume the transaction in Wine/wexhost and connect the Wine sizing loop.
+Wine topic cf365e5 now consumes private v10 through a dedicated scalar transport
+and non-coalescing UI-thread event queue. The opt-in actual 64/32 bridge probe
+exercises resize/rollback using real move-loop frame capture, including early
+and stale commit rejection and reentrant snapshot delivery. Compositor topic
+d859bdf1 adds an opt-in configure-following publisher fixture. Sizing UI is still
+disabled; this is a transport checkpoint, not interactive-sizing acceptance.
+See WAYLAND_L2_RESIZE_REVIEW.md for Claude's next boundary review.
+
+Next, implement the wexhost controller and connect the Wine sizing loop.
 The intermittent adoption/readoption hang is now reproduced and fixed in Wine
 ac4a1b3: Wayland callbacks must defer style/z-order refreshes to the owning UI
 thread rather than acquire USER while holding window data. The focused stress

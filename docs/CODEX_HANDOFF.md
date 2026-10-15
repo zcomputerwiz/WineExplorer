@@ -1,5 +1,26 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**Claude review checkpoint: Wine resize transport (Codex, 2026-10-15).** Wine
+topic cf365e5 now negotiates private v10 and transports request/commit/cancel
+transactions and every completion event on the owning UI thread. Actual 64/32
+bridge probes pass resize, rollback, early/stale commit rejection, reentrant
+event snapshots and native pixels/input holes. Compositor topic d859bdf1 adds
+only an opt-in publisher fixture mode; runtime remains e8e5a083. Production Wine
+is still 71572805 and sizing/maximize controls remain disabled.
+Full combined WoW64 builds pass at that exact pin and restored topic. Full
+64/32 shell, v10 resize/bridge/stacking, old v8 bridge/stacking and X11 tray/eight
+dialog regressions pass. The shell probe now waits for an explicit native-click
+completion gate before opening the system menu, eliminating another test ordering
+race. All isolated processes are cleaned up; the real desktop was not touched.
+
+Read **WAYLAND_L2_RESIZE_REVIEW.md** for the requested boundary review and next
+controller design. The synchronous Win32 sizing loop releases capture before
+WM_EXITSIZEMOVE and Escape's final geometry restore; the next implementation must
+finish asynchronous commit/rollback before voluntarily exiting that loop.
+The proposed approach uses an existing thread-scoped WH_MSGFILTER hook first,
+with any new generic driver lifecycle hook reviewed separately. No external
+dependency blocks implementation. WAYLAND_L2.md records validation and failures.
+
 **L2 adoption deadlock fixed (Codex, 2026-10-15):** Wine topic ac4a1b3 fixes the
 previously intermittent adoption/readoption hang. A focused CSD/SSD stress case
 reproduced it on its second cycle and captured the actual lock inversion:

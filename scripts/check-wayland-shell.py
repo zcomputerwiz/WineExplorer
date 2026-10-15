@@ -149,6 +149,7 @@ for bits in ((64, 32) if enabled else (64,)):
             assert select.select([peer.stdout], [], [], 5)[0]
             click = peer.stdout.readline().strip().split()
             assert len(click) == 4 and click[:3] == ["CLICK", "1", "1"] and int(click[3]) >= 2, click
+            Path(str(report) + ".native-clicked").write_text("native click completed\n")
             report_wait(report, "READY_MENU_CAPTURE", probe)
             subprocess.run(["grim", str(case / "menu.png")], env=env, check=True, timeout=10)
             Path(str(report) + ".menu").write_text("menu captured\n")

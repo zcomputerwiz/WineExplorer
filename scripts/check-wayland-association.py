@@ -47,6 +47,10 @@ try:
         assert select.select([peer.stdout], [], [], 10)[0], "native peer readiness timed out"
         values = peer.stdout.readline().strip().split()
         assert len(values) == 3 and values[0] == "LEASE", values
+        if os.environ.get("WEX_ASSOCIATION_RESIZE") == "1":
+            assert binding, "resize transport requires the real bridge probe"
+            peer.stdin.write("follow-configures\n")
+            peer.stdin.flush()
         report = state / f"probe{bits}.log"
         binary = "states" if states else "binding" if binding else "hosting" if hosting else "association"
         probe = subprocess.Popen([str(wine), str(root / f"checks/{binary}{bits}.exe"), *values[1:], f"Z:{report}"],

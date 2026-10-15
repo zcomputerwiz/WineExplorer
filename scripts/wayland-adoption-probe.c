@@ -282,6 +282,9 @@ int main(int argc,char **argv)
     pixel(host,"RESIZED"); puts("READY_CAPTURE");
     WAIT("capture gate",gate(argv[2],"captured"));
     puts("READY_NATIVE_CLICK");
+    /* Foreground/focus may already match before the harness injects input.
+     * Do not open a menu which that still-pending body click would dismiss. */
+    WAIT("native body click completed",gate(argv[2],"native-clicked"));
     WAIT("native click activates logical proxy",GetForegroundWindow()==host &&
          (ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
     PostMessageW(host,WM_SYSCOMMAND,SC_KEYMENU,' ');
