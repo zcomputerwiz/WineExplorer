@@ -76,6 +76,13 @@ the bind-time original region is a restoration snapshot, not a substitute for
 the current theme's outer frame shape after resize or theme changes. Test both
 the current rounded caption and client hit exclusion while bound, plus release.
 
+The 2026-10-15 checkpoint handles live explicit SetWindowRgn replacements,
+including same-size updates, growth and rectangular reset, and restores the
+latest outer shape. Automatic themed regions still need separate ownership from
+the bridge mask: UXTHEME_SetWindowRgn currently marks the bridge's mask as an
+application-defined shape, preventing nc_update_region from resizing it. Do not
+treat the live explicit-shape regression tests as rounded-theme acceptance.
+
 Keep the existing ownership split. Wine supplies Win32 sizing loops, scalar
 properties and DPI conversion; wexhost tracks requests separately from observed
 native state; wexcomp enforces native size constraints and owns xdg configure /

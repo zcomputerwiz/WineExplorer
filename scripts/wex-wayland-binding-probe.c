@@ -22,6 +22,13 @@ static void check(const char *label,BOOL valid)
 {
     if (!valid) { printf("FAIL %s\n",label); failures++; }
 }
+static BOOL same_region(HRGN a, HRGN b)
+{
+    HRGN difference=CreateRectRgn(0,0,0,0);
+    BOOL same=CombineRgn(difference,a,b,RGN_XOR)==NULLREGION;
+    DeleteObject(difference);
+    return same;
+}
 static void CALLBACK observed(const WEX_WM_EVENT *event,void *context)
 {
     if (event->type != WEX_WM_MAP) return;
@@ -61,6 +68,29 @@ static HWND create_proxy(HWND owner)
     AdjustWindowRectEx(&size,WS_OVERLAPPEDWINDOW,FALSE,0);
     return CreateWindowW(L"WexBindingProbe",L"Bridge native proxy",WS_OVERLAPPEDWINDOW,
                          80,80,size.right-size.left,size.bottom-size.top,owner,NULL,GetModuleHandleW(NULL),NULL);
+}
+static void check_mask(HWND hwnd, HRGN outer)
+{
+    RECT bounds, client;
+    POINT origin={0};
+    HRGN expected, actual, hole;
+    GetWindowRect(hwnd,&bounds); GetClientRect(hwnd,&client); ClientToScreen(hwnd,&origin);
+    OffsetRect(&client,origin.x-bounds.left,origin.y-bounds.top);
+    OffsetRect(&bounds,-bounds.left,-bounds.top);
+    expected=CreateRectRgnIndirect(&bounds);
+    if (outer) CombineRgn(expected,expected,outer,RGN_AND);
+    hole=CreateRectRgnIndirect(&client); CombineRgn(expected,expected,hole,RGN_DIFF);
+    actual=CreateRectRgn(0,0,0,0);
+    check("live outer shape retains client hole",GetWindowRgn(hwnd,actual)!=ERROR && same_region(expected,actual));
+    DeleteObject(expected); DeleteObject(actual); DeleteObject(hole);
+}
+static HRGN change_shape(HWND hwnd, int width, int height)
+{
+    HRGN shape=CreateRoundRectRgn(0,0,width,height,24,24), copy=CreateRectRgn(0,0,0,0);
+    CombineRgn(copy,shape,NULL,RGN_COPY);
+    check("live rounded shape installed",SetWindowRgn(hwnd,shape,FALSE));
+    check_mask(hwnd,copy);
+    return copy;
 }
 int main(int argc,char **argv)
 {
@@ -170,7 +200,33 @@ int main(int argc,char **argv)
     check("destroy permits another frame",WexWmBindHost(id,second,NULL,NULL)==ERROR_IO_PENDING);
     ShowWindow(second,SW_SHOWNOACTIVATE);
     check("replacement host active",wait_binding(id,second));
+    GetWindowRect(second,&bounds);
+    original=change_shape(second,bounds.right-bounds.left,bounds.bottom-bounds.top);
+    DeleteObject(original);
+    SetWindowPos(second,NULL,0,0,bounds.right-bounds.left+40,bounds.bottom-bounds.top+30,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    original=change_shape(second,bounds.right-bounds.left+40,bounds.bottom-bounds.top+30);
+    DeleteObject(original);
+    check("live shape can become rectangular",SetWindowRgn(second,NULL,FALSE));
+    check_mask(second,NULL);
+    SetWindowPos(second,NULL,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    original=change_shape(second,bounds.right-bounds.left,bounds.bottom-bounds.top);
+    check("shape changes preserve native binding",wait_binding(id,second));
     WexWmStop(); pump(100);
+    region=CreateRectRgn(0,0,0,0);
+    check("stop restores latest outer shape",GetWindowRgn(second,region)!=ERROR && same_region(original,region));
+    if (!same_region(original,region))
+    {
+        RECT expected, actual;
+        int expected_type=GetRgnBox(original,&expected), actual_type=GetRgnBox(region,&actual);
+        printf("SHAPE expected=%d:%ld,%ld,%ld,%ld actual=%d:%ld,%ld,%ld,%ld\n",
+               expected_type,expected.left,expected.top,expected.right,expected.bottom,
+               actual_type,actual.left,actual.top,actual.right,actual.bottom);
+        CombineRgn(region,region,original,RGN_XOR); GetRgnBox(region,&actual);
+        printf("SHAPE difference=%ld,%ld,%ld,%ld\n",actual.left,actual.top,actual.right,actual.bottom);
+    }
+    DeleteObject(region); DeleteObject(original);
     check("stop removes binding props",!GetPropW(second,WEX_WAYLAND_NATIVE_PROP));
     check("stop clears group",wait_prop(second,WEX_WAYLAND_GROUP_PROP,WEX_WAYLAND_GROUP_DETACHED));
     check("stop drops native atom reference",!GlobalFindAtomA(argv[1]));

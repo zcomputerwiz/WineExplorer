@@ -892,3 +892,55 @@ separate desired size, native xdg acknowledgement and actual committed buffer
 size, honor constraints and cancellation, and keep rendering/input coherent
 during asynchronous updates. CSD, scaling/state/workspace, native application
 launch and real-application acceptance are still pending. L2 is not complete.
+
+## 2026-10-15: live outer shapes and client-hole ownership
+
+Pulled master through ea756e53 (WoW64/time-zone and marked-test-VM changes).
+Production Wine stays at 2e8bcfa; Wine topic 903ac75 and compositor deb9e06a
+are unchanged. No Gemini prefix-split files or installed sessions were modified.
+
+waylandhost.c now keeps the current outer region separately from the bridge's
+last installed ring. A different live region, including NULL, replaces the outer
+shape even when dimensions are unchanged. The client hole is then subtracted
+again. WM_WINDOWPOSCHANGED reconciliation follows the window procedure so its
+shape updates are observed. Release/stop restores the latest outer shape rather
+than the bind-time snapshot. The mask is recorded before SetWindowRgn, since
+that call can synchronously reenter window procedures and release the binding.
+
+The real bridge probe now replaces a same-size rounded shape, grows the frame
+and its rounded shape, clears the shape, shrinks and reinstalls a rounded shape,
+then verifies the client hole and stop restoration. Region comparisons use an
+empty symmetric difference: the Wine/server round trip can split geometrically
+identical rounded regions into different rectangle lists.
+
+Reproduction and corrections (under /srv/protonexplorer/wex-wayland-l1/checks):
+
+- l2-live-shape-before.log: new probe against unchanged binaries fails four
+  client-hole checks and latest-shape restoration (64-bit; harness stops there).
+- l2-live-shape-after.log initially reduced this to one restoration assertion.
+  l2-live-shape-diagnostic.log and diagnostic2.log showed identical bounds and
+  an empty XOR, despite EqualRgn returning false. Geometric comparison fixes the
+  assertion and avoids misclassifying a normalized mask as a new outer shape.
+- l2-live-shape-after.log then passes both architectures and shared stacking;
+  state association.x60g1451. No screenshot-only or protocol-only pass claim.
+- l2-live-shape-production-pin-build.log: full combined WoW64 build passes with
+  current owned code, master's updated wextimezone.h, and exact production 2e8bcfa
+  versions of every topic-modified Wine file. Reused the assembled source/build,
+  with no reset. Topic files are restored with fresh timestamps afterward.
+- l2-live-shape-topic-restored-build.log: full restored-topic build passes.
+  l2-live-shape-final.log, state association.ir9x2a7c: 64/32 bridge checks and
+  shared stacking pass after restoration. l2-live-shape-shell.log, state
+  shell-adoption.zdbk3gj4: full actual 64/32 Explorer adoption, four move/cancel
+  operations, taskbar and native-client checks pass.
+- The initial X11 command omitted WEX_ASSEMBLED_ROOT/WEX_CHECK_* overrides and
+  stopped at the old lab's missing private.status before launching Wine. Reran
+  with explicit wayland-l1 root, combined loader/server and smoke-l2 prefix:
+  l2-live-shape-x11.log and checks/status report CHECK_PASSED, including tray
+  layout and eight native dialogs. The temporary smoke script path is restored.
+
+Remaining prerequisite: UXTHEME_SetWindowRgn classifies the bridge's own mask as
+an application-defined shape. nc_update_region consequently stops producing
+fresh automatic rounded-caption regions. This checkpoint correctly follows live
+explicit shape updates but does not solve that theme/mask ownership interaction.
+Keep native resize/maximize controls disabled until it and asynchronous native
+size negotiation pass the work order's acceptance. Tray SNI follows completed L2.

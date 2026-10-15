@@ -1,5 +1,18 @@
 # Codex handoff — 2026-10-14 Wayland L1 complete
 
+**L2 live-shape checkpoint (Codex, 2026-10-15):** pulled master through ea756e53;
+production Wine remains 2e8bcfa. The bridge now distinguishes the current outer
+shape from its installed client-hole mask, notices same-size SetWindowRgn changes,
+and restores the latest shape on release/stop. New 64/32 API checks cover larger
+rounded shapes, rectangular reset and stop restoration. See WAYLAND_L2.md for
+verification. This does **not** finish rounded-theme resizing: the existing
+uxtheme hook treats bridge SetWindowRgn calls as explicit application shapes and
+therefore suppresses its automatic theme-region updates. Resolve that ownership
+interaction before native resize/maximize, which remain disabled. Wine and
+compositor topic revisions are unchanged. Stay out of Gemini's prefix-split
+installer/session/fakedll/registry work and unixlib.c user_create change.
+After L2, default next work is TRAY_SNI_WORKORDER.md.
+
 **Build fix (Claude, 2026-10-15):** master `8924790b` did not compile at its own Wine pin `f0108dc`:
 `src/dlls/wexhost/waylandhost.c` uses the `WEX_WAYLAND_*_PROP`/`GROUP`/`FOCUS` names that only existed on
 `codex/wayland-l2`. `wineexplorer/11.19` is now `2e8bcfa0f13`, which adds exactly your `include/wexwayland.h` from

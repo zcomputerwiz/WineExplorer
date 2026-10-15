@@ -21,7 +21,7 @@ struct host_binding
     UINT64 window;
     HWND hwnd;
     ATOM native, controller;
-    HRGN original;
+    HRGN outer, mask;
     RECT client, bounds;
     unsigned refs, focus_depth;
     BOOL removed, updating;
@@ -37,7 +37,8 @@ static void unref(struct host_binding *binding)
     if (--binding->refs) return;
     if (binding->native) GlobalDeleteAtom(binding->native);
     if (binding->controller) GlobalDeleteAtom(binding->controller);
-    if (binding->original) DeleteObject(binding->original);
+    if (binding->outer) DeleteObject(binding->outer);
+    if (binding->mask) DeleteObject(binding->mask);
     free(binding);
 }
 static struct host_binding *find_binding(UINT64 window)
@@ -46,6 +47,36 @@ static struct host_binding *find_binding(UINT64 window)
     for (binding=bindings;binding;binding=binding->next)
         if (binding->window == window) return binding;
     return NULL;
+}
+/* The installed ring belongs to the bridge; any other region is a new shape
+ * supplied by the window. Keep it separately so neither a later resize nor
+ * release reinstalls the stale bind-time shape. NULL means no explicit shape. */
+static BOOL refresh_shape(struct host_binding *binding, BOOL *changed)
+{
+    HRGN current=CreateRectRgn(0,0,0,0);
+    HRGN difference;
+    int type;
+    if (!current) return FALSE;
+    if (GetWindowRgn(binding->hwnd,current) == ERROR)
+    { DeleteObject(current); current=NULL; }
+    *changed=!binding->mask || !current || !EqualRgn(current,binding->mask);
+    if (*changed && binding->mask && current)
+    {
+        /* Server round-tripping can split equivalent rectangles differently. */
+        difference=CreateRectRgn(0,0,0,0);
+        if (!difference) { DeleteObject(current); return FALSE; }
+        type=CombineRgn(difference,current,binding->mask,RGN_XOR);
+        DeleteObject(difference);
+        if (type == ERROR) { DeleteObject(current); return FALSE; }
+        *changed=type != NULLREGION;
+    }
+    if (*changed)
+    {
+        if (binding->outer) DeleteObject(binding->outer);
+        binding->outer=current;
+    }
+    else if (current) DeleteObject(current);
+    return TRUE;
 }
 static void detach(struct host_binding *binding, BOOL destroying)
 {
@@ -61,9 +92,11 @@ static void detach(struct host_binding *binding, BOOL destroying)
     RemovePropW(binding->hwnd,WEX_WAYLAND_FOCUS_REQUEST_PROP);
     if (!destroying)
     {
+        BOOL changed;
         SetWindowPos(binding->hwnd,NULL,0,0,0,0,
                      SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
-        if (SetWindowRgn(binding->hwnd,binding->original,TRUE)) binding->original=NULL;
+        refresh_shape(binding,&changed);
+        if (SetWindowRgn(binding->hwnd,binding->outer,TRUE)) binding->outer=NULL;
     }
     unref(binding); /* list reference; callback/caller retains its own */
 }
@@ -71,25 +104,36 @@ static BOOL update_mask(struct host_binding *binding)
 {
     RECT bounds, client;
     POINT origin={0};
-    HRGN ring, hole;
-    BOOL result;
+    HRGN ring, hole, mask, previous;
+    BOOL result, changed;
     if (binding->removed) return FALSE;
     if (binding->updating) return TRUE;
     if (!GetWindowRect(binding->hwnd,&bounds) || !GetClientRect(binding->hwnd,&client) ||
         !ClientToScreen(binding->hwnd,&origin)) return FALSE;
     OffsetRect(&client,origin.x-bounds.left,origin.y-bounds.top);
     OffsetRect(&bounds,-bounds.left,-bounds.top);
-    if (EqualRect(&client,&binding->client) && EqualRect(&bounds,&binding->bounds)) return TRUE;
+    if (!refresh_shape(binding,&changed)) return FALSE;
+    if (!changed && EqualRect(&client,&binding->client) && EqualRect(&bounds,&binding->bounds)) return TRUE;
     ring=CreateRectRgnIndirect(&bounds);
     hole=CreateRectRgnIndirect(&client);
     if (!ring || !hole) { if (ring) DeleteObject(ring); if (hole) DeleteObject(hole); return FALSE; }
-    if (binding->original) CombineRgn(ring,ring,binding->original,RGN_AND);
+    if (binding->outer) CombineRgn(ring,ring,binding->outer,RGN_AND);
     CombineRgn(ring,ring,hole,RGN_DIFF);
     DeleteObject(hole);
+    mask=CreateRectRgn(0,0,0,0);
+    if (!mask || CombineRgn(mask,ring,NULL,RGN_COPY) == ERROR)
+    { if (mask) DeleteObject(mask); DeleteObject(ring); return FALSE; }
+    previous=binding->mask;
+    binding->mask=mask;
     binding->updating=TRUE;
     result=SetWindowRgn(binding->hwnd,ring,TRUE);
-    if (!result) DeleteObject(ring);
-    else { binding->client=client; binding->bounds=bounds; }
+    if (!result)
+    { DeleteObject(ring); DeleteObject(mask); binding->mask=previous; }
+    else
+    {
+        if (previous) DeleteObject(previous);
+        binding->client=client; binding->bounds=bounds;
+    }
     binding->updating=FALSE;
     return result && !binding->removed;
 }
@@ -106,8 +150,7 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     struct host_binding *binding=(struct host_binding *)ref;
     LRESULT result;
     binding->refs++;
-    if (msg == WM_WINDOWPOSCHANGED && !binding->updating) update_mask(binding);
-    else if (msg == WM_ENTERMENULOOP || msg == WM_ENTERSIZEMOVE)
+    if (msg == WM_ENTERMENULOOP || msg == WM_ENTERSIZEMOVE)
     {
         if (!binding->focus_depth++) request_focus(binding,WEX_WAYLAND_FOCUS_FRAME);
     }
@@ -118,6 +161,8 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     }
     else if (msg == WM_NCDESTROY) detach(binding,TRUE);
     result=DefSubclassProc(hwnd,msg,wp,lp);
+    /* The window procedure may refresh its outer shape during this message. */
+    if (msg == WM_WINDOWPOSCHANGED && !binding->removed && !binding->updating) update_mask(binding);
     unref(binding);
     return result;
 }
@@ -147,11 +192,6 @@ DWORD wayland_host_bind(UINT64 window, HWND host)
     binding->window=window; binding->hwnd=host;
     binding->native=GlobalAddAtomA(params.token);
     binding->controller=GlobalAddAtomA(params.controller);
-    binding->original=CreateRectRgn(0,0,0,0);
-    if (!binding->original)
-    { binding->refs=1; unref(binding); return ERROR_NOT_ENOUGH_MEMORY; }
-    if (binding->original && GetWindowRgn(host,binding->original) == ERROR)
-    { DeleteObject(binding->original); binding->original=NULL; }
     binding->next=bindings; bindings=binding; binding_thread=GetCurrentThreadId();
     result=ERROR_NOT_ENOUGH_MEMORY;
     if (!binding->native || !binding->controller ||
