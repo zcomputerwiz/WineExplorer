@@ -182,23 +182,30 @@ To preserve 100% upstream stock Wine behavior by default, symlink generation is 
 - **Registry Persistence:** During initial installation, `setupapi` automatically persists `HKLM\Software\Wine\LinkFakeDlls = 1` (DWORD).
 - **Seamless Updates:** Subsequent `wineboot -u` invocations (even without the environment variable set) check `HKLM\Software\Wine\LinkFakeDlls` and continue maintaining symlinks.
 
-#### 2. Wine Unix Call: `wine_create_symlink`
-Because Win32 user-mode APIs lack native Unix symlink capabilities, we introduced a clean, minimal internal Unix call in `dlls/ntdll`:
-- **`unixcall_wine_create_symlink` (`dlls/ntdll/unix/file.c`):** Resolves DOS/NT paths to Unix paths via `ntdll_get_unix_file_name()`, canonicalizes target paths with `realpath()` to resolve WinSxS intermediate targets, checks idempotency before unlinking existing links, and creates the Unix symlink.
-- **WoW64 Filesystem Redirection (`redirect_wow64_link`):** User-mode WOW64 redirection rewrites `\system32\` to `\syswow64\` for 32-bit callers while preserving system exceptions (`drivers/etc`, `catroot`, `spool`), preventing 32-bit fake DLLs from colliding with 64-bit binaries.
-- **`dlls/ntdll/loader.c` & `ntdll.spec`:** Exported `@ cdecl wine_create_symlink(wstr wstr)`.
+#### 2. Wine Unix Call: `wine_create_symlink` vs `CreateSymbolicLinkW`
+Wine's Win32 API implementation of `CreateSymbolicLinkW` (`dlls/kernelbase/file.c` -> `FSCTL_SET_REPARSE_POINT` -> `server/fd.c:set_reparse_point`) does **not** create standard POSIX `symlink(2)` symbolic links:
+- In Wine's server, `FSCTL_SET_REPARSE_POINT` creates a dummy regular file with a trailing question mark (`fd->unix_name + "?"`) and attaches an extended attribute (`user.reparse`) containing the reparse header and target data.
+- These dummy reparse points are completely invisible to standard Unix utilities (`ls`, `cat`, package managers), cannot be traversed by Linux file loaders or external tools, and fail on filesystems lacking user extended attribute support.
+- Therefore, we introduced an internal Unix call in `dlls/ntdll`:
+  - **`unixcall_wine_create_symlink` (`dlls/ntdll/unix/file.c`):** Resolves DOS/NT paths to Unix paths via `ntdll_get_unix_file_name()`, canonicalizes target paths with `realpath()`, checks idempotency before unlinking existing links, and creates a true POSIX `symlink(2)` link pointing into `/usr/local/lib/wine/`.
+  - Exported as `@ cdecl wine_create_symlink(wstr wstr)` in `ntdll.spec`.
+  - WOW64 path redirection is performed cleanly in `dlls/setupapi/fakedll.c` via `get_real_link_dest()` (redirecting `\system32\` to `\syswow64\` while preserving `drivers/etc`, `catroot`, and `spool`), allowing `wow64_wine_create_symlink` to remain a simple pass-through thunk without duplicate path manipulation.
 
 #### 3. SetupAPI Fake DLL Generator (`dlls/setupapi/fakedll.c`)
 - Hooked into `install_fake_dll()`, `create_fake_dll()`, and `delay_copy_files()`.
 - Non-fake DLLs (e.g., native third-party libraries installed by applications) are verified via `is_fake_dll()` and preserved as real files.
 - WinSxS assembly delayed copies (`delay_copy_files()`) resolve canonical targets and create direct symlinks into `/usr/local/lib/wine/` assemblies.
 
-#### 4. Wineserver Copy-on-Write Symlink Protection (`server/fd.c`)
-When an application installer or updater overwrites, supersedes, truncates, or deletes a built-in library (e.g., installing a private `msvcp140.dll` or `d3dx9_43.dll`), writing through the symlink would corrupt the shared distribution directory (`/usr/local/lib/wine/`).
-- **`cow_break_symlink()`:** Implemented in `server/fd.c` at the wineserver file descriptor boundary (`open_fd()`).
-- Triggered whenever an existing file is opened with `FILE_UNIX_WRITE_ACCESS`, `DELETE`, `O_TRUNC`, or `FILE_DELETE_ON_CLOSE` and `lstat()` reports a symlink pointing to a regular file.
-- Automatically copies the underlying shared file content into a private temporary file (`<path>.cow.<pid>`), applies requested permissions/truncation, and atomically renames it over the symlink using `rename()`.
-- Result: The user's prefix acquires a local, private regular file, while `/usr/local/lib/wine` remains completely untouched and pristine.
+#### 4. Client-Side Copy-on-Write (COW) in NTDLL (`dlls/ntdll/unix/file.c`)
+To ensure application installers or updaters can overwrite, supersede, or truncate a built-in library (e.g. replacing `msvcp140.dll` with an application-specific version) without mutating the read-only package tree (`/usr/local/lib/wine/`):
+- **Client-Side Location:** Implemented in `check_cow_break_symlink()` called from `NtCreateFile()`.
+- **Target Gating (`is_in_wine_dll_dirs`):** Only symlinks whose canonical resolved target resides inside Wine's DLL directories (`dll_paths`, `system_dll_paths`, or `build_dir`) are broken. Ordinary symlinks elsewhere (e.g. user symlinks under `Z:\...` or inside `/tmp`) write through untouched.
+- **Access / Disposition Gating:** Only fires for data writes (`FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_WRITE | GENERIC_ALL`) or truncation/supersede dispositions (`FILE_OVERWRITE`, `FILE_OVERWRITE_IF`, `FILE_SUPERSEDE`). Skips `FILE_DELETE_ON_CLOSE`.
+- **Relative Path Support (`RootDirectory`):** When `attr->RootDirectory` is provided, `check_cow_break_symlink()` receives the open directory file descriptor `root_fd` and uses POSIX.1-2008 directory-relative syscalls (`fstatat`, `readlinkat`, `openat`, `renameat`, `unlinkat`) with `dir_fd = (root_fd != -1) ? root_fd : AT_FDCWD`.
+- **Permission & Atomicity:** New regular copies preserve the exact permissions of the package target (`st_target.st_mode & 0777`) and are populated in a temporary file (`<name>.cow.<pid>`) before being atomically swapped over the symlink using `renameat()`.
+
+#### 5. Leaf Symlink Preservation on Delete (`server/fd.c`)
+In stock Wine's `open_fd()`, `fd->unix_name` was canonicalized with `realpath()`, resolving symlinks to their package target. Consequently, `unlink_closed_fd()` on `FILE_DELETE_ON_CLOSE` would attempt to unlink the target in `/usr/local/lib/wine/`. We modified `open_fd()` in `server/fd.c` so that when the leaf component is a symbolic link (`S_ISLNK`), only the parent directory is canonicalized, keeping the leaf symlink path in `fd->unix_name`. When `unlink_closed_fd()` runs, `unlink()` unlinks the symlink in the prefix, leaving the shared package file pristine.
 
 ---
 
@@ -217,47 +224,47 @@ Total symlinks created: **1,526 symlinks** (728 in `system32`, 798 in `syswow64`
 
 ---
 
-### S1.3 Copy-on-Write (COW) Verification
+### S1.3 Copy-on-Write (COW) Verification Suite
 
-We verified copy-on-write protection using `cow_test.c`, which calls `CreateFileA("C:\\windows\\system32\\kernel32.dll", GENERIC_READ | GENERIC_WRITE, 0, NULL, TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)` and writes 34 bytes (`COW_TEST_MODIFIED_DATA_1234567890`):
+The COW verification suite (`installer/tests/run_cow_tests.sh` executing `installer/tests/test_cow_cases.c`) tests all required conditions:
+1. `Z:\` symlink to an ordinary file writes through without breaking into a copy.
+2. Relative open with `RootDirectory` on a built-in DLL symlink breaks into a private regular copy.
+3. `DeleteFileW` on a built-in DLL symlink unlinks the symlink while preserving the package target in `/usr/local/lib/wine/`.
+4. Limited user (`testuser`) relative open breaks into a private regular copy owned by `testuser`.
 
-#### 1. Execution as `root`
 ```
-# Initial state of package file:
-sha256sum /usr/local/lib/wine/x86_64-windows/kernel32.dll
-812a7936a7eb20757754d90f230dafa68c0c4516fc41ba432b4923b7ffda620c
+--- 1. Testing Z: symlink write-through ---
+=== Test: Symlink in Z:\ to an ordinary file writes through ===
+SUCCESS: Wrote 33 bytes through Z:\ symlink
+PASS: /tmp/cow_test_user_link.txt is still a symbolic link (did not break into a copy)!
+Target content: MODIFIED_CONTENT_THROUGH_SYMLINK
 
-# Prefix before write:
-ls -l /tmp/wine_s1_test/drive_c/windows/system32/kernel32.dll
-lrwxrwxrwx 1 root root 46 Oct 15 12:28 kernel32.dll -> /usr/local/lib/wine/x86_64-windows/kernel32.dll
+--- 2. Testing relative open with RootDirectory on built-in symlink ---
+lrwxrwxrwx 1 root root 47 Oct 15 15:06 /tmp/wine_cow_test/drive_c/windows/system32/msvcp140.dll -> /usr/local/lib/wine/x86_64-windows/msvcp140.dll
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+-rw-r--r-- 1 root root 5021751 Oct 15 15:06 /tmp/wine_cow_test/drive_c/windows/system32/msvcp140.dll
+PASS: drive_c/windows/system32/msvcp140.dll is now a regular file!
+msvcp140.dll header: COW_RELATIVE_TEST_MODIFIED
 
-# Run COW test:
-wine /tmp/cow_test64.exe C:\\windows\\system32\\kernel32.dll
-Opening C:\windows\system32\kernel32.dll for write/truncate...
-SUCCESS: Wrote 34 bytes to C:\windows\system32\kernel32.dll
+--- 3. Testing DeleteFileW on built-in symlink ---
+lrwxrwxrwx 1 root root 46 Oct 15 15:06 /tmp/wine_cow_test/drive_c/windows/system32/version.dll -> /usr/local/lib/wine/x86_64-windows/version.dll
+=== Test: DeleteFileW on built-in symlink ===
+SUCCESS: DeleteFileW unlinked built-in symlink
+PASS: drive_c/windows/system32/version.dll was deleted (unlinked)!
+Package file remains intact:
+-rwxr-xr-x 1 root root 171200 Oct 15 15:05 /usr/local/lib/wine/x86_64-windows/version.dll
 
-# Prefix after write:
-ls -l /tmp/wine_s1_test/drive_c/windows/system32/kernel32.dll
--rw-r--r-- 1 root root 34 Oct 15 12:30 kernel32.dll
-
-# Verification of shared package binary:
-sha256sum /usr/local/lib/wine/x86_64-windows/kernel32.dll
-812a7936a7eb20757754d90f230dafa68c0c4516fc41ba432b4923b7ffda620c (UNTOUCHED)
-```
-
-#### 2. Execution as Limited User (`testuser`)
-```
-su testuser -c "wine /tmp/cow_test64.exe C:\\windows\\system32\\kernel32.dll"
-Opening C:\windows\system32\kernel32.dll for write/truncate...
-SUCCESS: Wrote 34 bytes to C:\windows\system32\kernel32.dll
-
-# Result in testuser's prefix:
-ls -l /home/testuser/.wine/drive_c/windows/system32/kernel32.dll
--rw-r--r-- 1 testuser testuser 34 Oct 15 12:32 kernel32.dll
-
-# Shared package binary:
-sha256sum /usr/local/lib/wine/x86_64-windows/kernel32.dll
-812a7936a7eb20757754d90f230dafa68c0c4516fc41ba432b4923b7ffda620c (UNTOUCHED)
+--- 4. Testing COW as limited user (testuser) ---
+=== Test: Symlink in Z:\ to an ordinary file writes through ===
+SUCCESS: Wrote 33 bytes through Z:\ symlink
+PASS: user Z: symlink still a symlink!
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+PASS: limited user relative open broke symlink to regular file!
+-rw-r--r-- 1 testuser testuser 5021751 Oct 15 15:07 /home/testuser/test_pfx/drive_c/windows/system32/msvcp140.dll
+msvcp140.dll header: COW_RELATIVE_TEST_MODIFIED
+ALL COW TESTS PASSED PERFECTLY!
 ```
 
 ---
@@ -276,34 +283,144 @@ We tested Wine update behavior after simulating a newer Wine runtime:
 
 ---
 
-### S1.5 Binary Execution & Conformance Test Suite
+### S1.5 Conformance Test Suite & Raw Logs
 
-#### 1. PE & Version Information Checks (`test_s1.c`)
-- **64-bit Test Program (`check_s1_64.exe`):**
-  ```
-  Process running: 64-bit (is_wow64=0)
-  SUCCESS: LoadLibrary advapi32.dll succeeded: 0000000170050000
-  SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
-  ```
-- **32-bit Test Program (`check_s1_32.exe`):**
-  ```
-  Process running: 32-bit (is_wow64=1)
-  SUCCESS: LoadLibrary advapi32.dll succeeded: 0x7b620000
-  SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
-  ```
-- Wine 32-bit Notepad (`C:\windows\syswow64\notepad.exe`), 64-bit Notepad, and desktop session Explorer ran cleanly.
+The test suites were run on the stock pin baseline (`2e8bcfa` prefix without symlinks) and on `gemini/prefix-split` (prefix with `WINELINKFAKEDLLS=1`). All raw logs are committed under `docs/prefix-split/logs/`.
 
-#### 2. Conformance Test Results
+#### Summary Results
+
+| Test Suite | Stock Pin Baseline (`2e8bcfa`) | Branch (`gemini/prefix-split`) | Delta | Raw Log File |
+|---|---|---|---|---|
+| `kernel32:file` | 571,334 executed (244 todo, 7 failures, 0 skipped) | 571,334 executed (244 todo, 7 failures, 0 skipped) | 0 (Exact Match) | [logs/kernel32_file_branch.log](logs/kernel32_file_branch.log) |
+| `setupapi:install` | 1,085 executed (4 todo, 0 failures, 0 skipped) | 1,085 executed (4 todo, 0 failures, 0 skipped) | 0 (Exact Match) | [logs/setupapi_install_branch.log](logs/setupapi_install_branch.log) |
+| `setupapi:parser` | 1,046 executed (13 todo, 0 failures, 0 skipped) | 1,046 executed (13 todo, 0 failures, 0 skipped) | 0 (Exact Match) | [logs/setupapi_parser_branch.log](logs/setupapi_parser_branch.log) |
+| `uxtheme:system` | 22,252 executed (17 todo, 0 failures, 4 skipped) | 22,252 executed (17 todo, 0 failures, 4 skipped) | 0 (Exact Match) | [logs/uxtheme_system_branch.log](logs/uxtheme_system_branch.log) |
+
+#### Exact Summary Lines from Raw Logs
+
 - **`kernel32:file`:**
-  - 64-bit: 285,667 tests, 0 failures, 122 todo.
-  - 32-bit: 285,667 tests, 0 failures, 122 todo.
-  - Passes stock Wine baseline without regressions.
-- **`setupapi:install` & `setupapi:parser`:**
-  - 64-bit: 523 tests, 0 failures, 6 todo.
-  - 32-bit: 523 tests, 0 failures, 7 todo.
-  - 100% pass rate on all non-todo assertions.
+  ```
+  0020:file: 571334 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.
+  ```
+- **`setupapi:install`:**
+  ```
+  0020:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+  ```
+- **`setupapi:parser`:**
+  ```
+  0020:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+  ```
 - **`uxtheme:system`:**
-  - 64-bit: 11,126 tests, 0 failures, 8 todo.
-  - 32-bit: 11,126 tests, 0 failures, 9 todo.
-  - 100% pass rate. Confirms that WinSxS assemblies (comctl32 v6) canonicalize and load without error.
+  ```
+  0020:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.
+  ```
+
+---
+
+### S1.6 Acceptance Install Tests
+
+A fresh hybrid ISO was built from the branch via `installer/build-iso.sh --clean` (`/root/wineexplorer-wow64.iso`), and the zero-input unattended fixture was created via `installer/tests/prepare-unattended-iso.py` (`/root/wineexplorer-wow64-unattended.iso`).
+
+#### 1. Unattended Install (`installer/tests/install-unattended.sh`)
+```
+started wex-unattend-test
+found
+found
+found
+shut down wex-unattend-test
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+PASS: zero-input install and installed-disk checks; evidence in /tmp/vmtest/wex-unattend-test
+```
+
+#### 2. Interactive Install (`installer/tests/install-interactive.sh`)
+```
+started wex-inter-test
+found
+--- welcome
+found
+--- license
+found
+--- partitions
+found
+found
+--- created
+found
+--- format
+found
+--- copied
+found
+--- regional
+found
+found
+--- computer
+found
+found
+found
+--- workgroup
+found
+--- oobe
+found
+found
+found
+--- users
+found
+found
+--- finish
+found
+--- logon
+found
+clicked 758,337
+found
+found
+--- rejected-password
+found
+--- alice-desktop
+found
+--- switch-user
+clicked 782,415
+found
+found
+--- desktop
+=== Building test32.exe (i686-w64-mingw32-gcc) and test64.exe (x86_64-w64-mingw32-gcc) ===
+=== Staging test executables into VM ===
+Desktop user: bobsmith on :1
+=== 1. Running 32-bit test program on desktop ===
+found
+/tmp/vmtest/wex-inter-test/steps/18-test32.png
+PASS: Win32 test program window drawn
+=== 2. Running Wine 32-bit notepad from syswow64 ===
+found
+/tmp/vmtest/wex-inter-test/steps/19-notepad32.png
+PASS: 32-bit syswow64 notepad window drawn
+=== 3. Running 64-bit test program ===
+found
+/tmp/vmtest/wex-inter-test/steps/20-test64.png
+PASS: Win64 test program window drawn
+=== Cleaning up running test processes ===
+PASS: All WoW64 32-bit and 64-bit program checks succeeded.
+shut down wex-inter-test
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership and setup cleanup
+PASS (Bob desktop 5 s after logon); screenshots in /tmp/vmtest/wex-inter-test/steps; VM stopped
+```
+
+---
+
+### S1.7 Inventory of Real (Non-Symlink) Files in System Folders
+
+In a freshly bootstrapped prefix, `system32` contains **97–133 files** and `syswow64` contains **89 files** that remain physical regular files instead of symlinks. All other files (728 in `system32` and 798 in `syswow64`) are symbolic links.
+
+#### Categorized File Breakdown
+
+| Category | `system32` Count | `syswow64` Count | Purpose & Rationale |
+|---|---|---|---|
+| **NLS Tables (`.nls`)** | 75 | 75 | Codepage tables (`c_*.nls`), Unicode normalization (`normnfc.nls`), locale tables (`locale.nls`). Installed via `wine.inf` `[NlsFiles]` (`CopyFiles = NlsFiles`). Applications map these data tables directly via NT memory sections; they are data files, not fake PE DLLs. |
+| **WinMD Metadata (`.winmd`)** | 10 | 10 | Windows Runtime (WinRT) interface contracts (`Windows.Foundation.winmd`, `Windows.Globalization.winmd`, etc.) installed via `wine.inf` `[WinmdFiles]`. These are metadata packages queried by WinRT language projections. |
+| **Network Config (`drivers/etc/`)** | 4 | 0 | `hosts`, `networks`, `protocol`, `services`. Installed via `wine.inf` `[EtcFiles]`. These flat text configuration files are queried and modified per-machine by network APIs. Shared across 32/64-bit. |
+| **Color Profiles (`spool/drivers/color/`)** | 1 | 0 | `sRGB Color Space Profile.icm`. Installed via `wine.inf` `[ColorFiles]`. Standard ICM display/printer color profile data. |
+| **Management Console (`devmgmt.msc`)** | 1 | 0 | Device Manager console document installed via `wine.inf` `[MscFiles]`. XML-based console layout file loaded by `mmc.exe`. |
+| **Driver Store INF Repository** | 5 | 0 | Plug-and-play driver INF packages (`driverstore/filerepository/{input, winebth, winebus, winehid, wineusb}.inf`) staged by `pnp_driver_install()` during initial device enumeration. |
+| **DOS / 16-bit Subsystem Binaries** | 0 | 3 | `ddhelp.exe`, `dosx.exe`, `dsound.vxd` in `syswow64`. 16-bit DOS extender dummy stubs generated during prefix initialization for compatibility with legacy 16-bit DOS/Win16 callers. |
+| **Vulkan ICD Manifest (`winevulkan.json`)** | 1 | 1 | Khronos Vulkan ICD loader manifest specifying the client driver module path for 64-bit and 32-bit Vulkan applications. |
+| **Total Non-Symlink Files** | **97** | **89** | Total disk space: **< 5 MB** (retaining full 98.6% size reduction). |
 
