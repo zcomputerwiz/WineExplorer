@@ -16,7 +16,7 @@ if [ "$1" != gtk ]; then
         echo "Making the logon prefix $PREFIX ..."
         # no display: wineboot needs none, and the greeter's X server does not exist yet
         runuser -u lightdm -- env -u DISPLAY HOME=/var/lib/lightdm WINEPREFIX="$PREFIX" \
-            WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all /usr/local/bin/wine wineboot.exe -i
+            WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all /usr/local/bin/wine wineboot.exe -i
         runuser -u lightdm -- env HOME=/var/lib/lightdm WINEPREFIX="$PREFIX" /usr/local/bin/wineserver -w
     fi
 fi

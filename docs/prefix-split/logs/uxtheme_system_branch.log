@@ -1,0 +1,42 @@
+system.c:311: Theming is active
+system.c:314: Test executable is themed
+system.c:584: Test marked todo: OpenThemeData() should fail
+system.c:586: Test marked todo: Got unexpected 0.
+system.c:630: Test marked todo: Expected FALSE
+0024:fixme:uxtheme:open_theme_data_internal unhandled flags: 1
+0024:fixme:uxtheme:open_theme_data_internal unhandled flags: 2
+0024:fixme:uxtheme:open_theme_data_internal unhandled flags: 3
+system.c:921: Test marked todo: Expected E_POINTER, got 0x80070057
+system.c:930: Test marked todo: Expected E_HANDLE, got 0x80070490
+system.c:820: Test marked todo: Expected E_NOT_SUFFICIENT_BUFFER, got 0x00000000
+system.c:831: Test marked todo: Expected E_NOT_SUFFICIENT_BUFFER, got 0x00000000
+0024:fixme:win:create_window_handle DPI context 0x22 not implemented
+0024:fixme:system:NtUserDisplayConfigGetDeviceInfo Unimplemented packet type 4294967293.
+system.c:222: Tests skipped: DisplayConfigGetDeviceInfo failed, returned 87.
+system.c:1235: Tests skipped: Failed to set primary monitor dpi to 192.
+0024:fixme:uxtheme:BeginBufferedPaint painting parameters are ignored
+0024:fixme:uxtheme:BeginBufferedPaint painting parameters are ignored
+0024:fixme:uxtheme:BufferedPaintClear Stub (0000000000000000 0000000000000000)
+system.c:1049: Test marked todo: Unexpected return code 0x80004001
+0024:fixme:uxtheme:BufferedPaintClear Stub (00007FFFF161A570 0000000000000000)
+system.c:1053: Test marked todo: Unexpected return code 0x80004001
+0024:fixme:uxtheme:BeginBufferedPaint painting parameters are ignored
+0024:fixme:uxtheme:BeginBufferedPaint painting parameters are ignored
+0024:fixme:uxtheme:BeginBufferedPaint painting parameters are ignored
+0024:fixme:uxtheme:BeginBufferedPaint painting parameters are ignored
+system.c:2748: Tests skipped: SystemUsesLightTheme registry value not found.
+system.c:2777: Tests skipped: AppsUseLightTheme registry value not found.
+0024:fixme:uxtheme:GetImmersiveUserColorSetPreference 0 0: stub
+0024:fixme:uxtheme:GetImmersiveColorTypeFromName L"NoSuchImmersiveColorName": stub
+0024:fixme:uxtheme:GetImmersiveColorFromColorSetEx 0 0 0 0: semi-stub
+0024:fixme:uxtheme:GetImmersiveColorNamedTypeByIndex 0: stub
+system.c:2813: Test marked todo: Got unexpected NULL color type name.
+v6util.h:92: created cc6.manifest
+system.c:2180: Test marked todo: msg 0x132: Expected the same brush.
+system.c:2183: Test marked todo: msg 0x132: Expected the same brush.
+system.c:2180: Test marked todo: msg 0x135: Expected the same brush.
+system.c:2183: Test marked todo: msg 0x135: Expected the same brush.
+system.c:2180: Test marked todo: msg 0x138: Expected the same brush.
+system.c:2183: Test marked todo: msg 0x138: Expected the same brush.
+system.c:2247: Test marked todo: Expected error 87, got 3735928559.
+0020:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.
