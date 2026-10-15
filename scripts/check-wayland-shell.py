@@ -43,7 +43,7 @@ for bits in ((64, 32) if enabled else (64,)):
     env.pop("WEX_WAYLAND_NATIVE_WINDOWS", None)
     if enabled:
         env["WEX_WAYLAND_NATIVE_WINDOWS"] = "1"
-    comp_args = [str(comp / "build/labwc"), "-C", str(config)]
+    comp_args = [os.environ.get("WEX_WEXCOMP_BIN", str(comp / "build/labwc")), "-C", str(config)]
     if os.environ.get("WEX_SHELL_TEST_DEBUG") == "1":
         comp_args.append("-d")
     compositor = subprocess.Popen(comp_args, env=env,
@@ -265,6 +265,33 @@ for bits in ((64, 32) if enabled else (64,)):
         print(report.read_text(), flush=True)
         if enabled:
             assert peer.wait(timeout=10) == 0, "native did not honor forwarded close"
+    except BaseException:
+        # Opt-in, failure-only diagnostics: attach solely to this test's own
+        # shell process before teardown. Never inspect the real desktop shell.
+        if os.environ.get("WEX_SHELL_TEST_BACKTRACE") == "1":
+            try:
+                # Wine's launcher can remain start.exe while the actual shell
+                # is a separate Unix process. Match only this isolated prefix;
+                # never attach to another session's Explorer.
+                prefix = b"WINEPREFIX=" + os.fsencode(env["WINEPREFIX"])
+                for process in Path("/proc").iterdir():
+                    if not process.name.isdigit():
+                        continue
+                    try:
+                        if process.joinpath("comm").read_text().strip() != "explorer.exe":
+                            continue
+                        if prefix not in process.joinpath("environ").read_bytes().split(b"\0"):
+                            continue
+                    except (OSError, PermissionError):
+                        continue
+                    with (case / f"shell-backtrace-{process.name}.log").open("w") as output:
+                        subprocess.run(["sudo", "-n", "gdb", "-batch", "-ex", "set pagination off",
+                                        "-ex", "info sharedlibrary", "-ex", "thread apply all bt",
+                                        "-p", process.name], stdout=output,
+                                       stderr=subprocess.STDOUT, timeout=20)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"Test shell backtrace unavailable: {error}", flush=True)
+        raise
     finally:
         for process in (probe, peer):
             if process and process.poll() is None:

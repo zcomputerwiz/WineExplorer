@@ -1,5 +1,33 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**L2 compositor resize checkpoint (Codex, 2026-10-15):** compositor
+codex/wayland-l2 is b41b65f (transaction dd65ccef); Wine topic is 180d405. Private protocol v10 now
+negotiates hosted **XDG** resize transactions. Acceptance, xdg acknowledgement,
+actual native buffer readiness and atomic matching-frame publication are
+separate serial-specific events. Retained buffer references keep the previous
+matching roots visible; native/frame-first commits, all eight edges/corners,
+fixed/one-axis limits, client-chosen sizes, supersession, cancellation, focus /
+capture loss, bounded recovery and destruction are tested. Both compositor
+variants pass 47/47 (XCB constraint case skips without XWayland). Full combined
+WoW64 builds pass at master’s production 2e8bcfa pin and after restoring the
+topic. Wine's driver still binds v8; bridge observation still binds v9. Updating
+the three XML copies enables no resize UI or default-session behavior.
+
+**Next task:** diagnose the intermittent shell adoption/readoption hang before
+enabling further UI behavior, then consume the v10 transactions in Wine/wexhost and connect Wine's
+sizing loop, maintaining serial/foreground guards and converting DPI units.
+Add XWayland's native completion path (v10 currently rejects that native type),
+then actual 64/32 resize/cancel, 100%/150%, GTK/foot/XWayland/independent Wine
+acceptance before enabling sizing or maximize. L2 remains incomplete. Three
+consecutive final shell runs pass both architectures, but earlier failures at
+initial adoption and SSD readoption remain unexplained; do not claim a fix or
+continuous acceptance. The failure-only WEX_SHELL_TEST_BACKTRACE=1 diagnostic
+finds Explorer by its exact isolated prefix; attaching the launcher instead was
+unhelpful. WEX_WEXCOMP_BIN enables A/B testing without changing the current build.
+No user input or external dependency is needed. See the final WAYLAND_L2.md section for commands, failed
+attempts, corrected teardown/timing probes, and VM state. Keep clear of Gemini's
+prefix-split files. Tray SNI remains the default task after L2.
+
 **L2 constraint checkpoint (Codex, 2026-10-15):** Wine topic b971d96,
 compositor 2e88585f. Manager/observer protocol v9 carries maximum client sizes;
 Wine's driver still binds v8 and no resize request/UI is enabled. XDG and

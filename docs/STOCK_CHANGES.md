@@ -9,8 +9,8 @@ P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
 Current pin is 2e8bcfa, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (b971d96, not the production pin) extends the
-private protocol through v9, starting with v4 native/controller atom properties and an
+L2 opt-in topic codex/wayland-l2 (180d405, not the production pin) extends the
+private protocol through v10, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
 behavior. The standard wlr XML is vendored only to satisfy private protocol
@@ -19,7 +19,7 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing.
-Private hosting changes are fork-only. Compositor topic 2e88585f provides v5 active scene grouping
+Private hosting changes are fork-only. Compositor topic b41b65f provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
@@ -62,6 +62,18 @@ is unchanged. Owned wexhost fills existing max_size fields, preserves state
 transitions when coalescing geometry events, and wexshell applies independent
 axis limits in WM_GETMINMAXINFO. See WAYLAND_L2.md for compatibility checks.
 
+180d405 synchronizes the v10 private XML across Wine, wexhost and compositor.
+Wine's driver still binds v8 and bridge observers bind v9; there is no new Wine
+runtime behavior at this checkpoint. Compositor dd65ccef adds serial-specific
+XDG hosted resize requests, constraint acceptance, configure acknowledgement,
+native-buffer readiness and matching-frame publication. Public scene/buffer
+APIs retain old root buffers until atomic handover; supersession and bounded
+rollback retain the original geometry. Focus/capture loss starts rollback;
+failed rollback restores ordinary native composition. Snapshot listeners and
+references are released on either window's destruction. XWayland resize requests
+are explicitly unavailable, pending a separate native completion path. The
+production pins, WEX ABI, adoption gate and sizing affordances remain unchanged.
+
 The L2 move checkpoint adds fork-only v8 frame pointer capture and its Wine
 SetCapture hook, guarded by the current focus epoch and active HOST state.
 Hosted Move uses Wine's loop only with v8; zone placement echoes are ignored
@@ -73,7 +85,8 @@ The compositor routes pointer warps through normal hit testing with xdg surface
 geometry offsets. Explorer activates task-menu Move/Size targets and separates
 requested geometry from older observations. Production 2e8bcfa carries only
 the shared property definitions needed to compile the existing owned bridge;
-the L2 topic merges that header fix. Resize negotiation remains pending.
+the L2 topic merges that header fix. Wine's consumption of resize negotiation
+remains pending; the compositor's XDG transaction is implemented separately.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.
 Those implementations are project modules rather than source patches in

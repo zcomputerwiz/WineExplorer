@@ -102,8 +102,21 @@ native state; wexcomp enforces native size constraints and owns xdg configure /
 buffer-commit completion and atomic scene changes. Use the v8 capture path for
 move/size input, not a new window-manager process or class-name special cases.
 
-Implement the resize transaction next. Use a new negotiated request/event set
-(after v9); keep resize capability off for older peers. Give each requested
+The compositor's XDG transaction is implemented on dd65ccef using v10. It retains
+old root-buffer references, constrains desired sizes, distinguishes acceptance /
+xdg acknowledgement / committed native buffers / matching frame publication,
+and supports supersession and bounded rollback. Both compositor suites pass
+47/47, including all eight edges/corners and pixel assertions. Wine's XML is
+synchronized on 180d405, but its driver still binds v8 and bridge observers v9.
+XWayland resize requests explicitly return unavailable. This is a compositor
+checkpoint, not interactive resize acceptance.
+
+Next, consume the transaction in Wine/wexhost and connect the Wine sizing loop.
+First diagnose the intermittent shell adoption/readoption hang recorded in
+WAYLAND_L2.md: three final 64/32 runs pass, but that does not establish a fix for
+the earlier initial-adoption/SSD-readoption failures. Failure-only diagnostics
+and an alternate-compositor selector are available in check-wayland-shell.py.
+Keep resize capability off for older peers. Give each requested
 client rectangle its own serial and keep the compositor's xdg configure serial
 separate. Read native constraints at request time, not just from cached observer
 data. Report constrained acceptance separately from acknowledged native buffer
@@ -121,8 +134,8 @@ focus/capture, with current-foreground and focus-epoch guards. Add delayed,
 fixed-size and client-selected-size fixtures before enabling sizing affordances.
 Completions are transaction events, not coalescible geometry observations.
 
-The next protocol change must distinguish desired size, client configure
-acknowledgement and actual committed buffer size. Account for min/max constraints,
+The Wine integration must preserve the protocol distinction between desired size,
+client configure acknowledgement and actual committed buffer size. Account for min/max constraints,
 fixed-size clients, client-selected sizes, delayed/ignored configures and Escape
 rollback. Older completions must not override a newer request. Keep rendering
 and input coherent while the native buffer and Wine frame catch up; do not

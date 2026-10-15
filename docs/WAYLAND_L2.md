@@ -7,9 +7,11 @@ Scope and agreed decisions: WAYLAND_L2_WORKORDER.md. Project source is on master
 Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains
 ~/wexcomp-build, used only for isolated nested tests. No default/session deployment.
-Current L2 topics: Wine 786643b (host worktree build/wayland-l2/wine), compositor
-efb40ac9 (build/wayland-l2/wexcomp). The ordinary wine/ submodule checkout remains
-detached at its production f0108dc gitlink; neither production pin was advanced.
+Current L2 topics: Wine 180d405 (host worktree build/wayland-l2/wine), compositor
+b41b65f (build/wayland-l2/wexcomp; resize transaction dd65ccef). The ordinary wine/ submodule checkout remains
+detached at production 2e8bcfa; this checkpoint advances neither production pin.
+The sections below are chronological checkpoints; the final section records
+the implemented compositor resize transaction and the next Wine integration task.
 
 ## Planning inspection corrections
 
@@ -1166,3 +1168,122 @@ frame buffers must remain distinct, with coherent scene handover and bounded
 cancellation/timeout. Constraint observation alone does not implement resizing.
 Resize/maximize UI, AUTO adoption and ISO defaults remain unchanged. Gemini's
 prefix-split files and the real desktop sessions remain untouched.
+
+## Compositor XDG resize transaction checkpoint — 2026-10-15
+
+Compositor dd65ccef implements private v10 resize negotiation for an active
+hosted XDG group with physically focused frame capture. Wine 180d405 and owned
+wexhost synchronize the same XML. Their runtime bindings remain v8/v9; no sizing
+affordance or default behavior is enabled. XWayland resize explicitly returns
+unavailable; XWayland inventory, hints and ordinary controls are unchanged.
+
+The controller serial is independent of the xdg configure serial. Accepted
+reports fresh min/max/base/increment constraints and left/top edge anchoring.
+Acknowledged reports the xdg acknowledgement alone. Native_ready reports actual
+committed client dimensions, including client-selected sizes. A separate frame
+publication request validates the four original margins, actual native size and
+committed frame buffer before handing both roots over atomically. Early or
+mismatched frame publication can be retried; stale requests cannot override a
+new intent. New requests supersede pending requests while retaining the original
+rollback geometry. Completion events are separate from geometry observations.
+
+Plain scene buffers hold immutable references to old root buffers through public
+wlroots APIs; no pixel copying or temporary native detachment. Live surface trees
+keep their listeners, menus, popups and subsurface ownership. Disabled live roots
+and saved scene offsets prevent partial commits from becoming visible. The
+retained native node supplies frame callbacks for both participants. Snapshot
+nodes accept no input; existing frame capture owns input during negotiation.
+Physical focus/capture loss starts rollback without reactivation. Cancellation
+and the first two-second timeout request the original native geometry; the
+controller submits its restored frame before releasing capture/focus. A second
+two-second timeout safely restores the ordinary native scene and releases capture.
+Native/frame/resource teardown releases snapshot references, listeners and timers.
+
+Reproduce on the Proton VM (isolated headless sessions only):
+
+```
+bash ~/wexcomp-build/tests/wex/run.sh /srv/protonexplorer/wex-wayland-l2/resize-suite-output
+WEX_CHECK_COMP_BUILD=/srv/protonexplorer/wex-wayland-l2/wexcomp-no-xwayland bash ~/wexcomp-build/tests/wex/run.sh /srv/protonexplorer/wex-wayland-l2/resize-no-x-suite-output
+```
+
+Both suites pass 47/47; the XCB constraint case explicitly skips in the no-XWayland
+build. Logs: ~/wexcomp-build/l2-resize-suite.log and l2-resize-no-x-suite.log.
+The focused raw probe additionally passes frame destruction during a pending
+transaction: l2-resize-focused.log, screenshots in .../resize-focused-output.
+The no-XWayland full suite includes that final teardown case too. Test details
+are in the compositor topic's tests/wex/RESIZE.md. Covered: delayed ack and buffer,
+client-selected size, all eight edges/corners, both commit orders, fixed and
+independent-axis limits, stale supersession/cancel/publication, explicit cancel,
+focus loss, capture release, ignored configure/rollback, recovery after safety
+detach and destruction of either participant. Pixel assertions check old frame
+and native pixels during both commit orders and final anchored placement.
+
+Full combined WoW64 builds pass at exact production Wine 2e8bcfa with the updated
+owned XML and again after restoring the topic with fresh timestamps:
+checks/l2-resize-production-pin-build.log and l2-resize-topic-restored-build.log
+under .../wex-wayland-l1. The saved /tmp/check-production-pin.sh extracts
+/tmp/pin-check.tar, traps restoration of /tmp/topic-restore.tar with tar -xmf,
+and runs make -j8 in wow64-source/build/wine64; the topic is then fully rebuilt.
+No make install, assembled-source reset or production gitlink update.
+
+Failed attempts and corrections:
+
+- Initial `ninja -C ~/wexcomp-build/build -j8` failed because
+  xdg_toplevel_from_view is private to xdg.c. Use the public xdg_surface_from_view
+  helper's toplevel instead. Original diagnostics: l2-resize-build.log.
+- The first full-suite resize pixel check expected original native green at
+  (150,180) but saw new frame yellow. The saved native scene node had moved to
+  global coordinates inside the frame, and normal frame-root clipping had been
+  re-enabled by the surface helper. Hold the native local position and explicitly
+  disable the full live frame root as well as its ring/native roots. Both old
+  pixel assertions and the matching-buffer publication checks then passed.
+- After adding capture-release handling, a run's fixed 4.2-second sleep did not
+  observe the final failure by its assumed deadline. The subsequent client abort
+  also exposed an assertion in xdg_surface_from_view during native role teardown.
+  l2-resize-timeout-attempt.log preserves that failed suite. Replace fixed sleeps
+  with bounded event-condition polling (six-second test budget); query the live
+  surface's optional xdg role during cleanup instead of asserting a view still
+  owns its role. Focused native/frame destruction and both full suites pass.
+
+The subsequent compositor b41b65f adds the missing shared-header dependency for
+all seven test clients. `make -C ~/wexcomp-build/tests/wex -n -W shm-common.h`
+schedules all seven client objects plus shm-common.o; changing wex_window_obj
+can no longer relink stale client layouts. Log: l2-resize-header-dependencies.log.
+
+Shell regression investigation (still open):
+
+- `WEX_CHECK_PREFIX=.../prefixes/association-l2 bash .../check-scripts/check-wayland-shell.sh`
+  failed at SSD proxy readoption in l2-resize-shell.log. WEX_SHELL_TEST_DEBUG=1
+  and WINEDEBUG=+waylanddrv runs passed 64-bit but failed 32-bit at the same point
+  (l2-resize-debug-shell.log and l2-resize-trace-shell.log). The latter's
+  shell-adoption.2bseitni/32/shell.log stops after a flush acquires a buffer,
+  before logging get_window_surface_contents' result; the new proxy has no
+  active group. This suggests a synchronization issue but does not establish
+  its cause. No v10 resize request is used by the shell in these tests.
+- A separate source archive/build of previous compositor 2e88585f in
+  .../wex-wayland-l2/compositor-v9-reference passes both architectures when
+  WEX_WEXCOMP_BIN points to its build/labwc (l2-resize-v9-reference-shell.log,
+  shell-adoption.uqpujfx1). The selector changes only the test compositor path.
+  This single pass does not prove the failure is caused by the new compositor.
+- A subsequent run failed even at initial 64-bit adoption
+  (l2-resize-repeat-shell-1.log, shell-adoption.w3fude_a). The first optional gdb
+  attempt attached the launcher's start.exe PID, not Explorer, and produced no
+  useful stack. The corrected failure-only WEX_SHELL_TEST_BACKTRACE=1 path
+  enumerates only explorer.exe processes with this test's exact WINEPREFIX,
+  then runs sudo -n gdb with a bounded timeout; it never attaches to a real
+  session. Successful runs do not invoke the debugger. An inspection initially
+  guessed nonexistent winewayland.drv/wex.c; rg --files located wayland_wex.c.
+- Three consecutive final untraced runs with that failure-only diagnostic
+  enabled pass actual 64/32 shells: l2-resize-diagnostic-shell-{1,2,3}.log,
+  shell-adoption.m_m7hkst, .8b2eisx9 and .z72tr52h. They include limits, native
+  pixels, four move/cancel paths, taskbar/native state, CSD/SSD readoption and
+  close. No failure occurred to collect a corrected backtrace. The earlier
+  race remains unresolved; these passes are not a claimed fix.
+
+Next task is to diagnose that intermittent adoption/readoption hang, then
+Wine/wexhost v10 consumption and sizing-loop/DPI integration, followed
+by XWayland's native completion path and actual 64/32 shell acceptance at 100% /
+150%, GTK/foot/XWayland/independent Wine/Proton and maximize. The compositor probe
+does not claim those remaining checks. L2 remains in progress. Production sessions,
+prefixes, AUTO adoption, resize/maximize controls and ISO defaults are unchanged;
+Gemini's prefix-split work and the user's .gitignore change are untouched.
