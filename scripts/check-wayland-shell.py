@@ -2,6 +2,7 @@
 # Copyright 2026 WineExplorer contributors
 """Own a full opt-in Explorer shell in an isolated headless Wayland session."""
 import os
+import json
 from pathlib import Path
 import re
 import select
@@ -17,6 +18,8 @@ comp = Path.home() / "wexcomp-build"
 enabled = os.environ.get("WEX_SHELL_TEST_DISABLED") != "1"
 owners = os.environ.get("WEX_SHELL_TEST_OWNERS") == "1"
 assert not owners or enabled, "owner tests require the explicit adoption gate"
+stress = int(os.environ.get("WEX_SHELL_TEST_REBIND_STRESS", "0"))
+assert 0 <= stress <= 200 and (not stress or (enabled and not owners))
 
 def report_wait(report, marker, process):
     deadline = time.monotonic() + 20
@@ -78,6 +81,17 @@ for bits in ((64, 32) if enabled else (64,)):
             def command(value):
                 peer.stdin.write(value + "\n")
                 peer.stdin.flush()
+
+            if stress:
+                for iteration in range(stress):
+                    report_wait(report, f"READY_STRESS_CSD_{iteration}\n", probe)
+                    command("csd")
+                    report_wait(report, f"READY_STRESS_SSD_{iteration}\n", probe)
+                    command("ssd")
+                report_wait(report, "SHELL_READOPTION_STRESS_PASSED", probe)
+                assert probe.wait(timeout=10) == 0, report.read_text(errors="replace")
+                print(report.read_text(), flush=True)
+                continue  # finally tears down this architecture's isolated session
 
             def capture(content, phase):
                 match = re.search(rf"PIXEL_{phase} (\d+) (\d+)", content)
@@ -282,12 +296,30 @@ for bits in ((64, 32) if enabled else (64,)):
                             continue
                         if prefix not in process.joinpath("environ").read_bytes().split(b"\0"):
                             continue
-                    except (OSError, PermissionError):
+                    except OSError:
                         continue
+                    mappings = process.joinpath("maps").read_text()
+                    (case / f"shell-maps-{process.name}.log").write_text(mappings)
+                    # WoW64 can report the guest/x32 architecture to gdb, and
+                    # Wine's loader is not necessarily visible in r_debug.
+                    # Load the native ELF modules at their mapped load biases.
+                    # Only native host stacks are needed for lock diagnostics.
+                    modules = {}
+                    for line in mappings.splitlines():
+                        fields = line.split(maxsplit=5)
+                        if len(fields) != 6 or int(fields[2], 16):
+                            continue
+                        path = fields[5]
+                        if any(name in Path(path).name for name in
+                               ("winewayland.so", "wexhost.so", "win32u.so", "ntdll.so", "libc.so.", "libwayland-client.so.")):
+                            modules[path] = int(fields[0].split("-")[0], 16)
+                    debugger = ["sudo", "-n", "gdb", "-batch", "-iex", "set architecture i386:x86-64",
+                                "-ex", "set pagination off", "-p", process.name]
+                    for path, bias in modules.items():
+                        debugger += ["-ex", f"add-symbol-file {json.dumps(path)} -o {bias:#x}"]
+                    debugger += ["-ex", "p win_data_mutex", "-ex", "thread apply all bt"]
                     with (case / f"shell-backtrace-{process.name}.log").open("w") as output:
-                        subprocess.run(["sudo", "-n", "gdb", "-batch", "-ex", "set pagination off",
-                                        "-ex", "info sharedlibrary", "-ex", "thread apply all bt",
-                                        "-p", process.name], stdout=output,
+                        subprocess.run(debugger, stdout=output,
                                        stderr=subprocess.STDOUT, timeout=20)
             except (OSError, subprocess.TimeoutExpired) as error:
                 print(f"Test shell backtrace unavailable: {error}", flush=True)

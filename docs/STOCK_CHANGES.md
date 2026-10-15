@@ -9,7 +9,7 @@ P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
 Current pin is 71572805, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (c6dac92, including 180d405, not the production pin) extends the
+L2 opt-in topic codex/wayland-l2 (ac4a1b3, including 180d405, not the production pin) extends the
 private protocol through v10, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
@@ -19,7 +19,7 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing.
-Private hosting changes are fork-only. Compositor topic e8e5a083 provides v5 active scene grouping
+Private hosting changes are fork-only. Compositor topic 9e4e3d4a provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
@@ -82,6 +82,17 @@ Compositor e8e5a083 requires a content-bearing native commit after acknowledgeme
 state cannot incorrectly report native readiness. A deterministic before/after
 probe covers that separation. b41b65f fixes shared-header dependencies in the
 compositor test-client build so window-layout changes rebuild every client.
+
+Wine ac4a1b3 fixes an observed win_data_mutex/USER lock inversion during themed
+frame creation/readoption. The private Wayland handle and association callbacks
+update scalar state, unlock and post an internal WM_WAYLAND_WEX_UPDATE; the
+owning UI thread refreshes current styles/z-order/hosting. The new message is
+appended without changing existing message numbers and carries no surface pointer
+or stale geometry. Focus/group notifications also post after releasing window
+data. Epoch guards and private protocol versions remain unchanged. A CSD/SSD
+stress probe fails before the fix, passes 100 cycles in each Explorer architecture
+afterward. Compositor 9e4e3d4a only increases the test fixture's stable record
+capacity for long stress runs; it adds no runtime compositor behavior.
 
 The L2 move checkpoint adds fork-only v8 frame pointer capture and its Wine
 SetCapture hook, guarded by the current focus epoch and active HOST state.

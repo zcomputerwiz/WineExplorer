@@ -4,6 +4,7 @@
  */
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <wexwayland.h>
 static unsigned count;
 static HWND taskband;
@@ -146,14 +147,33 @@ static int test_move(HWND host,const char *report,const char *phase,BOOL cancel,
     WAIT("task move exits with native focus",!moving(host) && GetForegroundWindow()==host &&
          (ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
     WAIT("task move releases physical pointer capture",!GetPropW(host,WEX_WAYLAND_CAPTURE_PROP));
-    GetWindowRect(host,&final);
-    if (cancel ? !EqualRect(&bounds,&final) : !move_position_ready(host,&bounds))
-    { puts("FAIL task move final position"); return 1; }
+    /* WM_EXITSIZEMOVE and physical focus/capture changes can precede the
+     * final Escape rollback SetWindowPos. Await geometry independently. */
+    WAIT("task move final position",GetWindowRect(host,&final) &&
+         (cancel ? EqualRect(&bounds,&final) : move_position_ready(host,&bounds)));
     pixel(host,phase);
     point.x=point.y=0; ClientToScreen(host,&point);
     printf("NATIVE_%s %ld %ld 260 200\n",phase,point.x,point.y);
     printf("READY_MOVE_CAPTURE_%s\n",phase);
     WAIT("move capture gate",gate(report,phase));
+    return 0;
+}
+static int stress_readoption(HWND host,unsigned iterations)
+{
+    for (unsigned i=0;i<iterations;++i)
+    {
+        HWND old=host;
+        printf("READY_STRESS_CSD_%u\n",i);
+        WAIT("stress CSD withdraws frame",!IsWindow(old));
+        count=0; EnumWindows(count_host,0);
+        if (count) { puts("FAIL stress CSD duplicate frame"); return 1; }
+        printf("READY_STRESS_SSD_%u\n",i);
+        WAIT("stress SSD adopts frame",(host=FindWindowW(L"WineExplorerLinuxWindow",L"L2 Wine association peer")) &&
+             (ULONG_PTR)GetPropW(host,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+        count=0; EnumWindows(count_host,0);
+        if (count!=1 || !size_is(host,240,180)) { puts("FAIL stress frame count or size"); return 1; }
+    }
+    printf("SHELL_READOPTION_STRESS_PASSED bits=%u iterations=%u\n",(unsigned)(8*sizeof(void *)),iterations);
     return 0;
 }
 static int owners(const char *report)
@@ -237,6 +257,8 @@ int main(int argc,char **argv)
     }
     WAIT("native proxy",(host=FindWindowW(L"WineExplorerLinuxWindow",L"L2 Wine association peer"))!=NULL);
     WAIT("proxy group active",(ULONG_PTR)GetPropW(host,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    if (getenv("WEX_SHELL_TEST_REBIND_STRESS") && atoi(getenv("WEX_SHELL_TEST_REBIND_STRESS"))>0)
+        return stress_readoption(host,atoi(getenv("WEX_SHELL_TEST_REBIND_STRESS")));
     EnumWindows(count_host,0);
     if (count!=1 || !size_is(host,240,180)) { puts("FAIL proxy count or client size"); return 1; }
     if (GetWindowLongW(host,GWL_STYLE)&(WS_THICKFRAME|WS_MAXIMIZEBOX)) { puts("FAIL unfinished resize exposed"); return 1; }

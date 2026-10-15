@@ -108,18 +108,21 @@ xdg acknowledgement / committed native buffers / matching frame publication,
 and supports supersession and bounded rollback. Both compositor suites pass
 47/47, including all eight edges/corners and pixel assertions. Wine's XML is
 synchronized on 180d405, but its driver still binds v8 and bridge observers v9.
-Current Wine topic c6dac92 also merges the new production 71572805 prefix work;
-that synchronization adds no further Wayland behavior.
-Current compositor e8e5a083 additionally rejects acknowledged empty commits as
-native buffer readiness; both final suites still pass 47/47.
+Current Wine topic ac4a1b3 includes c6dac92's production 71572805 merge and the
+adoption deadlock fix below. Runtime compositor e8e5a083 additionally rejects
+acknowledged empty commits as native buffer readiness; both final suites pass
+47/47. Current compositor topic 9e4e3d4a adds only stress-fixture capacity.
 XWayland resize requests explicitly return unavailable. This is a compositor
 checkpoint, not interactive resize acceptance.
 
 Next, consume the transaction in Wine/wexhost and connect the Wine sizing loop.
-First diagnose the intermittent shell adoption/readoption hang recorded in
-WAYLAND_L2.md: three final 64/32 runs pass, but that does not establish a fix for
-the earlier initial-adoption/SSD-readoption failures. Failure-only diagnostics
-and an alternate-compositor selector are available in check-wayland-shell.py.
+The intermittent adoption/readoption hang is now reproduced and fixed in Wine
+ac4a1b3: Wayland callbacks must defer style/z-order refreshes to the owning UI
+thread rather than acquire USER while holding window data. The focused stress
+probe passes 100 cycles per architecture after failing on cycle two before the
+fix. Preserve that lock-order rule in the new resize callbacks. Failure-only
+native-stack diagnostics, WEX_SHELL_TEST_REBIND_STRESS and an alternate-compositor
+selector are available in check-wayland-shell.py. See WAYLAND_L2.md.
 Keep resize capability off for older peers. Give each requested
 client rectangle its own serial and keep the compositor's xdg configure serial
 separate. Read native constraints at request time, not just from cached observer

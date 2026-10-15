@@ -7,8 +7,8 @@ Scope and agreed decisions: WAYLAND_L2_WORKORDER.md. Project source is on master
 Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains
 ~/wexcomp-build, used only for isolated nested tests. No default/session deployment.
-Current L2 topics: Wine c6dac92 (host worktree build/wayland-l2/wine), compositor
-e8e5a083 (build/wayland-l2/wexcomp; resize transaction dd65ccef). The ordinary wine/ submodule checkout remains
+Current L2 topics: Wine ac4a1b3 (host worktree build/wayland-l2/wine), compositor
+9e4e3d4a (build/wayland-l2/wexcomp; resize transaction dd65ccef). The ordinary wine/ submodule checkout remains
 detached at production 71572805, received through Gemini's prefix-split merge.
 The L2 feature itself advances neither production pin.
 The sections below are chronological checkpoints; the final section records
@@ -1341,3 +1341,103 @@ Final current-pin verification and saved state:
   still unstaged. The next item is the explicitly open adoption/readoption race,
   then Wine resize consumption; no full L2 or interactive sizing acceptance is
   claimed by this compositor checkpoint.
+
+## Adoption/readoption lock inversion — 2026-10-15
+
+Wine ac4a1b3 fixes the previously unresolved adoption/readoption hang. A focused
+decoration-switch test reproduces the hang on the second CSD/SSD cycle, with
+Win32 HWND 0x60098 present but group/focus unset. Its native backtrace shows:
+
+```
+UI: USER -> themed SetWindowRgn -> surface flush -> win_data_mutex
+Wayland: win_data_mutex -> wex_association -> window_layer -> USER
+```
+
+The UI thread (744243) waits in get_window_surface_contents; the Wayland thread
+(744244, reported owner of win_data_mutex) waits in NtUserGetWindowLongW's
+USER lock. This establishes a product deadlock, not a compositor resize failure
+or a missed cache invalidation. Reproducer: WEX_SHELL_TEST_REBIND_STRESS=100,
+WEX_SHELL_TEST_BACKTRACE=1, WINEDEBUG=+waylanddrv, WEX_SHELL_TEST_DEBUG=1 and
+WEX_CHECK_PREFIX=.../prefixes/association-l2 with check-wayland-shell.sh.
+Failure log: checks/l2-adoption-rebind-stress-before.log; state:
+shell-adoption.2t5f94bt/64, including shell-backtrace-744243.log and saved mappings.
+
+Handle/association callbacks now only record their state under the data mutex;
+after unlocking, they post WM_WAYLAND_WEX_UPDATE to the owning UI thread.
+The handler rechecks the current surface and recomputes current styles, order
+and hosting; no pointer or obsolete geometry crosses the queue. Appending the
+internal message preserves existing driver message numbers. Focus/group callback
+notifications also post after unlocking and keep existing epoch checks.
+There is no protocol/API/ABI change, no class-name policy and no new WM process.
+
+The same focused test passes 100 full withdraw/readopt cycles in actual 64-bit
+and 32-bit Explorer after the fix: checks/l2-adoption-rebind-stress-final.log,
+shell-adoption.wt4_5r1v. Each cycle checks old-frame destruction, no stale proxy,
+one new active group and correct client size. Compositor 9e4e3d4a raises the test
+observer's stable record capacity to 512 (stress is capped at 200 cycles). This
+preserves closed records for lifetime assertions; runtime compositor code is
+unchanged from e8e5a083. Combined WoW64 build: l2-adoption-ui-refresh-build.log.
+
+Investigation corrections and retained failed attempts:
+
+- `git pull --ff-only origin master` succeeded/up-to-date but printed existing
+  wine/.gitattributes `[attr]generated ... not allowed` warnings. No attribute
+  file was changed to suppress them.
+- The first traced loop stopped at `FAIL task move final position`
+  (l2-adoption-race-1.log, shell-adoption.wgeel2gd/32). A second symbol-enabled
+  run reproduced it in 64-bit (l2-adoption-symbols-1.log, .pb__sf6a/64). Wine
+  sends WM_EXITSIZEMOVE before applying Escape's final SetWindowPos. Focus /
+  capture readiness therefore does not acknowledge final geometry. The probe
+  now waits for exact final geometry separately; the native one-pixel/pixel
+  checks remain. Five traced full 64/32 runs then passed before changing Wine:
+  l2-adoption-native-stack-{1..5}.log, states .z4qxkhyn, .g60flt5y, .hruc3tny,
+  .xkcdnoqp and .gi7juhal. This corrected a test race, not the real deadlock.
+- The first corrected-PID backtrace reported guest/x32 architecture and no
+  shared libraries, yielding unresolved native stacks. Failure diagnostics now
+  force the native i386:x86-64 architecture and load selected ELF modules at
+  load biases read from this exact test process's mappings. The initially
+  guessed winewayland.drv.so filename was absent; mappings identify
+  winewayland.so. With those symbols, the actual lock owners/call chains above
+  are readable. Gdb's libthread_db auto-load warning remains; no security setting
+  or root gdb configuration was loosened. Diagnostics still run only on failure
+  with the explicit flag and match Explorer's exact isolated WINEPREFIX.
+- The first post-fix 100-cycle run reached cycle 13, then the native publisher
+  exited at `observer->count < 16 && observer->manager`; Python got BrokenPipeError
+  on its next CSD command (l2-adoption-rebind-stress-after.log, .d05tek5a/64/peer.log).
+  This was the fixture's old fixed record limit, not a new deadlock. Raising
+  its bounded stable capacity allows both architectures to finish 100 cycles.
+
+Next: integrate Wine/wexhost v10 resize transactions, keeping UI-only style /
+z-order queries out of protocol callbacks. Resize/maximize UI and AUTO adoption
+remain disabled; XWayland completion and the remaining L2 application/DPI checks
+are still pending. Production Wine remains 71572805. Prefix-split files and
+real sessions are untouched, and the user's .gitignore change is unstaged.
+
+Final regression verification for ac4a1b3:
+
+- l2-adoption-ui-refresh-shell.log: full actual 64/32 Explorer checks pass,
+  shell-adoption.oaz6i_mx. Includes pixels/input, constraints, four move/cancel
+  paths, taskbar/native minimize/restore, menu focus, CSD/SSD and close.
+- l2-adoption-ui-refresh-owners.log: actual 64/32 owner lifecycle checks pass,
+  shell-adoption.4ctgcp9x, including owner removal/reassignment, CSD withdrawal /
+  readoption, native unmap/remap and native child survival after parent closure.
+- l2-adoption-ui-refresh-bridge.log: actual 64/32 binding, rounded regions,
+  shape reentry, native pixels and lifecycle pass, plus shared cross-process
+  stacking; association.iwv27t06. The analogous old-peer log also passes both
+  architectures and stacking against the separate v8 e7be9560 compositor binary,
+  association.vi0fouph. Late handle refresh preserves current Win32 order.
+- l2-adoption-ui-refresh-production-pin-build.log: full combined WoW64 build
+  passes at exact production 71572805 with owned master source. The saved
+  check-production-pin.sh traps restoration using tar -xmf; the restored topic
+  is fully rebuilt in l2-adoption-ui-refresh-topic-build.log. Neither checkout
+  was installed or reset. All prefix-mutating checks were serialized.
+- l2-adoption-ui-refresh-x11.log: CHECK_PASSED; two tray icons with zero overlap /
+  out-of-bounds windows, all eight native-dialog cases pass after restoring the
+  topic. No raw compositor production code changed, so its already-passing
+  47/47 suites were not unnecessarily rerun for this Wine callback fix.
+
+All isolated tests have completed and cleaned up their processes. The assembled
+lab source/build is restored to Wine ac4a1b3 with compositor 9e4e3d4a's test
+publisher (runtime e8e5a083). The separate v8/v9 reference builds remain available.
+The real desktop and installed prefixes/runtime remain untouched. The next task
+is now the Wine resize integration, not another unexplained-adoption investigation.

@@ -1,5 +1,25 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**L2 adoption deadlock fixed (Codex, 2026-10-15):** Wine topic ac4a1b3 fixes the
+previously intermittent adoption/readoption hang. A focused CSD/SSD stress case
+reproduced it on its second cycle and captured the actual lock inversion:
+Wayland's association callback held win_data_mutex while window_layer waited
+for USER; themed UI painting held USER and waited for win_data_mutex in content
+flush. Handle/association refreshes now post an internal pointer-free message
+to the owning UI thread; focus notifications are also posted after unlocking.
+The same stress case passes 100 cycles in each architecture (200 total).
+Compositor topic 9e4e3d4a changes only its test fixture's record bound for these
+long runs; runtime compositor behavior remains e8e5a083. Production Wine remains
+71572805 and no installed runtime/session was changed. Read the latest
+WAYLAND_L2.md section for full regression/build results and corrected diagnostics.
+
+The move probe also awaited geometry too early: WM_EXITSIZEMOVE/focus can precede
+Escape's final SetWindowPos. It now waits for exact final geometry separately;
+five traced full 64/32 runs passed after correcting that assertion, before the
+driver fix. The original adoption hang was a separate real product deadlock.
+The next task is Wine/wexhost v10 resize consumption and DPI/sizing-loop
+integration. Keep sizing/maximize disabled until the remaining L2 acceptance.
+
 **L2 compositor resize checkpoint (Codex, 2026-10-15):** compositor
 codex/wayland-l2 is e8e5a083 (transaction dd65ccef); Wine topic is c6dac92
 (protocol 180d405, merged production 71572805). Private protocol v10 now
@@ -21,8 +41,9 @@ fixed in e8e5a083. Wine's driver still
 binds v8; bridge observation still binds v9. Updating
 the three XML copies enables no resize UI or default-session behavior.
 
-**Next task:** diagnose the intermittent shell adoption/readoption hang before
-enabling further UI behavior, then consume the v10 transactions in Wine/wexhost and connect Wine's
+**Next task at the compositor checkpoint (superseded by the fix above):**
+diagnose the intermittent shell adoption/readoption hang before enabling further
+UI behavior, then consume the v10 transactions in Wine/wexhost and connect Wine's
 sizing loop, maintaining serial/foreground guards and converting DPI units.
 Add XWayland's native completion path (v10 currently rejects that native type),
 then actual 64/32 resize/cancel, 100%/150%, GTK/foot/XWayland/independent Wine
