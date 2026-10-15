@@ -1555,3 +1555,103 @@ WM_EXITSIZEMOVE alone cannot provide cancellation or hold capture until an
 asynchronous rollback finishes. This checkpoint does not claim interactive
 sizing, 150% DPI or final L2 acceptance. Gemini's prefix-split implementation,
 real desktop/session, installed runtimes and the user's .gitignore stay untouched.
+
+## 2026-10-15: reviewed sizing filter and post-release queue/timer regression
+
+Claude approved the scalar transport and WH_MSGFILTER plan in the appended
+WAYLAND_L2_RESIZE_REVIEW.md review. Owned wexhost now implements the pending-loop
+filter. It installs only for a v10-capable bound frame's move/size loop and keeps
+an explicit binding reference until unhook. Accepted serials mark transactions
+pending; only matching COMPLETE/CANCELLED/FAILED releases a saved terminal event.
+Escape requests rollback. While pending, non-input messages are dispatched by
+the filter itself and consumed before sys_command_size_move's key-state check.
+After terminal input is deferred, mouse motion is swallowed and keyboard input
+is held for replay after the terminal input (only to the still-foreground frame).
+Destruction/capture cancellation clean up references, hooks and deferred keys;
+external capture loss is not reclaimed. Native focus restoration after a forced
+loop exit is deferred until the transaction ends and retains its foreground
+guard. There is no new generic driver hook or additional Wine patch.
+
+The real bridge probe adds WEX_ASSOCIATION_RESIZE_LOOP=1 on top of the existing
+WEX_ASSOCIATION_RESIZE=1/WEX_ASSOCIATION_BRIDGE=1 options. It injects mouse-down
+and retrieves it before entering Wine's established move loop, asserting that
+VK_LBUTTON is held at entry. On the final native-ready it injects button-up and
+withholds the matching frame. After the hook swallows the release, WM_TIMER
+checks GUI_INMOVESIZE and owned capture, then sends a deliberately early COMMIT.
+Its UNAVAILABLE reply is delivered through the actual internal driver queue-drain
+message and must also observe the loop/capture still intact. Only then is the
+matching frame painted/published. COMPLETE replays the saved button-up; the loop
+exits and releases capture/native focus normally. This covers the key-state exit
+after a swallowed physical release, not just posted button-up with an already-up
+button or a test-only synthetic transaction notification.
+
+Negative control and keyboard baseline:
+
+- For the isolated negative build only, sizing_filter's pending dispatch branch
+  was changed to return CallNextHookEx, while still swallowing the terminal
+  button-up. The workspace source was immediately restored from an ignored
+  good copy before running that build. `bash /tmp/check-sizing-negative.sh`
+  built it and ran the same probe. association.3o7b38pq/probe64.log reports
+  "FAIL transaction queue drained before loop exit" and "FAIL queue drain after
+  button-up retains sizing loop": the first timer runs, defwnd sees the released
+  button, exits, and the transaction queue runs too late. Rollback subsequently
+  fails without its controller. This is the expected failing product variant.
+- The negative wrapper itself returned 1 for an additional diagnostic reason:
+  it initially grepped l2-sizing-filter-negative.log for the probe assertion.
+  The broken group's later lifecycle checks instead timed out in Python's
+  `probe.wait(timeout=30 if binding else 15)`, so that outer log contains the
+  TimeoutExpired stack rather than the probe text. The exact assertion was then
+  verified directly with
+  `grep -q "FAIL transaction queue drained before loop exit" /srv/protonexplorer/wex-wayland-l1/checks/association.3o7b38pq/probe64.log`.
+  The wrapper's EXIT trap restored the correct owned source using fresh mtimes
+  and rebuilt it successfully in l2-sizing-filter-restored-build.log even when
+  the wrapper's grep failed. No negative-control code remains in the source.
+- `scripts/sizing-loop-probe.c` is an unhosted keyboard-move probe through the
+  same sys_command_size_move dispatch branch. It needs two timers, then explicit
+  Enter, to finish. `bash /tmp/check-sizing-baseline.sh expect-broken` against
+  exact production 71572805 confirms one timer then premature exit in **both**
+  architectures (l2-sizing-filter-production-baseline.log). The default command
+  against restored L2 topic cf365e5 confirms two timers then explicit completion
+  in both (l2-sizing-filter-topic-baseline.log). Existing Wine topic 445b580 and
+  903ac75 already fix that generic keyboard/pre-press/capture-loss case. The new
+  owned filter handles the separate *post-release pending-transaction* case.
+  The standalone probe does not claim SC_SIZE/native sizing UI acceptance.
+
+Builds and validation (all under the existing isolated lab checks directory):
+
+- l2-sizing-filter-build.log and l2-sizing-filter-loop.log: initial combined
+  WoW64 build and actual 64/32 loop regression pass, association.0nngzbsr.
+- l2-sizing-filter-production-pin-build.log: full combined WoW64 owned build
+  passes against exact production 71572805, including the header-guarded fallback
+  with no resize filter. The saved pin script restores topic files in its EXIT
+  trap; l2-sizing-filter-topic-build.log passes after restoration. No source reset
+  or installation ran.
+- l2-sizing-filter-final-loop.log / association.7ypb1wkf: final actual 64/32
+  post-release timer/queue-drain, resize/rollback, masks/themes, native pixels,
+  API lifecycle and shared Win32 stacking checks pass. The final source also
+  holds nonterminal keyboard messages and defers forced-exit focus restoration.
+- l2-sizing-filter-shell.log / shell-adoption._yu4on9v: full shell adoption,
+  constraints, menus/taskbar, native/body focus, minimize/restore, all established
+  keyboard/pointer move and cancellation cases, pixels, CSD/SSD and close pass
+  in both architectures.
+- l2-sizing-filter-old-peer.log / association.c19vzxco: full actual 64/32 bridge
+  and shared Win32 stacking pass against the separate old v8 compositor. No v10
+  filter is installed there.
+- l2-sizing-filter-x11.log: command succeeds; the smoke script writes results
+  to checks/status (CHECK_PASSED), checks/tray-layout.txt (two visible icons,
+  zero overlap/out-of-bounds) and checks/linux-dialog.log (all eight placement
+  cases). Current timestamps were verified after this run.
+
+All isolated checks have finished and cleaned up. Effective lab source/build is
+the correct owned filter with Wine topic cf365e5 and compositor fixture d859bdf1;
+there is no negative-control variant installed or left running. No real session
+or installed runtime was changed, and no prefix tests ran concurrently.
+
+Wine topic remains cf365e5, compositor topic d859bdf1, production Wine 71572805.
+The next step is still the desired-geometry/native-ready frame controller, not
+enabling sizing UI. This checkpoint proves the reviewed hook lifetime and
+post-release dispatch prerequisite. Full SC_SIZE edges/corners, Enter/Escape
+original-loop geometry, dragging modes, delayed clients and DPI acceptance remain
+required before native resizing/maximize is exposed. No Gemini prefix-split
+implementation, real desktop/session, installed runtime or user .gitignore was
+changed.

@@ -22,6 +22,9 @@
 #define WEX_WAYLAND_FRAME_MASK_UPDATING_PROP L"__wine_wayland_frame_mask_updating"
 #endif
 
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+struct deferred_key { struct deferred_key *next; MSG msg; };
+#endif
 struct host_binding
 {
     struct host_binding *next;
@@ -32,10 +35,23 @@ struct host_binding
     RECT client, bounds;
     unsigned refs, focus_depth;
     BOOL removed, updating, mask_dirty, mask_queued;
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+    unsigned resize_serial;
+    BOOL resize_pending, resize_cancelled, terminal_pending, restore_pending;
+    MSG terminal;
+    struct deferred_key *keys, *keys_tail;
+#endif
 };
 static struct host_binding *bindings;
 static DWORD binding_thread;
 static UINT mask_message;
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+static UINT resize_message;
+static HHOOK sizing_hook;
+static struct host_binding *sizing_binding;
+static void stop_sizing_filter(struct host_binding *binding);
+static void clear_deferred_keys(struct host_binding *binding,BOOL replay);
+#endif
 static const UINT_PTR subclass_id = 0x57455848;
 static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                                      UINT_PTR id, DWORD_PTR ref);
@@ -47,6 +63,9 @@ static void unref(struct host_binding *binding)
     if (binding->controller) GlobalDeleteAtom(binding->controller);
     if (binding->outer) DeleteObject(binding->outer);
     if (binding->mask) DeleteObject(binding->mask);
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+    clear_deferred_keys(binding,FALSE);
+#endif
     free(binding);
 }
 static struct host_binding *find_binding(UINT64 window)
@@ -105,6 +124,9 @@ static void detach(struct host_binding *binding, BOOL destroying)
     struct host_binding **cursor;
     if (binding->removed) return;
     binding->removed = TRUE;
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+    stop_sizing_filter(binding);
+#endif
     for (cursor=&bindings;*cursor;cursor=&(*cursor)->next)
         if (*cursor == binding) { *cursor=binding->next; break; }
     RemoveWindowSubclass(binding->hwnd,host_subclass,subclass_id);
@@ -177,12 +199,134 @@ static void request_focus(struct host_binding *binding, ULONG_PTR target)
     SetWindowPos(binding->hwnd,NULL,0,0,0,0,
                  SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
 }
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+static void clear_deferred_keys(struct host_binding *binding,BOOL replay)
+{
+    struct deferred_key *key;
+    while ((key=binding->keys))
+    {
+        binding->keys=key->next;
+        if (replay) PostMessageW(binding->hwnd,key->msg.message,key->msg.wParam,key->msg.lParam);
+        free(key);
+    }
+    binding->keys_tail=NULL;
+}
+static void cancel_resize(struct host_binding *binding)
+{
+    if (!binding->resize_pending || binding->resize_cancelled || binding->removed) return;
+    binding->resize_cancelled=TRUE;
+    SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_SERIAL_PROP,(HANDLE)(ULONG_PTR)binding->resize_serial);
+    SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_COMMAND_PROP,(HANDLE)WEX_WAYLAND_RESIZE_CANCEL);
+    SetWindowPos(binding->hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+}
+static LRESULT CALLBACK sizing_filter(int code,WPARAM wp,LPARAM lp)
+{
+    struct host_binding *binding=sizing_binding;
+    MSG *msg=(MSG *)lp;
+    LRESULT result;
+    if (code!=MSGF_SIZE || !binding || !binding->resize_pending || binding->removed ||
+        GetCapture()!=binding->hwnd) return CallNextHookEx(NULL,code,wp,lp);
+    binding->refs++;
+    if (msg->message==WM_LBUTTONUP || (msg->message==WM_KEYDOWN &&
+        (msg->wParam==VK_RETURN || msg->wParam==VK_ESCAPE)))
+    {
+        if (!binding->terminal_pending || (msg->message==WM_KEYDOWN && msg->wParam==VK_ESCAPE))
+        {
+            binding->terminal=*msg;
+            binding->terminal_pending=TRUE;
+        }
+        if (msg->message==WM_KEYDOWN && msg->wParam==VK_ESCAPE) cancel_resize(binding);
+        result=1;
+    }
+    else if (binding->terminal_pending ||
+             !((msg->message>=WM_KEYFIRST && msg->message<=WM_KEYLAST) ||
+               (msg->message>=WM_MOUSEFIRST && msg->message<=WM_MOUSELAST)))
+    {
+        /* Retrieving button-up updates Wine's key state even though the hook
+         * consumes it. Letting a subsequent timer/event reach defwnd's dispatch
+         * branch would therefore exit the loop before publication. Dispatch
+         * non-input here and consume the message even if that dispatch completes
+         * the transaction or destroys the binding. Freeze motion/keys until the
+         * saved terminal input is replayed. */
+        if (binding->terminal_pending && msg->message>=WM_KEYFIRST && msg->message<=WM_KEYLAST)
+        {
+            struct deferred_key *key=calloc(1,sizeof(*key));
+            if (key)
+            {
+                key->msg=*msg;
+                if (binding->keys_tail) binding->keys_tail->next=key;
+                else binding->keys=key;
+                binding->keys_tail=key;
+            }
+            else cancel_resize(binding);
+        }
+        else if (!((msg->message>=WM_KEYFIRST && msg->message<=WM_KEYLAST) ||
+              (msg->message>=WM_MOUSEFIRST && msg->message<=WM_MOUSELAST)))
+        {
+            TranslateMessage(msg);
+            DispatchMessageW(msg);
+        }
+        result=1;
+    }
+    else result=CallNextHookEx(NULL,code,wp,lp);
+    unref(binding);
+    return result;
+}
+static void stop_sizing_filter(struct host_binding *binding)
+{
+    if (sizing_binding!=binding) return;
+    UnhookWindowsHookEx(sizing_hook);
+    sizing_hook=NULL; sizing_binding=NULL;
+    binding->terminal_pending=FALSE;
+    clear_deferred_keys(binding,FALSE);
+    unref(binding);
+}
+static void start_sizing_filter(struct host_binding *binding)
+{
+    if (sizing_binding || (ULONG_PTR)GetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_PROTOCOL_PROP)<10) return;
+    sizing_hook=SetWindowsHookExW(WH_MSGFILTER,sizing_filter,NULL,GetCurrentThreadId());
+    if (sizing_hook) { sizing_binding=binding; binding->refs++; }
+}
+static void resize_transition(struct host_binding *binding,WPARAM serial,LPARAM stage)
+{
+    if (stage==WEX_WAYLAND_RESIZE_ACCEPTED)
+    {
+        binding->resize_serial=serial;
+        binding->resize_pending=TRUE;
+        binding->resize_cancelled=FALSE;
+    }
+    else if (serial==binding->resize_serial &&
+             (stage==WEX_WAYLAND_RESIZE_COMPLETE || stage==WEX_WAYLAND_RESIZE_CANCELLED ||
+              stage==WEX_WAYLAND_RESIZE_FAILED))
+    {
+        binding->resize_pending=FALSE;
+        if (binding->terminal_pending && !binding->removed)
+        {
+            MSG terminal=binding->terminal;
+            binding->terminal_pending=FALSE;
+            PostMessageW(binding->hwnd,terminal.message,terminal.wParam,terminal.lParam);
+            clear_deferred_keys(binding,GetForegroundWindow()==binding->hwnd);
+        }
+        if (binding->restore_pending && !binding->focus_depth && !binding->removed)
+        {
+            binding->restore_pending=FALSE;
+            if (stage!=WEX_WAYLAND_RESIZE_FAILED) request_focus(binding,WEX_WAYLAND_FOCUS_RESTORE_NATIVE);
+        }
+    }
+}
+#endif
 static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                                      UINT_PTR id, DWORD_PTR ref)
 {
     struct host_binding *binding=(struct host_binding *)ref;
     LRESULT result;
     binding->refs++;
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+    if (msg==resize_message) resize_transition(binding,wp,lp);
+    if (msg==WM_ENTERSIZEMOVE) start_sizing_filter(binding);
+    if (msg==WM_EXITSIZEMOVE) stop_sizing_filter(binding);
+    if (msg==WM_CANCELMODE || (msg==WM_CAPTURECHANGED && (HWND)lp!=hwnd)) cancel_resize(binding);
+#endif
     if (msg == mask_message)
     {
         binding->mask_queued=FALSE;
@@ -196,7 +340,14 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     else if (msg == WM_EXITMENULOOP || msg == WM_EXITSIZEMOVE)
     {
         if (binding->focus_depth && !--binding->focus_depth)
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+        {
+            if (binding->resize_pending) binding->restore_pending=TRUE;
+            else request_focus(binding,WEX_WAYLAND_FOCUS_RESTORE_NATIVE);
+        }
+#else
             request_focus(binding,WEX_WAYLAND_FOCUS_RESTORE_NATIVE);
+#endif
     }
     else if (msg == WM_NCDESTROY) detach(binding,TRUE);
     result=DefSubclassProc(hwnd,msg,wp,lp);
@@ -215,6 +366,10 @@ DWORD wayland_host_bind(UINT64 window, HWND host)
         (bindings && binding_thread != GetCurrentThreadId())) return ERROR_INVALID_THREAD_ID;
     if (!mask_message && !(mask_message=RegisterWindowMessageW(L"__wine_wexhost_refresh_frame_mask")))
         return ERROR_NOT_ENOUGH_MEMORY;
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+    if (!resize_message && !(resize_message=RegisterWindowMessageW(WEX_WAYLAND_RESIZE_EVENT_MESSAGE)))
+        return ERROR_NOT_ENOUGH_MEMORY;
+#endif
     if ((binding=find_binding(window)))
     {
         if (binding->hwnd != host) return ERROR_BUSY;

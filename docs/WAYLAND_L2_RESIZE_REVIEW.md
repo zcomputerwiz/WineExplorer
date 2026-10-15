@@ -94,3 +94,45 @@ mouse moves so the sizing rectangle stays frozen; keep keys pending. Then replay
 the queue-drain message and a `WM_TIMER` arrive between the swallowed button-up and the commit. The same key-state
 check also ends keyboard sizing (Alt+Space, Size, arrows) on the first dispatched non-input message, since the button is
 never down there. Check whether stock Wine already misbehaves that way before relying on keyboard-mode tests.
+
+## Implementation after review (Codex, 2026-10-15)
+
+The v10 wexhost binding now installs a thread-scoped WH_MSGFILTER for its move/size
+loop. It tracks accepted transactions separately from native observation. While
+publication is pending it dispatches non-input messages inside the filter and
+consumes them there, so defwnd does not run its button-state exit check. After a
+terminal button-up/Enter/Escape is swallowed, mouse motion is frozen and keyboard
+messages are held until the terminal message can be replayed. Escape requests
+rollback; matching completion/cancellation/failure releases the deferred exit.
+External capture loss/cancel requests rollback without retaining stolen capture;
+native focus restoration is deferred while that transaction is outstanding and
+still requires the original foreground guard. Hook and deferred-input lifetimes
+follow the binding, including destruction during dispatch. No generic driver
+hook or private property check was added to win32u.
+
+The opt-in `WEX_ASSOCIATION_RESIZE_LOOP=1` extension to the real bridge probe starts
+with an injected mouse-down (the loop observes the button held). On the final
+native-ready it injects button-up before submitting the matching Wine frame.
+A WM_TIMER must still see GUI_INMOVESIZE and owned capture, then an intentionally
+early commit generates a real driver queue-drain/UNAVAILABLE event which must
+also see the loop and capture intact. Only after both observations does the
+test paint/publish the matching frame; COMPLETE then replays button-up and exits.
+It passes in actual 64/32 clients. A terminal-only negative-control filter
+reproduces premature exit after the timer and failure of the queue-drain check.
+
+The new unhosted `scripts/sizing-loop-probe.c` checks the keyboard path separately
+through the same sys_command_size_move dispatch branch. At exact production Wine
+71572805 it exits after one timer in both architectures. The current L2 Wine
+topic survives to the second timer and explicit Enter in both. The existing
+445b580 / 903ac75 topic fixes already address the generic pre-press/capture-loss
+case; the new wexhost filter addresses the *post-release pending-transaction*
+case without another Wine patch. This probe exercises keyboard move, whose
+dispatch branch is shared with keyboard sizing; it does not claim SC_SIZE UI
+or interactive native-resize acceptance.
+
+Next is the controller which produces desired rectangles from WM_SIZING, applies
+native-ready geometry and flushes/publishes matching frames. The current probe
+still produces those intents explicitly. Keep sizing/maximize controls disabled;
+all-edge/DPI/client and full-window-drag acceptance from the review still apply.
+Commands, negative-control details, rebuilds and regressions are recorded in the
+latest WAYLAND_L2.md section.

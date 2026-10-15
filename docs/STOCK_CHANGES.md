@@ -18,6 +18,12 @@ serial completion updates the accepted client hole. Protocol availability is
 distinct from native-client eligibility and from enabled sizing controls.
 This is fork-only and does not add a driver ABI hook or enable interactive
 resize/maximize. See WAYLAND_L2_RESIZE_REVIEW.md for the next boundary review.
+The subsequent owned wexhost WH_MSGFILTER handles pending transaction dispatch
+and terminal-input deferral without another stock Wine change. The unhosted
+64/32 keyboard-loop baseline reproduces production 71572805's first-timer exit;
+existing L2 topic commits 445b580 and 903ac75 already fix the generic pre-press /
+capture-cancellation loop behavior. Post-release pending publication is handled
+in the owned hook, not by adding private shell checks to generic win32u.
 Project CPLs/programs, wexhost and theme definitions live under src.
 L2 opt-in topic codex/wayland-l2 (cf365e5, including 180d405, not the production pin) extends the
 private protocol through v10, starting with v4 native/controller atom properties and an

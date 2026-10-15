@@ -124,6 +124,15 @@ disabled; this is a transport checkpoint, not interactive-sizing acceptance.
 See WAYLAND_L2_RESIZE_REVIEW.md for Claude's next boundary review.
 
 Next, implement the wexhost controller and connect the Wine sizing loop.
+Claude approved the transport and WH_MSGFILTER plan on 2026-10-15. Its
+post-button-up caveat is now handled: the hook dispatches pending non-input
+messages itself, consumes them before defwnd's key-state check, and replays
+terminal input only after transaction completion. An actual 64/32 mouse-release,
+WM_TIMER and driver queue-drain regression passes; a terminal-only negative
+control fails. The stock keyboard-loop baseline also reproduces on 71572805;
+445b580 / 903ac75 already fix that separate case on the L2 topic. The remaining
+controller must produce desired geometry, apply native-ready frames, publish
+only matching commits, and satisfy the acceptance below before exposing UI.
 The intermittent adoption/readoption hang is now reproduced and fixed in Wine
 ac4a1b3: Wayland callbacks must defer style/z-order refreshes to the owning UI
 thread rather than acquire USER while holding window data. The focused stress

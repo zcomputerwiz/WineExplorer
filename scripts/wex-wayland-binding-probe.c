@@ -87,6 +87,15 @@ static DWORD resize_started;
 static BOOL resize_running,resize_rollback;
 static unsigned resize_next,resize_commit,resize_stages[4];
 static RECT resize_client,resize_margins;
+static BOOL resize_loop_test,resize_button_up,resize_queue_after_up,resize_timer_after_up;
+static RECT resize_waiting_rect;
+static void resize_apply(HWND hwnd,const RECT *rect)
+{
+    SetWindowPos(hwnd,NULL,rect->left-resize_margins.left,rect->top-resize_margins.top,
+        rect->right+resize_margins.left+resize_margins.right,
+        rect->bottom+resize_margins.top+resize_margins.bottom,SWP_NOZORDER|SWP_NOACTIVATE);
+    RedrawWindow(hwnd,NULL,NULL,RDW_FRAME|RDW_INVALIDATE|RDW_UPDATENOW);
+}
 static void resize_command(HWND hwnd,unsigned serial,unsigned command)
 {
     SetPropW(hwnd,WEX_WAYLAND_RESIZE_SERIAL_PROP,(HANDLE)(ULONG_PTR)serial);
@@ -108,6 +117,22 @@ static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
     if (!resize_running) return FALSE;
     if (msg==WM_TIMER && wp==0x57455852)
     {
+        if (resize_button_up && !(GetKeyState(VK_LBUTTON)&0x8000))
+        {
+            GUITHREADINFO info={sizeof(info)};
+            GetGUIThreadInfo(GetCurrentThreadId(),&info);
+            check("timer after button-up retains sizing loop",(info.flags&GUI_INMOVESIZE)!=0 && GetCapture()==hwnd);
+            if (!resize_timer_after_up)
+            {
+                resize_timer_after_up=TRUE;
+                resize_command(hwnd,3,WEX_WAYLAND_RESIZE_COMMIT); /* force a queue-drain reply */
+                return TRUE;
+            }
+            if (!resize_queue_after_up) return TRUE;
+            resize_apply(hwnd,&resize_waiting_rect);
+            resize_button_up=FALSE;
+            resize_commit=3;
+        }
         if (GetTickCount()-resize_started>15000)
         {
             check("resize transport bounded completion",FALSE);
@@ -134,6 +159,13 @@ static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
         if (serial>3 || !serial || stage>WEX_WAYLAND_RESIZE_FAILED) return TRUE;
         resize_stages[serial]|=1u<<stage;
         printf("RESIZE_EVENT serial=%u stage=%u configure=%lu\n",serial,stage,configure);
+        if (resize_button_up && resize_timer_after_up && serial==3 && stage==WEX_WAYLAND_RESIZE_UNAVAILABLE)
+        {
+            GUITHREADINFO info={sizeof(info)};
+            GetGUIThreadInfo(GetCurrentThreadId(),&info);
+            check("queue drain after button-up retains sizing loop",(info.flags&GUI_INMOVESIZE)!=0 && GetCapture()==hwnd);
+            resize_queue_after_up=TRUE;
+        }
         if (stage==WEX_WAYLAND_RESIZE_ACCEPTED && serial==1)
         {
             resize_command(hwnd,serial,WEX_WAYLAND_RESIZE_COMMIT); /* deliberately early */
@@ -156,11 +188,19 @@ static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
                 rect.right=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_WIDTH_PROP);
                 rect.bottom=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_HEIGHT_PROP);
                 check("native ready has positive size",rect.right>0 && rect.bottom>0);
-                SetWindowPos(hwnd,NULL,rect.left-resize_margins.left,rect.top-resize_margins.top,
-                    rect.right+resize_margins.left+resize_margins.right,
-                    rect.bottom+resize_margins.top+resize_margins.bottom,SWP_NOZORDER|SWP_NOACTIVATE);
-                RedrawWindow(hwnd,NULL,NULL,RDW_FRAME|RDW_INVALIDATE|RDW_UPDATENOW);
-                resize_commit=serial; /* next UI tick, after the frame's buffer flush */
+                if (serial==3 && resize_loop_test)
+                {
+                    INPUT input={0};
+                    resize_waiting_rect=rect;
+                    resize_button_up=TRUE;
+                    input.type=INPUT_MOUSE; input.mi.dwFlags=MOUSEEVENTF_LEFTUP;
+                    check("inject real sizing button-up",SendInput(1,&input,sizeof(input))==1);
+                }
+                else
+                {
+                    resize_apply(hwnd,&rect);
+                    resize_commit=serial; /* next UI tick, after the frame's buffer flush */
+                }
             }
         }
         else if (stage==WEX_WAYLAND_RESIZE_COMPLETE || stage==WEX_WAYLAND_RESIZE_CANCELLED)
@@ -170,7 +210,7 @@ static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
             check("cancel publishes rollback",serial!=2 || stage==WEX_WAYLAND_RESIZE_CANCELLED);
             resize_commit=0;
             if (serial<3) resize_next=serial+1;
-            else { resize_running=FALSE; PostMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0); }
+            else { resize_running=FALSE; if (!resize_loop_test) PostMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0); }
         }
         else if (stage==WEX_WAYLAND_RESIZE_FAILED)
         { check("resize transaction did not fail",FALSE); resize_running=FALSE; PostMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0); }
@@ -190,12 +230,31 @@ static void resize_checks(HWND hwnd)
     SetRect(&resize_margins,origin.x-bounds.left,origin.y-bounds.top,
             bounds.right-origin.x-client.right,bounds.bottom-origin.y-client.bottom);
     resize_message=RegisterWindowMessageW(WEX_WAYLAND_RESIZE_EVENT_MESSAGE);
+    resize_loop_test=GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE_LOOP",NULL,0)!=0;
+    if (resize_loop_test)
+    {
+        INPUT input={0};
+        MSG msg;
+        SetCursorPos(bounds.left+40,bounds.top+12);
+        input.type=INPUT_MOUSE; input.mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
+        check("inject real sizing button-down",SendInput(1,&input,sizeof(input))==1);
+        Sleep(30);
+        /* Retrieve (update key state), but do not dispatch a caption click
+         * which would enter a second interactive loop. */
+        while (PeekMessageW(&msg,NULL,0,0,PM_REMOVE)) {}
+        check("sizing begins with button held",(GetKeyState(VK_LBUTTON)&0x8000)!=0);
+    }
     resize_next=1; resize_started=GetTickCount(); resize_running=TRUE;
     SetTimer(hwnd,0x57455852,20,NULL);
     /* Borrow the established move loop's real physical frame capture. This
      * tests explicit negotiation without enabling a sizing affordance. */
     SendMessageW(hwnd,WM_SYSCOMMAND,SC_MOVE|HTCAPTION,0);
     KillTimer(hwnd,0x57455852);
+    if (resize_loop_test)
+    {
+        check("timer was dispatched after swallowed button-up",resize_timer_after_up);
+        check("transaction queue drained before loop exit",resize_queue_after_up);
+    }
     for (serial=1;serial<=3;serial++)
     {
         expected=(1u<<WEX_WAYLAND_RESIZE_ACCEPTED)|(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED)|

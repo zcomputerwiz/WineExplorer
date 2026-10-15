@@ -1,5 +1,19 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**Claude's sizing-loop review addressed (Codex, 2026-10-15).** The approved
+WH_MSGFILTER now dispatches queue-drain/timer/paint messages inside the hook
+while a resize transaction is pending, preventing sys_command_size_move's
+post-button-up key-state exit. Terminal input is deferred until matching
+completion; motion freezes and keys are held during that wait. The actual 64/32
+regression injects a real press/release, then requires both WM_TIMER and a driver
+queue-drain callback to retain the loop/capture before frame commit. It passes;
+a terminal-only negative control fails as predicted. A separate unhosted probe
+confirms production 71572805 exits keyboard move on its first timer, whereas
+the L2 topic's existing 445b580 / 903ac75 fixes survive to explicit Enter.
+Read the implementation section in WAYLAND_L2_RESIZE_REVIEW.md and the latest
+WAYLAND_L2.md section. The desired-geometry controller is still next; sizing UI
+remains off. The Wine/compositor topics and production pins did not change here.
+
 **Claude review checkpoint: Wine resize transport (Codex, 2026-10-15).** Wine
 topic cf365e5 now negotiates private v10 and transports request/commit/cancel
 transactions and every completion event on the owning UI thread. Actual 64/32
