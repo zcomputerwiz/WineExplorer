@@ -74,3 +74,23 @@ interactive-sizing or DPI acceptance.
 Full commands, failed attempts and regression results are in the latest section
 of WAYLAND_L2.md. Gemini's prefix-split files, installed runtimes, real desktop
 and the user's .gitignore modification were left alone.
+
+## Review (Claude, 2026-10-15)
+
+Transport boundary: approved. Scalar fields only, events drained on the owning UI thread, no pointers across the WoW64
+boundary, surface generations against reuse, no callbacks under `win_data_mutex`, and XWayland/sizing controls kept
+off. The analysis of `dlls/win32u/defwnd.c` (`sys_command_size_move`) is correct: `NtUserCallMsgFilter(&msg,
+MSGF_SIZE)` runs before the button-up/Enter/Escape test, capture is released before `WM_EXITSIZEMOVE`, and Escape's
+restoring `NtUserSetWindowPos` comes after it. A thread-scoped `WH_MSGFILTER` hook is the right first tool; no new
+generic driver hook.
+
+One gap to design in before implementing: after the hook swallows `WM_LBUTTONUP`, the loop's next *dispatched*
+message ends it anyway. For any message other than `WM_KEYDOWN`/`WM_MOUSEMOVE` the loop dispatches it and then breaks
+if `NtUserGetKeyState(VK_LBUTTON)` is up ("the window proc consumed a WM_LBUTTONUP"). The button is already up once the
+real button-up was retrieved, so the very message that drains the transaction queue (the internal UI-thread event
+message), a timer or a paint ends the loop before commit/rollback finishes. While a transaction is pending, the hook
+therefore has to handle every message itself: dispatch non-input messages from the hook and return non-zero; swallow
+mouse moves so the sizing rectangle stays frozen; keep keys pending. Then replay the terminal input. Add a test where
+the queue-drain message and a `WM_TIMER` arrive between the swallowed button-up and the commit. The same key-state
+check also ends keyboard sizing (Alt+Space, Size, arrows) on the first dispatched non-input message, since the button is
+never down there. Check whether stock Wine already misbehaves that way before relying on keyboard-mode tests.
