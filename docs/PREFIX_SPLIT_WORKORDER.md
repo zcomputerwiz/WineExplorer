@@ -136,6 +136,27 @@ writes by a limited user, `wineboot -u` split, token model, Proton prior art). S
 Fix these on `gemini/prefix-split` (new commits; no force-push), update `docs/PREFIX_SPLIT.md`, then stop for review
 again.
 
+### S1 re-review (Claude, 2026-10-15): accepted, merged
+
+`gemini/prefix-split` `50ceb448` with Wine `7157280` addresses every item. The copy-on-write now runs in ntdll,
+only for links into Wine's DLL directories, and not on delete. `CreateSymbolicLinkW` is correctly ruled out: it makes
+Wine reparse files, not Unix symlinks. Real logs are committed and match the pin, both install tests ran, and the
+real files are listed. The `server/fd.c` change keeps a symlink's own path as the file's Unix name, so delete
+removes the link and not the package file; that is Windows behaviour.
+
+Rechecked in `wexbuild` on the branch:
+- a new prefix with `WINELINKFAKEDLLS=1` is 28 MB, with 728 links in `system32` and 798 in `syswow64`;
+- a 32-bit and a 64-bit test program and 32-bit `syswow64` Notepad open windows;
+- `wineboot -u` after a newer `ntdll.so` keeps the links;
+- `cmd` writing through a user symlink in `Z:\` still writes through, and the link stays;
+- `copy` over a linked `system32\version.dll` leaves a private regular file and the package file untouched.
+
+Merged: `wineexplorer/11.19` fast-forwarded to `7157280`, and master merges the branch.
+
+Carry into S2: `check_cow_break_symlink` resolves a *relative* link target against the current directory when there
+is no `RootDirectory`; resolve it against the link's own directory (for example `realpath()` of the full link path).
+The fake-DLL links are absolute, so this is latent today.
+
 ## S2 — Shared machine folders (after review)
 
 Machine root as in the target model; per-user prefixes link `windows`, `Program Files`, `Program Files (x86)`,
