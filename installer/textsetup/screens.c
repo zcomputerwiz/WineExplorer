@@ -1418,7 +1418,8 @@ SetupStage screen_init(SetupState *state)
     mkdir("/target/tmp", 01777);
     mkdir("/target/home", 0755);
 
-    /* 1. Calculate and create swapfile (1.5x RAM, cap 8GB) */
+    /* 1. Calculate and create swapfile: 1.5x RAM capped at 8 GB,
+     * only shrinking it to keep ~5 GB free on /target. */
     uint64_t ram_kb = 2097152; /* default 2GB */
     FILE *mf = fopen("/proc/meminfo", "r");
     if (mf) {
@@ -1428,21 +1429,18 @@ SetupStage screen_init(SetupState *state)
         }
         fclose(mf);
     }
-    uint64_t swap_mb = (ram_kb * 3) / (2 * 1024);
+    uint64_t ram_mb = ram_kb / 1024;
+    uint64_t swap_mb = (ram_mb * 3) / 2;
     if (swap_mb > 8192) swap_mb = 8192;
-    if (swap_mb < 512) swap_mb = 512;
 
     struct statvfs sv;
     if (statvfs("/target", &sv) == 0) {
         uint64_t free_mb = (sv.f_bavail * sv.f_frsize) / (1024 * 1024);
-        if (free_mb > 1536) {
-            if (swap_mb > free_mb - 1024) {
-                swap_mb = free_mb - 1024;
-            }
-        } else if (free_mb > 512) {
-            swap_mb = free_mb / 2;
-        } else {
+        const uint64_t min_free_mb = 8960; /* keep ~5 GB free on /target for prefixes and users */
+        if (free_mb <= min_free_mb) {
             swap_mb = 0;
+        } else if (swap_mb > free_mb - min_free_mb) {
+            swap_mb = free_mb - min_free_mb;
         }
     }
 
@@ -1494,7 +1492,9 @@ SetupStage screen_init(SetupState *state)
             }
         }
 
-        fprintf(fstab, "/swapfile  none  swap  sw  0  0\n");
+        if (swap_mb > 0) {
+            fprintf(fstab, "/swapfile  none  swap  sw  0  0\n");
+        }
         fprintf(fstab, "tmpfs  /tmp  tmpfs  defaults,nosuid,nodev  0  0\n");
         fclose(fstab);
     }
@@ -1562,6 +1562,17 @@ SetupStage screen_init(SetupState *state)
     safe_mkdir_p("/target/boot/grub");
     safe_mkdir_p("/target/etc/default/grub.d");
     remove("/target/etc/default/grub.d/desktop-base.cfg");
+
+    int has_serial_console = 0;
+    FILE *f_cmd = fopen("/proc/cmdline", "r");
+    if (f_cmd) {
+        char cmdline[1024];
+        if (fgets(cmdline, sizeof(cmdline), f_cmd) && strstr(cmdline, "console=ttyS0")) {
+            has_serial_console = 1;
+        }
+        fclose(f_cmd);
+    }
+
     {
         FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
         if (f_grub) {
@@ -1570,8 +1581,10 @@ SetupStage screen_init(SetupState *state)
                     "GRUB_TIMEOUT_STYLE=hidden\n"
                     "GRUB_TIMEOUT=0\n"
                     "GRUB_TERMINAL=console\n"
+                    "%s"
                     "GRUB_THEME=\"\"\n"
-                    "GRUB_BACKGROUND=\"\"\n");
+                    "GRUB_BACKGROUND=\"\"\n",
+                    has_serial_console ? "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty0 console=ttyS0,115200n8 quiet loglevel=3\"\n" : "");
             fclose(f_grub);
         }
     }
@@ -1619,6 +1632,9 @@ SetupStage screen_init(SetupState *state)
     system(grub_cmd);
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/update-grub >>/target/var/log/grub-install.log 2>&1 || true");
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true");
+    if (has_serial_console) {
+        system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl enable serial-getty@ttyS0.service 2>/dev/null || true");
+    }
 
     system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
 
