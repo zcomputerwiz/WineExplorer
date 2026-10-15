@@ -30,7 +30,7 @@ cd "$root/source"
 autoconf -f
 mkdir -p "$root/build"
 cd "$root/build"
-CFLAGS='-O2 -pipe' CXXFLAGS='-O2 -pipe' "$root/source/configure" --enable-win64 --prefix="$root/install"
+CFLAGS='-O2 -pipe' CXXFLAGS='-O2 -pipe' "$root/source/configure" --enable-archs=i386,x86_64 --prefix="$root/install"
 printf '%s\n' BUILD_RUNNING > "$root/build.status"
 make -j8
 printf '%s\n' BUILD_PASSED > "$root/build.status"

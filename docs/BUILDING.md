@@ -8,8 +8,8 @@ The deployed VM stack remains X11 with Wine as the desktop; Proton is separate.
 git clone --recurse-submodules https://github.com/zcomputerwiz/WineExplorer.git
 cd WineExplorer
 bash scripts/assemble.sh
-mkdir -p build/wine64
-cd build/wine64
+mkdir -p build/wow64
+cd build/wow64
 ../../wine/configure --enable-archs=i386,x86_64 --prefix="$PWD/install"
 make -j8
 make install
@@ -45,15 +45,15 @@ WineExplorer-local repository; public builds never apply that overlay.
 From the project root, package the configured build with:
 
 ```bash
-BUILD_DIR="$PWD/build/wine64" bash installer/package-wine.sh
-sudo env BUILD_DIR="$PWD/build/wine64" \
+BUILD_DIR="$PWD/build/wow64" bash installer/package-wine.sh
+sudo env BUILD_DIR="$PWD/build/wow64" \
   WORK_DIR=/srv/protonexplorer/wineexplorer-iso-work \
   OUT_ISO=/srv/protonexplorer/wineexplorer.iso \
   bash installer/build-iso.sh
 ```
 
 Packaging uses staged installation with the canonical /usr/local prefix;
-its default build directory is build/wine64 under this checkout.
+its default build directory is build/wow64 under this checkout.
 It rejects another checkout's build and /home/wineuser/inst/build.
 Never run make install in the legacy inst/build directory.
 An existing live-build workspace requires --clean; keep test output on the

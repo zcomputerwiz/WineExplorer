@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/wine64}"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/wow64}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/live-build/config/packages.chroot}"
 
 mkdir -p "$OUT_DIR"
@@ -48,6 +48,15 @@ mkdir -p "$STAGE_WINE/usr/local"
 
 echo "Installing from $BUILD_DIR into staging..."
 make -C "$BUILD_DIR" install prefix=/usr/local DESTDIR="$STAGE_WINE" >/dev/null
+
+if [ ! -d "$STAGE_WINE/usr/local/lib/wine/x86_64-windows" ] || \
+   [ ! -d "$STAGE_WINE/usr/local/lib/wine/i386-windows" ] || \
+   [ ! -d "$STAGE_WINE/usr/local/lib/wine/x86_64-unix" ]; then
+    echo "ERROR: Staged Wine installation is not a WoW64 build."
+    echo "Expected x86_64-windows, i386-windows, and x86_64-unix under usr/local/lib/wine/."
+    echo "Ensure Wine was configured with --enable-archs=i386,x86_64."
+    exit 1
+fi
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
 install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 
