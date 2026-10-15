@@ -10,6 +10,19 @@
 static CRITICAL_SECTION lock;
 static UINT64 native_id;
 static unsigned failures;
+static BOOL refresh_during_mask;
+static LRESULT CALLBACK proxy_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    if (msg == WM_WINDOWPOSCHANGED && refresh_during_mask &&
+        GetPropW(hwnd,L"__wine_wayland_frame_mask_updating"))
+    {
+        RECT rect;
+        refresh_during_mask=FALSE;
+        GetWindowRect(hwnd,&rect);
+        SetWindowRgn(hwnd,CreateRoundRectRgn(0,0,rect.right-rect.left,rect.bottom-rect.top,24,24),FALSE);
+    }
+    return DefWindowProcW(hwnd,msg,wp,lp);
+}
 static HRESULT (WINAPI *open_theme)(LPCWSTR,LPCWSTR,LPCWSTR,HANDLE *,DWORD);
 static HRESULT (WINAPI *apply_theme)(HANDLE,HWND,LPCWSTR);
 static HRESULT (WINAPI *close_theme)(HANDLE);
@@ -187,7 +200,7 @@ int main(int argc,char **argv)
     while (GetTickCount()-start<10000);
     check("native view observed",id!=0);
     check("native identity",WexWmGetNativeInfo(id,&info)==ERROR_SUCCESS && !strcmp(info.token,argv[1]));
-    cls.hInstance=GetModuleHandleW(NULL); cls.lpfnWndProc=DefWindowProcW; cls.lpszClassName=L"WexBindingProbe";
+    cls.hInstance=GetModuleHandleW(NULL); cls.lpfnWndProc=proxy_proc; cls.lpszClassName=L"WexBindingProbe";
     RegisterClassW(&cls);
     owner=CreateWindowW(cls.lpszClassName,L"Binding owner",WS_OVERLAPPEDWINDOW,20,20,260,180,NULL,NULL,cls.hInstance,NULL);
     ShowWindow(owner,SW_SHOWNOACTIVATE);
@@ -272,6 +285,17 @@ int main(int argc,char **argv)
     ShowWindow(second,SW_SHOWNOACTIVATE);
     check("replacement host active",wait_binding(id,second));
     GetWindowRect(second,&bounds);
+    original=change_shape(second,bounds.right-bounds.left,bounds.bottom-bounds.top);
+    DeleteObject(original);
+    refresh_during_mask=TRUE;
+    SetWindowPos(second,NULL,0,0,bounds.right-bounds.left+1,bounds.bottom-bounds.top,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    pump(100);
+    check("outer shape refreshed inside mask installation",!refresh_during_mask);
+    original=CreateRoundRectRgn(0,0,bounds.right-bounds.left+1,bounds.bottom-bounds.top,24,24);
+    check_mask(second,original); DeleteObject(original);
+    SetWindowPos(second,NULL,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,
+                 SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
     original=change_shape(second,bounds.right-bounds.left,bounds.bottom-bounds.top);
     DeleteObject(original);
     SetWindowPos(second,NULL,0,0,bounds.right-bounds.left+40,bounds.bottom-bounds.top+30,

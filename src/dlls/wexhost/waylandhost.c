@@ -31,10 +31,11 @@ struct host_binding
     HRGN outer, mask;
     RECT client, bounds;
     unsigned refs, focus_depth;
-    BOOL removed, updating;
+    BOOL removed, updating, mask_dirty, mask_queued;
 };
 static struct host_binding *bindings;
 static DWORD binding_thread;
+static UINT mask_message;
 static const UINT_PTR subclass_id = 0x57455848;
 static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                                      UINT_PTR id, DWORD_PTR ref);
@@ -130,7 +131,7 @@ static BOOL update_mask(struct host_binding *binding)
     HRGN ring, hole, mask, previous;
     BOOL result, changed;
     if (binding->removed) return FALSE;
-    if (binding->updating) return TRUE;
+    if (binding->updating) { binding->mask_dirty=TRUE; return TRUE; }
     if (!GetWindowRect(binding->hwnd,&bounds) || !GetClientRect(binding->hwnd,&client) ||
         !ClientToScreen(binding->hwnd,&origin)) return FALSE;
     OffsetRect(&client,origin.x-bounds.left,origin.y-bounds.top);
@@ -158,6 +159,15 @@ static BOOL update_mask(struct host_binding *binding)
         binding->client=client; binding->bounds=bounds;
     }
     binding->updating=FALSE;
+    /* Themed non-client painting may synchronously install a fresh outer
+     * region inside SetWindowRgn. Reconcile after that call stack unwinds,
+     * rather than silently losing that update or recursively repainting. */
+    if (binding->mask_dirty && !binding->removed && !binding->mask_queued)
+    {
+        binding->mask_dirty=FALSE;
+        binding->mask_queued=PostMessageW(binding->hwnd,mask_message,0,0);
+        if (!binding->mask_queued) return FALSE;
+    }
     return result && !binding->removed;
 }
 static void request_focus(struct host_binding *binding, ULONG_PTR target)
@@ -173,6 +183,12 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     struct host_binding *binding=(struct host_binding *)ref;
     LRESULT result;
     binding->refs++;
+    if (msg == mask_message)
+    {
+        binding->mask_queued=FALSE;
+        binding->mask_dirty=FALSE;
+        update_mask(binding);
+    }
     if (msg == WM_ENTERMENULOOP || msg == WM_ENTERSIZEMOVE)
     {
         if (!binding->focus_depth++) request_focus(binding,WEX_WAYLAND_FOCUS_FRAME);
@@ -185,7 +201,7 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     else if (msg == WM_NCDESTROY) detach(binding,TRUE);
     result=DefSubclassProc(hwnd,msg,wp,lp);
     /* The window procedure may refresh its outer shape during this message. */
-    if (msg == WM_WINDOWPOSCHANGED && !binding->removed && !binding->updating) update_mask(binding);
+    if (msg == WM_WINDOWPOSCHANGED && !binding->removed) update_mask(binding);
     unref(binding);
     return result;
 }
@@ -197,6 +213,8 @@ DWORD wayland_host_bind(UINT64 window, HWND host)
     DWORD result, pid;
     if (GetWindowThreadProcessId(host,&pid) != GetCurrentThreadId() || pid != GetCurrentProcessId() ||
         (bindings && binding_thread != GetCurrentThreadId())) return ERROR_INVALID_THREAD_ID;
+    if (!mask_message && !(mask_message=RegisterWindowMessageW(L"__wine_wexhost_refresh_frame_mask")))
+        return ERROR_NOT_ENOUGH_MEMORY;
     if ((binding=find_binding(window)))
     {
         if (binding->hwnd != host) return ERROR_BUSY;
