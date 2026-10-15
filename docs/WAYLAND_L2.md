@@ -780,3 +780,115 @@ a nonexistent tests-local path; the protocol was read from the guest's installed
 
 Real application modality/popups and complex owner trees still need acceptance.
 Next is native move/resize interaction. Adoption remains opt-in.
+
+## Native frame move loops and pointer capture (2026-10-15)
+
+Topics: Wine codex/wayland-l2 at 903ac75, compositor codex/wayland-l2 at
+deb9e06a. Production Wine is 2e8bcfa following Claude's independent header-only
+build fix; the L2 topic merges that fix. Ordinary wine/ is aligned to the new
+gitlink, while topic development remains in build/wayland-l2/wine. The private
+test compositor and assembled Proton-VM directories remain in use; nothing
+was installed into real desktop sessions or Gemini's WSL distributions.
+
+The maintained full-shell scenario now drives four real move operations in
+both actual Explorer architectures: task-menu Move finished with Enter, Move
+rolled back with Escape, a title-bar press/drag/release across native content,
+and a menu move interrupted by WM_CANCELMODE. Each verifies frame keyboard
+focus, observed physical pointer capture, exact local displacement, final native
+geometry within one pixel, native content pixels, release of capture and return
+of native keyboard focus. Cancellation compares against the original rectangle;
+matching Win32/native geometry at an accidentally reverted location is not
+accepted. The existing taskbar, native resize observation, title, policy and
+close checks remain in the same sequence.
+
+The implementation follows the existing ownership split:
+
+- Explorer activates Move/Size menu targets before posting their system command.
+  Local geometry requests are separate from observed native rectangles. Older
+  queued observations cannot undo a local move; matching observations complete
+  the request. A two-second bounded fallback permits recovery from an unmet
+  request. Reconciliation itself never creates a new request.
+- Wine uses its Win32 move loop only for active HOST windows on a private v8
+  compositor. Generic Win32u fixes remember whether a mouse press was observed
+  before treating a release as consumed, and end the loop on lost capture. This
+  supports menu/keyboard starts, mouse starts and explicit cancellation.
+- Private protocol v8 adds capture_foreign_pointer(epoch,capture) and an observed
+  foreign_pointer_capture acknowledgement/revocation. Capture requires an active
+  group, physical frame focus and the current focus epoch. Stale acquire/release
+  requests cannot displace a newer capture. Capture redirects pointer hit testing
+  to the Wine frame even across its native client hole, and is revoked on physical
+  focus loss or group/resource teardown. Wine's SetCapture hook requests it only
+  for GUI_INMOVESIZE; the CAPTURE scalar property reflects acknowledgements.
+- Pointer warps now pass through the normal cursor motion/hit-test pipeline,
+  retargeting pointer focus before sending local coordinates, and subtract xdg
+  window-geometry offsets. Pure zone moves commit existing buffers immediately,
+  including Escape rollback without a repaint. Hosted proxies ignore old zone
+  placement echoes because the native observation path reconciles actual state.
+
+The compositor suite adds stale capture requests, input routing across the
+client hole, focus-loss and size-mismatch revocation, and an exact pointer-warp
+check with nonzero xdg geometry. The full suite is now 38 checks in each build.
+The fixed WEX_NATIVE_WINDOW ABI and existing Unix-call indexes are unchanged;
+wexhost's observer can still bind v7. XML copies are synchronized at v8. No
+native size-negotiation or maximize UI is exposed by this checkpoint.
+
+Reproduced failures and corrections (logs under
+/srv/protonexplorer/wex-wayland-l1/checks unless noted):
+
+- l2-move-first.log, l2-move-focus.log and l2-move-diagnostic.log: the task menu
+  left the tray foreground, and the driver swallowed SC_MOVE even without a
+  pointer serial. Activating the target alone was insufficient. V8 hosted moves
+  now use Wine's loop; stock/old-server dispatch paths are retained.
+- l2-move-warp.log: the newly entered loop exited on queued focus messages because
+  its initiating left button was already up. The generic press-tracking fix
+  keeps it alive. l2-move-loop-release.log and l2-move-geometry.log then exposed
+  incorrect warp targeting and absent cross-native pointer capture.
+- l2-capture-move.log initially reached a moved frame but returned to its old
+  position; the initial assertion compared matching final Win32/native rectangles
+  without requiring the displacement to persist. The stricter final-position
+  check plus separate requested geometry prevents that false pass. Current
+  screenshots show the native content at the requested new position.
+- l2-move-final.log and l2-move-zone.log: Escape restored Win32 geometry while
+  native content stayed moved. Suppressing old placement echoes alone was not
+  enough: pure position changes could wait forever for a repaint before sending
+  zone placement. Immediate placement/commit fixes the actual rollback.
+- l2-move-cancelmode-before.log reproduces a loop that outlived WM_CANCELMODE.
+  The capture-loss exit fixes it; l2-move-acceptance.log passes the new case.
+- A quoted inline shell trap failed before changing pinned source. The pin build
+  was rerun from a saved script with a restoration trap. Restored topic files
+  initially kept archive timestamps older than pinned objects, so make did not
+  recompile the topic driver: l2-move-owner-regression.log failed to adopt. Restore
+  with fresh modification times and rebuild; l2-move-owner-final.log passes.
+- Merging production 2e8bcfa into the topic conflicted only at the new capture
+  property; keep the production names plus the topic's additional property.
+  Early inspections used nonexistent source/header paths; actual definitions
+  were located with rg. No generated or private assets were committed.
+
+Final verification:
+
+- l2-move-production-pin-build.log: full combined WoW64 build passes with the
+  candidate owned modules and exact 2e8bcfa versions of all topic-modified Wine
+  files. The topic-only wlr XML is unused by the pinned Makefile. Existing assembled
+  source/build layout was reused without a reset; no fresh-checkout claim.
+- l2-move-topic-restored-build.log and l2-move-cancelmode-build.log: full combined
+  topic builds pass after restoring current source with fresh timestamps.
+- l2-move-acceptance.log, state shell-adoption.t99mq7c4: complete four-operation
+  move scenario passes both actual Explorer architectures with retained screenshots.
+- l2-move-owner-final.log, state shell-adoption.2it_ejoi: full owner/remap/closure
+  scenario passes both architectures. l2-move-disabled-final.log passes gate-off.
+- l2-move-bridge-final.log, state association.254nru4m: 32/64 real bridge binding,
+  region/lifetime checks and mixed-process shared Win32 stacking pass.
+- l2-move-x11-cancelmode.log: final X11 CHECK_PASSED, two tray icons with no
+  overlap/out-of-bounds placement, and all eight native dialog checks pass.
+- ~/wexcomp-build/l2-move-suite.log and l2-move-no-x-suite.log: 38/38 pass with
+  and without XWayland, including offset geometry and capture assertions.
+  Output directories: /srv/protonexplorer/wex-wayland-l2/move-suite-output and
+  /srv/protonexplorer/wex-wayland-l2/move-no-x-suite-output.
+
+Next is native resize negotiation. WAYLAND_L2_WORKORDER.md records the design
+and acceptance sequence, including the stale bind-time theme region reported
+by Claude. Repair live frame-shape bookkeeping before enabling resize. Then
+separate desired size, native xdg acknowledgement and actual committed buffer
+size, honor constraints and cancellation, and keep rendering/input coherent
+during asynchronous updates. CSD, scaling/state/workspace, native application
+launch and real-application acceptance are still pending. L2 is not complete.

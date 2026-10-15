@@ -611,9 +611,11 @@ static void show_task_context_menu(HWND hwnd, TASK_ITEM *item, POINT pt)
         SetForegroundWindow(item->target_hwnd);
         break;
     case IDM_TASK_MOVE:
+        SetForegroundWindow(item->target_hwnd);
         PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_MOVE, 0);
         break;
     case IDM_TASK_SIZE:
+        SetForegroundWindow(item->target_hwnd);
         PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_SIZE, 0);
         break;
     case IDM_TASK_MINIMIZE:

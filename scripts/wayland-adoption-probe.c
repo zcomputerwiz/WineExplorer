@@ -27,6 +27,29 @@ static BOOL menu_ready(void)
     HWND popup=FindWindowW(L"#32768",NULL);
     return popup && IsWindowVisible(popup);
 }
+static BOOL moving(HWND hwnd)
+{
+    GUITHREADINFO info={sizeof(info)};
+    return GetGUIThreadInfo(GetWindowThreadProcessId(hwnd,NULL),&info) &&
+           (info.flags & GUI_INMOVESIZE);
+}
+static BOOL move_focus_ready(HWND hwnd)
+{
+    static DWORD previous=~0u;
+    DWORD state=(moving(hwnd) ? 1 : 0) | (GetForegroundWindow()==hwnd ? 2 : 0) |
+                ((ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_FOCUS_PROP)<<2);
+    if (state!=previous) { printf("MOVE_STATE %lu\n",state); previous=state; }
+    return state==(1|2|(WEX_WAYLAND_FOCUS_FRAME<<2));
+}
+static BOOL move_position_ready(HWND hwnd,const RECT *original)
+{
+    static RECT previous;
+    RECT rect;
+    if (!GetWindowRect(hwnd,&rect)) return FALSE;
+    if (!EqualRect(&previous,&rect))
+    { printf("MOVE_RECT %ld %ld %ld %ld\n",rect.left,rect.top,rect.right,rect.bottom); previous=rect; }
+    return rect.left==original->left+64 && rect.top==original->top+32;
+}
 static BOOL CALLBACK count_host(HWND hwnd,LPARAM arg)
 {
     WCHAR name[128];
@@ -64,6 +87,42 @@ static BOOL gate(const char *report,const char *suffix)
     snprintf(path,sizeof(path),"%s.%s",report,suffix);
     if (!(file=fopen(path,"r"))) return FALSE;
     fclose(file); return TRUE;
+}
+static int test_move(HWND host,const char *report,const char *phase,BOOL cancel,BOOL drag)
+{
+    RECT bounds,final;
+    POINT point;
+    GetWindowRect(host,&bounds);
+    printf("MOVE_ORIGINAL_%s %ld %ld %ld %ld\n",phase,bounds.left,bounds.top,bounds.right,bounds.bottom);
+    if (drag) printf("PRESS_POINT %ld %ld\n",(bounds.left+bounds.right)/2,bounds.top+10);
+    printf("READY_TASK_MENU_MOVE_%s\n",phase);
+    if (!drag) { WAIT("task move menu opens",menu_ready()); printf("MENU_MOVE_%s\n",phase); }
+    WAIT("task move has frame keyboard focus",move_focus_ready(host));
+    WAIT("task move has physical pointer capture",GetPropW(host,WEX_WAYLAND_CAPTURE_PROP));
+    WAIT("move cursor reaches caption",GetCursorPos(&point) &&
+         point.x>=bounds.left && point.x<bounds.right &&
+         point.y>=bounds.top && point.y<bounds.top+GetSystemMetrics(SM_CYCAPTION)+8);
+    printf("MOVE_POINT_%s %ld %ld\n",phase,point.x+64,point.y+32);
+    printf("READY_MOVE_INPUT_%s\n",phase);
+    WAIT("task move changes frame position",move_position_ready(host,&bounds));
+    printf("READY_MOVE_FINISH_%s\n",phase);
+    if (!strcmp(phase,"MOVE_CANCELMODE"))
+    {
+        WAIT("cancel mode gate",gate(report,"cancel-mode"));
+        PostMessageW(host,WM_CANCELMODE,0,0);
+    }
+    WAIT("task move exits with native focus",!moving(host) && GetForegroundWindow()==host &&
+         (ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
+    WAIT("task move releases physical pointer capture",!GetPropW(host,WEX_WAYLAND_CAPTURE_PROP));
+    GetWindowRect(host,&final);
+    if (cancel ? !EqualRect(&bounds,&final) : !move_position_ready(host,&bounds))
+    { puts("FAIL task move final position"); return 1; }
+    pixel(host,phase);
+    point.x=point.y=0; ClientToScreen(host,&point);
+    printf("NATIVE_%s %ld %ld 260 200\n",phase,point.x,point.y);
+    printf("READY_MOVE_CAPTURE_%s\n",phase);
+    WAIT("move capture gate",gate(report,phase));
+    return 0;
 }
 static int owners(const char *report)
 {
@@ -185,6 +244,10 @@ int main(int argc,char **argv)
     puts("READY_TASK_ACTIVATE");
     WAIT("inactive task button activates native focus",!IsIconic(host) && GetForegroundWindow()==host &&
          (ULONG_PTR)GetPropW(host,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_NATIVE);
+    if (test_move(host,argv[2],"MOVE_COMMIT",FALSE,FALSE) ||
+        test_move(host,argv[2],"MOVE_CANCEL",TRUE,FALSE) ||
+        test_move(host,argv[2],"MOVE_DRAG",FALSE,TRUE) ||
+        test_move(host,argv[2],"MOVE_CANCELMODE",FALSE,FALSE)) return 1;
     puts("READY_TASK_MENU_MINIMIZE");
     WAIT("task menu opens",menu_ready()); puts("MENU_MINIMIZE");
     WAIT("task menu minimizes",IsIconic(host));

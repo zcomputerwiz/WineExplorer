@@ -60,6 +60,9 @@ struct linux_window
     HWND   host;
     BOOL   managed;         /* placed into the host */
     BOOL   reconciling, state_pending;
+    BOOL   interactive, geometry_pending;
+    RECT   requested_geometry, observed_geometry;
+    DWORD  geometry_requested_at;
     DWORD  observed_states, requested_states;
     UINT64 owner;
     BOOL   gone;            /* the program let it go: nothing to release */
@@ -359,6 +362,7 @@ static void map_window( const WEX_WM_EVENT *event )
     lw->flags = event->flags;
     lw->initial_states = event->states;
     lw->observed_states = event->states & WEX_WM_STATE_MINIMIZED;
+    lw->observed_geometry = event->rect;
     lw->owner = event->owner;
     lw->min_size = event->min_size;
     lw->max_size = event->max_size;
@@ -463,6 +467,7 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
         return;
     }
     lw->reconciling = TRUE;
+    lw->observed_geometry=event->rect;
     lw->min_size=event->min_size; lw->max_size=event->max_size;
     lw->owner=event->owner;
     owner=event->owner ? find_window(event->owner) : NULL;
@@ -474,7 +479,14 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
     if (lw->state_pending && lw->requested_states == lw->observed_states) lw->state_pending=FALSE;
     if (!lw->state_pending && !!IsIconic(lw->host) != minimized)
         ShowWindow(lw->host,minimized ? SW_SHOWMINNOACTIVE : SW_SHOWNOACTIVATE);
-    if (!minimized && !(event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))
+    /* An observation queued before a local move must not undo that move.
+     * Keep requests separate until acknowledged, while allowing recovery from
+     * a compositor/client that never reaches the requested geometry. */
+    if (lw->geometry_pending && (EqualRect(&lw->requested_geometry,&event->rect) ||
+        (!lw->interactive && (DWORD)(GetTickCount()-lw->geometry_requested_at)>=2000)))
+        lw->geometry_pending=FALSE;
+    if (!minimized && !lw->interactive && !lw->geometry_pending &&
+        !(event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))
     {
         client_geometry(lw,&client,&screen);
         if (!EqualRect(&screen,&event->rect))
@@ -676,8 +688,21 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         if (lw && lw->managed && !IsIconic( hwnd ))
         {
             client_geometry( lw, &client, &screen );
+            if (wayland_mode && !lw->reconciling &&
+                (((WINDOWPOS *)lp)->flags & (SWP_NOMOVE|SWP_NOSIZE)) != (SWP_NOMOVE|SWP_NOSIZE))
+            {
+                lw->requested_geometry=screen;
+                lw->geometry_requested_at=GetTickCount();
+                lw->geometry_pending=!EqualRect(&screen,&lw->observed_geometry);
+            }
             WexWmConfigure( lw->window, &client, &screen );
         }
+        break;
+    case WM_ENTERSIZEMOVE:
+        if (lw && wayland_mode) lw->interactive=TRUE;
+        break;
+    case WM_EXITSIZEMOVE:
+        if (lw && wayland_mode) lw->interactive=FALSE;
         break;
     case WM_SIZE:
         if (lw && lw->managed) send_states( lw, GetForegroundWindow() == hwnd );

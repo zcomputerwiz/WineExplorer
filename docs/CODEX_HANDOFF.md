@@ -10,10 +10,10 @@ Open point for native resize: `waylandhost.c` snapshots the host's window region
 later theme region change (rounded captions) after a size change is combined with the stale snapshot.
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
-WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 786643b, compositor
-codex/wayland-l2 at d710b4c6. Host Wine topic now lives in
+WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 903ac75, compositor
+codex/wayland-l2 at deb9e06a. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
-f0108dc gitlink. Private protocol v4 reserves a native view with a live
+2e8bcfa gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32
 ownership while mapping owned native proxies independently. PREPARED does not
 mean rendered/hosted. Compositor v5 adds explicit scene commit/group status,
@@ -23,7 +23,7 @@ with and without XWayland. V6 adds epoch-tagged observed physical focus and
 guarded temporary frame/native restoration. Actual key delivery and prevention
 of late menu focus stealing pass in both compositor variants. V7 numbers group
 configure/uncommit completion separately from unsolicited state. Native size or
-decoration changes detach safely. Wine now binds v7 and consumes group/focus
+decoration changes detach safely. Wine consumes v7 group/focus
 acknowledgements under an explicit HOST property, retaining epoch/foreground
 guards. 32/64 hosting and reservation-only probes pass, as do mixed-process L1
 stacking and X11 tray/eight-dialog smoke. Main b41028b1 adds wexhost BindHost's
@@ -68,9 +68,25 @@ duplicate proxies. Per xdg-shell, remap does not restore ownership; a later
 explicit parent assignment relinks to the new proxy. Compositor d710b4c6 changes
 only the test publisher, including unbuffered command input so poll() cannot
 miss consecutive commands already buffered by stdio. See WAYLAND_L2.md.
-Next: remaining real-application transient/state coverage, native resize and
-move loops, then scaling/fullscreen/workspace and launch acceptance. CSD binding
-is deliberately rejected, and resize/maximize UI is disabled in the lab gate.
+Move checkpoint (2026-10-15): private v8 adds epoch-guarded, acknowledged pointer
+capture for hosted frame loops, revoked on physical focus loss/group teardown.
+Wine uses its own move loop for active HOST windows on v8; stock/old peers keep
+their existing path. Win32u no longer treats unrelated messages as a consumed
+mouse release before a press, and ends on lost capture. Pointer warps use the
+normal hit/motion pipeline and xdg geometry offset. Pure zone moves commit
+without waiting for paint; hosted proxies ignore stale placement echoes.
+Explorer separately tracks requested/observed geometry with bounded recovery.
+Both actual Explorer architectures pass menu Move/Enter, Escape rollback,
+physical title-bar dragging and WM_CANCELMODE interruption, including final
+native geometry within 1 px, pixels, capture release and native focus. Expanded
+compositor suites pass 38/38 with/without XWayland. Full WoW64 builds pass both
+at the production 2e8bcfa source and after restoring the L2 topic. The topic
+merges that header-only production fix; production pins were not advanced here.
+Read WAYLAND_L2.md for failure/correction details and exact final logs.
+Next: native resize negotiation (including Claude's theme-region note above),
+then remaining real-application transient/state, scaling/fullscreen/workspace
+and launch acceptance. The next resize steps are in WAYLAND_L2_WORKORDER.md.
+CSD binding is deliberately rejected, and resize/maximize UI is disabled in the lab gate.
 Fullscreen/workspace, CSD, native popup, scaling and
 application coverage remain acceptance work. No deployed runtime or session changes.
 

@@ -6,11 +6,11 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is f0108dc, including accepted opt-in Wayland L1 integration
+Current pin is 2e8bcfa, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (786643b, not the production pin) extends the
-private protocol through v7, starting with v4 native/controller atom properties and an
+L2 opt-in topic codex/wayland-l2 (903ac75, not the production pin) extends the
+private protocol through v8, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
 behavior. The standard wlr XML is vendored only to satisfy private protocol
@@ -18,8 +18,8 @@ interface definitions, with its original notice. Reservation leaves native
 composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
-before retry; callers must exclude the client area from Win32 hit testing. All
-changes are fork-only. Compositor topic 7cf88027 provides v5 active scene grouping
+before retry; callers must exclude the client area from Win32 hit testing.
+Private hosting changes are fork-only. Compositor topic deb9e06a provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
@@ -31,9 +31,21 @@ atomically, avoiding a false CSD notification during activation. It now observes
 mapped xdg-toplevel parent changes with a lifetime-managed listener and publishes
 them through the standard foreign-toplevel interface. Explorer detaches native
 child proxies before destroying their owner frame, preserving native lifetimes.
-This adds no
-further Wine fork changes. No production pin
-changes. See WAYLAND_L2.md for 32/64 verification and worktree paths.
+These owner-lifetime fixes add no further Wine fork changes. See WAYLAND_L2.md
+for 32/64 verification and worktree paths; L2 remains separate from production.
+
+The L2 move checkpoint adds fork-only v8 frame pointer capture and its Wine
+SetCapture hook, guarded by the current focus epoch and active HOST state.
+Hosted Move uses Wine's loop only with v8; zone placement echoes are ignored
+for these proxies because native observation owns reconciliation. Generic
+Wine fixes retain keyboard/menu move loops before a button press, terminate
+them on capture loss, and commit pure zone moves without waiting for repaint.
+Those generic fixes can be extracted for upstream review; no MR is opened.
+The compositor routes pointer warps through normal hit testing with xdg surface
+geometry offsets. Explorer activates task-menu Move/Size targets and separates
+requested geometry from older observations. Production 2e8bcfa carries only
+the shared property definitions needed to compile the existing owned bridge;
+the L2 topic merges that header fix. Resize negotiation remains pending.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.
 Those implementations are project modules rather than source patches in

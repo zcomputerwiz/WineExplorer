@@ -195,6 +195,39 @@ for bits in ((64, 32) if enabled else (64,)):
             task_click(point=(None, "1200", "100"))  # unoccupied desktop
             report_wait(report, "READY_TASK_ACTIVATE", probe)
             task_click()
+            for phase, end_key in (("MOVE_COMMIT", 28), ("MOVE_CANCEL", 1),
+                                   ("MOVE_DRAG", None), ("MOVE_CANCELMODE", "cancel")):
+                content = report_wait(report, f"READY_TASK_MENU_MOVE_{phase}", probe)
+                if end_key is None:
+                    task_click("press", point=re.search(r"PRESS_POINT (\d+) (\d+)", content))
+                else:
+                    task_click("right")
+                    report_wait(report, f"\nMENU_MOVE_{phase}\n", probe)
+                    menu_key(50)  # M
+                content = report_wait(report, f"READY_MOVE_INPUT_{phase}", probe)
+                target = re.search(rf"MOVE_POINT_{phase} (\d+) (\d+)", content)
+                task_click("motion", point=target)
+                report_wait(report, f"READY_MOVE_FINISH_{phase}", probe)
+                if end_key == "cancel":
+                    Path(str(report) + ".cancel-mode").write_text("cancel mode\n")
+                elif end_key is None:
+                    task_click("release-at", point=target)
+                else:
+                    menu_key(end_key)  # Enter commits; Escape cancels
+                content = report_wait(report, f"READY_MOVE_CAPTURE_{phase}", probe)
+                expected = tuple(map(int, re.search(rf"NATIVE_{phase} (\d+) (\d+) (\d+) (\d+)", content).groups()))
+                deadline = time.monotonic() + 5
+                while True:
+                    command("geometry")
+                    assert select.select([peer.stdout], [], [], 5)[0]
+                    reply = peer.stdout.readline().split()
+                    assert len(reply) == 5 and reply[0] == "GEOMETRY", reply
+                    if all(abs(a - b) <= 1 for a, b in zip(map(int, reply[1:]), expected)):
+                        break
+                    assert time.monotonic() < deadline, ("native content did not follow move", reply, expected)
+                    time.sleep(.05)
+                capture(content, phase)
+                Path(str(report) + "." + phase).write_text("move captured\n")
             for action in ("MINIMIZE", "RESTORE"):
                 report_wait(report, f"READY_TASK_MENU_{action}", probe)
                 task_click("right")

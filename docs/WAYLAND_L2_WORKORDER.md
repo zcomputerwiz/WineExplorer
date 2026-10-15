@@ -40,6 +40,11 @@ Explorer architectures. Initial owned SSD adoption, parent removal/reassignment,
 owner frame withdrawal/return and native parent closure now pass with the same
 child proxy surviving. Broader transient/application coverage remains.
 Native resize negotiation and complete acceptance remain pending.
+Private v8 now supplies acknowledged frame pointer capture. Real 64/32 shell
+tests pass menu Move/Enter, Escape rollback, title-bar dragging and explicit
+capture cancellation, including final native geometry/pixels/focus. Full
+compositor suites pass 38/38 with and without XWayland. Native size negotiation
+and the current theme-region restoration issue remain separate work below.
 AUTO is still disabled. See WAYLAND_L2.md for limits.
 
 Reuse proxy HWNDs and existing taskbar/window-state/dialog handling. Owned foreign
@@ -63,6 +68,33 @@ Native launches use the normal Wayland socket and compositor XWayland display;
 strip shell Wine variables. Tests use a private D-Bus session so activated apps
 cannot escape into the production desktop. Icons reuse desktop-entry PNG lookup,
 XWayland window icons and the existing generic fallback.
+
+## Next: native resize negotiation
+
+Before enabling resize/maximize UI, repair the bridge's region bookkeeping:
+the bind-time original region is a restoration snapshot, not a substitute for
+the current theme's outer frame shape after resize or theme changes. Test both
+the current rounded caption and client hit exclusion while bound, plus release.
+
+Keep the existing ownership split. Wine supplies Win32 sizing loops, scalar
+properties and DPI conversion; wexhost tracks requests separately from observed
+native state; wexcomp enforces native size constraints and owns xdg configure /
+buffer-commit completion and atomic scene changes. Use the v8 capture path for
+move/size input, not a new window-manager process or class-name special cases.
+
+The next protocol change must distinguish desired size, client configure
+acknowledgement and actual committed buffer size. Account for min/max constraints,
+fixed-size clients, client-selected sizes, delayed/ignored configures and Escape
+rollback. Older completions must not override a newer request. Keep rendering
+and input coherent while the native buffer and Wine frame catch up; do not
+turn the current detach-on-mismatch safety path into resize flicker. Add bounded
+recovery for a non-responsive client before exposing sizing affordances.
+
+Acceptance must include both Explorer architectures, all edges/corners, commit
+and cancellation, capture/focus release, constraints, live theme-region changes,
+native pixels/input holes, then 100%/150% placement and actual GTK/foot clients.
+Stock labwc, old private protocol peers and shipping X11 retain their behavior.
+Resize/maximize remains disabled in the lab gate until these checks pass.
 
 ## Acceptance
 
