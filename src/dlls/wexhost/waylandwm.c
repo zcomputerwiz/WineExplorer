@@ -55,11 +55,17 @@ static void stop_queue(void)
 static void queue_event(struct native_window *window, DWORD type)
 {
     struct queued_event *node;
+    struct queued_event *last=NULL;
     pthread_mutex_lock(&queue_mutex);
     if (type == WEX_WM_OBSERVED || type == WEX_WM_TITLE || type == WEX_WM_ICON)
         for (node=queue_head;node;node=node->next)
             if (node->event.window == window->snapshot.window && node->event.type == type)
-            { node->event = window->snapshot; node->event.type = type; pthread_mutex_unlock(&queue_mutex); return; }
+                last=node;
+    /* State transitions acknowledge shell requests. Coalescing across one can
+     * discard the only acknowledgement and leave a later restore pending forever.
+     * Geometry/title bursts may still replace the latest matching-state sample. */
+    if (last && (type != WEX_WM_OBSERVED || last->event.states == window->snapshot.states))
+    { last->event = window->snapshot; last->event.type = type; pthread_mutex_unlock(&queue_mutex); return; }
     if (!(node = malloc(sizeof(*node))))
     { pthread_mutex_unlock(&queue_mutex); running = FALSE; stop_queue(); return; }
     node->event = window->snapshot;
@@ -105,6 +111,7 @@ static void got_geometry(void *data, struct wex_foreign_window_v1 *obj,
                          int32_t x, int32_t y, int32_t width, int32_t height)
 {
     struct native_window *window = data;
+    window->supplemental_ready = FALSE;
     window->snapshot.rect = (RECT){x,y,x+width,y+height};
 }
 static void got_controller(void *data, struct wex_foreign_window_v1 *obj, const char *handle)
@@ -127,6 +134,11 @@ static void got_hints(void *data, struct wex_foreign_window_v1 *obj,
     struct native_window *window = data;
     window->snapshot.min_size = (SIZE){min_width,min_height};
 }
+static void got_maximum_size(void *data, struct wex_foreign_window_v1 *obj, int32_t width, int32_t height)
+{
+    struct native_window *window = data;
+    window->snapshot.max_size = (SIZE){width,height};
+}
 static void got_done(void *data, struct wex_foreign_window_v1 *obj)
 {
     struct native_window *window = data;
@@ -145,6 +157,7 @@ static const struct wex_foreign_window_v1_listener supplement_listener = {
     .token=got_token, .geometry=got_geometry, .decoration=got_decoration,
     .size_hints=got_hints, .done=got_done, .closed=got_closed,
     .controller_handle=got_controller,
+    .maximum_size=got_maximum_size,
 };
 static void title(void *data, struct zwlr_foreign_toplevel_handle_v1 *obj, const char *title)
 {
@@ -226,7 +239,7 @@ static void global(void *data, struct wl_registry *registry,uint32_t name,const 
 {
     if (!strcmp(interface,"wex_window_manager_v1") && version >= 3)
     {
-        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 7 ? version : 7);
+        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 9 ? version : 9);
         wex_window_manager_v1_add_listener(manager,&manager_listener,NULL);
     }
     else if (!strcmp(interface,"zwlr_foreign_toplevel_manager_v1") && version >= 3)

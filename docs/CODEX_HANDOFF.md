@@ -1,5 +1,20 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**L2 constraint checkpoint (Codex, 2026-10-15):** Wine topic b971d96,
+compositor 2e88585f. Manager/observer protocol v9 carries maximum client sizes;
+Wine's driver still binds v8 and no resize request/UI is enabled. XDG and
+XWayland limits now reach the existing WEX event fields and WM_GETMINMAXINFO,
+including fixed sizes, single-axis maxima and clearing limits. Protocol v8
+observers retain their old event set. Both compositor suites pass 40 checks
+(the XWayland-specific case skips when XWayland is disabled).
+Two prerequisite races were reproduced deterministically: reentrant outer-shape
+updates lost the client hole (fixed by 0a54c9f5's deferred reconciliation), and
+queue coalescing lost state acknowledgements (the new paused-consumer probe
+received zero of four transitions before the fix, all four after, 64/32).
+Read the latest WAYLAND_L2.md section for build/regression logs. The next task
+is the actual desired/accepted/committed resize transaction, described in
+WAYLAND_L2_WORKORDER.md; L2 and its resize/maximize acceptance remain incomplete.
+
 **L2 themed-frame checkpoint (Codex, 2026-10-15):** production Wine remains
 2e8bcfa; L2 Wine topic is 3fd4865 (including dd18609), compositor e7be9560.
 Automatic rounded-theme shape updates now work while hosted: uxtheme retains
@@ -27,8 +42,8 @@ Open point for native resize: `waylandhost.c` snapshots the host's window region
 later theme region change (rounded captions) after a size change is combined with the stale snapshot.
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
-WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 3fd4865, compositor
-codex/wayland-l2 at e7be9560. Host Wine topic now lives in
+WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at b971d96, compositor
+codex/wayland-l2 at 2e88585f. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 2e8bcfa gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32

@@ -164,6 +164,7 @@ static void send_states( struct linux_window *lw, BOOL focused )
         if ((lw->state_pending ? lw->requested_states : lw->observed_states) == states) return;
         lw->requested_states = states;
         lw->state_pending = TRUE;
+        TRACE("host %p request states %#lx observed %#lx\n", lw->host, states, lw->observed_states);
         /* An active hosted group already follows the Wine frame's minimize /
          * restore through the driver. Sending the same operation on the bridge's
          * independent connection can arrive after a newer native-side change. */
@@ -480,6 +481,8 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
     if (GetWindow(lw->host,GW_OWNER) != wanted_owner)
         SetWindowLongPtrW(lw->host,GWLP_HWNDPARENT,(LONG_PTR)wanted_owner);
     minimized=!!(event->states & WEX_WM_STATE_MINIMIZED);
+    TRACE("host %p observed states %#lx iconic %d pending %d requested %#lx\n",
+          lw->host,event->states,IsIconic(lw->host),lw->state_pending,lw->requested_states);
     lw->observed_states=event->states & WEX_WM_STATE_MINIMIZED;
     if (lw->state_pending && lw->requested_states == lw->observed_states) lw->state_pending=FALSE;
     if (!lw->state_pending && !!IsIconic(lw->host) != minimized)
@@ -670,10 +673,10 @@ static void handle_event( const WEX_WM_EVENT *event )
 static void limit_size( HWND hwnd, SIZE client, POINT *limit )
 {
     RECT rect = { 0, 0, client.cx, client.cy };
-    if (!client.cx || !client.cy) return;
+    if (client.cx <= 0 && client.cy <= 0) return;
     AdjustWindowRectEx( &rect, GetWindowLongW( hwnd, GWL_STYLE ), FALSE, GetWindowLongW( hwnd, GWL_EXSTYLE ) );
-    limit->x = rect.right - rect.left;
-    limit->y = rect.bottom - rect.top;
+    if (client.cx > 0) limit->x = rect.right - rect.left;
+    if (client.cy > 0) limit->y = rect.bottom - rect.top;
 }
 
 static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )

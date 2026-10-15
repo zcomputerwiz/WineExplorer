@@ -26,10 +26,13 @@ server = Path(os.environ.get("WINESERVER", str(root / "wow64-source/build/wine64
 env.update(WINELOADER=str(wine), WINESERVER=str(server), WINEDEBUG="-all",
            WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d", GIO_USE_VFS="local")
 assert env["WINEPREFIX"] != str(Path.home() / ".wine")
-compositor = subprocess.Popen([str(compositor_dir / "build/labwc"), "-C", str(config)], env=env,
+compositor_binary = os.environ.get("WEX_WEXCOMP_BIN", str(compositor_dir / "build/labwc"))
+compositor = subprocess.Popen([compositor_binary, "-C", str(config)], env=env,
                              stdout=(state / "compositor.log").open("w"), stderr=subprocess.STDOUT)
 peer = probe = None
 binding = os.environ.get("WEX_ASSOCIATION_BRIDGE") == "1"
+states = os.environ.get("WEX_ASSOCIATION_STATES") == "1"
+assert not (states and binding)
 hosting = binding or os.environ.get("WEX_ASSOCIATION_HOSTING") == "1"
 try:
     deadline = time.monotonic() + 10
@@ -38,14 +41,14 @@ try:
         time.sleep(0.1)
     for bits in (64, 32):
         peer = subprocess.Popen([str(compositor_dir / "tests/wex/foreign-client"),
-                                 "--publish-hosting" if hosting else "--publish-association"],
+                                 "--publish-hosting" if hosting or states else "--publish-association"],
                                 env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=(state / f"peer{bits}.log").open("w"), text=True)
         assert select.select([peer.stdout], [], [], 10)[0], "native peer readiness timed out"
         values = peer.stdout.readline().strip().split()
         assert len(values) == 3 and values[0] == "LEASE", values
         report = state / f"probe{bits}.log"
-        binary = "binding" if binding else "hosting" if hosting else "association"
+        binary = "states" if states else "binding" if binding else "hosting" if hosting else "association"
         probe = subprocess.Popen([str(wine), str(root / f"checks/{binary}{bits}.exe"), *values[1:], f"Z:{report}"],
                                  env=env, stdout=(state / f"launch{bits}.log").open("w"), stderr=subprocess.STDOUT)
         deadline = time.monotonic() + (120 if hosting else 20)
@@ -62,9 +65,21 @@ try:
                 actual = image.convert("RGB").getpixel((int(pixel[1]), int(pixel[2])))
             assert actual == (0x33, 0x88, 0x55), (bits, "native content inside Wine frame", actual)
             print(f"HOSTING_RENDER_PASSED bits={bits}", flush=True)
+        if states:
+            for expected in (1, 0, 1, 0):
+                peer.stdin.write("minimize\n" if expected else "restore\n")
+                peer.stdin.flush()
+                deadline = time.monotonic() + 5
+                while True:
+                    peer.stdin.write("state\n"); peer.stdin.flush()
+                    assert select.select([peer.stdout], [], [], 5)[0]
+                    if peer.stdout.readline().strip() == f"STATE {expected}":
+                        break
+                    assert time.monotonic() < deadline, "native state transition timed out"
+                    time.sleep(.01)
         peer.stdin.write("release\n")
         peer.stdin.flush()
-        if binding:
+        if binding or states:
             Path(str(report) + ".continue").write_text("render captured\n", encoding="utf-8")
         assert probe.wait(timeout=30 if binding else 15) == 0, report.read_text(encoding="utf-8", errors="replace")
         result = report.read_text(encoding="utf-8", errors="replace")

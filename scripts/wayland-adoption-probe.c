@@ -97,6 +97,21 @@ static BOOL size_is(HWND hwnd,int width,int height)
     GetClientRect(hwnd,&client);
     return client.right==width && client.bottom==height;
 }
+static BOOL limits_match(HWND hwnd, int min_width, int min_height, int max_width, int max_height)
+{
+    MINMAXINFO info={0};
+    RECT minimum={0,0,min_width,min_height}, maximum={0,0,max_width,max_height};
+    DWORD style=GetWindowLongW(hwnd,GWL_STYLE), ex_style=GetWindowLongW(hwnd,GWL_EXSTYLE);
+    info.ptMinTrackSize=(POINT){33333,44444};
+    info.ptMaxTrackSize=(POINT){11111,22222};
+    AdjustWindowRectEx(&minimum,style,FALSE,ex_style);
+    AdjustWindowRectEx(&maximum,style,FALSE,ex_style);
+    SendMessageW(hwnd,WM_GETMINMAXINFO,0,(LPARAM)&info);
+    return info.ptMinTrackSize.x==(min_width ? minimum.right-minimum.left : 33333) &&
+           info.ptMinTrackSize.y==(min_height ? minimum.bottom-minimum.top : 44444) &&
+           info.ptMaxTrackSize.x==(max_width ? maximum.right-maximum.left : 11111) &&
+           info.ptMaxTrackSize.y==(max_height ? maximum.bottom-maximum.top : 22222);
+}
 static BOOL gate(const char *report,const char *suffix)
 {
     char path[1024];
@@ -225,6 +240,14 @@ int main(int argc,char **argv)
     EnumWindows(count_host,0);
     if (count!=1 || !size_is(host,240,180)) { puts("FAIL proxy count or client size"); return 1; }
     if (GetWindowLongW(host,GWL_STYLE)&(WS_THICKFRAME|WS_MAXIMIZEBOX)) { puts("FAIL unfinished resize exposed"); return 1; }
+    puts("READY_LIMITED");
+    WAIT("native maximum constraints",limits_match(host,120,90,320,240));
+    puts("READY_FIXED");
+    WAIT("native fixed-size constraints",limits_match(host,240,180,240,180));
+    puts("READY_HEIGHT_LIMIT");
+    WAIT("native single-axis maximum",limits_match(host,120,90,0,200));
+    puts("READY_UNLIMITED");
+    WAIT("native maximum reset",limits_match(host,120,90,0,0));
     GetWindowRect(host,&bounds); point.x=bounds.right-1; point.y=(bounds.top+bounds.bottom)/2;
     if (WindowFromPoint(point)!=host) { puts("FAIL frame edge hit testing"); return 1; }
     pixel(host,"INITIAL"); puts("READY_TITLE");

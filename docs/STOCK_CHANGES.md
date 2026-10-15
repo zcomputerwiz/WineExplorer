@@ -9,8 +9,8 @@ P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
 Current pin is 2e8bcfa, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (3fd4865, not the production pin) extends the
-private protocol through v8, starting with v4 native/controller atom properties and an
+L2 opt-in topic codex/wayland-l2 (b971d96, not the production pin) extends the
+private protocol through v9, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
 behavior. The standard wlr XML is vendored only to satisfy private protocol
@@ -19,7 +19,7 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing.
-Private hosting changes are fork-only. Compositor topic e7be9560 provides v5 active scene grouping
+Private hosting changes are fork-only. Compositor topic 2e88585f provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
@@ -49,6 +49,18 @@ requests for minimized groups, preventing a delayed request from reopening them.
 An active group's state is driven once through its Wine frame; wexhost's separate
 control connection remains the fallback outside an active group. No new protocol
 version, WEX_NATIVE_WINDOW field, Unix-call index or public Windows API is added.
+
+The subsequent b971d96 synchronizes the v9 constraint XML. V9 adds a maximum-size
+event to native observation, not native resize requests; the driver keeps binding
+v8. Compositor 2e88585f includes maximum dimensions in shared size hints, reports
+them only to v9 observers, and detects committed XDG constraint changes without
+requiring a move/repaint. For wlroots 0.18's missing WM_NORMAL_HINTS notification,
+XWayland uses the public XWM event hook and a per-view deferred notification after
+wlroots parses the property; pending notifications are removed on destruction.
+No X event is consumed or parsed independently, and existing window-size policy
+is unchanged. Owned wexhost fills existing max_size fields, preserves state
+transitions when coalescing geometry events, and wexshell applies independent
+axis limits in WM_GETMINMAXINFO. See WAYLAND_L2.md for compatibility checks.
 
 The L2 move checkpoint adds fork-only v8 frame pointer capture and its Wine
 SetCapture hook, guarded by the current focus epoch and active HOST state.

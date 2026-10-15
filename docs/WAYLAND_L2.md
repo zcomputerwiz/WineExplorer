@@ -1050,3 +1050,119 @@ fakedll/registry and unixlib.c user_create work is untouched. Next is the native
 size-request/xdg-ack/committed-buffer protocol and its constrained/delayed-client
 acceptance, then remaining L2 scaling, policy and real-application checks. Tray
 SNI remains the next work order after L2; L2 is not complete.
+
+## 2026-10-15: native constraints and lossless state acknowledgements
+
+Compositor topic 2e88585f adds observation protocol v9; Wine topic b971d96
+synchronizes the XML. Production Wine remains 2e8bcfa. Wine's driver still binds
+v8. All three interface declarations are v9 so new_id constructors inherit a
+consistent version; v9 adds only the observer maximum_size event, not resize
+requests. Older managers create the original v4/v1 observer resources and never
+receive that event. The existing WEX_WM_EVENT max_size fields carry the values;
+no WEX_NATIVE_WINDOW layout, public API or Unix-call index changes.
+
+Maximum dimensions now come from xdg-shell committed state and XWayland's
+PMaxSize hints. Committed XDG hints are compared against the last published hints
+so changes without geometry/buffer changes are reported, but unchanged commits
+do not produce observation loops. Listener lifetime follows the foreign view.
+XWayland uses wlroots' public user_event_handler: after WM_NORMAL_HINTS, a per-view
+idle callback reports the values parsed by wlroots. The callback never consumes
+the X event; pending idle sources are removed on view destruction. This follows
+the backend's existing single-XWM/atom-table design and avoids a second X client
+or private wlroots struct access. Absent PMaxSize clears the maximum even when
+stale numeric fields remain. Wexhost publishes complete done-delimited snapshots;
+wexshell applies each nonzero axis independently to WM_GETMINMAXINFO. An unlimited
+axis preserves the existing Win32 tracking limit instead of suppressing both axes.
+
+The raw constraint test covers initial/live bounds, fixed sizes, independent axes,
+clearing limits, no updates for unchanged commits, observer v8 compatibility and
+lifetime. It also constructs a v9 frame. A real XCB window tests initial/live
+WM_NORMAL_HINTS, fixed/partial limits, PMaxSize removal and destruction. The XCB
+case skips explicitly in the no-XWayland build; test clients link xcb-icccm/xcb.
+The actual 64/32 Explorer probe checks bounded/fixed/height-only/unlimited native
+limits through cross-process WM_GETMINMAXINFO before its existing full scenario.
+
+Two additional prerequisite fixes:
+
+- 0a54c9f5: an outer shape installed reentrantly inside the bridge's own mask
+  installation was silently skipped. A coalesced registered window message now
+  reconciles once the installing call stack unwinds. It carries no binding
+  pointer, so queued messages remain safe after release or HWND destruction.
+  A one-shot probe window procedure forces exactly this timing; before the fix
+  the client hole is lost, after it the 64/32 region/lifetime checks pass.
+- Queue coalescing replaced every observed state for a window with the latest
+  snapshot, discarding intermediate acknowledgements of shell requests. A later
+  restore could then remain pending indefinitely. Only the latest observation
+  with the same state bits is now replaceable; distinct state transitions remain
+  ordered. The paused-consumer PE probe blocks its MAP callback while native
+  minimize/restore/minimize/restore completes, then requires all four transitions.
+  WEX_ASSOCIATION_STATES=1 runs it under the maintained association harness.
+
+Failures/corrections (logs under /srv/protonexplorer/wex-wayland-l1/checks unless
+the path is ~/wexcomp-build):
+
+- `bash ~/wexcomp-build/tests/wex/run.sh .../constraints-suite-output` first failed
+  `item->foreign_closed && legacy->foreign_closed`: the test destroyed the native
+  but pumped only the observers' connections. Round-trip the native connection
+  before asserting lifecycle delivery. The final suite log replaces that run.
+- The XCB test initially observed zero views: a window with no background/damage
+  did not acquire a mapped native buffer. Set a background pixel and check the
+  create/map requests. Its next failure retained initial 120x90/320x240 hints
+  after a fixed-size update: wlroots 0.18's set_hints signal is WM_HINTS, not
+  WM_NORMAL_HINTS. The public XWM hook plus deferred callback fixes live updates.
+  Verified against the local reference source at
+  .../wex-wayland-l2/reference/wlroots-0.18.2/xwayland/xwm.c. Initial attempts to
+  open upstream/Debian raw source URLs returned inaccessible/internal errors;
+  no downloaded reference source is added to this repository.
+- l2-constraints-shell.log and l2-constraints-reentry-shell.log exposed native
+  restore failures. Adding an extra native state query made l2-constraints-debug-shell.log
+  pass but did not prove a fix; removed the extra barrier. The unbarriered repeat
+  also exposed a late 32-bit proxy with no mask/group (l2-constraints-unbarriered-shell.log).
+  l2-mask-reentry-before.log deterministically loses the client hole under forced
+  reentry; l2-mask-reentry-after.log passes 64/32 and shared stacking, state
+  association.cchgfbbi. The deferred job fixes that separate race.
+- l2-constraints-restore-diagnostic.log passed with tracing but left the timing
+  concern unresolved. A failure-only native-state query was retained solely for
+  diagnostics. `WEX_ASSOCIATION_STATES=1 WEX_ASSOCIATION_STACK=0 .../check-wayland-association.sh`
+  reproduces lost acknowledgements in l2-state-coalesce-before.log: zero of four
+  transitions. After preserving transitions, l2-state-coalesce-after.log delivers
+  all four in both architectures (association.hj1c4lkn).
+- Initial source inspections used unsupported PowerShell path globs, guessed
+  missing xdg.h and wlroots-0.19 paths. rg --files and the installed wlroots-0.18
+  header/local reference located the actual interfaces. The initial old-peer
+  command ran before X11 smoke released check.lock; flock rejected it before
+  starting Wine. Wait for smoke completion and rerun, keeping prefixes serialized.
+
+Final verification:
+
+- l2-constraints-production-pin-build.log: full combined WoW64 build passes at
+  exact production 2e8bcfa versions of topic-modified Wine files, with current
+  owned code. l2-constraints-topic-restored-build.log restores the complete topic
+  using fresh timestamps, then rebuilds it. No assembled-source reset/install.
+- l2-state-coalesce-final.log: paused-consumer state transitions pass in both
+  actual PE architectures after the pinned-source build/restoration,
+  association.9sb98j30.
+- l2-constraints-final-shell.log and l2-constraints-repeat-shell.log: both full
+  64/32 Explorer runs pass with tracing disabled and no extra state barrier.
+  These include constraint changes, native pixels/input, four move/cancel paths,
+  taskbar/menu state, native minimize/restore, CSD/SSD and close.
+  States: shell-adoption.lgp0hykb and shell-adoption.mlzbmaip.
+- ~/wexcomp-build/l2-constraints-suite.log and l2-constraints-no-x-suite.log:
+  40/40 each; the XCB-specific case explicitly skips when XWayland is disabled.
+  Screenshots are in .../wex-wayland-l2/constraints-suite-output and
+  constraints-no-x-suite-output.
+- l2-constraints-final-x11.log and checks/status: CHECK_PASSED; two tray icons
+  have zero overlap/out-of-bounds placement and all eight native dialogs pass.
+- l2-constraints-old-peer.log: new bridge passes actual 64/32 binding, themed
+  region/reentry, native-pixel and lifetime checks against compositor e7be9560
+  (v8), association.t8wl_8om. The old source is a Git archive in the isolated
+  .../wex-wayland-l2/compositor-v8-reference directory, built with Meson/Ninja;
+  WEX_WEXCOMP_BIN selects it without replacing the current compositor build.
+  No test Wine/compositor process is left running. Real sessions are unchanged.
+
+Next is the actual resize transaction described in WAYLAND_L2_WORKORDER.md:
+desired size, constrained acceptance, xdg acknowledgement and committed native /
+frame buffers must remain distinct, with coherent scene handover and bounded
+cancellation/timeout. Constraint observation alone does not implement resizing.
+Resize/maximize UI, AUTO adoption and ISO defaults remain unchanged. Gemini's
+prefix-split files and the real desktop sessions remain untouched.

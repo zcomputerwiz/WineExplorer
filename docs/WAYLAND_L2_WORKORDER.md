@@ -43,8 +43,8 @@ Native resize negotiation and complete acceptance remain pending.
 Private v8 now supplies acknowledged frame pointer capture. Real 64/32 shell
 tests pass menu Move/Enter, Escape rollback, title-bar dragging and explicit
 capture cancellation, including final native geometry/pixels/focus. Full
-compositor suites pass 38/38 with and without XWayland. Native size negotiation
-and the current theme-region restoration issue remain separate work below.
+compositor suites now pass 40/40 with and without XWayland. Native size
+negotiation remains work below; live theme-region checks now pass.
 AUTO is still disabled. See WAYLAND_L2.md for limits.
 
 Reuse proxy HWNDs and existing taskbar/window-state/dialog handling. Owned foreign
@@ -87,11 +87,39 @@ iconic-buffer and delayed-focus races, fixed with normal-buffer retention,
 explicit restoration, and rejection of focus requests on minimized groups.
 Native resize/maximize controls remain disabled pending size negotiation below.
 
+The next constraint prerequisite is also implemented: protocol v9 reports
+maximum client dimensions in existing WEX event fields, with zero meaning no
+limit on that axis. Fixed and one-axis limits reach WM_GETMINMAXINFO; changes
+without geometry updates are observed for both XDG and XWayland clients. Old
+observers retain their original event set. The Wine driver still binds v8;
+v9 has no native-resize request. Event coalescing now preserves state transitions
+needed to acknowledge minimize/restore, and nested mask changes reconcile after
+the installing call stack unwinds. See WAYLAND_L2.md for deterministic probes.
+
 Keep the existing ownership split. Wine supplies Win32 sizing loops, scalar
 properties and DPI conversion; wexhost tracks requests separately from observed
 native state; wexcomp enforces native size constraints and owns xdg configure /
 buffer-commit completion and atomic scene changes. Use the v8 capture path for
 move/size input, not a new window-manager process or class-name special cases.
+
+Implement the resize transaction next. Use a new negotiated request/event set
+(after v9); keep resize capability off for older peers. Give each requested
+client rectangle its own serial and keep the compositor's xdg configure serial
+separate. Read native constraints at request time, not just from cached observer
+data. Report constrained acceptance separately from acknowledged native buffer
+commit and from final matching Wine-frame commit; an old completion must not
+override a later intent. Handle edge anchoring and physical/logical DPI units
+explicitly. Preserve the last coherent group during negotiation by retaining
+buffer references rather than copying pixels or detaching the native window.
+Both frame and native root-buffer updates need an atomic handover; popup trees
+and frame menus retain their existing scene/input ownership. Leave unsolicited
+unsupported geometry/policy changes on the existing safe-detach path.
+
+Use bounded recovery for ignored configures and Escape/capture cancellation.
+Restore the accepted old geometry coherently before releasing temporary frame
+focus/capture, with current-foreground and focus-epoch guards. Add delayed,
+fixed-size and client-selected-size fixtures before enabling sizing affordances.
+Completions are transaction events, not coalescible geometry observations.
 
 The next protocol change must distinguish desired size, client configure
 acknowledgement and actual committed buffer size. Account for min/max constraints,

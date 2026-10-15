@@ -88,6 +88,11 @@ for bits in ((64, 32) if enabled else (64,)):
                     pixel = image.convert("RGB").getpixel((int(match[1]), int(match[2])))
                 assert pixel == (0x33, 0x88, 0x55), (phase, pixel)
 
+            if not owners:
+                for marker, value in (("LIMITED", "limited"), ("FIXED", "fixed"),
+                                      ("HEIGHT_LIMIT", "height-limit"), ("UNLIMITED", "unlimited")):
+                    report_wait(report, f"READY_{marker}", probe)
+                    command(value)
             if owners:
                 report_wait(report, "READY_OWNER_CHILD", probe)
                 command("child")
@@ -242,7 +247,13 @@ for bits in ((64, 32) if enabled else (64,)):
             command("minimize")
             report_wait(report, "READY_NATIVE_RESTORE", probe)
             command("restore")
-            report_wait(report, "READY_CSD", probe)
+            try:
+                report_wait(report, "READY_CSD", probe)
+            except AssertionError:
+                command("state")
+                if select.select([peer.stdout], [], [], 5)[0]:
+                    print("RESTORE_FAILURE_NATIVE", peer.stdout.readline().strip(), flush=True)
+                raise
             command("csd")
             report_wait(report, "READY_SSD", probe)
             command("ssd")
