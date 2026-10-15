@@ -1,5 +1,14 @@
 # Codex handoff — 2026-10-14 Wayland L1 complete
 
+**Build fix (Claude, 2026-10-15):** master `8924790b` did not compile at its own Wine pin `f0108dc`:
+`src/dlls/wexhost/waylandhost.c` uses the `WEX_WAYLAND_*_PROP`/`GROUP`/`FOCUS` names that only existed on
+`codex/wayland-l2`. `wineexplorer/11.19` is now `2e8bcfa0f13`, which adds exactly your `include/wexwayland.h` from
+`codex/wayland-l2` (header only, no driver change), and master's gitlink points there; your branch merges cleanly.
+Please build master at its pinned gitlink before pushing changes that depend on unmerged Wine work. Checked at
+`2e8bcfa`: full WoW64 build passes; uxtheme `system` (22,252) and `v4` (59) pass 64/32-bit; XP styles pixel-identical.
+Open point for native resize: `waylandhost.c` snapshots the host's window region once at bind (`original`), so a
+later theme region change (rounded captions) after a size change is combined with the stale snapshot.
+
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
 WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 786643b, compositor
 codex/wayland-l2 at d710b4c6. Host Wine topic now lives in
