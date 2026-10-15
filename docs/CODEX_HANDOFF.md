@@ -2,7 +2,7 @@
 
 **Current work (Codex, L2 in progress):** read WAYLAND_L2_WORKORDER.md and
 WAYLAND_L2.md. Newest topics: Wine codex/wayland-l2 at 786643b, compositor
-codex/wayland-l2 at 7cf88027. Host Wine topic now lives in
+codex/wayland-l2 at d710b4c6. Host Wine topic now lives in
 build/wayland-l2/wine; ordinary wine/ is restored to its detached production
 f0108dc gitlink. Private protocol v4 reserves a native view with a live
 controller handle; Wine forwards scalar atom properties and preserves Win32
@@ -53,7 +53,13 @@ adoption/rendering, parent removal/reassignment, CSD owner-frame withdrawal/SSD
 return with relinking, native parent closure with the same child HWND surviving,
 and final child close/withdrawal. Run WEX_SHELL_TEST_OWNERS=1 with the isolated
 check-wayland-shell.sh runner. See WAYLAND_L2.md for reproduced failures and logs.
-Next: remaining transient/late-map/state coverage, native resize and
+Remap checkpoint (2026-10-15): both Explorer architectures also pass native
+parent unmap/remap, retaining the same child HWND without stale ownership or
+duplicate proxies. Per xdg-shell, remap does not restore ownership; a later
+explicit parent assignment relinks to the new proxy. Compositor d710b4c6 changes
+only the test publisher, including unbuffered command input so poll() cannot
+miss consecutive commands already buffered by stdio. See WAYLAND_L2.md.
+Next: remaining real-application transient/state coverage, native resize and
 move loops, then scaling/fullscreen/workspace and launch acceptance. CSD binding
 is deliberately rejected, and resize/maximize UI is disabled in the lab gate.
 Fullscreen/workspace, CSD, native popup, scaling and

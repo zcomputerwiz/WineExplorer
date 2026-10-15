@@ -754,3 +754,29 @@ Remaining owner acceptance includes initially unmapped/late native parents,
 real application modality/popups and more complex owner trees. This checkpoint
 does not complete L2. Native move/resize negotiation, CSD task representation,
 scaling/state/workspace and launch/application acceptance remain pending.
+
+## Native parent remap checkpoint (2026-10-15)
+
+The maintained owner scenario now unmaps and remaps the parent's native surface.
+The same child HWND stays hosted and loses its Win32 owner when the parent is
+unmapped. The remapped parent has one new eligible proxy; neither the standard
+native observer nor Explorer restores the old relationship automatically. An
+explicit xdg_toplevel.set_parent after remap relinks the child to the new proxy.
+Both actual Explorer architectures pass, including the existing subsequent
+parent/child close and duplicate-proxy checks. This follows the installed stable
+xdg-shell protocol: only mapped surfaces can have children, and remapping does
+not restore their parent relationship. An initially unmapped parent therefore
+must be treated as NULL, not as a deferred relationship to restore implicitly.
+
+Compositor topic d710b4c6 adds only publisher observation/control commands.
+checks/l2-remap-first.log records a harness timeout: consecutive remap and query
+commands were read ahead by fgets, leaving poll unaware of the buffered line.
+The publisher's command stream is now unbuffered; no product fix was needed.
+checks/l2-remap-acceptance.log, state shell-adoption.lbpv4yt_, passes both
+architectures; the publisher build log is l2-remap-publisher-build.log. These
+paths are under /srv/protonexplorer/wex-wayland-l1. The first XML inspection used
+a nonexistent tests-local path; the protocol was read from the guest's installed
+/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml instead.
+
+Real application modality/popups and complex owner trees still need acceptance.
+Next is native move/resize interaction. Adoption remains opt-in.

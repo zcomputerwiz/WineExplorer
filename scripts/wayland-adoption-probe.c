@@ -90,6 +90,19 @@ static int owners(const char *report)
          (ULONG_PTR)GetPropW(parent,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
     count=0; EnumWindows(count_host,0);
     if (count!=2) { puts("FAIL returning owner proxy count"); return 1; }
+    old=parent; puts("READY_OWNER_UNMAP");
+    WAIT("unmapped parent proxy removed",!IsWindow(old));
+    WAIT("native child survives unmapping",IsWindow(child) && !GetWindow(child,GW_OWNER) &&
+         (ULONG_PTR)GetPropW(child,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    puts("READY_OWNER_REMAP");
+    WAIT("remapped parent returns",(parent=FindWindowW(L"WineExplorerLinuxWindow",L"L2 Wine association peer")) &&
+         (ULONG_PTR)GetPropW(parent,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+    WAIT("remap observation gate",gate(report,"remapped"));
+    if (GetWindow(child,GW_OWNER)) { puts("FAIL remap restored stale ownership"); return 1; }
+    count=0; EnumWindows(count_host,0);
+    if (count!=2) { puts("FAIL remapped owner proxy count"); return 1; }
+    puts("READY_OWNER_RELATE");
+    WAIT("explicit remapped parent assignment",GetWindow(child,GW_OWNER)==parent);
     puts("READY_OWNER_CLOSE");
     WAIT("closed parent removed",!IsWindow(parent));
     WAIT("native child survives parent closure",IsWindow(child) && !GetWindow(child,GW_OWNER) &&

@@ -96,6 +96,16 @@ for bits in ((64, 32) if enabled else (64,)):
                 command("csd")
                 report_wait(report, "READY_OWNER_SSD", probe)
                 command("ssd")
+                report_wait(report, "READY_OWNER_UNMAP", probe)
+                command("parent-unmap")
+                report_wait(report, "READY_OWNER_REMAP", probe)
+                command("parent-remap")
+                command("parent-state")
+                assert select.select([peer.stdout], [], [], 5)[0]
+                assert peer.stdout.readline().strip() == "PARENT 0", "remap restored native ownership"
+                Path(str(report) + ".remapped").write_text("native parent remains unset\n")
+                report_wait(report, "READY_OWNER_RELATE", probe)
+                command("parent")
                 report_wait(report, "READY_OWNER_CLOSE", probe)
                 command("parent-close")
                 report_wait(report, "READY_CHILD_CLOSE", probe)
