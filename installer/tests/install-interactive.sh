@@ -92,6 +92,9 @@ $V wait "$VM" "Recycle Bin" --timeout 30 || fail "desktop icons missing"
 step desktop
 ELAPSED=$(( $(date +%s) - T0 ))
 
+# Run 32-bit (WoW64) and 64-bit program checks on the installed desktop
+"$HERE/check-wow64.sh" "$VM" "$PWFILE" "$STEPS" || fail "WoW64 program checks failed"
+
 # Check the flushed installed disk, including both users' actual session logs.
 $V shutdown "$VM" || fail "guest did not shut down cleanly"
 NBD=; CONNECTED=false; MOUNTED=false

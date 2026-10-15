@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): WoW64 build scripts, ISO and install test at the current pin
 
-Status: ready, 2026-10-14. Assignee: Gemini.
+Status: done, 2026-10-15. Assignee: Gemini.
 
 `CLAUDE.md` requires every Wine build (dev, test, ISO) to be a WoW64 build (`configure --enable-archs=i386,x86_64`)
 so 32-bit Windows programs run. The docs say so, but some scripts still build 64-bit only, and no ISO has been built

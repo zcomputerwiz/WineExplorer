@@ -31,12 +31,12 @@ build machine.
 ```sh
 cd ~/src
 bash scripts/assemble.sh
-mkdir -p build/wine64
-cd build/wine64
+mkdir -p build/wow64
+cd build/wow64
 ../../wine/configure --enable-archs=i386,x86_64 --prefix="$PWD/install"   # WoW64: 32-bit programs are required
 make -j8
 cd ../..
-sudo -n env BUILD_DIR="$PWD/build/wine64" \
+sudo -n env BUILD_DIR="$PWD/build/wow64" \
     WORK_DIR=/srv/protonexplorer/wineexplorer-iso-work \
     OUT_ISO=/srv/protonexplorer/wineexplorer.iso bash installer/build-iso.sh
 ```
@@ -262,6 +262,6 @@ The installer now packages the same checkout's assembled Wine submodule
 and owned src modules. Fresh full build/install, public ISO build and
 interactive QEMU installation pass; see [refactor/P4.md](refactor/P4.md)
 for source pins, ISO hash and exact evidence. Default build directory is
-build/wine64. Packaging rejects a different configured source and the legacy
+build/wow64. Packaging rejects a different configured source and the legacy
 ~/inst/build; never run make install there, including staged installation.
 Current build instructions are [BUILDING.md](BUILDING.md).

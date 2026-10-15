@@ -60,8 +60,8 @@ rm -f /etc/wineexplorer/setup/stage-gui-done
 su -s /bin/bash wexsetup -c '
     RES="${1:-1024x768}"
     export DISPLAY=:0
-    export WINEPREFIX=/var/lib/wexsetup/.wine
-    export WINEDLLOVERRIDES="mscoree,mshtml="
+    export WINEPREFIX=/etc/skel/.wine
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
     export WINEDEBUG=-all
     /usr/local/bin/wine explorer /desktop=Setup,$RES setup.exe -newsetup &
     WINE_PID=$!
@@ -80,7 +80,8 @@ su -s /bin/bash wexsetup -c '
     /usr/local/bin/wine wineboot -u
     /usr/local/bin/wineserver -w
 ' || echo "Template prefix generation failed"
-rm -rf /etc/skel/.wine/drive_c/users/wexsetup
+rm -rf /etc/skel/.wine/drive_c/users/wexsetup /var/lib/wexsetup/.wine
+find /etc/skel/.wine -name "*.tmp" -delete 2>/dev/null || true
 chown -R root:root /etc/skel/.wine 2>/dev/null || true
 chown root:adm /var/log/wineexplorer-setup.log 2>/dev/null || true
 chmod 640 /var/log/wineexplorer-setup.log 2>/dev/null || true

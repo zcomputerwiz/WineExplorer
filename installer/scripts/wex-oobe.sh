@@ -22,7 +22,7 @@ if ! id "wexsetup" >/dev/null 2>&1; then
 else
     usermod -a -G adm wexsetup 2>/dev/null || true
 fi
-chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer
+chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer /etc/skel/.wine 2>/dev/null || true
 chmod 755 /etc/wineexplorer /etc/wineexplorer/setup
 chmod 644 /etc/wineexplorer/setup/* 2>/dev/null || true
 chown wexsetup:adm /var/log/wineexplorer-oobe.log
@@ -54,8 +54,8 @@ rm -f /etc/wineexplorer/setup/stage-oobe-done
 su -s /bin/bash wexsetup -c '
     RES="${1:-1024x768}"
     export DISPLAY=:0
-    export WINEPREFIX=/var/lib/wexsetup/.wine
-    export WINEDLLOVERRIDES="mscoree,mshtml="
+    export WINEPREFIX=/etc/skel/.wine
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
     export WINEDEBUG=-all
     /usr/local/bin/wine explorer /desktop=OOBE,$RES oobe.exe &
     WINE_PID=$!
@@ -94,7 +94,8 @@ fi
 # Clean up temporary setup user and files
 pkill -9 -u wexsetup 2>/dev/null || true
 userdel -r -f wexsetup 2>/dev/null || true
-rm -rf /var/lib/wexsetup
+rm -rf /var/lib/wexsetup /etc/skel/.wine/drive_c/users/wexsetup
+chown -R root:root /etc/skel/.wine 2>/dev/null || true
 rm -rf /etc/wineexplorer/setup
 rm -f /etc/polkit-1/rules.d/49-wexsetup.rules
 rm -f /etc/sudoers.d/wexsetup
