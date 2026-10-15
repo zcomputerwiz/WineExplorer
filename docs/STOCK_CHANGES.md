@@ -140,6 +140,9 @@ smoke without changing the production pin (REBASE.md).
 | `programs/control/control.c` | `printers` opens the Printers folder; no argument opens the Control Panel folder in Explorer like Windows (Wine's own Control Panel window only if that fails) | always |
 | `programs/shell32`-visible: none | Run dialog placement is done by explorer (CBT hook), not by shell32 | - |
 | `loader/wine.inf.in` | `.msc` files open with `mmc.exe` (`MSCFile`); new `[MscFiles]` copies `devmgmt.msc` (a data file of `programs/mmc`) into system32 | always |
+| `dlls/ntdll` (`unixlib.h`, `loader.c`, `ntdll.spec`, `unix/unix_private.h`, `unix/loader.c`, `unix/file.c`) | `wine_create_symlink` internal unix call with target canonicalization (`realpath`) and WoW64 redirection (`redirect_wow64_link`) to support fake DLL symlinks | internal call |
+| `dlls/setupapi` (`fakedll.c`) | symlinked fake DLL generation replacing copied fake DLLs with symlinks to Wine's installation tree while preserving native DLLs and WinSxS assemblies | `WINELINKFAKEDLLS=1` env var or `HKLM\Software\Wine\LinkFakeDlls` (DWORD 1) |
+| `server/fd.c` | copy-on-write symlink break (`cow_break_symlink`) in `open_fd()`: replaces symlinks with private local regular files on write, truncate, or delete-on-close to protect shared package files from in-place modification | symlinks opened with write/truncate/delete access |
 
 ## D2 compositor effects and capture
 
