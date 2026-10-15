@@ -19,7 +19,8 @@ Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
   vmtest.py text NAME                                                     print the OCR text of the screen
   vmtest.py sh NAME USER PASSWORD_FILE COMMAND [--timeout 60]             run COMMAND on the serial console
 
-The serial console needs a getty on ttyS0 in the guest (systemctl enable serial-getty@ttyS0).
+The serial console needs a getty on ttyS0 in the guest (systemctl enable serial-getty@ttyS0).  Machines started here
+carry the fw_cfg entry opt/org.wineexplorer/serial-login, on which textsetup enables that getty when installing.
 """
 import argparse, json, os, re, secrets, socket, subprocess, sys, time
 
@@ -60,6 +61,8 @@ def start(a):
            "-nic", "user,model=virtio-net-pci", "-device", "qemu-xhci", "-device", "usb-tablet",
            "-qmp", f"unix:{d}/qmp.sock,server,nowait",
            "-serial", f"unix:{d}/serial.sock,server,nowait",
+           # textsetup gives the installed system a serial login only on machines with this mark
+           "-fw_cfg", "name=opt/org.wineexplorer/serial-login,string=1",
            "-drive", "if=none,id=cd,media=cdrom" + (f",file={a.iso}" if a.iso else ""),
            "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c"]
     if a.efi:

@@ -1418,8 +1418,8 @@ SetupStage screen_init(SetupState *state)
     mkdir("/target/tmp", 01777);
     mkdir("/target/home", 0755);
 
-    /* 1. Calculate and create swapfile: 1.5x RAM capped at 8 GB,
-     * only shrinking it to keep ~5 GB free on /target. */
+    /* 1. Calculate and create swapfile: 1.5x RAM capped at 8 GB, only shrinking it to keep 8960 MB free on
+     * /target (each WoW64 Wine prefix takes about 1.7 GB: the template, the first users and LightDM). */
     uint64_t ram_kb = 2097152; /* default 2GB */
     FILE *mf = fopen("/proc/meminfo", "r");
     if (mf) {
@@ -1436,7 +1436,7 @@ SetupStage screen_init(SetupState *state)
     struct statvfs sv;
     if (statvfs("/target", &sv) == 0) {
         uint64_t free_mb = (sv.f_bavail * sv.f_frsize) / (1024 * 1024);
-        const uint64_t min_free_mb = 8960; /* keep ~5 GB free on /target for prefixes and users */
+        const uint64_t min_free_mb = 8960;
         if (free_mb <= min_free_mb) {
             swap_mb = 0;
         } else if (swap_mb > free_mb - min_free_mb) {
@@ -1563,15 +1563,12 @@ SetupStage screen_init(SetupState *state)
     safe_mkdir_p("/target/etc/default/grub.d");
     remove("/target/etc/default/grub.d/desktop-base.cfg");
 
+    /* The install tests (scripts/vmtest.py) mark their QEMU machines with an fw_cfg entry; only then does the
+     * installed system get a serial login, which they use to run programs.  Real machines never have it. */
     int has_serial_console = 0;
-    FILE *f_cmd = fopen("/proc/cmdline", "r");
-    if (f_cmd) {
-        char cmdline[1024];
-        if (fgets(cmdline, sizeof(cmdline), f_cmd) && strstr(cmdline, "console=ttyS0")) {
-            has_serial_console = 1;
-        }
-        fclose(f_cmd);
-    }
+    system("modprobe qemu_fw_cfg 2>/dev/null");
+    if (access("/sys/firmware/qemu_fw_cfg/by_name/opt/org.wineexplorer/serial-login/raw", R_OK) == 0)
+        has_serial_console = 1;
 
     {
         FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
@@ -1581,10 +1578,8 @@ SetupStage screen_init(SetupState *state)
                     "GRUB_TIMEOUT_STYLE=hidden\n"
                     "GRUB_TIMEOUT=0\n"
                     "GRUB_TERMINAL=console\n"
-                    "%s"
                     "GRUB_THEME=\"\"\n"
-                    "GRUB_BACKGROUND=\"\"\n",
-                    has_serial_console ? "GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty0 console=ttyS0,115200n8 quiet loglevel=3\"\n" : "");
+                    "GRUB_BACKGROUND=\"\"\n");
             fclose(f_grub);
         }
     }
