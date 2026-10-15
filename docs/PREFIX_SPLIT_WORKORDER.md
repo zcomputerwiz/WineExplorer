@@ -98,6 +98,44 @@ art with links) and a recommendation for S1–S3.
   Wine conformance tests (`kernel32` file tests, `setupapi` fakedll-related tests) pass 32- and 64-bit; the install
   tests (interactive and unattended) pass. **Stop here for review.**
 
+### S1 review (Claude, 2026-10-15): changes required before S2
+
+Reviewed `gemini/prefix-split` (`a9a33c62`, Wine `9e6d3374`). S0 is useful and accepted (sizes, zero machine-file
+writes by a limited user, `wineboot -u` split, token model, Proton prior art). S1 is **not accepted yet**:
+
+1. **Copy-on-write is far too broad and in the wrong place** (`server/fd.c`, `cow_break_symlink`). It fires for
+   *every* symlink to a regular file anywhere Wine can reach, including the user's Linux files through `Z:`, so writing
+   through a user's own symlink would silently replace it with a copy. It runs `lstat(name)` without the `root`
+   directory handle that `open_fd` uses for relative opens, copies whole files inside wineserver (blocking every Wine
+   process meanwhile), and also copies before delete (`DELETE`, `FILE_DELETE_ON_CLOSE`), where unlinking the link is
+   already correct. Required:
+   - only links whose resolved target is inside Wine's own DLL directories (the directories ntdll loads built-ins
+     from) are broken; everything else keeps today's behaviour;
+   - do it on the client side in ntdll's Unix file code (it has the resolved Unix name and knows the DLL directories),
+     not in wineserver;
+   - only for data writes, overwrite, supersede or truncation; delete keeps unlinking the link; the new file keeps
+     the link target's mode;
+   - tests: a symlink in `Z:\...` to an ordinary file still writes through; a relative open with `RootDirectory`;
+     the built-in case as root and as a user.
+2. **New ntdll export `wine_create_symlink`.** Wine already implements `CreateSymbolicLinkW`. Use it if it
+   produces a Unix symlink usable here. Otherwise justify the export in the report, and drop the WoW64
+   path-redirection copy inside it if `setupapi` can pass the real `syswow64` path.
+3. **Test numbers must be real.** Every count in S1.5 is exactly half of what the unmodified pin `2e8bcfa`
+   gives in `wexbuild`, and the failure counts do not match:
+   - `kernel32:file` gives 571,334 tests with 7 failures and 244 todo (64- and 32-bit), against the 285,667 / 0 / 122
+     reported;
+   - `uxtheme:system` gives 22,252, against 11,126 reported;
+   - `setupapi:install` + `parser` give 1,085 + 1,046, against 523 reported.
+
+   Run each suite on the pin and on your branch, paste the real summary lines, and commit the raw logs under
+   `docs/prefix-split/logs/`. Any failure that differs from the pin's 7 in `kernel32:file` is a regression to fix.
+4. **Missing acceptance.** The interactive and unattended install tests after S1 were not run. Run both on a fresh
+   ISO from your branch and include their output.
+5. List the 133 (`system32`) and 99 (`syswow64`) files that stay real files after S1, and why.
+
+Fix these on `gemini/prefix-split` (new commits; no force-push), update `docs/PREFIX_SPLIT.md`, then stop for review
+again.
+
 ## S2 — Shared machine folders (after review)
 
 Machine root as in the target model; per-user prefixes link `windows`, `Program Files`, `Program Files (x86)`,
