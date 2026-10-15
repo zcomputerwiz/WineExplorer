@@ -1,7 +1,8 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
 **L2 compositor resize checkpoint (Codex, 2026-10-15):** compositor
-codex/wayland-l2 is b41b65f (transaction dd65ccef); Wine topic is 180d405. Private protocol v10 now
+codex/wayland-l2 is e8e5a083 (transaction dd65ccef); Wine topic is c6dac92
+(protocol 180d405, merged production 71572805). Private protocol v10 now
 negotiates hosted **XDG** resize transactions. Acceptance, xdg acknowledgement,
 actual native buffer readiness and atomic matching-frame publication are
 separate serial-specific events. Retained buffer references keep the previous
@@ -9,8 +10,15 @@ matching roots visible; native/frame-first commits, all eight edges/corners,
 fixed/one-axis limits, client-chosen sizes, supersession, cancellation, focus /
 capture loss, bounded recovery and destruction are tested. Both compositor
 variants pass 47/47 (XCB constraint case skips without XWayland). Full combined
-WoW64 builds pass at master’s production 2e8bcfa pin and after restoring the
-topic. Wine's driver still binds v8; bridge observation still binds v9. Updating
+WoW64 builds passed at the earlier production 2e8bcfa pin and after restoring
+the topic. Master advanced during this checkpoint; the prefix-split S0/S1 merge
+is preserved and wine/ is updated to its new detached 71572805 pin. See the final
+WAYLAND_L2.md section for the current-pin rebuild results. Both full WoW64
+builds at 71572805 and restored c6dac92 pass, as do actual 64/32 bridge/native
+pixel/stacking probes and X11 tray/eight-dialog smoke. Final compositor suites
+pass 47/47 in both variants, including the acknowledged-empty-commit regression
+fixed in e8e5a083. Wine's driver still
+binds v8; bridge observation still binds v9. Updating
 the three XML copies enables no resize UI or default-session behavior.
 
 **Next task:** diagnose the intermittent shell adoption/readoption hang before

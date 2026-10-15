@@ -108,6 +108,10 @@ xdg acknowledgement / committed native buffers / matching frame publication,
 and supports supersession and bounded rollback. Both compositor suites pass
 47/47, including all eight edges/corners and pixel assertions. Wine's XML is
 synchronized on 180d405, but its driver still binds v8 and bridge observers v9.
+Current Wine topic c6dac92 also merges the new production 71572805 prefix work;
+that synchronization adds no further Wayland behavior.
+Current compositor e8e5a083 additionally rejects acknowledged empty commits as
+native buffer readiness; both final suites still pass 47/47.
 XWayland resize requests explicitly return unavailable. This is a compositor
 checkpoint, not interactive resize acceptance.
 

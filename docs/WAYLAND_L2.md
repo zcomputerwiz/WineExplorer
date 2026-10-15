@@ -7,9 +7,10 @@ Scope and agreed decisions: WAYLAND_L2_WORKORDER.md. Project source is on master
 Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains
 ~/wexcomp-build, used only for isolated nested tests. No default/session deployment.
-Current L2 topics: Wine 180d405 (host worktree build/wayland-l2/wine), compositor
-b41b65f (build/wayland-l2/wexcomp; resize transaction dd65ccef). The ordinary wine/ submodule checkout remains
-detached at production 2e8bcfa; this checkpoint advances neither production pin.
+Current L2 topics: Wine c6dac92 (host worktree build/wayland-l2/wine), compositor
+e8e5a083 (build/wayland-l2/wexcomp; resize transaction dd65ccef). The ordinary wine/ submodule checkout remains
+detached at production 71572805, received through Gemini's prefix-split merge.
+The L2 feature itself advances neither production pin.
 The sections below are chronological checkpoints; the final section records
 the implemented compositor resize transaction and the next Wine integration task.
 
@@ -1287,3 +1288,56 @@ by XWayland's native completion path and actual 64/32 shell acceptance at 100% /
 does not claim those remaining checks. L2 remains in progress. Production sessions,
 prefixes, AUTO adoption, resize/maximize controls and ISO defaults are unchanged;
 Gemini's prefix-split work and the user's .gitignore change are untouched.
+
+### Concurrent master synchronization
+
+Before pushing, fetch found master six commits ahead at 42fee27c, including
+Gemini's prefix-split S0/S1 merge and a Wine pin change from 2e8bcfa to 71572805.
+Saved this L2 checkpoint as 1897738c, merged master without conflicts as
+5b10636a, and ran git submodule update --init wine. The production checkout is
+detached at 71572805. Wine topic c6dac92 merges that production commit without
+conflicts; protocol changes remain 180d405 and compositor remains b41b65f.
+No prefix-split installer/session/stock implementation was edited directly.
+The eight incoming stock Wine files were archived from the merged topic and
+extracted into the isolated assembled source with fresh timestamps. The pin
+validation helper now compares/restores against 71572805; historical 2e8bcfa
+build logs above remain valid for that earlier checkpoint.
+
+Both updated builds pass: checks/l2-resize-current-pin-build.log is the full
+combined WoW64 build at exact 71572805 with the current owned code;
+l2-resize-current-topic-build.log is the full rebuild after restoring c6dac92
+with fresh timestamps. The isolated assembled source now includes the incoming
+eight production files. No installed runtime, real prefix or running desktop
+was replaced. Earlier X11 smoke also passed (l2-resize-x11.log, CHECK_PASSED).
+
+Final transaction review added a deterministic acknowledged-empty-commit case.
+Before the fix, `bash /tmp/check-resize.sh` fails at the new assertion that no
+native_ready event was received (l2-resize-empty-commit-before.log). An xdg state
+commit can carry an acknowledgement without any content response. Readiness now
+requires committed buffer, damage, viewport, scale or transform state, preserving
+support for retained-buffer reuse with damage/viewport updates. The focused
+probe passes all transaction/lifetime checks afterward
+(l2-resize-empty-commit-after.log). This is a compositor fix, not an explanation
+or fix for the separately recorded shell adoption/readoption hang.
+
+Final current-pin verification and saved state:
+
+- Compositor e8e5a083: l2-resize-final-suite.log and l2-resize-final-no-x-suite.log
+  both pass 47/47, with screenshots in .../resize-final-suite-output and
+  resize-final-no-x-suite-output. These include the empty-commit regression and
+  native/frame teardown. The XCB-specific case skips in the no-XWayland build.
+- Wine c6dac92 after restoring the new 71572805 pin: checks/l2-resize-current-pin-bridge.log
+  passes actual 64/32 bridge binding, native pixels, rounded-theme grow/shrink,
+  mask reentry, lifecycle and shared Win32 stacking, association.35k_ch48.
+- checks/l2-resize-current-pin-x11.log: CHECK_PASSED. Tray layout has two visible
+  icons and zero overlaps/out-of-bounds windows; all eight native-dialog cases
+  pass. Wine-prefix-mutating checks ran serially under check.lock; raw headless
+  compositor checks ran independently.
+- Main retains Gemini's incoming prefix work and production 71572805. The lab
+  source/build is the merged Wine topic c6dac92 and compositor e8e5a083; neither
+  was installed. All these test sessions completed and were cleaned up. The
+  previous v8 and v9 reference source/build directories remain for A/B tests.
+  Real desktops were not operated or restarted; the user's .gitignore change is
+  still unstaged. The next item is the explicitly open adoption/readoption race,
+  then Wine resize consumption; no full L2 or interactive sizing acceptance is
+  claimed by this compositor checkpoint.

@@ -6,10 +6,10 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is 2e8bcfa, including accepted opt-in Wayland L1 integration
+Current pin is 71572805, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (180d405, not the production pin) extends the
+L2 opt-in topic codex/wayland-l2 (c6dac92, including 180d405, not the production pin) extends the
 private protocol through v10, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
@@ -19,7 +19,7 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing.
-Private hosting changes are fork-only. Compositor topic b41b65f provides v5 active scene grouping
+Private hosting changes are fork-only. Compositor topic e8e5a083 provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
@@ -73,6 +73,15 @@ failed rollback restores ordinary native composition. Snapshot listeners and
 references are released on either window's destruction. XWayland resize requests
 are explicitly unavailable, pending a separate native completion path. The
 production pins, WEX ABI, adoption gate and sizing affordances remain unchanged.
+The following synchronization merges Gemini's production 71572805 into the L2
+topic as c6dac92; it adds no further Wayland behavior. Master keeps the incoming
+prefix-split S0/S1 merge and its new pin. Those installer/session/stock changes
+are synchronized from their owner rather than edited by this L2 work.
+Compositor e8e5a083 requires a content-bearing native commit after acknowledgement
+(buffer, damage, viewport, scale or transform); committing only acknowledged xdg
+state cannot incorrectly report native readiness. A deterministic before/after
+probe covers that separation. b41b65f fixes shared-header dependencies in the
+compositor test-client build so window-layout changes rebuild every client.
 
 The L2 move checkpoint adds fork-only v8 frame pointer capture and its Wine
 SetCapture hook, guarded by the current focus epoch and active HOST state.
