@@ -39,7 +39,6 @@
 #include <grp.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
 #ifdef SONAME_LIBDBUS_1
 # include <dlfcn.h>
 # include <dbus/dbus.h>
@@ -809,21 +808,6 @@ static NTSTATUS root_pass_set( void *args )
     return STATUS_SUCCESS;
 }
 
-static void run_cmd( const char *const argv[] )
-{
-    pid_t pid = fork();
-    if (pid == 0)
-    {
-        execvp( argv[0], (char *const *)argv );
-        _exit( 127 );
-    }
-    if (pid > 0)
-    {
-        int status;
-        waitpid( pid, &status, 0 );
-    }
-}
-
 /* CreateUser (account type 1: administrator, the sudo group), the WineExplorer session, and the password when one is
  * given; AccountsService copies /etc/skel, including the template Wine prefix, into the new home */
 static NTSTATUS user_create( void *args )
@@ -848,7 +832,6 @@ static NTSTATUS user_create( void *args )
         if (!params->err && !find_user_path( name, path, sizeof(path) )) params->err = ERROR_NO_SUCH_USER;
         if (!params->err)
         {
-            struct passwd *pw;
             call_user( path, "SetXSession", DBUS_TYPE_STRING, &session );
             call_user( path, "SetSession", DBUS_TYPE_STRING, &session );
             if (params->password[0]) params->err = set_password( path, params->password );
@@ -857,29 +840,6 @@ static NTSTATUS user_create( void *args )
                 /* no password: logs on without one, as on Windows (useradd leaves the account locked) */
                 dbus_int32_t mode = 2;
                 params->err = call_user( path, "SetPasswordMode", DBUS_TYPE_INT32, &mode );
-            }
-
-            /* Ensure per-user split prefix is populated from /etc/skel/.wine template */
-            if ((pw = getpwnam( name )) && pw->pw_dir)
-            {
-                char pfx[512], wexdir[512], ug[64];
-                struct stat st;
-                const char *cp_argv[] = { "cp", "-a", "/etc/skel/.wine", pfx, NULL };
-                const char *chown_argv[] = { "chown", "-hR", ug, pfx, NULL };
-                const char *rm_argv[] = { "rm", "-rf", wexdir, NULL };
-
-                snprintf( pfx, sizeof(pfx), "%s/.wine", pw->pw_dir );
-                if (stat( pfx, &st ) != 0 && stat( "/etc/skel/.wine", &st ) == 0)
-                {
-                    run_cmd( cp_argv );
-                    snprintf( ug, sizeof(ug), "%u:%u", (unsigned)pw->pw_uid, (unsigned)pw->pw_gid );
-                    run_cmd( chown_argv );
-                }
-                snprintf( wexdir, sizeof(wexdir), "%s/.wine/drive_c/users/wexsetup", pw->pw_dir );
-                if (stat( wexdir, &st ) == 0)
-                {
-                    run_cmd( rm_argv );
-                }
             }
         }
     }

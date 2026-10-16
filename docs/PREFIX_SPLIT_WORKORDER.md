@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): one shared machine, per-user profiles — splitting the Wine prefix like Windows
 
-Status: ready, 2026-10-15. Assignee: Gemini. Phases S0–S1 are approved to implement; S2–S4 start after Claude's
+Status: done, 2026-10-16 (S0–S4 merged; see the reviews below). Assignee: Gemini. Phases S0–S1 are approved to implement; S2–S4 start after Claude's
 review of the S0/S1 report (S3 needs a design decision first).
 
 ## Why
@@ -346,3 +346,36 @@ Alice installs for all users and Bob uses it, Bob cannot write the machine, the 
 Phase reports in `docs/PREFIX_SPLIT.md`, each with measurements and real test output; `docs/STOCK_CHANGES.md` rows for
 every Wine change; install tests pass after S1 and after S4; then set this file's status line to done and push your
 branches. The user or Claude merges.
+
+### S4 review (Claude, 2026-10-16): accepted with fixes, merged; work order done
+
+`gemini/prefix-split` `26be1d1e`. Accepted:
+- setup builds the machine root and a 1 MB template;
+- the session script makes a missing prefix from the template, updates after a machine upgrade without touching
+  machine files, and skips theme copies on linked prefixes;
+- the interactive install test checks the layout and the per-user size, and Alice installs for all users while Bob
+  runs it and cannot write the machine root;
+- the logs are genuine.
+
+Fixed at merge:
+- **`scripts/migrate-prefix-split.sh` deleted installed programs.** It ran `rm -rf` on the old prefix's `windows`,
+  `Program Files` and `Program Files (x86)` and backed up only the registry and profiles. It now moves those folders
+  into the backup. Checked with an old prefix containing a program and a native DLL: both, and the old
+  `system.reg`, are kept, and the profile and links are correct.
+- **The `user_create` addition (`9dc2e7c9`, `src/dlls/wexhost/unixlib.c`) is reverted.** It runs as the unprivileged
+  `wexsetup` account in OOBE, so it cannot write another user's home. AccountsService already copies `/etc/skel`
+  with its links, and the install test passes without it.
+- **Step 6 of `installer/tests/check-wow64.sh` broke the serial console.** It sent a multi-line command, which breaks
+  the console's markers, and used `exit` in the login shell. It is now one line, with the verdict taken on the host.
+  This failure had also kept the account and layout checks from ever running.
+
+Rechecked on a fresh ISO from the branch:
+- `install-unattended.sh` passes.
+- `install-interactive.sh` passes in full:
+  - the 32/64-bit programs run;
+  - Bob runs the program Alice installed for all users and is denied writes to the machine root;
+  - Alice's and Bob's prefixes are 1 MB, with the layout checks passing;
+  - Bob's desktop is up 6 s after logon.
+
+Remaining limit: no live `HKLM` sharing between running sessions (by decision); the system tier is a separate later
+work order (`docs/ROADMAP.md`).

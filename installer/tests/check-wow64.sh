@@ -70,22 +70,15 @@ $V shot "$VM" "$STEPS/21-bob-common-app.png"
 echo "PASS: Bob executed program installed for all users"
 
 echo "=== 6. Bob (standard user) is denied write access to machine root ==="
-$V sh "$VM" root "$PWFILE" '
-USER=$(cat /tmp/desktop_user.txt)
-if su "$USER" -c "touch \"/var/lib/wineexplorer/machine/drive_c/windows/bob_test.txt\"" 2>/dev/null; then
-    echo "FAIL: Bob was able to write to machine windows directory!" >&2
-    exit 1
-fi
-if su "$USER" -c "touch \"/var/lib/wineexplorer/machine/drive_c/Program Files/bob_test.txt\"" 2>/dev/null; then
-    echo "FAIL: Bob was able to write to machine Program Files directory!" >&2
-    exit 1
-fi
-if su "$USER" -c "echo fail >> /var/lib/wineexplorer/machine/system.reg" 2>/dev/null; then
-    echo "FAIL: Bob was able to write to machine system.reg!" >&2
+# One line: the serial console runs it between its own markers (a multi-line command breaks them), and the
+# verdict is taken here rather than with exit in the console's login shell.
+OUT=$($V sh "$VM" root "$PWFILE" 'U=$(cat /tmp/desktop_user.txt); M=/var/lib/wineexplorer/machine; for f in "$M/drive_c/windows/bob_test.txt" "$M/drive_c/Program Files/bob_test.txt"; do su "$U" -c "touch \"$f\"" 2>/dev/null && echo "WR""OTE $f"; done; su "$U" -c "echo x >> $M/system.reg" 2>/dev/null && echo "WR""OTE $M/system.reg"; true')
+echo "$OUT"
+if echo "$OUT" | grep -q WROTE; then
+    echo "FAIL: Bob could write to the machine root" >&2
     exit 1
 fi
 echo "PASS: Bob write access denied to machine root as expected"
-'
 
 echo "=== Cleaning up running test processes ==="
 $V sh "$VM" root "$PWFILE" 'pkill -f test32.exe || true; pkill -f notepad.exe || true; pkill -f test64.exe || true; pkill -f common_app.exe || true'

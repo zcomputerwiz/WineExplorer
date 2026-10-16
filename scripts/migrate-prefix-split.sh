@@ -70,35 +70,28 @@ if [ -d "$TARGET_PFX/drive_c/users" ]; then
     done
 fi
 
-# Remove monolithic machine directories and create symlinks into machine root
-echo "Converting machine folders to shared symlinks..."
-rm -rf "$TARGET_PFX/drive_c/windows"
-ln -sfn "$MACHINE_ROOT/drive_c/windows" "$TARGET_PFX/drive_c/windows"
-
-rm -rf "$TARGET_PFX/drive_c/Program Files"
-ln -sfn "$MACHINE_ROOT/drive_c/Program Files" "$TARGET_PFX/drive_c/Program Files"
-
-if [ -d "$MACHINE_ROOT/drive_c/Program Files (x86)" ]; then
-    rm -rf "$TARGET_PFX/drive_c/Program Files (x86)"
-    ln -sfn "$MACHINE_ROOT/drive_c/Program Files (x86)" "$TARGET_PFX/drive_c/Program Files (x86)"
-fi
-
-if [ -d "$TARGET_PFX/drive_c/ProgramData" ] && [ ! -L "$TARGET_PFX/drive_c/ProgramData" ]; then
-    rm -rf "$TARGET_PFX/drive_c/ProgramData"
-fi
-ln -sfn "$MACHINE_ROOT/drive_c/ProgramData" "$TARGET_PFX/drive_c/ProgramData"
-
-if [ -d "$TARGET_PFX/drive_c/users/Public" ] && [ ! -L "$TARGET_PFX/drive_c/users/Public" ]; then
-    rm -rf "$TARGET_PFX/drive_c/users/Public"
-fi
-ln -sfn "$MACHINE_ROOT/drive_c/users/Public" "$TARGET_PFX/drive_c/users/Public"
+# Move (never delete) the old machine folders into the backup, then link the machine root's.  Programs the user
+# installed into this prefix live there; they stay in the backup until the user reinstalls them or an administrator
+# copies them into the machine root (C:\Program Files) and imports their keys from the backed-up system.reg.
+echo "Moving the old machine folders to $BACKUP_DIR and linking the shared ones..."
+mkdir -p "$BACKUP_DIR/drive_c/users"
+link_machine_dir()
+{
+    local rel="$1"
+    if [ -e "$TARGET_PFX/drive_c/$rel" ] && [ ! -L "$TARGET_PFX/drive_c/$rel" ]; then
+        mv "$TARGET_PFX/drive_c/$rel" "$BACKUP_DIR/drive_c/$rel"
+    fi
+    ln -sfn "$MACHINE_ROOT/drive_c/$rel" "$TARGET_PFX/drive_c/$rel"
+}
+link_machine_dir "windows"
+link_machine_dir "Program Files"
+[ -d "$MACHINE_ROOT/drive_c/Program Files (x86)" ] && link_machine_dir "Program Files (x86)"
+link_machine_dir "ProgramData"
+link_machine_dir "users/Public"
 
 # Convert shared hives (system.reg and userdef.reg) to symlinks
 echo "Linking shared machine registry hives..."
-rm -f "$TARGET_PFX/system.reg"
 ln -sfn "$MACHINE_ROOT/system.reg" "$TARGET_PFX/system.reg"
-
-rm -f "$TARGET_PFX/userdef.reg"
 ln -sfn "$MACHINE_ROOT/userdef.reg" "$TARGET_PFX/userdef.reg"
 
 # Synchronize .update-timestamp
