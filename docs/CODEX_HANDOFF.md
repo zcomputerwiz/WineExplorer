@@ -4,6 +4,22 @@
 L2 remainder. Continue A and B through review point 1; only then start tray C
 and regression D. Real programs on an installed VM, no new synthetic cases.
 See `WAYLAND_SESSION.md` for incremental results, exact environment and failures.
+Latest topics: Wine **055abb3** (`codex/wayland-l2`), compositor **0456b718**
+(`codex/wayland-session`, now master's gitlink). Terminal caption controls,
+XWayland xterm edge/corner sizing and maximize/restore, native Alt+Tab and Start,
+foot at 150%, and gedit CSD typing/taskbar minimize/restore at 150% have real
+installed-overlay coverage. All full combined WoW64 builds pass; production
+d92d7e44 was rebuilt repeatedly with the complete merged owned source before
+pushes. Production Wine is still d92d7e44, so controls remain guarded there.
+Remaining A/B: live maximized scale-change recovery, other real-program checks,
+two outputs, reproducible compositor package at the new pin, and the new ISO
+install test. Do not stop for review before B. Debian WSL's own test VM is
+running Bob at 150% with gedit open and unsaved **test** text. It uses temporary
+compositor `-d` / Wine explorer traces. Neither Gemini distribution was touched.
+The isolated build VM source is restored to the topic after each pin check,
+but its compiled outputs are then production: run a full `make -j8` before
+staging any further topic binaries. Session helpers now share S4 prefix setup;
+the test overlay is still legacy-prefix, not a fresh S4 ISO installation.
 The optional Wayland launcher and Welcome session chooser now log Bob into
 Wayland on our installed QEMU overlay. Gedit CSD input/minimize and foot edge /
 corner sizing have incremental real-program coverage. Captured physical motion

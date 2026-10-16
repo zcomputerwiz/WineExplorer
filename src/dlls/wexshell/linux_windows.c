@@ -386,6 +386,8 @@ static void map_window( const WEX_WM_EVENT *event )
     int x, y, width, height;
 
     event = &mapped;
+    TRACE("native %I64x flags %#lx states %#lx geometry %s\n",event->window,event->flags,
+          event->states,wine_dbgstr_rect(&event->rect));
 
     if (wayland_mode && !(event->flags & WEX_WM_NO_BORDER) &&
         (event->states & (WEX_WM_STATE_MINIMIZED | WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN))) return;
@@ -479,6 +481,7 @@ static void map_window( const WEX_WM_EVENT *event )
         struct linux_window *child;
         if (err != ERROR_SUCCESS && err != ERROR_IO_PENDING)
         {
+            WARN("native %I64x initial host binding failed: %lu\n",lw->window,err);
             lw->gone = TRUE;
             WexWmRelease(lw->window,NULL);
             destroy_host(lw);

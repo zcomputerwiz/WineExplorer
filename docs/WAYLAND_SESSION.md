@@ -7,6 +7,33 @@ follow that review. No acceptance is claimed yet.
 
 ## Part A
 
+CSD checkpoint: Wine topic 055abb3 fixes a real gedit 150% startup failure.
+It first maps at logical 900x747, then shrinks to 853x513. The proxy has no
+nonclient ring, hence no GDI damage to publish its new extent. Compositor debug
+reported `frame ... size=900x747 native ... size=853x513 client=0,0 900x747`;
+the retry limit subsequently removed the proxy, leaving gedit without a taskbar
+button. Reusing Wine's existing transparent dummy-content helper for visible,
+noniconic all-client hosts updates that extent; SSD frame painting is unchanged.
+At 150% gedit now has exactly one hosted taskbar item, its own header bar,
+successful `GTK150checked` input, and taskbar minimize/restore. Evidence:
+`gedit150-controls.log`, `gedit150-min.png`, `gedit150-restored.png`.
+The full combined WoW64 build passes (`session-csd-dummy-full-wow64.log`),
+as does the repeated production-pin build including the owned diagnostics.
+
+The existing window-control readback gained a read-only inventory mode to
+diagnose this actual gedit failure. It prints native app IDs, logical geometry,
+flags and states; it does not bind, resize or control clients. Compile it with
+`-Isrc/include`; the existing `wayland-l1-check.sh` compile line is updated.
+Both MinGW architectures compile with `-Wall`. An initial `%I64u` format emitted
+a MinGW format warning; the new inventory output uses portable `%llu` instead.
+No synthetic application or new protocol test has been added.
+
+For this diagnosis only, the installed launcher selects a small
+`/usr/local/bin/wexcomp-debug` wrapper passing labwc's standard `-d` option,
+and Wine logs `-all,+wexhost,+explorer`. These are test-VM overrides, not ISO
+defaults. The debug wrapper and staging helpers are under the ignored build
+directory. Bob currently has gedit open at 150% with unsaved test text.
+
 Scale checkpoint: Wine topic 4fb0940, compositor 0456b718 and the owned
 `linux_windows.c` reconciliation now distinguish logical native observations
 from Win32 pixel geometry using the driver's existing preferred surface scale.
@@ -178,6 +205,11 @@ diff against 73ea3a44 was indentation only, so the first exact-diff check
 correctly prevented the reset; verified with `git diff -w` and advanced that
 isolated checkout with a mixed reset, preserving working files. CRLF staging
 still needs normalization before making the compositor package reproducible.
+The xdg decoration source is `wexcomp/src/decorations/xdg-deco.c`; read-only
+searches for `src/xdg-decoration.c` and `src/decorations.c` failed.
+A STOCK_CHANGES documentation patch initially expected a whole sentence on
+one line, but the source wrapped it across lines. The patch failed without
+changing that file; re-read its exact context and applied the corrected patch.
 An accidental patch briefly removed resize_transaction's serial field; it
 was restored immediately, before any build or transfer.
 

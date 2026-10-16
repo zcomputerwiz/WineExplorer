@@ -29,7 +29,12 @@ logical rectangles can be reconciled into Wine pixels. It refreshes zone
 placement and reserved edges at a scale change. Actual foot resize,
 maximize/restore and typing at 150% pass; live maximized scale change remains
 unresolved. The owning bridge uses the same scale conversion as the driver.
-They preserve the compositor's physical focus/capture checks. Controlled
+Topic 055abb3 reuses the existing transparent dummy-content helper when an
+all-client hosted CSD proxy changes size without GDI damage. Actual gedit at
+150% otherwise loses its taskbar item after startup work-area clamping;
+typing and taskbar minimize/restore pass with the fix. Visible SSD pixels and
+minimized proxy geometry do not use this path.
+The 6b3435c requests preserve the compositor's physical focus/capture checks. Controlled
 hosted views acknowledge xdg state without allowing an obsolete
 NOSENDCHANGING configure size to overwrite the native-ready frame, and flush
 pending frame content after acknowledgement. No generic Wine hook or private
