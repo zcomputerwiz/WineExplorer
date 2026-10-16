@@ -751,6 +751,8 @@ static BOOL load_skin_bitmap(HMODULE hmod, int res_id, struct start_skin_bitmap 
  * Skin loading & orchestration
  * ------------------------------------------------------------------------- */
 
+static BOOL find_skin_file(const WCHAR *skin_name, WCHAR *out_path, DWORD max_len);
+
 struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation,
                                  const WCHAR *options_str, enum start_skin_type skin_type,
                                  int dpi)
@@ -763,9 +765,13 @@ struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation
     int cond_count = 0;
     int res_main_bmp = 0;
     WCHAR dpi_token[32];
+    WCHAR resolved_path[MAX_PATH];
 
     if (!skin_path || !*skin_path)
         return NULL;
+
+    if (find_skin_file(skin_path, resolved_path, MAX_PATH))
+        skin_path = resolved_path;
 
     hmod = LoadLibraryExW(skin_path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     if (!hmod)
@@ -898,6 +904,115 @@ struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation
         }
     }
 
+    /* Parse options before filtering conditions */
+    {
+        int line_idx;
+        for (line_idx = 0; line_idx < parser.line_count; line_idx++)
+        {
+            const WCHAR *line = parser.lines[line_idx];
+            const WCHAR *eq;
+            const WCHAR *p;
+            WCHAR opt_name[64];
+            WCHAR opt_label[64];
+            WCHAR opt_tip[128];
+            int def_val = 0;
+            int nlen = 0;
+            int llen = 0;
+
+            memset(opt_name, 0, sizeof(opt_name));
+            memset(opt_label, 0, sizeof(opt_label));
+            memset(opt_tip, 0, sizeof(opt_tip));
+
+            while (*line == L' ' || *line == L'\t') line++;
+            if (_wcsnicmp(line, L"OPTION", 6) != 0) continue;
+
+            p = line + 6;
+            while (*p == L' ' || *p == L'\t') p++;
+            eq = wcschr(p, L'=');
+            if (!eq) continue;
+
+            while (p < eq && nlen < 63)
+            {
+                if (*p != L' ' && *p != L'\t')
+                    opt_name[nlen++] = *p;
+                p++;
+            }
+            opt_name[nlen] = L'\0';
+            if (!opt_name[0]) continue;
+
+            p = eq + 1;
+            while (*p == L' ' || *p == L'\t') p++;
+
+            /* Label up to next comma */
+            while (*p && *p != L',' && llen < 63)
+                opt_label[llen++] = *p++;
+            opt_label[llen] = L'\0';
+
+            /* If comma, parse default value */
+            if (*p == L',')
+            {
+                p++;
+                while (*p == L' ' || *p == L'\t') p++;
+                def_val = _wtoi(p);
+            }
+
+            /* Resolve #<id> string resource */
+            if (opt_label[0] == L'#')
+            {
+                int res_id = _wtoi(opt_label + 1);
+                WCHAR loaded[128];
+                memset(loaded, 0, sizeof(loaded));
+                if (hmod && LoadStringW(hmod, res_id, loaded, 127) > 0)
+                {
+                    WCHAR *hash = wcschr(loaded, L'#');
+                    if (hash)
+                    {
+                        *hash = L'\0';
+                        wcsncpy(opt_tip, hash + 1, 127);
+                    }
+                    wcsncpy(opt_label, loaded, 63);
+                    opt_label[63] = L'\0';
+                }
+                else
+                {
+                    wcsncpy(opt_label, opt_name, 63);
+                }
+            }
+
+            /* Add to skin->options */
+            {
+                struct start_skin_option *new_opts = (struct start_skin_option *)realloc(
+                    skin->options, (skin->option_count + 1) * sizeof(struct start_skin_option));
+                if (new_opts)
+                {
+                    struct start_skin_option *opt;
+                    skin->options = new_opts;
+                    opt = &skin->options[skin->option_count++];
+                    memset(opt, 0, sizeof(*opt));
+                    wcsncpy(opt->name, opt_name, 63);
+                    wcsncpy(opt->label, opt_label, 63);
+                    wcsncpy(opt->tip, opt_tip, 127);
+                    opt->type = STARTSKIN_OPTION_BOOL;
+                    opt->def_value = (def_val != 0);
+                    opt->value = opt->def_value;
+                }
+            }
+        }
+    }
+
+    /* Apply user options */
+    if (options_str && *options_str)
+    {
+        int i;
+        for (i = 0; i < skin->option_count; i++)
+        {
+            if (wcsstr(options_str, skin->options[i].name))
+                skin->options[i].value = TRUE;
+            else
+                skin->options[i].value = FALSE;
+        }
+    }
+
     /* Set up condition variables */
     if (skin->two_columns)
         cond_values[cond_count++] = L"TWO_COLUMNS";
@@ -908,32 +1023,13 @@ struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation
     cond_values[cond_count++] = dpi_token;
     cond_values[cond_count++] = L"SEARCHBOX";
 
-    /* Parse user options */
-    if (options_str && *options_str)
+    /* Set condition variables from enabled options */
     {
-        const WCHAR *p = options_str;
-        while (*p && cond_count < MAX_COND_VARS - 1)
+        int i;
+        for (i = 0; i < skin->option_count && cond_count < MAX_COND_VARS - 1; i++)
         {
-            WCHAR opt[64];
-            int olen = 0;
-            while (*p == L' ' || *p == L'|' || *p == L';') p++;
-            if (!*p) break;
-
-            while (*p && *p != L'=' && *p != L'|' && *p != L';' && olen < 63)
-                opt[olen++] = *p++;
-            opt[olen] = L'\0';
-
-            if (*p == L'=')
-            {
-                p++;
-                if (*p == L'1' || *p == L't' || *p == L'T')
-                    cond_values[cond_count++] = _wcsdup(opt);
-                while (*p && *p != L'|' && *p != L';') p++;
-            }
-            else
-            {
-                cond_values[cond_count++] = _wcsdup(opt);
-            }
+            if (skin->options[i].value)
+                cond_values[cond_count++] = skin->options[i].name;
         }
     }
 

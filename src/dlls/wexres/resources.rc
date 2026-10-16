@@ -76,6 +76,23 @@ BEGIN
     LTEXT           "Select this option to use the menu style from earlier versions of Windows.", -1, 20, 185, 150, 24
     PUSHBUTTON      "&Customize...", IDC_NEWSTARTCUSTOMIZE, 192, 132, 53, 14
     PUSHBUTTON      "&Customize...", IDC_OLDSTARTCUSTOMIZE, 192, 172, 53, 14
+    PUSHBUTTON      "S&kin...", IDC_STARTSKINS_BTN, 192, 198, 53, 14
+END
+
+/* Start Menu Skin Property Page */
+IDD_STARTSKINPROP DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Skin"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "&Skin:", -1, 7, 9, 35, 8
+    COMBOBOX        IDC_SKIN_COMBO, 45, 7, 200, 150, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "&Variation:", IDC_SKIN_VAR_LABEL, 7, 26, 35, 8
+    COMBOBOX        IDC_SKIN_VARIATION, 45, 24, 200, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Skin Options:", IDC_SKIN_OPTS_LABEL, 7, 43, 60, 8
+    CONTROL         "", IDC_SKIN_OPTIONS_LIST, "SysListView32", LVS_REPORT | LVS_NOCOLUMNHEADER | WS_BORDER | WS_TABSTOP, 7, 54, 238, 68
+    GROUPBOX        "Preview", -1, 7, 126, 238, 85
+    CONTROL         "", IDC_SKIN_PREVIEW, "Static", SS_OWNERDRAW | SS_SUNKEN, 14, 137, 224, 68
 END
 
 /* Customize Start Menu: General */

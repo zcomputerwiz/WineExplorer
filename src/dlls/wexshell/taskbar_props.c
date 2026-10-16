@@ -30,6 +30,7 @@
 #include "wextheme.h"
 #include "module.h"
 #include "wexres.h"
+#include "startskin.h"
 
 
 static TASKBAR_SETTINGS g_settings = {
@@ -418,6 +419,9 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
         case IDC_OLDSTARTCUSTOMIZE:
             startprops_customize_classic(hwnd);
             break;
+        case IDC_STARTSKINS_BTN:
+            PropSheet_SetCurSel(GetParent(hwnd), NULL, 2);
+            break;
         }
         return TRUE;
 
@@ -431,6 +435,403 @@ static INT_PTR CALLBACK startmenu_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
             theme_set_start_menu_style(s_preview_style);
             taskbar_settings_save();
             if (hTray) PostMessageW(hTray, WM_SETTINGCHANGE, 0, 0);
+            return TRUE;
+        }
+        break;
+    }
+    }
+    return FALSE;
+}
+
+static void draw_skin_preview_item(HDC hdc, const RECT *rc, const WCHAR *skin_name,
+                                   const WCHAR *var_name, const WCHAR *opts)
+{
+    struct start_skin *skin;
+    RECT box;
+    HBRUSH bg;
+    RECT left_rc, right_rc, header_rc, sel_rc;
+    int mid_x;
+    int hdr_h = 24;
+    HFONT font, old_font;
+
+    if (!hdc || !rc) return;
+    box = *rc;
+
+    FillRect(hdc, &box, GetSysColorBrush(COLOR_BTNFACE));
+    DrawEdge(hdc, &box, EDGE_SUNKEN, BF_RECT);
+    InflateRect(&box, -2, -2);
+
+    if (!skin_name || !*skin_name || _wcsicmp(skin_name, L"None") == 0)
+    {
+        draw_start_preview(hdc, &box, g_settings.start_menu_style);
+        return;
+    }
+
+    skin = startskin_load(skin_name, var_name, opts, STARTSKIN_TYPE_CLASSIC2, 96);
+    if (!skin)
+    {
+        draw_start_preview(hdc, &box, g_settings.start_menu_style);
+        return;
+    }
+
+    mid_x = box.left + (box.right - box.left) / 2;
+
+    header_rc = box;
+    header_rc.bottom = box.top + hdr_h;
+
+    left_rc = box;
+    left_rc.top = header_rc.bottom;
+    left_rc.right = mid_x;
+
+    right_rc = box;
+    right_rc.top = header_rc.bottom;
+    right_rc.left = mid_x;
+
+    /* Header / Caption */
+    if (skin->caption_bitmap.hbmp)
+        startskin_draw_slices(hdc, &skin->caption_bitmap, &header_rc, &header_rc, NULL, TRUE);
+    else
+    {
+        bg = CreateSolidBrush(skin->caption_background);
+        FillRect(hdc, &header_rc, bg);
+        DeleteObject(bg);
+    }
+
+    /* Avatar frame in preview */
+    if (skin->user_bitmap.hbmp)
+    {
+        RECT av_rc;
+        SetRect(&av_rc, header_rc.left + 4, header_rc.top + 2,
+                header_rc.left + 4 + 20, header_rc.top + 2 + 20);
+        startskin_draw_slices(hdc, &skin->user_bitmap, &av_rc, &av_rc, NULL, TRUE);
+    }
+
+    /* User name */
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, skin->user_text_color);
+    font = skin->user_font ? skin->user_font : GetStockObject(DEFAULT_GUI_FONT);
+    old_font = SelectObject(hdc, font);
+    {
+        RECT txt_rc = header_rc;
+        txt_rc.left += 28;
+        DrawTextW(hdc, L"Wine User", -1, &txt_rc, DT_SINGLELINE | DT_VCENTER);
+    }
+
+    /* Left column */
+    if (skin->main_bitmap.hbmp)
+        startskin_draw_bg_slices(hdc, &skin->main_bitmap, &left_rc,
+                                 skin->main_bitmap_slices_x, skin->main_bitmap_slices_y, 0, TRUE);
+    else
+    {
+        bg = CreateSolidBrush(skin->main_background);
+        FillRect(hdc, &left_rc, bg);
+        DeleteObject(bg);
+    }
+
+    /* Right column */
+    if (skin->main_bitmap.hbmp)
+        startskin_draw_bg_slices(hdc, &skin->main_bitmap, &right_rc,
+                                 skin->main_bitmap_slices_x, skin->main_bitmap_slices_y, 1, TRUE);
+    else
+    {
+        bg = CreateSolidBrush(skin->main2_background);
+        FillRect(hdc, &right_rc, bg);
+        DeleteObject(bg);
+    }
+
+    /* Vertical separator */
+    if (skin->main_separator_v.hbmp)
+    {
+        RECT sep_rc;
+        sep_rc = left_rc;
+        sep_rc.left = right_rc.left - 1;
+        sep_rc.right = right_rc.left + 1;
+        startskin_draw_slices(hdc, &skin->main_separator_v, &sep_rc, &sep_rc, NULL, TRUE);
+    }
+
+    /* Sample hot item selection in left column */
+    SetRect(&sel_rc, left_rc.left + 2, left_rc.top + 4, left_rc.right - 2, left_rc.top + 22);
+    if (skin->main_item.bmp_selection.hbmp)
+        startskin_draw_selection(hdc, &skin->main_item.bmp_selection, &sel_rc,
+                                 skin->main_item.sel_slices_x, skin->main_item.sel_slices_y, TRUE);
+    else
+    {
+        bg = CreateSolidBrush(GetSysColor(COLOR_HIGHLIGHT));
+        FillRect(hdc, &sel_rc, bg);
+        DeleteObject(bg);
+    }
+
+    /* Sample item text */
+    SetTextColor(hdc, skin->main_item.text_color[1]);
+    DrawTextW(hdc, L"Internet", -1, &sel_rc, DT_SINGLELINE | DT_VCENTER);
+
+    /* Normal item in left column */
+    SetRect(&sel_rc, left_rc.left + 2, left_rc.top + 24, left_rc.right - 2, left_rc.top + 42);
+    SetTextColor(hdc, skin->main_item.text_color[0]);
+    DrawTextW(hdc, L"E-mail", -1, &sel_rc, DT_SINGLELINE | DT_VCENTER);
+
+    /* Separator in left column */
+    if (skin->main_item.bmp_separator.hbmp)
+    {
+        RECT sline;
+        SetRect(&sline, left_rc.left + 4, left_rc.top + 44, left_rc.right - 4, left_rc.top + 48);
+        startskin_draw_separator(hdc, &skin->main_item.bmp_separator, &sline,
+                                 skin->main_item.sep_slices_x, skin->main_item.bmp_separator.height, TRUE);
+    }
+
+    /* Normal item in right column */
+    SetRect(&sel_rc, right_rc.left + 4, right_rc.top + 4, right_rc.right - 4, right_rc.top + 22);
+    SetTextColor(hdc, skin->main2_item.text_color[0]);
+    DrawTextW(hdc, L"My Documents", -1, &sel_rc, DT_SINGLELINE | DT_VCENTER);
+
+    SelectObject(hdc, old_font);
+    startskin_free(skin);
+}
+
+static WCHAR s_page_skin[MAX_PATH] = L"None";
+static WCHAR s_page_var[64] = {0};
+static WCHAR s_page_opts[256] = {0};
+
+static void enum_skins_dlg_cb(const WCHAR *name, const WCHAR *path, BOOL is_7, void *param)
+{
+    HWND cb = (HWND)param;
+    if (SendMessageW(cb, CB_FINDSTRINGEXACT, -1, (LPARAM)name) == CB_ERR)
+    {
+        SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)name);
+    }
+}
+
+static void update_skin_controls(HWND hwnd, BOOL from_user)
+{
+    HWND hSkinCombo;
+    HWND hVarCombo;
+    HWND hOptList;
+    int sel;
+    WCHAR name[MAX_PATH];
+
+    hSkinCombo = GetDlgItem(hwnd, IDC_SKIN_COMBO);
+    hVarCombo  = GetDlgItem(hwnd, IDC_SKIN_VARIATION);
+    hOptList   = GetDlgItem(hwnd, IDC_SKIN_OPTIONS_LIST);
+    sel = (int)SendMessageW(hSkinCombo, CB_GETCURSEL, 0, 0);
+    memset(name, 0, sizeof(name));
+
+    if (sel != CB_ERR)
+        SendMessageW(hSkinCombo, CB_GETLBTEXT, sel, (LPARAM)name);
+
+    if (!name[0] || _wcsnicmp(name, L"None", 4) == 0)
+    {
+        wcscpy(s_page_skin, L"None");
+        s_page_var[0] = L'\0';
+        s_page_opts[0] = L'\0';
+        SendMessageW(hVarCombo, CB_RESETCONTENT, 0, 0);
+        SendMessageW(hOptList, LVM_DELETEALLITEMS, 0, 0);
+        EnableWindow(hVarCombo, FALSE);
+        EnableWindow(hOptList, FALSE);
+        InvalidateRect(GetDlgItem(hwnd, IDC_SKIN_PREVIEW), NULL, TRUE);
+        return;
+    }
+
+    wcscpy(s_page_skin, name);
+    EnableWindow(hVarCombo, TRUE);
+    EnableWindow(hOptList, TRUE);
+
+    /* Inspect skin for variations and options */
+    {
+        struct start_skin *skin = startskin_load(s_page_skin, NULL, NULL, STARTSKIN_TYPE_CLASSIC2, 96);
+        SendMessageW(hVarCombo, CB_RESETCONTENT, 0, 0);
+        SendMessageW(hOptList, LVM_DELETEALLITEMS, 0, 0);
+
+        if (skin)
+        {
+            int i;
+            if (skin->variation_count > 0)
+            {
+                int matched_idx = 0;
+                for (i = 0; i < skin->variation_count; i++)
+                {
+                    int vidx = (int)SendMessageW(hVarCombo, CB_ADDSTRING, 0, (LPARAM)skin->variations[i].label);
+                    if (_wcsicmp(skin->variations[i].label, s_page_var) == 0)
+                        matched_idx = vidx;
+                }
+                SendMessageW(hVarCombo, CB_SETCURSEL, matched_idx, 0);
+                SendMessageW(hVarCombo, CB_GETLBTEXT, matched_idx, (LPARAM)s_page_var);
+            }
+            else
+            {
+                SendMessageW(hVarCombo, CB_ADDSTRING, 0, (LPARAM)L"Default");
+                SendMessageW(hVarCombo, CB_SETCURSEL, 0, 0);
+                s_page_var[0] = L'\0';
+                EnableWindow(hVarCombo, FALSE);
+            }
+
+            for (i = 0; i < skin->option_count; i++)
+            {
+                LVITEMW lvi;
+                int item_idx;
+                BOOL checked;
+
+                memset(&lvi, 0, sizeof(lvi));
+                lvi.mask = LVIF_TEXT | LVIF_PARAM;
+                lvi.iItem = i;
+                lvi.pszText = skin->options[i].label[0] ? skin->options[i].label : skin->options[i].name;
+                lvi.lParam = i;
+                item_idx = (int)SendMessageW(hOptList, LVM_INSERTITEMW, 0, (LPARAM)&lvi);
+
+                if (from_user || !s_page_opts[0])
+                    checked = skin->options[i].def_value;
+                else
+                    checked = (wcsstr(s_page_opts, skin->options[i].name) != NULL);
+
+                memset(&lvi, 0, sizeof(lvi));
+                lvi.stateMask = LVIS_STATEIMAGEMASK;
+                lvi.state = INDEXTOSTATEIMAGEMASK(checked ? 2 : 1);
+                SendMessageW(hOptList, LVM_SETITEMSTATE, item_idx, (LPARAM)&lvi);
+            }
+            startskin_free(skin);
+        }
+    }
+    InvalidateRect(GetDlgItem(hwnd, IDC_SKIN_PREVIEW), NULL, TRUE);
+}
+
+static void collect_page_options(HWND hwnd)
+{
+    HWND hOptList;
+    int count;
+    int i;
+    struct start_skin *skin;
+
+    hOptList = GetDlgItem(hwnd, IDC_SKIN_OPTIONS_LIST);
+    count = (int)SendMessageW(hOptList, LVM_GETITEMCOUNT, 0, 0);
+
+    s_page_opts[0] = L'\0';
+    if (_wcsicmp(s_page_skin, L"None") == 0) return;
+
+    skin = startskin_load(s_page_skin, NULL, NULL, STARTSKIN_TYPE_CLASSIC2, 96);
+    if (!skin) return;
+
+    for (i = 0; i < count && i < skin->option_count; i++)
+    {
+        int st = (int)SendMessageW(hOptList, LVM_GETITEMSTATE, i, LVIS_STATEIMAGEMASK);
+        if ((st >> 12) == 2)
+        {
+            if (s_page_opts[0]) wcscat(s_page_opts, L",");
+            wcscat(s_page_opts, skin->options[i].name);
+        }
+    }
+    startskin_free(skin);
+}
+
+static INT_PTR CALLBACK startskin_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+    {
+        HWND hSkinCombo = GetDlgItem(hwnd, IDC_SKIN_COMBO);
+        HWND hOptList   = GetDlgItem(hwnd, IDC_SKIN_OPTIONS_LIST);
+        HKEY hkey;
+        DWORD type, size;
+        int found;
+        LVCOLUMNW col;
+
+        SendMessageW(hOptList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, (LPARAM)(LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT));
+        memset(&col, 0, sizeof(col));
+        col.mask = LVCF_WIDTH;
+        col.cx = 230;
+        SendMessageW(hOptList, LVM_INSERTCOLUMNW, 0, (LPARAM)&col);
+
+        /* Read saved settings */
+        wcscpy(s_page_skin, L"None");
+        s_page_var[0] = L'\0';
+        s_page_opts[0] = L'\0';
+
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\StartMenu", 0, KEY_READ, &hkey) == ERROR_SUCCESS)
+        {
+            size = sizeof(s_page_skin);
+            RegQueryValueExW(hkey, L"Skin", NULL, &type, (LPBYTE)s_page_skin, &size);
+            size = sizeof(s_page_var);
+            RegQueryValueExW(hkey, L"SkinVariation", NULL, &type, (LPBYTE)s_page_var, &size);
+            size = sizeof(s_page_opts);
+            RegQueryValueExW(hkey, L"SkinOptions", NULL, &type, (LPBYTE)s_page_opts, &size);
+            RegCloseKey(hkey);
+        }
+
+        SendMessageW(hSkinCombo, CB_RESETCONTENT, 0, 0);
+        SendMessageW(hSkinCombo, CB_ADDSTRING, 0, (LPARAM)L"None (Built-in)");
+        startskin_enumerate(enum_skins_dlg_cb, (void *)hSkinCombo);
+
+        found = (int)SendMessageW(hSkinCombo, CB_FINDSTRINGEXACT, -1, (LPARAM)s_page_skin);
+        if (found == CB_ERR) found = 0;
+        SendMessageW(hSkinCombo, CB_SETCURSEL, found, 0);
+
+        update_skin_controls(hwnd, FALSE);
+        return TRUE;
+    }
+
+    case WM_DRAWITEM:
+    {
+        DRAWITEMSTRUCT *dis = (DRAWITEMSTRUCT *)lparam;
+        if (dis->CtlID == IDC_SKIN_PREVIEW)
+        {
+            draw_skin_preview_item(dis->hDC, &dis->rcItem, s_page_skin, s_page_var, s_page_opts);
+            return TRUE;
+        }
+        break;
+    }
+
+    case WM_COMMAND:
+        if (LOWORD(wparam) == IDC_SKIN_COMBO && HIWORD(wparam) == CBN_SELCHANGE)
+        {
+            update_skin_controls(hwnd, TRUE);
+            collect_page_options(hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+            return TRUE;
+        }
+        if (LOWORD(wparam) == IDC_SKIN_VARIATION && HIWORD(wparam) == CBN_SELCHANGE)
+        {
+            int sel = (int)SendMessageW((HWND)lparam, CB_GETCURSEL, 0, 0);
+            if (sel != CB_ERR)
+            {
+                SendMessageW((HWND)lparam, CB_GETLBTEXT, sel, (LPARAM)s_page_var);
+                InvalidateRect(GetDlgItem(hwnd, IDC_SKIN_PREVIEW), NULL, TRUE);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+            }
+            return TRUE;
+        }
+        break;
+
+    case WM_NOTIFY:
+    {
+        NMHDR *nmhdr = (NMHDR *)lparam;
+        if (nmhdr->idFrom == IDC_SKIN_OPTIONS_LIST && nmhdr->code == LVN_ITEMCHANGED)
+        {
+            collect_page_options(hwnd);
+            InvalidateRect(GetDlgItem(hwnd, IDC_SKIN_PREVIEW), NULL, TRUE);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+            return TRUE;
+        }
+        if (nmhdr->code == PSN_APPLY)
+        {
+            HKEY hkey;
+            HWND tray;
+
+            collect_page_options(hwnd);
+
+            if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\StartMenu", 0, NULL, 0, KEY_WRITE, NULL, &hkey, NULL) == ERROR_SUCCESS)
+            {
+                RegSetValueExW(hkey, L"Skin", 0, REG_SZ, (const BYTE *)s_page_skin,
+                               (DWORD)((wcslen(s_page_skin) + 1) * sizeof(WCHAR)));
+                RegSetValueExW(hkey, L"SkinVariation", 0, REG_SZ, (const BYTE *)s_page_var,
+                               (DWORD)((wcslen(s_page_var) + 1) * sizeof(WCHAR)));
+                RegSetValueExW(hkey, L"SkinOptions", 0, REG_SZ, (const BYTE *)s_page_opts,
+                               (DWORD)((wcslen(s_page_opts) + 1) * sizeof(WCHAR)));
+                RegCloseKey(hkey);
+            }
+
+            startskin_invalidate_active();
+
+            tray = FindWindowW(L"Shell_TrayWnd", NULL);
+            if (tray) PostMessageW(tray, WM_SETTINGCHANGE, 0, 0);
             return TRUE;
         }
         break;
@@ -479,11 +880,10 @@ void taskbar_props_show(HWND parent)
 {
     INITCOMMONCONTROLSEX init = {
         .dwSize = sizeof(INITCOMMONCONTROLSEX),
-        .dwICC = ICC_TAB_CLASSES
+        .dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES
     };
-    PROPSHEETPAGEW pages[2];
+    PROPSHEETPAGEW pages[3];
     PROPSHEETHEADERW psh;
-    HINSTANCE hInst = explorer_hInstance;
 
     InitCommonControlsEx(&init);
     taskbar_settings_load();
@@ -503,6 +903,13 @@ void taskbar_props_show(HWND parent)
     pages[1].hInstance = WexResModule();
     pages[1].pszTemplate = MAKEINTRESOURCEW(IDD_STARTMENUPROP);
     pages[1].pfnDlgProc = startmenu_page_proc;
+
+    /* Page 3: Start Menu Skin */
+    pages[2].dwSize = sizeof(PROPSHEETPAGEW);
+    pages[2].dwFlags = PSP_DEFAULT;
+    pages[2].hInstance = WexResModule();
+    pages[2].pszTemplate = MAKEINTRESOURCEW(IDD_STARTSKINPROP);
+    pages[2].pfnDlgProc = startskin_page_proc;
 
     memset(&psh, 0, sizeof(psh));
     psh.dwSize = sizeof(PROPSHEETHEADERW);
