@@ -22,9 +22,9 @@ Checked third-party sets (2026-10-16):
 - yeyushengfan258 **We10X-icon-theme** is not allowed. The same author and method; 493 SVGs embed raster images,
   including its folder and Recycle Bin, and the empty Recycle Bin image looks like Windows 10's.
 - yeyushengfan258 **We10XOS-cursors**, **Win10OS-cursors** and **Win7OS-cursors** (GPL-3.0; based on
-  capitaine-cursors, LGPL-3.0) are allowed as separate cursor files. They are vector redrawings, with no embedded
-  images and no pixel match with Windows' cursors. They must stay separate files of a cursor theme and are never
-  compiled into our binaries.
+  capitaine-cursors) are not used either. They checked clean: vector redrawings, with no embedded images and no
+  pixel match with Windows' cursors. The project does not take art from this author, because of the ripped icon
+  themes.
 
 ## Open pictures
 `scripts/open_assets.py build` writes every picture that stands in for an XP one, and lists each with its source in
