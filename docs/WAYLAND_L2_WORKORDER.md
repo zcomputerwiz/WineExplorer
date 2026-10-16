@@ -102,8 +102,36 @@ native state; wexcomp enforces native size constraints and owns xdg configure /
 buffer-commit completion and atomic scene changes. Use the v8 capture path for
 move/size input, not a new window-manager process or class-name special cases.
 
-Implement the resize transaction next. Use a new negotiated request/event set
-(after v9); keep resize capability off for older peers. Give each requested
+The compositor's XDG transaction is implemented on dd65ccef using v10. It retains
+old root-buffer references, constrains desired sizes, distinguishes acceptance /
+xdg acknowledgement / committed native buffers / matching frame publication,
+and supports supersession and bounded rollback. Both compositor suites pass
+47/47, including all eight edges/corners and pixel assertions. Wine's XML is
+synchronized on 180d405, but its driver still binds v8 and bridge observers v9.
+Current Wine topic ac4a1b3 includes c6dac92's production 71572805 merge and the
+adoption deadlock fix below. Runtime compositor e8e5a083 additionally rejects
+acknowledged empty commits as native buffer readiness; both final suites pass
+47/47. Current compositor topic 9e4e3d4a adds only stress-fixture capacity.
+XWayland resize requests explicitly return unavailable. This is a compositor
+checkpoint, not interactive resize acceptance.
+
+Wine topic cf365e5 now consumes private v10 through a dedicated scalar transport
+and non-coalescing UI-thread event queue. The opt-in actual 64/32 bridge probe
+exercises resize/rollback using real move-loop frame capture, including early
+and stale commit rejection and reentrant snapshot delivery. Compositor topic
+d859bdf1 adds an opt-in configure-following publisher fixture. Sizing UI is still
+disabled; this is a transport checkpoint, not interactive-sizing acceptance.
+See WAYLAND_L2_RESIZE_REVIEW.md for Claude's next boundary review.
+
+Next, implement the wexhost controller and connect the Wine sizing loop.
+The intermittent adoption/readoption hang is now reproduced and fixed in Wine
+ac4a1b3: Wayland callbacks must defer style/z-order refreshes to the owning UI
+thread rather than acquire USER while holding window data. The focused stress
+probe passes 100 cycles per architecture after failing on cycle two before the
+fix. Preserve that lock-order rule in the new resize callbacks. Failure-only
+native-stack diagnostics, WEX_SHELL_TEST_REBIND_STRESS and an alternate-compositor
+selector are available in check-wayland-shell.py. See WAYLAND_L2.md.
+Keep resize capability off for older peers. Give each requested
 client rectangle its own serial and keep the compositor's xdg configure serial
 separate. Read native constraints at request time, not just from cached observer
 data. Report constrained acceptance separately from acknowledged native buffer
@@ -121,8 +149,8 @@ focus/capture, with current-foreground and focus-epoch guards. Add delayed,
 fixed-size and client-selected-size fixtures before enabling sizing affordances.
 Completions are transaction events, not coalescible geometry observations.
 
-The next protocol change must distinguish desired size, client configure
-acknowledgement and actual committed buffer size. Account for min/max constraints,
+The Wine integration must preserve the protocol distinction between desired size,
+client configure acknowledgement and actual committed buffer size. Account for min/max constraints,
 fixed-size clients, client-selected sizes, delayed/ignored configures and Escape
 rollback. Older completions must not override a newer request. Keep rendering
 and input coherent while the native buffer and Wine frame catch up; do not

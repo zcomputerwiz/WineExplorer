@@ -6,11 +6,21 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is 2e8bcfa, including accepted opt-in Wayland L1 integration
+Current pin is 71572805, including accepted opt-in Wayland L1 integration
 and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
+The L2 topic's cf365e5 binds private protocol v10 and adds a scalar resize
+request/commit/cancel transport. Each compositor transition is queued separately
+and delivered on the HWND's owning UI thread with a scoped property snapshot;
+no Unix pointer enters WoW64 PE and no application call holds win_data_mutex.
+Surface generations protect destruction/replacement during reentrant delivery.
+Accepted transactions preserve hosting while the frame catches up; only matching
+serial completion updates the accepted client hole. Protocol availability is
+distinct from native-client eligibility and from enabled sizing controls.
+This is fork-only and does not add a driver ABI hook or enable interactive
+resize/maximize. See WAYLAND_L2_RESIZE_REVIEW.md for the next boundary review.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (b971d96, not the production pin) extends the
-private protocol through v9, starting with v4 native/controller atom properties and an
+L2 opt-in topic codex/wayland-l2 (cf365e5, including 180d405, not the production pin) extends the
+private protocol through v10, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
 behavior. The standard wlr XML is vendored only to satisfy private protocol
@@ -19,7 +29,7 @@ composition/focus unchanged. Explicit HOST opt-in now uses v7 numbered group
 configuration and focus acknowledgements, preserving logical foreground during
 native input and guarded temporary frame focus. Client size changes detach
 before retry; callers must exclude the client area from Win32 hit testing.
-Private hosting changes are fork-only. Compositor topic 2e88585f provides v5 active scene grouping
+Private hosting changes are fork-only. Compositor topic d859bdf1 provides v5 active scene grouping
 with frame-ring render/input exclusion and disconnect recovery, plus v6 observed
 physical focus acknowledgements and guarded frame/native restoration, plus v7
 numbered configuration and native size/policy recovery. Driver fallback for old
@@ -62,6 +72,38 @@ is unchanged. Owned wexhost fills existing max_size fields, preserves state
 transitions when coalescing geometry events, and wexshell applies independent
 axis limits in WM_GETMINMAXINFO. See WAYLAND_L2.md for compatibility checks.
 
+180d405 synchronizes the v10 private XML across Wine, wexhost and compositor.
+Wine's driver still binds v8 and bridge observers bind v9; there is no new Wine
+runtime behavior at this checkpoint. Compositor dd65ccef adds serial-specific
+XDG hosted resize requests, constraint acceptance, configure acknowledgement,
+native-buffer readiness and matching-frame publication. Public scene/buffer
+APIs retain old root buffers until atomic handover; supersession and bounded
+rollback retain the original geometry. Focus/capture loss starts rollback;
+failed rollback restores ordinary native composition. Snapshot listeners and
+references are released on either window's destruction. XWayland resize requests
+are explicitly unavailable, pending a separate native completion path. The
+production pins, WEX ABI, adoption gate and sizing affordances remain unchanged.
+The following synchronization merges Gemini's production 71572805 into the L2
+topic as c6dac92; it adds no further Wayland behavior. Master keeps the incoming
+prefix-split S0/S1 merge and its new pin. Those installer/session/stock changes
+are synchronized from their owner rather than edited by this L2 work.
+Compositor e8e5a083 requires a content-bearing native commit after acknowledgement
+(buffer, damage, viewport, scale or transform); committing only acknowledged xdg
+state cannot incorrectly report native readiness. A deterministic before/after
+probe covers that separation. b41b65f fixes shared-header dependencies in the
+compositor test-client build so window-layout changes rebuild every client.
+
+Wine ac4a1b3 fixes an observed win_data_mutex/USER lock inversion during themed
+frame creation/readoption. The private Wayland handle and association callbacks
+update scalar state, unlock and post an internal WM_WAYLAND_WEX_UPDATE; the
+owning UI thread refreshes current styles/z-order/hosting. The new message is
+appended without changing existing message numbers and carries no surface pointer
+or stale geometry. Focus/group notifications also post after releasing window
+data. Epoch guards and private protocol versions remain unchanged. A CSD/SSD
+stress probe fails before the fix, passes 100 cycles in each Explorer architecture
+afterward. Compositor 9e4e3d4a only increases the test fixture's stable record
+capacity for long stress runs; it adds no runtime compositor behavior.
+
 The L2 move checkpoint adds fork-only v8 frame pointer capture and its Wine
 SetCapture hook, guarded by the current focus epoch and active HOST state.
 Hosted Move uses Wine's loop only with v8; zone placement echoes are ignored
@@ -73,7 +115,8 @@ The compositor routes pointer warps through normal hit testing with xdg surface
 geometry offsets. Explorer activates task-menu Move/Size targets and separates
 requested geometry from older observations. Production 2e8bcfa carries only
 the shared property definitions needed to compile the existing owned bridge;
-the L2 topic merges that header fix. Resize negotiation remains pending.
+the L2 topic merges that header fix. Wine's consumption of resize negotiation
+remains pending; the compositor's XDG transaction is implemented separately.
 Display Properties, wireless UI and media player replace stock stub modules
 through explicit assembly entries, with pristine originals preserved.
 Those implementations are project modules rather than source patches in

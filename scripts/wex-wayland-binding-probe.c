@@ -11,8 +11,10 @@ static CRITICAL_SECTION lock;
 static UINT64 native_id;
 static unsigned failures;
 static BOOL refresh_during_mask;
+static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp);
 static LRESULT CALLBACK proxy_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    if (resize_dispatch(hwnd,msg,wp,lp)) return 0;
     if (msg == WM_WINDOWPOSCHANGED && refresh_during_mask &&
         GetPropW(hwnd,L"__wine_wayland_frame_mask_updating"))
     {
@@ -79,6 +81,143 @@ static BOOL wait_prop(HWND hwnd,LPCWSTR prop,ULONG_PTR value)
     while (GetTickCount()-start<10000);
     return FALSE;
 }
+#ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
+static UINT resize_message;
+static DWORD resize_started;
+static BOOL resize_running,resize_rollback;
+static unsigned resize_next,resize_commit,resize_stages[4];
+static RECT resize_client,resize_margins;
+static void resize_command(HWND hwnd,unsigned serial,unsigned command)
+{
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_SERIAL_PROP,(HANDLE)(ULONG_PTR)serial);
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_COMMAND_PROP,(HANDLE)(ULONG_PTR)command);
+    SetWindowPos(hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+}
+static void resize_request(HWND hwnd,unsigned serial)
+{
+    int extra=serial==1 ? 20 : serial==2 ? 40 : 0;
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_X_PROP,(HANDLE)(LONG_PTR)resize_client.left);
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_Y_PROP,(HANDLE)(LONG_PTR)resize_client.top);
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_WIDTH_PROP,(HANDLE)(LONG_PTR)(240+extra));
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_HEIGHT_PROP,(HANDLE)(LONG_PTR)(180+extra));
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_EDGES_PROP,(HANDLE)10); /* bottom | right */
+    resize_command(hwnd,serial,WEX_WAYLAND_RESIZE_REQUEST);
+}
+static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
+{
+    if (!resize_running) return FALSE;
+    if (msg==WM_TIMER && wp==0x57455852)
+    {
+        if (GetTickCount()-resize_started>15000)
+        {
+            check("resize transport bounded completion",FALSE);
+            resize_running=FALSE;
+            PostMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0);
+        }
+        else if (resize_next && GetPropW(hwnd,WEX_WAYLAND_CAPTURE_PROP) &&
+                 (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_FRAME)
+        {
+            unsigned serial=resize_next;
+            resize_next=0;
+            resize_request(hwnd,serial);
+        }
+        else if (resize_commit) resize_command(hwnd,resize_commit,WEX_WAYLAND_RESIZE_COMMIT);
+        return TRUE;
+    }
+    if (msg==resize_message)
+    {
+        unsigned serial=wp,stage=lp;
+        RECT rect;
+        DWORD configure=(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_CONFIGURE_PROP);
+        check("resize transition serial",serial>=1 && serial<=3);
+        check("resize transition stage",stage<=WEX_WAYLAND_RESIZE_FAILED);
+        if (serial>3 || !serial || stage>WEX_WAYLAND_RESIZE_FAILED) return TRUE;
+        resize_stages[serial]|=1u<<stage;
+        printf("RESIZE_EVENT serial=%u stage=%u configure=%lu\n",serial,stage,configure);
+        if (stage==WEX_WAYLAND_RESIZE_ACCEPTED && serial==1)
+        {
+            resize_command(hwnd,serial,WEX_WAYLAND_RESIZE_COMMIT); /* deliberately early */
+            pump(50); /* nested UI dispatch must not replace the current snapshot */
+            check("resize event snapshot survives reentrancy",configure==
+                (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_CONFIGURE_PROP));
+        }
+        if (stage==WEX_WAYLAND_RESIZE_ACCEPTED && serial==2)
+            resize_command(hwnd,1,WEX_WAYLAND_RESIZE_COMMIT); /* stale, cannot finish serial 2 */
+        if (stage==WEX_WAYLAND_RESIZE_ROLLING_BACK) resize_rollback=TRUE;
+        if (stage==WEX_WAYLAND_RESIZE_NATIVE_READY)
+        {
+            check("native ready follows acknowledgement",resize_stages[serial]&(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED));
+            if (serial==2 && !resize_rollback)
+                resize_command(hwnd,serial,WEX_WAYLAND_RESIZE_CANCEL);
+            else
+            {
+                rect.left=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_X_PROP);
+                rect.top=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_Y_PROP);
+                rect.right=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_WIDTH_PROP);
+                rect.bottom=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_HEIGHT_PROP);
+                check("native ready has positive size",rect.right>0 && rect.bottom>0);
+                SetWindowPos(hwnd,NULL,rect.left-resize_margins.left,rect.top-resize_margins.top,
+                    rect.right+resize_margins.left+resize_margins.right,
+                    rect.bottom+resize_margins.top+resize_margins.bottom,SWP_NOZORDER|SWP_NOACTIVATE);
+                RedrawWindow(hwnd,NULL,NULL,RDW_FRAME|RDW_INVALIDATE|RDW_UPDATENOW);
+                resize_commit=serial; /* next UI tick, after the frame's buffer flush */
+            }
+        }
+        else if (stage==WEX_WAYLAND_RESIZE_COMPLETE || stage==WEX_WAYLAND_RESIZE_CANCELLED)
+        {
+            check("resize keeps group active",(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+            check("resize completion retains capture",GetPropW(hwnd,WEX_WAYLAND_CAPTURE_PROP)!=NULL);
+            check("cancel publishes rollback",serial!=2 || stage==WEX_WAYLAND_RESIZE_CANCELLED);
+            resize_commit=0;
+            if (serial<3) resize_next=serial+1;
+            else { resize_running=FALSE; PostMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0); }
+        }
+        else if (stage==WEX_WAYLAND_RESIZE_FAILED)
+        { check("resize transaction did not fail",FALSE); resize_running=FALSE; PostMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0); }
+        return TRUE;
+    }
+    return FALSE;
+}
+static void resize_checks(HWND hwnd)
+{
+    RECT bounds,client;
+    POINT origin={0};
+    unsigned serial,expected;
+    if (!GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE",NULL,0)) return;
+    check("resize v10 protocol advertised",(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_PROTOCOL_PROP)==10);
+    GetWindowRect(hwnd,&bounds); GetClientRect(hwnd,&client); ClientToScreen(hwnd,&origin);
+    resize_client=client; OffsetRect(&resize_client,origin.x,origin.y);
+    SetRect(&resize_margins,origin.x-bounds.left,origin.y-bounds.top,
+            bounds.right-origin.x-client.right,bounds.bottom-origin.y-client.bottom);
+    resize_message=RegisterWindowMessageW(WEX_WAYLAND_RESIZE_EVENT_MESSAGE);
+    resize_next=1; resize_started=GetTickCount(); resize_running=TRUE;
+    SetTimer(hwnd,0x57455852,20,NULL);
+    /* Borrow the established move loop's real physical frame capture. This
+     * tests explicit negotiation without enabling a sizing affordance. */
+    SendMessageW(hwnd,WM_SYSCOMMAND,SC_MOVE|HTCAPTION,0);
+    KillTimer(hwnd,0x57455852);
+    for (serial=1;serial<=3;serial++)
+    {
+        expected=(1u<<WEX_WAYLAND_RESIZE_ACCEPTED)|(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED)|
+                 (1u<<WEX_WAYLAND_RESIZE_NATIVE_READY)|(1u<<(serial==2 ? WEX_WAYLAND_RESIZE_CANCELLED : WEX_WAYLAND_RESIZE_COMPLETE));
+        check("resize delivers every transaction stage",(resize_stages[serial]&expected)==expected);
+    }
+    check("resize restores native focus after completion",wait_prop(hwnd,WEX_WAYLAND_FOCUS_PROP,WEX_WAYLAND_FOCUS_NATIVE));
+    check("early frame commit rejected",resize_stages[1]&(1u<<WEX_WAYLAND_RESIZE_UNAVAILABLE));
+    check("old serial completion rejected",resize_stages[1]&(1u<<WEX_WAYLAND_RESIZE_STALE));
+    check("resize releases capture after completion",wait_prop(hwnd,WEX_WAYLAND_CAPTURE_PROP,0));
+    GetClientRect(hwnd,&client);
+    check("resize test restores original client size",client.right==240 && client.bottom==180);
+    puts("RESIZE_TRANSPORT_COMPLETE");
+}
+#else
+static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) { return FALSE; }
+static void resize_checks(HWND hwnd)
+{
+    check("resize test requires the L2 Wine topic header",
+          !GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE",NULL,0));
+}
+#endif
 static BOOL wait_binding(UINT64 id,HWND hwnd)
 {
     DWORD start=GetTickCount(), result;
@@ -242,6 +381,7 @@ int main(int argc,char **argv)
     pump(100); check("nested loop retains frame focus",(ULONG_PTR)GetPropW(proxy,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_FRAME);
     SendMessageW(proxy,WM_EXITSIZEMOVE,0,0);
     check("last loop restores native focus",wait_prop(proxy,WEX_WAYLAND_FOCUS_PROP,WEX_WAYLAND_FOCUS_NATIVE));
+    resize_checks(proxy);
     GetWindowRect(proxy,&bounds);
     SetWindowPos(proxy,NULL,0,0,bounds.right-bounds.left+1,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
     check("size mismatch safely detaches",wait_prop(proxy,WEX_WAYLAND_GROUP_PROP,WEX_WAYLAND_GROUP_NOT_READY));

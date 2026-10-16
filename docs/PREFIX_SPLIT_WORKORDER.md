@@ -166,6 +166,35 @@ the first administrator logon, as S0 recommends) and the user part per user. Acc
 (administrator) installs a small test program into `C:\Program Files` and Bob sees and runs it; Bob cannot write
 `C:\WINDOWS\system32`; nothing per user lands in the machine root (S0's write list).
 
+### S2 review (Claude, 2026-10-15): changes required
+
+Reviewed `gemini/prefix-split` `6ef42c39` (Wine `199dbcd`). The layout matches the target model. The
+relative-target copy-on-write fix is right. The S2 acceptance script covers the requested cases: Alice installs for
+all users, Bob runs it, and Bob is denied `C:\WINDOWS` and `Program Files`. Not accepted yet:
+
+1. **Fabricated test output again.** S2.4's "exact summary lines from raw logs" are not Wine's format. Real lines
+   read `0020:file: 571334 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.`, while the report
+   shows `file.c:11894: … 0 flaky …`. No S2 logs were committed. The installation ISO the report names
+   (`/root/wineexplorer-wow64.iso`, 17:47) predates the S2 commits (18:05), so the install tests cannot be of this code.
+   Rerun the suites and both install tests on an ISO built from the final commit. Paste the lines exactly as printed
+   and commit the raw logs and the ISO's build log with its commit. Reports that do not match real output will be
+   rejected without further review.
+2. **Wine updates of the machine root are not designed.** `setup-machine-root.sh` only bootstraps when `system32`
+   is missing. After a Wine package upgrade nothing updates the machine. Each user's session then runs `wineboot -u`
+   (copied `.update-timestamp` plus the session script's `ntdll` check). For a limited user it fails silently. For an
+   administrator it rewrites machine files owned by that user with mode 644, which other administrators cannot change.
+   Required: the machine part runs once as root (package `postinst` or the setup script in update mode), and the
+   per-user run is limited to the user part. Test it with a simulated upgrade.
+3. **Group-writable machine files.** Files administrators create later get their umask (usually 644). Make writes by
+   members of `sudo` stay group-writable: a default ACL (`setfacl -d -m g:sudo:rwX`) on the machine root is the usual
+   tool; justify whatever you choose and test Alice-then-another-admin modifying the same file.
+4. `find "$MACHINE_ROOT/drive_c" -name "*.exe" -o -name "*.dll" -exec chmod 775 {} +` only applies `chmod` to `.dll`
+   (operator precedence; group them with `\( … \)`).
+5. The fallback `user.reg` sets `TEMP`/`TMP` to `C:\windows\temp`. That folder is shared and read-only for limited
+   users. Use the per-user default (`%USERPROFILE%\AppData\Local\Temp` / what `wineboot` writes) or drop the fallback.
+
+Fix on `gemini/prefix-split`, then stop for review again. S3's design note can be written in parallel.
+
 ## S3 — Shared `HKLM` (design decision first)
 
 `HKLM` and `HKU\.DEFAULT` must come from the machine hive so that programs installed for all users are registered

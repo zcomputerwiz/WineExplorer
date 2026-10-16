@@ -1,5 +1,83 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**Claude review checkpoint: Wine resize transport (Codex, 2026-10-15).** Wine
+topic cf365e5 now negotiates private v10 and transports request/commit/cancel
+transactions and every completion event on the owning UI thread. Actual 64/32
+bridge probes pass resize, rollback, early/stale commit rejection, reentrant
+event snapshots and native pixels/input holes. Compositor topic d859bdf1 adds
+only an opt-in publisher fixture mode; runtime remains e8e5a083. Production Wine
+is still 71572805 and sizing/maximize controls remain disabled.
+Full combined WoW64 builds pass at that exact pin and restored topic. Full
+64/32 shell, v10 resize/bridge/stacking, old v8 bridge/stacking and X11 tray/eight
+dialog regressions pass. The shell probe now waits for an explicit native-click
+completion gate before opening the system menu, eliminating another test ordering
+race. All isolated processes are cleaned up; the real desktop was not touched.
+
+Read **WAYLAND_L2_RESIZE_REVIEW.md** for the requested boundary review and next
+controller design. The synchronous Win32 sizing loop releases capture before
+WM_EXITSIZEMOVE and Escape's final geometry restore; the next implementation must
+finish asynchronous commit/rollback before voluntarily exiting that loop.
+The proposed approach uses an existing thread-scoped WH_MSGFILTER hook first,
+with any new generic driver lifecycle hook reviewed separately. No external
+dependency blocks implementation. WAYLAND_L2.md records validation and failures.
+
+**L2 adoption deadlock fixed (Codex, 2026-10-15):** Wine topic ac4a1b3 fixes the
+previously intermittent adoption/readoption hang. A focused CSD/SSD stress case
+reproduced it on its second cycle and captured the actual lock inversion:
+Wayland's association callback held win_data_mutex while window_layer waited
+for USER; themed UI painting held USER and waited for win_data_mutex in content
+flush. Handle/association refreshes now post an internal pointer-free message
+to the owning UI thread; focus notifications are also posted after unlocking.
+The same stress case passes 100 cycles in each architecture (200 total).
+Compositor topic 9e4e3d4a changes only its test fixture's record bound for these
+long runs; runtime compositor behavior remains e8e5a083. Production Wine remains
+71572805 and no installed runtime/session was changed. Read the latest
+WAYLAND_L2.md section for full regression/build results and corrected diagnostics.
+
+The move probe also awaited geometry too early: WM_EXITSIZEMOVE/focus can precede
+Escape's final SetWindowPos. It now waits for exact final geometry separately;
+five traced full 64/32 runs passed after correcting that assertion, before the
+driver fix. The original adoption hang was a separate real product deadlock.
+The next task is Wine/wexhost v10 resize consumption and DPI/sizing-loop
+integration. Keep sizing/maximize disabled until the remaining L2 acceptance.
+
+**L2 compositor resize checkpoint (Codex, 2026-10-15):** compositor
+codex/wayland-l2 is e8e5a083 (transaction dd65ccef); Wine topic is c6dac92
+(protocol 180d405, merged production 71572805). Private protocol v10 now
+negotiates hosted **XDG** resize transactions. Acceptance, xdg acknowledgement,
+actual native buffer readiness and atomic matching-frame publication are
+separate serial-specific events. Retained buffer references keep the previous
+matching roots visible; native/frame-first commits, all eight edges/corners,
+fixed/one-axis limits, client-chosen sizes, supersession, cancellation, focus /
+capture loss, bounded recovery and destruction are tested. Both compositor
+variants pass 47/47 (XCB constraint case skips without XWayland). Full combined
+WoW64 builds passed at the earlier production 2e8bcfa pin and after restoring
+the topic. Master advanced during this checkpoint; the prefix-split S0/S1 merge
+is preserved and wine/ is updated to its new detached 71572805 pin. See the final
+WAYLAND_L2.md section for the current-pin rebuild results. Both full WoW64
+builds at 71572805 and restored c6dac92 pass, as do actual 64/32 bridge/native
+pixel/stacking probes and X11 tray/eight-dialog smoke. Final compositor suites
+pass 47/47 in both variants, including the acknowledged-empty-commit regression
+fixed in e8e5a083. Wine's driver still
+binds v8; bridge observation still binds v9. Updating
+the three XML copies enables no resize UI or default-session behavior.
+
+**Next task at the compositor checkpoint (superseded by the fix above):**
+diagnose the intermittent shell adoption/readoption hang before enabling further
+UI behavior, then consume the v10 transactions in Wine/wexhost and connect Wine's
+sizing loop, maintaining serial/foreground guards and converting DPI units.
+Add XWayland's native completion path (v10 currently rejects that native type),
+then actual 64/32 resize/cancel, 100%/150%, GTK/foot/XWayland/independent Wine
+acceptance before enabling sizing or maximize. L2 remains incomplete. Three
+consecutive final shell runs pass both architectures, but earlier failures at
+initial adoption and SSD readoption remain unexplained; do not claim a fix or
+continuous acceptance. The failure-only WEX_SHELL_TEST_BACKTRACE=1 diagnostic
+finds Explorer by its exact isolated prefix; attaching the launcher instead was
+unhelpful. WEX_WEXCOMP_BIN enables A/B testing without changing the current build.
+No user input or external dependency is needed. See the final WAYLAND_L2.md section for commands, failed
+attempts, corrected teardown/timing probes, and VM state. Keep clear of Gemini's
+prefix-split files. Tray SNI remains the default task after L2.
+
 **L2 constraint checkpoint (Codex, 2026-10-15):** Wine topic b971d96,
 compositor 2e88585f. Manager/observer protocol v9 carries maximum client sizes;
 Wine's driver still binds v8 and no resize request/UI is enabled. XDG and
