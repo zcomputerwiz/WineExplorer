@@ -37,6 +37,7 @@ done
 test -S "$XDG_RUNTIME_DIR/wex-shell-0"
 export WAYLAND_DISPLAY=wex-shell-0
 export WINELOADER="$WINE" WINESERVER="$server_bin"
+wex_prepare_prefix
 # The shell and all Wine children use the private endpoint. Native desktop-file
 # launches obtain the public endpoints through wexhost's compositor inventory.
 "$WINE" reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11,wayland /f

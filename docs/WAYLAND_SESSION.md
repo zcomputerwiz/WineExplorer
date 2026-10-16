@@ -107,6 +107,31 @@ remain compiled out there until the integration pin is advanced.
 
 ## Test environment and command failures
 
+After prefix-split S4 merged on master, the earlier incremental owned-source
+archive was insufficient to establish that the complete merged tree built.
+Re-synced every tracked `src`, `scripts` and `installer` file from master
+2a2634fe to the isolated assembled build source, then ran the full combined
+WoW64 build at production Wine d92d7e44 again. It exits zero (`Wine build
+complete.`). The topic files are restored afterward; the root Wine pin is
+unchanged. Both launchers now share S4's prefix preparation in the sourced
+helper; Bash syntax checks pass. Fresh split-prefix Wayland login is still
+part of the pending new-ISO acceptance.
+
+The real foot caption maximize click at (944,136) reproducibly minimizes.
+Readback returns HTMINBUTTON at that drawn maximize glyph; the normal
+WM_SYSCOMMAND path receives SC_MINIMIZE. This is a mismatch between themed
+caption drawing and Wine's metric-based hit rectangles, rather than a resize
+transport failure. Caption double-click and taskbar Restore remain successful.
+
+This continuation's read-only path mistakes: literal PowerShell globs
+`wexcomp/include/wex*` and `wexcomp/src/protocols/wex*` fail with error 123;
+the protocol header is `include/protocols/wex-window.h`, not
+`include/wex-window.h` or `include/wex-scene.h`. `linux_windows.c` belongs to
+`src/dlls/wexshell`, not wexhost. Wine's nonclient code is `win32u/defwnd.c`,
+not `win32u/nonclient.c`; there is no `src/dlls/wextheme`. File inventory and
+`rg -g` resolve these. The generated helper extraction left whitespace on
+blank lines; `git diff --check` detected it and the patch removed it.
+
 The permitted Debian WSL distribution runs our QEMU/KVM tests. The stopped
 `p4-submodule` installed disk is the read-only backing file for a new
 `/var/tmp/wineexplorer-vmtest/wayland-session/disk.qcow2` overlay. Gemini's
