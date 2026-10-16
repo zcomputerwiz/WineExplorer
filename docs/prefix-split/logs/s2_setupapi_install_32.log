@@ -1,0 +1,45 @@
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error 0
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:fixme:setupapi:create_system_dirid unknown dirid 40
+00f4:err:setupapi:do_file_copyW Unsupported style(s) 0x4000
+00f4:err:setupapi:do_file_copyW Unsupported style(s) 0x4002
+00f4:fixme:setupapi:SetupQueueCopyIndirectW Unhandled LayoutInf 0015F558.
+install.c:1506: Test marked todo: Expected success.
+install.c:1507: Test marked todo: Got unexpected error 0x2.
+install.c:1508: Test marked todo: Destination file should exist.
+install.c:2110: Test marked todo: Got 4 callbacks.
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error 0
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f4:err:ole:apartment_createwindowifneeded CreateWindow failed with error -536870654
+00f0:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+X connection to :99 broken (explicit kill or server shutdown).
+X connection to :99 broken (explicit kill or server shutdown).

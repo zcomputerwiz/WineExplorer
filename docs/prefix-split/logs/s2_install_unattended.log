@@ -1,0 +1,7 @@
+started wex-unattend-s2
+found
+found
+found
+shut down wex-unattend-s2
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+PASS: zero-input install and installed-disk checks; evidence in /tmp/vmtest/wex-unattend-s2
