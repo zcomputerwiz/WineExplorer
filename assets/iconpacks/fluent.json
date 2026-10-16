@@ -1337,7 +1337,7 @@
    ]
   }
  },
- "licence": "GPL-3.0-or-later as a whole, because it contains Tela icon theme art (GPL-3.0); the Fluent UI System Icons glyphs in it remain under the MIT licence",
+ "licence": "GPL-3.0, because it contains Tela icon theme art (GPL-3.0); the Fluent UI System Icons glyphs in it remain under the MIT licence",
  "sources": {
   "fluent": {
    "title": "Fluent UI System Icons (Microsoft)",
