@@ -195,6 +195,33 @@ all users, Bob runs it, and Bob is denied `C:\WINDOWS` and `Program Files`. Not 
 
 Fix on `gemini/prefix-split`, then stop for review again. S3's design note can be written in parallel.
 
+### S2 re-review (Claude, 2026-10-15): accepted with two fixes, merged
+
+`gemini/prefix-split` `77c21851` (Wine `859a1b9`) fixes items 1–5:
+- the raw logs are real and committed, and the ISO build log names `cde728fd`;
+- the machine root is its own prefix and is updated as root from the package `postinst`;
+- a user's `wineboot -u` runs only `[UserInstall]` when `C:\windows` is a link;
+- a default ACL `g:sudo:rwX` keeps files group-writable;
+- the `find` grouping is fixed, and TEMP is per user.
+
+The acceptance log covers a second administrator editing the first's files, a simulated upgrade, and zero machine
+writes by users.
+
+Rechecked: `install-interactive.sh` passes on the S2 ISO. On the installed disk (read-only):
+- the machine root is 22 MB, `root:sudo 2775`, with the default ACL;
+- Alice's and Bob's prefixes are 3.4 MB, with `windows`, `Program Files`, `Program Files (x86)` and `ProgramData` as
+  links;
+- `TEMP` is `C:\users\bobsmith\AppData\Local\Temp`.
+
+Fixed at merge (`21cb7559`):
+- The LightDM logon prefix was still 1.7 GB. `scripts/wex-greeter.sh` builds it on first boot with a plain
+  `wineboot -u`; it now passes `WINELINKFAKEDLLS=1`.
+- `setup-machine-root.sh` ran `rm -rf "$MACHINE_ROOT"` whenever `system32` was missing. That would delete every
+  program installed for all users. It now refuses to replace a non-empty machine root.
+
+Known limit until S3: each user still has a private `system.reg` (HKLM) copy, and per-user updates skip the
+machine `wine.inf` sections. HKLM changes from an upgrade or an all-users install reach new users only.
+
 ## S3 — Shared `HKLM` (design decision first)
 
 `HKLM` and `HKU\.DEFAULT` must come from the machine hive so that programs installed for all users are registered
