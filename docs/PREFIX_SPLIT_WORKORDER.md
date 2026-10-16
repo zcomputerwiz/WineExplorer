@@ -264,6 +264,40 @@ Stop for review after S3.
 **Later, separate work order:** a system tier, with services and `HKLM` in one machine-level instance as Windows
 does with session 0. See `docs/ROADMAP.md`.
 
+### S3 review (Claude, 2026-10-15): changes required
+
+Reviewed `gemini/prefix-split` `6f0f1e1f` (Wine `3720371`). Already right:
+- the design follows the decision;
+- `save_branch()` writes beside the link's target and renames over it, so the link survives;
+- limited users' saves are skipped cleanly;
+- the logs are genuine, and all six acceptance cases pass.
+
+Three defects in `server/registry.c` must be fixed before merge:
+
+1. **Changes are replayed forever.** After a successful save, `mod_seq` on keys and values is never reset, and the
+   tombstone list is never freed. Every later save of that session replays all of its earlier changes and deletions
+   onto the newer file. Example: Alice sets `X=1`, which is saved; Carol later saves `X=2`; Alice changes any other
+   key; Alice's next save writes `X=1` again. A key Alice deleted and Carol re-created is deleted again. After a
+   successful save, clear the branch's `mod_seq` values and free its tombstones (the server is single-threaded, so
+   nothing changes between the merge and the rename). Add this sequence to `test_s3_acceptance.sh`: two saves by
+   Alice around one save by Carol, for both a value and a deleted key.
+2. **The per-session filter applies to every prefix.** `is_per_session_key()` only checks `geteuid() != 0`, so for
+   *every* non-root Wine user, including ordinary unlinked prefixes and the GUI-setup prefix before the machine root
+   exists, HKLM changes under the listed keys are never saved. Those keys include `Control\ComputerName`,
+   `Services\Tcpip\Parameters`, `Control\Print`, `Software\Wine\Drives`/`Ports` and `Shell Folders`. That silently
+   changes stock Wine behaviour (winecfg's port and drive settings, a computer name set by Setup). Apply the filter,
+   like the merge, only to a branch whose file was a link into the shared machine root when it was loaded (record
+   that in `save_branch_info` at load time).
+3. **`create_key_recursive()` now always opens links** (`OBJ_OPENLINK` added for every caller, including
+   `load_keys()` at start-up and every `create_key` path that uses it). Limit it to the merge (`in_merge`), or
+   explain in the report why every caller needs it.
+
+Also note in the report: an administrator's save loads and re-parses the shared hive (about 3 MB) under the lock
+every 30 s while anything is dirty, which is acceptable.
+
+Fix on `gemini/prefix-split`, rerun the S3 acceptance with the new case and the suites, and commit the logs. Then stop
+for review.
+
 ## S4 — Integration and migration (after S2/S3)
 
 Setup builds the machine root and the Default User template; account creation (`wexhost` `user_create`, OOBE) creates
