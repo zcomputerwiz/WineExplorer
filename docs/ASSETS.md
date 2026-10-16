@@ -16,6 +16,16 @@ Not allowed: NonCommercial or NoDerivatives licences, GPL-3.0 art compiled into 
 derived from Windows art whatever licence they claim (for example YlmfOS- or Win2-7-based sets), and brand logos,
 including the Windows logo.
 
+Checked third-party sets (2026-10-16):
+- yeyushengfan258 **Win11-icon-theme** is not allowed. Its folder and Recycle Bin icons embed raster images that
+  are pixel-identical (RMSE 0) to Windows 11's own icons, and 612 of its SVGs embed raster images.
+- yeyushengfan258 **We10X-icon-theme** is not allowed. The same author and method; 493 SVGs embed raster images,
+  including its folder and Recycle Bin, and the empty Recycle Bin image looks like Windows 10's.
+- yeyushengfan258 **We10XOS-cursors**, **Win10OS-cursors** and **Win7OS-cursors** (GPL-3.0; based on
+  capitaine-cursors, LGPL-3.0) are allowed as separate cursor files. They are vector redrawings, with no embedded
+  images and no pixel match with Windows' cursors. They must stay separate files of a cursor theme and are never
+  compiled into our binaries.
+
 ## Open pictures
 `scripts/open_assets.py build` writes every picture that stands in for an XP one, and lists each with its source in
 `assets/open_assets.json`: a ReactOS file (`references/reactos`, which anyone can clone), a Wine file, or one drawn by
