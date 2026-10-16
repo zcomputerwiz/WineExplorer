@@ -1,0 +1,79 @@
+started wex-skin-test
+found
+--- welcome
+found
+--- license
+found
+--- partitions
+found
+found
+--- created
+found
+--- format
+found
+--- copied
+found
+--- regional
+found
+found
+--- computer
+found
+found
+found
+--- workgroup
+found
+--- oobe
+found
+found
+found
+--- users
+found
+found
+--- finish
+found
+--- logon
+found
+clicked 758,337
+found
+found
+--- rejected-password
+found
+--- alice-desktop
+found
+--- switch-user
+clicked 782,415
+found
+found
+--- desktop
+=== Building test32.exe (i686-w64-mingw32-gcc) and test64.exe (x86_64-w64-mingw32-gcc) ===
+=== Staging test executables into VM ===
+Desktop user: bobsmith on :1
+=== 1. Running 32-bit test program on desktop ===
+found
+/tmp/vmtest/wex-skin-test/steps/18-test32.png
+PASS: Win32 test program window drawn
+=== 2. Running Wine 32-bit notepad from syswow64 ===
+found
+/tmp/vmtest/wex-skin-test/steps/19-notepad32.png
+PASS: 32-bit syswow64 notepad window drawn
+=== 3. Running 64-bit test program ===
+found
+/tmp/vmtest/wex-skin-test/steps/20-test64.png
+PASS: Win64 test program window drawn
+=== 4. Alice (admin) installs program for all users into Program Files ===
+PASS: Program installed by Alice for all users
+=== 5. Bob (standard user) executes application installed by Alice ===
+found
+/tmp/vmtest/wex-skin-test/steps/21-bob-common-app.png
+PASS: Bob executed program installed for all users
+=== 6. Bob (standard user) is denied write access to machine root ===
+
+PASS: Bob write access denied to machine root as expected
+=== Cleaning up running test processes ===
+PASS: All WoW64 32-bit and 64-bit program checks and prefix-split multi-user assertions succeeded.
+shut down wex-skin-test
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+Alice (alice) prefix size: 1 MB
+Bob Smith (bobsmith) prefix size: 1 MB
+PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership, prefix-split layout and per-user prefix size < 20 MB
+PASS (Bob desktop 5 s after logon); screenshots in /tmp/vmtest/wex-skin-test/steps; VM stopped

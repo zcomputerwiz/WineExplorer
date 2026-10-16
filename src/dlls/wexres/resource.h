@@ -268,5 +268,13 @@
 #define IDD_CLASSIC_CUSTOMIZE    113
 #define IDD_NOTIFY_CUSTOMIZE     114
 #define IDS_START_ADVANCED_TIP   115
+#define IDD_STARTSKINPROP        116
+#define IDC_SKIN_COMBO           1501
+#define IDC_SKIN_VARIATION       1502
+#define IDC_SKIN_OPTIONS_LIST    1503
+#define IDC_SKIN_PREVIEW         1504
+#define IDC_SKIN_VAR_LABEL       1505
+#define IDC_SKIN_OPTS_LABEL      1506
+#define IDC_STARTSKINS_BTN       1507
 
 #endif

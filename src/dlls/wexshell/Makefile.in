@@ -22,6 +22,7 @@ SOURCES = \
 	startmenu.c \
 	startmenu_view.c \
 	startsettings.c \
+	startskin.c \
 	notifyprops.c \
 	startprops.c \
 	systray.c \

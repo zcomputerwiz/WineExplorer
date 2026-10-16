@@ -1,0 +1,56 @@
+====================================================
+ WineExplorer Start Menu Skin Loader Fuzz & Unit Tests
+====================================================
+
+=== Test Suite 1: Condition Evaluation ===
+  [PASS] Empty condition is TRUE
+  [PASS] 'TRUE' token evaluates to 1
+  [PASS] 'true' case-insensitive evaluates to 1
+  [PASS] 'FALSE' token evaluates to 0
+  [PASS] 'false' case-insensitive evaluates to 0
+  [PASS] TWO_COLUMNS present is 1
+  [PASS] two_columns case-insensitive is 1
+  [PASS] TOUCH_ENABLED absent is 0
+  [PASS] not TWO_COLUMNS present is 0
+  [PASS] not TOUCH_ENABLED absent is 1
+  [PASS] NOT FALSE is 1
+  [PASS] A and B present is 1
+  [PASS] A and B_absent is 0
+  [PASS] A_absent or B is 1
+  [PASS] A_absent or B_absent is 0
+  [PASS] (not A) and B is 1
+  [PASS] (A or B) and C is 1
+  [PASS] (B_absent or D_absent) and C is 0
+  [PASS] A and (B or not D) is 1
+  [PASS] Unclosed '(' returns -1
+  [PASS] Unmatched ')' returns -1
+  [PASS] Leading 'and' returns -1
+  [PASS] Trailing 'and' returns -1
+
+=== Test Suite 2: Fuzz & Corrupted File Fallbacks ===
+  [PASS] Non-existent skin file returns NULL cleanly
+  [PASS] 0-byte empty file returns NULL cleanly
+  [PASS] Truncated PE file returns NULL cleanly
+  [PASS] DLL without SKIN resource returns NULL cleanly
+  [PASS] Garbage SKIN description does not crash
+  [PASS] Missing required bitmap resource triggers clean fallback to NULL
+
+=== Test Suite 3: Valid Skin Loading & DPI Scaling ===
+  [PASS] test_valid.skin loaded at 96 DPI
+  [PASS] Main_background parsed correctly (#123456)
+  [PASS] Main_bitmap handle is valid
+  [PASS] Main_bitmap_slices_X matches 96 DPI base (2, 1, 2)
+  [PASS] Skin version parsed as 2
+  [PASS] About string matches
+  [PASS] 2 Variations discovered
+  [PASS] Variation 1 is 'Silver'
+  [PASS] Variation 2 is 'Dark'
+  [PASS] startskin_free() completed cleanly without leak or crash
+  [PASS] test_valid.skin loaded at 144 DPI (HIGH_DPI)
+  [PASS] HIGH_DPI condition triggered alternate slices (3, 2, 3)
+  [PASS] test_valid.skin loaded with variation 'Dark'
+  [PASS] Dark variation overrode background (#222222)
+
+====================================================
+ Summary: 43 tests run, 43 passed, 0 failed
+====================================================
