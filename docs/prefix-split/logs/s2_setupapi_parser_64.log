@@ -1,0 +1,75 @@
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000100 line=0
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:173: Test marked todo: file 1: Bad error 3758096384/3758096640
+parser.c:175: Test marked todo: file 1: Bad error line 1/0
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000100 line=0
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000100 line=0
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000100 line=0
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000001 line=3
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000001 line=5
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000002 line=3
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=3
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=3
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:183: Test marked todo: file 22: Open failed
+parser.c:184: Test marked todo: file 22: Error code set to 3758096384
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:183: Test marked todo: file 23: Open failed
+parser.c:184: Test marked todo: file 23: Error code set to 3758096384
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:183: Test marked todo: file 24: Open failed
+parser.c:184: Test marked todo: file 24: Error code set to 3758096384
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:183: Test marked todo: file 25: Open failed
+parser.c:184: Test marked todo: file 25: Error code set to 3758096384
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=2
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=2
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=1
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=2
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:167: hinf=FFFFFFFFFFFFFFFF err=0xe0000000 line=2
+parser.c:167: hinf=00007FFFF0266C70 err=0x0 line=-559038737
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=-1 err=0xe0000101
+parser.c:248: hinf=00007FFFF0266C70 ret=-1 err=0xe0000101
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:248: hinf=00007FFFF0266C70 ret=0 err=0x0
+parser.c:849: Test marked todo: got error 122
+parser.c:863: Test marked todo: got error 122
+parser.c:864: Test marked todo: got size 1
+016c:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.

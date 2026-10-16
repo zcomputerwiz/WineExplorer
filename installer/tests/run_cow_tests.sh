@@ -69,4 +69,17 @@ su testuser -c '
     rm -rf /home/testuser/test_pfx
 '
 
+echo "--- 5. Testing relative symlink target COW ---"
+ln -sf ../../../../../usr/local/lib/wine/x86_64-windows/msvcp140.dll /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll
+ls -l /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll
+WINEPREFIX=/tmp/wine_cow_test wine /usr/local/bin/test_cow_cases64.exe relative_target
+wineserver -w
+if [ ! -L /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll ] && [ -f /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll ]; then
+    echo "PASS: rel_target_test.dll with relative target broke into a regular file!"
+    echo "Header: $(head -c 23 /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll)"
+else
+    echo "FAIL: rel_target_test.dll was not broken into a regular file!"
+    exit 1
+fi
+
 echo "ALL COW TESTS PASSED PERFECTLY!"

@@ -424,3 +424,450 @@ In a freshly bootstrapped prefix, `system32` contains **97–133 files** and `sy
 | **Vulkan ICD Manifest (`winevulkan.json`)** | 1 | 1 | Khronos Vulkan ICD loader manifest specifying the client driver module path for 64-bit and 32-bit Vulkan applications. |
 | **Total Non-Symlink Files** | **97** | **89** | Total disk space: **< 5 MB** (retaining full 98.6% size reduction). |
 
+## Phase S2 — Shared Machine Folders (XP Model Integration)
+
+### S2.1 Architecture & Implementation
+
+Phase S2 implements the target XP-style multi-user directory structure:
+1. **Machine Root (`/var/lib/wineexplorer/machine`)**:
+   - Holds the single shared copy of the machine directories:
+     - `drive_c/windows` (`system32`, `syswow64`, `inf`, `fonts`, system folders)
+     - `drive_c/Program Files`
+     - `drive_c/Program Files (x86)`
+     - `drive_c/ProgramData` (All Users shell folders, Start Menu, Templates)
+     - `drive_c/users/Public` (Public Desktop, Public Documents, Favorites, Music, Pictures, Videos)
+   - Ownership, permissions, and POSIX Default ACLs:
+     - Ownership: `root:sudo`, setgid mode `2775` on directories, `664` on regular files, `775` on binaries (`\( -iname "*.exe" -o -iname "*.dll" \)`).
+     - POSIX ACLs: `setfacl -R -m g:sudo:rwX` and `setfacl -R -d -m u::rwX,g::rwX,g:sudo:rwX,o::r-x` on `/var/lib/wineexplorer/machine/drive_c` (with `acl` added to `wineexplorer.list.chroot` and `wineexplorer-session` `Depends:`), plus `S_IWGRP` preserved in `check_cow_break_symlink()` (`dlls/ntdll/unix/file.c`). Files created or COW-broken by one administrator (`alice`, even with `umask 0022`) inherit `group:sudo:rwx #effective:rw-` and can be modified or overwritten by any other administrator (`carol`).
+   - Limited users (e.g. `bob`) have read-and-execute access only; writes to `C:\WINDOWS` and `C:\Program Files` are denied (`ERROR_ACCESS_DENIED`).
+2. **Per-User Prefix Template (`/etc/skel/.wine`) & User Prefixes (`~/.wine`)**:
+   - Contains only user profile data and symbolic links to machine directories:
+     - `dosdevices/c:` -> `../drive_c`
+     - `dosdevices/z:` -> `/`
+     - `drive_c/windows` -> `/var/lib/wineexplorer/machine/drive_c/windows`
+     - `drive_c/Program Files` -> `/var/lib/wineexplorer/machine/drive_c/Program Files`
+     - `drive_c/Program Files (x86)` -> `/var/lib/wineexplorer/machine/drive_c/Program Files (x86)`
+     - `drive_c/ProgramData` -> `/var/lib/wineexplorer/machine/drive_c/ProgramData`
+     - `drive_c/users/Public` -> `/var/lib/wineexplorer/machine/drive_c/users/Public`
+     - `drive_c/users/<username>`: private per-user profile directory (`AppData\Local\Temp` preserved in `user.reg`).
+   - Footprint:
+     - Stock prefix: **~1,730 MB** (~1.73 GB).
+     - S1 prefix: **~28 MB**.
+     - S2 user prefix: **3.2 MB** (**99.8% reduction** from stock).
+     - Shared machine root: **22 MB**.
+3. **Machine Update & Per-User `wineboot -u` Separation**:
+   - **Machine part (`scripts/setup-machine-root.sh` & package `DEBIAN/postinst`):** Runs as `root` with `WINEPREFIX=/var/lib/wineexplorer/machine WINELINKFAKEDLLS=1 wine wineboot.exe -u`, executing `PreInstall`, `DefaultInstall`, `Wow64Install`, and `install_root_pnp_devices()` on the machine root and refreshing permissions/ACLs and `/etc/skel/.wine/.update-timestamp`. Both `wineexplorer` and `wineexplorer-session` `DEBIAN/postinst` invoke `/usr/local/bin/wex-setup-machine.sh --update` when `/var/lib/wineexplorer/machine/drive_c/windows/system32` is present.
+   - **User part (`loader/wine.inf.in` `[UserInstall]` & `programs/wineboot/wineboot.c`):** When `GetFileAttributesW(L"C:\\windows")` has `FILE_ATTRIBUTE_REPARSE_POINT` (indicating a split user prefix whose `drive_c/windows` is a symlink to the shared machine root), `update_wineprefix()` runs only `[UserInstall]` (`UserRegisterDlls` for `shell32.dll` and per-user `HKCU` registry sections) and `update_user_profile()`, touching 0 files in `/var/lib/wineexplorer/machine`.
+
+### S2.2 Relative Symlink Target Resolution in Copy-on-Write (COW)
+
+In `wine/dlls/ntdll/unix/file.c` (`check_cow_break_symlink`), relative symlink targets are resolved against the symlink's own directory by canonicalizing `realpath(unix_name)` (or `/proc/self/fd/<dir_fd>/<unix_name>`) and including `S_IWGRP` in `cow_mode` when `S_IWUSR` is set on the target.
+
+#### Verification (`installer/tests/run_cow_tests.sh`, [logs/s2_cow_tests.log](logs/s2_cow_tests.log))
+```
+--- 1. Testing Z: symlink write-through ---
+=== Test: Symlink in Z:\ to an ordinary file writes through ===
+SUCCESS: Wrote 33 bytes through Z:\ symlink
+PASS: /tmp/cow_test_user_link.txt is still a symbolic link (did not break into a copy)!
+/root/WineExplorer/installer/tests/run_cow_tests.sh: line 19: warning: command substitution: ignored null byte in input
+Target content: MODIFIED_CONTENT_THROUGH_SYMLINK
+--- 2. Testing relative open with RootDirectory on built-in symlink ---
+lrwxrwxrwx 1 root root 47 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/msvcp140.dll -> /usr/local/lib/wine/x86_64-windows/msvcp140.dll
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+-rw-r--r-- 1 root root 5021751 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/msvcp140.dll
+PASS: drive_c/windows/system32/msvcp140.dll is now a regular file!
+/root/WineExplorer/installer/tests/run_cow_tests.sh: line 32: warning: command substitution: ignored null byte in input
+msvcp140.dll header: COW_RELATIVE_TEST_MODIFIED
+--- 3. Testing DeleteFileW on built-in symlink ---
+lrwxrwxrwx 1 root root 46 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/version.dll -> /usr/local/lib/wine/x86_64-windows/version.dll
+=== Test: DeleteFileW on built-in symlink ===
+SUCCESS: DeleteFileW unlinked built-in symlink
+PASS: drive_c/windows/system32/version.dll was deleted (unlinked)!
+Package file remains intact:
+-rw-r--r-- 1 root root 171200 Oct 15 18:56 /usr/local/lib/wine/x86_64-windows/version.dll
+--- 4. Testing COW as limited user (testuser) ---
+=== Test: Symlink in Z:\ to an ordinary file writes through ===
+SUCCESS: Wrote 33 bytes through Z:\ symlink
+PASS: user Z: symlink still a symlink!
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+PASS: limited user relative open broke symlink to regular file!
+-rw-rw-r-- 1 testuser testuser 5021751 Oct 15 19:04 /home/testuser/test_pfx/drive_c/windows/system32/msvcp140.dll
+bash: line 15: warning: command substitution: ignored null byte in input
+msvcp140.dll header: COW_RELATIVE_TEST_MODIFIED
+--- 5. Testing relative symlink target COW ---
+lrwxrwxrwx 1 root root 61 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll -> ../../../../../usr/local/lib/wine/x86_64-windows/msvcp140.dll
+=== Test: Symlink with relative target path breaks on write ===
+SUCCESS: Wrote 24 bytes, broke relative-target symlink
+PASS: rel_target_test.dll with relative target broke into a regular file!
+Header: REL_TARGET_COW_MODIFIED
+ALL COW TESTS PASSED PERFECTLY!
+```
+
+### S2.3 Phase S2 Acceptance Test (`installer/tests/test_s2_acceptance.sh`, [logs/s2_acceptance.log](logs/s2_acceptance.log))
+
+The Phase S2 acceptance suite tests:
+- `dosx.exe` mode `775` and per-user `TEMP`/`TMP` (`C:\users\bob\AppData\Local\Temp`) in `user.reg`.
+- **Test 1:** Alice (administrator in `sudo`, `umask 0022`) installs `app64.exe`, `app32.exe`, and `settings.ini` into `C:\Program Files\AliceApp` and COW-breaks `C:\windows\system32\msvcp140.dll`.
+- **Test 1b:** Carol (second administrator in `sudo`, `umask 0022`) modifies `C:\Program Files\AliceApp\settings.ini`, overwrites `app64.exe`, and modifies the COW-broken `C:\windows\system32\msvcp140.dll`.
+- **Test 2:** Bob (limited user) sees and runs both 64-bit and 32-bit apps from `C:\Program Files\AliceApp`.
+- **Test 3 & 4:** Bob is denied write access to `C:\windows\system32` and `C:\Program Files` (`Access denied.`).
+- **Test 5:** Simulated Wine upgrade (`ntdll.so` and `wine.inf` mtime advanced): `setup-machine-root.sh --update` updates the machine root once as `root`, and subsequent per-user `wineboot -u` runs as Alice and Bob update their `.update-timestamp` while touching **0 machine files**.
+- **Test 6:** Exactly 0 machine root files modified, created, or deleted by user sessions.
+
+#### Real Test Output ([logs/s2_acceptance.log](logs/s2_acceptance.log))
+```
+=== WineExplorer Phase S2 Acceptance Test ===
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Bootstrapping machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S2 Machine Root Setup Completed Successfully ===
+--- Initializing user prefixes from /etc/skel/.wine ---
+Machine root size: 22M
+Skel prefix size:  3.2M
+Alice prefix size: 3.2M
+Bob prefix size:   3.2M
+--- Check: .exe/.dll mode 775 and per-user TEMP/TMP in user.reg ---
+dosx.exe mode: 775
+Bob user.reg TEMP: "TEMP"="C:\\users\\bob\\AppData\\Local\\Temp"
+PASS: user.reg uses per-user AppData\Local\Temp!
+Machine root drive_c files before test: 219
+--- Test 1: Alice installs a program and config into C:\Program Files and COW-breaks msvcp140.dll ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+	1 file(s) copied
+	1 file(s) copied
+	1 file(s) copied
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+PASS: Alice installed app64.exe, app32.exe, settings.ini, and COW-broke msvcp140.dll!
+total 484
+drwxrwsr-x+ 2 alice sudo   4096 Oct 15 19:11 .
+drwxrwsr-x+ 7 root  sudo   4096 Oct 15 19:11 ..
+-rwxrwxr-x+ 1 alice sudo 232984 Oct 15 17:24 app32.exe
+-rwxrwxr-x+ 1 alice sudo 245857 Oct 15 17:24 app64.exe
+-rw-rw-r--+ 1 alice sudo     21 Oct 15 19:11 settings.ini
+-rw-rw-r--+ 1 alice sudo 5021751 Oct 15 19:11 /var/lib/wineexplorer/machine/drive_c/windows/system32/msvcp140.dll
+getfacl: Removing leading '/' from absolute path names
+# file: var/lib/wineexplorer/machine/drive_c/Program Files/AliceApp/settings.ini
+# owner: alice
+# group: sudo
+user::rw-
+group::rwx	#effective:rw-
+group:sudo:rwx	#effective:rw-
+mask::rw-
+other::r--
+
+getfacl: Removing leading '/' from absolute path names
+# file: var/lib/wineexplorer/machine/drive_c/windows/system32/msvcp140.dll
+# owner: alice
+# group: sudo
+user::rw-
+group::rwx	#effective:rw-
+group:sudo:rwx	#effective:rw-
+mask::rw-
+other::r--
+
+--- Test 1b: Carol (second Administrator) modifies Alice's installed files and COW-broken msvcp140.dll ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+	1 file(s) copied
+	1 file(s) copied
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+settings.ini content after Carol update: Modified_By_Carol=2
+PASS: Second administrator (Carol) modified Alice's files in C:\Program Files and COW-broken msvcp140.dll!
+--- Test 2: Bob (Limited User) sees and runs Alice's program ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Process running: 64-bit (is_wow64=0)
+SUCCESS: LoadLibrary advapi32.dll succeeded: 00006fffff210000
+SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
+PASS: Bob successfully executed 64-bit app from C:\Program Files!
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Process running: 32-bit (is_wow64=1)
+SUCCESS: LoadLibrary advapi32.dll succeeded: 7adb0000
+SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
+PASS: Bob successfully executed 32-bit app from C:\Program Files!
+--- Test 3: Bob cannot write C:\WINDOWS\system32 ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Access denied.
+
+PASS: Bob was denied write access to C:\windows\system32!
+--- Test 4: Bob cannot write C:\Program Files ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Access denied.
+
+PASS: Bob was denied write access to C:\Program Files!
+--- Test 5: Simulated Wine Upgrade ---
+Running machine root update as root...
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Updating existing machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S2 Machine Root Setup Completed Successfully ===
+Machine .update-timestamp: 1792108906 -> 1792109492
+Machine links after root update: system32=729, syswow64=798
+Running per-user wineboot -u as Alice (administrator) and Bob (limited user)...
+Alice .update-timestamp: 1792109492
+Bob .update-timestamp:   1792109492
+PASS: Per-user wineboot -u (Alice admin & Bob limited) touched 0 machine files!
+--- Test 6: Verify nothing per-user lands in machine root ---
+PASS: Exactly 0 machine root files modified, created, or deleted by user sessions!
+=== ALL S2 ACCEPTANCE TESTS PASSED PERFECTLY! ===
+```
+
+### S2.4 Conformance Test Suites & Raw Logs
+
+Both 64-bit (`x86_64-windows`) and 32-bit (`i386-windows`) test suites for `kernel32:file`, `setupapi:install`, `setupapi:parser`, and `uxtheme:system` were executed and their raw logs committed under `docs/prefix-split/logs/`:
+
+| Test Suite | Architecture | Raw Log File | Exact Summary Line |
+|---|---|---|---|
+| `kernel32:file` | 64-bit (`x86_64`) | [logs/s2_kernel32_file_64.log](logs/s2_kernel32_file_64.log) | `0020:file: 571335 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.` |
+| `kernel32:file` | 32-bit (`i386`) | [logs/s2_kernel32_file_32.log](logs/s2_kernel32_file_32.log) | `00e0:file: 571357 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.` |
+| `setupapi:install` | 64-bit (`x86_64`) | [logs/s2_setupapi_install_64.log](logs/s2_setupapi_install_64.log) | `00e0:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.` |
+| `setupapi:install` | 32-bit (`i386`) | [logs/s2_setupapi_install_32.log](logs/s2_setupapi_install_32.log) | `00f0:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.` |
+| `setupapi:parser` | 64-bit (`x86_64`) | [logs/s2_setupapi_parser_64.log](logs/s2_setupapi_parser_64.log) | `016c:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.` |
+| `setupapi:parser` | 32-bit (`i386`) | [logs/s2_setupapi_parser_32.log](logs/s2_setupapi_parser_32.log) | `0184:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.` |
+| `uxtheme:system` | 64-bit (`x86_64`) | [logs/s2_uxtheme_system_64.log](logs/s2_uxtheme_system_64.log) | `0174:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.` |
+| `uxtheme:system` | 32-bit (`i386`) | [logs/s2_uxtheme_system_32.log](logs/s2_uxtheme_system_32.log) | `0194:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.` |
+
+#### Exact Summary Lines from Raw Logs
+```
+--- s2_kernel32_file_64.log ---
+0020:file: 571335 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.
+--- s2_setupapi_install_64.log ---
+00e0:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+--- s2_setupapi_parser_64.log ---
+016c:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+--- s2_uxtheme_system_64.log ---
+0174:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.
+--- s2_kernel32_file_32.log ---
+00e0:file: 571357 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.
+--- s2_setupapi_install_32.log ---
+00f0:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+--- s2_setupapi_parser_32.log ---
+0184:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+--- s2_uxtheme_system_32.log ---
+0194:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.
+```
+
+### S2.5 Acceptance Install Tests
+
+Both unattended and interactive installation tests were executed against a fresh ISO built directly from the final S2 code commit (`cde728fd99128837f2baf6c951d222352568e58b`, with `wine` submodule at `859a1b9884b3554f47dc24d6d7030bbebdf76932`):
+- ISO build log: [logs/s2_build_iso.log](logs/s2_build_iso.log)
+- Unattended install log: [logs/s2_install_unattended.log](logs/s2_install_unattended.log)
+- Interactive install log: [logs/s2_install_interactive.log](logs/s2_install_interactive.log)
+
+#### ISO Build Summary ([logs/s2_build_iso.log](logs/s2_build_iso.log))
+```
+=== S2 ISO Build Log ===
+Build started at: 2026-10-15T19:12:01-05:00
+WineExplorer commit: cde728fd99128837f2baf6c951d222352568e58b
+Wine submodule commit: 859a1b9884b3554f47dc24d6d7030bbebdf76932
+...
+=== Copying generated ISO to /root/wineexplorer-wow64.iso ===
+=== Successfully built /root/wineexplorer-wow64.iso ===
+-rw-r--r-- 1 root root 1.6G Oct 15 19:26 /root/wineexplorer-wow64.iso
+Build finished at: 2026-10-15T19:26:43-05:00
+-rw-r--r-- 1 root root 1.6G 2026-10-15 19:26:43.229098778 -0500 /root/wineexplorer-wow64.iso
+...
+Created unattended test fixture: /root/wineexplorer-wow64-unattended.iso
+-rw-r--r-- 1 root root 1.6G 2026-10-15 19:26:50.053111532 -0500 /root/wineexplorer-wow64-unattended.iso
+```
+
+#### 1. Unattended Install (`installer/tests/install-unattended.sh`, [logs/s2_install_unattended.log](logs/s2_install_unattended.log))
+```
+started wex-unattend-s2
+found
+found
+found
+shut down wex-unattend-s2
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+PASS: zero-input install and installed-disk checks; evidence in /tmp/vmtest/wex-unattend-s2
+```
+
+#### 2. Interactive Install (`installer/tests/install-interactive.sh`, [logs/s2_install_interactive.log](logs/s2_install_interactive.log))
+```
+started wex-inter-s2
+found
+--- welcome
+found
+--- license
+found
+--- partitions
+found
+found
+--- created
+found
+--- format
+found
+--- copied
+found
+--- regional
+found
+found
+--- computer
+found
+found
+found
+--- workgroup
+found
+--- oobe
+found
+found
+found
+--- users
+found
+found
+--- finish
+found
+--- logon
+found
+clicked 758,337
+found
+found
+--- rejected-password
+found
+--- alice-desktop
+found
+--- switch-user
+clicked 782,415
+found
+found
+--- desktop
+=== Building test32.exe (i686-w64-mingw32-gcc) and test64.exe (x86_64-w64-mingw32-gcc) ===
+=== Staging test executables into VM ===
+Desktop user: bobsmith on :1
+=== 1. Running 32-bit test program on desktop ===
+found
+/tmp/vmtest/wex-inter-s2/steps/18-test32.png
+PASS: Win32 test program window drawn
+=== 2. Running Wine 32-bit notepad from syswow64 ===
+found
+/tmp/vmtest/wex-inter-s2/steps/19-notepad32.png
+PASS: 32-bit syswow64 notepad window drawn
+=== 3. Running 64-bit test program ===
+found
+/tmp/vmtest/wex-inter-s2/steps/20-test64.png
+PASS: Win64 test program window drawn
+=== Cleaning up running test processes ===
+PASS: All WoW64 32-bit and 64-bit program checks succeeded.
+shut down wex-inter-s2
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership and setup cleanup
+PASS (Bob desktop 5 s after logon); screenshots in /tmp/vmtest/wex-inter-s2/steps; VM stopped
+```
+
+---
+
+## Phase S3 — Shared `HKLM` Design Note
+
+### S3.1 Problem Statement & S0 Measured Data
+
+For an application installed by an Administrator into `C:\Program Files` to be fully registered for all users (COM `CLSID`s, file associations under `HKLM\Software\Classes`, `App Paths`, `Uninstall` entries, and system services), `\Registry\Machine` (`HKLM` / `system.reg`) and `\Registry\User\.Default` (`HKU\.DEFAULT` / `userdef.reg`) must come from the shared machine root (`/var/lib/wineexplorer/machine/system.reg` and `userdef.reg`) rather than duplicated per-user copies.
+
+#### Key Measurements from Phase S0 & `wine/server/registry.c` Inspection
+1. **Hive Sizes (S0.1):**
+   - `system.reg` (`HKLM`): **3,256,407 bytes (~3.25 MB)** (~15,500 keys; parsed by `init_registry()` in ~18 ms).
+   - `userdef.reg` (`HKU\.DEFAULT`): **4,026 bytes (~4 KB)**.
+   - `user.reg` (`HKCU`): **27,320 bytes (~26 KB)** (remains private per user at `~/.wine/user.reg`).
+2. **Limited-User Session Writes to `HKLM` (S0.2):**
+   - During a complete limited-user session (`bobsmith`: logon -> Start Menu -> `control.exe` -> `notepad.exe` -> `test32.exe` -> logoff), **28 keys** in `system.reg` are modified or created:
+     - `ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000` (display adapter driver properties)
+     - `ControlSet001\Control\Video\{...}\0000` (active screen resolution and virtual desktop geometry)
+     - `ControlSet001\Control\DeviceClasses\{...}` (display and HID device interface arrivals)
+     - `ControlSet001\Enum\DISPLAY\Default_Monitor\...`, `Enum\PCI\...`, `Enum\Root\...` (PnP device enumeration by `winex11.drv`/`winewayland.drv` and `plugplay`/`mountmgr`)
+   - In addition, when a theme with custom shell icons is applied, `dlls/shell32/iconcache.c` writes icon paths to `HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons` (`STOCK_CHANGES.md` line 133), and `dlls/win32u/sysparams.c` writes a volatile `HKLM\Software\Wine\WorkArea` key (`REG_OPTION_VOLATILE`).
+   - **0 persistent application or OS configuration keys** in `HKLM` are modified during normal limited-user operation.
+3. **Stock `wineserver` Persistence & Latent Symlink Bug (`wine/server/registry.c:2016-2083`):**
+   - Each Unix user runs a per-prefix `wineserver` (`config_dir_fd = ~/.wine`). It loads `system.reg`, `userdef.reg`, and `user.reg` once at startup (`init_registry()`) and flushes dirty branches every 30 seconds (`periodic_save()`) and on exit (`flush_registry()`).
+   - **Latent Symlink Destruction Hazard:** In `save_branch(struct key *key, const char *filename)` (`wine/server/registry.c:2032`), `wineserver` attempts `fd = open(filename, O_WRONLY)`. If `open()` succeeds and `lstat(filename)` shows a symlink (`!S_ISREG(st.st_mode)`), it truncates and writes through the symlink. However, if `~/.wine/system.reg` is a symlink to `/var/lib/wineexplorer/machine/system.reg` (`root:sudo`, mode `0664`) and a **limited user** runs `wineserver`, `open("system.reg", O_WRONLY)` fails with `EACCES` (`fd == -1`). Execution then falls through to lines 2046–2078, which creates `reg<pid>.tmp` inside `~/.wine` (writable by the limited user) and calls `rename("reg<pid>.tmp", "system.reg")` — **silently unlinking the symlink and replacing it with a private copy!** Any shared `HKLM` implementation must fix `save_branch()` so read-only symlinks are never replaced by `rename()`.
+
+---
+
+### S3.2 Analysis of the Three Design Options
+
+#### Option (a): Machine Hive Read-Only for Limited Users; Locked Save for Administrators (Next-Logon Visibility)
+
+In Option (a), `~/.wine/system.reg` and `~/.wine/userdef.reg` in each user prefix are symbolic links to `/var/lib/wineexplorer/machine/system.reg` and `/var/lib/wineexplorer/machine/userdef.reg` (`root:sudo`, mode `0664`, POSIX ACL `g:sudo:rw`).
+
+##### Sub-Decision Within Option (a): Refusing Limited-User `HKLM` Writes vs In-Memory-Only
+Because Wine does not separate system processes (`services.exe`, `plugplay.exe`, `mountmgr.sys`, `rpcss.exe`) into a root daemon from user processes within the same `wineserver` — and because every Wine process token carries `BUILTIN\Administrators` (`S-1-5-32-544`, S0.4) — **strictly refusing all `HKLM` writes (`STATUS_ACCESS_DENIED`) for limited users breaks core Wine subsystems unless hardware/service branches are exempted:**
+
+| Subsystem / Caller | `HKLM` Keys Written During Limited-User Session | What Happens if `HKLM` Writes Return `STATUS_ACCESS_DENIED` |
+|---|---|---|
+| **Service Control Manager (`services.exe`, `mountmgr.sys`, `plugplay.exe`, `rpcss.exe`)** | `HKLM\System\CurrentControlSet\Services\*`, `HKLM\System\MountedDevices`, `HKLM\System\CurrentControlSet\Control\ServiceGroupOrder` | `services.exe` fails to initialize auto-start services (`MountMgr`, `PlugPlay`, `RpcSs`), breaking COM/OLE marshaling and drive letter mounting. |
+| **Display Drivers (`winex11.drv`, `winewayland.drv`, `win32u`, `setupapi`)** | `HKLM\System\ControlSet001\Enum\{DISPLAY,PCI}`, `Control\Video\{GUID}\0000`, `Control\Class\{4d36e968-...}\0000`, `Control\DeviceClasses` (28 keys from S0.2) | `SetupDiCreateDeviceInfoW` / `init_display_driver` fails during desktop startup; monitor initialization and `EnumDisplayDevicesW` / `EnumDisplaySettingsW` fail. |
+| **Explorer Shell Icon Pack (`dlls/shell32/iconcache.c` & `explorer.exe`)** | `HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons` | Theme icon pack overrides fail to write on logon or theme switch unless redirected to `HKCU` or allowed in memory. |
+| **Legacy Win32 Applications** | `RegOpenKeyExW(HKEY_LOCAL_MACHINE, ..., KEY_ALL_ACCESS)` | Applications that request `KEY_ALL_ACCESS` when opening `HKLM` purely to read configuration values fail with `ERROR_ACCESS_DENIED`. |
+
+We therefore distinguish two sub-variants of Option (a):
+1. **Option (a1) — In-Memory Ephemeral `HKLM` for Limited Users (Zero Subsystem Breakage):**
+   - Limited users' `wineserver` loads `system.reg` and `userdef.reg` from `/var/lib/wineexplorer/machine/`.
+   - In-memory modifications to `HKLM` during the limited user's session are permitted (just as if the entire `HKLM` hive were mounted with an ephemeral RAM overlay), so `services.exe`, display drivers, `Shell Icons`, and legacy `KEY_ALL_ACCESS` callers work without modification.
+   - In `save_branch()` (`wine/server/registry.c`), if the target of `system.reg` / `userdef.reg` is not writable by the `wineserver` process (`errno == EACCES || errno == EROFS`), `save_branch()` clears `KEY_DIRTY` and returns cleanly without writing to disk and without replacing the symlink.
+   - Combined with S2 (where `C:\windows` and `C:\Program Files` return `STATUS_ACCESS_DENIED` for limited users), any all-users installer run by Bob already fails on filesystem extraction, and any stray `HKLM` keys it wrote before failing vanish when Bob logs off.
+2. **Option (a2) — Enforced Read-Only `HKLM\Software` (XP Parity) + Writable Ephemeral Hardware/Service Keys:**
+   - If strict `STATUS_ACCESS_DENIED` on `HKLM` writes is desired for limited users (e.g., so `regedit.exe` or an installer checking `HKLM\Software` write permissions upfront gets `ERROR_ACCESS_DENIED` immediately, matching Windows XP):
+   - When `wineserver` starts up and detects `access("system.reg", W_OK) != 0` (`read_only_hklm = true`), `create_key`, `set_key_value`, `delete_key`, and `delete_key_value` in `wine/server/registry.c` return `STATUS_ACCESS_DENIED` for `\Registry\Machine` **except** under a whitelist of system-internal runtime branches:
+     - `\Registry\Machine\System\ControlSet001` / `CurrentControlSet` (`Services`, `Enum`, `Control`, `MountedDevices`)
+     - `\Registry\Machine\Hardware`
+     - `\Registry\Machine\Software\Wine`
+     - `\Registry\Machine\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons` (or fallback in `shell32/iconcache.c` to `HKCU`)
+   - Note: `open_key` (`RegOpenKeyExW`) still permits opening keys with `KEY_ALL_ACCESS` (so buggy readers do not break), while actual mutation handlers (`create_key` when creating a new subkey, `set_key_value`, `delete_key`, `delete_key_value`) enforce `STATUS_ACCESS_DENIED` on non-whitelisted `HKLM` paths.
+
+##### Administrator Save & Locking in Option (a)
+- When an Administrator (`sudo` member) runs `wineserver`, `access("/var/lib/wineexplorer/machine/system.reg", W_OK) == 0`.
+- In `save_branch()` (`wine/server/registry.c`):
+  - Resolve the symlink target directory (`/var/lib/wineexplorer/machine`) via `realpath()`.
+  - Acquire an advisory exclusive lock (`flock(lock_fd, LOCK_EX)`) on `/var/lib/wineexplorer/machine/.reg.lock`.
+  - Write the serialized branch to a temporary file in `/var/lib/wineexplorer/machine/reg<pid>.tmp` with mode `0664` (preserving `sudo` group write via the directory's SGID + default ACL), `fsync()`, and atomically `rename()` over `/var/lib/wineexplorer/machine/system.reg` (preserving `~/.wine/system.reg` as a symlink!).
+  - Wait-free for readers: because `rename()` atomically replaces the inode in `/var/lib/wineexplorer/machine/`, any other user logging on concurrently via `init_registry()` either reads the complete old inode or the complete new inode — never a truncated half-written `system.reg` (unlike stock `wineserver`'s `ftruncate(fd, 0)` write-through behavior on symlinks!).
+  - Note on Administrator PnP/Display keys: to prevent an Administrator session's transient display/PnP enumeration timestamps from dirtying `system.reg` every 30 seconds when no software was installed, we can optionally skip saving `system.reg` when only `ControlSet001\{Enum,Control\Video,Control\DeviceClasses}` changed, or save normally under the lock.
+
+---
+
+#### Option (b): Merge-on-Save of Changed Keys Under a File Lock + Live Reload of External Changes
+
+1. **Mechanism:**
+   - Every `wineserver` maintains per-key and per-value `KEY_DIRTY` flags plus a tombstone list of explicitly deleted subkeys and values (`struct deleted_node`), and records `last_load_mtime` (`struct timespec`) of `/var/lib/wineexplorer/machine/system.reg`.
+   - **Merge-on-Save:** When an Administrator's `wineserver` flushes `system.reg` (`periodic_save()` or `flush_registry()`), it acquires `flock(LOCK_EX)` on `/var/lib/wineexplorer/machine/.reg.lock` and checks `stat("/var/lib/wineexplorer/machine/system.reg")`. If `st_mtim != last_load_mtime` (another Administrator session or `postinst` saved changes in the interim), `wineserver` loads the on-disk `system.reg` into a temporary root key, replays its own in-memory dirty keys/values and deletion tombstones onto that tree, swaps the merged tree into `\Registry\Machine`, and atomically writes `reg<pid>.tmp` -> `system.reg`.
+   - **Live Reload (`inotify`):** Each `wineserver` registers an `inotify` watch (`IN_MOVED_TO | IN_CLOSE_WRITE`) on `/var/lib/wineexplorer/machine/` integrated into `wineserver`'s main poll loop (`server/fd.c`). When `system.reg` is atomically replaced on disk by an Administrator session, other active `wineserver` instances parse the updated `system.reg`, diff keys/values against their in-memory `hklm` tree (preserving any local volatile/ephemeral keys), update modified values in place, and trigger registered `RegNotifyChangeKeyValue` (`notify_list`) events in client processes.
+2. **Trade-offs:**
+   - Allows two concurrent Administrator sessions (via Fast User Switching) to install different programs without last-writer-wins overwrite, and makes newly installed `HKLM\Software\Classes` file associations visible immediately in an already-logged-on Limited User session without logging off.
+   - Adds ~400–600 lines of subtle C tree-diffing, tombstone tracking, and `struct key` pointer-preservation logic in `wine/server/registry.c` (since open `HKEY` handles in client processes hold direct pointers to `struct key` objects via `wineserver`'s object table — keys with open handles cannot be freed and recreated during reload; they must be mutated in place).
+
+---
+
+#### Option (c): One Machine-Wide Registry Service for All Sessions
+
+1. **Mechanism:**
+   - Introduce a root-owned system service (`wex-regd` or a dedicated master `wineserver` instance) listening on `/run/wineexplorer/regd.sock` (`0666`, using `SO_PEERCRED` to inspect caller `uid`/`gid` and `sudo` membership).
+   - The daemon holds the single authoritative in-memory tree for `\Registry\Machine` (`HKLM`) and `\Registry\User\.Default` (`HKU\.DEFAULT`) and owns `/var/lib/wineexplorer/machine/system.reg`.
+   - Each user's `wineserver` retains `\Registry\User\<SID>` (`HKCU` / `user.reg`) locally and proxies all 17 registry protocol operations (`create_key`, `open_key`, `delete_key`, `set_key_value`, `query_key_value`, `enumerate_key`, `enumerate_key_value`, `notify_key_value`, `save_registry`, `load_registry`, etc.) targeting `\Registry\Machine` or `\Registry\User\.Default` to the system daemon.
+2. **Trade-offs:**
+   - Provides true single-image NT registry semantics across all sessions with zero file-merge races and immediate cross-session `RegNotifyChangeKeyValue`.
+   - High architectural complexity (~1,500–2,500 LOC): `wineserver`'s object manager (`struct object`, `obj_handle_t`, security descriptors, objectWait / `notify_list` events) is strictly single-process and synchronous. Proxying `HKLM` key handles requires either making `wineserver` block on synchronous RPCs to `wex-regd` (risking cross-session head-of-line blocking) or refactoring `server/registry.c` into an asynchronous state machine, plus virtualizing per-session hardware keys (`ControlSet001\Control\Video`) so two displays with different resolutions on `:0` and `:1` do not overwrite each other's active screen geometry.
+
+---
+
+### S3.3 Summary Comparison Table
+
+| Criterion | Option (a): Read-Only Limited + Locked Admin Save ((a1) In-Memory or (a2) Filtered `STATUS_ACCESS_DENIED`) | Option (b): Merge-on-Save Under Lock + `inotify` Live Reload | Option (c): Machine-Wide Registry Service (`wex-regd`) |
+|---|---|---|---|
+| **Engineering Effort** | **Low (~80–150 LOC, ~0.5 day)** | **Medium (~450–600 LOC, ~2–3 days)** | **High (~1,500–2,500 LOC, ~1–2 weeks)** |
+| **Wine Files Touched** | `wine/server/registry.c` (`save_branch`, `init_registry`, plus mutation check for (a2)); `scripts/setup-machine-root.sh` | `wine/server/registry.c` (dirty/tombstone tracking, tree merge, in-place reload, `inotify` fd registration) | `wine/server/registry.c`, `wine/server/protocol.def`, `wine/server/request.c`, plus new `src/daemons/wex-regd/` and systemd unit |
+| **Upstream Prospects** | **Moderate-to-High:** Fixing `save_branch()` to use atomic `rename()` in the target directory of a symlink and gracefully skipping saves on read-only `system.reg` is a clean, self-contained fix directly relevant to Upstream Wine Bug 11112. | **Low:** Tree-merging text hives and `inotify` reloading inside `wineserver` conflict with upstream's long-term goal of moving registry storage to binary hives or kernel-style server objects. | **None (Fork-only):** Upstream Wine explicitly rejects running a privileged root daemon or splitting `wineserver` into two tiers. |
+| **Multi-User Semantics** | Admin installs are visible to other users at next logon; Limited users cannot persist `HKLM` changes (XP parity). | Admin installs are visible live (within ~1–30 s) across active Fast User Switching sessions; concurrent Admin sessions merge cleanly. | Instantaneous cross-session visibility and cross-session `RegNotifyChangeKeyValue`. |
+| **Failure Modes & Risks** | - **Concurrent Admins:** If two Administrators are logged in simultaneously via Fast User Switching and both modify `HKLM`, the later `save_branch()` overwrites the earlier session's `HKLM` changes ("last writer wins").<br>- **(a2) Whitelist gaps:** In (a2), an application expecting `HKLM` writes to succeed in a non-whitelisted key gets `STATUS_ACCESS_DENIED` (same as XP Limited User). | - **Delete vs Re-create ambiguity:** If Admin 1 deletes a key while Admin 2 sits idle with that key clean in memory, Admin 2's save must not resurrect the deleted key (solved by only merging `KEY_DIRTY` keys/values from the saving session onto the on-disk base).<br>- **In-place reload complexity:** Must mutate existing `struct key` nodes in place so open `HKEY` handles remain valid. | - **Single point of failure:** A crash in `wex-regd` breaks `HKLM` access for all logged-on users simultaneously.<br>- **Per-session display collision:** Active monitor geometry in `HKLM\System\ControlSet001\Control\Video` collides between concurrent X11/Wayland sessions unless virtualized per session. |
+
+### S3.4 Recommendation for User Decision
+
+We recommend **Option (a)** as the foundation for Phase S3 — specifically **Option (a2)** (enforcing `STATUS_ACCESS_DENIED` on limited-user mutations to `HKLM\Software` outside `HKLM\Software\Wine` and `Shell Icons`, while keeping `HKLM\System\CurrentControlSet` and `HKLM\Hardware` writable in-memory only and never saving `system.reg`/`userdef.reg` for limited users) or **Option (a1)** (keeping all limited-user `HKLM` writes ephemeral in-memory and skipping `save_branch()` on read-only `system.reg`), combined with **atomic target-directory `rename()` under `flock(LOCK_EX)`** for Administrator sessions.
+
+If concurrent Administrator sessions or live cross-session visibility without re-logon are desired, **Option (b)'s delta-merge on save** (replaying only keys/values marked `KEY_DIRTY` and deletion tombstones onto the freshly loaded on-disk `system.reg` under `flock(LOCK_EX)`) can be layered directly on top of Option (a) with modest additional code in `wine/server/registry.c`.
+

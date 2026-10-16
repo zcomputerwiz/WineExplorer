@@ -1,0 +1,94 @@
+wine: created the configuration directory '/tmp/wine_cow_test'
+002c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+004c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+0054:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+0054:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+0054:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+0054:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+004c:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+004c:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+004c:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+004c:err:ole:start_rpcss Failed to open RpcSs service
+00d8:fixme:msg:pack_message msg 14 (WM_ERASEBKGND) not supported yet
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+00fc:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+00fc:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+--- 1. Testing Z: symlink write-through ---
+=== Test: Symlink in Z:\ to an ordinary file writes through ===
+SUCCESS: Wrote 33 bytes through Z:\ symlink
+PASS: /tmp/cow_test_user_link.txt is still a symbolic link (did not break into a copy)!
+/root/WineExplorer/installer/tests/run_cow_tests.sh: line 19: warning: command substitution: ignored null byte in input
+Target content: MODIFIED_CONTENT_THROUGH_SYMLINK
+--- 2. Testing relative open with RootDirectory on built-in symlink ---
+lrwxrwxrwx 1 root root 47 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/msvcp140.dll -> /usr/local/lib/wine/x86_64-windows/msvcp140.dll
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+-rw-r--r-- 1 root root 5021751 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/msvcp140.dll
+PASS: drive_c/windows/system32/msvcp140.dll is now a regular file!
+/root/WineExplorer/installer/tests/run_cow_tests.sh: line 32: warning: command substitution: ignored null byte in input
+msvcp140.dll header: COW_RELATIVE_TEST_MODIFIED
+--- 3. Testing DeleteFileW on built-in symlink ---
+lrwxrwxrwx 1 root root 46 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/version.dll -> /usr/local/lib/wine/x86_64-windows/version.dll
+=== Test: DeleteFileW on built-in symlink ===
+SUCCESS: DeleteFileW unlinked built-in symlink
+PASS: drive_c/windows/system32/version.dll was deleted (unlinked)!
+Package file remains intact:
+-rw-r--r-- 1 root root 171200 Oct 15 18:56 /usr/local/lib/wine/x86_64-windows/version.dll
+--- 4. Testing COW as limited user (testuser) ---
+wine: created the configuration directory '/home/testuser/test_pfx'
+002c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+004c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+0054:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+0054:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+0054:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+0054:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+0054:err:ole:start_rpcss Failed to open RpcSs service
+004c:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+004c:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+004c:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+0054:err:ole:start_rpcss Failed to start RpcSs service
+00d8:fixme:msg:pack_message msg 14 (WM_ERASEBKGND) not supported yet
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"MountMgr" failed to start: 1053
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"PlugPlay" failed to start: 1115
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"Eventlog" failed to start: 1115
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"nsiproxy" failed to start: 1115
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"NDIS" failed to start: 1115
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"winebus" failed to start: 1115
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"wineusb" failed to start: 1115
+013c:fixme:service:scmdatabase_autostart_services Auto-start service L"winebth" failed to start: 1115
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+00fc:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+00fc:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+=== Test: Symlink in Z:\ to an ordinary file writes through ===
+SUCCESS: Wrote 33 bytes through Z:\ symlink
+PASS: user Z: symlink still a symlink!
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+PASS: limited user relative open broke symlink to regular file!
+-rw-rw-r-- 1 testuser testuser 5021751 Oct 15 19:04 /home/testuser/test_pfx/drive_c/windows/system32/msvcp140.dll
+bash: line 15: warning: command substitution: ignored null byte in input
+msvcp140.dll header: COW_RELATIVE_TEST_MODIFIED
+--- 5. Testing relative symlink target COW ---
+lrwxrwxrwx 1 root root 61 Oct 15 19:04 /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll -> ../../../../../usr/local/lib/wine/x86_64-windows/msvcp140.dll
+=== Test: Symlink with relative target path breaks on write ===
+SUCCESS: Wrote 24 bytes, broke relative-target symlink
+PASS: rel_target_test.dll with relative target broke into a regular file!
+Header: REL_TARGET_COW_MODIFIED
+ALL COW TESTS PASSED PERFECTLY!
+004c:err:ole:start_rpcss Failed to start RpcSs service
+015c:err:rpc:I_RpcReceive we got fault packet with status 0x1c010003
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"MountMgr" failed to start: 1053
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"PlugPlay" failed to start: 2
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"Eventlog" failed to start: 2
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"nsiproxy" failed to start: 2
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"NDIS" failed to start: 2
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"winebus" failed to start: 2
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"wineusb" failed to start: 2
+0140:fixme:service:scmdatabase_autostart_services Auto-start service L"winebth" failed to start: 2
+wineserver: could not save registry branch to system.reg : No such file or directory
+wineserver: could not save registry branch to userdef.reg : No such file or directory
+wineserver: could not save registry branch to user.reg : No such file or directory

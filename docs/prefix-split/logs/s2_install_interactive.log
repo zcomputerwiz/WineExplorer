@@ -1,0 +1,68 @@
+started wex-inter-s2
+found
+--- welcome
+found
+--- license
+found
+--- partitions
+found
+found
+--- created
+found
+--- format
+found
+--- copied
+found
+--- regional
+found
+found
+--- computer
+found
+found
+found
+--- workgroup
+found
+--- oobe
+found
+found
+found
+--- users
+found
+found
+--- finish
+found
+--- logon
+found
+clicked 758,337
+found
+found
+--- rejected-password
+found
+--- alice-desktop
+found
+--- switch-user
+clicked 782,415
+found
+found
+--- desktop
+=== Building test32.exe (i686-w64-mingw32-gcc) and test64.exe (x86_64-w64-mingw32-gcc) ===
+=== Staging test executables into VM ===
+Desktop user: bobsmith on :1
+=== 1. Running 32-bit test program on desktop ===
+found
+/tmp/vmtest/wex-inter-s2/steps/18-test32.png
+PASS: Win32 test program window drawn
+=== 2. Running Wine 32-bit notepad from syswow64 ===
+found
+/tmp/vmtest/wex-inter-s2/steps/19-notepad32.png
+PASS: 32-bit syswow64 notepad window drawn
+=== 3. Running 64-bit test program ===
+found
+/tmp/vmtest/wex-inter-s2/steps/20-test64.png
+PASS: Win64 test program window drawn
+=== Cleaning up running test processes ===
+PASS: All WoW64 32-bit and 64-bit program checks succeeded.
+shut down wex-inter-s2
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership and setup cleanup
+PASS (Bob desktop 5 s after logon); screenshots in /tmp/vmtest/wex-inter-s2/steps; VM stopped
