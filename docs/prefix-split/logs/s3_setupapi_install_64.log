@@ -3,5 +3,5 @@ install.c:1507: Test marked todo: Got unexpected error 0x2.
 install.c:1508: Test marked todo: Destination file should exist.
 install.c:2110: Test marked todo: Got 4 callbacks.
 0020:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.
-X connection to :100 broken (explicit kill or server shutdown).
-X connection to :100 broken (explicit kill or server shutdown).
+X connection to :99 broken (explicit kill or server shutdown).
+X connection to :99 broken (explicit kill or server shutdown).

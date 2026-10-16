@@ -23,5 +23,5 @@ system.c:2180: Test marked todo: msg 0x138: Expected the same brush.
 system.c:2183: Test marked todo: msg 0x138: Expected the same brush.
 system.c:2247: Test marked todo: Expected error 87, got 3735928559.
 0020:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.
-X connection to :100 broken (explicit kill or server shutdown).
-X connection to :100 broken (explicit kill or server shutdown).
+X connection to :99 broken (explicit kill or server shutdown).
+X connection to :99 broken (explicit kill or server shutdown).

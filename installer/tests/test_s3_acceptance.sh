@@ -8,6 +8,7 @@
 #         and never reach the file. S0.2 display/PnP keys are not dirtied or saved.
 # Case 3: Two administrators (Alice and Carol) save different keys in overlapping sessions;
 #         both survive; deletion by one admin is not resurrected by the other.
+# Case 3b: Alice-Carol-Alice sequence with value update and deleted key re-creation.
 # Case 4: Machine upgrade (setup-machine-root.sh update as root) while Alice is logged in
 #         keeps upgrade keys after Alice logs off.
 # Case 5: system.reg and userdef.reg stay symlinks after every case across /etc/skel/.wine,
@@ -220,6 +221,26 @@ else
     echo "PASS [Case 2]: Ephemeral/per-session keys were NOT saved to machine system.reg!"
 fi
 
+# Check that an unlinked prefix (not using shared machine root) DOES save these keys (Defect 2)
+echo "Testing unlinked prefix saves ephemeral keys (Defect 2 check)..."
+UNLINKED_PFX="/home/alice/test_unlinked_pfx"
+rm -rf "$UNLINKED_PFX"
+su - alice -c "
+    set -euo pipefail
+    export WINEDLLOVERRIDES=\"mscoree,mshtml=;winemenubuilder.exe=d\"
+    export WINEPREFIX=\"$UNLINKED_PFX\"
+    wine reg add \"HKLM\\Software\\Wine\\Drives\" /v \"x\" /d \"/mnt/test\" /f
+    wine reg add \"HKLM\\System\\CurrentControlSet\\Control\\ComputerName\\ComputerName\" /v \"ComputerName\" /d \"TESTHOST\" /f
+    wineserver -w
+"
+if ! grep -q "TESTHOST" "$UNLINKED_PFX/system.reg" || ! grep -q "/mnt/test" "$UNLINKED_PFX/system.reg"; then
+    echo "FAIL [Case 2]: Unlinked prefix failed to save HKLM keys under per-session paths!"
+    exit 1
+else
+    echo "PASS [Case 2]: Unlinked prefix successfully saved HKLM keys under per-session paths."
+fi
+rm -rf "$UNLINKED_PFX"
+
 verify_symlinks "Case 2"
 
 # ==============================================================================
@@ -336,6 +357,126 @@ su - bob -c '
 '
 
 verify_symlinks "Case 3"
+
+# ==============================================================================
+# Case 3b: Alice-Carol-Alice save sequence (mod_seq reset & tombstone freeing)
+# ==============================================================================
+echo "=== Case 3b: Alice-Carol-Alice save sequence (mod_seq reset & tombstone freeing) ==="
+
+# Step 1: Alice sets up initial key DelKey and value X=1 in a long-running session
+su - alice -c '
+    set -euo pipefail
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine reg add "HKLM\\Software\\SeqTest" /v "X" /d "1" /f
+    wine reg add "HKLM\\Software\\SeqTest\\DelKey" /v "DelVal" /d "ToDel" /f
+    wineserver -w
+'
+if ! grep -q "SeqTest" "$MACHINE_ROOT/system.reg" || ! grep -q "DelKey" "$MACHINE_ROOT/system.reg"; then
+    echo "FAIL [Case 3b]: Initial SeqTest keys not established!"
+    exit 1
+fi
+
+# Alice starts long-running background session
+su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 60 127.0.0.1 >nul"
+' &
+ALICE_SEQ_BG=$!
+sleep 2
+
+# Alice in her active session: sets X="AliceInitial" and deletes DelKey
+su - alice -c '
+    set -euo pipefail
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine reg add "HKLM\\Software\\SeqTest" /v "X" /d "AliceInitial" /f
+    wine reg delete "HKLM\\Software\\SeqTest\\DelKey" /f
+'
+
+# Alice Save 1: wait for periodic save (fires every 30s)
+echo "Waiting for Alice's first save (periodic save under 30s)..."
+prev_mtime=$(stat -c %Y "$MACHINE_ROOT/system.reg")
+saved=0
+for i in $(seq 1 35); do
+    sleep 1
+    curr_mtime=$(stat -c %Y "$MACHINE_ROOT/system.reg")
+    if [ "$curr_mtime" -ne "$prev_mtime" ] && grep -q "AliceInitial" "$MACHINE_ROOT/system.reg"; then
+        echo "Alice Save 1 completed to disk after ${i}s."
+        saved=1
+        break
+    fi
+done
+
+if [ "$saved" -ne 1 ]; then
+    echo "FAIL [Case 3b]: Alice Save 1 was not written by periodic save!"
+    exit 1
+fi
+if grep -q "DelKey" "$MACHINE_ROOT/system.reg"; then
+    echo "FAIL [Case 3b]: DelKey should have been deleted in Alice Save 1!"
+    exit 1
+fi
+echo "PASS [Case 3b]: Alice Save 1 succeeded: X=AliceInitial and DelKey deleted."
+
+# Step 2: Carol session (Alice is still logged in with active wineserver!)
+# Carol updates X="CarolUpdated" and re-creates DelKey
+echo "Carol modifying X and re-creating DelKey while Alice remains logged in..."
+su - carol -c '
+    set -euo pipefail
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/carol/.wine"
+    wine reg add "HKLM\\Software\\SeqTest" /v "X" /d "CarolUpdated" /f
+    wine reg add "HKLM\\Software\\SeqTest\\DelKey" /v "DelVal" /d "CarolRecreated" /f
+    wineserver -w
+'
+
+if ! grep -q "CarolUpdated" "$MACHINE_ROOT/system.reg"; then
+    echo "FAIL [Case 3b]: Carol update to X was not saved!"
+    exit 1
+fi
+if ! grep -q "CarolRecreated" "$MACHINE_ROOT/system.reg"; then
+    echo "FAIL [Case 3b]: Carol re-created DelKey was not saved!"
+    exit 1
+fi
+echo "PASS [Case 3b]: Carol save succeeded: X=CarolUpdated and DelKey re-created."
+
+# Step 3: Alice in her SAME long-running session modifies an unrelated key Y="AliceOtherVal"
+echo "Alice modifying unrelated key Y in same active session..."
+su - alice -c '
+    set -euo pipefail
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine reg add "HKLM\\Software\\SeqTest" /v "Y" /d "AliceOtherVal" /f
+'
+
+# Alice Save 2: Alice logs off, triggering flush_registry on shutdown
+echo "Alice logging off and saving (Save 2)..."
+kill -9 $ALICE_SEQ_BG || true
+su - alice -c 'wineserver -k || true; wineserver -w'
+wait $ALICE_SEQ_BG 2>/dev/null || true
+
+# Step 4: Verify disk contents
+echo "Verifying disk contents after Alice Save 2:"
+if ! grep -q "AliceOtherVal" "$MACHINE_ROOT/system.reg"; then
+    echo "FAIL [Case 3b]: Alice new modification Y was not saved!"
+    exit 1
+fi
+echo "PASS [Case 3b]: Alice new modification Y was saved."
+
+if ! grep -q "CarolUpdated" "$MACHINE_ROOT/system.reg"; then
+    echo "FAIL [Case 3b]: Carol update X=CarolUpdated was overwritten by Alice stale mod_seq!"
+    exit 1
+fi
+echo "PASS [Case 3b]: Carol value X=CarolUpdated survived Alice Save 2."
+
+if ! grep -q "CarolRecreated" "$MACHINE_ROOT/system.reg"; then
+    echo "FAIL [Case 3b]: Carol re-created DelKey was re-deleted by Alice stale tombstone!"
+    exit 1
+fi
+echo "PASS [Case 3b]: Carol re-created DelKey survived Alice Save 2."
+
+verify_symlinks "Case 3b"
 
 # ==============================================================================
 # Case 4: Machine upgrade while Alice is logged in keeps upgrade keys after Alice logs off

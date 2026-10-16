@@ -263,5 +263,5 @@ file.c:6812: Test marked todo: got error 1313
 file.c:6837: Test marked todo: got error 3735928559
 file.c:6879: Test marked todo: got error 3735928559
 file.c:6921: Test marked todo: got error 3735928559
-00e0:file: Silenced 46 todos, 0 skips and 0 traces.
-00e0:file: 571356 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.
+00dc:file: Silenced 46 todos, 0 skips and 0 traces.
+00dc:file: 571356 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.
