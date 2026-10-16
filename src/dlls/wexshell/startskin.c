@@ -1482,3 +1482,332 @@ int startskin_enumerate(startskin_enum_cb callback, void *param)
 
     return 0;
 }
+
+/* -------------------------------------------------------------------------
+ * Active skin management
+ * ------------------------------------------------------------------------- */
+
+static struct start_skin *s_cached_skin = NULL;
+static WCHAR              s_cached_name[MAX_PATH] = {0};
+static WCHAR              s_cached_var[64] = {0};
+static WCHAR              s_cached_opts[256] = {0};
+static enum start_skin_type s_cached_type = STARTSKIN_TYPE_COUNT;
+static int                s_cached_dpi = 0;
+
+void startskin_invalidate_active(void)
+{
+    if (s_cached_skin)
+    {
+        startskin_free(s_cached_skin);
+        s_cached_skin = NULL;
+    }
+    s_cached_name[0] = L'\0';
+    s_cached_var[0]  = L'\0';
+    s_cached_opts[0] = L'\0';
+    s_cached_type    = STARTSKIN_TYPE_COUNT;
+    s_cached_dpi     = 0;
+}
+
+static BOOL find_skin_file(const WCHAR *skin_name, WCHAR *out_path, DWORD max_len)
+{
+    WCHAR appdata[MAX_PATH];
+
+    if (!skin_name || !*skin_name)
+        return FALSE;
+
+    /* Absolute or direct path */
+    if (wcschr(skin_name, L'\\') || wcschr(skin_name, L'/') || skin_name[1] == L':')
+    {
+        if (GetFileAttributesW(skin_name) != INVALID_FILE_ATTRIBUTES)
+        {
+            wcsncpy(out_path, skin_name, max_len - 1);
+            out_path[max_len - 1] = L'\0';
+            return TRUE;
+        }
+    }
+
+    /* 1. %APPDATA%\WineExplorer\StartSkins\<skin_name> */
+    if (SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appdata) == S_OK)
+    {
+        swprintf(out_path, max_len, L"%s\\WineExplorer\\StartSkins\\%s", appdata, skin_name);
+        if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+            return TRUE;
+        swprintf(out_path, max_len, L"%s\\WineExplorer\\StartSkins\\%s.skin", appdata, skin_name);
+        if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+            return TRUE;
+        swprintf(out_path, max_len, L"%s\\WineExplorer\\StartSkins\\%s.skin7", appdata, skin_name);
+        if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+            return TRUE;
+    }
+
+    /* 2. C:\usr\local\share\wineexplorer\startskins\<skin_name> */
+    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%s", skin_name);
+    if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+        return TRUE;
+    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin", skin_name);
+    if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+        return TRUE;
+    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin7", skin_name);
+    if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+        return TRUE;
+
+    /* 3. Z:\usr\local\share\wineexplorer\startskins\<skin_name> */
+    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%s", skin_name);
+    if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+        return TRUE;
+    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin", skin_name);
+    if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+        return TRUE;
+    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin7", skin_name);
+    if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
+        return TRUE;
+
+    return FALSE;
+}
+
+struct start_skin *startskin_get_active(enum start_skin_type preferred_type)
+{
+    HKEY hkey;
+    WCHAR skin_val[MAX_PATH] = {0};
+    WCHAR var_val[64] = {0};
+    WCHAR opts_val[256] = {0};
+    WCHAR full_path[MAX_PATH] = {0};
+    DWORD type, size;
+    int dpi = 96;
+    HDC hdc;
+    enum start_skin_type actual_type;
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\StartMenu", 0, KEY_READ, &hkey) == ERROR_SUCCESS)
+    {
+        size = sizeof(skin_val);
+        RegQueryValueExW(hkey, L"Skin", NULL, &type, (LPBYTE)skin_val, &size);
+
+        size = sizeof(var_val);
+        RegQueryValueExW(hkey, L"SkinVariation", NULL, &type, (LPBYTE)var_val, &size);
+
+        size = sizeof(opts_val);
+        RegQueryValueExW(hkey, L"SkinOptions", NULL, &type, (LPBYTE)opts_val, &size);
+
+        RegCloseKey(hkey);
+    }
+
+    if (!skin_val[0] || _wcsicmp(skin_val, L"None") == 0)
+    {
+        startskin_invalidate_active();
+        return NULL;
+    }
+
+    if (!find_skin_file(skin_val, full_path, MAX_PATH))
+    {
+        startskin_invalidate_active();
+        return NULL;
+    }
+
+    /* Screen DPI */
+    hdc = GetDC(NULL);
+    if (hdc)
+    {
+        dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+        ReleaseDC(NULL, hdc);
+    }
+    if (dpi <= 0) dpi = 96;
+
+    actual_type = preferred_type;
+    if (preferred_type != STARTSKIN_TYPE_CLASSIC1)
+    {
+        const WCHAR *ext = wcsrchr(full_path, L'.');
+        if (ext && _wcsicmp(ext, L".skin7") == 0)
+            actual_type = STARTSKIN_TYPE_WIN7;
+        else
+            actual_type = STARTSKIN_TYPE_CLASSIC2;
+    }
+
+    /* Check if cache matches */
+    if (s_cached_skin &&
+        wcscmp(s_cached_name, full_path) == 0 &&
+        wcscmp(s_cached_var, var_val) == 0 &&
+        wcscmp(s_cached_opts, opts_val) == 0 &&
+        s_cached_type == actual_type &&
+        s_cached_dpi == dpi)
+    {
+        return s_cached_skin;
+    }
+
+    /* Reload skin */
+    startskin_invalidate_active();
+
+    s_cached_skin = startskin_load(full_path, var_val[0] ? var_val : NULL,
+                                   opts_val[0] ? opts_val : NULL, actual_type, dpi);
+    if (s_cached_skin)
+    {
+        wcsncpy(s_cached_name, full_path, MAX_PATH - 1);
+        wcsncpy(s_cached_var, var_val, 63);
+        wcsncpy(s_cached_opts, opts_val, 255);
+        s_cached_type = actual_type;
+        s_cached_dpi = dpi;
+    }
+
+    return s_cached_skin;
+}
+
+BOOL startskin_get_panel_metrics(struct start_skin *skin,
+                                 int *out_w, int *out_user_h,
+                                 int *out_left_w, int *out_prog_h,
+                                 int *out_places_h, int *out_logoff_h)
+{
+    int left_w, right_w;
+
+    if (!skin) return FALSE;
+
+    left_w = skin->main_bitmap_slices_x[0] + skin->main_bitmap_slices_x[1] + skin->main_bitmap_slices_x[2];
+    if (left_w < 150) left_w = 190;
+
+    right_w = skin->main_bitmap_slices_x[3] + skin->main_bitmap_slices_x[4] + skin->main_bitmap_slices_x[5];
+    if (right_w < 150) right_w = 190;
+
+    if (out_w) *out_w = left_w + right_w;
+    if (out_left_w) *out_left_w = left_w;
+    if (out_user_h) *out_user_h = (skin->user_image_size > 48) ? (skin->user_image_size + 16) : 64;
+    if (out_prog_h) *out_prog_h = 306;
+    if (out_places_h) *out_places_h = 336;
+    if (out_logoff_h) *out_logoff_h = 40;
+
+    return TRUE;
+}
+
+void startskin_paint_panel(HDC hdc, struct start_skin *skin,
+                           const RECT *zone_user, const RECT *zone_prog,
+                           const RECT *zone_more, const RECT *zone_places,
+                           const RECT *zone_logoff, int total_w, int total_h)
+{
+    RECT left_col, right_col;
+    HBRUSH br;
+
+    if (!hdc || !skin) return;
+
+    left_col.left   = zone_prog->left;
+    left_col.top    = zone_prog->top;
+    left_col.right  = zone_prog->right;
+    left_col.bottom = zone_more ? zone_more->bottom : zone_prog->bottom;
+
+    right_col = *zone_places;
+
+    /* 1. Main and second column background bitmaps / colors */
+    if (skin->main_bitmap.hbmp)
+    {
+        startskin_draw_bg_slices(hdc, &skin->main_bitmap, &left_col,
+                                 skin->main_bitmap_slices_x, skin->main_bitmap_slices_y, 0, TRUE);
+        startskin_draw_bg_slices(hdc, &skin->main_bitmap, &right_col,
+                                 skin->main_bitmap_slices_x, skin->main_bitmap_slices_y, 1, TRUE);
+    }
+    else
+    {
+        br = CreateSolidBrush(skin->main_background);
+        FillRect(hdc, &left_col, br);
+        DeleteObject(br);
+
+        br = CreateSolidBrush(skin->main2_background);
+        FillRect(hdc, &right_col, br);
+        DeleteObject(br);
+    }
+
+    /* Vertical column separator */
+    if (skin->main_separator_v.hbmp)
+    {
+        RECT sep_rc;
+        sep_rc.left   = left_col.right;
+        sep_rc.top    = left_col.top;
+        sep_rc.right  = left_col.right + (skin->main_separator_width > 0 ? skin->main_separator_width : 2);
+        sep_rc.bottom = left_col.bottom;
+        startskin_draw_slices(hdc, &skin->main_separator_v, &sep_rc, &sep_rc, NULL, TRUE);
+    }
+
+    /* 2. User banner header */
+    if (zone_user)
+    {
+        if (skin->caption_bitmap.hbmp)
+        {
+            startskin_draw_slices(hdc, &skin->caption_bitmap, zone_user, zone_user, NULL, TRUE);
+        }
+        else
+        {
+            br = CreateSolidBrush(skin->caption_background);
+            FillRect(hdc, zone_user, br);
+            DeleteObject(br);
+        }
+
+        /* Avatar frame if defined */
+        if (skin->user_bitmap.hbmp)
+        {
+            RECT frame_rc;
+            int fw = skin->user_bitmap.width;
+            int fh = skin->user_bitmap.height;
+            int fx = zone_user->left + 8;
+            int fy = zone_user->top + (zone_user->bottom - zone_user->top - fh) / 2;
+
+            if (skin->user_frame_pos.x > 0) fx = zone_user->left + skin->user_frame_pos.x;
+            if (skin->user_frame_pos.y > 0) fy = zone_user->top + skin->user_frame_pos.y;
+
+            SetRect(&frame_rc, fx, fy, fx + fw, fy + fh);
+            startskin_draw_slices(hdc, &skin->user_bitmap, &frame_rc, &frame_rc, NULL, TRUE);
+        }
+    }
+
+    /* 3. Bottom Logoff / Shutdown bar */
+    if (zone_logoff)
+    {
+        br = CreateSolidBrush(skin->caption_background);
+        FillRect(hdc, zone_logoff, br);
+        DeleteObject(br);
+    }
+}
+
+void startskin_paint_banner(HDC hdc, struct start_skin *skin,
+                            const RECT *rc, const WCHAR *text)
+{
+    HBRUSH br;
+    HFONT font, old_font;
+    int h = rc->bottom - rc->top;
+
+    if (!hdc || !rc) return;
+
+    if (skin && skin->caption_bitmap.hbmp)
+    {
+        startskin_draw_slices(hdc, &skin->caption_bitmap, rc, rc, NULL, TRUE);
+    }
+    else if (skin)
+    {
+        br = CreateSolidBrush(skin->caption_background);
+        FillRect(hdc, rc, br);
+        DeleteObject(br);
+    }
+
+    if (!text || !*text) return;
+
+    /* Draw rotated vertical text */
+    if (skin && skin->caption_font)
+    {
+        font = skin->caption_font;
+    }
+    else
+    {
+        LOGFONTW lf;
+        memset(&lf, 0, sizeof(lf));
+        lf.lfHeight = -18;
+        lf.lfWeight = FW_BOLD;
+        lf.lfEscapement = 900;
+        lf.lfOrientation = 900;
+        lstrcpyW(lf.lfFaceName, L"Tahoma");
+        font = CreateFontIndirectW(&lf);
+    }
+
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, skin ? skin->caption_text_color : RGB(255, 255, 255));
+
+    old_font = (HFONT)SelectObject(hdc, font);
+    TextOutW(hdc, rc->left + 4, h - 8, text, (int)wcslen(text));
+    SelectObject(hdc, old_font);
+
+    if (!skin || !skin->caption_font)
+        DeleteObject(font);
+}

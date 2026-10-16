@@ -248,6 +248,24 @@ void startskin_draw_selection(HDC hdc, const struct start_skin_bitmap *bmp,
 typedef void (*startskin_enum_cb)(const WCHAR *name, const WCHAR *path, BOOL is_7, void *param);
 int startskin_enumerate(startskin_enum_cb callback, void *param);
 
+/* Active skin management */
+struct start_skin *startskin_get_active(enum start_skin_type preferred_type);
+void startskin_invalidate_active(void);
+
+/* High-level view painting helpers */
+void startskin_paint_panel(HDC hdc, struct start_skin *skin,
+                           const RECT *zone_user, const RECT *zone_prog,
+                           const RECT *zone_more, const RECT *zone_places,
+                           const RECT *zone_logoff, int total_w, int total_h);
+
+void startskin_paint_banner(HDC hdc, struct start_skin *skin,
+                            const RECT *rc, const WCHAR *text);
+
+BOOL startskin_get_panel_metrics(struct start_skin *skin,
+                                 int *out_w, int *out_user_h,
+                                 int *out_left_w, int *out_prog_h,
+                                 int *out_places_h, int *out_logoff_h);
+
 #ifdef __cplusplus
 }
 #endif

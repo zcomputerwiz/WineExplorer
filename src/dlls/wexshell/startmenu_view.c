@@ -45,6 +45,7 @@
 #include "shellres.h"
 #include "startmenu_view.h"
 #include "startsettings.h"
+#include "startskin.h"
 #include "taskbar_props.h"
 #include "toolbars.h"
 #include "wexwlan.h"
@@ -712,6 +713,16 @@ static LRESULT CALLBACK startmenu_banner_proc(HWND hwnd, UINT msg, WPARAM wparam
         h = rc.bottom - rc.top;
 
         {
+            struct start_skin *skin = startskin_get_active(STARTSKIN_TYPE_CLASSIC1);
+            if (skin)
+            {
+                startskin_paint_banner(hdc, skin, &rc, L"Windows XP");
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
+        }
+
+        {
             /* the picture of the Windows shell (21 x 233), at the bottom of the menu; what is above is its top color */
             HBITMAP pic = shellres_bitmap(L"explorer", 167, 0);
 
@@ -995,6 +1006,15 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     int estimated_h = 360;
     int banner_x = btn_rect->left;
     int banner_y = btn_rect->top - estimated_h;
+    struct start_skin *skin = startskin_get_active(STARTSKIN_TYPE_CLASSIC1);
+
+    if (skin)
+    {
+        if (skin->main_bitmap_slices_x[1] == 0 && skin->caption_bitmap.hbmp == NULL && skin->caption_width == 0)
+            banner_w = 0;
+        else if (skin->caption_width > 0)
+            banner_w = skin->caption_width;
+    }
 
     HBITMAP bm_progacc;
     HBITMAP bm_catalog;
@@ -1073,21 +1093,24 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
     append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_SHUTDOWN, L"T&urn Off Computer...", bm_shut);
 
     /* Show Companion Vertical Gradient Banner Window */
-    ensure_banner_class();
-    if (!g_banner_wnd)
+    if (banner_w > 0)
     {
-        g_banner_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-                                       STARTMENU_BANNER_CLASS, NULL,
-                                       WS_POPUP | WS_CLIPSIBLINGS,
-                                       banner_x, banner_y, banner_w, estimated_h,
-                                       tray_hwnd, NULL, explorer_hInstance, NULL);
+        ensure_banner_class();
+        if (!g_banner_wnd)
+        {
+            g_banner_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                                           STARTMENU_BANNER_CLASS, NULL,
+                                           WS_POPUP | WS_CLIPSIBLINGS,
+                                           banner_x, banner_y, banner_w, estimated_h,
+                                           tray_hwnd, NULL, explorer_hInstance, NULL);
+        }
+        else
+        {
+            SetWindowPos(g_banner_wnd, HWND_TOPMOST, banner_x, banner_y, banner_w, estimated_h,
+                         SWP_NOACTIVATE);
+        }
+        ShowWindow(g_banner_wnd, SW_SHOWNOACTIVATE);
     }
-    else
-    {
-        SetWindowPos(g_banner_wnd, HWND_TOPMOST, banner_x, banner_y, banner_w, estimated_h,
-                     SWP_NOACTIVATE);
-    }
-    ShowWindow(g_banner_wnd, SW_SHOWNOACTIVATE);
 
     g_startmenu_open = TRUE;
     g_button_pressed = TRUE;
@@ -1100,7 +1123,8 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
                          btn_rect->left + banner_w - banner_overlap, btn_rect->top, 0, tray_hwnd, NULL);
     KillTimer(tray_hwnd, 9999);
 
-    ShowWindow(g_banner_wnd, SW_HIDE);
+    if (banner_w > 0 && g_banner_wnd)
+        ShowWindow(g_banner_wnd, SW_HIDE);
     g_startmenu_open = FALSE;
     g_button_pressed = FALSE;
     g_last_close_tick = GetTickCount();
@@ -1276,23 +1300,63 @@ static BOOL right_item_visible(UINT cmd)
 static void panel_layout(void)
 {
     HTHEME theme = theme_open(NULL, L"StartPanel");
+    struct start_skin *skin = startskin_get_active(STARTSKIN_TYPE_CLASSIC2);
     int W = 380, hu = 64, hp = 306, hm = 30, hpl = 336, hl = 40, wl = 190, w, h;
     MARGINS mp, mm, mpl;
     RECT r, c;
     HDC hdc = GetDC(NULL);
-    HFONT bold = panel_font(TRUE);
+    HFONT bold;
+    BOOL own_bold = FALSE;
     unsigned int i;
     int y;
 
-    if (pane_size(theme, SPP_USERPANE, &w, &h)) { W = w; hu = h; }
-    if (pane_size(theme, SPP_PROGLIST, &w, &h)) { wl = w; hp = h; }
-    if (pane_size(theme, SPP_MOREPROGRAMS, &w, &h)) hm = h;
-    if (pane_size(theme, SPP_PLACESLIST, &w, &h)) hpl = h;
-    if (pane_size(theme, SPP_LOGOFF, &w, &h)) hl = h;
-    mp = content_margins(theme, SPP_PROGLIST);
-    mm = content_margins(theme, SPP_MOREPROGRAMS);
-    mpl = content_margins(theme, SPP_PLACESLIST);
+    if (skin)
+    {
+        startskin_get_panel_metrics(skin, &W, &hu, &wl, &hp, &hpl, &hl);
+        if (skin->main_padding.left || skin->main_padding.right || skin->main_padding.top || skin->main_padding.bottom)
+        {
+            mp.cxLeftWidth = skin->main_padding.left;
+            mp.cxRightWidth = skin->main_padding.right;
+            mp.cyTopHeight = skin->main_padding.top;
+            mp.cyBottomHeight = skin->main_padding.bottom;
+        }
+        else
+        {
+            mp = content_margins(theme, SPP_PROGLIST);
+        }
+        mm = content_margins(theme, SPP_MOREPROGRAMS);
+        if (skin->main2_padding.left || skin->main2_padding.right || skin->main2_padding.top || skin->main2_padding.bottom)
+        {
+            mpl.cxLeftWidth = skin->main2_padding.left;
+            mpl.cxRightWidth = skin->main2_padding.right;
+            mpl.cyTopHeight = skin->main2_padding.top;
+            mpl.cyBottomHeight = skin->main2_padding.bottom;
+        }
+        else
+        {
+            mpl = content_margins(theme, SPP_PLACESLIST);
+        }
+    }
+    else
+    {
+        if (pane_size(theme, SPP_USERPANE, &w, &h)) { W = w; hu = h; }
+        if (pane_size(theme, SPP_PROGLIST, &w, &h)) { wl = w; hp = h; }
+        if (pane_size(theme, SPP_MOREPROGRAMS, &w, &h)) hm = h;
+        if (pane_size(theme, SPP_PLACESLIST, &w, &h)) hpl = h;
+        if (pane_size(theme, SPP_LOGOFF, &w, &h)) hl = h;
+        mp = content_margins(theme, SPP_PROGLIST);
+        mm = content_margins(theme, SPP_MOREPROGRAMS);
+        mpl = content_margins(theme, SPP_PLACESLIST);
+    }
     if (theme) CloseThemeData(theme);
+
+    if (skin && skin->main_item.font)
+        bold = skin->main_item.font;
+    else
+    {
+        bold = panel_font(TRUE);
+        own_bold = TRUE;
+    }
 
     SetRect(&g_zone[ZONE_USER], 0, 0, W, hu);
     SetRect(&g_zone[ZONE_PROG], 0, hu, wl, hu + hp);
@@ -1401,7 +1465,7 @@ static void panel_layout(void)
         SetRect(&r, right - shut_w - 6 - off_w, by, right - shut_w - 6, by + bh);
         it = panel_add(ZONE_LOGOFF, &r, STARTMENU_CMD_LOGOFF); it->title = L"Log Off"; it->bold = TRUE;
     }
-    DeleteObject(bold);
+    if (own_bold) DeleteObject(bold);
     ReleaseDC(NULL, hdc);
 }
 
@@ -1447,77 +1511,122 @@ static void panel_draw_icon(HDC hdc, const PANEL_ITEM *item, int x, int y, int s
     DestroyIcon(icon);
 }
 
-static void panel_draw_user(HDC hdc, HTHEME theme)
+static void panel_draw_user(HDC hdc, HTHEME theme, struct start_skin *skin)
 {
-    RECT zone = g_zone[ZONE_USER], tile, content;
+    RECT zone, tile, content;
     WCHAR name[128];
-    HFONT font;
+    HFONT font = NULL;
+    BOOL own_font = FALSE;
     LOGFONTW lf;
     COLORREF color = RGB(255, 255, 255), shadow = 0;
-    POINT offset = { 2, 2 };
+    POINT offset;
     int shadow_type = 0;
     MARGINS m;
+    WCHAR dir[MAX_PATH], file[MAX_PATH], user[64];
+    DWORD user_len = ARRAY_SIZE(user);
+    HBITMAP avatar = NULL;
+    BITMAP bm;
 
-    if (theme) DrawThemeBackground(theme, hdc, SPP_USERPANE, 0, &zone, NULL);
+    zone = g_zone[ZONE_USER];
+    offset.x = 2;
+    offset.y = 2;
+
+    if (skin)
+    {
+        color = skin->user_text_color;
+    }
+    else if (theme)
+    {
+        DrawThemeBackground(theme, hdc, SPP_USERPANE, 0, &zone, NULL);
+    }
     else
     {
         FillRect(hdc, &zone, GetSysColorBrush(COLOR_ACTIVECAPTION));
         color = GetSysColor(COLOR_CAPTIONTEXT);
     }
 
-    SetRect(&tile, 6, 4, 66, zone.bottom - 4);
-    m = content_margins(theme, SPP_USERPICTURE);
-    if (theme) DrawThemeBackground(theme, hdc, SPP_USERPICTURE, 0, &tile, NULL);
-    content = tile;
-    content.left += m.cxLeftWidth; content.right -= m.cxRightWidth; content.top += m.cyTopHeight; content.bottom -= m.cyBottomHeight;
+    if (skin)
     {
-        /* the account picture: <all users>\Microsoft\User Account Pictures\<user name>.bmp, else the users icon */
-        WCHAR dir[MAX_PATH], file[MAX_PATH], user[64];
-        DWORD user_len = ARRAY_SIZE(user);
-        HBITMAP avatar = NULL;
-        BITMAP bm;
-
-        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, SHGFP_TYPE_CURRENT, dir)) && GetUserNameW(user, &user_len))
-        {
-            swprintf(file, MAX_PATH, L"%s\\Microsoft\\User Account Pictures\\%s.bmp", dir, user);
-            avatar = LoadImageW(NULL, file, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
-        }
-        if (avatar && GetObjectW(avatar, sizeof(bm), &bm))
-        {
-            HDC mem = CreateCompatibleDC(hdc);
-            HBITMAP prev = SelectObject(mem, avatar);
-            int old_mode = SetStretchBltMode(hdc, HALFTONE);
-            StretchBlt(hdc, content.left, content.top, content.right - content.left, content.bottom - content.top,
-                       mem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
-            SetStretchBltMode(hdc, old_mode);
-            SelectObject(mem, prev);
-            DeleteDC(mem);
-        }
-        else
-        {
-            HICON icon = shellres_icon(220, 32);
-            if (icon)
-            {
-                DrawIconEx(hdc, content.left + (content.right - content.left - 32) / 2, content.top + (content.bottom - content.top - 32) / 2,
-                           icon, 32, 32, 0, NULL, DI_NORMAL);
-                DestroyIcon(icon);
-            }
-        }
-        if (avatar) DeleteObject(avatar);
+        int isz = skin->user_image_size > 0 ? skin->user_image_size : 48;
+        int tx = (skin->user_frame_pos.x > 0) ? skin->user_frame_pos.x : 6;
+        int ty = (skin->user_frame_pos.y > 0) ? skin->user_frame_pos.y : (zone.bottom - isz) / 2;
+        tx += skin->user_image_offset.x;
+        ty += skin->user_image_offset.y;
+        SetRect(&tile, tx, ty, tx + isz, ty + isz);
+        content = tile;
+    }
+    else
+    {
+        SetRect(&tile, 6, 4, 66, zone.bottom - 4);
+        m = content_margins(theme, SPP_USERPICTURE);
+        if (theme) DrawThemeBackground(theme, hdc, SPP_USERPICTURE, 0, &tile, NULL);
+        content = tile;
+        content.left += m.cxLeftWidth; content.right -= m.cxRightWidth; content.top += m.cyTopHeight; content.bottom -= m.cyBottomHeight;
     }
 
-    if (theme)
+    /* the account picture: <all users>\Microsoft\User Account Pictures\<user name>.bmp, else the users icon */
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, SHGFP_TYPE_CURRENT, dir)) && GetUserNameW(user, &user_len))
+    {
+        swprintf(file, MAX_PATH, L"%s\\Microsoft\\User Account Pictures\\%s.bmp", dir, user);
+        avatar = LoadImageW(NULL, file, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION);
+    }
+    if (avatar && GetObjectW(avatar, sizeof(bm), &bm))
+    {
+        HDC mem = CreateCompatibleDC(hdc);
+        HBITMAP prev = SelectObject(mem, avatar);
+        int old_mode = SetStretchBltMode(hdc, HALFTONE);
+        StretchBlt(hdc, content.left, content.top, content.right - content.left, content.bottom - content.top,
+                   mem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
+        SetStretchBltMode(hdc, old_mode);
+        SelectObject(mem, prev);
+        DeleteDC(mem);
+    }
+    else
+    {
+        HICON icon = shellres_icon(220, 32);
+        if (icon)
+        {
+            DrawIconEx(hdc, content.left + (content.right - content.left - 32) / 2, content.top + (content.bottom - content.top - 32) / 2,
+                       icon, 32, 32, 0, NULL, DI_NORMAL);
+            DestroyIcon(icon);
+        }
+    }
+    if (avatar) DeleteObject(avatar);
+
+    if (!skin && theme)
     {
         GetThemeColor(theme, SPP_USERPANE, 0, TMT_TEXTCOLOR, &color);
         GetThemeEnumValue(theme, SPP_USERPANE, 0, TMT_TEXTSHADOWTYPE, &shadow_type);
         GetThemeColor(theme, SPP_USERPANE, 0, TMT_TEXTSHADOWCOLOR, &shadow);
         GetThemePosition(theme, SPP_USERPANE, 0, TMT_TEXTSHADOWOFFSET, &offset);
     }
-    if (theme && SUCCEEDED(GetThemeFont(theme, hdc, SPP_USERPANE, 0, TMT_FONT, &lf))) font = CreateFontIndirectW(&lf);
-    else font = panel_font(TRUE);
+
+    if (skin && skin->user_font)
+    {
+        font = skin->user_font;
+    }
+    else if (theme && SUCCEEDED(GetThemeFont(theme, hdc, SPP_USERPANE, 0, TMT_FONT, &lf)))
+    {
+        font = CreateFontIndirectW(&lf);
+        own_font = TRUE;
+    }
+    else
+    {
+        font = panel_font(TRUE);
+        own_font = TRUE;
+    }
 
     get_display_user_name(name, ARRAY_SIZE(name));
-    SetRect(&content, tile.right + 8, zone.top, zone.right - 8, zone.bottom);
+    if (skin && (skin->user_name_pos.left != 0 || skin->user_name_pos.right != 0))
+    {
+        SetRect(&content, skin->user_name_pos.left, skin->user_name_pos.top,
+                          skin->user_name_pos.right, skin->user_name_pos.bottom);
+    }
+    else
+    {
+        SetRect(&content, tile.right + 8, zone.top, zone.right - 8, zone.bottom);
+    }
+
     if (shadow_type)
     {
         RECT sr = content;
@@ -1525,30 +1634,56 @@ static void panel_draw_user(HDC hdc, HTHEME theme)
         panel_text(hdc, sr, name, font, shadow);
     }
     panel_text(hdc, content, name, font, color);
-    DeleteObject(font);
+    if (own_font && font) DeleteObject(font);
 }
 
 static void panel_paint(HDC hdc)
 {
     HTHEME theme = theme_open(NULL, L"StartPanel");
-    HFONT font = panel_font(FALSE), bold = panel_font(TRUE);
+    struct start_skin *skin = startskin_get_active(STARTSKIN_TYPE_CLASSIC2);
+    HFONT font, bold;
+    BOOL own_font = FALSE, own_bold = FALSE;
     int i;
 
-    /* zone backgrounds */
-    panel_draw_user(hdc, theme);
-    if (theme)
+    if (skin && skin->main_item.font)
     {
-        DrawThemeBackground(theme, hdc, SPP_PROGLIST, 0, &g_zone[ZONE_PROG], NULL);
-        DrawThemeBackground(theme, hdc, SPP_MOREPROGRAMS, 0, &g_zone[ZONE_MORE], NULL);
-        DrawThemeBackground(theme, hdc, SPP_PLACESLIST, 0, &g_zone[ZONE_PLACES], NULL);
-        DrawThemeBackground(theme, hdc, SPP_LOGOFF, 0, &g_zone[ZONE_LOGOFF], NULL);
+        font = skin->main_item.font;
+        bold = skin->main_item.font;
     }
     else
     {
-        FillRect(hdc, &g_zone[ZONE_PROG], GetSysColorBrush(COLOR_WINDOW));
-        FillRect(hdc, &g_zone[ZONE_MORE], GetSysColorBrush(COLOR_WINDOW));
-        FillRect(hdc, &g_zone[ZONE_PLACES], GetSysColorBrush(COLOR_MENU));
-        FillRect(hdc, &g_zone[ZONE_LOGOFF], GetSysColorBrush(COLOR_ACTIVECAPTION));
+        font = panel_font(FALSE);
+        bold = panel_font(TRUE);
+        own_font = TRUE;
+        own_bold = TRUE;
+    }
+
+    /* zone backgrounds */
+    if (skin)
+    {
+        startskin_paint_panel(hdc, skin,
+                              &g_zone[ZONE_USER], &g_zone[ZONE_PROG],
+                              &g_zone[ZONE_MORE], &g_zone[ZONE_PLACES],
+                              &g_zone[ZONE_LOGOFF], g_panel_size.cx, g_panel_size.cy);
+        panel_draw_user(hdc, theme, skin);
+    }
+    else
+    {
+        panel_draw_user(hdc, theme, NULL);
+        if (theme)
+        {
+            DrawThemeBackground(theme, hdc, SPP_PROGLIST, 0, &g_zone[ZONE_PROG], NULL);
+            DrawThemeBackground(theme, hdc, SPP_MOREPROGRAMS, 0, &g_zone[ZONE_MORE], NULL);
+            DrawThemeBackground(theme, hdc, SPP_PLACESLIST, 0, &g_zone[ZONE_PLACES], NULL);
+            DrawThemeBackground(theme, hdc, SPP_LOGOFF, 0, &g_zone[ZONE_LOGOFF], NULL);
+        }
+        else
+        {
+            FillRect(hdc, &g_zone[ZONE_PROG], GetSysColorBrush(COLOR_WINDOW));
+            FillRect(hdc, &g_zone[ZONE_MORE], GetSysColorBrush(COLOR_WINDOW));
+            FillRect(hdc, &g_zone[ZONE_PLACES], GetSysColorBrush(COLOR_MENU));
+            FillRect(hdc, &g_zone[ZONE_LOGOFF], GetSysColorBrush(COLOR_ACTIVECAPTION));
+        }
     }
 
     for (i = 0; i < g_panel_n; i++)
@@ -1565,22 +1700,35 @@ static void panel_paint(HDC hdc)
 
         if (item->sep)
         {
-            SIZE sz = {0, 2};
-            RECT line = rc;
-            HTHEME sep = theme ? theme : NULL;
-            int sep_part = item->zone == ZONE_PROG ? SPP_PROGLISTSEPARATOR : SPP_PLACESLISTSEPARATOR;
-            if (sep)
+            if (skin)
             {
-                GetThemePartSize(sep, hdc, sep_part, 0, NULL, TS_TRUE, &sz);
-                line.top = rc.top + (rc.bottom - rc.top - sz.cy) / 2;
-                line.bottom = line.top + sz.cy;
-                DrawThemeBackground(sep, hdc, sep_part, 0, &line, NULL);
+                const struct start_skin_item_settings *item_set =
+                    (item->zone == ZONE_PLACES) ? &skin->main2_item : &skin->main_item;
+                if (item_set->bmp_separator.hbmp)
+                {
+                    startskin_draw_separator(hdc, &item_set->bmp_separator, &rc,
+                                             item_set->sep_slices_x, item_set->bmp_separator.height, TRUE);
+                    continue;
+                }
             }
-            else
             {
-                line.top = rc.top + (rc.bottom - rc.top) / 2;
-                line.bottom = line.top + 1;
-                FillRect(hdc, &line, GetSysColorBrush(COLOR_BTNSHADOW));
+                SIZE sz = {0, 2};
+                RECT line = rc;
+                HTHEME sep = theme ? theme : NULL;
+                int sep_part = item->zone == ZONE_PROG ? SPP_PROGLISTSEPARATOR : SPP_PLACESLISTSEPARATOR;
+                if (sep)
+                {
+                    GetThemePartSize(sep, hdc, sep_part, 0, NULL, TS_TRUE, &sz);
+                    line.top = rc.top + (rc.bottom - rc.top - sz.cy) / 2;
+                    line.bottom = line.top + sz.cy;
+                    DrawThemeBackground(sep, hdc, sep_part, 0, &line, NULL);
+                }
+                else
+                {
+                    line.top = rc.top + (rc.bottom - rc.top) / 2;
+                    line.bottom = line.top + 1;
+                    FillRect(hdc, &line, GetSysColorBrush(COLOR_BTNSHADOW));
+                }
             }
             continue;
         }
@@ -1591,7 +1739,23 @@ static void panel_paint(HDC hdc)
             HBITMAP strip = shellres_bitmap(L"explorer", hot ? 7011 : 7010, 0);
             int y = rc.top + (rc.bottom - rc.top - 24) / 2;
 
-            if (hot && theme) DrawThemeBackground(theme, hdc, SPP_LOGOFFBUTTONS, SPLS_HOT, &rc, NULL);
+            if (hot)
+            {
+                if (skin && skin->shutdown_btn.bmp_selection.hbmp)
+                {
+                    startskin_draw_selection(hdc, &skin->shutdown_btn.bmp_selection, &rc,
+                                             skin->shutdown_btn.sel_slices_x, skin->shutdown_btn.sel_slices_y, TRUE);
+                }
+                else if (theme)
+                    DrawThemeBackground(theme, hdc, SPP_LOGOFFBUTTONS, SPLS_HOT, &rc, NULL);
+                else
+                {
+                    HBRUSH br = CreateSolidBrush(hot_bg);
+                    FillRect(hdc, &rc, br);
+                    DeleteObject(br);
+                }
+            }
+
             if (strip)
             {
                 /* three 24 pixel pictures (undock, log off, turn off) on an olive key colour */
@@ -1608,16 +1772,43 @@ static void panel_paint(HDC hdc)
                 if (icon) { DrawIconEx(hdc, rc.left + 6, y, icon, 24, 24, 0, NULL, DI_NORMAL); DestroyIcon(icon); }
             }
             tr = rc; tr.left += 6 + 24 + 4;
-            panel_text(hdc, tr, item->title, bold, text);
+            panel_text(hdc, tr, item->title, bold, skin ? skin->caption_text_color : text);
             continue;
         }
 
         if (hot)
         {
-            HBRUSH br = CreateSolidBrush(hot_bg);
-            FillRect(hdc, &rc, br);
-            DeleteObject(br);
-            text = sub = GetSysColor(COLOR_HIGHLIGHTTEXT);
+            if (skin)
+            {
+                const struct start_skin_item_settings *item_set =
+                    (item->zone == ZONE_PLACES) ? &skin->main2_item : &skin->main_item;
+                if (item_set->bmp_selection.hbmp)
+                {
+                    startskin_draw_selection(hdc, &item_set->bmp_selection, &rc,
+                                             item_set->sel_slices_x, item_set->sel_slices_y, TRUE);
+                }
+                else
+                {
+                    HBRUSH br = CreateSolidBrush(hot_bg);
+                    FillRect(hdc, &rc, br);
+                    DeleteObject(br);
+                }
+                text = sub = item_set->text_color[1];
+            }
+            else
+            {
+                HBRUSH br = CreateSolidBrush(hot_bg);
+                FillRect(hdc, &rc, br);
+                DeleteObject(br);
+                text = sub = GetSysColor(COLOR_HIGHLIGHTTEXT);
+            }
+        }
+        else if (skin)
+        {
+            const struct start_skin_item_settings *item_set =
+                (item->zone == ZONE_PLACES) ? &skin->main2_item : &skin->main_item;
+            text = item_set->text_color[0];
+            sub = item_set->text_color[0];
         }
 
         if (item->zone == ZONE_MORE)
@@ -1626,11 +1817,25 @@ static void panel_paint(HDC hdc)
             RECT arrow;
             tr = rc; tr.left += 4;
             panel_text(hdc, tr, item->title, bold, text);
-            if (theme && SUCCEEDED(GetThemePartSize(theme, hdc, SPP_MOREPROGRAMSARROW, hot ? SPS_HOT : SPS_NORMAL, NULL, TS_TRUE, &sz)))
+            if (!skin && theme && SUCCEEDED(GetThemePartSize(theme, hdc, SPP_MOREPROGRAMSARROW, hot ? SPS_HOT : SPS_NORMAL, NULL, TS_TRUE, &sz)))
             {
                 SetRect(&arrow, rc.right - sz.cx - 4, rc.top + (rc.bottom - rc.top - sz.cy) / 2, rc.right - 4, 0);
                 arrow.bottom = arrow.top + sz.cy;
                 DrawThemeBackground(theme, hdc, SPP_MOREPROGRAMSARROW, hot ? SPS_HOT : SPS_NORMAL, &arrow, NULL);
+            }
+            else
+            {
+                POINT tri[3];
+                int ay = rc.top + (rc.bottom - rc.top) / 2;
+                HBRUSH ab = CreateSolidBrush(text), ap = SelectObject(hdc, ab);
+                HPEN pen = CreatePen(PS_SOLID, 1, text), pp = SelectObject(hdc, pen);
+
+                tri[0].x = rc.right - 10; tri[0].y = ay - 4;
+                tri[1].x = rc.right - 10; tri[1].y = ay + 4;
+                tri[2].x = rc.right - 6;  tri[2].y = ay;
+                Polygon(hdc, tri, 3);
+                SelectObject(hdc, pp); DeleteObject(pen);
+                SelectObject(hdc, ap); DeleteObject(ab);
             }
             continue;
         }
@@ -1673,8 +1878,8 @@ static void panel_paint(HDC hdc)
             }
         }
     }
-    DeleteObject(font);
-    DeleteObject(bold);
+    if (own_font && font) DeleteObject(font);
+    if (own_bold && bold) DeleteObject(bold);
     if (theme) CloseThemeData(theme);
 }
 
@@ -2196,10 +2401,10 @@ static LRESULT CALLBACK two_column_startmenu_proc(HWND hwnd, UINT msg, WPARAM wp
 void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
 {
     THEME_CONFIG config, *theme = &config;
-    theme_get_current(theme);
     TASKBAR_SETTINGS *settings;
     int style = THEME_STARTMENU_CLASSIC;
 
+    theme_get_current(theme);
     taskbar_settings_load();
     settings = taskbar_settings_get();
 
@@ -2229,12 +2434,15 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
     {
         /* Two-column Windows XP Start Menu Window */
         int width, height;
+        int x, y;
+        struct start_skin *skin = startskin_get_active(STARTSKIN_TYPE_CLASSIC2);
+
         panel_layout();
         g_panel_hot = -1;
         width = g_panel_size.cx;
         height = g_panel_size.cy;
-        int x = btn_rect->left;
-        int y = btn_rect->top - height;
+        x = btn_rect->left;
+        y = btn_rect->top - height;
 
         if (!g_startmenu_wnd)
         {
@@ -2257,7 +2465,7 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
         {
             HTHEME theme = theme_open(NULL, L"StartPanel");
             HRGN top = NULL, body;
-            if (theme) GetThemeBackgroundRegion(theme, NULL, SPP_USERPANE, 0, &g_zone[ZONE_USER], &top);
+            if (!skin && theme) GetThemeBackgroundRegion(theme, NULL, SPP_USERPANE, 0, &g_zone[ZONE_USER], &top);
             if (top)
             {
                 body = CreateRectRgn(0, g_zone[ZONE_USER].bottom, width, height);
