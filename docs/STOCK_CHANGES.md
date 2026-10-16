@@ -17,6 +17,12 @@ grow/shrink, corner grow and subsequent typing pass. This is still on the L2
 topic, not the production pin; see WAYLAND_SESSION.md for the active work order.
 Topic 6b3435c coordinates real foot work-area maximize/restore using private
 scalar capture and maximize requests in the existing Wayland driver path.
+Topic cc59531 draws caption buttons within Wine's metric hit slots: real foot's
+drawn maximize glyph previously hit HTMINBUTTON. Topic ac2cc1e restores held
+modifiers from wl_keyboard.enter before native xterm's Alt+Tab reaches Wine,
+and keeps private-shell topmost overlays independent so Explorer's switcher
+is not clipped into the hosted client hole. No driver ABI hook or protocol
+version was added. These remain topic commits, not the production Wine pin.
 They preserve the compositor's physical focus/capture checks. Controlled
 hosted views acknowledge xdg state without allowing an obsolete
 NOSENDCHANGING configure size to overwrite the native-ready frame, and flush

@@ -7,6 +7,40 @@ follow that review. No acceptance is claimed yet.
 
 ## Part A
 
+Latest incremental checkpoint: Wine topic ac2cc1e and compositor 4346271c.
+Foot caption maximize/restore now works by pointer after the theme renderer's
+bitmap-based slots were aligned with Wine's metric hit slots. XWayland xterm
+now completes the same v10 resize transaction using a content commit at the
+requested hint-constrained dimensions, without requiring an xdg ack. Real
+edge sizing changes its client from 484x316 to 604x316; corner sizing reaches
+664x381, maximize fills the 1280x770 work area, and restore returns to 664x381.
+No synthetic clients were added.
+
+Alt+Tab from native xterm now uses the associated Wine frame's ordinary
+wl_keyboard focus path. Wine restores held Alt/Shift from enter before Tab;
+Explorer's existing hook owns switching. The held switcher is visibly above
+the terminals, releasing Alt switches to foot, and `echo After-Alt-Tab` prints
+there. The Windows key opens Start from native foot. Initially the switcher
+existed but was invisible as a subsurface clipped into the host's client hole;
+private-shell nonactivating topmost overlays now get independent surfaces.
+An earlier xterm typing attempt after the unhandled shortcut contained control
+input and failed as a shell command; clean post-switch typing passes afterward.
+
+Evidence in ignored `build/wayland-session`: `foot-caption-passed.png`,
+`foot-caption-restored.png`, `xterm-maximized.png`, `xterm-controls.png`,
+`native-held-readback.png`, `native-switcher-complete.png`, `native-start-key.png`.
+Logs: `session-caption-full-wow64.log`, `session-xwayland-compositor.log`,
+`session-shortcuts-full-wow64.log`, `session-shortcuts-compositor.log`,
+`session-switcher-overlay-full-wow64.log` in the Proton VM's isolated checks
+directory. All listed builds pass; the full production d92d7e44 build was
+repeated after these topic changes and passes too.
+
+The first live switch to 150% detached the native groups and exposed labwc
+frames while Wine's taskbar stayed at its physical pixel size. This is a real
+acceptance failure under investigation; 150% is not claimed passing. Bob is
+currently at 150%, with foot and xterm open. Firefox ESR, qt6-wayland and
+wlr-randr are installed for the remaining real-program checks.
+
 Linux desktop-file launches now copy the compositor's normal Wayland socket
 and XWayland display into their GIO launch context. They remove both `WINE*`
 and shell `WEX_*` variables. The endpoints come from the session inventory,
@@ -106,6 +140,20 @@ Master's production Wine pin is still d92d7e44, so these sizing/maximize control
 remain compiled out there until the integration pin is advanced.
 
 ## Test environment and command failures
+
+Further read-only path failures in this continuation: there is no
+`wexcomp/src/xwayland/` directory (use `src/xwayland.c`) or
+`winewayland.drv/wayland_zone.c` (use `wayland_zones.c`). A literal
+`docs/WAYLAND_L4*` rg argument also failed with Windows error 123; file
+inventory found the plan in `WAYLAND_PLAN.md`. A build-VM cd initially omitted
+`wow64-source` before `wexcomp`. The shallow clone's fetch updates FETCH_HEAD,
+not origin/codex/wayland-session; use FETCH_HEAD there. Its existing view.c
+diff against 73ea3a44 was indentation only, so the first exact-diff check
+correctly prevented the reset; verified with `git diff -w` and advanced that
+isolated checkout with a mixed reset, preserving working files. CRLF staging
+still needs normalization before making the compositor package reproducible.
+An accidental patch briefly removed resize_transaction's serial field; it
+was restored immediately, before any build or transfer.
 
 After prefix-split S4 merged on master, the earlier incremental owned-source
 archive was insufficient to establish that the complete merged tree built.

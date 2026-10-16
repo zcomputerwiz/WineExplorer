@@ -4,6 +4,7 @@
  */
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 static BOOL warp_mode;
 static LRESULT CALLBACK proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
@@ -61,6 +62,9 @@ int main(int argc, char **argv)
                 printf("Z %p ex=%08lx role=%p atom=%p %ls\n",hwnd,GetWindowLongW(hwnd,GWL_EXSTYLE),
                     GetPropW(hwnd,L"__wine_wayland_role"),GetPropW(hwnd,L"__wine_wayland_window_handle"),title);
                 GetWindowRect(hwnd,&rect);
+                if (argc == 4)
+                    printf("  HIT %ld\n", (long)SendMessageW(hwnd,WM_NCHITTEST,0,
+                           MAKELPARAM(atoi(argv[2]),atoi(argv[3]))));
                 printf("  style=%08lx rect=%ld,%ld,%ld,%ld foreground=%d host=%p group=%p focus=%p size=%p\n",
                     GetWindowLongW(hwnd,GWL_STYLE),rect.left,rect.top,rect.right,rect.bottom,GetForegroundWindow()==hwnd,
                     GetPropW(hwnd,L"__wine_wayland_native_host"),GetPropW(hwnd,L"__wine_wayland_native_group"),
