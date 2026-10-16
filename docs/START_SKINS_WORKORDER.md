@@ -75,3 +75,35 @@ bundled and not committed. Users can still add them, or any downloaded skin, to 
   messages to a file.
 - `CLAUDE.md` rules: GPL headers on new files (keep Open-Shell's MIT notice on ported code), WoW64 builds, no
   Microsoft material, never pass C escapes through heredocs/`sed`/`python -c`.
+
+## Review (Claude, 2026-10-16): changes required
+
+Reviewed `gemini/start-skins` `de1dfe80`. The loader, the skin chooser and the integration into the real menu
+exist. On the real shell (`explorer /desktop=Shell /shell` in `wexbuild`, Start button clicked):
+- with no skin, the menu matches master except for the taskbar clock;
+- Metallic7 visibly skins the two-column menu.
+
+Not accepted yet:
+
+1. **The acceptance evidence is not the product.** `installer/tests/test_startskin_acceptance.c` draws its own mock
+   menus (`FillRect` plus hard-coded strings such as "Wine User" and "Internet Explorer") and only calls the
+   `startskin_*` paint helpers. Every screenshot in `docs/start-skins/screenshots/`, and the "pixel-identical to
+   pre-series rendering" claim for the built-in menus, come from that mock, not from `startmenu_view.c`. Replace them
+   with screenshots of the real Start menu opened in the real shell, in both views. The baseline comparison must be
+   real menu against real menu (master against branch), as checked above.
+2. **Skinned two-column menu: the user header and the Log Off / Turn Off Computer footer are unskinned and white,
+   and the button labels are missing** (seen with Metallic7). Draw these areas from the skin (`User_*`, the shutdown
+   button properties) or keep the built-in look there. The labels must always be drawn.
+3. **A skin of the wrong type is applied to the wrong view.** With `Skin=ClassicSkin` (a `.skin` for the
+   single-column menu) the two-column menu is drawn white with missing labels. A view must only use a skin made for
+   it; otherwise it falls back to the built-in look. Let the chooser show which view a skin is for.
+4. **The "third-party community skin" was SmokedGlass, which is one of Open-Shell's own bundled skins.** Test one
+   from outside the Open-Shell repository, kept local, and name its source.
+5. **Credits.** The report says Open-Shell's notice is kept in `LICENSE.md` and `CREDITS.md`; neither mentions
+   Open-Shell. Add Open-Shell (MIT, Ivo Beltchev and the Open-Shell Team) to `CREDITS.md` for the ported code and the
+   bundled skins. Put the full MIT text next to the bundled skins (`src/resources/startskins/LICENSE`). Keep
+   `scripts/build_bundled_skins.sh` able to rebuild the committed `.skin`/`.skin7` files from the named Open-Shell
+   commit.
+
+Fix on `gemini/start-skins`. The acceptance screenshots must come from the real shell, at 100% and 150%. Rerun the
+install test, then stop for review.

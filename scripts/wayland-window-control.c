@@ -4,8 +4,23 @@
  */
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <wexhost.h>
 static BOOL warp_mode;
+static DWORD (WINAPI *native_title)(UINT64,WCHAR *,DWORD);
+static DWORD (WINAPI *native_info)(UINT64,WEX_NATIVE_WINDOW *);
+static void CALLBACK native_event(const WEX_WM_EVENT *event, void *context)
+{
+    WCHAR title[256] = {0};
+    WEX_NATIVE_WINDOW info = {0};
+    if (event->type != WEX_WM_MAP && event->type != WEX_WM_OBSERVED) return;
+    native_title(event->window,title,256);
+    native_info(event->window,&info);
+    printf("NATIVE %llu flags=%#lx states=%#lx logical=%ld,%ld,%ld,%ld app=%s title=%ls\n",
+           (unsigned long long)event->window,event->flags,event->states,event->rect.left,event->rect.top,
+           event->rect.right,event->rect.bottom,info.app_id,title);
+}
 static LRESULT CALLBACK proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp)
 {
     if (warp_mode && message == WM_KEYDOWN && wp == 'W')
@@ -38,6 +53,20 @@ int main(int argc, char **argv)
     RECT work, rect;
     WCHAR title[128];
     POINT point;
+    if (argc > 1 && !strcmp(argv[1],"inventory"))
+    {
+        HMODULE module = LoadLibraryW(L"wexhost.dll");
+        DWORD (WINAPI *start)(DWORD,UINT64,WEX_WM_CALLBACK,void *) = module ?
+            (void *)GetProcAddress(module,"WexWmStartEx") : NULL;
+        void (WINAPI *stop)(void) = module ? (void *)GetProcAddress(module,"WexWmStop") : NULL;
+        native_title = module ? (void *)GetProcAddress(module,"WexWmGetTitle") : NULL;
+        native_info = module ? (void *)GetProcAddress(module,"WexWmGetNativeInfo") : NULL;
+        if (!start || !stop || !native_title || !native_info) return 2;
+        if (start(WEX_WM_BACKEND_WAYLAND,0,native_event,NULL)) return 3;
+        Sleep(1500);
+        stop();
+        return 0;
+    }
     if (argc > 1)
     {
         printf("ACTION %s hwnd=%p style=%08lx\n",argv[1],hwnd,GetWindowLongW(hwnd,GWL_STYLE));
@@ -61,13 +90,18 @@ int main(int argc, char **argv)
                 printf("Z %p ex=%08lx role=%p atom=%p %ls\n",hwnd,GetWindowLongW(hwnd,GWL_EXSTYLE),
                     GetPropW(hwnd,L"__wine_wayland_role"),GetPropW(hwnd,L"__wine_wayland_window_handle"),title);
                 GetWindowRect(hwnd,&rect);
+                printf("  owner=%p lastpopup=%p\n",GetWindow(hwnd,GW_OWNER),GetLastActivePopup(hwnd));
+                if (argc == 4)
+                    printf("  HIT %ld\n", (long)SendMessageW(hwnd,WM_NCHITTEST,0,
+                           MAKELPARAM(atoi(argv[2]),atoi(argv[3]))));
                 printf("  style=%08lx rect=%ld,%ld,%ld,%ld foreground=%d host=%p group=%p focus=%p size=%p\n",
                     GetWindowLongW(hwnd,GWL_STYLE),rect.left,rect.top,rect.right,rect.bottom,GetForegroundWindow()==hwnd,
                     GetPropW(hwnd,L"__wine_wayland_native_host"),GetPropW(hwnd,L"__wine_wayland_native_group"),
                     GetPropW(hwnd,L"__wine_wayland_native_focus"),GetPropW(hwnd,L"__wine_wayland_resize_enable"));
                 GetClientRect(hwnd,&rect); point.x=point.y=0; ClientToScreen(hwnd,&point);
-                printf("  client=%ld,%ld %ldx%ld protocol=%p capture=%p\n",point.x,point.y,rect.right,rect.bottom,
-                    GetPropW(hwnd,L"__wine_wayland_resize_protocol"),GetPropW(hwnd,L"__wine_wayland_native_pointer_capture"));
+                printf("  client=%ld,%ld %ldx%ld protocol=%p capture=%p scale120=%p\n",point.x,point.y,rect.right,rect.bottom,
+                    GetPropW(hwnd,L"__wine_wayland_resize_protocol"),GetPropW(hwnd,L"__wine_wayland_native_pointer_capture"),
+                    GetPropW(hwnd,L"__wine_wayland_scale_120"));
             }
             return 0;
         }

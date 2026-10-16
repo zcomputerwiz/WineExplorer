@@ -49,6 +49,10 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 #define IDT_MANAGE      1
 #define MANAGE_RETRIES  40              /* 50 ms each: the host's X window reaches the server with Wine's next flush */
 #define ICON_PIXELS     (256 * 256)
+#ifndef WEX_WAYLAND_SCALE_PROP
+#define WEX_WAYLAND_SCALE_PROP L"__wine_wayland_scale_120"
+#define WEX_WAYLAND_SCALE_EVENT_MESSAGE L"WineExplorer.WaylandScaleChanged"
+#endif
 
 static const WCHAR host_class[] = L"WineExplorerLinuxWindow";
 static const WCHAR events_class[] = L"WineExplorerLinuxWindows";
@@ -63,6 +67,7 @@ struct linux_window
     BOOL   reconciling, state_pending;
     BOOL   interactive, geometry_pending;
     RECT   requested_geometry, observed_geometry;
+    WEX_WM_EVENT native_snapshot; /* logical compositor coordinates */
     DWORD  geometry_requested_at;
     DWORD  observed_states, requested_states;
     UINT64 owner;
@@ -84,6 +89,7 @@ static struct list windows = LIST_INIT( windows );
 static HWND events_hwnd;
 static HWINEVENTHOOK foreground_hook;
 static BOOL wayland_mode;
+static UINT wayland_scale_message;
 #define WM_LINUX_FOREGROUND (WM_APP + 91)
 
 /* a program moving or sizing its window from its own title bar (WEX_WM_MOVERESIZE) */
@@ -100,6 +106,25 @@ static struct linux_window *find_window( UINT64 window )
     struct linux_window *lw;
     LIST_FOR_EACH_ENTRY( lw, &windows, struct linux_window, entry ) if (lw->window == window) return lw;
     return NULL;
+}
+
+static WEX_WM_EVENT native_event_to_wine(const WEX_WM_EVENT *event, HWND hwnd)
+{
+    WEX_WM_EVENT mapped = *event;
+    UINT scale;
+    if (!wayland_mode) return mapped;
+    if (!hwnd) hwnd = FindWindowW(L"Shell_TrayWnd",NULL);
+    scale = (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_SCALE_PROP);
+    if (!scale) scale = 120;
+    mapped.rect.left = MulDiv(event->rect.left,scale,120);
+    mapped.rect.top = MulDiv(event->rect.top,scale,120);
+    mapped.rect.right = MulDiv(event->rect.right,scale,120);
+    mapped.rect.bottom = MulDiv(event->rect.bottom,scale,120);
+    mapped.min_size.cx = MulDiv(event->min_size.cx,scale,120);
+    mapped.min_size.cy = MulDiv(event->min_size.cy,scale,120);
+    mapped.max_size.cx = MulDiv(event->max_size.cx,scale,120);
+    mapped.max_size.cy = MulDiv(event->max_size.cy,scale,120);
+    return mapped;
 }
 
 static void destroy_host( struct linux_window *lw )
@@ -354,16 +379,22 @@ static void fit_dialog( const struct linux_window *lw, HWND owner, DWORD style, 
 
 static void map_window( const WEX_WM_EVENT *event )
 {
+    WEX_WM_EVENT native = *event, mapped = native_event_to_wine(event,NULL);
     struct linux_window *lw, *owner = event->owner ? find_window( event->owner ) : NULL;
     DWORD style, ex_style;
-    RECT rect = event->rect, work;
+    RECT rect = mapped.rect, work;
     int x, y, width, height;
+
+    event = &mapped;
+    TRACE("native %I64x flags %#lx states %#lx geometry %s\n",event->window,event->flags,
+          event->states,wine_dbgstr_rect(&event->rect));
 
     if (wayland_mode && !(event->flags & WEX_WM_NO_BORDER) &&
         (event->states & (WEX_WM_STATE_MINIMIZED | WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN))) return;
 
     if (find_window( event->window ) || !(lw = calloc( 1, sizeof(*lw) ))) return;
     lw->window = event->window;
+    lw->native_snapshot = native;
     lw->window_type = event->window_type;
     lw->flags = event->flags;
     lw->initial_states = event->states;
@@ -450,6 +481,7 @@ static void map_window( const WEX_WM_EVENT *event )
         struct linux_window *child;
         if (err != ERROR_SUCCESS && err != ERROR_IO_PENDING)
         {
+            WARN("native %I64x initial host binding failed: %lu\n",lw->window,err);
             lw->gone = TRUE;
             WexWmRelease(lw->window,NULL);
             destroy_host(lw);
@@ -469,11 +501,14 @@ static void map_window( const WEX_WM_EVENT *event )
 
 static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *event)
 {
-    RECT frame=event->rect, client, screen, current;
+    WEX_WM_EVENT mapped = native_event_to_wine(event,lw->host);
+    RECT frame=mapped.rect, client, screen, current;
     struct linux_window *owner;
     HWND wanted_owner;
     DWORD style, ex_style;
     BOOL minimized;
+    lw->native_snapshot = *event;
+    event = &mapped;
     if (!!(event->flags & WEX_WM_NO_BORDER) != !!(lw->flags & WEX_WM_NO_BORDER) ||
         (!(lw->flags & WEX_WM_NO_BORDER) && (event->states & WEX_WM_STATE_FULLSCREEN)))
     {
@@ -696,6 +731,13 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     RECT client, screen;
     PAINTSTRUCT ps;
 
+    if (wayland_mode && wayland_scale_message && msg == wayland_scale_message && lw && lw->managed)
+    {
+        lw->geometry_pending = FALSE;
+        observe_wayland_window(lw,&lw->native_snapshot);
+        return 0;
+    }
+
     switch (msg)
     {
     case WM_NCCREATE:
@@ -824,6 +866,7 @@ void linux_windows_start(void)
     if (!enabled) return;
     wayland_mode = !desktop && GetEnvironmentVariableW(L"WEX_WAYLAND_NATIVE_WINDOWS",opt_in,ARRAY_SIZE(opt_in)) == 1 &&
                    opt_in[0] == '1';
+    if (wayland_mode) wayland_scale_message = RegisterWindowMessageW(WEX_WAYLAND_SCALE_EVENT_MESSAGE);
 
     cls.lpfnWndProc = host_proc;
     cls.hInstance = explorer_hInstance;

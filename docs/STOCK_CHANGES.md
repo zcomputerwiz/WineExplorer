@@ -17,7 +17,24 @@ grow/shrink, corner grow and subsequent typing pass. This is still on the L2
 topic, not the production pin; see WAYLAND_SESSION.md for the active work order.
 Topic 6b3435c coordinates real foot work-area maximize/restore using private
 scalar capture and maximize requests in the existing Wayland driver path.
-They preserve the compositor's physical focus/capture checks. Controlled
+Topic cc59531 draws caption buttons within Wine's metric hit slots: real foot's
+drawn maximize glyph previously hit HTMINBUTTON. Topic ac2cc1e restores held
+modifiers from wl_keyboard.enter before native xterm's Alt+Tab reaches Wine,
+and keeps private-shell topmost overlays independent so Explorer's switcher
+is not clipped into the hosted client hole. No driver ABI hook or protocol
+version was added. These remain topic commits, not the production Wine pin.
+Topic 4fb0940 publishes the existing preferred wl_surface scale as a private
+scalar property with an owning-thread notification, so native inventory's
+logical rectangles can be reconciled into Wine pixels. It refreshes zone
+placement and reserved edges at a scale change. Actual foot resize,
+maximize/restore and typing at 150% pass; live maximized scale change remains
+unresolved. The owning bridge uses the same scale conversion as the driver.
+Topic 055abb3 reuses the existing transparent dummy-content helper when an
+all-client hosted CSD proxy changes size without GDI damage. Actual gedit at
+150% otherwise loses its taskbar item after startup work-area clamping;
+typing and taskbar minimize/restore pass with the fix. Visible SSD pixels and
+minimized proxy geometry do not use this path.
+The 6b3435c requests preserve the compositor's physical focus/capture checks. Controlled
 hosted views acknowledge xdg state without allowing an obsolete
 NOSENDCHANGING configure size to overwrite the native-ready frame, and flush
 pending frame content after acknowledgement. No generic Wine hook or private

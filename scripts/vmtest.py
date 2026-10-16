@@ -137,7 +137,9 @@ SHIFTED = dict(zip('~!@#$%^&*()_+{}|:"<>?', "`1234567890-=[]\\;',./"))
 def keys(name, combos, hold=80):
     for combo in combos:
         qmp(name, "send-key", keys=[{"type": "qcode", "data": k} for k in combo.split("-")], **{"hold-time": hold})
-        time.sleep(0.05)
+        # QMP releases these keys asynchronously. Do not start the next chord
+        # or text while Ctrl/Alt/Shift from this one is still held.
+        time.sleep(max(0.05, hold / 1000 + 0.01))
 
 def move(name, x, y):
     w, h = screen_size(name)

@@ -7,6 +7,143 @@ follow that review. No acceptance is claimed yet.
 
 ## Part A
 
+Qt/browser checkpoint: actual QTerminal at 150% keeps its Wine caption and
+accepts `echo Qt150checked`, moves, resizes with its minimum constraints,
+grows a corner (client 897x630 to 957x651), maximizes exactly above the taskbar,
+and minimizes/restores through its single taskbar item. Firefox ESR at 150%
+keeps its own decorations and one hosted button, minimizes/restores, and opens
+the local `about:support` page by actual Ctrl+L typing (`Application Basics`
+is visible). Evidence: `qt150-controls.log`, `qt150-typed.png`,
+`qt150-corner.png`, `firefox150-min.png`, `firefox150-restored.png`,
+`firefox150-support.png` and `firefox-qt150-controls.log` in the ignored directory.
+
+QTerminal's Exit confirmation exposed native transient stacking after raising
+its parent through the taskbar. Compositor b99b5090 raises native transient
+children through their own hosting roots, preserving labwc's existing ordering.
+The real close/switch-away/taskbar-return/Yes sequence passes at 100%
+(`qt-transient-controls.log`). Taskbar activation also preserves maximized
+placement and chooses the last active visible popup before restoring its owner,
+instead of activating an already visible parent with SW_SHOWNORMAL first.
+
+Still open: at 150%, the Exit dialog stays above its parent, but its Yes/No
+buttons can disappear briefly after switching back. The bounded five-second
+OCR check fails (`qt-transient150-controls.log`); later screenshots show the
+buttons again, and a click at Yes closes the application. A real-client
+WAYLAND_DEBUG trace shows configure acknowledgements, fresh partial-damage
+buffers and frame callbacks; do not claim this case passing. Continue other
+acceptance rather than expanding into synthetic cases. The 100% fix remains
+verified. Current VM: Bob at 150%, foot plus QTerminal's Exit dialog, with
+test-only compositor `-d` and QTerminal WAYLAND_DEBUG logging enabled.
+
+Test tooling: vmtest now waits for QMP's scheduled key release before sending
+the next chord/text. Its old fixed 50ms delay was shorter than the default
+80ms key hold, overlapping modifiers in fast program checks. Firefox's actual
+Ctrl+L/about:support navigation passes after the change. QTerminal's first
+test launch inherited /root and logged `CRASHED! result: -1`; `-w
+/home/bobsmith` runs its shell correctly. A wait for `Shell No. 1` then failed
+because its running shell changes the title to `bobsmith@WEX-PC: ~`; geometry
+readback and the typed shell command establish that it is running. An
+immediate post-close process query preceded QTerminal's exit; the test now
+allows two seconds for orderly exit. Read-only discovery also tried nonexistent
+`wexcomp/src/foreign-toplevel.c`; the sources are under `src/foreign-toplevel/`.
+
+ISO preparation discovery: live-build is installed on the Proton build VM.
+The actual build volume is `/srv/protonexplorer` (25 GiB free), not `/srv`
+(on the nearly full root disk). The assembled source root has no .git directory;
+git queries there failed. Its Wine checkout still has historical Git HEAD
+3bb585c4 with our explicit source overlays and owned-module symlinks. Package
+version is fixed rather than Git-derived; nevertheless, normalize and verify
+that source against the integration revision before the ISO. Do not reset or
+discard the owned-module symlinks. The final production-pin build after the
+taskbar activation change passes both architectures.
+
+CSD checkpoint: Wine topic 055abb3 fixes a real gedit 150% startup failure.
+It first maps at logical 900x747, then shrinks to 853x513. The proxy has no
+nonclient ring, hence no GDI damage to publish its new extent. Compositor debug
+reported `frame ... size=900x747 native ... size=853x513 client=0,0 900x747`;
+the retry limit subsequently removed the proxy, leaving gedit without a taskbar
+button. Reusing Wine's existing transparent dummy-content helper for visible,
+noniconic all-client hosts updates that extent; SSD frame painting is unchanged.
+At 150% gedit now has exactly one hosted taskbar item, its own header bar,
+successful `GTK150checked` input, and taskbar minimize/restore. Evidence:
+`gedit150-controls.log`, `gedit150-min.png`, `gedit150-restored.png`.
+The full combined WoW64 build passes (`session-csd-dummy-full-wow64.log`),
+as does the repeated production-pin build including the owned diagnostics.
+
+The existing window-control readback gained a read-only inventory mode to
+diagnose this actual gedit failure. It prints native app IDs, logical geometry,
+flags and states; it does not bind, resize or control clients. Compile it with
+`-Isrc/include`; the existing `wayland-l1-check.sh` compile line is updated.
+Both MinGW architectures compile with `-Wall`. An initial `%I64u` format emitted
+a MinGW format warning; the new inventory output uses portable `%llu` instead.
+No synthetic application or new protocol test has been added.
+
+For this diagnosis only, the installed launcher selects a small
+`/usr/local/bin/wexcomp-debug` wrapper passing labwc's standard `-d` option,
+and Wine logs `-all,+wexhost,+explorer`. These are test-VM overrides, not ISO
+defaults. The debug wrapper and staging helpers are under the ignored build
+directory. Bob currently has gedit open at 150% with unsaved test text.
+
+Scale checkpoint: Wine topic 4fb0940, compositor 0456b718 and the owned
+`linux_windows.c` reconciliation now distinguish logical native observations
+from Win32 pixel geometry using the driver's existing preferred surface scale.
+The driver publishes a scalar read-only scale and posts an owning-thread
+notification, following the other private properties; no new hook or protocol.
+The shell retains the raw native snapshot for scale reconciliation. This
+covers the requested one-output 150% case and unit-scale output layouts;
+mixed-scale monitor coordinate transforms have not been tested.
+
+Real foot at 150% now retains its Wine frame and input: an edge shrink changes
+the pixel client from 1050 to 930 wide, maximize reaches frame
+(-4,-4)-(1284,774), restore returns to client (114,41) 930x721, and
+`echo Scale-150-passed` prints. The taskbar is visibly at the bottom, above the
+window, with scale120=180 and pixel rect (0,770)-(1280,800). Evidence:
+`scale150-controls.log`, `scale150-max.png`, `scale150-restored.png`, and
+`scale150-taskbar.png` in ignored `build/wayland-session`.
+
+The successive live-scale failures were: unconverted native inventory,
+independent compositor placement of Wine shell/frames, and the offscreen old
+taskbar edge never receiving preferred scale. The last is fixed by notifying
+the Wine view's assigned output scale before it repositions through its zone.
+Normal windows can retain partially offscreen positions after a live scale
+change, consistent with labwc's midpoint visibility policy. Switching scale
+while foot is already maximized still needs reconciliation; static 150%
+maximize/restore passes. Keep that remaining real case explicit.
+
+Latest incremental checkpoint: Wine topic ac2cc1e and compositor 4346271c.
+Foot caption maximize/restore now works by pointer after the theme renderer's
+bitmap-based slots were aligned with Wine's metric hit slots. XWayland xterm
+now completes the same v10 resize transaction using a content commit at the
+requested hint-constrained dimensions, without requiring an xdg ack. Real
+edge sizing changes its client from 484x316 to 604x316; corner sizing reaches
+664x381, maximize fills the 1280x770 work area, and restore returns to 664x381.
+No synthetic clients were added.
+
+Alt+Tab from native xterm now uses the associated Wine frame's ordinary
+wl_keyboard focus path. Wine restores held Alt/Shift from enter before Tab;
+Explorer's existing hook owns switching. The held switcher is visibly above
+the terminals, releasing Alt switches to foot, and `echo After-Alt-Tab` prints
+there. The Windows key opens Start from native foot. Initially the switcher
+existed but was invisible as a subsurface clipped into the host's client hole;
+private-shell nonactivating topmost overlays now get independent surfaces.
+An earlier xterm typing attempt after the unhandled shortcut contained control
+input and failed as a shell command; clean post-switch typing passes afterward.
+
+Evidence in ignored `build/wayland-session`: `foot-caption-passed.png`,
+`foot-caption-restored.png`, `xterm-maximized.png`, `xterm-controls.png`,
+`native-held-readback.png`, `native-switcher-complete.png`, `native-start-key.png`.
+Logs: `session-caption-full-wow64.log`, `session-xwayland-compositor.log`,
+`session-shortcuts-full-wow64.log`, `session-shortcuts-compositor.log`,
+`session-switcher-overlay-full-wow64.log` in the Proton VM's isolated checks
+directory. All listed builds pass; the full production d92d7e44 build was
+repeated after these topic changes and passes too.
+
+The first live switch to 150% detached the native groups and exposed labwc
+frames while Wine's taskbar stayed at its physical pixel size. This is a real
+acceptance failure under investigation; 150% is not claimed passing. Bob is
+currently at 150%, with foot and xterm open. Firefox ESR, qt6-wayland and
+wlr-randr are installed for the remaining real-program checks.
+
 Linux desktop-file launches now copy the compositor's normal Wayland socket
 and XWayland display into their GIO launch context. They remove both `WINE*`
 and shell `WEX_*` variables. The endpoints come from the session inventory,
@@ -106,6 +243,50 @@ Master's production Wine pin is still d92d7e44, so these sizing/maximize control
 remain compiled out there until the integration pin is advanced.
 
 ## Test environment and command failures
+
+Further read-only path failures in this continuation: there is no
+`wexcomp/src/xwayland/` directory (use `src/xwayland.c`) or
+`winewayland.drv/wayland_zone.c` (use `wayland_zones.c`). A literal
+`docs/WAYLAND_L4*` rg argument also failed with Windows error 123; file
+inventory found the plan in `WAYLAND_PLAN.md`. A build-VM cd initially omitted
+`wow64-source` before `wexcomp`. The shallow clone's fetch updates FETCH_HEAD,
+not origin/codex/wayland-session; use FETCH_HEAD there. Its existing view.c
+diff against 73ea3a44 was indentation only, so the first exact-diff check
+correctly prevented the reset; verified with `git diff -w` and advanced that
+isolated checkout with a mixed reset, preserving working files. CRLF staging
+still needs normalization before making the compositor package reproducible.
+The xdg decoration source is `wexcomp/src/decorations/xdg-deco.c`; read-only
+searches for `src/xdg-decoration.c` and `src/decorations.c` failed.
+A STOCK_CHANGES documentation patch initially expected a whole sentence on
+one line, but the source wrapped it across lines. The patch failed without
+changing that file; re-read its exact context and applied the corrected patch.
+An accidental patch briefly removed resize_transaction's serial field; it
+was restored immediately, before any build or transfer.
+
+After prefix-split S4 merged on master, the earlier incremental owned-source
+archive was insufficient to establish that the complete merged tree built.
+Re-synced every tracked `src`, `scripts` and `installer` file from master
+2a2634fe to the isolated assembled build source, then ran the full combined
+WoW64 build at production Wine d92d7e44 again. It exits zero (`Wine build
+complete.`). The topic files are restored afterward; the root Wine pin is
+unchanged. Both launchers now share S4's prefix preparation in the sourced
+helper; Bash syntax checks pass. Fresh split-prefix Wayland login is still
+part of the pending new-ISO acceptance.
+
+The real foot caption maximize click at (944,136) reproducibly minimizes.
+Readback returns HTMINBUTTON at that drawn maximize glyph; the normal
+WM_SYSCOMMAND path receives SC_MINIMIZE. This is a mismatch between themed
+caption drawing and Wine's metric-based hit rectangles, rather than a resize
+transport failure. Caption double-click and taskbar Restore remain successful.
+
+This continuation's read-only path mistakes: literal PowerShell globs
+`wexcomp/include/wex*` and `wexcomp/src/protocols/wex*` fail with error 123;
+the protocol header is `include/protocols/wex-window.h`, not
+`include/wex-window.h` or `include/wex-scene.h`. `linux_windows.c` belongs to
+`src/dlls/wexshell`, not wexhost. Wine's nonclient code is `win32u/defwnd.c`,
+not `win32u/nonclient.c`; there is no `src/dlls/wextheme`. File inventory and
+`rg -g` resolve these. The generated helper extraction left whitespace on
+blank lines; `git diff --check` detected it and the patch removed it.
 
 The permitted Debian WSL distribution runs our QEMU/KVM tests. The stopped
 `p4-submodule` installed disk is the read-only backing file for a new

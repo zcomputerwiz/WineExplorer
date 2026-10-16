@@ -13,7 +13,7 @@ export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
 test -n "${WINEPREFIX:-}" && test "$WINEPREFIX" != "$HOME/.wine"
 mkdir -p "$out"
 control="$out/window-control.exe"
-x86_64-w64-mingw32-gcc -Wall "$project/scripts/wayland-window-control.c" -lgdi32 -o "$control"
+x86_64-w64-mingw32-gcc -Wall -I"$project/src/include" "$project/scripts/wayland-window-control.c" -lgdi32 -o "$control"
 run() { "$wine_bin" "$control" "$@"; }
 capture() {
     if [ -n "${WAYLAND_DISPLAY:-}" ]; then grim "$1"; else import -window root "$1"; fi
