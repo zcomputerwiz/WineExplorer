@@ -6,9 +6,12 @@ Windows XP / Server 2003 shell on Wine for Debian. Docs live in `docs/` (start w
 ## Rules
 
 - Pixel and functional parity with the XP VM; XP names; gray out what does not apply to Wine.
-- ReactOS code and art may be ported. Microsoft material (genuine XP files, reference sources) never enters this
-  repository and is never named in it: it lives in the local-only repository `../WineExplorer-local`
-  (`docs/ASSETS.md`). Pictures here are open: `scripts/open_assets.py`, `assets/open_assets.json`.
+- ReactOS code and art may be ported. Proprietary Microsoft material (genuine Windows files, reference sources, and
+  art copied or traced from them) never enters this repository and is never named in it: it lives in the local-only
+  repository `../WineExplorer-local` (`docs/ASSETS.md`). Microsoft releases under an open licence (Fluent UI System
+  Icons, MIT) may be used with their notice. Third-party art needs a GPL-compatible licence (CC BY, CC BY-SA, MIT,
+  OFL, GPL-2.0-or-later; never NC/ND) and must not be derived from Windows art; brand logos (the Windows logo
+  included) stay out. Pictures here are open: `scripts/open_assets.py`, `assets/open_assets.json`.
 - Keep changes to stock Wine small and list each in `docs/STOCK_CHANGES.md`.
 - 32-bit Windows programs must run: every Wine build (dev, test, ISO) is a WoW64 build
   (`configure --enable-archs=i386,x86_64`, needs the i686 and x86_64 MinGW compilers), never `--enable-win64`

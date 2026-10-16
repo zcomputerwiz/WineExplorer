@@ -1,10 +1,20 @@
 # Pictures, fonts and the genuine Windows XP files
 
 The UI is designed against Windows XP, compared side by side with an XP VM. This repository contains **only open
-material**: Wine's and ReactOS's art, and art drawn for the project. Microsoft material (genuine XP icons, bitmaps,
-sounds, fonts, themes, and the reference sources used for comparison) never enters this repository. It lives on the
-developers' machines only, in a separate local-only repository (`WineExplorer-local`, next to this checkout, never
-pushed anywhere), together with the tools that work with it.
+material**: Wine's and ReactOS's art, art drawn for the project, and third-party art under a GPL-compatible licence.
+Proprietary Microsoft material (genuine Windows icons, bitmaps, sounds, fonts, themes, art copied or traced from them,
+and the reference sources used for comparison) never enters this repository. It lives on the developers' machines
+only, in a separate local-only repository (`WineExplorer-local`, next to this checkout, never pushed anywhere),
+together with the tools that work with it.
+
+Allowed third-party art, each with its licence notice kept in `CREDITS.md`:
+- Microsoft releases under an open licence: Fluent UI System Icons (MIT).
+- Art under CC BY 4.0, CC BY-SA 4.0, MIT, SIL OFL 1.1 or GPL-2.0-or-later, for example Font Awesome Free (icons
+  CC BY 4.0, fonts OFL) and `WinSymbols3.ttf` from SymbolIconManager (MIT).
+
+Not allowed: NonCommercial or NoDerivatives licences, GPL-3.0 art compiled into our GPL-2.0-or-later binaries, packs
+derived from Windows art whatever licence they claim (for example YlmfOS- or Win2-7-based sets), and brand logos,
+including the Windows logo.
 
 ## Open pictures
 `scripts/open_assets.py build` writes every picture that stands in for an XP one, and lists each with its source in
