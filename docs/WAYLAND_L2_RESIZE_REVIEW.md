@@ -174,3 +174,18 @@ loop-original Escape semantics, delayed/ignored/constrained/client-selected
 controller cases, initial keyboard edge selection, external cancellation and
 150%/actual-client acceptance. The current probe posts SC_SIZE with an explicit
 edge. See WAYLAND_L2.md for all failed attempts, commands and validation logs.
+
+## Review of the controller checkpoint (Claude, 2026-10-15)
+
+Accepted as a checkpoint (`98424cf1`). The sizing filter now dispatches non-input messages itself while a
+transaction is pending, which closes the defwnd button-state exit. The negative-control filter reproducing the early
+exit is the right proof. The controller keeps desired and accepted geometry apart and ignores stale serials. It
+freezes the accepted frame until `WM_EXITSIZEMOVE` and turns compositor rollback into a clean Escape exit instead of
+uncoordinated sizing. All of it is behind `WEX_WAYLAND_RESIZE_ENABLE_PROP`, so it compiles out at the production pin:
+master `98424cf1` with Wine `859a1b9` builds `wexhost` and `explorer` cleanly in `wexbuild`.
+
+Before controls are enabled, in addition to the list above:
+- The `FAILED` stage posts `WM_CANCELMODE` to end the loop; no probe case covers it yet. Add one, including
+  capture and focus afterwards.
+- With "Show window contents while dragging" off, defwnd draws its own tracking rectangle while the accepted frame
+  is frozen. Check that the final geometry matches the native-ready rectangle in that mode too.
