@@ -607,8 +607,8 @@ static void show_task_context_menu(HWND hwnd, TASK_ITEM *item, POINT pt)
     switch (cmd)
     {
     case IDM_TASK_RESTORE:
-        ShowWindow(item->target_hwnd, SW_RESTORE);
         SetForegroundWindow(item->target_hwnd);
+        PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
         break;
     case IDM_TASK_MOVE:
         SetForegroundWindow(item->target_hwnd);
@@ -622,8 +622,8 @@ static void show_task_context_menu(HWND hwnd, TASK_ITEM *item, POINT pt)
         ShowWindow(item->target_hwnd, SW_MINIMIZE);
         break;
     case IDM_TASK_MAXIMIZE:
-        ShowWindow(item->target_hwnd, SW_MAXIMIZE);
         SetForegroundWindow(item->target_hwnd);
+        PostMessageW(item->target_hwnd, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
         break;
     case IDM_TASK_CLOSE:
         if (item->target_hwnd != g_taskband.parent_tray &&

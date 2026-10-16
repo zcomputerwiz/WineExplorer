@@ -146,10 +146,10 @@ def move(name, x, y):
     qmp(name, "input-send-event", events=pos)
 
 
-def click(name, x, y, button="left"):
+def click(name, x, y, button="left", count=1):
     move(name, x, y)
     time.sleep(0.1)  # let the guest process surface enter/motion before pressing
-    for down in (True, False):
+    for down in (True, False) * count:
         qmp(name, "input-send-event", events=[{"type": "btn", "data": {"down": down, "button": button}}])
         time.sleep(0.08)
 
@@ -244,6 +244,8 @@ def main():
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
     s = sub.add_parser("click"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
     s.add_argument("button", nargs="?", default="left")
+    s = sub.add_parser("doubleclick"); s.add_argument("name")
+    s.add_argument("x", type=int); s.add_argument("y", type=int)
     s = sub.add_parser("drag"); s.add_argument("name")
     for coordinate in ("x1", "y1", "x2", "y2"):
         s.add_argument(coordinate, type=int)
@@ -270,6 +272,8 @@ def main():
         type_text(a.name, a.text.rstrip("\r\n"))
     elif a.op == "click":
         click(a.name, a.x, a.y, a.button)
+    elif a.op == "doubleclick":
+        click(a.name, a.x, a.y, count=2)
     elif a.op == "drag":
         drag(a.name, a.x1, a.y1, a.x2, a.y2)
     elif a.op == "clicktext":

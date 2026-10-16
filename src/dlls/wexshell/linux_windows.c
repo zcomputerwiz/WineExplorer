@@ -373,12 +373,12 @@ static void map_window( const WEX_WM_EVENT *event )
     lw->min_size = event->min_size;
     lw->max_size = event->max_size;
     host_style( lw, owner != NULL, &style, &ex_style );
+    if (wayland_mode && (lw->flags & WEX_WM_NO_BORDER)) style &= ~WS_MAXIMIZEBOX;
     /* CSD keeps the application's header bar. Its borderless host supplies the
      * Win32 identity for taskbar/Alt+Tab, and the compositor cuts out its entire
      * client area. Hosted SSD sizing uses the reviewed native transaction. */
-    if (wayland_mode) style &= ~WS_MAXIMIZEBOX; /* maximize integration follows */
 #ifndef WEX_WAYLAND_RESIZE_ENABLE_PROP
-    if (wayland_mode) style &= ~WS_THICKFRAME;
+    if (wayland_mode) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
 #endif
 
     AdjustWindowRectEx( &rect, style, FALSE, ex_style );
@@ -475,8 +475,7 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
     DWORD style, ex_style;
     BOOL minimized;
     if (!!(event->flags & WEX_WM_NO_BORDER) != !!(lw->flags & WEX_WM_NO_BORDER) ||
-        (!(lw->flags & WEX_WM_NO_BORDER) &&
-         (event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN))))
+        (!(lw->flags & WEX_WM_NO_BORDER) && (event->states & WEX_WM_STATE_FULLSCREEN)))
     {
         /* Keep observing: a later supported policy/state can be adopted again. */
         lw->gone = TRUE;

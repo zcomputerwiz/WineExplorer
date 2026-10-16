@@ -13,6 +13,13 @@ The pinned compositor submodule/package scaffolding is in progress. A new ISO,
 the full real-program/scale/multi-output acceptance and review point 1 are
 **not complete**. Earlier "stop for resize review" instructions below are history.
 
+The next incremental checkpoint adds hosted maximize/restore: Wine topic
+6b3435c, compositor 73ea3a44, same v10 protocol. Real foot fills the work area
+exactly, survives taskbar minimize/restore, returns to its exact normal geometry
+via Restore, and accepts typing afterward. See WAYLAND_SESSION.md for the
+successive failures and why the small driver changes are needed. Remaining A/B
+acceptance is still outstanding; do not stop for review until B is complete.
+
 **Retained original-buffer rollback (Codex, 2026-10-16):** Master now pins
 production Wine d92d7e4 (prefix-split S3). The root submodule was updated, and
 the L2 Wine topic merged that pin in 0607ece. Its full combined WoW64 build and

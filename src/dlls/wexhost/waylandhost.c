@@ -14,12 +14,21 @@
 #include "wexhost_unix.h"
 #include "waylandhost.h"
 #include "wexwayland.h"
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(wexhost);
 
 /* Optional in-process uxtheme contract. Keep building at the production Wine
  * pin, whose uxtheme simply ignores these properties. Never cross Wayland IPC. */
 #ifndef WEX_WAYLAND_FRAME_OUTER_PROP
 #define WEX_WAYLAND_FRAME_OUTER_PROP L"__wine_wayland_frame_outer_region"
 #define WEX_WAYLAND_FRAME_MASK_UPDATING_PROP L"__wine_wayland_frame_mask_updating"
+#endif
+#ifndef WEX_WAYLAND_CAPTURE_REQUEST_PROP
+#define WEX_WAYLAND_CAPTURE_REQUEST_PROP L"__wine_wayland_native_pointer_capture_request"
+#endif
+#ifndef WEX_WAYLAND_MAXIMIZE_REQUEST_PROP
+#define WEX_WAYLAND_MAXIMIZE_REQUEST_PROP L"__wine_wayland_native_maximize_request"
 #endif
 
 #ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
@@ -43,6 +52,8 @@ struct host_binding
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     BOOL controlling, controller_armed, controller_loop, applying, intent_dirty, ready, request_sent, finishing;
     BOOL live_drag, undo, preview_changed, undo_restoring;
+    BOOL programmatic, original_zoomed, focus_requested;
+    WPARAM pending_command;
     unsigned next_serial, intent_serial, ready_serial, edges;
     DWORD controller_started;
     RECT original, original_client, margins, desired;
@@ -247,6 +258,14 @@ static void cancel_resize(struct host_binding *binding)
     { controller_restore(binding); return; }
 #endif
     if (!binding->resize_pending) return;
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+    if (binding->programmatic && !binding->request_sent)
+    {
+        binding->resize_pending=FALSE;
+        controller_finish(binding);
+        return;
+    }
+#endif
     binding->resize_cancelled=TRUE;
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     if (binding->controlling && !binding->request_sent)
@@ -386,11 +405,27 @@ static void resize_transition(struct host_binding *binding,WPARAM serial,LPARAM 
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
 static void controller_stop(struct host_binding *binding)
 {
+    BOOL programmatic=binding->programmatic;
     if (binding->resize_timer) KillTimer(binding->hwnd,binding->resize_timer);
     binding->resize_timer=0;
     binding->controlling=FALSE;
     binding->intent_dirty=FALSE;
     binding->ready=FALSE;
+    binding->programmatic=FALSE;
+    binding->pending_command=0;
+    RemovePropW(binding->hwnd,WEX_WAYLAND_CAPTURE_REQUEST_PROP);
+    if (programmatic)
+    {
+        if (!binding->removed)
+        {
+            SetPropW(binding->hwnd,WEX_WAYLAND_MAXIMIZE_REQUEST_PROP,(HANDLE)(ULONG_PTR)(IsZoomed(binding->hwnd)?1:2));
+            SetWindowPos(binding->hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+            RemovePropW(binding->hwnd,WEX_WAYLAND_MAXIMIZE_REQUEST_PROP);
+        }
+        if (GetCapture()==binding->hwnd) ReleaseCapture();
+        if (binding->focus_depth && !--binding->focus_depth)
+            request_focus(binding,WEX_WAYLAND_FOCUS_RESTORE_NATIVE);
+    }
 }
 static void controller_finish(struct host_binding *binding)
 {
@@ -405,11 +440,11 @@ static void controller_finish(struct host_binding *binding)
         binding->resize_timer=0;
     }
 }
-static void controller_begin(struct host_binding *binding)
+static void controller_begin(struct host_binding *binding,BOOL interactive)
 {
     RECT client;
     POINT origin={0};
-    if (!binding->controller_armed || !sizing_hook || binding->controlling ||
+    if ((interactive && (!binding->controller_armed || !sizing_hook)) || binding->controlling ||
         (ULONG_PTR)GetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_PROTOCOL_PROP)<10) return;
     if (!GetWindowRect(binding->hwnd,&binding->original) || !GetClientRect(binding->hwnd,&client) ||
         !ClientToScreen(binding->hwnd,&origin)) return;
@@ -421,7 +456,9 @@ static void controller_begin(struct host_binding *binding)
      * nonzero success return is not an allocated replacement for that zero. */
     if (!SetTimer(binding->hwnd,0x57455854,20,NULL)) return;
     binding->resize_timer=0x57455854;
-    binding->controlling=TRUE; binding->controller_loop=TRUE;
+    binding->controlling=TRUE; binding->controller_loop=interactive;
+    binding->programmatic=!interactive; binding->focus_requested=FALSE;
+    binding->original_zoomed=!!IsZoomed(binding->hwnd);
     binding->controller_started=GetTickCount();
     binding->finishing=FALSE;
     binding->undo=FALSE; binding->preview_changed=FALSE; binding->undo_restoring=FALSE;
@@ -431,6 +468,10 @@ static void controller_begin(struct host_binding *binding)
     SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS,0,&binding->live_drag,0);
     binding->request_sent=FALSE; binding->resize_cancelled=FALSE;
     binding->next_serial=binding->resize_serial;
+    if (!interactive)
+    {
+        binding->focus_depth++;
+    }
 }
 static void controller_intent(struct host_binding *binding,WPARAM edge,const RECT *frame)
 {
@@ -454,6 +495,31 @@ static void controller_command(struct host_binding *binding,unsigned serial,unsi
     SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_COMMAND_PROP,(HANDLE)(ULONG_PTR)command);
     SetWindowPos(binding->hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
 }
+static BOOL controller_maximize(struct host_binding *binding,WPARAM command)
+{
+    WINDOWPLACEMENT placement={sizeof(placement)};
+    MONITORINFO monitor={sizeof(monitor)};
+    RECT target, border={0};
+    if (command==SC_MAXIMIZE)
+    {
+        if (!GetMonitorInfoW(MonitorFromWindow(binding->hwnd,MONITOR_DEFAULTTONEAREST),&monitor)) return FALSE;
+        target=monitor.rcWork;
+        AdjustWindowRectEx(&border,WS_BORDER|WS_THICKFRAME,FALSE,0);
+        target.left+=border.left; target.top+=border.top;
+        target.right+=border.right; target.bottom+=border.bottom;
+    }
+    else
+    {
+        if (!GetWindowPlacement(binding->hwnd,&placement)) return FALSE;
+        target=placement.rcNormalPosition;
+    }
+    controller_begin(binding,FALSE);
+    if (!binding->controlling) return FALSE;
+    binding->pending_command=command;
+    controller_intent(binding,WMSZ_BOTTOMRIGHT,&target);
+    TRACE("host %p queued command %#Ix target %s\n",binding->hwnd,command,wine_dbgstr_rect(&target));
+    return TRUE;
+}
 static void controller_restore(struct host_binding *binding)
 {
     /* Per-request rollback restores the last published preview. Escape undoes
@@ -469,10 +535,26 @@ static void controller_restore(struct host_binding *binding)
 static void controller_tick(struct host_binding *binding)
 {
     if (!binding->controlling || binding->finishing || binding->removed) return;
+    if (binding->programmatic && GetForegroundWindow()==binding->hwnd)
+    {
+        if (GetCapture()!=binding->hwnd) SetCapture(binding->hwnd);
+        if (!binding->focus_requested)
+        {
+            binding->focus_requested=TRUE;
+            request_focus(binding,WEX_WAYLAND_FOCUS_FRAME);
+        }
+        else if ((ULONG_PTR)GetPropW(binding->hwnd,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_FRAME &&
+                 !GetPropW(binding->hwnd,WEX_WAYLAND_CAPTURE_PROP))
+        {
+            SetPropW(binding->hwnd,WEX_WAYLAND_CAPTURE_REQUEST_PROP,(HANDLE)1);
+            SetWindowPos(binding->hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+        }
+    }
     if (binding->resize_pending && !binding->request_sent && GetTickCount()-binding->controller_started>2000)
     { cancel_resize(binding); return; }
     if (binding->intent_dirty && !binding->resize_cancelled && GetCapture()==binding->hwnd &&
-        (ULONG_PTR)GetPropW(binding->hwnd,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_FRAME)
+        (ULONG_PTR)GetPropW(binding->hwnd,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_FRAME &&
+        GetPropW(binding->hwnd,WEX_WAYLAND_CAPTURE_PROP))
     {
         RECT rect=binding->desired;
         binding->intent_dirty=FALSE; binding->ready=FALSE;
@@ -484,6 +566,9 @@ static void controller_tick(struct host_binding *binding)
         SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_WIDTH_PROP,(HANDLE)(LONG_PTR)(rect.right-rect.left));
         SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_HEIGHT_PROP,(HANDLE)(LONG_PTR)(rect.bottom-rect.top));
         SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_EDGES_PROP,(HANDLE)(ULONG_PTR)binding->edges);
+        if (binding->programmatic && binding->pending_command)
+            SetPropW(binding->hwnd,WEX_WAYLAND_MAXIMIZE_REQUEST_PROP,
+                     (HANDLE)(ULONG_PTR)(binding->pending_command==SC_MAXIMIZE?1:2));
         controller_command(binding,binding->intent_serial,WEX_WAYLAND_RESIZE_REQUEST);
     }
     if (binding->ready && binding->ready_serial==binding->intent_serial &&
@@ -495,6 +580,7 @@ static void controller_event(struct host_binding *binding,WPARAM serial,LPARAM s
     RECT rect;
     HWND hwnd=binding->hwnd;
     if (!binding->controlling || serial!=binding->intent_serial) return;
+    TRACE("host %p resize %Iu stage %Id programmatic %d\n",hwnd,serial,stage,binding->programmatic);
     if (stage==WEX_WAYLAND_RESIZE_UNAVAILABLE && binding->resize_serial!=serial)
     {
         binding->resize_pending=FALSE;
@@ -515,13 +601,30 @@ static void controller_event(struct host_binding *binding,WPARAM serial,LPARAM s
         rect.top=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_Y_PROP);
         rect.right=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_WIDTH_PROP);
         rect.bottom=(LONG)(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_HEIGHT_PROP);
+        TRACE("host %p native-ready client %s margins %s\n",hwnd,wine_dbgstr_rect(&rect),wine_dbgstr_rect(&binding->margins));
         binding->applying=TRUE;
+        if (binding->programmatic && binding->resize_cancelled && !!IsZoomed(hwnd)!=binding->original_zoomed)
+            DefSubclassProc(hwnd,WM_SYSCOMMAND,binding->original_zoomed?SC_MAXIMIZE:SC_RESTORE,0);
+        if (binding->pending_command && !binding->resize_cancelled)
+        {
+            WPARAM command=binding->pending_command;
+            binding->pending_command=0;
+            /* The native response is held now. Apply Win32's normal state and
+             * placement before painting/publishing the matching frame. */
+            DefSubclassProc(hwnd,WM_SYSCOMMAND,command,0);
+        }
         SetWindowPos(hwnd,NULL,rect.left-binding->margins.left,rect.top-binding->margins.top,
             rect.right+binding->margins.left+binding->margins.right,
             rect.bottom+binding->margins.top+binding->margins.bottom,SWP_NOZORDER|SWP_NOACTIVATE);
+        binding->applying=FALSE;
         if (!binding->removed) RedrawWindow(hwnd,NULL,NULL,RDW_FRAME|RDW_INVALIDATE|RDW_UPDATENOW);
         GdiFlush();
-        binding->applying=FALSE;
+        if (binding->programmatic)
+        {
+            RECT current;
+            GetWindowRect(hwnd,&current);
+            TRACE("host %p painted frame %s\n",hwnd,wine_dbgstr_rect(&current));
+        }
         binding->ready_serial=serial; binding->ready=TRUE;
     }
     else if (stage==WEX_WAYLAND_RESIZE_ROLLING_BACK)
@@ -603,6 +706,16 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     if (msg==WM_SYSCOMMAND)
     {
+        TRACE("host %p command %#Ix style %#lx group %p\n",hwnd,wp,GetWindowLongW(hwnd,GWL_STYLE),
+              GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP));
+        if (((wp&0xfff0)==SC_MAXIMIZE || ((wp&0xfff0)==SC_RESTORE && IsZoomed(hwnd))) &&
+            !IsIconic(hwnd) && !binding->controlling && GetPropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP) &&
+            (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE &&
+            controller_maximize(binding,wp&0xfff0))
+        {
+            unref(binding);
+            return 0;
+        }
         binding->controller_armed=(wp&0xfff0)==SC_SIZE && GetPropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP);
         /* Keyboard Size chooses its first edge before WM_ENTERSIZEMOVE. Give
          * that selector physical keyboard focus without stealing foreground. */
@@ -614,14 +727,14 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     }
     if (msg==WM_TIMER && binding->controlling && wp==binding->resize_timer) controller_tick(binding);
     if (msg==WM_WINDOWPOSCHANGING && binding->controlling &&
-        (binding->controller_loop || binding->finishing) && !binding->applying)
+        (binding->controller_loop || binding->finishing || binding->programmatic) && !binding->applying)
         ((WINDOWPOS *)lp)->flags|=SWP_NOMOVE|SWP_NOSIZE;
 #endif
     if (msg==resize_message) resize_transition(binding,wp,lp);
     if (msg==WM_ENTERSIZEMOVE) start_sizing_filter(binding);
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     if (msg==resize_message) controller_event(binding,wp,lp);
-    if (msg==WM_ENTERSIZEMOVE) controller_begin(binding);
+    if (msg==WM_ENTERSIZEMOVE) controller_begin(binding,TRUE);
     if (msg==WM_EXITSIZEMOVE)
     {
         binding->controller_loop=FALSE;
@@ -632,7 +745,11 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     }
 #endif
     if (msg==WM_EXITSIZEMOVE) stop_sizing_filter(binding);
-    if (msg==WM_CANCELMODE || (msg==WM_CAPTURECHANGED && (HWND)lp!=hwnd)) cancel_resize(binding);
+    if (msg==WM_CANCELMODE || (msg==WM_CAPTURECHANGED && (HWND)lp!=hwnd
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+        && !(binding->programmatic && !binding->request_sent)
+#endif
+        )) cancel_resize(binding);
 #endif
     if (msg == mask_message)
     {
