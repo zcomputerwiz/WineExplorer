@@ -1,0 +1,142 @@
+=== WineExplorer Phase S3 Acceptance Test ===
+--- Ensuring fresh machine root and skel ---
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Bootstrapping machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+--- Resetting user prefixes from /etc/skel/.wine ---
+--- Verifying symlinks and permissions at: initial reset ---
+PASS [initial reset]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 1: Alice registers COM class & Uninstall entry; Bob sees and runs app ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+	1 file(s) copied
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 1]: Alice COM class and Uninstall entries written to machine system.reg.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+--- BOB COM QUERY ---
+
+HKEY_LOCAL_MACHINE\Software\Classes\CLSID\{A11CE000-0000-0000-0000-000000000001}\LocalServer32
+    (Default)    REG_SZ    C:\Program Files\AliceApp\app64.exe
+
+--- BOB UNINSTALL QUERY ---
+
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\AliceApp
+    DisplayName    REG_SZ    Alice Application 1.0
+
+--- BOB RUN APP ---
+Process running: 64-bit (is_wow64=0)
+SUCCESS: LoadLibrary advapi32.dll succeeded: 00006fffff210000
+SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
+PASS [Case 1]: Bob saw COM registration, Uninstall entry, and executed Alice's app!
+--- Verifying symlinks and permissions at: Case 1 ---
+PASS [Case 1]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 2: Bob's in-memory HKLM writes & S0.2 ephemeral key protection ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+
+HKEY_LOCAL_MACHINE\Software\BobHack
+    Hacked    REG_SZ    1
+
+PASS [Case 2]: Bob's in-memory HKLM write succeeded during session.
+PASS [Case 2]: Bob's write NEVER reached machine system.reg!
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: Unable to find the specified registry key
+PASS [Case 2]: Bob's write was gone after logoff!
+Testing S0.2 transient/per-session key protection in admin session...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 2]: Ephemeral/per-session keys were NOT saved to machine system.reg!
+--- Verifying symlinks and permissions at: Case 2 ---
+PASS [Case 2]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 3: Concurrent admin sessions, merge-on-save, and tombstone deletion ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+Initial shared keys established on disk.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Concurrent sessions active: Alice BG=2709, Carol BG=2710
+Alice modifying registry in concurrent session...
+reg: The operation completed successfully
+reg: The operation completed successfully
+Carol modifying registry in concurrent session...
+reg: The operation completed successfully
+Carol saving first...
+/root/WineExplorer/installer/tests/test_s3_acceptance.sh: line 287:  2710 Killed                  su - carol -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/carol/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+PASS [Case 3]: CarolShared saved to disk.
+Alice saving second (merging changes onto Carol disk save)...
+/root/WineExplorer/installer/tests/test_s3_acceptance.sh: line 299:  2709 Killed                  su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+Verifying merged disk contents:
+PASS [Case 3]: CarolShared survived Alice save.
+PASS [Case 3]: AliceShared was saved.
+PASS [Case 3]: Deletion of ToDelete was NOT resurrected.
+PASS [Case 3]: InitialVal preserved.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+
+HKEY_LOCAL_MACHINE\Software\AliceShared
+    AliceKey    REG_SZ    AliceVal
+
+
+HKEY_LOCAL_MACHINE\Software\CarolShared
+    CarolKey    REG_SZ    CarolVal
+
+--- Verifying symlinks and permissions at: Case 3 ---
+PASS [Case 3]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 4: Machine upgrade while Alice is logged in ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Alice session active (BG=3015).
+Root performing machine update...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Updating existing machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+Machine upgrade keys written to disk by root.
+Alice writing post-upgrade key in her active session...
+reg: The operation completed successfully
+Alice logging off and saving...
+/root/WineExplorer/installer/tests/test_s3_acceptance.sh: line 384:  3015 Killed                  su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+Verifying upgrade keys and Alice keys survived:
+PASS [Case 4]: Machine upgrade keys survived Alice logoff.
+PASS [Case 4]: AlicePostUpgrade was saved.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+
+HKEY_LOCAL_MACHINE\Software\MachineUpgrade
+    Version    REG_SZ    3.1.0
+
+
+HKEY_LOCAL_MACHINE\Software\AlicePostUpgrade
+    Installed    REG_SZ    True
+
+--- Verifying symlinks and permissions at: Case 4 ---
+PASS [Case 4]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 5: Final symlink integrity check across all user prefixes ===
+--- Verifying symlinks and permissions at: Case 5 Final ---
+PASS [Case 5 Final]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== ALL PHASE S3 ACCEPTANCE TESTS PASSED PERFECTLY! ===

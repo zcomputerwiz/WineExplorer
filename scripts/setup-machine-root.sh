@@ -100,9 +100,26 @@ chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
 find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
 find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +
 find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 775 {} +
+if [ -f "$MACHINE_ROOT/system.reg" ]; then
+    chown root:sudo "$MACHINE_ROOT/system.reg"
+    chmod 664 "$MACHINE_ROOT/system.reg"
+    sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
+fi
+if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
+    chown root:sudo "$MACHINE_ROOT/userdef.reg"
+    chmod 664 "$MACHINE_ROOT/userdef.reg"
+fi
 if command -v setfacl >/dev/null 2>&1; then
+    setfacl -m g:sudo:rwX "$MACHINE_ROOT"
+    setfacl -d -m u::rwX,g::rwX,g:sudo:rwX,o::r-x "$MACHINE_ROOT"
     setfacl -R -m g:sudo:rwX "$MACHINE_ROOT/drive_c"
     setfacl -R -d -m u::rwX,g::rwX,g:sudo:rwX,o::r-x "$MACHINE_ROOT/drive_c"
+    if [ -f "$MACHINE_ROOT/system.reg" ]; then
+        setfacl -m g:sudo:rw "$MACHINE_ROOT/system.reg"
+    fi
+    if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
+        setfacl -m g:sudo:rw "$MACHINE_ROOT/userdef.reg"
+    fi
 fi
 
 # 3. Create or update template prefix in /etc/skel/.wine
@@ -119,16 +136,12 @@ ln -sfn "$MACHINE_ROOT/drive_c/Program Files (x86)" "$SKEL_PFX/drive_c/Program F
 ln -sfn "$MACHINE_ROOT/drive_c/ProgramData" "$SKEL_PFX/drive_c/ProgramData"
 ln -sfn "$MACHINE_ROOT/drive_c/users/Public" "$SKEL_PFX/drive_c/users/Public"
 
-# Sync reference registry hives and update timestamp from machine root
+# Link shared machine hives into template prefix (S3 shared HKLM/HKU.DEFAULT)
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
-    cp "$MACHINE_ROOT/system.reg" "$SKEL_PFX/system.reg"
-    sed -i -e 's/\\\\users\\\\root\\\\/\\\\users\\\\wexsetup\\\\/g' \
-           -e 's/\\\\users\\\\root"/\\\\users\\\\wexsetup"/g' "$SKEL_PFX/system.reg"
+    ln -sfn "$MACHINE_ROOT/system.reg" "$SKEL_PFX/system.reg"
 fi
 if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-    cp "$MACHINE_ROOT/userdef.reg" "$SKEL_PFX/userdef.reg"
-    sed -i -e 's/\\\\users\\\\root\\\\/\\\\users\\\\wexsetup\\\\/g' \
-           -e 's/\\\\users\\\\root"/\\\\users\\\\wexsetup"/g' "$SKEL_PFX/userdef.reg"
+    ln -sfn "$MACHINE_ROOT/userdef.reg" "$SKEL_PFX/userdef.reg"
 fi
 if [ ! -f "$SKEL_PFX/user.reg" ] && [ -f "$MACHINE_ROOT/user.reg" ]; then
     cp "$MACHINE_ROOT/user.reg" "$SKEL_PFX/user.reg"
@@ -143,6 +156,6 @@ fi
 rm -rf "$SKEL_PFX/drive_c/users/root" "$SKEL_PFX/drive_c/users/wexsetup"
 chown -R root:root "$SKEL_PFX"
 chmod 755 "$SKEL_PFX" "$SKEL_PFX/dosdevices" "$SKEL_PFX/drive_c" "$SKEL_PFX/drive_c/users"
-chmod 644 "$SKEL_PFX"/*.reg "$SKEL_PFX/.update-timestamp" 2>/dev/null || true
+chmod 644 "$SKEL_PFX/user.reg" "$SKEL_PFX/.update-timestamp" 2>/dev/null || true
 
-echo "=== S2 Machine Root Setup Completed Successfully ==="
+echo "=== S3 Machine Root Setup Completed Successfully ==="

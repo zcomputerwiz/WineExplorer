@@ -35,8 +35,8 @@ for u in alice carol bob; do
     mkdir -p "/home/$u/.wine/drive_c/users/$u"
     sed -i -e "s/\\\\\\\\users\\\\\\\\wexsetup\\\\\\\\/\\\\\\\\users\\\\\\\\$u\\\\\\\\/g" \
            -e "s/\\\\\\\\users\\\\\\\\wexsetup\"/\\\\\\\\users\\\\\\\\$u\"/g" \
-        "/home/$u/.wine/user.reg" "/home/$u/.wine/userdef.reg" "/home/$u/.wine/system.reg"
-    chown -R "$u:$u" "/home/$u/.wine"
+        "/home/$u/.wine/user.reg"
+    chown -R -h "$u:$u" "/home/$u/.wine"
 done
 
 echo "Machine root size: $(du -sh "$MACHINE_ROOT" | awk '{print $1}')"
