@@ -2099,3 +2099,86 @@ both pass. No install, real desktop/session replacement, VM reboot or package
 change was performed. Production wine/ remains clean at 859a1b9; the user's
 unrelated .gitignore edit remains unstaged. The next check-in is the documented
 same-buffer readiness review, not enabling controls or declaring L2 complete.
+
+## Retained original-buffer rollback (Codex, 2026-10-16)
+
+The previous small-step foot hard failure is now addressed by compositor
+eca5e619, without accepting state-only forward commits as new-size readiness.
+Only rollback can confirm the identical retained original wlr_client_buffer
+base at its original actual dimensions, after acknowledgement and a surface
+commit carrying the rollback's xdg configure serial. The matching frame commit
+still gates CANCELLED. A refused small size therefore rolls back coherently
+instead of detaching merely because the client did not repaint unchanged data.
+
+Master advanced to production Wine d92d7e4 (accepted prefix-split S3). Ran
+git pull --ff-only, git submodule update --init wine, fetched wineexplorer/11.19
+into the existing L2 topic and merged it as 0607ece. Only loader/wine.inf.in and
+server/registry.c changed in that merge. Those committed files were copied to
+the assembled lab source without a reset; the shared registry implementation
+was not independently edited for L2. Root wine/ is clean at d92d7e4.
+
+New raw cases preserve monotonic controller serials (18 and 19 before the
+existing 20..32 sequence). A replacement buffer at the original dimensions
+cannot use the exception; a fresh content response can still complete its
+rollback. State-only forward commit, rollback commit before its ack and rollback
+ack without a commit all remain unready. The original-buffer rollback ack plus
+commit yields NATIVE_READY, then matching frame publication yields CANCELLED,
+not COMPLETE, with hosting and capture retained. Existing ignored rollback still
+reaches FAILED. The positive case changes neither the buffer nor its geometry.
+
+The FAILED publisher now has a fail-rollback command. It defers automatic ack,
+acknowledges a different forward size with a state-only commit, but ignores a
+configure restoring its unchanged original size. Thus the real failed-stage
+probe continues to exercise a client that does not acknowledge rollback, rather
+than depending on an unnecessary repaint of an already valid original buffer.
+
+Commands use the same isolated ProtonExplorer VM directories and serialized
+prefixes as the preceding checkpoint. Base actual-client command:
+
+```sh
+WEX_ASSOCIATION_NATIVE_APP=foot WEX_ASSOCIATION_RESIZE_FIXTURE=edges \
+ WEX_ASSOCIATION_SCALE=150 WEX_ASSOCIATION_RESIZE_CONTROLLER=1 \
+ WEX_ASSOCIATION_BRIDGE=1 WEX_ASSOCIATION_STACK=0 \
+ WEX_CHECK_PREFIX=/srv/protonexplorer/wex-wayland-l1/prefixes/association-l2 \
+ bash /srv/protonexplorer/wex-wayland-l2/check-scripts/check-wayland-association.sh
+```
+
+Results in /srv/protonexplorer/wex-wayland-l1/checks:
+
+- l2-foot-original-rollback.log / association.afx4e0ki: small-step foot at 150%,
+  22 loops per actual 64/32 client, including all edges/corners and Escape.
+  Explicit NATIVE_NOOP_ROLLBACK cases require exact original frame geometry,
+  native/frame agreement, no FAILED and correct focus/capture release. They
+  do not count as successful new-size resizes. The probe then continues normally.
+- l2-foot-original-rollback-100.log / association.d9xjw8_i: same 22-loop test
+  at 100% in both architectures. In-loop preview screenshots and final native
+  pixels still pass. These runs use the normal small motions, not edges-coarse.
+- l2-original-rollback-failed.log / association.4rrk_g_i: the revised failed
+  publisher reaches real FAILED in both architectures, detaches hosting, clears
+  capture/focus and passes native fallback pixels and physical pointer/keyboard
+  focus checks. Forward ACK is still present in this failure sequence.
+- l2-s3-merge-build.log: full combined topic build after consuming S3 passes.
+  The saved pin helper now uses exact d92d7e4; the full combined build with
+  current owned source passes in l2-original-rollback-production-pin-build.log.
+  Its trap restores topic files with fresh mtimes; the restored full topic
+  build passes in l2-original-rollback-topic-build.log.
+
+Compositor results in ~/wexcomp-build: l2-original-rollback-build.log compiles the
+runtime and fixtures; l2-original-rollback-raw.log runs the complete suite with
+and without XWayland (47/47 each, in l2-fractional-suite.log and
+l2-fractional-no-x-suite.log), then the 150% raw resize sequence in
+checks/fractional-raw.QO0JFn. The new identity/ack/commit guards, fractional extent
+rejections, stale events, every edge, capture loss and destruction all pass.
+
+One documentation patch failed verification: it expected the standalone text
+"The subsequent compositor rollback fix preserves the", while STOCK_CHANGES.md
+had that phrase after "registry implementation." on the same line. The atomic
+patch changed no files. Reading the exact context and applying the full line
+fixed it. No build/test commands failed in this checkpoint up to these results.
+
+The forward no-op contract has deliberately not changed. If a client supplies
+only state after a forward configure, the existing two-second content timeout
+can still precede rollback. This is a safe cancellation improvement, not a claim
+of immediate successful forward resizing for a refused size. Review the narrow
+exception in WAYLAND_L2_RESIZE_REVIEW.md before exposing controls; the broader
+144-DPI font, multi-output and independent Wine/Proton acceptance remains open.

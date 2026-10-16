@@ -1,4 +1,28 @@
-# Codex handoff — 2026-10-15 Wayland L2 in progress
+# Codex handoff — 2026-10-16 Wayland L2 in progress
+
+**Retained original-buffer rollback (Codex, 2026-10-16):** Master now pins
+production Wine d92d7e4 (prefix-split S3). The root submodule was updated, and
+the L2 Wine topic merged that pin in 0607ece. Its full combined WoW64 build and
+the exact new production-pin build pass; no shared-registry implementation was
+changed for this work.
+
+Compositor eca5e619 fixes the foot hard failure without treating an ack-only
+forward commit as a new-size response. Only a committed, acknowledged rollback
+may confirm the identical retained original buffer at its original dimensions.
+The raw probes reject bare ack, unacknowledged commit and same-size replacement
+buffer cases. Actual 64/32 small-step foot checks now pass at 100% and 150%,
+including explicit no-op CANCELLED outcomes and exact original frame recovery.
+The FAILED probe still passes with a publisher that acknowledges the forward
+request but ignores rollback. Both compositor variants pass 47/47, plus the
+fractional raw sequence. Details are in the final WAYLAND_L2_RESIZE_REVIEW.md
+section and WAYLAND_L2.md. Controls remain disabled.
+
+Review this narrower rollback exception before enabling UI. A state-only forward
+response still waits for content or the existing two-second timeout, then safely
+cancels; it is not claimed as a successful resize. Separate forward no-op
+semantics, 144-DPI Windows font settings, multi-output and independent
+Wine/Proton acceptance remain unclaimed. Earlier handoff sections below are
+historical; the former hard-failure report is superseded by this checkpoint.
 
 **Next review boundary (Codex, 2026-10-15):** Live previews are pushed in
 04b452ed. The follow-up Wine topic 7efbcbb aligns fractional resize coordinates;

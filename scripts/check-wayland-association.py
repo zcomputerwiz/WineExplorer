@@ -105,7 +105,7 @@ try:
             if fixture == "rapid":
                 command = "follow-delayed"
             if os.environ.get("WEX_ASSOCIATION_RESIZE_FAILED") == "1":
-                command = "ignore-configures"
+                command = "fail-rollback"
             peer.stdin.write(command + "\n")
             peer.stdin.flush()
         report = state / f"probe{bits}.log"

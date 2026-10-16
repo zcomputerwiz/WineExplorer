@@ -6,8 +6,8 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is 859a1b9, including accepted opt-in Wayland L1 integration,
-visual-style support and the prefix-split S2 updates. See WAYLAND_L1.md;
+Current pin is d92d7e4, including accepted opt-in Wayland L1 integration,
+visual-style support and the prefix-split S2/S3 updates. See WAYLAND_L1.md;
 X11 remains the default.
 The L2 topic's cf365e5 binds private protocol v10 and adds a scalar resize
 request/commit/cancel transport. Each compositor transition is queued separately
@@ -52,6 +52,15 @@ callbacks. No request, ABI or protocol version was added. Actual small-step foot
 acknowledgement-only buffer reuse remains an acceptance blocker; review it before
 changing readiness semantics or exposing controls. See WAYLAND_L2_RESIZE_REVIEW.md.
 Project CPLs/programs, wexhost and theme definitions live under src.
+
+The L2 topic merged production d92d7e4 in 0607ece without changing the shared
+registry implementation. Compositor eca5e619's rollback fix preserves the
+forward content-response requirement: only an acknowledged rollback surface
+commit may confirm the identical retained original buffer at its original
+dimensions. Bare acknowledgements, unacknowledged commits and different buffers
+cannot use this exception. This restores safe cancellation for foot's unchanged
+buffer responses; it does not declare them successful forward resizes or enable
+production controls. See the 2026-10-16 section in WAYLAND_L2_RESIZE_REVIEW.md.
 L2 opt-in topic codex/wayland-l2 (07eb6e0, including merge 2c3be3b of production
 859a1b9, not the production pin) extends the
 private protocol through v10, starting with v4 native/controller atom properties and an

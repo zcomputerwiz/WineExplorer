@@ -183,6 +183,15 @@ Resize/maximize remains disabled in the lab gate until these checks pass.
 
 ## Acceptance
 
+2026-10-16 update: the small-step foot hard failure now has a rollback-only fix
+in compositor eca5e619. Its acknowledged surface commit can confirm only the
+identical retained original buffer at original dimensions. Forward ack-only
+commits remain unready. Actual 64/32 small-step tests pass at 100%/150%, with
+refused sizes explicitly cancelled back to original geometry. Raw guards and
+FAILED recovery pass; the L2 Wine topic also consumes the new d92d7e4 production
+pin through merge 0607ece. Review the exception and remaining acceptance before
+enabling controls. This supersedes the earlier small-step hard-failure report.
+
 Live-preview update (2026-10-15): matching frames now publish during the loop,
 with loop-original Escape restoration across completed previews. Both review
 additions pass in 64/32 clients: FAILED fallback including native physical input,

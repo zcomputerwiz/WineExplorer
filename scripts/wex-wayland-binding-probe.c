@@ -644,6 +644,16 @@ static void controller_checks(HWND hwnd)
         }
         expected=(1u<<WEX_WAYLAND_RESIZE_ACCEPTED)|(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED)|
             (1u<<WEX_WAYLAND_RESIZE_NATIVE_READY)|(1u<<(controller_cancel && !controller_live?WEX_WAYLAND_RESIZE_CANCELLED:WEX_WAYLAND_RESIZE_COMPLETE));
+        if (external && native_grid && !(controller_events&(1u<<WEX_WAYLAND_RESIZE_COMPLETE)) &&
+            (controller_events&(1u<<WEX_WAYLAND_RESIZE_CANCELLED)))
+        {
+            GetWindowRect(hwnd,&after);
+            check("native no-op rollback keeps original frame",EqualRect(&after,&original));
+            check("native no-op rollback never fails",!(controller_events&(1u<<WEX_WAYLAND_RESIZE_FAILED)));
+            expected=(1u<<WEX_WAYLAND_RESIZE_ACCEPTED)|(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED)|
+                (1u<<WEX_WAYLAND_RESIZE_NATIVE_READY)|(1u<<WEX_WAYLAND_RESIZE_CANCELLED);
+            printf("NATIVE_NOOP_ROLLBACK case=%u\n",i);
+        }
         if (!controller_local_cancel) check("controller receives complete transaction",(controller_events&expected)==expected);
         check("controller restores native focus",wait_prop(hwnd,WEX_WAYLAND_FOCUS_PROP,WEX_WAYLAND_FOCUS_NATIVE));
         check("controller releases capture",wait_prop(hwnd,WEX_WAYLAND_CAPTURE_PROP,0));

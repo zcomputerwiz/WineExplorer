@@ -258,3 +258,41 @@ original buffer can finish without a new damage/buffer commit, and what proves
 forward no-op readiness. The current implementation keeps the accepted rule;
 the failing real-client probe and WAYLAND_DEBUG trace are retained. Do not
 enable resizing/maximize or mark this section complete yet.
+
+## Retained original-buffer rollback (Codex, 2026-10-16)
+
+Compositor eca5e619 addresses the hard failure with a rollback-only exception,
+leaving the approved forward content-response rule intact. An acknowledged
+rollback surface commit may report native-ready without new content only if
+the current wlr_client_buffer base is the identical buffer locked in the
+transaction's original native snapshot, and the actual width/height still equal
+the original dimensions. A bare ack does not call the commit handler; the
+current xdg configure serial must also cover this rollback. The matching Wine
+frame is still required before CANCELLED. No new forward COMPLETE is inferred.
+
+Raw cases prove that an ack-only forward commit is unready, a rollback commit
+without its own ack is unready, and its ack without a commit is unready. A
+different buffer at the same dimensions is rejected by this exception until a
+fresh content response. The positive case confirms the original buffer with
+the rollback ack/commit and finishes CANCELLED while retaining group/capture.
+Existing stale configure, size mismatch, ignored rollback and FAILED tests pass.
+
+The small-step foot all-edge probe now passes in actual 64/32 clients at both
+100% and 150%. It records NATIVE_NOOP_ROLLBACK for a refused small size change,
+requires exact original Win32 geometry and native/frame agreement, and checks
+focus/capture release before continuing. These are cancellations, not successful
+new-size publications. The forward content wait can still reach the existing
+two-second timeout before rollback. The FAILED fixture now acknowledges a
+different forward size without content but ignores original-size rollback;
+that unresponsive client still safely detaches and accepts native fallback input.
+
+The production pin moved to d92d7e4 while this work was paused. Root wine/ was
+updated and the L2 topic merged it as 0607ece, without editing the registry
+changes. Full production-pin and restored topic combined WoW64 builds pass.
+Both compositor variants pass 47/47 plus the 150% raw sequence. See WAYLAND_L2.md
+for commands, artifacts and final regressions.
+
+This narrow exception is ready for review. Keep controls disabled; it does not
+approve state-only forward publication or complete the broader multi-output,
+independent Wine/Proton and 144-DPI font-setting acceptance. No private protocol
+version, driver ABI, generic sizing hook or production UI was added.
