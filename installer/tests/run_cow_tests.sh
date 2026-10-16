@@ -70,7 +70,7 @@ su testuser -c '
 '
 
 echo "--- 5. Testing relative symlink target COW ---"
-ln -sf ../../../../usr/local/lib/wine/x86_64-windows/msvcp140.dll /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll
+ln -sf ../../../../../usr/local/lib/wine/x86_64-windows/msvcp140.dll /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll
 ls -l /tmp/wine_cow_test/drive_c/windows/system32/rel_target_test.dll
 WINEPREFIX=/tmp/wine_cow_test wine /usr/local/bin/test_cow_cases64.exe relative_target
 wineserver -w

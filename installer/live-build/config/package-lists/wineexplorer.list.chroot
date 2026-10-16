@@ -30,6 +30,7 @@ wget
 nano
 
 # Disk Partitioning & Filesystem Tools
+acl
 libfdisk1
 libblkid1
 e2fsprogs

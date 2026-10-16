@@ -69,6 +69,16 @@ rm -f "$STAGE_WINE/usr/local/bin/wex-"*.sh
 
 WINE_DEPS="libc6, libasound2t64, libavcodec61, libavformat61, libcapi20-3t64, libcups2t64, libdbus-1-3, libfontconfig1, libfreetype6, libgettextpo0, libgl1, libglu1-mesa, libgnutls30t64, libgphoto2-6t64, libgstreamer-plugins-base1.0-0, libkrb5-3, libldap2, libncursesw6, libopenal1, libosmesa6, libpcap0.8t64, libpcsclite1, libpulse0, libsdl2-2.0-0, libssl3t64, libudev1, libunwind8, libusb-1.0-0, libv4l-0t64, libvulkan1, libwayland-client0, libx11-6, libxcomposite1, libxcursor1, libxext6, libxfixes3, libxi6, libxinerama1, libxkbfile1, libxkbregistry0, libxml2, libxmu6, libxrandr2, libxrender1, libxslt1.1, libxt6t64, libxxf86dga1, libxxf86vm1, zlib1g"
 
+cat > "$STAGE_WINE/DEBIAN/postinst" <<'EOF'
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ] && [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then
+    /usr/local/bin/wex-setup-machine.sh --update
+fi
+exit 0
+EOF
+chmod 755 "$STAGE_WINE/DEBIAN/postinst"
+
 cat > "$STAGE_WINE/DEBIAN/control" <<EOF
 Package: wineexplorer
 Version: 11.19-wineexplorer1
@@ -122,12 +132,15 @@ chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"
 chmod 644 "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexsetup.rules"
 
-# Postinst to enable services
+# Postinst to enable services and update existing machine root if present
 cat > "$STAGE_SESSION/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
 systemctl daemon-reload || true
 systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true
+if [ "$1" = "configure" ] && [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then
+    /usr/local/bin/wex-setup-machine.sh --update
+fi
 exit 0
 EOF
 chmod 755 "$STAGE_SESSION/DEBIAN/postinst"
@@ -139,7 +152,7 @@ Section: x11
 Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
-Depends: wineexplorer, lightdm, lightdm-gtk-greeter, accountsservice, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base
+Depends: wineexplorer, acl, lightdm, lightdm-gtk-greeter, accountsservice, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
  Session scripts, Xorg configurations, LightDM greeter and systemd setup units
