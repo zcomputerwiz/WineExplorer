@@ -298,6 +298,27 @@ every 30 s while anything is dirty, which is acceptable.
 Fix on `gemini/prefix-split`, rerun the S3 acceptance with the new case and the suites, and commit the logs. Then stop
 for review.
 
+### S3 re-review (Claude, 2026-10-16): accepted, merged
+
+`78a33df0` with Wine `d92d7e4` fixes all three items:
+- a successful (or skipped) save clears `mod_seq` and frees the tombstones;
+- the per-session filter, tombstones and merge apply only to a branch whose file was a link into the machine root
+  when it was loaded (`is_shared_machine`; root path from `WINE_MACHINE_ROOT`, default `/var/lib/wineexplorer/machine`);
+- `OBJ_OPENLINK` is limited to `in_merge`.
+
+The new Case 3b passes (Alice, Carol, Alice: Carol's value and re-created key survive), as does the unlinked-prefix
+case. The logs are genuine.
+
+Rechecked in `wexbuild`: Wine's own registry suites give identical results at the pin `859a1b9` and at `d92d7e4`:
+- `advapi32:registry`: 7,240 tests (64-bit) and 7,649 (32-bit), 0 failures;
+- `ntdll:reg`: 3,892 and 5,628, 0 failures.
+
+`server/` builds without new warnings. Merged: `wineexplorer/11.19` fast-forwarded to `d92d7e4`, and master merges the
+branch.
+
+Note for upstreaming: the machine-root path in `server/registry.c` is WineExplorer-specific. The atomic link-preserving
+`save_branch()` and skipping unwritable hives are the upstreamable parts.
+
 ## S4 — Integration and migration (after S2/S3)
 
 Setup builds the machine root and the Default User template; account creation (`wexhost` `user_create`, OOBE) creates
