@@ -751,7 +751,7 @@ static BOOL load_skin_bitmap(HMODULE hmod, int res_id, struct start_skin_bitmap 
  * Skin loading & orchestration
  * ------------------------------------------------------------------------- */
 
-static BOOL find_skin_file(const WCHAR *skin_name, WCHAR *out_path, DWORD max_len);
+static BOOL find_skin_file(const WCHAR *skin_name, WCHAR *out_path, DWORD max_len, enum start_skin_type preferred_type);
 
 struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation,
                                  const WCHAR *options_str, enum start_skin_type skin_type,
@@ -770,7 +770,7 @@ struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation
     if (!skin_path || !*skin_path)
         return NULL;
 
-    if (find_skin_file(skin_path, resolved_path, MAX_PATH))
+    if (find_skin_file(skin_path, resolved_path, MAX_PATH, skin_type))
         skin_path = resolved_path;
 
     hmod = LoadLibraryExW(skin_path, NULL, LOAD_LIBRARY_AS_DATAFILE);
@@ -800,7 +800,13 @@ struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation
     skin->hmod = hmod;
     skin->skin_type = skin_type;
     skin->dpi = (dpi > 0) ? dpi : 96;
-    skin->two_columns = (skin_type == STARTSKIN_TYPE_CLASSIC2 || skin_type == STARTSKIN_TYPE_WIN7);
+    {
+        const WCHAR *ext_check = wcsrchr(skin_path, L'.');
+        BOOL is_ext_7 = (ext_check && _wcsicmp(ext_check, L".skin7") == 0);
+        skin->two_columns = is_ext_7 ||
+            (parser_find_setting(&parser, L"Main2_background") != NULL) ||
+            (parser_find_setting(&parser, L"Main2_bitmap") != NULL);
+    }
 
     /* Extract skin name from path */
     {
@@ -1257,6 +1263,30 @@ struct start_skin *startskin_load(const WCHAR *skin_path, const WCHAR *variation
     if (str)
         parse_numbers(str, (int *)&skin->shutdown_padding, 4, skin->dpi);
 
+    str = parser_find_setting(&parser, L"Shutdown_selection");
+    if (str && _wtoi(str) > 0)
+    {
+        load_skin_bitmap(hmod, _wtoi(str), &skin->shutdown_btn.bmp_selection);
+        str = parser_find_setting(&parser, L"Shutdown_selection_slices_X");
+        if (str) parse_numbers(str, skin->shutdown_btn.sel_slices_x, 6, skin->dpi);
+        str = parser_find_setting(&parser, L"Shutdown_selection_slices_Y");
+        if (str) parse_numbers(str, skin->shutdown_btn.sel_slices_y, 3, skin->dpi);
+    }
+
+    str = parser_find_setting(&parser, L"Shutdown_text_color");
+    if (str)
+    {
+        COLORREF cols[4] = {0};
+        int n = parse_numbers(str, (int *)cols, 4, skin->dpi);
+        skin->shutdown_btn.text_color[0] = (n > 0) ? cols[0] : RGB(255, 255, 255);
+        skin->shutdown_btn.text_color[1] = (n > 1) ? cols[1] : RGB(255, 255, 255);
+    }
+    else
+    {
+        skin->shutdown_btn.text_color[0] = RGB(255, 255, 255);
+        skin->shutdown_btn.text_color[1] = RGB(255, 255, 255);
+    }
+
     /* Submenus */
     str = parser_find_setting(&parser, L"Submenu_bitmap");
     if (str && _wtoi(str) > 0)
@@ -1604,12 +1634,20 @@ void startskin_invalidate_active(void)
     s_cached_dpi     = 0;
 }
 
-static BOOL find_skin_file(const WCHAR *skin_name, WCHAR *out_path, DWORD max_len)
+static BOOL find_skin_file(const WCHAR *skin_name, WCHAR *out_path, DWORD max_len, enum start_skin_type preferred_type)
 {
     WCHAR appdata[MAX_PATH];
+    const WCHAR *ext1 = L".skin";
+    const WCHAR *ext2 = L".skin7";
 
     if (!skin_name || !*skin_name)
         return FALSE;
+
+    if (preferred_type == STARTSKIN_TYPE_CLASSIC2 || preferred_type == STARTSKIN_TYPE_WIN7)
+    {
+        ext1 = L".skin7";
+        ext2 = L".skin";
+    }
 
     /* Absolute or direct path */
     if (wcschr(skin_name, L'\\') || wcschr(skin_name, L'/') || skin_name[1] == L':')
@@ -1625,36 +1663,36 @@ static BOOL find_skin_file(const WCHAR *skin_name, WCHAR *out_path, DWORD max_le
     /* 1. %APPDATA%\WineExplorer\StartSkins\<skin_name> */
     if (SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appdata) == S_OK)
     {
-        swprintf(out_path, max_len, L"%s\\WineExplorer\\StartSkins\\%s", appdata, skin_name);
+        swprintf(out_path, max_len, L"%ls\\WineExplorer\\StartSkins\\%ls", appdata, skin_name);
         if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
             return TRUE;
-        swprintf(out_path, max_len, L"%s\\WineExplorer\\StartSkins\\%s.skin", appdata, skin_name);
+        swprintf(out_path, max_len, L"%ls\\WineExplorer\\StartSkins\\%ls%ls", appdata, skin_name, ext1);
         if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
             return TRUE;
-        swprintf(out_path, max_len, L"%s\\WineExplorer\\StartSkins\\%s.skin7", appdata, skin_name);
+        swprintf(out_path, max_len, L"%ls\\WineExplorer\\StartSkins\\%ls%ls", appdata, skin_name, ext2);
         if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
             return TRUE;
     }
 
     /* 2. C:\usr\local\share\wineexplorer\startskins\<skin_name> */
-    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%s", skin_name);
+    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%ls", skin_name);
     if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
         return TRUE;
-    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin", skin_name);
+    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%ls%ls", skin_name, ext1);
     if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
         return TRUE;
-    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin7", skin_name);
+    swprintf(out_path, max_len, L"C:\\usr\\local\\share\\wineexplorer\\startskins\\%ls%ls", skin_name, ext2);
     if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
         return TRUE;
 
     /* 3. Z:\usr\local\share\wineexplorer\startskins\<skin_name> */
-    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%s", skin_name);
+    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%ls", skin_name);
     if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
         return TRUE;
-    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin", skin_name);
+    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%ls%ls", skin_name, ext1);
     if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
         return TRUE;
-    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%s.skin7", skin_name);
+    swprintf(out_path, max_len, L"Z:\\usr\\local\\share\\wineexplorer\\startskins\\%ls%ls", skin_name, ext2);
     if (GetFileAttributesW(out_path) != INVALID_FILE_ATTRIBUTES)
         return TRUE;
 
@@ -1693,7 +1731,7 @@ struct start_skin *startskin_get_active(enum start_skin_type preferred_type)
         return NULL;
     }
 
-    if (!find_skin_file(skin_val, full_path, MAX_PATH))
+    if (!find_skin_file(skin_val, full_path, MAX_PATH, preferred_type))
     {
         startskin_invalidate_active();
         return NULL;
@@ -1708,14 +1746,28 @@ struct start_skin *startskin_get_active(enum start_skin_type preferred_type)
     }
     if (dpi <= 0) dpi = 96;
 
-    actual_type = preferred_type;
-    if (preferred_type != STARTSKIN_TYPE_CLASSIC1)
     {
         const WCHAR *ext = wcsrchr(full_path, L'.');
-        if (ext && _wcsicmp(ext, L".skin7") == 0)
-            actual_type = STARTSKIN_TYPE_WIN7;
+        BOOL is_skin7 = (ext && _wcsicmp(ext, L".skin7") == 0);
+
+        if (preferred_type == STARTSKIN_TYPE_CLASSIC1)
+        {
+            if (is_skin7)
+            {
+                startskin_invalidate_active();
+                return NULL;
+            }
+            actual_type = STARTSKIN_TYPE_CLASSIC1;
+        }
         else
-            actual_type = STARTSKIN_TYPE_CLASSIC2;
+        {
+            if (!is_skin7)
+            {
+                startskin_invalidate_active();
+                return NULL;
+            }
+            actual_type = STARTSKIN_TYPE_WIN7;
+        }
     }
 
     /* Check if cache matches */
@@ -1736,6 +1788,17 @@ struct start_skin *startskin_get_active(enum start_skin_type preferred_type)
                                    opts_val[0] ? opts_val : NULL, actual_type, dpi);
     if (s_cached_skin)
     {
+        if (preferred_type == STARTSKIN_TYPE_CLASSIC1 && s_cached_skin->two_columns)
+        {
+            startskin_invalidate_active();
+            return NULL;
+        }
+        if (preferred_type == STARTSKIN_TYPE_CLASSIC2 && !s_cached_skin->two_columns)
+        {
+            startskin_invalidate_active();
+            return NULL;
+        }
+
         wcsncpy(s_cached_name, full_path, MAX_PATH - 1);
         wcsncpy(s_cached_var, var_val, 63);
         wcsncpy(s_cached_opts, opts_val, 255);
@@ -1819,42 +1882,15 @@ void startskin_paint_panel(HDC hdc, struct start_skin *skin,
     }
 
     /* 2. User banner header */
-    if (zone_user)
+    if (zone_user && skin->caption_bitmap.hbmp)
     {
-        if (skin->caption_bitmap.hbmp)
-        {
-            startskin_draw_slices(hdc, &skin->caption_bitmap, zone_user, zone_user, NULL, TRUE);
-        }
-        else
-        {
-            br = CreateSolidBrush(skin->caption_background);
-            FillRect(hdc, zone_user, br);
-            DeleteObject(br);
-        }
-
-        /* Avatar frame if defined */
-        if (skin->user_bitmap.hbmp)
-        {
-            RECT frame_rc;
-            int fw = skin->user_bitmap.width;
-            int fh = skin->user_bitmap.height;
-            int fx = zone_user->left + 8;
-            int fy = zone_user->top + (zone_user->bottom - zone_user->top - fh) / 2;
-
-            if (skin->user_frame_pos.x > 0) fx = zone_user->left + skin->user_frame_pos.x;
-            if (skin->user_frame_pos.y > 0) fy = zone_user->top + skin->user_frame_pos.y;
-
-            SetRect(&frame_rc, fx, fy, fx + fw, fy + fh);
-            startskin_draw_slices(hdc, &skin->user_bitmap, &frame_rc, &frame_rc, NULL, TRUE);
-        }
+        startskin_draw_slices(hdc, &skin->caption_bitmap, zone_user, zone_user, NULL, TRUE);
     }
 
     /* 3. Bottom Logoff / Shutdown bar */
-    if (zone_logoff)
+    if (zone_logoff && skin->shutdown_bitmap.hbmp)
     {
-        br = CreateSolidBrush(skin->caption_background);
-        FillRect(hdc, zone_logoff, br);
-        DeleteObject(br);
+        startskin_draw_slices(hdc, &skin->shutdown_bitmap, zone_logoff, zone_logoff, NULL, TRUE);
     }
 }
 
@@ -1870,6 +1906,11 @@ void startskin_paint_banner(HDC hdc, struct start_skin *skin,
     if (skin && skin->caption_bitmap.hbmp)
     {
         startskin_draw_slices(hdc, &skin->caption_bitmap, rc, rc, NULL, TRUE);
+    }
+    else if (skin && skin->main_bitmap.hbmp && skin->main_bitmap_slices_x[1] > 0)
+    {
+        startskin_draw_bg_slices(hdc, &skin->main_bitmap, rc,
+                                 skin->main_bitmap_slices_x, skin->main_bitmap_slices_y, 0, TRUE);
     }
     else if (skin)
     {

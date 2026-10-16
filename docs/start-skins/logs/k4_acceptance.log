@@ -1,97 +1,121 @@
-=== WineExplorer Start Menu Skins Acceptance Runner ===
-Fri Oct 16 11:31:21 AM CDT 2026
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+_XSERVTransmkdir: Mode of /tmp/.X11-unix should be set to 1777
+_XSERVTransSocketCreateListener: failed to bind listener
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: failed to create listener for unix
+=================================================================
+ 1. BASELINE UNMODIFIED COMPARISON (MASTER VS BRANCH)
+=================================================================
+[master] dpi=96 style=0 skin='' -> crop=262x376+0+362 -> master_classic_96.png
+[branch] dpi=96 style=0 skin='' -> crop=262x376+0+362 -> baseline_classic.png
+-> Single-column Classic built-in diff vs master: 0 pixels
+[master] dpi=96 style=1 skin='' -> crop=380x440+0+298 -> master_xp_96.png
+[branch] dpi=96 style=1 skin='' -> crop=380x440+0+298 -> baseline_xp2col.png
+-> Two-column XP built-in diff vs master: 0 pixels
 
-=== 1. Building third-party community skin (SmokedGlass) ===
--rwxr-xr-x 1 root root 245K Oct 16 11:31 /tmp/SmokedGlass.skin
+=================================================================
+ 2. BUNDLED SKINS: 100% (96 DPI) AND 150% (144 DPI)
+=================================================================
+[branch] dpi=96 style=0 skin='ClassicSkin' -> crop=262x376+0+362 -> ClassicSkin_classic_96.png
+[branch] dpi=144 style=0 skin='ClassicSkin' -> crop=360x384+0+738 -> ClassicSkin_classic_144.png
+[branch] dpi=96 style=0 skin='Metro' -> crop=242x376+0+362 -> Metro_classic_96.png
+[branch] dpi=144 style=0 skin='Metro' -> crop=340x384+0+738 -> Metro_classic_144.png
+[branch] dpi=96 style=1 skin='Metallic7' -> crop=380x440+0+298 -> Metallic7_xp_96.png
+[branch] dpi=144 style=1 skin='Metallic7' -> crop=380x456+0+666 -> Metallic7_xp_144.png
+[branch] dpi=96 style=1 skin='ClassicSkin7' -> crop=380x440+0+298 -> ClassicSkin7_xp_96.png
+[branch] dpi=144 style=1 skin='ClassicSkin7' -> crop=380x456+0+666 -> ClassicSkin7_xp_144.png
+[branch] dpi=96 style=1 skin='Midnight7' -> crop=380x440+0+298 -> Midnight7_xp_96.png
+[branch] dpi=144 style=1 skin='Midnight7' -> crop=380x456+0+666 -> Midnight7_xp_144.png
 
-=== 2. Preparing fuzz fallback skins ===
+=================================================================
+ 3. GENUINE THIRD-PARTY SKIN: CATPPUCCIN MOCHA (SCOTTYGROTTY)
+=================================================================
+[branch] dpi=96 style=1 skin='Catppuccin Mocha' -> crop=380x440+0+298 -> CatppuccinMocha_xp_96.png
+[branch] dpi=144 style=1 skin='Catppuccin Mocha' -> crop=380x456+0+666 -> CatppuccinMocha_xp_144.png
+[branch] dpi=96 style=0 skin='Catppuccin Mocha' -> crop=262x376+0+362 -> CatppuccinMocha_classic_96.png
+[branch] dpi=144 style=0 skin='Catppuccin Mocha' -> crop=360x384+0+738 -> CatppuccinMocha_classic_144.png
 
-=== 3. Compiling acceptance test executable ===
+=================================================================
+ 4. VIEW COMPATIBILITY FALLBACK VERIFICATION
+=================================================================
+[branch] dpi=96 style=1 skin='ClassicSkin' -> crop=380x440+0+298 -> fallback_ClassicSkin_xp_96.png
+-> ClassicSkin on Two-Column View diff vs unskinned baseline: 0 pixels
+[branch] dpi=96 style=0 skin='Metallic7' -> crop=262x376+0+362 -> fallback_Metallic7_classic_96.png
+-> Metallic7 on Classic View diff vs unskinned baseline: 0 pixels
 
-=== 4. Starting Xvfb display session ===
-
-=== 5. Running acceptance tests under Wine ===
-====================================================
- WineExplorer Start Menu Skins Acceptance Test Suite
-====================================================
-
-=== Test Suite 1: Baseline Menus Without Skin (Pixel-Identical) ===
-  [PASS] Built-in Classic menu rendering is deterministic (0 diff pixels)
-  [PASS] Built-in XP two-column menu rendering is deterministic (0 diff pixels)
-
-=== Test Suite 2: Bundled Open-Art Skins (96 & 144 DPI) ===
-
---- Testing Skin: ClassicSkin (Classic) ---
-  [PASS] Loaded successfully at 96 DPI (100%)
-  [PASS] Background bitmap or color is present
-  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
-  [PASS] Loaded successfully at 144 DPI (150%)
-  [PASS] Skin structure reflects 144 DPI scaling
-  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
-
---- Testing Skin: ClassicSkin7 (2-Column) ---
-  [PASS] Loaded successfully at 96 DPI (100%)
-  [PASS] Background bitmap or color is present
-  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
-  [PASS] Loaded successfully at 144 DPI (150%)
-  [PASS] Skin structure reflects 144 DPI scaling
-  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
-
---- Testing Skin: Metallic7 (2-Column) ---
-  [PASS] Loaded successfully at 96 DPI (100%)
-  [PASS] Background bitmap or color is present
-  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
-  [PASS] Loaded successfully at 144 DPI (150%)
-  [PASS] Skin structure reflects 144 DPI scaling
-  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
-
---- Testing Skin: Midnight7 (2-Column) ---
-  [PASS] Loaded successfully at 96 DPI (100%)
-  [PASS] Background bitmap or color is present
-  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
-  [PASS] Loaded successfully at 144 DPI (150%)
-  [PASS] Skin structure reflects 144 DPI scaling
-  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
-
---- Testing Skin: Metro (Classic) ---
-  [PASS] Loaded successfully at 96 DPI (100%)
-  [PASS] Background bitmap or color is present
-  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
-  [PASS] Loaded successfully at 144 DPI (150%)
-  [PASS] Skin structure reflects 144 DPI scaling
-  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
-
-=== Test Suite 3: Third-Party Community Skin (SmokedGlass) ===
-  [PASS] Third-party SmokedGlass skin loaded successfully
-  [PASS] Skin version parsed correctly
-  [PASS] Main background bitmap loaded
-  [PASS] SmokedGlass classic view rendered cleanly
-
-=== Test Suite 4: Fuzz Fallback Tests ===
-  [PASS] Non-existent skin returns NULL
-  [PASS] 0-byte file returns NULL cleanly
-  [PASS] Corrupt truncated PE returns NULL cleanly
-  [PASS] DLL without SKIN resource returns NULL cleanly
-  [PASS] Missing bitmap resource falls back to NULL cleanly
-  [PASS] Garbage description does not crash
-
-====================================================
- Acceptance Summary: 42 tests run, 42 passed, 0 failed
-====================================================
-
-=== 6. Converting screenshots to PNG ===
-Saved screenshot: baseline_classic.png
-Saved screenshot: baseline_xp2col.png
-Saved screenshot: ClassicSkin7_xp_144.png
-Saved screenshot: ClassicSkin7_xp_96.png
-Saved screenshot: ClassicSkin_classic_144.png
-Saved screenshot: ClassicSkin_classic_96.png
-Saved screenshot: Metallic7_xp_144.png
-Saved screenshot: Metallic7_xp_96.png
-Saved screenshot: Metro_classic_144.png
-Saved screenshot: Metro_classic_96.png
-Saved screenshot: Midnight7_xp_144.png
-Saved screenshot: Midnight7_xp_96.png
-Saved local third-party screenshot: /tmp/SmokedGlass_classic_96.png
-
-=== Start Menu Skins Acceptance Test Finished Successfully ===
+All acceptance captures completed successfully.

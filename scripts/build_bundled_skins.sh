@@ -3,17 +3,30 @@
 # Copyright 2026 WineExplorer contributors
 # Builds open-art Open-Shell Start menu skins into PE resource DLLs (.skin / .skin7)
 
+# Source: Open-Shell Menu (commit 495358a30ee503c3663d06cbd10c136907d69d78, MIT)
+
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SKINS_SRC="/root/Open-Shell-Menu/Src/Skins"
-SETUP_DIR="/root/Open-Shell-Menu/Src/Setup"
+OPENSHELL_REPO="/root/Open-Shell-Menu"
+OPENSHELL_COMMIT="495358a30ee503c3663d06cbd10c136907d69d78"
+SKINS_SRC="$OPENSHELL_REPO/Src/Skins"
+SETUP_DIR="$OPENSHELL_REPO/Src/Setup"
 DEST_SRC="$ROOT_DIR/src/resources/startskins"
 DEST_SYS="/usr/local/share/wineexplorer/startskins"
 
 mkdir -p "$DEST_SRC"
 mkdir -p "$DEST_SYS" 2>/dev/null || true
+
+if [ -d "$OPENSHELL_REPO/.git" ]; then
+    actual_commit="$(git -C "$OPENSHELL_REPO" rev-parse HEAD 2>/dev/null || true)"
+    echo "Open-Shell repository commit: $actual_commit (expected: $OPENSHELL_COMMIT)"
+fi
+
+if [ -f "$ROOT_DIR/src/resources/startskins/LICENSE" ]; then
+    cp -f "$ROOT_DIR/src/resources/startskins/LICENSE" "$DEST_SYS/LICENSE" 2>/dev/null || true
+fi
 
 BUILD_TMP="/tmp/wex_skin_build"
 rm -rf "$BUILD_TMP"

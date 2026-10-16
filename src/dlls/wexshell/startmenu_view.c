@@ -1531,7 +1531,7 @@ static void panel_draw_user(HDC hdc, HTHEME theme, struct start_skin *skin)
     offset.x = 2;
     offset.y = 2;
 
-    if (skin)
+    if (skin && skin->caption_bitmap.hbmp)
     {
         color = skin->user_text_color;
     }
@@ -1593,7 +1593,12 @@ static void panel_draw_user(HDC hdc, HTHEME theme, struct start_skin *skin)
     }
     if (avatar) DeleteObject(avatar);
 
-    if (!skin && theme)
+    if (skin && skin->user_bitmap.hbmp)
+    {
+        startskin_draw_slices(hdc, &skin->user_bitmap, &tile, &tile, NULL, TRUE);
+    }
+
+    if ((!skin || !skin->caption_bitmap.hbmp) && theme)
     {
         GetThemeColor(theme, SPP_USERPANE, 0, TMT_TEXTCOLOR, &color);
         GetThemeEnumValue(theme, SPP_USERPANE, 0, TMT_TEXTSHADOWTYPE, &shadow_type);
@@ -1665,6 +1670,13 @@ static void panel_paint(HDC hdc)
                               &g_zone[ZONE_USER], &g_zone[ZONE_PROG],
                               &g_zone[ZONE_MORE], &g_zone[ZONE_PLACES],
                               &g_zone[ZONE_LOGOFF], g_panel_size.cx, g_panel_size.cy);
+        if (!skin->shutdown_bitmap.hbmp)
+        {
+            if (theme)
+                DrawThemeBackground(theme, hdc, SPP_LOGOFF, 0, &g_zone[ZONE_LOGOFF], NULL);
+            else
+                FillRect(hdc, &g_zone[ZONE_LOGOFF], GetSysColorBrush(COLOR_ACTIVECAPTION));
+        }
         panel_draw_user(hdc, theme, skin);
     }
     else
@@ -1772,7 +1784,17 @@ static void panel_paint(HDC hdc)
                 if (icon) { DrawIconEx(hdc, rc.left + 6, y, icon, 24, 24, 0, NULL, DI_NORMAL); DestroyIcon(icon); }
             }
             tr = rc; tr.left += 6 + 24 + 4;
-            panel_text(hdc, tr, item->title, bold, skin ? skin->caption_text_color : text);
+            {
+                COLORREF btn_text_color = text;
+                if (skin)
+                {
+                    if (skin->shutdown_bitmap.hbmp && skin->shutdown_btn.text_color[0] != 0 && skin->shutdown_btn.text_color[0] != CLR_INVALID)
+                        btn_text_color = skin->shutdown_btn.text_color[0];
+                    else
+                        btn_text_color = RGB(255, 255, 255);
+                }
+                panel_text(hdc, tr, item->title, bold, btn_text_color);
+            }
             continue;
         }
 

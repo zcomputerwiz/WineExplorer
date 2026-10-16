@@ -12,6 +12,7 @@ The tree combines code under several compatible licenses. Every file keeps the n
 | ReactOS code under the LGPL (for example `wine/programs/calc`) | LGPL-2.1-or-later, as stated in each file | |
 | ReactOS art (icons and bitmaps, listed in `assets/`) | as in the ReactOS tree (GPL, or the license noted next to the art, such as Tango's) | |
 | Project code written for WineExplorer | GPL-2.0-or-later for new files (`scripts/add-license.py` adds the header). Older project files carry an LGPL-2.1-or-later header, which is compatible and may stay. | |
+| Code and skins ported from Open-Shell (`src/dlls/wexshell/startskin.*`, `src/resources/startskins/`) | MIT (`src/resources/startskins/LICENSE`) | Copyright (c) 2009-2017 Ivo Beltchev, Copyright (c) 2017-2018 Open-Shell Team. Compatible with GPL-2.0-or-later. |
 
 A module that contains GPL code (for example `explorer.exe`, because of `alttab.c`) is distributed under the GPL as a
 whole. Code under licenses that are not compatible with GPLv2 (Apache-2.0, GPL-3.0-only) must not be added to the

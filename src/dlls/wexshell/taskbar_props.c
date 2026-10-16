@@ -491,11 +491,7 @@ static void draw_skin_preview_item(HDC hdc, const RECT *rc, const WCHAR *skin_na
     if (skin->caption_bitmap.hbmp)
         startskin_draw_slices(hdc, &skin->caption_bitmap, &header_rc, &header_rc, NULL, TRUE);
     else
-    {
-        bg = CreateSolidBrush(skin->caption_background);
-        FillRect(hdc, &header_rc, bg);
-        DeleteObject(bg);
-    }
+        FillRect(hdc, &header_rc, GetSysColorBrush(COLOR_ACTIVECAPTION));
 
     /* Avatar frame in preview */
     if (skin->user_bitmap.hbmp)
@@ -508,7 +504,7 @@ static void draw_skin_preview_item(HDC hdc, const RECT *rc, const WCHAR *skin_na
 
     /* User name */
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, skin->user_text_color);
+    SetTextColor(hdc, skin->caption_bitmap.hbmp ? skin->user_text_color : RGB(255, 255, 255));
     font = skin->user_font ? skin->user_font : GetStockObject(DEFAULT_GUI_FONT);
     old_font = SelectObject(hdc, font);
     {
@@ -595,9 +591,11 @@ static WCHAR s_page_opts[256] = {0};
 static void enum_skins_dlg_cb(const WCHAR *name, const WCHAR *path, BOOL is_7, void *param)
 {
     HWND cb = (HWND)param;
-    if (SendMessageW(cb, CB_FINDSTRINGEXACT, -1, (LPARAM)name) == CB_ERR)
+    WCHAR display[MAX_PATH];
+    swprintf(display, MAX_PATH, L"%s (%s)", name, is_7 ? L"Two-column" : L"Classic");
+    if (SendMessageW(cb, CB_FINDSTRINGEXACT, -1, (LPARAM)display) == CB_ERR)
     {
-        SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)name);
+        SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)display);
     }
 }
 
@@ -629,6 +627,15 @@ static void update_skin_controls(HWND hwnd, BOOL from_user)
         EnableWindow(hOptList, FALSE);
         InvalidateRect(GetDlgItem(hwnd, IDC_SKIN_PREVIEW), NULL, TRUE);
         return;
+    }
+
+    {
+        WCHAR *paren = wcschr(name, L'(');
+        if (paren)
+        {
+            if (paren > name && *(paren - 1) == L' ') *(paren - 1) = L'\0';
+            else *paren = L'\0';
+        }
     }
 
     wcscpy(s_page_skin, name);
@@ -760,7 +767,34 @@ static INT_PTR CALLBACK startskin_page_proc(HWND hwnd, UINT msg, WPARAM wparam, 
         SendMessageW(hSkinCombo, CB_ADDSTRING, 0, (LPARAM)L"None (Built-in)");
         startskin_enumerate(enum_skins_dlg_cb, (void *)hSkinCombo);
 
-        found = (int)SendMessageW(hSkinCombo, CB_FINDSTRINGEXACT, -1, (LPARAM)s_page_skin);
+        found = CB_ERR;
+        {
+            int count = (int)SendMessageW(hSkinCombo, CB_GETCOUNT, 0, 0);
+            int i;
+            for (i = 0; i < count; i++)
+            {
+                WCHAR item_text[MAX_PATH];
+                SendMessageW(hSkinCombo, CB_GETLBTEXT, i, (LPARAM)item_text);
+                if (_wcsicmp(item_text, s_page_skin) == 0)
+                {
+                    found = i;
+                    break;
+                }
+                {
+                    WCHAR *paren = wcschr(item_text, L'(');
+                    if (paren)
+                    {
+                        if (paren > item_text && *(paren - 1) == L' ') *(paren - 1) = L'\0';
+                        else *paren = L'\0';
+                        if (_wcsicmp(item_text, s_page_skin) == 0)
+                        {
+                            found = i;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         if (found == CB_ERR) found = 0;
         SendMessageW(hSkinCombo, CB_SETCURSEL, found, 0);
 

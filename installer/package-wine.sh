@@ -63,6 +63,9 @@ install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/sh
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/startskins"
 if [ -d "$ROOT_DIR/src/resources/startskins" ]; then
     install -m644 "$ROOT_DIR/src/resources/startskins/"*.skin* "$STAGE_WINE/usr/local/share/wineexplorer/startskins/" 2>/dev/null || true
+    if [ -f "$ROOT_DIR/src/resources/startskins/LICENSE" ]; then
+        install -m644 "$ROOT_DIR/src/resources/startskins/LICENSE" "$STAGE_WINE/usr/local/share/wineexplorer/startskins/" 2>/dev/null || true
+    fi
 fi
 
 # Remove development include headers to save ISO squashfs space

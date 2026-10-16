@@ -226,24 +226,28 @@ The Open-Shell Start menu skins implementation was validated against all require
 
 | Requirement | Test Method | Result | Evidence |
 |---|---|---|---|
-| **No skin / Default style** | Direct pixel diff on offscreen DIB & Xvfb between baseline built-in menus and `skin = NULL` | **PASS (0 diff pixels)** | `screenshots/baseline_classic.png`<br>`screenshots/baseline_xp2col.png` |
-| **Bundled skins (open art)** | Loading & rendering in Classic & 2-Column views at 100% (96 DPI) and 150% (144 DPI) | **PASS (5 skins, 10 rendered targets)** | `screenshots/ClassicSkin_classic_*.png`<br>`screenshots/ClassicSkin7_xp_*.png`<br>`screenshots/Metallic7_xp_*.png`<br>`screenshots/Midnight7_xp_*.png`<br>`screenshots/Metro_classic_*.png` |
-| **Third-party community skin** | Compiled `SmokedGlass` from Open-Shell source into `/tmp/SmokedGlass.skin`, verified loading, degradation of glass opacity to solid/alpha, and rendering | **PASS** | `/tmp/SmokedGlass_classic_96.png`<br>(Binary kept local in `/tmp/`) |
-| **Fuzz fallbacks** | Evaluated 0-byte, corrupt PE header, missing resource, missing bitmap, garbage description, and malformed condition grammar | **PASS (0 crashes, clean fallback to NULL)** | `logs/k4_acceptance.log` |
+| **No skin / Default style** | Direct pixel diff on real Start menu in real shell (`explorer /desktop=Shell /shell`) between `master` and `branch` | **PASS (0 diff pixels)** | `screenshots/baseline_classic.png`<br>`screenshots/baseline_xp2col.png`<br>(0 px diff vs master) |
+| **Bundled skins (open art)** | Loading & rendering in Classic & 2-Column views at 100% (96 DPI) and 150% (144 DPI) in real shell | **PASS (5 skins, 10 rendered targets)** | `screenshots/ClassicSkin_classic_*.png`<br>`screenshots/ClassicSkin7_xp_*.png`<br>`screenshots/Metallic7_xp_*.png`<br>`screenshots/Midnight7_xp_*.png`<br>`screenshots/Metro_classic_*.png` |
+| **Two-column header & footer** | User header and shutdown footer styled from skin or built-in look; button labels clearly visible with high contrast | **PASS** | `screenshots/Metallic7_xp_*.png`<br>`screenshots/ClassicSkin7_xp_*.png`<br>`screenshots/Midnight7_xp_*.png` |
+| **View compatibility fallback** | Incompatible skin types strictly rejected and fall back to built-in look; chooser shows `(Classic)` vs `(Two-column)` | **PASS (0 diff pixels vs baseline)** | `screenshots/fallback_ClassicSkin_xp_96.png` (0 px)<br>`screenshots/fallback_Metallic7_classic_96.png` (0 px) |
+| **Third-party community skin** | Catppuccin Mocha by ScottyGrotty (outside Open-Shell repo, MIT, `https://github.com/ScottyGrotty/catppuccin-open-shell`) staged locally | **PASS** | `screenshots/CatppuccinMocha_xp_*.png`<br>`screenshots/CatppuccinMocha_classic_*.png`<br>(Kept local in `/root/catppuccin-open-shell`) |
+| **Fuzz fallbacks** | Evaluated 0-byte, corrupt PE header, missing resource, missing bitmap, garbage description, and malformed condition grammar | **PASS (43/43 pass, 0 crashes, clean fallback to NULL)** | `logs/k1_fuzz_tests.log` |
 | **Interactive ISO install** | Full unattended/interactive VM install in QEMU/KVM (`installer/tests/install-interactive.sh`) from fresh ISO with WoW64 32/64-bit program checks and prefix-split account verification | **PASS** | `logs/install_interactive.log` |
 
 ---
 
-### Screenshot Gallery
+### Screenshot Gallery (Real Shell: `explorer /desktop=Shell /shell`)
+
+All acceptance screenshots were captured directly from the real Start menu opened by clicking the Start button in the live shell running under Xvfb at 100% (96 DPI) and 150% (144 DPI).
 
 #### 1. Baseline Built-in Views ("None" / Default)
 - **Built-in Classic Menu:** `docs/start-skins/screenshots/baseline_classic.png`  
-  Pixel-identical to pre-series rendering. Standard 3D face, vertical rotated caption banner, and system highlight colors.
+  Pixel-identical to `master` (0 pixel difference via `compare -metric AE`). Standard 3D face, vertical rotated caption banner, and system highlight colors.
 - **Built-in XP Two-Column Menu:** `docs/start-skins/screenshots/baseline_xp2col.png`  
-  Pixel-identical to pre-series rendering. User avatar header, white programs column, light blue places column, and logoff footer bar.
+  Pixel-identical to `master` (0 pixel difference via `compare -metric AE`). User avatar header, white programs column, light blue places column, and logoff footer bar with default system text color.
 
 #### 2. Bundled Open-Art Skins (100% & 150% DPI)
-All bundled skins were compiled from open-art Open-Shell sources per `docs/ASSETS.md` (no Microsoft proprietary artwork):
+All bundled skins were compiled from open-art Open-Shell sources (commit `495358a30ee503c3663d06cbd10c136907d69d78`) per `docs/ASSETS.md` (no Microsoft proprietary artwork):
 - **`ClassicSkin.skin`:**
   - 100% (96 DPI): `docs/start-skins/screenshots/ClassicSkin_classic_96.png`
   - 150% (144 DPI): `docs/start-skins/screenshots/ClassicSkin_classic_144.png`
@@ -260,10 +264,20 @@ All bundled skins were compiled from open-art Open-Shell sources per `docs/ASSET
   - 100% (96 DPI): `docs/start-skins/screenshots/Metro_classic_96.png`
   - 150% (144 DPI): `docs/start-skins/screenshots/Metro_classic_144.png`
 
-#### 3. Third-Party Community Skin Verification
-- **Skin tested:** `SmokedGlass` (Open-Shell community skin by Ivo / Open-Shell project).
-- **Compilation target:** `/tmp/SmokedGlass.skin` (PE resource DLL built with MinGW).
-- **Result:** Loaded version 2 description, resolved `main_bitmap`, and rendered Classic Start menu with vertical caption and custom item highlights. Glass blur gracefully degraded to opaque alpha-blended background. The skin binary was kept out of the repository.
+#### 3. View Compatibility Fallbacks
+- **`ClassicSkin` on Two-Column View:** `docs/start-skins/screenshots/fallback_ClassicSkin_xp_96.png`  
+  Single-column `.skin` is rejected by two-column view; cleanly falls back to built-in XP view (0 pixel difference against `baseline_xp2col.png`).
+- **`Metallic7` on Classic View:** `docs/start-skins/screenshots/fallback_Metallic7_classic_96.png`  
+  Two-column `.skin7` is rejected by classic view; cleanly falls back to built-in Classic view (0 pixel difference against `baseline_classic.png`).
+
+#### 4. Genuine Third-Party Community Skin Verification
+- **Skin tested:** **Catppuccin Mocha** by ScottyGrotty (`https://github.com/ScottyGrotty/catppuccin-open-shell`, MIT). Genuine third-party skin from outside the Open-Shell repository.
+- **Staging:** Kept locally on disk in `/root/catppuccin-open-shell/` (not committed to git). Staged to user's `%APPDATA%\WineExplorer\StartSkins\`.
+- **Results:**
+  - Two-Column view (100% DPI): `docs/start-skins/screenshots/CatppuccinMocha_xp_96.png`
+  - Two-Column view (150% DPI): `docs/start-skins/screenshots/CatppuccinMocha_xp_144.png`
+  - Classic view (100% DPI): `docs/start-skins/screenshots/CatppuccinMocha_classic_96.png`
+  - Classic view (150% DPI): `docs/start-skins/screenshots/CatppuccinMocha_classic_144.png`
 
 ---
 
@@ -271,5 +285,6 @@ All bundled skins were compiled from open-art Open-Shell sources per `docs/ASSET
 
 Raw execution logs are preserved under `docs/start-skins/logs/`:
 - **`logs/k1_fuzz_tests.log`:** Fuzz and condition evaluation unit test log (43/43 pass).
-- **`logs/k4_acceptance.log`:** Comprehensive acceptance test runner output (42/42 pass).
+- **`logs/k4_acceptance.log`:** Real shell acceptance test runner output and baseline diffs (0 px diff).
 - **`logs/install_interactive.log`:** End-to-end QEMU/KVM interactive installation output on fresh ISO.
+
