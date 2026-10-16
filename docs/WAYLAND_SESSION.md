@@ -7,6 +7,32 @@ follow that review. No acceptance is claimed yet.
 
 ## Part A
 
+Scale checkpoint: Wine topic 4fb0940, compositor 0456b718 and the owned
+`linux_windows.c` reconciliation now distinguish logical native observations
+from Win32 pixel geometry using the driver's existing preferred surface scale.
+The driver publishes a scalar read-only scale and posts an owning-thread
+notification, following the other private properties; no new hook or protocol.
+The shell retains the raw native snapshot for scale reconciliation. This
+covers the requested one-output 150% case and unit-scale output layouts;
+mixed-scale monitor coordinate transforms have not been tested.
+
+Real foot at 150% now retains its Wine frame and input: an edge shrink changes
+the pixel client from 1050 to 930 wide, maximize reaches frame
+(-4,-4)-(1284,774), restore returns to client (114,41) 930x721, and
+`echo Scale-150-passed` prints. The taskbar is visibly at the bottom, above the
+window, with scale120=180 and pixel rect (0,770)-(1280,800). Evidence:
+`scale150-controls.log`, `scale150-max.png`, `scale150-restored.png`, and
+`scale150-taskbar.png` in ignored `build/wayland-session`.
+
+The successive live-scale failures were: unconverted native inventory,
+independent compositor placement of Wine shell/frames, and the offscreen old
+taskbar edge never receiving preferred scale. The last is fixed by notifying
+the Wine view's assigned output scale before it repositions through its zone.
+Normal windows can retain partially offscreen positions after a live scale
+change, consistent with labwc's midpoint visibility policy. Switching scale
+while foot is already maximized still needs reconciliation; static 150%
+maximize/restore passes. Keep that remaining real case explicit.
+
 Latest incremental checkpoint: Wine topic ac2cc1e and compositor 4346271c.
 Foot caption maximize/restore now works by pointer after the theme renderer's
 bitmap-based slots were aligned with Wine's metric hit slots. XWayland xterm

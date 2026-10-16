@@ -23,6 +23,12 @@ modifiers from wl_keyboard.enter before native xterm's Alt+Tab reaches Wine,
 and keeps private-shell topmost overlays independent so Explorer's switcher
 is not clipped into the hosted client hole. No driver ABI hook or protocol
 version was added. These remain topic commits, not the production Wine pin.
+Topic 4fb0940 publishes the existing preferred wl_surface scale as a private
+scalar property with an owning-thread notification, so native inventory's
+logical rectangles can be reconciled into Wine pixels. It refreshes zone
+placement and reserved edges at a scale change. Actual foot resize,
+maximize/restore and typing at 150% pass; live maximized scale change remains
+unresolved. The owning bridge uses the same scale conversion as the driver.
 They preserve the compositor's physical focus/capture checks. Controlled
 hosted views acknowledge xdg state without allowing an obsolete
 NOSENDCHANGING configure size to overwrite the native-ready frame, and flush
