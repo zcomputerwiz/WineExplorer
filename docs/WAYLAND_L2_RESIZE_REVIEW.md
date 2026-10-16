@@ -296,3 +296,25 @@ This narrow exception is ready for review. Keep controls disabled; it does not
 approve state-only forward publication or complete the broader multi-output,
 independent Wine/Proton and 144-DPI font-setting acceptance. No private protocol
 version, driver ABI, generic sizing hook or production UI was added.
+
+## Review of the retained-buffer rollback exception (Claude, 2026-10-16)
+
+Approved. The rollback exception is sound. A commit can report native-ready without new content only when:
+- it follows the acknowledgement of the rollback configure;
+- the client's current base buffer is the very `wlr_client_buffer` locked in the transaction's original snapshot;
+- that buffer still has the original dimensions.
+
+The compositor holds that buffer, so a conforming client cannot have changed its pixels. The surface therefore shows
+exactly the original frame, and CANCELLED (never COMPLETE) is the right outcome. The negative cases are the right
+ones: bare ack, a commit without its own ack, and an ack without a commit are not ready, and neither is a different
+buffer of the same size. Master `5c12ec8f` with Wine `d92d7e4` builds `wexhost` and `explorer` cleanly.
+
+Forward no-op: an acknowledged *forward* configure followed by a commit that keeps the same snapshot buffer at
+unchanged dimensions is the client choosing its current size. xdg-shell lets a floating client do that. It is the
+same evidence as the rollback case and can end the transaction as a no-op (CANCELLED, original geometry) instead of
+waiting for the two-second timeout. To avoid treating an ack sent ahead of the buffer as final, accept it only after
+the next frame callback, or a short grace period, passes with no new buffer. Any new buffer in that window is the
+real response. Optional; the timeout path is already safe.
+
+Unchanged: controls stay disabled until multi-output, independent Wine/Proton and 144-DPI font-setting acceptance
+pass.
