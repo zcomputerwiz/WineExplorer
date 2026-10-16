@@ -192,6 +192,18 @@ pass, as do actual GTK3/foot grow/Escape/restore at 100%. Production controls
 remain disabled. DPI, external cancellation/close, supersession and final
 regressions still gate exposure; see WAYLAND_L2.md for the checkpoint evidence.
 
+Further acceptance (2026-10-15): GTK all edges/corners now pass at 100%/150%,
+including drag-off at 150%; foot passes larger-step all-edge tests at both
+scales. Pending cancellation, capture loss, frame/native closure and rapid
+supersession pass in 64/32 probes. Both compositor variants pass 47/47 and the
+fractional extent guards. Final shell/transport/old-peer/X11 regressions pass.
+Stock labwc smoke passes with an explicitly reported minimize-state limitation
+also reproduced at exact production Wine. The remaining small-step foot test
+reuses an unchanged buffer with acknowledgement-only commits; it reaches FAILED
+under the approved content-readiness rule. Review that no-op/rollback contract
+with Claude before changing it or enabling controls. See the final review
+section; broader multi-output and independent Wine/Proton coverage is unclaimed.
+
 - Synthetic SSD/CSD clients, foot, GTK, XWayland xterm/dialogs and independent
   Wine/Proton; one taskbar item per eligible toplevel and correct owners/icons/titles.
 - Frame/client/taskbar activation, keyboard roundtrips, frame menus, minimize,

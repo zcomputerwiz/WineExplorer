@@ -55,14 +55,32 @@ try:
     while not (runtime / "wex-shell-0").exists():
         assert compositor.poll() is None and time.monotonic() < deadline
         time.sleep(0.1)
+    scale = int(os.environ.get("WEX_ASSOCIATION_SCALE", "100"))
+    assert scale in (100, 150)
+    if scale != 100:
+        import json
+        outputs = json.loads(subprocess.check_output(["wlr-randr", "--json"], env=env, text=True))
+        assert len(outputs) == 1 and outputs[0]["name"].startswith("HEADLESS-"), outputs
+        subprocess.run(["wlr-randr", "--output", outputs[0]["name"], "--scale", str(scale / 100)],
+                       env=env, check=True, timeout=10)
+        deadline = time.monotonic() + 5
+        while True:
+            output = json.loads(subprocess.check_output(["wlr-randr", "--json"], env=env, text=True))[0]
+            if output["scale"] == scale / 100:
+                break
+            assert time.monotonic() < deadline, output
+            time.sleep(.05)
+        print(f"HEADLESS_OUTPUT_SCALE_PASSED percent={scale}", flush=True)
     for bits in (64, 32):
         peer_args = [str(compositor_dir / "tests/wex/foreign-client")]
         if native_app:
             native_env = dict(env, WAYLAND_DISPLAY="wayland-0", GDK_BACKEND="wayland", GTK_CSD="0")
+            if os.environ.get("WEX_ASSOCIATION_NATIVE_DEBUG") == "1":
+                native_env["WAYLAND_DEBUG"] = "client"
             command = ([sys.executable, str(Path(__file__).with_name("wayland-gtk-resize-client.py"))]
                        if native_app == "gtk" else ["foot", "--title=Wex real native client",
                            "--app-id=wex-real", "-w240x180", "-o", "colors.background=338855",
-                           "/usr/bin/sleep", "120"])
+                           "/usr/bin/sleep", "600"])
             external_app = subprocess.Popen(command, env=native_env, start_new_session=True,
                                             stdout=(state / f"external{bits}.log").open("w"),
                                             stderr=subprocess.STDOUT)
@@ -84,6 +102,8 @@ try:
             command = "follow-configures"
             if fixture in ("delayed", "chosen"):
                 command = "follow-" + fixture
+            if fixture == "rapid":
+                command = "follow-delayed"
             if os.environ.get("WEX_ASSOCIATION_RESIZE_FAILED") == "1":
                 command = "ignore-configures"
             peer.stdin.write(command + "\n")
@@ -94,6 +114,7 @@ try:
                                  env=env, stdout=(state / f"launch{bits}.log").open("w"), stderr=subprocess.STDOUT)
         deadline = time.monotonic() + (120 if hosting else 20)
         preview_captured = False
+        native_closed = False
         while not report.exists() or "READY_CONTROLLER_END" not in report.read_text(encoding="utf-8", errors="replace"):
             assert probe.poll() is None and time.monotonic() < deadline, (
                 report.read_text(encoding="utf-8", errors="replace") if report.exists()
@@ -112,8 +133,13 @@ try:
                     Path(str(report) + ".preview").write_text("preview captured\n")
                     preview_captured = True
                     print(f"LIVE_PREVIEW_RENDER_PASSED bits={bits}", flush=True)
+            if report.exists() and os.environ.get("WEX_ASSOCIATION_ABORT") == "native-close" and not native_closed:
+                if "READY_NATIVE_CLOSE" in report.read_text(encoding="utf-8", errors="replace"):
+                    peer.stdin.write("quit\n"); peer.stdin.flush()
+                    assert peer.wait(timeout=5) == 0
+                    native_closed = True
             time.sleep(0.1)
-        if hosting:
+        if hosting and not native_closed:
             from PIL import Image
             pixel = re.search(r"HOSTING_PIXEL (\d+) (\d+)", report.read_text(encoding="utf-8"))
             assert pixel, "hosting probe did not publish a native client sample point"
@@ -123,7 +149,7 @@ try:
                 actual = image.convert("RGB").getpixel((int(pixel[1]), int(pixel[2])))
             assert actual == (0x33, 0x88, 0x55), (bits, "native content inside Wine frame", actual)
             print(f"HOSTING_RENDER_PASSED bits={bits}", flush=True)
-            if os.environ.get("WEX_ASSOCIATION_RESIZE_FAILED") == "1":
+            if os.environ.get("WEX_ASSOCIATION_RESIZE_FAILED") == "1" or os.environ.get("WEX_ASSOCIATION_ABORT") == "frame-close":
                 peer.stdin.write(f"click {pixel[1]} {pixel[2]}\n")
                 peer.stdin.flush()
                 assert select.select([peer.stdout], [], [], 5)[0], "failed recovery input timed out"
@@ -142,16 +168,18 @@ try:
                         break
                     assert time.monotonic() < deadline, "native state transition timed out"
                     time.sleep(.01)
-        peer.stdin.write("release\n")
-        peer.stdin.flush()
+        if not native_closed:
+            peer.stdin.write("release\n")
+            peer.stdin.flush()
         if binding or states:
             Path(str(report) + ".continue").write_text("render captured\n", encoding="utf-8")
         assert probe.wait(timeout=30 if binding else 15) == 0, report.read_text(encoding="utf-8", errors="replace")
         result = report.read_text(encoding="utf-8", errors="replace")
         assert f"ASSOCIATION_PASSED bits={bits} failures=0" in result, result
         print(result.strip(), flush=True)
-        peer.stdin.write("quit\n")
-        peer.stdin.flush()
+        if not native_closed:
+            peer.stdin.write("quit\n")
+            peer.stdin.flush()
         assert peer.wait(timeout=5) == 0
         peer = None
         stop_external()

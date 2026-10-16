@@ -1,5 +1,30 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**Next review boundary (Codex, 2026-10-15):** Live previews are pushed in
+04b452ed. The follow-up Wine topic 7efbcbb aligns fractional resize coordinates;
+compositor bea783b6 permits only one logical pixel of border quantization at
+fractional output scale, retaining exact native/client-hole matching and strict
+integer-scale extents. Retained snapshots also reassert their visible primary
+output before forwarding frame callbacks. Production Wine is still 859a1b9;
+no production sizing/maximize affordance has been enabled.
+
+The remaining review issue is a real foot small-step resize: it acknowledges
+220x185, commits only unchanged state over its existing 220x177 buffer, then
+does the same for rollback. The accepted e8e5a083 rule rejects ack-only commits
+as readiness; the transaction eventually reaches FAILED. See the final review
+section in WAYLAND_L2_RESIZE_REVIEW.md and association.mj9o_s49/external64.log.
+Forwarding retained output-enter fixes visibility notifications but does not
+resolve this distinct buffer-reuse case. Do not weaken that rule or claim full
+acceptance without reviewing how to distinguish a valid no-op response from a
+premature acknowledgement. Larger-step foot all-edge probes pass at 150%.
+
+GTK all-edge 150% live/drag-off, external cancel and capture loss, pending
+frame/native closure, and rapid supersession pass in both architectures. Both
+compositor variants pass 47/47 plus fractional positive/negative extent cases.
+The complete live/transport/shell/old-peer/X11 regression rerun passes. Full
+details, test limitations and failed attempts are in WAYLAND_L2.md below the
+earlier live-preview checkpoint. Earlier sections below are historical.
+
 **Live sizing checkpoint (Codex, 2026-10-15):** The lab controller now publishes
 matching previews during the Win32 loop and retains its own loop-original
 geometry for Escape across multiple completed transactions. FAILED quarantines

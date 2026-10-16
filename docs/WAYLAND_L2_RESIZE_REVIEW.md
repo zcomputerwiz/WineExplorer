@@ -212,3 +212,49 @@ in actual 64/32 clients. Live-preview screenshots, multi-preview Escape, delayed
 minimum/maximum, fixed, one-axis and client-chosen buffers, initial keyboard edge
 selection, and actual GTK3/foot sizing also pass at 100%. Controls remain off;
 150% DPI, external cancellation/close and supersession acceptance remain open.
+
+## Fractional scaling, interruption and the next review boundary (Codex, 2026-10-15)
+
+Wine 7efbcbb fixes independent absolute-endpoint rounding which could produce a
+different surface-local hole or origin at 150%. The event rectangle now maps to
+the current frame grid, retaining normal physical coordinates wherever they
+already map exactly. The compositor's bea783b6 allows one logical pixel of
+outer-border quantization at fractional scale only; the native buffer and hole
+must still match exactly, the hole must fit inside the frame, and integer-scale
+extents remain strict. Raw probes reject a one-pixel extent mismatch at 100%
+and a two-pixel mismatch at 150%, accepting the legitimate one-pixel fractional
+case. No protocol version or generic driver ABI changed.
+
+Disabling live roots while retained buffers are displayed sends surface leave.
+The retained native snapshot now reasserts its visible primary output before
+forwarding frame callbacks to the native client and Wine frame. The raw probe
+binds the headless wl_output and checks that retained native pixels still have
+output membership. This is single-output coverage, not multi-output acceptance.
+
+Actual 64/32 GTK clients pass all edges/corners at 150% with full-window drag
+on and off, including whole-loop Escape. Native/frame placement is compared
+within one physical pixel. Larger-step foot all-edge tests also pass at 150%.
+These exercise compositor fractional output scale, not a separate 144-DPI
+Windows font setting. WM_CANCELMODE and stolen capture during a second pending
+request preserve the last coherent preview and release the frame; the latter
+does not restore the old foreground. Native/frame destruction during a pending
+request and rapid supersession pass in both architectures. Production controls
+are still disabled.
+
+**Review needed before proceeding to full acceptance:** The small-step foot
+probe (NATIVE_APP=foot, RESIZE_FIXTURE=edges, SCALE=150) reaches FAILED at its
+top-edge gesture. association.mj9o_s49/external64.log records a configure of
+220x185 over the current 220x177 viewport, followed by ack_configure and a bare
+surface commit. It supplies no buffer, damage or viewport update. Rollback to
+220x177 gets the same ack-only response, then the existing timeout detaches.
+This persists after visible output-enter is reasserted; retained frame callbacks
+already exist. The current e8e5a083 test deliberately rejects these commits as
+buffer readiness, so accepting them would change an approved transport invariant.
+
+We need a defined treatment of a legitimate client-selected no-op using its
+existing buffer, without mistaking a premature acknowledgement for a completed
+new-size response. In particular, consider whether rollback to the still-valid
+original buffer can finish without a new damage/buffer commit, and what proves
+forward no-op readiness. The current implementation keeps the accepted rule;
+the failing real-client probe and WAYLAND_DEBUG trace are retained. Do not
+enable resizing/maximize or mark this section complete yet.

@@ -41,6 +41,16 @@ geometry in drag-off mode. All of this remains opt-in; DPI and remaining
 cancellation/regression acceptance are required before enabling controls.
 Compositor 8cb6e315 adds only delayed/ignored/client-selected test publishers;
 the compositor runtime is unchanged at e8e5a083.
+Wine 7efbcbb subsequently aligns event client rectangles to the existing
+surface-local frame grid when absolute rounding would produce a different hole
+or origin. It keeps the usual physical rectangle when that maps exactly.
+Compositor bea783b6 allows a one-logical-pixel outer-border quantization at
+fractional scales only, while keeping native/client-hole dimensions exact,
+requiring the hole inside the frame and preserving strict integer-scale
+extents. It also reasserts retained pixels' visible primary output before frame
+callbacks. No request, ABI or protocol version was added. Actual small-step foot
+acknowledgement-only buffer reuse remains an acceptance blocker; review it before
+changing readiness semantics or exposing controls. See WAYLAND_L2_RESIZE_REVIEW.md.
 Project CPLs/programs, wexhost and theme definitions live under src.
 L2 opt-in topic codex/wayland-l2 (07eb6e0, including merge 2c3be3b of production
 859a1b9, not the production pin) extends the

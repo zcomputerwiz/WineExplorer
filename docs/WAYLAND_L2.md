@@ -1923,3 +1923,179 @@ while the isolated prefix preference was off. The adoption probe now saves,
 selects and restores full-window dragging explicitly, and bounds its wait for
 asynchronous resized edge hit testing. The corrected complete run passes.
 The trailing bus-disconnected message occurs during isolated session teardown.
+
+## Fractional scaling and interruption acceptance (Codex, 2026-10-15)
+
+Follow-up topics: Wine 7efbcbb and compositor bea783b6. Root production Wine is
+still the clean 859a1b9 gitlink; no sizing/maximize controls were enabled. The
+new review boundary is the acknowledgement-only foot response described below,
+not permission to expose the UI.
+
+Wine now preserves the surface-local client hole and origin when converting
+native resize events at fractional output scales. Absolute rounding is retained
+when it maps correctly; otherwise only the offending coordinate is aligned to
+the existing frame grid. The compositor allows one logical pixel of outer-border
+quantization for fractional output scales, while keeping exact native/hole size,
+the original local hole origin and a hole wholly inside the committed frame.
+At integer scales, extent checks remain exact. Raw negative cases reject one
+pixel at 100% and two pixels at 150%; the legitimate one-pixel fractional case
+passes. Protocol v10, driver ABI, retained-buffer ownership and ack/content
+readiness semantics did not change.
+
+Retained snapshots already forwarded frame callbacks. They now also reassert
+their visible primary output first, because hiding live roots can send surface
+leave while the old pixels are still displayed. The raw fixture binds the first
+headless wl_output and counts enter/leave to verify membership while retained.
+This is single-output coverage; it does not establish multi-output membership
+or output-crossing acceptance. The test Makefile now rebuilds all objects which
+include shm-common.h when its fixture layout changes.
+
+All Wine runs below use the earlier base command and isolated association-l2
+prefix, supplying only input. Logs are in /srv/protonexplorer/wex-wayland-l1/checks:
+
+- WEX_ASSOCIATION_SCALE=150 with NATIVE_APP=gtk initially passes three
+  grow/Escape/restore loops per architecture: l2-live-gtk-150.log /
+  association.9dfr6zcn. SCALE changes only this test's HEADLESS output using
+  wlr-randr, verifies the applied scale and never accesses a physical output.
+- NATIVE_APP=gtk, RESIZE_FIXTURE=edges, SCALE=150:
+  l2-live-gtk-150-border.log / association.r8j_pxhj, all 22 loops per
+  architecture, all edges/corners, within one physical pixel of native observed
+  geometry, stationary edges and multi-preview Escape. Adding DRAG_OFF=1 passes
+  in l2-live-gtk-150-off.log / association.dn9zy4va after the final Wine helper
+  refactor. These are fractional output-scale tests, not a separate 144-DPI
+  Windows font-setting test.
+- NATIVE_APP=foot, RESIZE_FIXTURE=edges-coarse, SCALE=150:
+  l2-live-foot-150-coarse-final.log / association.bhyu0496, all 22 loops per
+  architecture with larger motions. Foot can choose terminal-cell dimensions;
+  checks compare actual native/frame geometry and stationary edges rather than
+  demand the requested dimensions. Existing constrained/client-selected fixtures
+  separately assert exact expected client selection and anchoring.
+- WEX_ASSOCIATION_ABORT=cancel: l2-live-cancel-pending.log /
+  association.uy4ldrjf. After publishing preview one, WM_CANCELMODE interrupts a
+  second accepted transaction; rollback retains the first preview, exits sizing
+  and releases Win32/physical frame capture and focus.
+- ABORT=capture: l2-live-capture-verified.log / association.amwwpxuu. Another
+  Win32 window takes foreground/capture during the second accepted request.
+  The bridge never reacquires frame capture or steals foreground back. Standard
+  defwnd clears thread capture on loop exit; the probe does not demand that the
+  new owner's capture survive that generic behavior. The test explicitly
+  reactivates the original frame only after asserting the foreground guard.
+- ABORT=frame-close: l2-live-frame-close.log / association.9bsuwes4; destruction
+  during the second accepted request exits the loop and clears capture. The
+  surviving ordinary native view renders correctly and accepts physical input.
+- ABORT=native-close: l2-live-native-close.log / association.5i9ela8w. The harness
+  closes its own native publisher during the second accepted request. The real
+  WITHDRAW/FAILED events exit sizing, detach hosting and clear capture/focus.
+- RESIZE_FIXTURE=rapid plus WEX_ASSOCIATION_SHORT=1:
+  l2-live-rapid.log / association.g5y8_1sw. Two further motions arrive while the
+  first request is accepted and buffers are delayed 200ms. A newer serial
+  supersedes it; only the newest rectangle completes and paints, with final
+  input/capture/focus and in-loop pixels checked in both architectures.
+
+Runtime and protocol validation:
+
+- ~/wexcomp-build/l2-fractional-suite.log and l2-fractional-no-x-suite.log:
+  final XWayland-enabled and disabled builds each pass 47/47, including explicit
+  XWayland resize unavailability, exact integer-scale rejection and retained
+  output membership. l2-retained-output-raw-fixed.log records the separate full
+  raw resize sequence at 150% / checks/fractional-raw.b2yZKY; it passes fractional
+  positive/negative extents, every edge, delayed/ignored clients, stale events,
+  capture loss and destruction. The earlier fractional-raw.5J1Y94 run preceded
+  the output-membership assertion and also passed the extent cases.
+- l2-live-scaling-final.log / association.utxqc8jr and
+  l2-live-scaling-transport.log / association.93ckh6ot pass the complete live
+  controller and existing transport/button-up timer/queue-drain suites plus real
+  cross-process stacking. l2-live-scaling-shell.log / shell-adoption.d_vv70tq
+  passes full 64/32 Explorer adoption/input/move/close regression.
+- l2-live-scaling-old-peer.log / association.erkntr_a passes the complete bridge
+  and shared stacking on old private v8. l2-live-scaling-x11.log succeeds;
+  current status is CHECK_PASSED and tray-layout.txt has zero overlaps or
+  out-of-bounds windows. No shipping X11 session was replaced.
+- The exact 859a1b9 full combined build was repeated with current owned source
+  using the existing pin helper; l2-live-preview-production-pin-build.log passes.
+  The helper restores all topic sources with fresh mtimes. The final full topic
+  build passes in l2-live-scaling-topic-build.log.
+- Stock /usr/bin/labwc, with no private socket, is covered by the new
+  check-wayland-stock.sh / wayland-stock-probe.c. Painting, ordinary sizing,
+  maximize/restore, unminimize and close pass in actual 64/32 windows, with
+  private hosting/resize properties absent. l2-live-stock-labwc-final.log /
+  stock-wayland.gBBVDC uses explicit WEX_STOCK_ALLOW_MINIMIZE_UNSUPPORTED=1
+  for the known baseline below; it does not claim stock minimize-state support.
+
+Failed checks and corrections:
+
+- l2-live-gtk-150-edges.log initially failed three left/corner publication cases
+  with repeated UNAVAILABLE, then coherent timeout rollback. Absolute endpoint
+  rounding gave a different local hole. l2-live-gtk-150-aligned.log fixed that
+  but exposed the compositor's assumption that logical border extent is constant
+  under fractional rounding. The bounded fractional extent correction plus the
+  one-physical-pixel placement comparison passes r8j_pxhj. Native/hole equality
+  and integer-scale validation were not relaxed.
+- Capture fixture iterations l2-live-capture-pending.log,
+  l2-live-capture-pending-final.log and l2-live-capture-transfer.log had incorrect
+  test assumptions: generic defwnd clears capture, callbacks during ShowWindow
+  precede transfer, and a shared WndProc also receives the new capture owner's
+  messages. A rapid-fixture edit briefly attached a local-cancel else to the
+  wrong if. The final probe checks the original frame HWND after successful
+  transfer and the corrected control flow; amwwpxuu passes. No compensating
+  product SetCapture or generic capture patch was added.
+- The first coarse foot run passed controller checks but sampled the old initial
+  pixel below its client-selected final height (l2-live-foot-150-coarse.log).
+  Sampling inside the current accepted client fixes the test; bhyu0496 passes.
+- Adding output-membership assertions initially failed the raw suite because
+  the synthetic context did not bind wl_output, so it could receive no enter
+  events at all (l2-retained-output-raw.log). Binding it and rebuilding dependent
+  objects fixes the fixture. The final two 47/47 runs include this assertion.
+- The new stock smoke initially failed only IsIconic after minimize
+  (stock-wayland.AhzdTm). Exact production 859a1b9 reproduces the identical
+  failure in stock-wayland.fGvQYp, with the stock-baseline helper returning 1.
+  This is recorded, not silently treated as new minimize support. The explicit
+  allowance above prints STOCK_MINIMIZE_UNSUPPORTED and preserves strict default
+  testing; ordinary sizing and other smoke assertions remain mandatory.
+- Several read-only searches used literal Windows globs, absent probe/doc paths,
+  a misplaced git diff option, or guessed wlroots-0.19 include paths. Explicit
+  directory searches and installed wlroots-0.18 headers resolved them. A broad
+  find was read-only. No source, packages or services changed from these reads.
+
+Outstanding real-client acceptance and review request:
+
+Small-step foot sizing remains reproducibly incomplete. With NATIVE_APP=foot,
+RESIZE_FIXTURE=edges, SCALE=150 and WEX_ASSOCIATION_NATIVE_DEBUG=1,
+l2-live-foot-150-debug.log / association.mj9o_s49 records a current 220x177
+viewport, a 220x185 configure followed by ack_configure and bare wl_surface.commit,
+then the same ack-only response to rollback to 220x177. There is no new buffer,
+damage or viewport update. After two 2-second timeouts the accepted safety path
+reaches FAILED and exposes ordinary native rendering. l2-live-foot-retained-output.log
+reproduces this after the output-enter correction; its trace confirms leave is
+followed by enter before the configure, so output visibility alone is not the
+remaining cause. Retained frame callbacks already existed and were preserved.
+
+The earlier l2-live-foot-150-edges.log also wrongly demanded exact requested
+dimensions from a terminal which may choose its cell grid; those assertions were
+replaced with native/frame and stationary-edge comparisons. The ack-only failure
+still reproduces with those corrected checks. Tests now fail early after the
+first real error rather than spend subsequent loops waiting on detached hosting.
+The harness terminates only its own native process groups; extending sleep to
+600 seconds avoids the child expiring during diagnostics.
+
+Treating an unchanged existing buffer as a valid response conflicts with the
+approved e8e5a083 rule and its deliberate ack-plus-empty negative test. Do not
+silently weaken that rule. The next Claude review needs to define forward no-op
+readiness and safe same-buffer rollback, then adjust the transport/fixtures
+together. See WAYLAND_L2_RESIZE_REVIEW.md. Controls stay disabled; broader
+multi-output / independent Wine-Proton acceptance also remains unclaimed.
+
+Final 100% actual-client checks: l2-live-gtk-100-edges.log /
+association.jso6yanq and l2-live-foot-100-coarse.log / association.63zqcku8 each
+pass all 22 loops per architecture, preview pixels, actual native/frame geometry,
+capture/focus and Escape. The coarse fixture uses larger physical motions to
+exercise foot across terminal-cell boundaries; it does not replace the retained
+failing small-step fixture.
+
+All checks are finished and their owned test processes cleaned up. Effective
+assembled lab source/build is Wine 7efbcbb with owned source 04b452ed, compositor
+bea783b6, combined WoW64. The full production-pin build and restored topic build
+both pass. No install, real desktop/session replacement, VM reboot or package
+change was performed. Production wine/ remains clean at 859a1b9; the user's
+unrelated .gitignore edit remains unstaged. The next check-in is the documented
+same-buffer readiness review, not enabling controls or declaring L2 complete.

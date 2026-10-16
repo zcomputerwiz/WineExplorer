@@ -11,6 +11,8 @@ static CRITICAL_SECTION lock;
 static UINT64 native_id;
 static RECT native_observed;
 static SIZE native_initial;
+static BOOL native_withdrawn;
+static int output_scale=100;
 static unsigned failures;
 static BOOL refresh_during_mask;
 static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp);
@@ -64,7 +66,7 @@ static BOOL same_region(HRGN a, HRGN b)
 }
 static void CALLBACK observed(const WEX_WM_EVENT *event,void *context)
 {
-    if (event->type != WEX_WM_MAP && event->type != WEX_WM_OBSERVED) return;
+    if (event->type != WEX_WM_MAP && event->type != WEX_WM_OBSERVED && event->type != WEX_WM_WITHDRAW) return;
     EnterCriticalSection(&lock);
     if (!native_id && event->type==WEX_WM_MAP)
     {
@@ -72,7 +74,11 @@ static void CALLBACK observed(const WEX_WM_EVENT *event,void *context)
         native_initial.cx=event->rect.right-event->rect.left;
         native_initial.cy=event->rect.bottom-event->rect.top;
     }
-    if (native_id==event->window) native_observed=event->rect;
+    if (native_id==event->window)
+    {
+        if (event->type==WEX_WM_WITHDRAW) native_withdrawn=TRUE;
+        else native_observed=event->rect;
+    }
     LeaveCriticalSection(&lock);
 }
 static void pump(DWORD delay)
@@ -296,6 +302,12 @@ static BOOL controller_live,controller_multi,controller_wait_preview;
 static BOOL controller_preview_captured;
 static BOOL controller_keyboard,controller_edge_chosen;
 static unsigned controller_previews;
+static unsigned controller_abort;
+static BOOL controller_aborted;
+static BOOL controller_capture_lost;
+static HWND controller_thief,controller_frame;
+static BOOL controller_rapid,controller_rapid_sent;
+static unsigned controller_accepts;
 static DWORD controller_preview_time;
 static char controller_preview_gate[1024];
 static RECT controller_initial_client;
@@ -304,8 +316,13 @@ static BOOL native_matches_frame(HWND hwnd)
     RECT observed,client;
     POINT origin={0};
     EnterCriticalSection(&lock); observed=native_observed; LeaveCriticalSection(&lock);
+    observed.left=MulDiv(observed.left,output_scale,100);
+    observed.top=MulDiv(observed.top,output_scale,100);
+    observed.right=MulDiv(observed.right,output_scale,100);
+    observed.bottom=MulDiv(observed.bottom,output_scale,100);
     GetClientRect(hwnd,&client); ClientToScreen(hwnd,&origin); OffsetRect(&client,origin.x,origin.y);
-    return EqualRect(&observed,&client);
+    return abs(observed.left-client.left)<=1 && abs(observed.top-client.top)<=1 &&
+        abs(observed.right-client.right)<=1 && abs(observed.bottom-client.bottom)<=1;
 }
 static UINT controller_message;
 static DWORD controller_started;
@@ -315,6 +332,8 @@ static int controller_dx,controller_dy;
 static BOOL controller_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
 {
     if (!controller_running) return FALSE;
+    if (controller_abort==2 && controller_capture_lost)
+        check("interrupted frame never reacquires capture",GetCapture()!=controller_frame);
     if (msg==WM_SIZING)
     {
         printf("CONTROLLER_SIZING edge=%lu\n",(unsigned long)wp);
@@ -366,6 +385,46 @@ static BOOL controller_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
     {
         controller_events|=1u<<lp;
         printf("CONTROLLER_EVENT serial=%lu stage=%ld\n",(unsigned long)wp,(long)lp);
+        if (lp==WEX_WAYLAND_RESIZE_NATIVE_READY)
+            printf("CONTROLLER_GEOMETRY %ld,%ld %ldx%ld\n",
+                (LONG)(LONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_X_PROP),
+                (LONG)(LONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_Y_PROP),
+                (LONG)(LONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_WIDTH_PROP),
+                (LONG)(LONG_PTR)GetPropW(hwnd,WEX_WAYLAND_RESIZE_EVENT_HEIGHT_PROP));
+        if (lp==WEX_WAYLAND_RESIZE_ACCEPTED)
+        {
+            controller_accepts++;
+            if (controller_rapid && !controller_rapid_sent)
+            {
+                INPUT input[2]={{0}};
+                unsigned i;
+                controller_rapid_sent=TRUE;
+                for (i=0;i<2;i++)
+                {
+                    input[i].type=INPUT_MOUSE;
+                    input[i].mi.dx=((controller_pointer.x+(2+i)*controller_dx)*65536+32768)/GetSystemMetrics(SM_CXSCREEN);
+                    input[i].mi.dy=(controller_pointer.y*65536+32768)/GetSystemMetrics(SM_CYSCREEN);
+                    input[i].mi.dwFlags=MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE;
+                }
+                check("rapid replacement input",SendInput(2,input,sizeof(input[0]))==2);
+            }
+        }
+        if (lp==WEX_WAYLAND_RESIZE_ACCEPTED && controller_abort &&
+            controller_previews && !controller_aborted)
+        {
+            controller_aborted=TRUE;
+            if (controller_abort==1) PostMessageW(hwnd,WM_CANCELMODE,0,0);
+            else if (controller_abort==3) DestroyWindow(hwnd);
+            else if (controller_abort==4) puts("READY_NATIVE_CLOSE");
+            else
+            {
+                ShowWindow(controller_thief,SW_SHOW);
+                SetForegroundWindow(controller_thief);
+                SetCapture(controller_thief);
+                controller_capture_lost=TRUE;
+                check("external capture transfer succeeds",GetCapture()==controller_thief);
+            }
+        }
         if (lp==WEX_WAYLAND_RESIZE_NATIVE_READY && !controller_terminal && !controller_idle && !controller_live)
         {
             controller_terminal=TRUE;
@@ -407,7 +466,7 @@ static BOOL controller_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
             }
         }
         if (lp==WEX_WAYLAND_RESIZE_FAILED)
-        { controller_finished=TRUE; check("controller transaction succeeded",controller_failed); }
+        { controller_finished=TRUE; check("controller transaction succeeded",controller_failed || controller_abort==4); }
         return TRUE;
     }
     return FALSE;
@@ -419,30 +478,49 @@ static void controller_checks(HWND hwnd)
     unsigned i,expected,edge,bits;
     BOOL previous_drag=TRUE,drag;
     char fixture[32]={0};
-    BOOL limited,chosen,fixed,height,minimum,matrix,external;
+    BOOL limited,chosen,fixed,height,minimum,matrix,external,all_edges,native_grid;
     if (!GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE_CONTROLLER",NULL,0)) return;
+    controller_frame=hwnd;
     controller_message=RegisterWindowMessageW(WEX_WAYLAND_RESIZE_EVENT_MESSAGE);
     controller_failed=GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE_FAILED",NULL,0)!=0;
     GetEnvironmentVariableA("WEX_ASSOCIATION_RESIZE_FIXTURE",fixture,sizeof(fixture));
     limited=!strcmp(fixture,"limited"); chosen=!strcmp(fixture,"chosen"); fixed=!strcmp(fixture,"fixed");
     height=!strcmp(fixture,"height"); minimum=!strcmp(fixture,"minimum"); controller_keyboard=!strcmp(fixture,"keyboard");
+    controller_rapid=!strcmp(fixture,"rapid");
     external=GetEnvironmentVariableW(L"WEX_ASSOCIATION_NATIVE_APP",NULL,0)!=0;
-    matrix=limited || chosen || fixed || height || minimum || controller_keyboard || external;
+    {
+        char app[32]={0};
+        GetEnvironmentVariableA("WEX_ASSOCIATION_NATIVE_APP",app,sizeof(app));
+        native_grid=!strcmp(app,"foot");
+    }
+    all_edges=external && (!strcmp(fixture,"edges") || !strcmp(fixture,"edges-coarse"));
+    {
+        char mode[32]={0};
+        GetEnvironmentVariableA("WEX_ASSOCIATION_ABORT",mode,sizeof(mode));
+        controller_abort=!strcmp(mode,"cancel")?1:!strcmp(mode,"capture")?2:
+            !strcmp(mode,"frame-close")?3:!strcmp(mode,"native-close")?4:0;
+        if (controller_abort==2)
+            controller_thief=CreateWindowW(L"WexBindingProbe",L"Capture owner",WS_OVERLAPPEDWINDOW,
+                600,500,160,120,NULL,NULL,GetModuleHandleW(NULL),NULL);
+    }
+    matrix=limited || chosen || fixed || height || minimum || controller_keyboard || (external && !all_edges);
     SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS,0,&previous_drag,0);
     drag=!GetEnvironmentVariableW(L"WEX_ASSOCIATION_DRAG_OFF",NULL,0);
     check("set drag mode",SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS,drag,NULL,0));
     SetPropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP,(HANDLE)1);
     controller_live=drag;
-    for (i=0;i<(controller_failed?1:external?3:matrix?2:22);i++)
+    for (i=0;i<(controller_failed||controller_abort||controller_rapid?1:external&&!all_edges?3:matrix?2:22);i++)
     {
         INPUT input={0};
         int actual_dx,actual_dy;
+        if (failures) break;
         GetWindowRect(hwnd,&original); GetClientRect(hwnd,&client);
         edge=i<2 || i>=19?WMSZ_RIGHT:i==2?WMSZ_LEFT:1+(i-3)/2;
         bits=edge_bits[edge];
         controller_dx=i<3?20:(bits&4)?-20:(bits&8)?20:0;
         controller_dy=i<3?0:(bits&1)?-12:(bits&2)?12:0;
         if (i>=3 && (i-3)%2) { controller_dx=-controller_dx; controller_dy=-controller_dy; }
+        if (!strcmp(fixture,"edges-coarse")) { controller_dx*=2; controller_dy*=3; }
         if (matrix)
         {
             edge=chosen?WMSZ_TOPLEFT:controller_keyboard||fixed?WMSZ_RIGHT:WMSZ_BOTTOMRIGHT;
@@ -455,11 +533,12 @@ static void controller_checks(HWND hwnd)
             if (external)
             {
                 edge=WMSZ_BOTTOMRIGHT; bits=edge_bits[edge];
-                controller_dx=i==2?native_initial.cx-client.right:32;
-                controller_dy=i==2?native_initial.cy-client.bottom:32;
+                controller_dx=i==2?MulDiv(native_initial.cx,output_scale,100)-client.right:32;
+                controller_dy=i==2?MulDiv(native_initial.cy,output_scale,100)-client.bottom:32;
             }
         }
         actual_dx=controller_dx; actual_dy=controller_dy;
+        if (controller_rapid) actual_dx*=3;
         if (limited && !i) { actual_dx=80; actual_dy=60; }
         if (height && !i) actual_dy=20;
         if (minimum && !i) { actual_dx=-120; actual_dy=-90; }
@@ -476,9 +555,12 @@ static void controller_checks(HWND hwnd)
         printf("CONTROLLER_BEGIN case=%u pointer=%ld,%ld frame=%ld,%ld,%ld,%ld\n",i,
             controller_pointer.x,controller_pointer.y,original.left,original.top,original.right,original.bottom);
         controller_cancel=i==1 || i>=19; controller_idle=i==19; controller_local_cancel=i==20;
-        controller_multi=i==21; controller_previews=0; controller_wait_preview=FALSE;
+        controller_multi=i==21 || controller_abort; controller_previews=0; controller_wait_preview=FALSE;
+        controller_aborted=FALSE;
+        controller_capture_lost=FALSE;
+        controller_rapid_sent=FALSE; controller_accepts=0;
         if (matrix) { controller_cancel=FALSE; controller_idle=FALSE; }
-        if (external) controller_cancel=i==1;
+        if (external && !all_edges) controller_cancel=i==1;
         controller_edge_chosen=FALSE;
         controller_input=FALSE; controller_terminal=FALSE;
         controller_finished=FALSE; controller_events=0;
@@ -496,10 +578,35 @@ static void controller_checks(HWND hwnd)
         PostMessageW(hwnd,WM_SYSCOMMAND,SC_SIZE|(controller_keyboard?0:edge),
                      MAKELPARAM(controller_pointer.x,controller_pointer.y));
         pump(10);
+        if (controller_abort==1 || controller_abort==2)
+        {
+            DWORD start=GetTickCount();
+            while (!(controller_events&(1u<<WEX_WAYLAND_RESIZE_CANCELLED)) && GetTickCount()-start<5000) pump(10);
+        }
         KillTimer(hwnd,0x57455843); controller_running=FALSE;
-        if (controller_multi && controller_live) check("two published previews precede Escape",controller_previews>=2);
+        if (controller_multi && controller_live && !controller_abort) check("two published previews precede Escape",controller_previews>=2);
         if (!controller_local_cancel) check("controller finishes before sizing loop exits",controller_finished);
         else check("local cancellation sends no transaction",controller_events==0);
+        if (controller_rapid) check("new intent supersedes pending request",controller_rapid_sent && controller_accepts>=2);
+        if (controller_abort==3)
+        {
+            GUITHREADINFO info={sizeof(info)};
+            check("frame closed during pending resize",controller_aborted && !IsWindow(hwnd));
+            GetGUIThreadInfo(GetCurrentThreadId(),&info);
+            check("closed frame releases sizing state",!(info.flags&GUI_INMOVESIZE) && GetCapture()==NULL);
+            continue;
+        }
+        if (controller_abort==4)
+        {
+            BOOL withdrawn;
+            EnterCriticalSection(&lock); withdrawn=native_withdrawn; LeaveCriticalSection(&lock);
+            check("native close observed during sizing",controller_aborted && withdrawn);
+            check("native close fails pending transaction",controller_events&(1u<<WEX_WAYLAND_RESIZE_FAILED));
+            check("native close releases capture",GetCapture()==NULL && wait_prop(hwnd,WEX_WAYLAND_CAPTURE_PROP,0));
+            check("native close detaches hosting",wait_prop(hwnd,WEX_WAYLAND_GROUP_PROP,WEX_WAYLAND_GROUP_DETACHED));
+            check("native close clears hosted focus",wait_prop(hwnd,WEX_WAYLAND_FOCUS_PROP,WEX_WAYLAND_FOCUS_NONE));
+            continue;
+        }
         if (controller_failed)
         {
             expected=(1u<<WEX_WAYLAND_RESIZE_ACCEPTED)|(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED)|
@@ -511,6 +618,30 @@ static void controller_checks(HWND hwnd)
             continue;
         }
         check("controller retains hosting",(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+        if (controller_abort)
+        {
+            GUITHREADINFO info={sizeof(info)};
+            expected=(1u<<WEX_WAYLAND_RESIZE_ROLLING_BACK)|(1u<<WEX_WAYLAND_RESIZE_CANCELLED);
+            check("external interruption delivered",controller_aborted);
+            check("interrupted transaction rolls back",(controller_events&expected)==expected);
+            GetWindowRect(hwnd,&after); original.right+=controller_dx;
+            check("interruption preserves last coherent preview",EqualRect(&after,&original));
+            GetGUIThreadInfo(GetCurrentThreadId(),&info);
+            check("interruption exits sizing loop",!(info.flags&GUI_INMOVESIZE));
+            check("interruption clears frame capture",wait_prop(hwnd,WEX_WAYLAND_CAPTURE_PROP,0));
+            if (controller_abort==2)
+            {
+                /* defwnd releases thread capture on loop exit, even if another
+                 * window acquired it. The bridge must never recapture itself. */
+                check("interrupted frame leaves capture released",GetCapture()!=hwnd);
+                check("capture owner retains foreground",GetForegroundWindow()==controller_thief);
+                ReleaseCapture(); DestroyWindow(controller_thief); controller_thief=NULL;
+                SetForegroundWindow(hwnd);
+            }
+            else check("cancel releases Win32 capture",GetCapture()==NULL);
+            check("interruption native focus recovers",wait_prop(hwnd,WEX_WAYLAND_FOCUS_PROP,WEX_WAYLAND_FOCUS_NATIVE));
+            continue;
+        }
         expected=(1u<<WEX_WAYLAND_RESIZE_ACCEPTED)|(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED)|
             (1u<<WEX_WAYLAND_RESIZE_NATIVE_READY)|(1u<<(controller_cancel && !controller_live?WEX_WAYLAND_RESIZE_CANCELLED:WEX_WAYLAND_RESIZE_COMPLETE));
         if (!controller_local_cancel) check("controller receives complete transaction",(controller_events&expected)==expected);
@@ -522,10 +653,23 @@ static void controller_checks(HWND hwnd)
             while (!native_matches_frame(hwnd) && GetTickCount()-start<3000) pump(10);
             check("real native committed geometry matches frame",native_matches_frame(hwnd));
             GetWindowRect(hwnd,&after);
-            check("real client keeps stationary edges",after.left==original.left && after.top==original.top);
+            check("real client keeps stationary edges",
+                abs((bits&4?after.right:after.left)-(bits&4?original.right:original.left))<=1 &&
+                abs((bits&1?after.bottom:after.top)-(bits&1?original.bottom:original.top))<=1);
+            if (all_edges && !native_grid && !controller_cancel)
+            {
+                expected_rect=original;
+                if (bits&4) expected_rect.left+=actual_dx;
+                if (bits&8) expected_rect.right+=actual_dx;
+                if (bits&1) expected_rect.top+=actual_dy;
+                if (bits&2) expected_rect.bottom+=actual_dy;
+                check("real client sized edge within one physical pixel",
+                    abs(after.left-expected_rect.left)<=1 && abs(after.top-expected_rect.top)<=1 &&
+                    abs(after.right-expected_rect.right)<=1 && abs(after.bottom-expected_rect.bottom)<=1);
+            }
             if (controller_cancel) check("real client Escape restores original",EqualRect(&after,&original));
-            if (i==2)
-            { GetClientRect(hwnd,&after); check("real client original size restored",after.right==native_initial.cx && after.bottom==native_initial.cy); }
+            if (i==2 && !all_edges)
+            { GetClientRect(hwnd,&after); check("real client original size restored",after.right==MulDiv(native_initial.cx,output_scale,100) && after.bottom==MulDiv(native_initial.cy,output_scale,100)); }
             continue;
         }
         expected_rect=original;
@@ -571,7 +715,7 @@ static HWND create_proxy(HWND owner)
 {
     RECT size={0,0,240,180};
     if (GetEnvironmentVariableW(L"WEX_ASSOCIATION_NATIVE_APP",NULL,0))
-    { size.right=native_initial.cx; size.bottom=native_initial.cy; }
+    { size.right=MulDiv(native_initial.cx,output_scale,100); size.bottom=MulDiv(native_initial.cy,output_scale,100); }
     AdjustWindowRectEx(&size,WS_OVERLAPPEDWINDOW,FALSE,0);
     return CreateWindowW(L"WexBindingProbe",L"Bridge native proxy",WS_OVERLAPPEDWINDOW,
                          80,80,size.right-size.left,size.bottom-size.top,owner,NULL,GetModuleHandleW(NULL),NULL);
@@ -658,6 +802,11 @@ int main(int argc,char **argv)
     if (argc!=4 || !freopen(argv[3],"w",stdout)) return 2;
     setvbuf(stdout,NULL,_IONBF,0);
     {
+        char value[16];
+        if (GetEnvironmentVariableA("WEX_ASSOCIATION_SCALE",value,sizeof(value))) output_scale=atoi(value);
+        check("supported output scale",output_scale==100 || output_scale==150);
+    }
+    {
         HMODULE module=LoadLibraryW(L"uxtheme.dll");
         WCHAR path[MAX_PATH];
         open_theme=(void *)GetProcAddress(module,MAKEINTRESOURCEA(2));
@@ -735,8 +884,15 @@ int main(int argc,char **argv)
         return 1;
     }
     if (GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE_FAILED",NULL,0) ||
-        GetEnvironmentVariableW(L"WEX_ASSOCIATION_NATIVE_APP",NULL,0))
+        GetEnvironmentVariableW(L"WEX_ASSOCIATION_NATIVE_APP",NULL,0) ||
+        GetEnvironmentVariableW(L"WEX_ASSOCIATION_ABORT",NULL,0) ||
+        GetEnvironmentVariableW(L"WEX_ASSOCIATION_SHORT",NULL,0))
     {
+        if (IsWindow(proxy) && (ULONG_PTR)GetPropW(proxy,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE)
+        {
+            GetClientRect(proxy,&client); point.x=client.right-20; point.y=client.bottom-20;
+            ClientToScreen(proxy,&point);
+        }
         printf("HOSTING_PIXEL %ld %ld\n",point.x,point.y);
         puts("READY_CONTROLLER_END");
         snprintf(gate,sizeof(gate),"%s.continue",argv[3]);
