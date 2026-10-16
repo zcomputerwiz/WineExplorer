@@ -1,86 +1,1348 @@
 {
-  "name": "Fluent",
-  "display_name": "Fluent (Windows 11 style)",
-  "source": "Fluent UI System Icons (MIT), https://github.com/microsoft/fluentui-system-icons, filled glyphs tinted here",
-  "module": "shell32",
-  "palette": {
-    "folder": "#E8A833",
-    "document": "#3A86D0",
-    "system": "#2F7BC4",
-    "device": "#6A7380",
-    "network": "#1F8A9E",
-    "warning": "#C4314B",
-    "accent": "#8661C5"
+ "name": "Fluent",
+ "display_name": "Fluent (Windows 11 style)",
+ "module": "shell32",
+ "provenance": "Every shape is a glyph of Fluent UI System Icons (Microsoft, MIT licence, https://github.com/microsoft/fluentui-system-icons, files `assets/<Name>/SVG/ic_fluent_<name>_<size>_<filled|regular>.svg`). The build recolours each glyph with a flat colour, scales it and places it; nothing else is changed. A \"tone\" pair is the filled glyph in a light colour under the regular (outline) glyph in a darker colour, which gives the two-tone look. The colours were picked by eye so that each icon resembles the Windows 11 icon of the same slot, compared side by side on a developer's machine. No Windows pixels, outlines or files were used, and no fonts.",
+ "palette": {
+  "page": "#FFFFFF",
+  "page_line": "#8C8C8C",
+  "folder": "#FFD15C",
+  "folder_line": "#D49A2A",
+  "drive": "#E3E3E3",
+  "drive_line": "#6E6E6E",
+  "screen": "#1FA6E0",
+  "screen_line": "#2B2B2B",
+  "night": "#1E3F8A",
+  "blue": "#1E79D6",
+  "blue_line": "#145AA0",
+  "glass": "#DDEAF5",
+  "glass_line": "#6E8AA6",
+  "yellow": "#F5C33B",
+  "yellow_line": "#C98B12",
+  "red": "#D9362B",
+  "green": "#2E9E4A",
+  "purple": "#7B5EC6",
+  "teal": "#1A8C9C",
+  "grey": "#6E6E6E",
+  "dark": "#4A4A4A",
+  "white": "#FFFFFF",
+  "disc": "#C8C8C8"
+ },
+ "icons": {
+  "1": {
+   "meaning": "file",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    }
+   ]
   },
-  "icons": {
-    "1": ["document", "document"],
-    "2": ["document_text", "document"],
-    "3": ["window", "system"],
-    "4": ["folder", "folder"],
-    "5": ["folder_open", "folder"],
-    "6": ["save", "device"],
-    "7": ["save", "device"],
-    "8": ["save", "device"],
-    "9": ["hard_drive", "device"],
-    "10": ["storage", "network"],
-    "11": ["storage", "network"],
-    "12": ["hard_drive", "device"],
-    "13": ["storage", "device"],
-    "14": ["globe", "network"],
-    "15": ["people_community", "network"],
-    "16": ["desktop", "system"],
-    "17": ["print", "device"],
-    "18": ["globe", "network"],
-    "19": ["people_team", "network"],
-    "20": ["folder", "folder"],
-    "21": ["history", "system"],
-    "22": ["settings", "device"],
-    "23": ["search", "system"],
-    "24": ["question_circle", "system"],
-    "25": ["window_new", "system"],
-    "26": ["clock", "accent"],
-    "27": ["arrow_exit", "device"],
-    "28": ["power", "warning"],
-    "29": ["folder_open", "folder"],
-    "30": ["link", "system"],
-    "31": ["folder_open", "folder"],
-    "32": ["delete", "device"],
-    "33": ["delete", "system"],
-    "34": ["phone_desktop", "device"],
-    "35": ["desktop", "system"],
-    "36": ["settings", "system"],
-    "37": ["apps", "system"],
-    "38": ["print", "device"],
-    "39": ["text_font", "accent"],
-    "40": ["apps", "system"],
-    "41": ["music_note_2", "accent"],
-    "42": ["panel_left", "system"],
-    "43": ["folder_globe", "folder"],
-    "44": ["star", "folder"],
-    "45": ["sign_out", "warning"],
-    "46": ["search", "folder"],
-    "47": ["arrow_sync", "system"],
-    "48": ["shield", "system"],
-    "49": ["power", "warning"],
-    "133": ["document_text", "document"],
-    "134": ["search", "document"],
-    "135": ["search", "system"],
-    "137": ["settings", "system"],
-    "138": ["print", "device"],
-    "139": ["print", "system"],
-    "142": ["document", "device"],
-    "143": ["folder", "device"],
-    "152": ["document_text", "document"],
-    "153": ["code", "device"],
-    "154": ["document", "device"],
-    "155": ["text_font", "accent"],
-    "156": ["text_font", "accent"],
-    "157": ["text_font", "accent"],
-    "172": ["folder_globe", "folder"],
-    "173": ["star", "folder"],
-    "175": ["plug_connected", "network"],
-    "210": ["folder", "folder"],
-    "221": ["power", "warning"],
-    "222": ["hard_drive", "accent"]
+  "2": {
+   "meaning": "document",
+   "layers": [
+    {
+     "tone": [
+      "document_text",
+      "page",
+      "page_line"
+     ]
+    }
+   ]
+  },
+  "3": {
+   "meaning": "application window",
+   "layers": [
+    {
+     "tone": [
+      "window",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "square",
+     "colour": "blue",
+     "scale": 0.38,
+     "at": [
+      0.31,
+      0.4
+     ]
+    }
+   ]
+  },
+  "4": {
+   "meaning": "folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    }
+   ]
+  },
+  "5": {
+   "meaning": "open folder",
+   "layers": [
+    {
+     "tone": [
+      "folder_open",
+      "folder",
+      "folder_line"
+     ]
+    }
+   ]
+  },
+  "6": {
+   "meaning": "5.25-inch floppy",
+   "layers": [
+    {
+     "tone": [
+      "save",
+      "drive",
+      "drive_line"
+     ]
+    }
+   ]
+  },
+  "7": {
+   "meaning": "3.5-inch floppy",
+   "layers": [
+    {
+     "tone": [
+      "save",
+      "drive",
+      "drive_line"
+     ]
+    }
+   ]
+  },
+  "8": {
+   "meaning": "removable drive",
+   "layers": [
+    {
+     "tone": [
+      "save",
+      "drive",
+      "drive_line"
+     ]
+    }
+   ]
+  },
+  "9": {
+   "meaning": "hard disk",
+   "layers": [
+    {
+     "tone": [
+      "hard_drive",
+      "drive",
+      "drive_line"
+     ]
+    }
+   ]
+  },
+  "10": {
+   "meaning": "network drive",
+   "layers": [
+    {
+     "tone": [
+      "hard_drive",
+      "drive",
+      "drive_line"
+     ]
+    },
+    {
+     "glyph": "plug_connected",
+     "colour": "green",
+     "scale": 0.45,
+     "at": [
+      0.55,
+      0.55
+     ]
+    }
+   ]
+  },
+  "11": {
+   "meaning": "disconnected network drive",
+   "layers": [
+    {
+     "tone": [
+      "hard_drive",
+      "drive",
+      "drive_line"
+     ]
+    },
+    {
+     "glyph": "dismiss_circle",
+     "colour": "red",
+     "scale": 0.45,
+     "at": [
+      0.0,
+      0.55
+     ]
+    }
+   ]
+  },
+  "12": {
+   "meaning": "CD drive",
+   "layers": [
+    {
+     "tone": [
+      "hard_drive",
+      "drive",
+      "drive_line"
+     ]
+    },
+    {
+     "glyph": "circle",
+     "colour": "disc",
+     "scale": 0.45,
+     "at": [
+      0.5,
+      0.02
+     ]
+    }
+   ]
+  },
+  "13": {
+   "meaning": "RAM disk",
+   "layers": [
+    {
+     "tone": [
+      "storage",
+      "drive",
+      "drive_line"
+     ]
+    }
+   ]
+  },
+  "14": {
+   "meaning": "entire network",
+   "layers": [
+    {
+     "tone": [
+      "globe",
+      "blue",
+      "blue_line"
+     ]
+    }
+   ]
+  },
+  "15": {
+   "meaning": "network",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ]
+    },
+    {
+     "tone": [
+      "globe",
+      "blue",
+      "blue_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  "16": {
+   "meaning": "computer",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ]
+    }
+   ]
+  },
+  "17": {
+   "meaning": "printer",
+   "layers": [
+    {
+     "tone": [
+      "print",
+      "drive",
+      "drive_line"
+     ]
+    }
+   ]
+  },
+  "18": {
+   "meaning": "network places",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ]
+    },
+    {
+     "tone": [
+      "globe",
+      "blue",
+      "blue_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  "19": {
+   "meaning": "computers near me",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ],
+     "scale": 0.65,
+     "at": [
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ],
+     "scale": 0.65,
+     "at": [
+      0.35,
+      0.35
+     ]
+    }
+   ]
+  },
+  "20": {
+   "meaning": "programs folder (small)",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "apps",
+      "blue",
+      "blue_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "21": {
+   "meaning": "recent documents",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "tone": [
+      "clock",
+      "white",
+      "blue"
+     ],
+     "scale": 0.55,
+     "at": [
+      0.0,
+      0.45
+     ]
+    }
+   ]
+  },
+  "22": {
+   "meaning": "settings",
+   "layers": [
+    {
+     "tone": [
+      "window",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "settings",
+     "colour": "blue",
+     "scale": 0.5,
+     "at": [
+      0.25,
+      0.32
+     ]
+    }
+   ]
+  },
+  "23": {
+   "meaning": "search",
+   "layers": [
+    {
+     "glyph": "circle",
+     "colour": "glass",
+     "scale": 0.5,
+     "at": [
+      0.14,
+      0.14
+     ]
+    },
+    {
+     "glyph": "search",
+     "style": "regular",
+     "colour": "dark"
+    }
+   ]
+  },
+  "24": {
+   "meaning": "help",
+   "layers": [
+    {
+     "glyph": "question_circle",
+     "colour": "blue"
+    }
+   ]
+  },
+  "25": {
+   "meaning": "run",
+   "layers": [
+    {
+     "tone": [
+      "window",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "arrow_up_right",
+     "colour": "blue",
+     "scale": 0.5,
+     "at": [
+      0.42,
+      0.08
+     ]
+    }
+   ]
+  },
+  "26": {
+   "meaning": "stand by",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "night",
+      "screen_line"
+     ]
+    },
+    {
+     "glyph": "weather_moon",
+     "colour": "white",
+     "scale": 0.42,
+     "at": [
+      0.29,
+      0.16
+     ]
+    }
+   ]
+  },
+  "27": {
+   "meaning": "undock",
+   "layers": [
+    {
+     "glyph": "arrow_exit",
+     "colour": "green"
+    }
+   ]
+  },
+  "28": {
+   "meaning": "shut down",
+   "layers": [
+    {
+     "glyph": "square",
+     "colour": "red"
+    },
+    {
+     "glyph": "power",
+     "style": "regular",
+     "colour": "white",
+     "scale": 0.62,
+     "at": [
+      0.19,
+      0.19
+     ]
+    }
+   ]
+  },
+  "29": {
+   "meaning": "shortcut arrow overlay (large)",
+   "layers": [
+    {
+     "glyph": "square",
+     "colour": "green",
+     "scale": 0.42,
+     "at": [
+      0.02,
+      0.56
+     ]
+    },
+    {
+     "glyph": "arrow_up_right",
+     "colour": "white",
+     "scale": 0.32,
+     "at": [
+      0.07,
+      0.61
+     ]
+    }
+   ]
+  },
+  "30": {
+   "meaning": "shortcut arrow overlay",
+   "layers": [
+    {
+     "tone": [
+      "square",
+      "white",
+      "page_line"
+     ],
+     "scale": 0.45,
+     "at": [
+      0.0,
+      0.55
+     ]
+    },
+    {
+     "glyph": "arrow_up_right",
+     "colour": "blue",
+     "scale": 0.35,
+     "at": [
+      0.05,
+      0.6
+     ]
+    }
+   ]
+  },
+  "31": {
+   "meaning": "archive overlay",
+   "layers": [
+    {
+     "tone": [
+      "box",
+      "folder",
+      "folder_line"
+     ],
+     "scale": 0.4,
+     "at": [
+      0.04,
+      0.56
+     ]
+    }
+   ]
+  },
+  "32": {
+   "meaning": "Recycle Bin (empty)",
+   "layers": [
+    {
+     "tone": [
+      "delete",
+      "glass",
+      "glass_line"
+     ]
+    },
+    {
+     "glyph": "recycle",
+     "colour": "blue",
+     "scale": 0.4,
+     "at": [
+      0.3,
+      0.4
+     ]
+    }
+   ]
+  },
+  "33": {
+   "meaning": "Recycle Bin (full)",
+   "layers": [
+    {
+     "tone": [
+      "delete",
+      "glass",
+      "glass_line"
+     ]
+    },
+    {
+     "glyph": "recycle",
+     "colour": "blue",
+     "scale": 0.4,
+     "at": [
+      0.3,
+      0.4
+     ]
+    },
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ],
+     "scale": 0.36,
+     "at": [
+      0.32,
+      0.0
+     ]
+    }
+   ]
+  },
+  "34": {
+   "meaning": "phone and modem folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "phone_desktop",
+      "drive",
+      "drive_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "35": {
+   "meaning": "desktop",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ]
+    }
+   ]
+  },
+  "36": {
+   "meaning": "Control Panel",
+   "layers": [
+    {
+     "tone": [
+      "window",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "settings",
+     "colour": "blue",
+     "scale": 0.5,
+     "at": [
+      0.25,
+      0.32
+     ]
+    }
+   ]
+  },
+  "37": {
+   "meaning": "programs folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "apps",
+      "blue",
+      "blue_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "38": {
+   "meaning": "Printers folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "print",
+      "drive",
+      "drive_line"
+     ],
+     "scale": 0.55,
+     "at": [
+      0.42,
+      0.42
+     ]
+    }
+   ]
+  },
+  "39": {
+   "meaning": "Fonts folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "glyph": "text_font",
+     "colour": "blue",
+     "scale": 0.5,
+     "at": [
+      0.44,
+      0.44
+     ]
+    }
+   ]
+  },
+  "40": {
+   "meaning": "Start menu",
+   "layers": [
+    {
+     "tone": [
+      "apps",
+      "blue",
+      "blue_line"
+     ]
+    }
+   ]
+  },
+  "41": {
+   "meaning": "music CD",
+   "layers": [
+    {
+     "glyph": "circle",
+     "colour": "disc"
+    },
+    {
+     "glyph": "music_note_2",
+     "colour": "purple",
+     "scale": 0.55,
+     "at": [
+      0.22,
+      0.22
+     ]
+    }
+   ]
+  },
+  "42": {
+   "meaning": "folder tree",
+   "layers": [
+    {
+     "tone": [
+      "panel_left",
+      "page",
+      "page_line"
+     ]
+    }
+   ]
+  },
+  "43": {
+   "meaning": "remote folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "44": {
+   "meaning": "Favorites",
+   "layers": [
+    {
+     "tone": [
+      "star",
+      "yellow",
+      "yellow_line"
+     ]
+    }
+   ]
+  },
+  "45": {
+   "meaning": "log off",
+   "layers": [
+    {
+     "tone": [
+      "key",
+      "yellow",
+      "yellow_line"
+     ]
+    }
+   ]
+  },
+  "46": {
+   "meaning": "folder with an upward arrow",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "glyph": "arrow_up",
+     "colour": "green",
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "47": {
+   "meaning": "Windows Update",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ]
+    },
+    {
+     "glyph": "arrow_sync",
+     "colour": "green",
+     "scale": 0.5,
+     "at": [
+      0.25,
+      0.14
+     ]
+    }
+   ]
+  },
+  "48": {
+   "meaning": "security",
+   "layers": [
+    {
+     "tone": [
+      "lock_closed",
+      "yellow",
+      "yellow_line"
+     ]
+    }
+   ]
+  },
+  "49": {
+   "meaning": "shut down (confirm)",
+   "layers": [
+    {
+     "glyph": "square",
+     "colour": "red"
+    },
+    {
+     "glyph": "power",
+     "style": "regular",
+     "colour": "white",
+     "scale": 0.62,
+     "at": [
+      0.19,
+      0.19
+     ]
+    }
+   ]
+  },
+  "133": {
+   "meaning": "files",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ],
+     "scale": 0.8,
+     "at": [
+      0.2,
+      0.0
+     ]
+    },
+    {
+     "tone": [
+      "document_text",
+      "page",
+      "page_line"
+     ],
+     "scale": 0.8,
+     "at": [
+      0.0,
+      0.2
+     ]
+    }
+   ]
+  },
+  "134": {
+   "meaning": "file search",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "search",
+     "style": "regular",
+     "colour": "blue",
+     "scale": 0.55,
+     "at": [
+      0.42,
+      0.42
+     ]
+    }
+   ]
+  },
+  "135": {
+   "meaning": "computer search",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ]
+    },
+    {
+     "glyph": "search",
+     "style": "regular",
+     "colour": "dark",
+     "scale": 0.55,
+     "at": [
+      0.42,
+      0.42
+     ]
+    }
+   ]
+  },
+  "137": {
+   "meaning": "Control Panel (XP)",
+   "layers": [
+    {
+     "tone": [
+      "window",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "settings",
+     "colour": "blue",
+     "scale": 0.5,
+     "at": [
+      0.25,
+      0.32
+     ]
+    }
+   ]
+  },
+  "138": {
+   "meaning": "Printers and Faxes",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "print",
+      "drive",
+      "drive_line"
+     ],
+     "scale": 0.55,
+     "at": [
+      0.42,
+      0.42
+     ]
+    }
+   ]
+  },
+  "139": {
+   "meaning": "add printer",
+   "layers": [
+    {
+     "tone": [
+      "print",
+      "drive",
+      "drive_line"
+     ]
+    },
+    {
+     "glyph": "add_circle",
+     "colour": "green",
+     "scale": 0.45,
+     "at": [
+      0.55,
+      0.55
+     ]
+    }
+   ]
+  },
+  "142": {
+   "meaning": "file in the Recycle Bin",
+   "layers": [
+    {
+     "tone": [
+      "delete",
+      "glass",
+      "glass_line"
+     ]
+    },
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ],
+     "scale": 0.45,
+     "at": [
+      0.28,
+      0.35
+     ]
+    }
+   ]
+  },
+  "143": {
+   "meaning": "folder in the Recycle Bin",
+   "layers": [
+    {
+     "tone": [
+      "delete",
+      "glass",
+      "glass_line"
+     ]
+    },
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ],
+     "scale": 0.45,
+     "at": [
+      0.28,
+      0.38
+     ]
+    }
+   ]
+  },
+  "152": {
+   "meaning": "text file",
+   "layers": [
+    {
+     "tone": [
+      "document_text",
+      "page",
+      "page_line"
+     ]
+    }
+   ]
+  },
+  "153": {
+   "meaning": "batch file",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "settings",
+     "colour": "grey",
+     "scale": 0.45,
+     "at": [
+      0.27,
+      0.38
+     ]
+    }
+   ]
+  },
+  "154": {
+   "meaning": "library (DLL)",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "settings",
+     "colour": "grey",
+     "scale": 0.45,
+     "at": [
+      0.27,
+      0.38
+     ]
+    }
+   ]
+  },
+  "155": {
+   "meaning": "font file",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "text_font",
+     "colour": "blue",
+     "scale": 0.45,
+     "at": [
+      0.27,
+      0.38
+     ]
+    }
+   ]
+  },
+  "156": {
+   "meaning": "TrueType font",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "text_font",
+     "colour": "blue",
+     "scale": 0.45,
+     "at": [
+      0.27,
+      0.38
+     ]
+    }
+   ]
+  },
+  "157": {
+   "meaning": "PostScript font",
+   "layers": [
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ]
+    },
+    {
+     "glyph": "text_font",
+     "colour": "blue",
+     "scale": 0.45,
+     "at": [
+      0.27,
+      0.38
+     ]
+    }
+   ]
+  },
+  "172": {
+   "meaning": "network folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "globe",
+      "blue",
+      "blue_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "173": {
+   "meaning": "Favorites folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "star",
+      "yellow",
+      "yellow_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "175": {
+   "meaning": "network connections",
+   "layers": [
+    {
+     "tone": [
+      "desktop",
+      "screen",
+      "screen_line"
+     ]
+    },
+    {
+     "glyph": "plug_connected",
+     "colour": "teal",
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "210": {
+   "meaning": "folder with a check mark",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "glyph": "checkmark_square",
+     "colour": "blue",
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "221": {
+   "meaning": "turn off computer",
+   "layers": [
+    {
+     "glyph": "circle",
+     "colour": "blue"
+    },
+    {
+     "glyph": "power",
+     "style": "regular",
+     "colour": "white",
+     "scale": 0.62,
+     "at": [
+      0.19,
+      0.19
+     ]
+    }
+   ]
+  },
+  "222": {
+   "meaning": "DVD drive",
+   "layers": [
+    {
+     "tone": [
+      "hard_drive",
+      "drive",
+      "drive_line"
+     ]
+    },
+    {
+     "glyph": "circle",
+     "colour": "disc",
+     "scale": 0.45,
+     "at": [
+      0.5,
+      0.02
+     ]
+    }
+   ]
   }
+ }
 }
