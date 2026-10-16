@@ -12,9 +12,11 @@ static UINT64 native_id;
 static unsigned failures;
 static BOOL refresh_during_mask;
 static BOOL resize_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp);
+static BOOL controller_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp);
 static LRESULT CALLBACK proxy_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     if (resize_dispatch(hwnd,msg,wp,lp)) return 0;
+    if (controller_dispatch(hwnd,msg,wp,lp)) return 0;
     if (msg == WM_WINDOWPOSCHANGED && refresh_during_mask &&
         GetPropW(hwnd,L"__wine_wayland_frame_mask_updating"))
     {
@@ -277,6 +279,138 @@ static void resize_checks(HWND hwnd)
           !GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE",NULL,0));
 }
 #endif
+/* The controller test supplies input, not resize requests or frame commits. */
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+static BOOL controller_running,controller_cancel,controller_input,controller_terminal,controller_finished;
+static BOOL controller_idle,controller_local_cancel;
+static UINT controller_message;
+static DWORD controller_started;
+static POINT controller_pointer;
+static unsigned controller_events;
+static int controller_dx,controller_dy;
+static BOOL controller_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
+{
+    if (!controller_running) return FALSE;
+    if (msg==WM_SIZING)
+    {
+        printf("CONTROLLER_SIZING edge=%lu\n",(unsigned long)wp);
+        if (controller_local_cancel && !controller_terminal)
+        { controller_terminal=TRUE; PostMessageW(hwnd,WM_KEYDOWN,VK_ESCAPE,0); }
+    }
+    if (msg==WM_TIMER && wp==0x57455843)
+    {
+        if (GetTickCount()-controller_started>10000)
+        {
+            check("controller bounded completion",FALSE);
+            PostMessageW(hwnd,WM_CANCELMODE,0,0);
+        }
+        else if (!controller_input && GetPropW(hwnd,WEX_WAYLAND_CAPTURE_PROP) &&
+                 (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_FRAME)
+        {
+            INPUT input={0};
+            controller_input=TRUE;
+            input.type=INPUT_MOUSE;
+            input.mi.dx=((controller_pointer.x+controller_dx)*65536+32768)/GetSystemMetrics(SM_CXSCREEN);
+            input.mi.dy=((controller_pointer.y+controller_dy)*65536+32768)/GetSystemMetrics(SM_CYSCREEN);
+            input.mi.dwFlags=MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE;
+            check("controller input injection",SendInput(1,&input,sizeof(input))==1);
+            { POINT pos; GetCursorPos(&pos); printf("CONTROLLER_CURSOR %ld,%ld capture=%p\n",pos.x,pos.y,GetCapture()); }
+            puts("CONTROLLER_INPUT");
+        }
+        return TRUE;
+    }
+    if (msg==controller_message)
+    {
+        controller_events|=1u<<lp;
+        printf("CONTROLLER_EVENT serial=%lu stage=%ld\n",(unsigned long)wp,(long)lp);
+        if (lp==WEX_WAYLAND_RESIZE_NATIVE_READY && !controller_terminal && !controller_idle)
+        {
+            controller_terminal=TRUE;
+            PostMessageW(hwnd,WM_KEYDOWN,controller_cancel?VK_ESCAPE:VK_RETURN,0);
+        }
+        if (lp==WEX_WAYLAND_RESIZE_COMPLETE || lp==WEX_WAYLAND_RESIZE_CANCELLED)
+            controller_finished=TRUE;
+        if (lp==WEX_WAYLAND_RESIZE_FAILED)
+        { check("controller transaction succeeded",FALSE); PostMessageW(hwnd,WM_CANCELMODE,0,0); }
+        return TRUE;
+    }
+    return FALSE;
+}
+static void controller_checks(HWND hwnd)
+{
+    static const unsigned edge_bits[]={0,4,8,1,5,9,2,6,10};
+    RECT original,client,after,expected_rect;
+    unsigned i,expected,edge,bits;
+    if (!GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE_CONTROLLER",NULL,0)) return;
+    controller_message=RegisterWindowMessageW(WEX_WAYLAND_RESIZE_EVENT_MESSAGE);
+    SetPropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP,(HANDLE)1);
+    for (i=0;i<21;i++)
+    {
+        INPUT input={0};
+        GetWindowRect(hwnd,&original); GetClientRect(hwnd,&client);
+        edge=i<2 || i>=19?WMSZ_RIGHT:i==2?WMSZ_LEFT:1+(i-3)/2;
+        bits=edge_bits[edge];
+        controller_dx=i<3?20:(bits&4)?-20:(bits&8)?20:0;
+        controller_dy=i<3?0:(bits&1)?-12:(bits&2)?12:0;
+        if (i>=3 && (i-3)%2) { controller_dx=-controller_dx; controller_dy=-controller_dy; }
+        controller_pointer.x=(bits&4)?original.left+2:(bits&8)?original.right-2:(original.left+original.right)/2;
+        controller_pointer.y=(bits&1)?original.top+2:(bits&2)?original.bottom-2:(original.top+original.bottom)/2;
+        input.type=INPUT_MOUSE;
+        input.mi.dx=(controller_pointer.x*65536+32768)/GetSystemMetrics(SM_CXSCREEN);
+        input.mi.dy=(controller_pointer.y*65536+32768)/GetSystemMetrics(SM_CYSCREEN);
+        input.mi.dwFlags=MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE;
+        check("controller initial pointer",SendInput(1,&input,sizeof(input))==1);
+        pump(50); GetCursorPos(&controller_pointer);
+        printf("CONTROLLER_BEGIN case=%u pointer=%ld,%ld frame=%ld,%ld,%ld,%ld\n",i,
+            controller_pointer.x,controller_pointer.y,original.left,original.top,original.right,original.bottom);
+        controller_cancel=i==1 || i>=19; controller_idle=i==19; controller_local_cancel=i==20;
+        controller_input=FALSE; controller_terminal=FALSE;
+        controller_finished=FALSE; controller_events=0;
+        controller_started=GetTickCount(); controller_running=TRUE;
+        SetTimer(hwnd,0x57455843,20,NULL);
+        /* Queue the command with the current cursor position. SendMessage
+         * retains the caller's previous GetMessagePos, which can belong to the
+         * preceding resize even though GetCursorPos already moved. */
+        PostMessageW(hwnd,WM_SYSCOMMAND,SC_SIZE|edge,
+                     MAKELPARAM(controller_pointer.x,controller_pointer.y));
+        pump(10);
+        KillTimer(hwnd,0x57455843); controller_running=FALSE;
+        if (!controller_local_cancel) check("controller finishes before sizing loop exits",controller_finished);
+        else check("local cancellation sends no transaction",controller_events==0);
+        check("controller retains hosting",(ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
+        expected=(1u<<WEX_WAYLAND_RESIZE_ACCEPTED)|(1u<<WEX_WAYLAND_RESIZE_ACKNOWLEDGED)|
+            (1u<<WEX_WAYLAND_RESIZE_NATIVE_READY)|(1u<<(controller_cancel?WEX_WAYLAND_RESIZE_CANCELLED:WEX_WAYLAND_RESIZE_COMPLETE));
+        if (!controller_local_cancel) check("controller receives complete transaction",(controller_events&expected)==expected);
+        check("controller restores native focus",wait_prop(hwnd,WEX_WAYLAND_FOCUS_PROP,WEX_WAYLAND_FOCUS_NATIVE));
+        check("controller releases capture",wait_prop(hwnd,WEX_WAYLAND_CAPTURE_PROP,0));
+        expected_rect=original;
+        if (!controller_cancel)
+        {
+            if (bits&4) expected_rect.left+=controller_dx;
+            if (bits&8) expected_rect.right+=controller_dx;
+            if (bits&1) expected_rect.top+=controller_dy;
+            if (bits&2) expected_rect.bottom+=controller_dy;
+        }
+        GetWindowRect(hwnd,&after);
+        check("controller edge anchoring",EqualRect(&expected_rect,&after));
+        GetClientRect(hwnd,&after);
+        check("controller client size",after.right==client.right+
+            (expected_rect.right-expected_rect.left)-(original.right-original.left) &&
+            after.bottom==client.bottom+(expected_rect.bottom-expected_rect.top)-(original.bottom-original.top));
+        if (controller_cancel)
+        { GetWindowRect(hwnd,&after); check("Escape restores loop original geometry",EqualRect(&original,&after)); }
+    }
+    RemovePropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP);
+    puts("RESIZE_CONTROLLER_COMPLETE");
+}
+#else
+static BOOL controller_dispatch(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) { return FALSE; }
+static void controller_checks(HWND hwnd)
+{
+    check("controller test requires the L2 Wine topic header",
+          !GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE_CONTROLLER",NULL,0));
+}
+#endif
 static BOOL wait_binding(UINT64 id,HWND hwnd)
 {
     DWORD start=GetTickCount(), result;
@@ -441,6 +575,14 @@ int main(int argc,char **argv)
     SendMessageW(proxy,WM_EXITSIZEMOVE,0,0);
     check("last loop restores native focus",wait_prop(proxy,WEX_WAYLAND_FOCUS_PROP,WEX_WAYLAND_FOCUS_NATIVE));
     resize_checks(proxy);
+    controller_checks(proxy);
+    if (failures && GetEnvironmentVariableW(L"WEX_ASSOCIATION_RESIZE_CONTROLLER",NULL,0))
+    {
+        WexWmStop();
+        apply_style(previous_active?previous_theme:NULL,previous_color,previous_size);
+        printf("ASSOCIATION_FAILED bits=%u failures=%u\n",(unsigned)(8*sizeof(void *)),failures);
+        return 1;
+    }
     GetWindowRect(proxy,&bounds);
     SetWindowPos(proxy,NULL,0,0,bounds.right-bounds.left+1,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
     check("size mismatch safely detaches",wait_prop(proxy,WEX_WAYLAND_GROUP_PROP,WEX_WAYLAND_GROUP_NOT_READY));

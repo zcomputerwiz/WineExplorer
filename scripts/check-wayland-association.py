@@ -47,7 +47,7 @@ try:
         assert select.select([peer.stdout], [], [], 10)[0], "native peer readiness timed out"
         values = peer.stdout.readline().strip().split()
         assert len(values) == 3 and values[0] == "LEASE", values
-        if os.environ.get("WEX_ASSOCIATION_RESIZE") == "1":
+        if os.environ.get("WEX_ASSOCIATION_RESIZE") == "1" or os.environ.get("WEX_ASSOCIATION_RESIZE_CONTROLLER") == "1":
             assert binding, "resize transport requires the real bridge probe"
             peer.stdin.write("follow-configures\n")
             peer.stdin.flush()

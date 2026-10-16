@@ -1655,3 +1655,153 @@ original-loop geometry, dragging modes, delayed clients and DPI acceptance remai
 required before native resizing/maximize is exposed. No Gemini prefix-split
 implementation, real desktop/session, installed runtime or user .gitignore was
 changed.
+
+## 2026-10-15: first opt-in desired-geometry controller
+
+Master advanced through the prefix-split S2 merge while this work resumed.
+The root gitlink now pins production Wine 859a1b9; its clean checkout was at
+71572805 and was updated with `git submodule update --init wine`. Production was
+merged into the isolated L2 worktree in 2c3be3b, preserving the topic changes.
+Wine topic 07eb6e0 adds only a private RESIZE_ENABLE property and the guarded
+SC_SIZE route to Wine's loop (active v10 HOST only). Ordinary windows, older
+peers and the no-private-protocol path keep their existing handling. The manager
+NULL guard is evaluated before querying its version. Compositor topic and runtime
+remain d859bdf1 / e8e5a083.
+
+Owned wexhost now implements the first controller behind that explicit opt-in:
+
+- WM_SIZING produces desired client rectangles and protocol edge bits from the
+  loop's original frame margins. A timer coalesces intents, separately from
+  completion events, and submits when physical FRAME focus/capture are observed.
+- Ordinary loop SetWindowPos calls are frozen while native size is negotiated.
+  Matching native-ready geometry is applied on the UI thread with an explicit
+  reentrancy guard, followed by mask refresh and synchronous paint/GdiFlush.
+- The compositor keeps the old matching roots until terminal input. The timer
+  then publishes the current matching hole, retrying an early UNAVAILABLE commit
+  if necessary. Escape cancels the current request; rollback native-ready is
+  applied and published before replaying Escape. Old issued serial events cannot
+  apply over a newer intent. Not-yet-submitted intents can cancel locally.
+- Initial rejection removes the lab opt-in and exits; compositor rollback during
+  a held gesture produces a deferred Escape instead of continuing uncoordinated
+  Win32 sizing. A finishing state freezes the accepted frame until the replayed
+  terminal message actually reaches WM_EXITSIZEMOVE, protecting against queued
+  motion between COMPLETE and loop exit. Timers and hooks are cleaned up with
+  the binding. Capture-loss focus restoration retains the existing guard.
+
+Production Explorer still does not set RESIZE_ENABLE. This version has no live
+drag preview: it holds the original matching scene and publishes on terminal
+input. A long-held transaction can hit the existing compositor rollback timeout.
+Proper live previews with original-loop Escape semantics, full cancellation /
+client recovery and DPI acceptance remain prerequisites to enabling controls.
+
+The new controller probe supplies **input only**, rather than manually issuing
+native requests/geometry/commits:
+
+```sh
+WEX_ASSOCIATION_RESIZE_CONTROLLER=1 WEX_ASSOCIATION_BRIDGE=1 \
+WEX_CHECK_PREFIX=/srv/protonexplorer/wex-wayland-l1/prefixes/association-l2 \
+bash /srv/protonexplorer/wex-wayland-l2/check-scripts/check-wayland-association.sh
+```
+
+It posts SC_SIZE with an explicit edge, injects Win32 mouse motion, and posts
+Enter or Escape only after native-ready. Twenty-one loops per architecture cover
+right-edge commit, Escape rollback, left-edge return, and grow/shrink pairs for
+all eight edges/corners, followed by a held transaction's timeout rollback and
+Escape before its first request is submitted. Assertions require exact frame anchoring/client sizes,
+accepted/acknowledged/native-ready/final stages, completion before loop exit,
+active hosting, native focus and capture release. The ordinary binding probe
+then checks native pixels, input holes, themes/masks and lifetimes. No sizing UI
+is enabled for ordinary Explorer or XWayland.
+
+Failures/corrections retained from this checkpoint:
+
+- The first source edit briefly put the SC_SIZE version check before testing
+  process_wayland.wex_manager. It was reordered before any build/run; no NULL
+  manager version query remains in the ordinary/stock path.
+- The first sync command extracted current-pin-sync.tar, wine-owned.tar and
+  owned.tar, then ran `make -j8 > .../checks/l2-resize-controller-build.log 2>&1`.
+  tar warned the three current production files had mtimes about 1.8 seconds
+  ahead of the guest clock; extraction completed. The build failed because a new
+  BOOL named controller collided with the existing controller global-atom field.
+  The BOOL was renamed controlling without changing atom ownership. The fixed
+  combined build passes in l2-resize-controller-build-fixed.log. The merged
+  production ntdll/unix/file.c, loader/wine.inf.in and wineboot.c were copied into
+  the assembled source, not reset or separately edited for this feature.
+- The first controller command (the command above with WEX_ASSOCIATION_STACK=0)
+  failed in l2-resize-controller-probe.log / association.cqpuv5r9: all three
+  gestures reached their timeout without a protocol event. A diagnostic attach
+  `timeout 20 sudo -n gdb -batch -iex "set architecture i386:x86-64" -ex "thread apply all bt" -p 756817`
+  returned "ptrace: No such process" after the bounded probe had exited. No
+  backtrace or product lock inversion was established by that read-only attempt.
+- l2-resize-controller-input.log added explicit SendInput motion and confirmed
+  WM_SIZING was delivered, but requests still did not advance. The controller had
+  called SetTimer(hwnd,0,...) and compared WM_TIMER's wParam to SetTimer's nonzero
+  success return; with an HWND that return is not a replacement for message ID
+  zero. Using an explicit private timer ID fixes dispatch. The corrected build
+  is l2-resize-controller-timer-build.log. The timer run / association.dy3qstoi
+  passes commit and Escape rollback, but the third left-edge gesture timed out.
+- l2-resize-controller-pointer.log switched to explicit initial SendInput and
+  records the initial cursor, but the third gesture still failed. A diagnostic
+  WH_MSGFILTER observer initially failed to compile in
+  l2-resize-controller-motion.log because MinGW's winuser header lacks MSGF_SIZE;
+  a temporary fallback value 4 allowed l2-resize-controller-motion-fixed.log.
+  Its motion log proved the third move arrived at the intended screen point,
+  yet no WM_SIZING followed. The observer/fallback were removed after diagnosis.
+- Wine's sys_command_size_move reads NtUserGetMessagePos, not WM_SYSCOMMAND's
+  lParam. A synchronous SendMessage retained the prior resize's last message
+  position even though GetCursorPos had already moved. The next target could
+  therefore equal the stale origin and produce zero delta. Posting WM_SYSCOMMAND
+  gives it the current queued position. The three cases then pass in actual
+  64/32 clients: l2-resize-controller-queued.log / association.3603nnr3. The probe
+  now stops before unrelated lifecycle assertions if controller checks fail.
+  Diagnostic reads of a not-yet-created probe32.log returned ENOENT; no VM state
+  was changed by those reads.
+- After extending to all edges/corners, l2-resize-controller-all-edges.log /
+  association.avjgu_dc passes all nineteen loops in both architectures (38 total).
+
+Build validation:
+
+- The saved pin-check helper was updated from 71572805 to exact current 859a1b9.
+  l2-resize-controller-production-pin-build.log passes the full combined WoW64
+  build with current owned source. Header guards omit the optional controller
+  at that production header. The helper's EXIT trap restores topic sources with
+  fresh mtimes; l2-resize-controller-topic-final-build.log passes the restored
+  full combined build. This was repeated after adding the final-geometry latch.
+- Prefix-mutating checks run sequentially in the same isolated Wayland and X11
+  test prefixes as earlier checkpoints. No real desktop, install or VM session
+  script was changed; Gemini's prefix-split implementation was only consumed
+  through its published production pin. The user's .gitignore stays untouched.
+
+Final regressions:
+
+- l2-resize-controller-final.log / association.gycb6b17: final controller
+  all-edge/corner 64/32 checks, complete bridge/theme/mask/native-pixel lifecycle
+  and WIN32_SHARED_STACKING_PASSED. The finishing-state changes are in this run.
+- l2-resize-controller-transport.log / association.430gdkc0: existing actual
+  64/32 manual transport and post-button-up timer/queue-drain checks still pass.
+- l2-resize-controller-shell.log / shell-adoption.tw54g3xq: full 64/32 shell
+  adoption, constraints, native/menu/taskbar activation, minimize/restore,
+  keyboard/pointer move/cancel, pixels, policy withdrawal/readoption and close pass.
+- l2-resize-controller-old-peer.log / association.pv_450in: complete real 64/32
+  bridge and shared stacking pass against old v8 e7be9560, with the opt-in absent.
+- l2-resize-controller-x11.log: command succeeds; current checks/status is
+  CHECK_PASSED, tray-layout.txt reports two icons with zero overlap/out-of-bounds,
+  and linux-dialog.log contains all eight passing placement cases.
+- l2-resize-controller-cancellation.log / association.dgxmxtld extends the
+  final input-only probe to 21 loops per architecture (42 total). With no terminal
+  input after native-ready, the compositor times out, rolls back and the controller
+  restores the original group before synthesizing loop exit. Escape posted from
+  the first WM_SIZING before its request timer runs cancels locally, emits no
+  native transaction, preserves exact original geometry and releases focus /
+  capture. Both pass along with the nineteen previous loops, native pixels and
+  the rest of the bridge checks. No product code changed after full regressions.
+
+All isolated checks are finished and cleaned up. The assembled lab source/build
+is effective Wine 07eb6e0 plus the final owned controller, with unchanged runtime
+compositor e8e5a083 and publisher d859bdf1. Root wine/ is clean at production
+859a1b9. No negative-control code, service or test compositor remains running.
+
+Next: constrained/delayed/client-selected/ignored buffer controller fixtures,
+timeout/capture/close and supersession cases, initial keyboard edge selection,
+live previews and 100%/150% GTK/foot/XWayland fallback acceptance. Do not expose
+resize/maximize controls until the work order's remaining acceptance passes.

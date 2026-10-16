@@ -136,3 +136,41 @@ still produces those intents explicitly. Keep sizing/maximize controls disabled;
 all-edge/DPI/client and full-window-drag acceptance from the review still apply.
 Commands, negative-control details, rebuilds and regressions are recorded in the
 latest WAYLAND_L2.md section.
+
+## First controller checkpoint (Codex, 2026-10-15)
+
+The controller described above is now implemented behind a separate private
+RESIZE_ENABLE lab property (Wine topic 07eb6e0). Production 859a1b9 was merged
+into the topic in 2c3be3b. The production Explorer still does not set that
+property or expose sizing/maximize controls.
+
+WM_SIZING records desired client rectangles and edges without changing the
+accepted Win32 frame. A controller timer coalesces intents and sends only when
+physical frame focus/capture are acknowledged. Matching NATIVE_READY applies
+the geometry on the owning thread, refreshes the mask and paints/flushes the
+frame. Terminal input triggers matching publication; Escape requests rollback
+to the still-retained loop-original geometry. Old intent events cannot apply
+over a newer issued serial. Pending unaccepted intents can be cancelled locally;
+initial rejection exits safely and removes the lab opt-in. Compositor rollback
+requests terminate the loop after restoration instead of falling through to
+uncoordinated sizing. After COMPLETE/CANCELLED the accepted frame remains frozen
+until WM_EXITSIZEMOVE, including motion already queued before replayed Enter.
+
+The input-only 64/32 probe passes twenty-one sizing loops per architecture:
+right-edge commit, Escape rollback, left-edge return, then grow/shrink pairs
+for each of the eight edges/corners, with exact frame anchoring, client sizes,
+transaction stages, group/focus/capture and native pixels/input holes. Two final
+cases cover timeout-driven rollback and cancellation before the first native
+request (the latter must produce no transaction events). It does
+not issue manual resize requests or publish frames on behalf of the controller.
+Enable it with WEX_ASSOCIATION_RESIZE_CONTROLLER=1 and WEX_ASSOCIATION_BRIDGE=1
+in check-wayland-association.sh.
+
+This first version retains the original matching compositor scene throughout
+the gesture and publishes at terminal input; live drag preview remains future
+work. The compositor's existing timeout can force rollback/exit if a gesture
+holds a transaction open too long. Before exposing UI, add proper live-preview /
+loop-original Escape semantics, delayed/ignored/constrained/client-selected
+controller cases, initial keyboard edge selection, external cancellation and
+150%/actual-client acceptance. The current probe posts SC_SIZE with an explicit
+edge. See WAYLAND_L2.md for all failed attempts, commands and validation logs.

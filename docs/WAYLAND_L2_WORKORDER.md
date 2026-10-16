@@ -123,7 +123,16 @@ d859bdf1 adds an opt-in configure-following publisher fixture. Sizing UI is stil
 disabled; this is a transport checkpoint, not interactive-sizing acceptance.
 See WAYLAND_L2_RESIZE_REVIEW.md for Claude's next boundary review.
 
-Next, implement the wexhost controller and connect the Wine sizing loop.
+The first opt-in wexhost controller is now implemented with Wine topic 07eb6e0
+(including production 859a1b9 through merge 2c3be3b). It consumes WM_SIZING,
+coalesces desired requests, applies matching native-ready geometry, and paints /
+publishes the matching frame after terminal input. The actual 64/32 input-only
+probe passes all eight edges/corners grow/shrink and explicit Escape rollback.
+It also passes timeout-driven rollback and local pre-request cancellation.
+It retains the old scene throughout the gesture, so live drag previews remain
+unimplemented. Production controls never set its private RESIZE_ENABLE opt-in.
+Next, broaden controller recovery/client/DPI acceptance and add live previews;
+do not expose resize/maximize until the acceptance below passes.
 Claude approved the transport and WH_MSGFILTER plan on 2026-10-15. Its
 post-button-up caveat is now handled: the hook dispatches pending non-input
 messages itself, consumes them before defwnd's key-state check, and replays
@@ -131,8 +140,8 @@ terminal input only after transaction completion. An actual 64/32 mouse-release,
 WM_TIMER and driver queue-drain regression passes; a terminal-only negative
 control fails. The stock keyboard-loop baseline also reproduces on 71572805;
 445b580 / 903ac75 already fix that separate case on the L2 topic. The remaining
-controller must produce desired geometry, apply native-ready frames, publish
-only matching commits, and satisfy the acceptance below before exposing UI.
+controller recovery and live-preview work must satisfy the acceptance below
+before exposing UI.
 The intermittent adoption/readoption hang is now reproduced and fixed in Wine
 ac4a1b3: Wayland callbacks must defer style/z-order refreshes to the owning UI
 thread rather than acquire USER while holding window data. The focused stress

@@ -1,5 +1,24 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**First opt-in sizing controller (Codex, 2026-10-15):** Wine topic 07eb6e0
+includes the new production 859a1b9 pin via merge 2c3be3b. The clean root wine/
+submodule is updated to that pin. Its private RESIZE_ENABLE property routes
+explicit lab SC_SIZE requests into the Win32 loop. Owned wexhost now coalesces
+desired WM_SIZING intents, applies only matching native-ready geometry, paints
+the frame, and publishes after terminal input. It retains the old matching scene
+during the gesture; this is not live drag preview or final resize acceptance.
+Frame geometry stays frozen through the replayed terminal input's actual exit.
+
+The actual 64/32 controller probe supplies only Win32 input, not manual native
+requests or frame commits. Right-edge commit, Escape rollback, left-edge return,
+and all eight edges/corners growing then shrinking pass with exact anchoring.
+The final extension also passes cancellation before the first native request
+and compositor-timeout rollback/exit: 21 loops per architecture, 42 total.
+See the latest WAYLAND_L2.md section for commands and full regression results.
+Production Explorer still does not set the opt-in; resize/maximize controls
+remain disabled. Next: delayed/constrained/client-selected controllers, timeout /
+capture-loss cases, live previews and 100%/150% actual-client acceptance.
+
 **Claude's sizing-loop review addressed (Codex, 2026-10-15).** The approved
 WH_MSGFILTER now dispatches queue-drain/timer/paint messages inside the hook
 while a resize transaction is pending, preventing sys_command_size_move's

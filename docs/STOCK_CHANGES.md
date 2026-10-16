@@ -6,8 +6,9 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is 71572805, including accepted opt-in Wayland L1 integration
-and concurrent visual-style support. See WAYLAND_L1.md; X11 remains the default.
+Current pin is 859a1b9, including accepted opt-in Wayland L1 integration,
+visual-style support and the prefix-split S2 updates. See WAYLAND_L1.md;
+X11 remains the default.
 The L2 topic's cf365e5 binds private protocol v10 and adds a scalar resize
 request/commit/cancel transport. Each compositor transition is queued separately
 and delivered on the HWND's owning UI thread with a scoped property snapshot;
@@ -24,8 +25,16 @@ and terminal-input deferral without another stock Wine change. The unhosted
 existing L2 topic commits 445b580 and 903ac75 already fix the generic pre-press /
 capture-cancellation loop behavior. Post-release pending publication is handled
 in the owned hook, not by adding private shell checks to generic win32u.
+Wine topic 07eb6e0 adds a private RESIZE_ENABLE lab property and routes SC_SIZE
+to the Win32 sizing loop only for an explicitly opted-in v10 hosted frame.
+Stock/old peers and ordinary Wine windows retain their existing xdg handling.
+The owned wexhost controller records desired rectangles separately, applies
+native-ready frames and publishes only after terminal input. Production controls
+do not set this property; live drag previews, DPI and broader-client acceptance
+remain pending. No generic win32u hook or new cross-architecture ABI was added.
 Project CPLs/programs, wexhost and theme definitions live under src.
-L2 opt-in topic codex/wayland-l2 (cf365e5, including 180d405, not the production pin) extends the
+L2 opt-in topic codex/wayland-l2 (07eb6e0, including merge 2c3be3b of production
+859a1b9, not the production pin) extends the
 private protocol through v10, starting with v4 native/controller atom properties and an
 asynchronous reservation status. winewayland serializes requests and maps owned
 native proxy HWNDs as independent toplevels while keeping ordinary owned-window
