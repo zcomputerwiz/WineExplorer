@@ -215,3 +215,61 @@ flowchart TD
    Integrated into Taskbar and Start Menu Properties (`desk.cpl` / `startmenu_properties`).
 3. **Fuzz & Error Resilience:**
    Any syntax error, truncated file, missing bitmap, or invalid resource ID fails gracefully, logging an error and immediately reverting to the built-in default style.
+
+---
+
+## 7. Acceptance Report (Phase K4)
+
+The Open-Shell Start menu skins implementation was validated against all requirements defined in `docs/START_SKINS_WORKORDER.md`.
+
+### Summary of Results
+
+| Requirement | Test Method | Result | Evidence |
+|---|---|---|---|
+| **No skin / Default style** | Direct pixel diff on offscreen DIB & Xvfb between baseline built-in menus and `skin = NULL` | **PASS (0 diff pixels)** | `screenshots/baseline_classic.png`<br>`screenshots/baseline_xp2col.png` |
+| **Bundled skins (open art)** | Loading & rendering in Classic & 2-Column views at 100% (96 DPI) and 150% (144 DPI) | **PASS (5 skins, 10 rendered targets)** | `screenshots/ClassicSkin_classic_*.png`<br>`screenshots/ClassicSkin7_xp_*.png`<br>`screenshots/Metallic7_xp_*.png`<br>`screenshots/Midnight7_xp_*.png`<br>`screenshots/Metro_classic_*.png` |
+| **Third-party community skin** | Compiled `SmokedGlass` from Open-Shell source into `/tmp/SmokedGlass.skin`, verified loading, degradation of glass opacity to solid/alpha, and rendering | **PASS** | `/tmp/SmokedGlass_classic_96.png`<br>(Binary kept local in `/tmp/`) |
+| **Fuzz fallbacks** | Evaluated 0-byte, corrupt PE header, missing resource, missing bitmap, garbage description, and malformed condition grammar | **PASS (0 crashes, clean fallback to NULL)** | `logs/k4_acceptance.log` |
+| **Interactive ISO install** | Full unattended/interactive VM install in QEMU/KVM (`installer/tests/install-interactive.sh`) from fresh ISO with WoW64 32/64-bit program checks and prefix-split account verification | **PASS** | `logs/install_interactive.log` |
+
+---
+
+### Screenshot Gallery
+
+#### 1. Baseline Built-in Views ("None" / Default)
+- **Built-in Classic Menu:** `docs/start-skins/screenshots/baseline_classic.png`  
+  Pixel-identical to pre-series rendering. Standard 3D face, vertical rotated caption banner, and system highlight colors.
+- **Built-in XP Two-Column Menu:** `docs/start-skins/screenshots/baseline_xp2col.png`  
+  Pixel-identical to pre-series rendering. User avatar header, white programs column, light blue places column, and logoff footer bar.
+
+#### 2. Bundled Open-Art Skins (100% & 150% DPI)
+All bundled skins were compiled from open-art Open-Shell sources per `docs/ASSETS.md` (no Microsoft proprietary artwork):
+- **`ClassicSkin.skin`:**
+  - 100% (96 DPI): `docs/start-skins/screenshots/ClassicSkin_classic_96.png`
+  - 150% (144 DPI): `docs/start-skins/screenshots/ClassicSkin_classic_144.png`
+- **`ClassicSkin7.skin7`:**
+  - 100% (96 DPI): `docs/start-skins/screenshots/ClassicSkin7_xp_96.png`
+  - 150% (144 DPI): `docs/start-skins/screenshots/ClassicSkin7_xp_144.png`
+- **`Metallic7.skin7`:**
+  - 100% (96 DPI): `docs/start-skins/screenshots/Metallic7_xp_96.png`
+  - 150% (144 DPI): `docs/start-skins/screenshots/Metallic7_xp_144.png`
+- **`Midnight7.skin7`:**
+  - 100% (96 DPI): `docs/start-skins/screenshots/Midnight7_xp_96.png`
+  - 150% (144 DPI): `docs/start-skins/screenshots/Midnight7_xp_144.png`
+- **`Metro.skin`:**
+  - 100% (96 DPI): `docs/start-skins/screenshots/Metro_classic_96.png`
+  - 150% (144 DPI): `docs/start-skins/screenshots/Metro_classic_144.png`
+
+#### 3. Third-Party Community Skin Verification
+- **Skin tested:** `SmokedGlass` (Open-Shell community skin by Ivo / Open-Shell project).
+- **Compilation target:** `/tmp/SmokedGlass.skin` (PE resource DLL built with MinGW).
+- **Result:** Loaded version 2 description, resolved `main_bitmap`, and rendered Classic Start menu with vertical caption and custom item highlights. Glass blur gracefully degraded to opaque alpha-blended background. The skin binary was kept out of the repository.
+
+---
+
+### Test Suites and Logs
+
+Raw execution logs are preserved under `docs/start-skins/logs/`:
+- **`logs/k1_fuzz_tests.log`:** Fuzz and condition evaluation unit test log (43/43 pass).
+- **`logs/k4_acceptance.log`:** Comprehensive acceptance test runner output (42/42 pass).
+- **`logs/install_interactive.log`:** End-to-end QEMU/KVM interactive installation output on fresh ISO.

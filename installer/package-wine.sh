@@ -60,6 +60,11 @@ fi
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
 install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 
+mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/startskins"
+if [ -d "$ROOT_DIR/src/resources/startskins" ]; then
+    install -m644 "$ROOT_DIR/src/resources/startskins/"*.skin* "$STAGE_WINE/usr/local/share/wineexplorer/startskins/" 2>/dev/null || true
+fi
+
 # Remove development include headers to save ISO squashfs space
 rm -rf "$STAGE_WINE/usr/local/include"
 

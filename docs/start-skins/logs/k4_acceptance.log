@@ -1,0 +1,97 @@
+=== WineExplorer Start Menu Skins Acceptance Runner ===
+Fri Oct 16 11:31:21 AM CDT 2026
+
+=== 1. Building third-party community skin (SmokedGlass) ===
+-rwxr-xr-x 1 root root 245K Oct 16 11:31 /tmp/SmokedGlass.skin
+
+=== 2. Preparing fuzz fallback skins ===
+
+=== 3. Compiling acceptance test executable ===
+
+=== 4. Starting Xvfb display session ===
+
+=== 5. Running acceptance tests under Wine ===
+====================================================
+ WineExplorer Start Menu Skins Acceptance Test Suite
+====================================================
+
+=== Test Suite 1: Baseline Menus Without Skin (Pixel-Identical) ===
+  [PASS] Built-in Classic menu rendering is deterministic (0 diff pixels)
+  [PASS] Built-in XP two-column menu rendering is deterministic (0 diff pixels)
+
+=== Test Suite 2: Bundled Open-Art Skins (96 & 144 DPI) ===
+
+--- Testing Skin: ClassicSkin (Classic) ---
+  [PASS] Loaded successfully at 96 DPI (100%)
+  [PASS] Background bitmap or color is present
+  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
+  [PASS] Loaded successfully at 144 DPI (150%)
+  [PASS] Skin structure reflects 144 DPI scaling
+  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
+
+--- Testing Skin: ClassicSkin7 (2-Column) ---
+  [PASS] Loaded successfully at 96 DPI (100%)
+  [PASS] Background bitmap or color is present
+  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
+  [PASS] Loaded successfully at 144 DPI (150%)
+  [PASS] Skin structure reflects 144 DPI scaling
+  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
+
+--- Testing Skin: Metallic7 (2-Column) ---
+  [PASS] Loaded successfully at 96 DPI (100%)
+  [PASS] Background bitmap or color is present
+  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
+  [PASS] Loaded successfully at 144 DPI (150%)
+  [PASS] Skin structure reflects 144 DPI scaling
+  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
+
+--- Testing Skin: Midnight7 (2-Column) ---
+  [PASS] Loaded successfully at 96 DPI (100%)
+  [PASS] Background bitmap or color is present
+  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
+  [PASS] Loaded successfully at 144 DPI (150%)
+  [PASS] Skin structure reflects 144 DPI scaling
+  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
+
+--- Testing Skin: Metro (Classic) ---
+  [PASS] Loaded successfully at 96 DPI (100%)
+  [PASS] Background bitmap or color is present
+  [PASS] Rendered 96 DPI bitmap contains non-zero valid graphics
+  [PASS] Loaded successfully at 144 DPI (150%)
+  [PASS] Skin structure reflects 144 DPI scaling
+  [PASS] Rendered 144 DPI bitmap contains scaled valid graphics
+
+=== Test Suite 3: Third-Party Community Skin (SmokedGlass) ===
+  [PASS] Third-party SmokedGlass skin loaded successfully
+  [PASS] Skin version parsed correctly
+  [PASS] Main background bitmap loaded
+  [PASS] SmokedGlass classic view rendered cleanly
+
+=== Test Suite 4: Fuzz Fallback Tests ===
+  [PASS] Non-existent skin returns NULL
+  [PASS] 0-byte file returns NULL cleanly
+  [PASS] Corrupt truncated PE returns NULL cleanly
+  [PASS] DLL without SKIN resource returns NULL cleanly
+  [PASS] Missing bitmap resource falls back to NULL cleanly
+  [PASS] Garbage description does not crash
+
+====================================================
+ Acceptance Summary: 42 tests run, 42 passed, 0 failed
+====================================================
+
+=== 6. Converting screenshots to PNG ===
+Saved screenshot: baseline_classic.png
+Saved screenshot: baseline_xp2col.png
+Saved screenshot: ClassicSkin7_xp_144.png
+Saved screenshot: ClassicSkin7_xp_96.png
+Saved screenshot: ClassicSkin_classic_144.png
+Saved screenshot: ClassicSkin_classic_96.png
+Saved screenshot: Metallic7_xp_144.png
+Saved screenshot: Metallic7_xp_96.png
+Saved screenshot: Metro_classic_144.png
+Saved screenshot: Metro_classic_96.png
+Saved screenshot: Midnight7_xp_144.png
+Saved screenshot: Midnight7_xp_96.png
+Saved local third-party screenshot: /tmp/SmokedGlass_classic_96.png
+
+=== Start Menu Skins Acceptance Test Finished Successfully ===
