@@ -7,7 +7,7 @@ and the reference sources used for comparison) never enters this repository. It 
 only, in a separate local-only repository (`WineExplorer-local`, next to this checkout, never pushed anywhere),
 together with the tools that work with it.
 
-Allowed third-party art, each with its licence notice kept in `CREDITS.md`:
+Allowed third-party art, each listed with its licence in the table in `LICENSE.md`:
 - Microsoft releases under an open licence: Fluent UI System Icons (MIT).
 - Art under CC BY 4.0, CC BY-SA 4.0, MIT, SIL OFL 1.1 or GPL-2.0-or-later, for example Font Awesome Free (icons
   CC BY 4.0, fonts OFL) and `WinSymbols3.ttf` from SymbolIconManager (MIT).

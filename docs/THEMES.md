@@ -60,3 +60,23 @@ The non-client renderer derives the caption shape from `GetThemeBackgroundRegion
 The XP Start panel uses the theme's user-pane region instead of a fixed-radius approximation. Start menu flyout and Classic icons use `HBMMENU_CALLBACK` to draw the original icon with its transparency over the normal/highlighted background, avoiding Wine's legacy `NOTSRCCOPY` treatment of ordinary menu bitmaps. Icon and bitmap resources are released when their menus close.
 
 Behavior reference: `references/reactos/dll/win32/uxtheme/themehooks.c`, inspected for the theme-region approach. The implementation uses the existing Wine APIs. `scripts/themed-frame-probe.c` checks Luna corners, maximize/restore, application-defined regions, and switching to Classic on an isolated desktop. Theme-only Explorer invocations also skip desktop refresh until the shell view's grid exists, avoiding a divide-by-zero during initialization.
+
+## Open icon packs
+
+`scripts/build_iconpack.py MAPPING FLUENT_REPO OUT_DIR` builds a theme folder (`<Name>/<Name>.theme` with
+`IconPack=`, `<Name>/Icons/xpres_shell32.dll`, licence) from a mapping in `assets/iconpacks/`. A mapping lists shell32
+icon ids (Windows numbering, the same as Wine's `IDI_SHELL_*` except the ids `shellres.c` skips) with an icon and a
+palette colour. Ids left out fall back to the default icons. Run it in `wexbuild` (`rsvg-convert`, `icotool`,
+x86_64 MinGW) against a checkout of `microsoft/fluentui-system-icons` (`git clone --depth 1 --filter=blob:none
+--sparse`, then `git sparse-checkout set assets`).
+
+- **Fluent (Windows 11 style)** (`assets/iconpacks/fluent.json`): 69 shell32 icons from Fluent UI System Icons (MIT),
+  using their filled glyphs tinted per category. It works on the desktop, Start menu, Explorer and taskbar.
+  Single-colour glyphs lose detail at 32/48 px (My Computer reads as a plain monitor shape); two-tone layering or the
+  Fluent colour icons, where one exists, are the next step. Special folders (My Documents and friends) and application
+  icons are not covered yet.
+- Apply a pack by making its `.theme` current. `CurrentTheme` must be the full path of the `.theme` file;
+  `shellres.c` reads `IconPack=` from it.
+- Windows XP, Vista/7 and Classic style packs need art under a GPL-compatible licence that is not derived from Windows
+  art. None was found: the packs checked so far were NonCommercial, GPL-3.0 plus Segoe glyphs, or remakes of Windows
+  icons. See `docs/ASSETS.md` for the rules.

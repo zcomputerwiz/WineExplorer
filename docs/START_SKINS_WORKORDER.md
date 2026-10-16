@@ -100,7 +100,7 @@ Not accepted yet:
 4. **The "third-party community skin" was SmokedGlass, which is one of Open-Shell's own bundled skins.** Test one
    from outside the Open-Shell repository, kept local, and name its source.
 5. **Credits.** The report says Open-Shell's notice is kept in `LICENSE.md` and `CREDITS.md`; neither mentions
-   Open-Shell. Add Open-Shell (MIT, Ivo Beltchev and the Open-Shell Team) to `CREDITS.md` for the ported code and the
+   Open-Shell. Add Open-Shell (MIT, Ivo Beltchev and the Open-Shell Team) to the table in `LICENSE.md` (there is no `CREDITS.md`) for the ported code and the
    bundled skins. Put the full MIT text next to the bundled skins (`src/resources/startskins/LICENSE`). Keep
    `scripts/build_bundled_skins.sh` able to rebuild the committed `.skin`/`.skin7` files from the named Open-Shell
    commit.
