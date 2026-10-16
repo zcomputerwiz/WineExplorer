@@ -57,7 +57,11 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
         cp "$SKEL_PFX/.update-timestamp" "$MACHINE_ROOT/" 2>/dev/null || true
     else
         echo "Bootstrapping machine root at $MACHINE_ROOT..."
-        rm -rf "$MACHINE_ROOT"
+        # never wipe an existing machine root: it holds the programs installed for all users
+        if [ -e "$MACHINE_ROOT" ] && [ -n "$(ls -A "$MACHINE_ROOT" 2>/dev/null)" ]; then
+            echo "$MACHINE_ROOT exists but has no drive_c/windows/system32; refusing to replace it" >&2
+            exit 1
+        fi
         ensure_machine_prefix_links
 
         WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \

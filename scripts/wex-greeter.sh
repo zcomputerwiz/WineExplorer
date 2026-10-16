@@ -13,7 +13,8 @@ echo "=== WineExplorer logon started: $(date) ==="   # the output goes to /var/l
 # update the prefix after a Wine (re)install before showing anything (as the session script does)
 NTDLL=$(ls /usr/local/lib/wine/x86_64-unix/ntdll.so 2>/dev/null)
 if [ ! -e "$WINEPREFIX/system.reg" ] || { [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -nt "$WINEPREFIX/.update-timestamp" ]; }; }; then
-    env -u DISPLAY "$WINE" wineboot.exe -u
+    # built-in DLLs as links to the packaged files (docs/PREFIX_SPLIT.md), not 1.7 GB of copies
+    env -u DISPLAY WINELINKFAKEDLLS=1 "$WINE" wineboot.exe -u
     "$(dirname "$WINE")/wineserver" -w
 fi
 
