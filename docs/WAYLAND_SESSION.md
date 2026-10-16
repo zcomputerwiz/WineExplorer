@@ -7,6 +7,56 @@ follow that review. No acceptance is claimed yet.
 
 ## Part A
 
+Qt/browser checkpoint: actual QTerminal at 150% keeps its Wine caption and
+accepts `echo Qt150checked`, moves, resizes with its minimum constraints,
+grows a corner (client 897x630 to 957x651), maximizes exactly above the taskbar,
+and minimizes/restores through its single taskbar item. Firefox ESR at 150%
+keeps its own decorations and one hosted button, minimizes/restores, and opens
+the local `about:support` page by actual Ctrl+L typing (`Application Basics`
+is visible). Evidence: `qt150-controls.log`, `qt150-typed.png`,
+`qt150-corner.png`, `firefox150-min.png`, `firefox150-restored.png`,
+`firefox150-support.png` and `firefox-qt150-controls.log` in the ignored directory.
+
+QTerminal's Exit confirmation exposed native transient stacking after raising
+its parent through the taskbar. Compositor b99b5090 raises native transient
+children through their own hosting roots, preserving labwc's existing ordering.
+The real close/switch-away/taskbar-return/Yes sequence passes at 100%
+(`qt-transient-controls.log`). Taskbar activation also preserves maximized
+placement and chooses the last active visible popup before restoring its owner,
+instead of activating an already visible parent with SW_SHOWNORMAL first.
+
+Still open: at 150%, the Exit dialog stays above its parent, but its Yes/No
+buttons can disappear briefly after switching back. The bounded five-second
+OCR check fails (`qt-transient150-controls.log`); later screenshots show the
+buttons again, and a click at Yes closes the application. A real-client
+WAYLAND_DEBUG trace shows configure acknowledgements, fresh partial-damage
+buffers and frame callbacks; do not claim this case passing. Continue other
+acceptance rather than expanding into synthetic cases. The 100% fix remains
+verified. Current VM: Bob at 150%, foot plus QTerminal's Exit dialog, with
+test-only compositor `-d` and QTerminal WAYLAND_DEBUG logging enabled.
+
+Test tooling: vmtest now waits for QMP's scheduled key release before sending
+the next chord/text. Its old fixed 50ms delay was shorter than the default
+80ms key hold, overlapping modifiers in fast program checks. Firefox's actual
+Ctrl+L/about:support navigation passes after the change. QTerminal's first
+test launch inherited /root and logged `CRASHED! result: -1`; `-w
+/home/bobsmith` runs its shell correctly. A wait for `Shell No. 1` then failed
+because its running shell changes the title to `bobsmith@WEX-PC: ~`; geometry
+readback and the typed shell command establish that it is running. An
+immediate post-close process query preceded QTerminal's exit; the test now
+allows two seconds for orderly exit. Read-only discovery also tried nonexistent
+`wexcomp/src/foreign-toplevel.c`; the sources are under `src/foreign-toplevel/`.
+
+ISO preparation discovery: live-build is installed on the Proton build VM.
+The actual build volume is `/srv/protonexplorer` (25 GiB free), not `/srv`
+(on the nearly full root disk). The assembled source root has no .git directory;
+git queries there failed. Its Wine checkout still has historical Git HEAD
+3bb585c4 with our explicit source overlays and owned-module symlinks. Package
+version is fixed rather than Git-derived; nevertheless, normalize and verify
+that source against the integration revision before the ISO. Do not reset or
+discard the owned-module symlinks. The final production-pin build after the
+taskbar activation change passes both architectures.
+
 CSD checkpoint: Wine topic 055abb3 fixes a real gedit 150% startup failure.
 It first maps at logical 900x747, then shrinks to 853x513. The proxy has no
 nonclient ring, hence no GDI damage to publish its new extent. Compositor debug

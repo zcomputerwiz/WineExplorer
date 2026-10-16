@@ -90,6 +90,7 @@ int main(int argc, char **argv)
                 printf("Z %p ex=%08lx role=%p atom=%p %ls\n",hwnd,GetWindowLongW(hwnd,GWL_EXSTYLE),
                     GetPropW(hwnd,L"__wine_wayland_role"),GetPropW(hwnd,L"__wine_wayland_window_handle"),title);
                 GetWindowRect(hwnd,&rect);
+                printf("  owner=%p lastpopup=%p\n",GetWindow(hwnd,GW_OWNER),GetLastActivePopup(hwnd));
                 if (argc == 4)
                     printf("  HIT %ld\n", (long)SendMessageW(hwnd,WM_NCHITTEST,0,
                            MAKELPARAM(atoi(argv[2]),atoi(argv[3]))));

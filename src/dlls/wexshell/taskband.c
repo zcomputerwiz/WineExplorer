@@ -647,9 +647,13 @@ static void click_task(TASK_ITEM *item)
         ShowWindow(item->target_hwnd, SW_MINIMIZE);
     else
     {
+        HWND target = GetLastActivePopup(item->target_hwnd);
+        if (!IsWindowVisible(target)) target = item->target_hwnd;
         if (IsIconic(item->target_hwnd)) ShowWindow(item->target_hwnd, SW_RESTORE);
-        else ShowWindow(item->target_hwnd, SW_SHOWNORMAL);
-        SetForegroundWindow(item->target_hwnd);
+        /* Preserve maximized placement and the active owned dialog. Showing
+         * an already visible parent normally activates it first, hiding real
+         * QTerminal's Exit confirmation behind its own main window. */
+        SetForegroundWindow(target);
     }
 }
 
