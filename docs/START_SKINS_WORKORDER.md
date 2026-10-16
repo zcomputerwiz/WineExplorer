@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): Open-Shell skins for our Start menu
 
-Status: ready, 2026-10-16. Assignee: Gemini.
+Status: done, 2026-10-16 (merged after one round of review). Assignee: Gemini.
 
 ## Goal
 
@@ -107,3 +107,18 @@ Not accepted yet:
 
 Fix on `gemini/start-skins`. The acceptance screenshots must come from the real shell, at 100% and 150%. Rerun the
 install test, then stop for review.
+
+## Re-review (Claude, 2026-10-16): accepted, merged
+
+`a27412fe` addresses items 1–5:
+- the screenshots are of the real Start menu in the real shell, at 100% and 150%;
+- the two-column header and footer fall back to the built-in look with both labels drawn;
+- a skin made for the other view falls back to the built-in menu, and the chooser shows each skin's view;
+- the community skin is Catppuccin Mocha (MIT), kept local;
+- Open-Shell is credited, with its MIT text in `src/resources/startskins/LICENSE` and the source commit pinned in
+  `scripts/build_bundled_skins.sh`.
+
+Rechecked on the real shell in `wexbuild`:
+- with no skin, and with ClassicSkin set while the two-column menu is shown, the menu matches master except for the
+  taskbar clock (32 pixels, all in the clock area);
+- Metallic7 skins the two-column menu as in the report.
