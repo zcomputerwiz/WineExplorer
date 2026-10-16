@@ -234,6 +234,36 @@ design note with measured data from S0 and these options, then wait for the deci
 - (c) one machine-wide registry service for all sessions.
 Include the effort, the Wine files touched, upstream prospects and failure modes of each.
 
+### S3 decision (user, 2026-10-15): (a1) plus merge-on-save, no live reload
+
+Gemini's design note (`docs/PREFIX_SPLIT.md`, Phase S3) is accepted as analysis. Implement:
+
+1. **Shared hive files.** `system.reg` and `userdef.reg` live in the machine root (`root:sudo`, group-writable,
+   default ACL). Each user prefix links to them.
+2. **Fix `save_branch()`** (`server/registry.c`). A save never replaces the link: write a temporary file in the
+   *target's* directory, `fsync`, and `rename()` over the target. When the target is not writable (`EACCES`/`EROFS`),
+   clear the dirty state and return without writing or replacing the link.
+3. **Limited users (a1).** `HKLM`/`HKU\.DEFAULT` writes succeed in memory and are never saved. Do not refuse them
+   (no a2 whitelist for now; it is a later XP-parity option).
+4. **Administrators: merge on save.** Under `flock(LOCK_EX)` on a lock file in the machine root, compare the hive
+   file's identity/mtime with the one loaded. If another writer saved since, load the file from disk and replay only
+   this session's changed keys/values and deletions onto it. Then write it atomically. No resurrection of keys another
+   writer deleted. Volatile keys and the per-session display/PnP keys from S0.2 are never saved by user sessions.
+5. **No live reload.** Other sessions see `HKLM` changes at their next logon, as accepted.
+6. **Tests:**
+   - Alice installs a program that registers a COM class and an `Uninstall` entry; Bob sees both after logon.
+   - Bob's `HKLM` writes are gone after logoff and never reach the file.
+   - Two administrators save different keys in overlapping sessions; both survive.
+   - A machine upgrade (`setup-machine-root.sh` update as root) while Alice is logged in keeps the upgrade's keys
+     after Alice logs off.
+   - A user's `system.reg` stays a link after every case.
+   - 32/64-bit suites as before.
+
+Stop for review after S3.
+
+**Later, separate work order:** a system tier, with services and `HKLM` in one machine-level instance as Windows
+does with session 0. See `docs/ROADMAP.md`.
+
 ## S4 — Integration and migration (after S2/S3)
 
 Setup builds the machine root and the Default User template; account creation (`wexhost` `user_create`, OOBE) creates

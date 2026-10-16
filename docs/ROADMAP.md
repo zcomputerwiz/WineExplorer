@@ -236,3 +236,14 @@ steps and remaining limits are recorded in [HANDOFF.md](HANDOFF.md).
 
 
 
+
+## Future: system tier (session 0)
+
+Windows runs services in session 0 under SYSTEM and keeps one registry for the machine; each user session only adds
+its own `HKEY_USERS\<SID>`. Wine starts `services.exe`, `plugplay`, `rpcss` and `mountmgr` inside every user's
+`wineserver`, each with its own copy of `HKLM`. After the prefix split (`docs/PREFIX_SPLIT_WORKORDER.md`, which shares
+the machine files and merges `HKLM` on save), the next step is one machine-level instance run by a system account that
+owns the services and `HKLM`, with user sessions connecting to it. This is the prefix split's option (c) and needs
+cross-user `wineserver` work, so the two are one project. Decide per service whether it belongs in that tier or is
+better served by a Linux daemon through `wexhost` (D-Bus). References: ReactOS `base/system/services`,
+`ntoskrnl/config` (design only), `dll/win32/userenv` (profiles).
