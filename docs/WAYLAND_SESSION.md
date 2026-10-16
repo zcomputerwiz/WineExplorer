@@ -59,6 +59,52 @@ Screenshots currently in the ignored `build/wayland-session` directory:
 `foot-resized.png`. Review point 1 requires final evidence from the new ISO,
 not just these development captures.
 
+## Hosted maximize/restore checkpoint
+
+Wine topic 6b3435c and compositor 73ea3a44 extend the existing v10 path without
+a new protocol version or generic Wine hook. The bridge defers the normal
+Win32 maximize/restore command until native-ready, requests physical frame
+focus/capture, and publishes the matching frame. Two scalar driver requests
+cover capture outside GUI_INMOVESIZE and the captured maximize state preceding
+resize on the same Wayland connection. The compositor mirrors that state while
+leaving geometry to Wine, and respects explicit size limits while suspending
+floating character-cell increments for maximized clients.
+
+Real installed-VM foot now completes maximize at client `(0,26) 1280x744`:
+the client bottom is exactly the taskbar/work-area boundary y=770. Win32 frame
+`(-4,-4)-(1284,774)` includes the usual invisible maximized resize borders.
+Taskbar minimize/restore preserves the maximized window. The taskbar's Restore
+menu command returns exactly to `(288,121)-(992,649)`, client `(292,151) 696x494`.
+Typing `echo restored-foot` succeeds afterward. In each finished operation the
+group remains active, native focus is restored, and capture is cleared. The
+frame screenshot is `build/wayland-session/foot-max-current.png` (development
+overlay; final ISO evidence still required). Caption double-click and taskbar
+menu paths are verified; a direct caption-button click still needs checking.
+
+The successive real-program failures explained the implementation:
+
+- Applying Win32's maximized style immediately changed the client hole before
+  native-ready and detached the group. Deferring the system command fixes this.
+- SetCapture outside GUI_INMOVESIZE never requested compositor capture. The
+  explicit private request still requires the compositor's physical frame
+  focus/capture checks; normal capture keeps its existing policy.
+- A state-only xdg configure carried the old frame dimensions and used
+  NOSENDCHANGING, bypassing the bridge and shrinking the already painted frame
+  to 712x536. Hosted controlled views now acknowledge that state without
+  applying the obsolete geometry, flushing their pending contents afterward.
+- Foot initially selected floating cell dimensions 1278x741, leaving small
+  work-area gaps. Sending maximized state before resize on the same connection
+  gives it the correct pixel dimensions on the first completed transaction.
+
+Start-menu launching is also checked with actual QTerminal. Its process has
+`HOME=/home/bobsmith`, `WAYLAND_DISPLAY=wayland-0`, `DISPLAY=:0`, and no `WINE*`
+or `WEX_*` variables. X11 remains the default Welcome-screen selection.
+
+These results are at 100%. The remaining program classes, 150%, two outputs,
+caption buttons, fresh ISO install, and review point 1 remain outstanding.
+Master's production Wine pin is still d92d7e44, so these sizing/maximize controls
+remain compiled out there until the integration pin is advanced.
+
 ## Test environment and command failures
 
 The permitted Debian WSL distribution runs our QEMU/KVM tests. The stopped
@@ -133,3 +179,16 @@ is running. The Proton build VM's assembled source contains current owned edits
 and the Wine L2 topic plus captured-motion fix; its compositor packaging uses a
 separate clean source checkout. No source or guest session in Gemini's two WSL
 distributions was used.
+
+Further tooling notes: inline quoted `/proc` environment scans left the serial
+shell without its expected prompt, so subsequent readbacks returned no output.
+Sending Ctrl-C restored it; staging `native-environment.sh` over the test HTTP
+server avoided the nested PowerShell/WSL quoting. An initial `restart-max.py`
+wait failed to recognize the white Welcome-screen text; using vmtest's white
+OCR fallback fixes that. The package still emits dpkg-shlibdeps' staging-layout
+warning, but builds and includes the calculated dependencies and libsfdo notice.
+Read-only discovery also used nonexistent `wexcomp/include/output.h` (the output
+structure is in `include/labwc.h`). The official 7-Zip download page was read
+to select a 32-bit installer; the web tool's first click used an invalid page
+reference and the corrected GitHub download was restricted by that fetcher.
+No installer binary has been added to the repository.

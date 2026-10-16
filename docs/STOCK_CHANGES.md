@@ -15,6 +15,14 @@ Wayland session could otherwise never grow past its original right/bottom edge.
 Ordinary uncaptured motion retains Wine's rounding clamp. Physical QEMU edge
 grow/shrink, corner grow and subsequent typing pass. This is still on the L2
 topic, not the production pin; see WAYLAND_SESSION.md for the active work order.
+Topic 6b3435c coordinates real foot work-area maximize/restore using private
+scalar capture and maximize requests in the existing Wayland driver path.
+They preserve the compositor's physical focus/capture checks. Controlled
+hosted views acknowledge xdg state without allowing an obsolete
+NOSENDCHANGING configure size to overwrite the native-ready frame, and flush
+pending frame content after acknowledgement. No generic Wine hook or private
+protocol version was added. Exact work-area maximize, taskbar minimize/restore,
+menu Restore, and post-restore typing pass on the installed test overlay at 100%.
 The L2 topic's cf365e5 binds private protocol v10 and adds a scalar resize
 request/commit/cancel transport. Each compositor transition is queued separately
 and delivered on the HWND's owning UI thread with a scoped property snapshot;
