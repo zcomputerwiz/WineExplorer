@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+[Desktop Entry]
+Name=WineExplorer (Wayland)
+Comment=WineExplorer desktop with native Wayland and XWayland applications
+Exec=/usr/local/bin/wine-explorer-wayland-session.sh
+TryExec=/usr/local/bin/wexcomp
+Icon=wine
+Type=Application
+DesktopNames=WineExplorer

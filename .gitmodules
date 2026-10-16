@@ -3,3 +3,7 @@
 	path = wine
 	url = https://github.com/zcomputerwiz/wine.git
 	branch = wineexplorer/11.19
+[submodule "wexcomp"]
+	path = wexcomp
+	url = https://github.com/zcomputerwiz/labwc.git
+	branch = wexcomp

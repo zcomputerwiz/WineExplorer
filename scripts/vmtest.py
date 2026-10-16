@@ -13,6 +13,7 @@ Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
   vmtest.py shot NAME [FILE.png]                                          screenshot (default STATE/last.png)
   vmtest.py key NAME KEY...                                               QEMU key names: ret f8 alt-n ctrl-alt-f2
   vmtest.py click NAME X Y [right]                                        click at screen pixel X,Y
+  vmtest.py drag NAME X1 Y1 X2 Y2                                        left-button drag between screen positions
   vmtest.py clicktext NAME TEXT [--timeout 30]                            click the words TEXT (found by OCR)
   vmtest.py type NAME TEXT                                                type text (US layout)
   vmtest.py wait NAME TEXT [--timeout 120]                                wait until OCR finds TEXT on screen
@@ -138,14 +139,31 @@ def keys(name, combos, hold=80):
         qmp(name, "send-key", keys=[{"type": "qcode", "data": k} for k in combo.split("-")], **{"hold-time": hold})
         time.sleep(0.05)
 
-def click(name, x, y, button="left"):
+def move(name, x, y):
     w, h = screen_size(name)
     pos = [{"type": "abs", "data": {"axis": "x", "value": x * 32767 // (w - 1)}},
            {"type": "abs", "data": {"axis": "y", "value": y * 32767 // (h - 1)}}]
     qmp(name, "input-send-event", events=pos)
+
+
+def click(name, x, y, button="left"):
+    move(name, x, y)
+    time.sleep(0.1)  # let the guest process surface enter/motion before pressing
     for down in (True, False):
         qmp(name, "input-send-event", events=[{"type": "btn", "data": {"down": down, "button": button}}])
         time.sleep(0.08)
+
+
+def drag(name, x1, y1, x2, y2):
+    move(name, x1, y1)
+    time.sleep(0.1)
+    qmp(name, "input-send-event", events=[{"type": "btn", "data": {"down": True, "button": "left"}}])
+    try:
+        for step in range(1, 13):
+            move(name, x1 + (x2 - x1) * step // 12, y1 + (y2 - y1) * step // 12)
+            time.sleep(0.05)
+    finally:
+        qmp(name, "input-send-event", events=[{"type": "btn", "data": {"down": False, "button": "left"}}])
 
 def screen_size(name):
     ppm = os.path.join(state(name), "size.ppm")
@@ -226,6 +244,9 @@ def main():
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
     s = sub.add_parser("click"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
     s.add_argument("button", nargs="?", default="left")
+    s = sub.add_parser("drag"); s.add_argument("name")
+    for coordinate in ("x1", "y1", "x2", "y2"):
+        s.add_argument(coordinate, type=int)
     s = sub.add_parser("clicktext"); s.add_argument("name"); s.add_argument("text")
     s.add_argument("--timeout", type=float, default=30)
     s = sub.add_parser("wait"); s.add_argument("name"); s.add_argument("text"); s.add_argument("--timeout", type=float, default=120)
@@ -249,6 +270,8 @@ def main():
         type_text(a.name, a.text.rstrip("\r\n"))
     elif a.op == "click":
         click(a.name, a.x, a.y, a.button)
+    elif a.op == "drag":
+        drag(a.name, a.x1, a.y1, a.x2, a.y2)
     elif a.op == "clicktext":
         end = time.time() + a.timeout
         while time.time() < end:

@@ -73,6 +73,7 @@ make -C "$SCRIPT_DIR/textsetup" clean
 # 2. Package Wine and session
 echo "=== Step 2: Packaging Wine and session ==="
 OUT_DIR="$WORK_DIR/config/packages.chroot" "$SCRIPT_DIR/package-wine.sh"
+OUT_DIR="$WORK_DIR/config/packages.chroot" bash "$SCRIPT_DIR/package-wexcomp.sh"
 
 # 3. The ISO carries the open pictures of the Wine build only: never genuine XP files (docs/ASSETS.md). Build it from a
 #    tree without the local overlay (vm.sh sync puts genuine pictures into ~/src on the dev VM).

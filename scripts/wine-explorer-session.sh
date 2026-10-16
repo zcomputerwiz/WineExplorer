@@ -15,14 +15,9 @@ exec > "$LOG" 2>&1
 echo "=== WineExplorer session started: $(date) ==="
 echo "USER=$USER DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY"
 
-export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
-export XDG_CURRENT_DESKTOP="WineExplorer"
-export XDG_SESSION_DESKTOP="WineExplorer"
 # winemenubuilder (started by wineboot) creates a window before our explorer exists, which starts Wine's default
 # desktop first; ours then fails to create "Default" and the session ends.  It only exports Linux menu entries.
-export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
-export WINEDEBUG="${WINEDEBUG:--all,err+all}"   # keep the log small; errors only
-WINE="${WINE:-/usr/local/bin/wine}"
+. "$(dirname "$0")/wine-explorer-session-common.sh"
 DESKTOP_NAME="Default"
 
 # Disable screen blanking & DPMS

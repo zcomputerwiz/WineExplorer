@@ -1,5 +1,18 @@
 # Codex handoff — 2026-10-16 Wayland L2 in progress
 
+**Active work order:** `WAYLAND_SESSION_WORKORDER.md` replaces the open-ended
+L2 remainder. Continue A and B through review point 1; only then start tray C
+and regression D. Real programs on an installed VM, no new synthetic cases.
+See `WAYLAND_SESSION.md` for incremental results, exact environment and failures.
+The optional Wayland launcher and Welcome session chooser now log Bob into
+Wayland on our installed QEMU overlay. Gedit CSD input/minimize and foot edge /
+corner sizing have incremental real-program coverage. Captured physical motion
+needed Wine topic c49ebd8. Master still pins production d92d7e4 and does not
+enable unsupported sizing there; maximize remains disabled pending integration.
+The pinned compositor submodule/package scaffolding is in progress. A new ISO,
+the full real-program/scale/multi-output acceptance and review point 1 are
+**not complete**. Earlier "stop for resize review" instructions below are history.
+
 **Retained original-buffer rollback (Codex, 2026-10-16):** Master now pins
 production Wine d92d7e4 (prefix-split S3). The root submodule was updated, and
 the L2 Wine topic merged that pin in 0607ece. Its full combined WoW64 build and

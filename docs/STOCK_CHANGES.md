@@ -9,6 +9,12 @@ P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
 Current pin is d92d7e4, including accepted opt-in Wayland L1 integration,
 visual-style support and the prefix-split S2/S3 updates. See WAYLAND_L1.md;
 X11 remains the default.
+The L2 topic c49ebd8 keeps pointer motion outside the old surface bounds during
+explicit private compositor capture. A real foot window on the installed
+Wayland session could otherwise never grow past its original right/bottom edge.
+Ordinary uncaptured motion retains Wine's rounding clamp. Physical QEMU edge
+grow/shrink, corner grow and subsequent typing pass. This is still on the L2
+topic, not the production pin; see WAYLAND_SESSION.md for the active work order.
 The L2 topic's cf365e5 binds private protocol v10 and adds a scalar resize
 request/commit/cancel transport. Each compositor transition is queued separately
 and delivered on the HWND's owning UI thread with a scoped property snapshot;

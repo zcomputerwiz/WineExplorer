@@ -359,8 +359,8 @@ static void map_window( const WEX_WM_EVENT *event )
     RECT rect = event->rect, work;
     int x, y, width, height;
 
-    if (wayland_mode && ((event->flags & WEX_WM_NO_BORDER) ||
-        (event->states & (WEX_WM_STATE_MINIMIZED | WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))) return;
+    if (wayland_mode && !(event->flags & WEX_WM_NO_BORDER) &&
+        (event->states & (WEX_WM_STATE_MINIMIZED | WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN))) return;
 
     if (find_window( event->window ) || !(lw = calloc( 1, sizeof(*lw) ))) return;
     lw->window = event->window;
@@ -373,7 +373,13 @@ static void map_window( const WEX_WM_EVENT *event )
     lw->min_size = event->min_size;
     lw->max_size = event->max_size;
     host_style( lw, owner != NULL, &style, &ex_style );
-    if (wayland_mode) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX); /* native resize negotiation is pending */
+    /* CSD keeps the application's header bar. Its borderless host supplies the
+     * Win32 identity for taskbar/Alt+Tab, and the compositor cuts out its entire
+     * client area. Hosted SSD sizing uses the reviewed native transaction. */
+    if (wayland_mode) style &= ~WS_MAXIMIZEBOX; /* maximize integration follows */
+#ifndef WEX_WAYLAND_RESIZE_ENABLE_PROP
+    if (wayland_mode) style &= ~WS_THICKFRAME;
+#endif
 
     AdjustWindowRectEx( &rect, style, FALSE, ex_style );
     width = rect.right - rect.left;
@@ -449,6 +455,10 @@ static void map_window( const WEX_WM_EVENT *event )
             destroy_host(lw);
             return;
         }
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+        if (!(lw->flags & WEX_WM_NO_BORDER))
+            SetPropW(lw->host,WEX_WAYLAND_RESIZE_ENABLE_PROP,(HANDLE)1);
+#endif
         LIST_FOR_EACH_ENTRY(child,&windows,struct linux_window,entry)
             if (child != lw && child->owner == lw->window)
                 SetWindowLongPtrW(child->host,GWLP_HWNDPARENT,(LONG_PTR)lw->host);
@@ -464,8 +474,9 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
     HWND wanted_owner;
     DWORD style, ex_style;
     BOOL minimized;
-    if ((event->flags & WEX_WM_NO_BORDER) ||
-        (event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))
+    if (!!(event->flags & WEX_WM_NO_BORDER) != !!(lw->flags & WEX_WM_NO_BORDER) ||
+        (!(lw->flags & WEX_WM_NO_BORDER) &&
+         (event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN))))
     {
         /* Keep observing: a later supported policy/state can be adopted again. */
         lw->gone = TRUE;
@@ -494,7 +505,8 @@ static void observe_wayland_window(struct linux_window *lw, const WEX_WM_EVENT *
         (!lw->interactive && (DWORD)(GetTickCount()-lw->geometry_requested_at)>=2000)))
         lw->geometry_pending=FALSE;
     if (!minimized && !lw->interactive && !lw->geometry_pending &&
-        !(event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN)))
+        ((lw->flags & WEX_WM_NO_BORDER) ||
+         !(event->states & (WEX_WM_STATE_MAXIMIZED | WEX_WM_STATE_FULLSCREEN))))
     {
         client_geometry(lw,&client,&screen);
         if (!EqualRect(&screen,&event->rect))

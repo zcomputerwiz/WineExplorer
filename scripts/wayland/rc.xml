@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<labwc_config>
+  <core><decoration>server</decoration></core>
+  <!-- Explorer owns shell shortcuts; an inert entry suppresses labwc defaults. -->
+  <keyboard><keybind key="A-Tab"><action name="None"/></keybind></keyboard>
+  <mouse>
+    <context name="Root"><mousebind button="Right" action="Press"><action name="None"/></mousebind></context>
+    <!-- Removing labwc's default shell bindings must retain normal native
+         client click activation. Wine views keep their driver-owned focus. -->
+    <context name="Client">
+      <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Middle" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Right" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+    </context>
+  </mouse>
+</labwc_config>

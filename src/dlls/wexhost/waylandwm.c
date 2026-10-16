@@ -467,8 +467,8 @@ static NTSTATUS wayland_binding(void *args)
         params->err = ERROR_NOT_SUPPORTED;
     else if (running && (window = find_window(params->window)) && window->announced)
     {
-        if (!window->controller[0] || (window->snapshot.flags & WEX_WM_NO_BORDER))
-            params->err = ERROR_NOT_SUPPORTED; /* CSD/borderless adoption has separate acceptance. */
+        if (!window->controller[0])
+            params->err = ERROR_NOT_SUPPORTED;
         else
         {
             memcpy(params->token,window->token,sizeof(params->token));

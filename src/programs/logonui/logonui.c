@@ -77,7 +77,7 @@ struct user
 };
 
 static HINSTANCE instance;
-static HWND main_window, password_edit, balloon;
+static HWND main_window, password_edit, balloon, session_list;
 static struct user users[MAX_USERS];
 static unsigned int user_count;
 static int selected = -1, hot_user = -1;
@@ -245,6 +245,8 @@ static void layout( void )
         MoveWindow( password_edit, ex + 6, ey + 5, 159, 16, FALSE );
     }
     SetRect( &turnoff_rect, 24, middle_bottom( cy ) + 22, 24 + 26 + 8 + 190, middle_bottom( cy ) + 22 + 26 );
+    if (session_list)
+        SetWindowPos( session_list, NULL, 24, middle_bottom( cy ) - 44, 250, 180, SWP_NOZORDER | SWP_NOACTIVATE );
 }
 
 /* ------------------------------------------------------------------ painting */
@@ -457,7 +459,9 @@ static void handle_event( char *msg )
     {
         if (result == 0)
         {
-            WexGreeterStartSession( NULL );   /* the user's own default session */
+            WexGreeterStartSession( session_list ?
+                (SendMessageW( session_list, CB_GETCURSEL, 0, 0 ) == 1 ?
+                 "wine-explorer-wayland" : "wine-explorer") : NULL );
             return;
         }
         /* wrong password: XP keeps the tile open and shows its balloon; LightDM needs a new authentication */
@@ -551,6 +555,16 @@ static LRESULT CALLBACK main_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
     {
         TTTOOLINFOW ti = { sizeof(ti) };
         main_window = hwnd;
+        if (GetFileAttributesW( L"Z:\\usr\\share\\wayland-sessions\\wine-explorer-wayland.desktop" ) != INVALID_FILE_ATTRIBUTES)
+        {
+            session_list = CreateWindowExW( 0, WC_COMBOBOXW, NULL,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                0, 0, 250, 180, hwnd, NULL, instance, NULL );
+            SendMessageW( session_list, WM_SETFONT, (WPARAM)font_edit, FALSE );
+            SendMessageW( session_list, CB_ADDSTRING, 0, (LPARAM)L"WineExplorer (X11)" );
+            SendMessageW( session_list, CB_ADDSTRING, 0, (LPARAM)L"WineExplorer (Wayland)" );
+            SendMessageW( session_list, CB_SETCURSEL, 0, 0 );
+        }
         password_edit = CreateWindowExW( 0, L"EDIT", NULL, WS_CHILD | ES_PASSWORD | ES_AUTOHSCROLL, 0, 0, 10, 10, hwnd,
                                          NULL, instance, NULL );
         SendMessageW( password_edit, WM_SETFONT, (WPARAM)font_edit, FALSE );

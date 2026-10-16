@@ -49,12 +49,25 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[1],"zorder"))
         {
+            GUITHREADINFO gui = {sizeof(gui)};
+            GetCursorPos(&point);
+            GetGUIThreadInfo(0,&gui);
+            printf("POINTER %ld,%ld hit=%p active=%p capture=%p focus=%p\n",point.x,point.y,
+                WindowFromPoint(point),gui.hwndActive,gui.hwndCapture,gui.hwndFocus);
             for (hwnd=GetTopWindow(NULL);hwnd;hwnd=GetWindow(hwnd,GW_HWNDNEXT))
             {
                 if (!IsWindowVisible(hwnd)) continue;
                 GetWindowTextW(hwnd,title,128);
                 printf("Z %p ex=%08lx role=%p atom=%p %ls\n",hwnd,GetWindowLongW(hwnd,GWL_EXSTYLE),
                     GetPropW(hwnd,L"__wine_wayland_role"),GetPropW(hwnd,L"__wine_wayland_window_handle"),title);
+                GetWindowRect(hwnd,&rect);
+                printf("  style=%08lx rect=%ld,%ld,%ld,%ld foreground=%d host=%p group=%p focus=%p size=%p\n",
+                    GetWindowLongW(hwnd,GWL_STYLE),rect.left,rect.top,rect.right,rect.bottom,GetForegroundWindow()==hwnd,
+                    GetPropW(hwnd,L"__wine_wayland_native_host"),GetPropW(hwnd,L"__wine_wayland_native_group"),
+                    GetPropW(hwnd,L"__wine_wayland_native_focus"),GetPropW(hwnd,L"__wine_wayland_resize_enable"));
+                GetClientRect(hwnd,&rect); point.x=point.y=0; ClientToScreen(hwnd,&point);
+                printf("  client=%ld,%ld %ldx%ld protocol=%p capture=%p\n",point.x,point.y,rect.right,rect.bottom,
+                    GetPropW(hwnd,L"__wine_wayland_resize_protocol"),GetPropW(hwnd,L"__wine_wayland_native_pointer_capture"));
             }
             return 0;
         }
