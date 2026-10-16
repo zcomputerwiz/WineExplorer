@@ -871,3 +871,219 @@ We recommend **Option (a)** as the foundation for Phase S3 — specifically **Op
 
 If concurrent Administrator sessions or live cross-session visibility without re-logon are desired, **Option (b)'s delta-merge on save** (replaying only keys/values marked `KEY_DIRTY` and deletion tombstones onto the freshly loaded on-disk `system.reg` under `flock(LOCK_EX)`) can be layered directly on top of Option (a) with modest additional code in `wine/server/registry.c`.
 
+---
+
+## Phase S3 — Implementation & Verification Report
+
+### S3.1 Architecture Implemented: Option (a1) + Merge-on-Save, No Live Reload
+
+Per the user decision in `docs/PREFIX_SPLIT_WORKORDER.md`, Phase S3 was implemented as **Option (a1) plus merge-on-save under file lock without live reload**:
+
+1. **Shared Hive Files:**
+   - `system.reg` and `userdef.reg` live in `/var/lib/wineexplorer/machine/` (`root:sudo`, mode `0664`, POSIX default ACL `g:sudo:rwX`).
+   - Every user prefix (`/etc/skel/.wine`, `/home/<user>/.wine`) links to them via symbolic links:
+     - `system.reg -> /var/lib/wineexplorer/machine/system.reg`
+     - `userdef.reg -> /var/lib/wineexplorer/machine/userdef.reg`
+   - Only `user.reg` remains private per user in `~/.wine/user.reg` (holding `HKCU` and per-user environment variables).
+
+2. **Atomic `save_branch()` (`wine/server/registry.c`):**
+   - Symbolic links are **never overwritten or unlinked**: `save_branch()` resolves the canonical realpath and target directory via `realpath()`.
+   - Write permissions pre-check: if the target hive or its parent directory is not writable (`EACCES` or `EROFS`, as occurs for Limited Users like `bob`), `save_branch()` clears the dirty state (`make_clean(key)`) and returns success `1` without creating temporary files, touching the file, or replacing the symlink.
+   - Target-directory temp files: writes temporary file `reg<pid><count>.tmp` directly in the target directory (`/var/lib/wineexplorer/machine/`), preserves mode `0664` and group `sudo` inheritance, calls `fflush()` and `fsync()`, and executes atomic POSIX `rename()` over the target path.
+
+3. **Limited Users (Option a1):**
+   - Limited users' writes to `HKLM` and `HKU\.DEFAULT` succeed in memory during their session (so services, display drivers, and applications run without modification), but are never written to disk.
+   - Upon logoff, all in-memory changes vanish.
+
+4. **Administrator Merge-on-Save Under File Lock:**
+   - Administrator sessions save under `flock(LOCK_EX)` on `<target_dir>/.reg.lock` (with mode `0664`).
+   - `wineserver` tracks file identity and modification timestamp (`st_dev`, `st_ino`, `st_mtim`).
+   - For shared hives or when external disk modifications occur, `wineserver` loads the on-disk base hive into `tmp_root`, replays session tombstones (`reg_tombstone` tracking explicitly deleted keys and values), and replays session dirty keys/values (`mod_seq > 0`).
+   - **No Resurrection & mod_seq Reset:** Keys deleted by another writer during an overlapping session are never resurrected. After each save (or permission denial), `mod_seq` is reset across the branch and tombstones are freed, preventing earlier mutations from being replayed indefinitely onto newer files in long-running sessions.
+   - **Ephemeral Key Filtering:** S0.2 transient hardware and session keys (`ControlSet001\Enum`, `Control\Class`, `Control\Video`, `Control\DeviceClasses`, `Control\Print`, `ProfileList`, `Shell Folders`, `Wine\Drives`, CPU environment variables) and `KEY_VOLATILE` keys are protected from dirtying parent keys and are never saved to shared hives by user sessions. This filtering, as well as the merge, is strictly applied only to branches that were symbolic links into the shared machine root at load time (`info->is_shared_machine`), fully preserving stock Wine behavior for ordinary unlinked prefixes.
+   - **Link Handling:** `create_key_recursive()` restricts `OBJ_OPENLINK` strictly to merge operations (`in_merge`), preserving standard object lookup semantics for all other Wine callers.
+   - **Performance Note:** An administrator's periodic save loads and re-parses the shared hive (approximately 3 MB) under the directory lock every 30 s while anything is dirty, which is well within acceptable overhead.
+
+5. **Submodule and Template Alignment:**
+   - `wine/loader/wine.inf.in`: Defines `[UserRegistry]` with 19 `HKCU` lines; limits `[UserInstall]` to `UserRegistry` and `ThemeManager`, preventing per-user `wineboot -u` from re-running machine `HKLM` sections.
+   - `scripts/setup-machine-root.sh` & `scripts/wine-explorer-session.sh`: Symlinks `system.reg` and `userdef.reg` from machine root into `/etc/skel/.wine`, guarded `sed -i` to only touch `user.reg`, and set proper default ACLs.
+
+---
+
+### S3.2 Phase S3 Acceptance Tests (`installer/tests/test_s3_acceptance.sh`, [logs/s3_acceptance.log](logs/s3_acceptance.log))
+
+All acceptance criteria from the S3 workorder and review were validated by `installer/tests/test_s3_acceptance.sh`:
+
+- **Case 1: All-Users COM & Uninstall Registration:** Alice (administrator) installs a program into `C:\Program Files\AliceApp`, registers a COM class (`CLSID\{A11CE000-...}`) and an `Uninstall` entry in `HKLM`. Bob (limited user) logs in, sees both registry entries via `reg query`, and successfully executes `app64.exe` (`Process running: 64-bit`).
+- **Case 2: Limited User In-Memory HKLM & S0.2 Ephemeral Isolation:** Bob writes to `HKLM\Software\BobHack` (`Hacked=1`); the write succeeds in memory during his session, never reaches `/var/lib/wineexplorer/machine/system.reg`, and is gone after logoff. Ephemeral display/PnP/print/drive keys written by Alice's session are filtered and not saved to disk. In an unlinked prefix, HKLM keys under per-session paths are saved normally.
+- **Case 3: Concurrent Admin Sessions, Merge-on-Save, and Anti-Resurrection:** Alice and Carol run concurrent active Wine sessions. Shared base key `SharedApp\ToDelete` exists. Alice adds `AliceShared` and deletes `ToDelete`. Carol adds `CarolShared`. Carol saves first; Alice saves second. Both `AliceShared` and `CarolShared` survive; `ToDelete` is NOT resurrected.
+- **Case 3b: Alice-Carol-Alice Save Sequence (mod_seq reset & tombstone freeing):** Alice in an active session sets `X=AliceInitial` and deletes `DelKey`. Alice's Save 1 fires on periodic save (28s). Carol modifies `X=CarolUpdated` and re-creates `DelKey=CarolRecreated`. Alice then mutates unrelated key `Y=AliceOtherVal` and logs off (Save 2). Carol's `X=CarolUpdated` survives without being overwritten by stale `mod_seq`, and Carol's `DelKey` survives without being re-deleted by stale tombstones.
+- **Case 4: Machine Upgrade During Active Session:** Root updates machine root and adds `HKLM\Software\MachineUpgrade` (`Version=3.1.0`) while Alice is logged in. Alice adds `AlicePostUpgrade` (`Installed=True`) and logs off. Both root upgrade keys and Alice's keys survive on disk.
+- **Case 5: Symlink & Permissions Integrity:** `system.reg` and `userdef.reg` remain valid symbolic links across `/etc/skel/.wine`, `/home/alice/.wine`, `/home/carol/.wine`, and `/home/bob/.wine`, with mode `0664` owned by group `sudo` and 0 leftover temporary files.
+
+#### Real Test Output ([logs/s3_acceptance.log](logs/s3_acceptance.log))
+```
+=== WineExplorer Phase S3 Acceptance Test ===
+--- Ensuring fresh machine root and skel ---
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Bootstrapping machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+--- Resetting user prefixes from /etc/skel/.wine ---
+--- Verifying symlinks and permissions at: initial reset ---
+PASS [initial reset]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 1: Alice registers COM class & Uninstall entry; Bob sees and runs app ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+	1 file(s) copied
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 1]: Alice COM class and Uninstall entries written to machine system.reg.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+--- BOB COM QUERY ---
+
+HKEY_LOCAL_MACHINE\Software\Classes\CLSID\{A11CE000-0000-0000-0000-000000000001}\LocalServer32
+    (Default)    REG_SZ    C:\Program Files\AliceApp\app64.exe
+
+--- BOB UNINSTALL QUERY ---
+
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\AliceApp
+    DisplayName    REG_SZ    Alice Application 1.0
+
+--- BOB RUN APP ---
+Process running: 64-bit (is_wow64=0)
+SUCCESS: LoadLibrary advapi32.dll succeeded: 00006fffff210000
+SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
+PASS [Case 1]: Bob saw COM registration, Uninstall entry, and executed Alice's app!
+--- Verifying symlinks and permissions at: Case 1 ---
+PASS [Case 1]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 2: Bob's in-memory HKLM writes & S0.2 ephemeral key protection ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+
+HKEY_LOCAL_MACHINE\Software\BobHack
+    Hacked    REG_SZ    1
+
+PASS [Case 2]: Bob's in-memory HKLM write succeeded during session.
+PASS [Case 2]: Bob's write NEVER reached machine system.reg!
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: Unable to find the specified registry key
+PASS [Case 2]: Bob's write was gone after logoff!
+Testing S0.2 transient/per-session key protection in admin session...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 2]: Ephemeral/per-session keys were NOT saved to machine system.reg!
+--- Verifying symlinks and permissions at: Case 2 ---
+PASS [Case 2]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 3: Concurrent admin sessions, merge-on-save, and tombstone deletion ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+Initial shared keys established on disk.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Concurrent sessions active: Alice BG=2709, Carol BG=2710
+Alice modifying registry in concurrent session...
+reg: The operation completed successfully
+reg: The operation completed successfully
+Carol modifying registry in concurrent session...
+reg: The operation completed successfully
+Carol saving first...
+/root/WineExplorer/installer/tests/test_s3_acceptance.sh: line 287:  2710 Killed                  su - carol -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/carol/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+PASS [Case 3]: CarolShared saved to disk.
+Alice saving second (merging changes onto Carol disk save)...
+/root/WineExplorer/installer/tests/test_s3_acceptance.sh: line 299:  2709 Killed                  su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+Verifying merged disk contents:
+PASS [Case 3]: CarolShared survived Alice save.
+PASS [Case 3]: AliceShared was saved.
+PASS [Case 3]: Deletion of ToDelete was NOT resurrected.
+PASS [Case 3]: InitialVal preserved.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+
+HKEY_LOCAL_MACHINE\Software\AliceShared
+    AliceKey    REG_SZ    AliceVal
+
+
+HKEY_LOCAL_MACHINE\Software\CarolShared
+    CarolKey    REG_SZ    CarolVal
+
+--- Verifying symlinks and permissions at: Case 3 ---
+PASS [Case 3]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 4: Machine upgrade while Alice is logged in ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Alice session active (BG=3015).
+Root performing machine update...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Updating existing machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+Machine upgrade keys written to disk by root.
+Alice writing post-upgrade key in her active session...
+reg: The operation completed successfully
+Alice logging off and saving...
+/root/WineExplorer/installer/tests/test_s3_acceptance.sh: line 384:  3015 Killed                  su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+Verifying upgrade keys and Alice keys survived:
+PASS [Case 4]: Machine upgrade keys survived Alice logoff.
+PASS [Case 4]: AlicePostUpgrade was saved.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+
+HKEY_LOCAL_MACHINE\Software\MachineUpgrade
+    Version    REG_SZ    3.1.0
+
+
+HKEY_LOCAL_MACHINE\Software\AlicePostUpgrade
+    Installed    REG_SZ    True
+
+--- Verifying symlinks and permissions at: Case 4 ---
+PASS [Case 4]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 5: Final symlink integrity check across all user prefixes ===
+--- Verifying symlinks and permissions at: Case 5 Final ---
+PASS [Case 5 Final]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== ALL PHASE S3 ACCEPTANCE TESTS PASSED PERFECTLY! ===
+```
+
+---
+
+### S3.3 Conformance Test Suites & Regression Verification
+
+All 8 conformance suites were executed against the S3 tree and verified against stock pin and Phase S2 baselines:
+
+| Test Suite | Arch | Raw Log File | Exact Summary Line | Baseline Match |
+|---|---|---|---|---|
+| `kernel32:file` | 64-bit | [logs/s3_kernel32_file_64.log](logs/s3_kernel32_file_64.log) | `0020:file: 571334 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.` | Exact Match |
+| `kernel32:file` | 32-bit | [logs/s3_kernel32_file_32.log](logs/s3_kernel32_file_32.log) | `00e0:file: 571356 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.` | Exact Match |
+| `setupapi:install` | 64-bit | [logs/s3_setupapi_install_64.log](logs/s3_setupapi_install_64.log) | `0020:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.` | Exact Match |
+| `setupapi:install` | 32-bit | [logs/s3_setupapi_install_32.log](logs/s3_setupapi_install_32.log) | `00dc:install: 1085 tests executed (4 marked as todo, 0 as flaky, 0 failures), 0 skipped.` | Exact Match |
+| `setupapi:parser` | 64-bit | [logs/s3_setupapi_parser_64.log](logs/s3_setupapi_parser_64.log) | `0020:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.` | Exact Match |
+| `setupapi:parser` | 32-bit | [logs/s3_setupapi_parser_32.log](logs/s3_setupapi_parser_32.log) | `00dc:parser: 1046 tests executed (13 marked as todo, 0 as flaky, 0 failures), 0 skipped.` | Exact Match |
+| `uxtheme:system` | 64-bit | [logs/s3_uxtheme_system_64.log](logs/s3_uxtheme_system_64.log) | `0020:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.` | Exact Match |
+| `uxtheme:system` | 32-bit | [logs/s3_uxtheme_system_32.log](logs/s3_uxtheme_system_32.log) | `00e0:system: 22252 tests executed (17 marked as todo, 0 as flaky, 0 failures), 4 skipped.` | Exact Match |
+
+#### COW Tests & S2 Acceptance Regression Verification
+- `installer/tests/run_cow_tests.sh` ([logs/s3_cow_tests.log](logs/s3_cow_tests.log)): `ALL COW TESTS PASSED PERFECTLY!` (Z: symlink write-through, relative open RootDirectory, DeleteFileW unlink, limited user isolation, relative symlink target COW).
+- `installer/tests/test_s2_acceptance.sh` ([logs/s3_s2_regression.log](logs/s3_s2_regression.log)): `=== ALL S2 ACCEPTANCE TESTS PASSED PERFECTLY! ===` (All 6 S2 test cases passed with 0 machine files modified by user sessions).

@@ -1,0 +1,267 @@
+file.c:371: Test failed: expected STATUS_ACCESS_DENIED, got c0000121
+file.c:388: Test marked todo: expected STATUS_CANNOT_DELETE, got 00000000
+file.c:394: Test marked todo: file was deleted
+file.c:396: Test marked todo: couldn't change attributes on file
+file.c:398: Test marked todo: now it should be possible to delete the file
+file.c:1217: Test marked todo: CopyFileExA unexpectedly succeeded
+file.c:1219: Test marked todo: expected ERROR_REQUEST_ABORTED, got 0
+file.c:1225: Test marked todo: failed to open destination file, error 32
+file.c:1229: Test marked todo: CopyFileExA unexpectedly succeeded
+file.c:1231: Test marked todo: expected ERROR_REQUEST_ABORTED, got 0
+file.c:1233: Test marked todo: file was not deleted
+file.c:4587: Test marked todo: 1: expected ERROR_ACCESS_DENIED, got 80
+file.c:4599: Test marked todo: 1: expected ERROR_ACCESS_DENIED, got 80
+file.c:4581: Test marked todo: 5: expected ERROR_INVALID_PARAMETER, got 5
+file.c:4628: Test marked todo: 4: SetFileTime should fail
+file.c:4629: Test marked todo: 4: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 5: SetFileTime should fail
+file.c:4629: Test marked todo: 5: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 8: SetFileTime should fail
+file.c:4629: Test marked todo: 8: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 9: SetFileTime should fail
+file.c:4629: Test marked todo: 9: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 13: SetFileTime should fail
+file.c:4629: Test marked todo: 13: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 14: SetFileTime should fail
+file.c:4629: Test marked todo: 14: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 15: SetFileTime should fail
+file.c:4629: Test marked todo: 15: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 18: SetFileTime should fail
+file.c:4629: Test marked todo: 18: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4628: Test marked todo: 19: SetFileTime should fail
+file.c:4629: Test marked todo: 19: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:4641: Test marked todo: 22: CreateFile should fail
+file.c:4642: Test marked todo: 22: expected 87, got 0
+file.c:4641: Test marked todo: 23: CreateFile should fail
+file.c:4642: Test marked todo: 23: expected 87, got 0
+file.c:4641: Test marked todo: 26: CreateFile should fail
+file.c:4642: Test marked todo: 26: expected 87, got 0
+file.c:1409: Test marked todo: CreateFileA failed on C:c:\windows, hFile FFFFFFFF, err=3, should be 123
+file.c:1474: Test marked todo: Failed to read volume, last error 1, 0, for \\?\C:
+file.c:1557: Test marked todo: CreateFileA should not have opened \\?\Volume{00000000-0000-0000-0000-000000000043}\, hFile 00000070
+file.c:1561: Test marked todo: CreateFileA should have returned ERROR_PATH_NOT_FOUND on \\?\Volume{00000000-0000-0000-0000-000000000043}\, but got 0
+file.c:1578: Test marked todo: CreateFileA should have opened \\?\Volume{00000000-0000-0000-0000-000000000043}\users\root\AppData\Local\Temp\, but got 2
+file.c:1607: Test marked todo: Failed to read volume, last error 1, 0, for \\.\Volume{00000000-0000-0000-0000-000000000043}
+file.c:2095: Test marked todo: MoveFile failed to change casing on same file: got Remove Me
+file.c:2140: Test marked todo: MoveFile failed to change casing on same directory: got Remove me
+file.c:2832: Test marked todo: Bad Error number 2
+file.c:2983: Running FindFirstFileExA tests with level=0, search_ops=0, flags=0
+file.c:2983: Running FindFirstFileExA tests with level=0, search_ops=0, flags=1
+file.c:3059: FindFirstFileExA flag FIND_FIRST_EX_CASE_SENSITIVE is ignored
+file.c:2983: Running FindFirstFileExA tests with level=0, search_ops=0, flags=2
+file.c:2983: Running FindFirstFileExA tests with level=1, search_ops=0, flags=0
+file.c:2983: Running FindFirstFileExA tests with level=0, search_ops=1, flags=0
+file.c:2983: Running FindFirstFileExA tests with level=0, search_ops=1, flags=1
+file.c:3059: FindFirstFileExA flag FIND_FIRST_EX_CASE_SENSITIVE is ignored
+file.c:2983: Running FindFirstFileExA tests with level=0, search_ops=1, flags=2
+file.c:2983: Running FindFirstFileExA tests with level=1, search_ops=1, flags=0
+file.c:3329: Test marked todo: expected type unknown got 1
+file.c:3331: Test marked todo: expected ERROR_INVALID_HANDLE got bc614e
+file.c:3341: Test marked todo: expected type unknown got 1
+file.c:3343: Test marked todo: expected ERROR_INVALID_HANDLE got bc614e
+file.c:3352: Test marked todo: expected ERROR_NO_ERROR got 6
+file.c:3659: Test marked todo: OpenFile set ofs.cBytes to 136
+file.c:3681: Test marked todo: OpenFile set ofs.cBytes to 136
+file.c:3956: Test marked todo: got 0.
+file.c:3964: Test marked todo: got 0.
+file.c:3972: Test marked todo: got 0.
+file.c:4036: Test marked todo: status 0, file_bits 0, event_bits 0, test 47: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 0, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 0, event_bits 0, test 55: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 0, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 0, event_bits 0, test 63: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 0, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 0, event_bits 0, test 47: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 0, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 0, event_bits 0, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 0, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 0, event_bits 0, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 0, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 0, test 47: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 0, test 55: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 0, test 63: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 1, event_bits 0, test 47: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 1, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 1, event_bits 0, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 1, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 1, event_bits 0, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 1, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 2, event_bits 0, test 47: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 2, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 2, event_bits 0, test 55: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 2, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 2, event_bits 0, test 63: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 2, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 2, event_bits 0, test 47: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 2, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 2, event_bits 0, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 2, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 2, event_bits 0, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 2, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 0, test 47: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 0, test 55: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 0, test 63: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 3, event_bits 0, test 47: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 3, event_bits 0, test 47: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 3, event_bits 0, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 3, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 3, event_bits 0, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 3, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 3735928559, event_bits 0, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 3735928559, event_bits 0, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 3735928559, event_bits 0, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 3735928559, event_bits 0, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 0, event_bits 1, test 55: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 0, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 0, event_bits 1, test 63: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 0, event_bits 1, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 0, event_bits 1, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 0, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 0, event_bits 1, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 0, event_bits 1, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 1, test 55: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 1, test 63: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 0, event_bits 1, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 1, event_bits 1, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 1, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 1, event_bits 1, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 1, event_bits 1, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 2, event_bits 1, test 55: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 2, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0, file_bits 2, event_bits 1, test 63: got 0.
+file.c:4081: Test marked todo: status 0, file_bits 2, event_bits 1, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 2, event_bits 1, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 2, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 2, event_bits 1, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 2, event_bits 1, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 1, test 55: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 1, test 63: got 1117.
+file.c:4081: Test marked todo: status 0xc00000e9, file_bits 2, event_bits 1, test 63: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 3, event_bits 1, test 55: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 3, event_bits 1, test 55: got 0x102.
+file.c:4036: Test marked todo: status 0x103, file_bits 3, event_bits 1, test 63: got 997.
+file.c:4081: Test marked todo: status 0x103, file_bits 3, event_bits 1, test 63: got 0x102.
+file.c:4036: Line has been silenced after 42 occurrences
+file.c:4081: Line has been silenced after 42 occurrences
+file.c:4297: Test failed: ReplaceFileA: unexpected error 0
+file.c:4299: Test failed: SetFileAttributesA: error setting to normal 0x2
+file.c:4315: Test failed: ReplaceFileA: unexpected error 5
+file.c:4326: Test failed: expect ERROR_SHARING_VIOLATION, got 0x5.
+file.c:4881: Test marked todo: OpenFileById: failed to open the temp folder itself, got error 5.
+file.c:4983: Test marked todo: got 87
+file.c:5016: Test marked todo: SetFileValidData succeeded
+file.c:5017: Test marked todo: got 3735928559
+file.c:5036: Test marked todo: SetFileValidData succeeded
+file.c:5037: Test marked todo: got 3735928559
+file.c:5047: Test marked todo: SetFileValidData succeeded
+file.c:5048: Test marked todo: got 3735928559
+file.c:5470: Test marked todo: DuplicateHandle(0x40000000 => 0xc0000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x40000000 => 0x80000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x40000000 => 0x3) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x40000000 => 0x1) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x40000000 => 0x5) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x80000000 => 0xc0000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x80000000 => 0x40000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x80000000 => 0x3) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x80000000 => 0x2) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x80000000 => 0x4) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x80000000 => 0x5) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x80000000 => 0x6) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x3 => 0xc0000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x3 => 0x40000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x3 => 0x80000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x3 => 0x4) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x3 => 0x5) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x3 => 0x6) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0xc0000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0x40000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0x80000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0x3) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0x1) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0x4) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0x5) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x2 => 0x6) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0xc0000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0x40000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0x80000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0x3) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0x2) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0x4) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0x5) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x1 => 0x6) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0xc0000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0x40000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0x80000000) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0x3) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0x2) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0x1) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0x5) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Test marked todo: DuplicateHandle(0x4 => 0x6) should fail
+file.c:5471: Test marked todo: expected ERROR_ACCESS_DENIED, got -559038737
+file.c:5470: Line has been silenced after 42 occurrences
+file.c:5471: Line has been silenced after 42 occurrences
+file.c:5788: Test marked todo: Expected L"C:\\users\\root\\AppData\\Local\\Temp\\Test.Dat", got L"\\\\?\\C:\\users\\root\\AppData\\Local\\Temp\\test.dat"
+file.c:5798: Test marked todo: Expected L"C:\\users\\root\\AppData\\Local\\Temp\\Test.Dat", got L"\\\\?\\C:\\users\\root\\AppData\\Local\\Temp\\test.dat"
+file.c:5806: Test marked todo: Expected length 49, got 45
+file.c:5807: Test marked todo: Expected L"C:\\users\\root\\AppData\\Local\\Temp\\test_renamed.dat", got L"\\\\?\\C:\\users\\root\\AppData\\Local\\Temp\\test.dat"
+file.c:5838: Test marked todo: Expected L"C:\\users\\root\\AppData\\Local\\Temp\\link", got L"\\\\?\\C:\\users\\root\\AppData\\Local\\Temp\\LINK"
+file.c:5938: Test marked todo: got 0, error 87
+file.c:5943: Test marked todo: got 0, error 87
+file.c:6034: Test marked todo: FileRenameInfo unexpected result 0
+file.c:6323: Test failed: expect failure
+file.c:6324: Test failed: wrong error code: 0
+file.c:6812: Test marked todo: got error 1313
+file.c:6837: Test marked todo: got error 3735928559
+file.c:6879: Test marked todo: got error 3735928559
+file.c:6921: Test marked todo: got error 3735928559
+00dc:file: Silenced 46 todos, 0 skips and 0 traces.
+00dc:file: 571356 tests executed (244 marked as todo, 0 as flaky, 7 failures), 0 skipped.

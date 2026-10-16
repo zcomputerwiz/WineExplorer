@@ -58,7 +58,17 @@ if [ "$USER" != "$TEMPLATE_USER" ] && grep -qs "users\\\\\\\\$TEMPLATE_USER\\\\\
     echo "Making the template prefix this user's..."
     sed -i -e 's/\\\\users\\\\'"$TEMPLATE_USER"'\\\\/\\\\users\\\\'"$USER"'\\\\/g' \
            -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
-        "$WINEPREFIX/user.reg" "$WINEPREFIX/userdef.reg" "$WINEPREFIX/system.reg"
+        "$WINEPREFIX/user.reg"
+    if [ -f "$WINEPREFIX/userdef.reg" ] && [ ! -L "$WINEPREFIX/userdef.reg" ]; then
+        sed -i -e 's/\\\\users\\\\'"$TEMPLATE_USER"'\\\\/\\\\users\\\\'"$USER"'\\\\/g' \
+               -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
+            "$WINEPREFIX/userdef.reg"
+    fi
+    if [ -f "$WINEPREFIX/system.reg" ] && [ ! -L "$WINEPREFIX/system.reg" ]; then
+        sed -i -e 's/\\\\users\\\\'"$TEMPLATE_USER"'\\\\/\\\\users\\\\'"$USER"'\\\\/g' \
+               -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
+            "$WINEPREFIX/system.reg"
+    fi
     "$WINE" regsvr32.exe /s shell32.dll
     "$(dirname "$WINE")/wineserver" -k
     sleep 1
