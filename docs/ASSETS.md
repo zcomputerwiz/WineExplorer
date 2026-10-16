@@ -11,10 +11,14 @@ Allowed third-party art, each listed with its licence in the table in `LICENSE.m
 - Microsoft releases under an open licence: Fluent UI System Icons (MIT).
 - Art under CC BY 4.0, CC BY-SA 4.0, MIT, SIL OFL 1.1 or GPL-2.0-or-later, for example Font Awesome Free (icons
   CC BY 4.0, fonts OFL) and `WinSymbols3.ttf` from SymbolIconManager (MIT).
+- Art under GPL-3.0, LGPL-3.0 or Apache-2.0, for example the Tela icon theme (GPL-3.0), in art-only icon packs. Our
+  GPL-2.0-or-later code may be combined with GPL-3.0 material ("or later"); the combination is then GPL-3.0. Icon pack
+  DLLs hold only art and are loaded as data, so they are separate works: a pack with GPL-3.0 art is GPL-3.0 as a
+  whole, and the programs are unaffected. Keep such art out of the program modules (`explorer.exe`, the shell DLLs),
+  so that program code can still go to Wine or ReactOS.
 
-Not allowed: NonCommercial or NoDerivatives licences, GPL-3.0 art compiled into our GPL-2.0-or-later binaries, packs
-derived from Windows art whatever licence they claim (for example YlmfOS- or Win2-7-based sets), and brand logos,
-including the Windows logo.
+Not allowed: NonCommercial or NoDerivatives licences; packs derived from Windows art, whatever licence they claim (for
+example YlmfOS- or Win2-7-based sets); and brand logos, including the Windows logo.
 
 Checked third-party sets (2026-10-16):
 - yeyushengfan258 **Win11-icon-theme** is not allowed. Its folder and Recycle Bin icons embed raster images that

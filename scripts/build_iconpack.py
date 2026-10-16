@@ -3,15 +3,19 @@
 # Copyright 2026 WineExplorer contributors
 """Build an icon pack (xpres_<module>.dll and a .theme) from an icon-set mapping in assets/iconpacks.
 
-  build_iconpack.py MAPPING FLUENT_REPO OUT_DIR [--png-dir DIR]
+  build_iconpack.py MAPPING OUT_DIR --source NAME=PATH [--source NAME=PATH ...] [--png-dir DIR]
   build_iconpack.py --provenance MAPPING > docs/iconpacks/<name>.md
 
-MAPPING is a JSON file (assets/iconpacks/*.json).  Each resource id lists layers drawn bottom to top; a layer is a
-Fluent UI System Icons glyph (MIT) in its filled or regular style, a colour (a palette name or #rrggbb), and an
-optional scale and position (fractions of the icon, from the top left).  Each icon is rendered at 16, 24, 32, 48 and
-256 pixels into one .ico; the icons become a resource-only DLL.  OUT_DIR receives <Name>/<Name>.theme,
-<Name>/Icons/xpres_<module>.dll and the Fluent licence.  Needs rsvg-convert, ImageMagick, icotool and the x86_64 MinGW
-toolchain.  --png-dir keeps the 48 px rendering of every icon, for comparison sheets.
+MAPPING is a JSON file (assets/iconpacks/*.json).  "sources" names the open icon sets it draws from (each given as a
+checkout with --source); each resource id lists layers drawn bottom to top:
+  {"glyph": name, "style": filled|regular, "colour": ...}  a Fluent UI System Icons glyph, recoloured
+  {"tone": [glyph, fill, line]}                             the filled glyph under its regular (outline) glyph
+  {"svg": "source:path", "edits": [[regex, replacement], ...], "append": "<svg elements>"}
+                                                            an SVG of another source, edited as listed
+Any layer can take "scale" and "at" (fractions of the icon, from the top left).  Each icon is rendered at 16, 24,
+32, 48 and 256 pixels into one .ico; the icons become a resource-only DLL.  OUT_DIR receives <Name>/<Name>.theme,
+<Name>/Icons/xpres_<module>.dll and the licence of every source used.  Needs rsvg-convert, ImageMagick, icotool and
+the x86_64 MinGW toolchain.  --png-dir keeps the 48 px rendering of every icon, for comparison sheets.
 """
 import json, os, re, shutil, subprocess, sys, tempfile
 
@@ -19,8 +23,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SIZES = (16, 24, 32, 48, 256)
 
 
-def svg_for(repo, name, style, size):
-    """The SVG of the glyph in STYLE, at the nearest size not below SIZE (else the largest)."""
+def glyph_svg(repo, name, style, size):
+    """The Fluent SVG of the glyph in STYLE, at the nearest size not below SIZE (else the largest)."""
     folder = os.path.join(repo, "assets", " ".join(w.capitalize() for w in name.split("_")), "SVG")
     found = {}
     for f in os.listdir(folder):
@@ -34,8 +38,8 @@ def svg_for(repo, name, style, size):
 
 
 def layers_of(entry):
-    """Normalise an entry: the old ["glyph", "colour"] form is one filled layer, and a "tone": [glyph, fill, line]
-    layer is the filled glyph in the fill colour under the regular (outline) glyph in the line colour."""
+    """Normalise an entry: the old ["glyph", "colour"] form is one filled layer, and a "tone" layer becomes the
+    filled glyph in the fill colour under the regular (outline) glyph in the line colour."""
     if isinstance(entry, list):
         return [{"glyph": entry[0], "style": "filled", "colour": entry[1]}]
     layers = []
@@ -54,28 +58,42 @@ def colour_of(pack, name):
     return name if name.startswith("#") else pack["palette"][name]
 
 
-def render_layer(repo, layer, colour, size, out, work, tag):
-    px = max(1, round(size * layer.get("scale", 1.0)))
-    text = open(svg_for(repo, layer["glyph"], layer.get("style", "filled"), px)).read()
+def source_of(layer):
+    return layer["svg"].split(":", 1)[0] if "svg" in layer else "fluent"
+
+
+def layer_svg(pack, sources, layer, px):
+    """The SVG text of a layer, ready to render."""
+    if "svg" in layer:
+        name, path = layer["svg"].split(":", 1)
+        text = open(os.path.join(sources[name], path)).read()
+        for pattern, replacement in layer.get("edits", []):
+            text, n = re.subn(pattern, replacement, text)
+            if not n:
+                raise SystemExit(f"edit {pattern!r} matched nothing in {layer['svg']}")
+        if "append" in layer:
+            text = text.replace("</svg>", layer["append"] + "</svg>")
+        return text
+    colour = colour_of(pack, layer["colour"])
+    text = open(glyph_svg(sources["fluent"], layer["glyph"], layer.get("style", "filled"), px)).read()
     text = re.sub(r'fill="#[0-9A-Fa-f]{6}"', f'fill="{colour}"', text)
     if 'fill="' not in text:
         text = text.replace("<path ", f'<path fill="{colour}" ')
-    svg = os.path.join(work, f"{tag}.svg")
-    open(svg, "w").write(text)
-    subprocess.run(["rsvg-convert", "-w", str(px), "-h", str(px), "-o", out, svg], check=True)
-    x, y = layer.get("at", [0, 0])
-    return out, round(x * size), round(y * size)
+    return text
 
 
-def build_ico(pack, repo, rid, entry, out, work):
+def build_ico(pack, sources, rid, entry, out, work):
     pngs = []
     for size in SIZES:
         canvas = os.path.join(work, f"{rid}_{size}.png")
         cmd = ["convert", "-size", f"{size}x{size}", "xc:none"]
         for n, layer in enumerate(layers_of(entry)):
-            png, x, y = render_layer(repo, layer, colour_of(pack, layer["colour"]), size,
-                                     os.path.join(work, f"{rid}_{size}_{n}.png"), work, f"{rid}_{size}_{n}")
-            cmd += [png, "-geometry", f"+{x}+{y}", "-composite"]
+            px = max(1, round(size * layer.get("scale", 1.0)))
+            svg, png = os.path.join(work, f"{rid}_{size}_{n}.svg"), os.path.join(work, f"{rid}_{size}_{n}.png")
+            open(svg, "w").write(layer_svg(pack, sources, layer, px))
+            subprocess.run(["rsvg-convert", "-w", str(px), "-h", str(px), "-o", png, svg], check=True)
+            x, y = layer.get("at", [0, 0])
+            cmd += [png, "-geometry", f"+{round(x * size)}+{round(y * size)}", "-composite"]
         subprocess.run(cmd + [canvas], check=True)
         pngs.append(canvas)
     # 256 px is stored as PNG inside the .ico, the rest as bitmaps
@@ -83,22 +101,31 @@ def build_ico(pack, repo, rid, entry, out, work):
     return pngs
 
 
+def describe(pack, layer):
+    extra = ""
+    if layer.get("scale", 1.0) != 1.0 or layer.get("at"):
+        extra = f", {layer.get('scale', 1.0):g}x at {tuple(layer.get('at', [0, 0]))}"
+    if "svg" in layer:
+        edits = "; ".join(f"`{p}` → `{r}`" for p, r in layer.get("edits", []))
+        added = f"; appended `{layer['append']}`" if "append" in layer else ""
+        return f"`{layer['svg']}` with edits: {edits}{added}{extra}"
+    return f"`{layer['glyph']}` {layer.get('style', 'filled')} {colour_of(pack, layer['colour'])}{extra}"
+
+
 def provenance(mapping):
     """Markdown: where every icon of the pack comes from and what was changed."""
     pack = json.load(open(mapping))
     lines = [f"# {pack['display_name']}: icon provenance", "",
-             f"Generated by `scripts/build_iconpack.py --provenance {os.path.relpath(mapping, ROOT)}`.", "",
-             pack.get("provenance", ""), "",
-             "| Id | Meaning | Layers (bottom to top): Fluent glyph, style, colour, scale, position |", "|---|---|---|"]
+             f"Generated by `scripts/build_iconpack.py --provenance {os.path.relpath(mapping, ROOT).replace(os.sep, '/')}`.", "",
+             pack.get("provenance", ""), "", f"Licence of the pack as a whole: {pack['licence']}.", "",
+             "| Source | Licence | Where | Version |", "|---|---|---|---|"]
+    for name, src in pack["sources"].items():
+        lines.append(f"| {name}: {src['title']} | {src['licence']} | {src['url']} | {src.get('commit', '')} |")
+    lines += ["", "| Id | Meaning | Layers, bottom to top (Fluent glyph, style, colour, scale, position; or source SVG and edits) |",
+              "|---|---|---|"]
     for rid, entry in sorted(pack["icons"].items(), key=lambda kv: int(kv[0])):
-        parts = []
-        for layer in layers_of(entry):
-            extra = ""
-            if layer.get("scale", 1.0) != 1.0 or layer.get("at"):
-                extra = f", {layer.get('scale', 1.0):g}x at {tuple(layer.get('at', [0, 0]))}"
-            parts.append(f"`{layer['glyph']}` {layer.get('style', 'filled')} {colour_of(pack, layer['colour'])}{extra}")
         meaning = entry.get("meaning", "") if isinstance(entry, dict) else ""
-        lines.append(f"| {rid} | {meaning} | " + "; ".join(parts) + " |")
+        lines.append(f"| {rid} | {meaning} | " + "; ".join(describe(pack, l) for l in layers_of(entry)) + " |")
     return "\n".join(lines) + "\n"
 
 
@@ -107,14 +134,24 @@ def main():
     if len(args) == 2 and args[0] == "--provenance":
         sys.stdout.write(provenance(args[1]))
         return
-    png_dir = None
-    if len(args) == 5 and args[3] == "--png-dir":
-        png_dir = args.pop(4)
-        args.pop(3)
-    if len(args) != 3:
+    if len(args) < 2:
         raise SystemExit(__doc__)
-    mapping, repo, out_dir = args
+    mapping, out_dir, rest = args[0], args[1], args[2:]
+    sources, png_dir = {}, None
+    while rest:
+        opt = rest.pop(0)
+        if opt == "--source" and rest:
+            name, path = rest.pop(0).split("=", 1)
+            sources[name] = path
+        elif opt == "--png-dir" and rest:
+            png_dir = rest.pop(0)
+        else:
+            raise SystemExit(__doc__)
     pack = json.load(open(mapping))
+    used = {source_of(l) for e in pack["icons"].values() for l in layers_of(e)}
+    missing = used - set(sources)
+    if missing:
+        raise SystemExit(f"give --source for: {', '.join(sorted(missing))}")
     name, module = pack["name"], pack["module"]
     dest = os.path.join(out_dir, name)
     os.makedirs(os.path.join(dest, "Icons"), exist_ok=True)
@@ -122,7 +159,7 @@ def main():
         rc = []
         for rid, entry in sorted(pack["icons"].items(), key=lambda kv: int(kv[0])):
             ico = os.path.join(work, f"{rid}.ico")
-            pngs = build_ico(pack, repo, rid, entry, ico, work)
+            pngs = build_ico(pack, sources, rid, entry, ico, work)
             rc.append(f'{rid} ICON "{ico}"')
             if png_dir:
                 os.makedirs(png_dir, exist_ok=True)
@@ -140,8 +177,13 @@ def main():
     theme = re.sub(r"^; .*$", f"; {pack['display_name']} - WineExplorer Desktop Environment", theme, count=1, flags=re.M)
     theme += f"\n[WineExplorer]\nIconPack=%ResourceDir%\\Themes\\{name}\\Icons\n"
     open(os.path.join(dest, f"{name}.theme"), "w").write(theme)
-    shutil.copy(os.path.join(repo, "LICENSE"), os.path.join(dest, "Icons", "LICENSE-FluentUISystemIcons"))
-    print(f"{dest}: {len(pack['icons'])} icons")
+    for src in sorted(used):
+        shutil.copy(os.path.join(sources[src], pack["sources"][src]["licence_file"]),
+                    os.path.join(dest, "Icons", f"LICENSE-{src}"))
+    open(os.path.join(dest, "Icons", "LICENSE"), "w").write(
+        f"{pack['display_name']} icon pack: {pack['licence']}.\nSources: see the LICENSE-* files here and "
+        f"docs/iconpacks/{name.lower()}.md in the WineExplorer repository.\n")
+    print(f"{dest}: {len(pack['icons'])} icons from {', '.join(sorted(used))}")
 
 
 if __name__ == "__main__":

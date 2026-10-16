@@ -11,12 +11,15 @@ The tree combines code under several compatible licenses. Every file keeps the n
 | Code ported from ReactOS (for example `wine/programs/wmplayer`, `wine/programs/explorer/alttab.c`) | GPL-2.0-or-later, as stated in each file | Kept with its original header and copyright lines. |
 | ReactOS code under the LGPL (for example `wine/programs/calc`) | LGPL-2.1-or-later, as stated in each file | |
 | ReactOS art (icons and bitmaps, listed in `assets/`) | as in the ReactOS tree (GPL, or the license noted next to the art, such as Tango's) | |
-| Fluent UI System Icons (Microsoft), the glyphs of the Fluent icon pack (`assets/iconpacks/fluent.json`, built by `scripts/build_iconpack.py`) | MIT, Copyright (c) 2020 Microsoft Corporation | The licence text ships beside the pack (`Icons/LICENSE-FluentUISystemIcons`). Tinted and rendered here. |
+| Fluent UI System Icons (Microsoft), the glyphs of the Fluent icon pack (`assets/iconpacks/fluent.json`, built by `scripts/build_iconpack.py`) | MIT, Copyright (c) 2020 Microsoft Corporation | The licence text ships beside the pack (`Icons/LICENSE-fluent`). Tinted and rendered here. |
+| Tela icon theme (Ubuntu Budgie fork of vinceliuice/Tela-icon-theme), the Recycle Bin of the Fluent icon pack | GPL-3.0 | Edited as listed in `docs/iconpacks/fluent.md`; the licence text ships beside the pack (`Icons/LICENSE-tela`). Because of it the built Fluent pack is GPL-3.0 as a whole. |
 | Project code written for WineExplorer | GPL-2.0-or-later for new files (`scripts/add-license.py` adds the header). Older project files carry an LGPL-2.1-or-later header, which is compatible and may stay. | |
 
 A module that contains GPL code (for example `explorer.exe`, because of `alttab.c`) is distributed under the GPL as a
-whole. Code under licenses that are not compatible with GPLv2 (Apache-2.0, GPL-3.0-only) must not be added to the
-same module.
+whole. GPL-2.0-or-later material may be combined with GPL-3.0, LGPL-3.0 or Apache-2.0 material; the combined module is
+then distributed under GPL-3.0. Program modules avoid that so their code can still be shared with Wine and ReactOS.
+Icon packs (`xpres_*.dll`, art only, loaded as data) are separate works and may contain GPL-3.0 art; such a pack is
+GPL-3.0 as a whole, and a `LICENSE` file inside the pack says so.
 
 The project does not aim to contribute to Wine or ReactOS. Anyone may port parts of it back under their own terms,
 provided they respect the licenses above. Note that Wine only accepts LGPL code, so files containing GPL code cannot

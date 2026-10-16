@@ -2,7 +2,7 @@
  "name": "Fluent",
  "display_name": "Fluent (Windows 11 style)",
  "module": "shell32",
- "provenance": "Every shape is a glyph of Fluent UI System Icons (Microsoft, MIT licence, https://github.com/microsoft/fluentui-system-icons, files `assets/<Name>/SVG/ic_fluent_<name>_<size>_<filled|regular>.svg`). The build recolours each glyph with a flat colour, scales it and places it; nothing else is changed. A \"tone\" pair is the filled glyph in a light colour under the regular (outline) glyph in a darker colour, which gives the two-tone look. The colours were picked by eye so that each icon resembles the Windows 11 icon of the same slot, compared side by side on a developer's machine. No Windows pixels, outlines or files were used, and no fonts.",
+ "provenance": "Except the Recycle Bin, every shape is a glyph of Fluent UI System Icons (Microsoft, MIT licence, https://github.com/microsoft/fluentui-system-icons, files `assets/<Name>/SVG/ic_fluent_<name>_<size>_<filled|regular>.svg`). The build recolours each glyph with a flat colour, scales it and places it; nothing else is changed. A \"tone\" pair is the filled glyph in a light colour under the regular (outline) glyph in a darker colour, which gives the two-tone look. The colours were picked by eye so that each icon resembles the Windows 11 icon of the same slot, compared side by side on a developer's machine. No Windows pixels, outlines or files were used, and no fonts. The Recycle Bin (ids 32 and 33) is the Tela icon theme's user-trash and user-trash-full SVG, edited as listed: its body is given a pale translucent fill and a visible outline, a darker base band is added, and its recycle symbol is recoloured blue; nothing else is changed.",
  "palette": {
   "page": "#FFFFFF",
   "page_line": "#8C8C8C",
@@ -571,20 +571,22 @@
    "meaning": "Recycle Bin (empty)",
    "layers": [
     {
-     "tone": [
-      "delete",
-      "glass",
-      "glass_line"
-     ]
-    },
-    {
-     "glyph": "recycle",
-     "colour": "blue",
-     "scale": 0.4,
-     "at": [
-      0.3,
-      0.4
-     ]
+     "svg": "tela:src/scalable/places/user-trash.svg",
+     "edits": [
+      [
+       "fill=\"#fff\" stroke=\"#000\"( enable-background=\"new\")? stroke-opacity=\".039\"",
+       "fill=\"#EAF1F8\" fill-opacity=\".85\" stroke=\"#8FA3B8\" stroke-opacity=\".9\" stroke-width=\"1.2\""
+      ],
+      [
+       "fill=\"#888\"",
+       "fill=\"#0F5FB8\""
+      ],
+      [
+       "fill=\"#bebebe\"",
+       "fill=\"#3A9BEA\""
+      ]
+     ],
+     "append": "<path d=\"M10.1 55.4h43.8v1.3c-.1 1.5-1.3 2.7-2.8 2.7H12.9c-1.5 0-2.7-1.2-2.8-2.7z\" fill=\"#7B8794\"/>"
     }
    ]
   },
@@ -592,32 +594,22 @@
    "meaning": "Recycle Bin (full)",
    "layers": [
     {
-     "tone": [
-      "delete",
-      "glass",
-      "glass_line"
-     ]
-    },
-    {
-     "glyph": "recycle",
-     "colour": "blue",
-     "scale": 0.4,
-     "at": [
-      0.3,
-      0.4
-     ]
-    },
-    {
-     "tone": [
-      "document",
-      "page",
-      "page_line"
+     "svg": "tela:src/scalable/places/user-trash-full.svg",
+     "edits": [
+      [
+       "fill=\"#fff\" stroke=\"#000\"( enable-background=\"new\")? stroke-opacity=\".039\"",
+       "fill=\"#EAF1F8\" fill-opacity=\".85\" stroke=\"#8FA3B8\" stroke-opacity=\".9\" stroke-width=\"1.2\""
+      ],
+      [
+       "fill=\"#df5656\"",
+       "fill=\"#0F5FB8\""
+      ],
+      [
+       "fill=\"#ff9292\"",
+       "fill=\"#3A9BEA\""
+      ]
      ],
-     "scale": 0.36,
-     "at": [
-      0.32,
-      0.0
-     ]
+     "append": "<path d=\"M10.1 55.4h43.8v1.3c-.1 1.5-1.3 2.7-2.8 2.7H12.9c-1.5 0-2.7-1.2-2.8-2.7z\" fill=\"#7B8794\"/>"
     }
    ]
   },
@@ -1343,6 +1335,23 @@
      ]
     }
    ]
+  }
+ },
+ "licence": "GPL-3.0-or-later as a whole, because it contains Tela icon theme art (GPL-3.0); the Fluent UI System Icons glyphs in it remain under the MIT licence",
+ "sources": {
+  "fluent": {
+   "title": "Fluent UI System Icons (Microsoft)",
+   "licence": "MIT",
+   "url": "https://github.com/microsoft/fluentui-system-icons",
+   "commit": "a347af95478f989038cccbf085978865264c048a",
+   "licence_file": "LICENSE"
+  },
+  "tela": {
+   "title": "Tela icon theme (Ubuntu Budgie fork of vinceliuice/Tela-icon-theme)",
+   "licence": "GPL-3.0",
+   "url": "https://github.com/UbuntuBudgie/Tela-icon-theme",
+   "commit": "50f51f45d95c629cbb21530bf71c82cdb96269da",
+   "licence_file": "COPYING"
   }
  }
 }
