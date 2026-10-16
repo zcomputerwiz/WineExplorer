@@ -33,4 +33,33 @@ for fullname in ("Alice", "Bob Smith"):
     log = (root / "home" / username / ".wine-session.log").read_text()
     assert f"USER={username} " in log, f"{fullname} did not start its own session"
 subprocess.run([sys.executable, str(Path(__file__).with_name("check-lightdm.py")), str(root)], check=True)
-print("PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership and setup cleanup")
+
+# Prefix-split layout, symlink integrity, and per-user prefix size assertions
+machine_root = root / "var/lib/wineexplorer/machine"
+assert machine_root.is_dir(), "machine root /var/lib/wineexplorer/machine missing"
+assert (machine_root / "drive_c/windows/system32").is_dir(), "machine root windows/system32 missing"
+assert (machine_root / "system.reg").is_file(), "machine root system.reg missing"
+
+skel_wine = root / "etc/skel/.wine"
+assert skel_wine.is_dir(), "/etc/skel/.wine missing"
+assert (skel_wine / "drive_c/windows").is_symlink(), "/etc/skel/.wine/drive_c/windows is not a symlink"
+assert (skel_wine / "drive_c/Program Files").is_symlink(), "/etc/skel/.wine/drive_c/Program Files is not a symlink"
+assert (skel_wine / "system.reg").is_symlink(), "/etc/skel/.wine/system.reg is not a symlink"
+assert (skel_wine / "userdef.reg").is_symlink(), "/etc/skel/.wine/userdef.reg is not a symlink"
+
+for fullname in ("Alice", "Bob Smith"):
+    username = names[fullname]
+    pfx = root / "home" / username / ".wine"
+    assert pfx.is_dir(), f"{fullname} prefix missing"
+    assert (pfx / "drive_c/windows").is_symlink(), f"{fullname} drive_c/windows is not a symlink"
+    assert (pfx / "drive_c/Program Files").is_symlink(), f"{fullname} drive_c/Program Files is not a symlink"
+    assert (pfx / "system.reg").is_symlink(), f"{fullname} system.reg is not a symlink"
+    assert (pfx / "userdef.reg").is_symlink(), f"{fullname} userdef.reg is not a symlink"
+    assert (pfx / "user.reg").is_file() and not (pfx / "user.reg").is_symlink(), f"{fullname} user.reg should be a real file"
+
+    res = subprocess.run(["du", "-sm", str(pfx)], capture_output=True, text=True, check=True)
+    size_mb = int(res.stdout.split()[0])
+    print(f"{fullname} ({username}) prefix size: {size_mb} MB")
+    assert size_mb < 20, f"{fullname} prefix size {size_mb} MB exceeds 20 MB limit (legacy was 1.7 GB)"
+
+print("PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership, prefix-split layout and per-user prefix size < 20 MB")

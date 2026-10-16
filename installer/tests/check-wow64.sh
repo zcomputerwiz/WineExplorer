@@ -59,7 +59,36 @@ $V wait "$VM" "Win64 Test Program" --timeout 45
 $V shot "$VM" "$STEPS/20-test64.png"
 echo "PASS: Win64 test program window drawn"
 
-echo "=== Cleaning up running test processes ==="
-$V sh "$VM" root "$PWFILE" 'pkill -f test32.exe || true; pkill -f notepad.exe || true; pkill -f test64.exe || true'
+echo "=== 4. Alice (admin) installs program for all users into Program Files ==="
+$V sh "$VM" root "$PWFILE" 'su - alice -c "mkdir -p \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp\" && cp /tmp/test32.exe \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp/common_app.exe\" && chmod 775 \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp/common_app.exe\""'
+echo "PASS: Program installed by Alice for all users"
 
-echo "PASS: All WoW64 32-bit and 64-bit program checks succeeded."
+echo "=== 5. Bob (standard user) executes application installed by Alice ==="
+$V sh "$VM" root "$PWFILE" 'USER=$(cat /tmp/desktop_user.txt); DISP=$(cat /tmp/desktop_disp.txt); XAUTH=$(cat /tmp/desktop_xauth.txt); su "$USER" -c "DISPLAY=$DISP XAUTHORITY=$XAUTH WINEDLLOVERRIDES=\"mscoree,mshtml=\" wine \"C:/Program Files/CommonApp/common_app.exe\" >/dev/null 2>&1 &"'
+$V wait "$VM" "Win32 Test Program" --timeout 45
+$V shot "$VM" "$STEPS/21-bob-common-app.png"
+echo "PASS: Bob executed program installed for all users"
+
+echo "=== 6. Bob (standard user) is denied write access to machine root ==="
+$V sh "$VM" root "$PWFILE" '
+USER=$(cat /tmp/desktop_user.txt)
+if su "$USER" -c "touch \"/var/lib/wineexplorer/machine/drive_c/windows/bob_test.txt\"" 2>/dev/null; then
+    echo "FAIL: Bob was able to write to machine windows directory!" >&2
+    exit 1
+fi
+if su "$USER" -c "touch \"/var/lib/wineexplorer/machine/drive_c/Program Files/bob_test.txt\"" 2>/dev/null; then
+    echo "FAIL: Bob was able to write to machine Program Files directory!" >&2
+    exit 1
+fi
+if su "$USER" -c "echo fail >> /var/lib/wineexplorer/machine/system.reg" 2>/dev/null; then
+    echo "FAIL: Bob was able to write to machine system.reg!" >&2
+    exit 1
+fi
+echo "PASS: Bob write access denied to machine root as expected"
+'
+
+echo "=== Cleaning up running test processes ==="
+$V sh "$VM" root "$PWFILE" 'pkill -f test32.exe || true; pkill -f notepad.exe || true; pkill -f test64.exe || true; pkill -f common_app.exe || true'
+
+echo "PASS: All WoW64 32-bit and 64-bit program checks and prefix-split multi-user assertions succeeded."
+

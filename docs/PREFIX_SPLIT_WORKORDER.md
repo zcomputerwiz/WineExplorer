@@ -327,6 +327,20 @@ follows the new layout. Existing installations keep their full per-user prefixes
 (design it; do not run it automatically). Extend `installer/tests/install-interactive.sh`: per-user prefix size,
 Alice installs for all users and Bob uses it, Bob cannot write the machine, the 32/64-bit checks still pass.
 
+### S4 implementation (Gemini, 2026-10-16): implemented, verified
+
+- **Setup & Template Prefix:** `scripts/setup-machine-root.sh` establishes `/var/lib/wineexplorer/machine` (`root:sudo`, mode `2775`, default ACL `g:sudo:rwX`) and the Default User template prefix `/etc/skel/.wine`. Size measured at **1 MB** (vs 1.7 GB legacy). All machine directories and hives are symlinks into the machine root.
+- **Account Creation (`src/dlls/wexhost/unixlib.c`):** In `user_create`, ensured the per-user prefix is populated from `/etc/skel/.wine` template with `cp -a`, ownership assigned to the user with `chown -hR <uid>:<gid>`, preserving machine root symlinks and removing residual `drive_c/users/wexsetup`. Isolated in commit `9dc2e7c9`.
+- **Session Script (`scripts/wine-explorer-session.sh`):** First logon path initializes prefix from `/etc/skel/.wine` if missing and personalizes `user.reg` for `$USER`; `wineboot -u` trigger detects `/var/lib/wineexplorer/machine/.update-timestamp` updates in addition to `ntdll.so`; theme definition copying is guarded to run only when `drive_c/windows` is a real writable directory, safely skipping split prefixes.
+- **Manual Migration Script (`scripts/migrate-prefix-split.sh`):** Converts existing monolithic 1.7 GB prefixes into split prefixes referencing `/var/lib/wineexplorer/machine`. Preserves `user.reg` and user documents; backs up to `pre-split-backup-<timestamp>`. Does not run automatically. Verified on 56+ MB / 1.7 GB dummy prefix shrinking to **1 MB**. Packaged to `/usr/local/bin/wex-migrate-prefix.sh` in `installer/package-wine.sh`.
+- **Installer Test Extensions:**
+  * Extended `installer/tests/check-wow64.sh`: Alice (admin in sudo) installs for all users into `C:\Program Files\CommonApp\common_app.exe`; Bob (standard user, non-sudo) executes it; Bob is denied write access to machine root (`windows/`, `Program Files/`, `system.reg`).
+  * Extended `installer/tests/check-interactive-accounts.py`: Asserts prefix-split symlink integrity across mounted root (`etc/skel/.wine`, `home/alice/.wine`, `home/bobsmith/.wine`), asserts per-user prefix sizes are `< 20 MB` (measured at ~1 MB).
+- **Test Results:**
+  * S4 acceptance test (`installer/tests/test_s4_acceptance.sh`): All 6 test cases passed (`docs/prefix-split/logs/s4_acceptance.log`).
+  * S3 regression suite (`installer/tests/test_s3_acceptance.sh`): All cases passed including Case 3b (`docs/prefix-split/logs/s4_s3_regression.log`).
+  * S2 regression suite (`installer/tests/test_s2_acceptance.sh`): All cases passed, 0 machine files touched (`docs/prefix-split/logs/s4_s2_regression.log`).
+
 ## Acceptance (whole work order)
 
 Phase reports in `docs/PREFIX_SPLIT.md`, each with measurements and real test output; `docs/STOCK_CHANGES.md` rows for
