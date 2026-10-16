@@ -16,6 +16,8 @@ The FAILED probe still passes with a publisher that acknowledges the forward
 request but ignores rollback. Both compositor variants pass 47/47, plus the
 fractional raw sequence. Details are in the final WAYLAND_L2_RESIZE_REVIEW.md
 section and WAYLAND_L2.md. Controls remain disabled.
+Final live/transport/full-shell/old-peer/X11, 150% GTK drag-off and stock-labwc
+smoke regressions also pass; the stock minimize allowance remains explicit.
 
 Review this narrower rollback exception before enabling UI. A state-only forward
 response still waits for content or the existing two-second timeout, then safely

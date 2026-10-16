@@ -2182,3 +2182,36 @@ can still precede rollback. This is a safe cancellation improvement, not a claim
 of immediate successful forward resizing for a refused size. Review the narrow
 exception in WAYLAND_L2_RESIZE_REVIEW.md before exposing controls; the broader
 144-DPI font, multi-output and independent Wine/Proton acceptance remains open.
+
+Final regressions at eca5e619 / Wine 0607ece:
+
+- l2-original-rollback-final.log / association.5_jnzisz: complete 64/32 live
+  controller, bridge/theme/mask/pixels lifecycle and cross-process shared stacking.
+- l2-original-rollback-transport.log / association.1ecl1d5b: original transport,
+  mouse-release timer/queue-drain and shared stacking checks.
+- l2-original-rollback-shell.log / shell-adoption.2ih8dk96: full 64/32 Explorer
+  adoption, constraints, native/menu/taskbar activation, move/rollback and close.
+- l2-original-rollback-old-peer.log / association.ae0vm90m: complete real bridge
+  and shared stacking against old v8, without the controller opt-in.
+- l2-original-rollback-x11.log: shipping X11 smoke succeeds; checks/status is
+  CHECK_PASSED, tray-layout.txt reports zero overlap/out-of-bounds and all eight
+  Linux dialog placement cases complete.
+- l2-original-rollback-gtk-off.log / association.qwcmizwz: all-edge 150% GTK
+  drag-off and Escape still pass in both architectures.
+- l2-original-rollback-stock.log / stock-wayland.gyvfA6: ordinary stock-labwc
+  smoke passes in both architectures with the previously documented explicit
+  STOCK_ALLOW_MINIMIZE_UNSUPPORTED test allowance (the environment variable is
+  WEX_STOCK_ALLOW_MINIMIZE_UNSUPPORTED). No private properties/socket are used.
+
+Intermediate progress reads of l2-original-rollback-gtk-off.log and
+l2-original-rollback-stock.log reported ENOENT because the earlier X11 smoke
+stage was still running; a tail loop also returned 1 for those not-yet-created
+files. After the bounded sequential batch completed, both logs above passed.
+This was a diagnostic timing issue, not a failed acceptance run.
+
+All owned checks have completed and cleaned up. Effective assembled lab state
+is Wine 0607ece (including production d92d7e4) and compositor eca5e619, combined
+WoW64; root wine/ is clean at d92d7e4. No real graphical session, installer,
+machine-root migration, package or VM power state was changed. The unrelated
+user .gitignore edit remains unstaged. The rollback exception is ready for
+Claude's review; controls remain disabled and no full L2 completion is claimed.
