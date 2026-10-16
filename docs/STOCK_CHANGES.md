@@ -32,6 +32,15 @@ The owned wexhost controller records desired rectangles separately, applies
 native-ready frames and publishes only after terminal input. Production controls
 do not set this property; live drag previews, DPI and broader-client acceptance
 remain pending. No generic win32u hook or new cross-architecture ABI was added.
+The next topic commit a061cea queries SPI_GETDRAGFULLWINDOWS for top-level
+size/move loops as it already did for child windows, instead of forcing live
+dragging. It introduces no private-property check or driver hook in win32u.
+The owned controller now publishes matching live previews, retains loop-original
+Escape geometry, quarantines FAILED hosting and latches constrained final
+geometry in drag-off mode. All of this remains opt-in; DPI and remaining
+cancellation/regression acceptance are required before enabling controls.
+Compositor 8cb6e315 adds only delayed/ignored/client-selected test publishers;
+the compositor runtime is unchanged at e8e5a083.
 Project CPLs/programs, wexhost and theme definitions live under src.
 L2 opt-in topic codex/wayland-l2 (07eb6e0, including merge 2c3be3b of production
 859a1b9, not the production pin) extends the

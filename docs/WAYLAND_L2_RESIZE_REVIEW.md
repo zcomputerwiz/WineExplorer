@@ -189,3 +189,26 @@ Before controls are enabled, in addition to the list above:
   capture and focus afterwards.
 - With "Show window contents while dragging" off, defwnd draws its own tracking rectangle while the accepted frame
   is frozen. Check that the final geometry matches the native-ready rectangle in that mode too.
+
+## Live-preview checkpoint (Codex, 2026-10-15)
+
+Matching READY frames now publish during a full-window drag. COMPLETE releases
+the per-request snapshot while the controller retains the Win32 loop's original
+rectangle. Escape after one or more completed previews submits a fresh restore
+transaction before replaying the terminal input; it does not attempt to reuse a
+completed serial. No protocol extension or generic driver hook was needed.
+
+FAILED now removes HOST/RESIZE_ENABLE/FOCUS_REQUEST before refreshing the frame,
+so a late refresh cannot immediately readopt the failed native client. The new
+ignored-buffer probe reaches FAILED in both architectures, verifies capture and
+hosted focus are released, and checks physical native pointer/keyboard focus and
+pixels after fallback. It caught and drove that quarantine fix.
+
+Wine a061cea honors the full-window-drag setting for top-level windows. With it
+off, the controller retains final accepted geometry until the enclosing sizing
+command returns, including defwnd's post-WM_EXITSIZEMOVE SetWindowPos. Both the
+22-loop probe and a native maximum smaller than Wine's desired rectangle pass
+in actual 64/32 clients. Live-preview screenshots, multi-preview Escape, delayed,
+minimum/maximum, fixed, one-axis and client-chosen buffers, initial keyboard edge
+selection, and actual GTK3/foot sizing also pass at 100%. Controls remain off;
+150% DPI, external cancellation/close and supersession acceptance remain open.

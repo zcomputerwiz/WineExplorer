@@ -42,9 +42,10 @@ struct host_binding
     struct deferred_key *keys, *keys_tail;
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     BOOL controlling, controller_armed, controller_loop, applying, intent_dirty, ready, request_sent, finishing;
+    BOOL live_drag, undo, preview_changed, undo_restoring;
     unsigned next_serial, intent_serial, ready_serial, edges;
     DWORD controller_started;
-    RECT original, margins, desired;
+    RECT original, original_client, margins, desired;
     UINT_PTR resize_timer;
 #endif
 #endif
@@ -62,6 +63,7 @@ static void clear_deferred_keys(struct host_binding *binding,BOOL replay);
 static void controller_tick(struct host_binding *binding);
 static void controller_stop(struct host_binding *binding);
 static void controller_finish(struct host_binding *binding);
+static void controller_restore(struct host_binding *binding);
 #endif
 #endif
 static const UINT_PTR subclass_id = 0x57455848;
@@ -238,7 +240,13 @@ static void replay_terminal(struct host_binding *binding)
 }
 static void cancel_resize(struct host_binding *binding)
 {
-    if (!binding->resize_pending || binding->resize_cancelled || binding->removed) return;
+    if (binding->removed || binding->resize_cancelled) return;
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+    if (binding->controlling && binding->undo_restoring) return;
+    if (binding->controlling && binding->undo && !binding->request_sent && binding->preview_changed)
+    { controller_restore(binding); return; }
+#endif
+    if (!binding->resize_pending) return;
     binding->resize_cancelled=TRUE;
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     if (binding->controlling && !binding->request_sent)
@@ -269,7 +277,13 @@ static LRESULT CALLBACK sizing_filter(int code,WPARAM wp,LPARAM lp)
     struct host_binding *binding=sizing_binding;
     MSG *msg=(MSG *)lp;
     LRESULT result;
-    if (code!=MSGF_SIZE || !binding || !binding->resize_pending || binding->removed ||
+    if (code!=MSGF_SIZE || !binding || binding->removed ||
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+        (binding->controlling && binding->finishing) ||
+        (!binding->resize_pending && !(binding->controlling && binding->preview_changed)) ||
+#else
+        !binding->resize_pending ||
+#endif
         GetCapture()!=binding->hwnd) return CallNextHookEx(NULL,code,wp,lp);
     binding->refs++;
     if (msg->message==WM_LBUTTONUP || (msg->message==WM_KEYDOWN &&
@@ -280,7 +294,17 @@ static LRESULT CALLBACK sizing_filter(int code,WPARAM wp,LPARAM lp)
             binding->terminal=*msg;
             binding->terminal_pending=TRUE;
         }
-        if (msg->message==WM_KEYDOWN && msg->wParam==VK_ESCAPE) cancel_resize(binding);
+        if (msg->message==WM_KEYDOWN && msg->wParam==VK_ESCAPE)
+        {
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+            if (binding->controlling) binding->undo=TRUE;
+#endif
+            cancel_resize(binding);
+        }
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+        else if (binding->controlling && !binding->resize_pending)
+        { controller_finish(binding); replay_terminal(binding); }
+#endif
         result=1;
     }
     else if (binding->terminal_pending ||
@@ -347,6 +371,9 @@ static void resize_transition(struct host_binding *binding,WPARAM serial,LPARAM 
              (stage==WEX_WAYLAND_RESIZE_COMPLETE || stage==WEX_WAYLAND_RESIZE_CANCELLED ||
               stage==WEX_WAYLAND_RESIZE_FAILED))
     {
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+        if (binding->controlling) return; /* loop-level undo owns this completion */
+#endif
         binding->resize_pending=FALSE;
         replay_terminal(binding);
         if (binding->restore_pending && !binding->focus_depth && !binding->removed)
@@ -397,6 +424,11 @@ static void controller_begin(struct host_binding *binding)
     binding->controlling=TRUE; binding->controller_loop=TRUE;
     binding->controller_started=GetTickCount();
     binding->finishing=FALSE;
+    binding->undo=FALSE; binding->preview_changed=FALSE; binding->undo_restoring=FALSE;
+    binding->original_client=client;
+    OffsetRect(&binding->original_client,origin.x,origin.y);
+    binding->live_drag=TRUE;
+    SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS,0,&binding->live_drag,0);
     binding->request_sent=FALSE; binding->resize_cancelled=FALSE;
     binding->next_serial=binding->resize_serial;
 }
@@ -422,6 +454,18 @@ static void controller_command(struct host_binding *binding,unsigned serial,unsi
     SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_COMMAND_PROP,(HANDLE)(ULONG_PTR)command);
     SetWindowPos(binding->hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
 }
+static void controller_restore(struct host_binding *binding)
+{
+    /* Per-request rollback restores the last published preview. Escape undoes
+     * the whole Win32 gesture, so negotiate its original client as a fresh
+     * transaction while retaining the same focus and capture. */
+    binding->desired=binding->original_client;
+    binding->undo_restoring=TRUE;
+    binding->intent_dirty=TRUE; binding->resize_pending=TRUE;
+    binding->request_sent=FALSE; binding->ready=FALSE;
+    binding->resize_cancelled=FALSE;
+    binding->controller_started=GetTickCount();
+}
 static void controller_tick(struct host_binding *binding)
 {
     if (!binding->controlling || binding->finishing || binding->removed) return;
@@ -442,10 +486,8 @@ static void controller_tick(struct host_binding *binding)
         SetPropW(binding->hwnd,WEX_WAYLAND_RESIZE_EDGES_PROP,(HANDLE)(ULONG_PTR)binding->edges);
         controller_command(binding,binding->intent_serial,WEX_WAYLAND_RESIZE_REQUEST);
     }
-    /* Keep the compositor's original matching roots until terminal input.
-     * This first controller deliberately does not publish live drag previews. */
     if (binding->ready && binding->ready_serial==binding->intent_serial &&
-        (binding->terminal_pending || binding->resize_cancelled || !binding->controller_loop))
+        (binding->live_drag || binding->terminal_pending || binding->resize_cancelled || !binding->controller_loop))
         controller_command(binding,binding->intent_serial,WEX_WAYLAND_RESIZE_COMMIT);
 }
 static void controller_event(struct host_binding *binding,WPARAM serial,LPARAM stage)
@@ -488,8 +530,10 @@ static void controller_event(struct host_binding *binding,WPARAM serial,LPARAM s
         /* A compositor timeout can roll back while the user is still holding
          * the pointer. Exit the loop after restoring the original group rather
          * than falling through to uncoordinated Win32 sizing. */
-        if (binding->controller_loop && !binding->terminal_pending)
+        if (binding->controller_loop && GetCapture()==hwnd &&
+            (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_FOCUS_PROP)==WEX_WAYLAND_FOCUS_FRAME && !binding->terminal_pending)
         {
+            binding->undo=TRUE;
             binding->terminal_pending=TRUE;
             binding->terminal.message=WM_KEYDOWN; binding->terminal.wParam=VK_ESCAPE;
             binding->terminal.lParam=0;
@@ -498,9 +542,50 @@ static void controller_event(struct host_binding *binding,WPARAM serial,LPARAM s
     else if (stage==WEX_WAYLAND_RESIZE_COMPLETE || stage==WEX_WAYLAND_RESIZE_CANCELLED ||
              stage==WEX_WAYLAND_RESIZE_FAILED)
     {
-        controller_finish(binding);
-        if (binding->controller_loop && stage==WEX_WAYLAND_RESIZE_FAILED)
-            PostMessageW(hwnd,WM_CANCELMODE,0,0);
+        RECT current;
+        binding->ready=FALSE; binding->request_sent=FALSE;
+        binding->resize_pending=binding->intent_dirty;
+        GetWindowRect(hwnd,&current);
+        binding->preview_changed=!EqualRect(&current,&binding->original);
+        if (stage==WEX_WAYLAND_RESIZE_FAILED)
+        {
+            binding->resize_pending=FALSE;
+            binding->terminal_pending=FALSE;
+            /* Quarantine the broken hosted path. Normal native rendering/input
+             * remains available; a late frame refresh must not readopt it. */
+            RemovePropW(hwnd,WEX_WAYLAND_HOST_PROP);
+            RemovePropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP);
+            RemovePropW(hwnd,WEX_WAYLAND_FOCUS_REQUEST_PROP);
+            SetWindowPos(hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
+            clear_deferred_keys(binding,FALSE);
+            controller_finish(binding);
+            if (binding->controller_loop) PostMessageW(hwnd,WM_CANCELMODE,0,0);
+            return;
+        }
+        if (binding->undo && binding->preview_changed && binding->controller_loop &&
+            GetCapture()==hwnd && GetForegroundWindow()==hwnd)
+        {
+            if (!binding->undo_restoring) { controller_restore(binding); return; }
+            /* A client can refuse a formerly valid original size after its
+             * constraints change. Do not endlessly re-request it or publish a
+             * mismatched frame: fall back to the ordinary native scene. */
+            RemovePropW(hwnd,WEX_WAYLAND_HOST_PROP);
+            RemovePropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP);
+            SetWindowPos(hwnd,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
+        }
+        if (!binding->controller_loop || binding->terminal_pending || binding->undo)
+        {
+            if (binding->intent_dirty && !binding->resize_cancelled) return;
+            binding->resize_pending=FALSE;
+            controller_finish(binding);
+            if (binding->controller_loop) replay_terminal(binding);
+            else { binding->terminal_pending=FALSE; clear_deferred_keys(binding,FALSE); }
+            if (binding->restore_pending && !binding->focus_depth)
+            {
+                binding->restore_pending=FALSE;
+                request_focus(binding,WEX_WAYLAND_FOCUS_RESTORE_NATIVE);
+            }
+        }
     }
 }
 #endif
@@ -510,13 +595,26 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
 {
     struct host_binding *binding=(struct host_binding *)ref;
     LRESULT result;
+#ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
+    BOOL selecting_size=FALSE;
+#endif
     binding->refs++;
 #ifdef WEX_WAYLAND_RESIZE_PROTOCOL_PROP
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     if (msg==WM_SYSCOMMAND)
+    {
         binding->controller_armed=(wp&0xfff0)==SC_SIZE && GetPropW(hwnd,WEX_WAYLAND_RESIZE_ENABLE_PROP);
+        /* Keyboard Size chooses its first edge before WM_ENTERSIZEMOVE. Give
+         * that selector physical keyboard focus without stealing foreground. */
+        if (binding->controller_armed && !(wp&0x000f))
+        {
+            selecting_size=TRUE;
+            if (!binding->focus_depth++) request_focus(binding,WEX_WAYLAND_FOCUS_FRAME);
+        }
+    }
     if (msg==WM_TIMER && binding->controlling && wp==binding->resize_timer) controller_tick(binding);
-    if (msg==WM_WINDOWPOSCHANGING && binding->controlling && binding->controller_loop && !binding->applying)
+    if (msg==WM_WINDOWPOSCHANGING && binding->controlling &&
+        (binding->controller_loop || binding->finishing) && !binding->applying)
         ((WINDOWPOS *)lp)->flags|=SWP_NOMOVE|SWP_NOSIZE;
 #endif
     if (msg==resize_message) resize_transition(binding,wp,lp);
@@ -527,7 +625,10 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     if (msg==WM_EXITSIZEMOVE)
     {
         binding->controller_loop=FALSE;
-        if (!binding->resize_pending) controller_stop(binding);
+        /* Non-full dragging applies its final desired rectangle after this
+         * notification. Keep the accepted geometry latched until the enclosing
+         * WM_SYSCOMMAND returns, so constrained native sizes are not overwritten. */
+        if (!binding->resize_pending && !binding->controller_armed) controller_stop(binding);
     }
 #endif
     if (msg==WM_EXITSIZEMOVE) stop_sizing_filter(binding);
@@ -559,7 +660,16 @@ static LRESULT CALLBACK host_subclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
     result=DefSubclassProc(hwnd,msg,wp,lp);
 #ifdef WEX_WAYLAND_RESIZE_ENABLE_PROP
     if (msg==WM_SIZING && !binding->removed) controller_intent(binding,wp,(RECT *)lp);
-    if (msg==WM_SYSCOMMAND) binding->controller_armed=FALSE;
+    if (msg==WM_SYSCOMMAND)
+    {
+        binding->controller_armed=FALSE;
+        if (!binding->controller_loop && !binding->resize_pending) controller_stop(binding);
+        if (selecting_size && binding->focus_depth && !--binding->focus_depth)
+        {
+            if (binding->resize_pending) binding->restore_pending=TRUE;
+            else request_focus(binding,WEX_WAYLAND_FOCUS_RESTORE_NATIVE);
+        }
+    }
 #endif
     /* The window procedure may refresh its outer shape during this message. */
     if (msg == WM_WINDOWPOSCHANGED && !binding->removed) update_mask(binding);

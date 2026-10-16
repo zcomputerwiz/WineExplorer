@@ -1805,3 +1805,121 @@ Next: constrained/delayed/client-selected/ignored buffer controller fixtures,
 timeout/capture/close and supersession cases, initial keyboard edge selection,
 live previews and 100%/150% GTK/foot/XWayland fallback acceptance. Do not expose
 resize/maximize controls until the work order's remaining acceptance passes.
+
+## Live drag previews and controller fixtures (Codex, 2026-10-15)
+
+This checkpoint follows Claude's acceptance of 98424cf1. The private lab opt-in
+remains required; production Explorer exposes no resize/maximize controls.
+Production Wine stays 859a1b9. Wine topic a061cea adds only the generic
+SPI_GETDRAGFULLWINDOWS query for top-level size/move loops. Compositor 8cb6e315
+adds test publishers, with runtime still e8e5a083; the external-client publisher
+helper observes actual native applications rather than creating a fake client.
+
+The owned controller completes coherent transactions while dragging, retaining
+capture and physical frame focus between previews. Escape retains a separate
+loop-original rectangle and restores it with a fresh transaction, including
+after two completed previews. Idle completed previews no longer hit the pending
+transaction timeout. An unsuccessful original-size restore falls back to the
+ordinary native scene rather than repeatedly requesting an impossible size.
+FAILED quarantines hosting before refreshing the frame, clears deferred input
+and exits the loop. External capture loss does not reacquire stolen capture.
+For drag-off, final geometry stays latched through the enclosing SC_SIZE return,
+since defwnd applies its tracking rectangle after WM_EXITSIZEMOVE. Initial
+keyboard edge selection obtains physical FRAME focus before WM_ENTERSIZEMOVE.
+
+Checks run sequentially in the existing isolated association-l2 prefix on
+ProtonExplorer SSH 2223, with IPQoS=none. Base command:
+
+```sh
+WEX_ASSOCIATION_RESIZE_CONTROLLER=1 WEX_ASSOCIATION_BRIDGE=1 \
+ WEX_ASSOCIATION_STACK=0 \
+ WEX_CHECK_PREFIX=/srv/protonexplorer/wex-wayland-l1/prefixes/association-l2 \
+ bash /srv/protonexplorer/wex-wayland-l2/check-scripts/check-wayland-association.sh
+```
+
+Logs below are in /srv/protonexplorer/wex-wayland-l1/checks. Every passing run
+executes actual 64-bit and 32-bit probes; controller input never submits manual
+native resize requests or frame commits.
+
+- l2-live-preview-probe.log / association.b597ais3: 22 loops per architecture,
+  all edges/corners, multi-preview Escape and 2.2-second completed-preview idle.
+  grim captures green pixels beyond the old client edge while GUI_INMOVESIZE and
+  capture remain active. Preview gate then allows terminal input to finish.
+- WEX_ASSOCIATION_RESIZE_FAILED=1: l2-live-failed.log / association.eusu926p,
+  automatic configure acknowledgements without new buffers reach actual FAILED.
+  Capture/hosted focus are released, group detached; physical native keyboard and
+  pointer focus and fallback pixels pass (FAILED_NATIVE_FOCUS_PASSED).
+- WEX_ASSOCIATION_DRAG_OFF=1: l2-live-drag-off.log / association._e4_8h0n,
+  all 22 loops per architecture. Combined with RESIZE_FIXTURE=limited,
+  l2-live-limited-off.log / association.lepb8m6x verifies actual 320x240 instead
+  of Wine's desired 360x260 survives the final defwnd SetWindowPos.
+- WEX_ASSOCIATION_RESIZE_FIXTURE=limited, minimum, fixed, height:
+  l2-live-fixture-{limited,minimum,fixed,height}.log respectively,
+  association.jb77zcfz / i_iqpie_ / 8_0gvw1e / idy_djev. Two loops each cover
+  maximum, minimum, fixed and one-axis limits with stationary-edge anchoring.
+- RESIZE_FIXTURE=chosen: l2-live-fixture-chosen-final.log /
+  association.evw1d9mb, a smaller client-selected buffer and top-left anchoring.
+- RESIZE_FIXTURE=delayed: l2-live-fixture-delayed-final.log /
+  association.j7nz2usc, 44 loops with acknowledgements and buffers delayed 200ms.
+- RESIZE_FIXTURE=keyboard: l2-live-fixture-keyboard-final.log /
+  association.66qarixc, SC_SIZE without an edge followed by Right-arrow selection.
+- WEX_ASSOCIATION_NATIVE_APP=gtk: l2-live-real-gtk.log / association.xxdhd8g6;
+  NATIVE_APP=foot: l2-live-real-foot.log / association.jgowgc2x. Actual GTK3 and
+  foot clients connect to wayland-0; Wine connects only to wex-shell-0. Each
+  architecture grows, Escapes a second preview and returns to its initial size,
+  checking native/frame geometry and stationary edges. GTK uses a small GPL
+  DrawingArea fixture; foot runs sleep with the same green background. Both
+  have in-loop preview screenshots and final pixels, focus and capture checks.
+  Each process group is created and terminated by this test; real sessions are
+  not touched. Full-window-drag settings are saved and restored by each probe.
+
+Build logs: l2-live-preview-build.log, l2-live-matrix-build.log,
+l2-real-client-build.log; compositor fixture builds are in ~/wexcomp-build/
+l2-live-fixtures-build.log, l2-live-fixture-idempotent-build.log and
+l2-real-client-fixture-build.log. Existing compiler warnings remain visible.
+The full combined build with current owned source passes at exact production
+Wine 859a1b9 in l2-live-preview-production-pin-build.log. The helper restores
+topic files with fresh mtimes; the restored full combined topic build passes in
+l2-live-preview-topic-final-build.log. No gitlink or deployed runtime changed.
+
+Failed attempts and recovery:
+
+- The first FAILED command stopped during prefix preparation, before Python
+  created a state directory (l2-resize-failed-probe.log). Wine server printed an
+  object-reference dump; SSH briefly stopped responding and a diagnostic SSH
+  returned Connection closed. VBoxManage still showed both VMs running and port
+  2223 accepted TCP. Root had 1.3GB free, the lab disk 26GB. No cause was proved;
+  no reboot or real-session restart was performed. A bash -x retry prepared the
+  prefix successfully (l2-resize-failed-prep-trace.log).
+- That retry / association.jjdum032 delivered FAILED but failed detached/focus
+  assertions: a late refresh could readopt the still-matching original buffers.
+  Removing HOST/ENABLE/FOCUS_REQUEST before refreshing fixed it; eusu926p passes
+  actual fallback input as well as the original assertions.
+- l2-live-fixture-chosen.log / association.zku6u5wb lost hosting after the first
+  complete preview. The publisher also shrank activation-only configures, causing
+  an unsolicited second size change. Making its chosen-size response idempotent
+  for the current dimensions fixes this fixture; chosen-final passes.
+- Read-only searches for wm_wayland.c and WAYLAND_L2_RESIZE_WORKORDER.md used
+  nonexistent paths; the implementation is waylandwm.c and the review is
+  WAYLAND_L2_RESIZE_REVIEW.md. An rg glob passed as a literal Windows path also
+  failed; explicit filenames resolved the search. These changed no source.
+
+Still required before controls: 150% DPI, external cancellation/capture loss and
+close, rapid supersession, XWayland's explicit unavailable fallback, and final
+old-peer / stock-labwc / shipping X11 regressions. This checkpoint is not final
+interactive-sizing acceptance. No runtime install, desktop or session script
+has changed. The unrelated user .gitignore edit remains unstaged.
+
+Checkpoint regressions: l2-live-final.log / association.ms7s6yc4 passes all live
+controller checks and cross-process shared stacking; l2-live-transport.log /
+association.7f4lnryw passes the original manual transport, post-button-up timer /
+queue-drain and shared stacking checks. l2-live-shell-final.log /
+shell-adoption.hobamfzt passes complete 64/32 Explorer adoption, constraints,
+native/menu/taskbar input, move/rollback, minimize/restore, masks and closure.
+Initial shell run l2-live-shell.log observed the resized geometry before edge
+hit testing was ready. Retrying unchanged passed that point, then stalled at
+the move preview in l2-live-shell-retry.log: the test assumed full-window drag
+while the isolated prefix preference was off. The adoption probe now saves,
+selects and restores full-window dragging explicitly, and bounds its wait for
+asynchronous resized edge hit testing. The corrected complete run passes.
+The trailing bus-disconnected message occurs during isolated session teardown.

@@ -1,5 +1,22 @@
 # Codex handoff — 2026-10-15 Wayland L2 in progress
 
+**Live sizing checkpoint (Codex, 2026-10-15):** The lab controller now publishes
+matching previews during the Win32 loop and retains its own loop-original
+geometry for Escape across multiple completed transactions. FAILED quarantines
+the broken hosting path and releases capture/focus to the ordinary native view.
+Wine topic a061cea honors SPI_GETDRAGFULLWINDOWS for top-level sizing too; the
+final native-ready geometry remains latched through defwnd's final SetWindowPos.
+Production remains pinned to 859a1b9, with all sizing/maximize controls disabled.
+
+Both architectures pass 22-loop live and drag-off probes, ignored-buffer FAILED
+recovery including physical native input, constrained drag-off, minimum/maximum,
+fixed, one-axis, client-selected and delayed-buffer fixtures, initial keyboard
+edge selection, and actual GTK3/foot grow/Escape/restore loops. Preview screenshots
+are captured while the loop still owns capture. Remaining acceptance includes
+150% DPI, external cancellation/close and rapid supersession, plus final stock /
+old-peer / X11 regressions. See WAYLAND_L2.md for exact logs and failed attempts.
+The sections below describe earlier checkpoints and their then-pending work.
+
 **First opt-in sizing controller (Codex, 2026-10-15):** Wine topic 07eb6e0
 includes the new production 859a1b9 pin via merge 2c3be3b. The clean root wine/
 submodule is updated to that pin. Its private RESIZE_ENABLE property routes

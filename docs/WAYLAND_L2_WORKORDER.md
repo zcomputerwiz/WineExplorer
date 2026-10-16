@@ -183,6 +183,15 @@ Resize/maximize remains disabled in the lab gate until these checks pass.
 
 ## Acceptance
 
+Live-preview update (2026-10-15): matching frames now publish during the loop,
+with loop-original Escape restoration across completed previews. Both review
+additions pass in 64/32 clients: FAILED fallback including native physical input,
+and full-window-drag off including constrained final geometry. Delayed/ignored,
+minimum/maximum, fixed, one-axis, client-chosen and initial keyboard-edge fixtures
+pass, as do actual GTK3/foot grow/Escape/restore at 100%. Production controls
+remain disabled. DPI, external cancellation/close, supersession and final
+regressions still gate exposure; see WAYLAND_L2.md for the checkpoint evidence.
+
 - Synthetic SSD/CSD clients, foot, GTK, XWayland xterm/dialogs and independent
   Wine/Proton; one taskbar item per eligible toplevel and correct owners/icons/titles.
 - Frame/client/taskbar activation, keyboard roundtrips, frame menus, minimize,

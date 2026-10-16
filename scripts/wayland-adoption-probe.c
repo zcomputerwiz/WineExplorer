@@ -229,7 +229,15 @@ static int owners(const char *report)
     printf("SHELL_OWNERS_PASSED bits=%u\n",(unsigned)(8*sizeof(void *)));
     return 0;
 }
-int main(int argc,char **argv)
+static BOOL edge_hit_ready(HWND host)
+{
+    RECT bounds;
+    POINT point;
+    GetWindowRect(host,&bounds);
+    point.x=bounds.right-1; point.y=(bounds.top+bounds.bottom)/2;
+    return WindowFromPoint(point)==host;
+}
+static int run(int argc,char **argv)
 {
     HWND host,old;
     RECT bounds;
@@ -270,15 +278,13 @@ int main(int argc,char **argv)
     WAIT("native single-axis maximum",limits_match(host,120,90,0,200));
     puts("READY_UNLIMITED");
     WAIT("native maximum reset",limits_match(host,120,90,0,0));
-    GetWindowRect(host,&bounds); point.x=bounds.right-1; point.y=(bounds.top+bounds.bottom)/2;
-    if (WindowFromPoint(point)!=host) { puts("FAIL frame edge hit testing"); return 1; }
+    WAIT("frame edge hit testing",edge_hit_ready(host));
     pixel(host,"INITIAL"); puts("READY_TITLE");
     WAIT("native title",FindWindowW(L"WineExplorerLinuxWindow",L"L2 Shell renamed")==host);
     puts("READY_RESIZE");
     WAIT("native resize",size_is(host,260,200) &&
          (ULONG_PTR)GetPropW(host,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE);
-    GetWindowRect(host,&bounds); point.x=bounds.right-1; point.y=(bounds.top+bounds.bottom)/2;
-    if (WindowFromPoint(point)!=host) { puts("FAIL resized frame edge hit testing"); return 1; }
+    WAIT("resized frame edge hit testing",edge_hit_ready(host));
     pixel(host,"RESIZED"); puts("READY_CAPTURE");
     WAIT("capture gate",gate(argv[2],"captured"));
     puts("READY_NATIVE_CLICK");
@@ -338,4 +344,16 @@ int main(int argc,char **argv)
     if (count) { puts("FAIL stale shell proxy"); return 1; }
     printf("SHELL_ADOPTION_PASSED bits=%u\n",(unsigned)(8*sizeof(void *)));
     return 0;
+}
+int main(int argc,char **argv)
+{
+    BOOL drag=TRUE;
+    int result;
+    /* These move checks observe the frame before terminal input, so explicitly
+     * select full-window dragging instead of assuming the prefix preference. */
+    if (!SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS,0,&drag,0) ||
+        !SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS,TRUE,NULL,0)) return 2;
+    result=run(argc,argv);
+    if (!SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS,drag,NULL,0)) return 2;
+    return result;
 }
