@@ -57,6 +57,7 @@ static char *(*p_g_icon_to_string)(void *);
 static void *(*p_g_desktop_app_info_new)(const char *);
 static int (*p_g_app_info_launch)(void *, GList *, void *, void **);
 static void *(*p_g_app_launch_context_new)(void);
+static void (*p_g_app_launch_context_setenv)(void *, const char *, const char *);
 static void (*p_g_app_launch_context_unsetenv)(void *, const char *);
 static void (*p_g_object_unref)(void *);
 static void (*p_g_list_free)(GList *);
@@ -84,6 +85,7 @@ static void load_gio(void)
     LOAD( gio, g_desktop_app_info_new )
     LOAD( gio, g_app_info_launch )
     LOAD( gio, g_app_launch_context_new )
+    LOAD( gio, g_app_launch_context_setenv )
     LOAD( gio, g_app_launch_context_unsetenv )
     LOAD( gobject, g_object_unref )
     LOAD( glib, g_list_free )
@@ -201,7 +203,7 @@ NTSTATUS apps_launch( void *args )
     struct apps_launch_params *params = args;
     extern char **environ;
     void *app, *context, *error = NULL;
-    char *name;
+    char *name, wayland[108], xdisplay[128];
     char **env;
 
     pthread_once( &once, load_gio );
@@ -212,7 +214,7 @@ NTSTATUS apps_launch( void *args )
     context = p_g_app_launch_context_new();
     for (env = environ; *env; env++)
     {
-        if (strncmp( *env, "WINE", 4 )) continue;
+        if (strncmp( *env, "WINE", 4 ) && strncmp( *env, "WEX_", 4 )) continue;
         if (!(name = strndup( *env, strcspn( *env, "=" ) )))
         {
             p_g_object_unref( context );
@@ -222,6 +224,14 @@ NTSTATUS apps_launch( void *args )
         }
         p_g_app_launch_context_unsetenv( context, name );
         free( name );
+    }
+    /* The shell connects to the privileged socket. Native applications must use
+     * the compositor's ordinary socket, including before any native window exists. */
+    if (wayland_wm_native_environment( wayland, xdisplay ))
+    {
+        p_g_app_launch_context_setenv( context, "WAYLAND_DISPLAY", wayland );
+        if (xdisplay[0]) p_g_app_launch_context_setenv( context, "DISPLAY", xdisplay );
+        else p_g_app_launch_context_unsetenv( context, "DISPLAY" );
     }
     if (p_g_app_info_launch( app, NULL, context, &error )) params->err = ERROR_SUCCESS;
     else

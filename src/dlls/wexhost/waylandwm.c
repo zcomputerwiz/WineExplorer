@@ -45,6 +45,20 @@ static pthread_t reader;
 static BOOL running, reader_started, queue_stopped;
 static UINT64 next_id; /* never reuse an identifier after stop/restart */
 
+BOOL wayland_wm_native_environment(char wayland[108], char xdisplay[128])
+{
+    BOOL available;
+    pthread_mutex_lock(&wl_mutex);
+    available = running && native_socket[0];
+    if (available)
+    {
+        memcpy(wayland,native_socket,sizeof(native_socket));
+        memcpy(xdisplay,native_xdisplay,sizeof(native_xdisplay));
+    }
+    pthread_mutex_unlock(&wl_mutex);
+    return available;
+}
+
 static void stop_queue(void)
 {
     pthread_mutex_lock(&queue_mutex);

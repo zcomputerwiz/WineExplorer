@@ -135,6 +135,7 @@ struct wm_backend_ops
 };
 extern const struct wm_backend_ops x11_wm_backend;
 extern const struct wm_backend_ops wayland_wm_backend;
+extern BOOL wayland_wm_native_environment(char wayland[108], char xdisplay[128]);
 #endif
 
 struct composition_params { BOOL enabled; DWORD err; };
