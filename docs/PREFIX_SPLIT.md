@@ -1087,3 +1087,114 @@ All 8 conformance suites were executed against the S3 tree and verified against 
 #### COW Tests & S2 Acceptance Regression Verification
 - `installer/tests/run_cow_tests.sh` ([logs/s3_cow_tests.log](logs/s3_cow_tests.log)): `ALL COW TESTS PASSED PERFECTLY!` (Z: symlink write-through, relative open RootDirectory, DeleteFileW unlink, limited user isolation, relative symlink target COW).
 - `installer/tests/test_s2_acceptance.sh` ([logs/s3_s2_regression.log](logs/s3_s2_regression.log)): `=== ALL S2 ACCEPTANCE TESTS PASSED PERFECTLY! ===` (All 6 S2 test cases passed with 0 machine files modified by user sessions).
+
+
+---
+
+## Phase S4 — Integration and Migration
+
+### S4.1 Architecture & Changes
+
+1. **Setup & Default User Template:**
+   - Setup establishes the shared machine root at `/var/lib/wineexplorer/machine` (mode `2775`, group `sudo`, default ACL `g:sudo:rwX`) and the Default User template prefix at `/etc/skel/.wine`.
+   - The template prefix in `/etc/skel/.wine` contains symbolic links to the machine root:
+     * `drive_c/windows -> /var/lib/wineexplorer/machine/drive_c/windows`
+     * `drive_c/Program Files -> /var/lib/wineexplorer/machine/drive_c/Program Files`
+     * `drive_c/Program Files (x86) -> /var/lib/wineexplorer/machine/drive_c/Program Files (x86)`
+     * `drive_c/ProgramData -> /var/lib/wineexplorer/machine/drive_c/ProgramData`
+     * `drive_c/users/Public -> /var/lib/wineexplorer/machine/drive_c/users/Public`
+     * `system.reg -> /var/lib/wineexplorer/machine/system.reg`
+     * `userdef.reg -> /var/lib/wineexplorer/machine/userdef.reg`
+   - The template prefix size is measured at **1 MB** (down from **1.7 GB** legacy monolithic prefix, a 99.9% reduction).
+
+2. **Account Creation (`wexhost` `user_create`, OOBE):**
+   - In `src/dlls/wexhost/unixlib.c` (`user_create`), after D-Bus AccountsService `CreateUser` succeeds, the user's home directory is inspected. If `/home/<user>/.wine` does not exist (or if AccountsService omitted dotfiles), it is populated from `/etc/skel/.wine` via `cp -a`, ownership is set to the new user (`chown -hR <uid>:<gid>`) without dereferencing or altering machine root targets, and temporary `drive_c/users/wexsetup` profile residue is removed.
+   - **Codex Boundary Isolation:** The change in `src/dlls/wexhost/unixlib.c` was committed in its own isolated commit `9dc2e7c9` without touching any Wayland L2 code, compositor logic, or other `wexhost` functions.
+
+3. **Session Launcher (`scripts/wine-explorer-session.sh`):**
+   - **First Logon:** Adds fallback bootstrap from `/etc/skel/.wine` if `$WINEPREFIX` is missing; personalizes `user.reg` replacing `wexsetup` profile strings with `$USER`; guards against modifying `system.reg` or `userdef.reg` if they are symlinks.
+   - **Update Trigger:** Checks both `ntdll.so` and `/var/lib/wineexplorer/machine/.update-timestamp`. When package updates advance the machine root timestamp, non-root user sessions trigger `wineboot -u`, running `[UserInstall]` to update HKCU while modifying 0 machine root files.
+   - **Theme Copy Guard:** Theme definitions in `/usr/local/share/wineexplorer/themes/*.theme` are copied only if `drive_c/windows` is a real writable directory (legacy standalone prefix); for split prefixes (where `drive_c/windows` is a symlink), theme installation into machine root occurred during setup and runtime copying is safely skipped without permission-denied errors.
+
+4. **Manual Migration Script (`scripts/migrate-prefix-split.sh` / `wex-migrate-prefix.sh`):**
+   - Designed for existing monolithic installations (~1.7 GB prefixes). **Does not run automatically.**
+   - Validates existence of `/var/lib/wineexplorer/machine`.
+   - Creates a full safety backup of `user.reg`, `system.reg`, `userdef.reg`, and `drive_c/users/<user>`.
+   - Atomically converts machine directories (`windows`, `Program Files`, `Program Files (x86)`, `ProgramData`, `users/Public`) and machine hives (`system.reg`, `userdef.reg`) to symlinks pointing to `/var/lib/wineexplorer/machine`.
+   - Preserves user HKCU (`user.reg`) and user personal documents.
+   - Measured prefix reduction from 56+ MB / 1.7 GB down to **1 MB**.
+   - Installed to `/usr/local/bin/wex-migrate-prefix.sh` via `installer/package-wine.sh`.
+
+5. **Installer Interactive Test Extensions:**
+   - `installer/tests/check-wow64.sh`: Added assertions for Alice (administrator in sudo) installing a shared program into `C:\Program Files\CommonApp\common_app.exe`, Bob (standard user, non-sudo) running it on the installed desktop, and Bob being denied write access to `/var/lib/wineexplorer/machine` (`windows/`, `Program Files/`, `system.reg`).
+   - `installer/tests/check-interactive-accounts.py`: Added assertions verifying `/var/lib/wineexplorer/machine` structure, `/etc/skel/.wine` symlinks, per-user prefix symlinks for Alice and Bob Smith, and asserting per-user prefix size is `< 20 MB` (measured at ~1 MB).
+
+---
+
+### S4.2 Acceptance Test Output (`installer/tests/test_s4_acceptance.sh`)
+
+Raw log: [logs/s4_acceptance.log](logs/s4_acceptance.log)
+
+```text
+=== WineExplorer Phase S4 Acceptance Test ===
+=== Case 1: Setup builds machine root and template prefix (/etc/skel/.wine) ===
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Bootstrapping machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+Template prefix size (/etc/skel/.wine): 1 MB
+PASS: Template prefix size is 1 MB (< 15 MB, massive reduction from 1.7 GB).
+PASS: Template prefix symlinks point into machine root.
+=== Case 2: Account creation creates per-user prefixes from template ===
+User alice prefix size: 1 MB
+User carol prefix size: 1 MB
+User bob prefix size: 1 MB
+--- Verifying symlinks and permissions at: Case 2 account creation ---
+PASS [Case 2 account creation]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+PASS: Case 2 account creation and template instantiation passed.
+=== Case 3: Session script layout compliance ===
+--- 3a: First logon personalization ---
+Personalizing template prefix for alice...
+--- Verifying symlinks and permissions at: Case 3a first logon ---
+PASS [Case 3a first logon]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+PASS: 3a first logon personalization succeeded, system.reg stayed a symlink.
+--- 3b: Machine root update trigger ---
+Updating prefix for bob...
+Bob .update-timestamp: 1792124128 (machine TS: 1792129128)
+PASS: 3b machine update triggered wineboot -u; touched 0 machine files.
+--- 3c: Theme copy guard ---
+Theme copy guard correctly skipped symlinked machine windows directory.
+PASS: 3c theme copy guard verified.
+=== Case 4: Prefix migration script ===
+Legacy prefix size before migration: 56 MB
+=== WineExplorer Prefix Split Migration ===
+Target prefix: /tmp/test_legacy_prefix
+Machine root:  /var/lib/wineexplorer/machine
+Original prefix size: 56 MB
+Backing up user registry and configuration to /tmp/test_legacy_prefix.pre-split-backup-20261016_080259...
+Converting machine folders to shared symlinks...
+Linking shared machine registry hives...
+Migration complete.
+Prefix size reduced from 56 MB to 1 MB.
+Backup preserved at: /tmp/test_legacy_prefix.pre-split-backup-20261016_080259
+Migrated prefix size after migration: 1 MB
+PASS: Case 4 migration script correctly migrated prefix, preserved user data, and shrank size.
+=== Case 5: Alice installs for all users, Bob executes, Bob denied write ===
+Shared Tool Running Successfully
+PASS: Bob successfully executed application installed for all users by Alice.
+--- Verifying Bob is denied write access to machine root ---
+PASS: Bob write access denied to machine root as expected.
+--- Verifying symlinks and permissions at: Case 6 final verification ---
+PASS [Case 6 final verification]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== All Phase S4 Acceptance Tests Passed Successfully ===
+```
+
+---
+
+### S4.3 Regression Test Suites
+
+- **S3 Acceptance & Merge-on-Save Regression** ([logs/s4_s3_regression.log](logs/s4_s3_regression.log)): `=== ALL PHASE S3 ACCEPTANCE TESTS PASSED PERFECTLY! ===` (Cases 1, 2 unlinked prefix, 3 concurrent merge-on-save, 3b Alice-Carol-Alice sequence, 4 machine upgrade, 5 final symlink integrity).
+- **S2 Acceptance & Machine Root Regression** ([logs/s4_s2_regression.log](logs/s4_s2_regression.log)): `=== ALL S2 ACCEPTANCE TESTS PASSED PERFECTLY! ===` (Cases 1-6 passed, per-user wineboot -u touched 0 machine files, 0 files leaked).

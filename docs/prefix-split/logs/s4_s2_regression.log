@@ -1,0 +1,158 @@
+=== WineExplorer Phase S2 Acceptance Test ===
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Bootstrapping machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+--- Initializing user prefixes from /etc/skel/.wine ---
+Machine root size: 22M
+Skel prefix size:  48K
+Alice prefix size: 52K
+Bob prefix size:   52K
+--- Check: .exe/.dll mode 775 and per-user TEMP/TMP in user.reg ---
+dosx.exe mode: 775
+Bob user.reg TEMP: "TEMP"="C:\\users\\bob\\AppData\\Local\\Temp"
+PASS: user.reg uses per-user AppData\Local\Temp!
+Machine root drive_c files before test: 219
+--- Test 1: Alice installs a program and config into C:\Program Files and COW-breaks msvcp140.dll ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+	1 file(s) copied
+	1 file(s) copied
+	1 file(s) copied
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+PASS: Alice installed app64.exe, app32.exe, settings.ini, and COW-broke msvcp140.dll!
+total 484
+drwxrwsr-x+ 2 alice sudo   4096 Oct 16 08:05 .
+drwxrwsr-x+ 7 root  sudo   4096 Oct 16 08:05 ..
+-rwxrwxr-x+ 1 alice sudo 232984 Oct 15 17:24 app32.exe
+-rwxrwxr-x+ 1 alice sudo 245857 Oct 15 17:24 app64.exe
+-rw-rw-r--+ 1 alice sudo     21 Oct 16 08:05 settings.ini
+-rw-rw-r--+ 1 alice sudo 5021751 Oct 16 08:05 /var/lib/wineexplorer/machine/drive_c/windows/system32/msvcp140.dll
+getfacl: Removing leading '/' from absolute path names
+# file: var/lib/wineexplorer/machine/drive_c/Program Files/AliceApp/settings.ini
+# owner: alice
+# group: sudo
+user::rw-
+group::rwx	#effective:rw-
+group:sudo:rwx	#effective:rw-
+mask::rw-
+other::r--
+
+getfacl: Removing leading '/' from absolute path names
+# file: var/lib/wineexplorer/machine/drive_c/windows/system32/msvcp140.dll
+# owner: alice
+# group: sudo
+user::rw-
+group::rwx	#effective:rw-
+group:sudo:rwx	#effective:rw-
+mask::rw-
+other::r--
+
+--- Test 1b: Carol (second Administrator) modifies Alice's installed files and COW-broken msvcp140.dll ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+	1 file(s) copied
+	1 file(s) copied
+=== Test: Relative open with RootDirectory on built-in symlink ===
+SUCCESS: Relative open broke built-in symlink and wrote 27 bytes
+settings.ini content after Carol update: Modified_By_Carol=2
+PASS: Second administrator (Carol) modified Alice's files in C:\Program Files and COW-broken msvcp140.dll!
+--- Test 2: Bob (Limited User) sees and runs Alice's program ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Process running: 64-bit (is_wow64=0)
+SUCCESS: LoadLibrary advapi32.dll succeeded: 00006fffff210000
+SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
+PASS: Bob successfully executed 64-bit app from C:\Program Files!
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Process running: 32-bit (is_wow64=1)
+SUCCESS: LoadLibrary advapi32.dll succeeded: 7adb0000
+SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
+PASS: Bob successfully executed 32-bit app from C:\Program Files!
+--- Test 3: Bob cannot write C:\WINDOWS\system32 ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Access denied.
+
+PASS: Bob was denied write access to C:\windows\system32!
+--- Test 4: Bob cannot write C:\Program Files ---
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Access denied.
+
+PASS: Bob was denied write access to C:\Program Files!
+--- Test 5: Simulated Wine Upgrade ---
+Running machine root update as root...
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Updating existing machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+Machine .update-timestamp: 1792124128 -> 1792155955
+Machine links after root update: system32=729, syswow64=798
+Running per-user wineboot -u as Alice (administrator) and Bob (limited user)...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0100:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0180:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0188:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+Alice .update-timestamp: 1792155955
+Bob .update-timestamp:   1792155955
+PASS: Per-user wineboot -u (Alice admin & Bob limited) touched 0 machine files!
+--- Test 6: Verify nothing per-user lands in machine root ---
+PASS: Exactly 0 machine root files modified, created, or deleted by user sessions!
+=== ALL S2 ACCEPTANCE TESTS PASSED PERFECTLY! ===

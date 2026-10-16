@@ -1,0 +1,242 @@
+=== WineExplorer Phase S3 Acceptance Test ===
+--- Ensuring fresh machine root and skel ---
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Bootstrapping machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+--- Resetting user prefixes from /etc/skel/.wine ---
+--- Verifying symlinks and permissions at: initial reset ---
+PASS [initial reset]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 1: Alice registers COM class & Uninstall entry; Bob sees and runs app ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+	1 file(s) copied
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 1]: Alice COM class and Uninstall entries written to machine system.reg.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+--- BOB COM QUERY ---
+
+HKEY_LOCAL_MACHINE\Software\Classes\CLSID\{A11CE000-0000-0000-0000-000000000001}\LocalServer32
+    (Default)    REG_SZ    C:\Program Files\AliceApp\app64.exe
+
+--- BOB UNINSTALL QUERY ---
+
+HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\AliceApp
+    DisplayName    REG_SZ    Alice Application 1.0
+
+--- BOB RUN APP ---
+Process running: 64-bit (is_wow64=0)
+SUCCESS: LoadLibrary advapi32.dll succeeded: 00006fffff210000
+SUCCESS: kernel32.dll FileVersion = 10.0.19045.5796
+PASS [Case 1]: Bob saw COM registration, Uninstall entry, and executed Alice's app!
+--- Verifying symlinks and permissions at: Case 1 ---
+PASS [Case 1]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 2: Bob's in-memory HKLM writes & S0.2 ephemeral key protection ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+
+HKEY_LOCAL_MACHINE\Software\BobHack
+    Hacked    REG_SZ    1
+
+PASS [Case 2]: Bob's in-memory HKLM write succeeded during session.
+PASS [Case 2]: Bob's write NEVER reached machine system.reg!
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: Unable to find the specified registry key
+PASS [Case 2]: Bob's write was gone after logoff!
+Testing S0.2 transient/per-session key protection in admin session...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 2]: Ephemeral/per-session keys were NOT saved to machine system.reg!
+Testing unlinked prefix saves ephemeral keys (Defect 2 check)...
+wine: created the configuration directory '/home/alice/test_unlinked_pfx'
+002c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+004c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+0054:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+004c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0054:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0054:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0054:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0054:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+004c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+004c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+004c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+006c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+0074:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+006c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0074:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0074:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0074:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0074:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+006c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+006c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+006c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+004c:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+004c:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+004c:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+004c:err:ole:start_rpcss Failed to open RpcSs service
+0054:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+0054:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+0054:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+0044:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0044:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0044:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0044:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+002c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+006c:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+006c:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+006c:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+006c:err:ole:start_rpcss Failed to open RpcSs service
+0074:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+0074:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+0074:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+0074:err:ole:start_rpcss Failed to open RpcSs service
+00dc:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00dc:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00dc:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00dc:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00ec:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00ec:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00ec:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00ec:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0130:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0130:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0130:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0130:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0138:fixme:msg:pack_message msg 14 (WM_ERASEBKGND) not supported yet
+0140:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0140:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0140:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0140:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+002c:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+0164:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+0164:err:setupapi:do_file_copyW Unsupported style(s) 0x10
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 2]: Unlinked prefix successfully saved HKLM keys under per-session paths.
+--- Verifying symlinks and permissions at: Case 2 ---
+PASS [Case 2]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 3: Concurrent admin sessions, merge-on-save, and tombstone deletion ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+Initial shared keys established on disk.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Concurrent sessions active: Alice BG=2883, Carol BG=2884
+Alice modifying registry in concurrent session...
+reg: The operation completed successfully
+reg: The operation completed successfully
+Carol modifying registry in concurrent session...
+reg: The operation completed successfully
+Carol saving first...
+./installer/tests/test_s3_acceptance.sh: line 308:  2884 Killed                  su - carol -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/carol/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+PASS [Case 3]: CarolShared saved to disk.
+Alice saving second (merging changes onto Carol disk save)...
+./installer/tests/test_s3_acceptance.sh: line 320:  2883 Killed                  su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+Verifying merged disk contents:
+PASS [Case 3]: CarolShared survived Alice save.
+PASS [Case 3]: AliceShared was saved.
+PASS [Case 3]: Deletion of ToDelete was NOT resurrected.
+PASS [Case 3]: InitialVal preserved.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+
+HKEY_LOCAL_MACHINE\Software\AliceShared
+    AliceKey    REG_SZ    AliceVal
+
+
+HKEY_LOCAL_MACHINE\Software\CarolShared
+    CarolKey    REG_SZ    CarolVal
+
+--- Verifying symlinks and permissions at: Case 3 ---
+PASS [Case 3]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 3b: Alice-Carol-Alice save sequence (mod_seq reset & tombstone freeing) ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+Waiting for Alice's first save (periodic save under 30s)...
+Alice Save 1 completed to disk after 28s.
+PASS [Case 3b]: Alice Save 1 succeeded: X=AliceInitial and DelKey deleted.
+Carol modifying X and re-creating DelKey while Alice remains logged in...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+PASS [Case 3b]: Carol save succeeded: X=CarolUpdated and DelKey re-created.
+Alice modifying unrelated key Y in same active session...
+reg: The operation completed successfully
+Alice logging off and saving (Save 2)...
+./installer/tests/test_s3_acceptance.sh: line 456:  3247 Killed                  su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 60 127.0.0.1 >nul"
+'
+Verifying disk contents after Alice Save 2:
+PASS [Case 3b]: Alice new modification Y was saved.
+PASS [Case 3b]: Carol value X=CarolUpdated survived Alice Save 2.
+PASS [Case 3b]: Carol re-created DelKey survived Alice Save 2.
+--- Verifying symlinks and permissions at: Case 3b ---
+PASS [Case 3b]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 4: Machine upgrade while Alice is logged in ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Alice session active (BG=3526).
+Root performing machine update...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+reg: The operation completed successfully
+reg: The operation completed successfully
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Updating existing machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+Machine upgrade keys written to disk by root.
+Alice writing post-upgrade key in her active session...
+reg: The operation completed successfully
+Alice logging off and saving...
+./installer/tests/test_s3_acceptance.sh: line 525:  3526 Killed                  su - alice -c '
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEPREFIX="/home/alice/.wine"
+    wine cmd.exe /c "ping -n 30 127.0.0.1 >nul"
+'
+Verifying upgrade keys and Alice keys survived:
+PASS [Case 4]: Machine upgrade keys survived Alice logoff.
+PASS [Case 4]: AlicePostUpgrade was saved.
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+
+HKEY_LOCAL_MACHINE\Software\MachineUpgrade
+    Version    REG_SZ    3.1.0
+
+
+HKEY_LOCAL_MACHINE\Software\AlicePostUpgrade
+    Installed    REG_SZ    True
+
+--- Verifying symlinks and permissions at: Case 4 ---
+PASS [Case 4]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== Case 5: Final symlink integrity check across all user prefixes ===
+--- Verifying symlinks and permissions at: Case 5 Final ---
+PASS [Case 5 Final]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== ALL PHASE S3 ACCEPTANCE TESTS PASSED PERFECTLY! ===

@@ -1,0 +1,76 @@
+=== WineExplorer Phase S4 Acceptance Test ===
+=== Case 1: Setup builds machine root and template prefix (/etc/skel/.wine) ===
+=== WineExplorer S2 Machine Root Setup ===
+Machine root: /var/lib/wineexplorer/machine
+Template prefix: /etc/skel/.wine
+Bootstrapping machine root at /var/lib/wineexplorer/machine...
+Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)...
+Configuring template prefix in /etc/skel/.wine...
+=== S3 Machine Root Setup Completed Successfully ===
+Template prefix size (/etc/skel/.wine): 1 MB
+PASS: Template prefix size is 1 MB (< 15 MB, massive reduction from 1.7 GB).
+PASS: Template prefix symlinks point into machine root.
+=== Case 2: Account creation creates per-user prefixes from template ===
+User alice prefix size: 1 MB
+User carol prefix size: 1 MB
+User bob prefix size: 1 MB
+--- Verifying symlinks and permissions at: Case 2 account creation ---
+PASS [Case 2 account creation]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+PASS: Case 2 account creation and template instantiation passed.
+=== Case 3: Session script layout compliance ===
+--- 3a: First logon personalization ---
+Personalizing template prefix for alice...
+--- Verifying symlinks and permissions at: Case 3a first logon ---
+PASS [Case 3a first logon]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+PASS: 3a first logon personalization succeeded, system.reg stayed a symlink.
+--- 3b: Machine root update trigger ---
+Updating prefix for bob...
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00f0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00f8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00f8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00f8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00f8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+0108:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+0108:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+0108:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+0108:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwp_text_input_manager_v3 (host input methods won't work)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support optional zwlr_data_control_manager_v1 (clipboard functionality will be limited)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+00e0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support wp_fractional_scale_manager_v1 (fractional scaling will be broken)
+Bob .update-timestamp: 1792124128 (machine TS: 1792129128)
+PASS: 3b machine update triggered wineboot -u; touched 0 machine files.
+--- 3c: Theme copy guard ---
+Theme copy guard correctly skipped symlinked machine windows directory.
+PASS: 3c theme copy guard verified.
+=== Case 4: Prefix migration script ===
+Legacy prefix size before migration: 56 MB
+=== WineExplorer Prefix Split Migration ===
+Target prefix: /tmp/test_legacy_prefix
+Machine root:  /var/lib/wineexplorer/machine
+Original prefix size: 56 MB
+Backing up user registry and configuration to /tmp/test_legacy_prefix.pre-split-backup-20261016_080259...
+Converting machine folders to shared symlinks...
+Linking shared machine registry hives...
+Migration complete.
+Prefix size reduced from 56 MB to 1 MB.
+Backup preserved at: /tmp/test_legacy_prefix.pre-split-backup-20261016_080259
+Migrated prefix size after migration: 1 MB
+PASS: Case 4 migration script correctly migrated prefix, preserved user data, and shrank size.
+=== Case 5: Alice installs for all users, Bob executes, Bob denied write ===
+002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+Shared Tool Running Successfully
+PASS: Bob successfully executed application installed for all users by Alice.
+--- Verifying Bob is denied write access to machine root ---
+PASS: Bob write access denied to machine root as expected.
+--- Verifying symlinks and permissions at: Case 6 final verification ---
+PASS [Case 6 final verification]: All symlinks intact, 0664 sudo permissions verified, 0 temp files.
+=== All Phase S4 Acceptance Tests Passed Successfully ===
