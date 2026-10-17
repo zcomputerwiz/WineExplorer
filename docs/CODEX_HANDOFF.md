@@ -3,8 +3,15 @@
 **2026-10-17 tray checkpoint:** the portable real-program checker passes in
 both sessions at Wine b1d3ab0 with owned commit 0c1084eb. See TRAY_SNI.md for
 logs and screenshots. Signed-in Steam is manual by user instruction. The
-clean final ISO is building on the Proton VM as `wineexplorer-tray-final.iso`;
-part D's fresh installs and effects/dialog regressions remain. Do not use
+clean final ISO built on the Proton VM as `wineexplorer-tray-final.iso`, SHA256
+`5d37cfb529ed00902a68df064975ba0986d0e0a7f25a7c7043f141484e2b5923`.
+Part D's fresh installs are running in Debian WSL as `tray-final-x11` then
+`tray-final-wayland`, logs `build/wayland-session/final-*.log`. The initial
+X11 run found an upstream harness assumption about a prebuilt cpl_driver.exe;
+ebc47b9b builds it from source and uses the current session helper. The complete
+fresh installation is being repeated; the first log is preserved. Preflight
+effects and eight-dialog checks pass, but final untouched-ISO results remain.
+Do not use
 the earlier tray ISO: it predates the libayatana left-click compatibility fix.
 
 **Queued user follow-up (2026-10-17), after the current C/D tasks:** inspect the
@@ -16,8 +23,8 @@ and `tray-volume-final-preferences.png`. This is a requested next task.
 
 **Review point 1 accepted; parts C/D active.** Claude's review is appended to
 WAYLAND_SESSION_WORKORDER.md. The compositor production branch `wexcomp` now
-fast-forwards to the project pin 2bde47ee. Implement the SNI/XEmbed tray bridge,
-then run the final regressions and stop at review point 2. Keep the two scaling
+fast-forwards to the project pin 2bde47ee. The SNI/XEmbed tray bridge is implemented;
+finish the final regressions and stop at review point 2. Keep the two scaling
 limitations below open unless real-program testing verifies a fix.
 
 Historical review-point-1 handoff: Parts A/B of WAYLAND_SESSION_WORKORDER.md are ready
