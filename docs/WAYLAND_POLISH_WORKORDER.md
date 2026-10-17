@@ -1,7 +1,9 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Codex): Wayland session polish, the open items of WAYLAND_SESSION
 
-Status: ready, 2026-10-17. Assignee: Codex. Follows `WAYLAND_SESSION_WORKORDER.md` (done).
+Status: end review ready, 2026-10-17, with the restored-window portion of item 3 time-boxed and open.
+Assignee: Codex. Report: `WAYLAND_SESSION.md` and `wayland-polish/final-regression.md`.
+Follows `WAYLAND_SESSION_WORKORDER.md` (done).
 
 ## Goal
 

@@ -1,0 +1,26 @@
+Desktop user: bobsmith; Explorer PID: 1012
+DISPLAY=
+WAYLAND_DISPLAY=wex-shell-0
+WINEPREFIX=/home/bobsmith/.wine
+
+/mnt/d/DeepThought/Projects/WineExplorer/build/wayland-session/7z2604.exe:     file format pei-i386
+architecture: i386, flags 0x0000010a:
+EXEC_P, HAS_DEBUG, D_PAGED
+start address 0x00407064
+
+
+/tmp/polish-7z.exe: OK
+Started Wine PID 5539; log: /tmp/wex-program-check-bobsmith.log
+Started Wine PID 5552; log: /tmp/wex-program-check-bobsmith.log
+Traceback (most recent call last):
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 453, in <module>
+    {"frames": check_frames, "qt-dialog": check_qt_dialog, "scale": check_live_scale,
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     "programs": check_programs, "steam": check_steam, "installer32": check_installer}[mode]()
+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 445, in check_installer
+    visible("Computer")
+    ~~~~~~~^^^^^^^^^^^^
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 427, in visible
+    raise RuntimeError("Installer did not show " + expected)
+RuntimeError: Installer did not show Computer

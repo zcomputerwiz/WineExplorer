@@ -1,0 +1,18 @@
+Desktop user: bobsmith; Explorer PID: 1012
+DISPLAY=
+WAYLAND_DISPLAY=wex-shell-0
+WINEPREFIX=/home/bobsmith/.wine
+/tmp/polish-7z.exe: OK
+-bash: objdump: command not found
+Traceback (most recent call last):
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 450, in <module>
+    {"frames": check_frames, "qt-dialog": check_qt_dialog, "scale": check_live_scale,
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     "programs": check_programs, "steam": check_steam, "installer32": check_installer}[mode]()
+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 414, in check_installer
+    output = command("curl -fsS http://10.0.2.2:18765/7z2604.exe -o /tmp/polish-7z.exe && "
+                     f"echo '{digest}  /tmp/polish-7z.exe' | sha256sum -c - && objdump -f /tmp/polish-7z.exe")
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 31, in command
+    raise RuntimeError(f"Guest command exited {result}")
+RuntimeError: Guest command exited 1

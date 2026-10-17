@@ -14,9 +14,12 @@ Fork-only ed5fe96 keeps hosted groups active through logical client-rectangle
 changes and orders the layout request before frame commits. Layout replies
 do not replay first-adoption activation. The private protocol wire format is
 unchanged. Together with compositor acc46fe6 and the owned shell's stale-scale
-observation fix, the real maximized/restored foot 100%→150%→100% check passes:
-hosting, focus/input, client alignment, work area and taskbar. Both Wine
-architectures build; fresh-ISO polish regression remains pending.
+observation change, maximized foot passes 100%→150%→100%: hosting,
+focus/input, client alignment, work area and taskbar. Restored-window scaling
+remains intermittent and open; the initial passing run is not a complete
+fix. Two follow-up owned-shell trials were unsuccessful and removed. Both
+Wine architectures build; fresh-ISO installs, application and tray checks
+pass with the restored-scale failure recorded in WAYLAND_SESSION.md.
 The polish topic `upstream/win32u-surface-shape` (bcf842a) fixes win32u's
 single-byte surface-shape spans: intersect the left mask with the complement
 of the right mask, matching the multi-byte path. This fixes volumeicon

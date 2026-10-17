@@ -5,7 +5,11 @@ Status: implementation is closed for the scope of WAYLAND_SESSION_WORKORDER.md;
 parts C/D are ready for review point 2. Fresh same-ISO X11 and Wayland install,
 tray and required regression checks pass. Report: WAYLAND_SESSION.md.
 Signed-in Steam close/reopen/menu remains manual by the user's instruction.
-The two scaling limitations below remain open; closure does not claim fixes.
+Polish update: the corrected Qt dialog check passes on the fresh image and
+the preserved baseline. Maximized live scaling passes; restored live scaling
+remains open after an intermittent off-screen resize. The polish work order
+time-boxes that remaining investigation. See WAYLAND_SESSION.md and
+wayland-polish/final-regression.md for the latest evidence.
 
 2026-10-17: the review in WAYLAND_SESSION_WORKORDER.md accepts the installed
 real-program and ISO evidence in WAYLAND_SESSION.md. Compositor production
@@ -13,7 +17,7 @@ branch `wexcomp` now includes the pinned 2bde47ee. Master also incorporates
 the independent Fluent-theme work, advancing the Wine pin to b1d3ab0;
 the combined i386/x86_64 build passes at that pin.
 
-Two known real-program limitations remain open for the final report:
+Pre-polish limitations (historical; the polish update above supersedes them):
 
 - QTerminal's Exit confirmation buttons can repaint late after switching
   back at 150% output scaling. The 100% sequence and static 150% window

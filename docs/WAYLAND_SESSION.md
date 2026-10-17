@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Installed Wayland session
 
-## Wayland polish (2026-10-17, implementation in progress)
+## Wayland polish review (2026-10-17, one time-boxed issue open)
 
 Active work order: WAYLAND_POLISH_WORKORDER.md, with one review at its end.
 Item 1 passes the real volumeicon/foot/QTerminal/xterm matrix at 100% and
@@ -11,17 +11,24 @@ upstreamable topic and production fork branches, and both architectures build.
 The shell also corrects native tray coordinates and initial frame-local
 rounding exposed by opening the actual Preferences dialog at 150%.
 Its native client geometry and Win32 client area agree within one physical
-pixel. The development VM is back at 100%; no temporary compositor diagnostics
-remain. Item 2's corrected five-second real-program check passes in 0.466 s
-on the current build and 0.481 s on the preserved pre-polish installation.
+pixel. Item 2's corrected five-second real-program check passes in 0.333 s
+on the fresh ISO and 0.481 s on the preserved pre-polish installation.
 The old full-screen OCR omitted visibly rendered buttons; no compositor
 change was justified. [Evidence](wayland-polish/item2-notes.md).
-Item 3's staged live-maximized and restored scale checks now pass, including
-settled transactions, actual native/client alignment, focus/typing, work area
-and taskbar bounds. Wine **ed5fe96** and compositor **acc46fe6** are on their
+Item 3 is **partially complete**: maximized foot passes the live scale cycle,
+including native/client alignment, fresh typing, work area and taskbar.
+The restored-window path initially passed, but a later run reproduced
+off-screen growth; another trial shrank/moved it on the return trip. It stays
+open under the work order's investigation time-box. Unsuccessful follow-up
+changes are removed, not shipped. Wine **ed5fe96** and compositor **acc46fe6** are on their
 fork production branches; both Wine architectures and the compositor build.
 [Implementation and evidence](wayland-polish/item3-notes.md).
-The final fresh-ISO regression remains pending.
+The fresh same-ISO X11/Wayland installs, 32/64-bit Windows programs, both tray
+backends, frame matrix, Qt dialog, GTK/Qt/xterm/Firefox, winecfg, Control Panel,
+normal Steam launch and 32-bit GUI installer checks have completed.
+[Review report, raw logs, image hash and known failure](wayland-polish/final-regression.md).
+Signed-in Steam remains manual below. This checkpoint requests review with
+the restored-window scale issue explicitly unresolved.
 
 ### Manual Steam acceptance (item 4, not claimed)
 

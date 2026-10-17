@@ -70,8 +70,8 @@ def window(title, detail=False):
     raise RuntimeError("No hosted " + title)
 
 
-def settled(title):
-    end = time.monotonic() + 10
+def settled(title, seconds=10):
+    end = time.monotonic() + seconds
     while time.monotonic() < end:
         try:
             return window(title)
@@ -126,13 +126,17 @@ with tempfile.TemporaryDirectory(prefix="wex-polish-") as temp:
                     "-o", str(executable), "-lgdi32"], check=True)
     stage(executable, "/tmp/wex-polish-control.exe")
 def check_frames():
+    # Match the tray runner: install only real test programs on the test VM.
+    # Qt's Wayland plugin is optional when apt recommendations are disabled.
+    command("DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "
+            "qterminal qt6-wayland xterm wlr-randr </dev/null", 180)
     command("pkill -u bobsmith -x volumeicon || true")
     for scale in (1, 1.5):
         native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
         time.sleep(1)
         for app, title, args in (
             ("foot", "Polish-foot", ["foot", "--title=Polish-foot"]),
-            ("qterminal", "bobsmith@", ["qterminal", "--workdir", "/home/bobsmith"]),
+            ("qterminal", "bobsmith@", ["env", "QT_QPA_PLATFORM=wayland", "qterminal", "--workdir", "/home/bobsmith"]),
             ("xterm", "Polish-xterm", ["xterm", "-title", "Polish-xterm", "-xrm", "XTerm*allowTitleOps:false"]),
         ):
             native(*args)
@@ -177,7 +181,7 @@ def check_qt_dialog():
     native("wlr-randr", "--output", "Virtual-1", "--scale", "1.5", wait=True)
     native("foot", "--title=Polish-switch-target")
     settled("Polish-switch-target")
-    native("qterminal", "--workdir", "/home/bobsmith")
+    native("env", "QT_QPA_PLATFORM=wayland", "qterminal", "--workdir", "/home/bobsmith")
     _, frame, _, _ = settled("bobsmith@")
     vm.click(name, frame[2] - 17, frame[1] + 15)
     _, _, client, _ = settled("Exit QTerminal")
@@ -258,19 +262,35 @@ def check_live_scale():
         entry = state(scale, True)
         assert entry[1] == (-4, -4, width + 4, height - 26), entry
         geometry(entry, scale)
-        vm.type_text(name, "echo scale-checked")
+        marker = ("scale-alpha-checked", "scale-bravo-checked", "scale-charlie-checked")[index]
+        vm.type_text(name, "echo " + marker)
         vm.keys(name, ["ret"])
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if marker.replace("-", "") in re.sub("[^a-z0-9]", "", vm.ocr(name).lower()):
+                break
+        else:
+            raise RuntimeError("Foot did not receive fresh keyboard input: " + marker)
         vm.shot(name, str(steps / f"scale-maximized-{index}-{int(scale*100)}.png"))
-        assert "scale-checked" in vm.ocr(name), "Foot did not receive keyboard input"
         print(f"PASS maximized scale={scale} frame={entry[1]} client={entry[2]}", flush=True)
         state_start = True
     vm.click(name, 200, 12, count=2)
     time.sleep(3)
+    restored = None
     for index, scale in enumerate((1, 1.5, 1)):
         native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
         time.sleep(3)
         entry = state(scale, False)
         assert 0 <= entry[1][0] < entry[1][2] <= width and 0 <= entry[1][1] < entry[1][3] <= height - 30, entry
+        bounds = entry[1]
+        if restored:
+            assert abs(bounds[0] - restored[0]) <= 2 and abs(bounds[1] - restored[1]) <= 2, (restored, bounds)
+            # Foot may snap by one character cell as fractional-scale font
+            # metrics change. A coordinate-space resize is much larger.
+            assert abs((bounds[2]-bounds[0]) - (restored[2]-restored[0])) <= 24, (restored, bounds)
+            assert abs((bounds[3]-bounds[1]) - (restored[3]-restored[1])) <= 24, (restored, bounds)
+        else:
+            restored = bounds
         geometry(entry, scale)
         vm.shot(name, str(steps / f"scale-restored-{index}-{int(scale*100)}.png"))
         print(f"PASS restored scale={scale} frame={entry[1]} client={entry[2]}", flush=True)
@@ -278,5 +298,171 @@ def check_live_scale():
     print("PASS live 100%-150%-100% scale, maximized/restored foot and taskbar", flush=True)
 
 
+def check_programs():
+    def text(expected, seconds=20, region=None):
+        end = time.monotonic() + seconds
+        normalize = lambda value: re.sub("[^a-z0-9]", "", value.lower())
+        vm.move(name, 10, 10)  # Do not OCR through the native I-beam cursor.
+        while time.monotonic() < end:
+            if region:
+                x, y, width, height = region
+                current, crop = steps / "program-text.png", steps / "terminal-text.png"
+                vm.shot(name, str(current))
+                subprocess.run(["convert", str(current), "-crop", f"{width}x{height}+{x}+{y}",
+                                "+repage", "-resize", "300%", "-negate", str(crop)], check=True)
+                words = subprocess.run(["tesseract", str(crop), "stdout", "--psm", "6"],
+                                       capture_output=True, text=True, check=True).stdout
+            else:
+                words = vm.ocr(name)
+            print("PROGRAM_TEXT " + repr(words), flush=True)
+            if normalize(expected) in normalize(words):
+                return
+        raise RuntimeError("No visible " + expected)
+
+    def toggle(title, minimized):
+        vm.click(name, 200, 785)
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            entry = window(title, detail=True)
+            if bool(entry[4] & 0x20000000) == minimized:
+                vm.shot(name, str(steps / (label + ("-minimized.png" if minimized else "-restored.png"))))
+                return
+            time.sleep(.2)
+        raise RuntimeError("Taskbar state did not change: " + title)
+
+    selected = set(sys.argv[5:])
+    for label, title, args, expected in (
+        ("gtk", "gedit", ["gedit", "--standalone"], "PolishGTKchecked"),
+        ("qt", "bobsmith@", ["env", "QT_QPA_PLATFORM=wayland", "qterminal", "--workdir", "/home/bobsmith"], "native terminal input"),
+        ("xterm", "Polish-Xterm", ["xterm", "-title", "Polish-Xterm", "-xrm", "XTerm*allowTitleOps:false"], "native xterm input"),
+        ("firefox", "Troubleshooting", ["firefox-esr", "--no-remote", "about:support"], "Application Basics"),
+    ):
+        if selected and label not in selected:
+            continue
+        native(*args)
+        caption, frame, client, _ = settled(title, 60)
+        assert readback().count(caption) == 1, "Duplicate host: " + caption
+        vm.click(name, client[0] + 80, client[1] + (130 if label == "gtk" else 80))
+        if label == "firefox":
+            vm.keys(name, ["ctrl-l"])
+            vm.type_text(name, "about:support")
+        else:
+            vm.type_text(name, expected if label == "gtk" else "echo " + expected)
+        if label != "gtk":
+            vm.keys(name, ["ret"])
+        text(expected, region=(client[0] + 2, client[1] + (52 if label == "qt" else 2),
+                               client[2] - 20, 80) if label in ("qt", "xterm") else None)
+        vm.shot(name, str(steps / (label + "-input.png")))
+        toggle(title, True)
+        toggle(title, False)
+        command("pkill -u bobsmith -x " + {"gtk": "gedit", "qt": "qterminal", "xterm": "xterm", "firefox": "firefox-esr"}[label])
+        time.sleep(.5)
+        print("PASS fresh " + label + " input, one proxy, taskbar minimize/restore", flush=True)
+
+    for executable, title, label in (("winecfg.exe", "Wine configuration", "winecfg"),
+                                      ("control.exe", "Control Panel", "control-panel")):
+        if selected and label not in selected:
+            continue
+        command("python3 /tmp/wex-session-run.py " + executable)
+        end = time.monotonic() + 30
+        while time.monotonic() < end:
+            if title.lower() in vm.ocr(name).lower():
+                break
+        else:
+            raise RuntimeError("No " + title)
+        vm.shot(name, str(steps / (label + ".png")))
+        vm.keys(name, ["alt-f4"])
+        time.sleep(.5)
+        print("PASS fresh " + label + " opens and closes", flush=True)
+
+
+def check_steam():
+    native("/usr/games/steam")
+    deadline = time.monotonic() + 300
+    installed = False
+    while time.monotonic() < deadline:
+        screen = vm.ocr(name)
+        if "sign in" in screen.lower():
+            break
+        if not installed and "steam" in screen.lower():
+            button = vm.find_text(name, "Install")
+            if button:
+                vm.click(name, *button)
+                installed = True
+        time.sleep(1)
+    else:
+        raise RuntimeError("Steam did not reach its sign-in window")
+    caption, frame, _, _ = settled("Sign in to Steam", 30)
+    assert readback().count(caption) == 1, "Duplicate Steam proxy"
+    vm.click(name, frame[0] + 150, frame[1] + 140)
+    vm.type_text(name, "PolishSteamchecked")  # Dummy text only; never submit sign-in.
+    vm.move(name, 10, 10)
+    time.sleep(1)
+    assert "polishsteamchecked" in vm.ocr(name).lower()
+    vm.shot(name, str(steps / "steam-input.png"))
+    vm.drag(name, frame[0] + 250, frame[1] + 20, frame[0] + 330, frame[1] + 70)
+    _, moved, _, _ = settled("Sign in to Steam")
+    assert moved[0] > frame[0] + 40 and moved[1] > frame[1] + 25, moved
+    for minimized in (True, False):
+        vm.click(name, 200, 785)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            entry = window("Sign in to Steam", detail=True)
+            if bool(entry[4] & 0x20000000) == minimized:
+                break
+            time.sleep(.2)
+        else:
+            raise RuntimeError("Steam taskbar minimize/restore failed")
+        vm.shot(name, str(steps / ("steam-minimized.png" if minimized else "steam-restored.png")))
+    command("pkill -u bobsmith -x steam || true")
+    print("PASS normal Steam launch, dummy input, move, one proxy, taskbar minimize/restore; no sign-in submitted", flush=True)
+
+
+def check_installer():
+    # Reuse the previously verified, ignored 32-bit acceptance download.
+    digest = "39bf65045153fc26c42fa9fe47afd8cd1b11671c7f11d031e738c9a13960c009"
+    output = subprocess.run(["i686-w64-mingw32-objdump", "-f", str(ROOT / "build/wayland-session/7z2604.exe")],
+                            capture_output=True, text=True, check=True).stdout
+    print(output, flush=True)
+    assert "pei-i386" in output, output
+    command("curl -fsS http://10.0.2.2:18765/7z2604.exe -o /tmp/polish-7z.exe && "
+            f"echo '{digest}  /tmp/polish-7z.exe' | sha256sum -c -")
+    command("python3 /tmp/wex-session-run.py /tmp/polish-7z.exe")
+
+    def visible(expected):
+        end = time.monotonic() + 30
+        while time.monotonic() < end:
+            if expected.lower() in vm.ocr(name).lower():
+                return
+        raise RuntimeError("Installer did not show " + expected)
+
+    visible("Destination")
+    vm.shot(name, str(steps / "installer32-start.png"))
+    vm.click(name, 600, 352)
+    vm.keys(name, ["ctrl-a"])
+    vm.type_text(name, r"C:\users\bobsmith\7zip-test")
+    vm.move(name, 10, 10)
+    visible("7zip-test")
+    vm.shot(name, str(steps / "installer32-destination.png"))
+    button = vm.find_text(name, "Install")
+    assert button, "No installer Install button"
+    vm.click(name, *button)
+    visible("installed")
+    command("test -f /home/bobsmith/.wine/drive_c/users/bobsmith/7zip-test/7zFM.exe")
+    vm.shot(name, str(steps / "installer32-complete.png"))
+    vm.keys(name, ["ret"])
+    command("python3 /tmp/wex-session-run.py C:/users/bobsmith/7zip-test/7zFM.exe")
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if re.search(r"(?m)^Z .+ 7-Zip\r?$", readback()):
+            break
+    else:
+        raise RuntimeError("Installed 7-Zip File Manager did not open")
+    vm.shot(name, str(steps / "installer32-file-manager.png"))
+    vm.keys(name, ["alt-f4"])
+    print("PASS verified PE i386 7-Zip GUI install to Bob's private prefix and installed File Manager launch", flush=True)
+
+
 mode = sys.argv[4] if len(sys.argv) > 4 else "frames"
-{"frames": check_frames, "qt-dialog": check_qt_dialog, "scale": check_live_scale}[mode]()
+{"frames": check_frames, "qt-dialog": check_qt_dialog, "scale": check_live_scale,
+ "programs": check_programs, "steam": check_steam, "installer32": check_installer}[mode]()

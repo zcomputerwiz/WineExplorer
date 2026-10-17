@@ -1,0 +1,235 @@
+Desktop user: bobsmith; Explorer PID: 1793
+DISPLAY=
+WAYLAND_DISPLAY=wex-shell-0
+WINEPREFIX=/home/bobsmith/.wine
+Started native PID 1855; log: /tmp/wex-polish-native.log
+Started native PID 1859; log: /tmp/wex-polish-native.log
+Started Wine PID 1873; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+012c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 100,100 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=14cf0000 rect=288,121,992,649 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=292,151 696x494 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 1880; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0138:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 388,136 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=15cf0000 rect=-4,-4,1284,774 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=0,26 1280x744 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=1280x744 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 1887; log: /tmp/wex-polish-state.log
+ACTION workarea hwnd=0000000000000000 style=00000000
+0144:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+WORK 0 0 1280 770
+STYLE 00000000
+FOCUS 000000000002008e Polish-live-scale
+Started Wine PID 1894; log: /tmp/wex-polish-state.log
+NATIVE 2 flags=0x1 states=0x12 logical=0,26,1280,770 app=foot title=Polish-live-scale
+Started Wine PID 1902; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+015c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 388,136 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=15cf0000 rect=-4,-4,1284,774 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=0,26 1280x744 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=1280x744 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+PASS maximized scale=1 frame=(-4, -4, 1284, 774) client=(0, 26, 1280, 744)
+Started native PID 1908; log: /tmp/wex-polish-native.log
+Started Wine PID 1917; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0168:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 589,211 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=15cf0000 rect=-4,-4,1284,774 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=0,26 1280x744 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+  RESIZE requested=1280x744 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Started Wine PID 1924; log: /tmp/wex-polish-state.log
+ACTION workarea hwnd=0000000000000000 style=00000000
+0174:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+WORK 0 0 1280 770
+STYLE 00000000
+FOCUS 000000000002008e Polish-live-scale
+Started Wine PID 1931; log: /tmp/wex-polish-state.log
+NATIVE 2 flags=0x1 states=0x12 logical=0,17,853,513 app=foot title=Polish-live-scale
+Started Wine PID 1939; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+018c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 589,211 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=15cf0000 rect=-4,-4,1284,774 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=0,26 1280x744 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+  RESIZE requested=1280x744 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+PASS maximized scale=1.5 frame=(-4, -4, 1284, 774) client=(0, 26, 1280, 744)
+Started native PID 1947; log: /tmp/wex-polish-native.log
+Started Wine PID 1956; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0198:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 388,136 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=15cf0000 rect=-4,-4,1284,774 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=0,26 1280x744 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=1280x744 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 1963; log: /tmp/wex-polish-state.log
+ACTION workarea hwnd=0000000000000000 style=00000000
+01a4:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+WORK 0 0 1280 770
+STYLE 00000000
+FOCUS 000000000002008e Polish-live-scale
+Started Wine PID 1970; log: /tmp/wex-polish-state.log
+NATIVE 2 flags=0x1 states=0x12 logical=0,26,1280,770 app=foot title=Polish-live-scale
+Started Wine PID 1978; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01bc:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 388,136 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=15cf0000 rect=-4,-4,1284,774 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=0,26 1280x744 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=1280x744 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+PASS maximized scale=1 frame=(-4, -4, 1284, 774) client=(0, 26, 1280, 744)
+Started native PID 1985; log: /tmp/wex-polish-native.log
+Started Wine PID 1990; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01c8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,12 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=14cf0000 rect=288,121,992,649 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=292,151 696x494 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=696x494 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 1997; log: /tmp/wex-polish-state.log
+ACTION workarea hwnd=0000000000000000 style=00000000
+01d4:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+WORK 0 0 1280 770
+STYLE 00000000
+FOCUS 000000000002008e Polish-live-scale
+Started Wine PID 2004; log: /tmp/wex-polish-state.log
+NATIVE 2 flags=0x1 states=0x10 logical=292,151,988,645 app=foot title=Polish-live-scale
+Started Wine PID 2012; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01ec:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,12 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=14cf0000 rect=288,121,992,649 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=292,151 696x494 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=696x494 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+PASS restored scale=1 frame=(288, 121, 992, 649) client=(292, 151, 696, 494)
+Started native PID 2018; log: /tmp/wex-polish-native.log
+Started Wine PID 2027; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01f8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 300,18 hit=0000000000010034 active=000000000002008e capture=0000000000000000 focus=000000000002008e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale
+  owner=0000000000000000 lastpopup=000000000002008e
+  style=14cf0000 rect=434,197,1602,952 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=438,227 1160x721 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+  RESIZE requested=696x494 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Traceback (most recent call last):
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 467, in <module>
+    {"frames": check_frames, "qt-dialog": check_qt_dialog, "scale": check_live_scale,
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     "programs": check_programs, "steam": check_steam, "installer32": check_installer}[mode]()
+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 284, in check_live_scale
+    assert 0 <= entry[1][0] < entry[1][2] <= width and 0 <= entry[1][1] < entry[1][3] <= height - 30, entry
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('Polish-live-scale', (434, 197, 1602, 952), (438, 227, 1160, 721), 180, 349110272, '000000000002008e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-live-scale\n  owner=0000000000000000 lastpopup=000000000002008e\n  style=14cf0000 rect=434,197,1602,952 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001\n  client=438,227 1160x721 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4\n  RESIZE requested=696x494 accepted=0x0\n')

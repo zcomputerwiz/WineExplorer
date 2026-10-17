@@ -1,0 +1,140 @@
+Desktop user: bobsmith; Explorer PID: 1012
+DISPLAY=
+WAYLAND_DISPLAY=wex-shell-0
+WINEPREFIX=/home/bobsmith/.wine
+Started native PID 3431; log: /tmp/wex-polish-native.log
+Started Wine PID 3449; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0264:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000000000 capture=0000000000000000 focus=0000000000000000
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 3511; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0270:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000000000 capture=0000000000000000 focus=0000000000000000
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 3537; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+027c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000150094 capture=0000000000000000 focus=0000000000150094
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000150094 ex=00040000 role=0000000000000000 atom=000000000000c031 Mozilla Firefox
+  owner=0000000000000000 lastpopup=0000000000150094
+  style=940a0000 rect=0,0,1280,770 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000000
+  client=0,0 1280x770 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 3585; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0288:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000150094 capture=0000000000000000 focus=0000000000150094
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000150094 ex=00040000 role=0000000000000000 atom=000000000000c031 Mozilla Firefox
+  owner=0000000000000000 lastpopup=0000000000150094
+  style=940a0000 rect=0,0,1280,770 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000000
+  client=0,0 1280x770 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 3612; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0294:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000150094 capture=0000000000000000 focus=0000000000150094
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000150094 ex=00040000 role=0000000000000000 atom=000000000000c031 Troubleshooting Information 
+  owner=0000000000000000 lastpopup=0000000000150094
+  style=940a0000 rect=0,0,1280,770 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000000
+  client=0,0 1280x770 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 3632; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+02a0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000150094 capture=0000000000000000 focus=0000000000150094
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000150094 ex=00040000 role=0000000000000000 atom=000000000000c031 Troubleshooting Information 
+  owner=0000000000000000 lastpopup=0000000000150094
+  style=940a0000 rect=0,0,1280,770 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000000
+  client=0,0 1280x770 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+PROGRAM_TEXT 'f) © Troubleshooting Inform x  [§ Firefox Privacy Notice x @ Troubleshooting Inform x + v x\n\n¢ 9 CG G ~ about:suffsteia > © 4\n\nQ. about:support — visit\n\nFirefox Suggest\n\nTroubleshoot\n\nThis page contains tec\nyou are looking for ans\n\n@ about:about — about:about\n\nabout:addons — about:addons\n\nabout: buildconfig — about:buildconfig\n\nCopy raw data to about:cache — about:cache e...\nabout:certificate — about:certificate artup cache\n\nabout:checkerboard — about:checkerboard a\n\nabout:compat — about:compat\n\nabout:config — about:config\n\nApplication Basic\nPP about:crashes — about:crashes\n\nName Firefox\n\nVersion 153.5.0esr\n\n0s\n\nApplication Binary /usr/lib/firefox-esr/firefox-esr\n\nProfile Directory Open Directory /home/bobsmith/.config/mozilla/firefox/etacnkwn.default-esr\n\nBuild Configuration about: buildconfig\nz\n\n'
+PROGRAM_TEXT "f) © Troubleshooting Inform x  [§ Firefox Privacy Notice x @ Troubleshooting Inform x + Vv x\n\nView recent browsing across windows and devices\n\nTroubleshooting Information\n\nThis page contains technical information that might be useful when you're trying to solve a problem. If\nyou are looking for answers to common questions about Firefox, check out our support website.\n\nDiagnose issues\nCopy raw data to clipboard Copy text to clipboard Troubleshoot Mode...\nTry clearing the startup cache\n\nClear startup cache...\n\nApplication Basics\n\nUser Agent Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Firefox/153.0\n\nos Linux 6.12.113+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.113-1 (2026-10-15)\nOS Theme Adwaita / Adwaita\nApplication Binary /usr/lib/firefox-esr/firefox-esr\n\nProfile Directory Open Directory /home/bobsmith/.config/mozilla/firefox/etacnkwn.default-esr\n\nBuild Configuration about:buildconfig\n\n"
+Started Wine PID 3752; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+02ac:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000000000 capture=0000000000000000 focus=0000000000000000
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000150094 ex=00040000 role=0000000000000000 atom=000000000000c031 Troubleshooting Information 
+  owner=0000000000000000 lastpopup=0000000000150094
+  style=b40a0000 rect=-32000,-32000,-31840,-31969 foreground=0 host=0000000000000001 group=0000000000000001 focus=0000000000000000 size=0000000000000000
+  client=-32000,-32000 0x0 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 3759; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+02b8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000150094 capture=0000000000000000 focus=0000000000150094
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000150094 ex=00040000 role=0000000000000000 atom=000000000000c031 Troubleshooting Information 
+  owner=0000000000000000 lastpopup=0000000000150094
+  style=940a0000 rect=0,0,1280,770 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000000
+  client=0,0 1280x770 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+PASS fresh firefox input, one proxy, taskbar minimize/restore
+Started Wine PID 3772; log: /tmp/wex-program-check-bobsmith.log
+PASS fresh winecfg opens and closes
+Started Wine PID 3779; log: /tmp/wex-program-check-bobsmith.log
+PASS fresh control-panel opens and closes

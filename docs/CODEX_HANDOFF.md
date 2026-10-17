@@ -1,4 +1,36 @@
-# Codex handoff — 2026-10-17 Wayland polish in progress
+# Codex handoff — 2026-10-17 Wayland polish review
+
+**Latest: end-of-work-order review, one issue time-boxed and open.**
+Items 1/2 pass, including all eight fresh-image border cases and Qt's actual
+Wayland Exit dialog in 0.333 s. Fresh X11/Wayland installs, isolation,
+32/64-bit Windows programs, tray in both sessions, foot/Notepad actions,
+GTK/Qt/xterm/Firefox, winecfg, Control Panel, normal Steam launch and a 32-bit
+GUI installer have completed. Signed-in Steam remains manual by instruction.
+
+**Item 3 is partial:** maximized live 100%→150%→100% passes, including fresh
+keyboard input and work-area/taskbar alignment. An initial restored-window
+pass was not reliable: a later run grew off-screen. Two follow-up owned-shell
+trials also failed (one shrank/moved on return); neither is kept. The stronger
+runner checks both on-screen bounds and excessive round-trip position/size
+drift. The remaining restored-window investigation is time-boxed under
+WAYLAND_POLISH_WORKORDER.md; do not call it fixed. See the raw failures and
+all passing evidence in `wayland-polish/final-regression.md`.
+
+The first clean ISO remains the review image (de35f152, Wine ed5fe96,
+compositor acc46fe6, SHA256 below). Test-only follow-up DLLs are restored from
+that image's original Debian package, with both hashes verified. No trial
+source changes remain. The fresh Wayland test VM shut down normally;
+all other QEMU acceptance/development VMs are stopped. The Proton build VM
+was restarted after the host reboot and is available on SSH 2223; its owned
+source is being resynced to the final committed checkpoint and rebuilt before
+push. Do not use Gemini's WSL distributions. The staging HTTP server is on
+Debian WSL loopback 18765. The unrelated `.gitignore` edit is preserved.
+The requested Sway/labwc/foot comparison is recorded in item3-notes.md. It
+points to floating-client size reconciliation as a lead; the root cause
+remains unconfirmed. Do not ship either removed owned-shell trial.
+
+The entries below are historical checkpoints and are superseded by this
+review summary, especially their initial full scale-pass claims.
 
 **Fresh polish ISO regression update:** the clean image built successfully,
 SHA256 `3b1d8967532d9f7d1cde89e30a9f59db838e9791e5844a53e77c712c697367f0`.
