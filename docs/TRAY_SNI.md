@@ -92,6 +92,21 @@ user's explicit instruction. No test credentials have been requested.
 
 ## Failed commands and fixes
 
+- Part D preflight on the hot-staged installed VM passes the existing tray
+  bounds and eight-dialog checks in an isolated 800x600 Xvfb/prefix, followed
+  by the existing D1/D2 composition probe at 1024x768. Five blend operations
+  restore styles/attributes, and compatible, DIB and scaled captures succeed.
+  Evidence: `build/wayland-session/preflight-regressions/`. This is preparation,
+  not the required final untouched-ISO result. The isolated helper initially
+  returned 1 after passing all dialog cases: its EXIT trap called
+  `wineserver -k` again after the server had already stopped. Make that
+  cleanup idempotent. Temporary diagnostic output confirmed each existing
+  dialog assertion returned zero. Also set Bob's HOME/XDG_RUNTIME_DIR instead
+  of preserving root's values, avoiding shader-cache and runtime-dir warnings.
+- PowerShell `rg docs/COMPOSITION*` rejected the wildcard as an invalid path;
+  pass the directory and use `-g` filters instead. A search also named the
+  nonexistent `src/dlls/wexshell/linuxwm.c`; search the actual directory.
+
 - The expanded real checker caught libayatana's omission of both ItemIsMenu
   and Activate on nm-applet. Introspection confirmed this, so missing
   ItemIsMenu now defaults to true, following the existing Waybar convention.
