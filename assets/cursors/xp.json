@@ -1,0 +1,152 @@
+{
+  "name": "XP",
+  "display_name": "Windows XP (Open Art)",
+  "provenance": "Constructed from ReactOS cursor assets (win32ss/user/user32/resources/ocr_*.cur, GPL-2.0-or-later), extracted and rendered at 32x32 (96 DPI) and 48x48 (144 DPI) with verified hotspots for all 15 cursor roles.",
+  "licence": "GPL-2.0-or-later",
+  "sources": {
+    "reactos": {
+      "title": "ReactOS Project Cursors",
+      "licence": "GPL-2.0-or-later",
+      "url": "https://github.com/reactos/reactos",
+      "commit": "974a4464497c68c1ebcf41ab372bec2c010e6f8b",
+      "licence_file": "COPYING"
+    }
+  },
+  "cursors": {
+    "Arrow": {
+      "file": "arrow.cur",
+      "hotspot_32": [
+        2,
+        2
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_normal.cur",
+      "description": "ReactOS `ocr_normal.cur` (32-bit white arrow with drop shadow)"
+    },
+    "Help": {
+      "file": "help.cur",
+      "hotspot_32": [
+        2,
+        2
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_help.cur",
+      "description": "ReactOS `ocr_help.cur` (arrow with question mark, hotspot at arrow tip)"
+    },
+    "AppStarting": {
+      "file": "appstarting.ani",
+      "hotspot_32": [
+        2,
+        2
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_appstarting.cur",
+      "description": "ReactOS `ocr_appstarting.cur` packaged as RIFF ACON `.ani`"
+    },
+    "Wait": {
+      "file": "wait.ani",
+      "hotspot_32": [
+        16,
+        16
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_wait.cur",
+      "description": "ReactOS `ocr_wait.cur` (hourglass) packaged as RIFF ACON `.ani`"
+    },
+    "Crosshair": {
+      "file": "crosshair.cur",
+      "hotspot_32": [
+        11,
+        11
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_cross.cur",
+      "description": "ReactOS `ocr_cross.cur` (precision crosshair)"
+    },
+    "IBeam": {
+      "file": "ibeam.cur",
+      "hotspot_32": [
+        6,
+        9
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_ibeam.cur",
+      "description": "ReactOS `ocr_ibeam.cur` (text select I-beam)"
+    },
+    "NWPen": {
+      "file": "handwriting.cur",
+      "hotspot_32": [
+        1,
+        1
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_pen.cur",
+      "description": "ReactOS `ocr_pen.cur` (handwriting pen, hotspot at top-left nib tip)"
+    },
+    "No": {
+      "file": "no.cur",
+      "hotspot_32": [
+        13,
+        13
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_no.cur",
+      "description": "ReactOS `ocr_no.cur` (unavailable slash circle, hotspot at circle centre)"
+    },
+    "SizeNS": {
+      "file": "sizens.cur",
+      "hotspot_32": [
+        15,
+        15
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_sizens.cur",
+      "description": "ReactOS `ocr_sizens.cur` (vertical resize double arrow)"
+    },
+    "SizeWE": {
+      "file": "sizewe.cur",
+      "hotspot_32": [
+        15,
+        15
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_sizewe.cur",
+      "description": "ReactOS `ocr_sizewe.cur` (horizontal resize double arrow)"
+    },
+    "SizeNWSE": {
+      "file": "sizenwse.cur",
+      "hotspot_32": [
+        15,
+        15
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_sizenwse.cur",
+      "description": "ReactOS `ocr_sizenwse.cur` (diagonal NW-SE resize double arrow)"
+    },
+    "SizeNESW": {
+      "file": "sizenesw.cur",
+      "hotspot_32": [
+        15,
+        15
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_sizenesw.cur",
+      "description": "ReactOS `ocr_sizenesw.cur` (diagonal NE-SW resize double arrow)"
+    },
+    "SizeAll": {
+      "file": "sizeall.cur",
+      "hotspot_32": [
+        15,
+        15
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_sizeall.cur",
+      "description": "ReactOS `ocr_sizeall.cur` (four-way move arrow)"
+    },
+    "UpArrow": {
+      "file": "uparrow.cur",
+      "hotspot_32": [
+        15,
+        6
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_up.cur",
+      "description": "ReactOS `ocr_up.cur` (alternate select upward arrow)"
+    },
+    "Hand": {
+      "file": "hand.cur",
+      "hotspot_32": [
+        9,
+        2
+      ],
+      "source_cur": "reactos:win32ss/user/user32/resources/ocr_hand.cur",
+      "description": "ReactOS `ocr_hand.cur` (link select pointing hand)"
+    }
+  }
+}

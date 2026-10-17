@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): open look-alike icons and cursors for XP and Windows 11
 
-Status: ready, 2026-10-16. Assignee: Gemini.
+Status: done, 2026-10-17 (merged after two rounds of review). Assignee: Gemini.
 
 ## Goal
 
@@ -236,3 +236,25 @@ and the others listed in review 1. Put the slot into `xp.json` the same way. The
 
 For the record: while preparing example 2, I printed a few pixel values of the XP icon with a tool. That breaks our
 own rule, so the numbers were discarded and every colour above was chosen by eye. Do not sample, even to "check".
+
+## Review 2 (Claude, 2026-10-17): accepted, squash-merged
+
+`d30219a6` addresses review 1. Rechecked from a fresh clone in `wexbuild`, with ReactOS fetched sparsely at
+`974a446` as packaging does:
+- All four builds pass: Fluent and XP icons, Fluent and XP cursors.
+- All 201 images at 256 px are 8-bit.
+- The XP set now looks like XP: yellow folders, a blue Recycle Bin, a star for Favorites, a red Shut Down, and the
+  Log Off example.
+- The Windows 11 cursors now have the originals' size at 32 and 48 px. No cursor file matches a Windows file byte
+  for byte, and the difference against the originals is 0.10–0.20 RMSE, so none is a copy. Hotspots are at the
+  arrow tip, and at the centre for No and the resize cursors.
+- 220 and 269 are gone from both mappings.
+
+Fixed at merge:
+- `main`'s Keyboard icon was mapped to id 101, which `main.cpl` does not have; its keyboard icon is
+  `IDI_KEYBD` = 200. It is renamed in both mappings and the provenance docs are regenerated.
+- The module id list in `OPEN_ART.md` now matches the mappings. Every pack id was checked against the built
+  modules.
+
+Open (small, next time the builder is touched):
+- `build_iconpack.py` still adds a cursor set while building an icon pack.

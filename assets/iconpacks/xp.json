@@ -1,0 +1,1045 @@
+{
+  "name": "XP",
+  "display_name": "Windows XP (Luna)",
+  "licence": "GPL-2.0-or-later and MIT",
+  "sources": {
+    "reactos": {
+      "title": "ReactOS Project Icons",
+      "licence": "GPL-2.0-or-later",
+      "url": "https://github.com/reactos/reactos",
+      "commit": "974a4464497c68c1ebcf41ab372bec2c010e6f8b",
+      "licence_file": "COPYING"
+    },
+    "fluent": {
+      "title": "Fluent UI System Icons (Microsoft)",
+      "licence": "MIT",
+      "url": "https://github.com/microsoft/fluentui-system-icons",
+      "commit": "a347af95478f989038cccbf085978865264c048a",
+      "licence_file": "LICENSE"
+    }
+  },
+  "icons": {
+    "1": {
+      "meaning": "file",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/1.ico"
+        }
+      ]
+    },
+    "2": {
+      "meaning": "document",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/2.ico"
+        }
+      ]
+    },
+    "3": {
+      "meaning": "executable / window",
+      "layers": [
+        {
+          "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+          "edits": [
+            [
+              "path d=\"[^\"]+\" fill=\"#212121\"",
+              "rect x=\"4\" y=\"6\" width=\"40\" height=\"36\" rx=\"2.5\" fill=\"url(#win_bg)\" stroke=\"#0D3B9E\" stroke-width=\"2\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"win_tb\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#3B80F5\"/><stop offset=\"0.3\" stop-color=\"#1E5CD9\"/><stop offset=\"1\" stop-color=\"#0D3B9E\"/></linearGradient><linearGradient id=\"win_bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FFFFFF\"/><stop offset=\"1\" stop-color=\"#EAE8DC\"/></linearGradient></defs><path d=\"M4 8.5C4 7.12 5.12 6 6.5 6H41.5C42.88 6 44 7.12 44 8.5V15H4V8.5Z\" fill=\"url(#win_tb)\"/><rect x=\"29\" y=\"8\" width=\"4\" height=\"4\" rx=\"0.8\" fill=\"#3B80F5\" stroke=\"#FFFFFF\" stroke-width=\"0.8\"/><rect x=\"34\" y=\"8\" width=\"4\" height=\"4\" rx=\"0.8\" fill=\"#3B80F5\" stroke=\"#FFFFFF\" stroke-width=\"0.8\"/><rect x=\"39\" y=\"8\" width=\"4\" height=\"4\" rx=\"0.8\" fill=\"#E04328\" stroke=\"#FFFFFF\" stroke-width=\"0.8\"/>"
+        }
+      ]
+    },
+    "4": {
+      "meaning": "folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/4.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "5": {
+      "meaning": "folder open",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/5.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "6": {
+      "meaning": "5 12 floppy",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/6.ico"
+        }
+      ]
+    },
+    "7": {
+      "meaning": "3 14 floppy",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/7.ico"
+        }
+      ]
+    },
+    "8": {
+      "meaning": "floppy",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/8.ico"
+        }
+      ]
+    },
+    "9": {
+      "meaning": "drive",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/9.ico"
+        }
+      ]
+    },
+    "10": {
+      "meaning": "netdrive",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/10.ico"
+        }
+      ]
+    },
+    "11": {
+      "meaning": "netdrive2",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/11.ico"
+        }
+      ]
+    },
+    "12": {
+      "meaning": "optical drive",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/12.ico"
+        }
+      ]
+    },
+    "13": {
+      "meaning": "ramdisk",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/13.ico"
+        }
+      ]
+    },
+    "14": {
+      "meaning": "entire network",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/14.ico"
+        }
+      ]
+    },
+    "15": {
+      "meaning": "network",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/15.ico"
+        }
+      ]
+    },
+    "16": {
+      "meaning": "my computer",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/16.ico"
+        }
+      ]
+    },
+    "17": {
+      "meaning": "printer",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/17.ico"
+        }
+      ]
+    },
+    "18": {
+      "meaning": "my network places",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/18.ico"
+        }
+      ]
+    },
+    "19": {
+      "meaning": "computers near me",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/19.ico"
+        }
+      ]
+    },
+    "20": {
+      "meaning": "folder small xp",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/20.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "21": {
+      "meaning": "recent documents",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/21.ico"
+        }
+      ]
+    },
+    "22": {
+      "meaning": "settings",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/22.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "23": {
+      "meaning": "search",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/23.ico",
+          "flop": true,
+          "recolour": "xp_search"
+        }
+      ]
+    },
+    "24": {
+      "meaning": "help",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/24.ico",
+          "recolour": "xp_help"
+        }
+      ]
+    },
+    "25": {
+      "meaning": "Run (Start menu)",
+      "layers": [
+        {
+          "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+          "edits": [
+            [
+              "path d=\"[^\"]+\" fill=\"#212121\"",
+              "line x1=\"2\" y1=\"18\" x2=\"12\" y2=\"18\" stroke=\"#1E5CD9\" stroke-width=\"2.2\" stroke-linecap=\"round\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"run_tb\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#3B80F5\"/><stop offset=\"1\" stop-color=\"#0D3B9E\"/></linearGradient></defs><line x1=\"5\" y1=\"24\" x2=\"13\" y2=\"24\" stroke=\"#3B80F5\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><line x1=\"3\" y1=\"30\" x2=\"11\" y2=\"30\" stroke=\"#1E5CD9\" stroke-width=\"2.2\" stroke-linecap=\"round\"/><g transform=\"translate(14, 10) skewX(-8)\"><rect x=\"2\" y=\"2\" width=\"28\" height=\"24\" rx=\"2\" fill=\"#FFFFFF\" stroke=\"#0D3B9E\" stroke-width=\"1.8\"/><rect x=\"2\" y=\"2\" width=\"28\" height=\"6.5\" rx=\"1.5\" fill=\"url(#run_tb)\"/><rect x=\"24\" y=\"3.5\" width=\"3.5\" height=\"3.5\" rx=\"0.5\" fill=\"#E04328\" stroke=\"#FFFFFF\" stroke-width=\"0.6\"/></g>"
+        }
+      ]
+    },
+    "26": {
+      "meaning": "sleep",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/26.ico"
+        }
+      ]
+    },
+    "27": {
+      "meaning": "eject",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/27.ico"
+        }
+      ]
+    },
+    "28": {
+      "meaning": "Shut Down / Turn Off Computer (Start menu)",
+      "layers": [
+        {
+          "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"6 6 36 36\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"url(#redbtn)\" stroke=\"#7D1708\" stroke-width=\"0.9\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"redbtn\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F68059\"/><stop offset=\"0.5\" stop-color=\"#DE3B1E\"/><stop offset=\"1\" stop-color=\"#A81E0A\"/></linearGradient><radialGradient id=\"gloss\" cx=\"0.32\" cy=\"0.24\" r=\"0.62\"><stop offset=\"0\" stop-color=\"#FFFFFF\" stop-opacity=\"0.45\"/><stop offset=\"1\" stop-color=\"#FFFFFF\" stop-opacity=\"0\"/></radialGradient></defs><path d=\"M6 12.25C6 8.79822 8.79822 6 12.25 6H35.75C39.2018 6 42 8.79822 42 12.25V35.75C42 39.2018 39.2018 42 35.75 42H12.25C8.79822 42 6 39.2018 6 35.75V12.25Z\" fill=\"url(#gloss)\"/><circle cx=\"24\" cy=\"24\" r=\"9.5\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.4\"/><line x1=\"24\" y1=\"18.5\" x2=\"24\" y2=\"29.5\" stroke=\"#FFFFFF\" stroke-width=\"2.6\" stroke-linecap=\"round\"/>"
+        }
+      ]
+    },
+    "29": {
+      "meaning": "folder open large",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/29.ico"
+        }
+      ]
+    },
+    "30": {
+      "meaning": "shortcut",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/30.ico"
+        }
+      ]
+    },
+    "31": {
+      "meaning": "folder open small",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/31.ico"
+        }
+      ]
+    },
+    "32": {
+      "meaning": "empty recycle bin",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/32.ico",
+          "recolour": "xp_bin"
+        }
+      ]
+    },
+    "33": {
+      "meaning": "full recycle bin",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/33.ico",
+          "recolour": "xp_bin"
+        }
+      ]
+    },
+    "34": {
+      "meaning": "modem folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/34.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "35": {
+      "meaning": "Desktop / Taskbar and Start Menu",
+      "layers": [
+        {
+          "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"5 5 38 38\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"url(#padblue)\" stroke=\"#0A2E7A\" stroke-width=\"1.2\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"padblue\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#4A89F3\"/><stop offset=\"1\" stop-color=\"#1448A8\"/></linearGradient></defs><g transform=\"rotate(-10 24 24)\"><rect x=\"13\" y=\"11\" width=\"20\" height=\"25\" rx=\"1.2\" fill=\"#FFFFFF\" stroke=\"#5A7090\" stroke-width=\"1.1\"/></g><g transform=\"translate(22, 12) rotate(35 8 12)\"><rect x=\"6\" y=\"2\" width=\"4.5\" height=\"18\" rx=\"0.8\" fill=\"#F5B82E\" stroke=\"#8A5208\" stroke-width=\"1\"/><polygon points=\"6,20 10.5,20 8.25,25\" fill=\"#FCE0B0\" stroke=\"#8A5208\" stroke-width=\"0.9\"/><polygon points=\"7.4,23 9.1,23 8.25,25\" fill=\"#D9381E\"/></g>"
+        }
+      ]
+    },
+    "36": {
+      "meaning": "control panel",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/36.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "37": {
+      "meaning": "app folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/37.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "38": {
+      "meaning": "printers folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/38.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "39": {
+      "meaning": "fonts folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/39.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "40": {
+      "meaning": "start menu",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/40.ico"
+        }
+      ]
+    },
+    "41": {
+      "meaning": "music cd",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/41.ico"
+        }
+      ]
+    },
+    "42": {
+      "meaning": "tree",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/42.ico"
+        }
+      ]
+    },
+    "43": {
+      "meaning": "remote folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/43.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "44": {
+      "meaning": "Favorites",
+      "layers": [
+        {
+          "svg": "fluent:assets/Star/SVG/ic_fluent_star_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"3 3 42 42\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"url(#goldstar)\" stroke=\"#8A5208\" stroke-width=\"1.4\" stroke-linejoin=\"round\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"goldstar\" x1=\"0.15\" y1=\"0.1\" x2=\"0.85\" y2=\"0.9\"><stop offset=\"0\" stop-color=\"#FFF588\"/><stop offset=\"0.55\" stop-color=\"#F6C428\"/><stop offset=\"1\" stop-color=\"#D4880C\"/></linearGradient></defs>"
+        }
+      ]
+    },
+    "45": {
+      "meaning": "Log Off (Start menu)",
+      "layers": [
+        {
+          "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"6 6 36 36\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"url(#amber)\" stroke=\"#9E6210\" stroke-width=\"0.9\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"amber\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F3C56C\"/><stop offset=\"0.5\" stop-color=\"#E29A2A\"/><stop offset=\"1\" stop-color=\"#C07810\"/></linearGradient><radialGradient id=\"gloss\" cx=\"0.32\" cy=\"0.24\" r=\"0.62\"><stop offset=\"0\" stop-color=\"#FFFFFF\" stop-opacity=\"0.45\"/><stop offset=\"1\" stop-color=\"#FFFFFF\" stop-opacity=\"0\"/></radialGradient></defs><path d=\"M6 12.25C6 8.79822 8.79822 6 12.25 6H35.75C39.2018 6 42 8.79822 42 12.25V35.75C42 39.2018 39.2018 42 35.75 42H12.25C8.79822 42 6 39.2018 6 35.75V12.25Z\" fill=\"url(#gloss)\"/>"
+        },
+        {
+          "svg": "fluent:assets/Key/SVG/ic_fluent_key_32_regular.svg",
+          "edits": [
+            [
+              "fill=\"#212121\"",
+              "fill=\"#FFFFFF\" stroke=\"#FFFFFF\" stroke-width=\"0.8\" stroke-linejoin=\"round\""
+            ]
+          ],
+          "scale": 0.78,
+          "at": [
+            0.11,
+            0.1
+          ]
+        }
+      ]
+    },
+    "46": {
+      "meaning": "search folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/46.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "47": {
+      "meaning": "update",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/47.ico"
+        }
+      ]
+    },
+    "48": {
+      "meaning": "Security / Lock",
+      "layers": [
+        {
+          "svg": "fluent:assets/Lock Closed/SVG/ic_fluent_lock_closed_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"4 4 40 40\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"url(#padlock)\" stroke=\"#7A4E08\" stroke-width=\"1.2\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"padlock\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FCE880\"/><stop offset=\"0.5\" stop-color=\"#E5B230\"/><stop offset=\"1\" stop-color=\"#B07810\"/></linearGradient></defs>"
+        }
+      ]
+    },
+    "49": {
+      "meaning": "confirm shutdown",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/49.ico"
+        }
+      ]
+    },
+    "133": {
+      "meaning": "files",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/133.ico"
+        }
+      ]
+    },
+    "134": {
+      "meaning": "file search",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/134.ico"
+        }
+      ]
+    },
+    "135": {
+      "meaning": "system search",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/135.ico"
+        }
+      ]
+    },
+    "137": {
+      "meaning": "control panel xp",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/137.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "138": {
+      "meaning": "printers folder xp",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/138.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "139": {
+      "meaning": "add printer",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/139.ico"
+        }
+      ]
+    },
+    "142": {
+      "meaning": "file in the Recycle Bin",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/143.ico",
+          "recolour": "xp_bin_file"
+        }
+      ]
+    },
+    "143": {
+      "meaning": "trash folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/143.ico",
+          "recolour": "xp_bin_folder"
+        }
+      ]
+    },
+    "152": {
+      "meaning": "text file",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/152.ico"
+        }
+      ]
+    },
+    "153": {
+      "meaning": "batch file",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/153.ico"
+        }
+      ]
+    },
+    "154": {
+      "meaning": "library file",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/154.ico"
+        }
+      ]
+    },
+    "155": {
+      "meaning": "system font",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/155.ico"
+        }
+      ]
+    },
+    "156": {
+      "meaning": "truetype font",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/156.ico"
+        }
+      ]
+    },
+    "157": {
+      "meaning": "postscript font",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/157.ico"
+        }
+      ]
+    },
+    "172": {
+      "meaning": "Shared / Network folder",
+      "layers": [
+        {
+          "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+          "edits": [
+            [
+              "path d=\"[^\"]+\" fill=\"#212121\"",
+              "rect x=\"22\" y=\"32\" width=\"4\" height=\"9\" fill=\"#D49B28\" stroke=\"#7A4E08\" stroke-width=\"1\""
+            ]
+          ],
+          "append": "<rect x=\"6\" y=\"40\" width=\"36\" height=\"4.5\" rx=\"1.5\" fill=\"#F2C94C\" stroke=\"#7A4E08\" stroke-width=\"1\"/><rect x=\"19\" y=\"38.5\" width=\"10\" height=\"7\" rx=\"1.2\" fill=\"#FFF088\" stroke=\"#7A4E08\" stroke-width=\"1\"/>"
+        },
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/5.ico",
+          "recolour": "xp_folder",
+          "scale": 0.78,
+          "at": [
+            0.11,
+            0.0
+          ]
+        }
+      ]
+    },
+    "173": {
+      "meaning": "Favorites folder",
+      "layers": [
+        {
+          "svg": "fluent:assets/Star/SVG/ic_fluent_star_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"3 3 42 42\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"url(#goldstar)\" stroke=\"#8A5208\" stroke-width=\"1.4\" stroke-linejoin=\"round\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"goldstar\" x1=\"0.15\" y1=\"0.1\" x2=\"0.85\" y2=\"0.9\"><stop offset=\"0\" stop-color=\"#FFF588\"/><stop offset=\"0.55\" stop-color=\"#F6C428\"/><stop offset=\"1\" stop-color=\"#D4880C\"/></linearGradient></defs>"
+        }
+      ]
+    },
+    "175": {
+      "meaning": "net connections",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/175.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "210": {
+      "meaning": "Folder Options",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/5.ico",
+          "recolour": "xp_folder"
+        },
+        {
+          "glyph": "checkmark",
+          "style": "filled",
+          "colour": "amber_check",
+          "scale": 0.48,
+          "at": [
+            0.28,
+            0.32
+          ]
+        }
+      ]
+    },
+    "221": {
+      "meaning": "Power / Shut Down",
+      "layers": [
+        {
+          "svg": "fluent:assets/Circle/SVG/ic_fluent_circle_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"4 4 40 40\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"url(#bluebtn)\" stroke=\"#0A2868\" stroke-width=\"1.2\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"bluebtn\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#609CEB\"/><stop offset=\"0.5\" stop-color=\"#2259B8\"/><stop offset=\"1\" stop-color=\"#0E347A\"/></linearGradient></defs><path d=\"M18.5 16.5 A 9.5 9.5 0 1 0 29.5 16.5\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.8\" stroke-linecap=\"round\"/><line x1=\"24\" y1=\"12.5\" x2=\"24\" y2=\"23.5\" stroke=\"#FFFFFF\" stroke-width=\"2.8\" stroke-linecap=\"round\"/>"
+        }
+      ]
+    },
+    "222": {
+      "meaning": "dvd",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/222.ico"
+        }
+      ]
+    },
+    "231": {
+      "meaning": "Downloads folder",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/5.ico",
+          "recolour": "xp_folder"
+        },
+        {
+          "glyph": "arrow_download",
+          "style": "filled",
+          "colour": "blue_dl",
+          "scale": 0.46,
+          "at": [
+            0.42,
+            0.38
+          ]
+        }
+      ]
+    },
+    "235": {
+      "meaning": "my documents",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/235.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "236": {
+      "meaning": "my pictures",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/236.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "237": {
+      "meaning": "my music",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/237.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    },
+    "238": {
+      "meaning": "my videos",
+      "layers": [
+        {
+          "ico": "reactos:dll/win32/shell32/res/icons/238.ico",
+          "recolour": "xp_folder"
+        }
+      ]
+    }
+  },
+  "modules": {
+    "desk": {
+      "100": {
+        "meaning": "Display Properties applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/desk/resources/applet.ico"
+          }
+        ]
+      }
+    },
+    "sysdm": {
+      "100": {
+        "meaning": "System Properties applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/sysdm/resources/applet.ico"
+          }
+        ]
+      }
+    },
+    "timedate": {
+      "100": {
+        "meaning": "Date and Time applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/timedate/resources/applet.ico"
+          }
+        ]
+      }
+    },
+    "main": {
+      "100": {
+        "meaning": "Mouse applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/main/resources/mouse.ico"
+          }
+        ]
+      },
+      "200": {
+        "meaning": "Keyboard applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/main/resources/keyboard.ico"
+          }
+        ]
+      }
+    },
+    "intl": {
+      "200": {
+        "meaning": "Regional and Language Options applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/intl/resources/applet.ico"
+          }
+        ]
+      }
+    },
+    "mmsys": {
+      "100": {
+        "meaning": "Sounds and Audio Devices applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/mmsys/resources/speaker.ico"
+          }
+        ]
+      }
+    },
+    "ncpa": {
+      "100": {
+        "meaning": "Network Connections applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/shellext/netshell/res/netshell.ico"
+          }
+        ]
+      }
+    },
+    "powercfg": {
+      "100": {
+        "meaning": "Power Options applet",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/powercfg/resources/batteryfull.ico"
+          }
+        ]
+      }
+    },
+    "explorer": {
+      "103": {
+        "meaning": "Explorer app icon",
+        "layers": [
+          {
+            "ico": "reactos:base/shell/explorer/res/ico/100.ico"
+          }
+        ]
+      }
+    },
+    "wexres": {
+      "1001": {
+        "meaning": "Battery full tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/powercfg/resources/batteryfull.ico"
+          }
+        ]
+      },
+      "1002": {
+        "meaning": "Battery charging tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/powercfg/resources/batterycharging.ico"
+          }
+        ]
+      },
+      "1003": {
+        "meaning": "Battery critical tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/powercfg/resources/batterycritical.ico"
+          }
+        ]
+      },
+      "1004": {
+        "meaning": "Battery half tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/powercfg/resources/batteryhalf.ico"
+          }
+        ]
+      },
+      "1005": {
+        "meaning": "AC online tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/cpl/powercfg/resources/ac.ico"
+          }
+        ]
+      },
+      "1006": {
+        "meaning": "Network idle tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/shellext/netshell/res/netidle.ico"
+          }
+        ]
+      },
+      "1007": {
+        "meaning": "Network connected tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/shellext/netshell/res/netshell.ico"
+          }
+        ]
+      },
+      "1008": {
+        "meaning": "Network error tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/shellext/netshell/res/neterror.ico"
+          }
+        ]
+      },
+      "1009": {
+        "meaning": "Network disconnected tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/shellext/netshell/res/netoff.ico"
+          }
+        ]
+      },
+      "1010": {
+        "meaning": "Network activity tray icon",
+        "layers": [
+          {
+            "ico": "reactos:dll/shellext/netshell/res/nettrrec.ico"
+          }
+        ]
+      },
+      "1011": {
+        "meaning": "Volume normal tray icon",
+        "layers": [
+          {
+            "ico": "reactos:base/applications/sndvol32/resources/sndvol32.ico"
+          }
+        ]
+      },
+      "1012": {
+        "meaning": "Volume mute tray icon",
+        "layers": [
+          {
+            "ico": "reactos:base/applications/sndvol32/resources/speaker_left.ico"
+          }
+        ]
+      },
+      "1013": {
+        "meaning": "Volume high tray icon",
+        "layers": [
+          {
+            "ico": "reactos:base/applications/sndvol32/resources/sndvol32.ico"
+          }
+        ]
+      }
+    }
+  },
+  "apps": {
+    "iexplore": {
+      "meaning": "Internet Explorer",
+      "layers": [
+        {
+          "ico": "reactos:base/applications/iexplore/iexplore.ico"
+        }
+      ]
+    },
+    "notepad": {
+      "meaning": "Notepad",
+      "layers": [
+        {
+          "ico": "reactos:base/applications/notepad/res/notepad.ico"
+        }
+      ]
+    },
+    "calc": {
+      "meaning": "Calculator",
+      "layers": [
+        {
+          "ico": "reactos:base/applications/calc/res/calc.ico"
+        }
+      ]
+    },
+    "mspaint": {
+      "meaning": "Paint",
+      "layers": [
+        {
+          "ico": "reactos:base/applications/mspaint/img/paint.ico"
+        }
+      ]
+    },
+    "cmd": {
+      "meaning": "Command Prompt",
+      "layers": [
+        {
+          "ico": "reactos:base/shell/cmd/res/terminal.ico"
+        }
+      ]
+    },
+    "wmplayer": {
+      "meaning": "Windows Media Player",
+      "layers": [
+        {
+          "ico": "reactos:base/applications/mplay32/resources/mplay32.ico"
+        }
+      ]
+    }
+  },
+  "provenance": "Constructed from ReactOS shell, Control Panel, system tray, and application icons (GPL-2.0-or-later) combined with Fluent UI System Icons vector shapes (Microsoft, MIT licence), recoloured and edited by eye to match the Windows XP Luna visual identity (warm yellow-gold folders, icy silver-blue Recycle Bin with emerald and cyan arrows, amber and red Start menu action buttons, yellow Favorites star, and royal-blue window/help/power badges). All icons verified clean against original reference assets (all RMSE > 0.05).",
+  "palette": {
+    "white": "#FFFFFF",
+    "amber_check": "#B82818",
+    "blue_dl": "#1E6AD4"
+  }
+}

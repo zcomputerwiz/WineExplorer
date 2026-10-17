@@ -13,7 +13,7 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 
 ## Shell Icons (xpres_shell32.dll)
 
-| Id | Meaning | Layers, bottom to top (Fluent glyph, style, colour, scale, position; or source SVG and edits) |
+| Id | Meaning | Layers, bottom to top (source, glyph/layer, colours, transforms) |
 |---|---|---|
 | 1 | file | `document` filled #FFFFFF; `document` regular #8C8C8C |
 | 2 | document | `document_text` filled #FFFFFF; `document_text` regular #8C8C8C |
@@ -82,15 +82,13 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | 173 | Favorites folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `star` filled #F5C33B, 0.5x at (0.46, 0.46); `star` regular #C98B12, 0.5x at (0.46, 0.46) |
 | 175 | network connections | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `plug_connected` filled #1A8C9C, 0.5x at (0.46, 0.46) |
 | 210 | folder with a check mark | `folder` filled #FFD15C; `folder` regular #D49A2A; `checkmark_square` filled #1E79D6, 0.5x at (0.46, 0.46) |
-| 220 | User Accounts | `person_circle` filled #1E79D6; `person_circle` regular #145AA0 |
 | 221 | turn off computer | `circle` filled #1E79D6; `power` regular #FFFFFF, 0.62x at (0.19, 0.19) |
 | 222 | DVD drive | `hard_drive` filled #E3E3E3; `hard_drive` regular #6E6E6E; `circle` filled #C8C8C8, 0.45x at (0.5, 0.02) |
-| 231 | Downloads folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `arrow_download` filled #1E79D6, 0.5x at (0.46, 0.46); `arrow_download` regular #145AA0, 0.5x at (0.46, 0.46) |
-| 235 | My Documents folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `document` filled #FFFFFF, 0.5x at (0.46, 0.46); `document` regular #8C8C8C, 0.5x at (0.46, 0.46) |
-| 236 | My Pictures folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `image` filled #1A8C9C, 0.5x at (0.46, 0.46); `image` regular #005B70, 0.5x at (0.46, 0.46) |
-| 237 | My Music folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `music_note_2` filled #D9362B, 0.5x at (0.46, 0.46); `music_note_2` regular #A80000, 0.5x at (0.46, 0.46) |
-| 238 | My Videos folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `video` filled #1E79D6, 0.5x at (0.46, 0.46); `video` regular #145AA0, 0.5x at (0.46, 0.46) |
-| 269 | Shared Documents folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `people` filled #1E79D6, 0.5x at (0.46, 0.46); `people` regular #145AA0, 0.5x at (0.46, 0.46) |
+| 231 | Downloads folder | `folder` filled #2B88D8; `folder` regular #1B66A8; `arrow_download` filled #FFFFFF, 0.42x at (0.29, 0.38) |
+| 235 | My Documents folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `document` filled #FFFFFF, 0.44x at (0.28, 0.36); `document` regular #8C8C8C, 0.44x at (0.28, 0.36) |
+| 236 | My Pictures folder | `folder` filled #17A2B8; `folder` regular #117A8B; `image` filled #FFFFFF, 0.42x at (0.29, 0.38) |
+| 237 | My Music folder | `folder` filled #E85D3F; `folder` regular #C0392B; `music_note_2` filled #FFFFFF, 0.42x at (0.29, 0.38) |
+| 238 | My Videos folder | `folder` filled #8E44AD; `folder` regular #6C3483; `video` filled #FFFFFF, 0.42x at (0.29, 0.38) |
 
 ## Module: xpres_desk.dll
 
@@ -115,7 +113,7 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | Id | Meaning | Layers |
 |---|---|---|
 | 100 | Mouse Properties | `cursor` filled #4A4A4A; `cursor` regular #242424 |
-| 101 | Keyboard Properties | `keyboard` filled #6E6E6E; `keyboard` regular #323130 |
+| 200 | Keyboard Properties | `keyboard` filled #6E6E6E; `keyboard` regular #323130 |
 
 ## Module: xpres_mmsys.dll
 
@@ -182,9 +180,3 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | mspaint.ico | Paint | `paint_brush` filled #D13438; `paint_brush` regular #A4262C |
 | notepad.ico | Notepad | `notepad` filled #1E79D6; `notepad` regular #145AA0 |
 | wmplayer.ico | Windows Media Player | `circle` filled #F7630C; `circle` regular #CA5010; `play` filled #FFFFFF, 0.5x at (0.28, 0.25) |
-
-## Cursors (Cursors/*.cur, *.ani)
-
-Drawn from vector geometry and Fluent UI System Icons (Cursor, Hand Draw, Pen) by `scripts/build_fluent_cursors.py`.
-Rip-checked clean against host Windows genuine cursors (all RMSE > 0.05).
-
