@@ -397,6 +397,32 @@ def build_from_mapping(mapping_path, out_dir, sources, png_dir=None):
         if not os.path.isfile(src_lic):
             raise SystemExit(f"missing licence file: {src_lic}")
         shutil.copy(src_lic, os.path.join(cursors_dest, f"LICENSE-{s}"))
+    theme_file = os.path.join(out_dir, name, f"{name}.theme")
+    if os.path.isfile(theme_file):
+        theme = open(theme_file).read()
+        cursor_sec = f"""[Control Panel\\Cursors]
+Arrow=%ResourceDir%\\Themes\\{name}\\Cursors\\arrow.cur
+Help=%ResourceDir%\\Themes\\{name}\\Cursors\\help.cur
+AppStarting=%ResourceDir%\\Themes\\{name}\\Cursors\\appstarting.ani
+Wait=%ResourceDir%\\Themes\\{name}\\Cursors\\wait.ani
+Crosshair=%ResourceDir%\\Themes\\{name}\\Cursors\\crosshair.cur
+IBeam=%ResourceDir%\\Themes\\{name}\\Cursors\\ibeam.cur
+NWPen=%ResourceDir%\\Themes\\{name}\\Cursors\\handwriting.cur
+No=%ResourceDir%\\Themes\\{name}\\Cursors\\no.cur
+SizeNS=%ResourceDir%\\Themes\\{name}\\Cursors\\sizens.cur
+SizeWE=%ResourceDir%\\Themes\\{name}\\Cursors\\sizewe.cur
+SizeNWSE=%ResourceDir%\\Themes\\{name}\\Cursors\\sizenwse.cur
+SizeNESW=%ResourceDir%\\Themes\\{name}\\Cursors\\sizenesw.cur
+SizeAll=%ResourceDir%\\Themes\\{name}\\Cursors\\sizeall.cur
+UpArrow=%ResourceDir%\\Themes\\{name}\\Cursors\\uparrow.cur
+Hand=%ResourceDir%\\Themes\\{name}\\Cursors\\hand.cur
+DefaultValue={data['display_name']}"""
+        if "[Control Panel\\Cursors]" in theme:
+            theme = re.sub(r"\[Control Panel\\Cursors\][^\[]*", lambda m: cursor_sec + "\n\n", theme)
+        else:
+            theme += "\n" + cursor_sec + "\n"
+        open(theme_file, "w").write(theme)
+
     open(os.path.join(cursors_dest, "LICENSE"), "w").write(
         f"{data['display_name']}: {data['licence']}.\nSee docs/cursors/{name.lower()}.md in the WineExplorer repository.\n"
     )
