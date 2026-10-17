@@ -1,43 +1,36 @@
-=== Building Fluent Icon Pack ===
-/tmp/open_art_build/Fluent: complete icon pack built from fluent, tela
-
-=== Building XP Icon Pack ===
-/tmp/open_art_build/XP: complete icon pack built from reactos, wine
-
-=== Building Fluent Cursors ===
-  Arrow -> arrow.cur (32 & 48 px, hotspot [1, 1] / [2, 2])
-  Help -> help.cur (32 & 48 px, hotspot [1, 1] / [2, 2])
-  AppStarting -> appstarting.ani (32 & 48 px, hotspot [1, 1] / [2, 2])
-  Wait -> wait.ani (32 & 48 px, hotspot [16, 16] / [24, 24])
-  Crosshair -> crosshair.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  IBeam -> ibeam.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  NWPen -> handwriting.cur (32 & 48 px, hotspot [5, 24] / [8, 36])
-  No -> no.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  SizeNS -> sizens.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  SizeWE -> sizewe.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  SizeNWSE -> sizenwse.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  SizeNESW -> sizenesw.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  SizeAll -> sizeall.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
-  UpArrow -> uparrow.cur (32 & 48 px, hotspot [16, 2] / [24, 3])
-  Hand -> hand.cur (32 & 48 px, hotspot [10, 2] / [15, 3])
-Updated cursors section in /tmp/open_art_build/Fluent/Fluent.theme
-Successfully built all 15 cursor roles in /tmp/open_art_build/Fluent/Cursors
-
-=== Building XP Cursors ===
-  Arrow -> arrow.cur (32 & 48 px, hotspot [2, 2] / [3, 3])
-  Help -> help.cur (32 & 48 px, hotspot [0, 0] / [0, 0])
-  AppStarting -> appstarting.ani (32 & 48 px, hotspot [2, 2] / [3, 3])
-  Wait -> wait.ani (32 & 48 px, hotspot [16, 16] / [24, 24])
-  Crosshair -> crosshair.cur (32 & 48 px, hotspot [11, 11] / [16, 16])
-  IBeam -> ibeam.cur (32 & 48 px, hotspot [6, 9] / [9, 14])
-  NWPen -> pen.cur (32 & 48 px, hotspot [0, 0] / [0, 0])
-  No -> no.cur (32 & 48 px, hotspot [0, 0] / [0, 0])
-  SizeNS -> sizens.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
-  SizeWE -> sizewe.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
-  SizeNWSE -> sizenwse.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
-  SizeNESW -> sizenesw.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
-  SizeAll -> sizeall.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
-  UpArrow -> uparrow.cur (32 & 48 px, hotspot [15, 6] / [23, 9])
-  Hand -> hand.cur (32 & 48 px, hotspot [9, 2] / [14, 3])
-Updated cursors section in /tmp/open_art_build/XP/XP.theme
-Successfully built all 15 cursor roles in /tmp/open_art_build/XP/Cursors
+$ python3 scripts/build_iconpack.py assets/iconpacks/fluent.json /var/tmp/clean_out --source fluent=/root/iconsrc/fluentui-system-icons --source tela=/root/iconsrc/tela
+/var/tmp/clean_out/Fluent: complete icon pack built from fluent, tela
+$ python3 scripts/build_cursors.py assets/cursors/fluent.json /var/tmp/clean_out --source fluent=/root/iconsrc/fluentui-system-icons
+Built /var/tmp/clean_out/Fluent/Cursors/arrow.cur (hotspot 32px=(0,0), 48px=(0,0))
+Built /var/tmp/clean_out/Fluent/Cursors/help.cur (hotspot 32px=(0,0), 48px=(0,0))
+Built /var/tmp/clean_out/Fluent/Cursors/appstarting.ani (8 frames, hotspot 32px=(0,8), 48px=(0,12))
+Built /var/tmp/clean_out/Fluent/Cursors/wait.ani (8 frames, hotspot 32px=(16,16), 48px=(24,24))
+Built /var/tmp/clean_out/Fluent/Cursors/crosshair.cur (hotspot 32px=(15,16), 48px=(23,23))
+Built /var/tmp/clean_out/Fluent/Cursors/ibeam.cur (hotspot 32px=(15,16), 48px=(23,23))
+Built /var/tmp/clean_out/Fluent/Cursors/handwriting.cur (hotspot 32px=(0,0), 48px=(0,0))
+Built /var/tmp/clean_out/Fluent/Cursors/no.cur (hotspot 32px=(8,8), 48px=(12,12))
+Built /var/tmp/clean_out/Fluent/Cursors/sizens.cur (hotspot 32px=(4,11), 48px=(7,17))
+Built /var/tmp/clean_out/Fluent/Cursors/sizewe.cur (hotspot 32px=(11,4), 48px=(18,7))
+Built /var/tmp/clean_out/Fluent/Cursors/sizenwse.cur (hotspot 32px=(8,8), 48px=(12,12))
+Built /var/tmp/clean_out/Fluent/Cursors/sizenesw.cur (hotspot 32px=(8,8), 48px=(12,12))
+Built /var/tmp/clean_out/Fluent/Cursors/sizeall.cur (hotspot 32px=(11,11), 48px=(17,17))
+Built /var/tmp/clean_out/Fluent/Cursors/uparrow.cur (hotspot 32px=(4,0), 48px=(7,0))
+Built /var/tmp/clean_out/Fluent/Cursors/hand.cur (hotspot 32px=(6,0), 48px=(10,0))
+$ python3 scripts/build_iconpack.py assets/iconpacks/xp.json /var/tmp/clean_out --source reactos=/root/iconsrc/reactos --source fluent=/root/iconsrc/fluentui-system-icons
+/var/tmp/clean_out/XP: complete icon pack built from fluent, reactos
+$ python3 scripts/build_cursors.py assets/cursors/xp.json /var/tmp/clean_out --source reactos=/root/iconsrc/reactos
+Built /var/tmp/clean_out/XP/Cursors/arrow.cur from reactos:win32ss/user/user32/resources/ocr_normal.cur (hotspot 32px=(2, 2), 48px=(3, 3))
+Built /var/tmp/clean_out/XP/Cursors/help.cur from reactos:win32ss/user/user32/resources/ocr_help.cur (hotspot 32px=(2, 2), 48px=(3, 3))
+Built /var/tmp/clean_out/XP/Cursors/appstarting.ani from reactos:win32ss/user/user32/resources/ocr_appstarting.cur (hotspot 32px=(2, 2), 48px=(3, 3))
+Built /var/tmp/clean_out/XP/Cursors/wait.ani from reactos:win32ss/user/user32/resources/ocr_wait.cur (hotspot 32px=(16, 16), 48px=(24, 24))
+Built /var/tmp/clean_out/XP/Cursors/crosshair.cur from reactos:win32ss/user/user32/resources/ocr_cross.cur (hotspot 32px=(11, 11), 48px=(16, 16))
+Built /var/tmp/clean_out/XP/Cursors/ibeam.cur from reactos:win32ss/user/user32/resources/ocr_ibeam.cur (hotspot 32px=(6, 9), 48px=(9, 14))
+Built /var/tmp/clean_out/XP/Cursors/handwriting.cur from reactos:win32ss/user/user32/resources/ocr_pen.cur (hotspot 32px=(1, 1), 48px=(2, 2))
+Built /var/tmp/clean_out/XP/Cursors/no.cur from reactos:win32ss/user/user32/resources/ocr_no.cur (hotspot 32px=(13, 13), 48px=(20, 20))
+Built /var/tmp/clean_out/XP/Cursors/sizens.cur from reactos:win32ss/user/user32/resources/ocr_sizens.cur (hotspot 32px=(15, 15), 48px=(22, 22))
+Built /var/tmp/clean_out/XP/Cursors/sizewe.cur from reactos:win32ss/user/user32/resources/ocr_sizewe.cur (hotspot 32px=(15, 15), 48px=(22, 22))
+Built /var/tmp/clean_out/XP/Cursors/sizenwse.cur from reactos:win32ss/user/user32/resources/ocr_sizenwse.cur (hotspot 32px=(15, 15), 48px=(22, 22))
+Built /var/tmp/clean_out/XP/Cursors/sizenesw.cur from reactos:win32ss/user/user32/resources/ocr_sizenesw.cur (hotspot 32px=(15, 15), 48px=(22, 22))
+Built /var/tmp/clean_out/XP/Cursors/sizeall.cur from reactos:win32ss/user/user32/resources/ocr_sizeall.cur (hotspot 32px=(15, 15), 48px=(22, 22))
+Built /var/tmp/clean_out/XP/Cursors/uparrow.cur from reactos:win32ss/user/user32/resources/ocr_up.cur (hotspot 32px=(15, 6), 48px=(22, 9))
+Built /var/tmp/clean_out/XP/Cursors/hand.cur from reactos:win32ss/user/user32/resources/ocr_hand.cur (hotspot 32px=(9, 2), 48px=(14, 3))

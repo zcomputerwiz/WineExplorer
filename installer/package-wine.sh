@@ -95,11 +95,40 @@ echo "Building Fluent theme package..."
             git checkout FETCH_HEAD
         ) || { rm -rf "$SRC_CACHE/tela"; exit 1; }   # no half-made checkout left behind
     fi
+    if [ ! -d "$SRC_CACHE/reactos/.git" ] && [ ! -d "$SRC_CACHE/reactos/dll" ]; then
+        echo "Fetching reactos sparse checkout..."
+        mkdir -p "$SRC_CACHE/reactos"
+        (
+            cd "$SRC_CACHE/reactos"
+            git init
+            git remote add origin https://github.com/reactos/reactos.git
+            git config core.sparseCheckout true
+            echo "base/applications/*" > .git/info/sparse-checkout
+            echo "base/shell/*" >> .git/info/sparse-checkout
+            echo "dll/cpl/*" >> .git/info/sparse-checkout
+            echo "dll/shellext/netshell/res/*" >> .git/info/sparse-checkout
+            echo "dll/win32/shell32/res/icons/*" >> .git/info/sparse-checkout
+            echo "win32ss/user/user32/resources/*" >> .git/info/sparse-checkout
+            echo "COPYING" >> .git/info/sparse-checkout
+            timeout 600 git fetch --filter=blob:none --depth 1 origin 974a4464497c68c1ebcf41ab372bec2c010e6f8b
+            git checkout FETCH_HEAD
+        ) || { rm -rf "$SRC_CACHE/reactos"; exit 1; }
+    fi
     python3 "$ROOT_DIR/scripts/build_iconpack.py" "$ROOT_DIR/assets/iconpacks/fluent.json" \
         "$STAGE_WINE/usr/local/share/wineexplorer/themes" \
         --source fluent="$SRC_CACHE/fluentui-system-icons" \
         --source tela="$SRC_CACHE/tela"
-    echo "Fluent theme package installed to staged share/wineexplorer/themes/Fluent"
+    python3 "$ROOT_DIR/scripts/build_iconpack.py" "$ROOT_DIR/assets/iconpacks/xp.json" \
+        "$STAGE_WINE/usr/local/share/wineexplorer/themes" \
+        --source reactos="$SRC_CACHE/reactos" \
+        --source fluent="$SRC_CACHE/fluentui-system-icons"
+    python3 "$ROOT_DIR/scripts/build_cursors.py" "$ROOT_DIR/assets/cursors/fluent.json" \
+        "$STAGE_WINE/usr/local/share/wineexplorer/themes" \
+        --source fluent="$SRC_CACHE/fluentui-system-icons"
+    python3 "$ROOT_DIR/scripts/build_cursors.py" "$ROOT_DIR/assets/cursors/xp.json" \
+        "$STAGE_WINE/usr/local/share/wineexplorer/themes" \
+        --source reactos="$SRC_CACHE/reactos"
+    echo "Fluent and XP theme packages installed to staged share/wineexplorer/themes"
 ) || {
     echo "WARNING: Failed to build Fluent icon pack; skipping it for this build."
     rm -rf "$STAGE_WINE/usr/local/share/wineexplorer/themes/Fluent"

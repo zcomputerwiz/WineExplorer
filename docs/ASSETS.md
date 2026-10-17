@@ -29,15 +29,16 @@ Checked third-party sets (2026-10-16):
   capitaine-cursors) are not used either. They checked clean: vector redrawings, with no embedded images and no
   pixel match with Windows' cursors. The project does not take art from this author, because of the ripped icon
   themes.
-- **ReactOS art** (`references/reactos`; GPL-2.0-or-later): checked clean. All 76 shell32 icons pass rip-check
-  (lowest RMSE against original Windows XP is 0.1092, highest 0.5911; no embedded rasters). Control Panel and app
-  icons checked clean (lowest RMSE 0.2232). ReactOS cursors checked clean (lowest RMSE 0.0860 at 48 px, 0.1164 at 32 px).
-  Used in `assets/iconpacks/xp.json` and `assets/cursors/xp.json`.
+- **ReactOS art** (commit `974a446`; GPL-2.0-or-later): checked clean. All 74 shell32 icons pass rip-check
+  (lowest RMSE against original Windows XP is 0.1072 at 48 px, 0.1236 at 32 px, 0.1537 at 16 px; no embedded rasters).
+  Control Panel and app icons checked clean (lowest RMSE 0.2232). ReactOS cursors checked clean (lowest RMSE 0.0860 at 48 px,
+  0.1099 at 32 px). Used in `assets/iconpacks/xp.json` and `assets/cursors/xp.json`.
 - **Fluent UI System Icons** (Microsoft; MIT; commit `a347af9`): checked clean. Vector glyphs with no embedded rasters,
-  rendered and tinted for Windows 11 look-alike art in `assets/iconpacks/fluent.json` (lowest RMSE 0.0890 at 48 px)
-  and `assets/cursors/fluent.json` (lowest RMSE 0.2230 at 48 px).
+  rendered and tinted for Windows 11 and XP look-alike art in `assets/iconpacks/fluent.json` (lowest RMSE 0.0820 at 48 px,
+  0.0831 at 32 px, 0.0758 at 16 px), `assets/iconpacks/xp.json`, and `assets/cursors/fluent.json` (lowest RMSE 0.0939 at 48 px,
+  0.0922 at 32 px).
 - **Tela icon theme** (GPL-3.0; commit `50f51f4`): checked clean for the used Recycle Bin SVGs (no embedded raster images;
-  RMSE clearly above 0). Used in `assets/iconpacks/fluent.json`.
+  RMSE 0.11 at 48 px). Used in `assets/iconpacks/fluent.json`.
 
 ## Open pictures
 `scripts/open_assets.py build` writes every picture that stands in for an XP one, and lists each with its source in
