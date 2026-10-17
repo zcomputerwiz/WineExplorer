@@ -109,3 +109,12 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 - [HANDOFF_2026-10-07.md](HANDOFF_2026-10-07.md): archived earlier handoff; contains superseded statements. Current code and topical docs take precedence.
 
 Commit work regularly at coherent boundaries. The desktop runtime decision above supersedes the old full-Proton migration plan.
+
+## DirectX to Vulkan & Windows Components (2026-10-17)
+
+- **DirectX to Vulkan (Opt-in)**: DXVK 2.4.1 and vkd3d-proton 2.13 are shipped under `/usr/local/share/wineexplorer/dxvk/` (off by default, preserving wined3d stability for virtual machines and non-Vulkan hardware).
+  - Use `wex-graphics vulkan on` to configure per-user DLL overrides and links for DirectX 8-12 to Vulkan. The command checks `vulkaninfo` and refuses to enable Vulkan translation if no Vulkan device is present.
+  - Use `wex-graphics vulkan off` to restore standard wined3d builtins.
+  - Use `wex-graphics vulkan status` to inspect device capabilities and current override status.
+- **Open Fonts & Offline Runtimes**: Microsoft Selawik (SIL OFL 1.1) replaces Segoe UI; Wine Gecko 2.47.4 and Wine Mono 11.3.0 are bundled offline in `/usr/local/share/wine/` so prefixes and machine roots initialize without network prompts.
+- **Windows Components (`wex-components`)**: Administrator tool to install optional Microsoft redistributables (`vcrun2022`, `corefonts`, `tahoma`, `d3dcompiler_47`, `xact`, `physx`) into the shared machine root via `winetricks`, requiring explicit EULA acceptance before any network download.
