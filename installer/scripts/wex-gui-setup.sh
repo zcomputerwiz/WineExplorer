@@ -61,7 +61,7 @@ su -s /bin/bash wexsetup -c '
     RES="${1:-1024x768}"
     export DISPLAY=:0
     export WINEPREFIX=/etc/skel/.wine
-    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEDLLOVERRIDES="winemenubuilder.exe=d"
     export WINEDEBUG=-all
     /usr/local/bin/wine explorer /desktop=Setup,$RES setup.exe -newsetup &
     WINE_PID=$!
@@ -76,7 +76,7 @@ su -s /bin/bash wexsetup -c '
 # Template prefix for new users (AccountsService copies /etc/skel into each new home): their first logon then
 # does not build a prefix.  The runner's own profile folder is dropped; Wine creates each user's on first use.
 su -s /bin/bash wexsetup -c '
-    export WINEPREFIX=/etc/skel/.wine WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all
+    export WINEPREFIX=/etc/skel/.wine WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="winemenubuilder.exe=d" WINEDEBUG=-all
     /usr/local/bin/wine wineboot -u
     /usr/local/bin/wineserver -w
 ' || echo "Template prefix generation failed"

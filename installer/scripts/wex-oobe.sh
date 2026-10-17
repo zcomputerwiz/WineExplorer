@@ -55,7 +55,7 @@ su -s /bin/bash wexsetup -c '
     RES="${1:-1024x768}"
     export DISPLAY=:0
     export WINEPREFIX=/etc/skel/.wine
-    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEDLLOVERRIDES="winemenubuilder.exe=d"
     export WINEDEBUG=-all
     /usr/local/bin/wine explorer /desktop=OOBE,$RES oobe.exe &
     WINE_PID=$!
