@@ -93,3 +93,13 @@ managed by the command tool works. Its listener is WSL loopback port 18765.
 An initial screenshot copy reused the earlier staged evidence filenames.
 Those eight originals were restored from Git; fresh screenshots use the
 `fresh-` prefix. No staged evidence was replaced.
+
+During final source resync, `tar -xf` preserved the archive's commit
+timestamps, approximately 10,100 seconds ahead of the build VM clock after
+the restart. Make repeatedly regenerated its Makefile because the imported
+`Makefile.in` files appeared to be in the future. Re-extracting the identical
+archive with `tar -xm -f` normalized only its timestamps; compilation then
+progressed. The restored `linux_windows.c` SHA256 is
+`e8ec50075f9e36b8d36a38300323dd16780f00159b99e9299d310790f417e255`
+on both host and build VM. A documentation patch used context from the wrong
+file and failed atomically; the corrected patch changed this report.
