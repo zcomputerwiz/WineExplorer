@@ -60,3 +60,8 @@ fonts-noto-cjk
 fonts-ipafont-gothic
 fonts-ipafont-mincho
 fonts-unfonts-core
+# Windows Runtimes & Graphics Tools (see docs/FONTS_RUNTIMES_WORKORDER.md)
+vulkan-tools
+winetricks
+cabextract
+zenity
