@@ -111,3 +111,11 @@ rebuild contains the original committed implementation, with neither trial:
 [raw final build](logs/final-pinned-build.log). The test runner compiles with
 `python3 -m py_compile`; `git diff --check` passes. The ISO above remains the
 fresh-install evidence; no replacement image is implied by this final build.
+
+The first push was rejected as non-fast-forward: other contributors had
+advanced master with open-font packaging, Open Luna resources and new work
+orders during this checkpoint. `origin/master` was merged normally without
+conflicts or force-push. These incoming changes do not change the polish
+runtime C code or either submodule pin. The fresh ISO evidence above predates
+those font/art changes; it does not claim to test their updated packaging.
+The merged checkpoint is resynced and built again before pushing.
