@@ -1,9 +1,40 @@
-# Codex handoff — 2026-10-16 Wayland L2 in progress
+# Codex handoff — 2026-10-17 review point 2 ready
 
-**Review point 1 accepted; parts C/D active.** Claude's review is appended to
+**Parts C/D complete for review point 2; stop for Claude.** The final same-ISO
+fresh X11/Wayland installation and tray checks pass, as do the required X11
+effects and eight-dialog regressions. Report and links: WAYLAND_SESSION.md.
+Wine b1d3ab0, compositor 2bde47ee, final owned tray code 0c1084eb.
+Signed-in Steam close/reopen/menu remains manual by user instruction; the two
+known scaling limitations remain open. No Steam account login was submitted.
+The clean final ISO built on the Proton VM as `wineexplorer-tray-final.iso`, SHA256
+`5d37cfb529ed00902a68df064975ba0986d0e0a7f25a7c7043f141484e2b5923`.
+Part D's fresh installs are preserved in Debian WSL as `tray-final-x11` and
+`tray-final-wayland`; both have shut down normally. Logs are under
+`build/wayland-session/final-*.log`; `final-d.log` ends `PASS_FINAL_D`.
+No build is running on the Proton VM. The earlier hot-staged
+`wayland-session-iso` VM is still running Bob's Wayland desktop; it is not the
+final acceptance installation. The older `wayland-session` overlay is stopped.
+The Debian WSL staging HTTP server on 18765 remains up. Do not enter Gemini's
+WSL distributions. The initial X11 run found an upstream harness assumption
+about a prebuilt cpl_driver.exe;
+ebc47b9b builds it from source and uses the current session helper. The complete
+fresh installation was repeated and passed; the first log is preserved.
+Final effects/capture evidence is in `final-x11-regressions/`.
+Do not use the earlier tray ISO: it predates the libayatana left-click fix.
+
+**Queued user follow-up (2026-10-17), after the current C/D tasks:** inspect the
+volumeicon Preferences screenshot. Its left/right body edges appear inset
+relative to the title bar and full bottom width. Check the actual hosted GTK
+window/frame geometry and transparency; do not assume it is only a screenshot
+artifact. Evidence: `build/wayland-session/tray-wayland-volume-preferences.png`
+and `tray-volume-final-preferences.png`; the final ISO also produced
+`final-wayland-tray/tray-volume-preferences.png` and its X11 counterpart.
+This is a requested next task, not claimed fixed by C/D.
+
+**Review point 1 accepted; parts C/D ready.** Claude's review is appended to
 WAYLAND_SESSION_WORKORDER.md. The compositor production branch `wexcomp` now
-fast-forwards to the project pin 2bde47ee. Implement the SNI/XEmbed tray bridge,
-then run the final regressions and stop at review point 2. Keep the two scaling
+fast-forwards to the project pin 2bde47ee. The SNI/XEmbed tray bridge is implemented;
+final regressions pass. Stop at review point 2. Keep the two scaling
 limitations below open unless real-program testing verifies a fix.
 
 Historical review-point-1 handoff: Parts A/B of WAYLAND_SESSION_WORKORDER.md are ready

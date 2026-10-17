@@ -52,7 +52,6 @@ static BOOL g_vol_icon_shown = FALSE;
 
 static void update_vol_tray_icon_and_tooltip(HWND hwnd)
 {
-    HINSTANCE hInst = stobject_module();
     int new_icon_id;
     WCHAR new_tip[128] = {0};
 

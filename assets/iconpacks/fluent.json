@@ -403,19 +403,36 @@
       "meaning": "settings",
       "layers": [
         {
-          "tone": [
-            "window",
-            "page",
-            "page_line"
+          "svg": "fluent:assets/Rectangle Landscape/SVG/ic_fluent_rectangle_landscape_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"2.2 -5 43.6 58\" preserveAspectRatio=\"none\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"#D9EFFC\" stroke=\"#2A97E6\" stroke-width=\"2\""
+            ]
           ]
         },
         {
-          "glyph": "settings",
-          "colour": "blue",
-          "scale": 0.5,
+          "glyph": "data_pie",
+          "style": "filled",
+          "colour": "#2389DD",
+          "scale": 0.38,
           "at": [
-            0.25,
-            0.32
+            0.13,
+            0.31
+          ]
+        },
+        {
+          "glyph": "options",
+          "style": "filled",
+          "colour": "#1A62B8",
+          "scale": 0.32,
+          "at": [
+            0.55,
+            0.34
           ]
         }
       ]
@@ -996,19 +1013,36 @@
       "meaning": "Control Panel (XP)",
       "layers": [
         {
-          "tone": [
-            "window",
-            "page",
-            "page_line"
+          "svg": "fluent:assets/Rectangle Landscape/SVG/ic_fluent_rectangle_landscape_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"2.2 -5 43.6 58\" preserveAspectRatio=\"none\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"#D9EFFC\" stroke=\"#2A97E6\" stroke-width=\"2\""
+            ]
           ]
         },
         {
-          "glyph": "settings",
-          "colour": "blue",
-          "scale": 0.5,
+          "glyph": "data_pie",
+          "style": "filled",
+          "colour": "#2389DD",
+          "scale": 0.38,
           "at": [
-            0.25,
-            0.32
+            0.13,
+            0.31
+          ]
+        },
+        {
+          "glyph": "options",
+          "style": "filled",
+          "colour": "#1A62B8",
+          "scale": 0.32,
+          "at": [
+            0.55,
+            0.34
           ]
         }
       ]
@@ -1547,7 +1581,7 @@
           }
         ]
       },
-      "101": {
+      "200": {
         "meaning": "Keyboard Properties",
         "layers": [
           {

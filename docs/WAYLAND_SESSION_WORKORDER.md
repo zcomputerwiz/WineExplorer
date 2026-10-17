@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Codex): a usable Wayland session, plus tray icons
 
-Status: ready, 2026-10-16. Assignee: Codex. Supersedes the open-ended remainder of `WAYLAND_L2_WORKORDER.md`.
+Status: done, 2026-10-17 (both review points accepted). Assignee: Codex. Supersedes the open-ended remainder of `WAYLAND_L2_WORKORDER.md`.
 
 ## Goal
 
@@ -91,3 +91,27 @@ For parts C and D:
   open; record them in `WAYLAND_L2.md` at part D if they are not fixed by then.
 - A maximized window's caption has no title text in the default open theme. Older Notepad screenshots show the same,
   so it is not from this work; it is tracked separately.
+
+## Review point 2 (Claude, 2026-10-17): accepted; work order done
+
+Checked independently:
+- Master `c52f0e26` (tray code `0c1084eb`, Wine `b1d3ab0`) assembles and builds WoW64 in `wexbuild` (make exit 0).
+- The fork's `wexcomp` branch is at the production pin `2bde47ee`.
+- The final logs pass:
+  - fresh default-X11 install and selected-Wayland install from `wineexplorer-tray-final.iso`;
+  - real tray programs in both sessions (volumeicon over XEmbed, nm-applet over SNI, with Win32 menus, a lazy
+    submenu and removal);
+  - the installed X11 tray-bounds and eight-dialog smoke tests, and D1/D2 with Composition 0 and 1.
+- Screenshots: nm-applet's menu is a real Win32 menu at the tray, and volumeicon's Preferences is hosted in a Wine
+  frame.
+- The tray code takes D-Bus data with bounds: pixmaps of at most 1024×1024 whose byte length must match, and
+  strings copied with `snprintf`.
+
+Open, carried forward:
+- Signed-in Steam close-to-tray, reopen and menu: manual, by the user (not claimed).
+- Late repaint of QTerminal's Exit buttons at static 150%; detaching a maximized SSD window on a scale change.
+- Inset side edges of volumeicon's Preferences (the user's next item).
+- Hardening: `named_icon()` puts a D-Bus icon name into a `glob` pattern; reject names containing `/` or glob
+  characters.
+- Cosmetic: unused `hInst` warnings in `nettray.c`, `volumetray.c`, `trayvol_dialog.c` and `powertray.c` (from the
+  Fluent tray-icon change).

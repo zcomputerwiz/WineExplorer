@@ -114,6 +114,8 @@ struct icon
 
 #define WM_NATIVE_TRAY (WM_APP + 42)
 static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam);
+static BOOL native_tray_init_menu(HMENU menu);
+static DWORD native_menu_token;
 
 static struct list icon_list = LIST_INIT( icon_list );
 
@@ -1321,8 +1323,10 @@ static void native_tray_update(const WEX_TRAY_ITEM *item)
 static HMENU native_tray_menu(const WEX_TRAY_MENU *layout, INT parent, unsigned int depth)
 {
     HMENU menu = CreatePopupMenu();
+    MENUINFO info = {.cbSize = sizeof(info), .fMask = MIM_MENUDATA, .dwMenuData = parent};
     unsigned int i, j;
     if (!menu || depth > 16) return menu;
+    SetMenuInfo(menu, &info);
     for (i = 0; i < layout->count; i++)
     {
         const WEX_TRAY_MENU_ENTRY *entry = &layout->entries[i];
@@ -1330,12 +1334,13 @@ static HMENU native_tray_menu(const WEX_TRAY_MENU *layout, INT parent, unsigned 
         WCHAR text[256], label[512];
         unsigned int a = 0, b = 0;
         if (entry->parent != parent || !entry->visible) continue;
-        mii.wID = i + 1;
+        mii.wID = entry->id;
         mii.fState = (entry->enabled ? MFS_ENABLED : MFS_DISABLED) | (entry->checked ? MFS_CHECKED : 0);
         mii.fType = entry->separator ? MFT_SEPARATOR : entry->toggle == 2 ? MFT_RADIOCHECK : MFT_STRING;
         MultiByteToWideChar(CP_UTF8, 0, entry->label, -1, text, ARRAY_SIZE(text));
         while (text[a] && b < ARRAY_SIZE(label) - 2)
         {
+            if (text[a] == '_' && text[a + 1] == '_') { label[b++] = '_'; a += 2; continue; }
             if (text[a] == '&') label[b++] = '&';
             label[b++] = text[a] == '_' ? '&' : text[a];
             a++;
@@ -1349,6 +1354,39 @@ static HMENU native_tray_menu(const WEX_TRAY_MENU *layout, INT parent, unsigned 
     return menu;
 }
 
+static BOOL native_tray_init_menu(HMENU menu)
+{
+    MENUINFO info = {.cbSize = sizeof(info), .fMask = MIM_MENUDATA};
+    WEX_TRAY_MENU *layout;
+    HMENU replacement;
+    if (!native_menu_token) return FALSE;
+    if (!GetMenuInfo(menu, &info) || !info.dwMenuData) return TRUE; /* Root was fetched immediately before opening. */
+    if (!(layout = calloc(1, sizeof(*layout)))) return TRUE;
+    /* AboutToShow is required for lazy dbusmenu submenus. Fetch each actual
+     * opening, so LayoutUpdated/ItemsPropertiesUpdated never leave a cached
+     * submenu stale between openings. IDs remain the application's IDs. */
+    if (!WexTrayGetMenu(native_menu_token, info.dwMenuData, layout))
+    {
+        replacement = native_tray_menu(layout, info.dwMenuData, 0);
+        if (replacement)
+        {
+            while (GetMenuItemCount(menu) > 0) DeleteMenu(menu, 0, MF_BYPOSITION);
+            while (GetMenuItemCount(replacement) > 0)
+            {
+                WCHAR text[512];
+                MENUITEMINFOW mii = {.cbSize = sizeof(mii), .fMask = MIIM_ID | MIIM_STATE | MIIM_FTYPE | MIIM_SUBMENU | MIIM_STRING,
+                    .dwTypeData = text, .cch = ARRAY_SIZE(text)};
+                if (!GetMenuItemInfoW(replacement, 0, TRUE, &mii)) break;
+                RemoveMenu(replacement, 0, MF_BYPOSITION);
+                InsertMenuItemW(menu, GetMenuItemCount(menu), TRUE, &mii);
+            }
+            DestroyMenu(replacement);
+        }
+    }
+    free(layout);
+    return TRUE;
+}
+
 static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam)
 {
     POINT pt;
@@ -1358,15 +1396,16 @@ static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam)
     if (msg == WM_RBUTTONUP || (msg == WM_LBUTTONUP && (flags & WEX_TRAY_ITEM_MENU)))
     {
         WEX_TRAY_MENU *layout = calloc(1, sizeof(*layout));
-        if (layout && !WexTrayGetMenu(token, layout))
+        if (layout && !WexTrayGetMenu(token, 0, layout))
         {
             HMENU menu = native_tray_menu(layout, 0, 0);
             UINT cmd;
             SetForegroundWindow(tray_window);
+            native_menu_token = token;
             cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, tray_window, NULL);
+            native_menu_token = 0;
             DestroyMenu(menu);
-            if (cmd && cmd <= layout->count)
-                WexTrayAction(token, WEX_TRAY_CLICK_MENU, GetTickCount(), 0, layout->entries[cmd - 1].id);
+            if (cmd) WexTrayAction(token, WEX_TRAY_CLICK_MENU, GetTickCount(), 0, cmd);
             PostMessageW(tray_window, WM_NULL, 0, 0);
         }
         else WexTrayAction(token, WEX_TRAY_CONTEXT, pt.x, pt.y, 0);
@@ -1375,7 +1414,8 @@ static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam)
     else if (msg == WM_LBUTTONUP || msg == WM_MBUTTONUP)
         WexTrayAction(token, msg == WM_LBUTTONUP ? WEX_TRAY_ACTIVATE : WEX_TRAY_SECONDARY, pt.x, pt.y, 0);
     else if (msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL)
-        WexTrayAction(token, WEX_TRAY_SCROLL, 0, msg == WM_MOUSEHWHEEL, GET_WHEEL_DELTA_WPARAM(wparam));
+        WexTrayAction(token, msg == WM_MOUSEHWHEEL ? WEX_TRAY_SCROLL_HORIZONTAL : WEX_TRAY_SCROLL,
+                      pt.x, pt.y, GET_WHEEL_DELTA_WPARAM(wparam));
     return TRUE;
 }
 
@@ -2151,6 +2191,8 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         return MA_NOACTIVATE;
 
     case WM_INITMENUPOPUP:
+        if (native_tray_init_menu((HMENU)wparam)) return 0;
+        return menu_wndproc(hwnd, msg, wparam, lparam);
     case WM_MENUCOMMAND:
         return menu_wndproc(hwnd, msg, wparam, lparam);
 

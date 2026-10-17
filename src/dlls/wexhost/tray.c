@@ -13,6 +13,7 @@
 #include <dlfcn.h>
 #include <glob.h>
 #include <unistd.h>
+#include <poll.h>
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
 #include <winerror.h>
@@ -36,7 +37,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(wexhost);
     X(dbus_message_iter_recurse) X(dbus_message_iter_get_arg_type) X(dbus_message_iter_get_basic) \
     X(dbus_message_iter_get_fixed_array) X(dbus_message_iter_append_basic) \
     X(dbus_message_iter_open_container) X(dbus_message_iter_close_container) \
-    X(dbus_validate_bus_name) X(dbus_validate_path)
+    X(dbus_validate_bus_name) X(dbus_validate_path) X(dbus_connection_get_unix_fd)
 #define X(f) static typeof(f) *p_##f;
 DBUS_FUNCS
 #undef X
@@ -401,6 +402,8 @@ static void named_icon(const char *name, const char *custom, WEX_TRAY_ITEM *data
     if (!*name || strpbrk(name, "*?[]")) return;
     if (*name == '/') { decode_icon(name, data); return; }
     if (strchr(name, '/')) return;
+    /* Treat the theme path as empty if it is unsafe. */
+    if (*custom && (*custom != '/' || strpbrk(custom, "*?[]") || strstr(custom, "/../") || (strlen(custom) >= 3 && !strcmp(custom + strlen(custom) - 3, "/..")))) custom = "";
     if (*custom && search_icon(custom, name, data)) return;
     if (home)
     {
@@ -430,6 +433,10 @@ static void refresh(struct item *item)
     char name[256] = "", attention_name[256] = "", theme_path[1024] = "";
     memset(&item->data, 0, sizeof(item->data));
     item->data.token = item->token; item->data.event = WEX_TRAY_CHANGED;
+    /* libappindicator/libayatana can omit both ItemIsMenu and Activate.
+     * Default to menu-only, as other SNI hosts do; a complete SNI item
+     * explicitly supplies FALSE when it supports normal activation. */
+    item->data.flags = WEX_TRAY_ITEM_MENU;
     item->menu[0] = 0;
     msg = p_dbus_message_new_method_call(item->service, item->path, PROPS, "GetAll");
     if (msg) p_dbus_message_append_args(msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_INVALID);
@@ -449,7 +456,10 @@ static void refresh(struct item *item)
             if (!strcmp(key, "Id")) copy_string(item->data.id, string_value(&value), sizeof(item->data.id));
             else if (!strcmp(key, "Title")) copy_string(item->data.title, string_value(&value), sizeof(item->data.title));
             else if (!strcmp(key, "Menu")) copy_string(item->menu, string_value(&value), sizeof(item->menu));
-            else if (!strcmp(key, "ItemIsMenu") && bool_value(&value, FALSE)) item->data.flags |= WEX_TRAY_ITEM_MENU;
+            else if (!strcmp(key, "ItemIsMenu"))
+            {
+                if (!bool_value(&value, TRUE)) item->data.flags &= ~WEX_TRAY_ITEM_MENU;
+            }
             else if (!strcmp(key, "Status"))
             {
                 if (!strcmp(string_value(&value), "Passive")) item->data.flags |= WEX_TRAY_PASSIVE;
@@ -558,11 +568,18 @@ NTSTATUS tray_next(void *args)
 {
     struct tray_params *params = args;
     DBusMessage *msg;
+    struct pollfd waitfd = {-1, POLLIN, 0};
     unsigned int i;
     memset(&params->item, 0, sizeof(params->item));
     params->err = 0;
     pthread_mutex_lock(&mutex);
-    if (!bus || !p_dbus_connection_read_write(bus, 100)) { params->err = ERROR_BROKEN_PIPE; goto done; }
+    if (bus) p_dbus_connection_get_unix_fd(bus, &waitfd.fd);
+    pthread_mutex_unlock(&mutex);
+    /* Do not hold the command mutex across the idle wait: an unfair pthread
+     * mutex can otherwise starve a user's click behind the next-event loop. */
+    if (waitfd.fd >= 0) poll(&waitfd, 1, 100);
+    pthread_mutex_lock(&mutex);
+    if (!bus || !p_dbus_connection_read_write(bus, 0)) { params->err = ERROR_BROKEN_PIPE; goto done; }
     /* Bound each dispatch batch so a noisy client cannot starve shutdown/UI. */
     for (i = 0; i < 64 && (msg = p_dbus_connection_pop_message(bus)); i++)
     { handle_message(msg); p_dbus_message_unref(msg); }
@@ -610,9 +627,9 @@ NTSTATUS tray_action(void *args)
             params->action == WEX_TRAY_ACTIVATE ? "Activate" : params->action == WEX_TRAY_SECONDARY ? "SecondaryActivate" : "ContextMenu");
         if (msg) p_dbus_message_append_args(msg, DBUS_TYPE_INT32, &x, DBUS_TYPE_INT32, &y, DBUS_TYPE_INVALID);
         break;
-    case WEX_TRAY_SCROLL:
+    case WEX_TRAY_SCROLL: case WEX_TRAY_SCROLL_HORIZONTAL:
     {
-        const char *orientation = params->y ? "horizontal" : "vertical";
+        const char *orientation = params->action == WEX_TRAY_SCROLL_HORIZONTAL ? "horizontal" : "vertical";
         msg = p_dbus_message_new_method_call(item->service, item->path, ITEM_IFACE, "Scroll");
         if (msg) p_dbus_message_append_args(msg, DBUS_TYPE_INT32, &value, DBUS_TYPE_STRING, &orientation, DBUS_TYPE_INVALID);
         break;
@@ -687,7 +704,7 @@ NTSTATUS tray_menu(void *args)
     struct item *item;
     DBusMessage *msg, *reply;
     DBusMessageIter it, array;
-    dbus_int32_t root = 0, depth = -1;
+    dbus_int32_t root = params->root, depth = -1;
     pthread_mutex_lock(&mutex);
     memset(&params->menu, 0, sizeof(params->menu));
     params->err = ERROR_NOT_FOUND;

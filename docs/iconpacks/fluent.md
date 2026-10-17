@@ -36,7 +36,7 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | 19 | computers near me | `desktop` filled #1FA6E0, 0.65x at (0.0, 0.0); `desktop` regular #2B2B2B, 0.65x at (0.0, 0.0); `desktop` filled #1FA6E0, 0.65x at (0.35, 0.35); `desktop` regular #2B2B2B, 0.65x at (0.35, 0.35) |
 | 20 | programs folder (small) | `folder` filled #FFD15C; `folder` regular #D49A2A; `apps` filled #1E79D6, 0.5x at (0.46, 0.46); `apps` regular #145AA0, 0.5x at (0.46, 0.46) |
 | 21 | recent documents | `document` filled #FFFFFF; `document` regular #8C8C8C; `clock` filled #FFFFFF, 0.55x at (0.0, 0.45); `clock` regular #1E79D6, 0.55x at (0.0, 0.45) |
-| 22 | settings | `window` filled #FFFFFF; `window` regular #8C8C8C; `settings` filled #1E79D6, 0.5x at (0.25, 0.32) |
+| 22 | settings | `fluent:assets/Rectangle Landscape/SVG/ic_fluent_rectangle_landscape_48_filled.svg` with edits: `viewBox="0 0 48 48"` → `viewBox="2.2 -5 43.6 58" preserveAspectRatio="none"`; `fill="#212121"` → `fill="#D9EFFC" stroke="#2A97E6" stroke-width="2"`; `data_pie` filled #2389DD, 0.38x at (0.13, 0.31); `options` filled #1A62B8, 0.32x at (0.55, 0.34) |
 | 23 | search | `circle` filled #DDEAF5, 0.5x at (0.14, 0.14); `search` regular #4A4A4A |
 | 24 | help | `question_circle` filled #1E79D6 |
 | 25 | run | `window` filled #FFFFFF; `window` regular #8C8C8C; `arrow_up_right` filled #1E79D6, 0.5x at (0.42, 0.08) |
@@ -67,7 +67,7 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | 133 | files | `document` filled #FFFFFF, 0.8x at (0.2, 0.0); `document` regular #8C8C8C, 0.8x at (0.2, 0.0); `document_text` filled #FFFFFF, 0.8x at (0.0, 0.2); `document_text` regular #8C8C8C, 0.8x at (0.0, 0.2) |
 | 134 | file search | `document` filled #FFFFFF; `document` regular #8C8C8C; `search` regular #1E79D6, 0.55x at (0.42, 0.42) |
 | 135 | computer search | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `search` regular #4A4A4A, 0.55x at (0.42, 0.42) |
-| 137 | Control Panel (XP) | `window` filled #FFFFFF; `window` regular #8C8C8C; `settings` filled #1E79D6, 0.5x at (0.25, 0.32) |
+| 137 | Control Panel (XP) | `fluent:assets/Rectangle Landscape/SVG/ic_fluent_rectangle_landscape_48_filled.svg` with edits: `viewBox="0 0 48 48"` → `viewBox="2.2 -5 43.6 58" preserveAspectRatio="none"`; `fill="#212121"` → `fill="#D9EFFC" stroke="#2A97E6" stroke-width="2"`; `data_pie` filled #2389DD, 0.38x at (0.13, 0.31); `options` filled #1A62B8, 0.32x at (0.55, 0.34) |
 | 138 | Printers and Faxes | `folder` filled #FFD15C; `folder` regular #D49A2A; `print` filled #E3E3E3, 0.55x at (0.42, 0.42); `print` regular #6E6E6E, 0.55x at (0.42, 0.42) |
 | 139 | add printer | `print` filled #E3E3E3; `print` regular #6E6E6E; `add_circle` filled #2E9E4A, 0.45x at (0.55, 0.55) |
 | 142 | file in the Recycle Bin | `delete` filled #DDEAF5; `delete` regular #6E8AA6; `document` filled #FFFFFF, 0.45x at (0.28, 0.35); `document` regular #8C8C8C, 0.45x at (0.28, 0.35) |
@@ -113,7 +113,7 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | Id | Meaning | Layers |
 |---|---|---|
 | 100 | Mouse Properties | `cursor` filled #4A4A4A; `cursor` regular #242424 |
-| 101 | Keyboard Properties | `keyboard` filled #6E6E6E; `keyboard` regular #323130 |
+| 200 | Keyboard Properties | `keyboard` filled #6E6E6E; `keyboard` regular #323130 |
 
 ## Module: xpres_mmsys.dll
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
-"""Run installed Wine checks in the named user's actual X11 or Wayland session."""
+"""Run installed checks in the named user's actual X11 or Wayland session."""
 import argparse
 import os
 from pathlib import Path
@@ -38,6 +38,12 @@ def main():
     parser.add_argument("--user-file", type=Path)
     parser.add_argument("--log-file", type=Path)
     parser.add_argument("--wait", action="store_true")
+    parser.add_argument("--native", action="store_true",
+                        help="launch a Linux program without the shell's Wine environment")
+    parser.add_argument("--native-wayland", default="wayland-0",
+                        help="public socket in the controlled Wayland test session")
+    parser.add_argument("--native-display", default=":0",
+                        help="public XWayland display in the controlled Wayland test session")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if os.geteuid():
@@ -61,15 +67,25 @@ def main():
             print(f"{key}={environment.get(key, '')}")
     if args.command:
         wine = environment.get("WINELOADER", "/usr/local/bin/wine")
+        if args.native:
+            on_wayland = bool(environment.get("WAYLAND_DISPLAY"))
+            environment = {key: value for key, value in environment.items()
+                           if not key.startswith(("WINE", "WEX_"))}
+            if on_wayland:
+                environment["WAYLAND_DISPLAY"] = args.native_wayland
+                environment["DISPLAY"] = args.native_display
+            command = args.command
+        else:
+            command = [wine, *args.command]
         log_path = args.log_file or Path(f"/tmp/wex-program-check-{account.pw_name}.log")
         with log_path.open("ab") as log:
             process = subprocess.Popen(
-                [wine, *args.command], env=environment, cwd=account.pw_dir,
+                command, env=environment, cwd=account.pw_dir,
                 user=account.pw_uid, group=account.pw_gid,
                 extra_groups=os.getgrouplist(account.pw_name, account.pw_gid),
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                 start_new_session=True)
-        print(f"Started Wine PID {process.pid}; log: {log_path}")
+        print(f"Started {'native' if args.native else 'Wine'} PID {process.pid}; log: {log_path}")
         if args.wait:
             raise SystemExit(process.wait())
     elif not args.report:

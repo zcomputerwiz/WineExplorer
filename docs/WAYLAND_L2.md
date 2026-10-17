@@ -1,7 +1,29 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # L2 implementation and acceptance
 
-Status: in progress; no acceptance claimed.
+Status: implementation is closed for the scope of WAYLAND_SESSION_WORKORDER.md;
+parts C/D are ready for review point 2. Fresh same-ISO X11 and Wayland install,
+tray and required regression checks pass. Report: WAYLAND_SESSION.md.
+Signed-in Steam close/reopen/menu remains manual by the user's instruction.
+The two scaling limitations below remain open; closure does not claim fixes.
+
+2026-10-17: the review in WAYLAND_SESSION_WORKORDER.md accepts the installed
+real-program and ISO evidence in WAYLAND_SESSION.md. Compositor production
+branch `wexcomp` now includes the pinned 2bde47ee. Master also incorporates
+the independent Fluent-theme work, advancing the Wine pin to b1d3ab0;
+the combined i386/x86_64 build passes at that pin.
+
+Two known real-program limitations remain open for the final report:
+
+- QTerminal's Exit confirmation buttons can repaint late after switching
+  back at 150% output scaling. The 100% sequence and static 150% window
+  controls pass; the delayed repaint is not claimed fixed.
+- Changing the output scale while an SSD window is already maximized can
+  detach its hosted group. Opening at static 150% and then maximizing passes;
+  live scale changes of an already maximized window are not claimed fixed.
+
+The following dated checkpoints are historical, including their then-pending
+review, build and pin descriptions.
 
 2026-10-16 integration: WAYLAND_SESSION_WORKORDER.md replaces the open-ended
 remainder below. Production Wine now pins **0f25ee1**, compositor **2bde47ee**.

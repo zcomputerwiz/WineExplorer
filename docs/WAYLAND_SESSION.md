@@ -1,7 +1,57 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Installed Wayland session
 
-Review point 1, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
+## Review point 2: parts C/D ready, 2026-10-17
+
+Review point 1 is accepted. The SNI/XEmbed bridge and final same-ISO regressions
+are complete for this checkpoint. Stop for Claude's review here. L2 is closed
+within this work order's scope, with the two known scaling limitations below
+still open. Signed-in Steam close/reopen/menu is manual by the user's explicit
+instruction; no login was submitted and that acceptance is not claimed passed.
+
+Final image: `wineexplorer-tray-final.iso`, 1,671,979,008 bytes, SHA256
+`5d37cfb529ed00902a68df064975ba0986d0e0a7f25a7c7043f141484e2b5923`.
+Wine pin **b1d3ab0**, compositor **2bde47ee**, final owned tray code **0c1084eb**.
+The compositor's production `wexcomp` branch now includes that project pin.
+Both architectures build at master's pinned Wine; log on the Proton VM:
+`/srv/protonexplorer/wex-wayland-l1/checks/tray-checkpoint-build.log`.
+The image built cleanly in the dedicated ISO directory. Its checksum matches
+after copying to Debian WSL. Both final VMs installed from blank disks with
+this image; no development DLL or compositor hot-staging was used.
+
+| Final check | Result / evidence under `build/wayland-session/` |
+| --- | --- |
+| Fresh default-X11 installation | PASS: setup, authentication, user switching, 32/64-bit apps, Fluent in Display Properties, shared-app access/denial, offline account/prefix checks. [Log](../build/wayland-session/final-x11-install.log) |
+| Fresh selected-Wayland installation | PASS: same install/WoW64/access checks, private session endpoint, real foot/Notepad action runner. [Log](../build/wayland-session/final-wayland-install.log), [maximized foot](../build/wayland-session/final-wayland-install-steps/wayland-foot-maximized.png) |
+| Real tray applications, both sessions | PASS: volumeicon XEmbed and nm-applet/libayatana SNI, tooltips, mute/wheel, image changes, left/right menus, lazy VPN submenu, Preferences/Connection Information, network signals, removal. [X11 log](../build/wayland-session/final-x11-tray.log), [Wayland log](../build/wayland-session/final-wayland-tray.log), [Win32 menu](../build/wayland-session/final-wayland-tray/tray-nm-menu.png) |
+| Existing X11 tray-bounds / eight-dialog smoke | PASS, isolated 800x600 display using the installed runtime. [Output](../build/wayland-session/final-x11-regressions/installed-regressions.log) |
+| Existing X11 D1/D2 checks | PASS, Composition=0 and =1, alpha/color key, five restored-attribute blends per mode, resize/remap, shadow setting and three capture paths. [Composed screenshot](../build/wayland-session/final-x11-regressions/wex-installed-regressions/composition-1/effects-after.png), same output above |
+
+Both private prefixes remain 1 MB. The final test sequence is recorded in
+`final-d.log`; final install screenshots are in `final-x11-install-steps/`
+and `final-wayland-install-steps/`. Test-only native packages and the dummy
+ALSA mixer were added after core installation acceptance; the ISO does not
+include this test setup. Existing B application-class evidence below remains
+the accepted record; the final image reruns its foot/Notepad action runner.
+
+One integration-test issue was fixed: the added Fluent check assumed an
+untracked `/root/WineExplorer/scripts/cpl_driver.exe` and obsolete session
+files. ebc47b9b builds the existing helper from source and uses session-run.py
+in either session. The interrupted X11 log is retained as
+`final-x11-install-first.log`; the full corrected fresh installation passed.
+See [TRAY_SNI.md](TRAY_SNI.md) for implementation, failure/workaround details
+and earlier development evidence, clearly separated from this final ISO.
+
+Remaining: Qt Exit buttons may repaint late at static 150% after switching
+back; changing scale while an SSD window is already maximized can detach its
+group. Neither is claimed fixed. The user's next queued item is the inset
+side edges on volumeicon Preferences; fresh evidence is
+`final-wayland-tray/tray-volume-preferences.png`. It has not been investigated
+as part of this tray transport/regression checkpoint.
+
+The original part B ISO and evidence below are preserved.
+
+Historical review point 1 report, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
 Parts A/B are implemented and the verification below is ready for review,
 with the two known limitations stated explicitly. Stop here for Claude before
 tray integration C and final regressions D. Overall L2/tray acceptance is not

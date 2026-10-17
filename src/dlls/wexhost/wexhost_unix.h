@@ -153,7 +153,7 @@ extern long compose_event_mask(unsigned long window, long wm_mask);
 
 struct tray_params { WEX_TRAY_ITEM item; DWORD err; };
 struct tray_action_params { DWORD token, action; INT x, y, value; DWORD err; };
-struct tray_menu_params { DWORD token; WEX_TRAY_MENU menu; DWORD err; };
+struct tray_menu_params { DWORD token; INT root; WEX_TRAY_MENU menu; DWORD err; };
 extern NTSTATUS tray_start(void *args);
 extern NTSTATUS tray_next(void *args);
 extern NTSTATUS tray_stop(void *args);
