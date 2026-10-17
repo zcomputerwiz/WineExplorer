@@ -12,7 +12,12 @@ The shell also corrects native tray coordinates and initial frame-local
 rounding exposed by opening the actual Preferences dialog at 150%.
 Its native client geometry and Win32 client area agree within one physical
 pixel. The development VM is back at 100%; no temporary compositor diagnostics
-remain. Items 2/3 and the final fresh-ISO regression are next, not claimed done.
+remain. Item 2's corrected five-second real-program check passes in 0.466 s
+on the current build and 0.481 s on the preserved pre-polish installation.
+The old full-screen OCR omitted visibly rendered buttons; no compositor
+change was justified. [Evidence](wayland-polish/item2-notes.md).
+Item 3's live-maximized scale failure is reproduced and under investigation.
+The final fresh-ISO regression remains pending.
 
 ### Manual Steam acceptance (item 4, not claimed)
 

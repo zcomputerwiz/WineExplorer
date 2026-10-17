@@ -54,7 +54,7 @@ def readback(action="zorder"):
                    "/tmp/wex-polish-control.exe " + action + "; cat /tmp/wex-polish-state.log")
 
 
-def window(title):
+def window(title, detail=False):
     for block in re.split(r"(?m)^Z ", readback())[1:]:
         caption = block.splitlines()[0].split(" ", 4)[-1].strip()
         if title not in caption:
@@ -65,7 +65,8 @@ def window(title):
         if frame and client and scale:
             if "group=0000000000000001" not in block:
                 raise RuntimeError("Hosting not yet active: " + caption)
-            return caption, tuple(map(int, frame.groups()[1:])), tuple(map(int, client.groups())), int(scale[1], 16)
+            result = caption, tuple(map(int, frame.groups()[1:])), tuple(map(int, client.groups())), int(scale[1], 16)
+            return (*result, int(frame[1], 16), block) if detail else result
     raise RuntimeError("No hosted " + title)
 
 
@@ -124,32 +125,137 @@ with tempfile.TemporaryDirectory(prefix="wex-polish-") as temp:
                     "-I" + str(ROOT / "src/include"), str(ROOT / "scripts/wayland-window-control.c"),
                     "-o", str(executable), "-lgdi32"], check=True)
     stage(executable, "/tmp/wex-polish-control.exe")
-command("pkill -u bobsmith -x volumeicon || true")
-for scale in (1, 1.5):
-    native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
-    time.sleep(1)
-    for app, title, args in (
-        ("foot", "Polish-foot", ["foot", "--title=Polish-foot"]),
-        ("qterminal", "bobsmith@", ["qterminal", "--workdir", "/home/bobsmith"]),
-        ("xterm", "Polish-xterm", ["xterm", "-title", "Polish-xterm", "-xrm", "XTerm*allowTitleOps:false"]),
-    ):
-        native(*args)
-        frame_check(title, f"{app}-{int(scale*100)}", scale)
-        command(f"pkill -u bobsmith -x {app}")
+def check_frames():
+    command("pkill -u bobsmith -x volumeicon || true")
+    for scale in (1, 1.5):
+        native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+        time.sleep(1)
+        for app, title, args in (
+            ("foot", "Polish-foot", ["foot", "--title=Polish-foot"]),
+            ("qterminal", "bobsmith@", ["qterminal", "--workdir", "/home/bobsmith"]),
+            ("xterm", "Polish-xterm", ["xterm", "-title", "Polish-xterm", "-xrm", "XTerm*allowTitleOps:false"]),
+        ):
+            native(*args)
+            frame_check(title, f"{app}-{int(scale*100)}", scale)
+            command(f"pkill -u bobsmith -x {app}")
+            time.sleep(.3)
+        native("env", "GDK_BACKEND=x11", "volumeicon")
+        time.sleep(.5)
+        vm.click(name, 1200, 785, "right")
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            target = vm.find_text(name, "Preferences")
+            if target:
+                vm.click(name, *target)
+                break
+        else:
+            raise RuntimeError("No volumeicon Preferences menu entry")
+        frame_check("Preferences", f"volumeicon-{int(scale*100)}", scale)
+        command("pkill -u bobsmith -x volumeicon")
         time.sleep(.3)
-    native("env", "GDK_BACKEND=x11", "volumeicon")
-    time.sleep(.5)
-    vm.click(name, 1200, 785, "right")
-    end = time.monotonic() + 10
-    while time.monotonic() < end:
-        target = vm.find_text(name, "Preferences")
-        if target:
-            vm.click(name, *target)
+    native("wlr-randr", "--output", "Virtual-1", "--scale", "1", wait=True)
+    print("PASS real-program frame matrix at 100% and 150%", flush=True)
+
+
+def check_qt_dialog():
+    def buttons(client):
+        # Qt's green/red standard icons make full-screen OCR omit the whole
+        # button row. Read just the real label areas, excluding those icons.
+        current = steps / "qt-dialog-current.png"
+        vm.shot(name, str(current))
+        words = []
+        for label, fraction, width in (("yes", .32, 54), ("no", .75, 40)):
+            x, y = client[0] + round(client[2] * fraction), client[1] + client[3] - 52
+            crop = steps / ("qt-" + label + "-label.png")
+            subprocess.run(["convert", str(current), "-crop", f"{width}x35+{x}+{y}",
+                            "+repage", "-resize", "300%", str(crop)], check=True)
+            words.append(subprocess.run(["tesseract", str(crop), "stdout", "--psm", "7"],
+                                        capture_output=True, text=True, check=True).stdout.strip())
+        print("QT_LABELS " + repr(words), flush=True)
+        return words[0].lower() == "yes" and words[1].lower() == "no"
+
+    native("wlr-randr", "--output", "Virtual-1", "--scale", "1.5", wait=True)
+    native("foot", "--title=Polish-switch-target")
+    settled("Polish-switch-target")
+    native("qterminal", "--workdir", "/home/bobsmith")
+    _, frame, _, _ = settled("bobsmith@")
+    vm.click(name, frame[2] - 17, frame[1] + 15)
+    _, _, client, _ = settled("Exit QTerminal")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if buttons(client):
             break
     else:
-        raise RuntimeError("No volumeicon Preferences menu entry")
-    frame_check("Preferences", f"volumeicon-{int(scale*100)}", scale)
-    command("pkill -u bobsmith -x volumeicon")
+        vm.shot(name, str(steps / "qt-dialog-initial-failed.png"))
+        raise RuntimeError("QTerminal Exit dialog did not initially draw its buttons")
+    readback()
+    vm.shot(name, str(steps / "qt-dialog-before-switch.png"))
+    vm.click(name, 200, 785)
     time.sleep(.3)
-native("wlr-randr", "--output", "Virtual-1", "--scale", "1", wait=True)
-print("PASS real-program frame matrix at 100% and 150%", flush=True)
+    vm.click(name, 365, 785)
+    time.sleep(.5)
+    started = time.monotonic()
+    deadline = started + 5
+    found = False
+    while time.monotonic() < deadline:
+        if buttons(client):
+            found = time.monotonic() <= deadline
+            break
+    elapsed = time.monotonic() - started
+    vm.shot(name, str(steps / "qt-dialog-after-switch.png"))
+    readback()
+    print(f"QT_BUTTONS visible={int(found)} elapsed={elapsed:.3f}s limit=5s", flush=True)
+    assert found, "QTerminal Yes/No buttons did not redraw within five seconds"
+    vm.click(name, client[0] + round(client[2] * .32) + 20, client[1] + client[3] - 35)
+    command("for i in $(seq 1 30); do pgrep -u bobsmith -x qterminal >/dev/null || break; sleep .1; done; ! pgrep -u bobsmith -x qterminal")
+    vm.shot(name, str(steps / "qt-dialog-closed.png"))
+    command("pkill -u bobsmith -x foot")
+    native("wlr-randr", "--output", "Virtual-1", "--scale", "1", wait=True)
+    print("PASS QTerminal Exit dialog taskbar switch at 150%", flush=True)
+
+
+def check_live_scale():
+    def state(scale, maximized):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                entry = window("Polish-live-scale", detail=True)
+                if entry[3] == round(scale*120) and bool(entry[4] & 0x01000000) == maximized:
+                    assert "foreground=1" in entry[5] and "focus=0000000000000001" in entry[5], entry
+                    return entry
+            except RuntimeError:
+                pass
+            time.sleep(.2)
+        vm.shot(name, str(steps / "scale-failed.png"))
+        raise RuntimeError(f"Foot lost hosting/maximize/focus at scale {scale}")
+
+    native("wlr-randr", "--output", "Virtual-1", "--scale", "1", wait=True)
+    native("foot", "--title=Polish-live-scale")
+    _, frame, _, _ = settled("Polish-live-scale")
+    vm.click(name, frame[0] + 100, frame[1] + 15, count=2)
+    width, height = vm.screen_size(name)
+    state_start = False
+    for scale in (1, 1.5, 1):
+        if scale != 1 or state_start:
+            native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+        entry = state(scale, True)
+        assert entry[1] == (-4, -4, width + 4, height - 26), entry
+        readback("workarea")
+        vm.shot(name, str(steps / f"scale-maximized-{int(scale*100)}.png"))
+        vm.type_text(name, "echo scale-checked")
+        vm.keys(name, ["ret"])
+        print(f"PASS maximized scale={scale} frame={entry[1]} client={entry[2]}", flush=True)
+        state_start = True
+    vm.click(name, 200, 12, count=2)
+    for scale in (1, 1.5, 1):
+        native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+        entry = state(scale, False)
+        readback("workarea")
+        vm.shot(name, str(steps / f"scale-restored-{int(scale*100)}.png"))
+        print(f"PASS restored scale={scale} frame={entry[1]} client={entry[2]}", flush=True)
+    command("pkill -u bobsmith -x foot")
+    print("PASS live 100%-150%-100% scale, maximized/restored foot and taskbar", flush=True)
+
+
+mode = sys.argv[4] if len(sys.argv) > 4 else "frames"
+{"frames": check_frames, "qt-dialog": check_qt_dialog, "scale": check_live_scale}[mode]()

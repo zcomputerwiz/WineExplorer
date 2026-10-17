@@ -1,0 +1,52 @@
+Desktop user: bobsmith; Explorer PID: 19721
+DISPLAY=
+WAYLAND_DISPLAY=wex-shell-0
+WINEPREFIX=/home/bobsmith/.wine
+Started native PID 20151; log: /tmp/wex-polish-native.log
+Started native PID 20155; log: /tmp/wex-polish-native.log
+Started Wine PID 20173; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0274:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 181,53 hit=0000000000010034 active=000000000014009e capture=0000000000000000 focus=000000000014009e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 000000000014009e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-switch-target
+  owner=0000000000000000 lastpopup=000000000014009e
+  style=14cf0000 rect=110,11,1168,766 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=114,41 1050x721 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Started native PID 20179; log: /tmp/wex-polish-native.log
+Started Wine PID 20187; log: /tmp/wex-polish-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0280:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 181,53 hit=0000000000010034 active=00000000000a00a2 capture=0000000000000000 focus=00000000000a00a2
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 00000000000a00a2 ex=00000100 role=0000000000000000 atom=000000000000c039 bobsmith@WEX-PC: ~
+  owner=0000000000000000 lastpopup=00000000000a00a2
+  style=14cf0000 rect=185,59,1093,723 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=189,89 900x630 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 000000000014009e ex=00000100 role=0000000000000000 atom=000000000000c032 Polish-switch-target
+  owner=0000000000000000 lastpopup=000000000014009e
+  style=14cf0000 rect=110,11,1168,766 foreground=0 host=0000000000000001 group=0000000000000001 focus=0000000000000000 size=0000000000000001
+  client=114,41 1050x721 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=00000000000000b4
+Traceback (most recent call last):
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 204, in <module>
+    {"frames": check_frames, "qt-dialog": check_qt_dialog}[mode]()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/mnt/d/DeepThought/Projects/WineExplorer/installer/tests/check-wayland-polish.py", line 173, in check_qt_dialog
+    raise RuntimeError("QTerminal Exit dialog did not initially draw its buttons")
+RuntimeError: QTerminal Exit dialog did not initially draw its buttons

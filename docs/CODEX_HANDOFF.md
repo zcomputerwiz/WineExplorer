@@ -10,11 +10,20 @@ rounding and native tray input coordinates also needed correction at 150%.
 Jules's PRs merged as 93665eec/d692e6ce and have been pulled/built. Gemini's art
 files and the user's unrelated `.gitignore` edit remain untouched.
 
-Next: item 2 QTerminal's five-second Exit-dialog repaint check at 150%, then
-item 3 live scale changes, followed by fresh-ISO regression. Steam's short
+Item 2 now passes with label-crop OCR: both buttons appear in 0.466 s on the
+current runtime and 0.481 s on the untouched pre-polish runtime. Whole-screen
+OCR omitted visibly drawn buttons; no rendering patch was justified. See
+wayland-polish/item2-notes.md and committed logs/screenshots. The baseline
+`tray-final-wayland` VM received qterminal/wlr-randr test packages and is
+shutting down normally, with its original runtime preserved.
+
+Next: item 3 live scale changes, followed by fresh-ISO regression. The real
+maximized-foot 100%→150% failure reproduces (`wayland-polish/logs/item3-before.log`);
+the development VM remains at 150% with this failure visible for tracing.
+Steam's short
 manual steps are in WAYLAND_SESSION.md; signed-in acceptance remains manual.
 The QEMU development VM `wayland-session-iso` is running Bob's Wayland desktop
-at 100%, with staged win32u and owned shell/host modules. The compositor is
+with staged win32u and owned shell/host modules. The compositor is
 restored to production 2bde47ee; its temporary diagnostics are removed. The
 preserved `tray-final-x11` / `tray-final-wayland` acceptance VMs remain stopped.
 The Proton build source is at Wine bcf842a; generated configure and owned
