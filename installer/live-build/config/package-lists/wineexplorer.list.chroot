@@ -51,3 +51,12 @@ libncursesw6
 fonts-dejavu-core
 fonts-liberation
 fonts-noto-mono
+# Open substitutes for common Windows fonts (see docs/FONTS_RUNTIMES_WORKORDER.md)
+fonts-liberation2
+fonts-crosextra-carlito
+fonts-crosextra-caladea
+fonts-noto-core
+fonts-noto-cjk
+fonts-ipafont-gothic
+fonts-ipafont-mincho
+fonts-unfonts-core
