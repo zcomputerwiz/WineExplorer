@@ -203,7 +203,7 @@ DWORD WINAPI WexTrayAction(DWORD token, DWORD action, INT x, INT y, INT value)
     return params.err;
 }
 
-DWORD WINAPI WexTrayGetMenu(DWORD token, WEX_TRAY_MENU *menu)
+DWORD WINAPI WexTrayGetMenu(DWORD token, INT root, WEX_TRAY_MENU *menu)
 {
     struct tray_menu_params *params;
     DWORD err;
@@ -211,6 +211,7 @@ DWORD WINAPI WexTrayGetMenu(DWORD token, WEX_TRAY_MENU *menu)
     if (!menu) return ERROR_INVALID_PARAMETER;
     if (!(params = calloc(1, sizeof(*params)))) return ERROR_NOT_ENOUGH_MEMORY;
     params->token = token;
+    params->root = root;
     run_pumped(NULL, unix_tray_menu, params);
     *menu = params->menu;
     err = params->err;

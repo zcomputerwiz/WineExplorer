@@ -1,7 +1,9 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Native notification icons
 
-Part C is in progress; part D and review point 2 are not ready.
+Part C: Wayland real-program tray checks pass; final X11 checks are running.
+Signed-in Steam close/reopen/menu is reserved for the user's manual login,
+as requested on 2026-10-17. Part D and review point 2 are not ready.
 
 The Unix half of wexhost owns the session-bus StatusNotifierWatcher when no
 watcher exists, or registers with the existing watcher. It tracks unique bus
@@ -14,16 +16,17 @@ Menus use Win32 popup menus and com.canonical.dbusmenu calls.
 
 The XEmbed fallback owns the X11 tray selection without stealing it. It
 captures redirected client icons on Damage events and delivers the same tray
-records and clicks. This implementation still needs real XEmbed acceptance.
+records and clicks. Volumeicon now verifies this path under Wayland, including
+mute/image updates, tooltip, its popup menu and working Preferences command.
 The suggested snixembed program converts SNI **to** XEmbed, the reverse
 direction: https://packages.debian.org/sid/snixembed . No third-party source
 has been copied into these implementations.
 
 ## Verified so far (2026-10-16)
 
-Combined i386/x86_64 Wine build passes at the production pin 0f25ee1 with
+Combined i386/x86_64 Wine build passes at the production pin b1d3ab0 with
 the new owned modules. Build log on the Proton VM:
-`/srv/protonexplorer/wex-wayland-l1/checks/tray-build.log`.
+`/srv/protonexplorer/wex-wayland-l1/checks/tray-fixes-build.log`.
 
 On the installed `wayland-session-iso` QEMU VM, the development DLLs were
 staged into `/usr/local/lib/wine` and LightDM restarted. This VM is therefore
@@ -38,17 +41,83 @@ and xpad. No credentials or account login were submitted.
   checkmark, separator and VPN submenu.
 - Selecting Connection Information opens its actual native GTK dialog.
 - Xpad also registers through libayatana; it is not an XEmbed test.
+- Volumeicon's XEmbed icon uses its ARGB visual; its common Win32 tooltip
+  displays `volumeicon`. Left click mutes it and Damage updates the image.
+  Right click opens the native popup; Preferences opens its actual dialog.
+- NetworkManager's normal `Network` tooltip displays. Its Win32 menu's VPN
+  submenu is fetched on opening, including AboutToShow. Its Connection
+  Information command works; disabling/enabling networking through the actual
+  NetworkManager service updates the tray icon through signals. Networking
+  was restored. Exiting nm-applet removes its watcher registration and icon.
+
+Real Wayland output: `build/wayland-session/tray-wayland-real.log` records
+the XEmbed passes, then an overly exact OCR match failed on the gray menu
+heading. `tray-wayland-sni.log` records the subsequent successful SNI checks.
+This distinction is deliberate: the first whole runner did not pass. The
+corrected whole runner is being used for X11 and the final ISO.
+
+Additional evidence: `tray-wayland-volume-tooltip.png`,
+`tray-wayland-volume-before.png`, `tray-wayland-volume-after.png`,
+`tray-wayland-volume-preferences.png`, `tray-wayland-nm-submenu.png`,
+`tray-wayland-nm-information.png`, `tray-wayland-nm-disabled.png`, and
+`tray-wayland-nm-removed.png` in the same ignored staging directory.
 
 Evidence under gitignored `build/wayland-session/`:
 [indicator/menu](../build/wayland-session/tray-nm-menu-initial.png),
 [working menu command](../build/wayland-session/tray-nm-information.png),
 [Xpad indicator](../build/wayland-session/tray-xpad-initial.png).
 
-Still required: XEmbed real app, Steam close/reopen/menu, tooltip and
-signal-driven status/removal, existing-watcher behavior, menu refresh,
-both session acceptance, then the work order's final ISO regressions.
+Still required: final X11 acceptance, then the work order's final ISO
+regressions. Signed-in Steam acceptance is a manual check; no credentials
+have been requested or submitted. Existing-watcher fallback is implemented;
+no synthetic watcher client or protocol corner-case suite was added.
 
 ## Failed commands and fixes
+
+- Whole-screen OCR omitted the small tray tooltip, then read `volumeicon`
+  as `voiumeicon`; crop the tooltip region and normalize the i/l glyph
+  ambiguity. Screenshots verify the actual text. The gray disabled menu
+  heading was read as `Ethernet Ne`, so wait for the enabled `Disconnect`
+  entry instead. OCR also missed `Close` in the native dialog; close it
+  with the normal Alt+F4 action. No product changes were made for these.
+- The new ISO build initially failed executing package-wine.sh: Permission
+  denied. A Windows tar of edited files had lost its executable bit.
+  Restored that one file's mode in the Linux build source and restarted the
+  dedicated clean ISO build. The original part B ISO remains outside its
+  work directory and was preserved.
+
+- Pulling the new Fluent merge initially stopped because the pre-existing
+  `.gitignore` `*.tmp` edit overlapped upstream Python ignore additions.
+  Stashed only that file, merged master, restored both ignore additions,
+  left `*.tmp` unstaged and dropped only the temporary stash. No work lost.
+- `apt-get install parcellite` failed: package unavailable in Debian 13.
+  Use the work order's volumeicon instead. This VM has no sound device;
+  test-only `modprobe snd-dummy` supplies its ALSA mixer without host audio.
+- Starting apps immediately after clicking Bob raced session startup:
+  `Cannot open display`. Wait for the desktop/watcher, then launch them.
+  Running the session selector before the Welcome screen was ready also
+  failed OCR and selected default X11; the resulting X11 session was used
+  for its tray check. Wait for `To begin` before choosing Wayland.
+- Xpad in Debian 13 uses libayatana, so it cannot stand in for an XEmbed-only
+  client. Volumeicon's X11 plug and owner/child tree verify actual XEmbed.
+- The initial XEmbed image lost alpha: without `_NET_SYSTEM_TRAY_VISUAL`, GTK
+  chose a default-depth visual. Advertise a 32-bit visual before announcing
+  the manager. XGetImage on a named pixmap also has zero RGB masks: use the
+  actual client visual's masks. Read-only pixel inspection of volumeicon
+  confirmed the alpha-only black speaker bitmap.
+- Volumeicon selects XI2 and ignores XSendEvent core clicks. Use optional
+  libXtst for clients without a selected core ButtonPress mask. Its actual
+  Open Mixer/Preferences/About/Quit popup now appears under Wayland.
+- Default-depth XEmbed parents could show a black square on XWayland after
+  replaying a click: opacity on override-redirect windows is not portable.
+  Use a transparent ARGB parent and manually redirect the embedded child,
+  with an empty input region except during server-generated clicks.
+- Waiting for `Volume Control` after selecting Preferences timed out; the
+  screenshot did not show a preferences dialog. Do not count that command
+  as passed; further XEmbed interaction checks remain.
+- The KDE source URL `master/xembedsniproxy/sniproxy.cpp` returned 404.
+  Consulted Plasma/5.27/xembed-sni-proxy instead (LGPL-2.1-or-later), for
+  bridge behavior, including XI2 click injection. No source copied.
 
 - Initial tray_x11.c build: `X11/extensions/Xdamage.h: No such file or directory`.
   Used the public runtime ABI declarations, following existing compose.c;

@@ -53,4 +53,4 @@
 @ stdcall WexTrayStart(ptr ptr)
 @ stdcall WexTrayStop()
 @ stdcall WexTrayAction(long long long long long)
-@ stdcall WexTrayGetMenu(long ptr)
+@ stdcall WexTrayGetMenu(long long ptr)

@@ -17,6 +17,7 @@
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/Xcomposite.h>
+#include <X11/extensions/shape.h>
 #undef Status
 #undef ControlMask
 #endif
@@ -52,16 +53,19 @@ static void (*p_XDamageSubtract)(Display *, Damage, XID, XID);
     X(XCreateSimpleWindow) X(XChangeWindowAttributes) X(XChangeProperty) X(XGetWindowProperty) \
     X(XMapWindow) X(XSelectInput) X(XDestroyWindow) X(XFlush) X(XSync) X(XPending) X(XNextEvent) \
     X(XSendEvent) X(XReparentWindow) X(XMoveResizeWindow) X(XAddToSaveSet) X(XRemoveFromSaveSet) \
-    X(XGetWindowAttributes) X(XFetchName) X(XGetClassHint) X(XFree) X(XGetImage) X(XFreePixmap) X(XSetErrorHandler)
+    X(XGetWindowAttributes) X(XFetchName) X(XGetClassHint) X(XFree) X(XGetImage) X(XFreePixmap) X(XSetErrorHandler) X(XMatchVisualInfo) X(XRaiseWindow) X(XLowerWindow) \
+    X(XCreateWindow) X(XCreateColormap) X(XFreeColormap)
 #define X(f) static typeof(f) *p_##f;
 XLIB_FUNCS
 X(XCompositeRedirectWindow) X(XCompositeNameWindowPixmap) X(XCompositeQueryExtension)
+X(XShapeCombineRectangles)
 #undef X
 #define XEMBED_MAX 64
 #define TOKEN_MASK 0x40000000u
 struct embedded
 {
     Window window, parent;
+    Colormap colormap;
     Damage damage;
     DWORD token;
     BOOL dirty, removed;
@@ -69,8 +73,11 @@ struct embedded
 static struct embedded icons[XEMBED_MAX];
 static Display *display;
 static Window manager;
+static XVisualInfo argb_visual;
 static Atom selection, opcode, xembed, manager_atom, opacity;
 static int damage_event, x_error;
+static int (*fake_button)(Display *, unsigned int, Bool, unsigned long);
+static int (*fake_motion)(Display *, int, int, int, unsigned long);
 static DWORD serial;
 static BOOL handler_installed;
 static int (*previous_error)(Display *, XErrorEvent *);
@@ -82,7 +89,7 @@ static int error_handler(Display *dpy, XErrorEvent *error)
 static BOOL initialize(void)
 {
     static BOOL loaded;
-    void *xlib, *composite, *damage;
+    void *xlib, *composite, *damage, *shape;
     Window root;
     XEvent event = {0};
     int unused;
@@ -93,15 +100,21 @@ static BOOL initialize(void)
         xlib = dlopen(SONAME_LIBX11, RTLD_NOW);
         composite = dlopen("libXcomposite.so.1", RTLD_NOW);
         damage = dlopen("libXdamage.so.1", RTLD_NOW);
-        if (!xlib || !composite || !damage) return FALSE;
+        shape = dlopen("libXext.so.6", RTLD_NOW);
+        if (!xlib || !composite || !damage || !shape) return FALSE;
 #define X(f) if (!(p_##f = dlsym(xlib, #f))) return FALSE;
         XLIB_FUNCS
 #undef X
 #define LOAD(lib, f) if (!(p_##f = dlsym(lib, #f))) return FALSE;
         LOAD(composite, XCompositeRedirectWindow) LOAD(composite, XCompositeNameWindowPixmap) LOAD(composite, XCompositeQueryExtension)
         LOAD(damage, XDamageCreate) LOAD(damage, XDamageDestroy) LOAD(damage, XDamageSubtract) LOAD(damage, XDamageQueryExtension)
+        LOAD(shape, XShapeCombineRectangles)
 #undef LOAD
         loaded = TRUE;
+        {
+            void *test = dlopen("libXtst.so.6", RTLD_NOW);
+            if (test) { fake_button = dlsym(test, "XTestFakeButtonEvent"); fake_motion = dlsym(test, "XTestFakeMotionEvent"); }
+        }
     }
     if ((!native_display || !*native_display) && wayland_wm_native_environment(wayland, xdisplay)) native_display = xdisplay;
     if (!native_display || !*native_display || !(display = p_XOpenDisplay(native_display))) return FALSE;
@@ -122,6 +135,15 @@ static BOOL initialize(void)
         Atom orientation = p_XInternAtom(display, "_NET_SYSTEM_TRAY_ORIENTATION", False);
         unsigned long horizontal = 0;
         p_XChangeProperty(display, manager, orientation, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&horizontal, 1);
+        /* Without this GtkStatusIcon creates a default-depth plug, losing the
+         * icon's alpha channel against an otherwise invisible black parent. */
+        memset(&argb_visual, 0, sizeof(argb_visual));
+        if (p_XMatchVisualInfo(display, DefaultScreen(display), 32, TrueColor, &argb_visual))
+        {
+            Atom tray_visual = p_XInternAtom(display, "_NET_SYSTEM_TRAY_VISUAL", False);
+            unsigned long id = argb_visual.visualid;
+            p_XChangeProperty(display, manager, tray_visual, XA_VISUALID, 32, PropModeReplace, (unsigned char *)&id, 1);
+        }
     }
     event.xclient.type = ClientMessage; event.xclient.window = root;
     event.xclient.message_type = manager_atom; event.xclient.format = 32;
@@ -145,15 +167,30 @@ static void dock(Window window)
     for (i = 0; i < XEMBED_MAX; i++) if (!icons[i].token) break;
     if (i == XEMBED_MAX) return;
     x_error = 0;
-    icons[i].parent = p_XCreateSimpleWindow(display, root, -1000, -1000, 24, 24, 0, 0, 0);
     attrs.override_redirect = True;
-    p_XChangeWindowAttributes(display, icons[i].parent, CWOverrideRedirect, &attrs);
+    if (argb_visual.visual)
+    {
+        icons[i].colormap = p_XCreateColormap(display, root, argb_visual.visual, AllocNone);
+        attrs.colormap = icons[i].colormap;
+        attrs.background_pixel = attrs.border_pixel = 0;
+        icons[i].parent = p_XCreateWindow(display, root, -1000, -1000, 24, 24, 0, 32, InputOutput, argb_visual.visual,
+            CWOverrideRedirect | CWColormap | CWBackPixel | CWBorderPixel, &attrs);
+    }
+    else
+    {
+        icons[i].parent = p_XCreateSimpleWindow(display, root, -1000, -1000, 24, 24, 0, 0, 0);
+        p_XChangeWindowAttributes(display, icons[i].parent, CWOverrideRedirect, &attrs);
+    }
+    /* Keep the XEmbed parent mapped for GTK's geometry/menu calculations, but
+     * give it an empty visible region. _NET_WM_WINDOW_OPACITY is not supported
+     * for override-redirect windows by every compositor (notably XWayland). */
+    p_XShapeCombineRectangles(display, icons[i].parent, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
     p_XChangeProperty(display, icons[i].parent, opacity, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&transparent, 1);
     p_XAddToSaveSet(display, window);
     p_XSelectInput(display, window, StructureNotifyMask | PropertyChangeMask | ExposureMask);
     p_XReparentWindow(display, window, icons[i].parent, 0, 0);
     p_XMoveResizeWindow(display, window, 0, 0, 24, 24);
-    p_XCompositeRedirectWindow(display, window, CompositeRedirectAutomatic);
+    p_XCompositeRedirectWindow(display, window, CompositeRedirectManual);
     icons[i].damage = p_XDamageCreate(display, window, 3 /* XDamageReportNonEmpty */);
     p_XMapWindow(display, icons[i].parent); p_XMapWindow(display, window);
     embedded.xclient.type = ClientMessage; embedded.xclient.window = window;
@@ -165,6 +202,7 @@ static void dock(Window window)
     if (x_error)
     {
         p_XDestroyWindow(display, icons[i].parent);
+        if (icons[i].colormap) p_XFreeColormap(display, icons[i].colormap);
         memset(&icons[i], 0, sizeof(icons[i])); return;
     }
     icons[i].window = window; icons[i].token = TOKEN_MASK | ++serial; icons[i].dirty = TRUE;
@@ -247,6 +285,7 @@ void tray_x11_next(WEX_TRAY_ITEM *item)
             item->event = WEX_TRAY_REMOVED; item->token = icons[i].token;
             p_XDamageDestroy(display, icons[i].damage);
             p_XDestroyWindow(display, icons[i].parent);
+            if (icons[i].colormap) p_XFreeColormap(display, icons[i].colormap);
             memset(&icons[i], 0, sizeof(icons[i])); break;
         }
         if (icons[i].dirty) { capture(&icons[i], item); break; }
@@ -257,15 +296,34 @@ BOOL tray_x11_action(struct tray_action_params *params)
 {
     unsigned int i, button;
     XEvent event = {0};
+    XWindowAttributes attrs;
     if (!(params->token & TOKEN_MASK)) return FALSE;
     params->err = ERROR_NOT_FOUND;
     for (i = 0; i < XEMBED_MAX; i++) if (icons[i].token == params->token && !icons[i].removed) break;
     if (i == XEMBED_MAX) return TRUE;
     button = params->action == WEX_TRAY_ACTIVATE ? 1 : params->action == WEX_TRAY_SECONDARY ? 2 : params->action == WEX_TRAY_CONTEXT ? 3 : 0;
-    if (params->action == WEX_TRAY_SCROLL) button = params->y ? (params->value > 0 ? 6 : 7) : (params->value > 0 ? 4 : 5);
+    if (params->action == WEX_TRAY_SCROLL || params->action == WEX_TRAY_SCROLL_HORIZONTAL)
+        button = params->action == WEX_TRAY_SCROLL_HORIZONTAL ? (params->value > 0 ? 6 : 7) : (params->value > 0 ? 4 : 5);
     if (!button) { params->err = ERROR_NOT_SUPPORTED; return TRUE; }
-    if (params->action != WEX_TRAY_SCROLL)
-        p_XMoveResizeWindow(display, icons[i].parent, params->x - 12, params->y - 12, 24, 24);
+    p_XMoveResizeWindow(display, icons[i].parent, params->x - 12, params->y - 12, 24, 24);
+    if (!p_XGetWindowAttributes(display, icons[i].window, &attrs)) return TRUE;
+    if (!(attrs.all_event_masks & ButtonPressMask))
+    {
+        XRectangle rect = {0, 0, 24, 24};
+        /* GTK3 selects XI2 instead of core button events. Follow the normal
+         * XEmbed bridge pattern: briefly make the plug hit-testable, replay a
+         * server-generated click, then hide the container again. */
+        if (!fake_button || !fake_motion) { params->err = ERROR_NOT_SUPPORTED; return TRUE; }
+        p_XShapeCombineRectangles(display, icons[i].parent, ShapeInput, 0, 0, &rect, 1, ShapeSet, Unsorted);
+        p_XRaiseWindow(display, icons[i].parent);
+        fake_motion(display, DefaultScreen(display), params->x, params->y, 0);
+        fake_button(display, button, True, 0); fake_button(display, button, False, 0);
+        p_XLowerWindow(display, icons[i].parent);
+        p_XShapeCombineRectangles(display, icons[i].parent, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
+        p_XFlush(display);
+        params->err = 0;
+        return TRUE;
+    }
     event.xbutton.type = ButtonPress; event.xbutton.display = display; event.xbutton.window = icons[i].window;
     event.xbutton.root = DefaultRootWindow(display); event.xbutton.time = CurrentTime;
     event.xbutton.x = event.xbutton.y = 12; event.xbutton.x_root = params->x; event.xbutton.y_root = params->y;
@@ -286,6 +344,7 @@ void tray_x11_stop(void)
         p_XReparentWindow(display, icons[i].window, DefaultRootWindow(display), 0, 0);
         p_XRemoveFromSaveSet(display, icons[i].window);
         p_XDamageDestroy(display, icons[i].damage); p_XDestroyWindow(display, icons[i].parent);
+        if (icons[i].colormap) p_XFreeColormap(display, icons[i].colormap);
     }
     p_XDestroyWindow(display, manager); manager = 0;
     p_XCloseDisplay(display); display = NULL;

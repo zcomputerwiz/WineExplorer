@@ -315,6 +315,7 @@ DWORD WINAPI WexHardwareList( char *buffer, DWORD size, DWORD *needed );
 #define WEX_TRAY_CONTEXT 3
 #define WEX_TRAY_SCROLL 4
 #define WEX_TRAY_CLICK_MENU 5
+#define WEX_TRAY_SCROLL_HORIZONTAL 6
 #define WEX_TRAY_PASSIVE 1
 #define WEX_TRAY_ATTENTION 2
 #define WEX_TRAY_ITEM_MENU 4
@@ -339,7 +340,7 @@ typedef void (CALLBACK *WEX_TRAY_CALLBACK)(const WEX_TRAY_ITEM *, void *);
 DWORD WINAPI WexTrayStart(WEX_TRAY_CALLBACK callback, void *context);
 DWORD WINAPI WexTrayStop(void);
 DWORD WINAPI WexTrayAction(DWORD token, DWORD action, INT x, INT y, INT value);
-DWORD WINAPI WexTrayGetMenu(DWORD token, WEX_TRAY_MENU *menu);
+DWORD WINAPI WexTrayGetMenu(DWORD token, INT root, WEX_TRAY_MENU *menu);
 
 #ifdef __cplusplus
 }
