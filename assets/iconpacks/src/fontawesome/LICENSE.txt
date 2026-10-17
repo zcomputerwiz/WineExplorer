@@ -1,0 +1,10 @@
+Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com
+Copyright 2026 Fonticons, Inc.
+
+earth-americas.svg is a Font Awesome Free icon, licensed under the Creative Commons Attribution 4.0
+International licence (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+Font Awesome Free licence: https://fontawesome.com/license/free
+
+Changes in WineExplorer: two-tone colours; the paths are scaled into the globe icons of the XP and
+Fluent icon packs (assets/iconpacks/xp.json ids 14, 15, 18, 175; fluent.json ids 14, 15, 18) with
+new ocean and land colours, an outline and a gloss.

@@ -2,7 +2,7 @@
   "name": "Fluent",
   "display_name": "Fluent (Windows 11 style)",
   "module": "shell32",
-  "provenance": "Except the Recycle Bin, every shape is a glyph of Fluent UI System Icons (Microsoft, MIT licence, https://github.com/microsoft/fluentui-system-icons, files `assets/<Name>/SVG/ic_fluent_<name>_<size>_<filled|regular>.svg`). The build recolours each glyph with a flat colour, scales it and places it; nothing else is changed. A \"tone\" pair is the filled glyph in a light colour under the regular (outline) glyph in a darker colour, which gives the two-tone look. The colours were picked by eye so that each icon resembles the Windows 11 icon of the same slot, compared side by side on a developer's machine. No Windows pixels, outlines or files were used, and no fonts. The Recycle Bin (ids 32 and 33) is the Tela icon theme's user-trash and user-trash-full SVG, edited as listed: its body is given a pale translucent fill and a visible outline, a darker base band is added, and its recycle symbol is recoloured blue; nothing else is changed.",
+  "provenance": "Except the Recycle Bin, every shape is a glyph of Fluent UI System Icons (Microsoft, MIT licence, https://github.com/microsoft/fluentui-system-icons, files `assets/<Name>/SVG/ic_fluent_<name>_<size>_<filled|regular>.svg`). The build recolours each glyph with a flat colour, scales it and places it; nothing else is changed. A \"tone\" pair is the filled glyph in a light colour under the regular (outline) glyph in a darker colour, which gives the two-tone look. The colours were picked by eye so that each icon resembles the Windows 11 icon of the same slot, compared side by side on a developer's machine. No Windows pixels, outlines or files were used, and no fonts. The Recycle Bin (ids 32 and 33) is the Tela icon theme's user-trash and user-trash-full SVG, edited as listed: its body is given a pale translucent fill and a visible outline, a darker base band is added, and its recycle symbol is recoloured blue; nothing else is changed. The land of the globes of ids 14, 15 and 18 is the Americas earth of Font Awesome Free 7.3.1 (Fonticons, Inc., CC BY 4.0, assets/iconpacks/src/fontawesome/), scaled into the globe and drawn in a light land colour.",
   "palette": {
     "page": "#FFFFFF",
     "page_line": "#8C8C8C",
@@ -50,11 +50,18 @@
       "meaning": "file",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 8.5,3.5 L 31.0,3.5 L 39.5,12.0 L 39.5,44.5 L 8.5,44.5 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 31.0,3.5 L 31.0,12.0 L 39.5,12.0 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -62,11 +69,18 @@
       "meaning": "document",
       "layers": [
         {
-          "tone": [
-            "document_text",
-            "page",
-            "page_line"
-          ]
+          "svg": "fluent:assets/Document Text/SVG/ic_fluent_document_text_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 8.5,3.5 L 31.0,3.5 L 39.5,12.0 L 39.5,44.5 L 8.5,44.5 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 31.0,3.5 L 31.0,12.0 L 39.5,12.0 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><path d=\"M 13.5,20 L 16.8,10.5 L 18.8,10.5 L 22.1,20 L 20.1,20 L 19.3,17.6 L 16.3,17.6 L 15.5,20 Z M 16.8,16.0 L 18.8,16.0 L 17.8,12.8 Z\" fill=\"#1484D8\"/><rect x=\"23.5\" y=\"13.5\" width=\"11.5\" height=\"1.5\" fill=\"#8A8A8A\"/><rect x=\"23.5\" y=\"17.5\" width=\"11.5\" height=\"1.5\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"22.0\" width=\"22.0\" height=\"1.6\" fill=\"#2A98E8\"/><rect x=\"13.0\" y=\"26.0\" width=\"22.0\" height=\"1.5\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"30.0\" width=\"22.0\" height=\"1.5\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"34.0\" width=\"22.0\" height=\"1.5\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"38.0\" width=\"22.0\" height=\"1.5\" fill=\"#8A8A8A\"/>"
         }
       ]
     },
@@ -74,20 +88,18 @@
       "meaning": "application window",
       "layers": [
         {
-          "tone": [
-            "window",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "square",
-          "colour": "blue",
-          "scale": 0.38,
-          "at": [
-            0.31,
-            0.4
-          ]
+          "svg": "fluent:assets/Window/SVG/ic_fluent_window_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<rect x=\"2.5\" y=\"8.5\" width=\"43.0\" height=\"31.5\" rx=\"1.5\" fill=\"#FFFFFF\" stroke=\"#7A7A7A\" stroke-width=\"1.4\"/><rect x=\"3.2\" y=\"9.2\" width=\"41.6\" height=\"5.2\" fill=\"#D8DDE4\"/><line x1=\"2.5\" y1=\"14.5\" x2=\"45.5\" y2=\"14.5\" stroke=\"#8C949E\" stroke-width=\"1.0\"/><rect x=\"34.5\" y=\"10.8\" width=\"2.2\" height=\"2.0\" fill=\"#586068\"/><rect x=\"38.0\" y=\"10.8\" width=\"2.2\" height=\"2.0\" fill=\"#586068\"/><rect x=\"41.5\" y=\"10.8\" width=\"2.2\" height=\"2.0\" fill=\"#586068\"/><rect x=\"15.0\" y=\"18.0\" width=\"16.5\" height=\"18.5\" rx=\"0.8\" fill=\"#0E78D4\"/><rect x=\"6.5\" y=\"19.5\" width=\"5.5\" height=\"1.6\" fill=\"#7A828C\"/><rect x=\"6.5\" y=\"23.5\" width=\"5.5\" height=\"1.6\" fill=\"#7A828C\"/><rect x=\"6.5\" y=\"27.5\" width=\"5.5\" height=\"1.6\" fill=\"#7A828C\"/><rect x=\"6.5\" y=\"31.5\" width=\"5.5\" height=\"1.6\" fill=\"#7A828C\"/><rect x=\"34.5\" y=\"19.5\" width=\"7.5\" height=\"1.6\" fill=\"#7A828C\"/>"
         }
       ]
     },
@@ -95,11 +107,18 @@
       "meaning": "folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"yf_4\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 0.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_4)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g>"
         }
       ]
     },
@@ -107,35 +126,56 @@
       "meaning": "open folder",
       "layers": [
         {
-          "tone": [
-            "folder_open",
-            "folder",
-            "folder_line"
-          ]
+          "svg": "fluent:assets/Folder Open/SVG/ic_fluent_folder_open_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"yf_5\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE880\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 41.5,11.0 C 42.9,11.0 44.0,12.1 44.0,13.5 L 44.0,39.5 L 3.0,39.5 Z\" fill=\"#DC9614\"/><path d=\"M 5.5,16.0 L 46.0,16.0 L 43.0,42.0 L 3.0,42.0 Z\" fill=\"url(#yf_5)\" stroke=\"#D48E12\" stroke-width=\"0.6\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
     "6": {
-      "meaning": "5.25-inch floppy",
+      "meaning": "floppy drive (5.25)",
       "layers": [
         {
-          "tone": [
-            "save",
-            "drive",
-            "drive_line"
-          ]
+          "svg": "fluent:assets/Hard Drive/SVG/ic_fluent_hard_drive_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"w11dfront\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1E2228\"/><stop offset=\"0.5\" stop-color=\"#3A4048\"/><stop offset=\"1\" stop-color=\"#68707A\"/></linearGradient><linearGradient id=\"w11dtop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C8D0DC\"/><stop offset=\"1\" stop-color=\"#DEE4EC\"/></linearGradient><radialGradient id=\"w11led\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#98FF80\"/><stop offset=\"0.55\" stop-color=\"#28D820\"/><stop offset=\"1\" stop-color=\"#0C7808\"/></radialGradient></defs><g transform=\"translate(0,0)\"><path d=\"M10.5 14.2 H37.5 L45.0 22.5 H3.0 Z\" fill=\"url(#w11dtop)\" stroke=\"#B4BCC8\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><rect x=\"3.0\" y=\"22.5\" width=\"42.0\" height=\"12.5\" rx=\"1.6\" fill=\"url(#w11dfront)\" stroke=\"#484E58\" stroke-width=\"1.0\"/><circle cx=\"10.2\" cy=\"28.2\" r=\"2.3\" fill=\"url(#w11led)\"/></g><rect x=\"25.0\" y=\"3.0\" width=\"19.0\" height=\"18.5\" fill=\"#646870\" stroke=\"#484C54\" stroke-width=\"1.0\"/><rect x=\"27.0\" y=\"4.5\" width=\"15.0\" height=\"5.2\" fill=\"#E4E8EE\"/><rect x=\"27.5\" y=\"5.0\" width=\"5.5\" height=\"4.2\" fill=\"#0A68C8\"/><circle cx=\"34.5\" cy=\"13.0\" r=\"2.2\" fill=\"#FFFFFF\" stroke=\"#484C54\" stroke-width=\"0.8\"/><rect x=\"33.6\" y=\"16.5\" width=\"1.8\" height=\"4.2\" rx=\"0.6\" fill=\"#383C42\"/>"
         }
       ]
     },
     "7": {
-      "meaning": "3.5-inch floppy",
+      "meaning": "floppy drive (3.5)",
       "layers": [
         {
-          "tone": [
-            "save",
-            "drive",
-            "drive_line"
-          ]
+          "svg": "fluent:assets/Hard Drive/SVG/ic_fluent_hard_drive_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"w11dfront\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1E2228\"/><stop offset=\"0.5\" stop-color=\"#3A4048\"/><stop offset=\"1\" stop-color=\"#68707A\"/></linearGradient><linearGradient id=\"w11dtop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C8D0DC\"/><stop offset=\"1\" stop-color=\"#DEE4EC\"/></linearGradient><radialGradient id=\"w11led\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#98FF80\"/><stop offset=\"0.55\" stop-color=\"#28D820\"/><stop offset=\"1\" stop-color=\"#0C7808\"/></radialGradient></defs><g transform=\"translate(0,0)\"><path d=\"M10.5 14.2 H37.5 L45.0 22.5 H3.0 Z\" fill=\"url(#w11dtop)\" stroke=\"#B4BCC8\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><rect x=\"3.0\" y=\"22.5\" width=\"42.0\" height=\"12.5\" rx=\"1.6\" fill=\"url(#w11dfront)\" stroke=\"#484E58\" stroke-width=\"1.0\"/><circle cx=\"10.2\" cy=\"28.2\" r=\"2.3\" fill=\"url(#w11led)\"/></g><rect x=\"24.5\" y=\"2.0\" width=\"19.5\" height=\"19.5\" rx=\"1.0\" fill=\"#646870\" stroke=\"#484C54\" stroke-width=\"1.0\"/><rect x=\"27.5\" y=\"2.3\" width=\"13.5\" height=\"10.2\" fill=\"#E6EAEF\"/><rect x=\"27.5\" y=\"2.3\" width=\"13.5\" height=\"2.4\" fill=\"#0A68C8\"/><rect x=\"28.5\" y=\"14.3\" width=\"11.5\" height=\"7.0\" fill=\"#B8BDC6\"/><rect x=\"30.0\" y=\"15.7\" width=\"2.8\" height=\"4.8\" fill=\"#484C54\"/>"
         }
       ]
     },
@@ -143,23 +183,37 @@
       "meaning": "removable drive",
       "layers": [
         {
-          "tone": [
-            "save",
-            "drive",
-            "drive_line"
-          ]
+          "svg": "fluent:assets/Hard Drive/SVG/ic_fluent_hard_drive_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"w11dfront\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1E2228\"/><stop offset=\"0.5\" stop-color=\"#3A4048\"/><stop offset=\"1\" stop-color=\"#68707A\"/></linearGradient><linearGradient id=\"w11dtop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C4CCD8\"/><stop offset=\"1\" stop-color=\"#DCE2EA\"/></linearGradient><radialGradient id=\"w11led\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#98FF80\"/><stop offset=\"0.55\" stop-color=\"#28D820\"/><stop offset=\"1\" stop-color=\"#0C7808\"/></radialGradient></defs><g transform=\"translate(0,0)\"><path d=\"M 9.5,12.8 H 38.5 L 45.5,21.5 H 2.5 Z\" fill=\"url(#w11dtop)\" stroke=\"#AEB6C2\" stroke-width=\"1.1\" stroke-linejoin=\"round\"/><rect x=\"2.5\" y=\"21.5\" width=\"43.0\" height=\"14.0\" rx=\"1.8\" fill=\"url(#w11dfront)\" stroke=\"#444A54\" stroke-width=\"1.1\"/><circle cx=\"10.0\" cy=\"28.5\" r=\"2.5\" fill=\"url(#w11led)\"/></g>"
         }
       ]
     },
     "9": {
-      "meaning": "hard disk",
+      "meaning": "hard drive",
       "layers": [
         {
-          "tone": [
-            "hard_drive",
-            "drive",
-            "drive_line"
-          ]
+          "svg": "fluent:assets/Hard Drive/SVG/ic_fluent_hard_drive_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"w11dfront\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1E2228\"/><stop offset=\"0.5\" stop-color=\"#3A4048\"/><stop offset=\"1\" stop-color=\"#68707A\"/></linearGradient><linearGradient id=\"w11dtop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C4CCD8\"/><stop offset=\"1\" stop-color=\"#DCE2EA\"/></linearGradient><radialGradient id=\"w11led\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#98FF80\"/><stop offset=\"0.55\" stop-color=\"#28D820\"/><stop offset=\"1\" stop-color=\"#0C7808\"/></radialGradient></defs><g transform=\"translate(0,0)\"><path d=\"M 9.5,12.8 H 38.5 L 45.5,21.5 H 2.5 Z\" fill=\"url(#w11dtop)\" stroke=\"#AEB6C2\" stroke-width=\"1.1\" stroke-linejoin=\"round\"/><rect x=\"2.5\" y=\"21.5\" width=\"43.0\" height=\"14.0\" rx=\"1.8\" fill=\"url(#w11dfront)\" stroke=\"#444A54\" stroke-width=\"1.1\"/><circle cx=\"10.0\" cy=\"28.5\" r=\"2.5\" fill=\"url(#w11led)\"/></g>"
         }
       ]
     },
@@ -167,20 +221,18 @@
       "meaning": "network drive",
       "layers": [
         {
-          "tone": [
-            "hard_drive",
-            "drive",
-            "drive_line"
-          ]
-        },
-        {
-          "glyph": "plug_connected",
-          "colour": "green",
-          "scale": 0.45,
-          "at": [
-            0.55,
-            0.55
-          ]
+          "svg": "fluent:assets/Hard Drive/SVG/ic_fluent_hard_drive_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"w11dfront\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1E2228\"/><stop offset=\"0.5\" stop-color=\"#3A4048\"/><stop offset=\"1\" stop-color=\"#68707A\"/></linearGradient><linearGradient id=\"w11dtop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C8D0DC\"/><stop offset=\"1\" stop-color=\"#DEE4EC\"/></linearGradient><radialGradient id=\"w11led\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#98FF80\"/><stop offset=\"0.55\" stop-color=\"#28D820\"/><stop offset=\"1\" stop-color=\"#0C7808\"/></radialGradient></defs><g transform=\"translate(0,-3.0)\"><path d=\"M10.5 14.2 H37.5 L45.0 22.5 H3.0 Z\" fill=\"url(#w11dtop)\" stroke=\"#B4BCC8\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><rect x=\"3.0\" y=\"22.5\" width=\"42.0\" height=\"12.5\" rx=\"1.6\" fill=\"url(#w11dfront)\" stroke=\"#484E58\" stroke-width=\"1.0\"/><circle cx=\"10.2\" cy=\"28.2\" r=\"2.3\" fill=\"url(#w11led)\"/></g><linearGradient id=\"w11spipe\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F4F6FA\"/><stop offset=\"0.5\" stop-color=\"#D0D4DC\"/><stop offset=\"1\" stop-color=\"#888E98\"/></linearGradient><linearGradient id=\"w11gpipe\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#88F870\"/><stop offset=\"0.5\" stop-color=\"#32C838\"/><stop offset=\"1\" stop-color=\"#0E881C\"/></linearGradient><rect x=\"3.5\" y=\"34.5\" width=\"41.0\" height=\"5.5\" rx=\"1.0\" fill=\"url(#w11spipe)\" stroke=\"#989EA8\" stroke-width=\"0.8\"/><rect x=\"9.0\" y=\"33.5\" width=\"30.0\" height=\"7.5\" rx=\"1.2\" fill=\"url(#w11gpipe)\" stroke=\"#14781E\" stroke-width=\"0.9\"/>"
         }
       ]
     },
@@ -188,41 +240,37 @@
       "meaning": "disconnected network drive",
       "layers": [
         {
-          "tone": [
-            "hard_drive",
-            "drive",
-            "drive_line"
-          ]
-        },
-        {
-          "glyph": "dismiss_circle",
-          "colour": "red",
-          "scale": 0.45,
-          "at": [
-            0.0,
-            0.55
-          ]
+          "svg": "fluent:assets/Hard Drive/SVG/ic_fluent_hard_drive_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"w11dfront\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1E2228\"/><stop offset=\"0.5\" stop-color=\"#3A4048\"/><stop offset=\"1\" stop-color=\"#68707A\"/></linearGradient><linearGradient id=\"w11dtop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C8D0DC\"/><stop offset=\"1\" stop-color=\"#DEE4EC\"/></linearGradient><radialGradient id=\"w11led\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#98FF80\"/><stop offset=\"0.55\" stop-color=\"#28D820\"/><stop offset=\"1\" stop-color=\"#0C7808\"/></radialGradient></defs><g transform=\"translate(0,-3.0)\"><path d=\"M10.5 14.2 H37.5 L45.0 22.5 H3.0 Z\" fill=\"url(#w11dtop)\" stroke=\"#B4BCC8\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><rect x=\"3.0\" y=\"22.5\" width=\"42.0\" height=\"12.5\" rx=\"1.6\" fill=\"url(#w11dfront)\" stroke=\"#484E58\" stroke-width=\"1.0\"/><circle cx=\"10.2\" cy=\"28.2\" r=\"1.7\" fill=\"#A0A4AC\"/></g><linearGradient id=\"w11dpipe\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C8CCD4\"/><stop offset=\"0.5\" stop-color=\"#8C9098\"/><stop offset=\"1\" stop-color=\"#50545C\"/></linearGradient><rect x=\"3.5\" y=\"34.5\" width=\"41.0\" height=\"5.5\" rx=\"1.0\" fill=\"url(#w11dpipe)\" stroke=\"#686C74\" stroke-width=\"0.8\"/><rect x=\"9.0\" y=\"33.5\" width=\"30.0\" height=\"7.5\" rx=\"1.2\" fill=\"url(#w11dpipe)\" stroke=\"#484C54\" stroke-width=\"0.9\"/><g stroke=\"#D84014\" stroke-width=\"3.6\" stroke-linecap=\"round\"><line x1=\"25.0\" y1=\"25.0\" x2=\"43.0\" y2=\"43.0\"/><line x1=\"43.0\" y1=\"25.0\" x2=\"25.0\" y2=\"43.0\"/></g>"
         }
       ]
     },
     "12": {
-      "meaning": "CD drive",
+      "meaning": "CD-ROM drive",
       "layers": [
         {
-          "tone": [
-            "hard_drive",
-            "drive",
-            "drive_line"
-          ]
-        },
-        {
-          "glyph": "circle",
-          "colour": "disc",
-          "scale": 0.45,
-          "at": [
-            0.5,
-            0.02
-          ]
+          "svg": "fluent:assets/Hard Drive/SVG/ic_fluent_hard_drive_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"w11dfront\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#1E2228\"/><stop offset=\"0.5\" stop-color=\"#3A4048\"/><stop offset=\"1\" stop-color=\"#68707A\"/></linearGradient><linearGradient id=\"w11dtop\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C8D0DC\"/><stop offset=\"1\" stop-color=\"#DEE4EC\"/></linearGradient><radialGradient id=\"w11led\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#98FF80\"/><stop offset=\"0.55\" stop-color=\"#28D820\"/><stop offset=\"1\" stop-color=\"#0C7808\"/></radialGradient></defs><g transform=\"translate(0,0)\"><path d=\"M10.5 14.2 H37.5 L45.0 22.5 H3.0 Z\" fill=\"url(#w11dtop)\" stroke=\"#B4BCC8\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><rect x=\"3.0\" y=\"22.5\" width=\"42.0\" height=\"12.5\" rx=\"1.6\" fill=\"url(#w11dfront)\" stroke=\"#484E58\" stroke-width=\"1.0\"/><circle cx=\"10.2\" cy=\"28.2\" r=\"2.3\" fill=\"url(#w11led)\"/></g><radialGradient id=\"w11disc\" cx=\"0.4\" cy=\"0.35\" r=\"0.65\"><stop offset=\"0\" stop-color=\"#FFFFFF\"/><stop offset=\"0.55\" stop-color=\"#DCE2E8\"/><stop offset=\"1\" stop-color=\"#A8B0B8\"/></radialGradient><circle cx=\"34.0\" cy=\"12.0\" r=\"10.2\" fill=\"url(#w11disc)\" stroke=\"#98A0A8\" stroke-width=\"0.9\"/><path d=\"M34.0 12.0 L25.5 6.5 A10.2 10.2 0 0 1 29.0 3.1 Z\" fill=\"#F6C8E8\" fill-opacity=\"0.55\"/><path d=\"M34.0 12.0 L42.5 17.5 A10.2 10.2 0 0 1 39.0 20.9 Z\" fill=\"#B8F4E0\" fill-opacity=\"0.55\"/><circle cx=\"34.0\" cy=\"12.0\" r=\"3.4\" fill=\"#E8ECEF\" stroke=\"#98A0A8\" stroke-width=\"0.8\"/><circle cx=\"34.0\" cy=\"12.0\" r=\"1.4\" fill=\"#FFFFFF\"/>"
         }
       ]
     },
@@ -230,11 +278,18 @@
       "meaning": "RAM disk",
       "layers": [
         {
-          "tone": [
-            "storage",
-            "drive",
-            "drive_line"
-          ]
+          "svg": "fluent:assets/Storage/SVG/ic_fluent_storage_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<rect x=\"8.5\" y=\"7.5\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"34.0\" y=\"7.5\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"8.5\" y=\"13.0\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"34.0\" y=\"13.0\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"8.5\" y=\"18.5\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"34.0\" y=\"18.5\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"8.5\" y=\"24.0\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"34.0\" y=\"24.0\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"8.5\" y=\"29.5\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"34.0\" y=\"29.5\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"8.5\" y=\"35.0\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><rect x=\"34.0\" y=\"35.0\" width=\"5.5\" height=\"2.4\" rx=\"0.4\" fill=\"#B0B8C2\" stroke=\"#68707A\" stroke-width=\"0.6\"/><path d=\"M 13.5,4.5 L 21.0,4.5 A 3.0,3.0 0 0 0 27.0,4.5 L 34.5,4.5 L 34.5,42.5 L 13.5,42.5 Z\" fill=\"#484E56\" stroke=\"#2E3238\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><rect x=\"15.5\" y=\"6.5\" width=\"17.0\" height=\"34.0\" rx=\"0.8\" fill=\"#58606A\" opacity=\"0.5\"/>"
         }
       ]
     },
@@ -242,11 +297,18 @@
       "meaning": "entire network",
       "layers": [
         {
-          "tone": [
-            "globe",
-            "blue",
-            "blue_line"
-          ]
+          "svg": "fluent:assets/Globe/SVG/ic_fluent_globe_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><radialGradient id=\"nglobe_14\" cx=\"35%\" cy=\"30%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#48BCF8\"/><stop offset=\"55%\" stop-color=\"#1E84CA\"/><stop offset=\"100%\" stop-color=\"#155282\"/></radialGradient></defs><circle cx=\"24.0\" cy=\"24.0\" r=\"20.5\" fill=\"url(#nglobe_14)\"/><path transform=\"translate(24 24) scale(0.08008) translate(-320 -320)\" d=\"M305.4 64.4C208.9 69.8 126.7 128.7 87.9 211.8L131 276.4C139.4 289 152.1 298.3 166.7 302.4L227 319.7C244.2 324.6 256 340.3 256 358.2L256 398.1C256 409.1 262.2 419.1 272 424C281.8 428.9 288 438.9 288 449.9L288 488.9C288 504.5 302.9 515.8 317.9 511.5C334 506.9 346.5 494 350.6 477.7L353.4 466.5C357.6 449.6 368.6 435.1 383.7 426.5L391.8 421.9C406.8 413.4 416 397.4 416 380.2L416 371.9C416 359.2 410.9 347 401.9 338L398 334.1C389 325.1 376.8 320 364.1 320L321 320C309.9 320 298.9 317.1 289.2 311.6L254.7 291.9C250.4 289.4 247.1 285.4 245.5 280.7C242.3 271.1 246.6 260.7 255.7 256.2L261.6 253.2C268.2 249.9 275.9 249.3 282.9 251.7L306.1 259.4C314.3 262.1 323.3 259 328 251.9C332.7 244.9 332.2 235.6 326.8 229.1L313.2 212.8C303.2 200.8 303.3 183.3 313.5 171.5L329.6 152.7C338.2 142.7 339.8 128.4 333.5 116.7L305.4 64.4zM545.3 198.3L475.1 228.4C459.8 235 452.1 252.1 457.3 267.9L474.9 320.8C478.1 330.4 485.6 337.9 495.1 341L571.7 366.5C574.5 351.4 575.9 335.8 575.9 319.9C575.9 275.9 564.8 234.4 545.2 198.2z\" fill=\"#DCF2FC\" opacity=\"0.92\"/>"
         }
       ]
     },
@@ -254,23 +316,18 @@
       "meaning": "network",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ]
-        },
-        {
-          "tone": [
-            "globe",
-            "blue",
-            "blue_line"
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.0,
-            0.0
-          ]
+          "append": "<defs><linearGradient id=\"mscr_15\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_15\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"21.9\" y=\"37.5\" width=\"8.2\" height=\"4.8\" fill=\"url(#mneck_15)\"/><rect x=\"15.3\" y=\"41.8\" width=\"21.3\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"5.5\" y=\"10.5\" width=\"41.0\" height=\"27.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 7.5,10.5 L 44.5,10.5 C 45.7,10.5 46.5,11.3 46.5,12.5 L 5.5,12.5 C 5.5,11.3 6.3,10.5 7.5,10.5 Z\" fill=\"#B8C0CA\"/><rect x=\"7.5\" y=\"12.5\" width=\"37.0\" height=\"23.5\" rx=\"0.8\" fill=\"url(#mscr_15)\"/><defs><radialGradient id=\"nglobe_15\" cx=\"35%\" cy=\"30%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#48BCF8\"/><stop offset=\"55%\" stop-color=\"#1E84CA\"/><stop offset=\"100%\" stop-color=\"#155282\"/></radialGradient></defs><circle cx=\"14.0\" cy=\"14.0\" r=\"12.5\" fill=\"url(#nglobe_15)\"/><path transform=\"translate(14 14) scale(0.04883) translate(-320 -320)\" d=\"M305.4 64.4C208.9 69.8 126.7 128.7 87.9 211.8L131 276.4C139.4 289 152.1 298.3 166.7 302.4L227 319.7C244.2 324.6 256 340.3 256 358.2L256 398.1C256 409.1 262.2 419.1 272 424C281.8 428.9 288 438.9 288 449.9L288 488.9C288 504.5 302.9 515.8 317.9 511.5C334 506.9 346.5 494 350.6 477.7L353.4 466.5C357.6 449.6 368.6 435.1 383.7 426.5L391.8 421.9C406.8 413.4 416 397.4 416 380.2L416 371.9C416 359.2 410.9 347 401.9 338L398 334.1C389 325.1 376.8 320 364.1 320L321 320C309.9 320 298.9 317.1 289.2 311.6L254.7 291.9C250.4 289.4 247.1 285.4 245.5 280.7C242.3 271.1 246.6 260.7 255.7 256.2L261.6 253.2C268.2 249.9 275.9 249.3 282.9 251.7L306.1 259.4C314.3 262.1 323.3 259 328 251.9C332.7 244.9 332.2 235.6 326.8 229.1L313.2 212.8C303.2 200.8 303.3 183.3 313.5 171.5L329.6 152.7C338.2 142.7 339.8 128.4 333.5 116.7L305.4 64.4zM545.3 198.3L475.1 228.4C459.8 235 452.1 252.1 457.3 267.9L474.9 320.8C478.1 330.4 485.6 337.9 495.1 341L571.7 366.5C574.5 351.4 575.9 335.8 575.9 319.9C575.9 275.9 564.8 234.4 545.2 198.2z\" fill=\"#DCF2FC\" opacity=\"0.92\"/>"
         }
       ]
     },
@@ -278,11 +335,18 @@
       "meaning": "computer",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ]
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
         }
       ]
     },
@@ -290,11 +354,18 @@
       "meaning": "printer",
       "layers": [
         {
-          "tone": [
-            "print",
-            "drive",
-            "drive_line"
-          ]
+          "svg": "fluent:assets/Print/SVG/ic_fluent_print_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"pbody_17\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#BAC4D0\"/><stop offset=\"20%\" stop-color=\"#D4DCE6\"/><stop offset=\"80%\" stop-color=\"#C8D2DC\"/><stop offset=\"100%\" stop-color=\"#A8B2BE\"/></linearGradient><linearGradient id=\"pslot_17\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#38B8EC\"/><stop offset=\"100%\" stop-color=\"#48E878\"/></linearGradient></defs><g transform=\"translate(0, 0.0)\"><path d=\"M 7.0,11.0 L 41.0,11.0 L 45.5,16.5 L 2.5,16.5 Z\" fill=\"#6C747E\" stroke=\"#50565E\" stroke-width=\"0.9\" stroke-linejoin=\"round\"/><path d=\"M 16.0,12.5 L 32.0,12.5 L 33.5,15.0 L 14.5,15.0 Z\" fill=\"url(#pslot_17)\"/><rect x=\"2.5\" y=\"16.5\" width=\"43.0\" height=\"3.2\" fill=\"#525860\"/><circle cx=\"41.0\" cy=\"18.1\" r=\"1.2\" fill=\"#38E828\"/><rect x=\"2.5\" y=\"19.7\" width=\"43.0\" height=\"15.0\" fill=\"url(#pbody_17)\" stroke=\"#8C96A2\" stroke-width=\"0.8\"/><rect x=\"2.5\" y=\"32.5\" width=\"43.0\" height=\"3.2\" rx=\"0.8\" fill=\"#4C525A\"/><rect x=\"11.5\" y=\"23.5\" width=\"25.0\" height=\"11.5\" rx=\"1.0\" fill=\"#24282E\"/><path d=\"M 12.5,32.5 L 35.5,32.5 L 38.5,36.5 L 9.5,36.5 Z\" fill=\"#DCE2E8\" stroke=\"#788088\" stroke-width=\"0.8\" stroke-linejoin=\"round\"/><rect x=\"9.5\" y=\"36.5\" width=\"29.0\" height=\"3.2\" rx=\"0.6\" fill=\"#383C42\"/></g>"
         }
       ]
     },
@@ -302,23 +373,18 @@
       "meaning": "network places",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ]
-        },
-        {
-          "tone": [
-            "globe",
-            "blue",
-            "blue_line"
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.0,
-            0.0
-          ]
+          "append": "<defs><linearGradient id=\"mscr_18\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_18\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"21.9\" y=\"37.5\" width=\"8.2\" height=\"4.8\" fill=\"url(#mneck_18)\"/><rect x=\"15.3\" y=\"41.8\" width=\"21.3\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"5.5\" y=\"10.5\" width=\"41.0\" height=\"27.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 7.5,10.5 L 44.5,10.5 C 45.7,10.5 46.5,11.3 46.5,12.5 L 5.5,12.5 C 5.5,11.3 6.3,10.5 7.5,10.5 Z\" fill=\"#B8C0CA\"/><rect x=\"7.5\" y=\"12.5\" width=\"37.0\" height=\"23.5\" rx=\"0.8\" fill=\"url(#mscr_18)\"/><defs><radialGradient id=\"nglobe_18\" cx=\"35%\" cy=\"30%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#48BCF8\"/><stop offset=\"55%\" stop-color=\"#1E84CA\"/><stop offset=\"100%\" stop-color=\"#155282\"/></radialGradient></defs><circle cx=\"14.0\" cy=\"14.0\" r=\"12.5\" fill=\"url(#nglobe_18)\"/><path transform=\"translate(14 14) scale(0.04883) translate(-320 -320)\" d=\"M305.4 64.4C208.9 69.8 126.7 128.7 87.9 211.8L131 276.4C139.4 289 152.1 298.3 166.7 302.4L227 319.7C244.2 324.6 256 340.3 256 358.2L256 398.1C256 409.1 262.2 419.1 272 424C281.8 428.9 288 438.9 288 449.9L288 488.9C288 504.5 302.9 515.8 317.9 511.5C334 506.9 346.5 494 350.6 477.7L353.4 466.5C357.6 449.6 368.6 435.1 383.7 426.5L391.8 421.9C406.8 413.4 416 397.4 416 380.2L416 371.9C416 359.2 410.9 347 401.9 338L398 334.1C389 325.1 376.8 320 364.1 320L321 320C309.9 320 298.9 317.1 289.2 311.6L254.7 291.9C250.4 289.4 247.1 285.4 245.5 280.7C242.3 271.1 246.6 260.7 255.7 256.2L261.6 253.2C268.2 249.9 275.9 249.3 282.9 251.7L306.1 259.4C314.3 262.1 323.3 259 328 251.9C332.7 244.9 332.2 235.6 326.8 229.1L313.2 212.8C303.2 200.8 303.3 183.3 313.5 171.5L329.6 152.7C338.2 142.7 339.8 128.4 333.5 116.7L305.4 64.4zM545.3 198.3L475.1 228.4C459.8 235 452.1 252.1 457.3 267.9L474.9 320.8C478.1 330.4 485.6 337.9 495.1 341L571.7 366.5C574.5 351.4 575.9 335.8 575.9 319.9C575.9 275.9 564.8 234.4 545.2 198.2z\" fill=\"#DCF2FC\" opacity=\"0.92\"/>"
         }
       ]
     },
@@ -326,28 +392,18 @@
       "meaning": "computers near me",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.65,
-          "at": [
-            0.0,
-            0.0
-          ]
-        },
-        {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ],
-          "scale": 0.65,
-          "at": [
-            0.35,
-            0.35
-          ]
+          "append": "<line x1=\"8\" y1=\"22\" x2=\"40\" y2=\"34\" stroke=\"#3898D8\" stroke-width=\"2.2\"/><line x1=\"25\" y1=\"20\" x2=\"22\" y2=\"27\" stroke=\"#48B848\" stroke-width=\"2.2\"/><line x1=\"12\" y1=\"28\" x2=\"15\" y2=\"24\" stroke=\"#48B848\" stroke-width=\"2.2\"/><line x1=\"32\" y1=\"35\" x2=\"35\" y2=\"31\" stroke=\"#48B848\" stroke-width=\"2.2\"/><path d=\"M 17,7 L 33,13 L 33,24 L 17,18 Z\" fill=\"#28A8EC\" stroke=\"#186498\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/><path d=\"M 4,23 L 18,28 L 18,38 L 4,33 Z\" fill=\"#28A8EC\" stroke=\"#186498\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/><path d=\"M 25,31 L 41,37 L 41,46 L 25,40 Z\" fill=\"#28A8EC\" stroke=\"#186498\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -355,23 +411,18 @@
       "meaning": "programs folder (small)",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "apps",
-            "blue",
-            "blue_line"
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "append": "<defs><linearGradient id=\"yf_20\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 2.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_20)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><rect x=\"25.0\" y=\"4.5\" width=\"20.0\" height=\"20.0\" rx=\"1.5\" fill=\"#FFFFFF\" stroke=\"#7A828C\" stroke-width=\"1.2\"/><rect x=\"27.2\" y=\"6.8\" width=\"4.2\" height=\"4.2\" fill=\"#3898EC\"/><rect x=\"32.6\" y=\"6.8\" width=\"4.2\" height=\"4.2\" fill=\"#6478B4\"/><rect x=\"38.0\" y=\"6.8\" width=\"4.2\" height=\"4.2\" fill=\"#7A68B8\"/><rect x=\"27.2\" y=\"12.2\" width=\"4.2\" height=\"4.2\" fill=\"#3898EC\"/><rect x=\"32.6\" y=\"12.2\" width=\"4.2\" height=\"4.2\" fill=\"#6478B4\"/><rect x=\"38.0\" y=\"12.2\" width=\"4.2\" height=\"4.2\" fill=\"#7A68B8\"/><rect x=\"27.2\" y=\"17.6\" width=\"4.2\" height=\"4.2\" fill=\"#3898EC\"/><rect x=\"32.6\" y=\"17.6\" width=\"4.2\" height=\"4.2\" fill=\"#6478B4\"/><rect x=\"38.0\" y=\"17.6\" width=\"4.2\" height=\"4.2\" fill=\"#7A68B8\"/>"
         }
       ]
     },
@@ -379,23 +430,18 @@
       "meaning": "recent documents",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "tone": [
-            "clock",
-            "white",
-            "blue"
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.55,
-          "at": [
-            0.0,
-            0.45
-          ]
+          "append": "<path d=\"M 11.5,3.5 L 33.5,3.5 L 41.5,11.5 L 41.5,43.0 L 11.5,43.0 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 33.5,3.5 L 33.5,11.5 L 41.5,11.5 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><circle cx=\"15.5\" cy=\"31.5\" r=\"12.5\" fill=\"#E8ECEF\" stroke=\"#8C949C\" stroke-width=\"2.2\"/><circle cx=\"15.5\" cy=\"31.5\" r=\"10.2\" fill=\"#FFFFFF\"/><polyline points=\"15.5,23.5 15.5,31.5 21.5,31.5\" fill=\"none\" stroke=\"#383E46\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -441,18 +487,18 @@
       "meaning": "search",
       "layers": [
         {
-          "glyph": "circle",
-          "colour": "glass",
-          "scale": 0.5,
-          "at": [
-            0.14,
-            0.14
-          ]
-        },
-        {
-          "glyph": "search",
-          "style": "regular",
-          "colour": "dark"
+          "svg": "fluent:assets/Search/SVG/ic_fluent_search_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><radialGradient id=\"sglass23\" cx=\"35%\" cy=\"30%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#F0FAFF\"/><stop offset=\"60%\" stop-color=\"#BCE0FA\"/><stop offset=\"100%\" stop-color=\"#7CC0F0\"/></radialGradient></defs><line x1=\"18.0\" y1=\"30.0\" x2=\"5.5\" y2=\"42.5\" stroke=\"#505860\" stroke-width=\"4.5\" stroke-linecap=\"round\"/><line x1=\"18.0\" y1=\"30.0\" x2=\"13.5\" y2=\"34.5\" stroke=\"#98A2AE\" stroke-width=\"3.5\" stroke-linecap=\"round\"/><circle cx=\"28.5\" cy=\"19.5\" r=\"14.0\" fill=\"url(#sglass23)\" stroke=\"#88A8C8\" stroke-width=\"2.2\"/><path d=\"M 19.0,14.0 A 11.0,11.0 0 0 1 34.0,10.0\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.0\" stroke-linecap=\"round\" opacity=\"0.8\"/>"
         }
       ]
     },
@@ -469,20 +515,18 @@
       "meaning": "run",
       "layers": [
         {
-          "tone": [
-            "window",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "arrow_up_right",
-          "colour": "blue",
-          "scale": 0.5,
-          "at": [
-            0.42,
-            0.08
-          ]
+          "svg": "fluent:assets/Window/SVG/ic_fluent_window_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<rect x=\"2.0\" y=\"16.5\" width=\"7.5\" height=\"2.2\" rx=\"0.5\" fill=\"#58BCF8\"/><rect x=\"5.0\" y=\"23.5\" width=\"5.5\" height=\"2.2\" rx=\"0.5\" fill=\"#58BCF8\"/><rect x=\"2.0\" y=\"30.5\" width=\"6.5\" height=\"2.2\" rx=\"0.5\" fill=\"#58BCF8\"/><path d=\"M 13.5,13.5 L 44.5,13.5 L 40.5,35.5 L 9.5,35.5 Z\" fill=\"#CEEAFD\" stroke=\"#1894E8\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/><path d=\"M 19.5,20.0 L 35.5,20.0 L 33.5,30.0 L 17.5,30.0 Z\" fill=\"#FFFFFF\" stroke=\"#1488DC\" stroke-width=\"2.2\" stroke-linejoin=\"round\"/><path d=\"M 18.0,26.5 L 34.0,26.5 L 33.5,30.0 L 17.5,30.0 Z\" fill=\"#1488DC\"/>"
         }
       ]
     },
@@ -490,20 +534,18 @@
       "meaning": "stand by",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "night",
-            "screen_line"
-          ]
-        },
-        {
-          "glyph": "weather_moon",
-          "colour": "white",
-          "scale": 0.42,
-          "at": [
-            0.29,
-            0.16
-          ]
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"mscr_26\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_26\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_26)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"#123868\"/><circle cx=\"24.0\" cy=\"20.8\" r=\"9.5\" fill=\"#1E68B0\"/><path d=\"M 24.5,11.5 A 9.3,9.3 0 1 1 21.5,29.6 A 7.8,8.5 0 1 0 24.5,11.5 Z\" fill=\"#E8F2FC\"/>"
         }
       ]
     },
@@ -511,8 +553,18 @@
       "meaning": "undock",
       "layers": [
         {
-          "glyph": "arrow_exit",
-          "colour": "green"
+          "svg": "fluent:assets/Arrow Exit/SVG/ic_fluent_arrow_exit_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"usb_top\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#EEF2F6\"/><stop offset=\"60%\" stop-color=\"#BCC4CE\"/><stop offset=\"100%\" stop-color=\"#8C949E\"/></linearGradient><linearGradient id=\"usb_side\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#78808A\"/><stop offset=\"100%\" stop-color=\"#485058\"/></linearGradient><linearGradient id=\"ej_grn\" x1=\"0\" y1=\"0\" x2=\"0.8\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#8EF65C\"/><stop offset=\"55%\" stop-color=\"#38C620\"/><stop offset=\"100%\" stop-color=\"#14840C\"/></linearGradient></defs><path d=\"M 13,30 L 34,20 L 44,25 L 23,35 Z\" fill=\"url(#usb_top)\" stroke=\"#707882\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 23,35 L 44,25 L 44,30 L 23,40 Z\" fill=\"url(#usb_side)\" stroke=\"#505860\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 12,29.5 L 15,28 L 25,33 L 25,39 L 22,40.5 L 12,35.5 Z\" fill=\"#647C94\" stroke=\"#485C70\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 4,35 L 13,30.5 L 20,34 L 11,38.5 Z\" fill=\"#D8E0E8\" stroke=\"#687078\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 4,35 L 11,38.5 L 11,42 L 4,38.5 Z\" fill=\"#98A0A8\" stroke=\"#606870\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 11,38.5 L 20,34 L 20,37.5 L 11,42 Z\" fill=\"#687078\" stroke=\"#505860\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><rect x=\"8.5\" y=\"34.2\" width=\"2.2\" height=\"1.5\" transform=\"rotate(-25 9.5 35)\" fill=\"#384048\"/><rect x=\"12.5\" y=\"36.0\" width=\"2.2\" height=\"1.5\" transform=\"rotate(-25 13.5 36.8)\" fill=\"#384048\"/><path d=\"M 6,19 L 18,7.5 L 18,13.8 L 30,13.8 L 30,24.2 L 18,24.2 L 18,30.5 Z\" fill=\"url(#ej_grn)\" stroke=\"#389820\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -520,18 +572,18 @@
       "meaning": "shut down",
       "layers": [
         {
-          "glyph": "square",
-          "colour": "red"
-        },
-        {
-          "glyph": "power",
-          "style": "regular",
-          "colour": "white",
-          "scale": 0.62,
-          "at": [
-            0.19,
-            0.19
-          ]
+          "svg": "fluent:assets/Power/SVG/ic_fluent_power_20_regular.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"sd28\" x1=\"0\" y1=\"0\" x2=\"0.8\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FC8448\"/><stop offset=\"50%\" stop-color=\"#E03C14\"/><stop offset=\"100%\" stop-color=\"#A81E04\"/></linearGradient></defs><rect x=\"5.0\" y=\"5.0\" width=\"38.0\" height=\"38.0\" rx=\"5.5\" fill=\"url(#sd28)\" stroke=\"#8C1800\" stroke-width=\"1.4\"/><circle cx=\"24.0\" cy=\"24.0\" r=\"11.5\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.8\"/><line x1=\"24.0\" y1=\"16.5\" x2=\"24.0\" y2=\"31.5\" stroke=\"#FFFFFF\" stroke-width=\"2.8\" stroke-linecap=\"round\"/>"
         }
       ]
     },
@@ -539,22 +591,18 @@
       "meaning": "shortcut arrow overlay (large)",
       "layers": [
         {
-          "glyph": "square",
-          "colour": "green",
-          "scale": 0.42,
-          "at": [
-            0.02,
-            0.56
-          ]
-        },
-        {
-          "glyph": "arrow_up_right",
-          "colour": "white",
-          "scale": 0.32,
-          "at": [
-            0.07,
-            0.61
-          ]
+          "svg": "fluent:assets/Arrow Up Right/SVG/ic_fluent_arrow_up_right_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<rect x=\"2.0\" y=\"29.0\" width=\"17.0\" height=\"17.0\" rx=\"1.2\" fill=\"#FFFFFF\" stroke=\"#28A428\" stroke-width=\"1.4\"/><path d=\"M 5.5,42.5 C 5.5,37.0 8.5,34.5 12.5,34.5 L 12.5,31.5 L 17.0,36.0 L 12.5,40.5 L 12.5,37.5 C 9.8,37.5 8.0,39.0 7.5,42.5 Z\" fill=\"#209C20\"/>"
         }
       ]
     },
@@ -562,25 +610,18 @@
       "meaning": "shortcut arrow overlay",
       "layers": [
         {
-          "tone": [
-            "square",
-            "white",
-            "page_line"
+          "svg": "fluent:assets/Arrow Up Right/SVG/ic_fluent_arrow_up_right_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.45,
-          "at": [
-            0.0,
-            0.55
-          ]
-        },
-        {
-          "glyph": "arrow_up_right",
-          "colour": "blue",
-          "scale": 0.35,
-          "at": [
-            0.05,
-            0.6
-          ]
+          "append": "<rect x=\"1.5\" y=\"27.5\" width=\"18.5\" height=\"18.5\" rx=\"1.8\" fill=\"#F0F6FC\" stroke=\"#3874B0\" stroke-width=\"1.6\"/><path d=\"M 5.5,41.5 L 15.0,32.0 M 8.5,32.0 L 15.0,32.0 L 15.0,38.5\" fill=\"none\" stroke=\"#0E6EC8\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -588,16 +629,18 @@
       "meaning": "archive overlay",
       "layers": [
         {
-          "tone": [
-            "box",
-            "folder",
-            "folder_line"
+          "svg": "fluent:assets/Box/SVG/ic_fluent_box_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.4,
-          "at": [
-            0.04,
-            0.56
-          ]
+          "append": "<path d=\"M 2.0,31.0 L 4.5,27.0 L 19.5,27.0 L 22.0,31.0 Z\" fill=\"#B47420\" stroke=\"#8C540C\" stroke-width=\"0.9\" stroke-linejoin=\"round\"/><rect x=\"2.0\" y=\"31.0\" width=\"20.0\" height=\"14.0\" rx=\"0.8\" fill=\"#DC9C40\" stroke=\"#9C6214\" stroke-width=\"0.9\"/><rect x=\"5.0\" y=\"36.0\" width=\"8.0\" height=\"5.5\" fill=\"#F0F4F8\" stroke=\"#68707A\" stroke-width=\"0.8\"/><line x1=\"6.5\" y1=\"38.8\" x2=\"11.5\" y2=\"38.8\" stroke=\"#485058\" stroke-width=\"1.0\"/>"
         }
       ]
     },
@@ -651,23 +694,18 @@
       "meaning": "phone and modem folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "phone_desktop",
-            "drive",
-            "drive_line"
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "append": "<defs><linearGradient id=\"yf_34\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 0.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_34)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><rect x=\"24.0\" y=\"23.0\" width=\"20.0\" height=\"15.0\" rx=\"1.5\" fill=\"#48525E\" stroke=\"#B8C0CA\" stroke-width=\"1.0\"/><rect x=\"26.0\" y=\"25.0\" width=\"16.0\" height=\"11.0\" fill=\"#28A8EC\"/><rect x=\"31.0\" y=\"38.0\" width=\"6.0\" height=\"3.5\" fill=\"#8C949C\"/><rect x=\"27.0\" y=\"41.5\" width=\"14.0\" height=\"2.2\" rx=\"0.6\" fill=\"#485058\"/>"
         }
       ]
     },
@@ -675,11 +713,18 @@
       "meaning": "desktop",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ]
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"desk35_scr\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#42E6FA\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A70CC\"/></linearGradient></defs><rect x=\"1.5\" y=\"5.5\" width=\"45\" height=\"34.5\" rx=\"2.2\" fill=\"url(#desk35_scr)\"/><path d=\"M 1.5,36.2 L 46.5,36.2 L 46.5,38.0 C 46.5,39.1 45.6,40.0 44.5,40.0 L 3.5,40.0 C 2.4,40.0 1.5,39.1 1.5,38.0 Z\" fill=\"#0B4270\"/><rect x=\"39.5\" y=\"37.0\" width=\"2.2\" height=\"2.2\" rx=\"0.3\" fill=\"#B8C4D0\"/><rect x=\"43.0\" y=\"37.0\" width=\"2.2\" height=\"2.2\" rx=\"0.3\" fill=\"#B8C4D0\"/>"
         }
       ]
     },
@@ -687,19 +732,36 @@
       "meaning": "Control Panel",
       "layers": [
         {
-          "tone": [
-            "window",
-            "page",
-            "page_line"
+          "svg": "fluent:assets/Rectangle Landscape/SVG/ic_fluent_rectangle_landscape_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"2.2 -5 43.6 58\" preserveAspectRatio=\"none\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"#D9EFFC\" stroke=\"#2A97E6\" stroke-width=\"2\""
+            ]
           ]
         },
         {
-          "glyph": "settings",
-          "colour": "blue",
-          "scale": 0.5,
+          "glyph": "data_pie",
+          "style": "filled",
+          "colour": "#2389DD",
+          "scale": 0.38,
           "at": [
-            0.25,
-            0.32
+            0.13,
+            0.31
+          ]
+        },
+        {
+          "glyph": "options",
+          "style": "filled",
+          "colour": "#1A62B8",
+          "scale": 0.32,
+          "at": [
+            0.55,
+            0.34
           ]
         }
       ]
@@ -708,23 +770,18 @@
       "meaning": "programs folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "apps",
-            "blue",
-            "blue_line"
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "append": "<defs><linearGradient id=\"yf_37\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 2.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_37)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><rect x=\"25.0\" y=\"4.5\" width=\"20.0\" height=\"20.0\" rx=\"1.5\" fill=\"#FFFFFF\" stroke=\"#7A828C\" stroke-width=\"1.2\"/><rect x=\"27.2\" y=\"6.8\" width=\"4.2\" height=\"4.2\" fill=\"#3898EC\"/><rect x=\"32.6\" y=\"6.8\" width=\"4.2\" height=\"4.2\" fill=\"#6478B4\"/><rect x=\"38.0\" y=\"6.8\" width=\"4.2\" height=\"4.2\" fill=\"#7A68B8\"/><rect x=\"27.2\" y=\"12.2\" width=\"4.2\" height=\"4.2\" fill=\"#3898EC\"/><rect x=\"32.6\" y=\"12.2\" width=\"4.2\" height=\"4.2\" fill=\"#6478B4\"/><rect x=\"38.0\" y=\"12.2\" width=\"4.2\" height=\"4.2\" fill=\"#7A68B8\"/><rect x=\"27.2\" y=\"17.6\" width=\"4.2\" height=\"4.2\" fill=\"#3898EC\"/><rect x=\"32.6\" y=\"17.6\" width=\"4.2\" height=\"4.2\" fill=\"#6478B4\"/><rect x=\"38.0\" y=\"17.6\" width=\"4.2\" height=\"4.2\" fill=\"#7A68B8\"/>"
         }
       ]
     },
@@ -732,23 +789,18 @@
       "meaning": "Printers folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "print",
-            "drive",
-            "drive_line"
+          "svg": "fluent:assets/Print/SVG/ic_fluent_print_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.55,
-          "at": [
-            0.42,
-            0.42
-          ]
+          "append": "<defs><linearGradient id=\"pbody_138\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#BAC4D0\"/><stop offset=\"20%\" stop-color=\"#D4DCE6\"/><stop offset=\"80%\" stop-color=\"#C8D2DC\"/><stop offset=\"100%\" stop-color=\"#A8B2BE\"/></linearGradient><linearGradient id=\"pslot_138\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#38B8EC\"/><stop offset=\"100%\" stop-color=\"#48E878\"/></linearGradient></defs><g transform=\"translate(0, 1.0)\"><path d=\"M 7.0,11.0 L 41.0,11.0 L 45.5,16.5 L 2.5,16.5 Z\" fill=\"#6C747E\" stroke=\"#50565E\" stroke-width=\"0.9\" stroke-linejoin=\"round\"/><path d=\"M 16.0,12.5 L 32.0,12.5 L 33.5,15.0 L 14.5,15.0 Z\" fill=\"url(#pslot_138)\"/><rect x=\"2.5\" y=\"16.5\" width=\"43.0\" height=\"3.2\" fill=\"#525860\"/><circle cx=\"41.0\" cy=\"18.1\" r=\"1.2\" fill=\"#38E828\"/><rect x=\"2.5\" y=\"19.7\" width=\"43.0\" height=\"15.0\" fill=\"url(#pbody_138)\" stroke=\"#8C96A2\" stroke-width=\"0.8\"/><rect x=\"2.5\" y=\"32.5\" width=\"43.0\" height=\"3.2\" rx=\"0.8\" fill=\"#4C525A\"/><rect x=\"11.5\" y=\"23.5\" width=\"25.0\" height=\"11.5\" rx=\"1.0\" fill=\"#24282E\"/><path d=\"M 12.5,32.5 L 35.5,32.5 L 38.5,36.5 L 9.5,36.5 Z\" fill=\"#DCE2E8\" stroke=\"#788088\" stroke-width=\"0.8\" stroke-linejoin=\"round\"/><rect x=\"9.5\" y=\"36.5\" width=\"29.0\" height=\"3.2\" rx=\"0.6\" fill=\"#383C42\"/></g><defs><linearGradient id=\"pfld138\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE478\"/><stop offset=\"100%\" stop-color=\"#F6B828\"/></linearGradient></defs><path d=\"M 24,5.5 L 32,5.5 L 34,8.0 L 46,8.0 L 46,24.5 L 24,24.5 Z\" fill=\"#E8A218\" stroke=\"#C48210\" stroke-width=\"0.8\" stroke-linejoin=\"round\"/><rect x=\"24\" y=\"8.5\" width=\"22\" height=\"16.0\" rx=\"1.0\" fill=\"url(#pfld138)\" stroke=\"#D49218\" stroke-width=\"0.8\"/>"
         }
       ]
     },
@@ -756,20 +808,18 @@
       "meaning": "Fonts folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "glyph": "text_font",
-          "colour": "blue",
-          "scale": 0.5,
-          "at": [
-            0.44,
-            0.44
-          ]
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"yf_39\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 0.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_39)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><path d=\"M 16.0,36.5 L 23.0,18.0 L 25.5,18.0 L 32.5,36.5 L 29.2,36.5 L 27.2,31.2 L 21.3,31.2 L 19.3,36.5 Z M 22.1,28.8 L 26.4,28.8 L 24.2,22.5 Z\" fill=\"#B47208\"/><rect x=\"14.5\" y=\"35.2\" width=\"5.5\" height=\"1.5\" fill=\"#B47208\"/><rect x=\"28.0\" y=\"35.2\" width=\"5.5\" height=\"1.5\" fill=\"#B47208\"/>"
         }
       ]
     },
@@ -777,11 +827,18 @@
       "meaning": "Start menu",
       "layers": [
         {
-          "tone": [
-            "apps",
-            "blue",
-            "blue_line"
-          ]
+          "svg": "fluent:assets/Apps/SVG/ic_fluent_apps_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<rect x=\"11.0\" y=\"4.5\" width=\"24.0\" height=\"33.5\" rx=\"1.2\" fill=\"#FFFFFF\" stroke=\"#8A929C\" stroke-width=\"1.2\"/><rect x=\"14.5\" y=\"9.0\" width=\"9.5\" height=\"4.5\" rx=\"2.2\" fill=\"#1484E0\"/><circle cx=\"21.5\" cy=\"11.25\" r=\"1.6\" fill=\"#FFFFFF\"/><rect x=\"14.5\" y=\"18.0\" width=\"9.5\" height=\"4.5\" rx=\"2.2\" fill=\"#FFFFFF\" stroke=\"#1484E0\" stroke-width=\"1.2\"/><circle cx=\"17.0\" cy=\"20.25\" r=\"1.4\" fill=\"#1484E0\"/><rect x=\"14.5\" y=\"27.0\" width=\"9.5\" height=\"4.5\" rx=\"2.2\" fill=\"#FFFFFF\" stroke=\"#1484E0\" stroke-width=\"1.2\"/><circle cx=\"17.0\" cy=\"29.25\" r=\"1.4\" fill=\"#1484E0\"/><rect x=\"4.5\" y=\"37.5\" width=\"39.0\" height=\"6.0\" rx=\"1.0\" fill=\"#4C525A\"/><rect x=\"31.5\" y=\"39.5\" width=\"2.2\" height=\"2.2\" fill=\"#E8ECEF\"/><rect x=\"35.5\" y=\"39.5\" width=\"2.2\" height=\"2.2\" fill=\"#E8ECEF\"/><rect x=\"39.5\" y=\"39.5\" width=\"2.2\" height=\"2.2\" fill=\"#E8ECEF\"/>"
         }
       ]
     },
@@ -789,17 +846,18 @@
       "meaning": "music CD",
       "layers": [
         {
-          "glyph": "circle",
-          "colour": "disc"
-        },
-        {
-          "glyph": "music_note_2",
-          "colour": "purple",
-          "scale": 0.55,
-          "at": [
-            0.22,
-            0.22
-          ]
+          "svg": "fluent:assets/Music Note 2/SVG/ic_fluent_music_note_2_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"cd41_d\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#F4F6F8\"/><stop offset=\"32%\" stop-color=\"#D4DCE6\"/><stop offset=\"50%\" stop-color=\"#B8D4E8\"/><stop offset=\"68%\" stop-color=\"#E2D4EC\"/><stop offset=\"100%\" stop-color=\"#BAC2CC\"/></linearGradient></defs><circle cx=\"21.5\" cy=\"26.0\" r=\"18.0\" fill=\"url(#cd41_d)\" stroke=\"#98A2AE\" stroke-width=\"1.0\"/><path d=\"M 21.5,26.0 L 9.0,13.0 A 18.0,18.0 0 0 1 20.0,8.1 Z\" fill=\"#FFFFFF\" opacity=\"0.65\"/><path d=\"M 21.5,26.0 L 34.0,39.0 A 18.0,18.0 0 0 1 23.0,43.9 Z\" fill=\"#FFFFFF\" opacity=\"0.55\"/><circle cx=\"21.5\" cy=\"26.0\" r=\"5.8\" fill=\"#DCE2EA\" stroke=\"#8C96A2\" stroke-width=\"0.9\"/><circle cx=\"21.5\" cy=\"26.0\" r=\"2.6\" fill=\"#FFFFFF\" stroke=\"#8C96A2\" stroke-width=\"0.8\"/><path d=\"M 33.5,6.0 L 33.5,21.0 C 33.5,23.8 30.8,25.8 28.0,25.8 C 25.5,25.8 23.8,24.1 23.8,21.8 C 23.8,19.5 25.8,17.8 28.5,17.8 C 29.6,17.8 30.5,18.1 31.0,18.5 L 31.0,6.0 L 41.5,8.5 L 41.5,13.0 L 33.5,10.8 Z\" fill=\"#3C444E\" stroke=\"#22262C\" stroke-width=\"0.6\"/>"
         }
       ]
     },
@@ -807,11 +865,18 @@
       "meaning": "folder tree",
       "layers": [
         {
-          "tone": [
-            "panel_left",
-            "page",
-            "page_line"
-          ]
+          "svg": "fluent:assets/Panel Left/SVG/ic_fluent_panel_left_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><radialGradient id=\"tree_crn\" cx=\"30%\" cy=\"25%\" r=\"72%\"><stop offset=\"0%\" stop-color=\"#94FC3C\"/><stop offset=\"40%\" stop-color=\"#2CC812\"/><stop offset=\"80%\" stop-color=\"#0E8806\"/><stop offset=\"100%\" stop-color=\"#044202\"/></radialGradient><linearGradient id=\"tree_trk\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#8A5C18\"/><stop offset=\"55%\" stop-color=\"#583408\"/><stop offset=\"100%\" stop-color=\"#220E00\"/></linearGradient></defs><path d=\"M 13,45.5 L 18,42.5 L 18,31 L 8.5,20.5 L 11.5,18.5 L 19,26.5 L 19.5,19 L 23.5,19 L 23.5,27.5 L 31.5,19 L 34.5,21 L 25,31.5 L 25,42.5 L 30,45.5 Z\" fill=\"url(#tree_trk)\" stroke=\"#1E0C00\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 12,4.5 C 16,2 27,2 31,4.5 C 37,5.5 41.5,10 41,15.5 C 40.5,20.5 36,24.5 29.5,25 C 24,26.5 18,26.5 13,25 C 6.5,24 2,20 2,14.5 C 2,9.5 6.5,5.5 12,4.5 Z\" fill=\"url(#tree_crn)\" stroke=\"#064202\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/><circle cx=\"10.5\" cy=\"10.5\" r=\"2.0\" fill=\"#E4FF80\" opacity=\"0.88\"/><circle cx=\"15.5\" cy=\"8.0\" r=\"1.7\" fill=\"#E4FF80\" opacity=\"0.85\"/><circle cx=\"7.5\" cy=\"14.0\" r=\"1.5\" fill=\"#BEFC54\" opacity=\"0.82\"/><circle cx=\"19.5\" cy=\"9.5\" r=\"1.5\" fill=\"#BEFC54\" opacity=\"0.78\"/><circle cx=\"13.0\" cy=\"13.0\" r=\"1.6\" fill=\"#98F438\" opacity=\"0.75\"/>"
         }
       ]
     },
@@ -819,23 +884,18 @@
       "meaning": "remote folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "append": "<defs><linearGradient id=\"yf_43\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 0.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_43)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><rect x=\"22.0\" y=\"21.0\" width=\"23.0\" height=\"17.0\" rx=\"1.5\" fill=\"#48525E\" stroke=\"#B8C0CA\" stroke-width=\"1.0\"/><rect x=\"24.0\" y=\"23.0\" width=\"19.0\" height=\"13.0\" fill=\"#229CE8\"/><rect x=\"30.5\" y=\"38.0\" width=\"6.0\" height=\"3.5\" fill=\"#8C949C\"/><rect x=\"26.0\" y=\"41.5\" width=\"15.0\" height=\"2.2\" rx=\"0.6\" fill=\"#485058\"/>"
         }
       ]
     },
@@ -843,11 +903,18 @@
       "meaning": "Favorites",
       "layers": [
         {
-          "tone": [
-            "star",
-            "yellow",
-            "yellow_line"
-          ]
+          "svg": "fluent:assets/Star/SVG/ic_fluent_star_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"star44\" x1=\"0\" y1=\"0\" x2=\"0.5\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFF058\"/><stop offset=\"55%\" stop-color=\"#FCC41C\"/><stop offset=\"100%\" stop-color=\"#EA9A08\"/></linearGradient></defs><polygon points=\"24.0,3.5 29.8,16.2 43.8,17.8 33.4,27.2 36.2,41.0 24.0,34.0 11.8,41.0 14.6,27.2 4.2,17.8 18.2,16.2\" fill=\"url(#star44)\" stroke=\"#DC8E06\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -855,11 +922,18 @@
       "meaning": "log off",
       "layers": [
         {
-          "tone": [
-            "key",
-            "yellow",
-            "yellow_line"
-          ]
+          "svg": "fluent:assets/Key/SVG/ic_fluent_key_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"kbg45\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#F6C444\"/><stop offset=\"55%\" stop-color=\"#CA8814\"/><stop offset=\"100%\" stop-color=\"#8C5604\"/></linearGradient></defs><rect x=\"5.5\" y=\"5.5\" width=\"37.0\" height=\"37.0\" rx=\"5.0\" fill=\"url(#kbg45)\" stroke=\"#7A4802\" stroke-width=\"1.4\"/><circle cx=\"29.5\" cy=\"18.5\" r=\"7.5\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"3.2\"/><path d=\"M 24.0,24.0 L 12.0,36.0 L 16.5,36.0 L 16.5,32.5 L 20.0,32.5 L 20.0,29.0 L 23.5,29.0 L 26.5,26.0 Z\" fill=\"#FFFFFF\" stroke=\"#FFFFFF\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -867,20 +941,18 @@
       "meaning": "folder with an upward arrow",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "glyph": "arrow_up",
-          "colour": "green",
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"yf_46\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 2.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_46)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><path d=\"M 28.5,24.5 L 28.5,10.5 L 22.5,16.5 L 20.5,14.5 L 30.0,5.0 L 39.5,14.5 L 37.5,16.5 L 31.5,10.5 L 31.5,24.5 Z\" fill=\"#28B820\" stroke=\"#188810\" stroke-width=\"0.6\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -888,20 +960,18 @@
       "meaning": "Windows Update",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ]
-        },
-        {
-          "glyph": "arrow_sync",
-          "colour": "green",
-          "scale": 0.5,
-          "at": [
-            0.25,
-            0.14
-          ]
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"mscr_47\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_47\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"16.1\" y=\"31.0\" width=\"6.8\" height=\"4.2\" fill=\"url(#mneck_47)\"/><rect x=\"10.7\" y=\"34.7\" width=\"17.7\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"2.5\" y=\"7.5\" width=\"34.0\" height=\"24.0\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 4.5,7.5 L 34.5,7.5 C 35.7,7.5 36.5,8.3 36.5,9.5 L 2.5,9.5 C 2.5,8.3 3.3,7.5 4.5,7.5 Z\" fill=\"#B8C0CA\"/><rect x=\"4.5\" y=\"9.5\" width=\"30.0\" height=\"20.0\" rx=\"0.8\" fill=\"url(#mscr_47)\"/><path d=\"M 18,32 C 18,23 26,18 33,21 L 35,17 L 38,26 L 29,27 L 31,24 C 26,22 22,26 22,32 Z\" fill=\"#38C828\" stroke=\"#1E8814\" stroke-width=\"0.9\" stroke-linejoin=\"round\"/><path d=\"M 42,28 C 42,37 34,42 27,39 L 25,43 L 22,34 L 31,33 L 29,36 C 34,38 38,34 38,28 Z\" fill=\"#38C828\" stroke=\"#1E8814\" stroke-width=\"0.9\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -909,11 +979,18 @@
       "meaning": "security",
       "layers": [
         {
-          "tone": [
-            "lock_closed",
-            "yellow",
-            "yellow_line"
-          ]
+          "svg": "fluent:assets/Lock Closed/SVG/ic_fluent_lock_closed_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"lbody48\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE858\"/><stop offset=\"50%\" stop-color=\"#F8BC20\"/><stop offset=\"100%\" stop-color=\"#EE9E0C\"/></linearGradient></defs><path d=\"M 15.0,22.0 L 15.0,13.5 A 9.0,9.0 0 0 1 33.0,13.5 L 33.0,22.0\" fill=\"none\" stroke=\"#F6B818\" stroke-width=\"4.4\" stroke-linecap=\"round\"/><path d=\"M 15.0,22.0 L 15.0,13.5 A 9.0,9.0 0 0 1 33.0,13.5 L 33.0,22.0\" fill=\"none\" stroke=\"#FFF478\" stroke-width=\"2.0\" stroke-linecap=\"round\"/><rect x=\"9.5\" y=\"20.0\" width=\"29.0\" height=\"23.5\" rx=\"2.0\" fill=\"url(#lbody48)\" stroke=\"#E08E08\" stroke-width=\"1.0\"/><rect x=\"10.2\" y=\"23.5\" width=\"27.6\" height=\"1.8\" fill=\"#F09808\" opacity=\"0.85\"/><rect x=\"10.2\" y=\"38.5\" width=\"27.6\" height=\"2.0\" fill=\"#F09808\" opacity=\"0.85\"/>"
         }
       ]
     },
@@ -921,18 +998,18 @@
       "meaning": "shut down (confirm)",
       "layers": [
         {
-          "glyph": "square",
-          "colour": "red"
-        },
-        {
-          "glyph": "power",
-          "style": "regular",
-          "colour": "white",
-          "scale": 0.62,
-          "at": [
-            0.19,
-            0.19
-          ]
+          "svg": "fluent:assets/Power/SVG/ic_fluent_power_20_regular.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"sd28\" x1=\"0\" y1=\"0\" x2=\"0.8\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FC8448\"/><stop offset=\"50%\" stop-color=\"#E03C14\"/><stop offset=\"100%\" stop-color=\"#A81E04\"/></linearGradient></defs><rect x=\"5.0\" y=\"5.0\" width=\"38.0\" height=\"38.0\" rx=\"5.5\" fill=\"url(#sd28)\" stroke=\"#8C1800\" stroke-width=\"1.4\"/><circle cx=\"24.0\" cy=\"24.0\" r=\"11.5\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.8\"/><line x1=\"24.0\" y1=\"16.5\" x2=\"24.0\" y2=\"31.5\" stroke=\"#FFFFFF\" stroke-width=\"2.8\" stroke-linecap=\"round\"/>"
         }
       ]
     },
@@ -940,28 +1017,18 @@
       "meaning": "files",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.8,
-          "at": [
-            0.2,
-            0.0
-          ]
-        },
-        {
-          "tone": [
-            "document_text",
-            "page",
-            "page_line"
-          ],
-          "scale": 0.8,
-          "at": [
-            0.0,
-            0.2
-          ]
+          "append": "<path d=\"M 12,4.5 L 29,4.5 L 36.5,12 L 36.5,38.5 L 12,38.5 Z\" fill=\"#FFFFFF\" stroke=\"#7A7A7A\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/><path d=\"M 29,4.5 L 29,12 L 36.5,12 Z\" fill=\"#F0F0F0\" stroke=\"#7A7A7A\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><path d=\"M 7.5,8.5 L 24.5,8.5 L 32,16 L 32,43.5 L 7.5,43.5 Z\" fill=\"#FFFFFF\" stroke=\"#7A7A7A\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/><path d=\"M 24.5,8.5 L 24.5,16 L 32,16 Z\" fill=\"#F0F0F0\" stroke=\"#7A7A7A\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -969,21 +1036,18 @@
       "meaning": "file search",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "search",
-          "style": "regular",
-          "colour": "blue",
-          "scale": 0.55,
-          "at": [
-            0.42,
-            0.42
-          ]
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 7.5,3.5 L 29.5,3.5 L 37.5,11.5 L 37.5,43.0 L 7.5,43.0 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 29.5,3.5 L 29.5,11.5 L 37.5,11.5 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><defs><radialGradient id=\"sglass134\" cx=\"35%\" cy=\"30%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#E8F6FE\"/><stop offset=\"65%\" stop-color=\"#A8D8F8\"/><stop offset=\"100%\" stop-color=\"#68B4EC\"/></radialGradient></defs><line x1=\"33.5\" y1=\"36.5\" x2=\"42.0\" y2=\"44.5\" stroke=\"#485058\" stroke-width=\"3.2\" stroke-linecap=\"round\"/><circle cx=\"27.0\" cy=\"30.0\" r=\"9.2\" fill=\"url(#sglass134)\" stroke=\"#6898C4\" stroke-width=\"1.6\"/>"
         }
       ]
     },
@@ -991,21 +1055,18 @@
       "meaning": "computer search",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ]
-        },
-        {
-          "glyph": "search",
-          "style": "regular",
-          "colour": "dark",
-          "scale": 0.55,
-          "at": [
-            0.42,
-            0.42
-          ]
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"mscr_135\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_135\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.3\" y=\"33.5\" width=\"8.4\" height=\"4.8\" fill=\"url(#mneck_135)\"/><rect x=\"12.6\" y=\"37.8\" width=\"21.8\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"2.5\" y=\"5.5\" width=\"42.0\" height=\"28.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 4.5,5.5 L 42.5,5.5 C 43.7,5.5 44.5,6.3 44.5,7.5 L 2.5,7.5 C 2.5,6.3 3.3,5.5 4.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"4.5\" y=\"7.5\" width=\"38.0\" height=\"24.5\" rx=\"0.8\" fill=\"url(#mscr_135)\"/><defs><radialGradient id=\"sglass135\" cx=\"35%\" cy=\"30%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#E8F6FE\"/><stop offset=\"65%\" stop-color=\"#98D0F8\"/><stop offset=\"100%\" stop-color=\"#58A8EC\"/></radialGradient></defs><line x1=\"25.5\" y1=\"31.5\" x2=\"36.5\" y2=\"42.5\" stroke=\"#384048\" stroke-width=\"4.2\" stroke-linecap=\"round\"/><circle cx=\"17.5\" cy=\"23.5\" r=\"10.5\" fill=\"url(#sglass135)\" stroke=\"#5888B8\" stroke-width=\"2.0\"/>"
         }
       ]
     },
@@ -1051,23 +1112,18 @@
       "meaning": "Printers and Faxes",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "print",
-            "drive",
-            "drive_line"
+          "svg": "fluent:assets/Print/SVG/ic_fluent_print_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.55,
-          "at": [
-            0.42,
-            0.42
-          ]
+          "append": "<defs><linearGradient id=\"pbody_138\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#BAC4D0\"/><stop offset=\"20%\" stop-color=\"#D4DCE6\"/><stop offset=\"80%\" stop-color=\"#C8D2DC\"/><stop offset=\"100%\" stop-color=\"#A8B2BE\"/></linearGradient><linearGradient id=\"pslot_138\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#38B8EC\"/><stop offset=\"100%\" stop-color=\"#48E878\"/></linearGradient></defs><g transform=\"translate(0, 1.0)\"><path d=\"M 7.0,11.0 L 41.0,11.0 L 45.5,16.5 L 2.5,16.5 Z\" fill=\"#6C747E\" stroke=\"#50565E\" stroke-width=\"0.9\" stroke-linejoin=\"round\"/><path d=\"M 16.0,12.5 L 32.0,12.5 L 33.5,15.0 L 14.5,15.0 Z\" fill=\"url(#pslot_138)\"/><rect x=\"2.5\" y=\"16.5\" width=\"43.0\" height=\"3.2\" fill=\"#525860\"/><circle cx=\"41.0\" cy=\"18.1\" r=\"1.2\" fill=\"#38E828\"/><rect x=\"2.5\" y=\"19.7\" width=\"43.0\" height=\"15.0\" fill=\"url(#pbody_138)\" stroke=\"#8C96A2\" stroke-width=\"0.8\"/><rect x=\"2.5\" y=\"32.5\" width=\"43.0\" height=\"3.2\" rx=\"0.8\" fill=\"#4C525A\"/><rect x=\"11.5\" y=\"23.5\" width=\"25.0\" height=\"11.5\" rx=\"1.0\" fill=\"#24282E\"/><path d=\"M 12.5,32.5 L 35.5,32.5 L 38.5,36.5 L 9.5,36.5 Z\" fill=\"#DCE2E8\" stroke=\"#788088\" stroke-width=\"0.8\" stroke-linejoin=\"round\"/><rect x=\"9.5\" y=\"36.5\" width=\"29.0\" height=\"3.2\" rx=\"0.6\" fill=\"#383C42\"/></g><defs><linearGradient id=\"pfld138\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE478\"/><stop offset=\"100%\" stop-color=\"#F6B828\"/></linearGradient></defs><path d=\"M 24,5.5 L 32,5.5 L 34,8.0 L 46,8.0 L 46,24.5 L 24,24.5 Z\" fill=\"#E8A218\" stroke=\"#C48210\" stroke-width=\"0.8\" stroke-linejoin=\"round\"/><rect x=\"24\" y=\"8.5\" width=\"22\" height=\"16.0\" rx=\"1.0\" fill=\"url(#pfld138)\" stroke=\"#D49218\" stroke-width=\"0.8\"/>"
         }
       ]
     },
@@ -1075,20 +1131,18 @@
       "meaning": "add printer",
       "layers": [
         {
-          "tone": [
-            "print",
-            "drive",
-            "drive_line"
-          ]
-        },
-        {
-          "glyph": "add_circle",
-          "colour": "green",
-          "scale": 0.45,
-          "at": [
-            0.55,
-            0.55
-          ]
+          "svg": "fluent:assets/Print/SVG/ic_fluent_print_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"pbody_139\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#BAC4D0\"/><stop offset=\"20%\" stop-color=\"#D4DCE6\"/><stop offset=\"80%\" stop-color=\"#C8D2DC\"/><stop offset=\"100%\" stop-color=\"#A8B2BE\"/></linearGradient><linearGradient id=\"pslot_139\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#38B8EC\"/><stop offset=\"100%\" stop-color=\"#48E878\"/></linearGradient></defs><g transform=\"translate(0, -4.0)\"><path d=\"M 7.0,11.0 L 41.0,11.0 L 45.5,16.5 L 2.5,16.5 Z\" fill=\"#6C747E\" stroke=\"#50565E\" stroke-width=\"0.9\" stroke-linejoin=\"round\"/><path d=\"M 16.0,12.5 L 32.0,12.5 L 33.5,15.0 L 14.5,15.0 Z\" fill=\"url(#pslot_139)\"/><rect x=\"2.5\" y=\"16.5\" width=\"43.0\" height=\"3.2\" fill=\"#525860\"/><circle cx=\"41.0\" cy=\"18.1\" r=\"1.2\" fill=\"#38E828\"/><rect x=\"2.5\" y=\"19.7\" width=\"43.0\" height=\"15.0\" fill=\"url(#pbody_139)\" stroke=\"#8C96A2\" stroke-width=\"0.8\"/><rect x=\"2.5\" y=\"32.5\" width=\"43.0\" height=\"3.2\" rx=\"0.8\" fill=\"#4C525A\"/><rect x=\"11.5\" y=\"23.5\" width=\"25.0\" height=\"11.5\" rx=\"1.0\" fill=\"#24282E\"/><path d=\"M 12.5,32.5 L 35.5,32.5 L 38.5,36.5 L 9.5,36.5 Z\" fill=\"#DCE2E8\" stroke=\"#788088\" stroke-width=\"0.8\" stroke-linejoin=\"round\"/><rect x=\"9.5\" y=\"36.5\" width=\"29.0\" height=\"3.2\" rx=\"0.6\" fill=\"#383C42\"/></g><defs><linearGradient id=\"npipe_139\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#F0F4F8\"/><stop offset=\"50%\" stop-color=\"#D0D8E2\"/><stop offset=\"100%\" stop-color=\"#98A2AE\"/></linearGradient><linearGradient id=\"ngrn_139\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#8CF678\"/><stop offset=\"50%\" stop-color=\"#44CE3A\"/><stop offset=\"100%\" stop-color=\"#1E8E18\"/></linearGradient></defs><rect x=\"2.5\" y=\"36.0\" width=\"43.0\" height=\"8.0\" rx=\"1.5\" fill=\"url(#npipe_139)\"/><rect x=\"10.0\" y=\"35.2\" width=\"28.0\" height=\"9.5\" rx=\"1.5\" fill=\"url(#ngrn_139)\"/><rect x=\"12.5\" y=\"35.2\" width=\"2.0\" height=\"9.5\" fill=\"#A4FC92\" opacity=\"0.7\"/><rect x=\"33.5\" y=\"35.2\" width=\"2.0\" height=\"9.5\" fill=\"#A4FC92\" opacity=\"0.7\"/>"
         }
       ]
     },
@@ -1096,23 +1150,22 @@
       "meaning": "file in the Recycle Bin",
       "layers": [
         {
-          "tone": [
-            "delete",
-            "glass",
-            "glass_line"
-          ]
-        },
-        {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
+          "svg": "tela:src/scalable/places/user-trash-full.svg",
+          "edits": [
+            [
+              "fill=\"#fff\" stroke=\"#000\"( enable-background=\"new\")? stroke-opacity=\".039\"",
+              "fill=\"#EAF1F8\" fill-opacity=\".85\" stroke=\"#8FA3B8\" stroke-opacity=\".9\" stroke-width=\"1.2\""
+            ],
+            [
+              "fill=\"#df5656\"",
+              "fill=\"#0F5FB8\""
+            ],
+            [
+              "fill=\"#ff9292\"",
+              "fill=\"#3A9BEA\""
+            ]
           ],
-          "scale": 0.45,
-          "at": [
-            0.28,
-            0.35
-          ]
+          "append": "<path d=\"M10.1 55.4h43.8v1.3c-.1 1.5-1.3 2.7-2.8 2.7H12.9c-1.5 0-2.7-1.2-2.8-2.7z\" fill=\"#7B8794\"/>"
         }
       ]
     },
@@ -1120,23 +1173,22 @@
       "meaning": "folder in the Recycle Bin",
       "layers": [
         {
-          "tone": [
-            "delete",
-            "glass",
-            "glass_line"
-          ]
-        },
-        {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
+          "svg": "tela:src/scalable/places/user-trash-full.svg",
+          "edits": [
+            [
+              "fill=\"#fff\" stroke=\"#000\"( enable-background=\"new\")? stroke-opacity=\".039\"",
+              "fill=\"#EAF1F8\" fill-opacity=\".85\" stroke=\"#8FA3B8\" stroke-opacity=\".9\" stroke-width=\"1.2\""
+            ],
+            [
+              "fill=\"#df5656\"",
+              "fill=\"#0F5FB8\""
+            ],
+            [
+              "fill=\"#ff9292\"",
+              "fill=\"#3A9BEA\""
+            ]
           ],
-          "scale": 0.45,
-          "at": [
-            0.28,
-            0.38
-          ]
+          "append": "<path d=\"M10.1 55.4h43.8v1.3c-.1 1.5-1.3 2.7-2.8 2.7H12.9c-1.5 0-2.7-1.2-2.8-2.7z\" fill=\"#7B8794\"/>"
         }
       ]
     },
@@ -1144,11 +1196,18 @@
       "meaning": "text file",
       "layers": [
         {
-          "tone": [
-            "document_text",
-            "page",
-            "page_line"
-          ]
+          "svg": "fluent:assets/Document Text/SVG/ic_fluent_document_text_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 8.5,3.5 L 31.0,3.5 L 39.5,12.0 L 39.5,44.5 L 8.5,44.5 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 31.0,3.5 L 31.0,12.0 L 39.5,12.0 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><rect x=\"13.0\" y=\"11.5\" width=\"14.0\" height=\"1.4\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"15.5\" width=\"22.0\" height=\"1.4\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"19.5\" width=\"22.0\" height=\"1.4\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"23.5\" width=\"22.0\" height=\"1.4\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"27.5\" width=\"22.0\" height=\"1.4\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"31.5\" width=\"22.0\" height=\"1.4\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"35.5\" width=\"22.0\" height=\"1.4\" fill=\"#8A8A8A\"/><rect x=\"13.0\" y=\"39.5\" width=\"22.0\" height=\"1.4\" fill=\"#8A8A8A\"/>"
         }
       ]
     },
@@ -1156,20 +1215,18 @@
       "meaning": "batch file",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "settings",
-          "colour": "grey",
-          "scale": 0.45,
-          "at": [
-            0.27,
-            0.38
-          ]
+          "svg": "fluent:assets/Window/SVG/ic_fluent_window_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<rect x=\"2.5\" y=\"8.5\" width=\"43.0\" height=\"31.5\" rx=\"1.5\" fill=\"#FFFFFF\" stroke=\"#7A7A7A\" stroke-width=\"1.4\"/><rect x=\"3.2\" y=\"9.2\" width=\"41.6\" height=\"5.0\" fill=\"#7A828C\"/><rect x=\"35.5\" y=\"10.8\" width=\"2.0\" height=\"1.8\" fill=\"#E8ECEF\"/><rect x=\"38.8\" y=\"10.8\" width=\"2.0\" height=\"1.8\" fill=\"#E8ECEF\"/><rect x=\"42.0\" y=\"10.8\" width=\"2.0\" height=\"1.8\" fill=\"#E8ECEF\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(0 20.5 24.5)\" fill=\"#6C747E\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(45 20.5 24.5)\" fill=\"#6C747E\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(90 20.5 24.5)\" fill=\"#6C747E\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(135 20.5 24.5)\" fill=\"#6C747E\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(180 20.5 24.5)\" fill=\"#6C747E\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(225 20.5 24.5)\" fill=\"#6C747E\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(270 20.5 24.5)\" fill=\"#6C747E\"/><rect x=\"19.4\" y=\"17.5\" width=\"2.2\" height=\"14.0\" rx=\"0.4\" transform=\"rotate(315 20.5 24.5)\" fill=\"#6C747E\"/><circle cx=\"20.5\" cy=\"24.5\" r=\"5.2\" fill=\"#6C747E\"/><circle cx=\"20.5\" cy=\"24.5\" r=\"2.2\" fill=\"#FFFFFF\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(0 29.0 31.5)\" fill=\"#4E565E\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(45 29.0 31.5)\" fill=\"#4E565E\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(90 29.0 31.5)\" fill=\"#4E565E\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(135 29.0 31.5)\" fill=\"#4E565E\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(180 29.0 31.5)\" fill=\"#4E565E\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(225 29.0 31.5)\" fill=\"#4E565E\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(270 29.0 31.5)\" fill=\"#4E565E\"/><rect x=\"27.9\" y=\"25.7\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(315 29.0 31.5)\" fill=\"#4E565E\"/><circle cx=\"29.0\" cy=\"31.5\" r=\"4.0\" fill=\"#4E565E\"/><circle cx=\"29.0\" cy=\"31.5\" r=\"1.7\" fill=\"#FFFFFF\"/>"
         }
       ]
     },
@@ -1177,20 +1234,18 @@
       "meaning": "library (DLL)",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "settings",
-          "colour": "grey",
-          "scale": 0.45,
-          "at": [
-            0.27,
-            0.38
-          ]
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 8.5,3.5 L 31.0,3.5 L 39.5,12.0 L 39.5,44.5 L 8.5,44.5 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 31.0,3.5 L 31.0,12.0 L 39.5,12.0 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(0 19.5 22.5)\" fill=\"#6C747E\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(45 19.5 22.5)\" fill=\"#6C747E\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(90 19.5 22.5)\" fill=\"#6C747E\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(135 19.5 22.5)\" fill=\"#6C747E\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(180 19.5 22.5)\" fill=\"#6C747E\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(225 19.5 22.5)\" fill=\"#6C747E\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(270 19.5 22.5)\" fill=\"#6C747E\"/><rect x=\"18.4\" y=\"15.7\" width=\"2.2\" height=\"13.6\" rx=\"0.4\" transform=\"rotate(315 19.5 22.5)\" fill=\"#6C747E\"/><circle cx=\"19.5\" cy=\"22.5\" r=\"5.0\" fill=\"#6C747E\"/><circle cx=\"19.5\" cy=\"22.5\" r=\"2.1\" fill=\"#FFFFFF\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(0 27.5 30.0)\" fill=\"#4E565E\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(45 27.5 30.0)\" fill=\"#4E565E\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(90 27.5 30.0)\" fill=\"#4E565E\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(135 27.5 30.0)\" fill=\"#4E565E\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(180 27.5 30.0)\" fill=\"#4E565E\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(225 27.5 30.0)\" fill=\"#4E565E\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(270 27.5 30.0)\" fill=\"#4E565E\"/><rect x=\"26.4\" y=\"24.2\" width=\"2.2\" height=\"11.6\" rx=\"0.4\" transform=\"rotate(315 27.5 30.0)\" fill=\"#4E565E\"/><circle cx=\"27.5\" cy=\"30.0\" r=\"4.0\" fill=\"#4E565E\"/><circle cx=\"27.5\" cy=\"30.0\" r=\"1.7\" fill=\"#FFFFFF\"/>"
         }
       ]
     },
@@ -1198,20 +1253,18 @@
       "meaning": "font file",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "text_font",
-          "colour": "blue",
-          "scale": 0.45,
-          "at": [
-            0.27,
-            0.38
-          ]
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 8.5,3.5 L 31.0,3.5 L 39.5,12.0 L 39.5,44.5 L 8.5,44.5 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 31.0,3.5 L 31.0,12.0 L 39.5,12.0 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><path d=\"M 12.5,25.5 L 16.2,14.5 L 18.0,14.5 L 21.7,25.5 L 19.8,25.5 L 18.9,22.6 L 15.3,22.6 L 14.4,25.5 Z M 15.8,21.0 L 18.4,21.0 L 17.1,16.8 Z\" fill=\"#586068\"/><path d=\"M 19.5,35.5 L 24.8,20.0 L 27.4,20.0 L 32.7,35.5 L 30.0,35.5 L 28.7,31.4 L 23.5,31.4 L 22.2,35.5 Z M 24.2,29.2 L 28.0,29.2 L 26.1,23.2 Z\" fill=\"#1482D8\"/>"
         }
       ]
     },
@@ -1219,20 +1272,18 @@
       "meaning": "TrueType font",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "text_font",
-          "colour": "blue",
-          "scale": 0.45,
-          "at": [
-            0.27,
-            0.38
-          ]
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 8.5,3.5 L 31.0,3.5 L 39.5,12.0 L 39.5,44.5 L 8.5,44.5 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 31.0,3.5 L 31.0,12.0 L 39.5,12.0 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><path d=\"M 12.5,25.5 L 16.2,14.5 L 18.0,14.5 L 21.7,25.5 L 19.8,25.5 L 18.9,22.6 L 15.3,22.6 L 14.4,25.5 Z M 15.8,21.0 L 18.4,21.0 L 17.1,16.8 Z\" fill=\"#586068\"/><path d=\"M 19.5,35.5 L 24.8,20.0 L 27.4,20.0 L 32.7,35.5 L 30.0,35.5 L 28.7,31.4 L 23.5,31.4 L 22.2,35.5 Z M 24.2,29.2 L 28.0,29.2 L 26.1,23.2 Z\" fill=\"#1482D8\"/>"
         }
       ]
     },
@@ -1240,20 +1291,18 @@
       "meaning": "PostScript font",
       "layers": [
         {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
-          ]
-        },
-        {
-          "glyph": "text_font",
-          "colour": "blue",
-          "scale": 0.45,
-          "at": [
-            0.27,
-            0.38
-          ]
+          "svg": "fluent:assets/Document/SVG/ic_fluent_document_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<path d=\"M 8.5,3.5 L 31.0,3.5 L 39.5,12.0 L 39.5,44.5 L 8.5,44.5 Z\" fill=\"#FFFFFF\" stroke=\"#7E7E7E\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><path d=\"M 31.0,3.5 L 31.0,12.0 L 39.5,12.0 Z\" fill=\"#F2F2F2\" stroke=\"#7E7E7E\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/><path d=\"M 12.5,25.5 L 16.2,14.5 L 18.0,14.5 L 21.7,25.5 L 19.8,25.5 L 18.9,22.6 L 15.3,22.6 L 14.4,25.5 Z M 15.8,21.0 L 18.4,21.0 L 17.1,16.8 Z\" fill=\"#586068\"/><path d=\"M 19.5,35.5 L 24.8,20.0 L 27.4,20.0 L 32.7,35.5 L 30.0,35.5 L 28.7,31.4 L 23.5,31.4 L 22.2,35.5 Z M 24.2,29.2 L 28.0,29.2 L 26.1,23.2 Z\" fill=\"#1482D8\"/>"
         }
       ]
     },
@@ -1261,23 +1310,18 @@
       "meaning": "network folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "globe",
-            "blue",
-            "blue_line"
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "append": "<defs><linearGradient id=\"yf_172\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, -3.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_172)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><defs><linearGradient id=\"npipe_172\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#F0F4F8\"/><stop offset=\"50%\" stop-color=\"#D0D8E2\"/><stop offset=\"100%\" stop-color=\"#98A2AE\"/></linearGradient><linearGradient id=\"ngrn_172\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#8CF678\"/><stop offset=\"50%\" stop-color=\"#44CE3A\"/><stop offset=\"100%\" stop-color=\"#1E8E18\"/></linearGradient></defs><rect x=\"3.0\" y=\"36.0\" width=\"42.0\" height=\"7.5\" rx=\"1.5\" fill=\"url(#npipe_172)\"/><rect x=\"10.5\" y=\"35.2\" width=\"27.0\" height=\"9.0\" rx=\"1.5\" fill=\"url(#ngrn_172)\"/><rect x=\"13.0\" y=\"35.2\" width=\"2.0\" height=\"9.0\" fill=\"#A4FC92\" opacity=\"0.7\"/><rect x=\"33.0\" y=\"35.2\" width=\"2.0\" height=\"9.0\" fill=\"#A4FC92\" opacity=\"0.7\"/>"
         }
       ]
     },
@@ -1285,23 +1329,18 @@
       "meaning": "Favorites folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "star",
-            "yellow",
-            "yellow_line"
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "append": "<defs><linearGradient id=\"yf_173\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 0.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_173)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g>"
         }
       ]
     },
@@ -1309,20 +1348,18 @@
       "meaning": "network connections",
       "layers": [
         {
-          "tone": [
-            "desktop",
-            "screen",
-            "screen_line"
-          ]
-        },
-        {
-          "glyph": "plug_connected",
-          "colour": "teal",
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"mscr_175\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_175\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"33.0\" width=\"9.0\" height=\"4.0\" fill=\"url(#mneck_175)\"/><rect x=\"12.3\" y=\"36.5\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"4.0\" width=\"45.0\" height=\"29.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,4.0 L 44.5,4.0 C 45.7,4.0 46.5,4.8 46.5,6.0 L 1.5,6.0 C 1.5,4.8 2.3,4.0 3.5,4.0 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"6.0\" width=\"41.0\" height=\"25.5\" rx=\"0.8\" fill=\"url(#mscr_175)\"/><defs><linearGradient id=\"npipe_175\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#F0F4F8\"/><stop offset=\"50%\" stop-color=\"#D0D8E2\"/><stop offset=\"100%\" stop-color=\"#98A2AE\"/></linearGradient><linearGradient id=\"ngrn_175\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#8CF678\"/><stop offset=\"50%\" stop-color=\"#44CE3A\"/><stop offset=\"100%\" stop-color=\"#1E8E18\"/></linearGradient></defs><rect x=\"1.5\" y=\"35.0\" width=\"45.0\" height=\"8.5\" rx=\"1.5\" fill=\"url(#npipe_175)\"/><rect x=\"9.0\" y=\"34.2\" width=\"30.0\" height=\"10.0\" rx=\"1.5\" fill=\"url(#ngrn_175)\"/><rect x=\"11.5\" y=\"34.2\" width=\"2.2\" height=\"10.0\" fill=\"#A4FC92\" opacity=\"0.7\"/><rect x=\"34.3\" y=\"34.2\" width=\"2.2\" height=\"10.0\" fill=\"#A4FC92\" opacity=\"0.7\"/>"
         }
       ]
     },
@@ -1330,20 +1367,18 @@
       "meaning": "folder with a check mark",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "glyph": "checkmark_square",
-          "colour": "blue",
-          "scale": 0.5,
-          "at": [
-            0.46,
-            0.46
-          ]
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"yf_210\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#FFE474\"/><stop offset=\"100%\" stop-color=\"#F5B828\"/></linearGradient></defs><g transform=\"translate(0, 2.0)\"><path d=\"M 3.0,9.0 C 3.0,7.6 4.1,6.5 5.5,6.5 L 17.5,6.5 C 18.8,6.5 19.8,7.2 20.6,8.2 L 22.8,11.0 L 42.5,11.0 C 43.9,11.0 45.0,12.1 45.0,13.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#E09A18\"/><rect x=\"3.0\" y=\"13.0\" width=\"42.0\" height=\"29.0\" rx=\"2.5\" fill=\"url(#yf_210)\" stroke=\"#D89214\" stroke-width=\"0.6\"/></g><rect x=\"24.0\" y=\"4.5\" width=\"21.0\" height=\"19.0\" rx=\"1.2\" fill=\"#FFFFFF\" stroke=\"#7A828C\" stroke-width=\"1.2\"/><polyline points=\"28.0,14.5 32.5,19.0 41.0,9.5\" fill=\"none\" stroke=\"#1882D8\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -1351,18 +1386,18 @@
       "meaning": "turn off computer",
       "layers": [
         {
-          "glyph": "circle",
-          "colour": "blue"
-        },
-        {
-          "glyph": "power",
-          "style": "regular",
-          "colour": "white",
-          "scale": 0.62,
-          "at": [
-            0.19,
-            0.19
-          ]
+          "svg": "fluent:assets/Power/SVG/ic_fluent_power_20_regular.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"pwr221\" x1=\"0\" y1=\"0\" x2=\"0.8\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#48A8F8\"/><stop offset=\"55%\" stop-color=\"#1E78D0\"/><stop offset=\"100%\" stop-color=\"#104E94\"/></linearGradient></defs><circle cx=\"24.0\" cy=\"24.0\" r=\"19.5\" fill=\"#B8C8D8\" stroke=\"#688098\" stroke-width=\"1.2\"/><circle cx=\"24.0\" cy=\"24.0\" r=\"17.0\" fill=\"url(#pwr221)\" stroke=\"#125090\" stroke-width=\"1.2\"/><path d=\"M 18.0,15.5 A 10.5,10.5 0 1 0 30.0,15.5\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"3.0\" stroke-linecap=\"round\"/><line x1=\"24.0\" y1=\"11.0\" x2=\"24.0\" y2=\"23.5\" stroke=\"#FFFFFF\" stroke-width=\"3.0\" stroke-linecap=\"round\"/>"
         }
       ]
     },
@@ -1370,20 +1405,14 @@
       "meaning": "DVD drive",
       "layers": [
         {
-          "tone": [
-            "hard_drive",
-            "drive",
-            "drive_line"
-          ]
-        },
-        {
-          "glyph": "circle",
-          "colour": "disc",
-          "scale": 0.45,
-          "at": [
-            0.5,
-            0.02
-          ]
+          "svg": "fluent:assets/Circle/SVG/ic_fluent_circle_48_filled.svg",
+          "edits": [
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"dvddisc\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F4F8FC\"/><stop offset=\"0.5\" stop-color=\"#D4DCE4\"/><stop offset=\"1\" stop-color=\"#A4ACB4\"/></linearGradient><linearGradient id=\"dvdbadge\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#3C4046\"/><stop offset=\"1\" stop-color=\"#080A0C\"/></linearGradient></defs><circle cx=\"24.0\" cy=\"22.0\" r=\"18.2\" fill=\"url(#dvddisc)\" stroke=\"#949CA4\" stroke-width=\"1.1\"/><path d=\"M24.0 22.0 L6.8 16.0 A18.2 18.2 0 0 1 10.5 9.8 Z\" fill=\"#F6BCE4\" fill-opacity=\"0.60\"/><path d=\"M24.0 22.0 L36.5 9.0 A18.2 18.2 0 0 1 40.5 14.5 Z\" fill=\"#B8F6DC\" fill-opacity=\"0.60\"/><circle cx=\"24.0\" cy=\"22.0\" r=\"6.2\" fill=\"#DCE2E8\" stroke=\"#98A0A8\" stroke-width=\"1.0\"/><circle cx=\"24.0\" cy=\"22.0\" r=\"2.6\" fill=\"#FFFFFF\" stroke=\"#98A0A8\" stroke-width=\"0.8\"/><rect x=\"11.0\" y=\"29.5\" width=\"26.0\" height=\"13.2\" rx=\"2.2\" fill=\"url(#dvdbadge)\" stroke=\"#24282E\" stroke-width=\"0.9\"/><g fill=\"none\" stroke=\"#CED4DC\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14.8 33.0 V39.2 H17.2 C19.0 39.2 20.0 38.0 20.0 36.1 C20.0 34.2 19.0 33.0 17.2 33.0 Z\"/><path d=\"M21.6 33.0 L24.0 39.2 L26.4 33.0\"/><path d=\"M28.2 33.0 V39.2 H30.6 C32.4 39.2 33.4 38.0 33.4 36.1 C33.4 34.2 32.4 33.0 30.6 33.0 Z\"/></g>"
         }
       ]
     },
@@ -1391,20 +1420,18 @@
       "meaning": "Downloads folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder_blue",
-            "folder_blue_line"
-          ]
-        },
-        {
-          "glyph": "arrow_download",
-          "colour": "white",
-          "scale": 0.42,
-          "at": [
-            0.29,
-            0.38
-          ]
+          "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"3.8 3.8 40.4 40.4\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"#FFFFFF\" stroke=\"#BCCAE0\" stroke-width=\"2.2\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"dlarrow\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#22A8F8\"/><stop offset=\"0.55\" stop-color=\"#0A82E4\"/><stop offset=\"1\" stop-color=\"#0062C4\"/></linearGradient></defs><path d=\"M18.5 11.0 H29.5 V24.5 H36.5 L24.0 38.0 L11.5 24.5 H18.5 Z\" fill=\"url(#dlarrow)\" stroke=\"#0860BA\" stroke-width=\"0.6\" stroke-linejoin=\"round\"/>"
         }
       ]
     },
@@ -1412,23 +1439,18 @@
       "meaning": "My Documents folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder",
-            "folder_line"
-          ]
-        },
-        {
-          "tone": [
-            "document",
-            "page",
-            "page_line"
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_48_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 48 48\"",
+              "viewBox=\"2 2 44 44\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
           ],
-          "scale": 0.44,
-          "at": [
-            0.28,
-            0.36
-          ]
+          "append": "<defs><linearGradient id=\"docfbody\" x1=\"0\" y1=\"0\" x2=\"0.4\" y2=\"1\"><stop offset=\"0\" stop-color=\"#9EB8D2\"/><stop offset=\"1\" stop-color=\"#6B88A4\"/></linearGradient></defs><path d=\"M4 12.25C4 9.5 6.2 7.5 9.0 7.5H17.5L21.5 11.5H40.0C42.2 11.5 44 13.3 44 15.5V36.5C44 38.7 42.2 40.5 40.0 40.5H8.0C5.8 40.5 4 38.7 4 36.5V12.25Z\" fill=\"#546E82\"/><rect x=\"4\" y=\"12.5\" width=\"40\" height=\"28\" rx=\"3.2\" fill=\"url(#docfbody)\" stroke=\"#4A647A\" stroke-width=\"1.2\"/><g fill=\"#FFFFFF\"><rect x=\"13.5\" y=\"18.0\" width=\"10.5\" height=\"2.6\" rx=\"0.6\"/><rect x=\"13.5\" y=\"23.0\" width=\"10.5\" height=\"2.6\" rx=\"0.6\"/><rect x=\"27.0\" y=\"18.0\" width=\"7.5\" height=\"7.6\" rx=\"0.8\"/><rect x=\"13.5\" y=\"28.2\" width=\"21.0\" height=\"2.6\" rx=\"0.6\"/><rect x=\"13.5\" y=\"33.2\" width=\"21.0\" height=\"2.6\" rx=\"0.6\"/></g>"
         }
       ]
     },
@@ -1436,20 +1458,18 @@
       "meaning": "My Pictures folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder_cyan",
-            "folder_cyan_line"
-          ]
-        },
-        {
-          "glyph": "image",
-          "colour": "white",
-          "scale": 0.42,
-          "at": [
-            0.29,
-            0.38
-          ]
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"pic236_f\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#34A4F4\"/><stop offset=\"100%\" stop-color=\"#1066C0\"/></linearGradient></defs><path d=\"M 3.0,8.0 C 3.0,6.6 4.1,5.5 5.5,5.5 L 17.5,5.5 C 18.8,5.5 19.8,6.2 20.6,7.2 L 22.8,10.0 L 42.5,10.0 C 43.9,10.0 45.0,11.1 45.0,12.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#0E56A0\"/><rect x=\"3.0\" y=\"12.0\" width=\"42.0\" height=\"30.0\" rx=\"2.5\" fill=\"url(#pic236_f)\"/><circle cx=\"35.5\" cy=\"20.0\" r=\"3.4\" fill=\"#FFFFFF\"/><path d=\"M 5.5,42.0 L 20.5,24.5 L 33.5,39.0 L 38.0,34.0 L 44.5,42.0 Z\" fill=\"#FFFFFF\" opacity=\"0.95\"/>"
         }
       ]
     },
@@ -1457,20 +1477,18 @@
       "meaning": "My Music folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder_coral",
-            "folder_coral_line"
-          ]
-        },
-        {
-          "glyph": "music_note_2",
-          "colour": "white",
-          "scale": 0.42,
-          "at": [
-            0.29,
-            0.38
-          ]
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"mus237_f\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#EE8A52\"/><stop offset=\"50%\" stop-color=\"#C86888\"/><stop offset=\"100%\" stop-color=\"#8450B8\"/></linearGradient></defs><path d=\"M 3.0,8.0 C 3.0,6.6 4.1,5.5 5.5,5.5 L 17.5,5.5 C 18.8,5.5 19.8,6.2 20.6,7.2 L 22.8,10.0 L 42.5,10.0 C 43.9,10.0 45.0,11.1 45.0,12.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#B44C2A\"/><rect x=\"3.0\" y=\"12.0\" width=\"42.0\" height=\"30.0\" rx=\"2.5\" fill=\"url(#mus237_f)\"/><path d=\"M 21.0,18.5 L 32.5,16.0 L 32.5,31.5 C 32.5,34.0 30.2,35.8 27.8,35.8 C 25.6,35.8 24.0,34.3 24.0,32.3 C 24.0,30.3 25.8,28.8 28.2,28.8 C 29.0,28.8 29.6,29.0 30.0,29.3 L 30.0,20.2 L 23.5,21.6 L 23.5,33.5 C 23.5,36.0 21.2,37.8 18.8,37.8 C 16.6,37.8 15.0,36.3 15.0,34.3 C 15.0,32.3 16.8,30.8 19.2,30.8 C 20.0,30.8 20.6,31.0 21.0,31.3 Z\" fill=\"#FFFFFF\"/>"
         }
       ]
     },
@@ -1478,25 +1496,23 @@
       "meaning": "My Videos folder",
       "layers": [
         {
-          "tone": [
-            "folder",
-            "folder_purple",
-            "folder_purple_line"
-          ]
-        },
-        {
-          "glyph": "video",
-          "colour": "white",
-          "scale": 0.42,
-          "at": [
-            0.29,
-            0.38
-          ]
+          "svg": "fluent:assets/Folder/SVG/ic_fluent_folder_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><linearGradient id=\"vid238_f\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#A46AF0\"/><stop offset=\"100%\" stop-color=\"#5E2CA8\"/></linearGradient></defs><path d=\"M 3.0,8.0 C 3.0,6.6 4.1,5.5 5.5,5.5 L 17.5,5.5 C 18.8,5.5 19.8,6.2 20.6,7.2 L 22.8,10.0 L 42.5,10.0 C 43.9,10.0 45.0,11.1 45.0,12.5 L 45.0,39.5 C 45.0,40.9 43.9,42.0 42.5,42.0 L 5.5,42.0 C 4.1,42.0 3.0,40.9 3.0,39.5 Z\" fill=\"#522496\"/><rect x=\"3.0\" y=\"12.0\" width=\"42.0\" height=\"30.0\" rx=\"2.5\" fill=\"url(#vid238_f)\"/><rect x=\"5.5\" y=\"15.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><rect x=\"39.0\" y=\"15.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><rect x=\"5.5\" y=\"21.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><rect x=\"39.0\" y=\"21.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><rect x=\"5.5\" y=\"27.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><rect x=\"39.0\" y=\"27.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><rect x=\"5.5\" y=\"33.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><rect x=\"39.0\" y=\"33.0\" width=\"3.5\" height=\"3.2\" rx=\"0.5\" fill=\"#E4D4FC\" opacity=\"0.88\"/><path d=\"M 20.0,20.0 L 31.0,26.8 L 20.0,33.6 Z\" fill=\"#FFFFFF\"/>"
         }
       ]
     }
   },
-  "licence": "GPL-3.0, because it contains Tela icon theme art (GPL-3.0); the Fluent UI System Icons glyphs in it remain under the MIT licence",
+  "licence": "GPL-3.0, because it contains Tela icon theme art (GPL-3.0); the Fluent UI System Icons glyphs in it remain under the MIT licence; the Font Awesome globe in it is CC BY 4.0 (attribution in assets/iconpacks/src/fontawesome/LICENSE.txt)",
   "sources": {
     "fluent": {
       "title": "Fluent UI System Icons (Microsoft)",
@@ -1519,11 +1535,18 @@
         "meaning": "Display Properties",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           }
         ]
       }
@@ -1533,11 +1556,18 @@
         "meaning": "System Properties",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           },
           {
             "tone": [
@@ -1639,20 +1669,18 @@
         "meaning": "Network Connections",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
-          },
-          {
-            "glyph": "plug_connected",
-            "colour": "teal",
-            "scale": 0.5,
-            "at": [
-              0.46,
-              0.46
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_175\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_175\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"33.0\" width=\"9.0\" height=\"4.0\" fill=\"url(#mneck_175)\"/><rect x=\"12.3\" y=\"36.5\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"4.0\" width=\"45.0\" height=\"29.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,4.0 L 44.5,4.0 C 45.7,4.0 46.5,4.8 46.5,6.0 L 1.5,6.0 C 1.5,4.8 2.3,4.0 3.5,4.0 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"6.0\" width=\"41.0\" height=\"25.5\" rx=\"0.8\" fill=\"url(#mscr_175)\"/><defs><linearGradient id=\"npipe_175\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#F0F4F8\"/><stop offset=\"50%\" stop-color=\"#D0D8E2\"/><stop offset=\"100%\" stop-color=\"#98A2AE\"/></linearGradient><linearGradient id=\"ngrn_175\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#8CF678\"/><stop offset=\"50%\" stop-color=\"#44CE3A\"/><stop offset=\"100%\" stop-color=\"#1E8E18\"/></linearGradient></defs><rect x=\"1.5\" y=\"35.0\" width=\"45.0\" height=\"8.5\" rx=\"1.5\" fill=\"url(#npipe_175)\"/><rect x=\"9.0\" y=\"34.2\" width=\"30.0\" height=\"10.0\" rx=\"1.5\" fill=\"url(#ngrn_175)\"/><rect x=\"11.5\" y=\"34.2\" width=\"2.2\" height=\"10.0\" fill=\"#A4FC92\" opacity=\"0.7\"/><rect x=\"34.3\" y=\"34.2\" width=\"2.2\" height=\"10.0\" fill=\"#A4FC92\" opacity=\"0.7\"/>"
           }
         ]
       }
@@ -1685,11 +1713,18 @@
         "meaning": "Show Desktop",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"desk35_scr\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#42E6FA\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A70CC\"/></linearGradient></defs><rect x=\"1.5\" y=\"5.5\" width=\"45\" height=\"34.5\" rx=\"2.2\" fill=\"url(#desk35_scr)\"/><path d=\"M 1.5,36.2 L 46.5,36.2 L 46.5,38.0 C 46.5,39.1 45.6,40.0 44.5,40.0 L 3.5,40.0 C 2.4,40.0 1.5,39.1 1.5,38.0 Z\" fill=\"#0B4270\"/><rect x=\"39.5\" y=\"37.0\" width=\"2.2\" height=\"2.2\" rx=\"0.3\" fill=\"#B8C4D0\"/><rect x=\"43.0\" y=\"37.0\" width=\"2.2\" height=\"2.2\" rx=\"0.3\" fill=\"#B8C4D0\"/>"
           }
         ]
       }
@@ -1699,11 +1734,18 @@
         "meaning": "Network Blank",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           }
         ]
       },
@@ -1711,11 +1753,18 @@
         "meaning": "Network Disconnected",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           },
           {
             "glyph": "dismiss_circle",
@@ -1732,11 +1781,18 @@
         "meaning": "Network Connected",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           },
           {
             "glyph": "plug_connected",
@@ -1753,11 +1809,18 @@
         "meaning": "Network Receiving",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           },
           {
             "glyph": "arrow_download",
@@ -1774,11 +1837,18 @@
         "meaning": "Network Transmitting",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           },
           {
             "glyph": "arrow_up",
@@ -1795,11 +1865,18 @@
         "meaning": "Network Activity",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           },
           {
             "glyph": "arrow_sync",
@@ -1957,11 +2034,18 @@
         "meaning": "Safely Remove Hardware",
         "layers": [
           {
-            "tone": [
-              "save",
-              "dark",
-              "dark_line"
-            ]
+            "svg": "fluent:assets/Arrow Exit/SVG/ic_fluent_arrow_exit_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"usb_top\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#EEF2F6\"/><stop offset=\"60%\" stop-color=\"#BCC4CE\"/><stop offset=\"100%\" stop-color=\"#8C949E\"/></linearGradient><linearGradient id=\"usb_side\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#78808A\"/><stop offset=\"100%\" stop-color=\"#485058\"/></linearGradient><linearGradient id=\"ej_grn\" x1=\"0\" y1=\"0\" x2=\"0.8\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#8EF65C\"/><stop offset=\"55%\" stop-color=\"#38C620\"/><stop offset=\"100%\" stop-color=\"#14840C\"/></linearGradient></defs><path d=\"M 13,30 L 34,20 L 44,25 L 23,35 Z\" fill=\"url(#usb_top)\" stroke=\"#707882\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 23,35 L 44,25 L 44,30 L 23,40 Z\" fill=\"url(#usb_side)\" stroke=\"#505860\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 12,29.5 L 15,28 L 25,33 L 25,39 L 22,40.5 L 12,35.5 Z\" fill=\"#647C94\" stroke=\"#485C70\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 4,35 L 13,30.5 L 20,34 L 11,38.5 Z\" fill=\"#D8E0E8\" stroke=\"#687078\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 4,35 L 11,38.5 L 11,42 L 4,38.5 Z\" fill=\"#98A0A8\" stroke=\"#606870\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><path d=\"M 11,38.5 L 20,34 L 20,37.5 L 11,42 Z\" fill=\"#687078\" stroke=\"#505860\" stroke-width=\"1.0\" stroke-linejoin=\"round\"/><rect x=\"8.5\" y=\"34.2\" width=\"2.2\" height=\"1.5\" transform=\"rotate(-25 9.5 35)\" fill=\"#384048\"/><rect x=\"12.5\" y=\"36.0\" width=\"2.2\" height=\"1.5\" transform=\"rotate(-25 13.5 36.8)\" fill=\"#384048\"/><path d=\"M 6,19 L 18,7.5 L 18,13.8 L 30,13.8 L 30,24.2 L 18,24.2 L 18,30.5 Z\" fill=\"url(#ej_grn)\" stroke=\"#389820\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/>"
           }
         ]
       },
@@ -1981,11 +2065,18 @@
         "meaning": "LAN Connection",
         "layers": [
           {
-            "tone": [
-              "desktop",
-              "screen",
-              "screen_line"
-            ]
+            "svg": "fluent:assets/Desktop/SVG/ic_fluent_desktop_20_filled.svg",
+            "edits": [
+              [
+                "viewBox=\"0 0 20 20\"",
+                "viewBox=\"0 0 48 48\""
+              ],
+              [
+                "fill=\"#212121\"",
+                "fill=\"none\""
+              ]
+            ],
+            "append": "<defs><linearGradient id=\"mscr_16\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#3CE4F8\"/><stop offset=\"55%\" stop-color=\"#189CE6\"/><stop offset=\"100%\" stop-color=\"#0A72CE\"/></linearGradient><linearGradient id=\"mneck_16\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#868E96\"/><stop offset=\"100%\" stop-color=\"#A8B0B8\"/></linearGradient></defs><rect x=\"19.5\" y=\"35.5\" width=\"9.0\" height=\"5.2\" fill=\"url(#mneck_16)\"/><rect x=\"12.3\" y=\"40.2\" width=\"23.4\" height=\"2.8\" rx=\"0.8\" fill=\"#464E56\"/><rect x=\"1.5\" y=\"5.5\" width=\"45.0\" height=\"30.5\" rx=\"2.2\" fill=\"#48525E\"/><path d=\"M 3.5,5.5 L 44.5,5.5 C 45.7,5.5 46.5,6.3 46.5,7.5 L 1.5,7.5 C 1.5,6.3 2.3,5.5 3.5,5.5 Z\" fill=\"#B8C0CA\"/><rect x=\"3.5\" y=\"7.5\" width=\"41.0\" height=\"26.5\" rx=\"0.8\" fill=\"url(#mscr_16)\"/>"
           }
         ]
       }
@@ -1996,11 +2087,18 @@
       "meaning": "Internet Explorer",
       "layers": [
         {
-          "tone": [
-            "globe",
-            "blue",
-            "blue_line"
-          ]
+          "svg": "fluent:assets/Globe/SVG/ic_fluent_globe_20_filled.svg",
+          "edits": [
+            [
+              "viewBox=\"0 0 20 20\"",
+              "viewBox=\"0 0 48 48\""
+            ],
+            [
+              "fill=\"#212121\"",
+              "fill=\"none\""
+            ]
+          ],
+          "append": "<defs><radialGradient id=\"nglobe_14\" cx=\"35%\" cy=\"30%\" r=\"70%\"><stop offset=\"0%\" stop-color=\"#48BCF8\"/><stop offset=\"55%\" stop-color=\"#1E84CA\"/><stop offset=\"100%\" stop-color=\"#155282\"/></radialGradient></defs><circle cx=\"24.0\" cy=\"24.0\" r=\"20.5\" fill=\"url(#nglobe_14)\"/><path d=\"M 11.0,14.0 C 15.0,10.0 22.0,10.0 26.5,14.0 C 28.0,18.0 24.0,21.5 20.5,23.0 C 16.5,24.5 16.5,30.5 13.0,30.5 C 9.0,29.0 7.5,20.0 11.0,14.0 Z\" fill=\"#DCF2FC\" opacity=\"0.92\"/><path d=\"M 29.5,10.0 C 35.5,11.5 41.0,17.5 41.0,25.0 C 39.5,30.5 33.5,36.5 28.0,34.5 C 26.5,30.5 29.5,25.0 28.0,20.0 C 26.5,16.0 28.0,11.5 29.5,10.0 Z\" fill=\"#DCF2FC\" opacity=\"0.92\"/><path d=\"M 16.5,36.5 C 20.5,34.5 26.5,36.5 29.5,39.5 C 26.5,43.0 20.5,43.0 16.5,39.5 Z\" fill=\"#DCF2FC\" opacity=\"0.85\"/>"
         }
       ]
     },

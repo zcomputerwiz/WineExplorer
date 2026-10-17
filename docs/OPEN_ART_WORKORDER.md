@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): open look-alike icons and cursors for XP and Windows 11
 
-Status: round 3 open, 2026-10-17 (rounds 1-2 merged). Assignee: Gemini.
+Status: done, 2026-10-17 (three rounds merged). Assignee: Gemini.
 
 ## Goal
 
@@ -297,3 +297,26 @@ outline glyphs. Fill the main shapes (use `tone` pairs or filled glyphs) rather 
    drives.
 4. Desktop 35 and the monitor family 15, 16 and 18: a flat cyan screen with a dark stand; ours are close but outlined.
 5. Smaller: Eject 27 (green arrow), tree 42, DVD 222 and the multi-page 133.
+
+## Round 3 review (Claude, 2026-10-17): accepted with fixes, squash-merged
+
+`11664328`, rebuilt in `wexbuild`; sheets in `../WineExplorer-local/notes/xp/compare-r3.png` and
+`notes/win11/compare-r3.png`.
+
+- **Both sets are now close at a glance.** Several XP drawings come very close to the originals (documents,
+  computers, printers, special folders).
+- **Not copies.** RMSE against the originals is 0.16–0.27 at 48 px.
+- **Not traced.** Each drawing is 7–22 simple shapes with at most about 110 path coordinates; a traced icon has
+  thousands.
+
+Fixed by Claude at merge, as the user asked:
+- **XP printers 17, 138 and 139:** the body faced 45° to the right. It is redrawn front-facing (top face with paper
+  slot, wide front panel, output tray at the front, LED at the right), with Gemini's paper kept.
+- **Globes in both sets** (XP 14, 15, 18 and 175; Fluent 14, 15 and 18): the blob continents are replaced by the
+  Americas earth of Font Awesome Free 7.3.1 (CC BY 4.0), supplied by the user.
+  - The source is in `assets/iconpacks/src/fontawesome/` with its attribution, and there is a row in `LICENSE.md`.
+  - XP: a blue ocean and green land gradient, an outline and a gloss. Fluent: a light land colour on Gemini's ocean.
+  - XP 14 is now a plain globe; the original's ring is part of a product logo and stays out.
+- **XP monitors 16 and 18:** the dark back panel stuck out about 3 px on the right. It is now a slim, light edge.
+
+Previews and provenance are regenerated.

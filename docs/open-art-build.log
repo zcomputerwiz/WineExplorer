@@ -16,7 +16,7 @@ Built /var/tmp/clean_out/Fluent/Cursors/sizenesw.cur (hotspot 32px=(8,8), 48px=(
 Built /var/tmp/clean_out/Fluent/Cursors/sizeall.cur (hotspot 32px=(11,11), 48px=(17,17))
 Built /var/tmp/clean_out/Fluent/Cursors/uparrow.cur (hotspot 32px=(4,0), 48px=(7,0))
 Built /var/tmp/clean_out/Fluent/Cursors/hand.cur (hotspot 32px=(6,0), 48px=(10,0))
-$ python3 scripts/build_iconpack.py assets/iconpacks/xp.json /var/tmp/clean_out --source reactos=/root/iconsrc/reactos --source fluent=/root/iconsrc/fluentui-system-icons
+$ python3 scripts/build_iconpack.py assets/iconpacks/xp.json /var/tmp/clean_out --source reactos=/root/iconsrc/reactos --source fluent=/root/iconsrc/fluentui-system-icons --source tela=/root/iconsrc/tela
 /var/tmp/clean_out/XP: complete icon pack built from fluent, reactos
 $ python3 scripts/build_cursors.py assets/cursors/xp.json /var/tmp/clean_out --source reactos=/root/iconsrc/reactos
 Built /var/tmp/clean_out/XP/Cursors/arrow.cur from reactos:win32ss/user/user32/resources/ocr_normal.cur (hotspot 32px=(2, 2), 48px=(3, 3))

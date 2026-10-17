@@ -188,11 +188,8 @@ def apply_recolour(buf, px, mode, sources, work, is_pure_folder=False):
             in_arrow_zone = (0.29 * px <= x <= 0.71 * px and 0.43 * px <= y <= 0.84 * px)
             if 0.14 <= h <= 0.32 and s > 0.12:
                 if in_arrow_zone and v > 0.68 and s < 0.45:
-                    # Top-left arrow in cyan-blue, other two in bright emerald-green
-                    if x + y < 1.08 * px:
-                        nh, ns, nv = 0.57, 0.85, min(1.0, v * 1.05)
-                    else:
-                        nh, ns, nv = 0.38, 0.82, min(1.0, v * 1.05)
+                    # All recycle arrows in rich XP emerald-green
+                    nh, ns, nv = 0.34, 0.86, min(1.0, v * 0.82)
                 else:
                     nh, ns, nv = 0.58, min(0.35, s * 0.45), min(1.0, v * 1.25 + 0.10)
                 nr, ng, nb = colorsys.hsv_to_rgb(nh, ns, nv)
@@ -457,28 +454,6 @@ def main():
         theme = re.sub(r"^DisplayName=.*$", f"DisplayName={pack['display_name']}", theme, count=1, flags=re.M)
         theme = re.sub(r"^; .*$", f"; {pack['display_name']} - WineExplorer Desktop Environment", theme, count=1, flags=re.M)
 
-        cursor_sec = f"""[Control Panel\\Cursors]
-Arrow=%ResourceDir%\\Themes\\{name}\\Cursors\\arrow.cur
-Help=%ResourceDir%\\Themes\\{name}\\Cursors\\help.cur
-AppStarting=%ResourceDir%\\Themes\\{name}\\Cursors\\appstarting.ani
-Wait=%ResourceDir%\\Themes\\{name}\\Cursors\\wait.ani
-Crosshair=%ResourceDir%\\Themes\\{name}\\Cursors\\crosshair.cur
-IBeam=%ResourceDir%\\Themes\\{name}\\Cursors\\ibeam.cur
-NWPen=%ResourceDir%\\Themes\\{name}\\Cursors\\handwriting.cur
-No=%ResourceDir%\\Themes\\{name}\\Cursors\\no.cur
-SizeNS=%ResourceDir%\\Themes\\{name}\\Cursors\\sizens.cur
-SizeWE=%ResourceDir%\\Themes\\{name}\\Cursors\\sizewe.cur
-SizeNWSE=%ResourceDir%\\Themes\\{name}\\Cursors\\sizenwse.cur
-SizeNESW=%ResourceDir%\\Themes\\{name}\\Cursors\\sizenesw.cur
-SizeAll=%ResourceDir%\\Themes\\{name}\\Cursors\\sizeall.cur
-UpArrow=%ResourceDir%\\Themes\\{name}\\Cursors\\uparrow.cur
-Hand=%ResourceDir%\\Themes\\{name}\\Cursors\\hand.cur
-DefaultValue={pack['display_name']}"""
-
-        if "[Control Panel\\Cursors]" in theme:
-            theme = re.sub(r"\[Control Panel\\Cursors\][^\[]*", lambda m: cursor_sec + "\n\n", theme)
-        else:
-            theme += "\n" + cursor_sec + "\n"
 
         if "[WineExplorer]" not in theme:
             theme += f"\n[WineExplorer]\nIconPack=%ResourceDir%\\Themes\\{name}\\Icons\n"

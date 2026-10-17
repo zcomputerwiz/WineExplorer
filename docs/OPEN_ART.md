@@ -82,32 +82,53 @@ Each Fluent cursor role is scaled so its rendered non-transparent glyph bounding
 
 ---
 
-## 5. Visual Review & Slots With Remaining Differences
+## 5. Visual Review & Round 3 Refinements
 
-After inspecting every comparison sheet (`icons-48.png`, `icons-32.png`, `icons-16.png`, `cursors-48.png`, and `cursors-32.png`) and the open-art previews:
+After inspecting every slot-by-slot before/after sheet (`16`, `32`, and `48` px) and the full comparison grids (`icons-48.png`, `icons-32.png`, `icons-16.png`, `cursors-48.png`, and `cursors-32.png`):
 
 ### Windows XP Icon Set (`assets/iconpacks/xp.json`)
-- **What reads well:**
-  - **Yellow folder family (`4`, `5`, `20`, `22`, `34`, `36–39`, `43`, `46`, `137`, `138`, `172`, `175`, `210`, `231`, `235–238`):** Recolouring the ReactOS folder base from grey-blue into warm XP golden-amber (back leaf) and sunny yellow-gold (front flap) while keeping the foreground emblems intact makes the entire folder family read immediately as XP at 48, 32, and 16 px. `172` (open yellow folder over a golden network T-pipe), `210` (open yellow folder with red-amber checkmark), and `231` (open yellow folder with blue download arrow) match their XP counterparts closely.
-  - **Recycle Bin family (`32`, `33`, `142`, `143`):** Recolouring the bin body to translucent icy silver-blue with cyan-blue and emerald-green recycle arrows, overflowing paper (`33`), a white document sheet (`142`), and a yellow folder (`143`) eliminates the olive-green ReactOS bin and reads as XP's Recycle Bin.
-  - **Start menu & shell badges (`3`, `23`, `24`, `25`, `28`, `35`, `44`, `45`, `48`, `173`, `221`):** Window (`3`), Search (`23`, flipped with cyan lens and golden handle), Help (`24`, saturated royal blue), Run (`25`, window with motion lines), Turn Off Computer (`28`, orange-red rounded square with standby symbol), Desktop pad (`35`), Favorites (`44` and `173`, 5-pointed yellow star), Log Off (`45`, amber rounded square with white key), Security (`48`, golden brass padlock), and Power (`221`, royal-blue circle) all match the XP silhouettes and palettes.
-- **Slots still approximate:**
-  - **My Documents (`235`) and My Pictures / Music / Videos (`236–238`):** The folders are now warm XP yellow, and the emblems are ReactOS's house (`235`), film roll (`236`), green sixteenth-note (`237`), and clapperboard (`238`) sitting in front of the closed folder rather than sticking out of an open folder.
-  - **Control Panel (`22`, `137`):** Uses the yellow folder with wrench and screwdriver rather than XP's blue checklist pad with pencil.
-  - **Batch / Script file (`153`):** Uses ReactOS's document sheet with a grey gear-diamond rather than XP's small window with a golden gear.
+- **Documents (`1`, `2`, `152`):**
+  - `1` (file): Dog-eared white sheet containing a miniature blue-header window with six colourful icon blocks (red, green, blue, yellow, purple, cyan).
+  - `2` (document): Dog-eared white sheet with a small landscape picture box at top-left, blue ruled text lines, and a bold red serif `A` at bottom-right.
+  - `152` (text file): 3D tilted spiral-bound notepad with golden top binding rings, cyan cover trim, and charcoal horizontal text lines.
+- **Special folders (`235?238`, `172`):**
+  - Open yellow folders (warm amber back leaf + translucent golden-yellow front flap) with standing sheets/emblems rising out of the folder: a tilted blue-lined document page (`235` My Documents and `172` Shared Documents, with the golden network T-pipe below `172`), a tilted white-framed landscape photo with a red sphere (`236` My Pictures), a glossy silver-blue CD disc paired with a tall indigo eighth note (`237` My Music), and a tilted 35 mm blue filmstrip with sprocket holes (`238` My Videos).
+- **Network & My Computer (`15`, `18`, `175`, `16`):**
+  - `15` (My Network Places): Glossy 3D blue-and-green Earth globe with a white two-button corded mouse in front.
+  - `18` (Network): Glossy 3D Earth globe behind an angled cyan-screen LCD monitor on a round silver-lavender pedestal.
+  - `175` (Network Connections): Glossy 3D Earth globe with an angled translucent RJ-45 crystal plug and blue cable at bottom-right.
+  - `16` (My Computer): Angled cyan-screen LCD monitor in front of a 3D lavender-blue mini-tower case with optical drive bays and a green LED.
+- **Smaller XP refinements (`32`, `33`, `142`, `143`, `17`, `138`, `139`, `27`, `22`, `137`):**
+  - `32`, `33`, `142`, `143` (Recycle Bin family): All three arrows of the recycle emblem on the translucent silver-blue bin are rich emerald green.
+  - `17`, `138`, `139` (Printers family): 3D isometric grey desktop printer with a curved blue-white paper sheet rising from the top feeder and a glowing green status LED (`17`), combined with an open yellow folder behind at top-left (`138`) or a vertical yellow binder pad behind (`139`).
+  - `27` (Eject): 3D isometric silver-grey drive unit with a bold green left-pointing eject arrow on the front face.
+  - `22`, `137` (Control Panel): Dark-blue glossy tile with a tilted light checklist card, golden check mark, and light-blue pencil.
+  - `40` and `47` are left as they are (classic non-Windows motifs).
 
 ### Windows 11 Fluent Icon Set (`assets/iconpacks/fluent.json`)
-- **What reads well:**
-  - **Recycle Bin (`32`, `33`)** from Tela's cylindrical trash SVGs edited with translucent pale blue-white walls, blue-grey rim/base, and two-tone blue recycle arrows (RMSE `0.11` at 48 px).
-  - **Special folders (`231` Downloads in blue, `235` Documents in gold, `236` Pictures in cyan-teal, `237` Music in coral-red, `238` Videos in purple)** with centered emblems.
-  - **Core shell folders, drives, monitors, and file types (`1–20`, `23–31`, `38–39`, `44–48`, `133–157`)**.
-- **Slots still approximate:**
-  - **Folder tree (`42`)** uses a split-panel layout glyph rather than a literal tree.
-  - **Disconnect (`49`)** uses a red power tile rather than a network disconnect monitor.
+- **Downloads (`231`) & Documents (`235`) & Special Folders (`236?238`):**
+  - `231` (Downloads): Rounded white square tile (`#FFFFFF` fill, `#BCCAE0` border) with a bold blue downward gradient arrow.
+  - `235` (Documents): Slate grey-blue folder (`#546E82` back tab, `#9EB8D2`?`#6B88A4` body) with white document lines and a white square emblem.
+  - `236` (Pictures), `237` (Music), `238` (Videos): Flat blue folder with white mountain peaks and sun circle (`236`), coral-to-purple gradient folder with white beamed eighth notes (`237`), and purple folder with filmstrip sprocket holes and white play triangle (`238`).
+- **Drive family (`6?12`, `222`):**
+  - Dark charcoal-slate flat drive bars (`#1E2228`?`#68707A` front face, `#C4CCD8`?`#DCE2EA` top bevel) with a glowing green LED on the left, paired with a dark 5.25" floppy (`6`), blue-grey 3.5" floppy (`7`), green-and-silver horizontal network pipe (`10`), grey pipe with red-orange `X` (`11`), iridescent CD disc (`12`), and large iridescent DVD disc with a dark `DVD` badge (`222`).
+- **Desktop (`35`) & Monitor family (`15`, `16`, `18`, `175`, `26`, `47`, `135`):**
+  - `35` (Desktop): Flat borderless cyan-blue screen with a dark navy bottom taskbar bar and two small system-tray squares.
+  - `16` (This PC): Flat cyan-blue widescreen monitor with a thin dark bezel, light silver top edge, silver neck, and dark flat stand.
+  - `15`, `18` (Network): Flat cyan-blue monitor with a blue-and-ice-white Earth globe at top-left.
+  - `175` (Network Connections): Flat cyan-blue monitor above a horizontal green-and-silver network pipe.
+- **Smaller & filled-shape refinements (`27`, `42`, `133`, `1?5`, `13`, `14`, `17`, `19?21`, `23`, `25`, `28?31`, `34`, `36?41`, `43?46`, `48`, `49`, `134`, `138`, `139`, `142`, `143`, `152?157`, `172`, `173`, `210`, `221`):**
+  - `27` (Eject): 3D isometric silver-grey USB drive with a bold green left-pointing arrow above it.
+  - `42` (Folder tree): Bushy green deciduous tree with a brown trunk and side branches.
+  - `133` (Multi-page): Two overlapping crisp white dog-eared document sheets.
+  - All remaining outline-only glyphs (documents `1, 2, 21, 134, 152?157`, window `3`, yellow folder family `4, 5, 20, 34, 37, 39, 43, 46, 172, 173, 210`, RAM chip `13`, globe `14`, printers `17, 138, 139`, network bus `19`, search lens `23`, slanted run window `25`, power/security/key badges `28, 45, 48, 49, 221`, overlays `29?31`, Start menu `40`, Music CD `41`, and Favorites star `44`) are now filled colour shapes rather than bare outlines.
+
+### Builder Fix (`scripts/build_iconpack.py` and `scripts/build_cursors.py`)
+- Removed `[Control Panel\Cursors]` `.theme` injection from `scripts/build_iconpack.py` and moved it into `scripts/build_cursors.py` so `build_iconpack.py` only writes icon-pack entries while `build_cursors.py` adds the cursor section.
 
 ### Cursor Sets (`assets/cursors/xp.json` and `assets/cursors/fluent.json`)
-- **Fluent Cursors:** All 15 roles now match the exact Windows 11 glyph bounding boxes at both 32 and 48 px, including the circular blue/cyan ring spinner for `Wait` and `AppStarting` (at top-right of the pointer) and the top-left-pointing pen for `NWPen`.
-- **XP Cursors:** All 15 roles have verified hotspots (`Help` at `(2, 2)`, `NWPen` at `(1, 1)`, `No` at `(13, 13)` on the 32 px grid, scaled to `(3, 3)`, `(2, 2)`, and `(20, 20)` at 48 px). `Wait` and `AppStarting` wrap ReactOS's static hourglass cursors in `.ani` containers.
+- **Fluent Cursors:** All 15 roles match the Windows 11 glyph bounding boxes at both 32 and 48 px, including the circular blue/cyan ring spinner for `Wait` and `AppStarting` and the top-left-pointing pen for `NWPen`.
+- **XP Cursors:** All 15 roles have verified hotspots (`Help` at `(2, 2)`, `NWPen` at `(1, 1)`, `No` at `(13, 13)` on the 32 px grid, scaled to `(3, 3)`, `(2, 2)`, and `(20, 20)` at 48 px).
 
 ---
 
