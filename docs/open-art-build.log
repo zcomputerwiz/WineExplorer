@@ -1,0 +1,43 @@
+=== Building Fluent Icon Pack ===
+/tmp/open_art_build/Fluent: complete icon pack built from fluent, tela
+
+=== Building XP Icon Pack ===
+/tmp/open_art_build/XP: complete icon pack built from reactos, wine
+
+=== Building Fluent Cursors ===
+  Arrow -> arrow.cur (32 & 48 px, hotspot [1, 1] / [2, 2])
+  Help -> help.cur (32 & 48 px, hotspot [1, 1] / [2, 2])
+  AppStarting -> appstarting.ani (32 & 48 px, hotspot [1, 1] / [2, 2])
+  Wait -> wait.ani (32 & 48 px, hotspot [16, 16] / [24, 24])
+  Crosshair -> crosshair.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  IBeam -> ibeam.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  NWPen -> handwriting.cur (32 & 48 px, hotspot [5, 24] / [8, 36])
+  No -> no.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  SizeNS -> sizens.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  SizeWE -> sizewe.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  SizeNWSE -> sizenwse.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  SizeNESW -> sizenesw.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  SizeAll -> sizeall.cur (32 & 48 px, hotspot [16, 16] / [24, 24])
+  UpArrow -> uparrow.cur (32 & 48 px, hotspot [16, 2] / [24, 3])
+  Hand -> hand.cur (32 & 48 px, hotspot [10, 2] / [15, 3])
+Updated cursors section in /tmp/open_art_build/Fluent/Fluent.theme
+Successfully built all 15 cursor roles in /tmp/open_art_build/Fluent/Cursors
+
+=== Building XP Cursors ===
+  Arrow -> arrow.cur (32 & 48 px, hotspot [2, 2] / [3, 3])
+  Help -> help.cur (32 & 48 px, hotspot [0, 0] / [0, 0])
+  AppStarting -> appstarting.ani (32 & 48 px, hotspot [2, 2] / [3, 3])
+  Wait -> wait.ani (32 & 48 px, hotspot [16, 16] / [24, 24])
+  Crosshair -> crosshair.cur (32 & 48 px, hotspot [11, 11] / [16, 16])
+  IBeam -> ibeam.cur (32 & 48 px, hotspot [6, 9] / [9, 14])
+  NWPen -> pen.cur (32 & 48 px, hotspot [0, 0] / [0, 0])
+  No -> no.cur (32 & 48 px, hotspot [0, 0] / [0, 0])
+  SizeNS -> sizens.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
+  SizeWE -> sizewe.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
+  SizeNWSE -> sizenwse.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
+  SizeNESW -> sizenesw.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
+  SizeAll -> sizeall.cur (32 & 48 px, hotspot [15, 15] / [23, 23])
+  UpArrow -> uparrow.cur (32 & 48 px, hotspot [15, 6] / [23, 9])
+  Hand -> hand.cur (32 & 48 px, hotspot [9, 2] / [14, 3])
+Updated cursors section in /tmp/open_art_build/XP/XP.theme
+Successfully built all 15 cursor roles in /tmp/open_art_build/XP/Cursors

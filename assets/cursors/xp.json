@@ -1,0 +1,142 @@
+{
+  "name": "XP",
+  "display_name": "Windows XP (Luna)",
+  "licence": "GPL-2.0-or-later",
+  "theme_name": "Luna",
+  "sources": {
+    "reactos": {
+      "title": "ReactOS user32 cursors",
+      "licence": "GPL-2.0-or-later",
+      "url": "https://github.com/reactos/reactos",
+      "commit": "HEAD",
+      "licence_file": "COPYING"
+    }
+  },
+  "cursors": {
+    "Arrow": {
+      "file": "arrow.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_normal.cur",
+      "hotspot_32": [2, 2],
+      "hotspot_48": [3, 3],
+      "meaning": "XP normal select pointer arrow with soft drop shadow"
+    },
+    "Help": {
+      "file": "help.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_help.cur",
+      "hotspot_32": [0, 0],
+      "hotspot_48": [0, 0],
+      "meaning": "XP pointer arrow with help question mark"
+    },
+    "AppStarting": {
+      "file": "appstarting.ani",
+      "type": "animated_composite_hourglass",
+      "arrow_cur": "references/reactos/win32ss/user/user32/resources/ocr_normal.cur",
+      "wait_cur": "references/reactos/win32ss/user/user32/resources/ocr_wait.cur",
+      "hotspot_32": [2, 2],
+      "hotspot_48": [3, 3],
+      "frames": 8,
+      "jif_rate": 6,
+      "meaning": "XP pointer arrow with rotating mini hourglass"
+    },
+    "Wait": {
+      "file": "wait.ani",
+      "type": "animated_hourglass",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_wait.cur",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "frames": 8,
+      "jif_rate": 6,
+      "meaning": "XP animated rotating hourglass"
+    },
+    "Crosshair": {
+      "file": "crosshair.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_cross.cur",
+      "hotspot_32": [11, 11],
+      "hotspot_48": [16, 16],
+      "meaning": "XP precision select crosshair"
+    },
+    "IBeam": {
+      "file": "ibeam.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_ibeam.cur",
+      "hotspot_32": [6, 9],
+      "hotspot_48": [9, 14],
+      "meaning": "XP text select I-beam"
+    },
+    "NWPen": {
+      "file": "pen.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_pen.cur",
+      "hotspot_32": [0, 0],
+      "hotspot_48": [0, 0],
+      "meaning": "XP handwriting / pen cursor"
+    },
+    "No": {
+      "file": "no.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_no.cur",
+      "hotspot_32": [0, 0],
+      "hotspot_48": [0, 0],
+      "meaning": "XP unavailable / prohibited circle-slash"
+    },
+    "SizeNS": {
+      "file": "sizens.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_sizens.cur",
+      "hotspot_32": [15, 15],
+      "hotspot_48": [23, 23],
+      "meaning": "XP vertical resize double arrow"
+    },
+    "SizeWE": {
+      "file": "sizewe.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_sizewe.cur",
+      "hotspot_32": [15, 15],
+      "hotspot_48": [23, 23],
+      "meaning": "XP horizontal resize double arrow"
+    },
+    "SizeNWSE": {
+      "file": "sizenwse.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_sizenwse.cur",
+      "hotspot_32": [15, 15],
+      "hotspot_48": [23, 23],
+      "meaning": "XP diagonal resize arrow NW-SE"
+    },
+    "SizeNESW": {
+      "file": "sizenesw.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_sizenesw.cur",
+      "hotspot_32": [15, 15],
+      "hotspot_48": [23, 23],
+      "meaning": "XP diagonal resize arrow NE-SW"
+    },
+    "SizeAll": {
+      "file": "sizeall.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_sizeall.cur",
+      "hotspot_32": [15, 15],
+      "hotspot_48": [23, 23],
+      "meaning": "XP move four-direction arrow"
+    },
+    "UpArrow": {
+      "file": "uparrow.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_up.cur",
+      "hotspot_32": [15, 6],
+      "hotspot_48": [23, 9],
+      "meaning": "XP alternate / vertical select upward arrow"
+    },
+    "Hand": {
+      "file": "hand.cur",
+      "type": "cur_source",
+      "source_cur": "references/reactos/win32ss/user/user32/resources/ocr_hand.cur",
+      "hotspot_32": [9, 2],
+      "hotspot_48": [14, 3],
+      "meaning": "XP link select pointing hand"
+    }
+  }
+}
