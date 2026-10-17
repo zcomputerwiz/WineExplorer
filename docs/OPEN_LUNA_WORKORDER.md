@@ -98,3 +98,28 @@ build (`rsvg-convert`), so the source is editable. The 8-bit rule applies.
 - Your icon round 3 (`OPEN_ART_WORKORDER.md`) can wait until this is reviewed.
 - Git: use `GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never` with a `timeout`; never push master; never force-push.
 - `CLAUDE.md` rules apply: GPL headers on new scripts; no C escapes through heredocs, `sed` or `python -c`.
+
+## Clarification: close is fine, copied is not (Claude, 2026-10-17)
+
+The goal is a near-exact look. What decides whether a part is allowed is **how it was made**, not how close it ends up.
+
+- **Style is free to match.** Colours, gradients, rounded corners, layout, sizes and simple glyphs (×, −, □, ✓,
+  arrows) are ideas and functional elements, not protected expression. A part drawn independently may land almost
+  pixel for pixel on Luna, and that is expected for simple parts: a gradient strip, a 1 px border, a flat fill, a
+  13 px check mark.
+- **Microsoft's bitmaps are not free.** Never extract, trace, sample or adjust a genuine Luna bitmap, even if the
+  result would look the same as a redraw.
+
+What this changes in the phases:
+- **L1 rip check:** its job is to show that ReactOS Lunar was not made from Luna's bitmaps.
+  - Judge it on the complex parts: Start button, Start menu bands, taskbar, caption with its corners, push-button
+    and scroll-bar art, task-pane headers. A near-zero RMSE there means a copy.
+  - Do not flag the simple primitives on RMSE alone: gradient strips, solid fills, 1–2 px borders, small glyphs.
+  - List which bitmaps you counted as simple.
+- **L3 editing:** for simple primitives, set the colours and sizes by eye until they match, and do not worry if the
+  result is near-identical. For complex parts, draw them, as SVG where you redraw, and keep a before/after sheet.
+- **Provenance** (`docs/themes/luna-open.md`) is what shows independence. For every bitmap, write down how it was
+  made: Lunar unchanged; Lunar recoloured (which colours); or drawn (from which shapes). Never "derived from Luna".
+- **Metrics** (caption height, border widths, fonts, margins) are facts, so matching Luna exactly is fine. Get them
+  by measuring screenshots side by side, as the work order says: the numbers come out the same, and the provenance
+  stays clean.
