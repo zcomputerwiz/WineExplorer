@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Windows font file names linked to open fonts in the machine root's C:\windows\Fonts, for programs that check
+# for the file itself. See docs/FONTS_RUNTIMES_WORKORDER.md.
+arial.ttf /usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf
+arialbd.ttf /usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf
+ariali.ttf /usr/share/fonts/truetype/liberation2/LiberationSans-Italic.ttf
+arialbi.ttf /usr/share/fonts/truetype/liberation2/LiberationSans-BoldItalic.ttf
+times.ttf /usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf
+timesbd.ttf /usr/share/fonts/truetype/liberation2/LiberationSerif-Bold.ttf
+timesi.ttf /usr/share/fonts/truetype/liberation2/LiberationSerif-Italic.ttf
+timesbi.ttf /usr/share/fonts/truetype/liberation2/LiberationSerif-BoldItalic.ttf
+cour.ttf /usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf
+courbd.ttf /usr/share/fonts/truetype/liberation2/LiberationMono-Bold.ttf
+couri.ttf /usr/share/fonts/truetype/liberation2/LiberationMono-Italic.ttf
+courbi.ttf /usr/share/fonts/truetype/liberation2/LiberationMono-BoldItalic.ttf
+calibri.ttf /usr/share/fonts/truetype/crosextra/Carlito-Regular.ttf
+calibrib.ttf /usr/share/fonts/truetype/crosextra/Carlito-Bold.ttf
+calibrii.ttf /usr/share/fonts/truetype/crosextra/Carlito-Italic.ttf
+calibriz.ttf /usr/share/fonts/truetype/crosextra/Carlito-BoldItalic.ttf
+cambria.ttf /usr/share/fonts/truetype/crosextra/Caladea-Regular.ttf
+cambriab.ttf /usr/share/fonts/truetype/crosextra/Caladea-Bold.ttf
+cambriai.ttf /usr/share/fonts/truetype/crosextra/Caladea-Italic.ttf
+cambriaz.ttf /usr/share/fonts/truetype/crosextra/Caladea-BoldItalic.ttf

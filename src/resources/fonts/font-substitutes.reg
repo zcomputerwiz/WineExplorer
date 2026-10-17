@@ -1,0 +1,40 @@
+REGEDIT4
+
+; SPDX-License-Identifier: GPL-2.0-or-later
+; Open substitutes for common Windows fonts, written into the shared machine root's HKLM.
+; See docs/FONTS_RUNTIMES_WORKORDER.md. Targets are family names of Debian font packages.
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]
+"Arial"="Liberation Sans"
+"Arial Narrow"="Liberation Sans Narrow"
+"Times New Roman"="Liberation Serif"
+"Courier New"="Liberation Mono"
+"Calibri"="Carlito"
+"Cambria"="Caladea"
+"Consolas"="Liberation Mono"
+"Lucida Console"="DejaVu Sans Mono"
+"Verdana"="DejaVu Sans"
+"Georgia"="DejaVu Serif"
+"Segoe UI"="Selawik"
+"Segoe UI Light"="Selawik Light"
+"Segoe UI Semilight"="Selawik Semilight"
+"Segoe UI Semibold"="Selawik Semibold"
+"Segoe UI Symbol"="Noto Sans Symbols 2"
+"Meiryo"="Noto Sans CJK JP"
+"Meiryo UI"="Noto Sans CJK JP"
+"Yu Gothic"="Noto Sans CJK JP"
+"Yu Gothic UI"="Noto Sans CJK JP"
+"MS Gothic"="IPAGothic"
+"MS PGothic"="IPAPGothic"
+"MS UI Gothic"="IPAPGothic"
+"MS Mincho"="IPAMincho"
+"MS PMincho"="IPAPMincho"
+"Microsoft YaHei"="Noto Sans CJK SC"
+"Microsoft YaHei UI"="Noto Sans CJK SC"
+"Microsoft JhengHei"="Noto Sans CJK TC"
+"SimSun"="Noto Serif CJK SC"
+"NSimSun"="Noto Serif CJK SC"
+"Malgun Gothic"="Noto Sans CJK KR"
+"Gulim"="UnDotum"
+"Dotum"="UnDotum"
+"Batang"="UnBatang"
