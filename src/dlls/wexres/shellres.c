@@ -137,7 +137,7 @@ static BOOL is_pack_value(const WCHAR *data)
 /* Wine numbers shell32's icons like Windows, except these, which are other pictures in Wine */
 static BOOL other_picture(int id)
 {
-    static const WORD ids[] = { 223, 271, 272, 273, 276, 279, 281, 289 };
+    static const WORD ids[] = { 220, 223, 269, 271, 272, 273, 276, 279, 281, 289 };
     unsigned int i;
     for (i = 0; i < ARRAY_SIZE(ids); i++) if (ids[i] == id) return TRUE;
     return FALSE;
@@ -167,6 +167,60 @@ static BOOL CALLBACK add_shell_icon(HMODULE module, LPCWSTR type, LPWSTR name, L
     RegSetValueExW(ctx->key, value, 0, REG_SZ, (const BYTE *)data, (lstrlenW(data) + 1) * sizeof(WCHAR));
     ctx->changed = TRUE;
     return TRUE;
+}
+
+/* Other system modules (desk.cpl, ...) take their icons from the pack's xpres_<module>.dll through shell32's Module
+ * Icons key (HKCU\Software\WineExplorer\Module Icons, value = module name without extension): point it at the
+ * theme's pack files, or empty it without a pack.  TRUE if anything changed. */
+static BOOL sync_module_icons(void)
+{
+    WCHAR dir[MAX_PATH], path[MAX_PATH], name[MAX_PATH], data[MAX_PATH], old[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    DWORD i, name_len, data_len, type;
+    BOOL changed = FALSE;
+    HANDLE find;
+    HKEY key;
+
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Module Icons", 0, NULL, 0, KEY_ALL_ACCESS, NULL,
+                        &key, NULL)) return FALSE;
+    if (!theme_pack_dir(dir)) dir[0] = 0;
+
+    /* values for another pack, or for files that are gone, go away */
+    for (i = 0;;)
+    {
+        name_len = ARRAY_SIZE(name);
+        data_len = sizeof(data);
+        if (RegEnumValueW(key, i, name, &name_len, NULL, &type, (BYTE *)data, &data_len)) break;
+        swprintf(path, ARRAY_SIZE(path), L"%s\\xpres_%s.dll", dir, name);
+        if (!dir[0] || type != REG_SZ || wcsicmp(data, path) || GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES)
+        {
+            RegDeleteValueW(key, name);
+            changed = TRUE;
+            continue;
+        }
+        i++;
+    }
+
+    swprintf(path, ARRAY_SIZE(path), L"%s\\xpres_*.dll", dir);
+    if (dir[0] && (find = FindFirstFileW(path, &fd)) != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            DWORD size = sizeof(old);
+
+            lstrcpynW(name, fd.cFileName + 6, ARRAY_SIZE(name));   /* after "xpres_" */
+            PathRemoveExtensionW(name);
+            /* shell32 has Shell Icons; our own resources load wexres's pack directly */
+            if (!wcsicmp(name, L"shell32") || !wcsicmp(name, L"wexres")) continue;
+            swprintf(data, ARRAY_SIZE(data), L"%s\\%s", dir, fd.cFileName);
+            if (!RegQueryValueExW(key, name, NULL, NULL, (BYTE *)old, &size) && !wcsicmp(old, data)) continue;
+            RegSetValueExW(key, name, 0, REG_SZ, (const BYTE *)data, (lstrlenW(data) + 1) * sizeof(WCHAR));
+            changed = TRUE;
+        } while (FindNextFileW(find, &fd));
+        FindClose(find);
+    }
+    RegCloseKey(key);
+    return changed;
 }
 
 /* shell32 takes its own icons from the Shell Icons key first, as on Windows: point it at the theme's pack, or back at
@@ -207,6 +261,7 @@ BOOL shellres_sync_shell_icons(void)
         changed |= ctx.changed;
     }
     RegCloseKey(key);
+    changed |= sync_module_icons();
     return changed;
 }
 

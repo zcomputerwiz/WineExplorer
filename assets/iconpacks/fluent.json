@@ -1345,18 +1345,6 @@
     }
    ]
   },
-  "220": {
-   "meaning": "User Accounts",
-   "layers": [
-    {
-     "tone": [
-      "person_circle",
-      "blue",
-      "blue_line"
-     ]
-    }
-   ]
-  },
   "231": {
    "meaning": "Downloads folder",
    "layers": [
@@ -1466,30 +1454,6 @@
     {
      "tone": [
       "video",
-      "blue",
-      "blue_line"
-     ],
-     "scale": 0.5,
-     "at": [
-      0.46,
-      0.46
-     ]
-    }
-   ]
-  },
-  "269": {
-   "meaning": "Shared Documents folder",
-   "layers": [
-    {
-     "tone": [
-      "folder",
-      "folder",
-      "folder_line"
-     ]
-    },
-    {
-     "tone": [
-      "people",
       "blue",
       "blue_line"
      ],

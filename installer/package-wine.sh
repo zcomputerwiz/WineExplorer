@@ -65,9 +65,7 @@ echo "Building Fluent theme package..."
 (
     set -e
     SRC_CACHE="${WEX_ICONSRC_CACHE:-/var/cache/wineexplorer/iconsrc}"
-    if [ ! -d "$SRC_CACHE/fluentui-system-icons" ] && [ -d "/root/iconsrc/fluentui-system-icons" ]; then
-        SRC_CACHE="/root/iconsrc"
-    fi
+    export GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never
     mkdir -p "$SRC_CACHE"
     if [ ! -d "$SRC_CACHE/fluentui-system-icons/.git" ] && [ ! -d "$SRC_CACHE/fluentui-system-icons/assets" ]; then
         echo "Fetching fluentui-system-icons sparse checkout..."
@@ -79,9 +77,9 @@ echo "Building Fluent theme package..."
             git config core.sparseCheckout true
             echo "assets/*" > .git/info/sparse-checkout
             echo "LICENSE" >> .git/info/sparse-checkout
-            git fetch --depth 1 origin a347af95478f989038cccbf085978865264c048a
+            timeout 600 git fetch --depth 1 origin a347af95478f989038cccbf085978865264c048a
             git checkout FETCH_HEAD
-        )
+        ) || { rm -rf "$SRC_CACHE/fluentui-system-icons"; exit 1; }   # no half-made checkout left behind
     fi
     if [ ! -d "$SRC_CACHE/tela/.git" ] && [ ! -d "$SRC_CACHE/tela/src" ]; then
         echo "Fetching tela icon theme sparse checkout..."
@@ -93,9 +91,9 @@ echo "Building Fluent theme package..."
             git config core.sparseCheckout true
             echo "src/scalable/places/user-trash*.svg" > .git/info/sparse-checkout
             echo "COPYING" >> .git/info/sparse-checkout
-            git fetch --depth 1 origin 50f51f45d95c629cbb21530bf71c82cdb96269da
+            timeout 600 git fetch --depth 1 origin 50f51f45d95c629cbb21530bf71c82cdb96269da
             git checkout FETCH_HEAD
-        )
+        ) || { rm -rf "$SRC_CACHE/tela"; exit 1; }   # no half-made checkout left behind
     fi
     python3 "$ROOT_DIR/scripts/build_iconpack.py" "$ROOT_DIR/assets/iconpacks/fluent.json" \
         "$STAGE_WINE/usr/local/share/wineexplorer/themes" \
