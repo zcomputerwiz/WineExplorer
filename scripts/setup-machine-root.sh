@@ -64,7 +64,7 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
         fi
         ensure_machine_prefix_links
 
-        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="winemenubuilder.exe=d" WINEDEBUG=-all \
             WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -i
         WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
         ensure_common_shell_dirs
@@ -72,7 +72,7 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
 else
     echo "Updating existing machine root at $MACHINE_ROOT..."
     ensure_machine_prefix_links
-    WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+    WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="winemenubuilder.exe=d" WINEDEBUG=-all \
         WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -u
     WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
     ensure_common_shell_dirs
@@ -91,6 +91,50 @@ if [ -d "$THEME_DATA_DIR" ]; then
         tname="$(basename "$theme_dir")"
         cp -rf "$theme_dir" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/$tname" 2>/dev/null || true
     done
+fi
+
+# Install open font substitutes and Windows font links into machine root
+FONT_RES_DIR="${WEX_FONT_RES_DIR:-/usr/local/share/wineexplorer/fonts}"
+if [ ! -d "$FONT_RES_DIR" ]; then
+    ROOT_GUESS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd || true)"
+    if [ -d "$ROOT_GUESS/src/resources/fonts" ]; then
+        FONT_RES_DIR="$ROOT_GUESS/src/resources/fonts"
+    fi
+fi
+
+if [ -f "$FONT_RES_DIR/font-substitutes.reg" ]; then
+    echo "Importing open font substitutes into machine root HKLM..."
+    WINEDEBUG=-all WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine regedit.exe /S "$FONT_RES_DIR/font-substitutes.reg" || true
+    WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w || true
+fi
+
+if [ -f "$FONT_RES_DIR/font-links.txt" ]; then
+    echo "Creating open font file links in machine root (C:\\windows\\Fonts)..."
+    mkdir -p "$MACHINE_ROOT/drive_c/windows/Fonts"
+    while read -r link_name target_path || [ -n "$link_name" ]; do
+        [ -n "$link_name" ] && [[ ! "$link_name" =~ ^# ]] || continue
+        if [ -e "$target_path" ]; then
+            ln -sf "$target_path" "$MACHINE_ROOT/drive_c/windows/Fonts/$link_name"
+        else
+            echo "Font link target missing, skipping: $target_path -> $link_name"
+        fi
+    done < "$FONT_RES_DIR/font-links.txt"
+fi
+
+# Link Windows Components into Administrative Tools for administrators
+ADMIN_TOOLS="$MACHINE_ROOT/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/Administrative Tools"
+if [ -d "$ADMIN_TOOLS" ] && [ -x /usr/local/bin/wex-components ]; then
+    cat > "$ADMIN_TOOLS/Windows Components.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Windows Components
+Comment=Install optional Windows redistributables and runtimes
+Exec=/usr/local/bin/wex-components
+Icon=appwiz
+Terminal=false
+Categories=System;Settings;
+EOF
+    chmod 664 "$ADMIN_TOOLS/Windows Components.desktop" 2>/dev/null || true
 fi
 
 # 2. Ensure permissions and POSIX default ACLs on machine root:
