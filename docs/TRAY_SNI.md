@@ -7,6 +7,13 @@ are next.
 Signed-in Steam close/reopen/menu is reserved for the user's manual login,
 as requested on 2026-10-17. Part D and review point 2 are not ready.
 
+The final clean ISO built successfully on the Proton VM:
+`/srv/protonexplorer/wex-wayland-l1/wineexplorer-tray-final.iso`, SHA256
+`5d37cfb529ed00902a68df064975ba0986d0e0a7f25a7c7043f141484e2b5923`.
+It includes Wine b1d3ab0, compositor 2bde47ee and the final owned tray fix
+0c1084eb. Build log: `checks/tray-final-iso-build.log` in the same VM root.
+Fresh X11/Wayland acceptance will use this image, with no DLL hot-staging.
+
 The Unix half of wexhost owns the session-bus StatusNotifierWatcher when no
 watcher exists, or registers with the existing watcher. It tracks unique bus
 owners, reads item properties on registration and signals, decodes ARGB
@@ -109,6 +116,10 @@ user's explicit instruction. No test credentials have been requested.
 - An attempted WAYLAND_SESSION.md patch used a bare `#` context line and
   failed verification without changing the file. Reapplied against its
   actual title and review-report paragraph.
+- Two progress-only `ls` checks guessed `binary/live/filesystem.squashfs`
+  and `filesystem.squashfs` locations under the work directory; neither
+  existed at the check time. The build continued successfully; use its log
+  and final output image rather than guessed intermediate paths.
 
 - The expanded real checker caught libayatana's omission of both ItemIsMenu
   and Activate on nm-applet. Introspection confirmed this, so missing
