@@ -138,7 +138,11 @@ run_cli_install() {
         export WINEPREFIX="$MACHINE_ROOT"
         export W_CACHE="$CACHE_DIR"
         export XDG_CACHE_HOME="$CACHE_DIR"
-        winetricks -q -f "$verb" </dev/null
+        if [ -z "${DISPLAY:-}" ] && command -v xvfb-run >/dev/null 2>&1; then
+            xvfb-run -a winetricks -q -f "$verb" </dev/null
+        else
+            winetricks -q -f "$verb" </dev/null
+        fi
     done
 
     chown -R root:sudo "$MACHINE_ROOT" 2>/dev/null || true
