@@ -142,7 +142,12 @@ def keys(name, combos, hold=80):
         time.sleep(max(0.05, hold / 1000 + 0.01))
 
 def move(name, x, y):
-    w, h = screen_size(name)
+    # A compositor's headless second output is outside QEMU's primary scanout,
+    # but the USB tablet spans the whole layout. Keep ordinary VM defaults.
+    layout = os.environ.get("VMTEST_INPUT_SIZE")
+    w, h = map(int, layout.split("x")) if layout else screen_size(name)
+    if w < 2 or h < 2 or not (0 <= x < w and 0 <= y < h):
+        raise ValueError(f"Pointer {x},{y} outside input layout {w}x{h}")
     pos = [{"type": "abs", "data": {"axis": "x", "value": x * 32767 // (w - 1)}},
            {"type": "abs", "data": {"axis": "y", "value": y * 32767 // (h - 1)}}]
     qmp(name, "input-send-event", events=pos)

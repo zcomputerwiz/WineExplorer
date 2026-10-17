@@ -3,6 +3,7 @@
  * Small lab actions and geometry/focus readback, used with real pointer clicks.
  */
 #include <windows.h>
+#include <commctrl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,38 @@
 static BOOL warp_mode;
 static DWORD (WINAPI *native_title)(UINT64,WCHAR *,DWORD);
 static DWORD (WINAPI *native_info)(UINT64,WEX_NATIVE_WINDOW *);
+static BOOL CALLBACK child_info(HWND hwnd, LPARAM context)
+{
+    WCHAR name[128], title[128];
+    RECT rect;
+    GetClassNameW(hwnd,name,128);
+    GetWindowTextW(hwnd,title,128);
+    GetWindowRect(hwnd,&rect);
+    printf("CHILD %p parent=%p class=%ls title=%ls visible=%d style=%08lx rect=%ld,%ld,%ld,%ld\n",
+           hwnd,GetParent(hwnd),name,title,IsWindowVisible(hwnd),GetWindowLongW(hwnd,GWL_STYLE),
+           rect.left,rect.top,rect.right,rect.bottom);
+    if (!lstrcmpW(name,L"SysListView32"))
+    {
+        DWORD pid;
+        HANDLE process;
+        RECT *remote;
+        GetWindowThreadProcessId(hwnd,&pid);
+        process=OpenProcess(PROCESS_VM_OPERATION|PROCESS_VM_READ|PROCESS_VM_WRITE,FALSE,pid);
+        remote=process ? VirtualAllocEx(process,NULL,sizeof(rect),MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE) : NULL;
+        printf("  LIST count=%ld\n",(long)SendMessageW(hwnd,LVM_GETITEMCOUNT,0,0));
+        if (remote)
+        {
+            ZeroMemory(&rect,sizeof(rect));
+            WriteProcessMemory(process,remote,&rect,sizeof(rect),NULL);
+            SendMessageW(hwnd,LVM_GETITEMRECT,0,(LPARAM)remote); /* LVIR_BOUNDS */
+            ReadProcessMemory(process,remote,&rect,sizeof(rect),NULL);
+            printf("  ITEM0 %ld,%ld,%ld,%ld\n",rect.left,rect.top,rect.right,rect.bottom);
+            VirtualFreeEx(process,remote,0,MEM_RELEASE);
+        }
+        if (process) CloseHandle(process);
+    }
+    return TRUE;
+}
 static void CALLBACK native_event(const WEX_WM_EVENT *event, void *context)
 {
     WCHAR title[256] = {0};
@@ -65,6 +98,13 @@ int main(int argc, char **argv)
         if (start(WEX_WM_BACKEND_WAYLAND,0,native_event,NULL)) return 3;
         Sleep(1500);
         stop();
+        return 0;
+    }
+    if (argc == 3 && !strcmp(argv[1],"children"))
+    {
+        hwnd=FindWindowA(NULL,argv[2]);
+        if (!hwnd) return 2;
+        EnumChildWindows(hwnd,child_info,0);
         return 0;
     }
     if (argc > 1)

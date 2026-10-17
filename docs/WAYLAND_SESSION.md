@@ -7,6 +7,45 @@ follow that review. No acceptance is claimed yet.
 
 ### Installed-program and packaging checkpoint
 
+Two unit-scale outputs now pass the real foot move/maximize check. The test
+VM uses wlroots' DRM+headless backends, with Virtual-1 and HEADLESS-1 each
+1280x800, laid out at (0,0) and (1280,0). This is compositor output simulation
+on the installed system, not a synthetic client. `grim` captures both outputs;
+QEMU's USB tablet spans their union (`VMTEST_INPUT_SIZE=2560x800`), while its
+primary screendump remains 1280x800. The vmtest override affects input only.
+Exact maximized Win32 frame bounds are (-4,-4)-(1284,774) on the primary,
+and (1276,-4)-(2564,804) on the second, which has no taskbar reservation.
+Screenshots `two-output-primary-max.png`, `two-output-moved.png`, and
+`two-output-secondary-max.png` plus `two-output-check.log` show the real result.
+
+The first run failed: Wine moved the proxy to x=1568, but the compositor
+rejected placement outside its first-output zone, leaving foot visibly on
+the primary. Compositor 2bde47ee uses the existing protocol's infinite zone
+policy for private Wine desktop clients, still anchored at the preferred
+output. Requests must intersect the actual output layout. Public native zones
+retain their per-output policy. No new protocol or Wine hook was required.
+
+The settled Control Panel still has blank contents. Read-only enumeration of
+its actual list control found 13 items and item-zero bounds 0,0,65535,65535.
+The shell view passes MAKELPARAM(-1,-1), which is unsigned 0xffffffff on
+64-bit Wine, while comctl32 expects the pointer-sized -1 sentinel for default
+icon spacing. A one-line topic fix uses (LPARAM)-1; live verification follows
+the current build. This explains the blank view without assuming a compositor
+repaint failure. The existing readback helper gained child/layout inspection
+for this real listed-program failure, not another synthetic test.
+
+Additional failed commands: the first compositor scp/build paths omitted
+`wow64-source`; repeating with the actual assembled-root path builds cleanly.
+The readback compile omitted -lgdi32 and failed to link CreateSolidBrush and
+DeleteObject; the correct link succeeds. An image read raced the still-running
+screenshot command; waiting for completion produced the image. Searches for
+waylandhost.c under wexshell and explorer.c under wexshell failed: these belong
+to wexhost and wexbrowse. The background grim apt process stopped on terminal
+input during man-db triggers, so a simultaneous Steam install hit its dpkg
+lock. Bringing that original job to the foreground completed it; the subsequent
+Steam install ran with setsid and /dev/null stdin and completed. No package
+manager lock was removed. Steam's GUI bootstrap is test-only, not an ISO asset.
+
 The existing combined-WoW64 checks pass in Bob's actual Wayland session:
 the existing Test32/Test64 programs and both syswow64/system32 Notepads draw
 their distinct windows. `check-wow64.sh` now uses `session-run.py` to inherit
