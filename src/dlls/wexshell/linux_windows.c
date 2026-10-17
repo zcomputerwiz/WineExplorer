@@ -111,10 +111,12 @@ static struct linux_window *find_window( UINT64 window )
 static WEX_WM_EVENT native_event_to_wine(const WEX_WM_EVENT *event, HWND hwnd)
 {
     WEX_WM_EVENT mapped = *event;
+    HWND host = hwnd;
     UINT scale;
     if (!wayland_mode) return mapped;
     if (!hwnd) hwnd = FindWindowW(L"Shell_TrayWnd",NULL);
     scale = (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_SCALE_PROP);
+    if (!scale && host) scale = (ULONG_PTR)GetPropW(FindWindowW(L"Shell_TrayWnd",NULL),WEX_WAYLAND_SCALE_PROP);
     if (!scale) scale = 120;
     mapped.rect.left = MulDiv(event->rect.left,scale,120);
     mapped.rect.top = MulDiv(event->rect.top,scale,120);
@@ -124,6 +126,33 @@ static WEX_WM_EVENT native_event_to_wine(const WEX_WM_EVENT *event, HWND hwnd)
     mapped.min_size.cy = MulDiv(event->min_size.cy,scale,120);
     mapped.max_size.cx = MulDiv(event->max_size.cx,scale,120);
     mapped.max_size.cy = MulDiv(event->max_size.cy,scale,120);
+    if (host && scale != 120)
+    {
+        RECT frame;
+        POINT margin = {0}, hole;
+        int width = mapped.rect.right - mapped.rect.left, height = mapped.rect.bottom - mapped.rect.top;
+        if (GetWindowRect(host,&frame) && ClientToScreen(host,&margin))
+        {
+            margin.x -= frame.left; margin.y -= frame.top;
+            hole.x = MulDiv(margin.x,120,scale); hole.y = MulDiv(margin.y,120,scale);
+            /* Hosting validates a frame-local hole, not independently rounded
+             * global endpoints. As in the driver's resize conversion, retain
+             * the usual physical rectangle wherever it already maps exactly. */
+            if (MulDiv(mapped.rect.left-margin.x,120,scale)+hole.x != event->rect.left)
+                mapped.rect.left = MulDiv(event->rect.left-hole.x,scale,120)+margin.x;
+            if (MulDiv(mapped.rect.top-margin.y,120,scale)+hole.y != event->rect.top)
+                mapped.rect.top = MulDiv(event->rect.top-hole.y,scale,120)+margin.y;
+            if (MulDiv(margin.x+width,120,scale)-hole.x != event->rect.right-event->rect.left)
+                width = MulDiv(hole.x+event->rect.right-event->rect.left,scale,120)-margin.x;
+            if (MulDiv(margin.y+height,120,scale)-hole.y != event->rect.bottom-event->rect.top)
+                height = MulDiv(hole.y+event->rect.bottom-event->rect.top,scale,120)-margin.y;
+            mapped.rect.right = mapped.rect.left + width; mapped.rect.bottom = mapped.rect.top + height;
+            if (event->min_size.cx) mapped.min_size.cx = MulDiv(hole.x+event->min_size.cx,scale,120)-margin.x;
+            if (event->min_size.cy) mapped.min_size.cy = MulDiv(hole.y+event->min_size.cy,scale,120)-margin.y;
+            if (event->max_size.cx) mapped.max_size.cx = MulDiv(hole.x+event->max_size.cx,scale,120)-margin.x;
+            if (event->max_size.cy) mapped.max_size.cy = MulDiv(hole.y+event->max_size.cy,scale,120)-margin.y;
+        }
+    }
     return mapped;
 }
 
@@ -467,6 +496,16 @@ static void map_window( const WEX_WM_EVENT *event )
         return;
     }
     TRACE( "window %I64x host %p\n", lw->window, lw->host );
+    if (wayland_mode)
+    {
+        mapped = native_event_to_wine(&native,lw->host);
+        lw->observed_geometry = mapped.rect;
+        lw->min_size = mapped.min_size; lw->max_size = mapped.max_size;
+        rect = mapped.rect;
+        AdjustWindowRectEx(&rect,style,FALSE,ex_style);
+        SetWindowPos(lw->host,NULL,rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top,
+                     SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
+    }
     /* Wine paints the host's surface with IncludeInferiors, over the program's window.  A client surface
      * (format -1, as for Vulkan) keeps the client area out of the host's surface, as for OpenGL windows.
      * SendMessageTimeout, because SendMessage within a thread calls the window procedure from user32 directly

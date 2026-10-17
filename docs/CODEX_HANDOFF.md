@@ -1,4 +1,27 @@
-# Codex handoff — 2026-10-17 review point 2 ready
+# Codex handoff — 2026-10-17 Wayland polish in progress
+
+**Active: WAYLAND_POLISH_WORKORDER.md, one review at the end.** Review point 2
+of the preceding session work is accepted. Item 1 is fixed and its real
+volumeicon/foot/QTerminal/xterm matrix passes at 100% and 150%. Wine bcf842a is
+on the production fork and upstream/win32u-surface-shape topic; both
+architectures build. See `wayland-polish/item1-notes.md` for committed raw
+logs, screenshots, failures/workarounds and the source runner. Initial client
+rounding and native tray input coordinates also needed correction at 150%.
+Jules's PRs merged as 93665eec/d692e6ce and have been pulled/built. Gemini's art
+files and the user's unrelated `.gitignore` edit remain untouched.
+
+Next: item 2 QTerminal's five-second Exit-dialog repaint check at 150%, then
+item 3 live scale changes, followed by fresh-ISO regression. Steam's short
+manual steps are in WAYLAND_SESSION.md; signed-in acceptance remains manual.
+The QEMU development VM `wayland-session-iso` is running Bob's Wayland desktop
+at 100%, with staged win32u and owned shell/host modules. The compositor is
+restored to production 2bde47ee; its temporary diagnostics are removed. The
+preserved `tray-final-x11` / `tray-final-wayland` acceptance VMs remain stopped.
+The Proton build source is at Wine bcf842a; generated configure and owned
+stub links are the usual assembly changes. No `make install` was used there.
+
+The prior handoff below is historical; its queued inset-border item is now
+resolved by item 1 above.
 
 **Parts C/D complete for review point 2; stop for Claude.** The final same-ISO
 fresh X11/Wayland installation and tray checks pass, as do the required X11

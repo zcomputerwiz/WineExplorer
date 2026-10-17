@@ -1,0 +1,29 @@
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0158:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 1142,704 hit=0000000000010034 active=000000000008009e capture=0000000000000000 focus=000000000008009e
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 000000000008009e ex=00000100 role=0000000000000000 atom=000000000000c036 Preferences
+  owner=0000000000000000 lastpopup=000000000008009e
+  style=14ca0000 rect=382,142,898,631 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=385,171 510x457 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+018c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+FRAME rect=382,142,898,631 region=3 style=14ca0000 ex=00000100
+EDGE x=0 y=100 region=1 rgb=ffffffff
+EDGE x=1 y=100 region=1 rgb=ffffffff
+EDGE x=2 y=100 region=1 rgb=ffffffff
+EDGE x=3 y=100 region=0 rgb=ffffffff
+EDGE x=4 y=100 region=0 rgb=ffffffff
+EDGE x=511 y=100 region=0 rgb=ffffffff
+EDGE x=512 y=100 region=0 rgb=ffffffff
+EDGE x=513 y=100 region=1 rgb=ffffffff
+EDGE x=514 y=100 region=1 rgb=ffffffff
+EDGE x=515 y=100 region=1 rgb=ffffffff
+THEME left result=00000000 margins=2,1,91,0 rgb=00909090,00ffffff,00ffffff

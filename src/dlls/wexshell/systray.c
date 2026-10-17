@@ -35,6 +35,7 @@
 #include "shellfolders.h"
 #include "resource.h"
 #include "wexhost.h"
+#include "wexwayland.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
 
@@ -1389,10 +1390,21 @@ static BOOL native_tray_init_menu(HMENU menu)
 
 static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam)
 {
-    POINT pt;
+    POINT pt, native;
+    ULONG_PTR scale;
     DWORD token = icon->native_token, flags = icon->native_flags;
     if (!token) return FALSE;
     GetCursorPos(&pt);
+    native = pt;
+    /* Native menus and XEmbed's XTest replay use compositor logical pixels.
+     * Keep Win32 popup coordinates physical. At 150%, replaying physical
+     * coordinates put volumeicon's plug beyond the XWayland screen. */
+    scale = (ULONG_PTR)GetPropW(tray_window, WEX_WAYLAND_SCALE_PROP);
+    if (scale)
+    {
+        native.x = MulDiv(pt.x, 120, scale);
+        native.y = MulDiv(pt.y, 120, scale);
+    }
     if (msg == WM_RBUTTONUP || (msg == WM_LBUTTONUP && (flags & WEX_TRAY_ITEM_MENU)))
     {
         WEX_TRAY_MENU *layout = calloc(1, sizeof(*layout));
@@ -1408,14 +1420,14 @@ static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam)
             if (cmd) WexTrayAction(token, WEX_TRAY_CLICK_MENU, GetTickCount(), 0, cmd);
             PostMessageW(tray_window, WM_NULL, 0, 0);
         }
-        else WexTrayAction(token, WEX_TRAY_CONTEXT, pt.x, pt.y, 0);
+        else WexTrayAction(token, WEX_TRAY_CONTEXT, native.x, native.y, 0);
         free(layout);
     }
     else if (msg == WM_LBUTTONUP || msg == WM_MBUTTONUP)
-        WexTrayAction(token, msg == WM_LBUTTONUP ? WEX_TRAY_ACTIVATE : WEX_TRAY_SECONDARY, pt.x, pt.y, 0);
+        WexTrayAction(token, msg == WM_LBUTTONUP ? WEX_TRAY_ACTIVATE : WEX_TRAY_SECONDARY, native.x, native.y, 0);
     else if (msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL)
         WexTrayAction(token, msg == WM_MOUSEHWHEEL ? WEX_TRAY_SCROLL_HORIZONTAL : WEX_TRAY_SCROLL,
-                      pt.x, pt.y, GET_WHEEL_DELTA_WPARAM(wparam));
+                      native.x, native.y, GET_WHEEL_DELTA_WPARAM(wparam));
     return TRUE;
 }
 

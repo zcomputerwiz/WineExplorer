@@ -339,6 +339,8 @@ typedef struct
 typedef void (CALLBACK *WEX_TRAY_CALLBACK)(const WEX_TRAY_ITEM *, void *);
 DWORD WINAPI WexTrayStart(WEX_TRAY_CALLBACK callback, void *context);
 DWORD WINAPI WexTrayStop(void);
+/* x/y use native screen coordinates (compositor logical pixels on Wayland).
+ * CLICK_MENU instead carries the event timestamp in x and the menu id in value. */
 DWORD WINAPI WexTrayAction(DWORD token, DWORD action, INT x, INT y, INT value);
 DWORD WINAPI WexTrayGetMenu(DWORD token, INT root, WEX_TRAY_MENU *menu);
 

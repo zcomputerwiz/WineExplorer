@@ -1,6 +1,30 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Installed Wayland session
 
+## Wayland polish (2026-10-17, implementation in progress)
+
+Active work order: WAYLAND_POLISH_WORKORDER.md, with one review at its end.
+Item 1 passes the real volumeicon/foot/QTerminal/xterm matrix at 100% and
+150%: [report, screenshots and raw logs](wayland-polish/item1-notes.md).
+Wine **bcf842a** corrects the single-byte surface-shape mask; it is on the
+upstreamable topic and production fork branches, and both architectures build.
+The shell also corrects native tray coordinates and initial frame-local
+rounding exposed by opening the actual Preferences dialog at 150%.
+Its native client geometry and Win32 client area agree within one physical
+pixel. The development VM is back at 100%; no temporary compositor diagnostics
+remain. Items 2/3 and the final fresh-ISO regression are next, not claimed done.
+
+### Manual Steam acceptance (item 4, not claimed)
+
+1. In the Wayland session, sign into Steam yourself and open its main window.
+2. Close the main window with its title-bar X. Check that the tray icon remains;
+   if hidden, reveal it with the notification-area chevron.
+3. Open the tray menu and use its command to reopen Steam. Check that its main
+   window returns, receives focus and has one taskbar button. Also check the
+   icon's normal left-click action and tooltip.
+4. Close to tray again, use the tray menu to exit Steam, and check that its
+   icon disappears. Record any failure with the session/scale and action used.
+
 ## Review point 2: parts C/D ready, 2026-10-17
 
 Review point 1 is accepted. The SNI/XEmbed bridge and final same-ISO regressions
