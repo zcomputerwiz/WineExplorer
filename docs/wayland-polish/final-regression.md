@@ -118,4 +118,5 @@ orders during this checkpoint. `origin/master` was merged normally without
 conflicts or force-push. These incoming changes do not change the polish
 runtime C code or either submodule pin. The fresh ISO evidence above predates
 those font/art changes; it does not claim to test their updated packaging.
-The merged checkpoint is resynced and built again before pushing.
+The merged checkpoint 52975515 was resynced and both builds passed again
+before pushing: [merged-master build log](logs/final-merged-pinned-build.log).

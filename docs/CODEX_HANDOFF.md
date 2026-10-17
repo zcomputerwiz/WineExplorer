@@ -27,6 +27,9 @@ source is resynced to the final committed code. The final combined WoW64
 `wayland-polish/logs/final-pinned-build.log`. Do not use Gemini's WSL
 distributions. The staging HTTP server is on
 Debian WSL loopback 18765. The unrelated `.gitignore` edit is preserved.
+Concurrent master font/art changes were merged normally; merged code at
+52975515 passed the same pinned builds again (`final-merged-pinned-build.log`).
+The fresh test ISO predates those incoming resource changes.
 The requested Sway/labwc/foot comparison is recorded in item3-notes.md. It
 points to floating-client size reconciliation as a lead; the root cause
 remains unconfirmed. Do not ship either removed owned-shell trial.
