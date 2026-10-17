@@ -81,6 +81,12 @@ run_gui() {
 
     ensure_cache_dir
 
+    if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "${XDG_RUNTIME_DIR:-}" ]; then
+        export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+        mkdir -p "$XDG_RUNTIME_DIR"
+        chmod 700 "$XDG_RUNTIME_DIR"
+    fi
+
     # Install each chosen verb
     IFS="|" read -ra VERBS <<< "$CHOICES"
     for verb in "${VERBS[@]}"; do
@@ -91,9 +97,12 @@ run_gui() {
             export WINEPREFIX="$MACHINE_ROOT"
             export W_CACHE="$CACHE_DIR"
             export XDG_CACHE_HOME="$CACHE_DIR"
-            winetricks -q "$verb"
+            winetricks -q -f "$verb" </dev/null
         ) | zenity --progress --pulsate --title="Installing $verb" --text="Downloading and installing $verb into machine root..." --auto-close 2>/dev/null || true
     done
+
+    chown -R root:sudo "$MACHINE_ROOT" 2>/dev/null || true
+    chmod -R g+rwX "$MACHINE_ROOT" 2>/dev/null || true
 
     zenity --info --title="Windows Components" --text="Selected Windows components installed successfully." 2>/dev/null || true
 }
@@ -117,14 +126,23 @@ run_cli_install() {
 
     ensure_cache_dir
 
+    if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "${XDG_RUNTIME_DIR:-}" ]; then
+        export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+        mkdir -p "$XDG_RUNTIME_DIR"
+        chmod 700 "$XDG_RUNTIME_DIR"
+    fi
+
     for verb in "${verbs[@]}"; do
         echo "=== Installing $verb into machine root ($MACHINE_ROOT) ==="
         export WINEDEBUG=-all
         export WINEPREFIX="$MACHINE_ROOT"
         export W_CACHE="$CACHE_DIR"
         export XDG_CACHE_HOME="$CACHE_DIR"
-        winetricks -q "$verb"
+        winetricks -q -f "$verb" </dev/null
     done
+
+    chown -R root:sudo "$MACHINE_ROOT" 2>/dev/null || true
+    chmod -R g+rwX "$MACHINE_ROOT" 2>/dev/null || true
     echo "Installation completed."
 }
 
