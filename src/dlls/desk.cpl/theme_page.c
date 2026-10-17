@@ -47,6 +47,11 @@ static void refresh_list(HWND hwnd)
 {
     HWND combo=GetDlgItem(hwnd,IDC_THEME_LIST);
     WCHAR title[MAX_PATH],text[MAX_PATH]; int i,choice=-1;
+    WCHAR resolved_selected[MAX_PATH];
+
+    if (selected[0] && theme_resolve_path(selected, resolved_selected, MAX_PATH))
+        lstrcpyW(selected, resolved_selected);
+
     count=preview_find_files(L".theme",themes,MAX_THEMES);
     SendMessageW(combo,CB_RESETCONTENT,0,0);
     for(i=0;i<count;i++)
@@ -57,6 +62,15 @@ static void refresh_list(HWND hwnd)
         else if(text[0]!='@') lstrcpyW(title,text);
         SendMessageW(combo,CB_ADDSTRING,0,(LPARAM)title);
         if(!wcsicmp(themes[i],selected)) choice=i;
+        else if(choice < 0)
+        {
+            WCHAR base_theme[MAX_PATH], base_sel[MAX_PATH];
+            lstrcpyW(base_theme, PathFindFileNameW(themes[i]));
+            PathRemoveExtensionW(base_theme);
+            lstrcpyW(base_sel, PathFindFileNameW(selected));
+            PathRemoveExtensionW(base_sel);
+            if(!wcsicmp(base_theme, base_sel)) choice=i;
+        }
     }
     SendMessageW(combo,CB_SETCURSEL,choice,0);
     EnableWindow(combo,count>0);

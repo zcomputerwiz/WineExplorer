@@ -44,8 +44,21 @@ static BOOL theme_pack_dir(WCHAR *dir)
     dir[0] = 0;
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes", L"CurrentTheme",
                      RRF_RT_REG_SZ, NULL, theme, &size)) return FALSE;
-    if (!GetPrivateProfileStringW(L"WineExplorer", L"IconPack", L"", value, MAX_PATH, theme) || !value[0]) return FALSE;
     GetWindowsDirectoryW(windir, MAX_PATH);
+    if (GetFileAttributesW(theme) == INVALID_FILE_ATTRIBUTES)
+    {
+        WCHAR resolved[MAX_PATH];
+        swprintf(resolved, MAX_PATH, L"%ls\\Resources\\Themes\\%ls\\%ls.theme", windir, theme, theme);
+        if (GetFileAttributesW(resolved) != INVALID_FILE_ATTRIBUTES)
+            lstrcpyW(theme, resolved);
+        else
+        {
+            swprintf(resolved, MAX_PATH, L"%ls\\Resources\\Themes\\%ls.theme", windir, theme);
+            if (GetFileAttributesW(resolved) != INVALID_FILE_ATTRIBUTES)
+                lstrcpyW(theme, resolved);
+        }
+    }
+    if (!GetPrivateProfileStringW(L"WineExplorer", L"IconPack", L"", value, MAX_PATH, theme) || !value[0]) return FALSE;
     {
         /* %ResourceDir% is the Resources folder of the Windows directory */
         const WCHAR *tail = value;
