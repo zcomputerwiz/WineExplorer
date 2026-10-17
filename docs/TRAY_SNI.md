@@ -2,17 +2,17 @@
 # Native notification icons
 
 Part C: the final portable real-program tray runner passes in both X11 and
-Wayland, including left-click menus and wheel input. Clean-ISO regressions
-are next.
+Wayland, including left-click menus and wheel input. The final clean-ISO
+regressions also pass in both sessions. Review point 2 is ready.
 Signed-in Steam close/reopen/menu is reserved for the user's manual login,
-as requested on 2026-10-17. Part D and review point 2 are not ready.
+as requested on 2026-10-17. This manual acceptance is not claimed passed.
 
 The final clean ISO built successfully on the Proton VM:
 `/srv/protonexplorer/wex-wayland-l1/wineexplorer-tray-final.iso`, SHA256
 `5d37cfb529ed00902a68df064975ba0986d0e0a7f25a7c7043f141484e2b5923`.
 It includes Wine b1d3ab0, compositor 2bde47ee and the final owned tray fix
 0c1084eb. Build log: `checks/tray-final-iso-build.log` in the same VM root.
-Fresh X11/Wayland acceptance will use this image, with no DLL hot-staging.
+Fresh X11/Wayland acceptance used this image, with no DLL hot-staging.
 
 ## Final ISO regression checkpoint
 
@@ -30,7 +30,13 @@ and attributes and all three capture paths. Evidence is under
 With composition enabled, background and color-key hole both read (37,111,149),
 the blue 50% window reads (18,95,202), and the intermediate fade (109,158,184).
 With composition disabled, the blue window is opaque (0,80,255).
-Final Wayland installation/tray checks remain pending at this checkpoint.
+Fresh Wayland installation, the existing real foot/Notepad action runner,
+32/64-bit applications, Fluent listing, shared-app permissions and offline
+account/prefix checks also pass: `final-wayland-install.log`. Both private
+prefixes are 1 MB. Its restarted installed session passes the same XEmbed
+and SNI checks: `final-wayland-tray.log`, screenshots `final-wayland-tray/`.
+The final install screenshots are copied into `final-x11-install-steps/`
+and `final-wayland-install-steps/`. See WAYLAND_SESSION.md for review point 2.
 
 The Unix half of wexhost owns the session-bus StatusNotifierWatcher when no
 watcher exists, or registers with the existing watcher. It tracks unique bus
@@ -49,7 +55,7 @@ The suggested snixembed program converts SNI **to** XEmbed, the reverse
 direction: https://packages.debian.org/sid/snixembed . No third-party source
 has been copied into these implementations.
 
-## Verified so far (2026-10-16)
+## Historical development verification (2026-10-16/17)
 
 Combined i386/x86_64 Wine build passes at the production pin b1d3ab0 with
 the new owned modules. Build log on the Proton VM:
@@ -94,7 +100,8 @@ Evidence under gitignored `build/wayland-session/`:
 [working menu command](../build/wayland-session/tray-nm-information.png),
 [Xpad indicator](../build/wayland-session/tray-xpad-initial.png).
 
-Still required: the work order's final ISO regressions.
+At this development checkpoint, final ISO regressions were still required;
+they are now completed above.
 Signed-in Steam acceptance is a manual check; no credentials
 have been requested or submitted. Existing-watcher fallback is implemented;
 no synthetic watcher client or protocol corner-case suite was added.
@@ -151,6 +158,10 @@ user's explicit instruction. No test credentials have been requested.
 - An attempted WAYLAND_SESSION.md patch used a bare `#` context line and
   failed verification without changing the file. Reapplied against its
   actual title and review-report paragraph.
+  Two later combined final-doc patches also failed atomically because their
+  last TRAY_SNI.md context used `Final install screenshots` / `Final Wayland
+  installation` instead of the actual text. Removed the empty trailing hunk
+  and reapplied the handoff/stock updates; no partial file edits occurred.
 - Two progress-only `ls` checks guessed `binary/live/filesystem.squashfs`
   and `filesystem.squashfs` locations under the work directory; neither
   existed at the check time. The build continued successfully; use its log

@@ -1,8 +1,11 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # L2 implementation and acceptance
 
-Status: parts A/B accepted at review point 1; native tray C and final
-regressions D are in progress. L2 is not closed yet.
+Status: implementation is closed for the scope of WAYLAND_SESSION_WORKORDER.md;
+parts C/D are ready for review point 2. Fresh same-ISO X11 and Wayland install,
+tray and required regression checks pass. Report: WAYLAND_SESSION.md.
+Signed-in Steam close/reopen/menu remains manual by the user's instruction.
+The two scaling limitations below remain open; closure does not claim fixes.
 
 2026-10-17: the review in WAYLAND_SESSION_WORKORDER.md accepts the installed
 real-program and ISO evidence in WAYLAND_SESSION.md. Compositor production

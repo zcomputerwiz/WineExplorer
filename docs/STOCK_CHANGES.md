@@ -16,6 +16,9 @@ Alice login, selected-Wayland Bob login, 32/64-bit applications, real native
 applications and the prefix-split assertions (see WAYLAND_SESSION.md).
 See WAYLAND_L1.md;
 X11 remains the default.
+The final C/D same-ISO regression also passes at b1d3ab0 in fresh default-X11
+and selected-Wayland installations, including tray and X11 effects/dialog
+checks. See WAYLAND_SESSION.md review point 2 for exact image and evidence.
 Wine topic 0f25ee1 fixes the existing shell-view default icon spacing call on
 64-bit Wine: MAKELPARAM(-1,-1) zero-extends to 0xffffffff, so comctl32 treats
 it as literal 65535x65535 spacing. Passing (LPARAM)-1 restores the intended

@@ -4,8 +4,10 @@ Status (2026-10-08): **implemented in `wexhost`:** timedate1 + polkit agent, log
 Windows-style end-of-session query first), UPower (battery/AC), hostname1 (computer name/description), AccountsService
 (display name), NetworkManager (status, Wi-Fi scan/connect, disconnect/enable). `nmcli`/`hostcmd.c` are gone.
 StatusNotifierItem is now implemented through wexhost's session-bus watcher/host
-and the shell's ordinary notification icons; real-program acceptance is in
-progress (TRAY_SNI.md). It uses signals rather than polling item properties.
+and the shell's ordinary notification icons; real-program SNI/XEmbed checks
+pass in fresh X11 and Wayland installations (TRAY_SNI.md). Signed-in Steam
+close/reopen is reserved for manual acceptance. It uses signals rather than
+polling item properties.
 Still to do: PipeWire native volume events (volume works through winepulse), notifications,
 D-Bus signals instead of polling (nettray/powertray/volumetray still poll every 0.5-1.5 s), native Wayland displays.
 Display Properties now uses native XRandR through `wexhost` on X11 / supported Xwayland sessions; see DISPLAY.md.
