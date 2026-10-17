@@ -1,0 +1,98 @@
+started polish-20261017-x11
+found
+--- welcome
+found
+--- license
+found
+--- partitions
+found
+found
+--- created
+found
+--- format
+found
+--- copied
+found
+--- regional
+found
+found
+--- computer
+found
+found
+found
+--- workgroup
+found
+--- oobe
+found
+found
+found
+--- users
+found
+found
+--- finish
+found
+--- logon
+found
+clicked 758,337
+found
+found
+--- rejected-password
+found
+--- alice-desktop
+found
+--- switch-user
+clicked 782,415
+found
+found
+--- desktop
+=== Building test32.exe (i686-w64-mingw32-gcc) and test64.exe (x86_64-w64-mingw32-gcc) ===
+=== Staging test executables into VM ===
+Desktop user: bobsmith; Explorer PID: 1716
+DISPLAY=:1
+WAYLAND_DISPLAY=
+WINEPREFIX=/home/bobsmith/.wine
+=== 1. Running 32-bit test program on desktop ===
+Started Wine PID 1804; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-x11/steps/18-test32.png
+PASS: Win32 test program window drawn
+=== 2. Running Wine 32-bit notepad from syswow64 ===
+Started Wine PID 1815; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-x11/steps/19-notepad32.png
+PASS: 32-bit syswow64 notepad window drawn
+=== 3. Running 64-bit test program ===
+Started Wine PID 1826; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-x11/steps/20-test64.png
+PASS: Win64 test program window drawn
+=== Running Wine 64-bit notepad from system32 ===
+Started Wine PID 1835; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-x11/steps/20-notepad64.png
+PASS: 64-bit system32 notepad window drawn
+=== 4. Alice (admin) installs program for all users into Program Files ===
+PASS: Program installed by Alice for all users
+=== 5. Bob (standard user) executes application installed by Alice ===
+Started Wine PID 1857; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-x11/steps/21-bob-common-app.png
+PASS: Bob executed program installed for all users
+=== 6. Bob (standard user) is denied write access to machine root ===
+
+PASS: Bob write access denied to machine root as expected
+=== 7. Display Properties lists Fluent theme ===
+Started Wine PID 1894; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-x11/steps/22-desk-cpl-fluent.png
+Started Wine PID 1905; log: /tmp/cpl_driver.out
+  [1] Fluent (Windows 11 style)
+PASS: Fluent theme is listed in Display Properties on installed system
+=== Cleaning up running test processes ===
+PASS: All WoW64 program checks and prefix-split multi-user assertions succeeded.
+shut down polish-20261017-x11
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+Alice (alice) prefix size: 1 MB
+Bob Smith (bobsmith) prefix size: 1 MB
+PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership, prefix-split layout and per-user prefix size < 20 MB
+PASS (Bob desktop 6 s after logon); screenshots in /var/tmp/wineexplorer-vmtest/polish-20261017-x11/steps; VM stopped
