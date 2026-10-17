@@ -1,0 +1,381 @@
+started polish-20261017-wayland
+found
+--- welcome
+found
+--- license
+found
+--- partitions
+found
+found
+--- created
+found
+--- format
+found
+--- copied
+found
+--- regional
+found
+found
+--- computer
+found
+found
+found
+--- workgroup
+found
+--- oobe
+found
+found
+found
+--- users
+found
+found
+--- finish
+found
+--- logon
+found
+clicked 758,337
+found
+found
+--- rejected-password
+found
+--- alice-desktop
+found
+--- switch-user
+--- wayland-selected
+clicked 782,415
+found
+found
+--- desktop
+=== Building test32.exe (i686-w64-mingw32-gcc) and test64.exe (x86_64-w64-mingw32-gcc) ===
+=== Staging test executables into VM ===
+Desktop user: bobsmith; Explorer PID: 1772
+DISPLAY=
+WAYLAND_DISPLAY=wex-shell-0
+WINEPREFIX=/home/bobsmith/.wine
+=== 1. Running 32-bit test program on desktop ===
+Started Wine PID 1866; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-wayland/steps/18-test32.png
+PASS: Win32 test program window drawn
+=== 2. Running Wine 32-bit notepad from syswow64 ===
+Started Wine PID 1873; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-wayland/steps/19-notepad32.png
+PASS: 32-bit syswow64 notepad window drawn
+=== 3. Running 64-bit test program ===
+Started Wine PID 1880; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-wayland/steps/20-test64.png
+PASS: Win64 test program window drawn
+=== Running Wine 64-bit notepad from system32 ===
+Started Wine PID 1885; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-wayland/steps/20-notepad64.png
+PASS: 64-bit system32 notepad window drawn
+=== 4. Alice (admin) installs program for all users into Program Files ===
+PASS: Program installed by Alice for all users
+=== 5. Bob (standard user) executes application installed by Alice ===
+Started Wine PID 1903; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-wayland/steps/21-bob-common-app.png
+PASS: Bob executed program installed for all users
+=== 6. Bob (standard user) is denied write access to machine root ===
+
+PASS: Bob write access denied to machine root as expected
+=== 7. Display Properties lists Fluent theme ===
+Started Wine PID 1936; log: /tmp/wex-program-check-bobsmith.log
+found
+/var/tmp/wineexplorer-vmtest/polish-20261017-wayland/steps/22-desk-cpl-fluent.png
+Started Wine PID 1943; log: /tmp/cpl_driver.out
+  [1] Fluent (Windows 11 style)
+PASS: Fluent theme is listed in Display Properties on installed system
+=== Cleaning up running test processes ===
+PASS: All WoW64 program checks and prefix-split multi-user assertions succeeded.
+Desktop user: bobsmith; Explorer PID: 1772
+DISPLAY=
+WAYLAND_DISPLAY=wex-shell-0
+WINEPREFIX=/home/bobsmith/.wine
+0% [Working]            Hit:1 http://deb.debian.org/debian trixie InRelease
+0% [Waiting for headers] [Waiting for headers]                                              Hit:2 http://security.debian.org trixie-security InRelease
+                                              0% [Waiting for headers]0% [Waiting for headers]0% [Waiting for headers]                        Get:3 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+0% [3 InRelease 11.1 kB/47.3 kB 23%]                                    0% [Working]100% [Working]              Fetched 47.3 kB in 0s (155 kB/s)
+Reading package lists... 0%Reading package lists... 0%Reading package lists... 0%Reading package lists... 58%Reading package lists... 58%Reading package lists... 94%Reading package lists... 94%Reading package lists... 94%Reading package lists... 94%Reading package lists... 95%Reading package lists... 95%Reading package lists... 95%Reading package lists... 95%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 98%Reading package lists... 98%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... Done
+Reading package lists... 0%Reading package lists... 100%Reading package lists... Done
+Building dependency tree... 0%Building dependency tree... 0%Building dependency tree... 50%Building dependency tree... 50%Building dependency tree... Done
+Reading state information... 0% Reading state information... 0%Reading state information... Done
+The following packages were automatically installed and are no longer required:
+  rsync user-setup
+Use 'apt autoremove' to remove them.
+The following additional packages will be installed:
+  libfcft4t64 libutf8proc3
+Suggested packages:
+  foot-themes
+The following NEW packages will be installed:
+  foot libfcft4t64 libutf8proc3
+0 upgraded, 3 newly installed, 0 to remove and 0 not upgraded.
+Need to get 414 kB of archives.
+After this operation, 1221 kB of additional disk space will be used.
+0% [Working]            Get:1 http://deb.debian.org/debian trixie/main amd64 libutf8proc3 amd64 2.9.0-1+b2 [61.0 kB]
+0% [1 libutf8proc3 0 B/61.0 kB 0%]                                  18% [Waiting for headers]                         Get:2 http://deb.debian.org/debian trixie/main amd64 libfcft4t64 amd64 3.3.1-1 [63.3 kB]
+20% [2 libfcft4t64 7368 B/63.3 kB 12%]                                      37% [Waiting for headers]                         Get:3 http://deb.debian.org/debian trixie/main amd64 foot amd64 1.21.0-2 [290 kB]
+37% [3 foot 0 B/290 kB 0%]                          100% [Working]              Fetched 414 kB in 0s (978 kB/s)
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LC_CTYPE = (unset),
+	LC_NUMERIC = (unset),
+	LC_COLLATE = (unset),
+	LC_TIME = (unset),
+	LC_MESSAGES = (unset),
+	LC_MONETARY = (unset),
+	LC_ADDRESS = (unset),
+	LC_IDENTIFICATION = (unset),
+	LC_MEASUREMENT = (unset),
+	LC_PAPER = (unset),
+	LC_TELEPHONE = (unset),
+	LC_NAME = (unset),
+	LANG = "en_US.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+locale: Cannot set LC_CTYPE to default locale: No such file or directory
+locale: Cannot set LC_MESSAGES to default locale: No such file or directory
+locale: Cannot set LC_ALL to default locale: No such file or directory
+Selecting previously unselected package libutf8proc3:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 47690 files and directories currently installed.)
+Preparing to unpack .../libutf8proc3_2.9.0-1+b2_amd64.deb ...
+Unpacking libutf8proc3:amd64 (2.9.0-1+b2) ...
+Selecting previously unselected package libfcft4t64.
+Preparing to unpack .../libfcft4t64_3.3.1-1_amd64.deb ...
+Unpacking libfcft4t64 (3.3.1-1) ...
+Selecting previously unselected package foot.
+Preparing to unpack .../foot_1.21.0-2_amd64.deb ...
+Unpacking foot (1.21.0-2) ...
+Setting up libutf8proc3:amd64 (2.9.0-1+b2) ...
+Setting up libfcft4t64 (3.3.1-1) ...
+Setting up foot (1.21.0-2) ...
+Created symlink '/etc/systemd/user/graphical-session.target.wants/foot-server.service' → '/usr/lib/systemd/user/foot-server.service'.
+Created symlink '/etc/systemd/user/graphical-session.target.wants/foot-server.socket' → '/usr/lib/systemd/user/foot-server.socket'.
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+Processing triggers for man-db (2.13.1-1) ...
+Processing triggers for hicolor-icon-theme (0.18-2) ...
+[1] 2077
+Started Wine PID 2092; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01b8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 100,100 hit=0000000000010034 active=0000000000080140 capture=0000000000000000 focus=0000000000080140
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=14cf0000 rect=288,121,992,649 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=292,151 696x494 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2099; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01c4:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 433,171 hit=0000000000080140 active=0000000000080140 capture=0000000000000000 focus=0000000000080140
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=14cf0000 rect=333,156,1037,684 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=337,186 696x494 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2106; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01d0:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 975,256 hit=0000000000080140 active=0000000000080140 capture=0000000000000000 focus=0000000000080140
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=14cf0000 rect=333,156,977,684 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=337,186 636x494 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=641x494 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2113; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01dc:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 1035,722 hit=0000000000080140 active=0000000000080140 capture=0000000000000000 focus=0000000000080140
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=14cf0000 rect=333,156,1037,723 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=337,186 696x533 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=696x534 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2120; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01e8:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 433,171 hit=0000000000010034 active=0000000000080140 capture=0000000000000000 focus=0000000000080140
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=15cf0000 rect=-4,-4,1284,774 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=0,26 1280x744 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=1280x744 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2127; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+01f4:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,12 hit=0000000000010034 active=0000000000080140 capture=0000000000000000 focus=0000000000080140
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=14cf0000 rect=333,156,1037,723 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=337,186 696x533 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=696x533 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2134; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0200:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 985,171 hit=0000000000010034 active=0000000000000000 capture=0000000000000000 focus=0000000000000000
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=34cf0000 rect=-32000,-32000,-31840,-31969 foreground=0 host=0000000000000001 group=0000000000000001 focus=0000000000000000 size=0000000000000001
+  client=-32000,-32000 0x0 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=696x533 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2141; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+020c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=0000000000080140 capture=0000000000000000 focus=0000000000080140
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=14cf0000 rect=333,156,1037,723 foreground=1 host=0000000000000001 group=0000000000000001 focus=0000000000000001 size=0000000000000001
+  client=337,186 696x533 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=696x533 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2149; log: /tmp/wex-program-check-bobsmith.log
+Started Wine PID 2155; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=00000000000200da style=14cf0000
+DRAG_FULL_WINDOWS 0
+0224:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 200,785 hit=0000000000010070 active=00000000000200da capture=0000000000000000 focus=00000000000200dc
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 00000000000200da ex=00000110 role=0000000000000000 atom=000000000000c03c wex-session-notepad.txt - Notepad
+  owner=0000000000000000 lastpopup=00000000000200da
+  style=14cf0000 rect=0,0,760,570 foreground=1 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=4,49 752x517 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000080140 ex=00000100 role=0000000000000000 atom=000000000000c038 Wex-session-foot
+  owner=0000000000000000 lastpopup=0000000000080140
+  style=14cf0000 rect=333,156,1037,723 foreground=0 host=0000000000000001 group=0000000000000001 focus=0000000000000000 size=0000000000000001
+  client=337,186 696x533 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+  RESIZE requested=696x533 accepted=0x0
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2163; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=00000000000200da style=14cf0000
+DRAG_FULL_WINDOWS 0
+0230:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 10,10 hit=00000000000200da active=00000000000200da capture=0000000000000000 focus=00000000000200dc
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 00000000000200da ex=00000110 role=0000000000000000 atom=000000000000c03c wex-session-notepad.txt - Notepad
+  owner=0000000000000000 lastpopup=00000000000200da
+  style=14cf0000 rect=0,0,760,570 foreground=1 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=4,49 752x517 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2170; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=00000000000200da style=14cf0000
+DRAG_FULL_WINDOWS 0
+023c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 10,10 hit=00000000000200da active=00000000000200da capture=0000000000000000 focus=00000000000200dc
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 00000000000200da ex=00000110 role=0000000000000000 atom=000000000000c03c wex-session-notepad.txt - Notepad
+  owner=0000000000000000 lastpopup=00000000000200da
+  style=14cf0000 rect=0,0,760,570 foreground=1 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=4,49 752x517 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Started Wine PID 2177; log: /tmp/wex-session-state.log
+ACTION zorder hwnd=0000000000000000 style=00000000
+DRAG_FULL_WINDOWS 0
+0248:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+POINTER 10,10 hit=0000000000010034 active=0000000000010034 capture=0000000000000000 focus=0000000000010034
+Z 0000000000010056 ex=00000088 role=0000000000000003 atom=000000000000c025 
+  owner=0000000000000000 lastpopup=0000000000010056
+  style=96000000 rect=0,770,1280,800 foreground=0 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,770 1280x30 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+Z 0000000000010034 ex=00000080 role=0000000000000002 atom=000000000000c020 
+  owner=0000000000000000 lastpopup=0000000000010034
+  style=96000000 rect=0,0,1280,800 foreground=1 host=0000000000000000 group=0000000000000000 focus=0000000000000000 size=0000000000000000
+  client=0,0 1280x800 protocol=000000000000000a capture=0000000000000000 scale120=0000000000000078
+PASS: real Wayland foot input/move/edge/corner/maximize/restore/taskbar, Notepad input, native Alt+Tab, close
+shut down polish-20261017-wayland
+PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation
+Alice (alice) prefix size: 1 MB
+Bob Smith (bobsmith) prefix size: 1 MB
+PASS: full names, root/Alice passwords, Bob passwordless state, administrator membership, prefix-split layout and per-user prefix size < 20 MB
+PASS (Bob desktop 8 s after logon); screenshots in /var/tmp/wineexplorer-vmtest/polish-20261017-wayland/steps; VM stopped

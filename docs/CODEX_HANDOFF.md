@@ -1,5 +1,21 @@
 # Codex handoff — 2026-10-17 Wayland polish in progress
 
+**Fresh polish ISO regression update:** the clean image built successfully,
+SHA256 `3b1d8967532d9f7d1cde89e30a9f59db838e9791e5844a53e77c712c697367f0`.
+Both fresh installations, account/prefix isolation, 32/64-bit Windows checks,
+Wayland foot/Notepad actions, tray in both sessions, the eight-case frame
+matrix, Qt buttons (0.333 s) and live scale cycle pass. Committed evidence:
+`wayland-polish/final-regression.md`. Broader native-program/installer checks
+are running on `polish-20261017-wayland`; it is at Bob's 100% Wayland desktop.
+The other test VMs are stopped. The outer wrapper hit a parse error after all
+children passed because its file was edited while Bash was reading it; the
+additional runner uses a frozen `/var/tmp` copy. Do not rerun the installs
+for that harness error. A final stronger scale-input check will use unique
+markers at each scale. No final review is claimed until these finish.
+The Proton VM has no ongoing build. The current ISO is from master de35f152,
+Wine ed5fe96 / compositor acc46fe6, with both Wine architectures built.
+The paragraphs below preserve the preceding checkpoint history.
+
 **Active: WAYLAND_POLISH_WORKORDER.md, one review at the end.** Review point 2
 of the preceding session work is accepted. Item 1 is fixed and its real
 volumeicon/foot/QTerminal/xterm matrix passes at 100% and 150%. Wine bcf842a is
