@@ -5,6 +5,38 @@ In progress, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
 Parts A and B lead to review point 1; tray integration and final regressions
 follow that review. No acceptance is claimed yet.
 
+## Fresh ISO verification (review point 1 still pending)
+
+The complete Wayland variant of `installer/tests/install-interactive.sh`
+exits successfully on ISO SHA256
+`c14e67a41dbdf8ee43645ff44b84ca03bfb3b3f1eeeabbf6015e0fc51dc95192`.
+It installs to the separate blank disk, checks a rejected/correct Alice
+password in the default X11 session, switches to the Welcome screen and
+selects Wayland for Bob. Bob's desktop appears in six seconds. Existing
+32/64-bit programs and both Notepads draw; Alice installs the shared Win32
+fixture, Bob executes it and is denied write access to the machine root.
+The real foot/Notepad action runner passes. The VM shuts down, its disk is
+mounted read-only, and the account, LightDM, prefix-link and size assertions
+pass. Alice and Bob each have a 1 MB private prefix. It is unmounted afterward.
+
+Output: [fresh-install.log](../build/wayland-session/fresh-install.log).
+Evidence: [Welcome selection](../build/wayland-session/fresh-install-steps/17-wayland-selected.png),
+[32-bit Notepad](../build/wayland-session/fresh-install-steps/19-notepad32.png),
+[maximized foot](../build/wayland-session/fresh-install-steps/wayland-foot-maximized.png),
+[native Alt+Tab](../build/wayland-session/fresh-install-steps/wayland-native-alttab.png).
+These generated test files remain ignored, outside source/ISO resources.
+
+The same installed VM is restarted for the remaining real-program checks;
+GTK CSD input and one-item taskbar minimize/restore already pass there.
+Its installed compositor source-commit is 2bde47ee708b048107967811bf47839c06dca0f3.
+No development DLL/compositor hot-staging is used on this fresh installation.
+Nonfatal locale warnings indicate the install's en_US.UTF-8 locale is not
+generated; native checks use C.UTF-8. The first Steam Install OCR click failed
+because Firefox's maximized startup window covered the installer; activating
+Steam's actual taskbar item exposed the button and the subsequent click works.
+A read-only diagnostic used `| head` in PowerShell and failed (head is not a
+PowerShell command); subsequent reads use Select-Object or run wholly in WSL.
+
 ### Installed-program and packaging checkpoint
 
 Integration candidate: production Wine and the main gitlink now advance to

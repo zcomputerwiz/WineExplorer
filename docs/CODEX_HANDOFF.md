@@ -4,7 +4,7 @@
 L2 remainder. Continue A and B through review point 1; only then start tray C
 and regression D. Real programs on an installed VM, no new synthetic cases.
 See `WAYLAND_SESSION.md` for incremental results, exact environment and failures.
-**Fresh ISO test now running:** Wine production/pin is **0f25ee1** and
+**Fresh ISO core test passed; application matrix finishing:** Wine production/pin is **0f25ee1** and
 compositor **2bde47ee**. The clean stock source audit (12,462 files) and full
 combined build with current owned master source pass at that Wine revision.
 The optional Wayland controls are enabled. The ISO build succeeded on the
@@ -14,14 +14,19 @@ Proton build VM in `/srv/protonexplorer/wayland-session-iso-build`, output
 `/srv/protonexplorer/tmp` on the large volume. Never use ~/inst/build.
 The copied image's SHA256 is
 `c14e67a41dbdf8ee43645ff44b84ca03bfb3b3f1eeeabbf6015e0fc51dc95192`.
-Debian WSL runs `WEX_TEST_SESSION=wayland installer/tests/install-interactive.sh`
+Debian WSL passed `WEX_TEST_SESSION=wayland installer/tests/install-interactive.sh`
 in fresh VM **wayland-session-iso**, using
 `/var/tmp/wineexplorer-vmtest/wayland-session-c14e67a4.iso`. Its host log is
 `build/wayland-session/fresh-install.log`, steps are under
-`/var/tmp/wineexplorer-vmtest/wayland-session-iso/steps`. It is mid-install;
-do not power it off or mount its disk while QEMU is running. The old
+`/var/tmp/wineexplorer-vmtest/wayland-session-iso/steps` (also copied into
+`build/wayland-session/fresh-install-steps`). Installation, Alice's default X11
+login, Bob's selected Wayland login, WoW64, actual foot/Notepad actions, shared
+app access/denial, offline account/layout checks all pass; both user prefixes
+are 1 MB. The installed VM has been restarted into Bob's Wayland session for
+the other listed programs; GTK CSD input/minimize/restore now also passes there.
+Do not mount its disk while QEMU is running. The old
 **wayland-session** overlay has shut down normally and remains preserved.
-Next: finish that test, then remaining real-program installed-ISO coverage. Stop only at B's
+Next: finish remaining real-program installed-ISO coverage. Stop only at B's
 review point. This supersedes the "root Wine still d92d7e4" sentence below.
 Latest continuation: compositor **2bde47ee** is pinned, packaged, and passes
 actual foot movement/maximize on two unit-scale outputs. Wine topic **0f25ee1**
