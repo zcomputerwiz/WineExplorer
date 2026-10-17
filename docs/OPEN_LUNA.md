@@ -84,3 +84,36 @@ Gemini's first screenshots were withdrawn in review: they were taken in a develo
 - `docs/luna/screenshots/clean-03-notepad.png`: Notepad.
 - `docs/luna/screenshots/clean-04-mycomputer.png`: My Computer with task panes.
 - `docs/luna/screenshots/clean-05-control.png`: Control Panel.
+
+
+---
+
+## 6. Round 2 Acceptance: Seven Details Polish (Gemini)
+
+Following Claude's Round 2 review and workorder (`docs/OPEN_LUNA_WORKORDER.md`), seven specific visual details were polished so Open Luna reads authentically as Windows XP Luna at a glance.
+
+### Local Acceptance Comparison Sheets (100% and 125% DPI)
+
+Each item was verified against genuine Windows XP Luna across both standard scale (100% / 96 DPI) and high-DPI scale (125% / 120 DPI). The comparison sheets are committed in `WineExplorer-local/notes/luna/`:
+
+| Item | Feature | Local Comparison Sheet (Local Only) | Status & Parity |
+|---|---|---|---|
+| **1** | **Caption Font** | `notes/luna/r2-item1-caption-font.png` | **Matched**: `Trebuchet MS` substituted to open `DejaVu Sans` in `font-substitutes.reg`. Captions render with authentic humanist sans curves, letter spacing, and bold weight at 96 DPI and 120 DPI. |
+| **2** | **Caption Buttons** | `notes/luna/r2-item2-caption-buttons.png` | **Matched**: Minimize, maximize, and close buttons resized to uniform 21x21 rounded pill shape with 1px crisp white outline (`stroke="#ffffff"`) and bold 2px white glyph bitmaps. All three buttons read balanced, dimensional, and identical in scale. |
+| **3** | **Start Button** | `notes/luna/r2-item3-start-button.png` | **Matched**: Taller 30px green pill (`REACTOS_STARTBUTTON.svg`) with bright top specular highlight (`#c8ffa4` to transparent), dark border (`#0e4006`), and bold italic white "start" with soft dark drop shadow (`0 55 12`). Displays the open Wine glass emblem (clean prefix verification). |
+| **4** | **Start Menu** | `notes/luna/r2-item4-start-menu.png` | **Matched**: White 2.5px rounded border with drop shadow around user picture (`NORMAL_USERTILEBACKGROUND.svg`); larger bold white username with drop shadow; clean green "All Programs" arrow button (32bpp alpha, zero magenta artifacts); 2px vibrant orange separator strip under top band; 40px royal blue Log Off band. |
+| **5** | **Taskbar & Tray** | `notes/luna/r2-item5-taskbar-tray.png` | **Matched**: Active taskbar button in darker sunken pressed blue (`#062470` to `#1242a4`) with 1px vibrant orange top highlight (`#f89a1c`); notification tray in lighter cyan-blue gradient (`#168ee4` to `#043e94`) with 1px bright cyan-blue vertical highlight line (`#48c4ff`) along its left edge. |
+| **6** | **Scroll Bars** | `notes/luna/r2-item6-scrollbars.png` | **Matched**: Light blue-grey rounded thumbs with 3 horizontal gripper ridges; rounded arrow buttons with navy blue triangle glyphs; soft light blue shaft. Verified themed rendering in Notepad when window content requires scrolling. |
+| **7** | **Task Pane (My Computer)** | `notes/luna/r2-item7-task-pane.png` | **Matched**: ExplorerBar background gradient tuned to rich royal blue (`GradientColor1 = 120 152 224`, `GradientColor2 = 84 112 198`); System Tasks and Other Places group box backgrounds updated to pure crisp white fill (`#ffffff`) with 1px soft blue border (`#b4ccf0`). |
+
+### Theme Engine & Scrollbar Verification Note
+Wine's `uxtheme` engine (`UXTHEME_ScrollBarDraw`) themes non-client scrollbars dynamically whenever the document height exceeds client window bounds (`thumbsize > 0`). In an empty Notepad window, the scrollbar remains in the disabled/flat state. Opening a document containing text activates full visual style rendering: the light blue-grey rounded thumb (`REACTOS_SCROLLTHUMBVERTICAL.bmp`), 3 horizontal gripper ridges (`REACTOS_SCROLLTHUMBGRIPPERVERTICAL.bmp`), rounded arrow buttons (`REACTOS_SCROLLARROWS.bmp`), and soft light blue channel track (`REACTOS_SCROLLSHAFTVERTICAL.bmp`) render cleanly and faithfully to Windows XP Luna. No theme engine code changes were required.
+
+### Clean-Prefix Committed Screenshots (Open Art Only)
+All screenshots were captured in a fresh, isolated prefix (`/root/luna-clean`) using the build tree's WOW64 Wine and wineserver (`Xvfb :29`), with no proprietary files present:
+- `docs/luna/screenshots/r2-01-desktop.png`: Desktop with Start button (Wine glass logo, bright top shine) and taskbar (lighter cyan notification tray with left highlight line).
+- `docs/luna/screenshots/r2-02-start.png`: Two-column Start menu with white framed user picture, bold white username with shadow, orange separator strip, clean green All Programs arrow, and 40px royal blue Log Off band.
+- `docs/luna/screenshots/r2-03-notepad.png`: Notepad with text displaying active themed scrollbar (rounded thumb with grippers, rounded arrow buttons), 21x21 caption buttons with 1px white outline and bold white glyphs, and active taskbar button in dark pressed blue with orange line.
+- `docs/luna/screenshots/r2-04-mycomputer.png`: My Computer showing rich blue ExplorerBar gradient behind pure white group boxes.
+- `docs/luna/screenshots/r2-05-control32.png`: 32-bit controls test program under Open Luna.
+- `docs/luna/screenshots/r2-05-control64.png`: 64-bit controls test program under Open Luna.

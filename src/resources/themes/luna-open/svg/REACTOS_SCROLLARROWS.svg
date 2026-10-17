@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="15" height="256" viewBox="0 0 15 256">
+  <defs>
+    <linearGradient id="sBtnNorm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f2f6fe"/>
+      <stop offset="35%" stop-color="#d4e2fa"/>
+      <stop offset="70%" stop-color="#b4ccf4"/>
+      <stop offset="100%" stop-color="#a0bee8"/>
+    </linearGradient>
+    <linearGradient id="sBtnHot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#e4eeff"/>
+      <stop offset="70%" stop-color="#c6dcfa"/>
+      <stop offset="100%" stop-color="#b2cef4"/>
+    </linearGradient>
+    <linearGradient id="sBtnPress" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#88a8d8"/>
+      <stop offset="50%" stop-color="#a0bee8"/>
+      <stop offset="100%" stop-color="#bed4f4"/>
+    </linearGradient>
+    <linearGradient id="sBtnDis" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8f8f8"/>
+      <stop offset="100%" stop-color="#e0e0e0"/>
+    </linearGradient>
+  </defs>
+  <!-- up state 1 -->
+  <rect x="0.5" y="0.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnNorm)" stroke="#5078a8" stroke-width="1"/>
+  <polygon points="7,6 4,10 10,10" fill="rgb(56,84,156)"/>
+  <!-- up state 2 -->
+  <rect x="0.5" y="16.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnHot)" stroke="#3c68a0" stroke-width="1"/>
+  <polygon points="7,22 4,26 10,26" fill="rgb(40,72,170)"/>
+  <!-- up state 3 -->
+  <rect x="0.5" y="32.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnPress)" stroke="#284880" stroke-width="1"/>
+  <polygon points="8,39 5,43 11,43" fill="rgb(20,50,140)"/>
+  <!-- up state 4 -->
+  <rect x="0.5" y="48.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnDis)" stroke="#b8b8b8" stroke-width="1"/>
+  <polygon points="7,54 4,58 10,58" fill="rgb(168,172,180)"/>
+  <!-- down state 1 -->
+  <rect x="0.5" y="64.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnNorm)" stroke="#5078a8" stroke-width="1"/>
+  <polygon points="7,74 4,70 10,70" fill="rgb(56,84,156)"/>
+  <!-- down state 2 -->
+  <rect x="0.5" y="80.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnHot)" stroke="#3c68a0" stroke-width="1"/>
+  <polygon points="7,90 4,86 10,86" fill="rgb(40,72,170)"/>
+  <!-- down state 3 -->
+  <rect x="0.5" y="96.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnPress)" stroke="#284880" stroke-width="1"/>
+  <polygon points="8,107 5,103 11,103" fill="rgb(20,50,140)"/>
+  <!-- down state 4 -->
+  <rect x="0.5" y="112.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnDis)" stroke="#b8b8b8" stroke-width="1"/>
+  <polygon points="7,122 4,118 10,118" fill="rgb(168,172,180)"/>
+  <!-- left state 1 -->
+  <rect x="0.5" y="128.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnNorm)" stroke="#5078a8" stroke-width="1"/>
+  <polygon points="5,136 9,133 9,139" fill="rgb(56,84,156)"/>
+  <!-- left state 2 -->
+  <rect x="0.5" y="144.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnHot)" stroke="#3c68a0" stroke-width="1"/>
+  <polygon points="5,152 9,149 9,155" fill="rgb(40,72,170)"/>
+  <!-- left state 3 -->
+  <rect x="0.5" y="160.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnPress)" stroke="#284880" stroke-width="1"/>
+  <polygon points="6,169 10,166 10,172" fill="rgb(20,50,140)"/>
+  <!-- left state 4 -->
+  <rect x="0.5" y="176.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnDis)" stroke="#b8b8b8" stroke-width="1"/>
+  <polygon points="5,184 9,181 9,187" fill="rgb(168,172,180)"/>
+  <!-- right state 1 -->
+  <rect x="0.5" y="192.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnNorm)" stroke="#5078a8" stroke-width="1"/>
+  <polygon points="9,200 5,197 5,203" fill="rgb(56,84,156)"/>
+  <!-- right state 2 -->
+  <rect x="0.5" y="208.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnHot)" stroke="#3c68a0" stroke-width="1"/>
+  <polygon points="9,216 5,213 5,219" fill="rgb(40,72,170)"/>
+  <!-- right state 3 -->
+  <rect x="0.5" y="224.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnPress)" stroke="#284880" stroke-width="1"/>
+  <polygon points="10,233 6,230 6,236" fill="rgb(20,50,140)"/>
+  <!-- right state 4 -->
+  <rect x="0.5" y="240.5" width="14" height="15" rx="1.5" ry="1.5" fill="url(#sBtnDis)" stroke="#b8b8b8" stroke-width="1"/>
+  <polygon points="9,248 5,245 5,251" fill="rgb(168,172,180)"/>
+</svg>

@@ -1,12 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1" height="26" viewBox="0 0 1 26">
+<svg xmlns="http://www.w3.org/2000/svg" width="25" height="26" viewBox="0 0 25 26">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#2256c0"/>
-      <stop offset="8%" stop-color="#1444aa"/>
-      <stop offset="50%" stop-color="#0a3090"/>
-      <stop offset="85%" stop-color="#06227c"/>
-      <stop offset="100%" stop-color="#04186c"/>
+    <linearGradient id="trayGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#168ee4"/>
+      <stop offset="15%" stop-color="#107ad6"/>
+      <stop offset="50%" stop-color="#0a62be"/>
+      <stop offset="85%" stop-color="#064ea8"/>
+      <stop offset="100%" stop-color="#043e94"/>
+    </linearGradient>
+    <linearGradient id="trayShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6ad4ff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#168ee4" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect width="1" height="26" fill="url(#g)"/>
+  <!-- Lighter cyan-blue body fill -->
+  <rect width="25" height="26" fill="url(#trayGrad)"/>
+  <rect x="0" y="0" width="25" height="6" fill="url(#trayShine)"/>
+  <!-- 1px bright cyan-blue vertical highlight line on the left edge -->
+  <line x1="0.5" y1="0" x2="0.5" y2="26" stroke="#48c4ff" stroke-width="1"/>
+  <line x1="1.5" y1="0" x2="1.5" y2="26" stroke="#0854b4" stroke-width="1" opacity="0.4"/>
 </svg>

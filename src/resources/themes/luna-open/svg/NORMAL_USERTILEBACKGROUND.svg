@@ -1,0 +1,10 @@
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="55" height="55" viewBox="0 0 55 55">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="1" dy="2" stdDeviation="1.5" flood-color="#001844" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+  <!-- 2px white rounded border with drop shadow -->
+  <rect x="3" y="3" width="48" height="48" rx="5" ry="5" fill="none" stroke="#ffffff" stroke-width="2.5" filter="url(#shadow)"/>
+</svg>
