@@ -1,0 +1,104 @@
+=== C:\windows\Fonts Links ===
+total 56
+drwxrwsr-x+  2 root sudo 4096 Oct 17 18:58 .
+drwxrwsr-x+ 23 root sudo 4096 Oct 17 18:07 ..
+lrwxrwxrwx   1 root sudo   60 Oct 17 18:58 arialbd.ttf -> /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf
+lrwxrwxrwx   1 root sudo   66 Oct 17 18:58 arialbi.ttf -> /usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf
+lrwxrwxrwx   1 root sudo   62 Oct 17 18:58 ariali.ttf -> /usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf
+lrwxrwxrwx   1 root sudo   63 Oct 17 18:58 arial.ttf -> /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf
+lrwxrwxrwx   1 root sudo   52 Oct 17 18:58 calibrib.ttf -> /usr/share/fonts/truetype/crosextra/Carlito-Bold.ttf
+lrwxrwxrwx   1 root sudo   54 Oct 17 18:58 calibrii.ttf -> /usr/share/fonts/truetype/crosextra/Carlito-Italic.ttf
+lrwxrwxrwx   1 root sudo   55 Oct 17 18:58 calibri.ttf -> /usr/share/fonts/truetype/crosextra/Carlito-Regular.ttf
+lrwxrwxrwx   1 root sudo   58 Oct 17 18:58 calibriz.ttf -> /usr/share/fonts/truetype/crosextra/Carlito-BoldItalic.ttf
+lrwxrwxrwx   1 root sudo   52 Oct 17 18:58 cambriab.ttf -> /usr/share/fonts/truetype/crosextra/Caladea-Bold.ttf
+lrwxrwxrwx   1 root sudo   54 Oct 17 18:58 cambriai.ttf -> /usr/share/fonts/truetype/crosextra/Caladea-Italic.ttf
+lrwxrwxrwx   1 root sudo   55 Oct 17 18:58 cambria.ttf -> /usr/share/fonts/truetype/crosextra/Caladea-Regular.ttf
+lrwxrwxrwx   1 root sudo   58 Oct 17 18:58 cambriaz.ttf -> /usr/share/fonts/truetype/crosextra/Caladea-BoldItalic.ttf
+lrwxrwxrwx   1 root sudo   60 Oct 17 18:58 courbd.ttf -> /usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf
+lrwxrwxrwx   1 root sudo   66 Oct 17 18:58 courbi.ttf -> /usr/share/fonts/truetype/liberation/LiberationMono-BoldItalic.ttf
+lrwxrwxrwx   1 root sudo   62 Oct 17 18:58 couri.ttf -> /usr/share/fonts/truetype/liberation/LiberationMono-Italic.ttf
+lrwxrwxrwx   1 root sudo   63 Oct 17 18:58 cour.ttf -> /usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf
+lrwxrwxrwx   1 root sudo   42 Oct 17 18:58 segoeuib.ttf -> /usr/local/share/fonts/selawik/selawkb.ttf
+lrwxrwxrwx   1 root sudo   42 Oct 17 18:58 segoeuil.ttf -> /usr/local/share/fonts/selawik/selawkl.ttf
+lrwxrwxrwx   1 root sudo   43 Oct 17 18:58 segoeuisb.ttf -> /usr/local/share/fonts/selawik/selawksb.ttf
+lrwxrwxrwx   1 root sudo   43 Oct 17 18:58 segoeuisl.ttf -> /usr/local/share/fonts/selawik/selawksl.ttf
+lrwxrwxrwx   1 root sudo   41 Oct 17 18:58 segoeui.ttf -> /usr/local/share/fonts/selawik/selawk.ttf
+lrwxrwxrwx   1 root sudo   61 Oct 17 18:58 timesbd.ttf -> /usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf
+lrwxrwxrwx   1 root sudo   67 Oct 17 18:58 timesbi.ttf -> /usr/share/fonts/truetype/liberation/LiberationSerif-BoldItalic.ttf
+lrwxrwxrwx   1 root sudo   63 Oct 17 18:58 timesi.ttf -> /usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf
+lrwxrwxrwx   1 root sudo   64 Oct 17 18:58 times.ttf -> /usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf
+
+=== system.reg FontSubstitutes ===
+[Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes] 1792263526
+#time=1dd5e69898fc2c8
+"Arial"="Liberation Sans"
+"Arial Baltic,186"="Arial,186"
+"Arial CE,238"="Arial,238"
+"Arial CYR,204"="Arial,204"
+"Arial Greek,161"="Arial,161"
+"Arial Narrow"="Liberation Sans Narrow"
+"Arial TUR,162"="Arial,162"
+"Batang"="UnBatang"
+"Calibri"="Carlito"
+"Cambria"="Caladea"
+"Consolas"="Liberation Mono"
+"Courier New"="Liberation Mono"
+"Courier New Baltic,186"="Courier New,186"
+"Courier New CE,238"="Courier New,238"
+"Courier New CYR,204"="Courier New,204"
+"Courier New Greek,161"="Courier New,161"
+"Courier New TUR,162"="Courier New,162"
+"Dotum"="UnDotum"
+"Georgia"="DejaVu Serif"
+"Gulim"="UnDotum"
+"Helv"="MS Sans Serif"
+"Helvetica"="Arial"
+"Lucida Console"="DejaVu Sans Mono"
+"Malgun Gothic"="Noto Sans CJK KR"
+"Meiryo"="Noto Sans CJK JP"
+"Meiryo UI"="Noto Sans CJK JP"
+"Microsoft JhengHei"="Noto Sans CJK TC"
+"Microsoft YaHei"="Noto Sans CJK SC"
+"Microsoft YaHei UI"="Noto Sans CJK SC"
+"MS Gothic"="IPAGothic"
+"MS Mincho"="IPAMincho"
+"MS PGothic"="IPAPGothic"
+"MS PMincho"="IPAPMincho"
+"MS Shell Dlg"="Tahoma"
+--
+[Software\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes] 1792260019
+#time=1dd5e615f404432
+#link
+"SymbolicLinkValue"=hex(6):5c,00,52,00,65,00,67,00,69,00,73,00,74,00,72,00,79,\
+  00,5c,00,4d,00,61,00,63,00,68,00,69,00,6e,00,65,00,5c,00,53,00,6f,00,66,00,\
+  74,00,77,00,61,00,72,00,65,00,5c,00,4d,00,69,00,63,00,72,00,6f,00,73,00,6f,\
+  00,66,00,74,00,5c,00,57,00,69,00,6e,00,64,00,6f,00,77,00,73,00,20,00,4e,00,\
+  54,00,5c,00,43,00,75,00,72,00,72,00,65,00,6e,00,74,00,56,00,65,00,72,00,73,\
+  00,69,00,6f,00,6e,00,5c,00,46,00,6f,00,6e,00,74,00,53,00,75,00,62,00,73,00,\
+  74,00,69,00,74,00,75,00,74,00,65,00,73,00
+
+[Software\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Gre_Initialize] 1792260019
+#time=1dd5e615f405896
+#link
+"SymbolicLinkValue"=hex(6):5c,00,52,00,65,00,67,00,69,00,73,00,74,00,72,00,79,\
+  00,5c,00,4d,00,61,00,63,00,68,00,69,00,6e,00,65,00,5c,00,53,00,6f,00,66,00,\
+  74,00,77,00,61,00,72,00,65,00,5c,00,4d,00,69,00,63,00,72,00,6f,00,73,00,6f,\
+  00,66,00,74,00,5c,00,57,00,69,00,6e,00,64,00,6f,00,77,00,73,00,20,00,4e,00,\
+  54,00,5c,00,43,00,75,00,72,00,72,00,65,00,6e,00,74,00,56,00,65,00,72,00,73,\
+  00,69,00,6f,00,6e,00,5c,00,47,00,72,00,65,00,5f,00,49,00,6e,00,69,00,74,00,\
+  69,00,61,00,6c,00,69,00,7a,00,65,00
+
+[Software\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Hotfix\\Q246009] 1792260060
+#time=1dd5e6177b203ac
+"Installed"="1"
+
+[Software\\Wow6432Node\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options] 1792260019
+#time=1dd5e615f407600
+#link
+"SymbolicLinkValue"=hex(6):5c,00,52,00,65,00,67,00,69,00,73,00,74,00,72,00,79,\
+  00,5c,00,4d,00,61,00,63,00,68,00,69,00,6e,00,65,00,5c,00,53,00,6f,00,66,00,\
+  74,00,77,00,61,00,72,00,65,00,5c,00,4d,00,69,00,63,00,72,00,6f,00,73,00,6f,\
+  00,66,00,74,00,5c,00,57,00,69,00,6e,00,64,00,6f,00,77,00,73,00,20,00,4e,00,\
+  54,00,5c,00,43,00,75,00,72,00,72,00,65,00,6e,00,74,00,56,00,65,00,72,00,73,\
+  00,69,00,6f,00,6e,00,5c,00,49,00,6d,00,61,00,67,00,65,00,20,00,46,00,69,00,\
+  6c,00,65,00,20,00,45,00,78,00,65,00,63,00,75,00,74,00,69,00,6f,00,6e,00,20,\

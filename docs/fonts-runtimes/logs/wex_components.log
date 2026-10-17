@@ -1,0 +1,31 @@
+=== Non-admin check ===
+ERROR: Windows Components requires Administrator privileges.
+Only members of the sudo group can install shared components.
+=== EULA Rejection Check ===
+============================================================
+END-USER LICENSE AGREEMENT NOTICE
+
+The optional components offered here are proprietary software provided directly by
+Microsoft Corporation or their respective licensors.
+
+- Visual C++ 2015-2022 Runtime: Microsoft Software License Terms
+- Microsoft Core Fonts (Arial, Times New Roman, Courier New): Microsoft EULA
+- Microsoft Tahoma Font: Microsoft EULA
+- Direct3D 47 Compiler / XACT Engine: Microsoft DirectX End-User License Agreement
+- NVIDIA PhysX: NVIDIA Corporation License Agreement
+
+WineExplorer DOES NOT bundle or redistribute these proprietary files.
+If you choose to install them, they will be downloaded directly from the vendor's servers
+to your machine.
+
+You must review and accept the respective vendor license terms before downloading and
+using these components.
+============================================================
+
+License agreement not accepted. Aborting.
+=== Installed VC++ Runtime Check ===
+lrwxrwxrwx  1 root sudo   53 Oct 17 18:00 /var/lib/wineexplorer/machine/drive_c/windows/system32/vcruntime140_1.dll -> /usr/local/lib/wine/x86_64-windows/vcruntime140_1.dll
+-rwxrwxr-x+ 1 root sudo 122K Jun 11  2025 /var/lib/wineexplorer/machine/drive_c/windows/system32/vcruntime140.dll
+-rwxrwxr-x+ 1 root sudo  38K Jun 11  2025 /var/lib/wineexplorer/machine/drive_c/windows/system32/vcruntime140_threads.dll
+-rwxrwxr-x+ 1 root sudo  90K Jun 11  2025 /var/lib/wineexplorer/machine/drive_c/windows/syswow64/vcruntime140.dll
+-rwxrwxr-x+ 1 root sudo  36K Jun 11  2025 /var/lib/wineexplorer/machine/drive_c/windows/syswow64/vcruntime140_threads.dll

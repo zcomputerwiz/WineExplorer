@@ -1,0 +1,24 @@
+=== WineExplorer Graphics Status ===
+Prefix: /home/wineuser/.wine
+Vulkan device: available (GPU0:)
+DirectX-to-Vulkan: DISABLED (using default wined3d builtins)
+--- on ---
+=== Enabling DirectX-to-Vulkan (DXVK & vkd3d-proton) ===
+Configuring native DLL overrides in user prefix: /home/wineuser/.wine...
+Updating 64-bit DLL links in /home/wineuser/.wine/drive_c/windows/system32...
+Updating 32-bit DLL links in /home/wineuser/.wine/drive_c/windows/syswow64...
+Vulkan graphics enabled successfully for prefix: /home/wineuser/.wine
+=== WineExplorer Graphics Status ===
+Prefix: /home/wineuser/.wine
+Vulkan device: available (GPU0:)
+DirectX-to-Vulkan: ENABLED (native overrides active)
+--- off ---
+=== Disabling DirectX-to-Vulkan (Restoring wined3d) ===
+Clearing native DLL overrides in user prefix: /home/wineuser/.wine...
+Restoring 64-bit DLLs in /home/wineuser/.wine/drive_c/windows/system32...
+Restoring 32-bit DLLs in /home/wineuser/.wine/drive_c/windows/syswow64...
+Vulkan graphics disabled. wined3d defaults restored.
+=== WineExplorer Graphics Status ===
+Prefix: /home/wineuser/.wine
+Vulkan device: available (GPU0:)
+DirectX-to-Vulkan: DISABLED (using default wined3d builtins)

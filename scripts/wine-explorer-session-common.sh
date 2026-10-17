@@ -6,7 +6,7 @@
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 export XDG_CURRENT_DESKTOP=WineExplorer
 export XDG_SESSION_DESKTOP=WineExplorer
-export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
+export WINEDLLOVERRIDES='winemenubuilder.exe=d'
 export WINEDEBUG="${WINEDEBUG:--all,err+all}"
 WINE="${WINE:-/usr/local/bin/wine}"
 
