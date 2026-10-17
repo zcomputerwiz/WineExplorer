@@ -37,6 +37,34 @@ stage_license_documents()
     install -m644 "$ROOT_DIR/wine/COPYING.LIB" "$doc_dir/COPYING.LIB"
 }
 
+fetch_and_verify()
+{
+    local url="$1"
+    local expected_sha="$2"
+    local dest_file="$3"
+    mkdir -p "$(dirname "$dest_file")"
+    if [ -f "$dest_file" ]; then
+        local current_sha
+        current_sha=$(sha256sum "$dest_file" 2>/dev/null | awk '{print $1}')
+        if [ "$current_sha" = "$expected_sha" ]; then
+            return 0
+        fi
+        rm -f "$dest_file"
+    fi
+    echo "Downloading $(basename "$dest_file") from $url..."
+    curl -sSL --retry 3 -o "$dest_file.tmp" "$url"
+    local downloaded_sha
+    downloaded_sha=$(sha256sum "$dest_file.tmp" 2>/dev/null | awk '{print $1}')
+    if [ "$downloaded_sha" != "$expected_sha" ]; then
+        echo "ERROR: SHA256 mismatch for $(basename "$dest_file"):" >&2
+        echo "Expected: $expected_sha" >&2
+        echo "Got:      $downloaded_sha" >&2
+        rm -f "$dest_file.tmp"
+        return 1
+    fi
+    mv "$dest_file.tmp" "$dest_file"
+}
+
 PACKAGE_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/wexpkg.XXXXXXXX")
 trap 'rm -rf -- "$PACKAGE_STAGE"' EXIT
 STAGE_WINE="$PACKAGE_STAGE/wine"
@@ -142,6 +170,95 @@ if [ -d "$ROOT_DIR/src/resources/startskins" ]; then
     fi
 fi
 
+# Download cache for open fonts and offline runtimes
+DOWNLOAD_CACHE="${WEX_DOWNLOAD_CACHE:-/var/cache/wineexplorer/downloads}"
+mkdir -p "$DOWNLOAD_CACHE"
+
+# F1. Microsoft Selawik (SIL OFL 1.1) font
+echo "Staging Selawik font..."
+SELAWIK_URL="https://github.com/microsoft/Selawik/releases/download/1.01/Selawik_Release.zip"
+SELAWIK_SHA="3f62c51e05e3b5a1e6241cf92a371f0be2ea1183aa87b30718bbd40832a8d423"
+SELAWIK_ZIP="$DOWNLOAD_CACHE/Selawik_Release-1.01.zip"
+fetch_and_verify "$SELAWIK_URL" "$SELAWIK_SHA" "$SELAWIK_ZIP"
+
+SELAWIK_LICENSE_URL="https://raw.githubusercontent.com/microsoft/Selawik/master/LICENSE.txt"
+SELAWIK_LICENSE_SHA="77b7c2506d4efb22e09c8ccf10159f4956eab3ef7c007fef95de136bcf45300c"
+SELAWIK_LICENSE="$DOWNLOAD_CACHE/Selawik-LICENSE.txt"
+fetch_and_verify "$SELAWIK_LICENSE_URL" "$SELAWIK_LICENSE_SHA" "$SELAWIK_LICENSE"
+
+mkdir -p "$STAGE_WINE/usr/local/share/fonts/selawik"
+unzip -q -o -j "$SELAWIK_ZIP" "*.ttf" -d "$STAGE_WINE/usr/local/share/fonts/selawik/"
+install -m644 "$SELAWIK_LICENSE" "$STAGE_WINE/usr/local/share/fonts/selawik/LICENSE.txt"
+chmod 644 "$STAGE_WINE/usr/local/share/fonts/selawik/"*.ttf
+
+# F2. Wine Gecko (2.47.4 x86 and x86_64) and Wine Mono (11.3.0 x86)
+echo "Staging Wine Gecko and Wine Mono offline installers..."
+GECKO_X86_URL="https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86.msi"
+GECKO_X86_SHA="26cecc47706b091908f7f814bddb074c61beb8063318e9efc5a7f789857793d6"
+GECKO_X86_MSI="$DOWNLOAD_CACHE/wine-gecko-2.47.4-x86.msi"
+fetch_and_verify "$GECKO_X86_URL" "$GECKO_X86_SHA" "$GECKO_X86_MSI"
+
+GECKO_X64_URL="https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86_64.msi"
+GECKO_X64_SHA="e590b7d988a32d6aa4cf1d8aa3aa3d33766fdd4cf4c89c2dcc2095ecb28d066f"
+GECKO_X64_MSI="$DOWNLOAD_CACHE/wine-gecko-2.47.4-x86_64.msi"
+fetch_and_verify "$GECKO_X64_URL" "$GECKO_X64_SHA" "$GECKO_X64_MSI"
+
+mkdir -p "$STAGE_WINE/usr/local/share/wine/gecko"
+install -m644 "$GECKO_X86_MSI" "$STAGE_WINE/usr/local/share/wine/gecko/"
+install -m644 "$GECKO_X64_MSI" "$STAGE_WINE/usr/local/share/wine/gecko/"
+cat > "$STAGE_WINE/usr/local/share/wine/gecko/LICENSE" <<'EOF'
+Mozilla Public License Version 2.0
+https://www.mozilla.org/MPL/2.0/
+wine-gecko is distributed under the Mozilla Public License 2.0.
+EOF
+
+MONO_X86_URL="https://dl.winehq.org/wine/wine-mono/11.3.0/wine-mono-11.3.0-x86.msi"
+MONO_X86_SHA="df2dfc1665c2511882e7cabd56eafd0c0a3d94e5a7e86f969277f6c189d418d3"
+MONO_X86_MSI="$DOWNLOAD_CACHE/wine-mono-11.3.0-x86.msi"
+fetch_and_verify "$MONO_X86_URL" "$MONO_X86_SHA" "$MONO_X86_MSI"
+
+mkdir -p "$STAGE_WINE/usr/local/share/wine/mono"
+install -m644 "$MONO_X86_MSI" "$STAGE_WINE/usr/local/share/wine/mono/"
+cat > "$STAGE_WINE/usr/local/share/wine/mono/LICENSE" <<'EOF'
+wine-mono combines software licensed under the MIT License, GNU Lesser General Public License (LGPL 2.0),
+and GNU General Public License (GPL 2.0). Copyright (c) Novell, Inc., Vincent Povirk, et al.
+EOF
+
+# F3. DirectX to Vulkan (DXVK 2.4.1 and vkd3d-proton 2.13)
+echo "Staging DXVK and vkd3d-proton libraries..."
+DXVK_URL="https://github.com/doitsujin/dxvk/releases/download/v2.4.1/dxvk-2.4.1.tar.gz"
+DXVK_SHA="7b23db4e1386b5d9a3ec0d83daa8b06096b758639185c11a673373a5ae478d54"
+DXVK_TAR="$DOWNLOAD_CACHE/dxvk-2.4.1.tar.gz"
+fetch_and_verify "$DXVK_URL" "$DXVK_SHA" "$DXVK_TAR"
+
+VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v2.13/vkd3d-proton-2.13.tar.zst"
+VKD3D_SHA="f7163187a69e19b7c57d4e2f10ed627e75d6e93eef52d119378572d26a9ce33a"
+VKD3D_TAR="$DOWNLOAD_CACHE/vkd3d-proton-2.13.tar.zst"
+fetch_and_verify "$VKD3D_URL" "$VKD3D_SHA" "$VKD3D_TAR"
+
+mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/dxvk/x32"
+mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/dxvk/x64"
+
+tar -xzf "$DXVK_TAR" -C "$STAGE_WINE/usr/local/share/wineexplorer/dxvk" --strip-components=1 dxvk-2.4.1/x32 dxvk-2.4.1/x64
+
+command -v zstd >/dev/null 2>&1 || sudo apt-get install -y zstd >/dev/null 2>&1 || true
+tar --zstd -xf "$VKD3D_TAR" -C "$STAGE_WINE/usr/local/share/wineexplorer/dxvk/x64" --strip-components=2 vkd3d-proton-2.13/x64/d3d12.dll vkd3d-proton-2.13/x64/d3d12core.dll
+tar --zstd -xf "$VKD3D_TAR" -C "$STAGE_WINE/usr/local/share/wineexplorer/dxvk/x32" --strip-components=2 vkd3d-proton-2.13/x86/d3d12.dll vkd3d-proton-2.13/x86/d3d12core.dll
+
+cat > "$STAGE_WINE/usr/local/share/wineexplorer/dxvk/LICENSE.dxvk" <<'EOF'
+DXVK is Copyright (c) 2017-2024 Philip Rebohle, et al.
+Licensed under the zlib License.
+EOF
+cat > "$STAGE_WINE/usr/local/share/wineexplorer/dxvk/LICENSE.vkd3d" <<'EOF'
+vkd3d-proton is Copyright (c) 2018-2024 Hans-Kristian Arntzen and contributors.
+Licensed under the GNU Lesser General Public License, Version 2.1.
+EOF
+
+# Font resource files for machine root setup
+mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/fonts"
+install -m644 "$ROOT_DIR/src/resources/fonts/font-substitutes.reg" "$STAGE_WINE/usr/local/share/wineexplorer/fonts/"
+install -m644 "$ROOT_DIR/src/resources/fonts/font-links.txt" "$STAGE_WINE/usr/local/share/wineexplorer/fonts/"
+
 # Remove development include headers to save ISO squashfs space
 rm -rf "$STAGE_WINE/usr/local/include"
 
@@ -199,7 +316,23 @@ cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
 cp "$ROOT_DIR/scripts/setup-machine-root.sh" "$STAGE_SESSION/usr/local/bin/wex-setup-machine.sh"
 cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex-migrate-prefix.sh"
+cp "$ROOT_DIR/scripts/wex-graphics.sh" "$STAGE_SESSION/usr/local/bin/wex-graphics"
+cp "$ROOT_DIR/scripts/wex-components.sh" "$STAGE_SESSION/usr/local/bin/wex-components"
 chmod 755 "$STAGE_SESSION/usr/local/bin/"*
+
+# Windows Components application entry
+mkdir -p "$STAGE_SESSION/usr/share/applications"
+cat > "$STAGE_SESSION/usr/share/applications/wex-components.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Windows Components
+Comment=Install optional Windows redistributables and runtimes
+Exec=/usr/local/bin/wex-components
+Icon=appwiz
+Terminal=false
+Categories=System;Settings;
+EOF
+chmod 644 "$STAGE_SESSION/usr/share/applications/wex-components.desktop"
 
 # Desktop session definition
 cp "$ROOT_DIR/scripts/wine-explorer.desktop" "$STAGE_SESSION/usr/share/xsessions/wine-explorer.desktop"
@@ -241,7 +374,7 @@ Section: x11
 Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
-Depends: wineexplorer, wexcomp, acl, lightdm, lightdm-gtk-greeter, accountsservice, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base
+Depends: wineexplorer, wexcomp, acl, lightdm, lightdm-gtk-greeter, accountsservice, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, vulkan-tools, winetricks, cabextract, zenity
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
  Session scripts, Xorg configurations, LightDM greeter and systemd setup units
