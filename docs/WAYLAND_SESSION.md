@@ -16,6 +16,13 @@ build uses `/srv/protonexplorer/wayland-session-iso-build`, with its output
 and packaging temporaries on the large /srv/protonexplorer volume, not the
 nearly full root disk. Fresh installation is still pending; this is not B
 acceptance. The earlier source-pin and disabled-controls notes below are history.
+The ISO build succeeded, producing 1,671,114,752 bytes. Its copied SHA256 matches
+the build VM: `c14e67a41dbdf8ee43645ff44b84ca03bfb3b3f1eeeabbf6015e0fc51dc95192`.
+The fresh `wayland-session-iso` test is running the Wayland variant of
+install-interactive.sh from the copy on Debian WSL native storage. Its initial
+blank-disk partition/format steps pass and it is copying the installed system.
+`build/wayland-session/fresh-install.log` is the running log; no fresh-install
+acceptance is inferred before it finishes.
 The Wayland installer test uses a separate blank 40 GiB disk and 30,000 MB
 partition so the subsequent real application installations fit. The default
 X11 installer test keeps its 20 GiB disk and 15,000 MB partition.
