@@ -1,5 +1,28 @@
 # Codex handoff — 2026-10-16 Wayland L2 in progress
 
+**STOP AT REVIEW POINT 1.** Parts A/B of WAYLAND_SESSION_WORKORDER.md are ready
+for Claude's review; the report and screenshot/log links are at the top of
+WAYLAND_SESSION.md. The clean ISO installation, default-X11 Alice login,
+selected-Wayland Bob login, 32/64-bit checks, S4 shared-app/access and offline
+account/prefix assertions all pass. The real foot/Notepad action runner passes
+with outline dragging. GTK, Qt, xterm, Firefox, normal Steam (no added sandbox
+override), winecfg, our Control Panel and the per-user 32-bit 7-Zip GUI install
+now have fresh-installed-system evidence. Initial private prefixes are 1 MB.
+
+Wine production/pin **0f25ee1**, compositor **2bde47ee**. The ISO is built and
+copied with the verified checksum below. Do not resume its installer: it has
+finished and the same installed VM is now running Bob's Wayland session with
+the real apps open for review. GTK contains unsaved **test** text; Steam has
+dummy account text but no sign-in was submitted. The old development overlay
+is stopped. No build is running; the Debian WSL staging HTTP server is up.
+
+Two material known limitations remain explicit: Qt's confirmation buttons
+can repaint late after switching back at 150%, and a live output-scale change
+while an SSD window is already maximized can detach its group. Static 150%
+and the two-output 100% checks pass on the installed development overlay.
+No separate 144-DPI Wine-font matrix is claimed. Review this scope before tray
+C and final regressions D. The historical incremental notes below are retained.
+
 **Active work order:** `WAYLAND_SESSION_WORKORDER.md` replaces the open-ended
 L2 remainder. Continue A and B through review point 1; only then start tray C
 and regression D. Real programs on an installed VM, no new synthetic cases.
