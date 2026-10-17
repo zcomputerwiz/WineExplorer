@@ -1,0 +1,130 @@
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 tray=0000000000010080 rect=0,740,1024,768
+command=apply argc=3
+command=context argc=2
+apply Classic=1
+command=configure argc=3
+FAIL no taskbar property sheet
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 tray=0000000000010080 rect=0,740,1024,768
+command=configure argc=3
+PASS taskbar property settings applied
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 tray=000000000001005a rect=0,740,1024,768
+command=context argc=2
+command=close argc=2
+command=sample argc=1
+command=sample argc=1
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 tray=000000000001005a rect=0,740,1024,768
+command=context argc=2
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 tray=0000000000010052 rect=0,740,1024,768
+command=sample argc=1
+command=sample argc=1
+command=context argc=2
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 tray=000000000001005a rect=0,740,1024,768
+command=sample argc=1
+command=sample argc=1
+command=context argc=2
+command=configure argc=3
+PASS taskbar property settings applied
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 tray=000000000001005a rect=0,740,1024,768
+command=apply argc=3
+apply Luna=1
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 tray=000000000001005a rect=0,738,1024,768
+command=close argc=2
+command=context argc=2
+command=sample argc=1
+command=sample argc=1
+arch=64 icon=00000000000200c4 add-hidden=1
+arch=32 icon=000300d8 add-hidden=1
+arch=64 add-visible=1
+arch=32 add-visible=1
+command=configure argc=3
+FAIL no taskbar property sheet
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,734,1024,768
+command=sample argc=1
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,734,1024,768
+command=sample argc=1
+arch=64 icon=00000000000100ce add-hidden=1
+arch=64 add-visible=1
+arch=32 icon=000100ec add-hidden=1
+arch=32 add-visible=1
+command=context argc=2
+command=configure argc=3
+PASS taskbar property settings applied
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,734,1024,768
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,734,1024,768
+command=context argc=2
+command=lock argc=3
+PASS lock=1
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,738,1024,768
+visible-tray-icons=4
+command=apply argc=3
+apply Classic=1
+command=lock argc=3
+PASS lock=1
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 first_tray=000000000001005a tray=000000000001005a rect=0,740,1024,768
+visible-tray-icons=4
+command=lock argc=3
+PASS lock=0
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 first_tray=000000000001005a tray=000000000001005a rect=0,740,1024,768
+visible-tray-icons=4
+command=hide-inactive argc=3
+PASS hide-inactive=0
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 first_tray=000000000001005a tray=000000000001005a rect=0,740,1024,768
+visible-tray-icons=6
+command=hide-inactive argc=3
+PASS hide-inactive=1
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 first_tray=000000000001005a tray=000000000001005a rect=0,740,1024,768
+visible-tray-icons=4
+command=apply argc=3
+apply Luna=1
+command=lock argc=3
+PASS lock=0
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,734,1024,768
+visible-tray-icons=4
+command=hide-inactive argc=3
+PASS hide-inactive=0
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,734,1024,768
+visible-tray-icons=6
+command=hide-inactive argc=3
+PASS hide-inactive=1
+command=lock argc=3
+PASS lock=1
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,738,1024,768
+visible-tray-icons=4
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,738,1024,768
+visible-tray-icons=6
+command=inspect argc=2
+arch=64 theme_active=1 app_themed=1 first_tray=000000000001005a tray=000000000001005a rect=0,738,1024,768
+visible-tray-icons=4
+command=context argc=2
+command=lock argc=3
+PASS lock=0
+command=apply argc=3
+apply Classic=1
+command=inspect argc=2
+arch=64 theme_active=0 app_themed=0 first_tray=000000000001005a tray=000000000001005a rect=0,740,1024,768
+visible-tray-icons=2
+command=apply argc=3
+apply Luna=1
+command=lock argc=3
+PASS lock=1

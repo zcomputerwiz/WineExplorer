@@ -1,0 +1,20 @@
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="7" viewBox="0 0 20 7">
+  <!-- Two staggered columns of raised dots on a transparent toolbar handle. -->
+  <rect x="2" y="1" width="1" height="1" fill="#15469e"/>
+  <rect x="3" y="2" width="1" height="1" fill="#83b6ff"/>
+  <rect x="2" y="4" width="1" height="1" fill="#15469e"/>
+  <rect x="3" y="5" width="1" height="1" fill="#83b6ff"/>
+  <rect x="6" y="1" width="1" height="1" fill="#15469e"/>
+  <rect x="7" y="2" width="1" height="1" fill="#83b6ff"/>
+  <rect x="6" y="4" width="1" height="1" fill="#15469e"/>
+  <rect x="7" y="5" width="1" height="1" fill="#83b6ff"/>
+  <rect x="10" y="1" width="1" height="1" fill="#15469e"/>
+  <rect x="11" y="2" width="1" height="1" fill="#83b6ff"/>
+  <rect x="10" y="4" width="1" height="1" fill="#15469e"/>
+  <rect x="11" y="5" width="1" height="1" fill="#83b6ff"/>
+  <rect x="14" y="1" width="1" height="1" fill="#15469e"/>
+  <rect x="15" y="2" width="1" height="1" fill="#83b6ff"/>
+  <rect x="14" y="4" width="1" height="1" fill="#15469e"/>
+  <rect x="15" y="5" width="1" height="1" fill="#83b6ff"/>
+</svg>

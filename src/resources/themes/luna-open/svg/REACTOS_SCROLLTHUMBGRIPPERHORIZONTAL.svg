@@ -1,0 +1,28 @@
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="9" height="28" viewBox="0 0 9 28">
+  <!-- Three vertical raised ridges in each of four thumb states. -->
+  <path d="M 1.5 1 V 6" stroke="#587ca8"/>
+  <path d="M 2.5 1 V 6" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 4 1 V 6" stroke="#587ca8"/>
+  <path d="M 5 1 V 6" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 6.5 1 V 6" stroke="#587ca8"/>
+  <path d="M 7.5 1 V 6" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 1.5 8 V 13" stroke="#587ca8"/>
+  <path d="M 2.5 8 V 13" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 4 8 V 13" stroke="#587ca8"/>
+  <path d="M 5 8 V 13" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 6.5 8 V 13" stroke="#587ca8"/>
+  <path d="M 7.5 8 V 13" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 1.5 15 V 20" stroke="#587ca8"/>
+  <path d="M 2.5 15 V 20" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 4 15 V 20" stroke="#587ca8"/>
+  <path d="M 5 15 V 20" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 6.5 15 V 20" stroke="#587ca8"/>
+  <path d="M 7.5 15 V 20" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 1.5 22 V 27" stroke="#a0a0a0"/>
+  <path d="M 2.5 22 V 27" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 4 22 V 27" stroke="#a0a0a0"/>
+  <path d="M 5 22 V 27" stroke="#ffffff" opacity="0.8"/>
+  <path d="M 6.5 22 V 27" stroke="#a0a0a0"/>
+  <path d="M 7.5 22 V 27" stroke="#ffffff" opacity="0.8"/>
+</svg>

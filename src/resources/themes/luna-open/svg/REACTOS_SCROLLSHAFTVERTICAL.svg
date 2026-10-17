@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="15" height="68" viewBox="0 0 15 68">
+  <defs>
+    <linearGradient id="shNorm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#d4dce8"/>
+      <stop offset="15%" stop-color="#e8eef8"/>
+      <stop offset="85%" stop-color="#f2f6fc"/>
+      <stop offset="100%" stop-color="#dce4f0"/>
+    </linearGradient>
+  </defs>
+  <rect y="0" width="15" height="17" fill="url(#shNorm)"/>
+  <line x1="0.5" y1="0" x2="0.5" y2="17" stroke="#b4c2d4" stroke-width="1"/>
+  <line x1="14.5" y1="0" x2="14.5" y2="17" stroke="#b4c2d4" stroke-width="1"/>
+  <rect y="17" width="15" height="17" fill="url(#shNorm)"/>
+  <line x1="0.5" y1="17" x2="0.5" y2="34" stroke="#b4c2d4" stroke-width="1"/>
+  <line x1="14.5" y1="17" x2="14.5" y2="34" stroke="#b4c2d4" stroke-width="1"/>
+  <rect y="34" width="15" height="17" fill="url(#shNorm)"/>
+  <line x1="0.5" y1="34" x2="0.5" y2="51" stroke="#b4c2d4" stroke-width="1"/>
+  <line x1="14.5" y1="34" x2="14.5" y2="51" stroke="#b4c2d4" stroke-width="1"/>
+  <rect y="51" width="15" height="17" fill="url(#shNorm)"/>
+  <line x1="0.5" y1="51" x2="0.5" y2="68" stroke="#b4c2d4" stroke-width="1"/>
+  <line x1="14.5" y1="51" x2="14.5" y2="68" stroke="#b4c2d4" stroke-width="1"/>
+</svg>

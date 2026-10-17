@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="101" height="40" viewBox="0 0 101 40">
   <defs>
     <linearGradient id="logoffGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#246ce8"/>
-      <stop offset="25%" stop-color="#1456d8"/>
-      <stop offset="65%" stop-color="#0842c4"/>
-      <stop offset="100%" stop-color="#0032b0"/>
+      <stop offset="0%" stop-color="#3d91ed"/>
+      <stop offset="25%" stop-color="#3689e6"/>
+      <stop offset="65%" stop-color="#2878da"/>
+      <stop offset="100%" stop-color="#1760c2"/>
     </linearGradient>
     <linearGradient id="logoffShine" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#72acff" stop-opacity="0.8"/>

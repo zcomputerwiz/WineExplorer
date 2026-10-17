@@ -11,12 +11,12 @@
       <stop offset="100%" stop-color="#00248e"/>
     </linearGradient>
     <linearGradient id="inactGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#b6c6dc"/>
-      <stop offset="8%" stop-color="#a4b6ce"/>
-      <stop offset="25%" stop-color="#8fa2bc"/>
-      <stop offset="60%" stop-color="#7a8eaa"/>
-      <stop offset="85%" stop-color="#667a96"/>
-      <stop offset="100%" stop-color="#556984"/>
+      <stop offset="0%" stop-color="#b8c8f2"/>
+      <stop offset="8%" stop-color="#a4b8ed"/>
+      <stop offset="25%" stop-color="#91a8e7"/>
+      <stop offset="60%" stop-color="#819cdf"/>
+      <stop offset="85%" stop-color="#7892d8"/>
+      <stop offset="100%" stop-color="#7188ce"/>
     </linearGradient>
   </defs>
 
@@ -40,7 +40,7 @@
   <!-- Inactive top-left shine -->
   <path d="M 0.5 36 Q 0.5 29.5 7 29.5 L 35 29.5" fill="none" stroke="#e0e8f2" stroke-width="1.2" opacity="0.8"/>
   <!-- Inactive left border -->
-  <line x1="0.5" y1="35" x2="0.5" y2="58" stroke="#768ca8" stroke-width="1"/>
+  <line x1="0.5" y1="35" x2="0.5" y2="58" stroke="#7892d8" stroke-width="1"/>
   <!-- Inactive top-right shadow -->
-  <path d="M 46 29.5 L 60 29.5 Q 65.5 29.5 65.5 35 L 65.5 58" fill="none" stroke="#344052" stroke-width="1"/>
+  <path d="M 46 29.5 L 60 29.5 Q 65.5 29.5 65.5 35 L 65.5 58" fill="none" stroke="#586cad" stroke-width="1"/>
 </svg>

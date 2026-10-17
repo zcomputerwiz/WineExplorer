@@ -1,0 +1,14 @@
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="64" viewBox="0 0 22 64">
+  <!-- Horizontal counterpart of the independently drawn vertical thumb. -->
+  <defs>
+    <linearGradient id="g0" x2="0" y2="1"><stop stop-color="#ffffff"/><stop offset="0.4" stop-color="#d8e4f8"/><stop offset="1" stop-color="#a0bce8"/></linearGradient>
+    <linearGradient id="g1" x2="0" y2="1"><stop stop-color="#ffffff"/><stop offset="0.4" stop-color="#e8f0fe"/><stop offset="1" stop-color="#b0ccf4"/></linearGradient>
+    <linearGradient id="g2" x2="0" y2="1"><stop stop-color="#98b6e2"/><stop offset="0.4" stop-color="#b4cdf0"/><stop offset="1" stop-color="#d0e2fa"/></linearGradient>
+    <linearGradient id="g3" x2="0" y2="1"><stop stop-color="#f0f0f0"/><stop offset="0.4" stop-color="#e4e4e4"/><stop offset="1" stop-color="#d8d8d8"/></linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="21" height="15" rx="2" fill="url(#g0)" stroke="#4e74a4"/>
+  <rect x="0.5" y="16.5" width="21" height="15" rx="2" fill="url(#g1)" stroke="#3c6498"/>
+  <rect x="0.5" y="32.5" width="21" height="15" rx="2" fill="url(#g2)" stroke="#284c80"/>
+  <rect x="0.5" y="48.5" width="21" height="15" rx="2" fill="url(#g3)" stroke="#b0b0b0"/>
+</svg>

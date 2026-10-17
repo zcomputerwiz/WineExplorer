@@ -1,48 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="26" height="144" viewBox="0 0 26 144">
   <defs>
-    <linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#2262d8"/>
-      <stop offset="100%" stop-color="#083ca4"/>
+    <linearGradient id="tbNorm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2464dc"/>
+      <stop offset="100%" stop-color="#0a3ea8"/>
     </linearGradient>
-    <linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#387cf0"/>
-      <stop offset="100%" stop-color="#144ecc"/>
+    <linearGradient id="tbHot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3a82f4"/>
+      <stop offset="100%" stop-color="#1652d0"/>
     </linearGradient>
-    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#083494"/>
-      <stop offset="100%" stop-color="#1042ac"/>
+    <linearGradient id="tbPress" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#082e88"/>
+      <stop offset="100%" stop-color="#1246b0"/>
     </linearGradient>
-    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#042068"/>
-      <stop offset="100%" stop-color="#0c3ca0"/>
+    <!-- State 4: Checked / Active - Darker sunken blue -->
+    <linearGradient id="tbActive" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#062470"/>
+      <stop offset="30%" stop-color="#082a7c"/>
+      <stop offset="70%" stop-color="#0e3692"/>
+      <stop offset="100%" stop-color="#1242a4"/>
     </linearGradient>
-    <linearGradient id="bg4" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#082c80"/>
-      <stop offset="100%" stop-color="#1448b4"/>
-    </linearGradient>
-    <linearGradient id="bg5" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#021650"/>
-      <stop offset="100%" stop-color="#082c84"/>
+    <!-- State 5: Active Hot -->
+    <linearGradient id="tbActiveHot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#082c84"/>
+      <stop offset="100%" stop-color="#1648b8"/>
     </linearGradient>
   </defs>
-  <!-- State 1 -->
-  <rect x="0.5" y="0.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg0)" stroke="#042478" stroke-width="1"/>
-  <line x1="1" y1="1.5" x2="25" y2="1.5" stroke="#5892ff" stroke-width="1" opacity="0.8"/>
-  <!-- State 2 -->
-  <rect x="0.5" y="24.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg1)" stroke="#082e8e" stroke-width="1"/>
-  <line x1="1" y1="25.5" x2="25" y2="25.5" stroke="#80b0ff" stroke-width="1" opacity="0.8"/>
-  <!-- State 3 -->
-  <rect x="0.5" y="48.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg2)" stroke="#021c60" stroke-width="1"/>
-  <!-- State 4 -->
-  <rect x="0.5" y="72.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg3)" stroke="#021650" stroke-width="1"/>
-  <line x1="1" y1="73.5" x2="25" y2="73.5" stroke="#f89818" stroke-width="2"/>
-  <line x1="1" y1="75" x2="25" y2="75" stroke="#d8740c" stroke-width="1" opacity="0.6"/>
-  <!-- State 5 -->
-  <rect x="0.5" y="96.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg4)" stroke="#041c60" stroke-width="1"/>
-  <line x1="1" y1="97.5" x2="25" y2="97.5" stroke="#f89818" stroke-width="2"/>
-  <line x1="1" y1="99" x2="25" y2="99" stroke="#d8740c" stroke-width="1" opacity="0.6"/>
-  <!-- State 6 -->
-  <rect x="0.5" y="120.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg5)" stroke="#001040" stroke-width="1"/>
-  <line x1="1" y1="121.5" x2="25" y2="121.5" stroke="#f89818" stroke-width="2"/>
-  <line x1="1" y1="123" x2="25" y2="123" stroke="#d8740c" stroke-width="1" opacity="0.6"/>
+  <!-- State 1: Normal -->
+  <rect x="0.5" y="0.5" width="25" height="23" fill="url(#tbNorm)" stroke="#062880" stroke-width="1"/>
+  <line x1="1" y1="1.5" x2="25" y2="1.5" stroke="#609cff" stroke-width="1" opacity="0.8"/>
+  <!-- State 2: Hot -->
+  <rect x="0.5" y="24.5" width="25" height="23" fill="url(#tbHot)" stroke="#0a3498" stroke-width="1"/>
+  <line x1="1" y1="25.5" x2="25" y2="25.5" stroke="#8cbaff" stroke-width="1" opacity="0.85"/>
+  <!-- State 3: Pressed -->
+  <rect x="0.5" y="48.5" width="25" height="23" fill="url(#tbPress)" stroke="#041e60" stroke-width="1"/>
+  <line x1="1" y1="49.5" x2="25" y2="49.5" stroke="#000000" stroke-width="1" opacity="0.3"/>
+  <!-- State 4: Checked (active task button): sunken blue, without an attention stripe. -->
+  <rect x="0.5" y="72.5" width="25" height="23" fill="url(#tbActive)" stroke="#021448" stroke-width="1"/>
+  <line x1="1" y1="73" x2="1" y2="95" stroke="#021448" stroke-width="1" opacity="0.5"/>
+  <!-- State 5: Hot Checked -->
+  <rect x="0.5" y="96.5" width="25" height="23" fill="url(#tbActiveHot)" stroke="#041a54" stroke-width="1"/>
+  <!-- State 6: Pressed Checked -->
+  <rect x="0.5" y="120.5" width="25" height="23" fill="url(#tbPress)" stroke="#021240" stroke-width="1"/>
 </svg>

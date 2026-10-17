@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): an open Luna visual style, built from ReactOS Lunar
 
-Status: round 1 merged 2026-10-17; round 2 (details) open. Assignee: Gemini.
+Status: round 1 merged 2026-10-17; round 2 art reviewed with native XP corrections.
+Runtime/acceptance follow-ups: [review report](luna/review-20261017.md). Assignee: Gemini.
 
 ## Goal
 

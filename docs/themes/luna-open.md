@@ -299,3 +299,69 @@ The following 39 SVG files provide editable vector sources compiled into the vis
    - `[ExplorerBar.NormalGroupHead]`: `TextColor = 33 93 198`.
    - `[ExplorerBar.SpecialGroupCollapse]` / `[ExplorerBar.SpecialGroupExpand]`: Pointed to `Normal\SpecialGroupCollapse.bmp` and `SpecialGroupExpand.bmp`.
 
+
+
+## Round 2 Polish Updates (2026-10-17)
+
+Seven specific details were refined to match genuine Luna at a glance:
+
+1. **Caption Font (`src/resources/fonts/font-substitutes.reg`)**:
+   - Added `"Trebuchet MS"="DejaVu Sans"` to FontSubstitutes registry to ensure open environments without Microsoft core fonts fall back directly to DejaVu Sans Bold, matching the humanist sans metrics, letter spacing, and bold weight of Trebuchet MS.
+
+2. **Caption Buttons (`REACTOS_CAPTIONBUTTON_BACKGROUND.svg`, `REACTOS_CLOSEBUTTON_BACKGROUND.svg`, `*SMALL.svg`)**:
+   - Resized buttons to uniform 21x21 rounded pill geometry (`stroke="#ffffff"`, `stroke-width="1"`).
+   - Redrew 2px bold white glyph bitmaps (`CLOSEBUTTON_GLYPH13.bmp`, `MINBUTTON_GLYPH13.bmp`, `MAXBUTTON_GLYPH13.bmp`, `RESTOREBUTTON_GLYPH13.bmp`).
+
+3. **Start Button (`REACTOS_STARTBUTTON.svg`, `NormalReactOS.INI`)**:
+   - Redrew Start button SVG (99x90, 30px pill height) with bright top specular highlight (`#c8ffa4` to transparent), dark border (`#0e4006`), and clean 32bpp alpha mask.
+   - Configured `[Start::Button]` in `NormalReactOS.INI` with `Font = Trebuchet MS, 12, Bold, Italic`, `ShadowType = Single`, `ShadowColor = 0 55 12`, `TextShadowOffset = 1, 1`. The shell dynamically paints the Wine glass logo and text onto the pill.
+
+4. **Start Menu Panels & Controls (`NORMAL_USERTILEBACKGROUND.svg`, `NORMAL_STARTUSERPANEL.svg`, `NORMAL_STARTPANELMOREPROGARROW.svg`, `NormalReactOS.INI`)**:
+   - Authored `NORMAL_USERTILEBACKGROUND.svg` (55x55): 2.5px white rounded border with soft drop shadow.
+   - Updated `NORMAL_STARTUSERPANEL.svg`: 2px vibrant orange accent strip (`#e8841c` / `#fca834`) across bottom edge.
+   - Authored `NORMAL_STARTPANELMOREPROGARROW.svg` and `HOT.svg`: 16x16 32bpp alpha green forward triangle without magenta artifacts.
+   - Configured `[StartPanel.UserPane]` with `Font = Trebuchet MS, 14, Bold` and drop shadow.
+   - Adjusted `[StartPanel.Logoff]` height to 40px with royal blue gradient.
+
+5. **Taskbar and Notification Tray (`REACTOS_TASKBANDBUTTONNOEDGE.svg`, `REACTOS_TASKBARTRAY.svg`)**:
+   - Authored `REACTOS_TASKBANDBUTTONNOEDGE.svg`: State 4 (checked/active) in darker sunken blue (`#062470` to `#1242a4`) with 1px vibrant orange top highlight (`#f89a1c`).
+   - Authored `REACTOS_TASKBARTRAY.svg` (25x26): lighter cyan-blue gradient (`#168ee4` to `#043e94`) with 1px bright cyan vertical highlight line (`#48c4ff`) on left edge. Configured `SizingMargins = 4, 4, 0, 0` in INI.
+
+6. **Scroll Bars (`REACTOS_SCROLLARROWS.svg`, `REACTOS_SCROLLTHUMBVERTICAL.svg`, `REACTOS_SCROLLTHUMBGRIPPERVERTICAL.svg`, `REACTOS_SCROLLSHAFTVERTICAL.svg`)**:
+   - Authored `REACTOS_SCROLLARROWS.svg` (15x256, 16 states): light blue-grey rounded buttons with dark navy blue arrow glyphs.
+   - Authored `REACTOS_SCROLLTHUMBVERTICAL.svg` (15x88): light blue-grey rounded thumbs.
+   - Authored `REACTOS_SCROLLTHUMBGRIPPERVERTICAL.svg` (6x40, 32bpp alpha): 3 horizontal gripper ridges.
+   - Authored `REACTOS_SCROLLSHAFTVERTICAL.svg` (15x68): soft light blue channel track.
+   - Wired `Transparent = True` and `TransparentColor = 255 0 255` in INI.
+
+7. **My Computer Task Pane (`NormalReactOS.INI`, `NORMAL_NORMALGROUPBACKGROUND.svg`, `NORMAL_SPECIALGROUPBACKGROUND.svg`)**:
+   - Configured `[ExplorerBar]` `GradientColor1 = 120 152 224`, `GradientColor2 = 84 112 198` for rich blue vertical background gradient.
+   - Redrew group backgrounds as pure crisp white fill (`#ffffff`) with 1px soft blue border (`#b4ccf0`).
+
+## Native XP review corrections (2026-10-17)
+
+This addendum supersedes the round-2 visual descriptions where noted. All
+changes use open SVG sources and independent elementary geometry; native XP
+screenshots were viewed for comparison only, without extracting, tracing or
+sampling their art. The directory now contains 58 SVG sources. The [review
+report](../luna/review-20261017.md) records verification and remaining issues.
+
+| Sources | Origin and correction |
+|---|---|
+| `REACTOS_FRAMECAPTION`, `REACTOS_FRAMESIDES`, `REACTOS_CAPTIONBUTTON_BACKGROUND`, `REACTOS_CAPTIONBUTTON_BACKGROUNDSMALL`, `REACTOS_CLOSEBUTTON_BACKGROUND`, `REACTOS_CLOSEBUTTON_BACKGROUNDSMALL` | Existing open vector shapes; inactive colors adjusted by eye from gray/brown to lavender blue and muted pink |
+| `NORMAL_NORMALGROUPHEAD`, `NORMAL_SPECIALGROUPHEAD`, `NORMAL_NORMALGROUPCOLLAPSE`, `NORMAL_NORMALGROUPEXPAND`, `NORMAL_SPECIALGROUPCOLLAPSE`, `NORMAL_SPECIALGROUPEXPAND` | Existing open rectangles/circles; remove magenta backdrops and export with alpha; chevron paths independently redrawn as doubles |
+| `NORMAL_NORMALGROUPBACKGROUND`, `NORMAL_SPECIALGROUPBACKGROUND` | Existing open rectangles; pale blue and off-white body fills replace the submission's flat white |
+| `NORMAL_STARTUSERPANEL`, `NORMAL_STARTPANELLOGOFFBACKGROUND`, `NORMAL_USERTILEBACKGROUND` | Existing open panel/frame geometry; by-eye lighter blue gradients, independently drawn rounded alpha clip, and pale picture-well fill |
+| `NORMAL_STARTPANELMOREPROGARROW`, `NORMAL_STARTPANELMOREPROGARROWHOT`, `REACTOS_STARTBUTTON` | Existing open triangle/curve sources; enlarge the programs arrow and redraw the Start button's outer end with shorter curves and a sloping edge |
+| `REACTOS_TASKBANDBUTTON`, `REACTOS_TASKBANDBUTTONNOEDGE`, `REACTOS_TASKBARTRAY`, `REACTOS_TASKBARTRAYVERTICAL` | Existing open rectangular gradients; remove the incorrect ordinary-active orange stripe and lighten the cyan tray gradient in both orientations |
+| `REACTOS_SCROLLARROWS`, `REACTOS_SCROLLTHUMBVERTICAL` | Preserve the open rounded shapes as 32-bit alpha rather than compositing their edges against magenta |
+| **New:** `REACTOS_SCROLLTHUMBHORIZONTAL`, `REACTOS_SCROLLTHUMBGRIPPERHORIZONTAL`, `REACTOS_SCROLLSHAFTHORIZONTAL` | Independently drawn rounded rectangles, gradients and ridge lines; match the open vertical counterparts while preserving four horizontally oriented states in a vertical strip |
+| **New:** `REACTOS_TRAYCHEVRONHORIZONTAL`, `REACTOS_TRAYCHEVRONHORIZONTALOPEN` | Independently drawn circles, three blue state gradients and left/right white chevron paths; no inherited gray bitmap pixels reused |
+| **New:** `NORMAL_TASKBARGRIPPER`, `NORMAL_TASKBARGRIPPERVERTICAL`, `NORMAL_TASKBARCHEVRON` | Independently drawn pairs of dot rectangles and forward double-chevron paths on alpha; both grip orientations and all six overflow-glyph states |
+
+The names in the table have the `.svg` extension. Each replaces the same-name
+bitmap in the existing resource map at build time. The new sources retain
+the resource/state layouts expected by the INIs. In all three font schemes,
+horizontal TaskBar toolbar/button/dropdown/overflow sizing margins are now
+`8, 3, 3, 3`, which fit each 26x24 background state. No runtime or theme-engine
+code changes are part of these corrections.
