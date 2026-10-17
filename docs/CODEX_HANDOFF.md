@@ -14,8 +14,8 @@ Item 2 now passes with label-crop OCR: both buttons appear in 0.466 s on the
 current runtime and 0.481 s on the untouched pre-polish runtime. Whole-screen
 OCR omitted visibly drawn buttons; no rendering patch was justified. See
 wayland-polish/item2-notes.md and committed logs/screenshots. The baseline
-`tray-final-wayland` VM received qterminal/wlr-randr test packages and is
-shutting down normally, with its original runtime preserved.
+`tray-final-wayland` VM received qterminal/wlr-randr test packages and has
+shut down normally, with its original runtime preserved.
 
 Item 3's staged maximized/restored real-foot 100%→150%→100% checks pass,
 including settled hosting/focus, typing, actual client bounds, work area and
@@ -26,12 +26,15 @@ Next: fresh-ISO regression from these pins and current master. No final
 polish acceptance is claimed yet.
 Steam's short
 manual steps are in WAYLAND_SESSION.md; signed-in acceptance remains manual.
-The QEMU development VM `wayland-session-iso` is running Bob's Wayland desktop
-with staged win32u and owned shell/host modules. The compositor is
-the scale candidate; its temporary timeout tracing is removed in the rebuilt
-source/binary, pending the next dev-session restart. The
+The QEMU development VM `wayland-session-iso` has shut down normally at 100%
+after the staged checks. Its disk has staged win32u and owned shell/host
+modules and the scale candidate compositor with temporary timeout tracing.
+The tracing is removed from the rebuilt production source/binary. The
 preserved `tray-final-x11` / `tray-final-wayland` acceptance VMs remain stopped.
-The Proton build source is being synced to Wine ed5fe96; generated configure and owned
+The Proton build source is synced to master de35f152 / Wine ed5fe96 and both
+architectures build. A clean `wineexplorer-polish.iso` is packaging, with
+current freely licensed theme assets. Fresh test VM names are
+`polish-20261017-x11` and `polish-20261017-wayland`. Generated configure and owned
 stub links are the usual assembly changes. No `make install` was used there.
 
 The prior handoff below is historical; its queued inset-border item is now

@@ -39,6 +39,11 @@ ACTIVE group before it detached. It also checks actual native bounds against
 the Wine client rectangle within one physical pixel, keyboard input, taskbar
 bounds and the work area. The real sequence is maximized and restored foot,
 100% → 150% → 100%.
+The [stale-configure failure](logs/item3-stale-configure.log) and
+[stale restored observation](logs/item3-stale-observation.log) are preserved.
+The latter runner reported a pass before the native-alignment and on-screen
+assertions were added; its off-screen restored coordinates are a failure,
+not accepted evidence.
 
 ## Failed commands and workarounds
 
@@ -54,7 +59,8 @@ bounds and the work area. The real sequence is maximized and restored foot,
   wexhost; its actual module is wexshell.
 
 Temporary compositor timeout diagnostics have been removed from the source
-and rebuilt. The development QEMU VM still has the tracing compositor until
-its next restart. It has staged candidate
+and rebuilt. The development QEMU VM shut down normally after the check.
+Its disk still has the tracing compositor until its next runtime update.
+It has staged candidate
 modules, so it is not fresh-ISO acceptance evidence. The preserved previous
 acceptance VMs remain stopped and unchanged.
