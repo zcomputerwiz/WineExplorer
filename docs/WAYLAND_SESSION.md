@@ -7,6 +7,16 @@ follow that review. No acceptance is claimed yet.
 
 ### Installed-program and packaging checkpoint
 
+Integration candidate: production Wine and the main gitlink now advance to
+0f25ee1; compositor is 2bde47ee. The isolated assembled Wine source was audited
+again (all 12,462 stock files match 0f25ee1), current owned master source was
+synced, and its combined build passes (`session-iso-candidate-wow64.log`).
+The preceding old-production d92d7e4 compatibility build also passes. The ISO
+build uses `/srv/protonexplorer/wayland-session-iso-build`, with its output
+and packaging temporaries on the large /srv/protonexplorer volume, not the
+nearly full root disk. Fresh installation is still pending; this is not B
+acceptance. The earlier source-pin and disabled-controls notes below are history.
+
 The real installed-session action runner now passes on the development overlay
 with full-window dragging **off** (the actual SPI value is logged): foot input,
 move, edge shrink, corner grow, exact work-area maximize/restore, taskbar

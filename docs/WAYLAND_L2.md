@@ -3,6 +3,17 @@
 
 Status: in progress; no acceptance claimed.
 
+2026-10-16 integration: WAYLAND_SESSION_WORKORDER.md replaces the open-ended
+remainder below. Production Wine now pins **0f25ee1**, compositor **2bde47ee**.
+Hosted resize/maximize controls are enabled on that optional Wayland path.
+Actual installed-overlay foot, GTK, Qt, Firefox, xterm, Steam XWayland,
+32/64-bit Wine and Control Panel coverage is in WAYLAND_SESSION.md, including
+the known Qt 150% repaint and live-maximized scale-change issues. Two outputs
+at 100% and the completed outline-resize action runner pass. A clean combined
+WoW64 build of this integration and the prior production-pin compatibility
+build pass. A fresh ISO is building; review point 1 is not reached. X11 remains
+the default. The following sections retain the historical development record.
+
 Scope and agreed decisions: WAYLAND_L2_WORKORDER.md. Project source is on master;
 Wine and compositor work use codex/wayland-l2, initially f0108dc and 9a47d74f.
 Host compositor worktree: build/wayland-l2/wexcomp. VM compositor checkout remains

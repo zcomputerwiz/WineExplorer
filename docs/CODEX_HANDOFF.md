@@ -4,6 +4,18 @@
 L2 remainder. Continue A and B through review point 1; only then start tray C
 and regression D. Real programs on an installed VM, no new synthetic cases.
 See `WAYLAND_SESSION.md` for incremental results, exact environment and failures.
+**ISO integration now in progress:** Wine production/pin is **0f25ee1** and
+compositor **2bde47ee**. The clean stock source audit (12,462 files) and full
+combined build with current owned master source pass at that Wine revision.
+The optional Wayland controls are enabled. The ISO build is running on the
+Proton build VM in `/srv/protonexplorer/wayland-session-iso-build`, output
+`/srv/protonexplorer/wex-wayland-l1/wineexplorer-wayland-session.iso`, log
+`.../checks/session-iso-build.log`. All packaging temporary files also use
+`/srv/protonexplorer/tmp` on the large volume. Never use ~/inst/build.
+Next: finish ISO, copy to our permitted Debian WSL, run
+`WEX_TEST_SESSION=wayland installer/tests/install-interactive.sh` on a fresh
+test disk, then remaining real-program installed-ISO coverage. Stop only at B's
+review point. This supersedes the "root Wine still d92d7e4" sentence below.
 Latest continuation: compositor **2bde47ee** is pinned, packaged, and passes
 actual foot movement/maximize on two unit-scale outputs. Wine topic **0f25ee1**
 also fixes the blank 64-bit Control Panel's default icon-spacing sentinel;
