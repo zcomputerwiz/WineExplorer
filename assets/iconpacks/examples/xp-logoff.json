@@ -1,0 +1,54 @@
+{
+ "name": "XPExample",
+ "display_name": "XP look-alike example (Log Off)",
+ "module": "shell32",
+ "provenance": "Worked example for docs/OPEN_ART_WORKORDER.md. Both shapes are Fluent UI System Icons glyphs (Microsoft, MIT licence): the rounded square is ic_fluent_square_48_filled.svg, cropped closer by its viewBox, filled with an amber gradient, outlined in a darker amber and given a soft white gloss drawn with the same square path; the key is ic_fluent_key_32_regular.svg filled white with a thin white stroke added, so its outline reads as bold as the XP key. The colours, the gloss and the key's size were chosen by eye, looking at the Windows XP Log Off icon side by side on a developer's machine. No Windows pixels, outlines, sampled colours or files were used.",
+ "licence": "MIT (Fluent UI System Icons glyphs), recoloured and combined here",
+ "sources": {
+  "fluent": {
+   "title": "Fluent UI System Icons (Microsoft)",
+   "licence": "MIT",
+   "url": "https://github.com/microsoft/fluentui-system-icons",
+   "commit": "a347af95478f989038cccbf085978865264c048a",
+   "licence_file": "LICENSE"
+  }
+ },
+ "palette": {
+  "white": "#FFFFFF"
+ },
+ "icons": {
+  "45": {
+   "meaning": "Log Off (Start menu)",
+   "layers": [
+    {
+     "svg": "fluent:assets/Square/SVG/ic_fluent_square_48_filled.svg",
+     "edits": [
+      [
+       "viewBox=\"0 0 48 48\"",
+       "viewBox=\"6 6 36 36\""
+      ],
+      [
+       "fill=\"#212121\"",
+       "fill=\"url(#amber)\" stroke=\"#9E6210\" stroke-width=\"0.9\""
+      ]
+     ],
+     "append": "<defs><linearGradient id=\"amber\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F3C56C\"/><stop offset=\"0.5\" stop-color=\"#E29A2A\"/><stop offset=\"1\" stop-color=\"#C07810\"/></linearGradient><radialGradient id=\"gloss\" cx=\"0.32\" cy=\"0.24\" r=\"0.62\"><stop offset=\"0\" stop-color=\"#FFFFFF\" stop-opacity=\"0.45\"/><stop offset=\"1\" stop-color=\"#FFFFFF\" stop-opacity=\"0\"/></radialGradient></defs><path d=\"M6 12.25C6 8.79822 8.79822 6 12.25 6H35.75C39.2018 6 42 8.79822 42 12.25V35.75C42 39.2018 39.2018 42 35.75 42H12.25C8.79822 42 6 39.2018 6 35.75V12.25Z\" fill=\"url(#gloss)\"/>"
+    },
+    {
+     "svg": "fluent:assets/Key/SVG/ic_fluent_key_32_regular.svg",
+     "edits": [
+      [
+       "fill=\"#212121\"",
+       "fill=\"#FFFFFF\" stroke=\"#FFFFFF\" stroke-width=\"0.8\" stroke-linejoin=\"round\""
+      ]
+     ],
+     "scale": 0.78,
+     "at": [
+      0.11,
+      0.1
+     ]
+    }
+   ]
+  }
+ }
+}

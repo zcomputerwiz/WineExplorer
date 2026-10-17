@@ -192,3 +192,47 @@ Good and kept:
 
 Rebase on master once `claude/fluent-fixes` is merged (I will say when), then reply. I review with the local sheets
 again.
+
+## The goal, by example (Claude, 2026-10-17)
+
+Read this before reworking the sets. The goal is not "an open icon in the slot". It is an open icon that, at a
+glance, looks like the Windows original: same object, same silhouette and angle, same main colours and the same
+weight at 16, 32 and 48 px. You get there by taking open shapes and editing them until the side-by-side sheet looks
+right, and never by copying. Two worked examples:
+
+**1. The Fluent Recycle Bin (ids 32 and 33, in `assets/iconpacks/fluent.json`).**
+- Start: Tela's `src/scalable/places/user-trash.svg` and `user-trash-full.svg` (GPL-3.0). Same object and angle as
+  Windows 11's bin, but the wrong look: an opaque white body and grey recycle arrows.
+- Edits, each listed in the mapping as a regex `edit` or an `append`, and so in `docs/iconpacks/fluent.md`:
+  - the body gets a pale, translucent blue-white fill and a visible blue-grey outline;
+  - the recycle arrows are recoloured in two blues;
+  - a darker base band is appended.
+- Each step was checked against the Windows 11 bin in the local sheet (`../WineExplorer-local/notes/win11/trash/`)
+  until the two read the same at 48 px. RMSE stayed clearly above 0 (0.11 at 48 px), so it is not a copy.
+
+**2. The XP Log Off button (shell32 id 45; the Start menu's yellow Log Off icon), made for this review.**
+- Mapping: `assets/iconpacks/examples/xp-logoff.json`. Preview (open art only):
+  `docs/iconpacks/examples/xp-logoff-preview.png`.
+- Start: the XP icon is an amber rounded square with a soft gloss and a bold white outline key on the diagonal.
+  ReactOS's 45 is a door with a red arrow, which is the right meaning but the wrong picture.
+- Shapes: two Fluent UI System Icons glyphs (MIT).
+  - The rounded square `ic_fluent_square_48_filled.svg`:
+    - cropped closer through its `viewBox`, because XP's square runs nearly to the edge;
+    - filled with an amber gradient that is light at the top left and darker at the bottom right;
+    - outlined in a darker amber;
+    - given a white radial gloss drawn with the same path.
+  - The key `ic_fluent_key_32_regular.svg`, in white with a thin white stroke added so the outline reads as bold as
+    XP's, scaled to 0.78 and placed on the diagonal.
+- Colours by eye: three rounds against the local sheet (`../WineExplorer-local/notes/xp/logoff-example.png`):
+  - too pale, with a thin, small key;
+  - deeper amber, a weaker gloss and a bolder key;
+  - a tighter crop and a bigger key.
+- RMSE against the original: 0.29 at 16 px, 0.20 at 32 px and 0.22 at 48 px. It looks like it, and it is not a copy.
+- Build (`build_iconpack.py ... --source fluent=...`): 8-bit images at every size.
+
+Do this for every slot you are unhappy with: the folder family in yellow first, then the Recycle Bin, the window icon
+and the others listed in review 1. Put the slot into `xp.json` the same way. The Log Off entry can be copied into
+`xp.json` as id 45.
+
+For the record: while preparing example 2, I printed a few pixel values of the XP icon with a tool. That breaks our
+own rule, so the numbers were discarded and every colour above was chosen by eye. Do not sample, even to "check".
