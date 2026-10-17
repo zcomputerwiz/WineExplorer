@@ -151,6 +151,20 @@ extern void compose_event(void *event);
 extern void compose_paint(void);
 extern long compose_event_mask(unsigned long window, long wm_mask);
 
+struct tray_params { WEX_TRAY_ITEM item; DWORD err; };
+struct tray_action_params { DWORD token, action; INT x, y, value; DWORD err; };
+struct tray_menu_params { DWORD token; WEX_TRAY_MENU menu; DWORD err; };
+extern NTSTATUS tray_start(void *args);
+extern NTSTATUS tray_next(void *args);
+extern NTSTATUS tray_stop(void *args);
+extern NTSTATUS tray_action(void *args);
+extern NTSTATUS tray_menu(void *args);
+#ifdef WINE_UNIX_LIB
+extern void tray_x11_next(WEX_TRAY_ITEM *item);
+extern BOOL tray_x11_action(struct tray_action_params *params);
+extern void tray_x11_stop(void);
+#endif
+
 enum wexhost_funcs
 {
     unix_init,
@@ -208,6 +222,11 @@ enum wexhost_funcs
     unix_wm_capabilities,
     unix_wm_native_info,
     unix_wm_binding,
+    unix_tray_start,
+    unix_tray_next,
+    unix_tray_stop,
+    unix_tray_action,
+    unix_tray_menu,
     unix_funcs_count
 };
 

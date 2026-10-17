@@ -19,6 +19,7 @@
  */
 
 #include <stdarg.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <windef.h>
@@ -141,6 +142,80 @@ static void run_pumped( HWND owner, unsigned int code, void *params )
     }
     if (owner) { EnableWindow( owner, TRUE ); SetForegroundWindow( owner ); }
     CloseHandle( thread );
+}
+
+static HANDLE tray_thread;
+static WEX_TRAY_CALLBACK tray_callback;
+static void *tray_context;
+static LONG tray_running;
+
+static DWORD WINAPI tray_events(void *unused)
+{
+    struct tray_params *params = calloc(1, sizeof(*params));
+    if (!params) return ERROR_NOT_ENOUGH_MEMORY;
+    while (InterlockedCompareExchange(&tray_running, 1, 1))
+    {
+        WEXHOST_CALL(tray_next, params);
+        if (params->err) break;
+        if (params->item.event) tray_callback(&params->item, tray_context);
+    }
+    free(params);
+    return 0;
+}
+
+DWORD WINAPI WexTrayStart(WEX_TRAY_CALLBACK callback, void *context)
+{
+    struct init_params params = {0};
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (!callback) return ERROR_INVALID_PARAMETER;
+    if (InterlockedCompareExchange(&tray_running, 1, 0)) return ERROR_ALREADY_EXISTS;
+    WEXHOST_CALL(tray_start, &params);
+    if (params.err) { InterlockedExchange(&tray_running, 0); return params.err; }
+    tray_callback = callback;
+    tray_context = context;
+    tray_thread = CreateThread(NULL, 0, tray_events, NULL, 0, NULL);
+    if (!tray_thread)
+    {
+        DWORD err = GetLastError();
+        InterlockedExchange(&tray_running, 0);
+        WEXHOST_CALL(tray_stop, &params);
+        return err;
+    }
+    return 0;
+}
+
+DWORD WINAPI WexTrayStop(void)
+{
+    struct init_params params = {0};
+    if (!InterlockedExchange(&tray_running, 0)) return 0;
+    WaitForSingleObject(tray_thread, INFINITE);
+    CloseHandle(tray_thread);
+    tray_thread = NULL;
+    WEXHOST_CALL(tray_stop, &params);
+    return params.err;
+}
+
+DWORD WINAPI WexTrayAction(DWORD token, DWORD action, INT x, INT y, INT value)
+{
+    struct tray_action_params params = {token, action, x, y, value};
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    run_pumped(NULL, unix_tray_action, &params);
+    return params.err;
+}
+
+DWORD WINAPI WexTrayGetMenu(DWORD token, WEX_TRAY_MENU *menu)
+{
+    struct tray_menu_params *params;
+    DWORD err;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (!menu) return ERROR_INVALID_PARAMETER;
+    if (!(params = calloc(1, sizeof(*params)))) return ERROR_NOT_ENOUGH_MEMORY;
+    params->token = token;
+    run_pumped(NULL, unix_tray_menu, params);
+    *menu = params->menu;
+    err = params->err;
+    free(params);
+    return err;
 }
 
 DWORD WINAPI WexPowerCan( DWORD action, DWORD *result )

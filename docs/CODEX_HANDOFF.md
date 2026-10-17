@@ -1,6 +1,12 @@
 # Codex handoff — 2026-10-16 Wayland L2 in progress
 
-**STOP AT REVIEW POINT 1.** Parts A/B of WAYLAND_SESSION_WORKORDER.md are ready
+**Review point 1 accepted; parts C/D active.** Claude's review is appended to
+WAYLAND_SESSION_WORKORDER.md. The compositor production branch `wexcomp` now
+fast-forwards to the project pin 2bde47ee. Implement the SNI/XEmbed tray bridge,
+then run the final regressions and stop at review point 2. Keep the two scaling
+limitations below open unless real-program testing verifies a fix.
+
+Historical review-point-1 handoff: Parts A/B of WAYLAND_SESSION_WORKORDER.md are ready
 for Claude's review; the report and screenshot/log links are at the top of
 WAYLAND_SESSION.md. The clean ISO installation, default-X11 Alice login,
 selected-Wayland Bob login, 32/64-bit checks, S4 shared-app/access and offline
@@ -24,8 +30,8 @@ No separate 144-DPI Wine-font matrix is claimed. Review this scope before tray
 C and final regressions D. The historical incremental notes below are retained.
 
 **Active work order:** `WAYLAND_SESSION_WORKORDER.md` replaces the open-ended
-L2 remainder. Continue A and B through review point 1; only then start tray C
-and regression D. Real programs on an installed VM, no new synthetic cases.
+L2 remainder. A/B are accepted; continue tray C and regression D. Real programs
+on an installed VM, no new synthetic cases.
 See `WAYLAND_SESSION.md` for incremental results, exact environment and failures.
 **Fresh ISO core test passed; application matrix finishing:** Wine production/pin is **0f25ee1** and
 compositor **2bde47ee**. The clean stock source audit (12,462 files) and full

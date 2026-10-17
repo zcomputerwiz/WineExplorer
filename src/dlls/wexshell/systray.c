@@ -34,6 +34,7 @@
 #include "desktop_view.h"
 #include "shellfolders.h"
 #include "resource.h"
+#include "wexhost.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
 
@@ -107,7 +108,12 @@ struct icon
     DWORD          last_active;     /* tick of the last change by the program, for "hide inactive icons" */
     BOOL           auto_hidden;     /* hidden only because it is inactive */
     int            behavior;        /* NOTIFY_*, -1 until read from the registry */
+    DWORD          native_token, native_flags;
+    WCHAR          native_key[300];
 };
+
+#define WM_NATIVE_TRAY (WM_APP + 42)
+static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam);
 
 static struct list icon_list = LIST_INIT( icon_list );
 
@@ -378,6 +384,8 @@ static void icon_key( struct icon *icon, WCHAR *key )
     WCHAR path[MAX_PATH] = L"", *name;
     DWORD pid = 0, len = MAX_PATH;
     HANDLE process;
+
+    if (icon->native_key[0]) { lstrcpynW(key, icon->native_key, 300); return; }
 
     GetWindowThreadProcessId( icon->owner, &pid );
     if ((process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid )))
@@ -918,6 +926,8 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     }
 
     case WM_MOUSEMOVE:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
     case WM_LBUTTONDOWN:
     case WM_LBUTTONUP:
     case WM_RBUTTONDOWN:
@@ -931,6 +941,7 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
         MSG message = {.hwnd = hwnd, .message = msg, .wParam = wparam, .lParam = lparam};
         if (msg != WM_MOUSEMOVE) icon->last_active = GetTickCount();
         SendMessageW( icon->tooltip, TTM_RELAYEVENT, 0, (LPARAM)&message );
+        if (native_tray_input(icon, msg, wparam)) return 0;
         if (!notify_owner( icon, msg, lparam )) break;
         if (icon->version > 0)
         {
@@ -1244,6 +1255,127 @@ static BOOL delete_icon( struct icon *icon )
     DestroyWindow( icon->window );
     DestroyIcon( icon->image );
     free( icon );
+    return TRUE;
+}
+
+static void CALLBACK native_tray_event(const WEX_TRAY_ITEM *item, void *context)
+{
+    WEX_TRAY_ITEM *copy = malloc(sizeof(*copy));
+    if (!copy) return;
+    *copy = *item;
+    if (!PostMessageW(context, WM_NATIVE_TRAY, 0, (LPARAM)copy)) free(copy);
+}
+
+static HICON native_tray_image(const WEX_TRAY_ITEM *item)
+{
+    BITMAPINFO info = {{sizeof(BITMAPINFOHEADER)}};
+    ICONINFO ii = {TRUE};
+    DWORD *bits;
+    HICON image;
+    unsigned int i;
+    if (!item->width || !item->height || item->width > 64 || item->height > 64) return CopyIcon(LoadIconW(NULL, (LPCWSTR)IDI_APPLICATION));
+    info.bmiHeader.biWidth = item->width;
+    info.bmiHeader.biHeight = -(int)item->height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    ii.hbmColor = CreateDIBSection(NULL, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0);
+    ii.hbmMask = CreateBitmap(item->width, item->height, 1, 1, NULL);
+    if (!ii.hbmColor || !ii.hbmMask)
+    { DeleteObject(ii.hbmColor); DeleteObject(ii.hbmMask); return NULL; }
+    for (i = 0; i < item->width * item->height; i++)
+    {
+        DWORD p = item->pixels[i], a = p >> 24;
+        bits[i] = (a << 24) | (((p >> 16 & 255) * a / 255) << 16) |
+                  (((p >> 8 & 255) * a / 255) << 8) | ((p & 255) * a / 255);
+    }
+    image = CreateIconIndirect(&ii);
+    DeleteObject(ii.hbmColor); DeleteObject(ii.hbmMask);
+    return image;
+}
+
+static void native_tray_update(const WEX_TRAY_ITEM *item)
+{
+    NOTIFYICONDATAW nid = {.cbSize = sizeof(nid), .hWnd = tray_window, .uID = 0x80000000u | item->token};
+    struct icon *icon = get_icon(nid.hWnd, nid.uID);
+    if (item->event == WEX_TRAY_REMOVED) { if (icon) delete_icon(icon); return; }
+    if (!icon)
+    {
+        /* Establish the stable Linux identity before reading hide preferences. */
+        nid.uFlags = NIF_STATE; nid.dwStateMask = NIS_HIDDEN; nid.dwState = NIS_HIDDEN;
+        if (!add_icon(&nid)) return;
+        icon = get_icon(nid.hWnd, nid.uID);
+        MultiByteToWideChar(CP_UTF8, 0, item->id[0] ? item->id : item->title, -1, icon->native_key, ARRAY_SIZE(icon->native_key));
+        CharLowerW(icon->native_key);
+        icon->behavior = -1;
+    }
+    icon->native_token = item->token; icon->native_flags = item->flags;
+    nid.uFlags = NIF_ICON | NIF_TIP | NIF_STATE;
+    nid.dwStateMask = NIS_HIDDEN;
+    nid.dwState = item->flags & WEX_TRAY_PASSIVE ? NIS_HIDDEN : 0;
+    nid.hIcon = native_tray_image(item);
+    MultiByteToWideChar(CP_UTF8, 0, item->tooltip[0] ? item->tooltip : item->title, -1, nid.szTip, ARRAY_SIZE(nid.szTip));
+    modify_icon(icon, &nid);
+    DestroyIcon(nid.hIcon);
+}
+
+static HMENU native_tray_menu(const WEX_TRAY_MENU *layout, INT parent, unsigned int depth)
+{
+    HMENU menu = CreatePopupMenu();
+    unsigned int i, j;
+    if (!menu || depth > 16) return menu;
+    for (i = 0; i < layout->count; i++)
+    {
+        const WEX_TRAY_MENU_ENTRY *entry = &layout->entries[i];
+        MENUITEMINFOW mii = {.cbSize = sizeof(mii), .fMask = MIIM_ID | MIIM_STATE | MIIM_FTYPE};
+        WCHAR text[256], label[512];
+        unsigned int a = 0, b = 0;
+        if (entry->parent != parent || !entry->visible) continue;
+        mii.wID = i + 1;
+        mii.fState = (entry->enabled ? MFS_ENABLED : MFS_DISABLED) | (entry->checked ? MFS_CHECKED : 0);
+        mii.fType = entry->separator ? MFT_SEPARATOR : entry->toggle == 2 ? MFT_RADIOCHECK : MFT_STRING;
+        MultiByteToWideChar(CP_UTF8, 0, entry->label, -1, text, ARRAY_SIZE(text));
+        while (text[a] && b < ARRAY_SIZE(label) - 2)
+        {
+            if (text[a] == '&') label[b++] = '&';
+            label[b++] = text[a] == '_' ? '&' : text[a];
+            a++;
+        }
+        label[b] = 0;
+        mii.fMask |= MIIM_STRING; mii.dwTypeData = label;
+        for (j = 0; j < layout->count; j++) if (layout->entries[j].parent == entry->id)
+        { mii.fMask |= MIIM_SUBMENU; mii.hSubMenu = native_tray_menu(layout, entry->id, depth + 1); break; }
+        InsertMenuItemW(menu, GetMenuItemCount(menu), TRUE, &mii);
+    }
+    return menu;
+}
+
+static BOOL native_tray_input(struct icon *icon, UINT msg, WPARAM wparam)
+{
+    POINT pt;
+    DWORD token = icon->native_token, flags = icon->native_flags;
+    if (!token) return FALSE;
+    GetCursorPos(&pt);
+    if (msg == WM_RBUTTONUP || (msg == WM_LBUTTONUP && (flags & WEX_TRAY_ITEM_MENU)))
+    {
+        WEX_TRAY_MENU *layout = calloc(1, sizeof(*layout));
+        if (layout && !WexTrayGetMenu(token, layout))
+        {
+            HMENU menu = native_tray_menu(layout, 0, 0);
+            UINT cmd;
+            SetForegroundWindow(tray_window);
+            cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, tray_window, NULL);
+            DestroyMenu(menu);
+            if (cmd && cmd <= layout->count)
+                WexTrayAction(token, WEX_TRAY_CLICK_MENU, GetTickCount(), 0, layout->entries[cmd - 1].id);
+            PostMessageW(tray_window, WM_NULL, 0, 0);
+        }
+        else WexTrayAction(token, WEX_TRAY_CONTEXT, pt.x, pt.y, 0);
+        free(layout);
+    }
+    else if (msg == WM_LBUTTONUP || msg == WM_MBUTTONUP)
+        WexTrayAction(token, msg == WM_LBUTTONUP ? WEX_TRAY_ACTIVATE : WEX_TRAY_SECONDARY, pt.x, pt.y, 0);
+    else if (msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL)
+        WexTrayAction(token, WEX_TRAY_SCROLL, 0, msg == WM_MOUSEHWHEEL, GET_WHEEL_DELTA_WPARAM(wparam));
     return TRUE;
 }
 
@@ -1841,8 +1973,14 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     switch (msg)
     {
     case WM_DESTROY:
+        WexTrayStop();
         shellservices_stop();
         break;
+
+    case WM_NATIVE_TRAY:
+        native_tray_update((const WEX_TRAY_ITEM *)lparam);
+        free((void *)lparam);
+        return 0;
 
     case WM_COPYDATA:
     {
@@ -2288,4 +2426,9 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
         do_show_systray();
     }
     else do_hide_systray();
+    if (enable_taskbar && !no_tray_items)
+    {
+        DWORD err = WexTrayStart(native_tray_event, tray_window);
+        if (err) WARN("Native tray unavailable: %lu\n", err);
+    }
 }

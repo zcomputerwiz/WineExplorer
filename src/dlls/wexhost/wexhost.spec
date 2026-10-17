@@ -50,3 +50,7 @@
 @ stdcall WexRootPasswordSet(str)
 @ stdcall WexUserCreate(str str long str)
 @ stdcall WexUserSetSession(str str long)
+@ stdcall WexTrayStart(ptr ptr)
+@ stdcall WexTrayStop()
+@ stdcall WexTrayAction(long long long long long)
+@ stdcall WexTrayGetMenu(long ptr)

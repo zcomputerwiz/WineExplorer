@@ -304,6 +304,43 @@ DWORD WINAPI WexAppsLaunch( const WCHAR *id );
  * ERROR_MORE_DATA returns the required byte count, including the final NUL. */
 DWORD WINAPI WexHardwareList( char *buffer, DWORD size, DWORD *needed );
 
+/* Native notification area. Records contain UTF-8 strings and straight-alpha
+ * ARGB pixels, with no process-local pointers in the Unix/WoW64 boundary. */
+#define WEX_TRAY_PIXELS 4096
+#define WEX_TRAY_MENU_MAX 128
+#define WEX_TRAY_CHANGED 1
+#define WEX_TRAY_REMOVED 2
+#define WEX_TRAY_ACTIVATE 1
+#define WEX_TRAY_SECONDARY 2
+#define WEX_TRAY_CONTEXT 3
+#define WEX_TRAY_SCROLL 4
+#define WEX_TRAY_CLICK_MENU 5
+#define WEX_TRAY_PASSIVE 1
+#define WEX_TRAY_ATTENTION 2
+#define WEX_TRAY_ITEM_MENU 4
+typedef struct
+{
+    DWORD event, token, flags, width, height;
+    char id[256], title[256], tooltip[512];
+    DWORD pixels[WEX_TRAY_PIXELS];
+} WEX_TRAY_ITEM;
+typedef struct
+{
+    INT id, parent;
+    DWORD enabled, visible, separator, toggle, checked;
+    char label[256];
+} WEX_TRAY_MENU_ENTRY;
+typedef struct
+{
+    DWORD count;
+    WEX_TRAY_MENU_ENTRY entries[WEX_TRAY_MENU_MAX];
+} WEX_TRAY_MENU;
+typedef void (CALLBACK *WEX_TRAY_CALLBACK)(const WEX_TRAY_ITEM *, void *);
+DWORD WINAPI WexTrayStart(WEX_TRAY_CALLBACK callback, void *context);
+DWORD WINAPI WexTrayStop(void);
+DWORD WINAPI WexTrayAction(DWORD token, DWORD action, INT x, INT y, INT value);
+DWORD WINAPI WexTrayGetMenu(DWORD token, WEX_TRAY_MENU *menu);
+
 #ifdef __cplusplus
 }
 #endif

@@ -11,6 +11,8 @@ SOURCES = \
 	display.c \
 	greeter.c \
 	hardware.c \
+	tray.c \
+	tray_x11.c \
 	unixlib.c \
 	waylandwm.c \
 	waylandhost.c \

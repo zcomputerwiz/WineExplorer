@@ -1707,6 +1707,11 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     wm_capabilities,
     wm_native_info,
     wm_binding,
+    tray_start,
+    tray_next,
+    tray_stop,
+    tray_action,
+    tray_menu,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -1771,6 +1776,11 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wm_capabilities,
     wm_native_info,
     wm_binding,
+    tray_start,
+    tray_next,
+    tray_stop,
+    tray_action,
+    tray_menu,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif
