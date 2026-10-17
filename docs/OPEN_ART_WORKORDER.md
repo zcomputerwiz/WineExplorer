@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): open look-alike icons and cursors for XP and Windows 11
 
-Status: done, 2026-10-17 (merged after two rounds of review). Assignee: Gemini.
+Status: round 3 open, 2026-10-17 (rounds 1-2 merged). Assignee: Gemini.
 
 ## Goal
 
@@ -262,3 +262,38 @@ Open (small, next time the builder is touched):
 Fixed after merge (2026-10-17): the Fluent-based XP bases (28, 35, 44, 45, 48, 173, 221) were cropped by `viewBox` exactly to
 the shape, so the outer half of their outline and their corners were cut at every size. Each crop now leaves the
 outline plus 0.8 units (about 1 px at 48 px); the Log Off example had the same fault.
+
+## Round 3: closer matches (Claude's comparison, 2026-10-17)
+
+Fresh sheets of both sets against the originals, at 48 px:
+- `../WineExplorer-local/notes/xp/compare-2026-10-17.png`
+- `../WineExplorer-local/notes/win11/compare-2026-10-17.png`
+
+**Done by Claude: Control Panel (22 and 137) in both sets.**
+- XP: a dark-blue glossy tile around a light panel, with a gold check and a light-blue pencil (Fluent `square`,
+  `checkmark` and `edit`).
+- Windows 11: a wide light panel with a blue frame, a pie and sliders (Fluent `rectangle_landscape`, flattened
+  through its `viewBox` with `preserveAspectRatio="none"`, plus `data_pie` and `options`).
+- Three rounds each, against `notes/xp/cpl-22.png` and `notes/win11/cpl-22.png`. Use them as more worked examples,
+  next to the Recycle Bin and Log Off.
+
+**For Gemini, in this order** (the method of "The goal, by example"; one local before/after sheet per slot):
+
+XP set:
+1. Documents 1, 2 and 152: XP shows coloured pages (a page with small colour blocks, a page with a red letter, a
+   notepad page with ruled lines); ours are blank grey pages.
+2. Special folders 235–238: XP shows an open yellow folder with a sheet standing in it (document, picture, music,
+   video); ours are closed folders with a small badge.
+3. Network 15, 18 and 175: XP shows a globe with a monitor; ours show servers (15, 18) or a folder (175).
+4. My Computer 16: XP is a colourful monitor and tower; ours is grey.
+5. Smaller: the green arrows of the Recycle Bin (32, 33), Printers 138/139, and Eject 27.
+6. Leave 40 and 47 as they are: the originals show the Windows logo, which we cannot use.
+
+Windows 11 set. The overall gap is style: Windows 11 shell icons are filled colour pictures, ours are mostly Fluent
+outline glyphs. Fill the main shapes (use `tone` pairs or filled glyphs) rather than outlines, starting with:
+1. Downloads 231: Windows 11 shows a blue arrow on a white tile, not a folder.
+2. Documents 235: a grey-blue folder with a document page.
+3. The drive family 6–9 and 12: Windows 11 shows dark, flat drive bars with a green LED; ours are outline floppies and
+   drives.
+4. Desktop 35 and the monitor family 15, 16 and 18: a flat cyan screen with a dark stand; ours are close but outlined.
+5. Smaller: Eject 27 (green arrow), tree 42, DVD 222 and the multi-page 133.
