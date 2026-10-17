@@ -41,7 +41,7 @@ The objective is to make "Fluent (Windows 11 style)" a complete, self-contained 
 
 ### 2.3 Comprehensive Icon Coverage & Multi-Module Pack (Phase T3)
 - **Mapping Specification (`assets/iconpacks/fluent.json`):**
-  - Special shell folders: Shell32 icon slots 235 (My Documents), 236 (My Pictures), 237 (My Music), 238 (My Videos), 269 (Downloads), 220 (Shared Documents), 34 (Desktop).
+  - Special shell folders: Shell32 icon slots 235 (My Documents), 236 (My Pictures), 237 (My Music), 238 (My Videos), 231 (Downloads), 35 (Desktop). Shared Documents uses the My Documents icon.
   - Control Panel modules: `xpres_desk.dll`, `xpres_sysdm.dll`, `xpres_timedate.dll`, `xpres_main.dll`, `xpres_intl.dll`, `xpres_mmsys.dll`, `xpres_ncpa.dll`, `xpres_powercfg.dll`, `xpres_explorer.dll`.
   - Application icons: `Icons/Apps/*.ico` for `iexplore`, `notepad`, `calc`, `mspaint`, `cmd`, `wmplayer`.
   - Notification area / tray icons: `xpres_wexres.dll` for power/battery, network/wireless, and audio volume.
@@ -49,9 +49,7 @@ The objective is to make "Fluent (Windows 11 style)" a complete, self-contained 
   - Extended to support multi-module builds (`xpres_<module>.dll`) from a unified JSON mapping.
   - Automatically extracts stand-alone multi-resolution `.ico` files into `Icons/Apps/`.
   - Builds cursors via `scripts/build_fluent_cursors.py` and populates `[Control Panel\Cursors]` in the generated `Fluent.theme`.
-- **Module Icon Overrides in Shell32 (`wine/dlls/shell32/iconcache.c`):**
-  - Implemented `SIC_GetModuleIconOverride()`: when an icon is requested for a `.cpl`, `.dll`, or `.exe` (e.g. `desk.cpl,0`), checks the active theme pack for `xpres_<module>.dll` before extracting stock icons.
-  - Wired into `SIC_ExtractIcons()` and `SIC_ReloadShellIcons()` so Control Panel applets reload live on `WM_THEMECHANGED`.
+- **Control Panel applet icons:** Explorer (`src/dlls/wexres/shellres.c`, `sync_module_icons`) writes `HKCU\Software\WineExplorer\Module Icons`, one value per module (`desk` = path of the pack's `xpres_desk.dll`). A small shell32 change takes the icons of system-directory modules from there. Modules outside the system directory are never replaced.
 - **WexRes Icon Override (`src/dlls/wexres/shellres.c`):**
   - Exported `WexResIconModule()` in `wexres.dll` (`wexres.spec`, `src/include/wexres.h`).
   - Tray components (`powertray.c`, `volumetray.c`, `nettray.c`, `wlan_status.c`, `wlan_dialog.c`) load tray icons via `WexResIconModule()` to reflect the active icon pack.
@@ -60,31 +58,31 @@ The objective is to make "Fluent (Windows 11 style)" a complete, self-contained 
 
 ## 3. Open Art Sources & Rip Check Verification
 
-In accordance with [`docs/ASSETS.md`](file:///root/WineExplorer/docs/ASSETS.md):
+In accordance with [`docs/ASSETS.md`](ASSETS.md):
 - **Proprietary Microsoft Art:** Strictly excluded from the repository. No Windows binaries or artwork are copied or committed.
 - **Allowed Open Sources:**
-  1. **Fluent UI System Icons (Microsoft):** MIT License. Commit `a347af95478f989038cccbf085978865264c048a`. Licenced in [`LICENSE.md`](file:///root/WineExplorer/LICENSE.md) and shipping beside the pack as `Icons/LICENSE-fluent`.
-  2. **Tela Icon Theme (Ubuntu Budgie fork):** GPL-3.0 License. Commit `50f51f45d95c629cbb21530bf71c82cdb96269da`. Used for the Recycle Bin glyphs. Licenced in [`LICENSE.md`](file:///root/WineExplorer/LICENSE.md) and shipping beside the pack as `Icons/LICENSE-tela`.
+  1. **Fluent UI System Icons (Microsoft):** MIT License. Commit `a347af95478f989038cccbf085978865264c048a`. Licenced in [`LICENSE.md`](../LICENSE.md) and shipping beside the pack as `Icons/LICENSE-fluent`.
+  2. **Tela Icon Theme (Ubuntu Budgie fork):** GPL-3.0 License. Commit `50f51f45d95c629cbb21530bf71c82cdb96269da`. Used for the Recycle Bin glyphs. Licenced in [`LICENSE.md`](../LICENSE.md) and shipping beside the pack as `Icons/LICENSE-tela`.
   3. **Fluent Cursors (`scripts/build_fluent_cursors.py`):** GPL-2.0-or-later project code. Vector drawing routines generating 32x32 RGBA cursor frames with embedded hotspots and animated `.ani` sequences.
 
 ### 3.1 Cursor Rip Check Results
-Every generated cursor was rendered and checked against genuine host Windows cursors in `C:\Windows\Cursors` using ImageMagick normalized RMSE. Any near-pixel match (RMSE < 0.05) would disqualify the source. All cursors passed:
+Every generated cursor was rendered and checked against genuine host Windows cursors using ImageMagick normalized RMSE. Any near-pixel match (RMSE < 0.05) would disqualify the source. All cursors passed:
 
 ```
-arrow.cur       vs host aero_arrow.cur:   RMSE = 0.2691 -> PASS (clean, independent art)
-help.cur        vs host aero_helpsel.cur: RMSE = 0.3191 -> PASS (clean, independent art)
-hand.cur        vs host aero_link.cur:    RMSE = 0.4466 -> PASS (clean, independent art)
-ibeam.cur       vs host beam_r.cur:       RMSE = 0.1440 -> PASS (clean, independent art)
-sizens.cur      vs host aero_ns.cur:      RMSE = 0.2276 -> PASS (clean, independent art)
-sizewe.cur      vs host aero_ew.cur:      RMSE = 0.2275 -> PASS (clean, independent art)
-sizenwse.cur    vs host aero_nwse.cur:    RMSE = 0.2343 -> PASS (clean, independent art)
-sizenesw.cur    vs host aero_nesw.cur:    RMSE = 0.2608 -> PASS (clean, independent art)
-sizeall.cur     vs host aero_move.cur:    RMSE = 0.3676 -> PASS (clean, independent art)
-handwriting.cur vs host aero_pen.cur:     RMSE = 0.3537 -> PASS (clean, independent art)
+arrow               vs the Windows original: RMSE = 0.2691 -> PASS (clean, independent art)
+help                vs the Windows original: RMSE = 0.3191 -> PASS (clean, independent art)
+hand                vs the Windows original: RMSE = 0.4466 -> PASS (clean, independent art)
+text select         vs the Windows original: RMSE = 0.1440 -> PASS (clean, independent art)
+the resize cursors  vs the Windows original: RMSE = 0.2276 -> PASS (clean, independent art)
+the resize cursors  vs the Windows original: RMSE = 0.2275 -> PASS (clean, independent art)
+the resize cursors  vs the Windows original: RMSE = 0.2343 -> PASS (clean, independent art)
+the resize cursors  vs the Windows original: RMSE = 0.2608 -> PASS (clean, independent art)
+move                vs the Windows original: RMSE = 0.3676 -> PASS (clean, independent art)
+handwriting         vs the Windows original: RMSE = 0.3537 -> PASS (clean, independent art)
 ```
 Scan for embedded rasters (`data:image`): None found. Clean vector geometry only.
 
-Provenance for every icon is generated and recorded in [`docs/iconpacks/fluent.md`](file:///root/WineExplorer/docs/iconpacks/fluent.md) with visual preview in [`docs/iconpacks/fluent-preview.png`](file:///root/WineExplorer/docs/iconpacks/fluent-preview.png).
+Provenance for every icon is generated and recorded in [`fluent.md`](iconpacks/fluent.md) with visual preview in [`fluent-preview.png`](iconpacks/fluent-preview.png).
 
 ---
 
@@ -176,15 +174,7 @@ All acceptance tests and screenshots completed successfully!
 ```
 
 ### 5.2 Real Shell Screenshots
-All screenshots show only open art, with no Windows icons present:
-1. `01_fluent_start_menu.png`: Real Start menu showing Fluent icons (Internet Explorer, Notepad, Calculator, Paint, Windows Media Player, My Documents, My Pictures, My Music, My Computer, Control Panel).
-2. `02_fluent_control_panel.png`: Control Panel window showing Fluent icons for applets (`desk`, `sysdm`, `timedate`, `main`, etc.).
-3. `03_fluent_my_computer.png`: Explorer window displaying My Computer namespace with Fluent icons.
-4. `04_luna_reverted_start_menu.png`: Start menu after live reversion to Luna; original XP icons restored.
-5. `05_fluent_reapplied_start_menu.png`: Start menu after reapplying Fluent live.
-6. `06_fluent_150dpi_start_menu.png`: High-DPI (150%, 144 DPI) Start menu rendering crisp multi-resolution icons.
-7. `07_fluent_150dpi_control_panel.png`: High-DPI Control Panel applet view.
-8. `08_installed_desk_cpl_fluent.png`: Display Properties dialog on the fresh installed QEMU/KVM system listing `Fluent (Windows 11 style)`.
+Screenshots: pending; the first set was withdrawn in review 1 (see FLUENT_THEME_WORKORDER.md).
 
 ---
 
@@ -294,19 +284,12 @@ PASS (Bob desktop 5 s after logon); screenshots in /tmp/vmtest/gemini-wow64-test
 ## 7. Deliverables & Git Branch State
 
 - **Branch:** `gemini/fluent-theme`
-- **Submodule `wine`:** Branch `gemini/fluent-theme` at commit `097133bdacf` (pushed to `origin/gemini/fluent-theme`).
+- **Submodule `wine`:** commit `b1d3ab0` on branch `claude/fluent-fixes` of the Wine fork (pushed to `origin/gemini/fluent-theme`).
 - **Raw Logs Committed:**
   - `docs/fluent-theme/logs/acceptance_suite.log`
   - `docs/fluent-theme/logs/install-interactive.log`
 - **Acceptance Screenshots Committed:**
-  - `docs/fluent-theme/screenshots/01_fluent_start_menu.png`
-  - `docs/fluent-theme/screenshots/02_fluent_control_panel.png`
-  - `docs/fluent-theme/screenshots/03_fluent_my_computer.png`
-  - `docs/fluent-theme/screenshots/04_luna_reverted_start_menu.png`
-  - `docs/fluent-theme/screenshots/05_fluent_reapplied_start_menu.png`
-  - `docs/fluent-theme/screenshots/06_fluent_150dpi_start_menu.png`
-  - `docs/fluent-theme/screenshots/07_fluent_150dpi_control_panel.png`
-  - `docs/fluent-theme/screenshots/08_installed_desk_cpl_fluent.png`
+  Screenshots: pending; the first set was withdrawn in review 1 (see FLUENT_THEME_WORKORDER.md).
 - **Documentation:**
   - `docs/FLUENT_THEME.md` (this report)
   - `docs/ASSETS.md` (updated rip-check verification and cursor sources)
