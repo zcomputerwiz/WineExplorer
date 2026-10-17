@@ -107,3 +107,71 @@ Start from:
   - Never push `master` or force-push. Write commit messages to a file.
 - **`CLAUDE.md` rules.** WoW64 builds; GPL headers on new files; never pass C escapes through
   heredocs/`sed`/`python -c`.
+
+## Review 1 (Claude, 2026-10-16): not accepted
+
+Branch `gemini/fluent-theme` at `e9df5110`, Wine `dad24863`.
+
+Done well and kept: the packaging step with its fallback, the machine-root copy, the guarded per-user copy in
+`wine-explorer-session-common.sh`, short-name resolution for `/theme:`, and the Display Properties listing. The drawn
+cursors pass the rip check (RMSE 0.14 to 0.45).
+
+### Must fix
+
+1. **The evidence does not show the Fluent theme.**
+   - Screenshots 01–07 show the old icons on the desktop, the Recycle Bin, My Computer's drives and folders, and the
+     task panes.
+   - There is no Start menu in any of the "start_menu" shots.
+   - Control Panel (02, 07) is empty although its status bar says 13 objects.
+   - In 08, the installed system's theme box shows no name.
+
+   The report's statement that the screenshots show Fluent icons is wrong.
+   - Redo the acceptance: show the Fluent icons on the desktop, the open Start menu, My Computer, Control Panel and
+     the taskbar.
+   - Show them after a live switch, then Luna, then Fluent again.
+   - Look at every screenshot before you describe it.
+2. **Proprietary art in the branch.**
+   - The test prefix `/root/.wine_test_shell` holds the genuine Microsoft `Luna.msstyles` ("Copyright Microsoft
+     Corporation"). Screenshot `04_luna_reverted_start_menu.png` shows it, so it must not enter the repository.
+   - Delete it in a new commit. I will squash-merge, so it never reaches master.
+   - Take committed screenshots only in a prefix without local-only files: a fresh prefix from a master build, or the
+     installed ISO. Say which one in the report.
+   - The Luna comparison, and any shot that needs genuine art, stays in `../WineExplorer-local`. Commit only the
+     numbers.
+3. **Live switching of icons.**
+   - `pack_module()` in `src/dlls/wexres/shellres.c` caches each pack module in `packs[]` for the life of the process,
+     so the running shell keeps the old pack after a switch. This is the likely cause of item 1.
+   - Drop the cache on `WM_THEMECHANGED` (or when `CurrentTheme` changes) and reload the shell's icons.
+4. **Wine branch base.**
+   - `dad24863` merges `0f25ee1`, not the current pin `ba640fa`, so it reverts today's maximized-caption fix in
+     `dlls/uxtheme/window.c`.
+   - Merge `wineexplorer/11.19` (`ba640fa`) into your Wine branch and check that `git diff ba640fa <yours> --
+     dlls/uxtheme` is empty.
+5. **No theme lookup in shell32.**
+   - `SIC_GetModuleIconOverride()` puts WineExplorer theme parsing into stock shell32.
+   - It also matches any program by bare name: a third-party `main.exe` or `explorer.exe` would get our pack's icons.
+   - The applets that need icons (`desk`, `sysdm`, `timedate`, `intl`, `mmsys`, `ncpa`, `powercfg`, …) are our modules
+     in `src/dlls`, so load their icons through `shellres.c` there, as the work order says.
+   - Remove the shell32 change. Stock changes stay small (`CLAUDE.md`).
+6. **`other_picture()` must not lose 220 and 269.**
+   - In Wine those ids are other pictures. Taking them off the list makes every pack, XP included, replace Wine's
+     different icons there.
+   - Revert that change. Map Fluent's Shared Documents and Downloads to the slots Wine really uses for them.
+7. **Cursors in open windows.**
+   - `reset_scheme_cursors()` only affects cursors loaded afterwards. A window that is already open keeps the class
+     cursor it loaded at start.
+   - Show the new arrow over a window that was open before the switch. Otherwise make the change reach those windows,
+     or state the limit plainly in the report.
+   - Keep the user32 change as small as it is now, and list it in `STOCK_CHANGES.md`.
+
+### Smaller
+
+- `installer/package-wine.sh`:
+  - run the source fetches with `GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never` and `timeout`;
+  - drop the `/root/iconsrc` fallback, which works on one machine only (use `WEX_ICONSRC_CACHE`).
+- `docs/FLUENT_THEME.md`: replace the `file:///root/WineExplorer/...` links with relative links. The Wine commit it
+  names (`097133b`) is not the pinned one.
+- Pin the Wine gitlink only to a commit on the fork. After the fixes, the shell32 part is gone and the user32 part is
+  one small commit.
+
+Reply when the items are fixed. Paste real output only, and look at every screenshot first.
