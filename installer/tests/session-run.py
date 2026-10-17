@@ -36,6 +36,8 @@ def main():
     parser.add_argument("--user", default=os.environ.get("WEX_TEST_USER", "bobsmith"))
     parser.add_argument("--report", action="store_true")
     parser.add_argument("--user-file", type=Path)
+    parser.add_argument("--log-file", type=Path)
+    parser.add_argument("--wait", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if os.geteuid():
@@ -59,7 +61,7 @@ def main():
             print(f"{key}={environment.get(key, '')}")
     if args.command:
         wine = environment.get("WINELOADER", "/usr/local/bin/wine")
-        log_path = Path(f"/tmp/wex-program-check-{account.pw_name}.log")
+        log_path = args.log_file or Path(f"/tmp/wex-program-check-{account.pw_name}.log")
         with log_path.open("ab") as log:
             process = subprocess.Popen(
                 [wine, *args.command], env=environment, cwd=account.pw_dir,
@@ -68,6 +70,8 @@ def main():
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                 start_new_session=True)
         print(f"Started Wine PID {process.pid}; log: {log_path}")
+        if args.wait:
+            raise SystemExit(process.wait())
     elif not args.report:
         parser.error("supply --report or a Windows program")
 

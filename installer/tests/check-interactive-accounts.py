@@ -30,7 +30,10 @@ assert not any(row[0] == "wexsetup" for row in passwd), "setup account remains"
 assert not (root / "etc/wineexplorer/setup").exists(), "setup state remains"
 for fullname in ("Alice", "Bob Smith"):
     username = names[fullname]
-    log = (root / "home" / username / ".wine-session.log").read_text()
+    session = sys.argv[3] if len(sys.argv) > 3 and fullname == "Bob Smith" else "x11"
+    log_path = (".local/state/wineexplorer-wayland/session.log"
+                if session == "wayland" else ".wine-session.log")
+    log = (root / "home" / username / log_path).read_text()
     assert f"USER={username} " in log, f"{fullname} did not start its own session"
 subprocess.run([sys.executable, str(Path(__file__).with_name("check-lightdm.py")), str(root)], check=True)
 

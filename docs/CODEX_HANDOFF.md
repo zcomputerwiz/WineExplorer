@@ -4,6 +4,32 @@
 L2 remainder. Continue A and B through review point 1; only then start tray C
 and regression D. Real programs on an installed VM, no new synthetic cases.
 See `WAYLAND_SESSION.md` for incremental results, exact environment and failures.
+Latest continuation: compositor **2bde47ee** is pinned, packaged, and passes
+actual foot movement/maximize on two unit-scale outputs. Wine topic **0f25ee1**
+also fixes the blank 64-bit Control Panel's default icon-spacing sentinel;
+all 13 entries are now visible. The installed real-program action runner
+(`installer/tests/check-wayland-session.py`) passes foot input/move/edge/corner/
+maximize/restore/taskbar, Notepad input, native Alt+Tab and closing both, with
+full-window dragging off. A host-side coalescing fix avoids requesting a size
+already satisfied by acknowledged content. Actual Steam XWayland sign-in input,
+move, and taskbar minimize/restore pass, with no sign-in submitted. The existing
+32/64 program checks pass on this legacy development overlay. Neither that
+overlay nor the test-only downloads establish fresh S4 installation acceptance.
+
+The installer now has a `WEX_TEST_SESSION=wayland` path selecting the real Welcome
+combo and running the WoW64 plus real-program actions, and checking Bob's Wayland
+session log. Its selector and action runner were tested independently; the full
+fresh ISO run is still pending. The canonical topic full build, subsequent
+Control Panel/coalescing builds, and production d92d7e4 build with current owned
+code pass. Root Wine is still d92d7e4; integrate the verified topic and rebuild
+before packaging the ISO. Production-pin checks restore topic source but leave
+production binaries. Current test overlay is at the Welcome screen after the
+selector check; the test HTTP server is running. No tray C/D work has started.
+The Qt 150% delayed-button repaint and already-maximized live scale-change
+cases remain explicit known issues; static 150% and the two-output case pass.
+
+Historical incremental notes below are retained; this continuation supersedes
+their source pins, current VM contents and remaining-check lists.
 Latest topics: Wine **055abb3** (`codex/wayland-l2`), compositor **b99b5090**
 (`codex/wayland-session`, now master's gitlink). Terminal caption controls,
 XWayland xterm edge/corner sizing and maximize/restore, native Alt+Tab and Start,

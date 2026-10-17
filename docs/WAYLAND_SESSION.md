@@ -7,6 +7,56 @@ follow that review. No acceptance is claimed yet.
 
 ### Installed-program and packaging checkpoint
 
+The real installed-session action runner now passes on the development overlay
+with full-window dragging **off** (the actual SPI value is logged): foot input,
+move, edge shrink, corner grow, exact work-area maximize/restore, taskbar
+minimize/restore, Notepad input, native Alt+Tab and closing both programs.
+Evidence: `installed-actions.log` and `installed-action-steps/` under the ignored
+directory. The test only accepts completed gestures (no pointer capture), not
+an intermediate preview. Its first OCR check failed on inserted spaces around
+terminal hyphens; normalizing punctuation/spacing and moving the cursor off
+the text fixes that reading, without accepting incorrect letters.
+
+That test exposed a real outline-resize failure. Foot rounded the penultimate
+requested width 641 to 636 and supplied acknowledged content. The final pointer
+position requested 636 again; with no new content needed, foot only acknowledged
+it. The outstanding transaction timed out and rolled the entire gesture back.
+The host now coalesces a new intent already satisfied by its current ready
+frame, retaining the existing acknowledged-content transaction. This changes
+neither compositor readiness nor state-only publication rules. The real full
+action sequence passes with this fix. Temporary sizing traces established the
+exact request/response sequence; those verbose traces were removed.
+
+Control Panel's one-line sentinel correction is verified live and committed
+as Wine topic 0f25ee1. `control-panel-fixed.png` shows all 13 visible entries.
+Both architectures build with current master-owned code, and the real production
+Wine d92d7e4 was rebuilt before the next main push. The compositor package was
+also reproduced at the new 2bde47ee pin. Source scp preserved Windows CRLF and
+made its first exact Git comparison fail; an EOL-insensitive comparison confirmed
+only line endings differed, then the two audited files were restored from the
+pinned Git archive before packaging.
+
+Steam's actual XWayland sign-in CSD window has one hosted taskbar item and passes
+input, moving, taskbar minimize and restore. No credentials/sign-in were
+submitted. Evidence: `steam-controls.log`, `steam-input.png`, `steam-moved.png`,
+`steam-minimized.png`, `steam-restored.png`. The initial exact drag delta assertion
+ignored the CSD drag threshold (actual +92,+55 for a +100,+60 pointer drag);
+the bounds check now verifies that movement occurred. Clicking elsewhere too
+soon after fast typing truncated the visible field; allowing input to settle
+before the focus click produces the expected text. The first OCR also misread
+the insertion cursor as a letter. Steam's bootstrap logs mmap allocation errors,
+but its fully rendered sign-in client and window actions run successfully.
+Steam remains a test-only installation, absent from the ISO.
+
+Another tooling failure: running archive-pin-check.py with Linux Git against
+a Windows absolute-path worktree failed “not a git repository”. Windows Python
+and Git regenerated both pin/restore archives correctly. The accidental use of
+the older archives was discarded as verification; the fresh archive run completed
+the production-pin build. The source is restored to the topic afterward, while
+its binaries are production until the next topic build. The Welcome selector's
+first OCR check failed on its blue focused highlight although it visibly selected
+Wayland; the test defocuses the combo before reading it.
+
 Two unit-scale outputs now pass the real foot move/maximize check. The test
 VM uses wlroots' DRM+headless backends, with Virtual-1 and HEADLESS-1 each
 1280x800, laid out at (0,0) and (1280,0). This is compositor output simulation

@@ -11,6 +11,8 @@
 # go to /tmp/vmtest/VM_NAME/steps/.
 set -u
 ISO=$1; PWFILE=$2; VM=${3:-wex-install}
+SESSION=${WEX_TEST_SESSION:-x11}
+case "$SESSION" in x11|wayland) ;; *) echo "Invalid session: $SESSION"; exit 2 ;; esac
 [[ "$VM" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name"; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 V="python3 $HERE/../../scripts/vmtest.py"
@@ -85,6 +87,12 @@ $V wait "$VM" "Bob Smith" --timeout 60 || fail "lock did not return to Welcome s
 step switch-user
 
 # First logon of the passwordless user: desktop from the template prefix, with icons
+if [ "$SESSION" = wayland ]; then
+    # logonui places its session combo at x=24, y=height-96-44.
+    # Keep the real Welcome selector in the test rather than overriding LightDM.
+    python3 "$HERE/select-wayland.py" "$VM" || fail "cannot select Wayland session"
+    step wayland-selected
+fi
 $V clicktext "$VM" "Bob Smith" || fail "cannot click Bob Smith"
 T0=$(date +%s)
 $V wait "$VM" "My Documents" --timeout 240 || fail "no desktop for Bob Smith"
@@ -94,6 +102,9 @@ ELAPSED=$(( $(date +%s) - T0 ))
 
 # Run 32-bit (WoW64) and 64-bit program checks on the installed desktop
 "$HERE/check-wow64.sh" "$VM" "$PWFILE" "$STEPS" || fail "WoW64 program checks failed"
+if [ "$SESSION" = wayland ]; then
+    python3 "$HERE/check-wayland-session.py" "$VM" "$PWFILE" "$STEPS" || fail "Wayland real-program actions failed"
+fi
 
 # Check the flushed installed disk, including both users' actual session logs.
 $V shutdown "$VM" || fail "guest did not shut down cleanly"
@@ -118,5 +129,5 @@ done
 mkdir -p "$STEPS/check-root"
 mount -o ro,noload "${NBD}p1" "$STEPS/check-root" || fail "cannot mount installed root"
 MOUNTED=true
-python3 "$HERE/check-interactive-accounts.py" "$STEPS/check-root" "$PWFILE" || fail "installed account checks failed"
+python3 "$HERE/check-interactive-accounts.py" "$STEPS/check-root" "$PWFILE" "$SESSION" || fail "installed account checks failed"
 echo "PASS (Bob desktop $ELAPSED s after logon); screenshots in $STEPS; VM stopped"

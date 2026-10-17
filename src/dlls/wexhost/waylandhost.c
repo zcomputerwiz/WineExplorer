@@ -476,13 +476,29 @@ static void controller_begin(struct host_binding *binding,BOOL interactive)
 static void controller_intent(struct host_binding *binding,WPARAM edge,const RECT *frame)
 {
     static const unsigned edges[]={0,4,8,1,5,9,2,6,10};
-    RECT rect=*frame;
+    RECT rect=*frame, accepted;
     if (!binding->controlling || binding->finishing || binding->applying || binding->terminal_pending ||
         edge<1 || edge>8) return;
     rect.left+=binding->margins.left; rect.top+=binding->margins.top;
     rect.right-=binding->margins.right; rect.bottom-=binding->margins.bottom;
     if (rect.right<=rect.left || rect.bottom<=rect.top ||
         (EqualRect(&rect,&binding->desired) && (binding->intent_dirty || binding->request_sent))) return;
+    /* A terminal can round the previous intent to the next pointer position.
+     * Its acknowledged content already satisfies that position. Keep that
+     * ready transaction: a duplicate configure may produce only an ack, then
+     * time out and undo an otherwise successful outline resize (real foot). */
+    if (binding->ready && binding->ready_serial==binding->intent_serial &&
+        GetWindowRect(binding->hwnd,&accepted))
+    {
+        accepted.left+=binding->margins.left; accepted.top+=binding->margins.top;
+        accepted.right-=binding->margins.right; accepted.bottom-=binding->margins.bottom;
+        if (EqualRect(&rect,&accepted))
+        {
+            binding->desired=rect; binding->intent_dirty=FALSE;
+            TRACE("host %p intent already satisfied by ready serial %u\n",binding->hwnd,binding->ready_serial);
+            return;
+        }
+    }
     binding->desired=rect; binding->edges=edges[edge];
     if (!binding->request_sent && !binding->intent_dirty) binding->controller_started=GetTickCount();
     binding->intent_dirty=TRUE;

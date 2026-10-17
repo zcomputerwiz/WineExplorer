@@ -119,6 +119,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[1],"zorder"))
         {
             GUITHREADINFO gui = {sizeof(gui)};
+            BOOL drag = FALSE;
+            SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS,0,&drag,0);
+            printf("DRAG_FULL_WINDOWS %d\n",drag);
             GetCursorPos(&point);
             GetGUIThreadInfo(0,&gui);
             printf("POINTER %ld,%ld hit=%p active=%p capture=%p focus=%p\n",point.x,point.y,
@@ -142,6 +145,12 @@ int main(int argc, char **argv)
                 printf("  client=%ld,%ld %ldx%ld protocol=%p capture=%p scale120=%p\n",point.x,point.y,rect.right,rect.bottom,
                     GetPropW(hwnd,L"__wine_wayland_resize_protocol"),GetPropW(hwnd,L"__wine_wayland_native_pointer_capture"),
                     GetPropW(hwnd,L"__wine_wayland_scale_120"));
+                if (GetPropW(hwnd,L"__wine_wayland_resize_width"))
+                    printf("  RESIZE requested=%ldx%ld accepted=%ldx%ld\n",
+                           (LONG)(LONG_PTR)GetPropW(hwnd,L"__wine_wayland_resize_width"),
+                           (LONG)(LONG_PTR)GetPropW(hwnd,L"__wine_wayland_resize_height"),
+                           (LONG)(LONG_PTR)GetPropW(hwnd,L"__wine_wayland_resize_event_width"),
+                           (LONG)(LONG_PTR)GetPropW(hwnd,L"__wine_wayland_resize_event_height"));
             }
             return 0;
         }
