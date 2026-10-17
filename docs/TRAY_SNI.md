@@ -14,6 +14,24 @@ It includes Wine b1d3ab0, compositor 2bde47ee and the final owned tray fix
 0c1084eb. Build log: `checks/tray-final-iso-build.log` in the same VM root.
 Fresh X11/Wayland acceptance will use this image, with no DLL hot-staging.
 
+## Final ISO regression checkpoint
+
+Fresh X11 installation and tray acceptance pass on that exact image. Logs:
+`build/wayland-session/final-x11-install.log` and `final-x11-tray.log`.
+The latter ends with both XEmbed and SNI PASS lines. The former includes
+32/64-bit programs, Fluent listed by the actual Display Properties control,
+shared-app access/denial and offline account/prefix assertions.
+
+The same installed X11 runtime passes the existing tray-bounds and eight-dialog
+probes on isolated 800x600 Xvfb, then the existing composition probe at 1024x768
+with Composition=0 and =1. Each mode passes five blends with restored styles
+and attributes and all three capture paths. Evidence is under
+`build/wayland-session/final-x11-regressions/` (archive alongside it).
+With composition enabled, background and color-key hole both read (37,111,149),
+the blue 50% window reads (18,95,202), and the intermediate fade (109,158,184).
+With composition disabled, the blue window is opaque (0,80,255).
+Final Wayland installation/tray checks remain pending at this checkpoint.
+
 The Unix half of wexhost owns the session-bus StatusNotifierWatcher when no
 watcher exists, or registers with the existing watcher. It tracks unique bus
 owners, reads item properties on registration and signals, decodes ARGB
@@ -98,6 +116,12 @@ Steam's signed-in check remains manual by the
 user's explicit instruction. No test credentials have been requested.
 
 ## Failed commands and fixes
+
+- A one-pixel ImageMagick `-format` argument passed through PowerShell/WSL
+  lost protective quoting around `{400,350}` / `{200,400}`. Bash expanded
+  the braces, producing `Expected operand at 'p400'` / `'p200'` and a
+  decode-delegate error. Read each pixel with `-crop 1x1+X+Y txt:-` instead;
+  the earlier three-pixel format with spaces had worked.
 
 - Final fresh X11 installation reached the added Fluent check after passing
   login, both architectures and shared-app permissions, then stopped at
