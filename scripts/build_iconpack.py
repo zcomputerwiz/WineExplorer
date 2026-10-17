@@ -106,7 +106,8 @@ def build_ico(pack, sources, rid, entry, out, work):
             subprocess.run(["rsvg-convert", "-w", str(px), "-h", str(px), "-o", png, svg], check=True)
             x, y = layer.get("at", [0, 0])
             cmd += [png, "-geometry", f"+{round(x * size)}+{round(y * size)}", "-composite"]
-        subprocess.run(cmd + [canvas], check=True)
+        # 8 bits per channel: Wine cannot load 16-bit PNGs, and one size that fails drops the whole icon
+        subprocess.run(cmd + ["-depth", "8", "PNG32:" + canvas], check=True)
         pngs.append(canvas)
     # 256 px is stored as PNG inside the .ico, the rest as bitmaps
     subprocess.run(["icotool", "-c", "-o", out] + pngs[:-1] + ["-r", pngs[-1]], check=True)

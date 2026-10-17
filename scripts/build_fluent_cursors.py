@@ -17,7 +17,6 @@ import sys
 import tempfile
 
 FLUENT_REPO = "/root/iconsrc/fluentui-system-icons"
-HOST_CURSORS = "/mnt/c/Windows/Cursors"
 
 def make_ani(cur_files, out_ani_path, jif_rate=8):
     frames = [open(f, "rb").read() for f in cur_files]
@@ -243,37 +242,6 @@ def build_all_cursors(out_dir, fluent_repo=FLUENT_REPO):
         make_ani(app_frames, out_app, jif_rate=6)
         print(f"Built {out_app} ({len(app_frames)} frames)")
 
-        # Rip check against host genuine Windows cursors
-        if os.path.isdir(HOST_CURSORS):
-            print("\n=== Rip check against host Windows cursors ===")
-            checks = [
-                ("arrow.cur", "aero_arrow.cur"),
-                ("help.cur", "aero_helpsel.cur"),
-                ("hand.cur", "aero_link.cur"),
-                ("crosshair.cur", "cross.cur"),
-                ("ibeam.cur", "beam_r.cur"),
-                ("sizens.cur", "aero_ns.cur"),
-                ("sizewe.cur", "aero_ew.cur"),
-                ("sizenwse.cur", "aero_nwse.cur"),
-                ("sizenesw.cur", "aero_nesw.cur"),
-                ("sizeall.cur", "aero_move.cur"),
-                ("handwriting.cur", "aero_pen.cur"),
-            ]
-            for our_name, host_name in checks:
-                host_path = os.path.join(HOST_CURSORS, host_name)
-                if not os.path.isfile(host_path):
-                    continue
-                host_png = os.path.join(work, f"host_{host_name}.png")
-                try:
-                    subprocess.run(["convert", f"{host_path}[0]", host_png], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                    res = subprocess.run(["compare", "-metric", "RMSE", rendered_pngs[our_name], host_png, "null:"],
-                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                    m = re.search(r"\(([\d\.]+)\)", res.stderr)
-                    rmse = float(m.group(1)) if m else -1.0
-                    status = "PASS (clean, independent art)" if rmse > 0.05 else "FAIL (suspicious match!)"
-                    print(f"  {our_name} vs host {host_name}: RMSE = {rmse:.4f} -> {status}")
-                except Exception as e:
-                    print(f"  {our_name} vs host {host_name}: comparison note ({e})")
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "/tmp/fluent_cursors"
