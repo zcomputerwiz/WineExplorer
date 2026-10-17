@@ -120,3 +120,75 @@ I review with the local sheets. Expect a second round for individual icons.
   - write commit messages to a file.
 - `../WineExplorer-local` must never get a remote and must never be pushed.
 - `CLAUDE.md` rules apply: GPL headers on new scripts; no C escapes through heredocs, `sed` or `python -c`.
+
+## Review 1 (Claude, 2026-10-16): not accepted
+
+Branch `gemini/open-art` at `8a97bb5f`. I rebuilt it from a clean clone in `wexbuild` and read the local sheets in
+`../WineExplorer-local/notes/xp/` and `notes/win11/`.
+
+Good and kept:
+- the Windows 11 icon set: it reads as Windows 11 in the sheets, and the folders, drives, monitors and special
+  folders are close;
+- the `ico` layer type, the multi-module builder and the cursor builder's structure;
+- no Windows names or paths in the repository; the rip-check numbers.
+
+### Must fix
+
+1. **The XP icon set is not look-alike work yet.**
+   - Every entry is a ReactOS icon used unchanged (`{"ico": "reactos:.../N.ico"}`). Those are the icons the shell
+     already shows without any pack, so picking "XP" changes nothing on screen.
+   - Make them look like XP from open shapes, as the work order says. Start with the slots the sheet shows furthest
+     off:
+     - the folder family should be XP's yellow folders, not ReactOS's blue-grey: 4, 5, 20, 34–39, 43, 46, 172, 173,
+       210 and 235–238. Recolour ReactOS, Oxygen or elementary-xfce folders; the emblems stay;
+     - the Recycle Bin: 32, 33, 142 and 143;
+     - the window icon 3; Favorites 44 and 173 (a star, not a heart); shut down 28 and 221; the help and search
+       family where they differ.
+   - Your report says XP's yellow folders were avoided "for copyright". That is wrong: a yellow folder drawn from
+     open art is allowed. Only copying or tracing Windows art is not.
+2. **Builds must work from a clean checkout.** From a fresh clone at `8a97bb5f`:
+   - `build_iconpack.py assets/iconpacks/xp.json ...` fails with `IndexError: list index out of range` in
+     `build_ico`. The `icotool -x` run for an app icon extracted nothing, and its error is thrown away
+     (`stderr=DEVNULL`).
+   - `build_cursors.py assets/cursors/xp.json ...` reads `<repo>/references/reactos/...`. `references/` is unversioned
+     and exists on one machine only.
+   - Fix: give ReactOS and Wine a real commit in the mappings, not `"commit": "HEAD"`. Take every ReactOS and Wine
+     file through `--source NAME=PATH` in both builders, and add them to the sparse fetch in
+     `installer/package-wine.sh`, like Fluent and Tela.
+   - Fail with a clear message when a source file is missing.
+   - Commit a build log made from a clean clone.
+3. **256 px images must be 8-bit.**
+   - The built packs still store 16-bit RGBA PNGs (`identify`: `16-bit srgba`). Wine cannot load them, so shell32
+     drops the whole icon.
+   - This is fixed on `claude/fluent-fixes` (`-depth 8 PNG32:` in `build_ico`), which goes to master shortly. Rebase
+     on master then, and keep 8-bit output on every path, the `ico` fast path included.
+4. **The Windows 11 cursors are about 1.7× too big.** Measured at 32 px, glyph bounding box, ours vs the Windows
+   original:
+
+   | Cursor | Ours | Windows original |
+   |---|---|---|
+   | arrow | 21×31 | 12×19 |
+   | hand | 21×32 | 18×24 |
+   | text select | 12×28 | 9×18 |
+   | resize N–S | 12×30 | 9×23 |
+
+   - Scale every role to the original's size at 32 and 48 px, and measure them locally.
+   - Report each role's bounding box next to the original's in `OPEN_ART.md`, as numbers only.
+5. **Fluent mapping, ids 220 and 269.**
+   - Your mapping adds them again. Wine's 220 and 269 are its Users pictures (`other_picture()` keeps them out), and
+     `claude/fluent-fixes` removed both entries.
+   - Remove them, and correct "Shared Documents (172 / 269)" in the report: Shared Documents uses the My Documents
+     icon.
+6. **XP cursor hotspots.**
+   - The build log gives Help, NWPen and No a hotspot at 0,0. The No cursor's hotspot is its centre, and NWPen's is
+     the pen tip.
+   - Read the hotspots from the ReactOS files correctly, or set them in the mapping, then check each one.
+
+### Smaller
+
+- The cursor comparison sheets cut off their labels; widen the tiles.
+- `OPEN_ART.md` says both builders "run cleanly"; that was not true from a clean checkout. Paste only what a clean
+  run prints.
+
+Rebase on master once `claude/fluent-fixes` is merged (I will say when), then reply. I review with the local sheets
+again.
