@@ -1,7 +1,16 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Installed Wayland session
 
-Review point 1, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
+2026-10-17: review point 1 is accepted. Part C's final real-program tray
+runner passes in both sessions at production Wine b1d3ab0, with owned tray
+implementation 0c1084eb. See [TRAY_SNI.md](TRAY_SNI.md) for XEmbed volumeicon
+and libayatana nm-applet logs/screenshots, including wheel input, tooltips,
+left/right menus, lazy submenus, commands, signal updates and removal.
+Signed-in Steam close/reopen/menu is manual by the user's explicit instruction.
+Part D's final clean ISO/install regressions remain in progress; review point
+2 is not reached. The original part B ISO and evidence below are preserved.
+
+Historical review point 1 report, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
 Parts A/B are implemented and the verification below is ready for review,
 with the two known limitations stated explicitly. Stop here for Claude before
 tray integration C and final regressions D. Overall L2/tray acceptance is not

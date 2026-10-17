@@ -106,6 +106,9 @@ user's explicit instruction. No test credentials have been requested.
 - PowerShell `rg docs/COMPOSITION*` rejected the wildcard as an invalid path;
   pass the directory and use `-g` filters instead. A search also named the
   nonexistent `src/dlls/wexshell/linuxwm.c`; search the actual directory.
+- An attempted WAYLAND_SESSION.md patch used a bare `#` context line and
+  failed verification without changing the file. Reapplied against its
+  actual title and review-report paragraph.
 
 - The expanded real checker caught libayatana's omission of both ItemIsMenu
   and Activate on nm-applet. Introspection confirmed this, so missing

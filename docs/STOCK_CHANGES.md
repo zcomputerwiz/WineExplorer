@@ -6,8 +6,10 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is 0f25ee1, integrating the L2 topic through the real-program
-checkpoint in WAYLAND_SESSION.md, visual-style support and prefix-split S2/S3.
+Current pin is b1d3ab0, integrating the L2 topic through the real-program
+checkpoint in WAYLAND_SESSION.md, visual-style support, prefix-split S2/S3
+and the independent Fluent-theme changes. The native tray bridge is owned
+wexhost/wexshell code and adds no stock-Wine patch.
 The earlier "topic, not production" descriptions below are historical: those
 commits are now included. Fresh ISO installation acceptance passed: default-X11
 Alice login, selected-Wayland Bob login, 32/64-bit applications, real native
