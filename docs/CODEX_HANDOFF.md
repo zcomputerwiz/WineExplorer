@@ -1,5 +1,12 @@
 # Codex handoff — 2026-10-16 Wayland L2 in progress
 
+**2026-10-17 tray checkpoint:** the portable real-program checker passes in
+both sessions at Wine b1d3ab0 with owned commit 0c1084eb. See TRAY_SNI.md for
+logs and screenshots. Signed-in Steam is manual by user instruction. The
+clean final ISO is building on the Proton VM as `wineexplorer-tray-final.iso`;
+part D's fresh installs and effects/dialog regressions remain. Do not use
+the earlier tray ISO: it predates the libayatana left-click compatibility fix.
+
 **Queued user follow-up (2026-10-17), after the current C/D tasks:** inspect the
 volumeicon Preferences screenshot. Its left/right body edges appear inset
 relative to the title bar and full bottom width. Check the actual hosted GTK

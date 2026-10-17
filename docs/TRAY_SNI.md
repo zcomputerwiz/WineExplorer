@@ -1,9 +1,9 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Native notification icons
 
-Part C: real-program tray checks pass in both sessions; the final portable
-runner passed in X11, including left-click menus and wheel input. The
-final Wayland run and clean-ISO regressions are next.
+Part C: the final portable real-program tray runner passes in both X11 and
+Wayland, including left-click menus and wheel input. Clean-ISO regressions
+are next.
 Signed-in Steam close/reopen/menu is reserved for the user's manual login,
 as requested on 2026-10-17. Part D and review point 2 are not ready.
 
@@ -69,8 +69,8 @@ Evidence under gitignored `build/wayland-session/`:
 [working menu command](../build/wayland-session/tray-nm-information.png),
 [Xpad indicator](../build/wayland-session/tray-xpad-initial.png).
 
-Still required: final X11 acceptance, then the work order's final ISO
-regressions. Signed-in Steam acceptance is a manual check; no credentials
+Still required: the work order's final ISO regressions.
+Signed-in Steam acceptance is a manual check; no credentials
 have been requested or submitted. Existing-watcher fallback is implemented;
 no synthetic watcher client or protocol corner-case suite was added.
 
@@ -84,8 +84,10 @@ It uses `session-run.py --native`, which preserves the active X11 DISPLAY
 Wayland VM, its public endpoint defaults can be overridden with
 `--native-wayland` / `--native-display` on that helper.
 
-The final X11 run is `build/wayland-session/tray-x11-final.log`; screenshots
-are under `tray-x11-final/`. Steam's signed-in check remains manual by the
+The final runs are `build/wayland-session/tray-x11-final.log` and
+`tray-wayland-final.log`; both end with the XEmbed and SNI PASS lines.
+Screenshots are under `tray-x11-final/` and `tray-wayland-final/`.
+Steam's signed-in check remains manual by the
 user's explicit instruction. No test credentials have been requested.
 
 ## Failed commands and fixes
