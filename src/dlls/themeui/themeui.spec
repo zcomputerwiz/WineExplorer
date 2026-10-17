@@ -18,3 +18,4 @@
 @ cdecl theme_draw_classic_bevel(ptr ptr long long)
 @ cdecl theme_draw_sunken_well(ptr ptr)
 @ cdecl theme_draw_raised_button(ptr ptr long long)
+@ cdecl theme_resolve_path(wstr ptr long)

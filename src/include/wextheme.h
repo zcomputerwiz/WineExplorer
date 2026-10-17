@@ -105,6 +105,7 @@ void theme_get_current(THEME_CONFIG *config);
 void theme_set_start_menu_style(int style);
 void theme_refresh_wallpaper(void);
 BOOL theme_apply_file(const WCHAR *path);
+BOOL theme_resolve_path(const WCHAR *in_path, WCHAR *out_path, DWORD out_len);
 
 BOOL theme_is_visual_styles_active(void);
 int theme_taskbar_first_row(void);   /* height of the first row of the taskbar */

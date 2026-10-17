@@ -175,3 +175,41 @@ cursors pass the rip check (RMSE 0.14 to 0.45).
   one small commit.
 
 Reply when the items are fixed. Paste real output only, and look at every screenshot first.
+
+## Fixes after review 1 (Claude, 2026-10-16)
+
+Gemini moved to `OPEN_ART_WORKORDER.md`; Claude fixed the review items on `claude/fluent-fixes`.
+
+- Item 1: redone in a clean prefix, built from this branch with no local-only files. The log is
+  `fluent-theme/logs/clean-prefix-live-switch.log`. The shell is started on a named desktop and every command runs on
+  it, as in the session (the earlier harness ran `/theme` on Wine's default desktop, where it could not reach the
+  shell). Fluent, then Classic, then Fluent again, all live:
+  - the desktop, Start menu, tray and Control Panel applets change each time;
+  - `CurrentTheme` holds the full path;
+  - Module Icons is filled for Fluent and empty for Classic.
+
+  Screenshots: `fluent-theme/screenshots/clean-*.png`.
+- Item 2: the eight screenshots are deleted. Squash-merged, they never reach master.
+- Item 3 was wrong: `shellres_reset()` already drops the pack cache on `WM_THEMECHANGED` (`systray.c`,
+  `explorer.c`). The real cause of the missing icons was in `scripts/build_iconpack.py`:
+  - its 256 px images were 16-bit PNGs, which Wine cannot load ("unsupported PNG color format 6, 16 bpp");
+  - shell32 drops a replacement when one size fails, so no pack icon reached the system image list;
+  - all sizes are now 8-bit.
+- Item 4: Wine `b1d3ab0` is based on `ba640fa`, so the maximized caption fix stays.
+- Item 5:
+  - shell32 no longer reads themes. Explorer (`shellres.c`, `sync_module_icons`) writes
+    `HKCU\Software\WineExplorer\Module Icons`.
+  - shell32 takes the icons of system-directory modules from there, and a full reload refreshes them (Wine
+    `b1d3ab0`, listed in `STOCK_CHANGES.md`).
+- Item 6: 220 and 269 are back in `other_picture()`. Their mislabelled Fluent entries are removed: Wine's 220 and
+  269 are the Users pictures.
+- Item 7: open, documented. The user32 change reloads scheme cursors for cursors loaded after a switch. Windows that
+  were already open keep their class cursor until they are reopened or the user logs on again.
+- Also fixed:
+  - `build_fluent_cursors.py` compared its output with the host's Windows cursors by file name during the build;
+    that is removed (rip checks stay local);
+  - `package-wine.sh` has no prompts, has fetch timeouts and no machine-specific fallback, and cleans up after a
+    failed fetch;
+  - `STOCK_CHANGES.md` keeps the maximized caption entry the merge had dropped.
+- Left for `OPEN_ART_WORKORDER.md`: applets the pack does not map yet (Add/Remove Programs, Internet Settings, Game
+  Controllers, Keyboard).

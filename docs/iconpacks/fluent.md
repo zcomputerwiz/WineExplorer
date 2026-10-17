@@ -11,6 +11,8 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | fluent: Fluent UI System Icons (Microsoft) | MIT | https://github.com/microsoft/fluentui-system-icons | a347af95478f989038cccbf085978865264c048a |
 | tela: Tela icon theme (Ubuntu Budgie fork of vinceliuice/Tela-icon-theme) | GPL-3.0 | https://github.com/UbuntuBudgie/Tela-icon-theme | 50f51f45d95c629cbb21530bf71c82cdb96269da |
 
+## Shell Icons (xpres_shell32.dll)
+
 | Id | Meaning | Layers, bottom to top (Fluent glyph, style, colour, scale, position; or source SVG and edits) |
 |---|---|---|
 | 1 | file | `document` filled #FFFFFF; `document` regular #8C8C8C |
@@ -80,5 +82,109 @@ Licence of the pack as a whole: GPL-3.0, because it contains Tela icon theme art
 | 173 | Favorites folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `star` filled #F5C33B, 0.5x at (0.46, 0.46); `star` regular #C98B12, 0.5x at (0.46, 0.46) |
 | 175 | network connections | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `plug_connected` filled #1A8C9C, 0.5x at (0.46, 0.46) |
 | 210 | folder with a check mark | `folder` filled #FFD15C; `folder` regular #D49A2A; `checkmark_square` filled #1E79D6, 0.5x at (0.46, 0.46) |
+| 220 | User Accounts | `person_circle` filled #1E79D6; `person_circle` regular #145AA0 |
 | 221 | turn off computer | `circle` filled #1E79D6; `power` regular #FFFFFF, 0.62x at (0.19, 0.19) |
 | 222 | DVD drive | `hard_drive` filled #E3E3E3; `hard_drive` regular #6E6E6E; `circle` filled #C8C8C8, 0.45x at (0.5, 0.02) |
+| 231 | Downloads folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `arrow_download` filled #1E79D6, 0.5x at (0.46, 0.46); `arrow_download` regular #145AA0, 0.5x at (0.46, 0.46) |
+| 235 | My Documents folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `document` filled #FFFFFF, 0.5x at (0.46, 0.46); `document` regular #8C8C8C, 0.5x at (0.46, 0.46) |
+| 236 | My Pictures folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `image` filled #1A8C9C, 0.5x at (0.46, 0.46); `image` regular #005B70, 0.5x at (0.46, 0.46) |
+| 237 | My Music folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `music_note_2` filled #D9362B, 0.5x at (0.46, 0.46); `music_note_2` regular #A80000, 0.5x at (0.46, 0.46) |
+| 238 | My Videos folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `video` filled #1E79D6, 0.5x at (0.46, 0.46); `video` regular #145AA0, 0.5x at (0.46, 0.46) |
+| 269 | Shared Documents folder | `folder` filled #FFD15C; `folder` regular #D49A2A; `people` filled #1E79D6, 0.5x at (0.46, 0.46); `people` regular #145AA0, 0.5x at (0.46, 0.46) |
+
+## Module: xpres_desk.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 100 | Display Properties | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B |
+
+## Module: xpres_explorer.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 103 | Show Desktop | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B |
+
+## Module: xpres_intl.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 200 | Regional and Language Options | `globe` filled #1E79D6; `globe` regular #145AA0; `translate` filled #1A8C9C, 0.5x at (0.46, 0.46); `translate` regular #005B70, 0.5x at (0.46, 0.46) |
+
+## Module: xpres_main.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 100 | Mouse Properties | `cursor` filled #4A4A4A; `cursor` regular #242424 |
+| 101 | Keyboard Properties | `keyboard` filled #6E6E6E; `keyboard` regular #323130 |
+
+## Module: xpres_mmsys.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 100 | Sounds and Audio Devices | `speaker_2` filled #1E79D6; `speaker_2` regular #145AA0 |
+
+## Module: xpres_ncpa.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 100 | Network Connections | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `plug_connected` filled #1A8C9C, 0.5x at (0.46, 0.46) |
+
+## Module: xpres_powercfg.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 100 | Power Options | `battery_10` filled #2E9E4A; `battery_10` regular #107C41; `plug_connected` filled #F5C33B, 0.5x at (0.46, 0.46) |
+
+## Module: xpres_sysdm.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 100 | System Properties | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `settings` filled #6E6E6E, 0.5x at (0.46, 0.46); `settings` regular #323130, 0.5x at (0.46, 0.46) |
+
+## Module: xpres_timedate.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 100 | Date and Time Properties | `clock` filled #1E79D6; `clock` regular #145AA0 |
+
+## Module: xpres_wexres.dll
+
+| Id | Meaning | Layers |
+|---|---|---|
+| 1001 | Network Blank | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B |
+| 1002 | Network Disconnected | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `dismiss_circle` filled #D9362B, 0.5x at (0.46, 0.46) |
+| 1003 | Network Connected | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `plug_connected` filled #2E9E4A, 0.5x at (0.46, 0.46) |
+| 1004 | Network Receiving | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `arrow_download` filled #1E79D6, 0.5x at (0.46, 0.46) |
+| 1005 | Network Transmitting | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `arrow_up` filled #2E9E4A, 0.5x at (0.46, 0.46) |
+| 1006 | Network Activity | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B; `arrow_sync` filled #2E9E4A, 0.5x at (0.46, 0.46) |
+| 1007 | Wireless Signal 0 | `wifi_4` filled #4A4A4A; `wifi_4` regular #242424 |
+| 1008 | Wireless Signal 1 | `wifi_4` filled #4A4A4A; `wifi_4` regular #242424 |
+| 1009 | Wireless Signal 2 | `wifi_4` filled #4A4A4A; `wifi_4` regular #242424 |
+| 1010 | Wireless Signal 3 | `wifi_4` filled #4A4A4A; `wifi_4` regular #242424 |
+| 1011 | Wireless Signal 4 | `wifi_4` filled #4A4A4A; `wifi_4` regular #242424 |
+| 1012 | Wireless Signal 5 | `wifi_4` filled #4A4A4A; `wifi_4` regular #242424 |
+| 1013 | Wireless Network | `wifi_4` filled #1E79D6; `wifi_4` regular #145AA0 |
+| 1015 | Volume | `speaker_2` filled #4A4A4A; `speaker_2` regular #242424 |
+| 1016 | Volume Mute | `speaker_0` filled #D9362B; `speaker_0` regular #A80000 |
+| 1017 | Battery Plugged | `battery_10` filled #2E9E4A; `battery_10` regular #107C41; `plug_connected` filled #F5C33B, 0.5x at (0.46, 0.46) |
+| 1018 | Battery | `battery_10` filled #4A4A4A; `battery_10` regular #242424 |
+| 1019 | Safely Remove Hardware | `save` filled #4A4A4A; `save` regular #242424 |
+| 1020 | Start Button | `apps` filled #1E79D6; `apps` regular #145AA0 |
+| 1021 | LAN Connection | `desktop` filled #1FA6E0; `desktop` regular #2B2B2B |
+
+## Application Icons (Icons/Apps/*.ico)
+
+| Application | Meaning | Layers |
+|---|---|---|
+| calc.ico | Calculator | `calculator` filled #1A8C9C; `calculator` regular #005B70 |
+| cmd.ico | Command Prompt | `window_console` filled #4A4A4A; `window_console` regular #242424 |
+| iexplore.ico | Internet Explorer | `globe` filled #1E79D6; `globe` regular #145AA0 |
+| mspaint.ico | Paint | `paint_brush` filled #D13438; `paint_brush` regular #A4262C |
+| notepad.ico | Notepad | `notepad` filled #1E79D6; `notepad` regular #145AA0 |
+| wmplayer.ico | Windows Media Player | `circle` filled #F7630C; `circle` regular #CA5010; `play` filled #FFFFFF, 0.5x at (0.28, 0.25) |
+
+## Cursors (Cursors/*.cur, *.ani)
+
+Drawn from vector geometry and Fluent UI System Icons (Cursor, Hand Draw, Pen) by `scripts/build_fluent_cursors.py`.
+Rip-checked clean against host Windows genuine cursors (all RMSE > 0.05).
+

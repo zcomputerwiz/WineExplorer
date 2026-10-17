@@ -21,3 +21,4 @@
 @ cdecl shellfolder_set_on_desktop_style(long long long)
 @ cdecl shellfolder_desktop_items_style(ptr long long)
 @ cdecl shellfolder_link_media_folders()
+@ stdcall WexResIconModule()

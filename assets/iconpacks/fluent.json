@@ -26,7 +26,16 @@
   "grey": "#6E6E6E",
   "dark": "#4A4A4A",
   "white": "#FFFFFF",
-  "disc": "#C8C8C8"
+  "disc": "#C8C8C8",
+  "orange": "#F7630C",
+  "orange_line": "#CA5010",
+  "magenta": "#D13438",
+  "magenta_line": "#A4262C",
+  "teal_line": "#005B70",
+  "red_line": "#A80000",
+  "green_line": "#107C41",
+  "dark_line": "#242424",
+  "grey_line": "#323130"
  },
  "icons": {
   "1": {
@@ -1335,6 +1344,126 @@
      ]
     }
    ]
+  },
+  "231": {
+   "meaning": "Downloads folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "arrow_download",
+      "blue",
+      "blue_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "235": {
+   "meaning": "My Documents folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "document",
+      "page",
+      "page_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "236": {
+   "meaning": "My Pictures folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "image",
+      "teal",
+      "teal_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "237": {
+   "meaning": "My Music folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "music_note_2",
+      "red",
+      "red_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
+  },
+  "238": {
+   "meaning": "My Videos folder",
+   "layers": [
+    {
+     "tone": [
+      "folder",
+      "folder",
+      "folder_line"
+     ]
+    },
+    {
+     "tone": [
+      "video",
+      "blue",
+      "blue_line"
+     ],
+     "scale": 0.5,
+     "at": [
+      0.46,
+      0.46
+     ]
+    }
+   ]
   }
  },
  "licence": "GPL-3.0, because it contains Tela icon theme art (GPL-3.0); the Fluent UI System Icons glyphs in it remain under the MIT licence",
@@ -1352,6 +1481,567 @@
    "url": "https://github.com/UbuntuBudgie/Tela-icon-theme",
    "commit": "50f51f45d95c629cbb21530bf71c82cdb96269da",
    "licence_file": "COPYING"
+  }
+ },
+ "modules": {
+  "desk": {
+   "100": {
+    "meaning": "Display Properties",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     }
+    ]
+   }
+  },
+  "sysdm": {
+   "100": {
+    "meaning": "System Properties",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     },
+     {
+      "tone": [
+       "settings",
+       "grey",
+       "grey_line"
+      ],
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   }
+  },
+  "timedate": {
+   "100": {
+    "meaning": "Date and Time Properties",
+    "layers": [
+     {
+      "tone": [
+       "clock",
+       "blue",
+       "blue_line"
+      ]
+     }
+    ]
+   }
+  },
+  "main": {
+   "100": {
+    "meaning": "Mouse Properties",
+    "layers": [
+     {
+      "tone": [
+       "cursor",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "101": {
+    "meaning": "Keyboard Properties",
+    "layers": [
+     {
+      "tone": [
+       "keyboard",
+       "grey",
+       "grey_line"
+      ]
+     }
+    ]
+   }
+  },
+  "intl": {
+   "200": {
+    "meaning": "Regional and Language Options",
+    "layers": [
+     {
+      "tone": [
+       "globe",
+       "blue",
+       "blue_line"
+      ]
+     },
+     {
+      "tone": [
+       "translate",
+       "teal",
+       "teal_line"
+      ],
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   }
+  },
+  "mmsys": {
+   "100": {
+    "meaning": "Sounds and Audio Devices",
+    "layers": [
+     {
+      "tone": [
+       "speaker_2",
+       "blue",
+       "blue_line"
+      ]
+     }
+    ]
+   }
+  },
+  "ncpa": {
+   "100": {
+    "meaning": "Network Connections",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     },
+     {
+      "glyph": "plug_connected",
+      "colour": "teal",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   }
+  },
+  "powercfg": {
+   "100": {
+    "meaning": "Power Options",
+    "layers": [
+     {
+      "tone": [
+       "battery_10",
+       "green",
+       "green_line"
+      ]
+     },
+     {
+      "glyph": "plug_connected",
+      "colour": "yellow",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   }
+  },
+  "explorer": {
+   "103": {
+    "meaning": "Show Desktop",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     }
+    ]
+   }
+  },
+  "wexres": {
+   "1001": {
+    "meaning": "Network Blank",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     }
+    ]
+   },
+   "1002": {
+    "meaning": "Network Disconnected",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     },
+     {
+      "glyph": "dismiss_circle",
+      "colour": "red",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   },
+   "1003": {
+    "meaning": "Network Connected",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     },
+     {
+      "glyph": "plug_connected",
+      "colour": "green",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   },
+   "1004": {
+    "meaning": "Network Receiving",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     },
+     {
+      "glyph": "arrow_download",
+      "colour": "blue",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   },
+   "1005": {
+    "meaning": "Network Transmitting",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     },
+     {
+      "glyph": "arrow_up",
+      "colour": "green",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   },
+   "1006": {
+    "meaning": "Network Activity",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     },
+     {
+      "glyph": "arrow_sync",
+      "colour": "green",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   },
+   "1007": {
+    "meaning": "Wireless Signal 0",
+    "layers": [
+     {
+      "tone": [
+       "wifi_4",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1008": {
+    "meaning": "Wireless Signal 1",
+    "layers": [
+     {
+      "tone": [
+       "wifi_4",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1009": {
+    "meaning": "Wireless Signal 2",
+    "layers": [
+     {
+      "tone": [
+       "wifi_4",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1010": {
+    "meaning": "Wireless Signal 3",
+    "layers": [
+     {
+      "tone": [
+       "wifi_4",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1011": {
+    "meaning": "Wireless Signal 4",
+    "layers": [
+     {
+      "tone": [
+       "wifi_4",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1012": {
+    "meaning": "Wireless Signal 5",
+    "layers": [
+     {
+      "tone": [
+       "wifi_4",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1013": {
+    "meaning": "Wireless Network",
+    "layers": [
+     {
+      "tone": [
+       "wifi_4",
+       "blue",
+       "blue_line"
+      ]
+     }
+    ]
+   },
+   "1015": {
+    "meaning": "Volume",
+    "layers": [
+     {
+      "tone": [
+       "speaker_2",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1016": {
+    "meaning": "Volume Mute",
+    "layers": [
+     {
+      "tone": [
+       "speaker_0",
+       "red",
+       "red_line"
+      ]
+     }
+    ]
+   },
+   "1017": {
+    "meaning": "Battery Plugged",
+    "layers": [
+     {
+      "tone": [
+       "battery_10",
+       "green",
+       "green_line"
+      ]
+     },
+     {
+      "glyph": "plug_connected",
+      "colour": "yellow",
+      "scale": 0.5,
+      "at": [
+       0.46,
+       0.46
+      ]
+     }
+    ]
+   },
+   "1018": {
+    "meaning": "Battery",
+    "layers": [
+     {
+      "tone": [
+       "battery_10",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1019": {
+    "meaning": "Safely Remove Hardware",
+    "layers": [
+     {
+      "tone": [
+       "save",
+       "dark",
+       "dark_line"
+      ]
+     }
+    ]
+   },
+   "1020": {
+    "meaning": "Start Button",
+    "layers": [
+     {
+      "tone": [
+       "apps",
+       "blue",
+       "blue_line"
+      ]
+     }
+    ]
+   },
+   "1021": {
+    "meaning": "LAN Connection",
+    "layers": [
+     {
+      "tone": [
+       "desktop",
+       "screen",
+       "screen_line"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "apps": {
+  "iexplore": {
+   "meaning": "Internet Explorer",
+   "layers": [
+    {
+     "tone": [
+      "globe",
+      "blue",
+      "blue_line"
+     ]
+    }
+   ]
+  },
+  "notepad": {
+   "meaning": "Notepad",
+   "layers": [
+    {
+     "tone": [
+      "notepad",
+      "blue",
+      "blue_line"
+     ]
+    }
+   ]
+  },
+  "calc": {
+   "meaning": "Calculator",
+   "layers": [
+    {
+     "tone": [
+      "calculator",
+      "teal",
+      "teal_line"
+     ]
+    }
+   ]
+  },
+  "mspaint": {
+   "meaning": "Paint",
+   "layers": [
+    {
+     "tone": [
+      "paint_brush",
+      "magenta",
+      "magenta_line"
+     ]
+    }
+   ]
+  },
+  "cmd": {
+   "meaning": "Command Prompt",
+   "layers": [
+    {
+     "tone": [
+      "window_console",
+      "dark",
+      "dark_line"
+     ]
+    }
+   ]
+  },
+  "wmplayer": {
+   "meaning": "Windows Media Player",
+   "layers": [
+    {
+     "tone": [
+      "circle",
+      "orange",
+      "orange_line"
+     ]
+    },
+    {
+     "glyph": "play",
+     "colour": "white",
+     "scale": 0.5,
+     "at": [
+      0.28,
+      0.25
+     ]
+    }
+   ]
   }
  }
 }

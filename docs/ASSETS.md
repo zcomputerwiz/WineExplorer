@@ -29,6 +29,9 @@ Checked third-party sets (2026-10-16):
   capitaine-cursors) are not used either. They checked clean: vector redrawings, with no embedded images and no
   pixel match with Windows' cursors. The project does not take art from this author, because of the ripped icon
   themes.
+- **Fluent cursors** ((`scripts/build_fluent_cursors.py`) drawn from vector geometry and Fluent UI System Icons (MIT).
+  Checked clean against host Windows genuine cursors in `C:\Windows\Cursors`: no embedded rasters, and RMSE
+  across all cursors is 0.1440 - 0.4466 (well above the 0.05 threshold).
 
 ## Open pictures
 `scripts/open_assets.py build` writes every picture that stands in for an XP one, and lists each with its source in

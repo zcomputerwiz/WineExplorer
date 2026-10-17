@@ -8,6 +8,7 @@
 
 /* Immutable module identity for Win32 resource APIs; the DLL remains loaded. */
 HMODULE WINAPI WexResModule(void);
+HMODULE WINAPI WexResIconModule(void);
 HICON shellres_icon(int id, int size);
 HICON shellres_module_icon(const WCHAR *module, int id, int size);
 HICON shellres_app_icon(const WCHAR *exe, int size);

@@ -60,6 +60,51 @@ fi
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
 install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 
+# Build open icon pack (Fluent) if tools are available
+echo "Building Fluent theme package..."
+(
+    set -e
+    SRC_CACHE="${WEX_ICONSRC_CACHE:-/var/cache/wineexplorer/iconsrc}"
+    export GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never
+    mkdir -p "$SRC_CACHE"
+    if [ ! -d "$SRC_CACHE/fluentui-system-icons/.git" ] && [ ! -d "$SRC_CACHE/fluentui-system-icons/assets" ]; then
+        echo "Fetching fluentui-system-icons sparse checkout..."
+        mkdir -p "$SRC_CACHE/fluentui-system-icons"
+        (
+            cd "$SRC_CACHE/fluentui-system-icons"
+            git init
+            git remote add origin https://github.com/microsoft/fluentui-system-icons.git
+            git config core.sparseCheckout true
+            echo "assets/*" > .git/info/sparse-checkout
+            echo "LICENSE" >> .git/info/sparse-checkout
+            timeout 600 git fetch --depth 1 origin a347af95478f989038cccbf085978865264c048a
+            git checkout FETCH_HEAD
+        ) || { rm -rf "$SRC_CACHE/fluentui-system-icons"; exit 1; }   # no half-made checkout left behind
+    fi
+    if [ ! -d "$SRC_CACHE/tela/.git" ] && [ ! -d "$SRC_CACHE/tela/src" ]; then
+        echo "Fetching tela icon theme sparse checkout..."
+        mkdir -p "$SRC_CACHE/tela"
+        (
+            cd "$SRC_CACHE/tela"
+            git init
+            git remote add origin https://github.com/UbuntuBudgie/Tela-icon-theme.git
+            git config core.sparseCheckout true
+            echo "src/scalable/places/user-trash*.svg" > .git/info/sparse-checkout
+            echo "COPYING" >> .git/info/sparse-checkout
+            timeout 600 git fetch --depth 1 origin 50f51f45d95c629cbb21530bf71c82cdb96269da
+            git checkout FETCH_HEAD
+        ) || { rm -rf "$SRC_CACHE/tela"; exit 1; }   # no half-made checkout left behind
+    fi
+    python3 "$ROOT_DIR/scripts/build_iconpack.py" "$ROOT_DIR/assets/iconpacks/fluent.json" \
+        "$STAGE_WINE/usr/local/share/wineexplorer/themes" \
+        --source fluent="$SRC_CACHE/fluentui-system-icons" \
+        --source tela="$SRC_CACHE/tela"
+    echo "Fluent theme package installed to staged share/wineexplorer/themes/Fluent"
+) || {
+    echo "WARNING: Failed to build Fluent icon pack; skipping it for this build."
+    rm -rf "$STAGE_WINE/usr/local/share/wineexplorer/themes/Fluent"
+}
+
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/startskins"
 if [ -d "$ROOT_DIR/src/resources/startskins" ]; then
     install -m644 "$ROOT_DIR/src/resources/startskins/"*.skin* "$STAGE_WINE/usr/local/share/wineexplorer/startskins/" 2>/dev/null || true
