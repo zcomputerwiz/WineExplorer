@@ -258,3 +258,7 @@ Fixed at merge:
 
 Open (small, next time the builder is touched):
 - `build_iconpack.py` still adds a cursor set while building an icon pack.
+
+Fixed after merge (2026-10-17): the Fluent-based XP bases (28, 35, 44, 45, 48, 173, 221) were cropped by `viewBox` exactly to
+the shape, so the outer half of their outline and their corners were cut at every size. Each crop now leaves the
+outline plus 0.8 units (about 1 px at 48 px); the Log Off example had the same fault.
