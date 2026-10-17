@@ -5,6 +5,65 @@ In progress, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
 Parts A and B lead to review point 1; tray integration and final regressions
 follow that review. No acceptance is claimed yet.
 
+### Installed-program and packaging checkpoint
+
+The existing combined-WoW64 checks pass in Bob's actual Wayland session:
+the existing Test32/Test64 programs and both syswow64/system32 Notepads draw
+their distinct windows. `check-wow64.sh` now uses `session-run.py` to inherit
+the named user's running Explorer environment, including its private Wayland
+endpoint. It drops Wine's process-local startup FD/reservation variables.
+The optional `--programs-only` explicitly excludes the S4 multi-user assertions
+on this legacy-prefix development overlay; the default still requires them.
+Evidence: `build/wayland-session/wow64-wayland.log` and `wow64-steps/`.
+
+Winecfg opens its Applications page. The real 32-bit 7-Zip 26.04 installer
+reports completion and its installed 7zFM.exe opens a file manager. It is an
+ignored, test-only download, never an ISO/repository resource (SHA256
+39bf65045153fc26c42fa9fe47afdaf8cd1b11671c7f11d031e738c9a13960c009).
+The automated destination assertion failed: the text had only reached
+`C:\users\bobsmith\7-Zip-S` when Install was clicked, instead of the requested
+`7-Zip-Session-Test`. The actual installed executable at the shorter path was
+then launched and visually verified. The later OCR wait used “7-Zip File
+Manager”, while its actual caption is “7-Zip”; screenshot and window readback
+verify the file manager. Do not claim the original automation passed. Our
+Control Panel opens, but its initial list screenshot was blank; the settled
+content check was interrupted and remains to be repeated.
+
+The reproducible compositor package at b99b5090 builds successfully, including
+the source-commit record, calculated dependencies and libsfdo notice. Wine's
+assembled stock files were audited against 055abb3 (12,462 files match), then
+normalized to that Git revision while retaining the three owned-module
+symlinks and generated configure. This supersedes the historical 3bb585c4
+metadata noted below. The normalization restored old archive mtimes; generated
+private protocol headers from the production-pin build were newer and caused
+`wex_window_manager_v1_listener` incomplete-type / add_listener errors. Touching
+the actual current XML regenerates the headers before rebuilding. Never use
+these failed build outputs for packaging.
+
+Tooling failures in this checkpoint: a JavaScript patch template interpreted
+Bash substitution syntax and failed with “Missing }” before editing; the
+replacement patch avoids template interpolation. Debian WSL initially lacked
+MinGW compilers; installing both architectures enabled the existing checks.
+A nested pgrep pattern containing pipes was parsed as shell pipelines; stage
+scripts instead. The first session launcher reused /proc's stale
+WINESERVERSOCKET=14 and Wine reported “Bad server socket 14: Bad file
+descriptor”; removing that variable, WINELOADERNOEXEC and WINEPRELOADRESERVE
+fixes the real launches. An accidental py_compile cache under installer/tests
+was removed; use AST parsing for local syntax checks. `file`, WSL `wget`, and
+scripts/build-wine.sh were absent; the successful alternatives were window
+readback, PowerShell download, and scripts/assemble.sh. The first source audit
+falsely flagged four stock CRLF data files; raw-byte hashing before normalized
+comparison resolves that.
+
+On resumption the old tool process IDs were gone (`Unknown process id 28611`),
+`vmtest.py status` was rejected (no such subcommand), and screendump returned
+ConnectionRefusedError on the stale QMP socket. QEMU was stopped; the existing
+installed overlay was restarted successfully. No pending GUI check is inferred
+to have passed from that interruption. The permitted Debian WSL staging HTTP
+server was also restarted; Gemini's distributions remain untouched.
+A documentation patch initially used a partial line as context and did not
+apply; the replacement uses the full existing line.
+
 ## Part A
 
 Qt/browser checkpoint: actual QTerminal at 150% keeps its Wine caption and
