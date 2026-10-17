@@ -44,8 +44,21 @@ static BOOL theme_pack_dir(WCHAR *dir)
     dir[0] = 0;
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes", L"CurrentTheme",
                      RRF_RT_REG_SZ, NULL, theme, &size)) return FALSE;
-    if (!GetPrivateProfileStringW(L"WineExplorer", L"IconPack", L"", value, MAX_PATH, theme) || !value[0]) return FALSE;
     GetWindowsDirectoryW(windir, MAX_PATH);
+    if (GetFileAttributesW(theme) == INVALID_FILE_ATTRIBUTES)
+    {
+        WCHAR resolved[MAX_PATH];
+        swprintf(resolved, MAX_PATH, L"%ls\\Resources\\Themes\\%ls\\%ls.theme", windir, theme, theme);
+        if (GetFileAttributesW(resolved) != INVALID_FILE_ATTRIBUTES)
+            lstrcpyW(theme, resolved);
+        else
+        {
+            swprintf(resolved, MAX_PATH, L"%ls\\Resources\\Themes\\%ls.theme", windir, theme);
+            if (GetFileAttributesW(resolved) != INVALID_FILE_ATTRIBUTES)
+                lstrcpyW(theme, resolved);
+        }
+    }
+    if (!GetPrivateProfileStringW(L"WineExplorer", L"IconPack", L"", value, MAX_PATH, theme) || !value[0]) return FALSE;
     {
         /* %ResourceDir% is the Resources folder of the Windows directory */
         const WCHAR *tail = value;
@@ -63,22 +76,27 @@ static HMODULE pack_module(const WCHAR *name)
 {
     int i;
     WCHAR path[MAX_PATH], dir[MAX_PATH];
+    WCHAR mod_name[MAX_PATH];
+    WCHAR *dot;
+
+    lstrcpynW(mod_name, name, ARRAY_SIZE(mod_name));
+    if ((dot = wcsrchr(mod_name, '.'))) *dot = 0;
 
     for (i = 0; i < MAX_PACKS && packs[i].name[0]; i++)
-        if (!wcsicmp(packs[i].name, name)) return packs[i].module;
+        if (!wcsicmp(packs[i].name, mod_name)) return packs[i].module;
     if (i == MAX_PACKS) return NULL;
 
-    lstrcpynW(packs[i].name, name, ARRAY_SIZE(packs[i].name));
+    lstrcpynW(packs[i].name, mod_name, ARRAY_SIZE(packs[i].name));
     if (theme_pack_dir(dir))
     {
-        swprintf(path, MAX_PATH, L"%s\\xpres_%s.dll", dir, name);
+        swprintf(path, MAX_PATH, L"%s\\xpres_%s.dll", dir, mod_name);
         packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     }
     if (!packs[i].module)
     {
         GetWindowsDirectoryW(path, MAX_PATH);
         wcscat(path, L"\\Resources\\Icons\\xpres_");
-        wcscat(path, name);
+        wcscat(path, mod_name);
         wcscat(path, L".dll");
         packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     }
@@ -151,6 +169,60 @@ static BOOL CALLBACK add_shell_icon(HMODULE module, LPCWSTR type, LPWSTR name, L
     return TRUE;
 }
 
+/* Other system modules (desk.cpl, ...) take their icons from the pack's xpres_<module>.dll through shell32's Module
+ * Icons key (HKCU\Software\WineExplorer\Module Icons, value = module name without extension): point it at the
+ * theme's pack files, or empty it without a pack.  TRUE if anything changed. */
+static BOOL sync_module_icons(void)
+{
+    WCHAR dir[MAX_PATH], path[MAX_PATH], name[MAX_PATH], data[MAX_PATH], old[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    DWORD i, name_len, data_len, type;
+    BOOL changed = FALSE;
+    HANDLE find;
+    HKEY key;
+
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Module Icons", 0, NULL, 0, KEY_ALL_ACCESS, NULL,
+                        &key, NULL)) return FALSE;
+    if (!theme_pack_dir(dir)) dir[0] = 0;
+
+    /* values for another pack, or for files that are gone, go away */
+    for (i = 0;;)
+    {
+        name_len = ARRAY_SIZE(name);
+        data_len = sizeof(data);
+        if (RegEnumValueW(key, i, name, &name_len, NULL, &type, (BYTE *)data, &data_len)) break;
+        swprintf(path, ARRAY_SIZE(path), L"%s\\xpres_%s.dll", dir, name);
+        if (!dir[0] || type != REG_SZ || wcsicmp(data, path) || GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES)
+        {
+            RegDeleteValueW(key, name);
+            changed = TRUE;
+            continue;
+        }
+        i++;
+    }
+
+    swprintf(path, ARRAY_SIZE(path), L"%s\\xpres_*.dll", dir);
+    if (dir[0] && (find = FindFirstFileW(path, &fd)) != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            DWORD size = sizeof(old);
+
+            lstrcpynW(name, fd.cFileName + 6, ARRAY_SIZE(name));   /* after "xpres_" */
+            PathRemoveExtensionW(name);
+            /* shell32 has Shell Icons; our own resources load wexres's pack directly */
+            if (!wcsicmp(name, L"shell32") || !wcsicmp(name, L"wexres")) continue;
+            swprintf(data, ARRAY_SIZE(data), L"%s\\%s", dir, fd.cFileName);
+            if (!RegQueryValueExW(key, name, NULL, NULL, (BYTE *)old, &size) && !wcsicmp(old, data)) continue;
+            RegSetValueExW(key, name, 0, REG_SZ, (const BYTE *)data, (lstrlenW(data) + 1) * sizeof(WCHAR));
+            changed = TRUE;
+        } while (FindNextFileW(find, &fd));
+        FindClose(find);
+    }
+    RegCloseKey(key);
+    return changed;
+}
+
 /* shell32 takes its own icons from the Shell Icons key first, as on Windows: point it at the theme's pack, or back at
  * shell32 without one.  Values that point into another pack are ours and go away; other values are left alone.
  * TRUE if anything changed (then shellres_reload_shell_icons() shows it in this process). */
@@ -189,6 +261,7 @@ BOOL shellres_sync_shell_icons(void)
         changed |= ctx.changed;
     }
     RegCloseKey(key);
+    changed |= sync_module_icons();
     return changed;
 }
 
@@ -337,4 +410,11 @@ void shellres_premultiply(HBITMAP bitmap)
         DWORD a = px[i] >> 24;
         px[i] = (a << 24) | ((((px[i] >> 16) & 255) * a / 255) << 16) | ((((px[i] >> 8) & 255) * a / 255) << 8) | ((px[i] & 255) * a / 255);
     }
+}
+
+
+HMODULE WINAPI WexResIconModule(void)
+{
+    HMODULE pack = pack_module(L"wexres");
+    return pack ? pack : resources_instance;
 }

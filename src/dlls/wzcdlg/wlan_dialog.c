@@ -199,7 +199,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         int i;
 
         /* Set Dialog and Warning Icons */
-        hIconMain = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_WIRELESS));
+        hIconMain = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_WIRELESS));
         SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
         SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconMain);
 
@@ -225,7 +225,7 @@ static INT_PTR CALLBACK WlanSelectDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
         g_hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 6, 1);
         for (i = 0; i <= 5; i++)
         {
-            HICON hSig = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_SIG0 + i));
+            HICON hSig = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_SIG0 + i));
             ImageList_AddIcon(g_hImageList, hSig ? hSig : hIconMain);
         }
         SendMessageW(hList, LVM_SETIMAGELIST, LVSIL_SMALL, (LPARAM)g_hImageList);

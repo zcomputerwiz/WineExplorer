@@ -107,3 +107,109 @@ Start from:
   - Never push `master` or force-push. Write commit messages to a file.
 - **`CLAUDE.md` rules.** WoW64 builds; GPL headers on new files; never pass C escapes through
   heredocs/`sed`/`python -c`.
+
+## Review 1 (Claude, 2026-10-16): not accepted
+
+Branch `gemini/fluent-theme` at `e9df5110`, Wine `dad24863`.
+
+Done well and kept: the packaging step with its fallback, the machine-root copy, the guarded per-user copy in
+`wine-explorer-session-common.sh`, short-name resolution for `/theme:`, and the Display Properties listing. The drawn
+cursors pass the rip check (RMSE 0.14 to 0.45).
+
+### Must fix
+
+1. **The evidence does not show the Fluent theme.**
+   - Screenshots 01–07 show the old icons on the desktop, the Recycle Bin, My Computer's drives and folders, and the
+     task panes.
+   - There is no Start menu in any of the "start_menu" shots.
+   - Control Panel (02, 07) is empty although its status bar says 13 objects.
+   - In 08, the installed system's theme box shows no name.
+
+   The report's statement that the screenshots show Fluent icons is wrong.
+   - Redo the acceptance: show the Fluent icons on the desktop, the open Start menu, My Computer, Control Panel and
+     the taskbar.
+   - Show them after a live switch, then Luna, then Fluent again.
+   - Look at every screenshot before you describe it.
+2. **Proprietary art in the branch.**
+   - The test prefix `/root/.wine_test_shell` holds the genuine Microsoft `Luna.msstyles` ("Copyright Microsoft
+     Corporation"). Screenshot `04_luna_reverted_start_menu.png` shows it, so it must not enter the repository.
+   - Delete it in a new commit. I will squash-merge, so it never reaches master.
+   - Take committed screenshots only in a prefix without local-only files: a fresh prefix from a master build, or the
+     installed ISO. Say which one in the report.
+   - The Luna comparison, and any shot that needs genuine art, stays in `../WineExplorer-local`. Commit only the
+     numbers.
+3. **Live switching of icons.**
+   - `pack_module()` in `src/dlls/wexres/shellres.c` caches each pack module in `packs[]` for the life of the process,
+     so the running shell keeps the old pack after a switch. This is the likely cause of item 1.
+   - Drop the cache on `WM_THEMECHANGED` (or when `CurrentTheme` changes) and reload the shell's icons.
+4. **Wine branch base.**
+   - `dad24863` merges `0f25ee1`, not the current pin `ba640fa`, so it reverts today's maximized-caption fix in
+     `dlls/uxtheme/window.c`.
+   - Merge `wineexplorer/11.19` (`ba640fa`) into your Wine branch and check that `git diff ba640fa <yours> --
+     dlls/uxtheme` is empty.
+5. **No theme lookup in shell32.**
+   - `SIC_GetModuleIconOverride()` puts WineExplorer theme parsing into stock shell32.
+   - It also matches any program by bare name: a third-party `main.exe` or `explorer.exe` would get our pack's icons.
+   - The applets that need icons (`desk`, `sysdm`, `timedate`, `intl`, `mmsys`, `ncpa`, `powercfg`, …) are our modules
+     in `src/dlls`, so load their icons through `shellres.c` there, as the work order says.
+   - Remove the shell32 change. Stock changes stay small (`CLAUDE.md`).
+6. **`other_picture()` must not lose 220 and 269.**
+   - In Wine those ids are other pictures. Taking them off the list makes every pack, XP included, replace Wine's
+     different icons there.
+   - Revert that change. Map Fluent's Shared Documents and Downloads to the slots Wine really uses for them.
+7. **Cursors in open windows.**
+   - `reset_scheme_cursors()` only affects cursors loaded afterwards. A window that is already open keeps the class
+     cursor it loaded at start.
+   - Show the new arrow over a window that was open before the switch. Otherwise make the change reach those windows,
+     or state the limit plainly in the report.
+   - Keep the user32 change as small as it is now, and list it in `STOCK_CHANGES.md`.
+
+### Smaller
+
+- `installer/package-wine.sh`:
+  - run the source fetches with `GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never` and `timeout`;
+  - drop the `/root/iconsrc` fallback, which works on one machine only (use `WEX_ICONSRC_CACHE`).
+- `docs/FLUENT_THEME.md`: replace the `file:///root/WineExplorer/...` links with relative links. The Wine commit it
+  names (`097133b`) is not the pinned one.
+- Pin the Wine gitlink only to a commit on the fork. After the fixes, the shell32 part is gone and the user32 part is
+  one small commit.
+
+Reply when the items are fixed. Paste real output only, and look at every screenshot first.
+
+## Fixes after review 1 (Claude, 2026-10-16)
+
+Gemini moved to `OPEN_ART_WORKORDER.md`; Claude fixed the review items on `claude/fluent-fixes`.
+
+- Item 1: redone in a clean prefix, built from this branch with no local-only files. The log is
+  `fluent-theme/logs/clean-prefix-live-switch.log`. The shell is started on a named desktop and every command runs on
+  it, as in the session (the earlier harness ran `/theme` on Wine's default desktop, where it could not reach the
+  shell). Fluent, then Classic, then Fluent again, all live:
+  - the desktop, Start menu, tray and Control Panel applets change each time;
+  - `CurrentTheme` holds the full path;
+  - Module Icons is filled for Fluent and empty for Classic.
+
+  Screenshots: `fluent-theme/screenshots/clean-*.png`.
+- Item 2: the eight screenshots are deleted. Squash-merged, they never reach master.
+- Item 3 was wrong: `shellres_reset()` already drops the pack cache on `WM_THEMECHANGED` (`systray.c`,
+  `explorer.c`). The real cause of the missing icons was in `scripts/build_iconpack.py`:
+  - its 256 px images were 16-bit PNGs, which Wine cannot load ("unsupported PNG color format 6, 16 bpp");
+  - shell32 drops a replacement when one size fails, so no pack icon reached the system image list;
+  - all sizes are now 8-bit.
+- Item 4: Wine `b1d3ab0` is based on `ba640fa`, so the maximized caption fix stays.
+- Item 5:
+  - shell32 no longer reads themes. Explorer (`shellres.c`, `sync_module_icons`) writes
+    `HKCU\Software\WineExplorer\Module Icons`.
+  - shell32 takes the icons of system-directory modules from there, and a full reload refreshes them (Wine
+    `b1d3ab0`, listed in `STOCK_CHANGES.md`).
+- Item 6: 220 and 269 are back in `other_picture()`. Their mislabelled Fluent entries are removed: Wine's 220 and
+  269 are the Users pictures.
+- Item 7: open, documented. The user32 change reloads scheme cursors for cursors loaded after a switch. Windows that
+  were already open keep their class cursor until they are reopened or the user logs on again.
+- Also fixed:
+  - `build_fluent_cursors.py` compared its output with the host's Windows cursors by file name during the build;
+    that is removed (rip checks stay local);
+  - `package-wine.sh` has no prompts, has fetch timeouts and no machine-specific fallback, and cleans up after a
+    failed fetch;
+  - `STOCK_CHANGES.md` keeps the maximized caption entry the merge had dropped.
+- Left for `OPEN_ART_WORKORDER.md`: applets the pack does not map yet (Add/Remove Programs, Internet Settings, Game
+  Controllers, Keyboard).

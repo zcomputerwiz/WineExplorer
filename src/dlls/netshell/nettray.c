@@ -164,7 +164,7 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     {
         g_current_icon_id = new_icon_id;
         if (g_nid.hIcon) DestroyIcon(g_nid.hIcon);
-        g_nid.hIcon = CopyIcon(LoadIconW(WexResModule(), MAKEINTRESOURCEW(new_icon_id)));
+        g_nid.hIcon = CopyIcon(LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(new_icon_id)));
         lstrcpynW(g_nid.szTip, new_tip, 128);
         Shell_NotifyIconW(NIM_ADD, &g_nid);
         g_tray_visible = TRUE;
@@ -173,7 +173,7 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     {
         g_current_icon_id = new_icon_id;
         if (g_nid.hIcon) DestroyIcon(g_nid.hIcon);
-        g_nid.hIcon = CopyIcon(LoadIconW(WexResModule(), MAKEINTRESOURCEW(new_icon_id)));
+        g_nid.hIcon = CopyIcon(LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(new_icon_id)));
         lstrcpynW(g_nid.szTip, new_tip, 128);
 
         Shell_NotifyIconW(NIM_MODIFY, &g_nid);

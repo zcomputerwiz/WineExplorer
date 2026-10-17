@@ -153,12 +153,11 @@ static void parse_command_line(LPWSTR commandline,parameters_struct *parameters)
         else if (wcsnicmp(p, L"/theme", 6) == 0 && (p[6] == ' ' || p[6] == '=' || p[6] == ':'))
         {
             /* explorer /theme <file.theme>: apply a Windows theme file (visual style, colors, sounds, icons) */
-            THEME_CONFIG cfg;
             WCHAR file[MAX_PATH];
             p += 7;
             while (*p == ' ') p++;
             copy_path_string(file, p);
-            if (theme_load_file(file, &cfg)) theme_apply(&cfg);
+            theme_apply_file(file);
             ExitProcess(0);
         }
         else if (wcsnicmp(p, L"/turnoff", 8) == 0 || wcsnicmp(p, L"-turnoff", 8) == 0)

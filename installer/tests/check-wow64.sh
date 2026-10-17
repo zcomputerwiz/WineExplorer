@@ -96,6 +96,19 @@ fi
 echo "PASS: Bob write access denied to machine root as expected"
 fi
 
+echo "=== 7. Display Properties lists Fluent theme ==="
+stage_file "/root/WineExplorer/scripts/cpl_driver.exe" /tmp/cpl_driver.exe
+$V sh "$VM" root "$PWFILE" 'USER=$(cat /tmp/desktop_user.txt); DISP=$(cat /tmp/desktop_disp.txt); XAUTH=$(cat /tmp/desktop_xauth.txt); su "$USER" -c "DISPLAY=$DISP XAUTHORITY=$XAUTH WINEDLLOVERRIDES=\"mscoree,mshtml=\" wine control.exe desk.cpl >/dev/null 2>&1 &"'
+$V wait "$VM" "Display Properties" --timeout 45
+$V shot "$VM" "$STEPS/22-desk-cpl-fluent.png"
+$V sh "$VM" root "$PWFILE" 'USER=$(cat /tmp/desktop_user.txt); DISP=$(cat /tmp/desktop_disp.txt); XAUTH=$(cat /tmp/desktop_xauth.txt); su "$USER" -c "DISPLAY=$DISP XAUTHORITY=$XAUTH WINEDLLOVERRIDES=\"mscoree,mshtml=\" wine /tmp/cpl_driver.exe > /tmp/cpl_driver.out 2>&1"'
+$V sh "$VM" root "$PWFILE" 'grep "Fluent" /tmp/cpl_driver.out' || {
+    echo "FAIL: Fluent theme not listed in Display Properties" >&2
+    exit 1
+}
+echo "PASS: Fluent theme is listed in Display Properties on installed system"
+$V sh "$VM" root "$PWFILE" 'pkill -f rundll32.exe || true; pkill -f control.exe || true'
+
 echo "=== Cleaning up running test processes ==="
 $V sh "$VM" root "$PWFILE" 'U=$(cat /tmp/desktop_user.txt); pkill -u "$U" -f test32.exe || true; pkill -u "$U" -f notepad.exe || true; pkill -u "$U" -f test64.exe || true; pkill -u "$U" -f common_app.exe || true'
 

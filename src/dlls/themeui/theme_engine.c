@@ -143,12 +143,103 @@ static BOOL parse_rgb_string(const WCHAR *str, COLORREF *out_color)
     return FALSE;
 }
 
+BOOL theme_resolve_path(const WCHAR *in_path, WCHAR *out_path, DWORD out_len)
+{
+    WCHAR windir[MAX_PATH];
+    WCHAR candidate[MAX_PATH];
+    DWORD attrs;
+
+    if (!in_path || !*in_path || !out_path || !out_len) return FALSE;
+
+    /* Check if already a full/valid path */
+    attrs = GetFileAttributesW(in_path);
+    if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        GetFullPathNameW(in_path, out_len, out_path, NULL);
+        return TRUE;
+    }
+
+    GetWindowsDirectoryW(windir, MAX_PATH);
+
+    /* 1. %WinDir%\Resources\Themes\<Name>\<Name>.theme */
+    swprintf(candidate, MAX_PATH, L"%ls\\Resources\\Themes\\%ls\\%ls.theme", windir, in_path, in_path);
+    attrs = GetFileAttributesW(candidate);
+    if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        lstrcpynW(out_path, candidate, out_len);
+        return TRUE;
+    }
+
+    /* 2. %WinDir%\Resources\Themes\<Name>.theme */
+    swprintf(candidate, MAX_PATH, L"%ls\\Resources\\Themes\\%ls.theme", windir, in_path);
+    attrs = GetFileAttributesW(candidate);
+    if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        lstrcpynW(out_path, candidate, out_len);
+        return TRUE;
+    }
+
+    /* 3. If in_path already contains .theme: %WinDir%\Resources\Themes\<in_path> */
+    swprintf(candidate, MAX_PATH, L"%ls\\Resources\\Themes\\%ls", windir, in_path);
+    attrs = GetFileAttributesW(candidate);
+    if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        lstrcpynW(out_path, candidate, out_len);
+        return TRUE;
+    }
+
+    /* 4. Check user themes in %APPDATA%\Microsoft\Windows\Themes */
+    {
+        WCHAR appdata[MAX_PATH];
+        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, SHGFP_TYPE_CURRENT, appdata)))
+        {
+            swprintf(candidate, MAX_PATH, L"%ls\\Microsoft\\Windows\\Themes\\%ls\\%ls.theme", appdata, in_path, in_path);
+            attrs = GetFileAttributesW(candidate);
+            if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+            {
+                lstrcpynW(out_path, candidate, out_len);
+                return TRUE;
+            }
+
+            swprintf(candidate, MAX_PATH, L"%ls\\Microsoft\\Windows\\Themes\\%ls.theme", appdata, in_path);
+            attrs = GetFileAttributesW(candidate);
+            if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+            {
+                lstrcpynW(out_path, candidate, out_len);
+                return TRUE;
+            }
+
+            swprintf(candidate, MAX_PATH, L"%ls\\Microsoft\\Windows\\Themes\\%ls", appdata, in_path);
+            attrs = GetFileAttributesW(candidate);
+            if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+            {
+                lstrcpynW(out_path, candidate, out_len);
+                return TRUE;
+            }
+        }
+    }
+
+    return FALSE;
+}
+
 BOOL theme_load_file(const WCHAR *path, THEME_CONFIG *cfg)
 {
+    WCHAR resolved[MAX_PATH];
     WCHAR buffer[MAX_PATH];
     unsigned int i;
 
     if (!path || !cfg) return FALSE;
+    if (theme_resolve_path(path, resolved, MAX_PATH))
+        path = resolved;
+    else
+    {
+        if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+        {
+            if (GetFullPathNameW(path, MAX_PATH, resolved, NULL))
+                path = resolved;
+        }
+    }
+
     memset(cfg, 0, sizeof(*cfg));
     lstrcpynW(cfg->theme_path, path, MAX_PATH);
 
@@ -265,6 +356,7 @@ static void apply_registry_sections(const WCHAR *path)
 {
     WCHAR *sections = HeapAlloc(GetProcessHeap(), 0, 32768 * sizeof(WCHAR));
     const WCHAR *sec;
+    BOOL has_cursors = FALSE;
 
     if (!sections) return;
     GetPrivateProfileSectionNamesW(sections, 32768, path);
@@ -275,9 +367,28 @@ static void apply_registry_sections(const WCHAR *path)
         else if (!wcsnicmp(sec, L"CLSID\\", 6))
             apply_registry_section(path, sec, L"Software\\Classes", TRUE);
         else if (!wcsicmp(sec, L"Control Panel\\Cursors"))
+        {
             apply_registry_section(path, sec, L"", TRUE);
+            has_cursors = TRUE;
+        }
         else if (!wcsicmp(sec, L"Control Panel\\Colors"))
             apply_registry_section(path, sec, L"", FALSE);
+    }
+    if (!has_cursors)
+    {
+        HKEY key;
+        if (!RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Cursors", 0, KEY_SET_VALUE, &key))
+        {
+            static const WCHAR * const cursor_names[] = {
+                L"Arrow", L"Help", L"AppStarting", L"Wait", L"Crosshair", L"IBeam",
+                L"NWPen", L"No", L"SizeNS", L"SizeWE", L"SizeNWSE", L"SizeNESW",
+                L"SizeAll", L"UpArrow", L"Hand", L""
+            };
+            int i;
+            for (i = 0; i < ARRAY_SIZE(cursor_names); i++)
+                RegSetValueExW(key, cursor_names[i], 0, REG_SZ, (const BYTE *)L"", sizeof(WCHAR));
+            RegCloseKey(key);
+        }
     }
     HeapFree(GetProcessHeap(), 0, sections);
 }
@@ -360,6 +471,8 @@ BOOL theme_apply(THEME_CONFIG *cfg)
 
     /* 3. Sounds, desktop icons and cursors */
     apply_registry_sections(cfg->theme_path);
+    SystemParametersInfoW(SPI_SETCURSORS, 0, NULL, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
 
     /* 4. Wallpaper */
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", 0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS)
@@ -389,10 +502,14 @@ void theme_get_current(THEME_CONFIG *config)
 BOOL theme_apply_file(const WCHAR *path)
 {
     THEME_CONFIG config;
+    WCHAR resolved[MAX_PATH];
     DWORD attrs;
     HWND tray;
 
     if (!path || !*path) return FALSE;
+    if (theme_resolve_path(path, resolved, MAX_PATH))
+        path = resolved;
+
     attrs = GetFileAttributesW(path);
     if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) return FALSE;
     if (!theme_load_file(path, &config) || !theme_apply(&config)) return FALSE;
