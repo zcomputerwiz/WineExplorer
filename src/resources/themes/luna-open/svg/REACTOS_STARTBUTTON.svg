@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="99" height="90" viewBox="0 0 99 90">
+  <!-- bmp-bpp: 32 -->
+  <defs>
+    <linearGradient id="normGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4ea828"/>
+      <stop offset="45%" stop-color="#2c8216"/>
+      <stop offset="100%" stop-color="#145c08"/>
+    </linearGradient>
+    <linearGradient id="hotGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6ec838"/>
+      <stop offset="45%" stop-color="#42a21c"/>
+      <stop offset="100%" stop-color="#20740c"/>
+    </linearGradient>
+    <linearGradient id="pressGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#18560a"/>
+      <stop offset="45%" stop-color="#246e12"/>
+      <stop offset="100%" stop-color="#2c7c16"/>
+    </linearGradient>
+    <linearGradient id="shineGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b4ff80" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#4ea828" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="wineGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d41438"/>
+      <stop offset="100%" stop-color="#7a0418"/>
+    </linearGradient>
+  </defs>
+  <!-- State 1 -->
+  <path d="M 0 0 L 81 0 C 92 0 98 8 98 15 C 98 22 92 30 81 30 L 0 30 Z" fill="url(#normGrad)" stroke="#0e4006" stroke-width="1"/>
+  <path d="M 1 1 L 80 1 C 90 1 95 6 95 11 L 1 11 Z" fill="url(#shineGrad)" opacity="0.6"/>
+  <!-- State 2 -->
+  <path d="M 0 30 L 81 30 C 92 30 98 38 98 45 C 98 52 92 60 81 60 L 0 60 Z" fill="url(#hotGrad)" stroke="#145008" stroke-width="1"/>
+  <path d="M 1 31 L 80 31 C 90 31 95 36 95 41 L 1 41 Z" fill="url(#shineGrad)" opacity="0.6"/>
+  <!-- State 3 -->
+  <path d="M 0 60 L 81 60 C 92 60 98 68 98 75 C 98 82 92 90 81 90 L 0 90 Z" fill="url(#pressGrad)" stroke="#082804" stroke-width="1"/>
+  <path d="M 1 61 L 80 61 C 90 61 95 66 95 71 L 1 71 Z" fill="#0c3804" opacity="0.4"/>
+</svg>

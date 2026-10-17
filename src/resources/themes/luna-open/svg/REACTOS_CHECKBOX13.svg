@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="156" viewBox="0 0 13 156">
+  <!-- bmp-bpp: 32 -->
+  <!-- State 1 -->
+  <rect x="0.5" y="0.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <!-- State 2 -->
+  <rect x="0.5" y="13.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#1c5ca8" stroke-width="1"/>
+  <!-- State 3 -->
+  <rect x="0.5" y="26.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <!-- State 4 -->
+  <rect x="0.5" y="39.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <!-- State 5 -->
+  <rect x="0.5" y="52.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <path d="M 3 58 L 5 61 L 10 55" stroke="#22a812" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- State 6 -->
+  <rect x="0.5" y="65.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#1c5ca8" stroke-width="1"/>
+  <path d="M 3 71 L 5 74 L 10 68" stroke="#22a812" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- State 7 -->
+  <rect x="0.5" y="78.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <path d="M 3 84 L 5 87 L 10 81" stroke="#22a812" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- State 8 -->
+  <rect x="0.5" y="91.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <path d="M 3 97 L 5 100 L 10 94" stroke="#22a812" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- State 9 -->
+  <rect x="0.5" y="104.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <rect x="3" y="107" width="7" height="7" fill="#22a812"/>
+  <!-- State 10 -->
+  <rect x="0.5" y="117.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#1c5ca8" stroke-width="1"/>
+  <rect x="3" y="120" width="7" height="7" fill="#22a812"/>
+  <!-- State 11 -->
+  <rect x="0.5" y="130.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <rect x="3" y="133" width="7" height="7" fill="#22a812"/>
+  <!-- State 12 -->
+  <rect x="0.5" y="143.5" width="12" height="12" rx="1.5" ry="1.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <rect x="3" y="146" width="7" height="7" fill="#22a812"/>
+</svg>

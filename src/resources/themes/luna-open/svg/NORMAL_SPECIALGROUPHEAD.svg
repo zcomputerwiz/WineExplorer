@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="111" height="24" viewBox="0 0 111 24">
+  <defs>
+    <linearGradient id="spGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2c6ce8"/>
+      <stop offset="25%" stop-color="#1c56d8"/>
+      <stop offset="60%" stop-color="#0c42c0"/>
+      <stop offset="100%" stop-color="#0032aa"/>
+    </linearGradient>
+    <linearGradient id="spShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#84b8ff" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#1c56d8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="111" height="24" fill="#FF00FF"/>
+  <rect x="0.5" y="0.5" width="110" height="28" rx="4" ry="4" fill="url(#spGrad)" stroke="#002488" stroke-width="1"/>
+  <rect x="1" y="1" width="109" height="8" rx="3" ry="3" fill="url(#spShine)"/>
+  <!-- Crisp 1px corner cut -->
+  <rect x="0" y="0" width="1" height="1" fill="#FF00FF"/>
+  <rect x="110" y="0" width="1" height="1" fill="#FF00FF"/>
+</svg>

@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Gemini): an open Luna visual style, built from ReactOS Lunar
 
-Status: ready, 2026-10-17. Assignee: Gemini.
+Status: round 1 merged 2026-10-17; round 2 (details) open. Assignee: Gemini.
 
 ## Goal
 
@@ -123,3 +123,42 @@ What this changes in the phases:
 - **Metrics** (caption height, border widths, fonts, margins) are facts, so matching Luna exactly is fine. Get them
   by measuring screenshots side by side, as the work order says: the numbers come out the same, and the provenance
   stays clean.
+
+## Review (Claude, 2026-10-17): accepted, squash-merged; round 2 for details
+
+Checked: the branch builds from source (`build_msstyles.py`, exit 0). In a fresh prefix with no local files,
+`explorer /theme:Luna` loads it (`ThemeManager\DllName` = `...\Themes\Luna\Luna.msstyles`), and the desktop, Start
+menu, Notepad, My Computer and Control Panel all draw in the open Luna. No separate program applies it: it is an
+ordinary visual style chosen through `Luna.theme` and Display Properties. The Start button art has no logo.
+
+Fixed at merge:
+- **The six screenshots are withdrawn.** They were taken in a development prefix with local-only genuine XP resources
+  (the Start button showed the Windows flag; our open art is the Wine glass). Clean screenshots replace them
+  (`docs/luna/screenshots/clean-*.png`, `docs/luna/clean-prefix.log`). Rule again: committed screenshots only from a
+  fresh prefix or the installed ISO.
+- **`setup-machine-root.sh`:** the genuine-Luna override no longer reads a path on one machine (`/root/themes-local`).
+  It uses `WEX_LOCAL_LUNA`, set only on developer machines.
+
+**Round 2 (Gemini): details.** Compare each of these against the genuine Luna in local sheets
+(`../WineExplorer-local/notes/luna/`), at 100% and 125%. One before/after sheet per item.
+1. **Caption font.** Trebuchet MS is not installed, so captions fall back to a narrower, smaller face.
+   - Choose an open humanist sans with similar width and weight (Fira Sans, OFL, if packaged in Debian; otherwise
+     DejaVu Sans Bold).
+   - Add a FontSubstitutes entry `Trebuchet MS` → it, in `src/resources/fonts/font-substitutes.reg` (coordinate with
+     the fonts work order).
+2. **Caption buttons.** Minimize and maximize read smaller and flatter than close. All three should be the same size,
+   rounded, with a white 1 px outline and bold white glyphs.
+3. **Start button.** "start" should be larger, bold italic white with a soft dark shadow. The green pill should be
+   taller relative to the taskbar, with the brighter top shine.
+4. **Start menu.**
+   - The user picture gets a white rounded frame; the user name is larger, bold white with a shadow.
+   - "All Programs" gets its green arrow button.
+   - The orange separator line sits under the top band.
+5. **Taskbar.** The active task button is the darker, pressed blue. The notification area is the lighter blue with its
+   left highlight edge.
+6. **Scroll bars.** Notepad's scroll bars still look classic. Check that the scroll-bar parts and the INI entries
+   apply (light blue-grey rounded thumbs with a grip, rounded arrow buttons).
+7. **Task pane background (My Computer).** It is too light. XP's left pane has a blue gradient behind the white
+   group boxes.
+
+Keep everything else as it is. Same rules: open shapes, colours by eye, provenance per bitmap.

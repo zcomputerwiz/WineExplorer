@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="115" viewBox="0 0 22 115">
+  <!-- bmp-bpp: 32 -->
+  <defs>
+    <linearGradient id="btnNorm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="20%" stop-color="#f8f8f6"/>
+      <stop offset="60%" stop-color="#ecece8"/>
+      <stop offset="100%" stop-color="#deded8"/>
+    </linearGradient>
+    <linearGradient id="btnHot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#fff6ee"/>
+      <stop offset="100%" stop-color="#fae4d0"/>
+    </linearGradient>
+    <linearGradient id="btnPress" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d0d0c8"/>
+      <stop offset="50%" stop-color="#deded8"/>
+      <stop offset="100%" stop-color="#e8e8e2"/>
+    </linearGradient>
+    <linearGradient id="btnDef" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#f0f6ff"/>
+      <stop offset="100%" stop-color="#dce8fa"/>
+    </linearGradient>
+  </defs>
+  <!-- State 1 -->
+  <rect x="0.5" y="0.5" width="21" height="22" rx="2.5" ry="2.5" fill="url(#btnNorm)" stroke="#003c74" stroke-width="1"/>
+  <!-- State 2 -->
+  <rect x="0.5" y="23.5" width="21" height="22" rx="2.5" ry="2.5" fill="url(#btnHot)" stroke="#e07008" stroke-width="1"/>
+  <rect x="1.5" y="24.5" width="19" height="20" rx="1.5" ry="1.5" fill="none" stroke="#ffba40" stroke-width="1"/>
+  <!-- State 3 -->
+  <rect x="0.5" y="46.5" width="21" height="22" rx="2.5" ry="2.5" fill="url(#btnPress)" stroke="#002850" stroke-width="1"/>
+  <rect x="1.5" y="47.5" width="19" height="20" rx="1.5" ry="1.5" fill="none" stroke="#989890" stroke-width="1"/>
+  <!-- State 4 -->
+  <rect x="0.5" y="69.5" width="21" height="22" rx="2.5" ry="2.5" fill="url(#btnNorm)" stroke="#c0c0b8" stroke-width="1"/>
+  <!-- State 5 -->
+  <rect x="0.5" y="92.5" width="21" height="22" rx="2.5" ry="2.5" fill="url(#btnDef)" stroke="#0054e3" stroke-width="1"/>
+  <rect x="1.5" y="93.5" width="19" height="20" rx="1.5" ry="1.5" fill="none" stroke="#3c8cf4" stroke-width="1"/>
+</svg>

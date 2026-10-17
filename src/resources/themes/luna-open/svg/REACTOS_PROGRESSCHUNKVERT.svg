@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="10" height="56" viewBox="0 0 10 56">
+  <defs>
+    <linearGradient id="pgGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#72f440"/>
+      <stop offset="25%" stop-color="#46dc1e"/>
+      <stop offset="70%" stop-color="#24b40e"/>
+      <stop offset="100%" stop-color="#148808"/>
+    </linearGradient>
+  </defs>
+  <rect width="10" height="56" fill="#f8f8f8"/>
+  <rect x="0.5" y="0" width="9" height="6" rx="1" fill="url(#pgGrad)" stroke="#107806" stroke-width="1"/>
+  <line x1="1.5" y1="1" x2="1.5" y2="5" stroke="#a4ffa0" stroke-width="1" opacity="0.8"/>
+  <rect x="0.5" y="8" width="9" height="6" rx="1" fill="url(#pgGrad)" stroke="#107806" stroke-width="1"/>
+  <line x1="1.5" y1="9" x2="1.5" y2="13" stroke="#a4ffa0" stroke-width="1" opacity="0.8"/>
+  <rect x="0.5" y="16" width="9" height="6" rx="1" fill="url(#pgGrad)" stroke="#107806" stroke-width="1"/>
+  <line x1="1.5" y1="17" x2="1.5" y2="21" stroke="#a4ffa0" stroke-width="1" opacity="0.8"/>
+  <rect x="0.5" y="24" width="9" height="6" rx="1" fill="url(#pgGrad)" stroke="#107806" stroke-width="1"/>
+  <line x1="1.5" y1="25" x2="1.5" y2="29" stroke="#a4ffa0" stroke-width="1" opacity="0.8"/>
+  <rect x="0.5" y="32" width="9" height="6" rx="1" fill="url(#pgGrad)" stroke="#107806" stroke-width="1"/>
+  <line x1="1.5" y1="33" x2="1.5" y2="37" stroke="#a4ffa0" stroke-width="1" opacity="0.8"/>
+  <rect x="0.5" y="40" width="9" height="6" rx="1" fill="url(#pgGrad)" stroke="#107806" stroke-width="1"/>
+  <line x1="1.5" y1="41" x2="1.5" y2="45" stroke="#a4ffa0" stroke-width="1" opacity="0.8"/>
+  <rect x="0.5" y="48" width="9" height="6" rx="1" fill="url(#pgGrad)" stroke="#107806" stroke-width="1"/>
+  <line x1="1.5" y1="49" x2="1.5" y2="53" stroke="#a4ffa0" stroke-width="1" opacity="0.8"/>
+</svg>
