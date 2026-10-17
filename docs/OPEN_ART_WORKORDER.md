@@ -310,7 +310,7 @@ outline glyphs. Fill the main shapes (use `tone` pairs or filled glyphs) rather 
   thousands.
 
 Fixed by Claude at merge, as the user asked:
-- **XP printers 17, 138 and 139:** the body faced the wrong way. It is redrawn turned about 45° to the left, like XP's
+- **XP printers 17, 138 and 139:** the body faced the wrong way. It is redrawn turned about 45° to the right, like XP's
   (top face with paper slot, angled front panel with the output tray and LED, a narrow right side face), with
   Gemini's paper kept.
 - **Globes in both sets** (XP 14, 15, 18 and 175; Fluent 14, 15 and 18): the blob continents are replaced by the
