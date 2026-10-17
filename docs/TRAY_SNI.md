@@ -99,6 +99,17 @@ user's explicit instruction. No test credentials have been requested.
 
 ## Failed commands and fixes
 
+- Final fresh X11 installation reached the added Fluent check after passing
+  login, both architectures and shared-app permissions, then stopped at
+  `split: cannot open '/root/WineExplorer/scripts/cpl_driver.exe'`.
+  That upstream test addition assumed a prebuilt helper and the removed
+  desktop_disp/desktop_xauth files. Build the existing cpl_driver.c with the
+  same MinGW toolchain as the other fixtures, and use session-run.py for
+  both Control Panel and the driver. Scope cleanup to the desktop user.
+  The first interrupted log is preserved as `final-x11-install-first.log`;
+  rerun the full fresh installation with the corrected checker, using the
+  same ISO (test-only change, no runtime hot-staging or ISO rebuild needed).
+
 - Part D preflight on the hot-staged installed VM passes the existing tray
   bounds and eight-dialog checks in an isolated 800x600 Xvfb/prefix, followed
   by the existing D1/D2 composition probe at 1024x768. Five blend operations
