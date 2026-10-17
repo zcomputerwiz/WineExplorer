@@ -101,7 +101,6 @@ static int ethernet_activity_icon(const NET_STATUS_INFO *status)
 
 static void update_tray_icon_and_tooltip(HWND hwnd)
 {
-    HINSTANCE hInst = netshell_module();
     int new_icon_id = 0;
     WCHAR new_tip[128] = {0};
     BOOL should_show = net_backend_get_show_tray_icon();
