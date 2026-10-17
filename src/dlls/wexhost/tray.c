@@ -402,6 +402,8 @@ static void named_icon(const char *name, const char *custom, WEX_TRAY_ITEM *data
     if (!*name || strpbrk(name, "*?[]")) return;
     if (*name == '/') { decode_icon(name, data); return; }
     if (strchr(name, '/')) return;
+    /* Treat the theme path as empty if it is unsafe. */
+    if (*custom && (*custom != '/' || strpbrk(custom, "*?[]") || strstr(custom, "/../") || (strlen(custom) >= 3 && !strcmp(custom + strlen(custom) - 3, "/..")))) custom = "";
     if (*custom && search_icon(custom, name, data)) return;
     if (home)
     {
