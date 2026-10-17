@@ -6,10 +6,17 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is bcf842a, integrating the L2 topic through the real-program
+Current pin is ed5fe96, integrating the L2 topic through the real-program
 checkpoint in WAYLAND_SESSION.md, visual-style support, prefix-split S2/S3
 and the independent Fluent-theme changes. The native tray bridge is owned
 wexhost/wexshell code and adds no stock-Wine patch.
+Fork-only ed5fe96 keeps hosted groups active through logical client-rectangle
+changes and orders the layout request before frame commits. Layout replies
+do not replay first-adoption activation. The private protocol wire format is
+unchanged. Together with compositor acc46fe6 and the owned shell's stale-scale
+observation fix, the real maximized/restored foot 100%→150%→100% check passes:
+hosting, focus/input, client alignment, work area and taskbar. Both Wine
+architectures build; fresh-ISO polish regression remains pending.
 The polish topic `upstream/win32u-surface-shape` (bcf842a) fixes win32u's
 single-byte surface-shape spans: intersect the left mask with the complement
 of the right mask, matching the multi-byte path. This fixes volumeicon

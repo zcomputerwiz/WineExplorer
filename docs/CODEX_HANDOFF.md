@@ -17,16 +17,21 @@ wayland-polish/item2-notes.md and committed logs/screenshots. The baseline
 `tray-final-wayland` VM received qterminal/wlr-randr test packages and is
 shutting down normally, with its original runtime preserved.
 
-Next: item 3 live scale changes, followed by fresh-ISO regression. The real
-maximized-foot 100%→150% failure reproduces (`wayland-polish/logs/item3-before.log`);
-the development VM remains at 150% with this failure visible for tracing.
+Item 3's staged maximized/restored real-foot 100%→150%→100% checks pass,
+including settled hosting/focus, typing, actual client bounds, work area and
+taskbar. Wine ed5fe96 and compositor acc46fe6 are pushed on production fork
+branches; both Wine architectures and the compositor build. See
+wayland-polish/item3-notes.md for the implementation and committed evidence.
+Next: fresh-ISO regression from these pins and current master. No final
+polish acceptance is claimed yet.
 Steam's short
 manual steps are in WAYLAND_SESSION.md; signed-in acceptance remains manual.
 The QEMU development VM `wayland-session-iso` is running Bob's Wayland desktop
 with staged win32u and owned shell/host modules. The compositor is
-restored to production 2bde47ee; its temporary diagnostics are removed. The
+the scale candidate; its temporary timeout tracing is removed in the rebuilt
+source/binary, pending the next dev-session restart. The
 preserved `tray-final-x11` / `tray-final-wayland` acceptance VMs remain stopped.
-The Proton build source is at Wine bcf842a; generated configure and owned
+The Proton build source is being synced to Wine ed5fe96; generated configure and owned
 stub links are the usual assembly changes. No `make install` was used there.
 
 The prior handoff below is historical; its queued inset-border item is now

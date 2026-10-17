@@ -16,7 +16,11 @@ remain. Item 2's corrected five-second real-program check passes in 0.466 s
 on the current build and 0.481 s on the preserved pre-polish installation.
 The old full-screen OCR omitted visibly rendered buttons; no compositor
 change was justified. [Evidence](wayland-polish/item2-notes.md).
-Item 3's live-maximized scale failure is reproduced and under investigation.
+Item 3's staged live-maximized and restored scale checks now pass, including
+settled transactions, actual native/client alignment, focus/typing, work area
+and taskbar bounds. Wine **ed5fe96** and compositor **acc46fe6** are on their
+fork production branches; both Wine architectures and the compositor build.
+[Implementation and evidence](wayland-polish/item3-notes.md).
 The final fresh-ISO regression remains pending.
 
 ### Manual Steam acceptance (item 4, not claimed)

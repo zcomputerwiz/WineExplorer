@@ -215,6 +215,21 @@ def check_qt_dialog():
 
 
 def check_live_scale():
+    def geometry(entry, scale):
+        work = readback("workarea")
+        assert f"WORK 0 0 {width} {height - 30}" in work, work
+        inventory = readback("inventory")
+        native_rect = next(re.search(r"logical=(-?\d+),(-?\d+),(-?\d+),(-?\d+)", line)
+                           for line in inventory.splitlines() if "title=Polish-live-scale" in line)
+        assert native_rect, inventory
+        client = entry[2]
+        expected = client[0], client[1], client[0] + client[2], client[1] + client[3]
+        assert all(abs(round(int(value) * scale) - target) <= 1
+                   for value, target in zip(native_rect.groups(), expected)), (native_rect.groups(), expected)
+        tray = re.search(r"role=0000000000000003.*?rect=(-?\d+),(-?\d+),(-?\d+),(-?\d+)",
+                         readback(), re.S)
+        assert tray and tuple(map(int, tray.groups())) == (0, height - 30, width, height), tray
+
     def state(scale, maximized):
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
@@ -233,25 +248,31 @@ def check_live_scale():
     native("foot", "--title=Polish-live-scale")
     _, frame, _, _ = settled("Polish-live-scale")
     vm.click(name, frame[0] + 100, frame[1] + 15, count=2)
+    time.sleep(3)  # Observe the settled transaction, including its two-second timeout.
     width, height = vm.screen_size(name)
     state_start = False
-    for scale in (1, 1.5, 1):
+    for index, scale in enumerate((1, 1.5, 1)):
         if scale != 1 or state_start:
             native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+            time.sleep(3)
         entry = state(scale, True)
         assert entry[1] == (-4, -4, width + 4, height - 26), entry
-        readback("workarea")
-        vm.shot(name, str(steps / f"scale-maximized-{int(scale*100)}.png"))
+        geometry(entry, scale)
         vm.type_text(name, "echo scale-checked")
         vm.keys(name, ["ret"])
+        vm.shot(name, str(steps / f"scale-maximized-{index}-{int(scale*100)}.png"))
+        assert "scale-checked" in vm.ocr(name), "Foot did not receive keyboard input"
         print(f"PASS maximized scale={scale} frame={entry[1]} client={entry[2]}", flush=True)
         state_start = True
     vm.click(name, 200, 12, count=2)
-    for scale in (1, 1.5, 1):
+    time.sleep(3)
+    for index, scale in enumerate((1, 1.5, 1)):
         native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+        time.sleep(3)
         entry = state(scale, False)
-        readback("workarea")
-        vm.shot(name, str(steps / f"scale-restored-{int(scale*100)}.png"))
+        assert 0 <= entry[1][0] < entry[1][2] <= width and 0 <= entry[1][1] < entry[1][3] <= height - 30, entry
+        geometry(entry, scale)
+        vm.shot(name, str(steps / f"scale-restored-{index}-{int(scale*100)}.png"))
         print(f"PASS restored scale={scale} frame={entry[1]} client={entry[2]}", flush=True)
     command("pkill -u bobsmith -x foot")
     print("PASS live 100%-150%-100% scale, maximized/restored foot and taskbar", flush=True)

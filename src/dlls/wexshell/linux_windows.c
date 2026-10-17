@@ -772,7 +772,19 @@ static LRESULT CALLBACK host_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
 
     if (wayland_mode && wayland_scale_message && msg == wayland_scale_message && lw && lw->managed)
     {
-        lw->geometry_pending = FALSE;
+        /* A hosted SSD frame owns its physical Win32 placement. The saved
+         * native observation is in the previous logical coordinate space;
+         * multiplying it by the new scale would enlarge and move the frame
+         * before the driver's coordinated layout update can complete. */
+        if (!(lw->flags & WEX_WM_NO_BORDER) &&
+            (ULONG_PTR)GetPropW(hwnd,WEX_WAYLAND_GROUP_PROP)==WEX_WAYLAND_GROUP_ACTIVE)
+        {
+            client_geometry(lw,&client,&screen);
+            lw->requested_geometry=screen;
+            lw->geometry_requested_at=GetTickCount();
+            lw->geometry_pending=TRUE;
+        }
+        else lw->geometry_pending = FALSE;
         observe_wayland_window(lw,&lw->native_snapshot);
         return 0;
     }
