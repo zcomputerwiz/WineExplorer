@@ -247,3 +247,5 @@ owns the services and `HKLM`, with user sessions connecting to it. This is the p
 cross-user `wineserver` work, so the two are one project. Decide per service whether it belongs in that tier or is
 better served by a Linux daemon through `wexhost` (D-Bus). References: ReactOS `base/system/services`,
 `ntoskrnl/config` (design only), `dll/win32/userenv` (profiles).
+
+- Program elevation (UAC-style prompt, admin approval mode for the machine root): `ELEVATION_WORKORDER.md` (Codex). Its back end is replaced by the system tier (session 0) later; the hooks, broker and prompt stay.
