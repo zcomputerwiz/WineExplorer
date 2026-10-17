@@ -1,5 +1,12 @@
 # Codex handoff — 2026-10-16 Wayland L2 in progress
 
+**Queued user follow-up (2026-10-17), after the current C/D tasks:** inspect the
+volumeicon Preferences screenshot. Its left/right body edges appear inset
+relative to the title bar and full bottom width. Check the actual hosted GTK
+window/frame geometry and transparency; do not assume it is only a screenshot
+artifact. Evidence: `build/wayland-session/tray-wayland-volume-preferences.png`
+and `tray-volume-final-preferences.png`. This is a requested next task.
+
 **Review point 1 accepted; parts C/D active.** Claude's review is appended to
 WAYLAND_SESSION_WORKORDER.md. The compositor production branch `wexcomp` now
 fast-forwards to the project pin 2bde47ee. Implement the SNI/XEmbed tray bridge,

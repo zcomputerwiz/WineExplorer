@@ -1,7 +1,9 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Native notification icons
 
-Part C: Wayland real-program tray checks pass; final X11 checks are running.
+Part C: real-program tray checks pass in both sessions; the final portable
+runner passed in X11, including left-click menus and wheel input. The
+final Wayland run and clean-ISO regressions are next.
 Signed-in Steam close/reopen/menu is reserved for the user's manual login,
 as requested on 2026-10-17. Part D and review point 2 are not ready.
 
@@ -72,7 +74,40 @@ regressions. Signed-in Steam acceptance is a manual check; no credentials
 have been requested or submitted. Existing-watcher fallback is implemented;
 no synthetic watcher client or protocol corner-case suite was added.
 
+The reusable checker is `installer/tests/check-native-tray.py VM PASSWORD_FILE
+STEPS_DIR`. Run in Bob's default 1280x800/100% installed session. It installs
+only real test applications, checks mute and wheel changes against the actual
+dummy ALSA mixer, takes screenshots, exercises both left/right SNI menus and
+lazy submenus, then verifies signal updates and process/registration removal.
+It uses `session-run.py --native`, which preserves the active X11 DISPLAY
+(LightDM can choose :1) and strips shell Wine variables. For the controlled
+Wayland VM, its public endpoint defaults can be overridden with
+`--native-wayland` / `--native-display` on that helper.
+
+The final X11 run is `build/wayland-session/tray-x11-final.log`; screenshots
+are under `tray-x11-final/`. Steam's signed-in check remains manual by the
+user's explicit instruction. No test credentials have been requested.
+
 ## Failed commands and fixes
+
+- The expanded real checker caught libayatana's omission of both ItemIsMenu
+  and Activate on nm-applet. Introspection confirmed this, so missing
+  ItemIsMenu now defaults to true, following the existing Waybar convention.
+  Explicit false still selects normal Activate for compliant SNI clients.
+  This makes nm-applet's left-click menu work without an application-name
+  exception. Reference: Waybar include/modules/sni/item.hpp.
+- LightDM allocated DISPLAY=:1 for the final X11 run. The old ignored helper
+  hardcoded :0 and volumeicon could not connect. The reusable --native helper
+  reads Explorer's actual session environment; no product launcher fix needed.
+- After a previous mute, Dummy Master retained zero volume. Muting an already
+  zero-level icon cannot change its picture. Reset the real dummy mixer before
+  each test. volumeicon also normalizes ALSA's dB range, so compare the real
+  mixer direction for wheel input, not an assumed raw 80-percent result.
+- One new-runner invocation omitted VMTEST_DIR and searched /tmp/vmtest.
+  Set VMTEST_DIR=/var/tmp/wineexplorer-vmtest for this test workspace.
+- The first tray ISO finished but predates the ItemIsMenu compatibility fix.
+  It is superseded and must not be used as final acceptance. Build a new clean
+  ISO including that fix before part D's install checks.
 
 - Whole-screen OCR omitted the small tray tooltip, then read `volumeicon`
   as `voiumeicon`; crop the tooltip region and normalize the i/l glyph

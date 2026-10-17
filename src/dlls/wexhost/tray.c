@@ -431,6 +431,10 @@ static void refresh(struct item *item)
     char name[256] = "", attention_name[256] = "", theme_path[1024] = "";
     memset(&item->data, 0, sizeof(item->data));
     item->data.token = item->token; item->data.event = WEX_TRAY_CHANGED;
+    /* libappindicator/libayatana can omit both ItemIsMenu and Activate.
+     * Default to menu-only, as other SNI hosts do; a complete SNI item
+     * explicitly supplies FALSE when it supports normal activation. */
+    item->data.flags = WEX_TRAY_ITEM_MENU;
     item->menu[0] = 0;
     msg = p_dbus_message_new_method_call(item->service, item->path, PROPS, "GetAll");
     if (msg) p_dbus_message_append_args(msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_INVALID);
@@ -450,7 +454,10 @@ static void refresh(struct item *item)
             if (!strcmp(key, "Id")) copy_string(item->data.id, string_value(&value), sizeof(item->data.id));
             else if (!strcmp(key, "Title")) copy_string(item->data.title, string_value(&value), sizeof(item->data.title));
             else if (!strcmp(key, "Menu")) copy_string(item->menu, string_value(&value), sizeof(item->menu));
-            else if (!strcmp(key, "ItemIsMenu") && bool_value(&value, FALSE)) item->data.flags |= WEX_TRAY_ITEM_MENU;
+            else if (!strcmp(key, "ItemIsMenu"))
+            {
+                if (!bool_value(&value, TRUE)) item->data.flags &= ~WEX_TRAY_ITEM_MENU;
+            }
             else if (!strcmp(key, "Status"))
             {
                 if (!strcmp(string_value(&value), "Passive")) item->data.flags |= WEX_TRAY_PASSIVE;
