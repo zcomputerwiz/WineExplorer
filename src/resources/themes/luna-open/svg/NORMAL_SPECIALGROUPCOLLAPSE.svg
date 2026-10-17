@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="48" viewBox="0 0 16 48">
+  <rect width="16" height="48" fill="#FF00FF"/>
+  <!-- State 1 -->
+  <circle cx="8" cy="8" r="7" fill="#1e5ce0" stroke="#0032aa" stroke-width="1"/>
+  <path d="M 5.5 10 L 8 6.5 L 10.5 10" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- State 2 -->
+  <circle cx="8" cy="24" r="7" fill="#3878f4" stroke="#0a42c4" stroke-width="1"/>
+  <path d="M 5.5 26 L 8 22.5 L 10.5 26" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- State 3 -->
+  <circle cx="8" cy="40" r="7" fill="#0e42b8" stroke="#002488" stroke-width="1"/>
+  <path d="M 5.5 42 L 8 38.5 L 10.5 42" stroke="#e0e8ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

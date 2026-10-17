@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="104" viewBox="0 0 13 104">
+  <!-- bmp-bpp: 32 -->
+  <!-- State 1 -->
+  <circle cx="6.5" cy="6.5" r="5.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <!-- State 2 -->
+  <circle cx="6.5" cy="19.5" r="5.5" fill="#FFFFFF" stroke="#1c5ca8" stroke-width="1"/>
+  <!-- State 3 -->
+  <circle cx="6.5" cy="32.5" r="5.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <!-- State 4 -->
+  <circle cx="6.5" cy="45.5" r="5.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <!-- State 5 -->
+  <circle cx="6.5" cy="58.5" r="5.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <circle cx="6.5" cy="58.5" r="3" fill="#22a812"/>
+  <circle cx="5.5" cy="57.5" r="1" fill="#78e860"/>
+  <!-- State 6 -->
+  <circle cx="6.5" cy="71.5" r="5.5" fill="#FFFFFF" stroke="#1c5ca8" stroke-width="1"/>
+  <circle cx="6.5" cy="71.5" r="3" fill="#22a812"/>
+  <circle cx="5.5" cy="70.5" r="1" fill="#78e860"/>
+  <!-- State 7 -->
+  <circle cx="6.5" cy="84.5" r="5.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <circle cx="6.5" cy="84.5" r="3" fill="#22a812"/>
+  <circle cx="5.5" cy="83.5" r="1" fill="#78e860"/>
+  <!-- State 8 -->
+  <circle cx="6.5" cy="97.5" r="5.5" fill="#FFFFFF" stroke="#003c74" stroke-width="1"/>
+  <circle cx="6.5" cy="97.5" r="3" fill="#22a812"/>
+  <circle cx="5.5" cy="96.5" r="1" fill="#78e860"/>
+</svg>

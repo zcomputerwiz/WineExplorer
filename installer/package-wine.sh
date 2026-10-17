@@ -60,6 +60,13 @@ fi
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
 install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 
+# Build open Luna visual style
+echo "Building open Luna theme package..."
+mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes/Luna"
+python3 "$ROOT_DIR/scripts/build_msstyles.py" \
+    "$ROOT_DIR/src/resources/themes/luna-open" \
+    "$STAGE_WINE/usr/local/share/wineexplorer/themes/Luna/Luna.msstyles"
+
 # Build open icon pack (Fluent) if tools are available
 echo "Building Fluent theme package..."
 (

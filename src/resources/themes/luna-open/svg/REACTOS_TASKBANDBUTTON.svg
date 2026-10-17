@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="144" viewBox="0 0 26 144">
+  <defs>
+    <linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2262d8"/>
+      <stop offset="100%" stop-color="#083ca4"/>
+    </linearGradient>
+    <linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#387cf0"/>
+      <stop offset="100%" stop-color="#144ecc"/>
+    </linearGradient>
+    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#083494"/>
+      <stop offset="100%" stop-color="#1042ac"/>
+    </linearGradient>
+    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#042068"/>
+      <stop offset="100%" stop-color="#0c3ca0"/>
+    </linearGradient>
+    <linearGradient id="bg4" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#082c80"/>
+      <stop offset="100%" stop-color="#1448b4"/>
+    </linearGradient>
+    <linearGradient id="bg5" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#021650"/>
+      <stop offset="100%" stop-color="#082c84"/>
+    </linearGradient>
+  </defs>
+  <!-- State 1 -->
+  <rect x="0.5" y="0.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg0)" stroke="#042478" stroke-width="1"/>
+  <line x1="1" y1="1.5" x2="25" y2="1.5" stroke="#5892ff" stroke-width="1" opacity="0.8"/>
+  <!-- State 2 -->
+  <rect x="0.5" y="24.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg1)" stroke="#082e8e" stroke-width="1"/>
+  <line x1="1" y1="25.5" x2="25" y2="25.5" stroke="#80b0ff" stroke-width="1" opacity="0.8"/>
+  <!-- State 3 -->
+  <rect x="0.5" y="48.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg2)" stroke="#021c60" stroke-width="1"/>
+  <!-- State 4 -->
+  <rect x="0.5" y="72.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg3)" stroke="#021650" stroke-width="1"/>
+  <line x1="1" y1="73.5" x2="25" y2="73.5" stroke="#f89818" stroke-width="2"/>
+  <line x1="1" y1="75" x2="25" y2="75" stroke="#d8740c" stroke-width="1" opacity="0.6"/>
+  <!-- State 5 -->
+  <rect x="0.5" y="96.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg4)" stroke="#041c60" stroke-width="1"/>
+  <line x1="1" y1="97.5" x2="25" y2="97.5" stroke="#f89818" stroke-width="2"/>
+  <line x1="1" y1="99" x2="25" y2="99" stroke="#d8740c" stroke-width="1" opacity="0.6"/>
+  <!-- State 6 -->
+  <rect x="0.5" y="120.5" width="25" height="23" rx="1.5" ry="1.5" fill="url(#bg5)" stroke="#001040" stroke-width="1"/>
+  <line x1="1" y1="121.5" x2="25" y2="121.5" stroke="#f89818" stroke-width="2"/>
+  <line x1="1" y1="123" x2="25" y2="123" stroke="#d8740c" stroke-width="1" opacity="0.6"/>
+</svg>

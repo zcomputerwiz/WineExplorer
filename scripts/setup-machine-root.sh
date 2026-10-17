@@ -93,6 +93,12 @@ if [ -d "$THEME_DATA_DIR" ]; then
     done
 fi
 
+# On developer machines a local genuine Luna (WEX_LOCAL_LUNA, never shipped) overrides the open style
+if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
+    mkdir -p "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna"
+    cp -f "$WEX_LOCAL_LUNA" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" 2>/dev/null || true
+fi
+
 # 2. Ensure permissions and POSIX default ACLs on machine root:
 # Owned by root:sudo (preserving admin owners in Program Files), setgid 2775 on dirs,
 # 664 on regular files, 775 on .exe/.dll, and default ACL g:sudo:rwX so files created

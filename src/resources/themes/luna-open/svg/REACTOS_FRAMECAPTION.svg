@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="66" height="58" viewBox="0 0 66 58">
+  <!-- bmp-bpp: 32 -->
+  <defs>
+    <linearGradient id="actGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b72e8"/>
+      <stop offset="6%" stop-color="#2a66e4"/>
+      <stop offset="15%" stop-color="#1856dc"/>
+      <stop offset="35%" stop-color="#0a46d0"/>
+      <stop offset="65%" stop-color="#003ec4"/>
+      <stop offset="85%" stop-color="#0035b0"/>
+      <stop offset="100%" stop-color="#00248e"/>
+    </linearGradient>
+    <linearGradient id="inactGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b6c6dc"/>
+      <stop offset="8%" stop-color="#a4b6ce"/>
+      <stop offset="25%" stop-color="#8fa2bc"/>
+      <stop offset="60%" stop-color="#7a8eaa"/>
+      <stop offset="85%" stop-color="#667a96"/>
+      <stop offset="100%" stop-color="#556984"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Active Window Caption (Top half, y=0..29) -->
+  <!-- Body with rx=6 rounded top corners -->
+  <path d="M 0.5 29 L 0.5 6 Q 0.5 0.5 6 0.5 L 60 0.5 Q 65.5 0.5 65.5 6 L 65.5 29 Z" fill="url(#actGrad)"/>
+  <!-- Top-left corner highlight shine: curves around left shoulder -->
+  <path d="M 0.5 7 Q 0.5 0.5 7 0.5 L 35 0.5" fill="none" stroke="#7eb2ff" stroke-width="1.2" opacity="0.9"/>
+  <path d="M 1.5 7 Q 1.5 1.5 7 1.5 L 25 1.5" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
+  <!-- Left window border continuation -->
+  <line x1="0.5" y1="6" x2="0.5" y2="29" stroke="#0054e3" stroke-width="1"/>
+  <!-- Top horizontal specular shine -->
+  <line x1="7" y1="1.5" x2="56" y2="1.5" stroke="#7eb2ff" stroke-width="1" opacity="0.7"/>
+  <line x1="7" y1="2.5" x2="56" y2="2.5" stroke="#9bc6ff" stroke-width="1" opacity="0.4"/>
+  <!-- Top-right corner shadow border: darker navy curving down into right window border -->
+  <path d="M 46 0.5 L 60 0.5 Q 65.5 0.5 65.5 6 L 65.5 29" fill="none" stroke="#001850" stroke-width="1"/>
+  <path d="M 51 1.5 L 60 1.5 Q 64.5 1.5 64.5 6 L 64.5 29" fill="none" stroke="#00248e" stroke-width="1" opacity="0.6"/>
+
+  <!-- Inactive Window Caption (Bottom half, y=29..58) -->
+  <path d="M 0.5 58 L 0.5 35 Q 0.5 29.5 6 29.5 L 60 29.5 Q 65.5 29.5 65.5 35 L 65.5 58 Z" fill="url(#inactGrad)"/>
+  <!-- Inactive top-left shine -->
+  <path d="M 0.5 36 Q 0.5 29.5 7 29.5 L 35 29.5" fill="none" stroke="#e0e8f2" stroke-width="1.2" opacity="0.8"/>
+  <!-- Inactive left border -->
+  <line x1="0.5" y1="35" x2="0.5" y2="58" stroke="#768ca8" stroke-width="1"/>
+  <!-- Inactive top-right shadow -->
+  <path d="M 46 29.5 L 60 29.5 Q 65.5 29.5 65.5 35 L 65.5 58" fill="none" stroke="#344052" stroke-width="1"/>
+</svg>

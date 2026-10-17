@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="11" height="88" viewBox="0 0 11 88">
+  <defs>
+    <linearGradient id="g0" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#eb482a"/>
+      <stop offset="100%" stop-color="#be1b09"/>
+    </linearGradient>
+    <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff6444"/>
+      <stop offset="100%" stop-color="#dc2610"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#981204"/>
+      <stop offset="100%" stop-color="#ba200c"/>
+    </linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9e5c54"/>
+      <stop offset="100%" stop-color="#7e4038"/>
+    </linearGradient>
+    <linearGradient id="g4" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b87c74"/>
+      <stop offset="100%" stop-color="#8c5650"/>
+    </linearGradient>
+    <linearGradient id="g5" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#cc8e86"/>
+      <stop offset="100%" stop-color="#a06660"/>
+    </linearGradient>
+    <linearGradient id="g6" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#784440"/>
+      <stop offset="100%" stop-color="#945852"/>
+    </linearGradient>
+    <linearGradient id="g7" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8c6e6a"/>
+      <stop offset="100%" stop-color="#705450"/>
+    </linearGradient>
+  </defs>
+  <rect width="11" height="88" fill="#FF00FF"/>
+  <!-- State 1 -->
+  <rect x="0" y="0" width="11" height="11" fill="url(#g0)"/>
+  <rect x="0.5" y="0.5" width="10" height="10" fill="none" stroke="#7a0c00" stroke-width="1"/>
+  <rect x="0" y="0" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="0" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="10" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="10" width="1" height="1" fill="#FF00FF"/>
+  <line x1="2" y1="1.5" x2="9" y2="1.5" stroke="#ffa28c" stroke-width="1" opacity="0.85"/>
+  <line x1="1" y1="2.5" x2="10" y2="2.5" stroke="#ffa28c" stroke-width="1" opacity="0.45"/>
+  <!-- State 2 -->
+  <rect x="0" y="11" width="11" height="11" fill="url(#g1)"/>
+  <rect x="0.5" y="11.5" width="10" height="10" fill="none" stroke="#901000" stroke-width="1"/>
+  <rect x="0" y="11" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="11" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="21" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="21" width="1" height="1" fill="#FF00FF"/>
+  <line x1="2" y1="12.5" x2="9" y2="12.5" stroke="#ffc0ae" stroke-width="1" opacity="0.85"/>
+  <line x1="1" y1="13.5" x2="10" y2="13.5" stroke="#ffc0ae" stroke-width="1" opacity="0.45"/>
+  <!-- State 3 -->
+  <rect x="0" y="22" width="11" height="11" fill="url(#g2)"/>
+  <rect x="0.5" y="22.5" width="10" height="10" fill="none" stroke="#5a0800" stroke-width="1"/>
+  <rect x="0" y="22" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="22" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="32" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="32" width="1" height="1" fill="#FF00FF"/>
+  <line x1="1" y1="23" x2="10" y2="23" stroke="#000000" stroke-width="1" opacity="0.4"/>
+  <!-- State 4 -->
+  <rect x="0" y="33" width="11" height="11" fill="url(#g3)"/>
+  <rect x="0.5" y="33.5" width="10" height="10" fill="none" stroke="#502820" stroke-width="1"/>
+  <rect x="0" y="33" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="33" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="43" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="43" width="1" height="1" fill="#FF00FF"/>
+  <!-- State 5 -->
+  <rect x="0" y="44" width="11" height="11" fill="url(#g4)"/>
+  <rect x="0.5" y="44.5" width="10" height="10" fill="none" stroke="#5c3632" stroke-width="1"/>
+  <rect x="0" y="44" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="44" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="54" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="54" width="1" height="1" fill="#FF00FF"/>
+  <!-- State 6 -->
+  <rect x="0" y="55" width="11" height="11" fill="url(#g5)"/>
+  <rect x="0.5" y="55.5" width="10" height="10" fill="none" stroke="#6c403a" stroke-width="1"/>
+  <rect x="0" y="55" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="55" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="65" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="65" width="1" height="1" fill="#FF00FF"/>
+  <!-- State 7 -->
+  <rect x="0" y="66" width="11" height="11" fill="url(#g6)"/>
+  <rect x="0.5" y="66.5" width="10" height="10" fill="none" stroke="#482824" stroke-width="1"/>
+  <rect x="0" y="66" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="66" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="76" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="76" width="1" height="1" fill="#FF00FF"/>
+  <line x1="1" y1="67" x2="10" y2="67" stroke="#000000" stroke-width="1" opacity="0.4"/>
+  <!-- State 8 -->
+  <rect x="0" y="77" width="11" height="11" fill="url(#g7)"/>
+  <rect x="0.5" y="77.5" width="10" height="10" fill="none" stroke="#443430" stroke-width="1"/>
+  <rect x="0" y="77" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="77" width="1" height="1" fill="#FF00FF"/>
+  <rect x="0" y="87" width="1" height="1" fill="#FF00FF"/>
+  <rect x="10" y="87" width="1" height="1" fill="#FF00FF"/>
+</svg>

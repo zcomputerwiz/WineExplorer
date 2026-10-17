@@ -1,0 +1,28 @@
+msstyles build rc=0
+Built /root/luna-prefix/drive_c/windows/Resources/Themes/Luna/Luna.msstyles from /mnt/d/DeepThought/Projects/WineExplorer-fluentfix/src/resources/themes/luna-open
+total 1192
+drwxr-xr-x 2 root root    4096 Oct 17 12:14 .
+drwxr-xr-x 3 root root    4096 Oct 17 12:14 ..
+-rwxr-xr-x 1 root root 1208542 Oct 17 12:14 Luna.msstyles
+1:; Windows Classic Theme - WineExplorer Desktop Environment
+3:DisplayName=Windows Classic
+56:Path=
+shot 00-default
+theme Luna rc=0
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\ThemeManager
+    DllName    REG_SZ    C:\windows\Resources\Themes\Luna\Luna.msstyles
+shot 01-desktop
+shot 02-start
+shot 03-notepad
+shot 04-mycomputer
+shot 05-control
+total 212
+drwxr-xr-x  2 root root  4096 Oct 17 12:15 .
+drwxr-xr-x 77 root root  4096 Oct 17 12:13 ..
+-rw-r--r--  1 root root 17147 Oct 17 12:14 00-default.png
+-rw-r--r--  1 root root 19125 Oct 17 12:14 01-desktop.png
+-rw-r--r--  1 root root 43675 Oct 17 12:14 02-start.png
+-rw-r--r--  1 root root 14563 Oct 17 12:14 03-notepad.png
+-rw-r--r--  1 root root 42458 Oct 17 12:14 04-mycomputer.png
+-rw-r--r--  1 root root 54095 Oct 17 12:15 05-control.png
+-rw-r--r--  1 root root   163 Oct 17 12:14 build.log

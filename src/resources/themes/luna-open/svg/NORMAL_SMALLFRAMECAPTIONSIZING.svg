@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="66" height="38" viewBox="0 0 66 38">
+  <!-- Black background = transparent outside window -->
+  <rect width="66" height="38" fill="#000000"/>
+
+  <!-- Active corner mask (top half) -->
+  <rect x="0" y="0" width="66" height="29" rx="4.5" ry="4.5" fill="#FFFFFF"/>
+
+  <!-- Inactive corner mask (bottom half) -->
+  <rect x="0" y="19" width="66" height="29" rx="4.5" ry="4.5" fill="#FFFFFF"/>
+</svg>

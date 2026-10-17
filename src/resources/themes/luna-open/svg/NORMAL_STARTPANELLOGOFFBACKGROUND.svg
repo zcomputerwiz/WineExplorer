@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="101" height="40" viewBox="0 0 101 40">
+  <defs>
+    <linearGradient id="logoffGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#246ce8"/>
+      <stop offset="25%" stop-color="#1456d8"/>
+      <stop offset="65%" stop-color="#0842c4"/>
+      <stop offset="100%" stop-color="#0032b0"/>
+    </linearGradient>
+    <linearGradient id="logoffShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#72acff" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#1456d8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="101" height="40" fill="url(#logoffGrad)"/>
+  <rect x="0" y="0" width="101" height="10" fill="url(#logoffShine)"/>
+  <line x1="0" y1="0.5" x2="101" y2="0.5" stroke="#7eb2ff" stroke-width="1"/>
+  <line x1="0" y1="39.5" x2="101" y2="39.5" stroke="#002480" stroke-width="1"/>
+</svg>

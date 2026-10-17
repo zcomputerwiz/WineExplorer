@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="61" height="15" viewBox="0 0 61 15">
+  <!-- Background white fill inside groove -->
+  <rect width="61" height="15" fill="#FFFFFF"/>
+  <!-- 1px outer border -->
+  <rect x="0.5" y="0.5" width="60" height="14" rx="1" fill="none" stroke="#686868" stroke-width="1"/>
+  <!-- Inner top and left bevel shadow -->
+  <line x1="1" y1="1.5" x2="60" y2="1.5" stroke="#c0c0c0" stroke-width="1"/>
+  <line x1="1.5" y1="1" x2="1.5" y2="14" stroke="#c0c0c0" stroke-width="1"/>
+</svg>

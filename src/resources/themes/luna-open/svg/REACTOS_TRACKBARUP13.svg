@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="11" height="105" viewBox="0 0 11 105">
+  <!-- bmp-bpp: 32 -->
+  <!-- Background COLOR_BTNFACE (#ece9d8) so corners blend with dialog -->
+  <rect width="11" height="105" fill="#ece9d8"/>
+  <!-- State 1 -->
+  <path d="M 0.5 0.5 L 10.5 0.5 L 10.5 15 L 5.5 20 L 0.5 15 Z" fill="#ecece6" stroke="#507090" stroke-width="1"/>
+  <line x1="5.5" y1="3" x2="5.5" y2="14" stroke="#2cb81a" stroke-width="1.5"/>
+  <!-- State 2 -->
+  <path d="M 0.5 21.5 L 10.5 21.5 L 10.5 36 L 5.5 41 L 0.5 36 Z" fill="#ecece6" stroke="#507090" stroke-width="1"/>
+  <line x1="5.5" y1="24" x2="5.5" y2="35" stroke="#2cb81a" stroke-width="1.5"/>
+  <!-- State 3 -->
+  <path d="M 0.5 42.5 L 10.5 42.5 L 10.5 57 L 5.5 62 L 0.5 57 Z" fill="#ecece6" stroke="#507090" stroke-width="1"/>
+  <line x1="5.5" y1="45" x2="5.5" y2="56" stroke="#2cb81a" stroke-width="1.5"/>
+  <!-- State 4 -->
+  <path d="M 0.5 63.5 L 10.5 63.5 L 10.5 78 L 5.5 83 L 0.5 78 Z" fill="#ecece6" stroke="#507090" stroke-width="1"/>
+  <line x1="5.5" y1="66" x2="5.5" y2="77" stroke="#2cb81a" stroke-width="1.5"/>
+  <!-- State 5 -->
+  <path d="M 0.5 84.5 L 10.5 84.5 L 10.5 99 L 5.5 104 L 0.5 99 Z" fill="#ecece6" stroke="#507090" stroke-width="1"/>
+  <line x1="5.5" y1="87" x2="5.5" y2="98" stroke="#2cb81a" stroke-width="1.5"/>
+</svg>
