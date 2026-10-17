@@ -22,6 +22,15 @@ X11 installer test keeps its 20 GiB disk and 15,000 MB partition.
 Development-overlay shutdown exceeded the explicit 50-second wait while
 systemd waited for session-c5.scope's 90-second stop deadline. No disk inspection
 was attempted; wait for QEMU to exit before mounting its disk.
+It subsequently exited normally; the QMP socket is gone and Debian WSL has no
+remaining QEMU process. The stopped overlay is preserved for reproduction.
+The fresh-install runner refreshes apt metadata before installing its real foot
+client, and the existing shared-app check closes its earlier identical-caption
+Test32 fixture before launching Alice's common app. These prevent dependence on
+the development VM's populated package cache or an old test window. The fresh
+ISO run remains the next verification of those setup paths.
+The development Steam check used `-no-cef-sandbox` in this disposable VM; normal
+launch without that override is still to be checked on the fresh installation.
 
 The real installed-session action runner now passes on the development overlay
 with full-window dragging **off** (the actual SPI value is logged): foot input,

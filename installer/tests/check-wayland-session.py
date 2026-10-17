@@ -120,7 +120,8 @@ try:
                         str(ROOT / "scripts/wayland-window-control.c"),
                         "-o", str(executable), "-lgdi32"], check=True)
         stage(executable, "/tmp/wex-window-control.exe")
-    command("DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends foot </dev/null", 120)
+    command("apt-get update </dev/null && DEBIAN_FRONTEND=noninteractive "
+            "apt-get install -y --no-install-recommends foot </dev/null", 180)
     command("runuser -u bobsmith -- env -i PATH=/usr/local/bin:/usr/bin:/bin "
             "HOME=/home/bobsmith USER=bobsmith XDG_RUNTIME_DIR=/run/user/1001 "
             "WAYLAND_DISPLAY=wayland-0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus "

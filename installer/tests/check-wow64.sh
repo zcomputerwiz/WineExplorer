@@ -76,6 +76,9 @@ $V sh "$VM" root "$PWFILE" 'su - alice -c "mkdir -p \"/var/lib/wineexplorer/mach
 echo "PASS: Program installed by Alice for all users"
 
 echo "=== 5. Bob (standard user) executes application installed by Alice ==="
+# The common app uses the same fixture caption. Remove the earlier instance
+# so an unsuccessful shared-app launch cannot pass by finding its old window.
+$V sh "$VM" root "$PWFILE" 'U=$(cat /tmp/desktop_user.txt); pkill -u "$U" -f test32.exe || true'
 $V sh "$VM" root "$PWFILE" 'python3 /tmp/wex-session-run.py "C:/Program Files/CommonApp/common_app.exe"'
 $V wait "$VM" "Win32 Test Program" --timeout 45
 $V shot "$VM" "$STEPS/21-bob-common-app.png"
