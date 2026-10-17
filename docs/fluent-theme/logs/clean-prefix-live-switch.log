@@ -1,0 +1,80 @@
+pack build 0
+Built /root/ff-prefix/drive_c/windows/Resources/Themes/Fluent/Cursors/wait.ani (8 frames)
+Built /root/ff-prefix/drive_c/windows/Resources/Themes/Fluent/Cursors/appstarting.ani (8 frames)
+/root/ff-prefix/drive_c/windows/Resources/Themes/Fluent: complete Fluent pack built from fluent, tela
+/root/ff-prefix/drive_c/windows/Resources/Themes:
+Classic.theme
+Fluent
+Luna.theme
+Royale.theme
+
+/root/ff-prefix/drive_c/windows/Resources/Themes/Fluent:
+Cursors
+Fluent.theme
+Icons
+
+/root/ff-prefix/drive_c/windows/Resources/Themes/Fluent/Icons:
+Apps
+LICENSE
+LICENSE-fluent
+LICENSE-tela
+xpres_desk.dll
+xpres_explorer.dll
+xpres_intl.dll
+xpres_main.dll
+xpres_mmsys.dll
+xpres_ncpa.dll
+xpres_powercfg.dll
+xpres_shell32.dll
+xpres_sysdm.dll
+xpres_timedate.dll
+xpres_wexres.dll
+1:; Windows Classic Theme - WineExplorer Desktop Environment
+3:DisplayName=Windows Classic
+56:Path=
+shot 00-default
+theme Fluent rc=0
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes
+    CurrentTheme    REG_SZ    C:\windows\Resources\Themes\Fluent\Fluent.theme
+HKEY_CURRENT_USER\Software\WineExplorer\Module Icons
+    desk    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_desk.dll
+    explorer    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_explorer.dll
+    intl    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_intl.dll
+    main    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_main.dll
+    mmsys    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_mmsys.dll
+    ncpa    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_ncpa.dll
+    powercfg    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_powercfg.dll
+    sysdm    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_sysdm.dll
+    timedate    REG_SZ    C:\windows\Resources\Themes\Fluent\Icons\xpres_timedate.dll
+HKEY_CURRENT_USER\Control Panel\Cursors
+    Arrow    REG_EXPAND_SZ    C:\windows\Resources\Themes\Fluent\Cursors\arrow.cur
+shot 01-fluent-desktop
+shot 02-fluent-mycomputer
+shot 03-fluent-control64
+shot 04-fluent-control32
+shot 05-fluent-start
+theme Classic rc=0
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes
+    CurrentTheme    REG_SZ    C:\windows\Resources\Themes\Classic.theme
+Module Icons after Classic:
+HKEY_CURRENT_USER\Control Panel\Cursors
+    Arrow    REG_EXPAND_SZ    
+shot 06-classic-desktop
+shot 07-classic-control
+theme Fluent again rc=0
+shot 08-fluent-again-desktop
+shot 09-fluent-again-control
+total 296
+drwxr-xr-x  2 root root  4096 Oct 16 23:32 .
+drwxr-xr-x 63 root root  4096 Oct 16 23:30 ..
+-rw-r--r--  1 root root 17127 Oct 16 23:31 00-default.png
+-rw-r--r--  1 root root 13871 Oct 16 23:31 01-fluent-desktop.png
+-rw-r--r--  1 root root 25894 Oct 16 23:31 02-fluent-mycomputer.png
+-rw-r--r--  1 root root 36168 Oct 16 23:32 03-fluent-control64.png
+-rw-r--r--  1 root root 37438 Oct 16 23:32 04-fluent-control32.png
+-rw-r--r--  1 root root 28023 Oct 16 23:32 05-fluent-start.png
+-rw-r--r--  1 root root 17370 Oct 16 23:32 06-classic-desktop.png
+-rw-r--r--  1 root root 43296 Oct 16 23:32 07-classic-control.png
+-rw-r--r--  1 root root 14291 Oct 16 23:32 08-fluent-again-desktop.png
+-rw-r--r--  1 root root 36583 Oct 16 23:32 09-fluent-again-control.png
+-rw-r--r--  1 root root  1613 Oct 16 23:31 pack-build.log
