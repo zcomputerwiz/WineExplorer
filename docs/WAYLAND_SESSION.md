@@ -16,6 +16,12 @@ build uses `/srv/protonexplorer/wayland-session-iso-build`, with its output
 and packaging temporaries on the large /srv/protonexplorer volume, not the
 nearly full root disk. Fresh installation is still pending; this is not B
 acceptance. The earlier source-pin and disabled-controls notes below are history.
+The Wayland installer test uses a separate blank 40 GiB disk and 30,000 MB
+partition so the subsequent real application installations fit. The default
+X11 installer test keeps its 20 GiB disk and 15,000 MB partition.
+Development-overlay shutdown exceeded the explicit 50-second wait while
+systemd waited for session-c5.scope's 90-second stop deadline. No disk inspection
+was attempted; wait for QEMU to exit before mounting its disk.
 
 The real installed-session action runner now passes on the development overlay
 with full-window dragging **off** (the actual SPI value is logged): foot input,
