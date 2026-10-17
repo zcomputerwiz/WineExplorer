@@ -103,3 +103,11 @@ progressed. The restored `linux_windows.c` SHA256 is
 `e8ec50075f9e36b8d36a38300323dd16780f00159b99e9299d310790f417e255`
 on both host and build VM. A documentation patch used context from the wrong
 file and failed atomically; the corrected patch changed this report.
+
+Final verification after resync: combined Wine `make -j4` with
+`--enable-archs=i386,x86_64` and compositor `ninja` both pass at pinned Wine
+ed5fe96 / compositor acc46fe6. Both architecture DLLs are present. This
+rebuild contains the original committed implementation, with neither trial:
+[raw final build](logs/final-pinned-build.log). The test runner compiles with
+`python3 -m py_compile`; `git diff --check` passes. The ISO above remains the
+fresh-install evidence; no replacement image is implied by this final build.

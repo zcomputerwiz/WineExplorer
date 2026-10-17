@@ -103,8 +103,9 @@ Two owned-shell trials did not solve the real case and are removed:
 Both guest DLLs were restored from the original clean ISO package and their
 hashes verified before normal shutdown:
 [restoration log](logs/fresh-runtime-restored.log). No trial source is kept.
-The build VM source must also be resynced to the committed checkpoint before
-the final pinned build; its last local trial build is not a release artifact.
+The build VM source has also been resynced to the committed checkpoint and
+the final pinned WoW64/compositor build passed; its removed local trial build
+is not a release artifact. See [final build](logs/final-pinned-build.log).
 
 - SCP initially requested `winewayland.drv.so`; the built and installed module
   is `winewayland.so`. The resulting staging HTTP 404 stopped the chained

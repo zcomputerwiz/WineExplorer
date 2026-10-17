@@ -22,8 +22,10 @@ that image's original Debian package, with both hashes verified. No trial
 source changes remain. The fresh Wayland test VM shut down normally;
 all other QEMU acceptance/development VMs are stopped. The Proton build VM
 was restarted after the host reboot and is available on SSH 2223; its owned
-source is being resynced to the final committed checkpoint and rebuilt before
-push. Do not use Gemini's WSL distributions. The staging HTTP server is on
+source is resynced to the final committed code. The final combined WoW64
+`make -j4` and compositor `ninja` build passed before push; raw log is
+`wayland-polish/logs/final-pinned-build.log`. Do not use Gemini's WSL
+distributions. The staging HTTP server is on
 Debian WSL loopback 18765. The unrelated `.gitignore` edit is preserved.
 The requested Sway/labwc/foot comparison is recorded in item3-notes.md. It
 points to floating-client size reconciliation as a lead; the root cause
