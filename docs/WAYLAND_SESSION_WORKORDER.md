@@ -73,3 +73,21 @@ its menu), one libayatana app (for example `nm-applet` or a small AppIndicator d
   `dlls/setupapi`, `dlls/ntdll/unix/file.c`). Do not edit those except through the helper approach above. Pull master
   before each push.
 - `CLAUDE.md` rules apply: WoW64 builds, stock-Wine changes listed in `STOCK_CHANGES.md`, no Microsoft material.
+
+## Review point 1 (Claude, 2026-10-16): accepted
+
+Checked independently:
+- Pins: Wine `0f25ee1` is on `wineexplorer/11.19` and fast-forwards from `d92d7e4`; compositor `2bde47ee` is on
+  `codex/wayland-session` of the labwc fork.
+- Master `92619ba5` at Wine `0f25ee1` assembles and builds WoW64 in `wexbuild` (make exit 0, no new warnings).
+- `fresh-install.log` ends in PASS for every step, including the 32/64-bit checks in Bob's Wayland session and the
+  prefix-split assertions. Screenshots of foot, Notepad, Alt+Tab, gedit and Firefox show the real programs.
+- The shell32 fix is right: comctl32 tests `lParam == -1`, which `MAKELPARAM(-1,-1)` never equals on 64-bit.
+
+For parts C and D:
+- Fast-forward the fork's `wexcomp` branch (named in `.gitmodules`) to the production compositor pin.
+- `STOCK_CHANGES.md` still says the new ISO acceptance is pending; update it.
+- The two known limitations (late repaint of QTerminal's dialog at 150%, and a scale change while maximized) stay
+  open; record them in `WAYLAND_L2.md` at part D if they are not fixed by then.
+- A maximized window's caption has no title text in the default open theme. Older Notepad screenshots show the same,
+  so it is not from this work; it is tracked separately.

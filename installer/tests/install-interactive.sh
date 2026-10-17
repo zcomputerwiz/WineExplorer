@@ -6,11 +6,17 @@
 # GUI setup -> OOBE with two users (one with a password, one without) -> logon of the passwordless user.
 #
 #   install-interactive.sh ISO PASSWORD_FILE [VM_NAME]
+#   WEX_TEST_SESSION=wayland install-interactive.sh ISO PASSWORD_FILE [VM_NAME]
 #
 # PASSWORD_FILE holds the test password used for the Administrator and the first user.  Screenshots of every step
 # go to /tmp/vmtest/VM_NAME/steps/.
 set -u
 ISO=$1; PWFILE=$2; VM=${3:-wex-install}
+SESSION=${WEX_TEST_SESSION:-x11}
+case "$SESSION" in x11|wayland) ;; *) echo "Invalid session: $SESSION"; exit 2 ;; esac
+DISK_GB=20; PARTITION_MB=15000
+# Leave room for the separate real browser/GTK/Qt/Steam checks on this install.
+if [ "$SESSION" = wayland ]; then DISK_GB=40; PARTITION_MB=30000; fi
 [[ "$VM" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name"; exit 2; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 V="python3 $HERE/../../scripts/vmtest.py"
@@ -22,7 +28,7 @@ step() { N=$((N + 1)); echo "--- $*"; $V shot "$VM" "$STEPS/$(printf %02d "$N")-
 N=0
 
 $V stop "$VM" 2>/dev/null; rm -rf "$STATE"; mkdir -p "$STEPS"
-$V start "$VM" --iso "$ISO" || exit 1
+$V start "$VM" --iso "$ISO" --disk-gb "$DISK_GB" || exit 1
 
 # Text-mode setup
 $V wait "$VM" "Welcome to Setup" --timeout 180 || fail "no text setup"
@@ -32,8 +38,8 @@ step license; $V key "$VM" f8
 $V wait "$VM" "Unpartitioned space" --timeout 30 || fail "blank disk not listed"
 step partitions; $V key "$VM" c
 $V wait "$VM" "create a new partition" --timeout 20 || fail "no create screen"
-$V key "$VM" backspace backspace backspace backspace backspace backspace; $V type "$VM" 15000; $V key "$VM" ret
-$V wait "$VM" "15000 MB" --timeout 20 || fail "partition not created"
+$V key "$VM" backspace backspace backspace backspace backspace backspace; $V type "$VM" "$PARTITION_MB"; $V key "$VM" ret
+$V wait "$VM" "$PARTITION_MB MB" --timeout 20 || fail "partition not created"
 step created; $V key "$VM" ret
 $V wait "$VM" "must now be formatted" --timeout 20 || fail "no format screen"
 step format; $V key "$VM" ret
@@ -85,6 +91,12 @@ $V wait "$VM" "Bob Smith" --timeout 60 || fail "lock did not return to Welcome s
 step switch-user
 
 # First logon of the passwordless user: desktop from the template prefix, with icons
+if [ "$SESSION" = wayland ]; then
+    # logonui places its session combo at x=24, y=height-96-44.
+    # Keep the real Welcome selector in the test rather than overriding LightDM.
+    python3 "$HERE/select-wayland.py" "$VM" || fail "cannot select Wayland session"
+    step wayland-selected
+fi
 $V clicktext "$VM" "Bob Smith" || fail "cannot click Bob Smith"
 T0=$(date +%s)
 $V wait "$VM" "My Documents" --timeout 240 || fail "no desktop for Bob Smith"
@@ -94,6 +106,9 @@ ELAPSED=$(( $(date +%s) - T0 ))
 
 # Run 32-bit (WoW64) and 64-bit program checks on the installed desktop
 "$HERE/check-wow64.sh" "$VM" "$PWFILE" "$STEPS" || fail "WoW64 program checks failed"
+if [ "$SESSION" = wayland ]; then
+    python3 "$HERE/check-wayland-session.py" "$VM" "$PWFILE" "$STEPS" || fail "Wayland real-program actions failed"
+fi
 
 # Check the flushed installed disk, including both users' actual session logs.
 $V shutdown "$VM" || fail "guest did not shut down cleanly"
@@ -118,5 +133,5 @@ done
 mkdir -p "$STEPS/check-root"
 mount -o ro,noload "${NBD}p1" "$STEPS/check-root" || fail "cannot mount installed root"
 MOUNTED=true
-python3 "$HERE/check-interactive-accounts.py" "$STEPS/check-root" "$PWFILE" || fail "installed account checks failed"
+python3 "$HERE/check-interactive-accounts.py" "$STEPS/check-root" "$PWFILE" "$SESSION" || fail "installed account checks failed"
 echo "PASS (Bob desktop $ELAPSED s after logon); screenshots in $STEPS; VM stopped"

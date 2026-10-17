@@ -6,9 +6,17 @@ rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 Commit `40c17e1` is the imperfect upstream import, which also includes post-tag upstream changes.
 
 P4 established Wine as a gitlink to d0a0af0681 on wineexplorer/11.19.
-Current pin is d92d7e4, including accepted opt-in Wayland L1 integration,
-visual-style support and the prefix-split S2/S3 updates. See WAYLAND_L1.md;
+Current pin is 0f25ee1, integrating the L2 topic through the real-program
+checkpoint in WAYLAND_SESSION.md, visual-style support and prefix-split S2/S3.
+The earlier "topic, not production" descriptions below are historical: those
+commits are now included. The new ISO installation acceptance remains pending.
+See WAYLAND_L1.md;
 X11 remains the default.
+Wine topic 0f25ee1 fixes the existing shell-view default icon spacing call on
+64-bit Wine: MAKELPARAM(-1,-1) zero-extends to 0xffffffff, so comctl32 treats
+it as literal 65535x65535 spacing. Passing (LPARAM)-1 restores the intended
+default. The actual installed Wayland Control Panel's 13 entries now draw;
+both architectures build.
 The L2 topic c49ebd8 keeps pointer motion outside the old surface bounds during
 explicit private compositor capture. A real foot window on the installed
 Wayland session could otherwise never grow past its original right/bottom edge.

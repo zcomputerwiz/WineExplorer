@@ -1,9 +1,82 @@
 # Codex handoff — 2026-10-16 Wayland L2 in progress
 
+**STOP AT REVIEW POINT 1.** Parts A/B of WAYLAND_SESSION_WORKORDER.md are ready
+for Claude's review; the report and screenshot/log links are at the top of
+WAYLAND_SESSION.md. The clean ISO installation, default-X11 Alice login,
+selected-Wayland Bob login, 32/64-bit checks, S4 shared-app/access and offline
+account/prefix assertions all pass. The real foot/Notepad action runner passes
+with outline dragging. GTK, Qt, xterm, Firefox, normal Steam (no added sandbox
+override), winecfg, our Control Panel and the per-user 32-bit 7-Zip GUI install
+now have fresh-installed-system evidence. Initial private prefixes are 1 MB.
+
+Wine production/pin **0f25ee1**, compositor **2bde47ee**. The ISO is built and
+copied with the verified checksum below. Do not resume its installer: it has
+finished and the same installed VM is now running Bob's Wayland session with
+the real apps open for review. GTK contains unsaved **test** text; Steam has
+dummy account text but no sign-in was submitted. The old development overlay
+is stopped. No build is running; the Debian WSL staging HTTP server is up.
+
+Two material known limitations remain explicit: Qt's confirmation buttons
+can repaint late after switching back at 150%, and a live output-scale change
+while an SSD window is already maximized can detach its group. Static 150%
+and the two-output 100% checks pass on the installed development overlay.
+No separate 144-DPI Wine-font matrix is claimed. Review this scope before tray
+C and final regressions D. The historical incremental notes below are retained.
+
 **Active work order:** `WAYLAND_SESSION_WORKORDER.md` replaces the open-ended
 L2 remainder. Continue A and B through review point 1; only then start tray C
 and regression D. Real programs on an installed VM, no new synthetic cases.
 See `WAYLAND_SESSION.md` for incremental results, exact environment and failures.
+**Fresh ISO core test passed; application matrix finishing:** Wine production/pin is **0f25ee1** and
+compositor **2bde47ee**. The clean stock source audit (12,462 files) and full
+combined build with current owned master source pass at that Wine revision.
+The optional Wayland controls are enabled. The ISO build succeeded on the
+Proton build VM in `/srv/protonexplorer/wayland-session-iso-build`, output
+`/srv/protonexplorer/wex-wayland-l1/wineexplorer-wayland-session.iso`, log
+`.../checks/session-iso-build.log`. All packaging temporary files also use
+`/srv/protonexplorer/tmp` on the large volume. Never use ~/inst/build.
+The copied image's SHA256 is
+`c14e67a41dbdf8ee43645ff44b84ca03bfb3b3f1eeeabbf6015e0fc51dc95192`.
+Debian WSL passed `WEX_TEST_SESSION=wayland installer/tests/install-interactive.sh`
+in fresh VM **wayland-session-iso**, using
+`/var/tmp/wineexplorer-vmtest/wayland-session-c14e67a4.iso`. Its host log is
+`build/wayland-session/fresh-install.log`, steps are under
+`/var/tmp/wineexplorer-vmtest/wayland-session-iso/steps` (also copied into
+`build/wayland-session/fresh-install-steps`). Installation, Alice's default X11
+login, Bob's selected Wayland login, WoW64, actual foot/Notepad actions, shared
+app access/denial, offline account/layout checks all pass; both user prefixes
+are 1 MB. The installed VM has been restarted into Bob's Wayland session for
+the other listed programs; GTK CSD input/minimize/restore now also passes there.
+Do not mount its disk while QEMU is running. The old
+**wayland-session** overlay has shut down normally and remains preserved.
+Next: finish remaining real-program installed-ISO coverage. Stop only at B's
+review point. This supersedes the "root Wine still d92d7e4" sentence below.
+Latest continuation: compositor **2bde47ee** is pinned, packaged, and passes
+actual foot movement/maximize on two unit-scale outputs. Wine topic **0f25ee1**
+also fixes the blank 64-bit Control Panel's default icon-spacing sentinel;
+all 13 entries are now visible. The installed real-program action runner
+(`installer/tests/check-wayland-session.py`) passes foot input/move/edge/corner/
+maximize/restore/taskbar, Notepad input, native Alt+Tab and closing both, with
+full-window dragging off. A host-side coalescing fix avoids requesting a size
+already satisfied by acknowledged content. Actual Steam XWayland sign-in input,
+move, and taskbar minimize/restore pass, with no sign-in submitted. The existing
+32/64 program checks pass on this legacy development overlay. Neither that
+overlay nor the test-only downloads establish fresh S4 installation acceptance.
+
+The installer now has a `WEX_TEST_SESSION=wayland` path selecting the real Welcome
+combo and running the WoW64 plus real-program actions, and checking Bob's Wayland
+session log. Its selector and action runner were tested independently; the full
+fresh ISO run is still pending. The canonical topic full build, subsequent
+Control Panel/coalescing builds, and production d92d7e4 build with current owned
+code pass. Root Wine is still d92d7e4; integrate the verified topic and rebuild
+before packaging the ISO. Production-pin checks restore topic source but leave
+production binaries. Current test overlay is at the Welcome screen after the
+selector check; the test HTTP server is running. No tray C/D work has started.
+The Qt 150% delayed-button repaint and already-maximized live scale-change
+cases remain explicit known issues; static 150% and the two-output case pass.
+
+Historical incremental notes below are retained; this continuation supersedes
+their source pins, current VM contents and remaining-check lists.
 Latest topics: Wine **055abb3** (`codex/wayland-l2`), compositor **b99b5090**
 (`codex/wayland-session`, now master's gitlink). Terminal caption controls,
 XWayland xterm edge/corner sizing and maximize/restore, native Alt+Tab and Start,

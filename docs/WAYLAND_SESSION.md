@@ -1,9 +1,280 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Installed Wayland session
 
-In progress, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
-Parts A and B lead to review point 1; tray integration and final regressions
-follow that review. No acceptance is claimed yet.
+Review point 1, 2026-10-16. This follows `WAYLAND_SESSION_WORKORDER.md`.
+Parts A/B are implemented and the verification below is ready for review,
+with the two known limitations stated explicitly. Stop here for Claude before
+tray integration C and final regressions D. Overall L2/tray acceptance is not
+claimed at this intermediate checkpoint.
+
+## Review point 1: fresh ISO verification
+
+Pins: Wine **0f25ee1a765f7d0f1bef81be87bc9628a2e94b63**, compositor
+**2bde47ee708b048107967811bf47839c06dca0f3**. Owned binaries were built from
+project implementation efd0a381; subsequent main commits update the pins,
+test harness and documentation. The audited Wine stock tree matches the pin,
+both architectures build, and no development DLL/compositor hot-staging is
+used on the fresh installation. X11 remains the installed default.
+The final pre-review pinned build also passes:
+`checks/session-review-point1-pinned-wow64.log` on the Proton build VM.
+
+| Program / class | Recorded result | Fresh-install evidence |
+| --- | --- | --- |
+| 32/64-bit Wine, Notepad | Both architectures draw; Notepad input, Alt+Tab and close pass | [install output](../build/wayland-session/fresh-install.log), [Notepad input](../build/wayland-session/fresh-install-steps/wayland-notepad-input.png) |
+| foot, Wayland SSD | Input, move, edge/corner resize, exact work-area maximize/restore, taskbar minimize/restore and close pass with full-window dragging off | [resized](../build/wayland-session/fresh-install-steps/wayland-foot-resized.png), [maximized](../build/wayland-session/fresh-install-steps/wayland-foot-maximized.png) |
+| gedit, GTK CSD | Own decorations, input and single-proxy taskbar minimize/restore pass | [output](../build/wayland-session/fresh-gtk.log), [restored](../build/wayland-session/fresh-gtk-restored.png) |
+| QTerminal, Qt Wayland | Input and single-proxy taskbar minimize/restore pass | [output](../build/wayland-session/fresh-qt.log), [restored](../build/wayland-session/fresh-qt-restored.png) |
+| xterm, XWayland | Input and single-proxy taskbar minimize/restore pass | [output](../build/wayland-session/fresh-xterm.log), [restored](../build/wayland-session/fresh-xterm-restored.png) |
+| Firefox ESR CSD | Actual Ctrl+L navigation/input and single-proxy taskbar minimize/restore pass; maximized browser stops at taskbar | [output](../build/wayland-session/fresh-firefox.log), [restored](../build/wayland-session/fresh-firefox-restored.png) |
+| Steam, XWayland CSD | Normal launch, input, move and single-proxy taskbar minimize/restore pass; no account sign-in submitted | [output](../build/wayland-session/fresh-steam.log), [restored](../build/wayland-session/fresh-steam-restored.png) |
+| winecfg | Applications page opens and closes | [screenshot](../build/wayland-session/fresh-winecfg.png) |
+| Our Control Panel | All 13 entries draw; window closes | [screenshot](../build/wayland-session/fresh-control-panel.png) |
+| 32-bit 7-Zip installer | Per-user GUI install completes at the verified destination; installed File Manager launches | [output](../build/wayland-session/fresh-installer32.log), [installed File Manager](../build/wayland-session/fresh-installer32-file-manager.png) |
+
+The normal Steam launch is `/usr/games/steam`, without our development
+`-no-cef-sandbox` override. `fresh-backends.log` records the actual XWayland
+tree: xterm and Steam are present, while the visible GTK/Qt/Firefox windows
+use Wayland. The downloaded installer is PE i386 (objdump verified); its SHA256
+matches the download. The earlier transcribed hash below has been corrected.
+No downloaded application or its artwork is included in the ISO/source tree.
+
+Additional part-A coverage on the installed development overlay, with the
+same relevant integration code: foot/Qt resizing and maximize/restore at 150%,
+gedit CSD input/header-bar/taskbar at 150%, Firefox CSD input/taskbar at 150%,
+xterm edge/corner resize and maximize/restore, and Start-menu QTerminal launching
+with the compositor's public endpoints and stripped Wine environment. Two
+unit-scale compositor outputs pass foot movement and exact maximization on
+each (DRM plus a test-only headless output); screenshots/logs are linked below.
+[Two-output output](../build/wayland-session/two-output-check.log),
+[primary maximize](../build/wayland-session/two-output-primary-max.png),
+[second-output maximize](../build/wayland-session/two-output-secondary-max.png).
+These output-scale checks do not claim a separate 144-DPI Wine-font matrix.
+
+**Known limitations for review, not passing claims:** QTerminal's Exit
+confirmation remains above its parent, but its buttons can repaint late after
+a taskbar switch at 150%; the bounded five-second check fails. The same case
+passes at 100%. Changing output scale while an SSD foot window is already
+maximized can detach its hosted group; starting at 150% and then maximizing
+passes. Both are recorded below; investigations were bounded rather than
+expanded into more synthetic cases. Static-scale and two-output results above
+remain the actual verified scope.
+
+State at review: fresh `wayland-session-iso` is running Bob's clean installed
+Wayland session at 100%, with GTK test text, Qt, xterm, Firefox, Steam's sign-in
+window (dummy test account text, not submitted), and installed 7-Zip File
+Manager. Winecfg and Control Panel are closed. The old development overlay is
+stopped. The staging HTTP server remains on Debian WSL loopback port 18765;
+the Proton build VM has no ongoing build. Gemini's distributions were untouched.
+Tray C and regression D have not started.
+
+The complete Wayland variant of `installer/tests/install-interactive.sh`
+exits successfully on ISO SHA256
+`c14e67a41dbdf8ee43645ff44b84ca03bfb3b3f1eeeabbf6015e0fc51dc95192`.
+It installs to the separate blank disk, checks a rejected/correct Alice
+password in the default X11 session, switches to the Welcome screen and
+selects Wayland for Bob. Bob's desktop appears in six seconds. Existing
+32/64-bit programs and both Notepads draw; Alice installs the shared Win32
+fixture, Bob executes it and is denied write access to the machine root.
+The real foot/Notepad action runner passes. The VM shuts down, its disk is
+mounted read-only, and the account, LightDM, prefix-link and size assertions
+pass. Alice and Bob each have a 1 MB private prefix. It is unmounted afterward.
+
+Output: [fresh-install.log](../build/wayland-session/fresh-install.log).
+Evidence: [Welcome selection](../build/wayland-session/fresh-install-steps/17-wayland-selected.png),
+[32-bit Notepad](../build/wayland-session/fresh-install-steps/19-notepad32.png),
+[maximized foot](../build/wayland-session/fresh-install-steps/wayland-foot-maximized.png),
+[native Alt+Tab](../build/wayland-session/fresh-install-steps/wayland-native-alttab.png).
+These generated test files remain ignored, outside source/ISO resources.
+
+The same installed VM was restarted for the real-program checks in the table.
+Its installed compositor source-commit is 2bde47ee708b048107967811bf47839c06dca0f3.
+No development DLL/compositor hot-staging is used on this fresh installation.
+Nonfatal locale warnings indicate the install's en_US.UTF-8 locale is not
+generated; native checks use C.UTF-8. The first Steam Install OCR click failed
+because Firefox's maximized startup window covered the installer; activating
+Steam's actual taskbar item exposed the button and the subsequent click works.
+A read-only diagnostic used `| head` in PowerShell and failed (head is not a
+PowerShell command); subsequent reads use Select-Object or run wholly in WSL.
+
+### Installed-program and packaging checkpoint
+
+Integration candidate: production Wine and the main gitlink now advance to
+0f25ee1; compositor is 2bde47ee. The isolated assembled Wine source was audited
+again (all 12,462 stock files match 0f25ee1), current owned master source was
+synced, and its combined build passes (`session-iso-candidate-wow64.log`).
+The preceding old-production d92d7e4 compatibility build also passes. The ISO
+build uses `/srv/protonexplorer/wayland-session-iso-build`, with its output
+and packaging temporaries on the large /srv/protonexplorer volume, not the
+nearly full root disk. Fresh installation is still pending; this is not B
+acceptance. The earlier source-pin and disabled-controls notes below are history.
+The ISO build succeeded, producing 1,671,114,752 bytes. Its copied SHA256 matches
+the build VM: `c14e67a41dbdf8ee43645ff44b84ca03bfb3b3f1eeeabbf6015e0fc51dc95192`.
+The fresh `wayland-session-iso` test is running the Wayland variant of
+install-interactive.sh from the copy on Debian WSL native storage. Its initial
+blank-disk partition/format steps pass and it is copying the installed system.
+`build/wayland-session/fresh-install.log` is the running log; no fresh-install
+acceptance is inferred before it finishes.
+The Wayland installer test uses a separate blank 40 GiB disk and 30,000 MB
+partition so the subsequent real application installations fit. The default
+X11 installer test keeps its 20 GiB disk and 15,000 MB partition.
+Development-overlay shutdown exceeded the explicit 50-second wait while
+systemd waited for session-c5.scope's 90-second stop deadline. No disk inspection
+was attempted; wait for QEMU to exit before mounting its disk.
+It subsequently exited normally; the QMP socket is gone and Debian WSL has no
+remaining QEMU process. The stopped overlay is preserved for reproduction.
+The fresh-install runner refreshes apt metadata before installing its real foot
+client, and the existing shared-app check closes its earlier identical-caption
+Test32 fixture before launching Alice's common app. These prevent dependence on
+the development VM's populated package cache or an old test window. The fresh
+ISO run remains the next verification of those setup paths.
+The development Steam check used `-no-cef-sandbox` in this disposable VM; normal
+launch without that override is still to be checked on the fresh installation.
+
+The real installed-session action runner now passes on the development overlay
+with full-window dragging **off** (the actual SPI value is logged): foot input,
+move, edge shrink, corner grow, exact work-area maximize/restore, taskbar
+minimize/restore, Notepad input, native Alt+Tab and closing both programs.
+Evidence: `installed-actions.log` and `installed-action-steps/` under the ignored
+directory. The test only accepts completed gestures (no pointer capture), not
+an intermediate preview. Its first OCR check failed on inserted spaces around
+terminal hyphens; normalizing punctuation/spacing and moving the cursor off
+the text fixes that reading, without accepting incorrect letters.
+
+That test exposed a real outline-resize failure. Foot rounded the penultimate
+requested width 641 to 636 and supplied acknowledged content. The final pointer
+position requested 636 again; with no new content needed, foot only acknowledged
+it. The outstanding transaction timed out and rolled the entire gesture back.
+The host now coalesces a new intent already satisfied by its current ready
+frame, retaining the existing acknowledged-content transaction. This changes
+neither compositor readiness nor state-only publication rules. The real full
+action sequence passes with this fix. Temporary sizing traces established the
+exact request/response sequence; those verbose traces were removed.
+
+Control Panel's one-line sentinel correction is verified live and committed
+as Wine topic 0f25ee1. `control-panel-fixed.png` shows all 13 visible entries.
+Both architectures build with current master-owned code, and the real production
+Wine d92d7e4 was rebuilt before the next main push. The compositor package was
+also reproduced at the new 2bde47ee pin. Source scp preserved Windows CRLF and
+made its first exact Git comparison fail; an EOL-insensitive comparison confirmed
+only line endings differed, then the two audited files were restored from the
+pinned Git archive before packaging.
+
+Steam's actual XWayland sign-in CSD window has one hosted taskbar item and passes
+input, moving, taskbar minimize and restore. No credentials/sign-in were
+submitted. Evidence: `steam-controls.log`, `steam-input.png`, `steam-moved.png`,
+`steam-minimized.png`, `steam-restored.png`. The initial exact drag delta assertion
+ignored the CSD drag threshold (actual +92,+55 for a +100,+60 pointer drag);
+the bounds check now verifies that movement occurred. Clicking elsewhere too
+soon after fast typing truncated the visible field; allowing input to settle
+before the focus click produces the expected text. The first OCR also misread
+the insertion cursor as a letter. Steam's bootstrap logs mmap allocation errors,
+but its fully rendered sign-in client and window actions run successfully.
+Steam remains a test-only installation, absent from the ISO.
+
+Another tooling failure: running archive-pin-check.py with Linux Git against
+a Windows absolute-path worktree failed “not a git repository”. Windows Python
+and Git regenerated both pin/restore archives correctly. The accidental use of
+the older archives was discarded as verification; the fresh archive run completed
+the production-pin build. The source is restored to the topic afterward, while
+its binaries are production until the next topic build. The Welcome selector's
+first OCR check failed on its blue focused highlight although it visibly selected
+Wayland; the test defocuses the combo before reading it.
+
+Two unit-scale outputs now pass the real foot move/maximize check. The test
+VM uses wlroots' DRM+headless backends, with Virtual-1 and HEADLESS-1 each
+1280x800, laid out at (0,0) and (1280,0). This is compositor output simulation
+on the installed system, not a synthetic client. `grim` captures both outputs;
+QEMU's USB tablet spans their union (`VMTEST_INPUT_SIZE=2560x800`), while its
+primary screendump remains 1280x800. The vmtest override affects input only.
+Exact maximized Win32 frame bounds are (-4,-4)-(1284,774) on the primary,
+and (1276,-4)-(2564,804) on the second, which has no taskbar reservation.
+Screenshots `two-output-primary-max.png`, `two-output-moved.png`, and
+`two-output-secondary-max.png` plus `two-output-check.log` show the real result.
+
+The first run failed: Wine moved the proxy to x=1568, but the compositor
+rejected placement outside its first-output zone, leaving foot visibly on
+the primary. Compositor 2bde47ee uses the existing protocol's infinite zone
+policy for private Wine desktop clients, still anchored at the preferred
+output. Requests must intersect the actual output layout. Public native zones
+retain their per-output policy. No new protocol or Wine hook was required.
+
+The settled Control Panel still has blank contents. Read-only enumeration of
+its actual list control found 13 items and item-zero bounds 0,0,65535,65535.
+The shell view passes MAKELPARAM(-1,-1), which is unsigned 0xffffffff on
+64-bit Wine, while comctl32 expects the pointer-sized -1 sentinel for default
+icon spacing. A one-line topic fix uses (LPARAM)-1; live verification follows
+the current build. This explains the blank view without assuming a compositor
+repaint failure. The existing readback helper gained child/layout inspection
+for this real listed-program failure, not another synthetic test.
+
+Additional failed commands: the first compositor scp/build paths omitted
+`wow64-source`; repeating with the actual assembled-root path builds cleanly.
+The readback compile omitted -lgdi32 and failed to link CreateSolidBrush and
+DeleteObject; the correct link succeeds. An image read raced the still-running
+screenshot command; waiting for completion produced the image. Searches for
+waylandhost.c under wexshell and explorer.c under wexshell failed: these belong
+to wexhost and wexbrowse. The background grim apt process stopped on terminal
+input during man-db triggers, so a simultaneous Steam install hit its dpkg
+lock. Bringing that original job to the foreground completed it; the subsequent
+Steam install ran with setsid and /dev/null stdin and completed. No package
+manager lock was removed. Steam's GUI bootstrap is test-only, not an ISO asset.
+
+The existing combined-WoW64 checks pass in Bob's actual Wayland session:
+the existing Test32/Test64 programs and both syswow64/system32 Notepads draw
+their distinct windows. `check-wow64.sh` now uses `session-run.py` to inherit
+the named user's running Explorer environment, including its private Wayland
+endpoint. It drops Wine's process-local startup FD/reservation variables.
+The optional `--programs-only` explicitly excludes the S4 multi-user assertions
+on this legacy-prefix development overlay; the default still requires them.
+Evidence: `build/wayland-session/wow64-wayland.log` and `wow64-steps/`.
+
+Winecfg opens its Applications page. The real 32-bit 7-Zip 26.04 installer
+reports completion and its installed 7zFM.exe opens a file manager. It is an
+ignored, test-only download, never an ISO/repository resource (SHA256
+39bf65045153fc26c42fa9fe47afd8cd1b11671c7f11d031e738c9a13960c009).
+The automated destination assertion failed: the text had only reached
+`C:\users\bobsmith\7-Zip-S` when Install was clicked, instead of the requested
+`7-Zip-Session-Test`. The actual installed executable at the shorter path was
+then launched and visually verified. The later OCR wait used “7-Zip File
+Manager”, while its actual caption is “7-Zip”; screenshot and window readback
+verify the file manager. Do not claim the original automation passed. Our
+Control Panel opens, but its initial list screenshot was blank; the settled
+content check was interrupted and remains to be repeated.
+
+The reproducible compositor package at b99b5090 builds successfully, including
+the source-commit record, calculated dependencies and libsfdo notice. Wine's
+assembled stock files were audited against 055abb3 (12,462 files match), then
+normalized to that Git revision while retaining the three owned-module
+symlinks and generated configure. This supersedes the historical 3bb585c4
+metadata noted below. The normalization restored old archive mtimes; generated
+private protocol headers from the production-pin build were newer and caused
+`wex_window_manager_v1_listener` incomplete-type / add_listener errors. Touching
+the actual current XML regenerates the headers before rebuilding. Never use
+these failed build outputs for packaging.
+
+Tooling failures in this checkpoint: a JavaScript patch template interpreted
+Bash substitution syntax and failed with “Missing }” before editing; the
+replacement patch avoids template interpolation. Debian WSL initially lacked
+MinGW compilers; installing both architectures enabled the existing checks.
+A nested pgrep pattern containing pipes was parsed as shell pipelines; stage
+scripts instead. The first session launcher reused /proc's stale
+WINESERVERSOCKET=14 and Wine reported “Bad server socket 14: Bad file
+descriptor”; removing that variable, WINELOADERNOEXEC and WINEPRELOADRESERVE
+fixes the real launches. An accidental py_compile cache under installer/tests
+was removed; use AST parsing for local syntax checks. `file`, WSL `wget`, and
+scripts/build-wine.sh were absent; the successful alternatives were window
+readback, PowerShell download, and scripts/assemble.sh. The first source audit
+falsely flagged four stock CRLF data files; raw-byte hashing before normalized
+comparison resolves that.
+
+On resumption the old tool process IDs were gone (`Unknown process id 28611`),
+`vmtest.py status` was rejected (no such subcommand), and screendump returned
+ConnectionRefusedError on the stale QMP socket. QEMU was stopped; the existing
+installed overlay was restarted successfully. No pending GUI check is inferred
+to have passed from that interruption. The permitted Debian WSL staging HTTP
+server was also restarted; Gemini's distributions remain untouched.
+A documentation patch initially used a partial line as context and did not
+apply; the replacement uses the full existing line.
 
 ## Part A
 

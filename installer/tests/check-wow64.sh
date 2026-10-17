@@ -4,7 +4,7 @@
 # Check that 32-bit Windows programs (custom Win32 and Wine's 32-bit syswow64 notepad)
 # and a 64-bit program run and draw windows on the installed desktop session.
 #
-# Usage: check-wow64.sh VM_NAME PASSWORD_FILE [STEPS_DIR]
+# Usage: check-wow64.sh VM_NAME PASSWORD_FILE [STEPS_DIR] [--programs-only]
 set -euo pipefail
 
 VM=${1:?usage: check-wow64.sh VM_NAME PASSWORD_FILE [STEPS_DIR]}
@@ -12,6 +12,9 @@ PWFILE=${2:?missing password file}
 HERE=$(cd "$(dirname "$0")" && pwd)
 STEPS=${3:-${VMTEST_DIR:-/tmp/vmtest}/$VM/steps}
 V="python3 $HERE/../../scripts/vmtest.py"
+PROGRAMS_ONLY=""
+[ $# -lt 4 ] || PROGRAMS_ONLY=$4
+case "$PROGRAMS_ONLY" in ""|--programs-only) ;; *) echo "Unknown option: $PROGRAMS_ONLY"; exit 2 ;; esac
 
 mkdir -p "$STEPS"
 TMPBUILD=$(mktemp -d /tmp/wextest.XXXXXX)
@@ -37,34 +40,46 @@ stage_file() {
 
 stage_file "$TMPBUILD/test32.exe" /tmp/test32.exe
 stage_file "$TMPBUILD/test64.exe" /tmp/test64.exe
+stage_file "$HERE/session-run.py" /tmp/wex-session-run.py
 
-# Discover desktop user, active DISPLAY, and XAUTHORITY from running wine session
-$V sh "$VM" root "$PWFILE" 'BOB_PID=$(pgrep -f "explorer.exe.*/desktop" | tail -1); USER=$(stat -c "%U" /proc/$BOB_PID); DISP=$(grep -z "^DISPLAY=" /proc/$BOB_PID/environ | tr -d "\0" | cut -d= -f2-); XAUTH=$(grep -z "^XAUTHORITY=" /proc/$BOB_PID/environ | tr -d "\0" | cut -d= -f2-); echo "Desktop user: $USER on $DISP"; echo "$USER" > /tmp/desktop_user.txt; echo "$DISP" > /tmp/desktop_disp.txt; echo "$XAUTH" > /tmp/desktop_xauth.txt'
+# Use the actual named user's shell environment in either session. In Wayland,
+# DISPLAY must stay unset and all Wine processes must join the private endpoint.
+$V sh "$VM" root "$PWFILE" 'python3 /tmp/wex-session-run.py --report --user-file /tmp/desktop_user.txt'
 
 echo "=== 1. Running 32-bit test program on desktop ==="
-$V sh "$VM" root "$PWFILE" 'USER=$(cat /tmp/desktop_user.txt); DISP=$(cat /tmp/desktop_disp.txt); XAUTH=$(cat /tmp/desktop_xauth.txt); su "$USER" -c "DISPLAY=$DISP XAUTHORITY=$XAUTH WINEDLLOVERRIDES=\"mscoree,mshtml=\" wine /tmp/test32.exe >/dev/null 2>&1 &"'
+$V sh "$VM" root "$PWFILE" 'python3 /tmp/wex-session-run.py /tmp/test32.exe'
 $V wait "$VM" "Win32 Test Program" --timeout 45
 $V shot "$VM" "$STEPS/18-test32.png"
 echo "PASS: Win32 test program window drawn"
 
 echo "=== 2. Running Wine 32-bit notepad from syswow64 ==="
-$V sh "$VM" root "$PWFILE" 'USER=$(cat /tmp/desktop_user.txt); DISP=$(cat /tmp/desktop_disp.txt); XAUTH=$(cat /tmp/desktop_xauth.txt); su "$USER" -c "DISPLAY=$DISP XAUTHORITY=$XAUTH WINEDLLOVERRIDES=\"mscoree,mshtml=\" wine C:/windows/syswow64/notepad.exe >/dev/null 2>&1 &"'
-$V wait "$VM" "Notepad" --timeout 45
+$V sh "$VM" root "$PWFILE" 'echo 32-bit Notepad > /tmp/wex-notepad32.txt; python3 /tmp/wex-session-run.py C:/windows/syswow64/notepad.exe Z:/tmp/wex-notepad32.txt'
+$V wait "$VM" "wex-notepad32" --timeout 45
 $V shot "$VM" "$STEPS/19-notepad32.png"
 echo "PASS: 32-bit syswow64 notepad window drawn"
 
 echo "=== 3. Running 64-bit test program ==="
-$V sh "$VM" root "$PWFILE" 'USER=$(cat /tmp/desktop_user.txt); DISP=$(cat /tmp/desktop_disp.txt); XAUTH=$(cat /tmp/desktop_xauth.txt); su "$USER" -c "DISPLAY=$DISP XAUTHORITY=$XAUTH WINEDLLOVERRIDES=\"mscoree,mshtml=\" wine /tmp/test64.exe >/dev/null 2>&1 &"'
+$V sh "$VM" root "$PWFILE" 'python3 /tmp/wex-session-run.py /tmp/test64.exe'
 $V wait "$VM" "Win64 Test Program" --timeout 45
 $V shot "$VM" "$STEPS/20-test64.png"
 echo "PASS: Win64 test program window drawn"
 
+echo "=== Running Wine 64-bit notepad from system32 ==="
+$V sh "$VM" root "$PWFILE" 'echo 64-bit Notepad > /tmp/wex-notepad64.txt; python3 /tmp/wex-session-run.py C:/windows/system32/notepad.exe Z:/tmp/wex-notepad64.txt'
+$V wait "$VM" "wex-notepad64" --timeout 45
+$V shot "$VM" "$STEPS/20-notepad64.png"
+echo "PASS: 64-bit system32 notepad window drawn"
+
+if [ "$PROGRAMS_ONLY" != --programs-only ]; then
 echo "=== 4. Alice (admin) installs program for all users into Program Files ==="
 $V sh "$VM" root "$PWFILE" 'su - alice -c "mkdir -p \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp\" && cp /tmp/test32.exe \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp/common_app.exe\" && chmod 775 \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp/common_app.exe\""'
 echo "PASS: Program installed by Alice for all users"
 
 echo "=== 5. Bob (standard user) executes application installed by Alice ==="
-$V sh "$VM" root "$PWFILE" 'USER=$(cat /tmp/desktop_user.txt); DISP=$(cat /tmp/desktop_disp.txt); XAUTH=$(cat /tmp/desktop_xauth.txt); su "$USER" -c "DISPLAY=$DISP XAUTHORITY=$XAUTH WINEDLLOVERRIDES=\"mscoree,mshtml=\" wine \"C:/Program Files/CommonApp/common_app.exe\" >/dev/null 2>&1 &"'
+# The common app uses the same fixture caption. Remove the earlier instance
+# so an unsuccessful shared-app launch cannot pass by finding its old window.
+$V sh "$VM" root "$PWFILE" 'U=$(cat /tmp/desktop_user.txt); pkill -u "$U" -f test32.exe || true'
+$V sh "$VM" root "$PWFILE" 'python3 /tmp/wex-session-run.py "C:/Program Files/CommonApp/common_app.exe"'
 $V wait "$VM" "Win32 Test Program" --timeout 45
 $V shot "$VM" "$STEPS/21-bob-common-app.png"
 echo "PASS: Bob executed program installed for all users"
@@ -79,6 +94,7 @@ if echo "$OUT" | grep -q WROTE; then
     exit 1
 fi
 echo "PASS: Bob write access denied to machine root as expected"
+fi
 
 echo "=== 7. Display Properties lists Fluent theme ==="
 stage_file "/root/WineExplorer/scripts/cpl_driver.exe" /tmp/cpl_driver.exe
@@ -93,8 +109,12 @@ $V sh "$VM" root "$PWFILE" 'grep "Fluent" /tmp/cpl_driver.out' || {
 echo "PASS: Fluent theme is listed in Display Properties on installed system"
 $V sh "$VM" root "$PWFILE" 'pkill -f rundll32.exe || true; pkill -f control.exe || true'
 
-echo "=== Cleaning up running test processes ===" 
-$V sh "$VM" root "$PWFILE" 'pkill -f test32.exe || true; pkill -f notepad.exe || true; pkill -f test64.exe || true; pkill -f common_app.exe || true'
+echo "=== Cleaning up running test processes ==="
+$V sh "$VM" root "$PWFILE" 'U=$(cat /tmp/desktop_user.txt); pkill -u "$U" -f test32.exe || true; pkill -u "$U" -f notepad.exe || true; pkill -u "$U" -f test64.exe || true; pkill -u "$U" -f common_app.exe || true'
 
-echo "PASS: All WoW64 32-bit and 64-bit program checks and prefix-split multi-user assertions succeeded."
+if [ "$PROGRAMS_ONLY" = --programs-only ]; then
+    echo "PASS: WoW64 program checks succeeded; prefix-split assertions explicitly excluded for this development overlay."
+else
+    echo "PASS: All WoW64 program checks and prefix-split multi-user assertions succeeded."
+fi
 

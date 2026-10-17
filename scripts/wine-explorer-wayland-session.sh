@@ -9,6 +9,7 @@ mkdir -p "$state"
 [ ! -e "$state/session.log" ] || mv -f "$state/session.log" "$state/session.log.1"
 exec > "$state/session.log" 2>&1
 echo "=== WineExplorer Wayland session: $(date) ==="
+echo "USER=$USER WAYLAND_SESSION=1"
 : "${XDG_RUNTIME_DIR:?The login session must provide XDG_RUNTIME_DIR}"
 test -d "$XDG_RUNTIME_DIR"
 
