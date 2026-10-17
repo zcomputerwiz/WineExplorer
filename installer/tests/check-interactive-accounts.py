@@ -40,6 +40,14 @@ assert machine_root.is_dir(), "machine root /var/lib/wineexplorer/machine missin
 assert (machine_root / "drive_c/windows/system32").is_dir(), "machine root windows/system32 missing"
 assert (machine_root / "system.reg").is_file(), "machine root system.reg missing"
 
+fluent_theme = machine_root / "drive_c/windows/Resources/Themes/Fluent/Fluent.theme"
+assert fluent_theme.is_file(), "Fluent.theme missing from installed machine root"
+fluent_shell32 = machine_root / "drive_c/windows/Resources/Themes/Fluent/Icons/xpres_shell32.dll"
+assert fluent_shell32.is_file(), "xpres_shell32.dll missing from Fluent theme in machine root"
+fluent_cursor = machine_root / "drive_c/windows/Resources/Themes/Fluent/Cursors/arrow.cur"
+assert fluent_cursor.is_file(), "arrow.cur missing from Fluent theme cursors in machine root"
+
+
 skel_wine = root / "etc/skel/.wine"
 assert skel_wine.is_dir(), "/etc/skel/.wine missing"
 assert (skel_wine / "drive_c/windows").is_symlink(), "/etc/skel/.wine/drive_c/windows is not a symlink"

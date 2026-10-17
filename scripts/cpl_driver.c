@@ -51,6 +51,8 @@ int main(int argc, char **argv)
     int i, count, cursel;
     WCHAR item_text[256];
 
+    int retries = 50;
+    while (retries-- > 0 && !find_cpl()) Sleep(200);
     if (!find_cpl())
     {
         printf("ERROR: Display Properties window not found\n");
