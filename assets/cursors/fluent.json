@@ -1,0 +1,128 @@
+{
+  "name": "Fluent",
+  "display_name": "Fluent (Windows 11 style)",
+  "licence": "MIT",
+  "theme_name": "Fluent",
+  "sources": {
+    "fluent": {
+      "title": "Fluent UI System Icons (Microsoft)",
+      "licence": "MIT",
+      "url": "https://github.com/microsoft/fluentui-system-icons",
+      "commit": "a347af954",
+      "licence_file": "LICENSE"
+    }
+  },
+  "cursors": {
+    "Arrow": {
+      "file": "arrow.cur",
+      "type": "svg",
+      "hotspot_32": [1, 1],
+      "hotspot_48": [2, 2],
+      "meaning": "Normal select pointer arrow with subtle Fluent drop shadow"
+    },
+    "Help": {
+      "file": "help.cur",
+      "type": "svg",
+      "hotspot_32": [1, 1],
+      "hotspot_48": [2, 2],
+      "meaning": "Pointer arrow with blue question badge"
+    },
+    "AppStarting": {
+      "file": "appstarting.ani",
+      "type": "animated_svg_ring",
+      "hotspot_32": [1, 1],
+      "hotspot_48": [2, 2],
+      "frames": 8,
+      "jif_rate": 6,
+      "with_arrow": true,
+      "meaning": "Pointer arrow with spinning blue Fluent dots"
+    },
+    "Wait": {
+      "file": "wait.ani",
+      "type": "animated_svg_ring",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "frames": 8,
+      "jif_rate": 6,
+      "with_arrow": false,
+      "meaning": "Spinning blue Fluent busy ring"
+    },
+    "Crosshair": {
+      "file": "crosshair.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Precision crosshair cursor"
+    },
+    "IBeam": {
+      "file": "ibeam.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Text selection beam"
+    },
+    "NWPen": {
+      "file": "handwriting.cur",
+      "type": "svg",
+      "hotspot_32": [5, 24],
+      "hotspot_48": [8, 36],
+      "meaning": "Pen / handwriting cursor based on Fluent pen glyph"
+    },
+    "No": {
+      "file": "no.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Unavailable / prohibited circle with diagonal slash"
+    },
+    "SizeNS": {
+      "file": "sizens.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Vertical resize double-headed arrow"
+    },
+    "SizeWE": {
+      "file": "sizewe.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Horizontal resize double-headed arrow"
+    },
+    "SizeNWSE": {
+      "file": "sizenwse.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Diagonal resize arrow (NW to SE)"
+    },
+    "SizeNESW": {
+      "file": "sizenesw.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Diagonal resize arrow (NE to SW)"
+    },
+    "SizeAll": {
+      "file": "sizeall.cur",
+      "type": "svg",
+      "hotspot_32": [16, 16],
+      "hotspot_48": [24, 24],
+      "meaning": "Four-way move arrow"
+    },
+    "UpArrow": {
+      "file": "uparrow.cur",
+      "type": "svg",
+      "hotspot_32": [16, 2],
+      "hotspot_48": [24, 3],
+      "meaning": "Vertical select upward arrow"
+    },
+    "Hand": {
+      "file": "hand.cur",
+      "type": "svg",
+      "hotspot_32": [10, 2],
+      "hotspot_48": [15, 3],
+      "meaning": "Link select pointing hand"
+    }
+  }
+}
