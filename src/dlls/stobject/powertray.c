@@ -60,7 +60,6 @@ static const WCHAR *g_scheme_names[] = {
 
 static void update_pwr_tray_icon_and_tooltip(HWND hwnd)
 {
-    HINSTANCE hInst = stobject_module();
     int new_icon_id;
     WCHAR new_tip[128] = {0};
 
