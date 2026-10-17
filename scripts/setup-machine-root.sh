@@ -86,6 +86,11 @@ if [ -d "$THEME_DATA_DIR" ]; then
         [ -f "$theme_file" ] || continue
         cp -f "$theme_file" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/" 2>/dev/null || true
     done
+    for theme_dir in "$THEME_DATA_DIR/"*/; do
+        [ -d "$theme_dir" ] || continue
+        tname="$(basename "$theme_dir")"
+        cp -rf "$theme_dir" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/$tname" 2>/dev/null || true
+    done
 fi
 
 # 2. Ensure permissions and POSIX default ACLs on machine root:

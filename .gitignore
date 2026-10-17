@@ -56,3 +56,7 @@ installer/**/*.raw
 installer/textsetup/textsetup
 installer/live-build/config/includes.chroot/setup/textsetup
 wine/programs/*/*.exe
+
+# Python bytecode
+__pycache__/
+*.py[cod]

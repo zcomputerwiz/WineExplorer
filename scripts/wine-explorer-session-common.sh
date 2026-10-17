@@ -69,5 +69,10 @@ wex_prepare_prefix()
             theme_target="$THEME_PREFIX_DIR/$(basename "$theme_file")"
             [ -e "$theme_target" ] || install -m644 "$theme_file" "$theme_target" 2>/dev/null || true
         done
+        for theme_dir in "$THEME_DATA_DIR/"*/; do
+            [ -d "$theme_dir" ] || continue
+            tname="$(basename "$theme_dir")"
+            [ -e "$THEME_PREFIX_DIR/$tname" ] || cp -rf "$theme_dir" "$THEME_PREFIX_DIR/$tname" 2>/dev/null || true
+        done
     fi
 }

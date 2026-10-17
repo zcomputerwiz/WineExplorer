@@ -76,22 +76,27 @@ static HMODULE pack_module(const WCHAR *name)
 {
     int i;
     WCHAR path[MAX_PATH], dir[MAX_PATH];
+    WCHAR mod_name[MAX_PATH];
+    WCHAR *dot;
+
+    lstrcpynW(mod_name, name, ARRAY_SIZE(mod_name));
+    if ((dot = wcsrchr(mod_name, '.'))) *dot = 0;
 
     for (i = 0; i < MAX_PACKS && packs[i].name[0]; i++)
-        if (!wcsicmp(packs[i].name, name)) return packs[i].module;
+        if (!wcsicmp(packs[i].name, mod_name)) return packs[i].module;
     if (i == MAX_PACKS) return NULL;
 
-    lstrcpynW(packs[i].name, name, ARRAY_SIZE(packs[i].name));
+    lstrcpynW(packs[i].name, mod_name, ARRAY_SIZE(packs[i].name));
     if (theme_pack_dir(dir))
     {
-        swprintf(path, MAX_PATH, L"%s\\xpres_%s.dll", dir, name);
+        swprintf(path, MAX_PATH, L"%s\\xpres_%s.dll", dir, mod_name);
         packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     }
     if (!packs[i].module)
     {
         GetWindowsDirectoryW(path, MAX_PATH);
         wcscat(path, L"\\Resources\\Icons\\xpres_");
-        wcscat(path, name);
+        wcscat(path, mod_name);
         wcscat(path, L".dll");
         packs[i].module = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE);
     }
@@ -132,7 +137,7 @@ static BOOL is_pack_value(const WCHAR *data)
 /* Wine numbers shell32's icons like Windows, except these, which are other pictures in Wine */
 static BOOL other_picture(int id)
 {
-    static const WORD ids[] = { 220, 223, 269, 271, 272, 273, 276, 279, 281, 289 };
+    static const WORD ids[] = { 223, 271, 272, 273, 276, 279, 281, 289 };
     unsigned int i;
     for (i = 0; i < ARRAY_SIZE(ids); i++) if (ids[i] == id) return TRUE;
     return FALSE;
@@ -350,4 +355,11 @@ void shellres_premultiply(HBITMAP bitmap)
         DWORD a = px[i] >> 24;
         px[i] = (a << 24) | ((((px[i] >> 16) & 255) * a / 255) << 16) | ((((px[i] >> 8) & 255) * a / 255) << 8) | ((px[i] & 255) * a / 255);
     }
+}
+
+
+HMODULE WINAPI WexResIconModule(void)
+{
+    HMODULE pack = pack_module(L"wexres");
+    return pack ? pack : resources_instance;
 }

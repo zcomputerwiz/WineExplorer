@@ -84,7 +84,7 @@ static void update_vol_tray_icon_and_tooltip(HWND hwnd)
     {
         g_current_vol_icon = new_icon_id;
         if (g_vol_nid.hIcon) DestroyIcon(g_vol_nid.hIcon);
-        g_vol_nid.hIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(new_icon_id));
+        g_vol_nid.hIcon = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(new_icon_id));
         lstrcpynW(g_vol_nid.szTip, new_tip, 128);
 
         Shell_NotifyIconW(g_vol_icon_shown ? NIM_MODIFY : NIM_ADD, &g_vol_nid);

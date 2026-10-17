@@ -356,6 +356,7 @@ static void apply_registry_sections(const WCHAR *path)
 {
     WCHAR *sections = HeapAlloc(GetProcessHeap(), 0, 32768 * sizeof(WCHAR));
     const WCHAR *sec;
+    BOOL has_cursors = FALSE;
 
     if (!sections) return;
     GetPrivateProfileSectionNamesW(sections, 32768, path);
@@ -366,9 +367,28 @@ static void apply_registry_sections(const WCHAR *path)
         else if (!wcsnicmp(sec, L"CLSID\\", 6))
             apply_registry_section(path, sec, L"Software\\Classes", TRUE);
         else if (!wcsicmp(sec, L"Control Panel\\Cursors"))
+        {
             apply_registry_section(path, sec, L"", TRUE);
+            has_cursors = TRUE;
+        }
         else if (!wcsicmp(sec, L"Control Panel\\Colors"))
             apply_registry_section(path, sec, L"", FALSE);
+    }
+    if (!has_cursors)
+    {
+        HKEY key;
+        if (!RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Cursors", 0, KEY_SET_VALUE, &key))
+        {
+            static const WCHAR * const cursor_names[] = {
+                L"Arrow", L"Help", L"AppStarting", L"Wait", L"Crosshair", L"IBeam",
+                L"NWPen", L"No", L"SizeNS", L"SizeWE", L"SizeNWSE", L"SizeNESW",
+                L"SizeAll", L"UpArrow", L"Hand", L""
+            };
+            int i;
+            for (i = 0; i < ARRAY_SIZE(cursor_names); i++)
+                RegSetValueExW(key, cursor_names[i], 0, REG_SZ, (const BYTE *)L"", sizeof(WCHAR));
+            RegCloseKey(key);
+        }
     }
     HeapFree(GetProcessHeap(), 0, sections);
 }
@@ -451,6 +471,8 @@ BOOL theme_apply(THEME_CONFIG *cfg)
 
     /* 3. Sounds, desktop icons and cursors */
     apply_registry_sections(cfg->theme_path);
+    SystemParametersInfoW(SPI_SETCURSORS, 0, NULL, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
 
     /* 4. Wallpaper */
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", 0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS)

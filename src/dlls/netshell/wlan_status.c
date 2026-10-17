@@ -203,13 +203,13 @@ static void update_status_controls(HWND hwnd)
     g_last_status_recv = g_status_info.packets_received;
 
     if (xmit && recv)
-        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_XMITRECV));
+        hActIcon = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_XMITRECV));
     else if (xmit)
-        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_XMIT));
+        hActIcon = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_XMIT));
     else if (recv)
-        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_RECV));
+        hActIcon = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_RECV));
     else
-        hActIcon = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_BLANK));
+        hActIcon = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_BLANK));
 
     SendMessageW(GetDlgItem(hwnd, IDC_ICO_SM_ACTIVITY), STM_SETICON, (WPARAM)hActIcon, 0);
 
@@ -240,12 +240,12 @@ static INT_PTR CALLBACK WlanStatusDlgProc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
         if (g_status_info.conn_type == NET_TYPE_ETHERNET)
         {
-            hIconMain = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_LAN));
+            hIconMain = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_LAN));
             SetWindowTextW(hwnd, L"Local Area Connection Status");
         }
         else
         {
-            hIconMain = LoadIconW(WexResModule(), MAKEINTRESOURCEW(IDI_NET_WIRELESS));
+            hIconMain = LoadIconW(WexResIconModule(), MAKEINTRESOURCEW(IDI_NET_WIRELESS));
             SetWindowTextW(hwnd, L"Wireless Network Connection Status");
         }
         SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
