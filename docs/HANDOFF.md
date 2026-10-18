@@ -3,8 +3,9 @@
 The current operational handoff is [CODEX_HANDOFF.md](CODEX_HANDOFF.md), updated
 2026-10-13 after the completed refactor and fresh installer acceptance. Start there for branches, VM
 state, clean builds, test commands and remaining work. Current acceptance
-evidence is in [refactor/P4.md](refactor/P4.md) and [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md), and the
-logon/composition plan is in [WINLOGON_AND_DWM.md](WINLOGON_AND_DWM.md).
+evidence is in [refactor/P4.md](refactor/P4.md) and [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md), the
+logon/composition plan is in [WINLOGON_AND_DWM.md](WINLOGON_AND_DWM.md), and OOBE optional
+components acceptance is in [OOBE_COMPONENTS_ACCEPTANCE.md](OOBE_COMPONENTS_ACCEPTANCE.md).
 
 The October 9 notes below are historical. Their VM state, resource configuration
 and commit IDs predate the licensing/history rewrite and later LightDM/compositor
