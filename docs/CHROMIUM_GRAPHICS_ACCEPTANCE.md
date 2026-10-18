@@ -26,8 +26,8 @@ In accordance with `CHROMIUM_GRAPHICS_PLAN.md`:
 
 | Phase | Description | Status | Key Criteria / Deliverables |
 |---|---|---|---|
-| **G0** | Reproducible baseline & hardware inventory | **In Progress** | 32/64 PE probes for D3D11, DComp, and shared resources; hardware classification; exact baseline first-failure traces. |
-| **G1** | Accelerated non-DComp path | Pending G0 | Trace default ANGLE D3D11 selection with DComp disabled; prove WineD3D/OpenGL and DXVK; continuous on-screen UI/WebGL. |
+| **G0** | Reproducible baseline & hardware inventory | **Passed** | 32/64 PE probes for D3D11, DComp, and shared resources; hardware classification; exact baseline first-failure traces recorded. |
+| **G1** | Accelerated non-DComp path | **In Progress** | Diagnostic probe passes (nested child HWND, D3D11 swapchain, continuous animation, dynamic resize). Consumer runtime verification pending. |
 | **G2** | Minimal real DirectComposition slice | Pending G1 | DirectComposition device creation, visual tree, composition swapchain present to target window, deterministic 2-color animation. |
 | **G3** | Required SharedImage resources & sync | Pending G2 | `CreateSharedHandle`, `OpenSharedResource1`, keyed mutex, cross-process fences, GPU completion validation. |
 | **G4** | Full basic composition & efficient GPU delivery | Pending G3 | Visual transforms/clips/alpha, GPU composition replacing CPU readback, display pacing, zero continuous polling loops. |
@@ -107,6 +107,8 @@ Executed via `scripts/test_graphics_probes.py` against WoW64 Wine (`wine-11.19-2
 | **Probe 2: DComp Entry Points** | i686 | Wine `dcomp.dll` | 0 | `dcomp.dll` loaded, symbols exported, all return `E_NOTIMPL` (0x80004001). `CreateSwapChainForComposition` returns `E_NOTIMPL` (0x80004001). |
 | **Probe 3: Shared Resources** | x86_64 | Wine `d3d11.dll` | 0 | `NT_HANDLE` returns `E_INVALIDARG` (0x80070057); `KeyedMutex` texture created, `AcquireSync` returns `E_NOINTERFACE`; `CreateFence` returns `E_NOTIMPL` (0x80004001). |
 | **Probe 3: Shared Resources** | i686 | Wine `d3d11.dll` | 0 | `NT_HANDLE` returns `E_INVALIDARG` (0x80070057); `KeyedMutex` texture created, `AcquireSync` returns `E_NOINTERFACE`; `CreateFence` returns `E_NOTIMPL` (0x80004001). |
+| **G1 Probe: Non-DComp Animated** | x86_64 | WineD3D / OpenGL | 0 | Child HWND created; D3D11 swapchain attached; 60/60 animated frames presented (439.7 FPS); dynamic resize test passed. |
+| **G1 Probe: Non-DComp Animated** | i686 | WineD3D / OpenGL | 0 | Child HWND created; D3D11 swapchain attached; 60/60 animated frames presented (456.9 FPS); dynamic resize test passed. |
 
 Aggregated JSON evidence saved to `build/graphics_baseline_summary.json`.
 

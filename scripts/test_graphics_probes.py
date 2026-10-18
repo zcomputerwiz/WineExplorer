@@ -97,13 +97,31 @@ def assert_baseline_expectations(data: dict, arch: str) -> None:
     assert p3.get("create_fence_hr") == "0x80004001", f"[{arch}] Expected E_NOTIMPL for D3D11 fence in baseline"
 
 
+def assert_g1_expectations(data: dict, arch: str) -> None:
+    """Verify non-DComp animated presentation expectations for Phase G1."""
+    assert data.get("d3d11_device_created") is True, f"[{arch}] G1 D3D11 device creation failed: {data}"
+    assert data.get("parent_hwnd_created") is True, f"[{arch}] G1 parent HWND creation failed"
+    assert data.get("child_hwnd_created") is True, f"[{arch}] G1 child HWND creation failed"
+    assert data.get("swapchain_created") is True, f"[{arch}] G1 swapchain creation failed: {data}"
+    assert data.get("frames_rendered") == data.get("frames_presented"), f"[{arch}] G1 frames rendered != presented"
+    assert data.get("frames_presented", 0) >= 30, f"[{arch}] G1 insufficient presented frames: {data}"
+    assert data.get("last_present_hr") == "0x00000000", f"[{arch}] G1 present failed: {data}"
+    assert data.get("resize_succeeded") is True, f"[{arch}] G1 dynamic resize failed: {data}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--source",
+        "--source-g0",
         type=Path,
         default=Path(__file__).parent / "test_graphics_probes.cpp",
-        help="Path to test_graphics_probes.cpp",
+        help="Path to Phase G0 test_graphics_probes.cpp",
+    )
+    parser.add_argument(
+        "--source-g1",
+        type=Path,
+        default=Path(__file__).parent / "test_g1_non_dcomp_probe.cpp",
+        help="Path to Phase G1 test_g1_non_dcomp_probe.cpp",
     )
     parser.add_argument(
         "--output-json",
@@ -118,38 +136,60 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    results = {}
+    results = {"g0_baseline": {}, "g1_non_dcomp": {}}
     with tempfile.TemporaryDirectory(prefix="wex_graphics_probe_") as tmp_dir:
         tmp_path = Path(tmp_dir)
 
-        # 64-bit probe
-        exe64 = tmp_path / "graphics_probe64.exe"
-        print("Compiling x86_64 probe with x86_64-w64-mingw32-g++...", flush=True)
-        compile_probe(args.source, exe64, "x86_64-w64-mingw32-g++")
-        print("Executing x86_64 probe under Wine...", flush=True)
-        res64 = run_probe(exe64, args.wine)
-        assert_baseline_expectations(res64, "x86_64")
-        results["x86_64"] = res64
-        print(f"  [x86_64] D3D11 Feature Level: {res64['probe1_d3d11']['feature_level']}, Adapter: {res64['probe1_d3d11']['adapter']}")
-        print(f"  [x86_64] DComp Entry Points: E_NOTIMPL (verified), Composition SwapChain: E_NOTIMPL (verified)")
+        # Phase G0: 64-bit baseline probe
+        exe_g0_64 = tmp_path / "graphics_probe64.exe"
+        print("--- Phase G0: Baseline Diagnostic Probes ---", flush=True)
+        print("Compiling x86_64 G0 probe with x86_64-w64-mingw32-g++...", flush=True)
+        compile_probe(args.source_g0, exe_g0_64, "x86_64-w64-mingw32-g++")
+        print("Executing x86_64 G0 probe under Wine...", flush=True)
+        res_g0_64 = run_probe(exe_g0_64, args.wine)
+        assert_baseline_expectations(res_g0_64, "x86_64")
+        results["g0_baseline"]["x86_64"] = res_g0_64
+        print(f"  [x86_64 G0] D3D11 Feature Level: {res_g0_64['probe1_d3d11']['feature_level']}, Adapter: {res_g0_64['probe1_d3d11']['adapter']}")
+        print(f"  [x86_64 G0] DComp Entry Points: E_NOTIMPL (verified), Composition SwapChain: E_NOTIMPL (verified)")
 
-        # 32-bit probe
-        exe32 = tmp_path / "graphics_probe32.exe"
-        print("Compiling i686 probe with i686-w64-mingw32-g++...", flush=True)
-        compile_probe(args.source, exe32, "i686-w64-mingw32-g++")
-        print("Executing i686 probe under Wine...", flush=True)
-        res32 = run_probe(exe32, args.wine)
-        assert_baseline_expectations(res32, "i686")
-        results["i686"] = res32
-        print(f"  [i686]   D3D11 Feature Level: {res32['probe1_d3d11']['feature_level']}, Adapter: {res32['probe1_d3d11']['adapter']}")
-        print(f"  [i686]   DComp Entry Points: E_NOTIMPL (verified), Composition SwapChain: E_NOTIMPL (verified)")
+        # Phase G0: 32-bit baseline probe
+        exe_g0_32 = tmp_path / "graphics_probe32.exe"
+        print("Compiling i686 G0 probe with i686-w64-mingw32-g++...", flush=True)
+        compile_probe(args.source_g0, exe_g0_32, "i686-w64-mingw32-g++")
+        print("Executing i686 G0 probe under Wine...", flush=True)
+        res_g0_32 = run_probe(exe_g0_32, args.wine)
+        assert_baseline_expectations(res_g0_32, "i686")
+        results["g0_baseline"]["i686"] = res_g0_32
+        print(f"  [i686 G0]   D3D11 Feature Level: {res_g0_32['probe1_d3d11']['feature_level']}, Adapter: {res_g0_32['probe1_d3d11']['adapter']}")
+        print(f"  [i686 G0]   DComp Entry Points: E_NOTIMPL (verified), Composition SwapChain: E_NOTIMPL (verified)")
+
+        # Phase G1: 64-bit Non-DComp Animated Diagnostic Probe
+        exe_g1_64 = tmp_path / "g1_probe64.exe"
+        print("\n--- Phase G1: Non-DComp Animated Diagnostic Probes ---", flush=True)
+        print("Compiling x86_64 G1 probe with x86_64-w64-mingw32-g++...", flush=True)
+        compile_probe(args.source_g1, exe_g1_64, "x86_64-w64-mingw32-g++")
+        print("Executing x86_64 G1 probe (60 frames animated + dynamic resize)...", flush=True)
+        res_g1_64 = run_probe(exe_g1_64, args.wine)
+        assert_g1_expectations(res_g1_64, "x86_64")
+        results["g1_non_dcomp"]["x86_64"] = res_g1_64
+        print(f"  [x86_64 G1] Presented {res_g1_64['frames_presented']}/60 frames (FPS: {res_g1_64['fps']:.1f}), Resize Succeeded: {res_g1_64['resize_succeeded']}")
+
+        # Phase G1: 32-bit Non-DComp Animated Diagnostic Probe
+        exe_g1_32 = tmp_path / "g1_probe32.exe"
+        print("Compiling i686 G1 probe with i686-w64-mingw32-g++...", flush=True)
+        compile_probe(args.source_g1, exe_g1_32, "i686-w64-mingw32-g++")
+        print("Executing i686 G1 probe (60 frames animated + dynamic resize)...", flush=True)
+        res_g1_32 = run_probe(exe_g1_32, args.wine)
+        assert_g1_expectations(res_g1_32, "i686")
+        results["g1_non_dcomp"]["i686"] = res_g1_32
+        print(f"  [i686 G1]   Presented {res_g1_32['frames_presented']}/60 frames (FPS: {res_g1_32['fps']:.1f}), Resize Succeeded: {res_g1_32['resize_succeeded']}")
 
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
         args.output_json.write_text(json.dumps(results, indent=2) + "\n")
-        print(f"Aggregated results saved to {args.output_json}")
+        print(f"\nAggregated results saved to {args.output_json}")
 
-    print("\nALL ARCHITECTURES VERIFIED: Baseline probes passed with 0 errors.")
+    print("\nALL ARCHITECTURES VERIFIED: Phase G0 baseline and Phase G1 non-DComp animated diagnostic probes passed with 0 errors.")
     return 0
 
 
