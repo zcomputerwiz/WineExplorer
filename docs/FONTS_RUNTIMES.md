@@ -172,6 +172,9 @@ were copied into this branch; no proprietary components were downloaded.
   use grep there. Git commands omitting `--ignore-submodules=all` encountered
   `cannot chdir ... .git/modules/wexcomp: Permission denied`; scoped commands
   with that flag work. No submodule was reset or changed.
+  Final `git rev-parse --short HEAD master origin/master` failed with
+  `fatal: Needed a single revision` because --short accepts one revision;
+  `git rev-parse HEAD master origin/master` successfully verified all three.
 - The first license metadata enumeration used unresolved relative submodule
   URLs and received HTTP 404. Resolving the repository from the returned
   `html_url` fixed the lookup. No placeholder notices were substituted.
