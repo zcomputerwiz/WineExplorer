@@ -12,6 +12,7 @@
 
 # External reference repositories (kept locally for reference only; NEVER committed)
 /references/
+assets/_ms_originals/
 
 # Build artifacts & temporary files
 build/
