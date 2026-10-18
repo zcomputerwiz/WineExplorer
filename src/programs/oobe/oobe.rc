@@ -57,6 +57,20 @@ BEGIN
     LTEXT "Network connection is active and configured.", IDC_NET_STATUS, 15, 60, 287, 20
 END
 
+IDD_OOBE_COMPONENTS DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Optional Windows Components"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Optional Windows Compatibility Components", IDC_STATIC, 15, 6, 287, 11
+    LTEXT "You can choose optional compatibility components to download and install. These are not required to complete setup or use the desktop. Open replacement fonts and Wine's builtin DirectX compiler remain the defaults.", IDC_STATIC, 15, 18, 287, 24
+    CONTROL "", IDC_COMP_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_NOCOLUMNHEADER | WS_BORDER | WS_TABSTOP, 15, 44, 210, 60
+    PUSHBUTTON "&Review terms...", IDC_BTN_TERMS, 230, 44, 72, 14, WS_TABSTOP
+    LTEXT "", IDC_COMP_SIZE, 230, 62, 72, 10
+    LTEXT "", IDC_COMP_DESC, 15, 106, 287, 22
+    LTEXT "", IDC_COMP_STATUS, 15, 130, 287, 10
+END
+
 IDD_OOBE_USERS DIALOGEX 0, 0, 317, 143
 STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Who will use this computer?"
@@ -95,8 +109,22 @@ STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Thank you!"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    LTEXT "Thank you!", IDC_STATIC, 15, 10, 287, 16
-    LTEXT "Congratulations, you are ready to go!", IDC_STATIC, 15, 35, 287, 14
-    LTEXT "Debian GNU/Linux with WineExplorer is now fully configured.", IDC_STATIC, 15, 55, 287, 20
-    LTEXT "To finish Setup and begin using your computer, click Finish.", IDC_STATIC, 15, 90, 287, 14
+    LTEXT "Thank you!", IDC_STATIC, 15, 7, 287, 12
+    LTEXT "Congratulations, you are ready to go!", IDC_STATIC, 15, 20, 287, 10
+    LTEXT "Debian GNU/Linux with WineExplorer is now fully configured.", IDC_STATIC, 15, 32, 287, 10
+    LTEXT "", IDC_FINISH_SUMMARY, 15, 46, 287, 50
+    LTEXT "You can install or manage optional components anytime from Start Menu -> Administrative Tools -> Windows Components.", IDC_STATIC, 15, 100, 287, 18
+    LTEXT "To finish Setup and begin using your computer, click Finish.", IDC_STATIC, 15, 122, 287, 14
+END
+
+IDD_OOBE_TERMS DIALOGEX 0, 0, 300, 200
+STYLE DS_SHELLFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Vendor License Agreement"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT "Please review the license terms from the official vendor:", IDC_STATIC, 10, 8, 280, 10
+    EDITTEXT IDC_TERMS_TEXT, 10, 20, 280, 134, ES_MULTILINE | ES_READONLY | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    AUTOCHECKBOX "I &accept the terms of this license agreement", IDC_TERMS_AGREE, 10, 158, 280, 12, WS_TABSTOP
+    DEFPUSHBUTTON "OK", IDOK, 185, 178, 50, 14, WS_TABSTOP
+    PUSHBUTTON "Cancel", IDCANCEL, 240, 178, 50, 14, WS_TABSTOP
 END

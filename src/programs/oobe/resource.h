@@ -24,9 +24,11 @@
 #define IDD_OOBE_WELCOME        101
 #define IDD_OOBE_UPDATES        102
 #define IDD_OOBE_CONNECTIVITY   103
-#define IDD_OOBE_USERS          104
-#define IDD_OOBE_PASSWORD       105
-#define IDD_OOBE_FINISH         106
+#define IDD_OOBE_COMPONENTS     104
+#define IDD_OOBE_USERS          105
+#define IDD_OOBE_PASSWORD       106
+#define IDD_OOBE_FINISH         107
+#define IDD_OOBE_TERMS          108
 
 #define IDC_STATIC              -1
 
@@ -34,6 +36,15 @@
 #define IDC_RADIO_UPDATES_OFF   1011
 
 #define IDC_NET_STATUS          1020
+
+#define IDC_COMP_LIST           1050
+#define IDC_COMP_DESC           1051
+#define IDC_COMP_SIZE           1052
+#define IDC_BTN_TERMS           1053
+#define IDC_COMP_STATUS         1055
+
+#define IDC_TERMS_TEXT          1060
+#define IDC_TERMS_AGREE         1061
 
 #define IDC_USER1               1031
 #define IDC_USER2               1032
@@ -44,5 +55,7 @@
 #define IDC_PASS_USER_LABEL     1040
 #define IDC_PASS_EDIT1          1041
 #define IDC_PASS_EDIT2          1042
+
+#define IDC_FINISH_SUMMARY      1070
 
 #endif /* WEX_OOBE_RESOURCE_H */
