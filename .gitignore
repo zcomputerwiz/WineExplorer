@@ -60,3 +60,4 @@ wine/programs/*/*.exe
 # Python bytecode
 __pycache__/
 *.py[cod]
+*.tmp

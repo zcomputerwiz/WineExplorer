@@ -7,10 +7,13 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -279,6 +282,133 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('"Trebuchet MS"="DejaVu Sans"', mappings)
         self.assertNotIn('"Tahoma"=', mappings)
         self.assertIn('"Segoe UI Symbol"="Noto Sans Symbols2"', mappings)
+
+
+class OobeCoordinatorTests(unittest.TestCase):
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory(prefix='wex-oobe-test-')
+        self.addCleanup(self.scratch.cleanup)
+        self.root = Path(self.scratch.name)
+        self.sock_path = self.root / 'coordinator.sock'
+        self.stage_file = self.root / 'stage'
+        self.stage_file.write_text('oobe\n', encoding='ascii')
+        self.addCleanup(patch.stopall)
+        patch.dict(os.environ, {
+            'WEX_OOBE_SOCKET': str(self.sock_path),
+            'WEX_OOBE_STAGE_FILE': str(self.stage_file),
+        }).start()
+        patch.object(components.os, 'getuid', return_value=0).start()
+        self.coord_thread = None
+
+    def tearDown(self):
+        if self.stage_file.exists():
+            self.stage_file.write_text('done\n', encoding='ascii')
+        if self.sock_path.exists():
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.connect(str(self.sock_path))
+                s.close()
+            except OSError:
+                pass
+        if self.coord_thread and self.coord_thread.is_alive():
+            self.coord_thread.join(timeout=3)
+
+    def start_coordinator(self):
+        self.coord_thread = threading.Thread(target=components.oobe_coordinator, daemon=True)
+        self.coord_thread.start()
+        for _ in range(50):
+            if self.sock_path.exists():
+                break
+            time.sleep(0.05)
+        self.assertTrue(self.sock_path.exists(), 'Coordinator socket did not appear')
+
+    def send_request(self, command_str):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(3.0)
+        connected = False
+        for _ in range(30):
+            try:
+                sock.connect(str(self.sock_path))
+                connected = True
+                break
+            except OSError:
+                time.sleep(0.05)
+        if not connected:
+            sock.connect(str(self.sock_path))
+        sock.sendall((command_str.strip() + '\n').encode('utf-8'))
+        response = b''
+        while True:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                response += chunk
+            except (socket.timeout, ConnectionResetError):
+                break
+        sock.close()
+        return response.decode('utf-8')
+
+    def test_coordinator_requires_root(self):
+        patch.stopall()
+        with patch.object(components.os, 'getuid', return_value=1000):
+            with self.assertRaises(PermissionError):
+                components.oobe_coordinator()
+
+    def test_coordinator_requires_active_oobe_stage(self):
+        self.stage_file.write_text('finished\n', encoding='ascii')
+        with self.assertRaises(PermissionError):
+            components.oobe_coordinator()
+
+    def test_get_components_returns_metadata_without_network(self):
+        self.start_coordinator()
+        with patch('urllib.request.urlopen') as net_mock:
+            resp = self.send_request('GET_COMPONENTS')
+            net_mock.assert_not_called()
+        lines = resp.strip().split('\n')
+        self.assertEqual(lines[0], 'OK')
+        verbs = [line.split('\t')[0] for line in lines[1:] if line]
+        for expected in ('vcrun2022', 'corefonts', 'tahoma', 'd3dcompiler_47', 'xact', 'physx'):
+            self.assertIn(expected, verbs)
+
+    def test_get_terms_retrieves_vendor_terms_and_sha256(self):
+        self.start_coordinator()
+        fake_text = "Standard Microsoft License Terms " * 20
+        fake_sha = "abcdef0123456789" * 4
+        with patch.object(components, 'license_text', return_value=(fake_text, fake_sha)):
+            resp = self.send_request('GET_TERMS corefonts')
+            first_line = resp.split('\n', 1)[0]
+            self.assertTrue(first_line.startswith(f'OK {fake_sha}'))
+            self.assertIn(fake_text, resp)
+
+    def test_get_terms_offline_failure_returns_clean_error(self):
+        self.start_coordinator()
+        with patch.object(components, 'license_text', side_effect=ValueError('offline')), \
+             patch.object(components, 'fetch_vendor_terms', side_effect=OSError('Network unreachable')):
+            resp = self.send_request('GET_TERMS corefonts')
+            self.assertTrue(resp.startswith('ERR'))
+            self.assertIn('Network unreachable', resp)
+
+    def test_install_rejects_terms_mismatch(self):
+        self.start_coordinator()
+        with patch.object(components, 'license_text', return_value=('license terms', 'actual_sha256')):
+            resp = self.send_request('INSTALL corefonts wrong_sha256')
+            self.assertTrue(resp.startswith('ERR'))
+            self.assertIn('terms changed', resp)
+
+    def test_install_success_creates_receipt(self):
+        self.start_coordinator()
+        fake_sha = 'a' * 64
+        with patch.object(components, 'install') as install_mock:
+            resp = self.send_request(f'INSTALL corefonts {fake_sha}')
+            self.assertEqual(resp.strip(), 'OK')
+            install_mock.assert_called_once_with('corefonts', fake_sha)
+
+    def test_coordinator_rejects_unauthorized_uid(self):
+        with patch.object(components.pwd, 'getpwnam', return_value=unittest.mock.Mock(pw_uid=1000)), \
+             patch.object(components.struct, 'unpack', return_value=(1234, 1001, 1001)):
+            self.start_coordinator()
+            resp = self.send_request('GET_COMPONENTS')
+            self.assertEqual(resp, '')
 
 
 if __name__ == '__main__':
