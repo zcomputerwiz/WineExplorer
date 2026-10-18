@@ -71,7 +71,7 @@ In WineExplorer, this mechanism is implemented through a clean, configurable hel
   - Formats command line: `[helper] /hwnd [hwnd] /cmd [cmd]`.
   - Supports quoted helpers with arguments (e.g., test harnesses).
   - Normalizes working directories: passes `NULL` when `dir` is empty (`""`) to prevent Win32 `ERROR_DIRECTORY` (267) errors.
-  - Executes helper via `CreateProcessW` and synchronously waits for completion via `WaitForSingleObject(pi.hProcess, INFINITE)`.
+  - Executes helper via `CreateProcessW` and synchronously waits for completion via bounded 30-second wait `WaitForSingleObject(pi.hProcess, 30000)`. On timeout, terminates helper via `TerminateProcess(pi.hProcess, 1223)`.
 - In `SHELL_ExecuteW`:
   - When verb is `"runas"`, invokes `run_elevation_helper()`.
   - When direct `CreateProcess` fails with `ERROR_ELEVATION_REQUIRED`, invokes `run_elevation_helper()`.
@@ -80,14 +80,16 @@ In WineExplorer, this mechanism is implemented through a clean, configurable hel
 
 ### D. User Account Control Consent Dialog (`consent.exe`)
 - Source: `src/programs/consent/` and `wine/programs/consent/`
-  - `consent.c`: Native Win32 dialog implementation with Vista UAC shield, gradient banners, Authenticode verification, and automated test bypass switches.
+  - `consent.c`: Native Win32 dialog implementation with Vista UAC shield, gradient banners, Authenticode verification, and authentic PAM shadow credentials check.
   - `consent.rc` & `resource.h`: Dialog templates for Consent (`IDD_CONSENT`) and Credentials (`IDD_CREDENTIALS`).
 - UI & Security Features:
   - **4-Quadrant Shield:** Drawn on-the-fly with 24-bit RGB geometry and golden border.
   - **Publisher Verification:** Inspects PE Authenticode digital signature using `WinVerifyTrust(WINTRUST_ACTION_GENERIC_VERIFY_V2)`. Verified signatures show a blue header banner with verified publisher name; unsigned or untrusted binaries show an amber banner with "Unknown Publisher".
   - **Secure Desktop Dimmer:** Spawns a full-screen semi-transparent backdrop overlay (`WS_EX_LAYERED | WS_EX_TOPMOST`, 60% opacity) behind the dialog.
   - **Consent vs Credentials Mode:** Consent mode (Yes/No) for administrators with filtered tokens; Credentials mode (password entry) for standard users.
-  - **Automated Test Hooks:** Supports `WINE_CONSENT_AUTO_APPROVE=1` (exits 0) and `WINE_CONSENT_AUTO_DENY=1` (exits 1223) for automated testing.
+  - **Authentic PAM Shadow Verification:** In credentials mode, user passwords are confirmed against the Linux PAM shadow database using the setgid shadow helper `/sbin/unix_chkpwd <username> nullok`. Arbitrary or nonempty passwords are rejected. Passwords are never placed in argv, environment, logs, or Git.
+  - **Removal of Shipping Bypasses:** Former environment switches `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` are completely absent in the shipping binary.
+  - **Root-Only Automated Test Fixture:** Automated test approval requires the opt-in configuration file `/etc/wineexplorer/test-elevation.conf` owned strictly by `root:root` with mode `0600` containing `auto_approve=1`. Non-root or user-writable files are ignored.
 
 ---
 
@@ -101,7 +103,21 @@ When launching an elevated process via `ShellExecuteEx`:
 
 ---
 
-## 4. Verification & Unit Tests (`dlls/shell32/tests/shlexec.c`)
+## 4. Machine Root Permission Migration & Rollback (`scripts/setup-machine-root.sh`)
+
+- **Ownership Model:**
+  - Production multi-user systems: owned by system group `wexsys` (`root:wexsys`), isolating administrative assets from interactive sudo accounts.
+  - Single-user/desktop setups: fallback administrative group `sudo` (`root:sudo`).
+- **Application (`apply`):**
+  - Sets mode `2775` on directories, `664` on regular files, `775` on `.exe`/`.dll`.
+  - Applies POSIX default ACLs (`g:$MACHINE_GROUP:rwX`) to ensure files created by members of `$MACHINE_GROUP` remain group-writable.
+- **Rollback (`rollback`):**
+  - Fully strips all POSIX ACLs using `setfacl -R -b` and `setfacl -R -k`.
+  - Reverts ownership to `root:root` and restrictive permissions (`755` for directories, `644` for regular files).
+
+---
+
+## 5. Verification & Unit Tests (`dlls/shell32/tests/shlexec.c`)
 
 Comprehensive unit tests were added in `dlls/shell32/tests/shlexec.c` under `test_elevation()`:
 1. **Stock Behavior Without Helper:** Direct `CreateProcess` of an executable with `requireAdministrator` manifest succeeds unprompted.

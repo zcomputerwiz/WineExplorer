@@ -405,17 +405,34 @@ smoke without changing the production pin (REBASE.md).
 - `dlls/kernelbase/process.c`:
   - Supported `PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER` (26), `PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` (15), `PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY` (18), `PROC_THREAD_ATTRIBUTE_MITIGATION_AUDIT_POLICY` (24), and `PROC_THREAD_ATTRIBUTE_WIN32K_FILTER` (16) in `validate_proc_thread_attribute` and `CreateProcessInternalW`.
   - Silenced `GetProcessMitigationPolicy` stub logging to TRACE.
+- `server/protocol.def`:
+  - Added `@REQ(get_process_handle_table)` with `count` reply field.
+  - Added `@REQ(get_thread_page_priority)` and `@REQ(set_thread_page_priority)`.
+- `server/handle.c`:
+  - Implemented `DECL_HANDLER(get_process_handle_table)`: queries handle table, validates buffer capacity, sets `STATUS_INFO_LENGTH_MISMATCH` with required length on undersized buffers.
+- `server/thread.h`, `server/thread.c`:
+  - Added `page_priority` in `struct thread` (default 5).
+  - Implemented `DECL_HANDLER(get_thread_page_priority)` and `DECL_HANDLER(set_thread_page_priority)` enforcing priority range 0..5 and `THREAD_SET_LIMITED_INFORMATION` access checks.
+- `server/token.c`:
+  - Implemented two-pass DACL evaluation in `token_access_check`: Pass 1 checks user and group SIDs; Pass 2 checks restricting SIDs in DACL order, honoring `ACCESS_DENIED_ACE_TYPE` before allow ACEs.
+  - Implemented strict intersection semantics in `filter_token`: intersecting existing restrictions with new restrictions, retaining `null_sid` (`S-1-0-0`) on disjoint sets.
+  - Wired LowBox AppContainer package and capability SID checks in `token_sid_present`.
+- `dlls/kernelbase/process.c`:
+  - Wired `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` in `CreateProcessInternalW` to create lowbox tokens via `NtCreateLowBoxToken` and assign them to child processes.
 - `dlls/ntdll/unix/process.c`:
-  - Handled `ProcessHandleTable` (58) in `NtQueryInformationProcess`, returning `STATUS_SUCCESS` with length 0.
-- `dlls/wow64/process.c`:
-  - Added `case ProcessHandleTable:` (58) in `wow64_NtQueryInformationProcess` passing through to `NtQueryInformationProcess`.
-  - Added `case ThreadPagePriority:` (24) in `wow64_NtQueryInformationThread` and `wow64_NtSetInformationThread`.
+  - Handled `ProcessHandleTable` (58) in `NtQueryInformationProcess`, querying `server_get_process_handle_table` and setting required buffer length on `STATUS_INFO_LENGTH_MISMATCH`.
 - `dlls/ntdll/unix/thread.c`:
-  - Implemented `ThreadPagePriority` (24) query (returning `MEMORY_PRIORITY_NORMAL` = 5) and set in `NtQueryInformationThread` and `NtSetInformationThread`.
-- `dlls/wow64/sync.c`:
-  - Silenced `JobObjectBasicUIRestrictions` in `wow64_NtSetInformationJobObject` to TRACE.
+  - Implemented `ThreadPagePriority` (24) query and set in `NtQueryInformationThread` and `NtSetInformationThread` via wineserver requests.
+- `dlls/advapi32/tests/security.c`:
+  - Added unit tests for Case C deny on restricting SIDs in `test_restricted_token_access_check`, and `test_restricted_sid_intersection` (3,692 tests passing, 0 failures on x86_64 and WOW64).
 - `dlls/ntdll/tests/info.c`:
-  - Added unit tests `test_process_handle_table` and `test_thread_page_priority` (2,727 64-bit and 2,678 WOW64 tests passing, 0 failures).
+  - Enhanced unit tests `test_process_handle_table` and `test_thread_page_priority` (2,798 64-bit and 2,729 WOW64 tests passing, 0 failures).
+- `dlls/shell32/shlexec.c`:
+  - Added 30-second bounded wait in `run_elevation_helper` with `TerminateProcess(pi.hProcess, 1223)` on timeout.
+- `programs/consent/consent.c`:
+  - Removed `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` environment bypasses.
+  - Implemented genuine PAM shadow password verification via `/sbin/unix_chkpwd <username> nullok`.
+  - Added root-only opt-in fixture `/etc/wineexplorer/test-elevation.conf`.
 
 ## License headers
 

@@ -8,9 +8,42 @@ set -euo pipefail
 MACHINE_ROOT="${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}"
 SKEL_PFX="${WEX_SKEL_PFX:-/etc/skel/.wine}"
 
+ACTION="${1:-apply}"
+
+# Ownership Model:
+# On production multi-user systems, 'wexsys' is the dedicated system group owning
+# shared machine prefixes and hives (/var/lib/wineexplorer/machine), isolating
+# administrative assets from interactive sudo accounts. On standard single-user or
+# desktop setups without wexsys, 'sudo' is used as the administrative fallback group.
+MACHINE_GROUP="${WEX_MACHINE_GROUP:-}"
+if [ -z "$MACHINE_GROUP" ]; then
+    if getent group wexsys >/dev/null 2>&1; then
+        MACHINE_GROUP="wexsys"
+    else
+        MACHINE_GROUP="sudo"
+    fi
+fi
+
+if [ "$ACTION" = "rollback" ] || [ "$ACTION" = "--rollback" ]; then
+    echo "=== Rolling back permissions and ACLs on machine root: $MACHINE_ROOT ==="
+    if command -v setfacl >/dev/null 2>&1; then
+        echo "Removing POSIX ACLs from machine root..."
+        setfacl -R -b "$MACHINE_ROOT" 2>/dev/null || true
+        setfacl -R -k "$MACHINE_ROOT" 2>/dev/null || true
+    fi
+    echo "Reverting ownership to root:root and restrictive permissions..."
+    chown -R root:root "$MACHINE_ROOT" 2>/dev/null || true
+    find "$MACHINE_ROOT" -type d -exec chmod 755 {} + 2>/dev/null || true
+    find "$MACHINE_ROOT" -type f -exec chmod 644 {} + 2>/dev/null || true
+    find "$MACHINE_ROOT" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 755 {} + 2>/dev/null || true
+    echo "=== Rollback completed successfully ==="
+    exit 0
+fi
+
 echo "=== WineExplorer S2 Machine Root Setup ==="
 echo "Machine root: $MACHINE_ROOT"
 echo "Template prefix: $SKEL_PFX"
+echo "Machine group: $MACHINE_GROUP"
 
 ensure_machine_prefix_links()
 {
@@ -18,7 +51,7 @@ ensure_machine_prefix_links()
     ln -sfn ../drive_c "$MACHINE_ROOT/dosdevices/c:"
     rm -f "$MACHINE_ROOT/dosdevices/z:"
     ln -s / "$MACHINE_ROOT/dosdevices/z:"
-    chown root:sudo "$MACHINE_ROOT"
+    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT"
 }
 
 ensure_common_shell_dirs()
@@ -100,36 +133,36 @@ if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
 fi
 
 # 2. Ensure permissions and POSIX default ACLs on machine root:
-# Owned by root:sudo (preserving admin owners in Program Files), setgid 2775 on dirs,
-# 664 on regular files, 775 on .exe/.dll, and default ACL g:sudo:rwX so files created
-# by members of sudo remain group-writable regardless of process umask.
-echo "Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)..."
-chown root:sudo "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
-chown -R root:sudo "$MACHINE_ROOT/drive_c/windows"
-chgrp -R sudo "$MACHINE_ROOT/drive_c"
+# Owned by root:$MACHINE_GROUP (preserving admin owners in Program Files), setgid 2775 on dirs,
+# 664 on regular files, 775 on .exe/.dll, and default ACL g:$MACHINE_GROUP:rwX so files created
+# by members of $MACHINE_GROUP remain group-writable regardless of process umask.
+echo "Applying permissions and default ACLs to machine root (root:$MACHINE_GROUP, mode 2775, default ACL g:$MACHINE_GROUP:rwX)..."
+chown "root:$MACHINE_GROUP" "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
+chown -R "root:$MACHINE_GROUP" "$MACHINE_ROOT/drive_c/windows"
+chgrp -R "$MACHINE_GROUP" "$MACHINE_ROOT/drive_c"
 chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
 find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
 find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +
 find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 775 {} +
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
-    chown root:sudo "$MACHINE_ROOT/system.reg"
+    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT/system.reg"
     chmod 664 "$MACHINE_ROOT/system.reg"
     sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
 fi
 if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-    chown root:sudo "$MACHINE_ROOT/userdef.reg"
+    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT/userdef.reg"
     chmod 664 "$MACHINE_ROOT/userdef.reg"
 fi
 if command -v setfacl >/dev/null 2>&1; then
-    setfacl -m g:sudo:rwX "$MACHINE_ROOT"
-    setfacl -d -m u::rwX,g::rwX,g:sudo:rwX,o::r-x "$MACHINE_ROOT"
-    setfacl -R -m g:sudo:rwX "$MACHINE_ROOT/drive_c"
-    setfacl -R -d -m u::rwX,g::rwX,g:sudo:rwX,o::r-x "$MACHINE_ROOT/drive_c"
+    setfacl -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT"
+    setfacl -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT"
+    setfacl -R -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT/drive_c"
+    setfacl -R -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT/drive_c"
     if [ -f "$MACHINE_ROOT/system.reg" ]; then
-        setfacl -m g:sudo:rw "$MACHINE_ROOT/system.reg"
+        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/system.reg"
     fi
     if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-        setfacl -m g:sudo:rw "$MACHINE_ROOT/userdef.reg"
+        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/userdef.reg"
     fi
 fi
 

@@ -353,17 +353,20 @@ To provide true hostile-payload containment, future hardening will layer host OS
 | Feature / API | Semantic State | Wine Enforcement | Unix Host Enforcement | Test Suite / Evidence |
 | :--- | :--- | :--- | :--- | :--- |
 | `NtCreateLowBoxToken` | Implemented | Allocated with AppContainer SID, Low RID, Capabilities | Wineserver handle check | `advapi32:test_lowbox_token` |
-| `NtFilterToken` | Implemented | `DISABLE_MAX_PRIVILEGE`, `LUA_TOKEN`, Restricting SIDs | Wineserver handle check | `advapi32:test_restricted_token_sids` |
+| `NtFilterToken` | Implemented | Strict intersection semantics, `null_sid` (`S-1-0-0`) disjoint fallback | Wineserver handle check | `advapi32:test_restricted_sid_intersection` |
 | `TokenIntegrityLevel` | Implemented | Round-trip Medium $\to$ Low $\to$ Untrusted | Wineserver handle check | `advapi32:test_token_integrity_level_roundtrip` |
 | Mandatory Integrity Control | Implemented | `NO_WRITE_UP`, `NO_READ_UP`, `NO_EXECUTE_UP` | Wineserver SACL check | `advapi32:test_mandatory_integrity_access_check` |
-| Restricting SIDs Check | Implemented | Two-tier DACL $\cap$ Restricting SIDs evaluation | Wineserver DACL check | `advapi32:test_restricted_token_access_check` |
+| Restricting SIDs Check | Implemented | Two-pass ordered DACL evaluation honoring deny ACEs | Wineserver DACL check | `advapi32:test_restricted_token_access_check` (Case C) |
+| `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` | Implemented | LowBox token created and assigned to child process | `CreateProcessInternalW` | `kernelbase/process.c` |
 | `TokenUserClaimAttributes` (33) | Implemented | Returns empty `CLAIM_SECURITY_ATTRIBUTES_INFORMATION` | In-process ntdll / WOW64 | `advapi32:test_claim_security_attributes` |
 | `TokenSecurityAttributes` (39) | Implemented | Returns empty `CLAIM_SECURITY_ATTRIBUTES_INFORMATION` | In-process ntdll / WOW64 | `advapi32:test_claim_security_attributes` |
-| `SetEntriesInAclW` (`REVOKE_ACCESS`) | Implemented | Strips matching ACEs without error | In-process advapi32 | `advapi32:test_revoke_access_acl` |
-| `ProcessHandleTable` (58) | Implemented | Queries handle array count in ntdll & WOW64 | In-process ntdll / WOW64 | `ntdll:test_process_handle_table` |
-| `ThreadPagePriority` (24) | Implemented | Query/set page priority (default `NORMAL` = 5) | In-process ntdll / WOW64 | `ntdll:test_thread_page_priority` |
-| UAC Elevation Helper Seam | Implemented | `HKLM\Software\Wine\Elevation\Helper` config | ShellExecuteEx hook | `shell32:test_elevation` (105 tests) |
+| `ProcessHandleTable` (58) | Implemented | Queries wineserver handle count, sets `STATUS_INFO_LENGTH_MISMATCH` on undersized buffer | Wineserver & ntdll / WOW64 | `ntdll:test_process_handle_table` |
+| `ThreadPagePriority` (24) | Implemented | Query/set per-thread page priority (0..5, default 5) with access check | Wineserver & ntdll / WOW64 | `ntdll:test_thread_page_priority` |
+| UAC Elevation Helper Seam | Implemented | `HKLM\Software\Wine\Elevation\Helper` config, 30s bounded wait | ShellExecuteEx hook | `shell32:test_elevation` |
 | Manifest Runlevel Inspection | Implemented | `requireAdministrator` / `highestAvailable` $\to$ 740 | ActCtx query in CreateProcess | `shell32:test_elevation` |
-| UAC Consent Dialog (`consent.exe`) | Implemented | Win32 dialog, Authenticode check, Dimmer overlay | Dedicated binary execution | Visual capture + automated test hooks |
-| Chromium Multi-Process Sandbox | Implemented | Broker, GPU, Storage, Renderer with lowered tokens | Win32 NT token semantics | Live Edge 32-bit: `edge_local_capture.png`, `edge_net_capture.png` |
+| UAC Consent Dialog (`consent.exe`) | Implemented | Win32 dialog, Authenticode check, Dimmer overlay, PAM shadow auth | Dedicated binary (`/sbin/unix_chkpwd`) | Interactive verification & root fixture |
+| Chromium Stock Sandbox | Implemented | Broker, GPU, Utility, Renderer processes running without `--no-sandbox` | Win32 NT token semantics | Live Edge 32-bit: `edge_stock_local_interactive.png`, `edge_stock_sandbox_network.png` |
+| Machine Root Migration & Rollback | Implemented | `setup-machine-root.sh` apply / rollback, POSIX ACLs, `wexsys`/`sudo` model | Host filesystem / POSIX ACLs | `setup-machine-root.sh` on VM |
 | Host Syscall Containment | Deferred (T5) | Functional Win32 checks active | Planned namespaces/seccomp | Documented in Section 8 |
+
+See [`docs/TOKEN_SECURITY_FIX_ACCEPTANCE.md`](TOKEN_SECURITY_FIX_ACCEPTANCE.md) for full execution logs and evidence artifacts.
