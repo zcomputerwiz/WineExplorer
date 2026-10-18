@@ -379,7 +379,19 @@ smoke without changing the production pin (REBASE.md).
   - Implemented `NtSetInformationToken(TokenIntegrityLevel)`.
   - Implemented `NtQueryInformationToken` for `TokenIntegrityLevel`, `TokenAppContainerSid`, `TokenIsAppContainer`, `TokenIsRestricted`, `TokenHasRestrictions`, and `TokenRestrictedSids`.
 - `dlls/wow64/security.c`: Added WOW64 thunks for `NtCreateLowBoxToken` and 32-bit queries for `TokenIsRestricted`, `TokenHasRestrictions`, `TokenRestrictedSids`, and `TokenAppContainerSid`.
-- `dlls/advapi32/tests/security.c`: Added unit tests (`test_token_integrity_level_roundtrip`, `test_restricted_token_sids`, `test_lowbox_token`, `test_mandatory_integrity_access_check`, `test_restricted_token_access_check`) testing round-trip integrity queries, restricting SIDs, AppContainer LowBox creation, and Mandatory Integrity Check access evaluation.
+- `dlls/kernelbase/process.c`:
+  - Added `is_elevation_required(HANDLE token, const WCHAR *filename)`: checks PE manifest runlevel (`RunlevelInformationInActivationContext`). If `requireAdministrator` (or `highestAvailable` on limited token) and elevation helper is configured in `HKLM\Software\Wine\Elevation\Helper`, `CreateProcessInternalW` fails with `STATUS_ELEVATION_REQUIRED` (`ERROR_ELEVATION_REQUIRED` / 740).
+- `dlls/ntdll/loader.c`:
+  - Added `is_elevation_helper_configured()`: prevents silent in-process token elevation (`elevate_token()`) when helper is configured, maintaining stock behavior when unconfigured.
+- `dlls/shell32/shlexec.c`:
+  - Added `get_elevation_helper()` and `run_elevation_helper()`: invokes configured helper on verb `"runas"` or upon `ERROR_ELEVATION_REQUIRED`.
+  - On helper approval (exit 0), spawns elevated process with `CreateProcessAsUserW(get_admin_token(), ...)` and returns genuine `hProcess`.
+  - On helper refusal or cancellation (exit non-zero), sets `GetLastError() = ERROR_CANCELLED` (1223) and returns `SE_ERR_ACCESSDENIED`.
+  - Handles working directory normalization, quoted helpers with arguments, and token closing safely.
+- `dlls/shell32/tests/shlexec.c`:
+  - Added `test_elevation()`: tests stock unprompted behavior, direct `CreateProcess` 740 failure with `requireAdministrator` manifest, `ShellExecuteEx` approval with genuine `hProcess`, `runas` approval, `ShellExecuteEx` cancellation with `ERROR_CANCELLED` (1223) and `hProcess == NULL`, and registry rollback.
+- `programs/consent/`:
+  - User Account Control Consent Dialog (`consent.exe`), resource script, 4-quadrant golden shield graphics, Authenticode verification, consent and credentials modes with automated test overrides (`WINE_CONSENT_AUTO_APPROVE` / `WINE_CONSENT_AUTO_DENY`).
 
 ## License headers
 
