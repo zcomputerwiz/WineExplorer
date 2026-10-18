@@ -22,10 +22,26 @@ import pwd
 import shutil
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
 import tempfile
+import uuid
+
+OPERATION_STATE = Path('/var/lib/wineexplorer/component-operations')
+
+
+def active_oobe_stage(path):
+    try:
+        info = path.lstat()
+        parent = path.parent.lstat()
+        return (stat.S_ISDIR(parent.st_mode) and parent.st_uid == 0 and
+                not parent.st_mode & 0o022 and stat.S_ISREG(info.st_mode) and
+                info.st_uid == 0 and not info.st_mode & 0o022 and
+                path.read_text(encoding='ascii').strip() == 'oobe')
+    except (OSError, UnicodeError):
+        return False
 import threading
 import time
 import urllib.error
@@ -322,9 +338,14 @@ def protect_builtins(machine, environment):
                     reg(wine, environment, 'export', key, str(backup), '/y', check=True)
                     existed = True
                 keys.append((key, backup, existed))
+        recovery = {'safe_to_restore': True}
         try:
-            yield
+            yield recovery
         finally:
+            if not recovery['safe_to_restore']:
+                marker = machine.parent / 'component-recovery-required'
+                marker.write_text(str(saved) + '\n', encoding='utf-8')
+                raise RuntimeError('Cannot establish an idle machine prefix; protected snapshot retained; administrator recovery required: ' + str(saved))
             known = {target for target, _, _ in files}
             for directory in ('system32', 'syswow64'):
                 for target in (machine / 'drive_c/windows' / directory).iterdir():
@@ -356,18 +377,14 @@ def is_installed(verb, accepted_digest=None, machine=MACHINE):
             data = json.loads(json_file.read_text(encoding='utf-8'))
             if (data.get('verb') == verb and
                 data.get('winetricks_sha256') == APPROVED_WINETRICKS_SHA256 and
+                data.get('winetricks_version') == APPROVED_WINETRICKS_VERSION and
+                data.get('architecture') == 'wow64' and
+                data.get('recipe_files') == [list(item) for item in COMPONENTS_METADATA[verb]['recipe_files']] and
                 (accepted_digest is None or data.get('terms_sha256') == accepted_digest)):
                 return True
         except Exception:
             pass
-    sha_file = receipts_dir / (verb + '.sha256')
-    if sha_file.is_file():
-        try:
-            sha = sha_file.read_text(encoding='ascii').strip()
-            if accepted_digest is None or sha == accepted_digest:
-                return True
-        except Exception:
-            pass
+    # Legacy text hashes lack package/recipe/architecture identity.
     return False
 
 
@@ -397,21 +414,6 @@ def install(verb, accepted_digest):
     if MACHINE.is_symlink() or MACHINE.stat().st_uid != 0:
         raise ValueError('Machine prefix must be a root-owned real directory')
 
-    # Deduplicate: check if already installed with same verified terms and recipe
-    if is_installed(verb, accepted_digest, machine=MACHINE):
-        return
-
-    # In win64/wow64 prefixes, ensure regedit exists in system dirs for winetricks
-    regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
-    if regedit_src.is_file():
-        for d in ('system32', 'syswow64'):
-            tgt = MACHINE / f'drive_c/windows/{d}/regedit.exe'
-            if not tgt.exists() and not tgt.is_symlink():
-                try:
-                    tgt.symlink_to('../regedit.exe')
-                except OSError:
-                    pass
-
     # Neither arbitrary prefixes, DLL overrides, executables, display sockets nor
     # user-controlled caches are inherited across the privilege boundary.
     environment = {
@@ -425,9 +427,19 @@ def install(verb, accepted_digest):
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if (MACHINE.parent / 'component-recovery-required').exists():
+            raise ValueError('Machine prefix requires administrator recovery before another installation')
+        if is_installed(verb, accepted_digest, machine=MACHINE):
+            return
         # Do not kill somebody else's maintenance client or wait for a desktop.
         subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
                        timeout=2, check=True)
+        regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
+        if regedit_src.is_file():
+            for directory in ('system32', 'syswow64'):
+                target = MACHINE / f'drive_c/windows/{directory}/regedit.exe'
+                if not target.exists() and not target.is_symlink():
+                    target.symlink_to('../regedit.exe')
         cache = CACHE
         if cache.is_symlink():
             raise ValueError('Refusing symlinked component cache')
@@ -437,11 +449,31 @@ def install(verb, accepted_digest):
         # Prefix ownership and default ACLs stay intact: do not recursively
         # chown live user prefixes. Record the real verb result, never success
         # from a progress-dialog pipeline. All package terms were accepted above.
-        with protect_builtins(MACHINE, environment):
-            result = subprocess.run(['/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks',
+        with protect_builtins(MACHINE, environment) as recovery:
+            if recovery is not None:
+                recovery['safe_to_restore'] = False
+            # timeout owns a separate process group (do not use --foreground).
+            # Keep the lock and builtin snapshots until Wine has also stopped.
+            result = subprocess.run(['/usr/bin/timeout', '--signal=TERM',
+                                     '--kill-after=10s', '1800s',
+                                     '/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks',
                                      '-q', verb], env=environment)
-        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
-                       timeout=120, check=True)
+            try:
+                if result.returncode in (124, 137):
+                    subprocess.run(['/usr/local/bin/wineserver', '-k'],
+                                   env=environment, timeout=15, check=True)
+                subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
+                               timeout=120, check=True)
+            except subprocess.TimeoutExpired:
+                subprocess.run(['/usr/local/bin/wineserver', '-k'],
+                               env=environment, timeout=15, check=True)
+                subprocess.run(['/usr/local/bin/wineserver', '-w'],
+                               env=environment, timeout=30, check=True)
+                if recovery is not None:
+                    recovery['safe_to_restore'] = True
+                raise ValueError('Installer did not finish; machine-prefix Wine stopped; installation may be partial')
+            if recovery is not None:
+                recovery['safe_to_restore'] = True
         if result.returncode:
             raise ValueError(f'{verb} failed (exit {result.returncode}); installation may be partial; see console output')
         receipt = MACHINE.parent / 'component-receipts'
@@ -457,7 +489,18 @@ def install(verb, accepted_digest):
             'installed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'recipe_files': meta.get('recipe_files', []),
         }
-        (receipt / (verb + '.json')).write_text(json.dumps(receipt_data, indent=2) + '\n', encoding='utf-8')
+        # Publish complete records atomically; a truncated JSON is not success.
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=receipt,
+                                         prefix='.' + verb, delete=False) as out:
+            temporary_receipt = Path(out.name)
+            json.dump(receipt_data, out, indent=2)
+            out.write('\n')
+            out.flush()
+            os.fsync(out.fileno())
+        try:
+            os.replace(temporary_receipt, receipt / (verb + '.json'))
+        finally:
+            temporary_receipt.unlink(missing_ok=True)
         (receipt / (verb + '.sha256')).write_text(current + '\n', encoding='ascii')
 
 
@@ -504,11 +547,18 @@ def frontend(verbs, gui):
         installed = get_installed_receipts()
         for verb, name in COMPONENTS.items():
             checked = 'TRUE' if verb in installed else 'FALSE'
-            command.extend([checked, verb, name])
+            meta = COMPONENTS_METADATA[verb]
+            description = name
+            if meta.get('disabled'):
+                description += ' [Unavailable: ' + meta.get('disabled_reason', 'verification pending') + ']'
+                checked = 'FALSE'
+            command.extend([checked, verb, description])
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode or not result.stdout.strip():
             return
-        verbs = result.stdout.strip().split('|')
+        verbs = [verb for verb in result.stdout.strip().split('|') if verb]
+        if not verbs:
+            return
     for verb in verbs:
         validate_verb(verb)
         meta = COMPONENTS_METADATA.get(verb, {})
@@ -535,12 +585,15 @@ def oobe_coordinator():
         raise PermissionError('OOBE coordinator requires root execution')
     stage_file_str = os.environ.get('WEX_OOBE_STAGE_FILE', '/run/wex-oobe/stage')
     stage_file = Path(stage_file_str)
-    if not stage_file.is_file() or stage_file.read_text(encoding='ascii').strip() != 'oobe':
+    if not active_oobe_stage(stage_file):
         raise PermissionError('OOBE coordinator only permitted during active OOBE stage')
 
     sock_path_str = os.environ.get('WEX_OOBE_SOCKET', '/run/wex-oobe/coordinator.sock')
     sock_path = Path(sock_path_str)
     sock_path.parent.mkdir(parents=True, exist_ok=True)
+    parent_info = sock_path.parent.lstat()
+    if not stat.S_ISDIR(parent_info.st_mode) or parent_info.st_uid != 0 or parent_info.st_mode & 0o022:
+        raise PermissionError('OOBE endpoint directory must be root-owned and not writable by others')
     os.chmod(sock_path.parent, 0o755)
     if sock_path.exists():
         sock_path.unlink()
@@ -550,15 +603,46 @@ def oobe_coordinator():
     except KeyError:
         raise RuntimeError('Required setup account "wexsetup" does not exist')
 
+    running = True
+    active_operations = {}
+    operations_lock = threading.Lock()
+    OPERATION_STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    state_info = OPERATION_STATE.lstat()
+    if not stat.S_ISDIR(state_info.st_mode) or state_info.st_uid != 0 or state_info.st_mode & 0o077:
+        raise PermissionError('OOBE operation directory must be private and root-owned')
+    journal = OPERATION_STATE / 'operations.json'
+
+    def save_operations():
+        records = {key: {k: v for k, v in value.items() if k != 'thread'}
+                   for key, value in active_operations.items()}
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                                         dir=OPERATION_STATE, delete=False) as out:
+            temporary = Path(out.name)
+            json.dump(records, out)
+            out.flush()
+            os.fsync(out.fileno())
+        try:
+            os.replace(temporary, journal)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    if journal.exists():
+        if journal.is_symlink() or journal.stat().st_uid != 0 or journal.stat().st_mode & 0o022:
+            raise PermissionError('Untrusted OOBE operation journal')
+        active_operations = json.loads(journal.read_text(encoding='utf-8'))
+        for info in active_operations.values():
+            info['thread'] = None
+            if info['status'] == 'RUNNING':
+                info['status'] = 'UNKNOWN'
+                info['error'] = 'Coordinator restarted during installation; administrator reconciliation required'
+        save_operations()
+
+    # Validate/recover persistent state before publishing a live endpoint.
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(sock_path))
     os.chmod(str(sock_path), 0o666)
     server.listen(5)
     server.settimeout(2.0)
-
-    running = True
-    active_operations = {}
-    operations_lock = threading.Lock()
 
     def stop_handler(signum, frame):
         nonlocal running
@@ -572,7 +656,7 @@ def oobe_coordinator():
     print('OOBE coordinator listening on', sock_path, file=sys.stderr)
 
     while running:
-        if not stage_file.is_file() or stage_file.read_text(encoding='ascii').strip() != 'oobe':
+        if not active_oobe_stage(stage_file):
             print('OOBE stage expired; coordinator shutting down.', file=sys.stderr)
             break
         try:
@@ -594,11 +678,17 @@ def oobe_coordinator():
 
             # Read bounded request line (max 1024 bytes)
             raw_req = b''
+            deadline = time.monotonic() + 15.0
             while len(raw_req) < 1024:
+                conn.settimeout(max(0.001, deadline - time.monotonic()))
                 b = conn.recv(1)
-                if not b or b == b'\n':
+                if b == b'\n':
                     break
+                if not b or time.monotonic() >= deadline:
+                    raise ValueError('Incomplete coordinator request')
                 raw_req += b
+            else:
+                raise ValueError('Coordinator request exceeds limit')
 
             line = raw_req.decode('utf-8', errors='replace').strip()
             if not line:
@@ -608,7 +698,7 @@ def oobe_coordinator():
             parts = line.split()
             cmd = parts[0] if parts else ''
 
-            if cmd == 'GET_COMPONENTS':
+            if cmd == 'GET_COMPONENTS' and len(parts) == 1:
                 installed = get_installed_receipts()
                 lines = ['OK']
                 for v, meta in COMPONENTS_METADATA.items():
@@ -621,7 +711,7 @@ def oobe_coordinator():
                     lines.append(row)
                 conn.sendall(('\n'.join(lines) + '\n').encode('utf-8'))
 
-            elif cmd == 'GET_TERMS' and len(parts) >= 2:
+            elif cmd == 'GET_TERMS' and len(parts) == 2:
                 verb = parts[1]
                 try:
                     validate_verb(verb)
@@ -638,9 +728,9 @@ def oobe_coordinator():
                     err_msg = f"ERR {err}\n"
                     conn.sendall(err_msg.encode('utf-8'))
 
-            elif (cmd == 'START_INSTALL' or cmd == 'INSTALL') and len(parts) >= 3:
+            elif (cmd == 'START_INSTALL' or cmd == 'INSTALL') and len(parts) == 3:
                 # Revalidate stage immediately before dispatching privileged install
-                if not stage_file.is_file() or stage_file.read_text(encoding='ascii').strip() != 'oobe':
+                if not active_oobe_stage(stage_file):
                     conn.sendall(b"ERR Setup OOBE stage expired; installation rejected\n")
                     try:
                         conn.shutdown(socket.SHUT_WR)
@@ -668,6 +758,8 @@ def oobe_coordinator():
                     existing_op = None
                     other_running = False
                     for op_id, op_info in active_operations.items():
+                        if op_info['status'] == 'UNKNOWN':
+                            other_running = True
                         if op_info['status'] == 'RUNNING':
                             if op_info['verb'] == verb:
                                 existing_op = (op_id, op_info)
@@ -682,10 +774,10 @@ def oobe_coordinator():
                             conn.sendall(b"ERR Another operation running with different terms\n")
                             continue
                     if other_running:
-                        conn.sendall(b"ERR Another component installation is already in progress\n")
+                        conn.sendall(b"ERR Another installation is active or requires administrator reconciliation\n")
                         continue
 
-                    op_id = f"op_{verb}_{int(time.time() * 1000)}"
+                    op_id = f"op_{verb}_{uuid.uuid4().hex}"
                     op_state = {
                         'verb': verb,
                         'sha': accepted_sha,
@@ -695,6 +787,7 @@ def oobe_coordinator():
                         'cancelled': False,
                     }
                     active_operations[op_id] = op_state
+                    save_operations()
 
                     def run_op(current_op_id, v, s):
                         try:
@@ -702,19 +795,21 @@ def oobe_coordinator():
                             with operations_lock:
                                 if current_op_id in active_operations:
                                     active_operations[current_op_id]['status'] = 'SUCCESS'
+                                    save_operations()
                         except Exception as ex:
                             with operations_lock:
                                 if current_op_id in active_operations:
                                     active_operations[current_op_id]['status'] = 'FAILED'
                                     active_operations[current_op_id]['error'] = str(ex)
+                                    save_operations()
 
-                    op_thread = threading.Thread(target=run_op, args=(op_id, verb, accepted_sha), daemon=True)
+                    op_thread = threading.Thread(target=run_op, args=(op_id, verb, accepted_sha), daemon=False)
                     op_state['thread'] = op_thread
                     op_thread.start()
 
                     conn.sendall(f"OK {op_id} STARTED\n".encode('utf-8'))
 
-            elif cmd == 'QUERY_INSTALL' and len(parts) >= 2:
+            elif cmd == 'QUERY_INSTALL' and len(parts) == 2:
                 q_op_id = parts[1]
                 with operations_lock:
                     if q_op_id in active_operations:
@@ -723,28 +818,27 @@ def oobe_coordinator():
                             conn.sendall(b"STATUS RUNNING\n")
                         elif info['status'] == 'SUCCESS':
                             conn.sendall(b"STATUS SUCCESS\n")
-                        elif info['status'] == 'FAILED':
+                        elif info['status'] in ('FAILED', 'UNKNOWN'):
                             err_str = info['error'].replace('\n', ' ').strip()
-                            conn.sendall(f"STATUS FAILED {err_str}\n".encode('utf-8'))
+                            conn.sendall(f"STATUS {info['status']} {err_str}\n".encode('utf-8'))
                     else:
-                        verb_candidate = q_op_id.split('_')[1] if q_op_id.startswith('op_') and len(q_op_id.split('_')) >= 2 else None
-                        if verb_candidate and is_installed(verb_candidate):
-                            conn.sendall(b"STATUS SUCCESS\n")
-                        else:
-                            conn.sendall(b"ERR No such operation\n")
+                        conn.sendall(b"ERR Unknown operation; reconcile outcome before retry\n")
 
-            elif cmd == 'CANCEL_INSTALL' and len(parts) >= 2:
+            elif cmd == 'CANCEL_INSTALL' and len(parts) == 2:
                 c_op_id = parts[1]
                 with operations_lock:
                     if c_op_id in active_operations:
-                        active_operations[c_op_id]['cancelled'] = True
-                        active_operations[c_op_id]['status'] = 'FAILED'
-                        active_operations[c_op_id]['error'] = 'Operation cancelled by user'
-                        conn.sendall(b"OK CANCELLED\n")
+                        info = active_operations[c_op_id]
+                        if info['status'] == 'RUNNING':
+                            # Do not unlock/retry while an MSI is still running.
+                            info['cancelled'] = True
+                            conn.sendall(b"OK DEFERRED Installer running; waiting for safe completion\n")
+                        else:
+                            conn.sendall(b"ERR Operation already completed\n")
                     else:
                         conn.sendall(b"ERR No such operation\n")
 
-            elif cmd == 'GET_RECEIPTS':
+            elif cmd == 'GET_RECEIPTS' and len(parts) == 1:
                 installed = get_installed_receipts()
                 conn.sendall(('OK ' + ' '.join(installed) + '\n').encode('utf-8'))
 
@@ -763,18 +857,15 @@ def oobe_coordinator():
             except OSError:
                 pass
 
-    with operations_lock:
-        for op_id, op_info in active_operations.items():
-            if op_info['status'] == 'RUNNING':
-                op_info['cancelled'] = True
-                op_info['status'] = 'FAILED'
-                op_info['error'] = 'Setup OOBE stage expired or coordinator stopped'
-
     try:
         server.close()
     except OSError:
         pass
     sock_path.unlink(missing_ok=True)
+    # Revoke new requests before waiting for workers at their safe completion.
+    for info in active_operations.values():
+        if info['thread'] and info['thread'].ident is not None:
+            info['thread'].join()
     print('OOBE coordinator stopped.', file=sys.stderr)
 
 

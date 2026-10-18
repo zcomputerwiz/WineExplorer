@@ -12,6 +12,16 @@
 
 #include "../src/programs/oobe/oobe_catalog.h"
 
+static LONG released_blocks;
+static void tracked_free(void *block)
+{
+    if (block) InterlockedIncrement(&released_blocks);
+    free(block);
+}
+#define free tracked_free
+#include "../src/programs/oobe/oobe_worker.h"
+#undef free
+
 static int g_tests_run = 0;
 static int g_tests_passed = 0;
 
@@ -151,9 +161,10 @@ static int test_candidate_accepted_digest_separation(void)
     TEST_ASSERT(comp.accepted_sha256[0] == '\0', "After dialog cancel, accepted_sha256 must remain empty");
 
     /* User accepts terms explicitly: copy candidate to accepted */
-    strcpy(comp.sha256, candidate);
-    strcpy(comp.accepted_sha256, candidate);
-    comp.accepted = true;
+    TEST_ASSERT(!OobeAcceptTerms(&comp, candidate, true, false), "Cancel cannot accept terms");
+    TEST_ASSERT(!OobeAcceptTerms(&comp, candidate, false, true), "Missing terms cannot be accepted");
+    TEST_ASSERT(!OobeAcceptTerms(&comp, "bad", true, true), "Invalid digest cannot be accepted");
+    TEST_ASSERT(OobeAcceptTerms(&comp, candidate, true, true), "Explicit acceptance failed");
 
     TEST_ASSERT(comp.accepted == true, "After accept, accepted must be true");
     TEST_ASSERT(strcmp(comp.accepted_sha256, candidate) == 0, "Accepted SHA mismatch");
@@ -161,6 +172,7 @@ static int test_candidate_accepted_digest_separation(void)
     /* If new candidate is fetched but user cancels, accepted SHA does NOT change */
     const char *new_candidate = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
     /* User cancelled dialog with new candidate */
+    TEST_ASSERT(!OobeAcceptTerms(&comp, new_candidate, true, false), "Cancelled replacement cannot be accepted");
     TEST_ASSERT(strcmp(comp.accepted_sha256, candidate) == 0, "Previous accepted SHA must not be overwritten on cancel");
     TEST_ASSERT(strcmp(comp.accepted_sha256, new_candidate) != 0, "Cancelled new candidate must not become accepted SHA");
 
@@ -168,53 +180,53 @@ static int test_candidate_accepted_digest_separation(void)
 }
 
 /* Test 6: Deterministic worker reference-counting and lifetime verification */
-typedef struct {
-    LONG ref_count;
-    LONG cancelled;
-    int freed;
-    char text[64];
-} TrackedContext;
-
-static void TrackedContext_Release(TrackedContext *ctx)
+static HANDLE worker_gate;
+static DWORD WINAPI delayed_terms_worker(void *arg)
 {
-    if (!ctx) return;
-    if (InterlockedDecrement(&ctx->ref_count) == 0) {
-        ctx->freed = 1;
-    }
+    TermsFetchContext *ctx = arg;
+    WaitForSingleObject(worker_gate, INFINITE);
+    TermsFetchContext_Release(ctx);
+    return 0;
 }
 
 static int test_worker_lifetime_reference_counting(void)
 {
-    TrackedContext ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.ref_count = 2; /* 1 UI reference, 1 worker thread reference */
-    strcpy(ctx.text, "active text");
+    TermsFetchContext *ctx = calloc(1, sizeof(*ctx));
+    InstallState *state;
+    HANDLE waiter;
+    LONG before = released_blocks;
+    TEST_ASSERT(ctx != NULL, "Allocate production context");
+    ctx->ref_count = 2;
+    ctx->terms_text = malloc(64);
+    TEST_ASSERT(ctx->terms_text != NULL, "Allocate production text");
+    wcscpy(ctx->terms_text, L"active text");
+    worker_gate = CreateEventA(NULL, TRUE, FALSE, NULL);
+    TEST_ASSERT(worker_gate != NULL, "Create delayed-worker gate");
+    ctx->hThread = CreateThread(NULL, 0, delayed_terms_worker, ctx, 0, NULL);
+    TEST_ASSERT(ctx->hThread != NULL, "Start actual worker");
+    TEST_ASSERT(DuplicateHandle(GetCurrentProcess(), ctx->hThread,
+                               GetCurrentProcess(), &waiter, 0, FALSE,
+                               DUPLICATE_SAME_ACCESS), "Keep independent join handle");
+    InterlockedExchange(&ctx->cancelled, 1);
+    TermsFetchContext_Release(ctx);
+    TEST_ASSERT(ctx->ref_count == 1, "Worker retains context after UI closes");
+    TEST_ASSERT(released_blocks == before, "No premature production free");
+    TEST_ASSERT(wcscmp(ctx->terms_text, L"active text") == 0, "Worker text still alive");
+    SetEvent(worker_gate);
+    TEST_ASSERT(WaitForSingleObject(waiter, 5000) == WAIT_OBJECT_0, "Late worker finishes");
+    TEST_ASSERT(released_blocks == before + 2, "Production context and text freed exactly once");
+    CloseHandle(waiter);
+    CloseHandle(worker_gate);
 
-    /* Case A: Stalled request, UI dialog closed within 500ms */
-    /* UI cancels: sets cancelled flag, drops UI reference */
-    InterlockedExchange(&ctx.cancelled, 1);
-    TrackedContext_Release(&ctx);
-
-    /* Context must NOT be freed yet because worker thread still holds reference */
-    TEST_ASSERT(ctx.ref_count == 1, "Context ref count must be 1 while worker is still running");
-    TEST_ASSERT(ctx.freed == 0, "Context must not be prematurely freed after UI closes");
-    TEST_ASSERT(strcmp(ctx.text, "active text") == 0, "Context memory must remain intact for worker");
-
-    /* Late worker finishes and drops its reference */
-    TrackedContext_Release(&ctx);
-    TEST_ASSERT(ctx.ref_count == 0, "Context ref count must drop to 0 after worker completes");
-    TEST_ASSERT(ctx.freed == 1, "Context must be freed exactly when final reference is dropped");
-
-    /* Case B: Thread creation failure */
-    TrackedContext ctx2;
-    memset(&ctx2, 0, sizeof(ctx2));
-    ctx2.ref_count = 2;
-    /* CreateThread fails: immediately drop thread reference */
-    ctx2.ref_count = 1;
-    TEST_ASSERT(ctx2.ref_count == 1, "Ref count adjusted to 1 on thread creation failure");
-    /* UI tears down without hang */
-    TrackedContext_Release(&ctx2);
-    TEST_ASSERT(ctx2.freed == 1, "Context freed on thread creation failure teardown");
+    state = calloc(1, sizeof(*state));
+    TEST_ASSERT(state != NULL, "Allocate production install state");
+    state->ref_count = 2;
+    state->hPromptEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
+    /* Real production releases when CreateThread fails: drop both references. */
+    InstallState_Release(state);
+    TEST_ASSERT(released_blocks == before + 2, "Reserved UI reference remains");
+    InstallState_Release(state);
+    TEST_ASSERT(released_blocks == before + 3, "Failed worker state freed exactly once");
 
     return 1;
 }

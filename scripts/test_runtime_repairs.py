@@ -303,6 +303,19 @@ class ComponentsTests(unittest.TestCase):
             self.assertEqual(dll.read_text(), 'open builtin')
             self.assertFalse((dll.parent / 'msxml99.dll').exists())
 
+            # If stopping Wine itself fails, do not restore over live modules.
+            with patch.object(components, 'reg', side_effect=fake_reg):
+                with self.assertRaisesRegex(RuntimeError, 'administrator recovery required'):
+                    with components.protect_builtins(machine, {}) as recovery:
+                        recovery['safe_to_restore'] = False
+                        dll.unlink()
+                        dll.write_text('possibly live module')
+            self.assertFalse(dll.is_symlink())
+            self.assertEqual(dll.read_text(), 'possibly live module')
+            marker = machine.parent / 'component-recovery-required'
+            self.assertTrue(marker.is_file())
+            self.assertTrue(Path(marker.read_text().strip()).is_dir())
+
     def test_backend_failure_has_no_success_receipt_and_sanitizes_environment(self):
         with tempfile.TemporaryDirectory(prefix='wex-backend-test-') as scratch:
             machine = Path(scratch) / 'machine'
@@ -326,12 +339,44 @@ class ComponentsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'exit 42'):
                     components.install('corefonts', 'sha')
             install = next(call for call in calls if 'winetricks' in ' '.join(call[0]))
-            self.assertEqual(install[0], ['/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks', '-q', 'corefonts'])
+            self.assertEqual(install[0], ['/usr/bin/timeout', '--signal=TERM',
+                                         '--kill-after=10s', '1800s', '/usr/bin/xvfb-run',
+                                         '-a', '/usr/bin/winetricks', '-q', 'corefonts'])
             self.assertEqual(install[1]['env']['WINEPREFIX'], str(machine))
             self.assertEqual(install[1]['env']['WINEDLLOVERRIDES'], 'winemenubuilder.exe=d')
             self.assertNotIn('DISPLAY', install[1]['env'])
             self.assertFalse((machine.parent / 'component-receipts/corefonts.sha256').exists())
             self.assertFalse((machine.parent / 'component-receipts/corefonts.json').exists())
+
+    def test_backend_deadline_stops_only_owned_machine_server_before_restore(self):
+        with tempfile.TemporaryDirectory(prefix='wex-deadline-') as scratch:
+            machine = Path(scratch) / 'machine'
+            machine.mkdir()
+            events = []
+            from contextlib import contextmanager
+            @contextmanager
+            def protected(*args):
+                events.append('snapshot')
+                yield
+                events.append('restore')
+            def run(command, **kwargs):
+                events.append(command)
+                self.assertEqual(kwargs['env']['WINEPREFIX'], str(machine))
+                return subprocess.CompletedProcess(command, 124 if '/usr/bin/timeout' in command else 0)
+            with with_enabled_component('corefonts'), \
+                    patch.object(components, 'validate_winetricks_integrity'), \
+                    patch.object(components, 'validate_recipe_files'), \
+                    patch.object(components, 'MACHINE', machine), \
+                    patch.object(components, 'CACHE', Path(scratch) / 'cache'), \
+                    patch.object(components.os, 'getuid', return_value=0), \
+                    patch.object(components, 'license_text', return_value=('terms', 'sha')), \
+                    patch.object(components, 'protect_builtins', side_effect=protected), \
+                    patch.object(components.subprocess, 'run', side_effect=run):
+                with self.assertRaisesRegex(ValueError, 'exit 124'):
+                    components.install('corefonts', 'sha')
+            self.assertLess(events.index(['/usr/local/bin/wineserver', '-k']), events.index('restore'))
+            self.assertEqual(events[-2:], [['/usr/local/bin/wineserver', '-w'], 'restore'])
+            self.assertFalse((Path(scratch) / 'component-receipts/corefonts.json').exists())
 
     def test_backend_success_creates_structured_json_and_sha_receipt(self):
         with tempfile.TemporaryDirectory(prefix='wex-backend-success-') as scratch:
@@ -367,7 +412,13 @@ class ComponentsTests(unittest.TestCase):
             receipts = machine.parent / 'component-receipts'
             receipts.mkdir(parents=True)
             (receipts / 'corefonts.sha256').write_text('test-sha\n')
-            (receipts / 'corefonts.json').write_text(json.dumps({'verb': 'corefonts', 'sha256': 'test-sha'}))
+            (receipts / 'corefonts.json').write_text(json.dumps({
+                'verb': 'corefonts', 'terms_sha256': 'test-sha',
+                'winetricks_sha256': components.APPROVED_WINETRICKS_SHA256,
+                'winetricks_version': components.APPROVED_WINETRICKS_VERSION,
+                'architecture': 'wow64',
+                'recipe_files': components.COMPONENTS_METADATA['corefonts']['recipe_files'],
+            }))
 
             with with_enabled_component('corefonts'), \
                     patch.object(components, 'validate_winetricks_integrity'), \
@@ -378,6 +429,36 @@ class ComponentsTests(unittest.TestCase):
                     patch.object(components.subprocess, 'run') as run:
                 components.install('corefonts', 'test-sha')
                 run.assert_not_called()
+
+
+class ReceiptIdentityTests(unittest.TestCase):
+    def test_legacy_hash_is_not_current_installation(self):
+        with tempfile.TemporaryDirectory(prefix='wex-legacy-receipt-') as scratch:
+            machine = Path(scratch) / 'machine'
+            receipts = machine.parent / 'component-receipts'
+            receipts.mkdir()
+            (receipts / 'corefonts.sha256').write_text('a' * 64)
+            self.assertFalse(components.is_installed('corefonts', 'a' * 64, machine))
+
+    def test_changed_recipe_or_architecture_invalidates_receipt(self):
+        with tempfile.TemporaryDirectory(prefix='wex-receipt-identity-') as scratch:
+            machine = Path(scratch) / 'machine'
+            receipts = machine.parent / 'component-receipts'
+            receipts.mkdir()
+            record = {
+                'verb': 'corefonts', 'terms_sha256': 'a' * 64,
+                'winetricks_sha256': components.APPROVED_WINETRICKS_SHA256,
+                'winetricks_version': components.APPROVED_WINETRICKS_VERSION,
+                'architecture': 'wow64',
+                'recipe_files': components.COMPONENTS_METADATA['corefonts']['recipe_files'],
+            }
+            target = receipts / 'corefonts.json'
+            target.write_text(json.dumps(record))
+            self.assertTrue(components.is_installed('corefonts', 'a' * 64, machine))
+            for key, value in (('recipe_files', []), ('architecture', 'win32'),
+                               ('winetricks_version', 'changed')):
+                target.write_text(json.dumps(dict(record, **{key: value})))
+                self.assertFalse(components.is_installed('corefonts', 'a' * 64, machine), key)
 
 
 class PackagingTests(unittest.TestCase):
@@ -411,6 +492,7 @@ class OobeCoordinatorTests(unittest.TestCase):
         self.stage_file = self.root / 'stage'
         self.stage_file.write_text('oobe\n', encoding='ascii')
         self.addCleanup(patch.stopall)
+        patch.object(components, 'OPERATION_STATE', self.root / 'operation-state').start()
         patch.dict(os.environ, {
             'WEX_OOBE_SOCKET': str(self.sock_path),
             'WEX_OOBE_STAGE_FILE': str(self.stage_file),
@@ -435,11 +517,16 @@ class OobeCoordinatorTests(unittest.TestCase):
     def start_coordinator(self):
         self.coord_thread = threading.Thread(target=components.oobe_coordinator, daemon=True)
         self.coord_thread.start()
-        for _ in range(50):
-            if self.sock_path.exists():
-                break
-            time.sleep(0.05)
-        self.assertTrue(self.sock_path.exists(), 'Coordinator socket did not appear')
+        # bind creates the path before listen; existence is not readiness.
+        for _ in range(100):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(0.1)
+                    probe.connect(str(self.sock_path))
+                return
+            except OSError:
+                time.sleep(0.01)
+        self.fail('Coordinator did not start listening')
 
     def send_request(self, command_str):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
@@ -465,6 +552,74 @@ class OobeCoordinatorTests(unittest.TestCase):
                 except (socket.timeout, ConnectionResetError):
                     break
             return response.decode('utf-8')
+
+    def test_coordinator_requires_exact_command_arity(self):
+        self.start_coordinator()
+        self.assertIn('ERR', self.send_request('GET_COMPONENTS extra'))
+        self.assertIn('ERR', self.send_request('START_INSTALL corefonts sha extra'))
+        self.assertIn('ERR', self.send_request('QUERY_INSTALL missing extra'))
+
+    def test_stage_symlink_and_writable_stage_are_not_authority(self):
+        self.assertTrue(components.active_oobe_stage(self.stage_file))
+        self.stage_file.chmod(0o666)
+        self.assertFalse(components.active_oobe_stage(self.stage_file))
+        self.stage_file.chmod(0o644)
+        link = self.root / 'stage-link'
+        link.symlink_to(self.stage_file)
+        self.assertFalse(components.active_oobe_stage(link))
+
+    def test_restart_preserves_unknown_outcome_and_rejects_blind_retry(self):
+        state = components.OPERATION_STATE
+        state.mkdir(mode=0o700)
+        (state / 'operations.json').write_text(json.dumps({
+            'op_corefonts_fixture': {'verb': 'corefonts', 'sha': 'sha',
+                                     'status': 'RUNNING', 'error': '', 'cancelled': False}
+        }))
+        with with_enabled_component('corefonts'), \
+                patch.object(components, 'license_text', return_value=('terms', 'sha')), \
+                patch.object(components, 'is_installed', return_value=False), \
+                patch.object(components, 'install') as install:
+            self.start_coordinator()
+            self.assertIn('STATUS UNKNOWN', self.send_request('QUERY_INSTALL op_corefonts_fixture'))
+            self.assertIn('reconciliation', self.send_request('START_INSTALL corefonts sha'))
+            install.assert_not_called()
+        record = json.loads((state / 'operations.json').read_text())
+        self.assertEqual(record['op_corefonts_fixture']['status'], 'UNKNOWN')
+
+    def test_shutdown_waits_for_active_worker_without_false_failure(self):
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        def install(verb, digest):
+            entered.set()
+            release.wait(10)
+        with with_enabled_component('corefonts'), \
+                patch.object(components, 'license_text', return_value=('terms', 'sha')), \
+                patch.object(components, 'is_installed', return_value=False), \
+                patch.object(components, 'install', side_effect=install):
+            self.start_coordinator()
+            operation = self.send_request('START_INSTALL corefonts sha').split()[1]
+            self.assertTrue(entered.wait(1))
+            self.stage_file.write_text('done')
+            # The endpoint may already be revoked. Wake accept if still open,
+            # without treating successful revocation as a connection failure.
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as wake:
+                    wake.settimeout(0.2)
+                    wake.connect(str(self.sock_path))
+            except OSError:
+                pass
+            for _ in range(250):
+                if not self.sock_path.exists():
+                    break
+                time.sleep(0.01)
+            self.assertFalse(self.sock_path.exists())
+            self.assertTrue(self.coord_thread.is_alive())
+            journal = components.OPERATION_STATE / 'operations.json'
+            self.assertEqual(json.loads(journal.read_text())[operation]['status'], 'RUNNING')
+            release.set()
+            self.coord_thread.join(2)
+            self.assertFalse(self.coord_thread.is_alive())
+            self.assertEqual(json.loads(journal.read_text())[operation]['status'], 'SUCCESS')
 
     def test_coordinator_requires_root(self):
         patch.stopall()
@@ -611,7 +766,7 @@ class OobeCoordinatorTests(unittest.TestCase):
 
         with with_enabled_component('corefonts'), \
                 patch.object(components, 'license_text', return_value=('terms', fake_sha)), \
-                patch.object(components, 'install', side_effect=blocking_install):
+                patch.object(components, 'install', side_effect=blocking_install) as installer:
             resp1 = self.send_request(f'START_INSTALL corefonts {fake_sha}')
             op_id1 = resp1.strip().split()[1]
 
@@ -638,17 +793,23 @@ class OobeCoordinatorTests(unittest.TestCase):
 
         with with_enabled_component('corefonts'), \
                 patch.object(components, 'license_text', return_value=('terms', fake_sha)), \
-                patch.object(components, 'install', side_effect=blocking_install):
+                patch.object(components, 'install', side_effect=blocking_install) as installer:
             resp = self.send_request(f'START_INSTALL corefonts {fake_sha}')
             op_id = resp.strip().split()[1]
 
             cancel_resp = self.send_request(f'CANCEL_INSTALL {op_id}')
-            self.assertEqual(cancel_resp.strip(), 'OK CANCELLED')
+            self.assertTrue(cancel_resp.startswith('OK DEFERRED'))
 
             query_resp = self.send_request(f'QUERY_INSTALL {op_id}')
-            self.assertTrue(query_resp.startswith('STATUS FAILED'))
-            self.assertIn('cancelled', query_resp)
+            self.assertEqual(query_resp.strip(), 'STATUS RUNNING')
+            duplicate = self.send_request(f'START_INSTALL corefonts {fake_sha}')
+            self.assertIn(op_id, duplicate)
             evt.set()
+            for _ in range(50):
+                if self.send_request(f'QUERY_INSTALL {op_id}').strip() == 'STATUS SUCCESS':
+                    break
+                time.sleep(0.01)
+            installer.assert_called_once_with('corefonts', fake_sha)
 
     def test_coordinator_reconnect_query(self):
         self.start_coordinator()
@@ -743,15 +904,16 @@ class NativeSeamTests(unittest.TestCase):
 
             wine = shutil.which('wine')
             if not wine:
-                self.assertTrue(binary.is_file())
-                return
+                self.skipTest('Compiled native seam, but Wine is unavailable for execution')
 
             env = os.environ.copy()
             env['WINEDLLOVERRIDES'] = 'mscoree,mshtml=;winemenubuilder.exe=d'
             env['WINEDEBUG'] = '-all'
-            run_res = subprocess.run([wine, str(binary)], capture_output=True, text=True, env=env)
+            env['WINEPREFIX'] = str(Path(scratch) / 'isolated-prefix')
+            env['WINEARCH'] = 'win64'
+            run_res = subprocess.run([wine, str(binary)], capture_output=True, text=True, env=env, timeout=90)
             self.assertEqual(run_res.returncode, 0, f'Native test run failed:\n{run_res.stdout}\n{run_res.stderr}')
-            self.assertIn('ALL 6 NATIVE TESTS PASSED (43 assertions verified)', run_res.stdout)
+            self.assertIn('ALL 6 NATIVE TESTS PASSED (54 assertions verified)', run_res.stdout)
 
 
 if __name__ == '__main__':

@@ -24,7 +24,9 @@ cleanup() {
         kill "$X_PID" 2>/dev/null || true
     fi
 }
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 
 # Dismiss plymouth immediately so boot doesn't hang
 plymouth --quit 2>/dev/null || true
@@ -93,6 +95,10 @@ su -s /bin/bash wexsetup -c '
     /usr/local/bin/wine explorer /desktop=OOBE,$RES oobe.exe &
     WINE_PID=$!
     while [ ! -f /etc/wineexplorer/setup/stage-oobe-done ]; do
+        if ! kill -0 "$WINE_PID" 2>/dev/null; then
+            echo "OOBE exited without completion; preserving setup for retry." >&2
+            exit 1
+        fi
         sleep 1
     done
     sleep 1

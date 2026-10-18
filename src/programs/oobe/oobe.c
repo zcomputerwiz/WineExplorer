@@ -33,10 +33,12 @@
 #include "wexhost.h"
 #include "resource.h"
 #include "oobe_catalog.h"
+#include "oobe_worker.h"
 
 static OobeContext g_ctx;
 static HINSTANCE g_hInstance = NULL;
 static HWND g_hBackground = NULL;
+static LONG g_worker_generation;
 
 static void LogOobe(const char *msg)
 {
@@ -294,33 +296,6 @@ static INT_PTR CALLBACK OobeConnectivityProc(HWND hwnd, UINT uMsg, WPARAM wParam
     return FALSE;
 }
 
-typedef struct {
-    LONG ref_count;
-    HWND hwnd;
-    OobeComponentItem *comp;
-    char candidate_sha256[65];
-    char *terms_text;
-    DWORD err;
-    HANDLE hThread;
-    LONG cancelled;
-} TermsFetchContext;
-
-static void TermsFetchContext_Release(TermsFetchContext *ctx)
-{
-    if (!ctx) return;
-    if (InterlockedDecrement(&ctx->ref_count) == 0) {
-        if (ctx->hThread) {
-            CloseHandle(ctx->hThread);
-            ctx->hThread = NULL;
-        }
-        if (ctx->terms_text) {
-            free(ctx->terms_text);
-            ctx->terms_text = NULL;
-        }
-        free(ctx);
-    }
-}
-
 static DWORD WINAPI TermsFetchThread(LPVOID lpParam)
 {
     TermsFetchContext *ctx = (TermsFetchContext *)lpParam;
@@ -337,20 +312,11 @@ static DWORD WINAPI TermsFetchThread(LPVOID lpParam)
                 if (wlen > 0) {
                     WCHAR *wbuf = malloc(wlen * sizeof(WCHAR));
                     if (wbuf) {
-                        int alen;
                         if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, buf, -1, wbuf, wlen) > 0) {
-                            alen = WideCharToMultiByte(CP_ACP, 0, wbuf, -1, NULL, 0, NULL, NULL);
-                            if (alen > 0) {
-                                ctx->terms_text = malloc(alen + 1);
-                                if (ctx->terms_text) {
-                                    if (WideCharToMultiByte(CP_ACP, 0, wbuf, -1, ctx->terms_text, alen + 1, NULL, NULL) <= 0) {
-                                        free(ctx->terms_text);
-                                        ctx->terms_text = NULL;
-                                    }
-                                }
-                            }
+                            ctx->terms_text = wbuf;
+                        } else {
+                            free(wbuf);
                         }
-                        free(wbuf);
                     }
                 }
                 if (!ctx->terms_text) {
@@ -364,9 +330,9 @@ static DWORD WINAPI TermsFetchThread(LPVOID lpParam)
     }
     ctx->err = ret;
     if (!InterlockedCompareExchange(&ctx->cancelled, 0, 0)) {
-        HWND target = ctx->hwnd;
+        HWND target = InterlockedCompareExchangePointer((void *volatile *)&ctx->hwnd, NULL, NULL);
         if (target) {
-            PostMessageA(target, WM_USER + 101, (WPARAM)ctx, 0);
+            PostMessageA(target, WM_USER + 101, (WPARAM)ctx->generation, 0);
         }
     }
     TermsFetchContext_Release(ctx);
@@ -386,6 +352,7 @@ static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                 return TRUE;
             }
             ctx->ref_count = 2; /* 1 for dialog, 1 for worker thread */
+            ctx->generation = InterlockedIncrement(&g_worker_generation);
             ctx->hwnd = hwnd;
             ctx->comp = comp;
             SetWindowLongPtrA(hwnd, DWLP_USER, (LONG_PTR)ctx);
@@ -407,10 +374,9 @@ static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
             return TRUE;
         }
         case WM_USER + 101: {
-            TermsFetchContext *msg_ctx = (TermsFetchContext *)wParam;
-            if (!ctx || ctx != msg_ctx) return TRUE; /* Reject stale completions */
+            if (!ctx || ctx->generation != (LONG)wParam) return TRUE;
             if (ctx->err == ERROR_SUCCESS && ctx->terms_text) {
-                SetDlgItemTextA(hwnd, IDC_TERMS_TEXT, ctx->terms_text);
+                SetDlgItemTextW(hwnd, IDC_TERMS_TEXT, ctx->terms_text);
                 EnableWindow(GetDlgItem(hwnd, IDC_TERMS_AGREE), TRUE);
                 if (ctx->comp->accepted && strcmp(ctx->comp->accepted_sha256, ctx->candidate_sha256) == 0) {
                     CheckDlgButton(hwnd, IDC_TERMS_AGREE, BST_CHECKED);
@@ -437,9 +403,9 @@ static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                 return TRUE;
             } else if (id == IDOK) {
                 if (ctx && ctx->comp && (IsDlgButtonChecked(hwnd, IDC_TERMS_AGREE) == BST_CHECKED)) {
-                    snprintf(ctx->comp->sha256, sizeof(ctx->comp->sha256), "%s", ctx->candidate_sha256);
-                    snprintf(ctx->comp->accepted_sha256, sizeof(ctx->comp->accepted_sha256), "%s", ctx->candidate_sha256);
-                    ctx->comp->accepted = true;
+                    if (!OobeAcceptTerms(ctx->comp, ctx->candidate_sha256,
+                                         ctx->err == ERROR_SUCCESS && ctx->terms_text,
+                                         true)) return TRUE;
                 }
                 EndDialog(hwnd, IDOK);
                 return TRUE;
@@ -452,7 +418,7 @@ static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
         case WM_DESTROY: {
             if (ctx) {
                 InterlockedExchange(&ctx->cancelled, 1);
-                ctx->hwnd = NULL;
+                InterlockedExchangePointer((void *volatile *)&ctx->hwnd, NULL);
                 SetWindowLongPtrA(hwnd, DWLP_USER, 0);
                 TermsFetchContext_Release(ctx);
             }
@@ -567,35 +533,7 @@ static void PopulateComponentsList(HWND hwnd)
 #define WM_OOBE_INSTALL_PROMPT (WM_USER + 103)
 #define WM_OOBE_INSTALL_DONE   (WM_USER + 104)
 
-typedef struct {
-    LONG ref_count;
-    HWND hwnd;
-    HANDLE hThread;
-    LONG cancelled;
-    int current_idx;
-    HANDLE hPromptEvent;
-    int prompt_result;
-    char prompt_msg[512];
-    char status_msg[256];
-} InstallState;
-
 static InstallState *g_install_state = NULL;
-
-static void InstallState_Release(InstallState *state)
-{
-    if (!state) return;
-    if (InterlockedDecrement(&state->ref_count) == 0) {
-        if (state->hThread) {
-            CloseHandle(state->hThread);
-            state->hThread = NULL;
-        }
-        if (state->hPromptEvent) {
-            CloseHandle(state->hPromptEvent);
-            state->hPromptEvent = NULL;
-        }
-        free(state);
-    }
-}
 
 static DWORD WINAPI InstallWorkerThread(LPVOID lpParam)
 {
@@ -615,7 +553,7 @@ static DWORD WINAPI InstallWorkerThread(LPVOID lpParam)
             memset(err_buf, 0, sizeof(err_buf));
             snprintf(state->status_msg, sizeof(state->status_msg), "Installing %s... Please wait.", comp->title);
             if (state->hwnd) {
-                PostMessageA(state->hwnd, WM_OOBE_INSTALL_STATUS, (WPARAM)i, 0);
+                PostMessageA(state->hwnd, WM_OOBE_INSTALL_STATUS, (WPARAM)i, state->generation);
             }
 
             ret = WexOobeInstall(comp->verb, comp->accepted_sha256, err_buf, sizeof(err_buf));
@@ -632,7 +570,7 @@ static DWORD WINAPI InstallWorkerThread(LPVOID lpParam)
                 ResetEvent(state->hPromptEvent);
                 state->prompt_result = IDCANCEL;
                 if (state->hwnd) {
-                    PostMessageA(state->hwnd, WM_OOBE_INSTALL_PROMPT, (WPARAM)i, 0);
+                    PostMessageA(state->hwnd, WM_OOBE_INSTALL_PROMPT, (WPARAM)i, state->generation);
                 } else {
                     break;
                 }
@@ -654,7 +592,7 @@ static DWORD WINAPI InstallWorkerThread(LPVOID lpParam)
     }
 
     if (!InterlockedCompareExchange(&state->cancelled, 0, 0) && state->hwnd) {
-        PostMessageA(state->hwnd, WM_OOBE_INSTALL_DONE, 0, 0);
+        PostMessageA(state->hwnd, WM_OOBE_INSTALL_DONE, 0, state->generation);
     }
 
     InstallState_Release(state);
@@ -669,12 +607,14 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
             return TRUE;
         }
         case WM_OOBE_INSTALL_STATUS: {
+            if (!g_install_state || g_install_state->generation != (LONG)lParam) return TRUE;
             if (g_install_state && g_install_state->status_msg[0]) {
                 SetDlgItemTextA(hwnd, IDC_COMP_STATUS, g_install_state->status_msg);
             }
             return TRUE;
         }
         case WM_OOBE_INSTALL_PROMPT: {
+            if (!g_install_state || g_install_state->generation != (LONG)lParam) return TRUE;
             if (g_install_state) {
                 int res = MessageBoxA(hwnd, g_install_state->prompt_msg, "Installation Failure", MB_RETRYCANCEL | MB_ICONEXCLAMATION);
                 g_install_state->prompt_result = res;
@@ -686,6 +626,7 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
             return TRUE;
         }
         case WM_OOBE_INSTALL_DONE: {
+            if (!g_install_state || g_install_state->generation != (LONG)lParam) return TRUE;
             SetDlgItemTextA(hwnd, IDC_COMP_STATUS, "Installation finished.");
             EnableWindow(GetDlgItem(hwnd, IDC_COMP_LIST), TRUE);
             EnableWindow(GetDlgItem(hwnd, IDC_BTN_TERMS), TRUE);
@@ -763,6 +704,11 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
                         }
                     }
                 }
+            } else if (pnmh->code == PSN_QUERYCANCEL && g_install_state) {
+                MessageBoxA(hwnd, "An installer is still running. Please wait for it to finish safely before closing Setup.",
+                            "Installation in progress", MB_OK | MB_ICONINFORMATION);
+                SetWindowLongPtrA(hwnd, DWLP_MSGRESULT, TRUE);
+                return TRUE;
             } else if (pnmh->code == PSN_WIZNEXT) {
                 int i;
                 bool any_to_install = false;
@@ -793,10 +739,14 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
                         return TRUE;
                     }
                     g_install_state->ref_count = 2; /* 1 for UI, 1 for worker thread */
+                    g_install_state->generation = InterlockedIncrement(&g_worker_generation);
                     g_install_state->hwnd = hwnd;
                     g_install_state->hPromptEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
-                    g_install_state->hThread = CreateThread(NULL, 0, InstallWorkerThread, g_install_state, 0, NULL);
+                    if (g_install_state->hPromptEvent)
+                        g_install_state->hThread = CreateThread(NULL, 0, InstallWorkerThread, g_install_state, 0, NULL);
                     if (!g_install_state->hThread) {
+                        /* No worker owns its reserved reference on failure. */
+                        InstallState_Release(g_install_state);
                         InstallState_Release(g_install_state);
                         g_install_state = NULL;
                         EnableWindow(GetDlgItem(hwnd, IDC_COMP_LIST), TRUE);

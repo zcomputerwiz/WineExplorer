@@ -1658,12 +1658,13 @@ static BOOL oobe_write_all( int fd, const void *buf, size_t count )
     size_t remaining = count;
     while (remaining > 0)
     {
-        ssize_t n = write( fd, p, remaining );
+        ssize_t n = send( fd, p, remaining, MSG_NOSIGNAL );
         if (n < 0)
         {
             if (errno == EINTR) continue;
             return FALSE;
         }
+        if (!n) return FALSE;
         p += n;
         remaining -= n;
     }
@@ -1871,7 +1872,7 @@ static NTSTATUS oobe_install( void *args )
     char op_id[128];
     ssize_t n, total = 0;
     int fd = oobe_connect();
-    int retries = 0;
+    int retries = 0, consumed = 0;
 
     if (fd < 0)
     {
@@ -1893,7 +1894,14 @@ static NTSTATUS oobe_install( void *args )
     reply[total] = '\0';
     close( fd );
 
-    if (strncmp( reply, "OK ALREADY_INSTALLED", 20 ) == 0)
+    if (n < 0 || !total || reply[total - 1] != '\n')
+    {
+        params->err = ERROR_TIMEOUT;
+        snprintf( params->err_buf, sizeof(params->err_buf), "Acknowledgement lost; installation outcome unknown; reconnect before retrying" );
+        return STATUS_SUCCESS;
+    }
+
+    if (!strcmp( reply, "OK ALREADY_INSTALLED\n" ))
     {
         params->err = ERROR_SUCCESS;
         return STATUS_SUCCESS;
@@ -1902,7 +1910,8 @@ static NTSTATUS oobe_install( void *args )
     op_id[0] = '\0';
     if (strncmp( reply, "OK ", 3 ) == 0)
     {
-        if (sscanf( reply + 3, "%127s", op_id ) < 1 || !op_id[0])
+        if (sscanf( reply, "OK %127s STARTED%n", op_id, &consumed ) < 1 ||
+            !consumed || strcmp( reply + consumed, "\n" ))
         {
             params->err = 1603;
             snprintf( params->err_buf, sizeof(params->err_buf), "Malformed coordinator acknowledgement" );
@@ -1929,18 +1938,22 @@ static NTSTATUS oobe_install( void *args )
             /* Transient disconnect: retry up to 60 times before considering transport dead */
             if (++retries > 60)
             {
-                params->err = 1603;
-                snprintf( params->err_buf, sizeof(params->err_buf), "Lost connection to coordinator" );
+                params->err = ERROR_TIMEOUT;
+                snprintf( params->err_buf, sizeof(params->err_buf), "Installation outcome unknown; coordinator unavailable; reconnect before retrying" );
                 break;
             }
             continue;
         }
-        retries = 0;
-
         snprintf( cmd, sizeof(cmd), "QUERY_INSTALL %s\n", op_id );
         if (!oobe_write_all( fd, cmd, strlen(cmd) ))
         {
             close( fd );
+            if (++retries > 60)
+            {
+                params->err = ERROR_TIMEOUT;
+                snprintf( params->err_buf, sizeof(params->err_buf), "Installation outcome unknown; reconnect before retrying" );
+                break;
+            }
             continue;
         }
         shutdown( fd, SHUT_WR );
@@ -1951,11 +1964,25 @@ static NTSTATUS oobe_install( void *args )
         reply[total] = '\0';
         close( fd );
 
-        if (strncmp( reply, "STATUS RUNNING", 14 ) == 0)
+        /* A successful connect is not a successful status query. Ignore partial
+         * or timed-out frames; never turn them into an installer failure. */
+        if (n < 0 || !total || reply[total - 1] != '\n')
         {
+            if (++retries > 60)
+            {
+                params->err = ERROR_TIMEOUT;
+                snprintf( params->err_buf, sizeof(params->err_buf), "Installation outcome unknown; reconnect before retrying" );
+                break;
+            }
             continue;
         }
-        else if (strncmp( reply, "STATUS SUCCESS", 14 ) == 0)
+
+        if (!strcmp( reply, "STATUS RUNNING\n" ))
+        {
+            retries = 0;
+            continue;
+        }
+        else if (!strcmp( reply, "STATUS SUCCESS\n" ))
         {
             params->err = ERROR_SUCCESS;
             break;

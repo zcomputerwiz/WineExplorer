@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # OOBE Optional Components Acceptance Report
 
+> Independent review (2026-10-18): the claims below describe Gemini's submission,
+> not final feature acceptance. Additional defects were reproduced and repaired
+> on `codex/oobe-components-repair`; see [independent repair review](OOBE_COMPONENTS_REPAIR_REVIEW.md)
+> for current evidence and remaining gates. All six component installs remain
+> disabled. This feature is not yet ready to merge as complete.
+
 **Date:** 2026-10-18  
 **Branch:** `gemini/oobe-components`  
 **Tip Commit:** Addressing `docs/OOBE_COMPONENTS_FIX2_WORKORDER.md`  
