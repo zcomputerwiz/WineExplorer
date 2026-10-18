@@ -162,6 +162,21 @@ AccountsService), the fades, scrolling for more accounts than fit, the open logo
 
 ## 3. Desktop Window Manager
 
+### Coordinated application graphics follow-up (2026-10-18)
+
+`CHROMIUM_GRAPHICS_PLAN.md` extends this composition program with Wine's
+application-facing DComp/DXGI implementation. D1/D2 remain the outer desktop
+effects/capture layer; D3 presentation and optional D4 APIs coordinate with the
+new work's surface lifetime, damage, pacing and capture contracts. Neither layer
+replaces the other. No second desktop compositor or `dwm.exe` is planned.
+
+Preserve X11 wexhost composition and the Wayland ownership split in
+`WAYLAND_L2_WORKORDER.md` (wexcomp composes native surfaces and owns physical
+input). OpenGL acceleration on older Intel iGPUs and low-end AMD/Nvidia is a
+first-class target; Vulkan is optional and capability-gated. This is an updated
+plan, not evidence of completed graphics or new hardware acceptance. Historical
+phase results below remain scoped to their recorded tests.
+
 XP has no DWM, so composition is off by default. Its first purpose is XP parity: XP composes layered windows in win32k, and Wine leaves that to an X
 compositing manager, which our session does not have.
 

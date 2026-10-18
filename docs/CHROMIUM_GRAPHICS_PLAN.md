@@ -4,6 +4,9 @@
 Date: 2026-10-18. Status: researched plan, not implementation or acceptance.
 Evidence, accuracy corrections, pinned source map and licensing:
 `CHROMIUM_GRAPHICS_RESEARCH.md`. Existing lab: `WEBVIEW2.md`.
+Revision: integrates the existing DWM/composition roadmap and the project's
+older Intel iGPU / low-end AMD and Nvidia hardware priorities. This is a policy
+and architecture update, not evidence of new device support.
 
 ## 1. Deliverable and boundaries
 
@@ -14,15 +17,31 @@ and composition use a physical GPU. Deliver progressively:
 1. A verified non-DComp accelerated path where the selected runtime supports it.
 2. A real Wine DirectComposition/DXGI path with basic retained-tree presentation.
 3. Resource sharing, richer composition and optional modern GPU/media features.
-4. Integration with the token framework, packaging and installed-image acceptance.
+4. Integration with existing desktop composition, the token framework, packaging
+   and installed-image acceptance.
+
+OpenGL-backed hardware acceleration is a first-class required target, not an
+emergency fallback after Vulkan work. Reuse Linux drivers and existing WineD3D/
+DXVK machinery; our work supplies missing Windows semantics and efficient surface
+delivery. Do not make modern Vulkan, D3D12 or WebGPU a desktop/browser baseline.
+Vulkan is an optional enhancement when the actual GPU/driver meets the selected
+backend's full requirements. Software presentation remains available below that.
+
+"Intel HD Graphics" and "low-end" do not define a capability floor. In G0 select
+representative PCI IDs/generations and driver versions; publish the supported
+minimum only after testing. Some old hardware cannot satisfy a maintained
+browser's minimum GPU path. State that honestly rather than promising every
+Intel HD model will accelerate or downgrading to an obsolete browser by default.
 
 Successful software fallback is a supported compatibility result, not hardware
 acceleration. GPU-rendered frames read back for CPU composition are a distinct
 intermediate result, not the final efficient GPU path. Basic UI/Canvas/WebGL,
 WebGPU and hardware video decoding have separate acceptance labels.
 
-This is application graphics compatibility, not a new XP shell compositor or
-full DWM clone. Keep classic/Open Luna unchanged. Preserve Wine as the runtime;
+This extends the application-facing side of the existing DWM/composition program,
+not a competing XP shell compositor or full DWM clone. Keep Classic/Open Luna
+unchanged and preserve the off-by-default X11 desktop-effects policy unless
+separately approved. Preserve Wine as the runtime;
 do not migrate the desktop wholesale to Proton/GE. No custom Linux kernel is
 planned. Native Linux browsers can be controls, not substitutes for this result.
 
@@ -34,8 +53,9 @@ Do not pull in unrelated unreviewed OOBE WIP merely because the documents were
 published on its handoff branch. Preserve occupied/dirty checkouts; use a separate
 worktree when needed. Record parent SHA, Wine submodule SHA and every dependency
 pin before editing. Read `CLAUDE.md`, this plan/research, `WEBVIEW2.md`,
-`FONTS_RUNTIMES.md`, `STOCK_CHANGES.md`, `WAYLAND_SESSION.md`, and
-`TOKEN_SECURITY_WORKORDER.md`.
+`FONTS_RUNTIMES.md`, `STOCK_CHANGES.md`, `WINLOGON_AND_DWM.md`,
+`D2_TEST_REPORT.md`, `WAYLAND_L1.md`, `WAYLAND_L2_WORKORDER.md`,
+`WAYLAND_SESSION.md`, and `TOKEN_SECURITY_WORKORDER.md`.
 
 The fonts/runtimes repair is not automatically a reviewed release base. Coordinate
 per-user graphics packaging changes with its owner; upstream Wine changes belong
@@ -50,6 +70,50 @@ reviewable implementation branches and evidence, not unreviewed master updates.
 
 ## 3. Architecture decisions
 
+### One composition program, distinct layers and established owners
+
+The earlier D1/D2 work is the outer desktop-composition layer: layered-window
+alpha, shadows, blend effects and capture. D3 plans thumbnails/presentation;
+D4 plans optional Windows `dwmapi` compatibility. Chromium's DComp layer combines
+application surfaces inside a window before that window enters desktop composition.
+Enabling desktop composition does not implement `dcomp.dll`, and implementing
+`dcomp.dll` must not require every application to run inside Explorer.
+
+| Layer | Responsibility | Existing owner / integration point |
+|---|---|---|
+| Windows graphics APIs | D3D/DXGI resources, DComp tree, Windows handles and applicable DWM API semantics | Wine DLLs, WineD3D or coherent DXVK backend; Wine server for object/handle rules |
+| Window/surface delivery | HWND geometry, child ownership, damage and rendering-surface lifetime | Wine win32u, winex11/winewayland and WineVulkan/backend integration |
+| Desktop composition | Stack complete windows, apply desktop effects, present/capture the desktop | X11: existing `src/dlls/wexhost/compose.c` with WM integration; Wayland: wexcomp |
+| Shell behavior | Frames, taskbar, optional previews, settings and XP appearance | Explorer/wexshell plus wexhost bridge, not a second compositor |
+
+Do not introduce `dwm.exe`, another X Composite selection owner or a second
+Wayland scene compositor. On Wayland retain wexcomp's composition/native-surface/
+physical-input ownership and the existing native-frame grouping contract. On X11
+retain wexhost's event/locking model and protect Wine's already redirected GL/
+Vulkan child surfaces from double redirection. The standalone Wine DComp API path
+must still work outside our shell, using its driver/backend capabilities.
+
+### Share contracts and useful backend facilities, not competing frame loops
+
+Coordinate D3 presentation work and G2-G4 content delivery around common contracts:
+image/surface ownership, alpha/color space, damage, geometry/scale, completion,
+occlusion, buffer release, device loss and capture. Reuse existing Wine backend
+facilities and wexcomp protocols where they fit. Extract a small reusable helper
+only after identifying a genuine shared implementation; do not force X11 and
+Wayland into one platform-specific renderer or duplicate token authorization.
+
+Each layer can have necessary scheduling, but avoid redundant full-frame copies,
+two throttles for one producer, periodic repaint without damage, or waiting on
+the desktop compositor while holding a Wine graphics/event lock. Define capture
+at the desktop layer so screenshots/thumbnails include the final composed image
+without feeding that capture back into the application's rendering path.
+
+Keep D4 optional and scoped. Implement/report `DwmIsCompositionEnabled`, thumbnail
+and `DwmFlush` semantics only for the mode actually supported; never enable broad
+Vista/glass behavior just to satisfy Chromium initialization. Document how DComp
+application availability relates to desktop-effects settings rather than using
+one misleading global "composition supported" boolean.
+
 ### Two presentation paths, one traceable capability policy
 
 Path A retains Chromium/ANGLE's ordinary HWND/EGL presentation where available.
@@ -58,11 +122,16 @@ Path B adds DComp composition swapchains and retained visual targets.
 Neither path is selected merely because a flag was requested: capture actual
 Windows child command lines, loaded DLLs, selected ANGLE/Skia backend and traces.
 
-Start the DComp proof on an internally coherent WineD3D/builtin-DXGI stack,
-because the strongest reusable DComp fork is tied to that stack. This is an
-engineering baseline, not a promise that WineD3D performs best. In parallel,
-prove accelerated Path A using a coherent native DXVK D3D11/DXGI stack if suitable.
+Start Path A and the DComp proof on an internally coherent OpenGL-backed
+WineD3D/builtin-DXGI stack, because of the target hardware and the strongest
+reusable DComp fork's dependencies. This is not a promise that WineD3D is fastest.
+In parallel, prove accelerated Path A using a coherent native DXVK D3D11/DXGI
+stack on devices that meet that version's requirements.
 Native DXVK and builtin WineD3D are not interchangeable COM/private structures.
+Do not replace a working OpenGL route with mandatory Vulkan. Select by tested
+features and stability, not marketing name, highest API version or vendor alone.
+XRender is an interface, not proof that rendering is CPU-only or GPU-backed;
+classify the actual driver/path by measurement.
 
 ### DComp/DXGI content bridge
 
@@ -95,7 +164,11 @@ Define NT-handle duplication, cross-device/process import, keyed-mutex ownership
 fence timelines, CPU wait events, timeout and cleanup contracts. Use real GPU
 completion when resources are consumed elsewhere. A CPU counter after command
 submission or a plain event standing in for an image/fence is not sufficient.
-For Vulkan, validate compatible external-memory/semaphore handle types, adapter,
+For OpenGL/EGL, validate texture/image sharing and sync support, context ownership
+and cross-process transport on the actual drivers. A GL name is not a cross-process
+resource handle. Select safe supported paths rather than assuming Vulkan-style
+external-memory features exist on every old Intel iGPU. For Vulkan, validate
+compatible external-memory/semaphore handle types, adapter,
 format/modifier, memory ownership and import/export support. DMA-BUF support in
 Wayland window delivery is not automatically D3D shared-NT-handle support.
 
@@ -130,6 +203,19 @@ a VirtualBox GL ceiling; do not infer it was solved by moving disks or cold boot
 Query available devices afresh. If no real GPU is available, continue functional
 work but keep hardware-acceleration acceptance explicitly blocked.
 
+Create an explicit hardware/backend table: older Intel HD iGPU with usable
+OpenGL but no supported selected Vulkan path; Intel with both; representative
+low-end AMD and Nvidia with the drivers we intend to ship/support; and software/
+VM controls. Record available versus tested devices, missing extensions, RAM/
+shared-memory pressure and supported resolutions. Do not infer a whole vendor's
+support from one new GPU. Lack of a representative physical device leaves that
+hardware acceptance cell pending, not the whole project's independent work.
+
+Capture D1/D2 and current Wayland baselines before graphics changes. Inventory
+which D3/D4 items are actually implemented now; historical plan text is not current
+acceptance. Record the desktop composition owner/settings separately from the
+application API and graphics backend.
+
 Exit: reproducible failures and successful controls, exact selected runtime/source
 matrix, capability/first-failure table and original logs. No development based
 only on a white window or successful device creation.
@@ -142,10 +228,13 @@ compare another supported backend only if the exact runtime accepts it. Follow
 `image_transport_surface_win.cc`, native EGL surface creation and actual Viz
 output selection, not the obsolete child-surface filename from the pasted map.
 
-Compare builtin WineD3D/DXGI and packaged DXVK 2.4.1 using isolated per-app/prefix
-overrides; keep D3D11/DXGI/D3D10Core coherent. Trace device creation, accepted
+First prove builtin WineD3D/OpenGL/DXGI on the older-GPU target. Compare packaged
+DXVK 2.4.1 where supported using isolated per-app/prefix overrides; keep
+D3D11/DXGI/D3D10Core coherent. Trace device creation, accepted
 feature level, swapchain creation/present, browser/GPU child HWND ownership and
 visible frame delivery. Add only the fixes demonstrated by minimal probes.
+Test X11 with outer composition off and on; on Wayland test the actual wexcomp
+session. Distinguish application rendering failure from outer-window delivery.
 
 For Wayland, evaluate GE/Wine-Wineland child-surface patches by reproducer. Build
 a dependency list and check what current Wine already contains. Rebase the smallest
@@ -157,6 +246,8 @@ correct input/scroll/resize/minimize/restore, with actual adapter/backend eviden
 If only software works, record that result and continue diagnosis. A supported
 per-app DComp-off compatibility mode can ship only after integrated acceptance;
 it is not permission to make obsolete Windows versions the global default.
+The required OpenGL-target acceptance cannot be replaced with a modern-GPU
+Vulkan pass. Missing optional Vulkan support must not disable the working path.
 
 ### G2. Minimal, real DirectComposition vertical slice
 
@@ -167,7 +258,8 @@ Document what was reused, rejected and why. Do not bring unrelated modules along
 
 Implement device creation/QI/refcounting needed by the selected runtime; correct
 DesktopDevice target ownership, root visual/content, buffer-backed composition
-swapchain and functional Present-to-target delivery. Include first frame,
+swapchain and functional Present-to-target delivery through the existing Wine
+window layer and outer compositor. Include first frame,
 unattached chain, resize, detach, device loss and destroy ordering. Return correct
 unsupported results for unimplemented interfaces/features.
 
@@ -176,6 +268,9 @@ Present changing frames without committing it again: the target must update.
 Also test pending tree edits before/after Commit and GPU/CPU completion ordering.
 Verify pixel output in the target window, not just intermediate textures or CDP
 screenshots. If initial presentation uses readback, label it explicitly.
+Test alpha/clip/z-order at both composition layers and ensure ordinary applications
+still present when X11 desktop effects are disabled. Do not add a second desktop
+overlay to make this application-level probe visible.
 
 Exit: 32/64 probes render and resize correctly, retained-tree/content semantics
 pass, no successful no-op COM methods masking missing output. This phase alone
@@ -212,7 +307,14 @@ shared references, dirty rectangles and color correctness. Do not conflate the
 properties `SetOpacity` and `SetOpacityMode`.
 
 Replace mandatory whole-frame CPU readback with GPU image composition/output for
-the physical-GPU acceptance path. Specify how DXVK composition swapchains publish
+the physical-GPU acceptance path, including the required OpenGL route. A shared
+memory iGPU still needs correct cache/synchronization behavior and benefits from
+avoiding redundant copies; zero-copy is a measured optimization, not a blanket
+requirement on hardware unable to export the needed image type.
+Align completion/pacing with D3's desktop presentation work without requiring
+optional taskbar/Alt+Tab previews to be enabled. Preserve D1/D2 capture and effects;
+do not compose the same child/window twice or add a continuously polling frame loop.
+Specify how DXVK composition swapchains publish
 content through the G2 bridge; do not assume native DXVK honors builtin WineDXGI
 private interfaces. A separately pinned DXVK patch/upgrade may be needed. The
 current master dummy path is only a diagnostic candidate, not the bridge itself.
@@ -224,6 +326,8 @@ stats; sustained Present success without displayed new pixels is failure.
 Exit: selected browser/Electron/CEF/WebView2 cases pass actual on-screen checks
 with DComp enabled, plus low-level visual/pacing tests and a bounded resource/
 idle-CPU profile. Retain G1 fallback for unsupported backends, with honest caps.
+Report application GPU rendering, application composition and outer desktop
+composition separately, including any remaining CPU/readback segment.
 
 ### G5. Optional feature tracks, independently gated
 
@@ -258,9 +362,16 @@ the DComp backend differs from the desktop's selected graphics stack. Do not edi
 shared system DLLs beneath live users, remove their overrides or install optional
 proprietary compiler/fonts to make probes pass. Keep licenses/sources complete.
 
+The baseline installation must boot and remain usable without a Vulkan-capable
+GPU. Keep OpenGL and software modes discoverable and recoverable. Do not introduce
+an unsupported legacy DXVK package solely to make a capability check pass; any
+additional backend version needs a separate maintenance, security and test review.
+Keep the user's desktop-effects setting independent of per-app API/backend policy.
+
 Final exit: fresh installed image, tested upgrade/rollback, both split user types,
 X11/Wayland, Classic/Open Luna and existing shell behavior. Hardware acceptance
 requires actual physical-GPU evidence; VM/software tests remain separately useful.
+Include physical older-Intel/OpenGL acceptance, not only a high-end Vulkan machine.
 
 ## 5. Test matrix and evidence requirements
 
@@ -273,6 +384,12 @@ target or count a wholly skipped fixture as Windows DComp coverage.
 
 For every claimed passing path:
 
+- Cover the G0 hardware/backend table, with supported OpenGL as a required path
+  and Vulkan as an enhancement. Record unsupported feature cells rather than
+  faking WebGPU/video/overlay support or failing the entire baseline for them.
+- Test desktop composition off/on where supported, especially X11 D1/D2. On
+  Wayland verify wexcomp/native-frame groups and app content remain one scene.
+  Check no double redirection, recursive capture or second compositor owner.
 - Confirm visible changing pixels, input, scrolling, Canvas2D and WebGL. Test
   resize/DPI, child clip/z-order, menus/popups, multiple windows, fullscreen,
   minimize/restore, occlusion, suspend/resume and device loss where available.
@@ -283,6 +400,10 @@ For every claimed passing path:
   or GPU captures appropriate to the backend. Check traces for compulsory full
   frame CPU readback. Record CPU/GPU time, frame intervals/drops, restart counts,
   memory/FD growth and idle load, against controls on the same device.
+- Measure the full path on older iGPUs: memory bandwidth/readback, upload copies,
+  synchronization stalls, repaint area, thermal/power behavior where observable
+  and idle wakeups. Report XRender/GL/Vulkan paths as actually measured. Low CPU
+  use alone is neither acceleration proof nor evidence of efficient composition.
 - Exercise long-running animation and repeated create/destroy/resize loops. Set
   measurable budgets after G0 baseline, publish the numbers before judging
   improvements, and explain any required readback or timer fallback.
@@ -303,12 +424,17 @@ patch provenance/license list, first-failure traces, commands/log paths, screens
 performance/resource results, known limitations and retained VM/session state.
 Keep reusable original test sources and deterministic analyzers in Git; runtime
 payloads and large private captures stay outside it. Update `WEBVIEW2.md`,
-`STOCK_CHANGES.md` and graphics packaging docs only with demonstrated facts.
+`WINLOGON_AND_DWM.md`, `STOCK_CHANGES.md` and graphics packaging docs only with
+demonstrated facts. Include a D1-D4 / G0-G6 integration matrix: shared changes,
+unchanged owners, tested old behavior and new application API behavior.
 
 Review G0/G1 before major DComp integration; review G2 bridge design before DXVK
 interop, and G3 synchronization before claiming shared GPU correctness. G2 and
 G3 work may proceed in parallel after interface agreement; G4 depends on both.
-G5 features can ship separately; integrated G6 cannot omit functional token tests.
+G5 features can ship separately; integrated G6 cannot omit functional token tests
+or the older-hardware/OpenGL and existing desktop-composition regression gates.
+Coordinate D3/D4 and Wayland protocol owners before modifying their contracts;
+do not block basic application graphics on optional shell previews/glass work.
 If a dependency demands a wholesale runtime/compositor redesign, present options
 and stop that expansion, continuing independent in-scope tests.
 
