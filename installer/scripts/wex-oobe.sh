@@ -22,7 +22,8 @@ if ! id "wexsetup" >/dev/null 2>&1; then
 else
     usermod -a -G adm wexsetup 2>/dev/null || true
 fi
-chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer /etc/skel/.wine 2>/dev/null || true
+chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer/setup /etc/skel/.wine 2>/dev/null || true
+chown root:root /etc/wineexplorer 2>/dev/null || true
 chmod 755 /etc/wineexplorer /etc/wineexplorer/setup
 chmod 644 /etc/wineexplorer/setup/* 2>/dev/null || true
 chown wexsetup:adm /var/log/wineexplorer-oobe.log
@@ -49,6 +50,18 @@ RES=$(DISPLAY=:0 xdpyinfo 2>/dev/null | grep 'dimensions:' | awk '{print $2}' ||
 [ -z "$RES" ] && RES="1024x768"
 echo "Detected display resolution: $RES"
 
+# Ensure root-owned component licenses directory
+mkdir -p /etc/wineexplorer/component-licenses
+chown root:root /etc/wineexplorer/component-licenses
+chmod 755 /etc/wineexplorer/component-licenses
+
+# Launch OOBE setup coordinator as root
+mkdir -p /run/wex-oobe
+chown root:root /run/wex-oobe
+chmod 755 /run/wex-oobe
+/usr/local/bin/wex-components --oobe-coordinator &
+COORDINATOR_PID=$!
+
 # Run oobe.exe inside dedicated wine prefix as wexsetup
 rm -f /etc/wineexplorer/setup/stage-oobe-done
 su -s /bin/bash wexsetup -c '
@@ -66,6 +79,10 @@ su -s /bin/bash wexsetup -c '
     wineserver -k 2>/dev/null || true
     wait $WINE_PID 2>/dev/null || true
 ' bash "$RES"
+
+# Terminate coordinator and tear down endpoint
+kill "$COORDINATOR_PID" 2>/dev/null || true
+rm -rf /run/wex-oobe
 
 if [ -n "$X_PID" ]; then
     kill "$X_PID" 2>/dev/null || true
