@@ -187,8 +187,9 @@ class ComponentsTests(unittest.TestCase):
         with patch.object(components, 'is_admin', return_value=True), \
                 patch.object(components.subprocess, 'run') as run:
             for verb in components.COMPONENTS:
-                with self.subTest(verb=verb), self.assertRaisesRegex(ValueError, 'is disabled'):
-                    components.frontend([verb], False)
+                if components.COMPONENTS_METADATA[verb].get('disabled'):
+                    with self.subTest(verb=verb), self.assertRaisesRegex(ValueError, 'is disabled'):
+                        components.frontend([verb], False)
             run.assert_not_called()
 
     def test_backend_rejects_disabled_components_even_with_valid_terms(self):
@@ -196,8 +197,9 @@ class ComponentsTests(unittest.TestCase):
                 patch.object(components.os, 'getuid', return_value=0), \
                 patch.object(components, 'license_text', return_value=('actual terms', 'sha')):
             for verb in components.COMPONENTS:
-                with self.subTest(verb=verb), self.assertRaisesRegex(ValueError, 'is disabled'):
-                    components.install(verb, 'sha')
+                if components.COMPONENTS_METADATA[verb].get('disabled'):
+                    with self.subTest(verb=verb), self.assertRaisesRegex(ValueError, 'is disabled'):
+                        components.install(verb, 'sha')
             run.assert_not_called()
 
     def test_missing_terms_do_not_download_or_elevate(self):
@@ -683,7 +685,7 @@ class OobeCoordinatorTests(unittest.TestCase):
 
     def test_install_rejects_disabled_component(self):
         self.start_coordinator()
-        resp = self.send_request('START_INSTALL vcrun2022 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+        resp = self.send_request('START_INSTALL corefonts aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
         self.assertTrue(resp.startswith('ERR'))
         self.assertIn('disabled', resp)
 
@@ -876,8 +878,12 @@ class CatalogParserTests(unittest.TestCase):
 
     def test_all_components_have_explicit_reasons(self):
         for verb, meta in components.COMPONENTS_METADATA.items():
-            self.assertTrue(meta.get('disabled'), f"{verb} must be disabled")
-            self.assertTrue(len(meta.get('disabled_reason', '').strip()) > 0, f"{verb} must have disabled_reason")
+            if verb == 'vcrun2022':
+                self.assertFalse(meta.get('disabled'), f"{verb} must be enabled for release candidate")
+                self.assertEqual(meta.get('disabled_reason', ''), '')
+            else:
+                self.assertTrue(meta.get('disabled'), f"{verb} must be disabled")
+                self.assertTrue(len(meta.get('disabled_reason', '').strip()) > 0, f"{verb} must have disabled_reason")
 
     def test_catalog_row_formatting(self):
         for verb, meta in components.COMPONENTS_METADATA.items():
