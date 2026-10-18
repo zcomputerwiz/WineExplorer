@@ -95,8 +95,8 @@
       "resize_attempted": true,
       "resize_succeeded": true,
       "resize_hr": "0x00000000",
-      "elapsed_seconds": 0.1948,
-      "fps": 308.01
+      "elapsed_seconds": 0.1249,
+      "fps": 480.3
     },
     "i686": {
       "d3d11_device_created": true,
@@ -115,8 +115,8 @@
       "resize_attempted": true,
       "resize_succeeded": true,
       "resize_hr": "0x00000000",
-      "elapsed_seconds": 0.1984,
-      "fps": 302.36
+      "elapsed_seconds": 0.1436,
+      "fps": 417.83
     }
   },
   "g2_dcomp": {
@@ -150,8 +150,8 @@
       "resize_attempted": true,
       "resize_succeeded": true,
       "resize_hr": "0x00000000",
-      "elapsed_seconds": 0.2592,
-      "fps": 231.48
+      "elapsed_seconds": 0.1682,
+      "fps": 356.66
     },
     "i686": {
       "d3d11_device_created": true,
@@ -183,8 +183,8 @@
       "resize_attempted": true,
       "resize_succeeded": true,
       "resize_hr": "0x00000000",
-      "elapsed_seconds": 0.2398,
-      "fps": 250.21
+      "elapsed_seconds": 0.1742,
+      "fps": 344.38
     }
   },
   "g3_sharing": {
@@ -197,11 +197,15 @@
       "fence_shared_handle_created": true,
       "child_spawned": true,
       "fence_wait_succeeded": true,
+      "context_wait_succeeded": true,
       "fence_completed_value": 1,
       "child_exit_code": 0,
       "child_render_verified": true,
+      "parent_render_verified": true,
       "keyed_mutex_verified": true,
       "keyed_mutex_timeout_verified": true,
+      "cross_device_keyed_mutex_verified": true,
+      "named_resource_verified": true,
       "error_hr": "0x00000000"
     },
     "i686": {
@@ -213,11 +217,15 @@
       "fence_shared_handle_created": true,
       "child_spawned": true,
       "fence_wait_succeeded": true,
+      "context_wait_succeeded": true,
       "fence_completed_value": 1,
       "child_exit_code": 0,
       "child_render_verified": true,
+      "parent_render_verified": true,
       "keyed_mutex_verified": true,
       "keyed_mutex_timeout_verified": true,
+      "cross_device_keyed_mutex_verified": true,
+      "named_resource_verified": true,
       "error_hr": "0x00000000"
     }
   }

@@ -28,11 +28,15 @@ struct G3ProbeResults {
     bool fence_shared_handle_created;
     bool child_spawned;
     bool fence_wait_succeeded;
+    bool context_wait_succeeded;
     uint64_t fence_completed_value;
     DWORD child_exit_code;
     bool child_render_verified;
+    bool parent_render_verified;
     bool keyed_mutex_verified;
     bool keyed_mutex_timeout_verified;
+    bool cross_device_keyed_mutex_verified;
+    bool named_resource_verified;
     HRESULT error_hr;
 };
 
@@ -146,11 +150,15 @@ static void print_json(const G3ProbeResults &r) {
     printf("  \"fence_shared_handle_created\": %s,\n", r.fence_shared_handle_created ? "true" : "false");
     printf("  \"child_spawned\": %s,\n", r.child_spawned ? "true" : "false");
     printf("  \"fence_wait_succeeded\": %s,\n", r.fence_wait_succeeded ? "true" : "false");
+    printf("  \"context_wait_succeeded\": %s,\n", r.context_wait_succeeded ? "true" : "false");
     printf("  \"fence_completed_value\": %llu,\n", (unsigned long long)r.fence_completed_value);
     printf("  \"child_exit_code\": %lu,\n", (unsigned long)r.child_exit_code);
     printf("  \"child_render_verified\": %s,\n", r.child_render_verified ? "true" : "false");
+    printf("  \"parent_render_verified\": %s,\n", r.parent_render_verified ? "true" : "false");
     printf("  \"keyed_mutex_verified\": %s,\n", r.keyed_mutex_verified ? "true" : "false");
     printf("  \"keyed_mutex_timeout_verified\": %s,\n", r.keyed_mutex_timeout_verified ? "true" : "false");
+    printf("  \"cross_device_keyed_mutex_verified\": %s,\n", r.cross_device_keyed_mutex_verified ? "true" : "false");
+    printf("  \"named_resource_verified\": %s,\n", r.named_resource_verified ? "true" : "false");
     printf("  \"error_hr\": \"0x%08lx\"\n", (unsigned long)r.error_hr);
     printf("}\n");
 }
@@ -211,7 +219,13 @@ int main(int argc, char **argv) {
         return 3;
     }
 
-    // Keyed Mutex Test: Validate lock ownership, key mismatch timeout, and release key transitions
+    // Security attributes for shared handles
+    SECURITY_ATTRIBUTES sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    // Keyed Mutex Test: Validate lock ownership, key mismatch timeout, and cross-device synchronization
     D3D11_TEXTURE2D_DESC km_td;
     memset(&km_td, 0, sizeof(km_td));
     km_td.Width = 64;
@@ -222,9 +236,10 @@ int main(int argc, char **argv) {
     km_td.SampleDesc.Count = 1;
     km_td.Usage = D3D11_USAGE_DEFAULT;
     km_td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-    km_td.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+    km_td.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 
     ID3D11Texture2D *km_tex = NULL;
+    HANDLE hKmShared = NULL;
     hr = dev->CreateTexture2D(&km_td, NULL, &km_tex);
     if (SUCCEEDED(hr) && km_tex) {
         IDXGIKeyedMutex *km = NULL;
@@ -246,7 +261,12 @@ int main(int argc, char **argv) {
             }
             km->Release();
         }
-        km_tex->Release();
+
+        IDXGIResource1 *km_res1 = NULL;
+        if (SUCCEEDED(km_tex->QueryInterface(__uuidof(IDXGIResource1), (void **)&km_res1))) {
+            km_res1->CreateSharedHandle(&sa, GENERIC_ALL, NULL, &hKmShared);
+            km_res1->Release();
+        }
     }
 
     // Create Shared Texture with NT Handle flag
@@ -279,11 +299,6 @@ int main(int argc, char **argv) {
         return 5;
     }
 
-    SECURITY_ATTRIBUTES sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.nLength = sizeof(sa);
-    sa.bInheritHandle = TRUE;
-
     HANDLE hTexShared = NULL;
     hr = res1->CreateSharedHandle(&sa, GENERIC_ALL, NULL, &hTexShared);
     res1->Release();
@@ -315,11 +330,78 @@ int main(int argc, char **argv) {
                 }
                 cross_tex->Release();
             }
+
+            // Cross-device Keyed Mutex exclusion test
+            if (hKmShared && km_tex) {
+                ID3D11Texture2D *cross_km_tex = NULL;
+                hr = dev2_1->OpenSharedResource1(hKmShared, __uuidof(ID3D11Texture2D), (void **)&cross_km_tex);
+                if (SUCCEEDED(hr) && cross_km_tex) {
+                    IDXGIKeyedMutex *km_parent = NULL;
+                    IDXGIKeyedMutex *km_child = NULL;
+                    km_tex->QueryInterface(__uuidof(IDXGIKeyedMutex), (void **)&km_parent);
+                    cross_km_tex->QueryInterface(__uuidof(IDXGIKeyedMutex), (void **)&km_child);
+                    if (km_parent && km_child) {
+                        // Parent acquires key 0
+                        if (SUCCEEDED(km_parent->AcquireSync(0, 1000))) {
+                            // Child attempts to acquire key 0 (must timeout)
+                            HRESULT hr_km_to = km_child->AcquireSync(0, 50);
+                            if (hr_km_to == WAIT_TIMEOUT || hr_km_to == DXGI_ERROR_WAIT_TIMEOUT) {
+                                // Parent transitions to key 1
+                                if (SUCCEEDED(km_parent->ReleaseSync(1))) {
+                                    // Child acquires key 1
+                                    if (SUCCEEDED(km_child->AcquireSync(1, 1000))) {
+                                        // Child transitions back to key 0
+                                        km_child->ReleaseSync(0);
+                                        // Parent re-acquires key 0
+                                        if (SUCCEEDED(km_parent->AcquireSync(0, 1000))) {
+                                            km_parent->ReleaseSync(0);
+                                            res.cross_device_keyed_mutex_verified = true;
+                                        }
+                                    }
+                                }
+                            } else {
+                                km_parent->ReleaseSync(0);
+                            }
+                        }
+                    }
+                    if (km_parent) km_parent->Release();
+                    if (km_child) km_child->Release();
+                    cross_km_tex->Release();
+                }
+            }
+
+            // Named resource construction & cross-device open test (P2 verification)
+            D3D11_TEXTURE2D_DESC named_td = td;
+            ID3D11Texture2D *named_tex = NULL;
+            hr = dev->CreateTexture2D(&named_td, NULL, &named_tex);
+            if (SUCCEEDED(hr) && named_tex) {
+                IDXGIResource1 *named_res1 = NULL;
+                hr = named_tex->QueryInterface(__uuidof(IDXGIResource1), (void **)&named_res1);
+                if (SUCCEEDED(hr) && named_res1) {
+                    HANDLE hNamedShared = NULL;
+                    hr = named_res1->CreateSharedHandle(&sa, GENERIC_ALL, L"WineExplorerG3NamedTex", &hNamedShared);
+                    if (SUCCEEDED(hr) && hNamedShared) {
+                        ID3D11Texture2D *cross_named_tex = NULL;
+                        hr = dev2_1->OpenSharedResourceByName(L"WineExplorerG3NamedTex", GENERIC_ALL,
+                                                              __uuidof(ID3D11Texture2D), (void **)&cross_named_tex);
+                        if (SUCCEEDED(hr) && cross_named_tex) {
+                            res.named_resource_verified = true;
+                            cross_named_tex->Release();
+                        }
+                        CloseHandle(hNamedShared);
+                    }
+                    named_res1->Release();
+                }
+                named_tex->Release();
+            }
+
             dev2_1->Release();
         }
         if (ctx2) ctx2->Release();
         dev2->Release();
     }
+    if (hKmShared) CloseHandle(hKmShared);
+    if (km_tex) km_tex->Release();
 
     // Create Shared Fence
     ID3D11Fence *fence = NULL;
@@ -380,6 +462,17 @@ int main(int argc, char **argv) {
     }
     res.fence_completed_value = fence->GetCompletedValue();
 
+    // Query ID3D11DeviceContext4 on parent and test asynchronous context Wait
+    ID3D11DeviceContext4 *ctx4 = NULL;
+    hr = ctx->QueryInterface(__uuidof(ID3D11DeviceContext4), (void **)&ctx4);
+    if (SUCCEEDED(hr) && ctx4) {
+        hr = ctx4->Wait(fence, 1);
+        if (SUCCEEDED(hr)) {
+            res.context_wait_succeeded = true;
+        }
+        ctx4->Release();
+    }
+
     // Wait for child process to terminate
     WaitForSingleObject(pi.hProcess, 5000);
     GetExitCodeProcess(pi.hProcess, &res.child_exit_code);
@@ -388,6 +481,35 @@ int main(int argc, char **argv) {
 
     if (res.child_exit_code == 0) {
         res.child_render_verified = true;
+    }
+
+    // Read back rendered pixels on shared_tex IN PARENT PROCESS to verify actual shared backing storage
+    D3D11_TEXTURE2D_DESC parent_std;
+    memset(&parent_std, 0, sizeof(parent_std));
+    parent_std.Width = 256;
+    parent_std.Height = 256;
+    parent_std.MipLevels = 1;
+    parent_std.ArraySize = 1;
+    parent_std.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    parent_std.SampleDesc.Count = 1;
+    parent_std.Usage = D3D11_USAGE_STAGING;
+    parent_std.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+    ID3D11Texture2D *parent_staging = NULL;
+    hr = dev->CreateTexture2D(&parent_std, NULL, &parent_staging);
+    if (SUCCEEDED(hr) && parent_staging) {
+        ctx->CopyResource((ID3D11Resource *)parent_staging, (ID3D11Resource *)shared_tex);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        hr = ctx->Map((ID3D11Resource *)parent_staging, 0, D3D11_MAP_READ, 0, &mapped);
+        if (SUCCEEDED(hr) && mapped.pData) {
+            const uint8_t *row = (const uint8_t *)mapped.pData + 128 * mapped.RowPitch;
+            const uint8_t *pixel = row + 128 * 4; // R, G, B, A
+            if (pixel[1] >= 250 && pixel[0] <= 5 && pixel[2] <= 5) {
+                res.parent_render_verified = true;
+            }
+            ctx->Unmap((ID3D11Resource *)parent_staging, 0);
+        }
+        parent_staging->Release();
     }
 
     CloseHandle(hCompletionEvent);
@@ -413,10 +535,14 @@ int main(int argc, char **argv) {
         printf("  Child Spawned:        %s\n", res.child_spawned ? "OK" : "FAIL");
         printf("  Child Exit Code:      %lu\n", (unsigned long)res.child_exit_code);
         printf("  Child Render Verify:  %s\n", res.child_render_verified ? "OK" : "FAIL");
+        printf("  Parent Render Verify: %s\n", res.parent_render_verified ? "OK" : "FAIL");
         printf("  Fence Wait Succeeded: %s\n", res.fence_wait_succeeded ? "OK" : "FAIL");
+        printf("  Context Fence Wait:   %s\n", res.context_wait_succeeded ? "OK" : "FAIL");
         printf("  Fence Value:          %llu\n", (unsigned long long)res.fence_completed_value);
         printf("  Keyed Mutex Sync:     %s\n", res.keyed_mutex_verified ? "OK" : "FAIL");
         printf("  Keyed Mutex Timeout:  %s\n", res.keyed_mutex_timeout_verified ? "OK" : "FAIL");
+        printf("  Cross-Dev Keyed Mutex:%s\n", res.cross_device_keyed_mutex_verified ? "OK" : "FAIL");
+        printf("  Named Resource Open:  %s\n", res.named_resource_verified ? "OK" : "FAIL");
         printf("====================================================================\n");
     }
 
@@ -428,11 +554,15 @@ int main(int argc, char **argv) {
                    res.fence_shared_handle_created &&
                    res.child_spawned &&
                    res.fence_wait_succeeded &&
+                   res.context_wait_succeeded &&
                    res.fence_completed_value == 1 &&
                    res.child_exit_code == 0 &&
                    res.child_render_verified &&
+                   res.parent_render_verified &&
                    res.keyed_mutex_verified &&
-                   res.keyed_mutex_timeout_verified;
+                   res.keyed_mutex_timeout_verified &&
+                   res.cross_device_keyed_mutex_verified &&
+                   res.named_resource_verified;
 
     return success ? 0 : 1;
 }

@@ -144,10 +144,14 @@ def assert_g3_expectations(data: dict, arch: str) -> None:
     assert data.get("child_spawned") is True, f"[{arch}] G3 child process spawn failed: {data}"
     assert data.get("child_exit_code") == 0, f"[{arch}] G3 child process non-zero exit code: {data}"
     assert data.get("child_render_verified") is True, f"[{arch}] G3 child render verification failed: {data}"
+    assert data.get("parent_render_verified") is True, f"[{arch}] G3 parent render readback verification failed: {data}"
     assert data.get("fence_wait_succeeded") is True, f"[{arch}] G3 fence wait failed: {data}"
+    assert data.get("context_wait_succeeded") is True, f"[{arch}] G3 context fence wait failed: {data}"
     assert data.get("fence_completed_value") == 1, f"[{arch}] G3 fence value != 1: {data}"
     assert data.get("keyed_mutex_verified") is True, f"[{arch}] G3 keyed mutex acquire/release failed: {data}"
     assert data.get("keyed_mutex_timeout_verified") is True, f"[{arch}] G3 keyed mutex timeout verification failed: {data}"
+    assert data.get("cross_device_keyed_mutex_verified") is True, f"[{arch}] G3 cross-device keyed mutex failed: {data}"
+    assert data.get("named_resource_verified") is True, f"[{arch}] G3 named resource creation/open failed: {data}"
 
 
 def main() -> int:
@@ -269,7 +273,7 @@ def main() -> int:
         res_g3_64 = run_probe(exe_g3_64, args.wine)
         assert_g3_expectations(res_g3_64, "x86_64")
         results["g3_sharing"]["x86_64"] = res_g3_64
-        print(f"  [x86_64 G3] Cross-Device Open: {res_g3_64['cross_device_open_succeeded']}, Child Render Verified: {res_g3_64['child_render_verified']}, Fence Value: {res_g3_64['fence_completed_value']}, Keyed Mutex Sync: {res_g3_64['keyed_mutex_verified']}")
+        print(f"  [x86_64 G3] Cross-Device Open: {res_g3_64['cross_device_open_succeeded']}, Parent Render: {res_g3_64['parent_render_verified']}, Context Wait: {res_g3_64['context_wait_succeeded']}, Fence Value: {res_g3_64['fence_completed_value']}, Keyed Mutex: {res_g3_64['cross_device_keyed_mutex_verified']}, Named Res: {res_g3_64['named_resource_verified']}")
 
         # Phase G3: 32-bit Multi-Process Shared Resources & Fence Diagnostic Probe
         exe_g3_32 = tmp_path / "g3_probe32.exe"
@@ -279,7 +283,7 @@ def main() -> int:
         res_g3_32 = run_probe(exe_g3_32, args.wine)
         assert_g3_expectations(res_g3_32, "i686")
         results["g3_sharing"]["i686"] = res_g3_32
-        print(f"  [i686 G3]   Cross-Device Open: {res_g3_32['cross_device_open_succeeded']}, Child Render Verified: {res_g3_32['child_render_verified']}, Fence Value: {res_g3_32['fence_completed_value']}, Keyed Mutex Sync: {res_g3_32['keyed_mutex_verified']}")
+        print(f"  [i686 G3]   Cross-Device Open: {res_g3_32['cross_device_open_succeeded']}, Parent Render: {res_g3_32['parent_render_verified']}, Context Wait: {res_g3_32['context_wait_succeeded']}, Fence Value: {res_g3_32['fence_completed_value']}, Keyed Mutex: {res_g3_32['cross_device_keyed_mutex_verified']}, Named Res: {res_g3_32['named_resource_verified']}")
 
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
