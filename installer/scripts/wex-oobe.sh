@@ -9,6 +9,23 @@ STAGE=$(cat "$STAGE_FILE" 2>/dev/null | tr -d ' \r\n')
 
 echo "=== Starting WineExplorer Out-of-Box Experience (OOBE) ==="
 
+COORDINATOR_PID=""
+X_PID=""
+
+cleanup() {
+    echo "Cleaning up OOBE session..."
+    rm -f /run/wex-oobe/stage
+    if [ -n "$COORDINATOR_PID" ] && kill -0 "$COORDINATOR_PID" 2>/dev/null; then
+        kill "$COORDINATOR_PID" 2>/dev/null || true
+        wait "$COORDINATOR_PID" 2>/dev/null || true
+    fi
+    rm -rf /run/wex-oobe
+    if [ -n "$X_PID" ] && kill -0 "$X_PID" 2>/dev/null; then
+        kill "$X_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT INT TERM HUP
+
 # Dismiss plymouth immediately so boot doesn't hang
 plymouth --quit 2>/dev/null || true
 
@@ -59,6 +76,9 @@ chmod 755 /etc/wineexplorer/component-licenses
 mkdir -p /run/wex-oobe
 chown root:root /run/wex-oobe
 chmod 755 /run/wex-oobe
+echo "oobe" > /run/wex-oobe/stage
+chown root:root /run/wex-oobe/stage
+chmod 644 /run/wex-oobe/stage
 /usr/local/bin/wex-components --oobe-coordinator &
 COORDINATOR_PID=$!
 
@@ -80,12 +100,18 @@ su -s /bin/bash wexsetup -c '
     wait $WINE_PID 2>/dev/null || true
 ' bash "$RES"
 
-# Terminate coordinator and tear down endpoint
-kill "$COORDINATOR_PID" 2>/dev/null || true
+# Terminate coordinator and revoke authority
+rm -f /run/wex-oobe/stage
+if [ -n "$COORDINATOR_PID" ]; then
+    kill "$COORDINATOR_PID" 2>/dev/null || true
+    wait "$COORDINATOR_PID" 2>/dev/null || true
+    COORDINATOR_PID=""
+fi
 rm -rf /run/wex-oobe
 
 if [ -n "$X_PID" ]; then
     kill "$X_PID" 2>/dev/null || true
+    X_PID=""
 fi
 
 # Apply automatic updates choice

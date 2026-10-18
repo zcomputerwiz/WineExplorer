@@ -46,10 +46,12 @@ COMPONENTS_METADATA = {
         'description': 'Installs Visual C++ runtime libraries (vcruntime140, msvcp140, concrt140, vcamp140) required by many modern Windows applications and games.',
         'size': '~14 MB',
         'reboot': False,
+        'disabled': True,
+        'disabled_reason': 'Upstream mutable URL divergence in winetricks recipe (aka.ms hash mismatch)',
         'terms_url': 'https://visualstudio.microsoft.com/wp-content/uploads/2021/09/Visual-C-Runtime-2015-2022-License-1.docx',
-        'recipe_url': 'https://aka.ms/vs/17/release/vc_redist.x86.exe',
-        'recipe_sha256': 'dd1a8be03398367745a87a5e35bebdab00fdad080cf42af0c3f20802d08c25d4',
-        'mutable_url': True,
+        'recipe_files': [
+            ('vc_redist.x86.exe', 'dd1a8be03398367745a87a5e35bebdab00fdad080cf42af0c3f20802d08c25d4'),
+        ],
     },
     'corefonts': {
         'title': 'Microsoft TrueType Core Fonts',
@@ -57,10 +59,21 @@ COMPONENTS_METADATA = {
         'description': 'Installs original Microsoft TrueType core fonts (Arial, Times New Roman, Courier New, Georgia, Verdana, Comic Sans, Trebuchet, Impact, Andale Mono, Webdings).',
         'size': '~4 MB',
         'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
         'terms_url': 'https://raw.githubusercontent.com/pushcx/corefonts/master/LICENSE',
-        'recipe_url': 'https://github.com/pushcx/corefonts/raw/master/*.exe',
-        'recipe_sha256': 'pinned',
-        'mutable_url': False,
+        'recipe_files': [
+            ('andale32.exe', '0524fe42951237501f3a00e620ecc7446b404f05d166b24597746044a40ec974'),
+            ('arial32.exe', '85288a75e478546114eb307406a6cc0536c46a6f0fb32230fed84820eb7706d7'),
+            ('comic32.exe', '9c60703a20d84b22acc9d2729e79a9e2cb273b54fa399d00355799138f036025'),
+            ('courie32.exe', 'bb511d616912461863174bd3787e37e1aa18d581203a4342d0775036e9f310e0'),
+            ('georgi32.exe', '2c00ff85019cfae5bf208910547ad3745a706785833246ebec532c2957f82666'),
+            ('impact32.exe', '5e714d521d15e71a473f2759146f411e749294247514a60ea54f5979eb170c9a'),
+            ('times32.exe', 'db712061555543cfd720b0800b467d3e4c495cb21ccb5d92131aa1192518e874'),
+            ('trebuc32.exe', '5a690d9bb85db97cf473804603099d2b090738349f3fa977156096366d45f9de'),
+            ('verdan32.exe', '120c24fb89cf62a7df8e08d660e5fae5ad1935c13e11500f135b1d9bf896deec'),
+            ('webdin32.exe', '64585ac6a50c291ab2618ad66c5514d150479228eb97e37be8d115ec7192d345'),
+        ],
     },
     'tahoma': {
         'title': 'Microsoft Tahoma font',
@@ -68,10 +81,12 @@ COMPONENTS_METADATA = {
         'description': 'Installs Microsoft Tahoma and Tahoma Bold TrueType fonts from the official Microsoft Internet Explorer font package.',
         'size': '~410 KB',
         'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
         'terms_url': 'https://raw.githubusercontent.com/pushcx/corefonts/master/LICENSE',
-        'recipe_url': 'https://downloads.sourceforge.net/corefonts/OldFiles/IELPKTH.CAB',
-        'recipe_sha256': 'c1be3fb8f0042570be76ec6daa03a99142c88367c1bc810240b85827c715961a',
-        'mutable_url': False,
+        'recipe_files': [
+            ('IELPKTH.CAB', 'c1be3fb8f0042570be76ec6daa03a99142c88367c1bc810240b85827c715961a'),
+        ],
     },
     'd3dcompiler_47': {
         'title': 'DirectX Shader Compiler (d3dcompiler_47)',
@@ -79,10 +94,13 @@ COMPONENTS_METADATA = {
         'description': 'DirectX HLSL shader compiler library required by DirectX 11, DirectX 12, and Vulkan translation layers (DXVK/VKD3D). Wine builtin compiler remains default.',
         'size': '~4.5 MB',
         'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
         'terms_url': 'https://raw.githubusercontent.com/mozilla/fxc2/master/README.md',
-        'recipe_url': 'https://raw.githubusercontent.com/mozilla/fxc2/master/dll/d3dcompiler_47.dll',
-        'recipe_sha256': '4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3',
-        'mutable_url': False,
+        'recipe_files': [
+            ('d3dcompiler_47_32.dll', '2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851'),
+            ('d3dcompiler_47.dll', '4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3'),
+        ],
     },
     'xact': {
         'title': 'Microsoft XACT audio engine',
@@ -90,10 +108,12 @@ COMPONENTS_METADATA = {
         'description': 'Cross-Platform Audio Creation Tool (XACT) runtime libraries for game audio.',
         'size': '~95 MB',
         'reboot': False,
-        'terms_url': 'https://download.microsoft.com/download/8/4/A/84A35BF1-DAFE-4AE8-82AF-AD2AE20B6B14/directx_Jun2010_redist.exe',
-        'recipe_url': 'https://files.holarse-linuxgaming.de/mirrors/microsoft/directx_Jun2010_redist.exe',
-        'recipe_sha256': '8746ee1a84a083a90e37899d71d50d5c7c015e69688a466aa80447f011780c0d',
-        'mutable_url': False,
+        'disabled': False,
+        'disabled_reason': '',
+        'terms_url': None,
+        'recipe_files': [
+            ('directx_Jun2010_redist.exe', '8746ee1a84a083a90e37899d71d50d5c7c015e69688a466aa80447f011780c0d'),
+        ],
     },
     'physx': {
         'title': 'NVIDIA PhysX System Software',
@@ -101,10 +121,12 @@ COMPONENTS_METADATA = {
         'description': 'Physics simulation engine software required by PhysX-enabled games.',
         'size': '~27 MB',
         'reboot': False,
-        'terms_url': 'https://us.download.nvidia.com/Windows/9.21.0713/PhysX_9.21.0713_SystemSoftware.exe',
-        'recipe_url': 'https://us.download.nvidia.com/Windows/9.21.0713/PhysX_9.21.0713_SystemSoftware.exe',
-        'recipe_sha256': '26d62c5c347c15cb27c3be92bf10706113511b48b28aecc09f61ee58b3b62778',
-        'mutable_url': False,
+        'disabled': True,
+        'disabled_reason': 'Marked broken upstream in winetricks (WineHQ bug 56606)',
+        'terms_url': None,
+        'recipe_files': [
+            ('PhysX_9.21.0713_SystemSoftware.exe', '26d62c5c347c15cb27c3be92bf10706113511b48b28aecc09f61ee58b3b62778'),
+        ],
     },
 }
 
@@ -118,71 +140,6 @@ PROTECTED = ('dwrite', 'gdiplus', 'usp10', 'riched20', 'mf', 'mfplat', 'mfreadwr
              'msxml', 'msxml2', 'msxml3', 'msxml4', 'msxml6', 'ucrtbase', 'wininet',
              'crypt32', 'kernel32', 'kernelbase', 'ntdll', 'user32', 'gdi32',
              'advapi32', 'shell32', 'ole32', 'combase')
-
-# Official vendor terms text for components whose terms are plain text licenses
-_VENDOR_TERMS_TEXT = {
-    'd3dcompiler_47': """MICROSOFT SOFTWARE LICENSE TERMS
-MICROSOFT WINDOWS SOFTWARE DEVELOPMENT KIT (SDK)
-REDISTRIBUTABLE CODE
-
-These license terms are an agreement between Microsoft Corporation (or based on where you live, one of its affiliates) and you. Please read them. They apply to the software named above, which includes the media on which you received it, if any.
-
-REDISTRIBUTABLE CODE. The software contains code that you are permitted to distribute in programs you develop if you comply with the terms below.
-a. Right to Use and Distribute. The code and text files listed below are "Redistributable Code."
-- d3dcompiler_47.dll: You may copy and distribute the object code form of the DirectX HLSL shader compiler library.
-b. Distribution Requirements. For any Redistributable Code you distribute, you must:
-- add significant primary functionality to it in your programs;
-- require distributors and external end users to agree to terms that protect it at least as much as this agreement;
-- display your valid copyright notice on your programs; and
-- indemnify, defend, and hold harmless Microsoft from any claims, including attorneys' fees, related to the distribution or use of your programs.
-c. Distribution Restrictions. You may not:
-- alter any copyright, trademark or patent notice in the Redistributable Code;
-- use Microsoft's trademarks in your programs' names or in a way that suggests your programs come from or are endorsed by Microsoft;
-- distribute Redistributable Code to run on a platform other than the Windows platform;
-- include Redistributable Code in malicious, deceptive or unlawful programs; or
-- modify or distribute the source code of any Redistributable Code so that any part of it becomes subject to an Excluded License.
-
-DISCLAIMER OF WARRANTY. THE SOFTWARE IS LICENSED "AS-IS." YOU BEAR THE RISK OF USING IT. MICROSOFT GIVES NO EXPRESS WARRANTIES, GUARANTEES OR CONDITIONS.
-LIMITATION ON AND EXCLUSION OF REMEDIES AND DAMAGES. YOU CAN RECOVER FROM MICROSOFT AND ITS SUPPLIERS ONLY DIRECT DAMAGES UP TO U.S. $5.00. YOU CANNOT RECOVER ANY OTHER DAMAGES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, INDIRECT OR INCIDENTAL DAMAGES.
-""",
-    'xact': """MICROSOFT SOFTWARE LICENSE TERMS
-MICROSOFT DIRECTX END USER RUNTIME
-
-These license terms are an agreement between Microsoft Corporation (or based on where you live, one of its affiliates) and you. Please read them. They apply to the software named above, which includes the media on which you received it, if any. The terms also apply to any Microsoft updates, supplements, Internet-based services, and support services for this software, unless other terms accompany those items.
-
-BY USING THE SOFTWARE, YOU ACCEPT THESE TERMS. IF YOU DO NOT ACCEPT THEM, DO NOT USE THE SOFTWARE.
-
-If you comply with these license terms, you have the rights below:
-1. INSTALLATION AND USE RIGHTS. You may install and use any number of copies of the software on your devices.
-2. SCOPE OF LICENSE. The software is licensed, not sold. This agreement only gives you some rights to use the software. Microsoft reserves all other rights. Unless applicable law gives you more rights despite this limitation, you may use the software only as expressly permitted in this agreement. You may not:
-- work around any technical limitations in the software;
-- reverse engineer, decompile or disassemble the software, except and only to the extent that applicable law expressly permits, despite this limitation;
-- make more copies of the software than specified in this agreement or allowed by applicable law, despite this limitation;
-- publish the software for others to copy;
-- rent, lease or lend the software; or
-- transfer the software or this agreement to any third party.
-3. BACKUP COPY. You may make one backup copy of the software. You may use it only to reinstall the software.
-4. EXPORT RESTRICTIONS. The software is subject to United States export laws and regulations. You must comply with all domestic and international export laws and regulations that apply to the software.
-5. DISCLAIMER OF WARRANTY. THE SOFTWARE IS LICENSED "AS-IS." YOU BEAR THE RISK OF USING IT. MICROSOFT GIVES NO EXPRESS WARRANTIES, GUARANTEES OR CONDITIONS. TO THE EXTENT PERMITTED UNDER YOUR LOCAL LAWS, MICROSOFT EXCLUDES THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
-6. LIMITATION ON AND EXCLUSION OF REMEDIES AND DAMAGES. YOU CAN RECOVER FROM MICROSOFT AND ITS SUPPLIERS ONLY DIRECT DAMAGES UP TO U.S. $5.00. YOU CANNOT RECOVER ANY OTHER DAMAGES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, INDIRECT OR INCIDENTAL DAMAGES.
-""",
-    'physx': """NVIDIA SOFTWARE LICENSE AGREEMENT
-NVIDIA PHYSX SYSTEM SOFTWARE
-
-This Software License Agreement ("Agreement") is between you (either an individual or an entity) and NVIDIA Corporation ("NVIDIA") and governs the use of the NVIDIA PhysX System Software and associated drivers and runtime components.
-
-1. LICENSE GRANT. NVIDIA grants you a non-exclusive, non-transferable, revocable license to install and use the PhysX System Software on computers with supported operating systems for running applications and games utilizing NVIDIA PhysX technology.
-2. RESTRICTIONS. You may not:
-- modify, reverse engineer, decompile, or disassemble the software, except and only to the extent permitted by applicable law;
-- distribute, rent, sub-license, lease, or lend the software to any third party;
-- remove any proprietary notices or labels on the software;
-- bypass any technical protection measures in the software.
-3. OWNERSHIP. NVIDIA and its licensors own all title, copyright, and other intellectual property rights in the software. The software is licensed, not sold.
-4. TERMINATION. This Agreement terminates automatically if you fail to comply with any of its terms and conditions. Upon termination, you must destroy all copies of the software.
-5. DISCLAIMER OF WARRANTIES. THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NVIDIA AND ITS SUPPLIERS DISCLAIM ALL WARRANTIES, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
-6. LIMITATION OF LIABILITY. IN NO EVENT SHALL NVIDIA OR ITS SUPPLIERS BE LIABLE FOR ANY SPECIAL, INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER ARISING OUT OF THE USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
-"""
-}
 
 
 def validate_verb(verb):
@@ -203,15 +160,26 @@ def protected_name(name):
 def fetch_vendor_terms(verb, directory=TERMS):
     """Acquire authentic vendor terms over network and cache under directory."""
     validate_verb(verb)
-    headers = {'User-Agent': 'Wget/1.21.3 (linux-gnu)'}
+    meta = COMPONENTS_METADATA.get(verb, {})
+    if meta.get('disabled'):
+        raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
 
-    if verb == 'vcrun2022':
-        url = COMPONENTS_METADATA[verb]['terms_url']
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            data = urllib.request.urlopen(req, timeout=25).read()
-        except urllib.error.URLError as err:
-            raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {url}: {err.reason}')
+    target = directory / (verb + '.txt')
+    if target.is_file():
+        return license_text(verb, directory)
+
+    terms_url = meta.get('terms_url')
+    if not terms_url:
+        raise FileNotFoundError(f'Authentic vendor terms for {verb} must be provisioned in {directory}/{verb}.txt')
+
+    headers = {'User-Agent': 'Wget/1.21.3 (linux-gnu)'}
+    req = urllib.request.Request(terms_url, headers=headers)
+    try:
+        data = urllib.request.urlopen(req, timeout=25).read()
+    except urllib.error.URLError as err:
+        raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {terms_url}: {err.reason}')
+
+    if terms_url.endswith('.docx'):
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 xml_content = zf.read('word/document.xml')
@@ -225,18 +193,8 @@ def fetch_vendor_terms(verb, directory=TERMS):
             text = '\n\n'.join(paragraphs)
         except Exception as parse_err:
             raise ValueError(f'Failed to extract authentic terms from {verb} vendor document: {parse_err}')
-    elif verb in ('corefonts', 'tahoma'):
-        url = COMPONENTS_METADATA[verb]['terms_url']
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            data = urllib.request.urlopen(req, timeout=25).read()
-            text = data.decode('utf-8', errors='replace')
-        except urllib.error.URLError as err:
-            raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {url}: {err.reason}')
-    elif verb in _VENDOR_TERMS_TEXT:
-        text = _VENDOR_TERMS_TEXT[verb]
     else:
-        raise ValueError(f'No terms acquisition recipe defined for {verb}')
+        text = data.decode('utf-8', errors='replace')
 
     if len(text.strip()) < 500:
         raise ValueError(f'Retrieved terms for {verb} too short ({len(text.strip())} chars); full vendor terms required')
@@ -247,7 +205,6 @@ def fetch_vendor_terms(verb, directory=TERMS):
         for entry in (directory, *directory.parents):
             if entry.is_symlink() or entry.stat().st_uid != 0 or entry.stat().st_mode & 0o022:
                 raise ValueError(f'Insecure vendor license path: {entry}')
-        target = directory / (verb + '.txt')
         temp_file = directory / (verb + '.tmp')
         temp_file.write_text(text, encoding='utf-8')
         os.chmod(temp_file, 0o644)
@@ -255,6 +212,20 @@ def fetch_vendor_terms(verb, directory=TERMS):
 
     sha = hashlib.sha256(text.encode('utf-8')).hexdigest()
     return text, sha
+
+
+def prepare_terms(verb, directory=TERMS):
+    """Privileged action: fetch and cache authentic vendor terms into root TERMS dir."""
+    validate_verb(verb)
+    if os.getuid() != 0:
+        raise PermissionError('Preparing vendor terms requires root elevation')
+    meta = COMPONENTS_METADATA.get(verb, {})
+    if meta.get('disabled'):
+        raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
+    target = directory / (verb + '.txt')
+    if target.is_file():
+        return license_text(verb, directory)
+    return fetch_vendor_terms(verb, directory)
 
 
 def license_text(verb, directory=TERMS):
@@ -390,7 +361,7 @@ def install(verb, accepted_digest):
         # from a progress-dialog pipeline. All package terms were accepted above.
         with protect_builtins(MACHINE, environment):
             result = subprocess.run(['/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks',
-                                     '-q', '-f', verb], env=environment)
+                                     '-q', verb], env=environment)
         subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
                        timeout=120, check=True)
         if result.returncode:
@@ -416,7 +387,15 @@ def consent(verb, gui):
     try:
         text, sha = license_text(verb)
     except ValueError:
-        text, sha = fetch_vendor_terms(verb)
+        if not is_admin():
+            raise ValueError('Administrator elevation required to prepare vendor terms')
+        command = [BACKEND, '--prepare-terms', verb]
+        if os.getuid() != 0:
+            command.insert(0, '/usr/bin/pkexec')
+        res = subprocess.run(command)
+        if res.returncode != 0:
+            raise ValueError(f'Failed to prepare authentic vendor terms for {verb}')
+        text, sha = license_text(verb)
     if gui:
         result = subprocess.run(['zenity', '--text-info', '--title=' + COMPONENTS[verb],
                                  '--width=760', '--height=560',
@@ -466,7 +445,7 @@ def oobe_coordinator():
     """Privileged coordinator daemon during Setup Out-of-Box Experience."""
     if os.getuid() != 0:
         raise PermissionError('OOBE coordinator requires root execution')
-    stage_file_str = os.environ.get('WEX_OOBE_STAGE_FILE', '/etc/wineexplorer/setup/stage')
+    stage_file_str = os.environ.get('WEX_OOBE_STAGE_FILE', '/run/wex-oobe/stage')
     stage_file = Path(stage_file_str)
     if not stage_file.is_file() or stage_file.read_text(encoding='ascii').strip() != 'oobe':
         raise PermissionError('OOBE coordinator only permitted during active OOBE stage')
@@ -481,7 +460,7 @@ def oobe_coordinator():
     try:
         wexsetup_uid = pwd.getpwnam('wexsetup').pw_uid
     except KeyError:
-        wexsetup_uid = None
+        raise RuntimeError('Required setup account "wexsetup" does not exist')
 
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(sock_path))
@@ -512,23 +491,30 @@ def oobe_coordinator():
         except OSError:
             break
 
+        conn.settimeout(15.0)
         try:
-            # Enforce peer credentials: only wexsetup (or root in tests)
+            # Enforce peer credentials: only wexsetup (or root in tests/CLI)
             creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
             pid, uid, gid = struct.unpack('3i', creds)
-            if wexsetup_uid is not None and uid != wexsetup_uid and uid != 0:
+            if uid != wexsetup_uid and uid != 0:
                 print(f'Rejecting unauthorized client UID {uid}', file=sys.stderr)
                 conn.close()
                 continue
 
-            # Read single request line
-            file_in = conn.makefile('r', encoding='utf-8')
-            line = file_in.readline()
+            # Read bounded request line (max 1024 bytes)
+            raw_req = b''
+            while len(raw_req) < 1024:
+                b = conn.recv(1)
+                if not b or b == b'\n':
+                    break
+                raw_req += b
+
+            line = raw_req.decode('utf-8', errors='replace').strip()
             if not line:
                 conn.close()
                 continue
 
-            parts = line.strip().split()
+            parts = line.split()
             cmd = parts[0] if parts else ''
 
             if cmd == 'GET_COMPONENTS':
@@ -537,8 +523,10 @@ def oobe_coordinator():
                 for v, meta in COMPONENTS_METADATA.items():
                     inst = '1' if v in installed else '0'
                     reb = '1' if meta['reboot'] else '0'
-                    # Format: verb \t title \t publisher \t description \t size \t reboot \t installed
-                    row = f"{v}\t{meta['title']}\t{meta['publisher']}\t{meta['description']}\t{meta['size']}\t{reb}\t{inst}"
+                    dis = '1' if meta.get('disabled') else '0'
+                    dis_reason = meta.get('disabled_reason', '')
+                    # Format: verb \t title \t publisher \t description \t size \t reboot \t installed \t disabled \t disabled_reason
+                    row = f"{v}\t{meta['title']}\t{meta['publisher']}\t{meta['description']}\t{meta['size']}\t{reb}\t{inst}\t{dis}\t{dis_reason}"
                     lines.append(row)
                 conn.sendall(('\n'.join(lines) + '\n').encode('utf-8'))
 
@@ -546,6 +534,9 @@ def oobe_coordinator():
                 verb = parts[1]
                 try:
                     validate_verb(verb)
+                    meta = COMPONENTS_METADATA.get(verb, {})
+                    if meta.get('disabled'):
+                        raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
                     try:
                         text, sha = license_text(verb)
                     except ValueError:
@@ -557,9 +548,16 @@ def oobe_coordinator():
                     conn.sendall(err_msg.encode('utf-8'))
 
             elif cmd == 'INSTALL' and len(parts) >= 3:
+                # Revalidate stage immediately before dispatching privileged install
+                if not stage_file.is_file() or stage_file.read_text(encoding='ascii').strip() != 'oobe':
+                    conn.sendall(b"ERR Setup OOBE stage expired; installation rejected\n")
+                    continue
                 verb, accepted_sha = parts[1], parts[2]
                 try:
                     validate_verb(verb)
+                    meta = COMPONENTS_METADATA.get(verb, {})
+                    if meta.get('disabled'):
+                        raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
                     install(verb, accepted_sha)
                     conn.sendall(b"OK\n")
                 except Exception as err:
@@ -576,11 +574,7 @@ def oobe_coordinator():
             print('Coordinator client error:', err, file=sys.stderr)
         finally:
             try:
-                file_in.close()
-            except Exception:
-                pass
-            try:
-                conn.shutdown(socket.SHUT_RDWR)
+                conn.shutdown(socket.SHUT_WR)
             except OSError:
                 pass
             try:
@@ -599,17 +593,21 @@ def oobe_coordinator():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install', nargs=2, metavar=('VERB', 'ACCEPTED_SHA256'), help=argparse.SUPPRESS)
+    parser.add_argument('--prepare-terms', metavar='VERB', help=argparse.SUPPRESS)
     parser.add_argument('--oobe-coordinator', action='store_true', help='Run OOBE setup coordinator daemon')
     parser.add_argument('action', nargs='?', choices=['install', 'list'])
     parser.add_argument('verbs', nargs='*')
     args = parser.parse_args()
     if args.oobe_coordinator:
         oobe_coordinator()
+    elif args.prepare_terms:
+        prepare_terms(args.prepare_terms)
     elif args.install:
         install(*args.install)
     elif args.action == 'list':
-        for verb, name in COMPONENTS.items():
-            print(verb + ': ' + name)
+        for verb, meta in COMPONENTS_METADATA.items():
+            status = f" (disabled: {meta['disabled_reason']})" if meta.get('disabled') else ''
+            print(f"{verb}: {meta['title']}{status}")
     else:
         if args.action == 'install' and not args.verbs:
             parser.error('install requires at least one supported component')

@@ -1652,10 +1652,39 @@ STUB( user_set_session, struct user_set_session_params )
 
 #endif
 
+static BOOL oobe_write_all( int fd, const void *buf, size_t count )
+{
+    const char *p = buf;
+    size_t remaining = count;
+    while (remaining > 0)
+    {
+        ssize_t n = write( fd, p, remaining );
+        if (n < 0)
+        {
+            if (errno == EINTR) continue;
+            return FALSE;
+        }
+        p += n;
+        remaining -= n;
+    }
+    return TRUE;
+}
+
+static ssize_t oobe_read_retry( int fd, void *buf, size_t count )
+{
+    for (;;)
+    {
+        ssize_t n = read( fd, buf, count );
+        if (n < 0 && errno == EINTR) continue;
+        return n;
+    }
+}
+
 static int oobe_connect( void )
 {
     const char *sock_path = getenv( "WEX_OOBE_SOCKET" );
     struct sockaddr_un addr;
+    struct timeval tv;
     size_t len;
     int fd;
 
@@ -1664,6 +1693,11 @@ static int oobe_connect( void )
 
     fd = socket( AF_UNIX, SOCK_STREAM, 0 );
     if (fd < 0) return -1;
+
+    tv.tv_sec = 15;
+    tv.tv_usec = 0;
+    setsockopt( fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv) );
+    setsockopt( fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv) );
 
     memset( &addr, 0, sizeof(addr) );
     addr.sun_family = AF_UNIX;
@@ -1693,7 +1727,7 @@ static NTSTATUS oobe_get_components( void *args )
         return STATUS_SUCCESS;
     }
 
-    if (write( fd, "GET_COMPONENTS\n", 15 ) < 0)
+    if (!oobe_write_all( fd, "GET_COMPONENTS\n", 15 ))
     {
         close( fd );
         params->err = ERROR_GEN_FAILURE;
@@ -1701,7 +1735,7 @@ static NTSTATUS oobe_get_components( void *args )
     }
     shutdown( fd, SHUT_WR );
 
-    while (total < sizeof(buffer) - 1 && (n = read( fd, buffer + total, sizeof(buffer) - 1 - total )) > 0)
+    while (total < sizeof(buffer) - 1 && (n = oobe_read_retry( fd, buffer + total, sizeof(buffer) - 1 - total )) > 0)
         total += n;
     buffer[total] = '\0';
     close( fd );
@@ -1738,6 +1772,7 @@ static NTSTATUS oobe_get_terms( void *args )
     DWORD len;
     size_t text_capacity = 65536;
     size_t total = 0;
+    unsigned long expected_bytes = 0;
     ssize_t n;
     int fd = oobe_connect();
 
@@ -1748,7 +1783,7 @@ static NTSTATUS oobe_get_terms( void *args )
     }
 
     snprintf( cmd, sizeof(cmd), "GET_TERMS %s\n", params->verb );
-    if (write( fd, cmd, strlen(cmd) ) < 0)
+    if (!oobe_write_all( fd, cmd, strlen(cmd) ))
     {
         close( fd );
         params->err = ERROR_GEN_FAILURE;
@@ -1764,13 +1799,15 @@ static NTSTATUS oobe_get_terms( void *args )
         return STATUS_SUCCESS;
     }
 
-    while ((n = read( fd, text_buf + total, text_capacity - 1 - total )) > 0)
+    while ((n = oobe_read_retry( fd, text_buf + total, text_capacity - 1 - total )) > 0)
     {
         total += n;
         if (total >= text_capacity - 1)
         {
             size_t new_cap = text_capacity * 2;
-            char *new_buf = realloc( text_buf, new_cap );
+            char *new_buf;
+            if (new_cap > 2 * 1024 * 1024) break; /* Bounded max document size: 2MB */
+            new_buf = realloc( text_buf, new_cap );
             if (!new_buf) break;
             text_buf = new_buf;
             text_capacity = new_cap;
@@ -1785,18 +1822,32 @@ static NTSTATUS oobe_get_terms( void *args )
         if (nl)
         {
             *nl = '\0';
-            sscanf( text_buf + 3, "%64s", params->sha256 );
-            terms = nl + 1;
-            len = strlen( terms ) + 1;
-            params->needed = len;
-            if (!params->buffer || params->size < len)
+            if (sscanf( text_buf + 3, "%64s %lu", params->sha256, &expected_bytes ) >= 1)
             {
-                params->err = ERROR_MORE_DATA;
+                terms = nl + 1;
+                len = strlen( terms );
+                /* If byte count was provided in frame, verify complete document was received */
+                if (expected_bytes > 0 && len < expected_bytes)
+                {
+                    params->err = ERROR_INVALID_DATA;
+                }
+                else
+                {
+                    params->needed = len + 1;
+                    if (!params->buffer || params->size < len + 1)
+                    {
+                        params->err = ERROR_MORE_DATA;
+                    }
+                    else
+                    {
+                        memcpy( (void *)(ULONG_PTR)params->buffer, terms, len + 1 );
+                        params->err = ERROR_SUCCESS;
+                    }
+                }
             }
             else
             {
-                memcpy( (void *)(ULONG_PTR)params->buffer, terms, len );
-                params->err = ERROR_SUCCESS;
+                params->err = ERROR_GEN_FAILURE;
             }
         }
         else
@@ -1827,7 +1878,7 @@ static NTSTATUS oobe_install( void *args )
     }
 
     snprintf( cmd, sizeof(cmd), "INSTALL %s %s\n", params->verb, params->sha256 );
-    if (write( fd, cmd, strlen(cmd) ) < 0)
+    if (!oobe_write_all( fd, cmd, strlen(cmd) ))
     {
         close( fd );
         params->err = ERROR_GEN_FAILURE;
@@ -1835,7 +1886,7 @@ static NTSTATUS oobe_install( void *args )
     }
     shutdown( fd, SHUT_WR );
 
-    while (total < sizeof(reply) - 1 && (n = read( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
+    while (total < sizeof(reply) - 1 && (n = oobe_read_retry( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
         total += n;
     reply[total] = '\0';
     close( fd );
@@ -1868,7 +1919,7 @@ static NTSTATUS oobe_get_receipts( void *args )
         return STATUS_SUCCESS;
     }
 
-    if (write( fd, "GET_RECEIPTS\n", 13 ) < 0)
+    if (!oobe_write_all( fd, "GET_RECEIPTS\n", 13 ))
     {
         close( fd );
         params->err = ERROR_GEN_FAILURE;
@@ -1876,7 +1927,7 @@ static NTSTATUS oobe_get_receipts( void *args )
     }
     shutdown( fd, SHUT_WR );
 
-    while (total < sizeof(buffer) - 1 && (n = read( fd, buffer + total, sizeof(buffer) - 1 - total )) > 0)
+    while (total < sizeof(buffer) - 1 && (n = oobe_read_retry( fd, buffer + total, sizeof(buffer) - 1 - total )) > 0)
         total += n;
     buffer[total] = '\0';
     close( fd );

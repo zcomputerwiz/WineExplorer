@@ -255,11 +255,11 @@ class ComponentsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'exit 42'):
                     components.install('vcrun2022', 'sha')
             install = next(call for call in calls if 'winetricks' in ' '.join(call[0]))
-            self.assertEqual(install[0], ['/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks', '-q', '-f', 'vcrun2022'])
+            self.assertEqual(install[0], ['/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks', '-q', 'vcrun2022'])
             self.assertEqual(install[1]['env']['WINEPREFIX'], str(machine))
             self.assertEqual(install[1]['env']['WINEDLLOVERRIDES'], 'winemenubuilder.exe=d')
             self.assertNotIn('DISPLAY', install[1]['env'])
-            self.assertFalse((machine.parent / 'component-receipts/vcrun2022.sha256').exists())
+            self.assertFalse((machine.parent / 'component-receipts/vcrun2022').exists())
 
 
 class PackagingTests(unittest.TestCase):
@@ -298,6 +298,7 @@ class OobeCoordinatorTests(unittest.TestCase):
             'WEX_OOBE_STAGE_FILE': str(self.stage_file),
         }).start()
         patch.object(components.os, 'getuid', return_value=0).start()
+        patch.object(components.pwd, 'getpwnam', return_value=unittest.mock.Mock(pw_uid=1000)).start()
         self.coord_thread = None
 
     def tearDown(self):
@@ -305,9 +306,9 @@ class OobeCoordinatorTests(unittest.TestCase):
             self.stage_file.write_text('done\n', encoding='ascii')
         if self.sock_path.exists():
             try:
-                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                s.connect(str(self.sock_path))
-                s.close()
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                    s.settimeout(0.5)
+                    s.connect(str(self.sock_path))
             except OSError:
                 pass
         if self.coord_thread and self.coord_thread.is_alive():
@@ -323,36 +324,41 @@ class OobeCoordinatorTests(unittest.TestCase):
         self.assertTrue(self.sock_path.exists(), 'Coordinator socket did not appear')
 
     def send_request(self, command_str):
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(3.0)
-        connected = False
-        for _ in range(30):
-            try:
-                sock.connect(str(self.sock_path))
-                connected = True
-                break
-            except OSError:
-                time.sleep(0.05)
-        if not connected:
-            sock.connect(str(self.sock_path))
-        sock.sendall((command_str.strip() + '\n').encode('utf-8'))
-        response = b''
-        while True:
-            try:
-                chunk = sock.recv(4096)
-                if not chunk:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(3.0)
+            connected = False
+            for _ in range(30):
+                try:
+                    sock.connect(str(self.sock_path))
+                    connected = True
                     break
-                response += chunk
-            except (socket.timeout, ConnectionResetError):
-                break
-        sock.close()
-        return response.decode('utf-8')
+                except OSError:
+                    time.sleep(0.05)
+            if not connected:
+                sock.connect(str(self.sock_path))
+            sock.sendall((command_str.strip() + '\n').encode('utf-8'))
+            response = b''
+            while True:
+                try:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                except (socket.timeout, ConnectionResetError):
+                    break
+            return response.decode('utf-8')
 
     def test_coordinator_requires_root(self):
         patch.stopall()
         with patch.object(components.os, 'getuid', return_value=1000):
             with self.assertRaises(PermissionError):
                 components.oobe_coordinator()
+
+    def test_coordinator_fails_closed_when_wexsetup_missing(self):
+        with patch.object(components.pwd, 'getpwnam', side_effect=KeyError('wexsetup')):
+            with self.assertRaises(RuntimeError) as ctx:
+                components.oobe_coordinator()
+            self.assertIn('wexsetup', str(ctx.exception))
 
     def test_coordinator_requires_active_oobe_stage(self):
         self.stage_file.write_text('finished\n', encoding='ascii')
@@ -388,6 +394,12 @@ class OobeCoordinatorTests(unittest.TestCase):
             self.assertTrue(resp.startswith('ERR'))
             self.assertIn('Network unreachable', resp)
 
+    def test_get_terms_rejects_disabled_component(self):
+        self.start_coordinator()
+        resp = self.send_request('GET_TERMS physx')
+        self.assertTrue(resp.startswith('ERR'))
+        self.assertIn('disabled', resp)
+
     def test_install_rejects_terms_mismatch(self):
         self.start_coordinator()
         with patch.object(components, 'license_text', return_value=('license terms', 'actual_sha256')):
@@ -395,7 +407,20 @@ class OobeCoordinatorTests(unittest.TestCase):
             self.assertTrue(resp.startswith('ERR'))
             self.assertIn('terms changed', resp)
 
-    def test_install_success_creates_receipt(self):
+    def test_install_rejects_expired_stage_after_connection(self):
+        self.start_coordinator()
+        fake_sha = 'a' * 64
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(3.0)
+            sock.connect(str(self.sock_path))
+            # Invalidate stage file after connection is established
+            self.stage_file.write_text('finished\n', encoding='ascii')
+            sock.sendall(f'INSTALL corefonts {fake_sha}\n'.encode('utf-8'))
+            resp = sock.recv(1024).decode('utf-8')
+            self.assertTrue(resp.startswith('ERR'))
+            self.assertIn('expired', resp)
+
+    def test_coordinator_dispatches_install_on_valid_request(self):
         self.start_coordinator()
         fake_sha = 'a' * 64
         with patch.object(components, 'install') as install_mock:
@@ -403,12 +428,59 @@ class OobeCoordinatorTests(unittest.TestCase):
             self.assertEqual(resp.strip(), 'OK')
             install_mock.assert_called_once_with('corefonts', fake_sha)
 
+    def test_install_creates_receipt_on_success(self):
+        fake_sha = 'b' * 64
+        with tempfile.TemporaryDirectory(prefix='wex-receipt-test-') as test_dir:
+            test_path = Path(test_dir)
+            machine_dir = test_path / 'machine-prefix'
+            machine_dir.mkdir(parents=True, exist_ok=True)
+            cache_dir = test_path / 'cache'
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+            with patch.object(components, 'MACHINE', machine_dir), \
+                 patch.object(components, 'CACHE', cache_dir), \
+                 patch.object(components, 'license_text', return_value=('dummy terms', fake_sha)), \
+                 patch.object(components, 'protect_builtins', return_value=nullcontext()), \
+                 patch.object(components.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)):
+                components.install('corefonts', fake_sha)
+                receipt_file = test_path / 'component-receipts' / 'corefonts.sha256'
+                self.assertTrue(receipt_file.is_file(), 'Receipt file was not created')
+                self.assertEqual(receipt_file.read_text(encoding='ascii').strip(), fake_sha)
+
     def test_coordinator_rejects_unauthorized_uid(self):
         with patch.object(components.pwd, 'getpwnam', return_value=unittest.mock.Mock(pw_uid=1000)), \
              patch.object(components.struct, 'unpack', return_value=(1234, 1001, 1001)):
             self.start_coordinator()
             resp = self.send_request('GET_COMPONENTS')
             self.assertEqual(resp, '')
+
+
+class CatalogParserTests(unittest.TestCase):
+    def test_catalog_contains_six_distinct_components_in_order(self):
+        expected_verbs = ['vcrun2022', 'corefonts', 'tahoma', 'd3dcompiler_47', 'xact', 'physx']
+        actual_verbs = list(components.COMPONENTS_METADATA.keys())
+        self.assertEqual(actual_verbs, expected_verbs)
+
+    def test_disabled_components_have_explicit_reasons(self):
+        self.assertTrue(components.COMPONENTS_METADATA['vcrun2022']['disabled'])
+        self.assertIn('hash mismatch', components.COMPONENTS_METADATA['vcrun2022']['disabled_reason'])
+        self.assertTrue(components.COMPONENTS_METADATA['physx']['disabled'])
+        self.assertIn('broken upstream', components.COMPONENTS_METADATA['physx']['disabled_reason'])
+
+    def test_active_components_are_not_disabled(self):
+        for v in ('corefonts', 'tahoma', 'd3dcompiler_47', 'xact'):
+            self.assertFalse(components.COMPONENTS_METADATA[v].get('disabled', False))
+
+    def test_catalog_row_formatting(self):
+        for verb, meta in components.COMPONENTS_METADATA.items():
+            reb = '1' if meta['reboot'] else '0'
+            dis = '1' if meta.get('disabled') else '0'
+            dis_reason = meta.get('disabled_reason', '')
+            row = f"{verb}\t{meta['title']}\t{meta['publisher']}\t{meta['description']}\t{meta['size']}\t{reb}\t0\t{dis}\t{dis_reason}"
+            parts = row.split('\t')
+            self.assertEqual(len(parts), 9)
+            self.assertEqual(parts[0], verb)
+            self.assertTrue(len(parts[1]) > 0)
 
 
 if __name__ == '__main__':

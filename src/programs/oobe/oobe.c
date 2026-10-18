@@ -50,7 +50,10 @@ typedef struct {
     bool installed;
     bool checked;
     bool accepted;
+    bool disabled;
+    char disabled_reason[128];
     char sha256[65];
+    char accepted_sha256[65];
 } OobeComponentItem;
 
 typedef struct {
@@ -327,44 +330,103 @@ static INT_PTR CALLBACK OobeConnectivityProc(HWND hwnd, UINT uMsg, WPARAM wParam
     return FALSE;
 }
 
-static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+typedef struct {
+    HWND hwnd;
+    OobeComponentItem *comp;
+    char candidate_sha256[65];
+    char *terms_text;
+    DWORD err;
+    HANDLE hThread;
+} TermsFetchContext;
+
+static DWORD WINAPI TermsFetchThread(LPVOID lpParam)
 {
-    static OobeComponentItem *s_comp = NULL;
-    switch (uMsg) {
-        case WM_INITDIALOG: {
-            s_comp = (OobeComponentItem *)lParam;
-            if (s_comp) {
-                char title[256];
-                DWORD needed = 0;
-                DWORD ret;
+    TermsFetchContext *ctx = (TermsFetchContext *)lpParam;
+    DWORD needed = 0;
+    DWORD ret;
 
-                snprintf(title, sizeof(title), "%s - Vendor License Agreement", s_comp->title);
-                SetWindowTextA(hwnd, title);
-                SetDlgItemTextA(hwnd, IDC_TERMS_TEXT, "Retrieving official vendor license terms over the network... Please wait.");
-                UpdateWindow(hwnd);
-
-                ret = WexOobeGetTerms(s_comp->verb, s_comp->sha256, sizeof(s_comp->sha256), NULL, 0, &needed);
-                if (ret == ERROR_MORE_DATA && needed > 0) {
-                    char *buf = malloc(needed + 1);
-                    if (buf) {
-                        ret = WexOobeGetTerms(s_comp->verb, s_comp->sha256, sizeof(s_comp->sha256), buf, needed + 1, &needed);
-                        if (ret == ERROR_SUCCESS) {
-                            SetDlgItemTextA(hwnd, IDC_TERMS_TEXT, buf);
-                            EnableWindow(GetDlgItem(hwnd, IDC_TERMS_AGREE), TRUE);
-                            if (s_comp->accepted)
-                                CheckDlgButton(hwnd, IDC_TERMS_AGREE, BST_CHECKED);
+    ret = WexOobeGetTerms(ctx->comp->verb, ctx->candidate_sha256, sizeof(ctx->candidate_sha256), NULL, 0, &needed);
+    if (ret == ERROR_MORE_DATA && needed > 0) {
+        char *buf = malloc(needed + 1);
+        if (buf) {
+            ret = WexOobeGetTerms(ctx->comp->verb, ctx->candidate_sha256, sizeof(ctx->candidate_sha256), buf, needed + 1, &needed);
+            if (ret == ERROR_SUCCESS) {
+                int wlen = MultiByteToWideChar(CP_UTF8, 0, buf, -1, NULL, 0);
+                if (wlen > 0) {
+                    WCHAR *wbuf = malloc(wlen * sizeof(WCHAR));
+                    if (wbuf) {
+                        int alen;
+                        MultiByteToWideChar(CP_UTF8, 0, buf, -1, wbuf, wlen);
+                        alen = WideCharToMultiByte(CP_ACP, 0, wbuf, -1, NULL, 0, NULL, NULL);
+                        if (alen > 0) {
+                            ctx->terms_text = malloc(alen + 1);
+                            if (ctx->terms_text) {
+                                WideCharToMultiByte(CP_ACP, 0, wbuf, -1, ctx->terms_text, alen + 1, NULL, NULL);
+                            }
                         }
-                        free(buf);
+                        free(wbuf);
                     }
                 }
-                if (ret != ERROR_SUCCESS) {
-                    SetDlgItemTextA(hwnd, IDC_TERMS_TEXT,
-                        "Unable to retrieve vendor license terms from official vendor source.\r\n\r\n"
-                        "Network connectivity may be offline or the vendor host is currently unreachable.\r\n\r\n"
-                        "You may click Cancel to return and skip this optional component.");
-                    EnableWindow(GetDlgItem(hwnd, IDC_TERMS_AGREE), FALSE);
+                if (!ctx->terms_text) {
+                    ctx->terms_text = buf;
+                    buf = NULL;
+                }
+            }
+            if (buf) free(buf);
+        } else {
+            ret = ERROR_NOT_ENOUGH_MEMORY;
+        }
+    }
+    ctx->err = ret;
+    if (IsWindow(ctx->hwnd)) {
+        PostMessageA(ctx->hwnd, WM_USER + 101, ret, 0);
+    }
+    return 0;
+}
+
+static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    TermsFetchContext *ctx = (TermsFetchContext *)GetWindowLongPtrA(hwnd, DWLP_USER);
+    switch (uMsg) {
+        case WM_INITDIALOG: {
+            OobeComponentItem *comp = (OobeComponentItem *)lParam;
+            char title[256];
+            ctx = calloc(1, sizeof(TermsFetchContext));
+            if (!ctx) {
+                EndDialog(hwnd, IDCANCEL);
+                return TRUE;
+            }
+            ctx->hwnd = hwnd;
+            ctx->comp = comp;
+            SetWindowLongPtrA(hwnd, DWLP_USER, (LONG_PTR)ctx);
+
+            snprintf(title, sizeof(title), "%s - Vendor License Agreement", comp->title);
+            SetWindowTextA(hwnd, title);
+            SetDlgItemTextA(hwnd, IDC_TERMS_TEXT, "Retrieving official vendor license terms over the network... Please wait.");
+            EnableWindow(GetDlgItem(hwnd, IDC_TERMS_AGREE), FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDOK), FALSE);
+
+            ctx->hThread = CreateThread(NULL, 0, TermsFetchThread, ctx, 0, NULL);
+            return TRUE;
+        }
+        case WM_USER + 101: {
+            if (ctx && ctx->err == ERROR_SUCCESS && ctx->terms_text) {
+                SetDlgItemTextA(hwnd, IDC_TERMS_TEXT, ctx->terms_text);
+                EnableWindow(GetDlgItem(hwnd, IDC_TERMS_AGREE), TRUE);
+                if (ctx->comp->accepted && strcmp(ctx->comp->accepted_sha256, ctx->candidate_sha256) == 0) {
+                    CheckDlgButton(hwnd, IDC_TERMS_AGREE, BST_CHECKED);
+                    EnableWindow(GetDlgItem(hwnd, IDOK), TRUE);
+                } else {
+                    CheckDlgButton(hwnd, IDC_TERMS_AGREE, BST_UNCHECKED);
                     EnableWindow(GetDlgItem(hwnd, IDOK), FALSE);
                 }
+            } else {
+                SetDlgItemTextA(hwnd, IDC_TERMS_TEXT,
+                    "Unable to retrieve vendor license terms from official vendor source.\r\n\r\n"
+                    "Network connectivity may be offline or the vendor host is currently unreachable.\r\n\r\n"
+                    "You may click Cancel to return and skip this optional component.");
+                EnableWindow(GetDlgItem(hwnd, IDC_TERMS_AGREE), FALSE);
+                EnableWindow(GetDlgItem(hwnd, IDOK), FALSE);
             }
             return TRUE;
         }
@@ -375,14 +437,28 @@ static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                 EnableWindow(GetDlgItem(hwnd, IDOK), agreed);
                 return TRUE;
             } else if (id == IDOK) {
-                if (s_comp) {
-                    s_comp->accepted = (IsDlgButtonChecked(hwnd, IDC_TERMS_AGREE) == BST_CHECKED);
+                if (ctx && ctx->comp && (IsDlgButtonChecked(hwnd, IDC_TERMS_AGREE) == BST_CHECKED)) {
+                    snprintf(ctx->comp->sha256, sizeof(ctx->comp->sha256), "%s", ctx->candidate_sha256);
+                    snprintf(ctx->comp->accepted_sha256, sizeof(ctx->comp->accepted_sha256), "%s", ctx->candidate_sha256);
+                    ctx->comp->accepted = true;
                 }
                 EndDialog(hwnd, IDOK);
                 return TRUE;
             } else if (id == IDCANCEL) {
                 EndDialog(hwnd, IDCANCEL);
                 return TRUE;
+            }
+            break;
+        }
+        case WM_DESTROY: {
+            if (ctx) {
+                if (ctx->hThread) {
+                    WaitForSingleObject(ctx->hThread, 500);
+                    CloseHandle(ctx->hThread);
+                }
+                if (ctx->terms_text) free(ctx->terms_text);
+                free(ctx);
+                SetWindowLongPtrA(hwnd, DWLP_USER, 0);
             }
             break;
         }
@@ -399,6 +475,110 @@ static void SetListCheckState(HWND hList, int idx, BOOL checked)
     SendMessageA(hList, LVM_SETITEMSTATE, (WPARAM)idx, (LPARAM)&lvi);
 }
 
+static void Utf8ToAnsi(const char *utf8_in, char *ansi_out, size_t out_max)
+{
+    WCHAR wbuf[1024];
+    if (!utf8_in || !ansi_out || out_max == 0) return;
+    MultiByteToWideChar(CP_UTF8, 0, utf8_in, -1, wbuf, ARRAYSIZE(wbuf));
+    WideCharToMultiByte(CP_ACP, 0, wbuf, -1, ansi_out, (int)out_max, NULL, NULL);
+    ansi_out[out_max - 1] = '\0';
+}
+
+static void ParseCatalogBuffer(const char *buf, OobeContext *ctx)
+{
+    const char *p = buf;
+    while (*p && ctx->component_count < 16) {
+        const char *line_end = strchr(p, '\n');
+        size_t line_len = line_end ? (size_t)(line_end - p) : strlen(p);
+        if (line_len > 0) {
+            char line[1024];
+            size_t copy_len = (line_len < sizeof(line) - 1) ? line_len : sizeof(line) - 1;
+            memcpy(line, p, copy_len);
+            line[copy_len] = '\0';
+            if (copy_len > 0 && line[copy_len - 1] == '\r') {
+                line[copy_len - 1] = '\0';
+            }
+            if (line[0] != '\0') {
+                char *cols[10];
+                int col_count = 0;
+                char *cursor = line;
+                cols[col_count++] = cursor;
+                while (*cursor && col_count < 10) {
+                    if (*cursor == '\t') {
+                        *cursor = '\0';
+                        cols[col_count++] = cursor + 1;
+                    }
+                    cursor++;
+                }
+                if (col_count >= 7 && cols[0][0] != '\0') {
+                    OobeComponentItem *item = &ctx->components[ctx->component_count];
+                    memset(item, 0, sizeof(*item));
+                    Utf8ToAnsi(cols[0], item->verb, sizeof(item->verb));
+                    Utf8ToAnsi(cols[1], item->title, sizeof(item->title));
+                    Utf8ToAnsi(cols[2], item->publisher, sizeof(item->publisher));
+                    Utf8ToAnsi(cols[3], item->description, sizeof(item->description));
+                    Utf8ToAnsi(cols[4], item->size, sizeof(item->size));
+                    item->reboot = (strcmp(cols[5], "1") == 0);
+                    item->installed = (strcmp(cols[6], "1") == 0);
+                    if (col_count >= 8) {
+                        item->disabled = (strcmp(cols[7], "1") == 0);
+                    }
+                    if (col_count >= 9) {
+                        Utf8ToAnsi(cols[8], item->disabled_reason, sizeof(item->disabled_reason));
+                    }
+                    item->checked = false;
+                    item->accepted = false;
+                    ctx->component_count++;
+                }
+            }
+        }
+        if (!line_end) break;
+        p = line_end + 1;
+    }
+}
+
+static void UpdateComponentDetails(HWND hwnd, int idx)
+{
+    char sbuf[64];
+    char desc_buf[512];
+    OobeComponentItem *comp;
+    if (idx < 0 || idx >= g_ctx.component_count) return;
+    comp = &g_ctx.components[idx];
+    if (comp->disabled) {
+        snprintf(desc_buf, sizeof(desc_buf), "%s\r\n\r\n[DISABLED: %s]", comp->description, comp->disabled_reason);
+    } else {
+        snprintf(desc_buf, sizeof(desc_buf), "%s", comp->description);
+    }
+    SetDlgItemTextA(hwnd, IDC_COMP_DESC, desc_buf);
+    snprintf(sbuf, sizeof(sbuf), "Size: %s", comp->size);
+    SetDlgItemTextA(hwnd, IDC_COMP_SIZE, sbuf);
+}
+
+static void ReviewComponentTerms(HWND hwnd, int idx)
+{
+    HWND hList = GetDlgItem(hwnd, IDC_COMP_LIST);
+    OobeComponentItem *comp;
+    INT_PTR res;
+    if (idx < 0 || idx >= g_ctx.component_count) return;
+    comp = &g_ctx.components[idx];
+    if (comp->disabled) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "%s is disabled:\n%s", comp->title, comp->disabled_reason);
+        MessageBoxA(hwnd, msg, "Component Unavailable", MB_OK | MB_ICONINFORMATION);
+        SetListCheckState(hList, idx, FALSE);
+        comp->checked = false;
+        return;
+    }
+    res = DialogBoxParamA(g_hInstance, MAKEINTRESOURCEA(IDD_OOBE_TERMS), hwnd, OobeTermsProc, (LPARAM)comp);
+    if (res == IDOK && comp->accepted) {
+        comp->checked = true;
+        SetListCheckState(hList, idx, TRUE);
+    } else {
+        comp->checked = false;
+        SetListCheckState(hList, idx, FALSE);
+    }
+}
+
 static void PopulateComponentsList(HWND hwnd)
 {
     HWND hList = GetDlgItem(hwnd, IDC_COMP_LIST);
@@ -407,7 +587,6 @@ static void PopulateComponentsList(HWND hwnd)
     DWORD ret;
     int i;
     LVCOLUMNA lvc;
-    char sbuf[64];
 
     SendMessageA(hList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT);
     memset(&lvc, 0, sizeof(lvc));
@@ -419,41 +598,23 @@ static void PopulateComponentsList(HWND hwnd)
     if (g_ctx.component_count == 0) {
         ret = WexOobeGetComponents(buffer, sizeof(buffer), &needed);
         if (ret == ERROR_SUCCESS) {
-            char *line = strtok(buffer, "\n");
-            while (line && g_ctx.component_count < 16) {
-                OobeComponentItem *item = &g_ctx.components[g_ctx.component_count];
-                char *verb = strtok(line, "\t");
-                char *title = strtok(NULL, "\t");
-                char *pub = strtok(NULL, "\t");
-                char *desc = strtok(NULL, "\t");
-                char *size = strtok(NULL, "\t");
-                char *reb = strtok(NULL, "\t");
-                char *inst = strtok(NULL, "\t");
-
-                if (verb && title) {
-                    snprintf(item->verb, sizeof(item->verb), "%s", verb);
-                    snprintf(item->title, sizeof(item->title), "%s", title);
-                    if (pub) snprintf(item->publisher, sizeof(item->publisher), "%s", pub);
-                    if (desc) snprintf(item->description, sizeof(item->description), "%s", desc);
-                    if (size) snprintf(item->size, sizeof(item->size), "%s", size);
-                    item->reboot = (reb && strcmp(reb, "1") == 0);
-                    item->installed = (inst && strcmp(inst, "1") == 0);
-                    item->checked = false;
-                    item->accepted = false;
-                    g_ctx.component_count++;
-                }
-                line = strtok(NULL, "\n");
-            }
+            ParseCatalogBuffer(buffer, &g_ctx);
         }
     }
 
     SendMessageA(hList, LVM_DELETEALLITEMS, 0, 0);
     for (i = 0; i < g_ctx.component_count; ++i) {
         LVITEMA lvi;
+        char item_text[160];
         memset(&lvi, 0, sizeof(lvi));
         lvi.mask = LVIF_TEXT | LVIF_PARAM;
         lvi.iItem = i;
-        lvi.pszText = g_ctx.components[i].title;
+        if (g_ctx.components[i].disabled) {
+            snprintf(item_text, sizeof(item_text), "%s (Disabled)", g_ctx.components[i].title);
+        } else {
+            snprintf(item_text, sizeof(item_text), "%s", g_ctx.components[i].title);
+        }
+        lvi.pszText = item_text;
         lvi.lParam = i;
         SendMessageA(hList, LVM_INSERTITEMA, 0, (LPARAM)&lvi);
         SetListCheckState(hList, i, g_ctx.components[i].checked ? TRUE : FALSE);
@@ -464,10 +625,60 @@ static void PopulateComponentsList(HWND hwnd)
         lvi.state = LVIS_SELECTED | LVIS_FOCUSED;
         lvi.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
         SendMessageA(hList, LVM_SETITEMSTATE, 0, (LPARAM)&lvi);
-        SetDlgItemTextA(hwnd, IDC_COMP_DESC, g_ctx.components[0].description);
-        snprintf(sbuf, sizeof(sbuf), "Size: %s", g_ctx.components[0].size);
-        SetDlgItemTextA(hwnd, IDC_COMP_SIZE, sbuf);
+        UpdateComponentDetails(hwnd, 0);
     }
+}
+
+typedef struct {
+    HWND hwnd;
+    HANDLE hThread;
+    volatile BOOL active;
+} InstallContext;
+
+static InstallContext g_install_ctx;
+
+static DWORD WINAPI InstallWorkerThread(LPVOID lpParam)
+{
+    HWND hwnd = (HWND)lpParam;
+    int i;
+
+    for (i = 0; i < g_ctx.component_count; ++i) {
+        OobeComponentItem *comp = &g_ctx.components[i];
+        if (comp->checked && !comp->installed) {
+            char smsg[256];
+            char err_buf[256];
+            DWORD ret;
+
+            memset(err_buf, 0, sizeof(err_buf));
+            snprintf(smsg, sizeof(smsg), "Installing %s... Please wait.", comp->title);
+            SetDlgItemTextA(hwnd, IDC_COMP_STATUS, smsg);
+
+            ret = WexOobeInstall(comp->verb, comp->accepted_sha256, err_buf, sizeof(err_buf));
+            if (ret == ERROR_SUCCESS) {
+                comp->installed = true;
+                g_ctx.installed_count++;
+            } else {
+                char prompt[512];
+                int c;
+
+                g_ctx.failed_count++;
+                snprintf(prompt, sizeof(prompt), "Failed to install %s:\n%s\n\nClick Retry to try again, or Cancel to continue without this component.",
+                         comp->title, err_buf[0] ? err_buf : "Installation error");
+                c = MessageBoxA(hwnd, prompt, "Installation Failure", MB_RETRYCANCEL | MB_ICONEXCLAMATION);
+                if (c == IDRETRY) {
+                    --i;
+                    g_ctx.failed_count--;
+                    continue;
+                }
+                comp->checked = false;
+                SetListCheckState(GetDlgItem(hwnd, IDC_COMP_LIST), i, FALSE);
+            }
+        }
+    }
+
+    g_install_ctx.active = FALSE;
+    PostMessageA(hwnd, WM_USER + 104, 0, 0);
+    return 0;
 }
 
 static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -477,21 +688,25 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
             PopulateComponentsList(hwnd);
             return TRUE;
         }
+        case WM_USER + 104: {
+            SetDlgItemTextA(hwnd, IDC_COMP_STATUS, "Installation finished.");
+            EnableWindow(GetDlgItem(hwnd, IDC_COMP_LIST), TRUE);
+            EnableWindow(GetDlgItem(hwnd, IDC_BTN_TERMS), TRUE);
+            SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
+            if (g_install_ctx.hThread) {
+                CloseHandle(g_install_ctx.hThread);
+                g_install_ctx.hThread = NULL;
+            }
+            PostMessageA(GetParent(hwnd), PSM_PRESSBUTTON, (WPARAM)PSBTN_NEXT, 0);
+            return TRUE;
+        }
         case WM_COMMAND: {
             WORD id = LOWORD(wParam);
             if (id == IDC_BTN_TERMS) {
                 HWND hList = GetDlgItem(hwnd, IDC_COMP_LIST);
                 int sel = (int)SendMessageA(hList, LVM_GETNEXTITEM, -1, MAKELPARAM(LVNI_SELECTED, 0));
                 if (sel >= 0 && sel < g_ctx.component_count) {
-                    OobeComponentItem *comp = &g_ctx.components[sel];
-                    INT_PTR res = DialogBoxParamA(g_hInstance, MAKEINTRESOURCEA(IDD_OOBE_TERMS), hwnd, OobeTermsProc, (LPARAM)comp);
-                    if (res == IDOK && comp->accepted) {
-                        comp->checked = true;
-                        SetListCheckState(hList, sel, TRUE);
-                    } else if (!comp->accepted) {
-                        comp->checked = false;
-                        SetListCheckState(hList, sel, FALSE);
-                    }
+                    ReviewComponentTerms(hwnd, sel);
                 } else {
                     MessageBoxA(hwnd, "Please select a component from the list to review its terms.", "No Component Selected", MB_OK | MB_ICONINFORMATION);
                 }
@@ -502,28 +717,41 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
-                SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
+                if (g_install_ctx.active) {
+                    SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, 0);
+                } else {
+                    SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
+                }
                 return TRUE;
             } else if (pnmh->idFrom == IDC_COMP_LIST && pnmh->code == LVN_ITEMCHANGED) {
                 LPNMLISTVIEW pnmv = (LPNMLISTVIEW)lParam;
                 if (pnmv->uChanged & LVIF_STATE) {
                     if (pnmv->uNewState & LVIS_SELECTED) {
                         int idx = (int)pnmv->lParam;
-                        if (idx >= 0 && idx < g_ctx.component_count) {
-                            char sbuf[64];
-                            SetDlgItemTextA(hwnd, IDC_COMP_DESC, g_ctx.components[idx].description);
-                            snprintf(sbuf, sizeof(sbuf), "Size: %s", g_ctx.components[idx].size);
-                            SetDlgItemTextA(hwnd, IDC_COMP_SIZE, sbuf);
-                        }
+                        UpdateComponentDetails(hwnd, idx);
                     }
                     if ((pnmv->uNewState & 0x3000) != (pnmv->uOldState & 0x3000)) {
                         BOOL checked = ((pnmv->uNewState & 0x2000) != 0);
-                        int idx = (int)pnmv->lParam;
+                        int idx = pnmv->iItem;
                         if (idx >= 0 && idx < g_ctx.component_count) {
-                            if (checked && !g_ctx.components[idx].accepted && !g_ctx.components[idx].installed) {
-                                PostMessageA(hwnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_TERMS, BN_CLICKED), 0);
+                            if (checked) {
+                                if (g_ctx.components[idx].disabled) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg), "%s is disabled:\n%s",
+                                             g_ctx.components[idx].title, g_ctx.components[idx].disabled_reason);
+                                    MessageBoxA(hwnd, msg, "Component Unavailable", MB_OK | MB_ICONINFORMATION);
+                                    SetListCheckState(GetDlgItem(hwnd, IDC_COMP_LIST), idx, FALSE);
+                                } else if (!g_ctx.components[idx].accepted && !g_ctx.components[idx].installed) {
+                                    ReviewComponentTerms(hwnd, idx);
+                                } else {
+                                    g_ctx.components[idx].checked = true;
+                                }
                             } else {
-                                g_ctx.components[idx].checked = checked;
+                                if (g_ctx.components[idx].installed) {
+                                    SetListCheckState(GetDlgItem(hwnd, IDC_COMP_LIST), idx, TRUE);
+                                } else {
+                                    g_ctx.components[idx].checked = false;
+                                }
                             }
                         }
                     }
@@ -531,6 +759,10 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
             } else if (pnmh->code == PSN_WIZNEXT) {
                 int i;
                 bool any_to_install = false;
+                if (g_install_ctx.active) {
+                    SetWindowLongPtrA(hwnd, DWLP_MSGRESULT, -1);
+                    return TRUE;
+                }
                 for (i = 0; i < g_ctx.component_count; ++i) {
                     if (g_ctx.components[i].checked && !g_ctx.components[i].installed) {
                         if (!g_ctx.components[i].accepted) {
@@ -545,56 +777,23 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
                     SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, 0);
                     EnableWindow(GetDlgItem(hwnd, IDC_COMP_LIST), FALSE);
                     EnableWindow(GetDlgItem(hwnd, IDC_BTN_TERMS), FALSE);
-
-                    for (i = 0; i < g_ctx.component_count; ++i) {
-                        OobeComponentItem *comp = &g_ctx.components[i];
-                        if (comp->checked && !comp->installed) {
-                            char smsg[256];
-                            char err_buf[256];
-                            DWORD ret;
-
-                            memset(err_buf, 0, sizeof(err_buf));
-                            snprintf(smsg, sizeof(smsg), "Installing %s... Please wait.", comp->title);
-                            SetDlgItemTextA(hwnd, IDC_COMP_STATUS, smsg);
-                            UpdateWindow(hwnd);
-
-                            ret = WexOobeInstall(comp->verb, comp->sha256, err_buf, sizeof(err_buf));
-                            if (ret == ERROR_SUCCESS) {
-                                comp->installed = true;
-                                g_ctx.installed_count++;
-                            } else {
-                                char prompt[512];
-                                int c;
-
-                                g_ctx.failed_count++;
-                                snprintf(prompt, sizeof(prompt), "Failed to install %s:\n%s\n\nClick Retry to try again, or Cancel to continue without this component.",
-                                         comp->title, err_buf[0] ? err_buf : "Installation error");
-                                c = MessageBoxA(hwnd, prompt, "Installation Failure", MB_RETRYCANCEL | MB_ICONEXCLAMATION);
-                                if (c == IDRETRY) {
-                                    --i;
-                                    g_ctx.failed_count--;
-                                    continue;
-                                }
-                                comp->checked = false;
-                                SetListCheckState(GetDlgItem(hwnd, IDC_COMP_LIST), i, FALSE);
-                            }
-                        }
-                    }
-                    SetDlgItemTextA(hwnd, IDC_COMP_STATUS, "Installation finished.");
-                    EnableWindow(GetDlgItem(hwnd, IDC_COMP_LIST), TRUE);
-                    EnableWindow(GetDlgItem(hwnd, IDC_BTN_TERMS), TRUE);
-                    SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)(PSWIZB_BACK | PSWIZB_NEXT));
+                    g_install_ctx.active = TRUE;
+                    g_install_ctx.hwnd = hwnd;
+                    g_install_ctx.hThread = CreateThread(NULL, 0, InstallWorkerThread, hwnd, 0, NULL);
+                    SetWindowLongPtrA(hwnd, DWLP_MSGRESULT, -1);
+                    return TRUE;
                 }
 
+                g_ctx.installed_count = 0;
                 g_ctx.skipped_count = 0;
                 g_ctx.declined_count = 0;
                 for (i = 0; i < g_ctx.component_count; ++i) {
-                    if (!g_ctx.components[i].installed) {
-                        if (g_ctx.components[i].checked && !g_ctx.components[i].accepted)
-                            g_ctx.declined_count++;
-                        else
-                            g_ctx.skipped_count++;
-                    }
+                    if (g_ctx.components[i].installed)
+                        g_ctx.installed_count++;
+                    else if (g_ctx.components[i].checked && !g_ctx.components[i].accepted)
+                        g_ctx.declined_count++;
+                    else
+                        g_ctx.skipped_count++;
                 }
             }
             break;
@@ -694,6 +893,10 @@ static INT_PTR CALLBACK OobeFinishProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
                 offset += snprintf(summary + offset, sizeof(summary) - offset,
                     "Optional components summary:\r\n  • Installed: %d\r\n  • Skipped / Not selected: %d\r\n",
                     g_ctx.installed_count, g_ctx.skipped_count);
+                if (g_ctx.declined_count > 0) {
+                    offset += snprintf(summary + offset, sizeof(summary) - offset,
+                        "  • Declined terms: %d\r\n", g_ctx.declined_count);
+                }
                 if (g_ctx.failed_count > 0) {
                     offset += snprintf(summary + offset, sizeof(summary) - offset,
                         "  • Failed: %d\r\n", g_ctx.failed_count);
