@@ -357,6 +357,30 @@ smoke without changing the production pin (REBASE.md).
   prompt only.
 - `dlls/shell32/dialogs.c` (Run dialog placement).
 
+## Token Security, Elevation & Chromium Compatibility (gemini/token-security)
+- `include/winnt.h`: Added definition for `SECURITY_CAPABILITIES`.
+- `dlls/kernelbase/process.c`: Added attribute length check for `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`; zeroed output buffer in `GetProcessMitigationPolicy` stub.
+- `server/protocol.def`:
+  - Extended `filter_token` with `disable_sids_size` and VARARG `restrict_sids`.
+  - Added request `create_lowbox_token` with `package_sid` and `capabilities`.
+  - Extended `get_token_groups` with `which_groups` selector (0=groups, 1=restricted SIDs).
+  - Added request `set_token_integrity_level`.
+  - Extended `get_token_info` reply with `integrity_rid`, `is_app_container`, `is_restricted`.
+- `server/token.c`:
+  - Added `integrity_rid`, `restricted_sids`, `app_container`, and `capabilities` to `struct token`.
+  - Implemented token filtering flags `DISABLE_MAX_PRIVILEGE`, `LUA_TOKEN`, and restricting SIDs storage.
+  - Implemented `create_lowbox_token` handler setting AppContainer SID, Low integrity (`0x1000`), and capabilities.
+  - Implemented `set_token_integrity_level` handler for setting token integrity labels.
+  - Implemented restricting SID intersection check in `token_access_check`.
+  - Implemented Mandatory Integrity Check (`SYSTEM_MANDATORY_LABEL_NO_WRITE_UP`, `NO_READ_UP`, `NO_EXECUTE_UP`) in `token_access_check` and `check_object_access`.
+- `dlls/ntdll/unix/security.c`:
+  - Implemented `NtCreateLowBoxToken` wineserver call.
+  - Extended `NtFilterToken` passing `restrict_sids` and `disable_sids_size`.
+  - Implemented `NtSetInformationToken(TokenIntegrityLevel)`.
+  - Implemented `NtQueryInformationToken` for `TokenIntegrityLevel`, `TokenAppContainerSid`, `TokenIsAppContainer`, `TokenIsRestricted`, `TokenHasRestrictions`, and `TokenRestrictedSids`.
+- `dlls/wow64/security.c`: Added WOW64 thunks for `NtCreateLowBoxToken` and 32-bit queries for `TokenIsRestricted`, `TokenHasRestrictions`, `TokenRestrictedSids`, and `TokenAppContainerSid`.
+- `dlls/advapi32/tests/security.c`: Added unit tests (`test_token_integrity_level_roundtrip`, `test_restricted_token_sids`, `test_lowbox_token`, `test_mandatory_integrity_access_check`, `test_restricted_token_access_check`) testing round-trip integrity queries, restricting SIDs, AppContainer LowBox creation, and Mandatory Integrity Check access evaluation.
+
 ## License headers
 
 `wexhost` now also provides `WexAppsList` / `WexAppsLaunch` through runtime-loaded GIO. `apps.c` handles freedesktop discovery and launching with the shell's Wine variables removed; both Start menu styles expose the entries. The X11 WM checks its running state under the connection lock so requests arriving during shutdown cannot use the closed connection. These are project additions, not changes to Proton or a shared prefix.

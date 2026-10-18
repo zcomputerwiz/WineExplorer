@@ -226,18 +226,28 @@ flowchart TD
     T4 --> T5["T5: Deferred Hardening Design (Linux Isolation Documentation)"]
 ```
 
-### Review Gate 1: Milestones T0 – T2
+### Review Gate 1: Milestones T0 – T2 (COMPLETE)
 1. **T1 (Token Representation):**
-   * Add `integrity_level`, `restricted_sids`, `mandatory_policy`, and `app_container` to `struct token`.
-   * Update `server/protocol.def` for `filter_token` to accept restricting SIDs and flags.
-   * Implement `NtCreateLowBoxToken` in wineserver returning a valid handle.
-   * Implement `TokenIntegrityLevel` and `TokenIsAppContainer` query/set in `ntdll`.
+   * Added `integrity_rid`, `restricted_sids`, and `app_container` to `struct token`.
+   * Extended `server/protocol.def` for `filter_token` with `disable_sids_size` and VARARG `restrict_sids`.
+   * Implemented `DISABLE_MAX_PRIVILEGE` and `LUA_TOKEN` in wineserver `filter_token`.
+   * Implemented `create_lowbox_token` in wineserver returning a valid handle, Low integrity (`0x1000`), AppContainer SID, and capabilities.
+   * Implemented `set_token_integrity_level` in wineserver.
+   * Implemented `NtQueryInformationToken` / `NtSetInformationToken` in `ntdll` and WOW64 thunks for `TokenIntegrityLevel`, `TokenAppContainerSid`, `TokenIsAppContainer`, `TokenIsRestricted`, `TokenHasRestrictions`, and `TokenRestrictedSids`.
 2. **T2 (Access Checks):**
-   * Implement Mandatory Integrity checking in `token_access_check`.
-   * Implement Restricting SID intersection checking.
-   * Add regression test suite in `dlls/advapi32/tests/security.c`.
+   * Implemented Mandatory Integrity Check (`SYSTEM_MANDATORY_LABEL_NO_WRITE_UP`, `NO_READ_UP`, `NO_EXECUTE_UP`) in `token_access_check` and `check_object_access`.
+   * Implemented Restricting SIDs intersection check in `token_access_check`.
+   * Added comprehensive unit test coverage in `dlls/advapi32/tests/security.c`:
+     * `test_token_integrity_level_roundtrip`: Verifies Medium $\to$ Low $\to$ Untrusted (`0`) round trips.
+     * `test_restricted_token_sids`: Verifies `TokenIsRestricted`, `TokenHasRestrictions`, and `TokenRestrictedSids` query buffers and group count.
+     * `test_lowbox_token`: Verifies `NtCreateLowBoxToken`, `TokenIsAppContainer` == 1, `TokenAppContainerSid`, and Low integrity RID.
+     * `test_mandatory_integrity_access_check`: Verifies that a Low-integrity impersonation token is granted `KEY_READ` but DENIED `KEY_WRITE` on a Medium-labeled object via `NO_WRITE_UP`.
+     * `test_restricted_token_access_check`: Verifies that restricting SIDs intersection denies access when the DACL does not match restricting SIDs, and grants access when restricting SIDs match.
+   * **Verification Results:**
+     * x86_64 PE test suite: **3,643 tests executed, 0 failures**.
+     * i386 (WOW64) PE test suite: **3,643 tests executed, 0 failures**.
 
-### Review Gate 2: Milestone T3
+### Review Gate 2: Milestone T3 (In Progress)
 * Manifest-driven elevation, `runas` integration with `wexhost` polkit consent dialog, full/limited token pairing, and `hProcess` lifecycle verification.
 
 ### Review Gate 3: Milestone T4
