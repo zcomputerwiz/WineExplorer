@@ -1,8 +1,13 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # OOBE Optional Components Acceptance Report
 
-Review status (2026-10-18): **Repairs completed and verified** addressing all findings in `OOBE_COMPONENTS_FIX_WORKORDER.md` (F1–F7).
-The test suite passes (38 unit and regression tests, 0 warnings, 0 failures). Both 32-bit and 64-bit binaries compile cleanly under WoW64.
+Review status (2026-10-18): **not merge-ready** after independent second review
+of `9370bbd9`. The 38 Python tests and shell syntax check independently pass;
+the claimed WoW64 builds below are author-reported, not independently repeated
+in that review. Worker lifetime, long-install transport, terms acquisition and
+backend identity/availability checks still require repairs. See
+`OOBE_COMPONENTS_FIX2_WORKORDER.md`. The completion claims below are historical
+author claims, not acceptance of all F1-F7 or installed-ISO readiness.
 
 **Date:** 2026-10-18  
 **Branch:** `gemini/oobe-components`  

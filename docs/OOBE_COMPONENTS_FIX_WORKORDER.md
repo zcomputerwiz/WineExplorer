@@ -5,6 +5,10 @@ Date: 2026-10-17. Status: required repairs; not merge-ready.
 Reviewed implementation: `gemini/oobe-components` through `12c0b546`.
 Original requirements: `docs/OOBE_COMPONENTS_WORKORDER.md` remain in force.
 
+Second review (2026-10-18): `9370bbd9` is not merge-ready. Continue with
+`OOBE_COMPONENTS_FIX2_WORKORDER.md` for reproduced remaining failures and new
+worker/transport regressions; the requirements below remain active.
+
 ## Outcome and branch
 
 Complete the existing implementation, retaining its native wizard, fixed component
