@@ -1,0 +1,25 @@
+{
+  "_license": "SPDX-License-Identifier: GPL-2.0-or-later",
+  "assets": [
+    ["Selawik_Release.zip", "https://github.com/microsoft/Selawik/releases/download/1.01/Selawik_Release.zip", "3f62c51e05e3b5a1e6241cf92a371f0be2ea1183aa87b30718bbd40832a8d423"],
+    ["wine-gecko-2.47.4-x86.msi", "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86.msi", "26cecc47706b091908f7f814bddb074c61beb8063318e9efc5a7f789857793d6"],
+    ["wine-gecko-2.47.4-x86_64.msi", "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86_64.msi", "e590b7d988a32d6aa4cf1d8aa3aa3d33766fdd4cf4c89c2dcc2095ecb28d066f"],
+    ["wine-mono-11.3.0-x86.msi", "https://dl.winehq.org/wine/wine-mono/11.3.0/wine-mono-11.3.0-x86.msi", "df2dfc1665c2511882e7cabd56eafd0c0a3d94e5a7e86f969277f6c189d418d3"],
+    ["dxvk-2.4.1.tar.gz", "https://github.com/doitsujin/dxvk/releases/download/v2.4.1/dxvk-2.4.1.tar.gz", "7b23db4e1386b5d9a3ec0d83daa8b06096b758639185c11a673373a5ae478d54"],
+    ["vkd3d-proton-2.13.tar.zst", "https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v2.13/vkd3d-proton-2.13.tar.zst", "f7163187a69e19b7c57d4e2f10ed627e75d6e93eef52d119378572d26a9ce33a"],
+    ["LICENSE-selawik", "https://raw.githubusercontent.com/microsoft/Selawik/b65ff9ce7c4673e75ec5c622924a6b6f61f2f876/LICENSE.txt", "77b7c2506d4efb22e09c8ccf10159f4956eab3ef7c007fef95de136bcf45300c"],
+    ["LICENSE-dxvk", "https://raw.githubusercontent.com/doitsujin/dxvk/v2.4.1/LICENSE", "a5cb1a6ded7d2d7e92d550ba28edd21be2d1d4044662b399887351023e30ce64"],
+    ["LICENSE-vkd3d", "https://raw.githubusercontent.com/HansKristian-Work/vkd3d-proton/v2.13/LICENSE", "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"],
+    ["COPYING-vkd3d", "https://raw.githubusercontent.com/HansKristian-Work/vkd3d-proton/v2.13/COPYING", "f51ad4bf5a3bd2b5f383fe28150b23d01e6f5d7b620b194150e7c6a620c43c1f"],
+    ["COPYING-mono", "https://raw.githubusercontent.com/wine-mono/wine-mono/wine-mono-11.3.0/COPYING", "0265443ffc97c9450dbcf402c2430bf9fe87d7a6c92d5d7684fcecfe749bf75d"],
+    ["LICENSE-mono", "https://raw.githubusercontent.com/wine-mono/mono/73610cc7350b7b51dd3bde3323a8ae28eaf5f7fc/LICENSE", "844242559dbdb96cb9cbe103b06c2bc8a349f19ad0b89d5c3cf830a8914333f6"],
+    ["LICENSE-mono-FNA","https://raw.githubusercontent.com/wine-mono/FNA/c36487f36ab67f66691132b9b178ed4ed1365d0a/licenses/LICENSE","9f59f590c7697491a8846391b73eea7cd6f47a7e3b7e512b17813e85f94964f6"],
+    ["LICENSE-mono-FNA-lzx","https://raw.githubusercontent.com/wine-mono/FNA/c36487f36ab67f66691132b9b178ed4ed1365d0a/licenses/lzxdecoder.LICENSE","7a53e82fccc27ee1934bcb009b0b2df01c43e42dc948a358023fdc754b907d9b"],
+    ["LICENSE-mono-FNA-monoxna","https://raw.githubusercontent.com/wine-mono/FNA/c36487f36ab67f66691132b9b178ed4ed1365d0a/licenses/monoxna.LICENSE","96fd21a0b6a9c3cd8ec3f6b3c263c7c99cd1a744b2c033c3b3dd3103337c4247"],
+    ["LICENSE-mono-FNA-NetStub","https://raw.githubusercontent.com/wine-mono/FNA.NetStub/68c0af20c386bf70c298a8df9154bd22c5f0ff88/LICENSE","37a7df8c152242a89e78aa1be1c2197817d314dba849f88c9e25bc904403465f"],
+    ["LICENSE-mono-monoDX","https://raw.githubusercontent.com/wine-mono/monoDX/7bf8e8f5ecdc6d920a89916b89db8a39d4de7279/LICENSE","23425ccde1db68adb23cd151e76edc0158f950d08f22b77fab659ceaf62786de"],
+    ["LICENSE-mono-winforms","https://raw.githubusercontent.com/wine-mono/winforms/d53511fb4bfd0b9a4e5cbfcf3f77eddcd4a8ecff/LICENSE.TXT","ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b"],
+    ["LICENSE-mono-winforms-dataviz","https://raw.githubusercontent.com/wine-mono/winforms-datavisualization/4e1ff0ff0529382d365e1f1632681febe04efb63/LICENSE.TXT","ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b"],
+    ["LICENSE-mono-wpf","https://raw.githubusercontent.com/wine-mono/wpf/9178bf7cb4d5d33dfd36f0611153c9f95a337595/LICENSE.TXT","ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b"]
+  ]
+}

@@ -6,13 +6,18 @@
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 export XDG_CURRENT_DESKTOP=WineExplorer
 export XDG_SESSION_DESKTOP=WineExplorer
-export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}winemenubuilder.exe=d"
 export WINEDEBUG="${WINEDEBUG:--all,err+all}"
 WINE="${WINE:-/usr/local/bin/wine}"
 
 # Called after the display backend is ready. Keep prefix-split policy shared.
 wex_prepare_prefix()
 {
+    # Restore the shared view before wineboot updates. Changes take effect only
+    # at login, never by replacing files underneath a running desktop.
+    if [ -x /usr/local/bin/wex-graphics ] && [ -d "$WINEPREFIX/.wex-graphics" ]; then
+        /usr/local/bin/wex-graphics vulkan restore || return 1
+    fi
     # Ensure the prefix exists from /etc/skel/.wine template if missing
     if [ ! -d "$WINEPREFIX" ] || [ ! -d "$WINEPREFIX/drive_c" ]; then
         if [ -d "/etc/skel/.wine" ]; then
@@ -74,5 +79,14 @@ wex_prepare_prefix()
             tname="$(basename "$theme_dir")"
             [ -e "$THEME_PREFIX_DIR/$tname" ] || cp -rf "$theme_dir" "$THEME_PREFIX_DIR/$tname" 2>/dev/null || true
         done
+    fi
+    if [ -x /usr/local/bin/wex-graphics ] && [ -d "$WINEPREFIX/.wex-graphics" ]; then
+        local graphics_overrides
+        if graphics_overrides=$(/usr/local/bin/wex-graphics vulkan prepare); then
+            [ -z "$graphics_overrides" ] || export WINEDLLOVERRIDES="$graphics_overrides;$WINEDLLOVERRIDES"
+        else
+            echo 'Vulkan preparation failed; retaining the shared Wine graphics view.' >&2
+            /usr/local/bin/wex-graphics vulkan restore || return 1
+        fi
     fi
 }

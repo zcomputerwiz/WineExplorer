@@ -15,6 +15,10 @@ The tree combines code under several compatible licenses. Every file keeps the n
 | Tela icon theme (Ubuntu Budgie fork of vinceliuice/Tela-icon-theme), the Recycle Bin of the Fluent icon pack | GPL-3.0 | Edited as listed in `docs/iconpacks/fluent.md`; the licence text ships beside the pack (`Icons/LICENSE-tela`). Because of it the built Fluent pack is GPL-3.0 as a whole. |
 | Font Awesome Free 7.3.1 (Fonticons, Inc.), the Americas earth used in the globes of the XP and Fluent icon packs (`assets/iconpacks/src/fontawesome/`) | CC BY 4.0 | Recoloured and scaled; attribution in `assets/iconpacks/src/fontawesome/LICENSE.txt` and in the packs' provenance (`docs/iconpacks/`). |
 | Project code written for WineExplorer | GPL-2.0-or-later for new files (`scripts/add-license.py` adds the header). Older project files carry an LGPL-2.1-or-later header, which is compatible and may stay. | |
+| Selawik 1.01 (Microsoft), optional open font payload | SIL Open Font License 1.1 | Full pinned OFL notice installed beside the fonts. Not Windows font binaries. |
+| Wine Gecko 2.47.4, offline runtime | MPL 2.0 and upstream third-party licenses | Complete embedded `license.html` and OpenH264 notice copied beside both MSI files. |
+| Wine Mono 11.3.0, offline runtime | MIT, LGPL, GPL and dependency-specific open licenses | Upstream COPYING, Mono's complete LICENSE and full copyleft terms installed beside the MSI. Audit dependency notices before distribution. |
+| DXVK 2.4.1 and vkd3d-proton 2.13, optional separate runtime DLLs | zlib/libpng and LGPL-2.1-or-later respectively | Full pinned upstream notices shipped beside the DLLs; off by default. |
 | Code and skins ported from Open-Shell (`src/dlls/wexshell/startskin.*`, `src/resources/startskins/`) | MIT (`src/resources/startskins/LICENSE`) | Copyright (c) 2009-2017 Ivo Beltchev, Copyright (c) 2017-2018 Open-Shell Team. Compatible with GPL-2.0-or-later. |
 
 A module that contains GPL code (for example `explorer.exe`, because of `alttab.c`) is distributed under the GPL as a

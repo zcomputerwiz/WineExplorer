@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<labwc_config>
+  <core><decoration>server</decoration></core>
+</labwc_config>

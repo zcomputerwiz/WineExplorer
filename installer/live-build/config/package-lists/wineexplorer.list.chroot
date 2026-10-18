@@ -60,3 +60,13 @@ fonts-noto-cjk
 fonts-ipafont-gothic
 fonts-ipafont-mincho
 fonts-unfonts-core
+
+# Optional component UI and opt-in graphics detection (no proprietary payloads)
+vulkan-tools
+winetricks
+cabextract
+zenity
+pkexec
+xvfb
+xauth
+python3

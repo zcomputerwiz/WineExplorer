@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+[Desktop Entry]
+Type=Application
+Name=Windows Components
+Comment=Review vendor terms and install optional shared redistributables
+Exec=/usr/local/bin/wex-components
+Icon=appwiz
+Terminal=false
+Categories=System;Settings;

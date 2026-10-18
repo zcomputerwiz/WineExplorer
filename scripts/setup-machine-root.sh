@@ -64,7 +64,7 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
         fi
         ensure_machine_prefix_links
 
-        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="winemenubuilder.exe=d" WINEDEBUG=-all \
             WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -i
         WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
         ensure_common_shell_dirs
@@ -72,7 +72,7 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
 else
     echo "Updating existing machine root at $MACHINE_ROOT..."
     ensure_machine_prefix_links
-    WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+    WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="winemenubuilder.exe=d" WINEDEBUG=-all \
         WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -u
     WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
     ensure_common_shell_dirs
@@ -97,6 +97,33 @@ fi
 if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
     mkdir -p "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna"
     cp -f "$WEX_LOCAL_LUNA" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" 2>/dev/null || true
+fi
+
+# Reapply our own font mappings on every update, without changing Wine's Tahoma.
+FONT_RES_DIR="${WEX_FONT_RES_DIR:-/usr/local/share/wineexplorer/fonts}"
+if [ ! -d "$FONT_RES_DIR" ]; then
+    FONT_RES_DIR="$(dirname "${BASH_SOURCE[0]}")/../src/resources/fonts"
+fi
+[ -f "$FONT_RES_DIR/font-substitutes.reg" ] && [ -f "$FONT_RES_DIR/font-links.txt" ] || {
+    echo "Required open font resources missing: $FONT_RES_DIR" >&2
+    exit 1
+}
+WINEPREFIX="$MACHINE_ROOT" WINEDLLOVERRIDES=winemenubuilder.exe=d \
+    /usr/local/bin/wine regedit.exe /S "$FONT_RES_DIR/font-substitutes.reg"
+WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
+mkdir -p "$MACHINE_ROOT/drive_c/windows/Fonts"
+while read -r font_name font_target; do
+    [[ -n "$font_name" && "$font_name" != \#* ]] || continue
+    [[ "$font_name" != */* && "$font_target" == /* ]] || { echo "Invalid font mapping" >&2; exit 1; }
+    if [ -f "$font_target" ]; then
+        ln -sfn "$font_target" "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name"
+    else
+        echo "Missing open font target (skipped): $font_target" >&2
+    fi
+done < "$FONT_RES_DIR/font-links.txt"
+if [ -f /usr/share/applications/wex-components.desktop ]; then
+    install -m644 /usr/share/applications/wex-components.desktop \
+        "$MACHINE_ROOT/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/Administrative Tools/Windows Components.desktop"
 fi
 
 # 2. Ensure permissions and POSIX default ACLs on machine root:

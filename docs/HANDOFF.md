@@ -109,3 +109,13 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 - [HANDOFF_2026-10-07.md](HANDOFF_2026-10-07.md): archived earlier handoff; contains superseded statements. Current code and topical docs take precedence.
 
 Commit work regularly at coherent boundaries. The desktop runtime decision above supersedes the old full-Proton migration plan.
+
+## Fonts/runtimes repair branch (2026-10-17)
+
+`codex/fonts-runtimes` rebuilds the useful parts of Gemini's proposal from
+reviewed master. See [FONTS_RUNTIMES.md](FONTS_RUNTIMES.md) for exact evidence,
+operational constraints and remaining merge gates. `wex-graphics vulkan
+on|off|status` is per-user and applies at next login; it never rewrites the
+shared DLLs. Windows Components authenticates through pkexec and requires the
+selected vendor's actual terms; missing terms disable installation. Do not
+confuse passing source-build smoke tests with fresh-ISO acceptance.
