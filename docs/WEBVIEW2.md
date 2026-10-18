@@ -1,5 +1,11 @@
 # WebView2 compatibility lab
 
+Current planning follow-up (2026-10-18): see `CHROMIUM_GRAPHICS_RESEARCH.md` for
+the checked graphics API/fallback assessment and reusable-source inventory, and
+`CHROMIUM_GRAPHICS_PLAN.md` for the staged implementation and acceptance plan.
+The results below are historical lab evidence, not a new hardware-acceleration
+or current-browser acceptance claim.
+
 The native C diagnostic host and Fixed Version runtime are installed in
 `/home/wineuser/webview2-lab` on WineExplorer-VM. WebView2 initializes and
 navigates. A separate Wine 11.19 test on ProtonExplorer-VM renders successfully
