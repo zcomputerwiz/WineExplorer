@@ -39,6 +39,8 @@
 #include <grp.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #ifdef SONAME_LIBDBUS_1
 # include <dlfcn.h>
 # include <dbus/dbus.h>
@@ -1650,6 +1652,257 @@ STUB( user_set_session, struct user_set_session_params )
 
 #endif
 
+static int oobe_connect( void )
+{
+    const char *sock_path = getenv( "WEX_OOBE_SOCKET" );
+    struct sockaddr_un addr;
+    size_t len;
+    int fd;
+
+    if (!sock_path || !*sock_path)
+        sock_path = "/run/wex-oobe/coordinator.sock";
+
+    fd = socket( AF_UNIX, SOCK_STREAM, 0 );
+    if (fd < 0) return -1;
+
+    memset( &addr, 0, sizeof(addr) );
+    addr.sun_family = AF_UNIX;
+    len = strlen( sock_path );
+    if (len >= sizeof(addr.sun_path)) len = sizeof(addr.sun_path) - 1;
+    memcpy( addr.sun_path, sock_path, len );
+    addr.sun_path[len] = '\0';
+
+    if (connect( fd, (struct sockaddr *)&addr, sizeof(addr) ) < 0)
+    {
+        close( fd );
+        return -1;
+    }
+    return fd;
+}
+
+static NTSTATUS oobe_get_components( void *args )
+{
+    struct oobe_components_params *params = args;
+    char buffer[4096];
+    ssize_t n, total = 0;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    if (write( fd, "GET_COMPONENTS\n", 15 ) < 0)
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    while (total < sizeof(buffer) - 1 && (n = read( fd, buffer + total, sizeof(buffer) - 1 - total )) > 0)
+        total += n;
+    buffer[total] = '\0';
+    close( fd );
+
+    if (strncmp( buffer, "OK\n", 3 ) == 0)
+    {
+        const char *data = buffer + 3;
+        DWORD len = strlen( data ) + 1;
+        params->needed = len;
+        if (!params->buffer || params->size < len)
+        {
+            params->err = ERROR_MORE_DATA;
+        }
+        else
+        {
+            memcpy( (void *)(ULONG_PTR)params->buffer, data, len );
+            params->err = ERROR_SUCCESS;
+        }
+    }
+    else
+    {
+        params->err = ERROR_GEN_FAILURE;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS oobe_get_terms( void *args )
+{
+    struct oobe_terms_params *params = args;
+    char cmd[128];
+    char *text_buf = NULL;
+    char *terms;
+    char *nl;
+    DWORD len;
+    size_t text_capacity = 65536;
+    size_t total = 0;
+    ssize_t n;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    snprintf( cmd, sizeof(cmd), "GET_TERMS %s\n", params->verb );
+    if (write( fd, cmd, strlen(cmd) ) < 0)
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    text_buf = malloc( text_capacity );
+    if (!text_buf)
+    {
+        close( fd );
+        params->err = ERROR_NOT_ENOUGH_MEMORY;
+        return STATUS_SUCCESS;
+    }
+
+    while ((n = read( fd, text_buf + total, text_capacity - 1 - total )) > 0)
+    {
+        total += n;
+        if (total >= text_capacity - 1)
+        {
+            size_t new_cap = text_capacity * 2;
+            char *new_buf = realloc( text_buf, new_cap );
+            if (!new_buf) break;
+            text_buf = new_buf;
+            text_capacity = new_cap;
+        }
+    }
+    text_buf[total] = '\0';
+    close( fd );
+
+    if (strncmp( text_buf, "OK ", 3 ) == 0)
+    {
+        nl = strchr( text_buf, '\n' );
+        if (nl)
+        {
+            *nl = '\0';
+            sscanf( text_buf + 3, "%64s", params->sha256 );
+            terms = nl + 1;
+            len = strlen( terms ) + 1;
+            params->needed = len;
+            if (!params->buffer || params->size < len)
+            {
+                params->err = ERROR_MORE_DATA;
+            }
+            else
+            {
+                memcpy( (void *)(ULONG_PTR)params->buffer, terms, len );
+                params->err = ERROR_SUCCESS;
+            }
+        }
+        else
+        {
+            params->err = ERROR_GEN_FAILURE;
+        }
+    }
+    else
+    {
+        params->err = ERROR_GEN_FAILURE;
+    }
+    free( text_buf );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS oobe_install( void *args )
+{
+    struct oobe_install_params *params = args;
+    char cmd[256];
+    char reply[512];
+    ssize_t n, total = 0;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    snprintf( cmd, sizeof(cmd), "INSTALL %s %s\n", params->verb, params->sha256 );
+    if (write( fd, cmd, strlen(cmd) ) < 0)
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    while (total < sizeof(reply) - 1 && (n = read( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
+        total += n;
+    reply[total] = '\0';
+    close( fd );
+
+    if (strncmp( reply, "OK", 2 ) == 0)
+    {
+        params->err = ERROR_SUCCESS;
+    }
+    else
+    {
+        params->err = 1603; /* ERROR_INSTALL_FAILURE */
+        if (strncmp( reply, "ERR ", 4 ) == 0)
+            snprintf( params->err_buf, sizeof(params->err_buf), "%s", reply + 4 );
+        else
+            snprintf( params->err_buf, sizeof(params->err_buf), "%s", reply );
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS oobe_get_receipts( void *args )
+{
+    struct oobe_receipts_params *params = args;
+    char buffer[1024];
+    ssize_t n, total = 0;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    if (write( fd, "GET_RECEIPTS\n", 13 ) < 0)
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    while (total < sizeof(buffer) - 1 && (n = read( fd, buffer + total, sizeof(buffer) - 1 - total )) > 0)
+        total += n;
+    buffer[total] = '\0';
+    close( fd );
+
+    if (strncmp( buffer, "OK", 2 ) == 0)
+    {
+        const char *data = (buffer[2] == ' ') ? (buffer + 3) : "";
+        DWORD len = strlen( data ) + 1;
+        params->needed = len;
+        if (!params->buffer || params->size < len)
+        {
+            params->err = ERROR_MORE_DATA;
+        }
+        else
+        {
+            memcpy( (void *)(ULONG_PTR)params->buffer, data, len );
+            params->err = ERROR_SUCCESS;
+        }
+    }
+    else
+    {
+        params->err = ERROR_GEN_FAILURE;
+    }
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -1712,6 +1965,10 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     tray_stop,
     tray_action,
     tray_menu,
+    oobe_get_components,
+    oobe_get_terms,
+    oobe_install,
+    oobe_get_receipts,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -1781,6 +2038,10 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     tray_stop,
     tray_action,
     tray_menu,
+    oobe_get_components,
+    oobe_get_terms,
+    oobe_install,
+    oobe_get_receipts,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif

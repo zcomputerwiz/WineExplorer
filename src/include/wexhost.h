@@ -344,6 +344,12 @@ DWORD WINAPI WexTrayStop(void);
 DWORD WINAPI WexTrayAction(DWORD token, DWORD action, INT x, INT y, INT value);
 DWORD WINAPI WexTrayGetMenu(DWORD token, INT root, WEX_TRAY_MENU *menu);
 
+/* OOBE Optional Components Coordinator */
+DWORD WINAPI WexOobeGetComponents( char *buffer, DWORD size, DWORD *needed );
+DWORD WINAPI WexOobeGetTerms( const char *verb, char *sha256, DWORD sha256_size, char *buffer, DWORD size, DWORD *needed );
+DWORD WINAPI WexOobeInstall( const char *verb, const char *sha256, char *err_buf, DWORD err_size );
+DWORD WINAPI WexOobeGetReceipts( char *buffer, DWORD size, DWORD *needed );
+
 #ifdef __cplusplus
 }
 #endif

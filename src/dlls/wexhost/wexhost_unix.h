@@ -165,6 +165,11 @@ extern BOOL tray_x11_action(struct tray_action_params *params);
 extern void tray_x11_stop(void);
 #endif
 
+struct oobe_components_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
+struct oobe_terms_params { char verb[32]; char sha256[65]; ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
+struct oobe_install_params { char verb[32]; char sha256[65]; char err_buf[256]; DWORD err; };
+struct oobe_receipts_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
+
 enum wexhost_funcs
 {
     unix_init,
@@ -227,6 +232,10 @@ enum wexhost_funcs
     unix_tray_stop,
     unix_tray_action,
     unix_tray_menu,
+    unix_oobe_get_components,
+    unix_oobe_get_terms,
+    unix_oobe_install,
+    unix_oobe_get_receipts,
     unix_funcs_count
 };
 

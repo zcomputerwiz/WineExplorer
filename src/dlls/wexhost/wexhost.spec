@@ -54,3 +54,7 @@
 @ stdcall WexTrayStop()
 @ stdcall WexTrayAction(long long long long long)
 @ stdcall WexTrayGetMenu(long long ptr)
+@ stdcall WexOobeGetComponents(ptr long ptr)
+@ stdcall WexOobeGetTerms(str ptr long ptr long ptr)
+@ stdcall WexOobeInstall(str str ptr long)
+@ stdcall WexOobeGetReceipts(ptr long ptr)

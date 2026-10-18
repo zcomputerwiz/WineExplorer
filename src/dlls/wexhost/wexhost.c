@@ -756,3 +756,56 @@ void WINAPI WexAgentStop( void )
     CloseHandle( agent_thread );
     agent_thread = NULL;
 }
+
+DWORD WINAPI WexOobeGetComponents( char *buffer, DWORD size, DWORD *needed )
+{
+    struct oobe_components_params params = {0};
+    if (needed) *needed = 0;
+    if (!buffer && size) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.buffer = (ULONG_PTR)buffer;
+    params.size = size;
+    WEXHOST_CALL( oobe_get_components, &params );
+    if (needed) *needed = params.needed;
+    return params.err;
+}
+
+DWORD WINAPI WexOobeGetTerms( const char *verb, char *sha256, DWORD sha256_size, char *buffer, DWORD size, DWORD *needed )
+{
+    struct oobe_terms_params params = {0};
+    if (needed) *needed = 0;
+    if (!verb || !*verb) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    lstrcpynA( params.verb, verb, sizeof(params.verb) );
+    params.buffer = (ULONG_PTR)buffer;
+    params.size = size;
+    WEXHOST_CALL( oobe_get_terms, &params );
+    if (sha256 && sha256_size) lstrcpynA( sha256, params.sha256, sha256_size );
+    if (needed) *needed = params.needed;
+    return params.err;
+}
+
+DWORD WINAPI WexOobeInstall( const char *verb, const char *sha256, char *err_buf, DWORD err_size )
+{
+    struct oobe_install_params params = {0};
+    if (!verb || !*verb || !sha256 || !*sha256) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    lstrcpynA( params.verb, verb, sizeof(params.verb) );
+    lstrcpynA( params.sha256, sha256, sizeof(params.sha256) );
+    WEXHOST_CALL( oobe_install, &params );
+    if (err_buf && err_size) lstrcpynA( err_buf, params.err_buf, err_size );
+    return params.err;
+}
+
+DWORD WINAPI WexOobeGetReceipts( char *buffer, DWORD size, DWORD *needed )
+{
+    struct oobe_receipts_params params = {0};
+    if (needed) *needed = 0;
+    if (!buffer && size) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.buffer = (ULONG_PTR)buffer;
+    params.size = size;
+    WEXHOST_CALL( oobe_get_receipts, &params );
+    if (needed) *needed = params.needed;
+    return params.err;
+}
