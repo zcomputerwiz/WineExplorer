@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # OOBE Optional Components Acceptance Report
 
+Review status (2026-10-17): **not merge-ready** at `12c0b546`. The implementation
+claims below are historical author-reported results, not full acceptance.
+Independent review reproduced catalog parsing, empty-cache install-later and
+stage-expiry failures and identified additional consent/terms/UI gaps. See
+`OOBE_COMPONENTS_FIX_WORKORDER.md` for required repairs and verification gates.
+
 **Date:** 2026-10-17  
 **Branch:** `gemini/oobe-components`  
 **Base Commit:** `a5945fdf`  

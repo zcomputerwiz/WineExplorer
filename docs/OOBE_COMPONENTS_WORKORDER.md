@@ -3,6 +3,10 @@
 
 Date: 2026-10-17. Status: ready for implementation, not implemented by this document.
 
+Review follow-up: the implementation through `12c0b546` is not merge-ready.
+`OOBE_COMPONENTS_FIX_WORKORDER.md` specifies the repairs and regression evidence
+required to complete this order; the original requirements below still apply.
+
 ## Outcome
 
 During Setup's Out-of-Box Experience, offer the user an optional, skippable
