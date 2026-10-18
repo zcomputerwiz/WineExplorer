@@ -1,7 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order (Codex): program elevation with a Vista-style prompt (UAC)
 
-Status: ready, 2026-10-17. Assignee: Codex, after `WAYLAND_POLISH_WORKORDER.md`.
+Status: historical input, 2026-10-17. The coordinated Gemini plan is now
+`TOKEN_SECURITY_WORKORDER.md`; it supersedes this assignment, sequencing,
+publication instructions and conflicting design claims. Retain the requirements
+below as background, not evidence of implementation or a proven security boundary.
 
 ## Goal
 
