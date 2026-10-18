@@ -93,6 +93,14 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertFalse(target.is_symlink())
         self.assertEqual(external.read_bytes(), b'builtin must not change')
 
+    def test_published_dll_keeps_shared_directory_group_policy(self):
+        for target, _ in c.runtime_artifact_paths(self.machine):
+            target.parent.chmod(0o2775)
+        self.repair()
+        for target, _ in c.runtime_artifact_paths(self.machine):
+            self.assertEqual(target.stat().st_mode & 0o777, 0o775)
+            self.assertEqual(target.stat().st_gid, target.parent.stat().st_gid)
+
     def test_changed_payload_rejected_before_extractor(self):
         (self.cache / 'vcrun2022/x86.exe').write_bytes(b'corrupt')
         with self.assertRaisesRegex(ValueError, 'package changed'):
@@ -132,6 +140,42 @@ class RuntimeArtifactTests(unittest.TestCase):
             receipt.write_text(json.dumps(record))
             next(c.runtime_artifact_paths(self.machine))[0].write_bytes(b'changed')
             self.assertFalse(c.is_installed('vcrun2022', machine=self.machine))
+
+
+class RuntimeDefaultsTests(unittest.TestCase):
+    header = 'WINE REGISTRY Version 2\n'
+
+    def test_missing_section_and_repeat_are_idempotent(self):
+        result = c.runtime_defaults_text(self.header)
+        self.assertIn(r'[Software\\Wine\\DllOverrides]', result)
+        self.assertIn('"msvcp140"="native,builtin"', result)
+        self.assertEqual(c.runtime_defaults_text(result), result)
+
+    def test_user_and_application_choices_are_preserved(self):
+        existing = (self.header + '\n' + r'[Software\\Wine\\DllOverrides]' + '\n'
+                    '"msvcp140"="builtin"\n"*vcruntime140"=""\n\n' +
+                    r'[Software\\Wine\\AppDefaults\\game.exe\\DllOverrides]' + '\n'
+                    '"concrt140"="builtin"\n')
+        result = c.runtime_defaults_text(existing)
+        self.assertIn('"msvcp140"="builtin"', result)
+        self.assertNotIn('"msvcp140"="native,builtin"', result)
+        self.assertNotIn('"vcruntime140"="native,builtin"', result)
+        self.assertTrue(result.endswith(r'[Software\\Wine\\AppDefaults\\game.exe\\DllOverrides]' +
+                                        '\n"concrt140"="builtin"\n'))
+
+    def test_unrelated_keys_and_values_unchanged(self):
+        existing = self.header + '\n[Unrelated]\n"Value"="keep exactly"\n'
+        self.assertTrue(c.runtime_defaults_text(existing).startswith(existing))
+
+    def test_case_insensitive_existing_override(self):
+        text = self.header + '\n' + r'[Software\\Wine\\DllOverrides]' + '\n"MSVCP140"="builtin"\n'
+        self.assertNotIn('"msvcp140"="native,builtin"', c.runtime_defaults_text(text))
+
+    def test_unsupported_or_ambiguous_hive_rejected(self):
+        for text in ('REGEDIT4\n', self.header + '\0', self.header +
+                     (r'[Software\\Wine\\DllOverrides]' + '\n') * 2):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                c.runtime_defaults_text(text)
 
 
 if __name__ == '__main__':

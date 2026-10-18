@@ -125,6 +125,25 @@ class TrustedCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'identity changed'):
             components.license_text('corefonts', self.directory)
 
+    def test_explicit_review_refreshes_stale_package_binding(self):
+        _, old_digest = self.prepare()
+        self.meta['recipe_files'] = [('CHANGED-PACKAGE.exe', 'a' * 64)]
+        with self.assertRaises(components.StaleTermsError):
+            components.license_text('corefonts', self.directory)
+        with patch.object(components.urllib.request, 'urlopen', return_value=self.response()) as network:
+            text, new_digest = components.prepare_terms('corefonts', self.directory)
+        self.assertEqual(network.call_count, 1)
+        self.assertEqual(text, self.text)
+        self.assertNotEqual(new_digest, old_digest)
+
+    def test_review_does_not_refresh_insecure_cached_path(self):
+        self.prepare()
+        (self.directory / 'corefonts.json').chmod(0o666)
+        with patch.object(components.urllib.request, 'urlopen') as network:
+            with self.assertRaisesRegex(ValueError, 'Insecure vendor license path'):
+                components.prepare_terms('corefonts', self.directory)
+            network.assert_not_called()
+
     def test_wrong_document_hash_writes_no_cache(self):
         self.meta['terms_sha256'] = '0' * 64
         with patch.object(components.urllib.request, 'urlopen', return_value=self.response()):

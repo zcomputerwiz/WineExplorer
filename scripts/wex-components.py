@@ -305,7 +305,11 @@ def repair_runtime_artifacts(machine, cache):
                 temporary = Path(out.name)
             try:
                 shutil.copyfile(source, temporary)
-                temporary.chmod(0o644)
+                # Respect the shared directory's sudo-group/default-ACL policy.
+                # A hardcoded 0644 mask would silently remove admin write access.
+                parent = target.parent.stat()
+                os.chown(temporary, -1, parent.st_gid)
+                temporary.chmod(stat.S_IMODE(parent.st_mode) & 0o777)
                 os.replace(temporary, target)
             finally:
                 temporary.unlink(missing_ok=True)
@@ -579,6 +583,10 @@ def extract_docx_terms(data):
         return text
 
 
+class StaleTermsError(ValueError):
+    """Trusted cached document no longer matches the reviewed package policy."""
+
+
 def fetch_vendor_terms(verb, directory=None):
     """Acquire authentic vendor terms over network and cache under directory."""
     directory = directory or TERMS
@@ -589,7 +597,12 @@ def fetch_vendor_terms(verb, directory=None):
 
     target = directory / (verb + '.json')
     if target.is_file():
-        return license_text(verb, directory)
+        try:
+            return license_text(verb, directory)
+        except StaleTermsError:
+            # A new explicit Review may refresh trusted but stale cached terms.
+            # Insecure ownership/paths still fail above, never taking this path.
+            pass
 
     terms_url = meta.get('terms_url')
     if not terms_url:
@@ -640,9 +653,6 @@ def prepare_terms(verb, directory=None):
     meta = COMPONENTS_METADATA.get(verb, {})
     if meta.get('disabled'):
         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
-    target = directory / (verb + '.json')
-    if target.is_file():
-        return license_text(verb, directory)
     return fetch_vendor_terms(verb, directory)
 
 
@@ -664,7 +674,7 @@ def license_text(verb, directory=None):
     if (record.get('schema') != 1 or record.get('component_identity') != component_identity(verb) or
             record.get('document_sha256') != meta.get('terms_sha256') or
             hashlib.sha256(text.encode()).hexdigest() != meta.get('terms_text_sha256')):
-        raise ValueError('Cached document/package identity changed; review required')
+        raise StaleTermsError('Cached document/package identity changed; review required')
     if len(text.strip()) < 500 or '\x00' in text:
         raise ValueError(f'Full vendor terms required for {verb}')
     return text, hashlib.sha256((component_identity(verb) + '\n' + text).encode()).hexdigest()
@@ -779,6 +789,12 @@ def is_installed(verb, accepted_digest=None, machine=None):
     json_file = receipts_dir / (verb + '.json')
     if json_file.is_file():
         try:
+            for path in (receipts_dir, json_file):
+                info = path.lstat()
+                if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+                    return False
+            if json_file.stat().st_size > 1024 * 1024:
+                return False
             data = json.loads(json_file.read_text(encoding='utf-8'))
             if (data.get('verb') == verb and
                 data.get('winetricks_sha256') == APPROVED_WINETRICKS_SHA256 and
@@ -809,6 +825,80 @@ def get_installed_receipts(machine=None):
         if is_installed(verb, machine=machine):
             installed.add(verb)
     return installed
+
+
+def runtime_defaults_text(text):
+    """Seed missing HKCU defaults in an idle Wine hive without launching Wine.
+
+    Keep existing global and application-specific choices byte-for-byte. Wine's
+    environment overrides retain their normal precedence; none are imposed here.
+    """
+    if not text.startswith('WINE REGISTRY Version 2') or '\0' in text:
+        raise ValueError('Unsupported user registry format')
+    lines = text.splitlines(keepends=True)
+    start, end, names = None, len(lines), set()
+    active = False
+    for index, line in enumerate(lines):
+        if line.startswith('['):
+            section = line[1:].split(']', 1)[0].casefold()
+            selected = section == r'Software\\Wine\\DllOverrides'.casefold()
+            if active:
+                end = index
+            if selected:
+                if start is not None:
+                    raise ValueError('Duplicate DLL override registry section')
+                start = index
+            active = selected
+        elif active:
+            value = re.match(r'^"([^"\\]*)"\s*=', line)
+            if value:
+                names.add(value[1].casefold().lstrip('*').removesuffix('.dll'))
+    wanted = sorted(set().union(*RUNTIME_ARTIFACTS.values()) - names)
+    if not wanted:
+        return text
+    additions = ''.join('"' + name + '"="native,builtin"\n' for name in wanted)
+    if start is None:
+        return text.rstrip('\n') + '\n\n' + r'[Software\\Wine\\DllOverrides]' + '\n' + additions
+    return ''.join(lines[:end]).rstrip('\n') + '\n' + additions + '\n' + ''.join(lines[end:])
+
+
+def apply_user_defaults():
+    """Login-only, unprivileged and idle-prefix operation; never a root installer."""
+    if os.getuid() == 0:
+        raise ValueError('Runtime user defaults must run as the interactive user')
+    if not is_installed('vcrun2022'):
+        return
+    prefix = Path(os.environ.get('WINEPREFIX', str(Path.home() / '.wine')))
+    registry = prefix / 'user.reg'
+    if prefix.is_symlink() or prefix.stat().st_uid != os.getuid():
+        raise ValueError('User prefix must be owned by the current user')
+    info = registry.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+        raise ValueError('User registry must be an owned regular file')
+    # Do not edit a live hive or start Wine's default desktop before Explorer.
+    environment = dict(os.environ, WINEPREFIX=str(prefix))
+    subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=2, check=True)
+    text = registry.read_text(encoding='utf-8')
+    updated = runtime_defaults_text(text)
+    if updated == text:
+        return
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=prefix,
+                                         prefix='.runtime-defaults-', delete=False) as out:
+            temporary = Path(out.name)
+            out.write(updated)
+            out.flush()
+            os.fsync(out.fileno())
+        shutil.copystat(registry, temporary)
+        current = registry.lstat()
+        if any(getattr(current, field) != getattr(info, field) for field in
+               ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')):
+            raise ValueError('User registry changed while preparing runtime defaults')
+        os.replace(temporary, registry)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def install(verb, accepted_digest):
@@ -907,7 +997,12 @@ def install(verb, accepted_digest):
         if verb == 'vcrun2022':
             verify_runtime_artifacts(MACHINE)
         receipt = MACHINE.parent / 'component-receipts'
-        receipt.mkdir(mode=0o700, exist_ok=True)
+        receipt.mkdir(mode=0o755, exist_ok=True)
+        if receipt.is_symlink() or receipt.stat().st_uid != 0 or receipt.stat().st_mode & 0o022:
+            raise ValueError('Untrusted component receipt directory')
+        # Receipts contain package identities, not license text, credentials or
+        # private operation details. Users need them to validate shared defaults.
+        receipt.chmod(0o755)
         receipt_data = {
             'verb': verb,
             'title': meta.get('title', verb),
@@ -925,6 +1020,7 @@ def install(verb, accepted_digest):
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=receipt,
                                          prefix='.' + verb, delete=False) as out:
             temporary_receipt = Path(out.name)
+            os.fchmod(out.fileno(), 0o644)
             json.dump(receipt_data, out, indent=2)
             out.write('\n')
             out.flush()
@@ -1306,10 +1402,13 @@ def main():
     parser.add_argument('--install', nargs=2, metavar=('VERB', 'ACCEPTED_SHA256'), help=argparse.SUPPRESS)
     parser.add_argument('--prepare-terms', metavar='VERB', help=argparse.SUPPRESS)
     parser.add_argument('--oobe-coordinator', action='store_true', help='Run OOBE setup coordinator daemon')
+    parser.add_argument('--apply-user-defaults', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('action', nargs='?', choices=['install', 'list'])
     parser.add_argument('verbs', nargs='*')
     args = parser.parse_args()
-    if args.oobe_coordinator:
+    if args.apply_user_defaults:
+        apply_user_defaults()
+    elif args.oobe_coordinator:
         oobe_coordinator()
     elif args.prepare_terms:
         prepare_terms(args.prepare_terms)

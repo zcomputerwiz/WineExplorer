@@ -62,6 +62,13 @@ wex_prepare_prefix()
         sleep 2
     fi
 
+    # Seed only missing native-runtime choices before starting the desktop. This
+    # helper refuses live hives and never launches Wine; user/app overrides win.
+    if [ -x /usr/local/bin/wex-components ]; then
+        /usr/local/bin/wex-components --apply-user-defaults || \
+            echo 'Runtime defaults could not be prepared; existing user settings retained.' >&2
+    fi
+
     # Install project-authored theme definitions without replacing user themes.
     # On split prefixes, themes are already installed in the shared machine root;
     # only copy for standalone/unlinked prefixes when windows directory is real and writable.

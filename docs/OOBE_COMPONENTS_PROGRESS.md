@@ -182,3 +182,71 @@ Additional failures/workarounds retained:
 
 VM and loopback-only test transfer service remain running for continuation.
 Private payloads and terms remain only in the owned lab, never in staged Git.
+
+## Shared-user runtime defaults and lab recovery
+
+The pinned Wine loader reads HKCU DLL overrides, not the maintenance account's
+settings as global defaults. The shared X11/Wayland login preparation now invokes
+an unprivileged helper before starting Explorer. It requires a current trusted
+receipt and all installed artifact hashes, refuses a live user hive, and seeds
+only missing HKCU runtime defaults offline. Existing global/wildcard/application
+choices and environment precedence are preserved. Repeating the helper is a
+no-op. It never starts Wine's default desktop or changes shared machine files.
+Audit receipts are root-owned, read-only-to-users metadata (0755 directory/0644
+JSON); no terms text, credentials or private operation details are published.
+
+Runtime replacement DLLs now inherit their shared directory's group/mode policy
+instead of hardcoding 0644, which would mask administrator-group write access.
+Explicit Review can also refresh a trusted stale terms cache after a package
+policy update, while insecure cache ownership/paths still fail without fetching.
+No changed cache can authorize installation before the newly bound text is
+reviewed/accepted.
+
+Real checks used a third complete backend install at
+`/root/wex-oobe-runtime-td6z6rk6`, then an independent shared-machine fixture at
+`/var/tmp/wex-oobe-shared-runtime-20261018`:
+
+- Alice UID1000/groups 27,100,1000 (administrator) and a NEW locked test account
+  oobetest UID1002/group1002 (limited) each used a new private split prefix at
+  their own `~/.wine-oobe-runtime-test`. Their existing prefixes were untouched.
+- Both accounts validated the real receipt and installed files, applied defaults
+  twice idempotently, and passed the original x86 and x64 load/function probes.
+  Only test winemenubuilder/Gecko/Mono suppression was in the environment; no
+  runtime load override was supplied there. Both DLL versions were 14.44.35211.0.
+- A before/after hash comparison of all shared system32/syswow64 DLLs passed.
+- Synthetic runtime/artifact/default tests: 14 passed. Terms/cache tests: 11
+  passed. Existing repair suite: 57 discovered/56 passed/one Wine-execution skip.
+
+These are integration-clone results, not fresh-image acceptance. All six catalog
+entries remain disabled pending that gate and the UI/backend/theme regressions.
+
+Retained failures and infrastructure changes:
+
+- Adding the defaults test class initially split an earlier receipt test, causing
+  `NameError: name 'record' is not defined`; restoring the lines to their method
+  fixed the fixture and all 14 tests passed.
+- WSL has no rg installed. A direct command containing `|` also lost quoting and
+  treated regex alternatives as shell commands (`DllOverrides/HKCU/CurrentUser:
+  command not found`). Python stdin reading the exact pinned source worked.
+  Repeated Windows literal path-glob searches likewise failed with error 123;
+  directory searches with `-g` filters are the working form.
+- The first split-user fixture returned Python exit120 without useful child
+  diagnostics. Capturing child stdout/stderr via pipes exposed actual
+  `OSError: [Errno 28] No space left on device` before a user prefix was created.
+  Repeated isolated installs/snapshots had filled the clone's 14.6 GiB root.
+- Its disk already had 20 GiB capacity. Only this clone's sole /dev/vda1 was
+  extended into existing free space: DOS label ae4e383f, start sector2048 unchanged,
+  size30720000 to41940992 sectors. The original table was printed before mutation.
+  sfdisk's live whole-table reread reported Device/resource busy; `partx --update
+  --nr 1 /dev/vda` updated the partition and online resize2fs succeeded. Root grew
+  to20 GiB with5.1 GiB available. No original VM/disk was resized or restarted.
+- `resize2fs -V` is not a supported version switch and printed usage; no filesystem
+  changed from that diagnostic. The later validated online resize was intentional.
+- The first independent configure warned that C++17 PE compilers and gettext
+  were missing, and listed optional media/device headers. Both MinGW C++ toolchains,
+  gettext and the missing GPU/media headers were installed. Reconfigure and rebuild
+  after the in-flight initial make are required before any full-build/ISO claim.
+
+The disposable VM, new locked account/test prefixes, loopback transfer server and
+isolated WoW64 build remain available for continuation. No proprietary payload or
+document was added to Git/ISO, and no other agent's worktree/build was modified.
