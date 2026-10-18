@@ -94,7 +94,7 @@ def assert_baseline_expectations(data: dict, arch: str) -> None:
     assert p2.get("composition_swapchain_hr") in ("0x80004001", "0x00000000"), f"[{arch}] Expected E_NOTIMPL or S_OK for composition swapchain"
 
     # Probe 3: Resource sharing checks
-    assert p3.get("create_fence_hr") == "0x80004001", f"[{arch}] Expected E_NOTIMPL for D3D11 fence in baseline"
+    assert p3.get("create_fence_hr") in ("0x80004001", "0x00000000"), f"[{arch}] Expected E_NOTIMPL or S_OK for D3D11 fence"
 
 
 def assert_g1_expectations(data: dict, arch: str) -> None:
@@ -133,6 +133,23 @@ def assert_g2_expectations(data: dict, arch: str) -> None:
     assert data.get("resize_succeeded") is True, f"[{arch}] G2 dynamic resize failed: {data}"
 
 
+def assert_g3_expectations(data: dict, arch: str) -> None:
+    """Verify Phase G3 shared resource and fence synchronization expectations."""
+    assert data.get("parent_device_created") is True, f"[{arch}] G3 parent device creation failed: {data}"
+    assert data.get("shared_texture_created") is True, f"[{arch}] G3 shared texture creation failed: {data}"
+    assert data.get("tex_shared_handle_created") is True, f"[{arch}] G3 texture NT handle creation failed: {data}"
+    assert data.get("cross_device_open_succeeded") is True, f"[{arch}] G3 cross-device texture open failed: {data}"
+    assert data.get("shared_fence_created") is True, f"[{arch}] G3 shared fence creation failed: {data}"
+    assert data.get("fence_shared_handle_created") is True, f"[{arch}] G3 fence NT handle creation failed: {data}"
+    assert data.get("child_spawned") is True, f"[{arch}] G3 child process spawn failed: {data}"
+    assert data.get("child_exit_code") == 0, f"[{arch}] G3 child process non-zero exit code: {data}"
+    assert data.get("child_render_verified") is True, f"[{arch}] G3 child render verification failed: {data}"
+    assert data.get("fence_wait_succeeded") is True, f"[{arch}] G3 fence wait failed: {data}"
+    assert data.get("fence_completed_value") == 1, f"[{arch}] G3 fence value != 1: {data}"
+    assert data.get("keyed_mutex_verified") is True, f"[{arch}] G3 keyed mutex acquire/release failed: {data}"
+    assert data.get("keyed_mutex_timeout_verified") is True, f"[{arch}] G3 keyed mutex timeout verification failed: {data}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -154,6 +171,12 @@ def main() -> int:
         help="Path to Phase G2 test_g2_dcomp_probe.cpp",
     )
     parser.add_argument(
+        "--source-g3",
+        type=Path,
+        default=Path(__file__).parent / "test_g3_sharing_probe.cpp",
+        help="Path to Phase G3 test_g3_sharing_probe.cpp",
+    )
+    parser.add_argument(
         "--output-json",
         type=Path,
         default=None,
@@ -166,7 +189,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    results = {"g0_baseline": {}, "g1_non_dcomp": {}, "g2_dcomp": {}}
+    results = {"g0_baseline": {}, "g1_non_dcomp": {}, "g2_dcomp": {}, "g3_sharing": {}}
     with tempfile.TemporaryDirectory(prefix="wex_graphics_probe_") as tmp_dir:
         tmp_path = Path(tmp_dir)
 
@@ -237,12 +260,33 @@ def main() -> int:
         results["g2_dcomp"]["i686"] = res_g2_32
         print(f"  [i686 G2]   Presented {res_g2_32['frames_presented']}/60 frames (FPS: {res_g2_32['fps']:.1f}), Retained Verified: {res_g2_32['retained_tree_verified']}, Resize: {res_g2_32['resize_succeeded']}")
 
+        # Phase G3: 64-bit Multi-Process Shared Resources & Fence Diagnostic Probe
+        exe_g3_64 = tmp_path / "g3_probe64.exe"
+        print("\n--- Phase G3: Multi-Process Shared Resources & Fence Synchronization Probes ---", flush=True)
+        print("Compiling x86_64 G3 probe with x86_64-w64-mingw32-g++...", flush=True)
+        compile_probe(args.source_g3, exe_g3_64, "x86_64-w64-mingw32-g++")
+        print("Executing x86_64 G3 probe (multi-process texture sharing, cross-device, monitored fence)...", flush=True)
+        res_g3_64 = run_probe(exe_g3_64, args.wine)
+        assert_g3_expectations(res_g3_64, "x86_64")
+        results["g3_sharing"]["x86_64"] = res_g3_64
+        print(f"  [x86_64 G3] Cross-Device Open: {res_g3_64['cross_device_open_succeeded']}, Child Render Verified: {res_g3_64['child_render_verified']}, Fence Value: {res_g3_64['fence_completed_value']}, Keyed Mutex Sync: {res_g3_64['keyed_mutex_verified']}")
+
+        # Phase G3: 32-bit Multi-Process Shared Resources & Fence Diagnostic Probe
+        exe_g3_32 = tmp_path / "g3_probe32.exe"
+        print("Compiling i686 G3 probe with i686-w64-mingw32-g++...", flush=True)
+        compile_probe(args.source_g3, exe_g3_32, "i686-w64-mingw32-g++")
+        print("Executing i686 G3 probe (multi-process texture sharing, cross-device, monitored fence)...", flush=True)
+        res_g3_32 = run_probe(exe_g3_32, args.wine)
+        assert_g3_expectations(res_g3_32, "i686")
+        results["g3_sharing"]["i686"] = res_g3_32
+        print(f"  [i686 G3]   Cross-Device Open: {res_g3_32['cross_device_open_succeeded']}, Child Render Verified: {res_g3_32['child_render_verified']}, Fence Value: {res_g3_32['fence_completed_value']}, Keyed Mutex Sync: {res_g3_32['keyed_mutex_verified']}")
+
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
         args.output_json.write_text(json.dumps(results, indent=2) + "\n")
         print(f"\nAggregated results saved to {args.output_json}")
 
-    print("\nALL ARCHITECTURES VERIFIED: Phase G0 baseline, Phase G1 non-DComp animated, and Phase G2 DirectComposition diagnostic probes passed with 0 errors.")
+    print("\nALL ARCHITECTURES VERIFIED: Phase G0 baseline, Phase G1 non-DComp animated, Phase G2 DirectComposition, and Phase G3 SharedImage synchronization diagnostic probes passed with 0 errors.")
     return 0
 
 

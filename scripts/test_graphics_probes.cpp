@@ -314,7 +314,7 @@ static void run_probe3_sharing(ID3D11Device *dev, ProbeResults *r)
     td.SampleDesc.Count = 1;
     td.Usage = D3D11_USAGE_DEFAULT;
     td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-    td.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+    td.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
 
     ID3D11Texture2D *tex_nt = NULL;
     r->shared_nt_texture_hr = dev->CreateTexture2D(&td, NULL, &tex_nt);

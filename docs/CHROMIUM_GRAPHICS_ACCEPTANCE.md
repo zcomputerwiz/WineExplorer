@@ -6,7 +6,7 @@
 **Base Commit:** `12ca0aa6ff879f03dd1e7ed09452a49fe15884da` on `origin/master` (`1fa6323385e9b069fafae60afdb42ee68e8e72bf`)  
 **Work Order:** `docs/CHROMIUM_GRAPHICS_G0_WORKORDER.md`  
 **Reference Plan:** `docs/CHROMIUM_GRAPHICS_PLAN.md`  
-**Status:** **Phase G2 Minimal DirectComposition Slice Passed**
+**Status:** **Phase G3 SharedImage Resources & Cross-Process Synchronization Passed**
 
 ---
 
@@ -29,7 +29,7 @@ In accordance with `CHROMIUM_GRAPHICS_PLAN.md`:
 | **G0** | Reproducible baseline & hardware inventory | **Passed** | 32/64 PE probes for D3D11, DComp, and shared resources; hardware classification; exact baseline first-failure traces recorded. |
 | **G1** | Accelerated non-DComp path | **Passed** | Diagnostic probe passes (nested child HWND, D3D11 swapchain, continuous animation, dynamic resize). Consumer runtime evaluated: Win10/11 DComp crash mechanism identified; Win7 fallback proves 60 FPS presentation via GDI CopyHDC. |
 | **G2** | Minimal real DirectComposition slice | **Passed** | DirectComposition COM hierarchy implemented in `dlls/dcomp`; composition swapchain and target HWND bridge in `dlls/dxgi`; deterministic 2-color retained visual animated Win32 PE probe passes 60/60 frames (>330 FPS) on both x86_64 and i686 WoW64 with single commit; Edge WebView2 155 runtime validated under default Windows 10/11 reporting mode without win7 spoofing (60 FPS, 0 crashes). |
-| **G3** | Required SharedImage resources & sync | Pending G2 | `CreateSharedHandle`, `OpenSharedResource1`, keyed mutex, cross-process fences, GPU completion validation. |
+| **G3** | Required SharedImage resources & sync | **Passed** | D3D11 Shared NT Handles (`D3D11_RESOURCE_MISC_SHARED_NTHANDLE`, `CreateSharedHandle`, `OpenSharedResource1`, `OpenSharedResourceByName`); DXGI Keyed Mutex (`IDXGIKeyedMutex` AcquireSync/ReleaseSync, key-mismatch timeout); D3D11 Monitored Fences (`CreateFence`, `OpenSharedFence`, `ID3D11Fence`, `SetEventOnCompletion`, `Signal`, `Wait`); standalone multi-process diagnostic probe `scripts/test_g3_sharing_probe.cpp` passes 100% on x86_64 and i686 WoW64. |
 | **G4** | Full basic composition & efficient GPU delivery | Pending G3 | Visual transforms/clips/alpha, GPU composition replacing CPU readback, display pacing, zero continuous polling loops. |
 | **G5** | Optional feature tracks (video, overlays, WebGPU) | Pending G4 | Software video decode, NV12/P010 views, hardware decode profiles, WebGPU/Dawn D3D12 interop. |
 | **G6** | Token integration, packaging & release | Pending G5 | Ordinary unelevated browser with restricted children; per-user graphics views; fresh ISO installation acceptance. |
@@ -105,12 +105,14 @@ Executed via `scripts/test_graphics_probes.py` against WoW64 Wine (`wine-11.19-2
 | **Probe 1: D3D11 SwapChain** | i686 | WineD3D / OpenGL | 0 | `D3D11CreateDevice` passed (`S_OK`), Feature Level `11_1`, HWND SwapChain `S_OK`, `Present` `S_OK`. |
 | **Probe 2: DComp Entry Points** | x86_64 | Wine `dcomp.dll` | 0 | `dcomp.dll` loaded; `DCompositionCreateDevice` (1, 2, 3) return `S_OK` (0x00000000); `CreateSwapChainForComposition` returns `S_OK` (0x00000000). |
 | **Probe 2: DComp Entry Points** | i686 | Wine `dcomp.dll` | 0 | `dcomp.dll` loaded; `DCompositionCreateDevice` (1, 2, 3) return `S_OK` (0x00000000); `CreateSwapChainForComposition` returns `S_OK` (0x00000000). |
-| **Probe 3: Shared Resources** | x86_64 | Wine `d3d11.dll` | 0 | `NT_HANDLE` returns `E_INVALIDARG` (0x80070057); `KeyedMutex` texture created, `AcquireSync` returns `E_NOINTERFACE`; `CreateFence` returns `E_NOTIMPL` (0x80004001). |
-| **Probe 3: Shared Resources** | i686 | Wine `d3d11.dll` | 0 | `NT_HANDLE` returns `E_INVALIDARG` (0x80070057); `KeyedMutex` texture created, `AcquireSync` returns `E_NOINTERFACE`; `CreateFence` returns `E_NOTIMPL` (0x80004001). |
+| **Probe 3: Shared Resources** | x86_64 | Wine `d3d11.dll` | 0 | `NT_HANDLE` texture created (`S_OK`); `CreateSharedHandle` returns valid NT handle (`S_OK`); `OpenSharedResource1` returns `S_OK`; `KeyedMutex` texture created, `AcquireSync`/`ReleaseSync` return `S_OK`; `CreateFence` returns `S_OK`. |
+| **Probe 3: Shared Resources** | i686 | Wine `d3d11.dll` | 0 | `NT_HANDLE` texture created (`S_OK`); `CreateSharedHandle` returns valid NT handle (`S_OK`); `OpenSharedResource1` returns `S_OK`; `KeyedMutex` texture created, `AcquireSync`/`ReleaseSync` return `S_OK`; `CreateFence` returns `S_OK`. |
 | **G1 Probe: Non-DComp Animated** | x86_64 | WineD3D / OpenGL | 0 | Child HWND created; D3D11 swapchain attached; 60/60 animated frames presented (404.7 FPS); dynamic resize test passed. |
 | **G1 Probe: Non-DComp Animated** | i686 | WineD3D / OpenGL | 0 | Child HWND created; D3D11 swapchain attached; 60/60 animated frames presented (422.4 FPS); dynamic resize test passed. |
 | **G2 Probe: DComp Retained Visual** | x86_64 | WineD3D / DComp | 0 | Child HWND target + DComp visual tree created; composition swapchain bound via `SetContent`; single upfront `Commit()`; 60/60 alternating 2-color frames presented (336.5 FPS) with zero re-commits; dynamic resize passed (`S_OK`). |
 | **G2 Probe: DComp Retained Visual** | i686 | WineD3D / DComp | 0 | Child HWND target + DComp visual tree created; composition swapchain bound via `SetContent`; single upfront `Commit()`; 60/60 alternating 2-color frames presented (341.2 FPS) with zero re-commits; dynamic resize passed (`S_OK`). |
+| **G3 Probe: Multi-Process Sharing** | x86_64 | WineD3D / Shared | 0 | Parent creates shared texture + fence; child process inherits NT handles; child renders solid green, verifies pixel readback, signals fence to 1; parent unblocks via `WaitForSingleObject` on completion event; fence value verified 1; keyed mutex sync and timeout verified. |
+| **G3 Probe: Multi-Process Sharing** | i686 | WineD3D / Shared | 0 | Parent creates shared texture + fence; child process inherits NT handles; child renders solid green, verifies pixel readback, signals fence to 1; parent unblocks via `WaitForSingleObject` on completion event; fence value verified 1; keyed mutex sync and timeout verified. |
 
 Aggregated JSON evidence saved to `tests/results/graphics_probes_results.json`.
 
@@ -263,16 +265,80 @@ Executed lab run `20261018T194140Z-baseline-HmCSTU` (`scripts/run-webview2-lab.s
 
 ---
 
-## 11. Phase G3 Roadmap & Shared Resource Readiness
+## 11. Phase G3 Implementation & Verification Evidence
 
-Phase G3 will implement cross-process resource sharing and synchronization primitives required for multi-process Chromium composition:
-1. **D3D11 Shared NT Handles:**
-   - `IDXGIResource1::CreateSharedHandle` with NT security attributes and named handle tables in Wineserver.
-   - `ID3D11Device1::OpenSharedResource1` allowing Viz compositor to map GPU texture handles created by browser renderer processes.
-2. **Synchronization Primitives:**
-   - `ID3D11Device5::CreateFence` and `ID3D11Fence` tracking GPU completion.
-   - Integration with Vulkan timeline semaphores / timeline sync primitives to eliminate CPU polling loops.
-3. **Verification Target:**
-   - Standalone multi-process Win32 PE probe exchanging shared NT texture handles and fences between parent and child processes.
+Phase G3 implemented genuine Direct3D 11 cross-process resource sharing, DXGI keyed mutexes, and D3D11 monitored fences across the Wine runtime:
+
+### 11.1 Subsystem Implementations
+1. **Shared Runtime Descriptors (`include/wine/d3dkmt_desc.h` & `include/Makefile.in`):**
+   - Defined `struct d3dkmt_dxgi_desc` and `struct d3dkmt_d3d11_desc` for cross-process resource capability and format serialization.
+   - Integrated into Wine build system headers.
+2. **Win32u Kernel-Mode Driver Bridging (`dlls/win32u/d3dkmt.c`):**
+   - Extended `NtGdiDdDDIShareObjects` to support 2-object `(resource, keyed_mutex)` bundles.
+   - Updated `NtGdiDdDDICreateAllocation2` to permit non-standard allocations and optional `hDevice`.
+3. **DXGI Resource & Keyed Mutex (`dlls/dxgi/resource.c`, `dlls/dxgi/dxgi_private.h`):**
+   - Implemented full `IDXGIKeyedMutex` interface (`QueryInterface`, `AcquireSync`, `ReleaseSync`).
+   - Implemented lock ownership state tracking, key-mismatch timeout (`WAIT_TIMEOUT` 0x102), and cross-process KMT dispatch.
+   - Implemented `IDXGIResource1::CreateSharedHandle` creating `DxgkSharedResource` NT handles via `NtGdiDdDDICreateAllocation2`, `NtGdiDdDDICreateKeyedMutex2`, and `NtGdiDdDDIShareObjects`.
+   - Enforced handle exclusivity (`IDXGIResource::GetSharedHandle` rejects NT-handle resources with `E_INVALIDARG`).
+4. **D3D11 Monitored Fences & Resource Import (`dlls/d3d11/device.c`, `dlls/d3d11/d3d11_private.h`):**
+   - Implemented `ID3D11Fence` interface (`CreateSharedHandle`, `GetCompletedValue`, `SetEventOnCompletion`, atomic 64-bit value synchronization).
+   - Implemented cross-process fence event notification via named events and registered wait callbacks.
+   - Implemented `ID3D11DeviceContext4::Signal` and `Wait`.
+   - Implemented `ID3D11Device1::OpenSharedResource1` (imports `DxgkSharedResource` NT handles, queries format/dimension descriptors, creates local texture/buffer).
+   - Implemented `ID3D11Device1::OpenSharedResourceByName` (looks up base named object in session table and imports).
+   - Enforced legacy `ID3D11Device::OpenSharedResource` rules (rejects NT handles with `E_INVALIDARG`).
+
+### 11.2 Multi-Process Win32 PE Diagnostic Probe (`scripts/test_g3_sharing_probe.cpp`)
+- Evaluates producer/consumer cross-process architecture:
+  - Parent creates shared texture (`D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED`) and shared fence (`D3D11_FENCE_FLAG_SHARED`).
+  - Parent creates completion event and registers it via `fence->SetEventOnCompletion(1, hCompletionEvent)`.
+  - Parent spawns child process passing inherited NT handles.
+  - Child opens texture via `OpenSharedResource1`, fence via `OpenSharedFence`.
+  - Child clears texture to solid green `(0.0, 1.0, 0.0, 1.0)`, reads back and validates rendered pixels, and signals fence to 1 (`context4->Signal(fence, 1)`).
+  - Parent unblocks on completion event via `WaitForSingleObject`, verifies `fence->GetCompletedValue() == 1`, confirms child exit code 0.
+  - Keyed mutex lock ownership, key mismatch timeout (`WAIT_TIMEOUT`), and key transitions verified.
+- **Results:**
+  - **x86_64:** 100% PASS (Exit code 0).
+  - **i686 WoW64:** 100% PASS (Exit code 0).
+
+### 11.3 Consolidated Multi-Phase Test Suite
+All diagnostic probes (G0 baseline, G1 non-DComp animated, G2 DirectComposition retained visual, and G3 multi-process sharing & synchronization) pass cleanly across both 32-bit and 64-bit architectures:
+```
+--- Phase G0: Baseline Diagnostic Probes ---
+  [x86_64 G0] D3D11 Feature Level: 11_1, Adapter: NVIDIA GeForce GTX 470
+  [x86_64 G0] DComp Entry Points: S_OK (implemented), Composition SwapChain: S_OK (implemented)
+  [i686 G0]   D3D11 Feature Level: 11_1, Adapter: NVIDIA GeForce GTX 470
+  [i686 G0]   DComp Entry Points: S_OK (implemented), Composition SwapChain: S_OK (implemented)
+
+--- Phase G1: Non-DComp Animated Diagnostic Probes ---
+  [x86_64 G1] Presented 60/60 frames (FPS: 308.0), Resize Succeeded: True
+  [i686 G1]   Presented 60/60 frames (FPS: 302.4), Resize Succeeded: True
+
+--- Phase G2: DirectComposition Retained Visual Diagnostic Probes ---
+  [x86_64 G2] Presented 60/60 frames (FPS: 231.5), Retained Verified: True, Resize: True
+  [i686 G2]   Presented 60/60 frames (FPS: 250.2), Retained Verified: True, Resize: True
+
+--- Phase G3: Multi-Process Shared Resources & Fence Synchronization Probes ---
+  [x86_64 G3] Cross-Device Open: True, Child Render Verified: True, Fence Value: 1, Keyed Mutex Sync: True
+  [i686 G3]   Cross-Device Open: True, Child Render Verified: True, Fence Value: 1, Keyed Mutex Sync: True
+
+ALL ARCHITECTURES VERIFIED: Phase G0 baseline, Phase G1 non-DComp animated, Phase G2 DirectComposition, and Phase G3 SharedImage synchronization diagnostic probes passed with 0 errors.
+```
+
+### 11.4 Consumer Runtime Verification (Microsoft Edge WebView2 `155.0.4283.62`)
+- Executed lab baseline run:
+  - Error signatures in `chromium.log`: `gl_allowlist: 0, warp_initialization: 0, d3d11_output: 0, directcomposition_output: 0`.
+  - Process tree spawned crashpad, GPU process, network utility, storage utility, and renderer.
+  - Zero crash loops or DComp aborts in default Windows 10/11 reporting mode.
+
+---
+
+## 12. Phase G4 Roadmap: Full Basic Composition & Efficient GPU Delivery
+
+With Phase G3 completed, Phase G4 objectives focus on:
+1. **Visual Transforms, Clips, and Opacity:** Support basic visual tree hierarchy manipulation (`SetTransform`, `SetClip`, `SetOpacity`) within `dcomp.dll`.
+2. **GPU Composition Acceleration:** Replace CPU surface readback with direct compositor texture binding / display pacing.
+3. **Pacing & Presentation Scheduling:** Eliminate CPU polling; use event-driven frame presentation synchronized to display refresh or producer completion.
 
 
