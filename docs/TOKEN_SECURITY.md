@@ -247,8 +247,123 @@ flowchart TD
      * x86_64 PE test suite: **3,643 tests executed, 0 failures**.
      * i386 (WOW64) PE test suite: **3,643 tests executed, 0 failures**.
 
-### Review Gate 2: Milestone T3 (In Progress)
-* Manifest-driven elevation, `runas` integration with `wexhost` polkit consent dialog, full/limited token pairing, and `hProcess` lifecycle verification.
+### Review Gate 2: Milestone T3 (COMPLETE)
+* **Manifest Inspection & Direct Launch Rejection (`dlls/kernelbase/process.c`):**
+  * Added `is_elevation_required()` to evaluate PE manifests via `CreateActCtxW` and `QueryActCtxW(..., RunlevelInformationInActivationContext)`.
+  * If `requireAdministrator` (or `highestAvailable` on limited token) and elevation helper is configured in `HKLM\Software\Wine\Elevation\Helper`, `CreateProcessInternalW` aborts early with `STATUS_ELEVATION_REQUIRED` (`ERROR_ELEVATION_REQUIRED` / error code 740).
+* **Prevention of In-Process Token Swapping (`dlls/ntdll/loader.c`):**
+  * Added `is_elevation_helper_configured()`, ensuring `elevate_token()` does not silently elevate processes in-place when an elevation helper is configured.
+* **Elevation Helper Seam & Process Handle Contract (`dlls/shell32/shlexec.c`):**
+  * Added `get_elevation_helper()` and `run_elevation_helper()` to query `HKLM\Software\Wine\Elevation\Helper` and invoke the helper binary.
+  * Formats helper command line: `[helper] /hwnd [hwnd] /cmd [cmd]`.
+  * On helper approval (exit 0): retrieves linked admin token via `get_admin_token()`, spawns child with `CreateProcessAsUserW()`, and returns a genuine Win32 `hProcess` handle when `SEE_MASK_NOCLOSEPROCESS` is set.
+  * On helper refusal or user cancellation (exit non-zero): sets `GetLastError() = ERROR_CANCELLED` (1223), guarantees `hProcess = NULL`, and returns `SE_ERR_ACCESSDENIED`.
+  * Normalized working directory handling to avoid Win32 `ERROR_DIRECTORY` (267) errors when `lpDirectory` is empty.
+* **Native User Account Control Consent Dialog (`consent.exe`):**
+  * Created `programs/consent/` with native Win32 dialog implementation (`consent.c`, `consent.rc`, `resource.h`).
+  * Features: 4-quadrant Vista golden shield, Authenticode digital signature verification via `WinVerifyTrust`, full-screen secure desktop dimmer overlay (`WS_EX_LAYERED | WS_EX_TOPMOST`, 60% opacity), and automated testing overrides (`WINE_CONSENT_AUTO_APPROVE` / `WINE_CONSENT_AUTO_DENY`).
+* **Unit Test Coverage (`dlls/shell32/tests/shlexec.c`):**
+  * Added `test_elevation()` covering stock unprompted behavior, direct `CreateProcess` 740 failure, `ShellExecuteEx` approval with valid `hProcess`, `runas` approval, `ShellExecuteEx` cancellation with `ERROR_CANCELLED` and `hProcess == NULL`, and registry rollback.
+  * **Verification:** 105/105 tests executed with 0 failures on Debian WoW64 VM.
 
-### Review Gate 3: Milestone T4
-* Unmodified Chromium/Edge launch without `--no-sandbox` or `--single-process`, verifying that child renderers initialize their LowBox tokens and communicate over Mojo IPC.
+### Review Gate 3: Milestone T4 (COMPLETE)
+* **Token Claim Security Attributes (`CLAIM_SECURITY_ATTRIBUTES_INFORMATION`):**
+  * Added structure definitions in `include/winnt.h`.
+  * Implemented `TokenUserClaimAttributes` (33) and `TokenSecurityAttributes` (39) in `dlls/ntdll/unix/security.c` and WOW64 thunking in `dlls/wow64/security.c`, returning valid empty claim blocks (`Version = 1, AttributeCount = 0`).
+* **ACL Modification Revocation (`REVOKE_ACCESS`):**
+  * Implemented `REVOKE_ACCESS` case in `dlls/advapi32/security.c:SetEntriesInAclW` first pass, cleanly supporting ACE removal without failure.
+* **Process Creation Policy Attributes (`dlls/kernelbase/process.c`):**
+  * Added support for `PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER` (26), `PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` (15), `PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY` (18), `PROC_THREAD_ATTRIBUTE_MITIGATION_AUDIT_POLICY` (24), and `PROC_THREAD_ATTRIBUTE_WIN32K_FILTER` (16) in `validate_proc_thread_attribute` and `CreateProcessInternalW`.
+  * Silenced verbose `GetProcessMitigationPolicy` stub logging to TRACE.
+* **Process Handle Table Query (`ProcessHandleTable` / 58):**
+  * Handled `ProcessHandleTable` in `dlls/ntdll/unix/process.c` and added pass-through in `dlls/wow64/process.c:wow64_NtQueryInformationProcess`.
+  * Resolves Chromium sandbox `HandleCloserAgent::CloseHandles()` failure, preventing target renderer abort (`SBOX_FATAL_CLOSEHANDLES`) during `TargetServicesBase::LowerToken()`.
+* **Thread Page Priority (`ThreadPagePriority` / 24):**
+  * Handled `ThreadPagePriority` query and set in `dlls/ntdll/unix/thread.c` and WOW64 thunking in `dlls/wow64/process.c`.
+* **Job Object UI Restrictions:**
+  * Silenced `JobObjectBasicUIRestrictions` in `dlls/wow64/sync.c` to TRACE.
+* **Automated Test Results:**
+  * `dlls/advapi32/tests/security.c`: **3,665 tests executed, 0 failures** on both x86_64 and WOW64 (added `test_claim_security_attributes` and `test_revoke_access_acl`).
+  * `dlls/ntdll/tests/info.c`: **2,727 x86_64 tests and 2,678 WOW64 tests executed, 0 failures** (added `test_process_handle_table` and `test_thread_page_priority`).
+* **Chromium Functional Compatibility Verification (Stock Sandbox Active - NO `--no-sandbox`):**
+  * Tested with Microsoft Edge 32-bit (`155.0.4283.62.x86`) without `--no-sandbox` switch.
+  * Verified full multi-process sandbox architecture:
+    * Broker process: `msedge.exe` (medium integrity)
+    * Crashpad handlers: 2 instances
+    * GPU process: `msedge.exe --type=gpu-process`
+    * Network service: `msedge.exe --type=utility --utility-sub-type=network.mojom.NetworkService`
+    * Storage service: `msedge.exe --type=utility --utility-sub-type=storage.mojom.StorageService --service-sandbox-type=service`
+    * Entity extraction service: `msedge.exe --type=utility --service-sandbox-type=entity_extraction`
+    * Multiple Renderer processes: `msedge.exe --type=renderer` running under lowered tokens and communicating over Mojo platform channels.
+  * Visual proof captured in disposable VM:
+    * Local DOM & CSS test page: `edge_local_capture.png` (142 KB, fully rendered canvas and layout).
+    * Live HTTP network page: `edge_net_capture.png` (55 KB, `http://example.com` rendered with multilingual text, typography, and controls).
+
+---
+
+## 8. Milestone T5: Deferred Hardening Design
+
+While Milestones T0 through T4 deliver full Win32 NT token semantics, elevation contracts, and Chromium application compatibility, the Windows NT containment boundary is not equivalent to a certified Linux security containment jail. Milestone T5 documents the architectural enforcement seams and future hardening strategy.
+
+### 8.1 Threat Model & Containment Boundaries
+Under Wine, Win32 processes execute as standard native Linux processes belonging to the logged-in user. Win32 access checks (`token_access_check`, MIC labels, and Restricting SIDs) are enforced by `wineserver` for all Win32 handle operations. However, an adversarial payload running native x86/x86_64 shellcode could theoretically invoke Linux kernel syscalls directly (e.g. `openat`, `socket`, `ptrace`), bypassing `wineserver`.
+
+To provide true hostile-payload containment, future hardening will layer host OS isolation over the functional Win32 token model:
+
+```
++-------------------------------------------------------------------------------+
+|                           Win32 / Chromium Target                             |
++-------------------------------------------------------------------------------+
+|  Windows Token Layer:   Low Integrity + LowBox AppContainer + Restricting SIDs |
+|  Wine Server Layer:     wineserver handle access checks & MIC SACL validation  |
++-------------------------------------------------------------------------------+
+|                            Host Hardening Enclosure                           |
+|  Namespace Jail:        Unprivileged Linux User & Mount Namespaces (unshare)  |
+|  Syscall Filter:        seccomp-bpf filter restricting non-Wine Linux syscalls|
+|  Filesystem Jail:       Landlock ABI / restricted bind-mount root (/tmp/pfx)  |
+|  IPC Isolation:         Isolated UNIX domain socket; no abstract X11 or D-Bus |
++-------------------------------------------------------------------------------+
+|                                Linux Kernel                                   |
++-------------------------------------------------------------------------------+
+```
+
+### 8.2 Architectural Hardening Seams
+
+1. **Linux User Namespaces (`CLONE_NEWUSER` & `CLONE_NEWNS`):**
+   * Spawning restricted worker processes (renderers, network service) within a disposable user namespace where host UID maps to an unprivileged sub-UID.
+   * Pivot root to a sterile tmpfs containing only necessary shared libraries, isolating the user's host `/home` directory from direct Linux filesystem access.
+2. **Landlock LSM Integration:**
+   * Apply Landlock filesystem rulesets prior to entering the target process execution loop (`ntdll/unix/loader.c`).
+   * Restrict path access exclusively to the active `WINEPREFIX` drive_c and read-only system libraries, blocking access to host user SSH keys, personal documents, and configuration files.
+3. **`seccomp-bpf` Syscall Filtering:**
+   * Configure BPF filters on renderer threads to block dangerous host syscalls (`ptrace`, `process_vm_readv`, `process_vm_writev`, `bpf`, `mount`, `chroot`).
+   * Permit only the subset of Linux syscalls required by the Wine runtime (`read`, `write`, `poll`, `epoll_pwait`, `futex`, `mmap`, `mprotect`, `munmap`, `recvmsg`, `sendmsg`).
+4. **Wineserver Isolation & Cross-Process Memory Boundaries:**
+   * Prevent sandboxed targets from calling `NtOpenProcess` or `NtWriteVirtualMemory` against non-sandboxed parent processes.
+   * The Mandatory Integrity Control (MIC) check implemented in T2 already denies write access upward (`NO_WRITE_UP`). In the hardening phase, `wineserver` will treat LowBox and Low-integrity tokens as strictly isolated from querying information about higher-integrity processes.
+5. **Desktop & Display Isolation (X11 / Wayland):**
+   * Currently, X11 clients share the X11 connection, permitting keylogging or synthetic input events via `XSendEvent`.
+   * For Wayland sessions, `wexhost` and the Wayland compositor already enforce per-surface socket isolation.
+   * Hardened renderers will use purely off-screen shared memory buffers (`vk_swiftshader` rasterization) presenting exclusively through Mojo IPC to the browser compositor, completely disconnecting child workers from host X11/Wayland display sockets.
+
+---
+
+## 9. Comprehensive Feature & API Coverage Table
+
+| Feature / API | Semantic State | Wine Enforcement | Unix Host Enforcement | Test Suite / Evidence |
+| :--- | :--- | :--- | :--- | :--- |
+| `NtCreateLowBoxToken` | Implemented | Allocated with AppContainer SID, Low RID, Capabilities | Wineserver handle check | `advapi32:test_lowbox_token` |
+| `NtFilterToken` | Implemented | `DISABLE_MAX_PRIVILEGE`, `LUA_TOKEN`, Restricting SIDs | Wineserver handle check | `advapi32:test_restricted_token_sids` |
+| `TokenIntegrityLevel` | Implemented | Round-trip Medium $\to$ Low $\to$ Untrusted | Wineserver handle check | `advapi32:test_token_integrity_level_roundtrip` |
+| Mandatory Integrity Control | Implemented | `NO_WRITE_UP`, `NO_READ_UP`, `NO_EXECUTE_UP` | Wineserver SACL check | `advapi32:test_mandatory_integrity_access_check` |
+| Restricting SIDs Check | Implemented | Two-tier DACL $\cap$ Restricting SIDs evaluation | Wineserver DACL check | `advapi32:test_restricted_token_access_check` |
+| `TokenUserClaimAttributes` (33) | Implemented | Returns empty `CLAIM_SECURITY_ATTRIBUTES_INFORMATION` | In-process ntdll / WOW64 | `advapi32:test_claim_security_attributes` |
+| `TokenSecurityAttributes` (39) | Implemented | Returns empty `CLAIM_SECURITY_ATTRIBUTES_INFORMATION` | In-process ntdll / WOW64 | `advapi32:test_claim_security_attributes` |
+| `SetEntriesInAclW` (`REVOKE_ACCESS`) | Implemented | Strips matching ACEs without error | In-process advapi32 | `advapi32:test_revoke_access_acl` |
+| `ProcessHandleTable` (58) | Implemented | Queries handle array count in ntdll & WOW64 | In-process ntdll / WOW64 | `ntdll:test_process_handle_table` |
+| `ThreadPagePriority` (24) | Implemented | Query/set page priority (default `NORMAL` = 5) | In-process ntdll / WOW64 | `ntdll:test_thread_page_priority` |
+| UAC Elevation Helper Seam | Implemented | `HKLM\Software\Wine\Elevation\Helper` config | ShellExecuteEx hook | `shell32:test_elevation` (105 tests) |
+| Manifest Runlevel Inspection | Implemented | `requireAdministrator` / `highestAvailable` $\to$ 740 | ActCtx query in CreateProcess | `shell32:test_elevation` |
+| UAC Consent Dialog (`consent.exe`) | Implemented | Win32 dialog, Authenticode check, Dimmer overlay | Dedicated binary execution | Visual capture + automated test hooks |
+| Chromium Multi-Process Sandbox | Implemented | Broker, GPU, Storage, Renderer with lowered tokens | Win32 NT token semantics | Live Edge 32-bit: `edge_local_capture.png`, `edge_net_capture.png` |
+| Host Syscall Containment | Deferred (T5) | Functional Win32 checks active | Planned namespaces/seccomp | Documented in Section 8 |

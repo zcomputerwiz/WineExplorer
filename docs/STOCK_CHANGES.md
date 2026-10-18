@@ -392,6 +392,30 @@ smoke without changing the production pin (REBASE.md).
   - Added `test_elevation()`: tests stock unprompted behavior, direct `CreateProcess` 740 failure with `requireAdministrator` manifest, `ShellExecuteEx` approval with genuine `hProcess`, `runas` approval, `ShellExecuteEx` cancellation with `ERROR_CANCELLED` (1223) and `hProcess == NULL`, and registry rollback.
 - `programs/consent/`:
   - User Account Control Consent Dialog (`consent.exe`), resource script, 4-quadrant golden shield graphics, Authenticode verification, consent and credentials modes with automated test overrides (`WINE_CONSENT_AUTO_APPROVE` / `WINE_CONSENT_AUTO_DENY`).
+- `include/winnt.h`:
+  - Added `CLAIM_SECURITY_ATTRIBUTES_INFORMATION` structure definition for token security attribute queries.
+- `dlls/ntdll/unix/security.c`:
+  - Implemented `TokenUserClaimAttributes` (33) and `TokenSecurityAttributes` (39) returning valid empty claim blocks (`Version = 1, AttributeCount = 0`). Updated `info_len` table.
+- `dlls/wow64/security.c`:
+  - Implemented 32-bit thunking in `wow64_NtQueryInformationToken` for `TokenUserClaimAttributes` and `TokenSecurityAttributes` (12-byte layout).
+- `dlls/advapi32/security.c`:
+  - Handled `REVOKE_ACCESS` in `SetEntriesInAclW` first pass to cleanly remove matching ACEs without error.
+- `dlls/advapi32/tests/security.c`:
+  - Added unit tests `test_claim_security_attributes` and `test_revoke_access_acl` (3,665 tests passing, 0 failures).
+- `dlls/kernelbase/process.c`:
+  - Supported `PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER` (26), `PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` (15), `PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY` (18), `PROC_THREAD_ATTRIBUTE_MITIGATION_AUDIT_POLICY` (24), and `PROC_THREAD_ATTRIBUTE_WIN32K_FILTER` (16) in `validate_proc_thread_attribute` and `CreateProcessInternalW`.
+  - Silenced `GetProcessMitigationPolicy` stub logging to TRACE.
+- `dlls/ntdll/unix/process.c`:
+  - Handled `ProcessHandleTable` (58) in `NtQueryInformationProcess`, returning `STATUS_SUCCESS` with length 0.
+- `dlls/wow64/process.c`:
+  - Added `case ProcessHandleTable:` (58) in `wow64_NtQueryInformationProcess` passing through to `NtQueryInformationProcess`.
+  - Added `case ThreadPagePriority:` (24) in `wow64_NtQueryInformationThread` and `wow64_NtSetInformationThread`.
+- `dlls/ntdll/unix/thread.c`:
+  - Implemented `ThreadPagePriority` (24) query (returning `MEMORY_PRIORITY_NORMAL` = 5) and set in `NtQueryInformationThread` and `NtSetInformationThread`.
+- `dlls/wow64/sync.c`:
+  - Silenced `JobObjectBasicUIRestrictions` in `wow64_NtSetInformationJobObject` to TRACE.
+- `dlls/ntdll/tests/info.c`:
+  - Added unit tests `test_process_handle_table` and `test_thread_page_priority` (2,727 64-bit and 2,678 WOW64 tests passing, 0 failures).
 
 ## License headers
 
