@@ -248,4 +248,8 @@ cross-user `wineserver` work, so the two are one project. Decide per service whe
 better served by a Linux daemon through `wexhost` (D-Bus). References: ReactOS `base/system/services`,
 `ntoskrnl/config` (design only), `dll/win32/userenv` (profiles).
 
-- Program elevation (UAC-style prompt, admin approval mode for the machine root): `ELEVATION_WORKORDER.md` (Codex). Its back end is replaced by the system tier (session 0) later; the hooks, broker and prompt stay.
+- Unified tokens, program elevation and Chromium functional compatibility:
+  `TOKEN_SECURITY_WORKORDER.md` (Gemini), with sources/licenses in
+  `TOKEN_SECURITY_REFERENCES.md`. Functionality first; hostile-code containment is
+  a later hardening stage. `ELEVATION_WORKORDER.md` is historical input. Keep the
+  backend seam suitable for the later system tier without requiring it up front.
