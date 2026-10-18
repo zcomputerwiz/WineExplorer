@@ -206,18 +206,23 @@ were copied into this branch; no proprietary components were downloaded.
 
 ## OOBE Optional Components integration
 
-As implemented in `gemini/oobe-components` per `docs/OOBE_COMPONENTS_WORKORDER.md`,
-Setup's Out-of-Box Experience (`oobe.exe`) now supports optional installation of
-the six compatibility components (`vcrun2022`, `corefonts`, `tahoma`,
-`d3dcompiler_47`, `xact`, `physx`).
+As implemented in `gemini/oobe-components` per `docs/OOBE_COMPONENTS_WORKORDER.md`
+and repaired under `docs/OOBE_COMPONENTS_FIX2_WORKORDER.md`, Setup's Out-of-Box
+Experience (`oobe.exe`) interfaces with the components engine for optional installation.
 
 Key properties:
 - The OOBE wizard runs unprivileged as `wexsetup` and connects to a root-owned
   coordinator daemon over `/run/wex-oobe/coordinator.sock`.
   The coordinator validates caller UID via `SO_PEERCRED` and ensures the setup
   stage is strictly `oobe`.
-- Zero network traffic occurs until explicit terms review.
+- Asynchronous operation lifecycle (`START_INSTALL` -> `QUERY_INSTALL`) separates
+  transport deadlines from long-running installers, preventing timeout errors.
+- Worker memory uses deterministic reference counting (`InterlockedIncrement` /
+  `InterlockedDecrement`) with UI operations marshaled onto the main UI thread.
+- Due to upstream recipe defects and the absence of standalone vendor terms URLs,
+  all six components are currently disabled fail-closed with explicit reasons
+  displayed in both OOBE and the launcher.
 - Terms acceptance is cryptographically bound via SHA256 digest before invoking
   the installation engine in `scripts/wex-components.py`.
-- Acceptance report and test evidence are documented in
+- Acceptance report, native test seam results, and remaining gates are documented in
   `docs/OOBE_COMPONENTS_ACCEPTANCE.md`.

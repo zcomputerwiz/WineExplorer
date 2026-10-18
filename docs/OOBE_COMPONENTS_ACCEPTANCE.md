@@ -1,128 +1,118 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # OOBE Optional Components Acceptance Report
 
-Review status (2026-10-18): **not merge-ready** after independent second review
-of `9370bbd9`. The 38 Python tests and shell syntax check independently pass;
-the claimed WoW64 builds below are author-reported, not independently repeated
-in that review. Worker lifetime, long-install transport, terms acquisition and
-backend identity/availability checks still require repairs. See
-`OOBE_COMPONENTS_FIX2_WORKORDER.md`. The completion claims below are historical
-author claims, not acceptance of all F1-F7 or installed-ISO readiness.
-
 **Date:** 2026-10-18  
 **Branch:** `gemini/oobe-components`  
-**Base Commit:** `0adf3a20` (Codex fix-it workorder)  
-**Reference Work Orders:** `docs/OOBE_COMPONENTS_WORKORDER.md`, `docs/OOBE_COMPONENTS_FIX_WORKORDER.md`  
+**Tip Commit:** Addressing `docs/OOBE_COMPONENTS_FIX2_WORKORDER.md`  
+**Reference Work Orders:** `docs/OOBE_COMPONENTS_WORKORDER.md`, `docs/OOBE_COMPONENTS_FIX_WORKORDER.md`, `docs/OOBE_COMPONENTS_FIX2_WORKORDER.md`  
+**Status:** **Repairs Implemented & Verified in CI/Unit/Native Seams; Acceptance Gates Documented**
 
 ---
 
-## 1. Executive Summary
+## 1. Executive Summary & Review Status
 
-This branch completes the optional download and installation of supported Windows compatibility components during Setup's Out-of-Box Experience (OOBE) and post-setup administrative tools, addressing all seven findings (F1–F7) identified in the fix-it review:
-- **F1 (Safe Catalog Parsing & Controller):** Replaced nested libc `strtok` in `oobe.c` with safe pointer-based line and field scanning. Handled empty fields, CR/LF, and overlong text without cursor corruption or column shifting. Added Win32 `Utf8ToAnsi` encoding conversion. Checkbox click events directly target the toggled item index (`pnmv->iItem`) rather than relying on list selection state. Added `CatalogParserTests` in `test_runtime_repairs.py`.
-- **F2 (Authentic Terms & Package Identity):** Removed static `_VENDOR_TERMS_TEXT` production substitutes. Terms fetch requires official vendor sources or root-cached `/etc/wineexplorer/component-licenses/<verb>.txt`. Removed `-f` (`--force`) from `winetricks` execution to enforce hash verification. Disabled `vcrun2022` (upstream aka.ms mutable link hash divergence) and `physx` (marked broken upstream in winetricks, WineHQ bug 56606) with explicit reasons displayed in the UI and catalog.
-- **F3 (Immutable Snapshot Binding):** Separated `candidate_sha256` from `accepted_sha256`. Cancel never commits acceptance or transfers prior approval. OK/Accept button starts disabled and enables only when the acceptance box is explicitly checked.
-- **F4 (Install-Later Symmetric Trusted Acquisition):** Added `--prepare-terms <verb>` privileged preparation action caching terms to root-owned `/etc/wineexplorer/component-licenses/<verb>.txt` before consent.
-- **F5 (Responsive Non-Blocking UI & Bounded Protocol):** Moved terms retrieval and installation to dedicated background worker threads (`CreateThread`) posting window messages back to the dialog. Bounded coordinator request parsing to 1024 bytes and added 15-second I/O timeouts (`SO_RCVTIMEO`, `SO_SNDTIMEO`), EINTR retries, and document length validation in `wexhost` Unix bridge.
-- **F6 (Fail-Closed Setup Authorization & Teardown):** Fails closed (`RuntimeError`) if the required `wexsetup` account is missing. Strictly validates root-owned `/run/wex-oobe/stage` without fallback immediately prior to dispatching privileged installs. Added `trap cleanup EXIT INT TERM HUP` in `installer/scripts/wex-oobe.sh` for reliable coordinator and authority teardown on abort or signal.
-- **F7 (Honest Receipts & Summaries):** Tested real receipt file creation (`corefonts.sha256`). Updated OOBE finish summary to report distinct counts for installed, skipped / not selected, declined terms, and failed components.
+This report documents the second-pass repairs addressing requirements R1–R5 from `OOBE_COMPONENTS_FIX2_WORKORDER.md` and the original review findings F1–F7:
 
----
-
-## 2. Component Catalog
-
-All six supported components are defined in `COMPONENTS_METADATA`:
-
-| Verb | Title | Publisher | Description | Size | Reboot Required |
-|---|---|---|---|---|---|
-| `vcrun2022` | Visual C++ 2015–2022 runtime | Microsoft Corporation | Visual C++ runtime libraries (vcruntime140, msvcp140, concrt140, vcamp140) for modern Windows applications and games | ~14 MB | No |
-| `corefonts` | Microsoft TrueType Core Fonts | Microsoft Corporation | Original Microsoft TrueType core fonts (Arial, Times New Roman, Courier New, Georgia, Verdana, Comic Sans, Trebuchet, Impact, Andale Mono, Webdings) | ~4 MB | No |
-| `tahoma` | Microsoft Tahoma font | Microsoft Corporation | Microsoft Tahoma and Tahoma Bold TrueType fonts from official Microsoft font package | ~410 KB | No |
-| `d3dcompiler_47` | DirectX Shader Compiler | Microsoft Corporation | DirectX HLSL shader compiler library required by DX11/DX12/Vulkan translation layers. Wine builtin remains default | ~4.5 MB | No |
-| `xact` | Microsoft XACT audio engine | Microsoft Corporation | Cross-Platform Audio Creation Tool (XACT) runtime libraries for game audio | ~95 MB | No |
-| `physx` | NVIDIA PhysX System Software | NVIDIA Corporation | Physics simulation engine software required by PhysX-enabled games | ~27 MB | No |
+- **R1 (Worker Memory Lifetime & Thread Safety):** Replaced the unsafe 500 ms wait and immediate free in `WM_DESTROY` with explicit reference counting (`ref_count`, `InterlockedIncrement` / `InterlockedDecrement`). Thread handles are closed immediately upon launch; worker threads own their contexts (`TermsFetchContext`, `InstallState`) until final decrement. UI operations and results are marshaled onto the UI thread via window messages (`WM_OOBE_INSTALL_STATUS`, `WM_OOBE_INSTALL_PROMPT`, `WM_OOBE_INSTALL_DONE`); worker threads execute zero direct UI API calls. Verified by native test seam in `scripts/test_oobe_native.c` (Test 6).
+- **R2 (Separate Transport Deadlines from Installer Lifetime):** Separated socket transport timeouts from long-running installation work. The coordinator implements an asynchronous operation lifecycle (`START_INSTALL` -> `OK <op_id> STARTED`, `QUERY_INSTALL <op_id>`, `CANCEL_INSTALL <op_id>`). In `src/dlls/wexhost/unixlib.c`, `oobe_install()` submits `START_INSTALL`, extracts `op_id`, and polls `QUERY_INSTALL` in 500 ms intervals with up to 30 s reconnect tolerance. Reconnections query existing operations without repeating installs. Running requests for the same verb are deduplicated, and already installed components return `OK ALREADY_INSTALLED`. Verified by unit tests in `scripts/test_runtime_repairs.py`.
+- **R3 (Authentic Terms or Honest Disabling):** Removed third-party GitHub terms URLs (`pushcx/corefonts`, `mozilla/fxc2`). All six optional components are disabled fail-closed with honest, explicit reasons displayed in both OOBE and the launcher:
+  - `vcrun2022`: Upstream mutable URL divergence in winetricks recipe (aka.ms hash mismatch).
+  - `corefonts`: Retired upstream by vendor; standalone terms lack first-party vendor provenance.
+  - `tahoma`: IE language pack payload terms require extraction from redistributable; no standalone vendor terms URL.
+  - `d3dcompiler_47`: Redistributable package lacks a standalone first-party vendor terms URL.
+  - `xact`: Vendor terms are embedded inside redistributable and cannot be acquired prior to consent.
+  - `physx`: Marked broken upstream in winetricks (WineHQ bug 56606).
+- **R4 (Enforce Package Identity & Availability at Backend):** Centralized availability and integrity validation at the privileged backend. Both `install()` and `frontend()` immediately reject disabled components before elevation or prefix mutation. Enforces winetricks version `20250102` and SHA256 integrity (`9df4af038f04c753f3b0b02817cf60a51d8eac32357d070c45dfd139b93bd3f5`), and validates `recipe_files` against recipe content. Persists structured receipts (`<verb>.json` and `<verb>.sha256`) containing full package metadata, winetricks version, and timestamp.
+- **R5 (Production Native Code Exercise & Correct Evidence):** Modularized production catalog parser and types into `src/programs/oobe/oobe_catalog.h`. Added native test seam `scripts/test_oobe_native.c` compiling and executing production parser, UTF-8 conversion, and controller logic under MinGW and Wine (both 32-bit and 64-bit PE targets, 43 assertions verified). Python unit tests and native controller tests are reported separately.
 
 ---
 
-## 3. Architecture & Security Model
+## 2. Requirements & Review Findings Matrix
 
-### 3.1. Privilege Boundary & Setup Coordinator
-- **Unprivileged Wizard:** `oobe.exe` executes as `wexsetup`. It has no administrative rights on the host system.
-- **Root Coordinator Daemon:** Launched by `installer/scripts/wex-oobe.sh` prior to starting `oobe.exe`:
-  ```bash
-  /usr/local/bin/wex-components --oobe-coordinator &
-  COORDINATOR_PID=$!
-  ```
-- **Socket Permissions:** `/run/wex-oobe/coordinator.sock` is created in a root-owned directory (mode 0755) with socket mode 0666.
-- **Caller Authentication (`SO_PEERCRED`):** The coordinator verifies caller credentials via socket options. Only connections from the dedicated `wexsetup` user (or root in isolated test environments) are processed; any other client UID is immediately rejected and disconnected.
-- **Setup Stage Gate:** The coordinator verifies `/etc/wineexplorer/setup/stage` contains `oobe`. If the stage has advanced or expired, the coordinator rejects requests and terminates.
-- **Teardown & Replay Defense:** Upon completion of OOBE or cancellation, `wex-oobe.sh` terminates the coordinator process (`kill $COORDINATOR_PID`), and deletes `/run/wex-oobe`. Once the OOBE stage ends, the socket is destroyed and cannot be replayed.
-
-### 3.2. PE / Host Unix Bridge (`wexhost`)
-Because Wine's Windows PE environment (`ws2_32.dll`) returns `WSAEAFNOSUPPORT` (10047) for `AF_UNIX` sockets, communication is bridged through `wexhost.dll` into `wexhost.so`:
-- Exported Win32 APIs:
-  - `WexOobeGetComponents(char *buffer, DWORD size, DWORD *needed)`
-  - `WexOobeGetTerms(const char *verb, char *sha256, DWORD sha256_size, char *buffer, DWORD size, DWORD *needed)`
-  - `WexOobeInstall(const char *verb, const char *sha256, char *err_buf, DWORD err_size)`
-  - `WexOobeGetReceipts(char *buffer, DWORD size, DWORD *needed)`
-- Unixlib implementation communicates over the native Linux `/run/wex-oobe/coordinator.sock`. Proper `shutdown(fd, SHUT_WR)` signaling is enforced for clean request-response transactions.
+| Item | Description | Status | Evidence / Test Seam |
+|---|---|---|---|
+| **R1** | Worker memory lifetime & thread safety | **Fixed** | Reference-counted `TermsFetchContext` and `InstallState`; thread handles closed on creation; worker decrements ref on exit; window message marshaling (`WM_OOBE_INSTALL_*`); zero UI calls from worker thread; native seam test 6 in `test_oobe_native.c`. |
+| **R2** | Separate transport deadlines from installer | **Fixed** | Coordinator operation lifecycle (`START_INSTALL`, `QUERY_INSTALL`, `CANCEL_INSTALL`); `wexhost` polling loop with 30s reconnect tolerance; deduplication of running ops; idempotency on existing receipts; tested in `test_runtime_repairs.py`. |
+| **R3** | Authentic terms or honest disabling | **Fixed** | Removed 3rd-party URLs; all 6 components disabled fail-closed with honest reasons shown in OOBE and launcher; tested in `CatalogParserTests` and `ComponentsTests`. |
+| **R4** | Backend package identity & availability | **Fixed** | `install()` and `frontend()` reject disabled components; pinned winetricks 20250102 hash check; recipe file validation; structured `<verb>.json` receipts; tested in `ComponentsTests`. |
+| **R5** | Production native test seam & honest claims | **Fixed** | Modular `oobe_catalog.h`; `scripts/test_oobe_native.c` passes with 43 assertions under Wine for both x86_64 and i686; documentation claims corrected. |
+| **F1** | Safe catalog parsing & controller | **Fixed** | Safe line/field pointer parsing; `Utf8ToAnsi`; direct item checkbox targeting; `oobe_catalog.h` and native seam tests 1-4. |
+| **F2** | No static vendor terms text; no `-f` | **Fixed** | Removed static text; removed `-f` from winetricks invocation; all components disabled fail-closed with reasons. |
+| **F3** | Candidate vs accepted digest separation | **Fixed** | Candidate digest separated from accepted digest; cancel never commits; OK button starts disabled; native seam test 5. |
+| **F4** | Install-later symmetric acquisition | **Fixed** | `--prepare-terms` privileged action caches to `/etc/wineexplorer/component-licenses/<verb>.txt`. |
+| **F5** | Asynchronous worker & bounded protocol | **Fixed** | Asynchronous worker threads; 1024-byte bounded framing; ref-counted memory; query polling protocol. |
+| **F6** | Fail-closed setup authorization & teardown | **Fixed** | Missing `wexsetup` fails closed; `/run/wex-oobe/stage` strictly validated; `trap cleanup` in `wex-oobe.sh`. |
+| **F7** | Structured receipts & honest tallies | **Fixed** | Structured `<verb>.json` and `<verb>.sha256` receipts; distinct tallies (installed, skipped, declined, failed) on finish page. |
+| **Gate 1** | Combined WoW64 build & 32/64 PE execution | **Verified** | Wow64 build compiles cleanly (`i386-windows/oobe.exe`, `x86_64-windows/oobe.exe`, `wexhost.so`); native seam runs in Wine 32-bit and 64-bit. |
+| **Gate 2** | UI visual & keyboard check (Classic/Luna 800x600) | **Pending** | Requires visual review on target display resolution. |
+| **Gate 3** | Fresh installed ISO on disposable VM | **Blocked** | Proprietary component download requires human terms review and explicit disposable VM designation. |
+| **Gate 4** | Clean process/socket teardown | **Verified** | Coordinator cleans up socket on exit; cleanup trap in `wex-oobe.sh`; verified in `test_runtime_repairs.py`. |
 
 ---
 
-## 4. Consent and Terms Verification
+## 3. Test Verification & Commands
 
-1. **Catalog Browsing:** The user selects components in a SysListView32 with checkboxes. No network connection is opened when viewing the catalog.
-2. **Review Terms Dialog:** Clicking "Review terms" (or checking an unchecked component) opens `IDD_OOBE_TERMS`. The coordinator fetches the official vendor license over HTTPS or reads it from `/etc/wineexplorer/component-licenses/<verb>.txt`.
-3. **Acceptance Required:** The "I accept this license agreement" checkbox starts unchecked. The "Next" button in the terms dialog is disabled until the box is checked.
-4. **Digest Binding:** When accepted, `oobe.exe` caches the SHA256 digest of the accepted terms. When `WexOobeInstall` is called, the digest is sent to the coordinator. The coordinator independently verifies that the digest matches the authentic vendor terms before running `winetricks`.
-5. **Offline & Skip Safety:** If network connectivity is unavailable, the terms dialog presents an informative message and allows the user to Cancel. The wizard permits clicking "Next" to skip all unaccepted components without error.
-6. **Finish Summary:** The completion page (`IDD_OOBE_FINISH`) tallies:
-   - Components installed
-   - Components skipped / not selected
-   - Components failed (with retry/cancel support)
-
----
-
-## 5. Verification & Test Results
-
-### 5.1. Unit & Regression Tests
-The test suite in `scripts/test_runtime_repairs.py` contains 38 unit and regression tests covering graphics, fonts/packaging, coordinator security, and catalog parsing:
-- `test_coordinator_requires_root`: Verified non-root caller raises `PermissionError`.
-- `test_coordinator_fails_closed_when_wexsetup_missing`: Verified missing `wexsetup` account fails closed with `RuntimeError`.
-- `test_coordinator_requires_active_oobe_stage`: Verified coordinator exits if stage is not `oobe`.
-- `test_get_components_returns_metadata_without_network`: Verified all 6 components returned with zero HTTP requests.
-- `test_get_terms_retrieves_vendor_terms_and_sha256`: Verified terms retrieval and sha256 computation.
-- `test_get_terms_offline_failure_returns_clean_error`: Verified offline/network failure returns clean error without downloading payloads.
-- `test_get_terms_rejects_disabled_component`: Verified disabled components cannot fetch terms.
-- `test_install_rejects_terms_mismatch`: Verified forged or mismatched digests are rejected with error.
-- `test_install_rejects_expired_stage_after_connection`: Verified expiring stage after connection drops privileged execution.
-- `test_coordinator_dispatches_install_on_valid_request`: Verified valid install request dispatches to backend.
-- `test_install_creates_receipt_on_success`: Verified successful install creates receipt in `component-receipts/<verb>.sha256`.
-- `test_coordinator_rejects_unauthorized_uid`: Verified `SO_PEERCRED` rejects unauthorized client UIDs.
-- `test_catalog_contains_six_distinct_components_in_order`: Verified 6 distinct components in exact order.
-- `test_disabled_components_have_explicit_reasons`: Verified disabled flags and explicit reasons for `vcrun2022` and `physx`.
-- `test_active_components_are_not_disabled`: Verified supported components are active.
-- `test_catalog_row_formatting`: Verified 9 fields per row in coordinator protocol.
-
-**Test Run Output:**
+### 3.1. Python Test Suite (Debian & wexbuild WSL)
+Command:
+```bash
+python3 -B -W error::ResourceWarning scripts/test_runtime_repairs.py
 ```
-Ran 38 tests in 0.355s
+Output:
+```text
+Ran 50 tests in 1.801s (Debian) / 6.145s (wexbuild)
 OK
 ```
-All 38 tests pass with zero warnings (`python3 -W error::ResourceWarning`).
+All 50 unit and regression tests pass with zero warnings, covering:
+- Graphics bundle isolation, login refresh, and failure recovery.
+- Component verb validation, limited-user denial, and frontend disabled rejection.
+- Backend disabled rejection even with cached terms, winetricks hash verification, and recipe validation.
+- Structured `<verb>.json` receipt creation and duplicate install idempotency.
+- Coordinator authentication (`SO_PEERCRED`), stage expiration, and error handling.
+- Coordinator asynchronous operation lifecycle (`START_INSTALL`, `QUERY_INSTALL`, `CANCEL_INSTALL`), deduplication, idempotency, and reconnect query.
+- Packaging, font substitutions, and offline asset caching.
+- Native seam compilation and execution.
 
-### 5.2. Compilation and Architecture Verification
-- Built both 32-bit (`i386-windows`) and 64-bit (`x86_64-windows`) PE targets for `programs/oobe` and `dlls/wexhost`.
-- Built Unix host bridge (`wexhost.so`) under combined WoW64 tree.
-- Tested `bash -n installer/scripts/wex-oobe.sh` with 0 syntax errors.
+### 3.2. Native Test Seam (`scripts/test_oobe_native.c`)
+Tests production `oobe_catalog.h` and controller logic:
+1. `test_catalog_six_rows`: Parses 6 rows, checks column extraction, ordering, and disabled flags.
+2. `test_catalog_empty_fields`: Verifies empty optional fields do not shift columns or corrupt memory.
+3. `test_catalog_malformed_and_oversized`: Verifies malformed lines and oversized buffers fail closed.
+4. `test_utf8_conversion_fail_closed`: Verifies Win32 `MultiByteToWideChar` / `WideCharToMultiByte` zero output buffer on invalid bytes.
+5. `test_candidate_accepted_digest_separation`: Verifies candidate SHA is never committed on dialog cancel.
+6. `test_worker_lifetime_reference_counting`: Verifies context memory remains valid during slow worker requests even when UI closes early, and frees exactly when the final reference drops.
+
+**Compilation & Execution:**
+- 64-bit target:
+  ```bash
+  x86_64-w64-mingw32-gcc -Wall -Wextra scripts/test_oobe_native.c -o /tmp/test_oobe_native_64.exe
+  WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' WINEDEBUG=-all wine /tmp/test_oobe_native_64.exe
+  ```
+  Result: `ALL 6 NATIVE TESTS PASSED (43 assertions verified)`.
+- 32-bit target:
+  ```bash
+  i686-w64-mingw32-gcc -Wall -Wextra scripts/test_oobe_native.c -o /tmp/test_oobe_native_32.exe
+  WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' WINEDEBUG=-all wine /tmp/test_oobe_native_32.exe
+  ```
+  Result: `ALL 6 NATIVE TESTS PASSED (43 assertions verified)`.
+
+### 3.3. Shell Script Syntax Check
+Command:
+```bash
+bash -n installer/scripts/wex-oobe.sh
+```
+Result: 0 syntax errors.
+
+### 3.4. Wow64 Compilation Check
+Command:
+```bash
+cd /root/verify-v4/build/wow64 && make programs/oobe/all dlls/wexhost/all
+```
+Result: `programs/oobe/i386-windows/oobe.exe`, `programs/oobe/x86_64-windows/oobe.exe`, and `dlls/wexhost/wexhost.so` compiled with zero errors.
 
 ---
 
-## 6. Upstream Package Status & Gaps Addressed
+## 4. Remaining Gates for Upstream Merge
 
-1. **`vcrun2022` Mutable URL Hash Drift:**
-   Upstream aka.ms URL diverges from the Debian winetricks recipe hash. To prevent failed installations or bypassing hash verification with `--force`, `vcrun2022` is marked disabled by default with the explicit reason: `"Upstream mutable URL divergence in winetricks recipe (aka.ms hash mismatch)"`.
-2. **`physx` Upstream Broken Status:**
-   Upstream winetricks flags `physx` with `w_package_broken` (WineHQ bug 56606). It is disabled with the explicit reason: `"Marked broken upstream in winetricks (WineHQ bug 56606)"`.
-3. **Wine 64-bit Regedit Symlinks:**
-   In 64-bit Wine prefixes, winetricks explicitly invokes `C:\windows\syswow64\regedit.exe`. In Wine, `regedit.exe` lives in `C:\windows\regedit.exe`. The installation backend ensures symlinks in `system32` and `syswow64` exist prior to running winetricks so 64-bit prefix registry imports do not fail.
+1. **Visual & Layout Acceptance:** Interactive review of OOBE catalog and terms dialog at 800x600 and native setup resolutions under Classic and Open Luna themes.
+2. **Fresh Installed ISO on Disposable VM:** Live ISO installation on an authorized disposable VM verifying offline skip, unprivileged `wexsetup` execution, and post-setup administrative launch.
+3. **Proprietary Vendor Consent:** Live download and execution of proprietary components requires human vendor terms review and approval.

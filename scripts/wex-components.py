@@ -15,6 +15,7 @@ import fcntl
 import grp
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import pwd
@@ -25,6 +26,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -59,9 +62,9 @@ COMPONENTS_METADATA = {
         'description': 'Installs original Microsoft TrueType core fonts (Arial, Times New Roman, Courier New, Georgia, Verdana, Comic Sans, Trebuchet, Impact, Andale Mono, Webdings).',
         'size': '~4 MB',
         'reboot': False,
-        'disabled': False,
-        'disabled_reason': '',
-        'terms_url': 'https://raw.githubusercontent.com/pushcx/corefonts/master/LICENSE',
+        'disabled': True,
+        'disabled_reason': 'Retired upstream by vendor; standalone terms lack first-party vendor provenance',
+        'terms_url': None,
         'recipe_files': [
             ('andale32.exe', '0524fe42951237501f3a00e620ecc7446b404f05d166b24597746044a40ec974'),
             ('arial32.exe', '85288a75e478546114eb307406a6cc0536c46a6f0fb32230fed84820eb7706d7'),
@@ -81,9 +84,9 @@ COMPONENTS_METADATA = {
         'description': 'Installs Microsoft Tahoma and Tahoma Bold TrueType fonts from the official Microsoft Internet Explorer font package.',
         'size': '~410 KB',
         'reboot': False,
-        'disabled': False,
-        'disabled_reason': '',
-        'terms_url': 'https://raw.githubusercontent.com/pushcx/corefonts/master/LICENSE',
+        'disabled': True,
+        'disabled_reason': 'IE language pack payload terms require extraction from redistributable; no standalone vendor terms URL',
+        'terms_url': None,
         'recipe_files': [
             ('IELPKTH.CAB', 'c1be3fb8f0042570be76ec6daa03a99142c88367c1bc810240b85827c715961a'),
         ],
@@ -94,9 +97,9 @@ COMPONENTS_METADATA = {
         'description': 'DirectX HLSL shader compiler library required by DirectX 11, DirectX 12, and Vulkan translation layers (DXVK/VKD3D). Wine builtin compiler remains default.',
         'size': '~4.5 MB',
         'reboot': False,
-        'disabled': False,
-        'disabled_reason': '',
-        'terms_url': 'https://raw.githubusercontent.com/mozilla/fxc2/master/README.md',
+        'disabled': True,
+        'disabled_reason': 'Redistributable package lacks a standalone first-party vendor terms URL',
+        'terms_url': None,
         'recipe_files': [
             ('d3dcompiler_47_32.dll', '2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851'),
             ('d3dcompiler_47.dll', '4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3'),
@@ -108,8 +111,8 @@ COMPONENTS_METADATA = {
         'description': 'Cross-Platform Audio Creation Tool (XACT) runtime libraries for game audio.',
         'size': '~95 MB',
         'reboot': False,
-        'disabled': False,
-        'disabled_reason': '',
+        'disabled': True,
+        'disabled_reason': 'Vendor terms are embedded inside redistributable and cannot be acquired prior to consent',
         'terms_url': None,
         'recipe_files': [
             ('directx_Jun2010_redist.exe', '8746ee1a84a083a90e37899d71d50d5c7c015e69688a466aa80447f011780c0d'),
@@ -134,6 +137,10 @@ TERMS = Path('/etc/wineexplorer/component-licenses')
 MACHINE = Path('/var/lib/wineexplorer/machine')
 CACHE = Path('/var/cache/winetricks')
 BACKEND = '/usr/local/bin/wex-components'
+WINETRICKS_PATH = Path('/usr/bin/winetricks')
+APPROVED_WINETRICKS_VERSION = '20250102'
+APPROVED_WINETRICKS_SHA256 = '9df4af038f04c753f3b0b02817cf60a51d8eac32357d070c45dfd139b93bd3f5'
+
 # Winetricks must not replace these Wine implementations, even as an indirect
 # side effect of an allowed verb such as vcrun2022. Native d3dcompiler is optional.
 PROTECTED = ('dwrite', 'gdiplus', 'usp10', 'riched20', 'mf', 'mfplat', 'mfreadwrite',
@@ -146,6 +153,34 @@ def validate_verb(verb):
     if verb not in COMPONENTS:
         raise ValueError(f'Unsupported component: {verb}')
     return verb
+
+
+def validate_winetricks_integrity(path=None):
+    winetricks = path or WINETRICKS_PATH
+    if not winetricks.is_file():
+        raise ValueError(f'Winetricks executable missing at {winetricks}')
+    if winetricks.is_symlink():
+        raise ValueError('Refusing symlinked winetricks executable')
+    stat = winetricks.stat()
+    if stat.st_uid != 0 and (os.getuid() == 0 or stat.st_uid != os.getuid()):
+        raise ValueError('Winetricks executable must be root-owned and not writable by others')
+    if stat.st_mode & 0o022:
+        raise ValueError('Winetricks executable must not be writable by group or others')
+    digest = hashlib.sha256(winetricks.read_bytes()).hexdigest()
+    if digest != APPROVED_WINETRICKS_SHA256:
+        raise ValueError(f'Winetricks integrity violation: expected {APPROVED_WINETRICKS_SHA256}, got {digest}')
+
+
+def validate_recipe_files(verb, path=None):
+    winetricks = path or WINETRICKS_PATH
+    meta = COMPONENTS_METADATA.get(verb, {})
+    expected_files = meta.get('recipe_files', [])
+    if not expected_files:
+        raise ValueError(f'No approved recipe files configured for {verb}')
+    content = winetricks.read_text(encoding='utf-8', errors='replace')
+    for fname, sha in expected_files:
+        if fname not in content or sha not in content:
+            raise ValueError(f'Recipe integrity violation: {verb} requires {fname} with hash {sha}')
 
 
 def is_admin():
@@ -313,15 +348,58 @@ def protect_builtins(machine, environment):
                     reg(wine, environment, 'import', str(backup), check=True)
 
 
+def is_installed(verb, accepted_digest=None, machine=MACHINE):
+    receipts_dir = machine.parent / 'component-receipts'
+    json_file = receipts_dir / (verb + '.json')
+    if json_file.is_file():
+        try:
+            data = json.loads(json_file.read_text(encoding='utf-8'))
+            if (data.get('verb') == verb and
+                data.get('winetricks_sha256') == APPROVED_WINETRICKS_SHA256 and
+                (accepted_digest is None or data.get('terms_sha256') == accepted_digest)):
+                return True
+        except Exception:
+            pass
+    sha_file = receipts_dir / (verb + '.sha256')
+    if sha_file.is_file():
+        try:
+            sha = sha_file.read_text(encoding='ascii').strip()
+            if accepted_digest is None or sha == accepted_digest:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def get_installed_receipts(machine=MACHINE):
+    receipts_dir = machine.parent / 'component-receipts'
+    if not receipts_dir.is_dir():
+        return set()
+    installed = set()
+    for verb in COMPONENTS:
+        if is_installed(verb, machine=machine):
+            installed.add(verb)
+    return installed
+
+
 def install(verb, accepted_digest):
     validate_verb(verb)
+    meta = COMPONENTS_METADATA.get(verb, {})
+    if meta.get('disabled'):
+        raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
     if os.getuid() != 0:
         raise ValueError('The installer backend requires authenticated elevation')
+    validate_winetricks_integrity()
+    validate_recipe_files(verb)
     _, current = license_text(verb)
     if current != accepted_digest:
         raise ValueError('Vendor terms changed; review and accept the current text')
     if MACHINE.is_symlink() or MACHINE.stat().st_uid != 0:
         raise ValueError('Machine prefix must be a root-owned real directory')
+
+    # Deduplicate: check if already installed with same verified terms and recipe
+    if is_installed(verb, accepted_digest, machine=MACHINE):
+        return
 
     # In win64/wow64 prefixes, ensure regedit exists in system dirs for winetricks
     regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
@@ -368,22 +446,26 @@ def install(verb, accepted_digest):
             raise ValueError(f'{verb} failed (exit {result.returncode}); installation may be partial; see console output')
         receipt = MACHINE.parent / 'component-receipts'
         receipt.mkdir(mode=0o700, exist_ok=True)
+        receipt_data = {
+            'verb': verb,
+            'title': meta.get('title', verb),
+            'sha256': current,
+            'terms_sha256': current,
+            'winetricks_version': APPROVED_WINETRICKS_VERSION,
+            'winetricks_sha256': APPROVED_WINETRICKS_SHA256,
+            'architecture': 'wow64',
+            'installed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'recipe_files': meta.get('recipe_files', []),
+        }
+        (receipt / (verb + '.json')).write_text(json.dumps(receipt_data, indent=2) + '\n', encoding='utf-8')
         (receipt / (verb + '.sha256')).write_text(current + '\n', encoding='ascii')
 
 
-def get_installed_receipts(machine=MACHINE):
-    receipts_dir = machine.parent / 'component-receipts'
-    if not receipts_dir.is_dir():
-        return set()
-    installed = set()
-    for verb in COMPONENTS:
-        receipt_file = receipts_dir / (verb + '.sha256')
-        if receipt_file.is_file():
-            installed.add(verb)
-    return installed
-
-
 def consent(verb, gui):
+    validate_verb(verb)
+    meta = COMPONENTS_METADATA.get(verb, {})
+    if meta.get('disabled'):
+        raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
     try:
         text, sha = license_text(verb)
     except ValueError:
@@ -412,6 +494,9 @@ def frontend(verbs, gui):
     # Validate the whole request before displaying terms or invoking elevation.
     for verb in verbs:
         validate_verb(verb)
+        meta = COMPONENTS_METADATA.get(verb, {})
+        if meta.get('disabled'):
+            raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
     if gui:
         command = ['zenity', '--list', '--checklist', '--title=Windows Components',
                    '--column=Install', '--column=Component', '--column=Description',
@@ -426,6 +511,9 @@ def frontend(verbs, gui):
         verbs = result.stdout.strip().split('|')
     for verb in verbs:
         validate_verb(verb)
+        meta = COMPONENTS_METADATA.get(verb, {})
+        if meta.get('disabled'):
+            raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
         sha = consent(verb, gui)
         if sha is None:
             return
@@ -469,6 +557,9 @@ def oobe_coordinator():
     server.settimeout(2.0)
 
     running = True
+    active_operations = {}
+    operations_lock = threading.Lock()
+
     def stop_handler(signum, frame):
         nonlocal running
         running = False
@@ -547,10 +638,14 @@ def oobe_coordinator():
                     err_msg = f"ERR {err}\n"
                     conn.sendall(err_msg.encode('utf-8'))
 
-            elif cmd == 'INSTALL' and len(parts) >= 3:
+            elif (cmd == 'START_INSTALL' or cmd == 'INSTALL') and len(parts) >= 3:
                 # Revalidate stage immediately before dispatching privileged install
                 if not stage_file.is_file() or stage_file.read_text(encoding='ascii').strip() != 'oobe':
                     conn.sendall(b"ERR Setup OOBE stage expired; installation rejected\n")
+                    try:
+                        conn.shutdown(socket.SHUT_WR)
+                    except OSError:
+                        pass
                     continue
                 verb, accepted_sha = parts[1], parts[2]
                 try:
@@ -558,10 +653,96 @@ def oobe_coordinator():
                     meta = COMPONENTS_METADATA.get(verb, {})
                     if meta.get('disabled'):
                         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
-                    install(verb, accepted_sha)
-                    conn.sendall(b"OK\n")
+                    _, current_sha = license_text(verb)
+                    if current_sha != accepted_sha:
+                        raise ValueError('Vendor terms changed; review and accept the current text')
                 except Exception as err:
                     conn.sendall(f"ERR {err}\n".encode('utf-8'))
+                    continue
+
+                if is_installed(verb, accepted_sha):
+                    conn.sendall(b"OK ALREADY_INSTALLED\n")
+                    continue
+
+                with operations_lock:
+                    existing_op = None
+                    other_running = False
+                    for op_id, op_info in active_operations.items():
+                        if op_info['status'] == 'RUNNING':
+                            if op_info['verb'] == verb:
+                                existing_op = (op_id, op_info)
+                            else:
+                                other_running = True
+                    if existing_op:
+                        op_id, op_info = existing_op
+                        if op_info['sha'] == accepted_sha:
+                            conn.sendall(f"OK {op_id} STARTED\n".encode('utf-8'))
+                            continue
+                        else:
+                            conn.sendall(b"ERR Another operation running with different terms\n")
+                            continue
+                    if other_running:
+                        conn.sendall(b"ERR Another component installation is already in progress\n")
+                        continue
+
+                    op_id = f"op_{verb}_{int(time.time() * 1000)}"
+                    op_state = {
+                        'verb': verb,
+                        'sha': accepted_sha,
+                        'status': 'RUNNING',
+                        'error': '',
+                        'thread': None,
+                        'cancelled': False,
+                    }
+                    active_operations[op_id] = op_state
+
+                    def run_op(current_op_id, v, s):
+                        try:
+                            install(v, s)
+                            with operations_lock:
+                                if current_op_id in active_operations:
+                                    active_operations[current_op_id]['status'] = 'SUCCESS'
+                        except Exception as ex:
+                            with operations_lock:
+                                if current_op_id in active_operations:
+                                    active_operations[current_op_id]['status'] = 'FAILED'
+                                    active_operations[current_op_id]['error'] = str(ex)
+
+                    op_thread = threading.Thread(target=run_op, args=(op_id, verb, accepted_sha), daemon=True)
+                    op_state['thread'] = op_thread
+                    op_thread.start()
+
+                    conn.sendall(f"OK {op_id} STARTED\n".encode('utf-8'))
+
+            elif cmd == 'QUERY_INSTALL' and len(parts) >= 2:
+                q_op_id = parts[1]
+                with operations_lock:
+                    if q_op_id in active_operations:
+                        info = active_operations[q_op_id]
+                        if info['status'] == 'RUNNING':
+                            conn.sendall(b"STATUS RUNNING\n")
+                        elif info['status'] == 'SUCCESS':
+                            conn.sendall(b"STATUS SUCCESS\n")
+                        elif info['status'] == 'FAILED':
+                            err_str = info['error'].replace('\n', ' ').strip()
+                            conn.sendall(f"STATUS FAILED {err_str}\n".encode('utf-8'))
+                    else:
+                        verb_candidate = q_op_id.split('_')[1] if q_op_id.startswith('op_') and len(q_op_id.split('_')) >= 2 else None
+                        if verb_candidate and is_installed(verb_candidate):
+                            conn.sendall(b"STATUS SUCCESS\n")
+                        else:
+                            conn.sendall(b"ERR No such operation\n")
+
+            elif cmd == 'CANCEL_INSTALL' and len(parts) >= 2:
+                c_op_id = parts[1]
+                with operations_lock:
+                    if c_op_id in active_operations:
+                        active_operations[c_op_id]['cancelled'] = True
+                        active_operations[c_op_id]['status'] = 'FAILED'
+                        active_operations[c_op_id]['error'] = 'Operation cancelled by user'
+                        conn.sendall(b"OK CANCELLED\n")
+                    else:
+                        conn.sendall(b"ERR No such operation\n")
 
             elif cmd == 'GET_RECEIPTS':
                 installed = get_installed_receipts()
@@ -581,6 +762,13 @@ def oobe_coordinator():
                 conn.close()
             except OSError:
                 pass
+
+    with operations_lock:
+        for op_id, op_info in active_operations.items():
+            if op_info['status'] == 'RUNNING':
+                op_info['cancelled'] = True
+                op_info['status'] = 'FAILED'
+                op_info['error'] = 'Setup OOBE stage expired or coordinator stopped'
 
     try:
         server.close()

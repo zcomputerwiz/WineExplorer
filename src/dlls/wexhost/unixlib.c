@@ -1868,8 +1868,10 @@ static NTSTATUS oobe_install( void *args )
     struct oobe_install_params *params = args;
     char cmd[256];
     char reply[512];
+    char op_id[128];
     ssize_t n, total = 0;
     int fd = oobe_connect();
+    int retries = 0;
 
     if (fd < 0)
     {
@@ -1877,7 +1879,7 @@ static NTSTATUS oobe_install( void *args )
         return STATUS_SUCCESS;
     }
 
-    snprintf( cmd, sizeof(cmd), "INSTALL %s %s\n", params->verb, params->sha256 );
+    snprintf( cmd, sizeof(cmd), "START_INSTALL %s %s\n", params->verb, params->sha256 );
     if (!oobe_write_all( fd, cmd, strlen(cmd) ))
     {
         close( fd );
@@ -1891,17 +1893,90 @@ static NTSTATUS oobe_install( void *args )
     reply[total] = '\0';
     close( fd );
 
-    if (strncmp( reply, "OK", 2 ) == 0)
+    if (strncmp( reply, "OK ALREADY_INSTALLED", 20 ) == 0)
     {
         params->err = ERROR_SUCCESS;
+        return STATUS_SUCCESS;
+    }
+
+    op_id[0] = '\0';
+    if (strncmp( reply, "OK ", 3 ) == 0)
+    {
+        if (sscanf( reply + 3, "%127s", op_id ) < 1 || !op_id[0])
+        {
+            params->err = 1603;
+            snprintf( params->err_buf, sizeof(params->err_buf), "Malformed coordinator acknowledgement" );
+            return STATUS_SUCCESS;
+        }
     }
     else
     {
         params->err = 1603; /* ERROR_INSTALL_FAILURE */
         if (strncmp( reply, "ERR ", 4 ) == 0)
-            snprintf( params->err_buf, sizeof(params->err_buf), "%s", reply + 4 );
+            snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply + 4 );
         else
-            snprintf( params->err_buf, sizeof(params->err_buf), "%s", reply );
+            snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply );
+        return STATUS_SUCCESS;
+    }
+
+    /* Operation submitted with ID op_id. Poll status until complete or terminal failure. */
+    for (;;)
+    {
+        usleep( 500000 ); /* 500ms delay between polls */
+        fd = oobe_connect();
+        if (fd < 0)
+        {
+            /* Transient disconnect: retry up to 60 times before considering transport dead */
+            if (++retries > 60)
+            {
+                params->err = 1603;
+                snprintf( params->err_buf, sizeof(params->err_buf), "Lost connection to coordinator" );
+                break;
+            }
+            continue;
+        }
+        retries = 0;
+
+        snprintf( cmd, sizeof(cmd), "QUERY_INSTALL %s\n", op_id );
+        if (!oobe_write_all( fd, cmd, strlen(cmd) ))
+        {
+            close( fd );
+            continue;
+        }
+        shutdown( fd, SHUT_WR );
+
+        total = 0;
+        while (total < sizeof(reply) - 1 && (n = oobe_read_retry( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
+            total += n;
+        reply[total] = '\0';
+        close( fd );
+
+        if (strncmp( reply, "STATUS RUNNING", 14 ) == 0)
+        {
+            continue;
+        }
+        else if (strncmp( reply, "STATUS SUCCESS", 14 ) == 0)
+        {
+            params->err = ERROR_SUCCESS;
+            break;
+        }
+        else if (strncmp( reply, "STATUS FAILED", 13 ) == 0)
+        {
+            const char *err_text = reply + 13;
+            params->err = 1603;
+            while (*err_text == ' ') err_text++;
+            snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", err_text );
+            break;
+        }
+        else
+        {
+            params->err = 1603;
+            if (strncmp( reply, "ERR ", 4 ) == 0)
+                snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply + 4 );
+            else
+                snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply );
+            break;
+        }
     }
     return STATUS_SUCCESS;
 }
