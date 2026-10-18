@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import signal
 import socket
@@ -68,6 +69,8 @@ COMPONENTS_METADATA = {
         'disabled': True,
         'disabled_reason': 'Upstream mutable URL divergence in winetricks recipe (aka.ms hash mismatch)',
         'terms_url': 'https://visualstudio.microsoft.com/wp-content/uploads/2021/09/Visual-C-Runtime-2015-2022-License-1.docx',
+        'terms_sha256': 'f1e3d56ceb2ad68aae0711b910375009e651ac5530fa0760f0dea6e81e54fae1',
+        'terms_text_sha256': '993abe4df09446971c7a72f0b5c6cd1f0f69e57d574a2c9729582438708f3df0',
         'recipe_files': [
             ('vc_redist.x86.exe', 'dd1a8be03398367745a87a5e35bebdab00fdad080cf42af0c3f20802d08c25d4'),
         ],
@@ -208,6 +211,192 @@ def protected_name(name):
     return name.endswith('.dll') and (name[:-4] in PROTECTED or name.startswith(('msxml', 'mf')))
 
 
+MAX_TERMS_BYTES = 2 * 1024 * 1024
+
+
+def component_identity(verb):
+    record = {'schema': 1, 'verb': validate_verb(verb),
+              'metadata': COMPONENTS_METADATA[verb],
+              'winetricks_sha256': APPROVED_WINETRICKS_SHA256,
+              'architecture': 'wow64'}
+    return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def atomic_json(path, data, mode=0o600):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix='.' + path.name, delete=False) as out:
+            temporary = Path(out.name)
+            os.fchmod(out.fileno(), mode)
+            json.dump(data, out, sort_keys=True, indent=2)
+            out.write('\n')
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temporary, path)
+        descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def extract_docx_terms(data):
+    """Render supported Word paragraphs/lists/links; reject unhandled content.
+
+    Only independently hash-pinned documents reach this parser in production.
+    No proprietary document contents are embedded in the program.
+    """
+    w = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+    rel = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        names = archive.namelist()
+        if len(set(names)) != len(names) or sum(i.file_size for i in archive.infolist()) > MAX_TERMS_BYTES:
+            raise ValueError('Oversized or ambiguous terms document')
+        document = ET.fromstring(archive.read('word/document.xml'))
+        if any(document.find('.//' + w + tag) is not None for tag in
+               ('altChunk', 'object', 'drawing', 'del', 'fldSimple', 'instrText', 'footnoteReference', 'endnoteReference')):
+            raise ValueError('Terms contain unsupported embedded or conditional content')
+        # Do not silently discard substantive text in auxiliary document parts.
+        for name in names:
+            if re.fullmatch(r'word/(?:header\d+|footer\d+|footnotes|endnotes)\.xml', name):
+                part = ET.fromstring(archive.read(name))
+                if any((node.text or '').strip() for node in part.iter(w + 't')):
+                    raise ValueError('Terms contain auxiliary text requiring explicit review')
+        links = {}
+        if 'word/_rels/document.xml.rels' in names:
+            for item in ET.fromstring(archive.read('word/_rels/document.xml.rels')):
+                if item.get('TargetMode') == 'External':
+                    if not item.get('Type', '').endswith('/hyperlink'):
+                        raise ValueError('Unsupported external terms dependency')
+                    url = item.get('Target', '')
+                    if not url.startswith(('https://', 'http://')):
+                        raise ValueError('Unsupported terms hyperlink')
+                    links[item.get('Id')] = url
+        numbering = ET.fromstring(archive.read('word/numbering.xml')) if 'word/numbering.xml' in names else None
+        abstracts, numbers, counters = {}, {}, {}
+        if numbering is not None:
+            abstracts = {n.get(w + 'abstractNumId'): n for n in numbering.findall(w + 'abstractNum')}
+            for number in numbering.findall(w + 'num'):
+                if number.find(w + 'lvlOverride') is not None:
+                    raise ValueError('Numbering overrides require explicit review')
+                abstract = number.find(w + 'abstractNumId')
+                if abstract is not None:
+                    numbers[number.get(w + 'numId')] = abstract.get(w + 'val')
+        paragraphs = []
+        styles = {}
+        if 'word/styles.xml' in names:
+            styles = {s.get(w + 'styleId'): s for s in
+                      ET.fromstring(archive.read('word/styles.xml')).findall(w + 'style')}
+
+        def list_properties(properties, seen=()):
+            result = {}
+            if properties is None:
+                return result
+            style = properties.find(w + 'pStyle')
+            if style is not None:
+                style_id = style.get(w + 'val')
+                if style_id in seen or len(seen) > 16:
+                    raise ValueError('Cyclic legal document style')
+                definition = styles.get(style_id)
+                if definition is not None:
+                    base = definition.find(w + 'basedOn')
+                    if base is not None:
+                        inherited = ET.Element(w + 'pPr')
+                        ET.SubElement(inherited, w + 'pStyle', {w + 'val': base.get(w + 'val', '')})
+                        result.update(list_properties(inherited, (*seen, style_id)))
+                    result.update(list_properties(definition.find(w + 'pPr'), (*seen, style_id)))
+            num = properties.find(w + 'numPr')
+            if num is not None:
+                for field in ('numId', 'ilvl'):
+                    item = num.find(w + field)
+                    if item is not None:
+                        result[field] = item.get(w + 'val')
+            return result
+
+        def format_counter(value, fmt):
+            if value < 1 or value > 3999:
+                raise ValueError('Unsupported legal numbering range')
+            if fmt == 'decimal':
+                return str(value)
+            if fmt in ('lowerLetter', 'upperLetter'):
+                marker = ''
+                while value:
+                    value, digit = divmod(value - 1, 26)
+                    marker = chr(ord('a') + digit) + marker
+                return marker.upper() if fmt == 'upperLetter' else marker
+            if fmt in ('lowerRoman', 'upperRoman'):
+                marker = ''
+                for amount, symbol in ((1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+                                       (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+                                       (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')):
+                    count, value = divmod(value, amount)
+                    marker += symbol * count
+                return marker.lower() if fmt == 'lowerRoman' else marker
+            raise ValueError('Unsupported legal list format')
+
+        for paragraph in document.iter(w + 'p'):
+            pieces = []
+            for node in paragraph.iter():
+                if node.tag == w + 't':
+                    pieces.append(node.text or '')
+                elif node.tag == w + 'tab':
+                    pieces.append('\t')
+                elif node.tag in (w + 'br', w + 'cr'):
+                    pieces.append('\n')
+                elif node.tag == w + 'hyperlink':
+                    link_id = node.get(rel + 'id')
+                    if link_id and link_id not in links:
+                        raise ValueError('Unresolved document hyperlink')
+            text = ''.join(pieces)
+            for link in paragraph.iter(w + 'hyperlink'):
+                url = links.get(link.get(rel + 'id'))
+                if url and url not in text:
+                    text += ' [' + url + ']'
+            properties = paragraph.find(w + 'pPr')
+            num = list_properties(properties)
+            if num:
+                num_id = num.get('numId', '0')
+                if num_id != '0':
+                    level_id = num.get('ilvl', '0')
+                    depth = int(level_id)
+                    abstract = abstracts.get(numbers.get(num_id))
+                    level = next((l for l in abstract.findall(w + 'lvl') if l.get(w + 'ilvl') == level_id), None) if abstract is not None else None
+                    if level is None or not 0 <= depth <= 8:
+                        raise ValueError('Unsupported legal list nesting')
+                    fmt, label = level.find(w + 'numFmt'), level.find(w + 'lvlText')
+                    if fmt is None or label is None:
+                        raise ValueError('Incomplete legal list numbering')
+                    if fmt.get(w + 'val') == 'bullet':
+                        prefix = '\u2022 '
+                    else:
+                        start = level.find(w + 'start')
+                        key = (num_id, depth)
+                        counters[key] = counters.get(key, int(start.get(w + 'val', '1')) - 1 if start is not None else 0) + 1
+                        for deeper in range(depth + 1, 9):
+                            counters.pop((num_id, deeper), None)
+                        if level.find(w + 'lvlRestart') is not None:
+                            raise ValueError('Custom list restart requires explicit review')
+                        def replace_level(match):
+                            referenced = int(match.group(1)) - 1
+                            ref_level = next((l for l in abstract.findall(w + 'lvl') if l.get(w + 'ilvl') == str(referenced)), None)
+                            if ref_level is None or (num_id, referenced) not in counters:
+                                raise ValueError('Unresolved parent legal list counter')
+                            ref_fmt = ref_level.find(w + 'numFmt')
+                            return format_counter(counters[(num_id, referenced)], ref_fmt.get(w + 'val', ''))
+                        prefix = re.sub(r'%([1-9])', replace_level, label.get(w + 'val', '')) + ' '
+                    text = prefix + text
+            if text.strip():
+                paragraphs.append(text)
+        text = '\n\n'.join(paragraphs) + '\n'
+        if len(text.strip()) < 500 or len(text.encode('utf-8')) > MAX_TERMS_BYTES or '\x00' in text:
+            raise ValueError('Incomplete or oversized extracted terms')
+        return text
+
+
 def fetch_vendor_terms(verb, directory=TERMS):
     """Acquire authentic vendor terms over network and cache under directory."""
     validate_verb(verb)
@@ -215,37 +404,33 @@ def fetch_vendor_terms(verb, directory=TERMS):
     if meta.get('disabled'):
         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
 
-    target = directory / (verb + '.txt')
+    target = directory / (verb + '.json')
     if target.is_file():
         return license_text(verb, directory)
 
     terms_url = meta.get('terms_url')
     if not terms_url:
         raise FileNotFoundError(f'Authentic vendor terms for {verb} must be provisioned in {directory}/{verb}.txt')
+    if not terms_url.startswith('https://') or not meta.get('terms_sha256') or not meta.get('terms_text_sha256'):
+        raise ValueError('No reviewed document and extraction identity for ' + verb)
 
     headers = {'User-Agent': 'Wget/1.21.3 (linux-gnu)'}
     req = urllib.request.Request(terms_url, headers=headers)
     try:
-        data = urllib.request.urlopen(req, timeout=25).read()
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if not response.url.startswith('https://'):
+                raise ValueError('Insecure vendor document redirect')
+            data = response.read(MAX_TERMS_BYTES + 1)
     except urllib.error.URLError as err:
         raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {terms_url}: {err.reason}')
 
-    if terms_url.endswith('.docx'):
-        try:
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                xml_content = zf.read('word/document.xml')
-            tree = ET.fromstring(xml_content)
-            paragraphs = []
-            ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-            for p in tree.iterfind('.//w:p', ns):
-                texts = [node.text for node in p.iterfind('.//w:t', ns) if node.text]
-                if texts:
-                    paragraphs.append(''.join(texts))
-            text = '\n\n'.join(paragraphs)
-        except Exception as parse_err:
-            raise ValueError(f'Failed to extract authentic terms from {verb} vendor document: {parse_err}')
-    else:
-        text = data.decode('utf-8', errors='replace')
+    if len(data) > MAX_TERMS_BYTES or hashlib.sha256(data).hexdigest() != meta['terms_sha256']:
+        raise ValueError('Vendor document changed or exceeded its size limit; review required')
+    if not terms_url.endswith('.docx'):
+        raise ValueError('Unreviewed vendor document format')
+    text = extract_docx_terms(data)
+    if hashlib.sha256(text.encode()).hexdigest() != meta['terms_text_sha256']:
+        raise ValueError('Terms extraction changed; full document review required')
 
     if len(text.strip()) < 500:
         raise ValueError(f'Retrieved terms for {verb} too short ({len(text.strip())} chars); full vendor terms required')
@@ -256,12 +441,10 @@ def fetch_vendor_terms(verb, directory=TERMS):
         for entry in (directory, *directory.parents):
             if entry.is_symlink() or entry.stat().st_uid != 0 or entry.stat().st_mode & 0o022:
                 raise ValueError(f'Insecure vendor license path: {entry}')
-        temp_file = directory / (verb + '.tmp')
-        temp_file.write_text(text, encoding='utf-8')
-        os.chmod(temp_file, 0o644)
-        os.replace(temp_file, target)
+        atomic_json(target, {'schema': 1, 'component_identity': component_identity(verb),
+                             'document_sha256': meta['terms_sha256'], 'text': text}, 0o644)
 
-    sha = hashlib.sha256(text.encode('utf-8')).hexdigest()
+    sha = hashlib.sha256((component_identity(verb) + '\n' + text).encode('utf-8')).hexdigest()
     return text, sha
 
 
@@ -273,25 +456,33 @@ def prepare_terms(verb, directory=TERMS):
     meta = COMPONENTS_METADATA.get(verb, {})
     if meta.get('disabled'):
         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
-    target = directory / (verb + '.txt')
+    target = directory / (verb + '.json')
     if target.is_file():
         return license_text(verb, directory)
     return fetch_vendor_terms(verb, directory)
 
 
 def license_text(verb, directory=TERMS):
-    path = directory / (validate_verb(verb) + '.txt')
+    path = directory / (validate_verb(verb) + '.json')
     if not path.is_file():
-        raise ValueError(f'{verb} is disabled: an administrator must provision the full vendor terms at {path}. No download was started.')
+        raise ValueError(f'{verb} terms have not been prepared. Choose Review terms; no payload was downloaded.')
     # No caller-controlled text or replaceable ancestor can authorize a root
     # download. The installed directory and notices must be root-owned.
     for entry in (path, *path.parents):
         if entry.is_symlink() or entry.stat().st_uid != 0 or entry.stat().st_mode & 0o022:
             raise ValueError(f'Insecure vendor license path: {entry}')
-    text = path.read_text(encoding='utf-8')
-    if len(text.strip()) < 500:
+    if path.stat().st_size > MAX_TERMS_BYTES:
+        raise ValueError('Oversized cached terms')
+    record = json.loads(path.read_text(encoding='utf-8'))
+    meta = COMPONENTS_METADATA[verb]
+    text = record.get('text', '')
+    if (record.get('schema') != 1 or record.get('component_identity') != component_identity(verb) or
+            record.get('document_sha256') != meta.get('terms_sha256') or
+            hashlib.sha256(text.encode()).hexdigest() != meta.get('terms_text_sha256')):
+        raise ValueError('Cached document/package identity changed; review required')
+    if len(text.strip()) < 500 or '\x00' in text:
         raise ValueError(f'Full vendor terms required for {verb}')
-    return text, hashlib.sha256(path.read_bytes()).hexdigest()
+    return text, hashlib.sha256((component_identity(verb) + '\n' + text).encode()).hexdigest()
 
 
 def reg(wine, environment, *args, **kwargs):

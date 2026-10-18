@@ -301,12 +301,16 @@ static DWORD WINAPI TermsFetchThread(LPVOID lpParam)
     TermsFetchContext *ctx = (TermsFetchContext *)lpParam;
     DWORD needed = 0;
     DWORD ret;
+    char snapshot[65];
 
     ret = WexOobeGetTerms(ctx->comp->verb, ctx->candidate_sha256, sizeof(ctx->candidate_sha256), NULL, 0, &needed);
+    memcpy(snapshot, ctx->candidate_sha256, sizeof(snapshot));
     if (ret == ERROR_MORE_DATA && needed > 0) {
         char *buf = malloc(needed + 1);
         if (buf) {
             ret = WexOobeGetTerms(ctx->comp->verb, ctx->candidate_sha256, sizeof(ctx->candidate_sha256), buf, needed + 1, &needed);
+            if (ret == ERROR_SUCCESS && strcmp(snapshot, ctx->candidate_sha256))
+                ret = ERROR_RETRY; /* Never transfer approval across snapshots. */
             if (ret == ERROR_SUCCESS) {
                 int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, buf, -1, NULL, 0);
                 if (wlen > 0) {

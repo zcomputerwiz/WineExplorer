@@ -27,6 +27,8 @@ class BridgeTests(unittest.TestCase):
                          source.index('static NTSTATUS oobe_get_components(')]
         install = source[source.index('static NTSTATUS oobe_install('):
                          source.index('static NTSTATUS oobe_get_receipts(')]
+        terms = source[source.index('static NTSTATUS oobe_get_terms('):
+                       source.index('static NTSTATUS oobe_install(')]
         harness = r'''
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,10 +48,26 @@ typedef int NTSTATUS;
 #define ERROR_NOT_SUPPORTED 50
 #define ERROR_GEN_FAILURE 31
 #define ERROR_TIMEOUT 1460
+#define ERROR_NOT_ENOUGH_MEMORY 8
+#define ERROR_INVALID_DATA 13
+#define ERROR_MORE_DATA 234
+typedef unsigned long long ULONG64;
+typedef unsigned long ULONG_PTR;
+struct oobe_terms_params { char verb[32]; char sha256[65]; ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
 struct oobe_install_params { char verb[32]; char sha256[65]; char err_buf[256]; DWORD err; };
 '''
-        harness += helpers + install + r'''
-int main(void) {
+        harness += helpers + terms + install + r'''
+int main(int argc, char **argv) {
+    if (argc > 1 && !strcmp(argv[1], "terms")) {
+        char body[4096];
+        struct oobe_terms_params t = {0};
+        strcpy(t.verb, "corefonts");
+        t.buffer = (ULONG_PTR)body;
+        t.size = sizeof(body);
+        oobe_get_terms(&t);
+        printf("%u %u\n", t.err, t.needed);
+        return 0;
+    }
     struct oobe_install_params p = {0};
     strcpy(p.verb, "corefonts");
     memset(p.sha256, 'a', 64);
@@ -64,7 +82,7 @@ int main(void) {
         subprocess.run([compiler, '-Wall', '-Wextra', '-Werror',
                         '-Wno-sign-compare', str(path), '-o', str(cls.binary)], check=True)
 
-    def exercise(self, frames, timeout=10):
+    def exercise(self, frames, timeout=10, mode=None):
         endpoint = str(Path(self.scratch.name) / 'peer.sock')
         Path(endpoint).unlink(missing_ok=True)
         errors, requests = [], []
@@ -91,7 +109,7 @@ int main(void) {
             worker = threading.Thread(target=peer)
             worker.start()
             try:
-                result = subprocess.run([str(self.binary)], capture_output=True, text=True,
+                result = subprocess.run([str(self.binary)] + ([mode] if mode else []), capture_output=True, text=True,
                                         env=dict(os.environ, WEX_OOBE_SOCKET=endpoint), timeout=timeout)
             finally:
                 worker.join(6)
@@ -123,6 +141,24 @@ int main(void) {
                                          [b'STATUS SUCCESS\n'], timeout=25)
         self.assertEqual(output, '0 \n')
         self.assertEqual(len(requests), 34)
+
+    def test_terms_require_exact_complete_frame(self):
+        digest = b'a' * 64
+        frames = [b'OK ' + digest + b' 3\nabc',
+                  b'OK ' + digest + b' 4\nabc',
+                  b'OK ' + digest + b' 2\nabc',
+                  b'OK ' + digest + b'\nabc',
+                  b'OK ' + digest + b' 3 EXTRA\nabc',
+                  b'OK ' + b'z' * 64 + b' 3\nabc',
+                  b'OK ' + digest + b' 3\na\x00c']
+        for index, frame in enumerate(frames):
+            with self.subTest(index=index):
+                output, requests = self.exercise([frame], mode='terms')
+                self.assertEqual(requests, [b'GET_TERMS corefonts\n'])
+                if index == 0:
+                    self.assertEqual(output, '0 4\n')
+                else:
+                    self.assertNotEqual(output.split()[0], '0')
 
 
 if __name__ == '__main__':

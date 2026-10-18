@@ -1817,23 +1817,34 @@ static NTSTATUS oobe_get_terms( void *args )
     text_buf[total] = '\0';
     close( fd );
 
-    if (strncmp( text_buf, "OK ", 3 ) == 0)
+    if (n < 0)
+    {
+        params->err = ERROR_TIMEOUT;
+    }
+    else if (strncmp( text_buf, "OK ", 3 ) == 0)
     {
         nl = strchr( text_buf, '\n' );
         if (nl)
         {
             *nl = '\0';
-            if (sscanf( text_buf + 3, "%64s %lu", params->sha256, &expected_bytes ) >= 1)
+            char digest[65];
+            int consumed = 0;
+            if (sscanf( text_buf + 3, "%64s %lu%n", digest, &expected_bytes, &consumed ) == 2 &&
+                consumed > 0 && !text_buf[3 + consumed] && strlen(digest) == 64 &&
+                strspn(digest, "0123456789abcdef") == 64 && expected_bytes > 0 &&
+                expected_bytes < 2 * 1024 * 1024)
             {
                 terms = nl + 1;
-                len = strlen( terms );
-                /* If byte count was provided in frame, verify complete document was received */
-                if (expected_bytes > 0 && len < expected_bytes)
+                len = total - (terms - text_buf);
+                /* Require the exact complete body, not a prefix or C string
+                 * truncated at an embedded NUL. */
+                if (len != expected_bytes || memchr( terms, 0, len ))
                 {
                     params->err = ERROR_INVALID_DATA;
                 }
                 else
                 {
+                    memcpy( params->sha256, digest, sizeof(digest) );
                     params->needed = len + 1;
                     if (!params->buffer || params->size < len + 1)
                     {
