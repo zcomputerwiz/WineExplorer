@@ -79,11 +79,27 @@ All requirements specified in `docs/TOKEN_SECURITY_FIX_WORKORDER.md` have been i
 ### R1: Authentic Authorization & Removal of Auto-Approve Bypasses
 - **Removal of Shipping Bypasses:**
   - Completely removed `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` environment variables from `programs/consent/consent.c` and `src/programs/consent/consent.c`.
-  - Verified on the VM: setting `WINE_CONSENT_AUTO_APPROVE=1` in the requesting environment has zero effect on shipping `consent.exe`.
+  - Verified on the VM: setting `WINE_CONSENT_AUTO_APPROVE=1` and `0` in the requesting environment has zero effect on shipping `consent.exe`, both timing out waiting for authentic input (exit 124) rather than auto-approving:
+    ```
+    $ WINE_CONSENT_AUTO_APPROVE=1 timeout 2 consent.exe /cmd notepad.exe
+    AUTO_APPROVE ignored, exit code: 124
+    $ WINE_CONSENT_AUTO_APPROVE=0 timeout 2 consent.exe /cmd notepad.exe
+    AUTO_APPROVE=0 ignored, exit code: 124
+    ```
 - **Authentic Credentials Verification:**
   - Implemented `check_credentials_pam()` using Linux standard setgid shadow helper `/sbin/unix_chkpwd <username> nullok` via pipe. Password verified against Linux shadow PAM database; passwords are never placed in argv, environment, logs, or Git.
 - **Root-Only Automated Test Fixture:**
-  - Added `check_unattended_fixture()` which only reads `/etc/wineexplorer/test-elevation.conf`. The fixture requires root ownership (`UID 0`), strict permissions (`0600`), and explicit opt-in (`auto_approve=1`). Missing or non-root files default to interactive dialog.
+  - Added `check_unattended_fixture()` which only reads `/etc/wineexplorer/test-elevation.conf` (`Z:\etc\wineexplorer\test-elevation.conf`). The fixture requires root ownership (`root:root`), read permissions, and explicit opt-in:
+    ```
+    # Test mode=approve -> Exit 0 (Approved)
+    $ echo mode=approve > /etc/wineexplorer/test-elevation.conf && consent.exe /cmd notepad.exe
+    With fixture mode=approve: exit 0
+
+    # Test mode=deny -> Exit 1223 (ERROR_CANCELLED)
+    $ echo mode=deny > /etc/wineexplorer/test-elevation.conf && consent.exe /cmd notepad.exe
+    With fixture mode=deny: exit 199 (1223 & 0xFF)
+    ```
+  - Missing or non-root files default strictly to interactive PAM dialog.
 
 ### R6: Genuine `hProcess` Elevation Contract & Machine Root Permissions
 - **Bounded Helper Wait:**
