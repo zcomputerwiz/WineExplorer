@@ -6,7 +6,16 @@
 **Base Commit:** `12ca0aa6ff879f03dd1e7ed09452a49fe15884da` on `origin/master` (`1fa6323385e9b069fafae60afdb42ee68e8e72bf`)  
 **Work Order:** `docs/CHROMIUM_GRAPHICS_G0_WORKORDER.md`  
 **Reference Plan:** `docs/CHROMIUM_GRAPHICS_PLAN.md`  
-**Status:** **Phase G3 SharedImage Resources & Cross-Process Synchronization Passed**
+**Status:** **G3 submission reviewed: correctness repair required; full integration acceptance remains open.**
+
+Independent review on 2026-10-18 found an unconditional Texture2D cast breaking
+ordinary buffer/Texture1D copies, incomplete ordering of pending fence waits,
+and premature GPU fence completion. The `codex/g3-correctness` repair and its
+precisely scoped results are recorded in `CHROMIUM_GRAPHICS_G3_REPAIR_REVIEW.md`.
+The historical author-reported results below (including the phase table) are
+retained as history, not an independent certification. G3 multi-observer/lifecycle
+and GPU-sharing acceptance must satisfy the entry gate in
+`CHROMIUM_GRAPHICS_G4_WORKORDER.md`.
 
 ---
 
