@@ -64,15 +64,26 @@ COMPONENTS_METADATA = {
         'title': 'Visual C++ 2015–2022 runtime',
         'publisher': 'Microsoft Corporation',
         'description': 'Installs Visual C++ runtime libraries (vcruntime140, msvcp140, concrt140, vcamp140) required by many modern Windows applications and games.',
-        'size': '~14 MB',
+        'size': '~38 MiB (x86 and x64)',
         'reboot': False,
         'disabled': True,
-        'disabled_reason': 'Upstream mutable URL divergence in winetricks recipe (aka.ms hash mismatch)',
+        'disabled_reason': 'Pinned installer repaired; shared-user loading and fresh OOBE acceptance still pending',
         'terms_url': 'https://visualstudio.microsoft.com/wp-content/uploads/2021/09/Visual-C-Runtime-2015-2022-License-1.docx',
         'terms_sha256': 'f1e3d56ceb2ad68aae0711b910375009e651ac5530fa0760f0dea6e81e54fae1',
         'terms_text_sha256': '993abe4df09446971c7a72f0b5c6cd1f0f69e57d574a2c9729582438708f3df0',
+        'release': '14.44.35211.0',
+        'execution_policy': 'vcrun2022-fixed-downloads-minimum-dlls-v2',
+        'payloads': [
+            {'name': 'vc_redist.x86.exe', 'architecture': 'x86', 'size': 13953392,
+             'sha256': '0c09f2611660441084ce0df425c51c11e147e6447963c3690f97e0b25c55ed64',
+             'url': 'https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/0C09F2611660441084CE0DF425C51C11E147E6447963C3690F97E0B25C55ED64/VC_redist.x86.exe'},
+            {'name': 'vc_redist.x64.exe', 'architecture': 'x64', 'size': 25635768,
+             'sha256': 'cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b',
+             'url': 'https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe'},
+        ],
         'recipe_files': [
-            ('vc_redist.x86.exe', 'dd1a8be03398367745a87a5e35bebdab00fdad080cf42af0c3f20802d08c25d4'),
+            ('vc_redist.x86.exe', '0c09f2611660441084ce0df425c51c11e147e6447963c3690f97e0b25c55ed64'),
+            ('vc_redist.x64.exe', 'cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b'),
         ],
     },
     'corefonts': {
@@ -191,6 +202,9 @@ def validate_winetricks_integrity(path=None):
 
 
 def validate_recipe_files(verb, path=None):
+    if verb == 'vcrun2022':
+        approved_runtime_recipe(path)
+        return
     winetricks = path or WINETRICKS_PATH
     meta = COMPONENTS_METADATA.get(verb, {})
     expected_files = meta.get('recipe_files', [])
@@ -200,6 +214,172 @@ def validate_recipe_files(verb, path=None):
     for fname, sha in expected_files:
         if fname not in content or sha not in content:
             raise ValueError(f'Recipe integrity violation: {verb} requires {fname} with hash {sha}')
+
+
+# Hashes of individual minimum-runtime members from the exact accepted packages.
+# No vendor file contents are distributed here. Other cabinets (including ARM64
+# and MFC) are deliberately outside this replacement manifest.
+RUNTIME_ARTIFACTS = {
+    'x86': {
+        'concrt140': 'a2b04c69868b08a600518ebbad1661d38de4dd0e0a8e638c22d4641d410e50b1',
+        'msvcp140': '97e71a3c697fb1ab3af777db39009e4602525e8c3aff0837ecc7031cba188165',
+        'msvcp140_1': '01a58552686d0c6b9fd67a7ac81169fc0013aedf59a8efdc611f94907489a31c',
+        'msvcp140_2': '2a5365e03cc6e78b408dfca81537f3734bf3d7cf9cc13ae33204dfbc641dbe43',
+        'msvcp140_atomic_wait': 'c4a2bae74e008a5bb2445f9078c14df9dcb03267248dfa64e7d04cdc8af5208e',
+        'msvcp140_codecvt_ids': 'a5cbecfd9b8892ec9a60e30fef7ef2158032c6d91efdfbaca87c082bcd48bfa9',
+        'vcamp140': '3df343f3951c63caffa1bd04e93728483efdfc67220d2c03a81ff36563dfbdf2',
+        'vccorlib140': '89ed5a6877a87ec3ec9fe4a0fb14dc950599f0b67318e746084a0c333a6c865f',
+        'vcomp140': '91cbb2dbb3c4f279e5b660049b0c86ba85de845931a182ad86c45121bb013d6d',
+        'vcruntime140': 'a9d7732a3c3de09f0601a7fa2555093dcb49f08e2fc62a86091461f0f38393ed',
+        'vcruntime140_threads': 'bb2b1d16187562376fc888059e2cbbf26c5404f6a4bb7197d1d01b970f199667',
+    },
+    'x64': {
+        'concrt140': '2405355f0a58067b258f8df33c327e3a3d716eaac5a3a5aebb757842d85bd376',
+        'msvcp140': '0f885b509a685d2bbfa652fed26b5fb31d88fbdab0a978c641d1c7b8aa460aa9',
+        'msvcp140_1': 'bfad5aef4c63a669e3c140655cdfdf395b6c979b400a447bd5dcb65ed8826c3d',
+        'msvcp140_2': '3ea06f0ee098b4823cb79599df3780e7f23cce52c19aac31d2a0d47efe33a5e9',
+        'msvcp140_atomic_wait': '640b2aefced484d0368eea5bdd06addd0658a3a70a49256e560d6923b404a479',
+        'msvcp140_codecvt_ids': 'f2069a52880ec885ee7f0511186100eb7fada0411a2b4948fafea7735b878a18',
+        'vcamp140': '52af68f35476bd03d7b97752b01bef358ffdda568d150057d6ce809f77c4f704',
+        'vccorlib140': '19839407c3fdbc824e5bce189bf68ddf8097f12ec28b757797ffa0415c144ddd',
+        'vcomp140': '55aba23cdcd6484fbb06f4155b8ca75adfce7a881f10afd0c49457165e677164',
+        'vcruntime140': 'd5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066',
+        'vcruntime140_1': '1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f',
+        'vcruntime140_threads': '219915cf20822f34d5e7c1fdd4e21ae7f3396881096c51036225fb8f84b47afa',
+    },
+}
+
+
+def runtime_artifact_paths(machine):
+    for arch, directory in (('x86', 'syswow64'), ('x64', 'system32')):
+        for name, digest in RUNTIME_ARTIFACTS[arch].items():
+            yield machine / 'drive_c/windows' / directory / (name + '.dll'), digest
+
+
+def verify_runtime_artifacts(machine):
+    for path, digest in runtime_artifact_paths(machine):
+        if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise ValueError('Approved runtime artifact missing or changed: ' + str(path))
+
+
+def repair_runtime_artifacts(machine, cache):
+    """Publish only verified minimum-runtime DLLs, never through prefix links.
+
+    The vendor MSI may retain higher-version Wine builtins. cabextract can also
+    return zero for a missing -F match, so its exit status alone proves nothing.
+    Stage and validate both architectures before changing any destination.
+    """
+    with tempfile.TemporaryDirectory(prefix='runtime-members-', dir=cache) as scratch:
+        staged = []
+        for payload in COMPONENTS_METADATA['vcrun2022']['payloads']:
+            arch = payload['architecture']
+            package = cache / 'vcrun2022' / payload['name']
+            if package.is_symlink() or hashlib.sha256(package.read_bytes()).hexdigest() != payload['sha256']:
+                raise ValueError('Runtime package changed before extraction')
+            cabinet = Path(scratch) / (arch + '.cab')
+            with cabinet.open('wb') as out:
+                subprocess.run(['/usr/bin/cabextract', '-p', '-F', 'a10' if arch == 'x86' else 'a12',
+                                str(package)], stdout=out, check=True, timeout=30)
+            directory = 'syswow64' if arch == 'x86' else 'system32'
+            for name, digest in RUNTIME_ARTIFACTS[arch].items():
+                source = Path(scratch) / (arch + '-' + name + '.dll')
+                member = name + '.dll_' + ('x86' if arch == 'x86' else 'amd64')
+                with source.open('wb') as out:
+                    subprocess.run(['/usr/bin/cabextract', '-p', '-F', member, str(cabinet)],
+                                   stdout=out, check=True, timeout=30)
+                data = source.read_bytes()
+                if hashlib.sha256(data).hexdigest() != digest:
+                    raise ValueError('Runtime member hash mismatch or missing member: ' + member)
+                pe = struct.unpack_from('<I', data, 0x3c)[0] if len(data) >= 64 else len(data)
+                expected_machine = 0x14c if arch == 'x86' else 0x8664
+                if (data[:2] != b'MZ' or pe + 6 > len(data) or data[pe:pe + 4] != b'PE\0\0' or
+                        struct.unpack_from('<H', data, pe + 4)[0] != expected_machine):
+                    raise ValueError('Wrong runtime member architecture: ' + member)
+                target = machine / 'drive_c/windows' / directory / (name + '.dll')
+                staged.append((source, target))
+        for source, target in staged:
+            if target.parent.is_symlink() or not target.parent.is_dir():
+                raise ValueError('Unexpected runtime destination directory')
+        for source, target in staged:
+            with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.runtime-', delete=False) as out:
+                temporary = Path(out.name)
+            try:
+                shutil.copyfile(source, temporary)
+                temporary.chmod(0o644)
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
+        verify_runtime_artifacts(machine)
+
+
+def approved_runtime_recipe(path=None):
+    """Only two exact download statements may differ from Debian's pinned script.
+
+    The reviewed vcrun2022 function has no w_call dependencies. Its two payloads
+    are preverified; execution is network-isolated so implicit downloads cannot
+    expand the approved package set. Preserve upstream license notices in full.
+    """
+    winetricks = path or WINETRICKS_PATH
+    validate_winetricks_integrity(winetricks)
+    content = winetricks.read_text(encoding='utf-8')
+    old = {'x86': 'dd1a8be03398367745a87a5e35bebdab00fdad080cf42af0c3f20802d08c25d4',
+           'x64': '1821577409c35b2b9505ac833e246376cc68a8262972100444010b57226f0940'}
+    payloads = COMPONENTS_METADATA['vcrun2022']['payloads']
+    if {p['architecture'] for p in payloads} != {'x86', 'x64'} or len(payloads) != 2:
+        raise ValueError('Incomplete runtime architecture manifest')
+    for payload in payloads:
+        arch = payload['architecture']
+        original = 'w_download https://aka.ms/vs/17/release/vc_redist.' + arch + '.exe ' + old[arch]
+        replacement = 'w_download ' + payload['url'] + ' ' + payload['sha256'] + ' ' + payload['name']
+        if content.count(original) != 1:
+            raise ValueError('Reviewed runtime recipe changed')
+        content = content.replace(original, replacement)
+    return content.encode('utf-8')
+
+
+def cache_runtime_payloads(cache):
+    """Called only after install() has rechecked explicit terms acceptance."""
+    destination = cache / 'vcrun2022'
+    if destination.is_symlink():
+        raise ValueError('Refusing symlinked runtime payload cache')
+    destination.mkdir(mode=0o700, exist_ok=True)
+    if destination.stat().st_uid != 0 or destination.stat().st_mode & 0o022:
+        raise ValueError('Runtime cache must be root-owned and private')
+    for payload in COMPONENTS_METADATA['vcrun2022']['payloads']:
+        target = destination / payload['name']
+        if target.exists() or target.is_symlink():
+            if (target.is_symlink() or not target.is_file() or target.stat().st_uid != 0 or
+                    target.stat().st_mode & 0o022):
+                raise ValueError('Untrusted cached runtime payload')
+            if target.stat().st_size == payload['size'] and hashlib.sha256(target.read_bytes()).hexdigest() == payload['sha256']:
+                continue
+            raise ValueError('Corrupt runtime cache; no installer started')
+        temporary = None
+        try:
+            with urllib.request.urlopen(payload['url'], timeout=20) as response:
+                if not response.url.startswith('https://download.visualstudio.microsoft.com/'):
+                    raise ValueError('Unexpected runtime download redirect')
+                with tempfile.NamedTemporaryFile(dir=destination, prefix='.download-', delete=False) as out:
+                    temporary = Path(out.name)
+                    total, digest = 0, hashlib.sha256()
+                    deadline = time.monotonic() + 300
+                    while True:
+                        chunk = response.read(65536)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > payload['size'] or time.monotonic() > deadline:
+                            raise ValueError('Runtime download exceeded approved size/deadline')
+                        digest.update(chunk)
+                        out.write(chunk)
+                    out.flush()
+                    os.fsync(out.fileno())
+            if total != payload['size'] or digest.hexdigest() != payload['sha256']:
+                raise ValueError('Runtime payload hash/size mismatch; no installer started')
+            os.replace(temporary, target)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
 
 def is_admin():
@@ -219,6 +399,8 @@ def component_identity(verb):
               'metadata': COMPONENTS_METADATA[verb],
               'winetricks_sha256': APPROVED_WINETRICKS_SHA256,
               'architecture': 'wow64'}
+    if verb == 'vcrun2022':
+        record['runtime_artifacts'] = RUNTIME_ARTIFACTS
     return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -397,8 +579,9 @@ def extract_docx_terms(data):
         return text
 
 
-def fetch_vendor_terms(verb, directory=TERMS):
+def fetch_vendor_terms(verb, directory=None):
     """Acquire authentic vendor terms over network and cache under directory."""
+    directory = directory or TERMS
     validate_verb(verb)
     meta = COMPONENTS_METADATA.get(verb, {})
     if meta.get('disabled'):
@@ -448,8 +631,9 @@ def fetch_vendor_terms(verb, directory=TERMS):
     return text, sha
 
 
-def prepare_terms(verb, directory=TERMS):
+def prepare_terms(verb, directory=None):
     """Privileged action: fetch and cache authentic vendor terms into root TERMS dir."""
+    directory = directory or TERMS
     validate_verb(verb)
     if os.getuid() != 0:
         raise PermissionError('Preparing vendor terms requires root elevation')
@@ -462,7 +646,8 @@ def prepare_terms(verb, directory=TERMS):
     return fetch_vendor_terms(verb, directory)
 
 
-def license_text(verb, directory=TERMS):
+def license_text(verb, directory=None):
+    directory = directory or TERMS
     path = directory / (validate_verb(verb) + '.json')
     if not path.is_file():
         raise ValueError(f'{verb} terms have not been prepared. Choose Review terms; no payload was downloaded.')
@@ -529,6 +714,28 @@ def protect_builtins(machine, environment):
                     reg(wine, environment, 'export', key, str(backup), '/y', check=True)
                     existed = True
                 keys.append((key, backup, existed))
+        # A third-party extractor/installer may write through symlinks instead
+        # of replacing them. Never expose the installed Wine binaries that way.
+        detached_links = []
+        for directory in ('system32', 'syswow64'):
+            for target in (machine / 'drive_c/windows' / directory).iterdir():
+                if not target.is_symlink() or target.suffix.lower() != '.dll':
+                    continue
+                resolved = target.resolve(strict=True)
+                if not resolved.is_file():
+                    raise ValueError('Unexpected builtin DLL symlink: ' + str(target))
+                backup = saved / 'builtin-links' / directory / target.name
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, backup, follow_symlinks=False)
+                digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+                with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.component-copy-', delete=False) as out:
+                    temporary = Path(out.name)
+                try:
+                    shutil.copy2(resolved, temporary)
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
+                detached_links.append((target, backup, digest))
         recovery = {'safe_to_restore': True}
         try:
             yield recovery
@@ -550,6 +757,12 @@ def protect_builtins(machine, environment):
                 target.unlink(missing_ok=True)
                 if existed:
                     shutil.copy2(backup, target, follow_symlinks=False)
+            for target, backup, digest in detached_links:
+                if target.is_symlink() or not target.is_file():
+                    continue
+                if hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+                    target.unlink()
+                    shutil.copy2(backup, target, follow_symlinks=False)
             # The machine root's HKCU is not a user's HKCU. Restore all installer
             # override side effects instead of propagating them into templates.
             for key, backup, existed in keys:
@@ -560,7 +773,8 @@ def protect_builtins(machine, environment):
                     reg(wine, environment, 'import', str(backup), check=True)
 
 
-def is_installed(verb, accepted_digest=None, machine=MACHINE):
+def is_installed(verb, accepted_digest=None, machine=None):
+    machine = machine or MACHINE
     receipts_dir = machine.parent / 'component-receipts'
     json_file = receipts_dir / (verb + '.json')
     if json_file.is_file():
@@ -572,6 +786,12 @@ def is_installed(verb, accepted_digest=None, machine=MACHINE):
                 data.get('architecture') == 'wow64' and
                 data.get('recipe_files') == [list(item) for item in COMPONENTS_METADATA[verb]['recipe_files']] and
                 (accepted_digest is None or data.get('terms_sha256') == accepted_digest)):
+                if verb == 'vcrun2022':
+                    if data.get('component_identity') != component_identity(verb):
+                        return False
+                    if data.get('execution_recipe_sha256') != hashlib.sha256(approved_runtime_recipe()).hexdigest():
+                        return False
+                    verify_runtime_artifacts(machine)
                 return True
         except Exception:
             pass
@@ -579,7 +799,8 @@ def is_installed(verb, accepted_digest=None, machine=MACHINE):
     return False
 
 
-def get_installed_receipts(machine=MACHINE):
+def get_installed_receipts(machine=None):
+    machine = machine or MACHINE
     receipts_dir = machine.parent / 'component-receipts'
     if not receipts_dir.is_dir():
         return set()
@@ -625,18 +846,35 @@ def install(verb, accepted_digest):
         # Do not kill somebody else's maintenance client or wait for a desktop.
         subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
                        timeout=2, check=True)
-        regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
-        if regedit_src.is_file():
-            for directory in ('system32', 'syswow64'):
-                target = MACHINE / f'drive_c/windows/{directory}/regedit.exe'
-                if not target.exists() and not target.is_symlink():
-                    target.symlink_to('../regedit.exe')
         cache = CACHE
         if cache.is_symlink():
             raise ValueError('Refusing symlinked component cache')
         cache.mkdir(mode=0o700, exist_ok=True)
         if cache.stat().st_uid != 0 or cache.stat().st_mode & 0o022:
             raise ValueError('Component cache must be root-owned and not writable by others')
+        command = ['/usr/bin/timeout', '--signal=TERM', '--kill-after=10s', '1800s',
+                   '/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks', '-q', verb]
+        execution_digest = None
+        if verb == 'vcrun2022':
+            recipe = approved_runtime_recipe()
+            cache_runtime_payloads(cache)
+            execution_digest = hashlib.sha256(recipe).hexdigest()
+            with tempfile.NamedTemporaryFile(dir=cache, prefix='.approved-recipe-', delete=False) as out:
+                script = Path(out.name)
+                os.fchmod(out.fileno(), 0o700)
+                out.write(recipe)
+                out.flush()
+                os.fsync(out.fileno())
+            approved_script = cache / 'approved-vcrun2022.sh'
+            os.replace(script, approved_script)
+            command = ['/usr/bin/unshare', '--net', *command]
+            command[command.index('/usr/bin/winetricks')] = str(approved_script)
+        regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
+        if regedit_src.is_file():
+            for directory in ('system32', 'syswow64'):
+                target = MACHINE / f'drive_c/windows/{directory}/regedit.exe'
+                if not target.exists() and not target.is_symlink():
+                    target.symlink_to('../regedit.exe')
         # Prefix ownership and default ACLs stay intact: do not recursively
         # chown live user prefixes. Record the real verb result, never success
         # from a progress-dialog pipeline. All package terms were accepted above.
@@ -645,10 +883,7 @@ def install(verb, accepted_digest):
                 recovery['safe_to_restore'] = False
             # timeout owns a separate process group (do not use --foreground).
             # Keep the lock and builtin snapshots until Wine has also stopped.
-            result = subprocess.run(['/usr/bin/timeout', '--signal=TERM',
-                                     '--kill-after=10s', '1800s',
-                                     '/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks',
-                                     '-q', verb], env=environment)
+            result = subprocess.run(command, env=environment)
             try:
                 if result.returncode in (124, 137):
                     subprocess.run(['/usr/local/bin/wineserver', '-k'],
@@ -665,8 +900,12 @@ def install(verb, accepted_digest):
                 raise ValueError('Installer did not finish; machine-prefix Wine stopped; installation may be partial')
             if recovery is not None:
                 recovery['safe_to_restore'] = True
+            if result.returncode == 0 and verb == 'vcrun2022':
+                repair_runtime_artifacts(MACHINE, cache)
         if result.returncode:
             raise ValueError(f'{verb} failed (exit {result.returncode}); installation may be partial; see console output')
+        if verb == 'vcrun2022':
+            verify_runtime_artifacts(MACHINE)
         receipt = MACHINE.parent / 'component-receipts'
         receipt.mkdir(mode=0o700, exist_ok=True)
         receipt_data = {
@@ -679,6 +918,8 @@ def install(verb, accepted_digest):
             'architecture': 'wow64',
             'installed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'recipe_files': meta.get('recipe_files', []),
+            'component_identity': component_identity(verb),
+            'execution_recipe_sha256': execution_digest,
         }
         # Publish complete records atomically; a truncated JSON is not success.
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=receipt,

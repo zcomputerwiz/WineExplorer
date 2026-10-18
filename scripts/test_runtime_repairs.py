@@ -295,6 +295,9 @@ class ComponentsTests(unittest.TestCase):
             with patch.object(components, 'reg', side_effect=fake_reg):
                 with self.assertRaisesRegex(ValueError, 'fixture failure'):
                     with components.protect_builtins(machine, {}):
+                        self.assertFalse(dll.is_symlink())
+                        dll.write_text('write-through attempt stays in the prefix')
+                        self.assertEqual(original.read_text(), 'open builtin')
                         dll.unlink()
                         dll.write_text('native replacement')
                         (dll.parent / 'msxml99.dll').write_text('forbidden new library')

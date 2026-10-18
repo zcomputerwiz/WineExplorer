@@ -108,3 +108,77 @@ native Wine build dependencies. A combined WoW64 build remains pending.
   the wrapper implementation is `src/dlls/wexhost/wexhost.c`. Git inspection without
   escalation again reported `fatal: this operation must be run in a work tree`;
   scoped escalated Git commands work. No other checkout was modified.
+
+## Continuation: real runtime extraction repair (2026-10-18)
+
+The user explicitly accepted the linked vendor terms for both architectures in
+the disposable VM. No vendor documents or payloads were added to Git or the ISO;
+terms remain fetch-on-review with a validated private cache. Bundling vendor
+documents requires separately established redistribution permission.
+
+The real installer returned zero but the first functional probe loaded Wine's
+14.50.35719 builtin MSVCP rather than the accepted 14.44.35211 runtime. This was
+NOT counted as acceptance. The pinned Winetricks workaround assumes obsolete
+cabinet/member names: x86 a10 now contains `msvcp140.dll_x86`, while x64 minimum
+runtime files are in a12 with `_amd64` names (a11 includes ARM64; a10 is an MSI).
+`cabextract -F msvcp140.dll` returned zero without extracting a matching member.
+
+The backend now uses immutable verified payload URLs after consent, executes its
+narrowly derived pinned recipe without network access, then stages the complete
+allowlisted minimum-runtime DLL set from both approved packages. Every staged
+member must match its reviewed SHA256 and PE architecture before any publication.
+Atomic replacement cannot write through a builtin DLL symlink. Protected DLLs
+and override keys are restored; all runtime member hashes are checked again
+after restoration before issuing a receipt. Current-policy receipts also require
+the exact recipe digest and unchanged runtime artifacts. The artifact manifest
+is part of the consent identity. Installer exit status alone is insufficient.
+
+Actual integration evidence:
+
+- Private prefix `/root/wex-oobe-runtime-6jizvhri`: corrected extraction followed
+  by original x86 and x64 PE probes loaded both approved DLL versions and called
+  the native runtime's memcpy successfully. Explicit TEST load overrides were
+  used; this is not evidence for normal per-user loading yet.
+- A second complete backend run in `/root/wex-oobe-runtime-0z6wu8ml` completed
+  successfully with post-restoration verification of all allowlisted artifacts.
+- Isolated regression suites: runtime repairs 57 discovered/56 passed/one
+  Wine-execution skip; terms 9 passed; bridge 5 passed. New extraction tests cover
+  missing members despite zero exit, architecture mismatch, corrupt payloads,
+  staging-before-publication, symlink preservation, artifact tampering and consent
+  identity and stale/tampered receipts: all 8 new tests passed.
+
+All six production catalog entries remain disabled. Shared admin/limited-user
+loading without test overrides, fresh installed-image OOBE, offline/resume/UI
+acceptance and X11/Wayland theme regressions remain gates before merge.
+
+Additional failures/workarounds retained:
+
+- The token-limit approval failure executed nothing. The user requested retry;
+  approval worked, but `sudo: a password is required` exposed expired test-console
+  authentication. Renewing it privately and checking `uid=0` enabled the retry.
+- Unprivileged globs inside root-private directories did not expand, yielding
+  `sha256sum: '.../*.dll_x86': No such file or directory` (also `_amd64`). Root-side
+  `find -type f -exec sha256sum {} +` successfully enumerated the exact files.
+- The first C probe build failed signedness warnings for MAKELONG under -Werror;
+  HIWORD/LOWORD comparisons fixed it. A non-fail-fast command chain then attempted
+  missing probe transfers (404/FileNotFound/Wine failed-open); those are failures,
+  not runtime evidence. Subsequent build/test commands stop on failure.
+- One test WINEDLLOVERRIDES value used a comma where a semicolon was required;
+  corrected probes used `msvcp140,vcruntime140=n,b` explicitly.
+- Winetricks removed its temporary cabinets; reinspection used fresh private
+  extraction from the already verified packages. `file` was unavailable in the
+  clone; actual PE inspection/probes were used instead. Cabextract reports
+  `possible 10368 extra bytes at end of file` for the hashed inner cabinets;
+  exact member hashes and PE headers, not warning suppression, establish identity.
+- Debian `apt-get build-dep wine` required unconfigured deb-src entries; explicit
+  build dependencies were installed instead. The owned GitHub clone made no
+  visible progress for over 35 minutes; only its verified process tree was
+  stopped. Independent local Git object copies succeeded at
+  `/var/tmp/wex-oobe-build-20261018/source-local`, with the original Wine and
+  compositor pins selected. No other source or build checkout was changed.
+- PowerShell rg arguments containing literal `scripts/wex-session*` (and similar
+  path globs) produced Windows error 123; `rg` with directory plus `-g` filters
+  worked. This did not change files.
+
+VM and loopback-only test transfer service remain running for continuation.
+Private payloads and terms remain only in the owned lab, never in staged Git.
