@@ -93,19 +93,20 @@ COMPONENTS_METADATA = {
         'size': '~4 MB',
         'reboot': False,
         'disabled': True,
-        'disabled_reason': 'Retired upstream by vendor; standalone terms lack first-party vendor provenance',
+        'disabled_reason': 'Package-matched Core Fonts terms acquisition and shared-font validation pending',
         'terms_url': None,
         'recipe_files': [
-            ('andale32.exe', '0524fe42951237501f3a00e620ecc7446b404f05d166b24597746044a40ec974'),
-            ('arial32.exe', '85288a75e478546114eb307406a6cc0536c46a6f0fb32230fed84820eb7706d7'),
-            ('comic32.exe', '9c60703a20d84b22acc9d2729e79a9e2cb273b54fa399d00355799138f036025'),
-            ('courie32.exe', 'bb511d616912461863174bd3787e37e1aa18d581203a4342d0775036e9f310e0'),
-            ('georgi32.exe', '2c00ff85019cfae5bf208910547ad3745a706785833246ebec532c2957f82666'),
-            ('impact32.exe', '5e714d521d15e71a473f2759146f411e749294247514a60ea54f5979eb170c9a'),
-            ('times32.exe', 'db712061555543cfd720b0800b467d3e4c495cb21ccb5d92131aa1192518e874'),
-            ('trebuc32.exe', '5a690d9bb85db97cf473804603099d2b090738349f3fa977156096366d45f9de'),
-            ('verdan32.exe', '120c24fb89cf62a7df8e08d660e5fae5ad1935c13e11500f135b1d9bf896deec'),
-            ('webdin32.exe', '64585ac6a50c291ab2618ad66c5514d150479228eb97e37be8d115ec7192d345'),
+            ('andale32.exe', '0524fe42951adc3a7eb870e32f0920313c71f170c859b5f770d82b4ee111e970'),
+            ('arial32.exe', '85297a4d146e9c87ac6f74822734bdee5f4b2a722d7eaa584b7f2cbf76f478f6'),
+            ('arialb32.exe', 'a425f0ffb6a1a5ede5b979ed6177f4f4f4fdef6ae7c302a7b7720ef332fec0a8'),
+            ('comic32.exe', '9c6df3feefde26d4e41d4a4fe5db2a89f9123a772594d7f59afd062625cd204e'),
+            ('courie32.exe', 'bb511d861655dde879ae552eb86b134d6fae67cb58502e6ff73ec5d9151f3384'),
+            ('georgi32.exe', '2c2c7dcda6606ea5cf08918fb7cd3f3359e9e84338dc690013f20cd42e930301'),
+            ('impact32.exe', '6061ef3b7401d9642f5dfdb5f2b376aa14663f6275e60a51207ad4facf2fccfb'),
+            ('times32.exe', 'db56595ec6ef5d3de5c24994f001f03b2a13e37cee27bc25c58f6f43e8f807ab'),
+            ('trebuc32.exe', '5a690d9bb8510be1b8b4fe49f1f2319651fe51bbe54775ddddd8ef0bd07fdac9'),
+            ('verdan32.exe', 'c1cb61255e363166794e47664e2f21af8e3a26cb6346eb8d2ae2fa85dd5aad96'),
+            ('webdin32.exe', '64595b5abc1080fba8610c5c34fab5863408e806aafe84653ca8575bed17d75a'),
         ],
     },
     'tahoma': {
@@ -115,7 +116,7 @@ COMPONENTS_METADATA = {
         'size': '~410 KB',
         'reboot': False,
         'disabled': True,
-        'disabled_reason': 'IE language pack payload terms require extraction from redistributable; no standalone vendor terms URL',
+        'disabled_reason': 'Historical IE language-pack terms and permitted Tahoma use require package-specific verification',
         'terms_url': None,
         'recipe_files': [
             ('IELPKTH.CAB', 'c1be3fb8f0042570be76ec6daa03a99142c88367c1bc810240b85827c715961a'),
@@ -128,7 +129,7 @@ COMPONENTS_METADATA = {
         'size': '~4.5 MB',
         'reboot': False,
         'disabled': True,
-        'disabled_reason': 'Redistributable package lacks a standalone first-party vendor terms URL',
+        'disabled_reason': 'Microsoft SDK cabinet identities, applicable terms and x86/x64 loading validation pending',
         'terms_url': None,
         'recipe_files': [
             ('d3dcompiler_47_32.dll', '2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851'),
@@ -142,7 +143,7 @@ COMPONENTS_METADATA = {
         'size': '~95 MB',
         'reboot': False,
         'disabled': True,
-        'disabled_reason': 'Vendor terms are embedded inside redistributable and cannot be acquired prior to consent',
+        'disabled_reason': 'DirectX package terms acquisition and XACT architecture-specific validation pending',
         'terms_url': None,
         'recipe_files': [
             ('directx_Jun2010_redist.exe', '8746ee1a84a083a90e37899d71d50d5c7c015e69688a466aa80447f011780c0d'),
@@ -155,7 +156,7 @@ COMPONENTS_METADATA = {
         'size': '~27 MB',
         'reboot': False,
         'disabled': True,
-        'disabled_reason': 'Marked broken upstream in winetricks (WineHQ bug 56606)',
+        'disabled_reason': 'Pinned recipe predates Wine 9.10 fix; updated package, terms and product-Wine validation pending',
         'terms_url': None,
         'recipe_files': [
             ('PhysX_9.21.0713_SystemSoftware.exe', '26d62c5c347c15cb27c3be92bf10706113511b48b28aecc09f61ee58b3b62778'),
@@ -901,6 +902,47 @@ def apply_user_defaults():
             temporary.unlink(missing_ok=True)
 
 
+def ensure_installer_regedit(machine, libraries=Path('/usr/local/lib/wine')):
+    """Repair only missing/empty regedit launchers, never arbitrary native DLLs.
+
+    Old code linked BOTH architectures to windows/regedit.exe, a 64-bit image.
+    Use the corresponding installed Wine PE; never write through prefix links.
+    """
+    replacements = []
+    for directory, arch, expected in (('system32', 'x86_64', 0x8664), ('syswow64', 'i386', 0x14c)):
+        target = machine / 'drive_c/windows' / directory / 'regedit.exe'
+        if target.parent.is_symlink() or not target.parent.is_dir():
+            raise ValueError('Unexpected regedit destination directory')
+        def valid_pe(path):
+            data = path.read_bytes()
+            pe = struct.unpack_from('<I', data, 0x3c)[0] if len(data) >= 64 else len(data)
+            return (data[:2] == b'MZ' and pe + 6 <= len(data) and data[pe:pe + 4] == b'PE\0\0'
+                    and struct.unpack_from('<H', data, pe + 4)[0] == expected)
+        if target.is_file() and valid_pe(target):
+            continue
+        legacy_link = target.is_symlink() and os.readlink(target) == '../regedit.exe'
+        if target.is_symlink() and not legacy_link:
+            raise ValueError('Refusing unexpected invalid regedit link')
+        if target.exists() and not legacy_link and (not target.is_file() or target.stat().st_size):
+            raise ValueError('Nonempty invalid regedit image requires explicit recovery')
+        source = libraries / (arch + '-windows') / 'regedit.exe'
+        for entry in (source, *source.parents):
+            info = entry.stat()
+            if entry.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+                raise ValueError('Untrusted installed Wine regedit source')
+        if not valid_pe(source):
+            raise ValueError('Installed Wine regedit has wrong PE architecture')
+        replacements.append((target, source))
+    # Validate both candidates before replacing either destination.
+    for target, source in replacements:
+        temporary = target.with_name('.regedit-link-' + uuid.uuid4().hex)
+        try:
+            temporary.symlink_to(source)
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def install(verb, accepted_digest):
     validate_verb(verb)
     meta = COMPONENTS_METADATA.get(verb, {})
@@ -929,6 +971,10 @@ def install(verb, accepted_digest):
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if OPERATION_STATE.exists() or OPERATION_STATE.is_symlink():
+            checked_operation_directory()
+            if any(record['status'] == 'UNKNOWN' for record in read_operation_journal().values()):
+                raise ValueError('Interrupted OOBE installation requires administrator reconciliation before install later')
         if (MACHINE.parent / 'component-recovery-required').exists():
             raise ValueError('Machine prefix requires administrator recovery before another installation')
         if is_installed(verb, accepted_digest, machine=MACHINE):
@@ -961,10 +1007,7 @@ def install(verb, accepted_digest):
             command[command.index('/usr/bin/winetricks')] = str(approved_script)
         regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
         if regedit_src.is_file():
-            for directory in ('system32', 'syswow64'):
-                target = MACHINE / f'drive_c/windows/{directory}/regedit.exe'
-                if not target.exists() and not target.is_symlink():
-                    target.symlink_to('../regedit.exe')
+            ensure_installer_regedit(MACHINE)
         # Prefix ownership and default ACLs stay intact: do not recursively
         # chown live user prefixes. Record the real verb result, never success
         # from a progress-dialog pipeline. All package terms were accepted above.
@@ -1107,7 +1150,80 @@ def frontend(verbs, gui):
         subprocess.run(['zenity', '--info', '--text=Selected components installed successfully.'])
 
 
+def checked_operation_directory():
+    OPERATION_STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = OPERATION_STATE.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+        raise PermissionError('OOBE operation directory must be private and root-owned')
+    return OPERATION_STATE
+
+
+def read_operation_journal():
+    journal = OPERATION_STATE / 'operations.json'
+    if not journal.exists() and not journal.is_symlink():
+        return {}
+    info = journal.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077 or info.st_size > 1024 * 1024:
+        raise PermissionError('Untrusted OOBE operation journal')
+    records = json.loads(journal.read_text(encoding='utf-8'))
+    if not isinstance(records, dict):
+        raise ValueError('Invalid operation journal')
+    for key, record in records.items():
+        if (not isinstance(record, dict) or not re.fullmatch(r'op_[a-z0-9_]{1,120}', key)
+                or record.get('verb') not in COMPONENTS
+                or record.get('status') not in ('RUNNING', 'UNKNOWN', 'SUCCESS', 'FAILED')):
+            raise ValueError('Invalid operation journal record')
+    return records
+
+
+@contextmanager
+def coordinator_lease():
+    directory = checked_operation_directory()
+    descriptor = os.open(directory / '.coordinator.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'a') as lease:
+        try:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError('Stop the OOBE coordinator before administrative reconciliation or restart')
+        yield
+
+
+def reconcile_operation(operation, note):
+    """Acknowledge an inspected interrupted install, never infer success/rollback."""
+    if os.getuid() != 0:
+        raise PermissionError('Operation reconciliation requires authenticated root administration')
+    if not re.fullmatch(r'op_[a-z0-9_]{1,120}', operation):
+        raise ValueError('Invalid operation ID')
+    if not note or not 10 <= len(note.strip()) <= 512 or any(ord(c) < 32 for c in note):
+        raise ValueError('Supply an inspection note of 10-512 printable characters (no secrets)')
+    with coordinator_lease():
+        descriptor = os.open(MACHINE.parent / '.components.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, 'a') as maintenance:
+            fcntl.flock(maintenance, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            marker = MACHINE.parent / 'component-recovery-required'
+            if marker.exists() or marker.is_symlink():
+                raise ValueError('Protected-state recovery is required; retain and inspect marker/snapshots before reconciliation')
+            subprocess.run(['/usr/local/bin/wineserver', '-w'],
+                           env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root',
+                                'WINEPREFIX': str(MACHINE)}, timeout=2, check=True)
+            records = read_operation_journal()
+            record = records.get(operation)
+            if not record or record['status'] not in ('UNKNOWN', 'RUNNING'):
+                raise ValueError('Only an interrupted UNKNOWN/RUNNING operation can be reconciled')
+            record.update(status='FAILED', error='Administrator inspected interrupted install; retry permitted, not rolled back',
+                          reconciliation={'note': note.strip(), 'uid': os.getuid(), 'time': int(time.time())})
+            atomic_json(OPERATION_STATE / 'operations.json', records, 0o600)
+    return record
+
+
 def oobe_coordinator():
+    if os.getuid() != 0:
+        raise PermissionError('OOBE coordinator requires root execution')
+    with coordinator_lease():
+        return run_oobe_coordinator()
+
+
+def run_oobe_coordinator():
     """Privileged coordinator daemon during Setup Out-of-Box Experience."""
     if os.getuid() != 0:
         raise PermissionError('OOBE coordinator requires root execution')
@@ -1154,10 +1270,8 @@ def oobe_coordinator():
         finally:
             temporary.unlink(missing_ok=True)
 
-    if journal.exists():
-        if journal.is_symlink() or journal.stat().st_uid != 0 or journal.stat().st_mode & 0o022:
-            raise PermissionError('Untrusted OOBE operation journal')
-        active_operations = json.loads(journal.read_text(encoding='utf-8'))
+    if journal.exists() or journal.is_symlink():
+        active_operations = read_operation_journal()
         for info in active_operations.values():
             info['thread'] = None
             if info['status'] == 'RUNNING':
@@ -1403,10 +1517,19 @@ def main():
     parser.add_argument('--prepare-terms', metavar='VERB', help=argparse.SUPPRESS)
     parser.add_argument('--oobe-coordinator', action='store_true', help='Run OOBE setup coordinator daemon')
     parser.add_argument('--apply-user-defaults', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--reconcile-operation', metavar='OP_ID', help='Reconcile an inspected interrupted install while coordinator is stopped')
+    parser.add_argument('--reconcile-action', choices=['FAILED'], help='Never guesses success or rollback')
+    parser.add_argument('--reconcile-note', help='Required inspection record; do not include credentials')
     parser.add_argument('action', nargs='?', choices=['install', 'list'])
     parser.add_argument('verbs', nargs='*')
     args = parser.parse_args()
-    if args.apply_user_defaults:
+    if args.reconcile_operation:
+        if args.reconcile_action != 'FAILED' or not args.reconcile_note:
+            parser.error('Reconciliation requires --reconcile-action FAILED and --reconcile-note')
+        print(json.dumps(reconcile_operation(args.reconcile_operation, args.reconcile_note), sort_keys=True))
+    elif args.reconcile_action or args.reconcile_note:
+        parser.error('Reconciliation options require --reconcile-operation')
+    elif args.apply_user_defaults:
         apply_user_defaults()
     elif args.oobe_coordinator:
         oobe_coordinator()

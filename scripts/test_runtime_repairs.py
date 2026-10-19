@@ -580,6 +580,7 @@ class OobeCoordinatorTests(unittest.TestCase):
             'op_corefonts_fixture': {'verb': 'corefonts', 'sha': 'sha',
                                      'status': 'RUNNING', 'error': '', 'cancelled': False}
         }))
+        (state / 'operations.json').chmod(0o600)
         with with_enabled_component('corefonts'), \
                 patch.object(components, 'license_text', return_value=('terms', 'sha')), \
                 patch.object(components, 'is_installed', return_value=False), \

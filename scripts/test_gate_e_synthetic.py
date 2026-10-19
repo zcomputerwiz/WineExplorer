@@ -50,6 +50,9 @@ class GateETests:
         
         self.ops_patch = patch.object(components, 'OPERATION_STATE', self.ops_dir)
         self.ops_patch.start()
+        self.machine_patch = patch.object(components, 'MACHINE', self.machine_dir)
+        self.machine_patch.start()
+        self.coord_thread = None
         
         class FakePwd:
             pw_uid = 999
@@ -57,17 +60,30 @@ class GateETests:
         self.pwd_patch.start()
         
     def tearDown(self):
+        self.stop_coordinator()
+        self.machine_patch.stop()
         self.pwd_patch.stop()
         self.ops_patch.stop()
         self.env_patch.stop()
         self.tmp.cleanup()
 
+    def stop_coordinator(self):
+        self.stage_file.write_text('done\n')
+        if self.coord_thread:
+            self.coord_thread.join(timeout=10)
+            assert not self.coord_thread.is_alive(), 'Owned coordinator failed to stop'
+            self.coord_thread = None
+
     def start_coordinator(self):
-        self.coord_thread = threading.Thread(target=components.oobe_coordinator, daemon=True)
+        self.coord_thread = threading.Thread(target=components.oobe_coordinator)
         self.coord_thread.start()
         for _ in range(50):
-            if self.sock_path.exists():
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as ready:
+                    ready.connect(str(self.sock_path))
                 break
+            except (FileNotFoundError, ConnectionRefusedError):
+                pass
             time.sleep(0.05)
         if not self.sock_path.exists():
             raise RuntimeError("Coordinator did not create socket")
@@ -182,19 +198,21 @@ class GateETests:
         with patch.object(components, 'license_text', return_value=('terms', fake_sha)):
             assert "reconciliation" in self.send(f"START_INSTALL vcrun2022 {fake_sha}")
         
-        # 2. Administrator reconciles:
-        # Step A: Establish idleness (no wineserver or worker running)
-        # Step B: Inspect evidence and reconcile journal
-        data = json.loads(journal.read_text())
-        data[op_id]['status'] = 'FAILED'
-        data[op_id]['error'] = 'Administrator reconciled: aborted after inspection'
-        journal.write_text(json.dumps(data))
-        os.chmod(journal, 0o600)
-        log("Administrator inspected system and reconciled operation record to FAILED.")
-        
-        # Stop and restart coordinator after reconciliation
-        self.stage_file.write_text("done\n")
-        time.sleep(0.2)
+        # The production recovery API refuses a live coordinator, then verifies
+        # idleness. Only the external Wine idleness command is mocked here.
+        try:
+            components.reconcile_operation(op_id, 'Synthetic administrator inspection')
+        except ValueError as error:
+            assert 'Stop the OOBE coordinator' in str(error)
+        else:
+            raise AssertionError('Live coordinator must prevent offline reconciliation')
+        self.stop_coordinator()
+        with patch.object(components.subprocess, 'run') as idle:
+            components.reconcile_operation(op_id, 'Synthetic administrator inspection; no real install')
+            assert idle.call_args.kwargs['env']['WINEPREFIX'] == str(self.machine_dir)
+            assert idle.call_args.args[0] == ['/usr/local/bin/wineserver', '-w']
+        assert json.loads(journal.read_text())[op_id]['status'] == 'FAILED'
+        log('Production reconciliation API recorded FAILED (not rollback or success).')
         self.stage_file.write_text("oobe\n")
         self.start_coordinator()
         
