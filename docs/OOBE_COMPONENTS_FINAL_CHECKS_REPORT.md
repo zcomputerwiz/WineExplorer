@@ -3,6 +3,11 @@
 
 Date: 2026-10-18. Branch: `codex/oobe-final-correctness`.
 Final source-suite rerun and publication checkpoint: 2026-10-19.
+Subsequent parent-agreement investigation is in
+`OOBE_PARENT_PACKAGE_TERMS_RESEARCH.md`: exact SDK license/cabinet binding and a
+separate DirectX end-user-runtime agreement are now located. Production enabling
+and installed-image acceptance remain pending; this is additional provenance,
+not an installation or licensing-clearance sign-off.
 Base: Gemini `625effa88630fd201da0856093a74a744beefcab`, candidate
 `5bc13c9ce182eb0114af80372fc748a519ee32b2`. First repair: `a151ceca`.
 Wine remains `ed5fe967ed471ca524666631ad70dabbed6af076`; no graphics,

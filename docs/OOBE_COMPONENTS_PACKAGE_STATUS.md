@@ -2,6 +2,12 @@
 # Optional components: actual blockers, not blanket policy prohibitions
 
 Research/check date: 2026-10-18. Branch: `codex/oobe-final-correctness`.
+Follow-up 2026-10-19: see `OOBE_PARENT_PACKAGE_TERMS_RESEARCH.md`. The exact
+SDK bootstrap now binds its own license to both compiler cabinets, and the
+DirectX package contains a separate extractable end-user-runtime agreement.
+The Tahoma recipe identifies IE 5.5 SP2 as the historical parent release; its
+matching agreement remains unverified. These findings supersede the missing-
+terms provenance observations below, but do not enable the three components.
 Read OOBE_COMPONENTS_FINAL_CHECKS_REPORT.md for the independent acceptance scope.
 This document is engineering research, not a blanket license-rights opinion.
 Availability, terms applicability, installation and functional acceptance are
