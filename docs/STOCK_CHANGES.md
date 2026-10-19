@@ -1,5 +1,17 @@
 # Changes to stock Wine / third-party code
 
+## Independent token-security correctness repair (2026-10-18)
+
+`codex/token-security-correctness` retains deny-only groups in the deny-ACE
+matching path even when ENABLED is clear, while excluding them from allow ACEs.
+Shell elevation preserves helper cancellation versus actual startup/unsupported/
+timeout errors and never returns a target handle on helper rejection. Duplicate
+fork `programs/consent` sources were removed (recoverable in Git); the owned
+`src/programs/consent` module is the single assembly source. It has no shipping
+fixture/direct-password-helper bypass and fails unsupported credential requests
+closed. This is functional repair, not complete host authorization/containment.
+See TOKEN_SECURITY_REPAIR_REVIEW.md and the checkpoint-B work order.
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.

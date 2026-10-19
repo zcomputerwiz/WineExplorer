@@ -1,5 +1,21 @@
 # WineExplorer Program Elevation Architecture & Implementation (T3)
 
+## Current independent review status (2026-10-18)
+
+T3 is PARTIAL, not complete. Production consent has no unattended file or
+environment approval path. Direct unix_chkpwd handling was removed: authenticating
+a Unix password is not administrator authorization or correct Windows identity
+mapping. Credential-required/unknown-identity requests fail closed with
+ERROR_NOT_SUPPORTED pending the request-bound polkit/backend implementation.
+Filtered-administrator consent remains a same-server functional seam, not host
+privilege authorization. The dimmer is cosmetic on a shared desktop.
+
+Helper cancellation, unsupported policy, startup failure and timeout remain
+distinct errors; no target handle is returned on refusal/error. Mock helper tests
+are not genuine authentication tests. See TOKEN_SECURITY_REPAIR_REVIEW.md and
+TOKEN_SECURITY_CHECKPOINT_B_WORKORDER.md. The following diagrams and old test
+counts describe the prior submission, not completed installed-system acceptance.
+
 ## 1. Overview & Architecture
 
 Windows Vista introduced User Account Control (UAC) to enforce the principle of least privilege:
@@ -87,9 +103,9 @@ In WineExplorer, this mechanism is implemented through a clean, configurable hel
   - **Publisher Verification:** Inspects PE Authenticode digital signature using `WinVerifyTrust(WINTRUST_ACTION_GENERIC_VERIFY_V2)`. Verified signatures show a blue header banner with verified publisher name; unsigned or untrusted binaries show an amber banner with "Unknown Publisher".
   - **Secure Desktop Dimmer:** Spawns a full-screen semi-transparent backdrop overlay (`WS_EX_LAYERED | WS_EX_TOPMOST`, 60% opacity) behind the dialog.
   - **Consent vs Credentials Mode:** Consent mode (Yes/No) for administrators with filtered tokens; Credentials mode (password entry) for standard users.
-  - **Authentic PAM Shadow Verification:** In credentials mode, user passwords are confirmed against the Linux PAM shadow database using the setgid shadow helper `/sbin/unix_chkpwd <username> nullok`. Arbitrary or nonempty passwords are rejected. Passwords are never placed in argv, environment, logs, or Git.
+  - **Credential authorization:** Not implemented; fails closed without collecting a password until a real request-bound administrator authorization/identity mechanism is available.
   - **Removal of Shipping Bypasses:** Former environment switches `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` are completely absent in the shipping binary.
-  - **Root-Only Automated Test Fixture:** Automated test approval requires the opt-in configuration file `/etc/wineexplorer/test-elevation.conf` owned strictly by `root:root` with mode `0600` containing `auto_approve=1`. Non-root or user-writable files are ignored.
+  - **No shipping test bypass:** The former file fixture is removed entirely. Wine drive mapping is not a trust assertion about host file ownership. Test-only helper binaries stay in disposable test prefixes, not production consent or the ISO.
 
 ---
 

@@ -1,0 +1,314 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright 2026 WineExplorer contributors
+// Original behavioral probes. Mock helpers are test-only, never production consent.
+#include <windows.h>
+#include <shellapi.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
+
+static unsigned int failures;
+static void check(bool value, const char *name)
+{
+    if (!value) {printf("FAIL: %s (error %lu)\n", name, GetLastError()); ++failures;}
+}
+
+static DWORD WINAPI other_thread(void *)
+{
+    HANDLE token = NULL;
+    BOOL result = OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token);
+    DWORD error = GetLastError();
+    if (token) CloseHandle(token);
+    return !result && error == ERROR_NO_TOKEN ? 0 : 1;
+}
+
+static bool deny_only()
+{
+    unsigned int before = failures;
+    HANDLE original = NULL, filtered = NULL, impersonation = NULL;
+    BYTE world[SECURITY_MAX_SID_SIZE];
+    DWORD size = sizeof(world), needed;
+    SID_AND_ATTRIBUTES disable;
+    std::vector<BYTE> user_data, groups_data;
+    GENERIC_MAPPING mapping = {STANDARD_RIGHTS_READ | SYNCHRONIZE,
+        STANDARD_RIGHTS_WRITE | EVENT_MODIFY_STATE, STANDARD_RIGHTS_EXECUTE | SYNCHRONIZE, EVENT_ALL_ACCESS};
+
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &original)) return false;
+    if (!CreateWellKnownSid(WinWorldSid, NULL, world, &size)) goto done;
+    disable.Sid = world; disable.Attributes = 0;
+    if (!CreateRestrictedToken(original, 0, 1, &disable, 0, NULL, 0, NULL, &filtered)) goto done;
+    if (!DuplicateTokenEx(filtered, TOKEN_QUERY | TOKEN_IMPERSONATE, NULL, SecurityImpersonation,
+                          TokenImpersonation, &impersonation)) goto done;
+    needed = 0;
+    GetTokenInformation(filtered, TokenGroups, NULL, 0, &needed);
+    groups_data.resize(needed);
+    if (!GetTokenInformation(filtered, TokenGroups, groups_data.data(), needed, &needed)) goto done;
+    {
+        TOKEN_GROUPS *groups = (TOKEN_GROUPS *)groups_data.data();
+        bool found = false;
+        for (DWORD i = 0; i < groups->GroupCount; ++i)
+            if (EqualSid(world, groups->Groups[i].Sid))
+                found = !(groups->Groups[i].Attributes & SE_GROUP_ENABLED)
+                    && (groups->Groups[i].Attributes & SE_GROUP_USE_FOR_DENY_ONLY);
+        check(found, "filter made Everyone disabled and deny-only");
+    }
+    needed = 0;
+    GetTokenInformation(original, TokenUser, NULL, 0, &needed);
+    user_data.resize(needed);
+    if (!GetTokenInformation(original, TokenUser, user_data.data(), needed, &needed)) goto done;
+
+    for (unsigned int kind = 0; kind < 3; ++kind)
+    {
+        union {DWORD align; BYTE bytes[1024];} acl_buffer;
+        union {DWORD align; BYTE bytes[1024];} privileges;
+        ACL *acl = (ACL *)acl_buffer.bytes;
+        SECURITY_DESCRIPTOR sd;
+        PSID user = ((TOKEN_USER *)user_data.data())->User.Sid;
+        DWORD privilege_size = sizeof(privileges), granted = 0;
+        BOOL allowed = TRUE, expected = kind == 2;
+        WCHAR name[128];
+        HANDLE event, opened;
+        bool impersonating;
+        InitializeAcl(acl, sizeof(acl_buffer), ACL_REVISION);
+        if (kind == 0) AddAccessDeniedAce(acl, ACL_REVISION, EVENT_MODIFY_STATE, world);
+        AddAccessAllowedAce(acl, ACL_REVISION, EVENT_MODIFY_STATE, kind == 1 ? (PSID)world : user);
+        InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+        SetSecurityDescriptorOwner(&sd, user, FALSE);
+        SetSecurityDescriptorGroup(&sd, user, FALSE);
+        SetSecurityDescriptorDacl(&sd, TRUE, acl, FALSE);
+        BOOL result = AccessCheck(&sd, impersonation, EVENT_MODIFY_STATE, &mapping,
+            (PRIVILEGE_SET *)privileges.bytes, &privilege_size, &granted, &allowed);
+        printf("acl_case=%u api_success=%d allowed=%d expected=%d granted=%#lx\n",
+               kind, result, allowed, expected, granted);
+        check(result && allowed == expected && granted == (expected ? EVENT_MODIFY_STATE : 0),
+              "ordered deny / deny-only allow / user allow AccessCheck");
+        swprintf(name, 128, L"Local\\WexTokenDeny_%lu_%llu_%u", GetCurrentProcessId(),
+                 (unsigned long long)GetTickCount64(), kind);
+        SECURITY_ATTRIBUTES attributes = {sizeof(attributes), &sd, FALSE};
+        event = CreateEventW(&attributes, FALSE, FALSE, name);
+        check(event != NULL, "create owned event");
+        if (!event) continue;
+        impersonating = SetThreadToken(NULL, impersonation) != FALSE;
+        check(impersonating, "set restrictive thread token");
+        if (impersonating)
+        {
+            opened = OpenEventW(EVENT_MODIFY_STATE, FALSE, name);
+            DWORD error = GetLastError();
+            printf("event_case=%u opened=%d expected=%d error=%lu\n", kind, opened != NULL, expected, error);
+            check(expected ? opened != NULL : !opened && error == ERROR_ACCESS_DENIED,
+                  "actual event open honors deny-only group");
+            if (opened) CloseHandle(opened);
+            check(SetEvent(event) != FALSE, "previously granted handle stays usable");
+            HANDLE thread = CreateThread(NULL, 0, other_thread, NULL, 0, NULL);
+            check(thread != NULL, "create isolation thread");
+            if (thread)
+            {
+                DWORD code = 1;
+                check(WaitForSingleObject(thread, 5000) == WAIT_OBJECT_0, "isolation thread completes");
+                GetExitCodeThread(thread, &code);
+                check(code == 0, "other thread did not inherit impersonation");
+                CloseHandle(thread);
+            }
+            check(RevertToSelf() != FALSE, "revert restrictive thread token");
+        }
+        CloseHandle(event);
+    }
+done:
+    RevertToSelf();
+    if (impersonation) CloseHandle(impersonation);
+    if (filtered) CloseHandle(filtered);
+    if (original) CloseHandle(original);
+    return impersonation && failures == before;
+}
+
+static bool shell_helpers()
+{
+    // Never modify the native workstation's HKLM by accident.
+    if (!getenv("WINEPREFIX") || !getenv("WEX_TOKEN_REGRESSION_TEST")) return false;
+    unsigned int before = failures;
+    WCHAR module[MAX_PATH], helper[MAX_PATH + 100];
+    HKEY key;
+    DWORD disposition, old_type = 0, old_size = 0;
+    std::vector<BYTE> old_value;
+    GetModuleFileNameW(NULL, module, MAX_PATH);
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
+                        KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition)) return false;
+    bool had_value = RegQueryValueExW(key, L"Helper", NULL, &old_type, NULL, &old_size) == ERROR_SUCCESS;
+    if (had_value)
+    {
+        old_value.resize(old_size);
+        if (RegQueryValueExW(key, L"Helper", NULL, &old_type, old_value.data(), &old_size))
+        {RegCloseKey(key); return false;}
+    }
+    for (DWORD result : {DWORD(ERROR_CANCELLED), DWORD(ERROR_NOT_SUPPORTED), DWORD(0)})
+    {
+        WCHAR event_name[128], parameters[180];
+        HANDLE release_event = NULL;
+        if (!result)
+        {
+            swprintf(event_name, 128, L"Local\\WexElevRelease_%lu_%llu", GetCurrentProcessId(),
+                     (unsigned long long)GetTickCount64());
+            release_event = CreateEventW(NULL, TRUE, FALSE, event_name);
+            check(release_event != NULL, "create target release event");
+            swprintf(parameters, 180, L"--child-wait %ls 37", event_name);
+        }
+        swprintf(helper, MAX_PATH + 100, L"\"%ls\" --helper-exit %lu", module, result);
+        check(RegSetValueExW(key, L"Helper", 0, REG_SZ, (BYTE *)helper,
+                            (lstrlenW(helper) + 1) * sizeof(WCHAR)) == ERROR_SUCCESS, "configure test-only helper");
+        SHELLEXECUTEINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+        info.lpVerb = L"runas"; info.lpFile = module;
+        info.lpParameters = result ? L"--child-exit 37" : parameters;
+        info.nShow = SW_HIDE;
+        BOOL launched = ShellExecuteExW(&info);
+        DWORD error = GetLastError();
+        if (result)
+            check(!launched && !info.hProcess && error == result, "helper refusal/error preserved; no child handle");
+        else
+        {
+            check(launched && info.hProcess, "mock approval returns actual child handle");
+            if (info.hProcess)
+            {
+                DWORD code = 0;
+                check(WaitForSingleObject(info.hProcess, 20) == WAIT_TIMEOUT, "target still alive, not helper handle");
+                check(release_event && SetEvent(release_event), "release actual target");
+                check(WaitForSingleObject(info.hProcess, 10000) == WAIT_OBJECT_0, "target exits");
+                check(GetExitCodeProcess(info.hProcess, &code) && code == 37, "target exit code 37");
+            }
+        }
+        if (info.hProcess) CloseHandle(info.hProcess);
+        if (release_event) {SetEvent(release_event); CloseHandle(release_event);}
+    }
+    if (had_value) RegSetValueExW(key, L"Helper", 0, old_type, old_value.data(), old_size);
+    else RegDeleteValueW(key, L"Helper");
+    RegCloseKey(key);
+    return failures == before;
+}
+
+struct dialog_search {DWORD pid; HWND window;};
+static BOOL CALLBACK find_dialog(HWND window, LPARAM parameter)
+{
+    dialog_search *search = (dialog_search *)parameter;
+    DWORD pid;
+    WCHAR name[32];
+    GetWindowThreadProcessId(window, &pid);
+    if (pid == search->pid && GetClassNameW(window, name, 32) && !wcscmp(name, L"#32770"))
+    {search->window = window; return FALSE;}
+    return TRUE;
+}
+
+static bool shipping_consent(const WCHAR *path)
+{
+    if (!getenv("WINEPREFIX") || !getenv("WEX_TOKEN_REGRESSION_TEST")) return false;
+    unsigned int before = failures;
+    HKEY key;
+    DWORD old_type = 0, old_size = 0, disposition;
+    std::vector<BYTE> old;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", 0, NULL, 0,
+            KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition)) return false;
+    bool had = RegQueryValueExW(key, L"ConsentPromptBehaviorAdmin", NULL, &old_type, NULL, &old_size) == ERROR_SUCCESS;
+    if (had)
+    {
+        old.resize(old_size);
+        if (RegQueryValueExW(key, L"ConsentPromptBehaviorAdmin", NULL, &old_type, old.data(), &old_size))
+        {RegCloseKey(key); return false;}
+    }
+    for (unsigned int mode = 0; mode < 8; ++mode)
+    {
+        bool unsupported = mode == 3 || mode >= 5;
+        DWORD policy = mode == 3 ? 1 : mode == 5 ? 3 : mode == 6 ? 99 : 2;
+        check(RegSetValueExW(key, L"ConsentPromptBehaviorAdmin", 0, mode == 7 ? REG_BINARY : REG_DWORD,
+                            (BYTE *)&policy, sizeof(policy)) == ERROR_SUCCESS, "set isolated consent policy");
+        SetEnvironmentVariableW(L"WINE_CONSENT_AUTO_APPROVE", mode == 0 ? L"1" : mode == 1 ? L"0" : NULL);
+        SetEnvironmentVariableW(L"WINE_CONSENT_AUTO_DENY", L"1");
+        WCHAR command[1024];
+        swprintf(command, 1024, L"\"%ls\" /cmd C:\\windows\\system32\\notepad.exe", path);
+        STARTUPINFOW startup = {};
+        PROCESS_INFORMATION process = {};
+        startup.cb = sizeof(startup);
+        BOOL launched = CreateProcessW(path, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process);
+        check(launched != FALSE, "launch actual shipping consent");
+        if (!launched) continue;
+        if (!unsupported)
+        {
+            dialog_search search = {process.dwProcessId, NULL};
+            ULONGLONG start = GetTickCount64();
+            while (!search.window && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT
+                   && GetTickCount64() - start < 8000)
+            {EnumWindows(find_dialog, (LPARAM)&search); Sleep(20);}
+            check(search.window && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT,
+                  "fixture and former environment switches cannot auto-approve or auto-deny");
+            if (search.window)
+            {
+                check(LOWORD(SendMessageW(search.window, DM_GETDEFID, 0, 0)) == IDNO,
+                      "shipping consent defaults to Cancel, not approval");
+                GUITHREADINFO gui = {};
+                gui.cbSize = sizeof(gui);
+                check(GetGUIThreadInfo(GetWindowThreadProcessId(search.window, NULL), &gui)
+                      && gui.hwndFocus == GetDlgItem(search.window, IDNO),
+                      "keyboard focus is on Cancel, not approval");
+                if (mode == 0) PostMessageW(search.window, WM_CLOSE, 0, 0);
+                else PostMessageW(search.window, WM_COMMAND, mode == 4 ? IDYES : mode == 2 ? IDCANCEL : IDNO, 0);
+            }
+        }
+        DWORD waited = WaitForSingleObject(process.hProcess, 10000), code = 0;
+        check(waited == WAIT_OBJECT_0, "consent exits after cancel or unsupported credential request");
+        if (waited != WAIT_OBJECT_0) TerminateProcess(process.hProcess, 1);
+        BOOL got_exit = GetExitCodeProcess(process.hProcess, &code);
+        DWORD expected = unsupported ? ERROR_NOT_SUPPORTED : mode == 4 ? ERROR_SUCCESS : ERROR_CANCELLED;
+        printf("consent_case=%u policy=%lu exit=%lu expected=%lu\n", mode, policy, code, expected);
+        check(got_exit && code == expected,
+              "actual shipping consent exit; unsupported credentials fail closed");
+        CloseHandle(process.hThread); CloseHandle(process.hProcess);
+    }
+    SetEnvironmentVariableW(L"WINE_CONSENT_AUTO_APPROVE", NULL);
+    SetEnvironmentVariableW(L"WINE_CONSENT_AUTO_DENY", NULL);
+    if (had) RegSetValueExW(key, L"ConsentPromptBehaviorAdmin", 0, old_type, old.data(), old_size);
+    else RegDeleteValueW(key, L"ConsentPromptBehaviorAdmin");
+    RegCloseKey(key);
+    return failures == before;
+}
+
+int main(int argc, char **argv)
+{
+    setvbuf(stdout, NULL, _IONBF, 0);
+    // The shell appends request metadata after a configured mock helper's args.
+    if (argc >= 3 && !strcmp(argv[1], "--helper-exit")) return atoi(argv[2]);
+    if (argc >= 3 && !strcmp(argv[1], "--child-exit")) {Sleep(500); return atoi(argv[2]);}
+    if (argc >= 4 && !strcmp(argv[1], "--child-wait"))
+    {
+        WCHAR name[128];
+        if (!MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, name, 128)) return 2;
+        HANDLE event = OpenEventW(SYNCHRONIZE, FALSE, name);
+        if (!event) return 2;
+        DWORD waited = WaitForSingleObject(event, 10000);
+        CloseHandle(event);
+        return waited == WAIT_OBJECT_0 ? atoi(argv[3]) : 3;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "--hold"))
+    {
+        puts("fixture_ready");
+        for (unsigned int i = 0; i < 600; ++i) {Sleep(500); puts("fixture_heartbeat");}
+        return 0;
+    }
+    if (argc == 3 && !strcmp(argv[1], "--consent"))
+    {
+        WCHAR path[MAX_PATH];
+        if (!MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, path, MAX_PATH)) return 2;
+        bool consent = shipping_consent(path);
+        printf("shipping_consent_has_no_approval_bypass=%s\n", consent ? "PASS" : "FAIL");
+        return consent ? 0 : 1;
+    }
+    bool token = deny_only();
+    printf("deny_only_acl_and_object_open=%s\n", token ? "PASS" : "FAIL");
+    if (argc == 2 && !strcmp(argv[1], "--shell-tests"))
+    {
+        bool shell = shell_helpers();
+        printf("elevation_helper_errors_and_child_handle=%s\n", shell ? "PASS" : "FAIL");
+        return token && shell ? 0 : 1;
+    }
+    return token ? 0 : 1;
+}

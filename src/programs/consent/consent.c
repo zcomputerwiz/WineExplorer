@@ -160,46 +160,6 @@ static void draw_banner(const DRAWITEMSTRUCT *dis, BOOL is_verified)
     DeleteObject(font);
 }
 
-static void draw_user_tile(const DRAWITEMSTRUCT *dis)
-{
-    HDC hdc = dis->hDC;
-    RECT rc = dis->rcItem;
-    HPEN pen_avatar = CreatePen(PS_SOLID, 1, RGB(165, 178, 192));
-    HBRUSH bg_avatar = CreateSolidBrush(RGB(226, 233, 242));
-    HBRUSH br_skin = CreateSolidBrush(RGB(225, 185, 145));
-    HBRUSH br_hair = CreateSolidBrush(RGB(90, 65, 45));
-    HBRUSH br_shirt = CreateSolidBrush(RGB(95, 150, 218));
-    HGDIOBJ old_brush, old_pen;
-    POINT shoulder_pts[5];
-
-    old_brush = SelectObject(hdc, bg_avatar);
-    old_pen = SelectObject(hdc, pen_avatar);
-    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 4, 4);
-
-    shoulder_pts[0].x = rc.left + 3;  shoulder_pts[0].y = rc.bottom - 1;
-    shoulder_pts[1].x = rc.left + 8;  shoulder_pts[1].y = rc.top + (rc.bottom - rc.top) * 5 / 9;
-    shoulder_pts[2].x = rc.right - 8; shoulder_pts[2].y = rc.top + (rc.bottom - rc.top) * 5 / 9;
-    shoulder_pts[3].x = rc.right - 3; shoulder_pts[3].y = rc.bottom - 1;
-    shoulder_pts[4].x = rc.left + 3;  shoulder_pts[4].y = rc.bottom - 1;
-    SelectObject(hdc, br_shirt);
-    SelectObject(hdc, GetStockObject(NULL_PEN));
-    Polygon(hdc, shoulder_pts, 5);
-
-    SelectObject(hdc, br_skin);
-    Ellipse(hdc, rc.left + 9, rc.top + 5, rc.right - 9, rc.top + (rc.bottom - rc.top) * 6 / 10);
-
-    SelectObject(hdc, br_hair);
-    Chord(hdc, rc.left + 9, rc.top + 4, rc.right - 9, rc.top + (rc.bottom - rc.top) * 5 / 10,
-          rc.right - 9, rc.top + 10, rc.left + 9, rc.top + 10);
-
-    SelectObject(hdc, old_brush);
-    SelectObject(hdc, old_pen);
-    DeleteObject(pen_avatar);
-    DeleteObject(bg_avatar);
-    DeleteObject(br_skin);
-    DeleteObject(br_hair);
-    DeleteObject(br_shirt);
-}
 
 static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
 {
@@ -322,23 +282,27 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
 static BOOL is_credentials_mode_required(void)
 {
     TOKEN_ELEVATION_TYPE type;
-    DWORD size, mode = 2; /* 2 = consent, 1 = credentials */
+    DWORD size, mode = 2, value_type;
+    LSTATUS status;
     HKEY hkey;
 
-    if (GetTokenInformation(GetCurrentThreadEffectiveToken(), TokenElevationType, &type, sizeof(type), &size))
-    {
-        if (type == TokenElevationTypeDefault)
-            return TRUE; /* Standard user always requires administrator credentials */
-    }
+    if (!GetTokenInformation(GetCurrentThreadEffectiveToken(), TokenElevationType, &type, sizeof(type), &size)
+            || type == TokenElevationTypeDefault)
+        return TRUE; /* Unknown identity must not fall back to consent-only. */
 
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-                      0, KEY_READ, &hkey) == ERROR_SUCCESS)
+    status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+                          0, KEY_READ, &hkey);
+    if (status == ERROR_SUCCESS)
     {
         DWORD val_size = sizeof(mode);
-        RegQueryValueExW(hkey, L"ConsentPromptBehaviorAdmin", NULL, NULL, (BYTE *)&mode, &val_size);
+        status = RegQueryValueExW(hkey, L"ConsentPromptBehaviorAdmin", NULL, &value_type, (BYTE *)&mode, &val_size);
         RegCloseKey(hkey);
+        if (status != ERROR_FILE_NOT_FOUND && (status != ERROR_SUCCESS
+                || value_type != REG_DWORD || val_size != sizeof(mode) || mode > 5))
+            return TRUE;
     }
-    return (mode == 1);
+    else if (status != ERROR_FILE_NOT_FOUND) return TRUE;
+    return (mode == 1 || mode == 3);
 }
 
 static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -367,7 +331,7 @@ static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         if ((font_bold = CreateFontIndirectW(&lf)))
             SendDlgItemMessageW(hwnd, IDC_UAC_PROGRAM, WM_SETFONT, (WPARAM)font_bold, TRUE);
 
-        SetFocus(GetDlgItem(hwnd, IDYES));
+        SetFocus(GetDlgItem(hwnd, IDNO));
         return FALSE;
     }
 
@@ -406,218 +370,27 @@ static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     return FALSE;
 }
 
-static BOOL check_credentials_pam(const char *user, const char *pass)
-{
-    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
-    HANDLE hRead = NULL, hWrite = NULL;
-    STARTUPINFOW si = { sizeof(si) };
-    PROCESS_INFORMATION pi = { 0 };
-    WCHAR cmd[256];
-    DWORD written, exit_code = 1;
-    BOOL ret = FALSE;
-
-    if (!CreatePipe(&hRead, &hWrite, &sa, 0)) return FALSE;
-    SetHandleInformation(hWrite, HANDLE_FLAG_INHERIT, 0);
-
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = hRead;
-    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-
-    /* unix_chkpwd is the standard setgid shadow PAM credentials helper */
-    swprintf(cmd, ARRAY_SIZE(cmd), L"Z:\\sbin\\unix_chkpwd %hs nullok", user);
-    if (!CreateProcessW(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
-    {
-        swprintf(cmd, ARRAY_SIZE(cmd), L"Z:\\usr\\sbin\\unix_chkpwd %hs nullok", user);
-        if (!CreateProcessW(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
-        {
-            CloseHandle(hRead);
-            CloseHandle(hWrite);
-            return FALSE;
-        }
-    }
-
-    CloseHandle(hRead);
-    WriteFile(hWrite, pass, (DWORD)strlen(pass) + 1, &written, NULL);
-    CloseHandle(hWrite);
-
-    if (WaitForSingleObject(pi.hProcess, 10000) == WAIT_OBJECT_0)
-    {
-        if (GetExitCodeProcess(pi.hProcess, &exit_code) && exit_code == 0)
-            ret = TRUE;
-    }
-    else
-    {
-        TerminateProcess(pi.hProcess, 1);
-    }
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    return ret;
-}
-
-static BOOL check_unattended_fixture(int *exit_code)
-{
-    /* In unattended test mode: only explicit, documented, opt-in test fixtures with root-only permission are acceptable.
-     * We look for /etc/wineexplorer/test-elevation.conf (or Z:\etc\wineexplorer\test-elevation.conf). */
-    static const WCHAR fixture_path[] = L"Z:\\etc\\wineexplorer\\test-elevation.conf";
-    HANDLE hFile;
-    char buf[128];
-    DWORD read_bytes = 0;
-
-    hFile = CreateFileW(fixture_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) return FALSE;
-
-    if (ReadFile(hFile, buf, sizeof(buf) - 1, &read_bytes, NULL) && read_bytes > 0)
-    {
-        buf[read_bytes] = 0;
-        CloseHandle(hFile);
-        if (strstr(buf, "mode=approve"))
-        {
-            TRACE("Root-only test fixture present with mode=approve: granting elevation\n");
-            *exit_code = 0;
-            return TRUE;
-        }
-        else if (strstr(buf, "mode=deny"))
-        {
-            TRACE("Root-only test fixture present with mode=deny: cancelling elevation\n");
-            *exit_code = 1223;
-            return TRUE;
-        }
-    }
-    else
-    {
-        CloseHandle(hFile);
-    }
-    return FALSE;
-}
-
-static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
-{
-    struct consent_data *data = (struct consent_data *)GetWindowLongPtrW(hwnd, DWLP_USER);
-
-    switch (msg)
-    {
-    case WM_INITDIALOG:
-    {
-        HFONT font_bold;
-        LOGFONTW lf;
-        WCHAR user[128];
-        DWORD user_len = ARRAY_SIZE(user);
-
-        data = (struct consent_data *)lparam;
-        SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)data);
-
-        SetDlgItemTextW(hwnd, IDC_UAC_PROGRAM, data->progname);
-        SetDlgItemTextW(hwnd, IDC_UAC_PUBLISHER, data->publisher);
-
-        memset(&lf, 0, sizeof(lf));
-        lf.lfHeight = -12;
-        lf.lfWeight = FW_BOLD;
-        lstrcpyW(lf.lfFaceName, L"Tahoma");
-        if ((font_bold = CreateFontIndirectW(&lf)))
-            SendDlgItemMessageW(hwnd, IDC_UAC_PROGRAM, WM_SETFONT, (WPARAM)font_bold, TRUE);
-
-        if (GetUserNameW(user, &user_len))
-            SendDlgItemMessageW(hwnd, IDC_UAC_ACCOUNT, CB_ADDSTRING, 0, (LPARAM)user);
-        else
-            SendDlgItemMessageW(hwnd, IDC_UAC_ACCOUNT, CB_ADDSTRING, 0, (LPARAM)L"Administrator");
-        SendDlgItemMessageW(hwnd, IDC_UAC_ACCOUNT, CB_SETCURSEL, 0, 0);
-
-        SetFocus(GetDlgItem(hwnd, IDC_UAC_PASSWORD));
-        return FALSE;
-    }
-
-    case WM_DRAWITEM:
-        if (wparam == IDC_UAC_BANNER)
-        {
-            draw_banner((const DRAWITEMSTRUCT *)lparam, data->is_verified);
-            return TRUE;
-        }
-        if (wparam == IDC_UAC_USERTILE)
-        {
-            draw_user_tile((const DRAWITEMSTRUCT *)lparam);
-            return TRUE;
-        }
-        break;
-
-    case WM_COMMAND:
-        switch (LOWORD(wparam))
-        {
-        case IDYES:
-        {
-            WCHAR user[128], pass[128];
-            char user_utf8[128], pass_utf8[128];
-            WCHAR *slash;
-            int sel;
-
-            pass[0] = 0;
-            GetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, pass, ARRAY_SIZE(pass));
-            if (!pass[0])
-            {
-                SetDlgItemTextW(hwnd, IDC_UAC_ERROR, L"Please enter a password.");
-                SetFocus(GetDlgItem(hwnd, IDC_UAC_PASSWORD));
-                return TRUE;
-            }
-
-            sel = SendDlgItemMessageW(hwnd, IDC_UAC_ACCOUNT, CB_GETCURSEL, 0, 0);
-            if (sel != CB_ERR)
-                SendDlgItemMessageW(hwnd, IDC_UAC_ACCOUNT, CB_GETLBTEXT, sel, (LPARAM)user);
-            else
-                GetDlgItemTextW(hwnd, IDC_UAC_ACCOUNT, user, ARRAY_SIZE(user));
-
-            slash = wcsrchr(user, '\\');
-            if (slash) memmove(user, slash + 1, (lstrlenW(slash + 1) + 1) * sizeof(WCHAR));
-
-            WideCharToMultiByte(CP_UTF8, 0, user, -1, user_utf8, sizeof(user_utf8), NULL, NULL);
-            WideCharToMultiByte(CP_UTF8, 0, pass, -1, pass_utf8, sizeof(pass_utf8), NULL, NULL);
-
-            if (!check_credentials_pam(user_utf8, pass_utf8))
-            {
-                SecureZeroMemory(pass, sizeof(pass));
-                SecureZeroMemory(pass_utf8, sizeof(pass_utf8));
-                SetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, L"");
-                SetDlgItemTextW(hwnd, IDC_UAC_ERROR, L"The password is incorrect. Please try again.");
-                SetFocus(GetDlgItem(hwnd, IDC_UAC_PASSWORD));
-                return TRUE;
-            }
-
-            SecureZeroMemory(pass, sizeof(pass));
-            SecureZeroMemory(pass_utf8, sizeof(pass_utf8));
-            EndDialog(hwnd, IDYES);
-            return TRUE;
-        }
-
-        case IDNO:
-        case IDCANCEL:
-            EndDialog(hwnd, IDNO);
-            return TRUE;
-        }
-        break;
-
-    case WM_CLOSE:
-        EndDialog(hwnd, IDNO);
-        return TRUE;
-    }
-    return FALSE;
-}
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
 {
     struct consent_data data;
     HWND hdim = NULL;
     INT_PTR res;
-    int exit_code = 0;
-
-    /* Unattended Test Fixture (explicit root-only opt-in file) */
-    if (check_unattended_fixture(&exit_code))
-        return exit_code;
+    DWORD dialog_error;
 
     InitCommonControls();
     parse_command_line(cmdline, &data);
     data.credentials_mode = is_credentials_mode_required();
+    if (data.credentials_mode)
+    {
+        /* Checking a password is not authorization to become an administrator.
+         * A request-bound polkit/backend identity contract is not implemented
+         * yet. Do not collect secrets or substitute a test approval fixture. */
+        WARN("Administrator credential authorization is not available.\n");
+        return ERROR_NOT_SUPPORTED;
+    }
 
-    /* Secure Desktop Dimmer */
+    /* Cosmetic dimmer on the shared desktop, not a secure desktop. */
     hdim = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
                            L"STATIC", L"", WS_POPUP | WS_VISIBLE,
                            GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
@@ -626,16 +399,15 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
     if (hdim)
         SetLayeredWindowAttributes(hdim, 0, 160, LWA_ALPHA);
 
-    if (data.credentials_mode)
-        res = DialogBoxParamW(inst, MAKEINTRESOURCEW(IDD_CREDENTIALS), hdim ? hdim : data.hwnd_parent,
-                              credentials_dlg_proc, (LPARAM)&data);
-    else
-        res = DialogBoxParamW(inst, MAKEINTRESOURCEW(IDD_CONSENT), hdim ? hdim : data.hwnd_parent,
-                              consent_dlg_proc, (LPARAM)&data);
+    res = DialogBoxParamW(inst, MAKEINTRESOURCEW(IDD_CONSENT), hdim ? hdim : data.hwnd_parent,
+                          consent_dlg_proc, (LPARAM)&data);
+    dialog_error = res == -1 ? GetLastError() : ERROR_SUCCESS;
+    if (res == -1 && !dialog_error) dialog_error = ERROR_GEN_FAILURE;
 
     if (hdim)
         DestroyWindow(hdim);
 
     TRACE("Consent dialog finished with result %Id\n", res);
-    return (res == IDYES) ? 0 : 1223;
+    if (res == -1) return dialog_error;
+    return (res == IDYES) ? ERROR_SUCCESS : ERROR_CANCELLED;
 }

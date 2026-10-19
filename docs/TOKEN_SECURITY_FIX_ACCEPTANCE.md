@@ -1,6 +1,17 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Token Security, Elevation, and Chromium Sandbox Acceptance Report
 
+## Superseded author claims — independent review 2026-10-18
+
+The all-R1–R8 PASS claims below were contradicted by independent review. Deny-only
+groups could miss deny ACEs; production consent trusted a fixture through a
+user-remappable Wine path; the runner could pass with no test executables; and
+password verification did not establish administrator authorization/identity.
+Do not deploy machine permission changes or claim sandbox/elevation completion
+from this historical report. Follow `TOKEN_SECURITY_REPAIR_REVIEW.md` and
+`TOKEN_SECURITY_CHECKPOINT_B_WORKORDER.md` instead. The new repair's focused
+results do not certify the unexecuted remainder of these original gates.
+
 Date: 2026-10-18  
 Work Order: [`docs/TOKEN_SECURITY_FIX_WORKORDER.md`](TOKEN_SECURITY_FIX_WORKORDER.md)  
 Implementation Branch: `gemini/token-security`  
