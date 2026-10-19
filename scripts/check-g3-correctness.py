@@ -135,9 +135,15 @@ def main():
                 command = [str(wine), str(exe)]
                 run = run_logged(command, env, output, arch, 120)
                 required = ('ordinary_buffer_copy=PASS', 'ordinary_texture1d_copy=PASS',
+                            'ordinary_texture2d_copy=PASS',
                             'ordinary_texture3d_copy=PASS',
                             'pending_fence_clear_and_query_order=PASS',
-                            'queued_signal_immediate_release=PASS')
+                            'queued_signal_immediate_release=PASS',
+                            'format_layout_rejection=PASS',
+                            'multiple_fence_waiters=PASS',
+                            'multiframe_changing_patterns=PASS',
+                            'handle_duplicate_and_close=PASS',
+                            'deferred_context_rejection=PASS')
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
