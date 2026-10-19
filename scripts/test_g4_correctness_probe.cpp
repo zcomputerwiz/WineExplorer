@@ -1,0 +1,300 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright 2026 WineExplorer contributors
+// Independent correctness checks. Legacy HRESULT-only probes remain historical,
+// not substitutes for these target-window pixels and imported-fence observers.
+#define main historical_g4_main
+#include "test_g4_composition_probe.cpp"
+#undef main
+#include <d3d11_4.h>
+#include <math.h>
+
+struct Scene
+{
+    HWND hwnd = NULL;
+    ID3D11Device *dev = NULL;
+    ID3D11DeviceContext *ctx = NULL;
+    IDCompositionDevice *comp = NULL;
+    IDCompositionTarget *target = NULL;
+    IDCompositionVisual *visual = NULL;
+    IDXGISwapChain1 *sc = NULL;
+    ID3D11Texture2D *bb = NULL, *pattern = NULL;
+
+    bool init()
+    {
+        hwnd = create_window("G4 independent pixels", 256, 256, NULL);
+        if (!hwnd || !create_d3d_and_dcomp(hwnd, &dev, &ctx, &comp, &target)) return false;
+        sc = create_comp_swapchain(dev, 64, 64);
+        if (!sc || FAILED(comp->CreateVisual(&visual))) return false;
+        if (FAILED(visual->SetContent(sc)) || FAILED(target->SetRoot(visual))) return false;
+        if (FAILED(sc->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&bb))) return false;
+        DWORD pixels[64 * 64];
+        for (int y = 0; y < 64; ++y)
+            for (int x = 0; x < 64; ++x)
+                pixels[y * 64 + x] = x < 32 ? 0xffff0000 : 0xff0000ff;
+        D3D11_TEXTURE2D_DESC desc = {};
+        desc.Width = desc.Height = 64;
+        desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+        D3D11_SUBRESOURCE_DATA data = {pixels, 64 * 4, 0};
+        if (FAILED(dev->CreateTexture2D(&desc, &data, &pattern))) return false;
+        flush_messages();
+        return true;
+    }
+    void black()
+    {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        POINT point = {0, 0};
+        ClientToScreen(hwnd, &point);
+        OffsetRect(&rc, point.x, point.y);
+        // Establish the actual visible test background, not Wine's separate
+        // GDI backing bitmap underneath its OpenGL drawable. This is placement
+        // evidence, not automatic exposed-area/retained-layer repaint proof.
+        HDC dc = GetDC(NULL);
+        FillRect(dc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        ReleaseDC(NULL, dc);
+        GdiFlush();
+    }
+    bool present()
+    {
+        ctx->CopyResource(bb, pattern);
+        ctx->Flush();
+        return sc->Present(0, 0) == S_OK;
+    }
+    bool pixel(int x, int y, COLORREF expected)
+    {
+        COLORREF actual = CLR_INVALID;
+        for (int i = 0; i < 100; ++i)
+        {
+            POINT point = {x, y};
+            ClientToScreen(hwnd, &point);
+            HDC dc = GetDC(NULL);
+            actual = GetPixel(dc, point.x, point.y);
+            ReleaseDC(NULL, dc);
+            if (actual == expected) return true;
+            Sleep(10); // bounded test observation, not production pacing
+        }
+        printf("PIXEL_FAIL x=%d y=%d expected=%06lx actual=%06lx\n",
+               x, y, (unsigned long)expected, (unsigned long)actual);
+        return false;
+    }
+    ~Scene()
+    {
+        if (target) target->SetRoot(NULL);
+        if (comp) comp->Commit();
+        release(pattern); release(bb); release(visual); release(sc);
+        release(target); release(comp); release(ctx); release(dev);
+        if (hwnd) DestroyWindow(hwnd);
+    }
+};
+
+static bool supported_pixels_and_transactions()
+{
+    Scene s;
+    if (!s.init()) return false;
+    if (FAILED(s.comp->Commit())) return false;
+    s.black();
+    if (!s.present() || !s.pixel(8, 8, RGB(255,0,0)) || !s.pixel(48,8,RGB(0,0,255))) return false;
+    if (FAILED(s.visual->SetOffsetX(32))) return false;
+    // Pending placement must not affect Present before Commit.
+    s.black();
+    if (!s.present() || !s.pixel(8,8,RGB(255,0,0))) return false;
+    if (FAILED(s.comp->Commit()) || FAILED(s.comp->WaitForCommitCompletion())) return false;
+    if (!s.present() || !s.pixel(8,8,RGB(0,0,0)) || !s.pixel(40,8,RGB(255,0,0))) return false;
+    D2D_RECT_F clip = {0,0,32,64};
+    if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())) return false;
+    // Cropping must preserve the left red half, not squeeze red+blue into it.
+    if (!s.present() || !s.pixel(56,8,RGB(255,0,0)) || !s.pixel(80,8,RGB(0,0,0))) return false;
+    clip = {0,0,0,0};
+    if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())) return false;
+    if (!s.present() || !s.pixel(40,8,RGB(0,0,0))) return false;
+    if (FAILED(s.visual->SetClip((IDCompositionClip *)NULL))) return false;
+    if (FAILED(s.comp->Commit()) || !s.present() || !s.pixel(40,8,RGB(255,0,0))) return false;
+    if (FAILED(s.visual->SetContent(NULL)) || FAILED(s.comp->Commit())) return false;
+    return s.present() && s.pixel(40,8,RGB(0,0,0));
+}
+
+static bool retained_changing_frame_pixels()
+{
+    Scene s;
+    if (!s.init() || FAILED(s.comp->Commit())) return false;
+    DWORD pixels[64 * 64];
+    for (int frame = 0; frame < 60; ++frame)
+    {
+        DWORD value = frame % 2 ? 0xff00ff00 : 0xffff0000;
+        COLORREF expected = frame % 2 ? RGB(0,255,0) : RGB(255,0,0);
+        for (unsigned int i = 0; i < ARRAYSIZE(pixels); ++i) pixels[i] = value;
+        s.ctx->UpdateSubresource(s.pattern, 0, NULL, pixels, 64 * 4, 0);
+        if (!s.present() || !s.pixel(8,8,expected) || !s.pixel(48,8,expected)) return false;
+    }
+    return true;
+}
+
+static bool unsupported_properties_fail_honestly()
+{
+    Scene s;
+    if (!s.init() || FAILED(s.comp->Commit())) return false;
+    IDCompositionEffectGroup *effect = NULL;
+    IDCompositionRectangleClip *clip = NULL;
+    IDCompositionVisual *second = NULL;
+    bool ok = false;
+    D2D_MATRIX_3X2_F shear = {1,0.5f,0,1,0,0};
+    D2D_MATRIX_3X2_F invalid = {1,0,0,1,NAN,0};
+    if (FAILED(s.comp->CreateEffectGroup(&effect)) || FAILED(s.comp->CreateRectangleClip(&clip))) goto done;
+    if (effect->SetOpacity(0.5f) != E_NOTIMPL || effect->SetOpacity(1) != S_OK) goto done;
+    if (effect->SetOpacity(NAN) != E_INVALIDARG) goto done;
+    if (clip->SetTopLeftRadiusX(4.0f) != E_NOTIMPL || clip->SetTopLeftRadiusX(0.0f) != S_OK) goto done;
+    if (clip->SetRight(NAN) != E_INVALIDARG) goto done;
+    if (s.visual->SetTransform(shear) != E_NOTIMPL) goto done;
+    if (s.visual->SetTransform(invalid) != E_INVALIDARG) goto done;
+    if (FAILED(s.comp->CreateVisual(&second)) || FAILED(second->SetContent(s.sc))) goto done;
+    if (FAILED(s.visual->AddVisual(second, TRUE, NULL))) goto done;
+    if (s.comp->Commit() != E_NOTIMPL) goto done;
+    // A rejected transaction must not detach or alter the previously active leaf.
+    s.black();
+    ok = s.present() && s.pixel(8,8,RGB(255,0,0)) && s.pixel(48,8,RGB(0,0,255));
+    s.visual->RemoveVisual(second);
+done:
+    release(second); release(clip); release(effect);
+    return ok;
+}
+
+struct CrossCommit { Scene *scene; HRESULT hr; };
+static DWORD WINAPI commit_worker(void *arg)
+{
+    CrossCommit *work = (CrossCommit *)arg;
+    work->hr = work->scene->visual->SetOffsetX(32);
+    if (SUCCEEDED(work->hr)) work->hr = work->scene->comp->Commit();
+    if (SUCCEEDED(work->hr)) work->hr = work->scene->comp->WaitForCommitCompletion();
+    return 0;
+}
+static bool cross_thread_completion_pixels()
+{
+    Scene s;
+    if (!s.init() || FAILED(s.comp->Commit())) return false;
+    if (!s.present() || !s.pixel(8,8,RGB(255,0,0))) return false;
+    CrossCommit work = {&s, E_FAIL};
+    HANDLE thread = CreateThread(NULL, 0, commit_worker, &work, 0, NULL);
+    if (!thread) return false;
+    // The swapchain-owner thread deliberately does not pump window messages.
+    DWORD wait = WaitForSingleObject(thread, 3000);
+    if (wait != WAIT_OBJECT_0)
+    {
+        // Keep stack/COM objects alive until worker ends; runner bounds deadlock.
+        WaitForSingleObject(thread, INFINITE);
+    }
+    CloseHandle(thread);
+    if (wait != WAIT_OBJECT_0 || FAILED(work.hr)) return false;
+    return s.present() && s.pixel(8,8,RGB(0,0,0)) && s.pixel(40,8,RGB(255,0,0));
+}
+
+static int observer_child(HANDLE mapping, HANDLE ready)
+{
+    Scene s;
+    ID3D11Device5 *device = NULL;
+    ID3D11Fence *fence = NULL;
+    HANDLE event = NULL;
+    int result = 1;
+    if (!s.init()) return 2;
+    if (FAILED(s.dev->QueryInterface(__uuidof(ID3D11Device5), (void **)&device))) goto done;
+    if (FAILED(device->OpenSharedFence(mapping, __uuidof(ID3D11Fence), (void **)&fence))) goto done;
+    if (!(event = CreateEventA(NULL, FALSE, FALSE, NULL))) goto done;
+    for (UINT64 value = 1; value <= 128; ++value)
+    {
+        if (FAILED(fence->SetEventOnCompletion(value, event))) goto done;
+        if (value == 1) SetEvent(ready);
+        if (WaitForSingleObject(event, 3000) != WAIT_OBJECT_0) goto done;
+    }
+    result = 0;
+done:
+    if (event) CloseHandle(event);
+    CloseHandle(mapping); CloseHandle(ready);
+    release(fence); release(device);
+    return result;
+}
+
+static bool imported_fence_observers()
+{
+    Scene s;
+    if (!s.init()) return false;
+    ID3D11Device5 *device = NULL;
+    ID3D11DeviceContext4 *context = NULL;
+    ID3D11Fence *producer = NULL, *observers[3] = {};
+    HANDLE handle = NULL, events[3] = {};
+    HANDLE ready = NULL;
+    SECURITY_ATTRIBUTES attributes = {sizeof(attributes), NULL, TRUE};
+    PROCESS_INFORMATION child = {};
+    STARTUPINFOA startup = {};
+    char executable[MAX_PATH], command[2 * MAX_PATH];
+    DWORD exit_code = 1;
+    bool ok = false;
+    if (FAILED(s.dev->QueryInterface(__uuidof(ID3D11Device5), (void **)&device))
+            || FAILED(s.ctx->QueryInterface(__uuidof(ID3D11DeviceContext4), (void **)&context))) goto done;
+    if (FAILED(device->CreateFence(0, D3D11_FENCE_FLAG_SHARED, __uuidof(ID3D11Fence), (void **)&producer))) goto done;
+    if (FAILED(producer->CreateSharedHandle(NULL, GENERIC_ALL, NULL, &handle))) goto done;
+    if (!SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT)) goto done;
+    if (!(ready = CreateEventA(&attributes, FALSE, FALSE, NULL))) goto done;
+    if (!GetModuleFileNameA(NULL, executable, ARRAYSIZE(executable))) goto done;
+    snprintf(command, sizeof(command), "\"%s\" --observer-child %llx %llx", executable,
+            (unsigned long long)(UINT_PTR)handle, (unsigned long long)(UINT_PTR)ready);
+    startup.cb = sizeof(startup);
+    if (!CreateProcessA(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &child)) goto done;
+    if (WaitForSingleObject(ready, 10000) != WAIT_OBJECT_0) goto done;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (FAILED(device->OpenSharedFence(handle, __uuidof(ID3D11Fence), (void **)&observers[i]))) goto done;
+        if (!(events[i] = CreateEventA(NULL, FALSE, FALSE, NULL))) goto done;
+    }
+    for (UINT64 value = 1; value <= 128; ++value)
+    {
+        if (FAILED(observers[0]->SetEventOnCompletion(value, events[0]))) goto done;
+        if (FAILED(context->Signal(producer, value))) goto done;
+        // Deliberately register some observers concurrently with/already after Signal.
+        for (int i = 1; i < 3; ++i)
+            if (FAILED(observers[i]->SetEventOnCompletion(value, events[i]))) goto done;
+        if (WaitForMultipleObjects(3, events, TRUE, 3000) != WAIT_OBJECT_0) goto done;
+        for (int i = 0; i < 3; ++i)
+            if (observers[i]->GetCompletedValue() < value) goto done;
+    }
+    if (WaitForSingleObject(child.hProcess, 10000) != WAIT_OBJECT_0) goto done;
+    if (!GetExitCodeProcess(child.hProcess, &exit_code) || exit_code != 0) goto done;
+    ok = true;
+done:
+    if (child.hProcess)
+    {
+        if (WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT)
+        {
+            TerminateProcess(child.hProcess, 125); // only our owned diagnostic child
+            WaitForSingleObject(child.hProcess, 3000);
+        }
+        CloseHandle(child.hThread); CloseHandle(child.hProcess);
+    }
+    if (ready) CloseHandle(ready);
+    for (int i = 0; i < 3; ++i) { release(observers[i]); if (events[i]) CloseHandle(events[i]); }
+    if (handle) CloseHandle(handle);
+    release(producer); release(context); release(device);
+    return ok;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 4 && !strcmp(argv[1], "--observer-child"))
+    {
+        unsigned long long mapping, ready;
+        if (sscanf(argv[2], "%llx", &mapping) != 1 || sscanf(argv[3], "%llx", &ready) != 1) return 3;
+        return observer_child((HANDLE)(UINT_PTR)mapping, (HANDLE)(UINT_PTR)ready);
+    }
+    bool a = supported_pixels_and_transactions();
+    printf("supported_pixels_and_transactions=%s\n", a ? "PASS" : "FAIL");
+    bool b = unsupported_properties_fail_honestly();
+    printf("unsupported_properties_fail_honestly=%s\n", b ? "PASS" : "FAIL");
+    bool c = cross_thread_completion_pixels();
+    printf("cross_thread_completion_pixels=%s\n", c ? "PASS" : "FAIL");
+    bool d = imported_fence_observers();
+    printf("imported_fence_observers=%s\n", d ? "PASS" : "FAIL");
+    bool e = retained_changing_frame_pixels();
+    printf("retained_changing_frame_pixels=%s\n", e ? "PASS" : "FAIL");
+    return a && b && c && d && e ? 0 : 1;
+}

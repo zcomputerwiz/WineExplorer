@@ -1,5 +1,15 @@
 # Changes to stock Wine / third-party code
 
+## G4 independent correctness boundary (2026-10-19)
+
+Wine f3ecadd3 on codex/g4-correctness repairs shared fence notifications in
+d3d11/device.c and d3d11_private.h; direct builtin composition binding in
+wine/winedxgi.idl, dxgi/{swapchain.c,factory.c,dxgi_private.h} and dcomp/device.c;
+and composition-only opaque drawable clears in wined3d/swapchain.c and
+wine/wined3d.h. Unsupported properties/multiple content leaves reject honestly.
+This is not a complete retained compositor, browser, hardware or desktop pass.
+See CHROMIUM_GRAPHICS_G4_REPAIR_REVIEW.md and the G4 completion work order.
+
 ## G3 independent correctness repair (2026-10-18)
 
 On `codex/g3-correctness`, D3D11 CopyResource checks resource dimensions before

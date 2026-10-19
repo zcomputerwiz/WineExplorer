@@ -60,6 +60,8 @@ def main():
     parser.add_argument('--wine-build', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--full-suite', action='store_true')
+    parser.add_argument('--g4-correctness', action='store_true',
+                        help='Run the independent G4 target-pixel and observer regression probe')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
@@ -127,8 +129,9 @@ def main():
                 result['vulkan_icd_sha256'] = hashlib.sha256(icd.read_bytes()).hexdigest()
             for arch, compiler in (('x86_64', 'x86_64-w64-mingw32-g++'),
                                    ('i686', 'i686-w64-mingw32-g++')):
-                exe = output / ('g3-ordering-' + arch + '.exe')
-                probes.compile_probe(source / 'test_g3_ordering_probe.cpp', exe, compiler)
+                probe_name = 'test_g4_correctness_probe.cpp' if args.g4_correctness else 'test_g3_ordering_probe.cpp'
+                exe = output / (('g4-correctness-' if args.g4_correctness else 'g3-ordering-') + arch + '.exe')
+                probes.compile_probe(source / probe_name, exe, compiler)
                 prefix = root / arch
                 prefixes.append(prefix)
                 env = dict(environment, WINEPREFIX=str(prefix))
@@ -144,6 +147,12 @@ def main():
                             'multiframe_changing_patterns=PASS',
                             'handle_duplicate_and_close=PASS',
                             'deferred_context_rejection=PASS')
+                if args.g4_correctness:
+                    required = ('supported_pixels_and_transactions=PASS',
+                                'unsupported_properties_fail_honestly=PASS',
+                                'cross_thread_completion_pixels=PASS',
+                                'imported_fence_observers=PASS',
+                                'retained_changing_frame_pixels=PASS')
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}

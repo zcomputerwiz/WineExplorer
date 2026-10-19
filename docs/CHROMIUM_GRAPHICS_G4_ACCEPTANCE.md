@@ -1,5 +1,13 @@
 # Phase G4 Acceptance Report: DirectComposition Retained Tree, Presentation & Pacing
 
+> Historical Gemini claims, NOT current acceptance. Independent review of parent
+> b58b9485 / Wine b2038215 found lost-wakeup, ignored-rendering-property,
+> cross-thread completion and non-discriminating test defects. The corrected
+> baseline is on codex/g4-correctness. Read CHROMIUM_GRAPHICS_G4_REPAIR_REVIEW.md
+> and CHROMIUM_GRAPHICS_G4_COMPLETION_WORKORDER.md. G4 remains incomplete; the
+> PASS totals and zero-desktop-regression inference below must not be reused
+> as merge, browser, theme, hardware or G5-entry authorization.
+
 **Date:** 2026-10-18  
 **Parent Branch:** `gemini/chromium-graphics-g4`  
 **Submodule (`wine`) Branch:** `gemini/chromium-graphics-g4`  
