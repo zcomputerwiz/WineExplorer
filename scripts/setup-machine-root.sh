@@ -95,6 +95,9 @@ ensure_common_shell_dirs()
     mkdir -p "$MACHINE_ROOT/drive_c/users/Public/Videos"
 }
 
+WINE_BIN="${WEX_WINE_BIN:-/usr/local/bin/wine}"
+WINESERVER_BIN="${WEX_WINESERVER_BIN:-/usr/local/bin/wineserver}"
+
 # 1. Initialize or update machine root
 if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
     if [ -d "$SKEL_PFX/drive_c/windows" ] && [ ! -L "$SKEL_PFX/drive_c/windows" ]; then
@@ -123,8 +126,6 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
             echo "$MACHINE_ROOT exists but has no drive_c/windows/system32; refusing to replace it" >&2
             exit 1
         fi
-WINE_BIN="${WEX_WINE_BIN:-/usr/local/bin/wine}"
-WINESERVER_BIN="${WEX_WINESERVER_BIN:-/usr/local/bin/wineserver}"
 
         if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
             WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
