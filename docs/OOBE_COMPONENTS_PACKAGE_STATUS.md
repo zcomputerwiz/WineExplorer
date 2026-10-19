@@ -150,6 +150,8 @@ Where authoritative standalone terms can be obtained and matched to exact
 packages, preserve review-before-payload-download. For embedded terms, the
 alternative product flow is an explicit Download for review action showing size,
 then extraction without PE execution, then full terms display and separate
-acceptance before installation. A product-policy decision for that alternative
-is pending; our current shipping path was not silently relaxed. Extend formats
-with bounded, hash-bound extraction and stale-response/cache tests before enabling.
+acceptance before installation. The human explicitly approved that alternative
+on 2026-10-19. Implement it under OOBE_EMBEDDED_TERMS_WORKORDER.md; production
+code has not yet changed. Extend formats with bounded, hash-bound extraction
+and stale-response/cache tests before enabling. Applicable package rights remain
+a separate question; approval is not redistribution permission.

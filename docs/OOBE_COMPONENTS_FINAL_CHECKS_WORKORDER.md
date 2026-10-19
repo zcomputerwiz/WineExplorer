@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order for Gemini: installed-image OOBE acceptance and regressions
 
+Policy update 2026-10-19: `OOBE_EMBEDDED_TERMS_WORKORDER.md` supersedes older
+blanket bans on payload download before acceptance ONLY for an explicit
+download-for-review action, static terms extraction, and separate subsequent
+install acceptance. Its published repaired baseline supersedes this historical
+starting point; unrelated protections and acceptance gates remain in force.
+
 Date: 2026-10-18. Implementation baseline: `48b179ce` on
 `codex/oobe-components-repair`, including `caed67f2`, `b6fe7f43` and `3d70da25`.
 **Status: acceptance pending; do not merge to master.**

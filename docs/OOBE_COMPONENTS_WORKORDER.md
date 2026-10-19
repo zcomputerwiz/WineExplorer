@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order for Gemini: optional downloads during OOBE
 
+Policy update 2026-10-19: `OOBE_EMBEDDED_TERMS_WORKORDER.md` supersedes older
+blanket bans on payload download before acceptance ONLY for an explicit
+download-for-review action, static terms extraction, and separate subsequent
+install acceptance. Its published repaired baseline supersedes this historical
+starting point; unrelated protections and acceptance gates remain in force.
+
 Date: 2026-10-17. Status: ready for implementation, not implemented by this document.
 
 Review follow-up: the implementation through `12c0b546` is not merge-ready.

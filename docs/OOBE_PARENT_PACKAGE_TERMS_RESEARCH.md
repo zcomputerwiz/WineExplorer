@@ -4,6 +4,10 @@
 Branch: codex/oobe-final-correctness. Follow-up to the user's suggestion to show
 the governing SDK/IE agreement, rather than demand standalone DLL/font terms.
 
+Policy follow-up 2026-10-19: explicit download-for-review and separate installation
+acceptance are now approved. See OOBE_EMBEDDED_TERMS_WORKORDER.md for implementation
+and proof requirements; the package-applicability findings below are unchanged.
+
 ## Conclusion
 
 That is the correct provenance approach, subject to component-specific terms.

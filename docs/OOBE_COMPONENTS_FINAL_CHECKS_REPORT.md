@@ -125,8 +125,10 @@ implementation limitation, not evidence of a legal prohibition.
 The user authorized downloading/installing needed components in disposable labs
 and confirmed prior Winetricks terms acceptance. That does not authorize bundling
 vendor files/legal documents or production auto-accept. No such files are in Git.
-Product-policy decision pending: explicit download-for-review for embedded terms,
-with separate acceptance before execution/install. No shipping bypass was added.
+Product-policy decision approved 2026-10-19: explicit download-for-review for
+embedded terms, with separate acceptance before execution/install. Implementation
+and testing remain pending under OOBE_EMBEDDED_TERMS_WORKORDER.md; no shipping
+bypass was added.
 
 ## Remaining acceptance gates
 

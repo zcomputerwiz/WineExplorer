@@ -3,6 +3,11 @@
 
 ## Superseding checkpoint — 2026-10-19
 
+The human approved explicit download-for-review, static extraction and separate
+install acceptance for embedded agreements. OOBE_EMBEDDED_TERMS_WORKORDER.md is
+the current implementation handoff; older blanket pre-acceptance download bans
+are superseded only for that explicit flow. Implementation/live proof is pending.
+
 Current repairs are on `codex/oobe-final-correctness`, based on Gemini 625effa8.
 See `OOBE_COMPONENTS_FINAL_CHECKS_REPORT.md` and
 `OOBE_COMPONENTS_PACKAGE_STATUS.md` for the current independent results.

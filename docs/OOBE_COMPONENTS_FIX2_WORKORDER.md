@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Second-pass fix-it work order for Gemini: OOBE components
 
+Policy update 2026-10-19: `OOBE_EMBEDDED_TERMS_WORKORDER.md` supersedes older
+blanket bans on payload download before acceptance ONLY for an explicit
+download-for-review action, static terms extraction, and separate subsequent
+install acceptance. Its published repaired baseline supersedes this historical
+starting point; unrelated protections and acceptance gates remain in force.
+
 Date: 2026-10-18. Reviewed tip: `9370bbd9`, `gemini/oobe-components`.
 Status: not merge-ready; implement and verify the remaining repairs below.
 
