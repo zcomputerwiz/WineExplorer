@@ -206,6 +206,15 @@ Next worker: `TOKEN_SECURITY_CHECKPOINT_B_WORKORDER.md`.
   on Debian (host rg remains available). A later shell stderr-loop diagnostic
   lost its $f arguments through the PowerShell/WSL command boundary, so read no
   logs; replaced it with find -exec head, whose actual output is retained.
+- Optional post-publication Debian `git fetch --no-tags
+  https://github.com/zcomputerwiz/WineExplorer.git codex/token-security-correctness`
+  did not complete promptly. Its exact owned fetch/remote-https processes were
+  inspected and terminated (exit 1, Terminated); the network cause is unconfirmed.
+  Windows Git push AND ls-remote verified both public branch SHAs successfully.
+  Retried with a bounded local fetch from /mnt/d/DeepThought/Projects/WineExplorer
+  into the owned native clone, which also fetched the published Wine pin. Git-show
+  of the committed LF shell wrappers passed bash -n; both committed Python scripts
+  passed ast.parse. No fetch/check changed another checkout's working files.
 
 Native Debian source/build/evidence root: /var/tmp/wex-token-repair-20261018.
 Logs include assemble.log, assemble-retry.log, configure.log and build.log.
