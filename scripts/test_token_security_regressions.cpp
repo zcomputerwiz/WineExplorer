@@ -181,6 +181,91 @@ static bool shell_helpers()
         if (info.hProcess) CloseHandle(info.hProcess);
         if (release_event) {SetEvent(release_event); CloseHandle(release_event);}
     }
+
+    /* Negative helper configuration audit regressions:
+     * wrong registry types, odd bytes, whitespace paths fail closed with accurate errors.
+     * Empty string selects stock compatibility mode (HELPER_UNSET). */
+    {
+        DWORD bad_dw = 1;
+        check(RegSetValueExW(key, L"Helper", 0, REG_DWORD, (BYTE *)&bad_dw, sizeof(bad_dw)) == ERROR_SUCCESS,
+              "configure helper as REG_DWORD");
+        SHELLEXECUTEINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+        info.lpVerb = L"runas"; info.lpFile = module;
+        info.lpParameters = L"--child-exit 37";
+        info.nShow = SW_HIDE;
+        SetLastError(0xdeadbeef);
+        BOOL launched = ShellExecuteExW(&info);
+        DWORD error = GetLastError();
+        check(!launched && !info.hProcess && error == ERROR_DATATYPE_MISMATCH,
+              "wrong registry type fails closed with ERROR_DATATYPE_MISMATCH and no child handle");
+        if (info.hProcess) CloseHandle(info.hProcess);
+    }
+    {
+        BYTE odd_bytes[5] = {'a', 0, 'b', 0, 'c'};
+        check(RegSetValueExW(key, L"Helper", 0, REG_SZ, odd_bytes, sizeof(odd_bytes)) == ERROR_SUCCESS,
+              "configure helper with odd byte length");
+        SHELLEXECUTEINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+        info.lpVerb = L"runas"; info.lpFile = module;
+        info.lpParameters = L"--child-exit 37";
+        info.nShow = SW_HIDE;
+        SetLastError(0xdeadbeef);
+        BOOL launched = ShellExecuteExW(&info);
+        DWORD error = GetLastError();
+        check(!launched && !info.hProcess && error == ERROR_INVALID_DATA,
+              "odd byte length fails closed with ERROR_INVALID_DATA and no child handle");
+        if (info.hProcess) CloseHandle(info.hProcess);
+    }
+    {
+        WCHAR ws[] = L"   \t  ";
+        check(RegSetValueExW(key, L"Helper", 0, REG_SZ, (BYTE *)ws, sizeof(ws)) == ERROR_SUCCESS,
+              "configure helper as whitespace path");
+        SHELLEXECUTEINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+        info.lpVerb = L"runas"; info.lpFile = module;
+        info.lpParameters = L"--child-exit 37";
+        info.nShow = SW_HIDE;
+        SetLastError(0xdeadbeef);
+        BOOL launched = ShellExecuteExW(&info);
+        DWORD error = GetLastError();
+        check(!launched && !info.hProcess && error == ERROR_BAD_PATHNAME,
+              "whitespace path fails closed with ERROR_BAD_PATHNAME and no child handle");
+        if (info.hProcess) CloseHandle(info.hProcess);
+    }
+    {
+        WCHAR empty[] = L"";
+        check(RegSetValueExW(key, L"Helper", 0, REG_SZ, (BYTE *)empty, sizeof(empty)) == ERROR_SUCCESS,
+              "configure helper as empty string (stock compatibility)");
+        WCHAR event_name[128], parameters[180];
+        swprintf(event_name, 128, L"Local\\WexElevRelease_%lu_%llu", GetCurrentProcessId(),
+                 (unsigned long long)GetTickCount64());
+        HANDLE release_event = CreateEventW(NULL, TRUE, FALSE, event_name);
+        check(release_event != NULL, "create target release event for empty helper");
+        swprintf(parameters, 180, L"--child-wait %ls 37", event_name);
+        SHELLEXECUTEINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+        info.lpVerb = L"runas"; info.lpFile = module;
+        info.lpParameters = parameters;
+        info.nShow = SW_HIDE;
+        BOOL launched = ShellExecuteExW(&info);
+        check(launched && info.hProcess, "empty helper selects stock compatibility elevation");
+        if (info.hProcess)
+        {
+            DWORD code = 0;
+            check(WaitForSingleObject(info.hProcess, 20) == WAIT_TIMEOUT, "target still alive");
+            check(release_event && SetEvent(release_event), "release target");
+            check(WaitForSingleObject(info.hProcess, 10000) == WAIT_OBJECT_0, "target exits");
+            check(GetExitCodeProcess(info.hProcess, &code) && code == 37, "target exit code 37");
+            CloseHandle(info.hProcess);
+        }
+        if (release_event) {SetEvent(release_event); CloseHandle(release_event);}
+    }
+
     if (had_value) RegSetValueExW(key, L"Helper", 0, old_type, old_value.data(), old_size);
     else RegDeleteValueW(key, L"Helper");
     RegCloseKey(key);

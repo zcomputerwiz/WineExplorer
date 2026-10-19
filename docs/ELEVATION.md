@@ -149,3 +149,80 @@ Comprehensive unit tests were added in `dlls/shell32/tests/shlexec.c` under `tes
 0020:shlexec: 105 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
 ```
 All elevation test cases passed with 0 failures on both 64-bit and WOW64.
+
+---
+
+## 6. Checkpoint B1: Request-Bound Authorization & Identity Architecture Contract
+
+### A. Four Distinct Identities and Authoritative Acquisition
+
+Any secure elevation mechanism must cleanly distinguish four separate identities rather than conflating them into a single concept of "elevated":
+
+1. **Requesting Windows Identity (Token/SID):**
+   - **Definition:** The Win32 process/thread security context requesting elevation.
+   - **Authoritative Retrieval:** Obtained directly from wineserver's kernel object model via `GetCurrentThreadEffectiveToken()` / `get_current_process()->token`. The token defines the user SID (`S-1-5-21-...`), integrity level (`SECURITY_MANDATORY_MEDIUM_RID`), and elevation status (`TokenElevationTypeLimited`).
+   - **Anti-Spoofing Rule:** Never accept client-supplied SID strings, user names, or integrity declarations in RPC payloads or environment variables.
+
+2. **Requesting Unix Peer Identity:**
+   - **Definition:** The host OS user context executing the Wine process.
+   - **Authoritative Retrieval:** Obtained authoritatively from the host kernel via D-Bus connection credentials: `GetConnectionUnixUser` (UID), `GetConnectionUnixProcessID` (PID), and kernel start-time from `/proc/[pid]/stat`.
+   - **Trust Boundary:** Wine client processes cannot spoof their Unix UID across local D-Bus IPC.
+
+3. **Chosen Administrator Principal:**
+   - **Definition:** The administrative user account authorized to approve or execute the elevated action.
+   - **Filtered-Token Administrator (Same User):** When the requesting Windows user is already in the administrative group (`S-1-5-32-544` enabled for deny-only in the limited token), the chosen principal is identical to the requesting user. Consent elevation unfilters the token, transitioning from `TokenElevationTypeLimited` to `TokenElevationTypeFull`.
+   - **Standard-User (Over-The-Shoulder Elevation):** When the requesting user is a standard user, a separate administrator account must authenticate. The authenticating identity must be authoritatively established by PAM/polkit.
+
+4. **Approved Target & Machine Backend Identity:**
+   - **Definition:** The execution context and filesystem identity of the launched child process.
+   - **Same-UID Compatibility Boundary:** In the initial functional architecture, filtered and full tokens run under the same Unix UID. This provides correct Win32 token isolation and UAC manifest compliance, but is explicitly documented as a Win32 compatibility boundary rather than host native OS isolation.
+   - **Cross-UID / wexsys Writes:** Machine-level assets (`/var/lib/wineexplorer/machine`) are protected by system group `wexsys` (or `sudo`) with setgid directory inheritance and POSIX default ACLs (`g:wexsys:rwX`). Any target executed in this tier must still be represented by a genuine Win32 `hProcess` handle within the calling wineserver instance.
+
+### B. Wexhost Polkit Agent & D-Bus Mechanism Integration
+
+- **D-Bus Action:** Elevation requests use the system action `org.wineexplorer.elevation.runas`.
+- **Trusted Authentication Path:** Interactive password authentication is delegated entirely to the `wexhost` polkit agent and PAM subsystem. Direct `unix_chkpwd` invocation and custom password verification routines are prohibited.
+- **Authorization Verification:**
+  - The elevation daemon validates authorization with polkit via `org.freedesktop.PolicyKit1.Authority.CheckAuthorization`.
+  - Polkit rules enforce that only users belonging to authorized administrative groups (`sudo`, `wheel`, or `wexsys`) can grant authorization.
+  - An authentication success for an unprivileged user account does NOT grant administrative authorization; polkit checks fail closed.
+  - User cancellation (`ERROR_CANCELLED` / 1223), authentication refusal, and timeouts terminate the request immediately without returning a process handle.
+
+### C. Frozen Request Binding & Lifecycle Contract
+
+To prevent time-of-check to time-of-use (TOCTOU) attacks, argument tampering, and request substitution:
+
+1. **Server-Owned Request Record:**
+   - Each elevation request is assigned a server-generated UUID / 64-bit monotonic Request ID.
+   - The request record immutably binds:
+     - `RequestId`: Unique identifier.
+     - `Requester`: D-Bus peer ID, Unix UID, PID, and process start-time.
+     - `ExecutablePath`: Fully canonicalized DOS and NT target paths.
+     - `Argv`: Exact argument vector as parsed by Win32 command-line rules.
+     - `WorkingDirectory`: Canonicalized directory path (or NULL).
+     - `EnvironmentPolicy`: Sanitized environment block flags.
+     - `ElevationType`: Filtered consent (`TokenElevationTypeLimited`) vs standard credentials.
+2. **Frozen Presentation:**
+   - The dialog presentation displays the exact, immutable binary path and command-line bound in the request record.
+   - Any modification or mismatch between displayed metadata and execution parameters results in immediate abortion with `ERROR_INVALID_PARAMETER` / `ERROR_ACCESS_DENIED`.
+3. **Single-Use Lifetime:**
+   - A Request ID is valid for exactly one approval and execution cycle. Upon completion or error, the Request ID is destroyed.
+4. **Cancellation and Timeouts:**
+   - Unapproved requests expire after 30 seconds, killing the helper process and returning `ERROR_CANCELLED` (1223).
+5. **Concurrent Isolation (A/B Independence):**
+   - Concurrent elevation requests operate in completely isolated request records. Approving request A has no effect on concurrent request B.
+
+### D. Standard-User Over-The-Shoulder Identity Trap & Fail-Closed Boundary
+
+**Design Trap:**
+Polkit's `Authority.CheckAuthorization` returns an authorization result (`IsAuthorized`, `Challenge`, `Details`), but does NOT return the username or UID of the administrator who authenticated in an over-the-shoulder prompt.
+
+**Security Constraints:**
+- An arbitrary standard user MUST NOT be elevated to administrator under their own SID (`S-1-5-21-...-1000`), as their primary token cannot grant administrative rights without violating Windows identity semantics.
+- Client-supplied strings (such as a username typed into an unauthenticated dialog field) MUST NOT be trusted to construct an administrator token.
+- A successful helper exit code cannot be equated with a valid Windows administrative credential without an authoritative identity channel.
+
+**Current Architectural Seam:**
+- **Filtered Administrator Consent:** Fully supported and validated. Requesting user already possesses an administrative linked token.
+- **Standard-User Elevation:** Until an authoritative D-Bus/PAM identity channel is deployed that returns the verified administrator identity to wineserver for token synthesis, standard-user elevation **fails closed** with `ERROR_NOT_SUPPORTED`. It never falls back to unauthenticated elevation or synthetic admin SIDs.
+

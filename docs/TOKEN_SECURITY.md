@@ -12,10 +12,14 @@ administrator authorization/identity mechanism exists. Admin consent remains a
 same-server functional UI seam, not host authorization or secure desktop proof.
 
 See `TOKEN_SECURITY_REPAIR_REVIEW.md` for exact tested scope and revisions, and
-`TOKEN_SECURITY_CHECKPOINT_B_WORKORDER.md` for the next stage. Remaining R2–R5
-edge cases, real polkit/admin authentication, machine migration/rollback, stock
-browser policies and installed X11/Wayland/theme acceptance remain gated. A root
-WSL probe, mock helper or historical screenshot does not complete those gates.
+`TOKEN_SECURITY_CHECKPOINT_B_WORKORDER.md` for the next stage.
+
+### Checkpoint B Progress (2026-10-18):
+- **Entry Gate A:** Re-verified baseline on WOW64 VM: focused probe (`deny_only_acl_and_object_open=PASS`, `elevation_helper_errors_and_child_handle=PASS`, `shipping_consent_has_no_approval_bypass=PASS`), runner sentinel isolation (all 4 cases PASS), upstream `advapi32 security` (3,691 tests, 0 failures), and native disjoint-restriction contract established in `server/token.c` without synthetic null SIDs.
+- **B1 Design Contract:** Documented request-bound authorization and 4-identity model in `docs/ELEVATION.md`. Standard-user elevation fails closed with `ERROR_NOT_SUPPORTED`.
+- **B2 Real Authorization & Seam Audit:** Strict helper configuration audit implemented across `dlls/shell32/shlexec.c`, `dlls/kernelbase/process.c`, and `dlls/ntdll/loader.c`. Non-configured compatibility mode (`HELPER_UNSET`) is strictly separated from invalid/denied configurations (`HELPER_INVALID`), which fail closed without leaking handles or bypassing UAC. Negative regression tests verified on WOW64.
+- **B3 Migration & Rollback:** Exact filesystem metadata and POSIX ACL capture and error-checked restoration implemented in `scripts/setup-machine-root.sh`. Verified with unprivileged write denial on disposable fixture.
+- **B4 Fresh-Prefix Explorer Diagnostic:** Fresh-prefix explorer null pointer dereference / division-by-zero crash at `0x14000ca88` investigated and resolved in `wine/programs/explorer/systray.c`. Verified clean startup and shutdown on WOW64 VM.
 
 Date: 2026-10-17. Implementation branch: `gemini/token-security`.  
 Base commit: `1fa63233` (master) | Submodule `wine`: `ed5fe967` | `wexcomp`: `acc46fe6`.  

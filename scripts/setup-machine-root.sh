@@ -24,18 +24,46 @@ if [ -z "$MACHINE_GROUP" ]; then
     fi
 fi
 
+ACL_BACKUP="${WEX_ACL_BACKUP:-$MACHINE_ROOT/.wex-metadata-backup.acl}"
+STAT_BACKUP="${WEX_STAT_BACKUP:-$MACHINE_ROOT/.wex-metadata-backup.stat}"
+
+# Validate target path sanity
+if [ -z "$MACHINE_ROOT" ] || [ "$MACHINE_ROOT" = "/" ] || [ "$MACHINE_ROOT" = "/var" ] || [ "$MACHINE_ROOT" = "/etc" ]; then
+    echo "Error: Invalid or dangerous machine root path: $MACHINE_ROOT" >&2
+    exit 1
+fi
+
 if [ "$ACTION" = "rollback" ] || [ "$ACTION" = "--rollback" ]; then
     echo "=== Rolling back permissions and ACLs on machine root: $MACHINE_ROOT ==="
-    if command -v setfacl >/dev/null 2>&1; then
-        echo "Removing POSIX ACLs from machine root..."
-        setfacl -R -b "$MACHINE_ROOT" 2>/dev/null || true
-        setfacl -R -k "$MACHINE_ROOT" 2>/dev/null || true
+    if [ ! -d "$MACHINE_ROOT" ]; then
+        echo "Error: Machine root does not exist: $MACHINE_ROOT" >&2
+        exit 1
     fi
-    echo "Reverting ownership to root:root and restrictive permissions..."
-    chown -R root:root "$MACHINE_ROOT" 2>/dev/null || true
-    find "$MACHINE_ROOT" -type d -exec chmod 755 {} + 2>/dev/null || true
-    find "$MACHINE_ROOT" -type f -exec chmod 644 {} + 2>/dev/null || true
-    find "$MACHINE_ROOT" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 755 {} + 2>/dev/null || true
+
+    if [ -f "$STAT_BACKUP" ]; then
+        echo "Restoring ownership and mode bits from $STAT_BACKUP..."
+        while read -r mode uid gid file; do
+            [ -e "$file" ] || continue
+            chown "$uid:$gid" "$file"
+            chmod "$mode" "$file"
+        done < "$STAT_BACKUP"
+    fi
+
+    if [ -f "$ACL_BACKUP" ] && command -v setfacl >/dev/null 2>&1; then
+        echo "Restoring exact POSIX ACLs from $ACL_BACKUP..."
+        setfacl --restore="$ACL_BACKUP"
+    elif command -v setfacl >/dev/null 2>&1; then
+        echo "No ACL backup found; stripping extended POSIX ACLs from machine root..."
+        setfacl -R -b "$MACHINE_ROOT"
+        setfacl -R -k "$MACHINE_ROOT"
+        echo "Reverting ownership to root:root and default restrictive permissions..."
+        chown -R root:root "$MACHINE_ROOT"
+        find "$MACHINE_ROOT" -type d -exec chmod 755 {} +
+        find "$MACHINE_ROOT" -type f -exec chmod 644 {} +
+        find "$MACHINE_ROOT" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 755 {} +
+    fi
+
+    rm -f "$ACL_BACKUP" "$STAT_BACKUP"
     echo "=== Rollback completed successfully ==="
     exit 0
 fi
@@ -95,19 +123,24 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
             echo "$MACHINE_ROOT exists but has no drive_c/windows/system32; refusing to replace it" >&2
             exit 1
         fi
-        ensure_machine_prefix_links
+WINE_BIN="${WEX_WINE_BIN:-/usr/local/bin/wine}"
+WINESERVER_BIN="${WEX_WINESERVER_BIN:-/usr/local/bin/wineserver}"
 
-        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
-            WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -i
-        WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
+        if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
+            WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+                WINEPREFIX="$MACHINE_ROOT" "$WINE_BIN" wineboot.exe -i
+            WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+        fi
         ensure_common_shell_dirs
     fi
 else
     echo "Updating existing machine root at $MACHINE_ROOT..."
     ensure_machine_prefix_links
-    WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
-        WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -u
-    WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
+    if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
+        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+            WINEPREFIX="$MACHINE_ROOT" "$WINE_BIN" wineboot.exe -u
+        WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+    fi
     ensure_common_shell_dirs
 fi
 
@@ -130,6 +163,16 @@ fi
 if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
     mkdir -p "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna"
     cp -f "$WEX_LOCAL_LUNA" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" 2>/dev/null || true
+fi
+
+# Capture metadata before modifying permissions if no backup exists yet
+if [ ! -f "$STAT_BACKUP" ] && [ -d "$MACHINE_ROOT" ]; then
+    echo "Capturing filesystem metadata before permission changes..."
+    find "$MACHINE_ROOT" -exec stat -c "%a %u %g %n" {} + > "$STAT_BACKUP"
+fi
+if [ ! -f "$ACL_BACKUP" ] && [ -d "$MACHINE_ROOT" ] && command -v getfacl >/dev/null 2>&1; then
+    echo "Capturing exact POSIX ACLs before permission changes..."
+    getfacl -R -p "$MACHINE_ROOT" > "$ACL_BACKUP"
 fi
 
 # 2. Ensure permissions and POSIX default ACLs on machine root:
