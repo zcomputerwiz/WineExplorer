@@ -1,5 +1,10 @@
 # Changes to stock Wine / third-party code
 
+OOBE final-correctness repairs (2026-10-19) change owned backend/test code only.
+The regedit fallback selects existing matching-architecture installed Wine PEs;
+it does not replace stock DLLs or alter the Wine gitlink. See
+`OOBE_COMPONENTS_FINAL_CHECKS_REPORT.md` for scope and remaining acceptance gates.
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.

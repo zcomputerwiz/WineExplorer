@@ -212,6 +212,25 @@ def validate_recipe_files(verb, path=None):
     if not expected_files:
         raise ValueError(f'No approved recipe files configured for {verb}')
     content = winetricks.read_text(encoding='utf-8', errors='replace')
+    if verb == 'corefonts':
+        dependencies = ('andale', 'arial', 'comicsans', 'courier', 'georgia', 'impact',
+                        'times', 'trebuchet', 'verdana', 'webdings')
+        def body(name):
+            match = re.search(r'^load_' + name + r'\(\)\s*\n\{\n(.*?)^\}', content, re.M | re.S)
+            if not match:
+                raise ValueError('Recipe integrity violation: missing ' + name)
+            return match[1]
+        calls = re.findall(r'^\s*w_call ([a-z0-9_]+)\s*$', body('corefonts'), re.M)
+        if calls != list(dependencies):
+            raise ValueError('Recipe integrity violation: changed Core Fonts dependency closure')
+        downloads = []
+        for dependency in dependencies:
+            for url, digest in re.findall(r'^\s*w_download_to corefonts "([^"\n]+)" ([0-9a-f]{64})\s*$',
+                                           body(dependency), re.M):
+                downloads.append((url.rsplit('/', 1)[-1], digest))
+        if downloads != expected_files:
+            raise ValueError('Recipe integrity violation: Core Fonts package manifest differs from dependency downloads')
+        return
     for fname, sha in expected_files:
         if fname not in content or sha not in content:
             raise ValueError(f'Recipe integrity violation: {verb} requires {fname} with hash {sha}')
@@ -975,7 +994,8 @@ def install(verb, accepted_digest):
             checked_operation_directory()
             if any(record['status'] == 'UNKNOWN' for record in read_operation_journal().values()):
                 raise ValueError('Interrupted OOBE installation requires administrator reconciliation before install later')
-        if (MACHINE.parent / 'component-recovery-required').exists():
+        recovery_marker = MACHINE.parent / 'component-recovery-required'
+        if recovery_marker.exists() or recovery_marker.is_symlink():
             raise ValueError('Machine prefix requires administrator recovery before another installation')
         if is_installed(verb, accepted_digest, machine=MACHINE):
             return
@@ -1192,6 +1212,8 @@ def reconcile_operation(operation, note):
     """Acknowledge an inspected interrupted install, never infer success/rollback."""
     if os.getuid() != 0:
         raise PermissionError('Operation reconciliation requires authenticated root administration')
+    if MACHINE.is_symlink() or not MACHINE.is_dir() or MACHINE.stat().st_uid != 0:
+        raise ValueError('Machine prefix must be a root-owned real directory')
     if not re.fullmatch(r'op_[a-z0-9_]{1,120}', operation):
         raise ValueError('Invalid operation ID')
     if not note or not 10 <= len(note.strip()) <= 512 or any(ord(c) < 32 for c in note):
@@ -1523,6 +1545,10 @@ def main():
     parser.add_argument('action', nargs='?', choices=['install', 'list'])
     parser.add_argument('verbs', nargs='*')
     args = parser.parse_args()
+    privileged_actions = sum(bool(value) for value in (args.install, args.prepare_terms,
+                             args.oobe_coordinator, args.apply_user_defaults, args.reconcile_operation))
+    if privileged_actions > 1 or (privileged_actions and (args.action or args.verbs)):
+        parser.error('Choose exactly one backend action, without unrelated positional arguments')
     if args.reconcile_operation:
         if args.reconcile_action != 'FAILED' or not args.reconcile_note:
             parser.error('Reconciliation requires --reconcile-action FAILED and --reconcile-note')

@@ -275,10 +275,24 @@ class ComponentsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'integrity violation'):
                 components.validate_recipe_files('corefonts', path=wt_path)
 
-            valid_content = 'arial32.exe 85288a75e478546114eb307406a6cc0536c46a6f0fb32230fed84820eb7706d7'
+            dependencies = ('andale', 'arial', 'comicsans', 'courier', 'georgia', 'impact',
+                            'times', 'trebuchet', 'verdana', 'webdings')
+            valid_content = 'load_corefonts()\n{\n' + ''.join('    w_call ' + d + '\n' for d in dependencies) + '}\n'
+            packages = iter(components.COMPONENTS_METADATA['corefonts']['recipe_files'])
+            for dependency in dependencies:
+                valid_content += 'load_' + dependency + '()\n{\n'
+                for _ in range(2 if dependency == 'arial' else 1):
+                    name, sha = next(packages)
+                    valid_content += f'    w_download_to corefonts "https://example.invalid/{name}" {sha}\n'
+                valid_content += '}\n'
             wt_path.write_text(valid_content, encoding='utf-8')
-            test_meta = {'recipe_files': [('arial32.exe', '85288a75e478546114eb307406a6cc0536c46a6f0fb32230fed84820eb7706d7')]}
-            with patch.dict(components.COMPONENTS_METADATA, {'corefonts': test_meta}):
+            components.validate_recipe_files('corefonts', path=wt_path)
+            # Finding the right hash elsewhere in a script must not mask a
+            # missing dependency download (the old validator allowed this).
+            changed = valid_content.replace('arialb32.exe', 'unexpected.exe')
+            changed += '\n# arialb32.exe ' + components.COMPONENTS_METADATA['corefonts']['recipe_files'][2][1]
+            wt_path.write_text(changed)
+            with self.assertRaisesRegex(ValueError, 'package manifest'):
                 components.validate_recipe_files('corefonts', path=wt_path)
 
     def test_protected_files_restored_even_when_installer_fails(self):

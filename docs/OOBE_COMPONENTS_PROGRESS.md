@@ -1,6 +1,16 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # OOBE continuation — 2026-10-18
 
+## Superseding checkpoint — 2026-10-19
+
+Current repairs are on `codex/oobe-final-correctness`, based on Gemini 625effa8.
+See `OOBE_COMPONENTS_FINAL_CHECKS_REPORT.md` and
+`OOBE_COMPONENTS_PACKAGE_STATUS.md` for the current independent results.
+Only vcrun2022 is an enabled candidate; the six-disabled statement below is
+historical. Fresh corrected-image and actual desktop acceptance are still open.
+The current isolated clone and loopback transfer server are stopped; the older
+running-VM checkpoint below is not a statement of current process state.
+
 Active branch: `codex/oobe-components-repair`, continuing `3d70da25`.
 Not merge-ready yet. The original work order and independent repair review remain
 the acceptance gates. This is a progress record, not an installed-image pass.

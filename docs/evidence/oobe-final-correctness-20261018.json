@@ -1,0 +1,186 @@
+{
+  "license": "SPDX-License-Identifier: GPL-2.0-or-later",
+  "checkpoint": "2026-10-19",
+  "branch": "codex/oobe-final-correctness",
+  "base": "625effa88630fd201da0856093a74a744beefcab",
+  "first_repair": "a151ceca",
+  "wine_gitlink": "ed5fe967ed471ca524666631ad70dabbed6af076",
+  "acceptance": "NOT ready for master: corrected fresh ISO and real desktop/OOBE acceptance outstanding",
+  "source_sha256_scope": "Exact local working-file bytes synced to native lab, before Git EOL normalization",
+  "source_sha256": {
+    "scripts/test_oobe_capture_audit.py": "f538bed4190a190f35f70016d0b3decbb4ed7fd7103fe1b6132b52b2d7cde852",
+    "scripts/test_runtime_repairs.py": "08c8afa94b351153a411db61042b99beb759f83516168d50f3a873783484b649",
+    "scripts/test_gate_e_synthetic.py": "ddfac8966bfca086cf161ce2f1b0300f4f81f0b965781004192f07a44c500aaa",
+    "scripts/check-oobe-captures.py": "f6f3326f282888a5357d72969e77ee37c0702c70e16a32c718898da5506077d3",
+    "scripts/tests/check-fresh-machine-bootstrap.py": "94faf3208db0e1cf4e56049053898ba6da25b908e3ef4542152da67399166ec6",
+    "scripts/tests/inspect-component-packages.py": "e1d813e40ba09be8a500e9ad6e8aec2768b8be427c69deec3870fe2a8511dd07",
+    "scripts/test_oobe_native.c": "5a63d4ad958073fcf945f899d6dcd28be5dc900ff74fbff7907ef04c63727b4f",
+    "scripts/wex-components.py": "8f924c4fd7b7b19869606a5b2defefdccd7bc1c2b145eda0f04fb639cfa27409",
+    "scripts/test_component_recovery.py": "b50d8e38f4e798ef50f14b975f382663ac61ab7cbf6deff0ec25c5b05d0ecd69"
+  },
+  "final_source_suites": {
+    "runtime": {
+      "discovered": 57,
+      "passed": 56,
+      "skipped": 1
+    },
+    "terms": {
+      "passed": 11
+    },
+    "artifacts": {
+      "passed": 14
+    },
+    "bridge": {
+      "passed": 5
+    },
+    "recovery": {
+      "passed": 14
+    },
+    "capture_audit": {
+      "passed": 4
+    },
+    "total": {
+      "discovered": 105,
+      "passed": 104,
+      "skipped": 1
+    },
+    "gate_e": {
+      "passed": 3,
+      "installer": "synthetic; production coordinator and reconciliation API"
+    },
+    "command": "python3 -B -W error::ResourceWarning scripts/TEST_NAME.py",
+    "log_sha256": {
+      "test_component_recovery-final-publish.log": "82a8809a94b34c70a83209d7ffeb327f5e1fced9a5b39b14737e18c5bf8f86d3",
+      "test_component_runtime_artifacts-final-publish.log": "c9811dcd7d51683ba5e61910b5aa26e91e8766a287b6a6f52a04bac8ac9f3a3d",
+      "test_component_terms-final-publish.log": "fa5bbf96c4733d793fa5f70ae8f4d7ec2cb6b62eabf3359f2ec0c15e53e691e4",
+      "test_gate_e_synthetic-final-publish.log": "c1a20b932af251a7bbc81a2e26913d18b6554667a4bf8d1438f1d8e0453ccbea",
+      "test_oobe_bridge-final-publish.log": "429ca5e15c64e06cca337d131af0faf41d59e53c8dde1cd7bc95be143d3c2acb",
+      "test_oobe_capture_audit-final-publish.log": "b5fb8c841222849b3f81e9f665b36f7c86e97e0272b4221b3b09cd5decc5c085",
+      "test_runtime_repairs-final-publish.log": "b20e2573cbe59f866ada1a93e2c1dbe119ec7253ec61245b55b887ca12109167"
+    }
+  },
+  "native_tests": {
+    "architectures": [
+      "i386",
+      "x86_64"
+    ],
+    "tests_each": 6,
+    "assertions_each": 54,
+    "environment": "Installed product Wine in independent clone; not whole wizard acceptance"
+  },
+  "installed_fresh_prefix_probe": {
+    "scope": "fresh bootstrap only; no desktop acceptance",
+    "commands": [
+      {
+        "label": "boot",
+        "command": [
+          "/usr/local/bin/wine",
+          "wineboot.exe",
+          "-i"
+        ],
+        "exit": 0,
+        "expected": 0
+      },
+      {
+        "label": "cmd64",
+        "command": [
+          "/usr/local/bin/wine",
+          "C:\\windows\\system32\\cmd.exe",
+          "/c",
+          "exit",
+          "37"
+        ],
+        "exit": 37,
+        "expected": 37
+      },
+      {
+        "label": "cmd32",
+        "command": [
+          "/usr/local/bin/wine",
+          "C:\\windows\\syswow64\\cmd.exe",
+          "/c",
+          "exit",
+          "37"
+        ],
+        "exit": 37,
+        "expected": 37
+      },
+      {
+        "label": "native32",
+        "command": [
+          "/usr/local/bin/wine",
+          "/var/tmp/oobe-native32.exe"
+        ],
+        "exit": 0,
+        "expected": 0
+      },
+      {
+        "label": "native64",
+        "command": [
+          "/usr/local/bin/wine",
+          "/var/tmp/oobe-native64.exe"
+        ],
+        "exit": 0,
+        "expected": 0
+      },
+      {
+        "label": "regedit32",
+        "command": [
+          "/usr/local/bin/wine",
+          "C:\\windows\\syswow64\\regedit.exe",
+          "/S",
+          "Z:\\tmp\\wex-machine-bootstrap-sbh_uqqu\\probe.reg"
+        ],
+        "exit": 0,
+        "expected": 0
+      },
+      {
+        "label": "regedit-query",
+        "command": [
+          "/usr/local/bin/wine",
+          "reg.exe",
+          "query",
+          "HKCU\\Software\\WineExplorer\\OobeRepairProbe",
+          "/v",
+          "Native32"
+        ],
+        "exit": 0,
+        "expected": 0
+      }
+    ],
+    "repaired_regedit32_target": "/usr/local/lib/wine/i386-windows/regedit.exe",
+    "empty_files": [],
+    "passed": true,
+    "cleanup": "owned Wine server waited and Xvfb reaped; temporary prefix removed on context exit"
+  },
+  "full_machine_template_setup": {
+    "exit": 0,
+    "empty_pe_files_observed": 0,
+    "caveat": "winemenubuilder startup error 126 logged; not desktop pass"
+  },
+  "capture_audit": "oobe-capture-audit-20261018.json",
+  "package_inventory": "oobe-corefonts-inventory-20261018.json",
+  "cleanup": {
+    "clone": "stopped",
+    "transfer_server": "stopped",
+    "private_downloads": "Retained outside Git; no vendor binary, font, or terms text in these evidence files",
+    "donor": "Unmodified",
+    "qcow2_check": {
+      "image-end-offset": 13238075392,
+      "total-clusters": 491520,
+      "check-errors": 0,
+      "allocated-clusters": 201955,
+      "filename": "/var/tmp/wex-oobe-final-20261018/vm/repair-clone/disk.qcow2",
+      "format": "qcow2",
+      "fragmented-clusters": 308
+    },
+    "scope": "qcow2 consistency only, not guest filesystem or fresh ISO acceptance"
+  },
+  "remaining": [
+    "Fresh corrected ISO build/content audit/install",
+    "Actual normal-user full OOBE and install-later acceptance",
+    "Real Classic/Luna X11/Wayland visual matrix at correct resolutions",
+    "Recovery UI guidance and protected snapshot recovery",
+    "Five disabled component integrations; embedded-terms review policy decision"
+  ]
+}
