@@ -16,6 +16,14 @@ is not a zero-copy or performance claim. No-CS-thread mode returns E_NOTIMPL
 rather than pretending to implement nonblocking queued waits. See
 `CHROMIUM_GRAPHICS_G3_REPAIR_REVIEW.md` for verification and remaining gates.
 
+## G4 DirectComposition, Retained Visual Tree, and Pacing (2026-10-18)
+
+On `gemini/chromium-graphics-g4`:
+- `dlls/dcomp/device.c`: Implemented retained visual tree operations (`AddVisual`, `RemoveVisual`, `RemoveAllVisuals`, reparenting), visual properties (`SetOffsetX`, `SetOffsetY`, `SetTransform`, `SetClip`, `SetContent`, `SetEffect`, `SetOpacityMode`), `IDCompositionEffectGroup` (`SetOpacity`), and `IDCompositionRectangleClip` (radii and bounds). Staged pending vs active state separation ensuring transactional commit atomicity.
+- `include/wine/dcomp_layer.h` & `dlls/dxgi/factory.c`: Added `struct wine_dcomp_layer_params` notification on `WM_WINE_DCOMP_SET_TARGET` (wparam=1) providing atomic destination rectangle, clipping, and opacity to the underlying DXGI composition swapchain.
+- `dlls/dxgi/swapchain.c` & `dlls/dxgi/dxgi_private.h`: Implemented flip-model backbuffer index cycling for `DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL` and `FLIP_DISCARD` across `Present` calls, reset on `ResizeBuffers` and `ResizeBuffers1`, and exposed via `IDXGISwapChain3::GetCurrentBackBufferIndex()`. Added `IDXGISwapChain3::ResizeBuffers1` forwarding. Implemented window occlusion detection checking `swapchain->target_hwnd` for minimized state (`IsIconic`), returning `DXGI_STATUS_OCCLUDED` for proper application frame pacing.
+- Verified on Debian WoW64 under isolated Xvfb + llvmpipe: 11/11 G3 entry gate tests PASS, 6/6 G4A composition probe tests PASS, 5/5 G4B presentation and pacing tests PASS on both `x86_64` and `i686`. See `docs/CHROMIUM_GRAPHICS_G4_ACCEPTANCE.md`.
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.
