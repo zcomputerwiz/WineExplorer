@@ -170,3 +170,47 @@ b4_fresh_prefix_explorer_clean=PASS
 - **Wine Submodule Branch:** `gemini/token-security-b`
 - **Parent Repository Branch:** `gemini/token-security-b`
 - Wine submodule commits pushed first, followed by parent gitlink and commits.
+
+---
+
+## 4. Exact Git SHAs and Source / Binary Hashes
+
+Required by workorder §"Required evidence per case: exact parent/Wine SHAs, source/binary hashes".
+
+### 4.1 Repository SHAs
+
+| Repository | Branch | Commit SHA (full) |
+| :--- | :--- | :--- |
+| Parent (`WineExplorer`) | `gemini/token-security-b` | `620474f8d080e9a8b734ebbcefb4f8080442f0fd` |
+| Wine submodule | `gemini/token-security-b` | `404d23f1c4c21937ed3314955a70bc1da2200310` |
+| Wine submodule (gitlink pin) | — | `ae5fec1e11c6ae42e2ba73a6e9b6368d40a34d92` |
+| Base parent branch | `codex/token-security-correctness` | `92cb0684` (branch point; do not merge) |
+
+### 4.2 Changed Source File Hashes (SHA-256)
+
+Hashes taken from `/home/wineuser/src/wine/...` on the build VM after final sync.
+Build environment: Debian GNU/Linux bookworm, kernel `6.12.111+deb13-amd64 x86_64`.
+
+| File | SHA-256 | Gate |
+| :--- | :--- | :--- |
+| `wine/server/token.c` | `9dc34d7352bfa100e99bf3e91ffb153cd4b1906209e3dcf83edbe91c50e75dc5` | A5 |
+| `wine/dlls/advapi32/tests/security.c` | `27d583ce86dfa3d389a64723ffc23f9ee807a6f3034ec78f34ac46441e0d5e02` | A5 / A3 |
+| `wine/dlls/shell32/shlexec.c` | `9ad3758af84af77f8c1ec3d48f30f6ab83bf6dceed27692f832351fff6f2f7fa` | B2 |
+| `wine/dlls/kernelbase/process.c` | `8326f56f689c8b4535c5d481e0ec8ecc11b3cde29395a9edd7103f821ef32dbe` | B2 |
+| `wine/dlls/ntdll/loader.c` | `5983cca0dbda3c1761683632d6e9b59879b0acba9aa9b7f1d3119527524888e8` | B2 |
+| `wine/programs/explorer/systray.c` | `8611dae4b86e9c1d3401c1fdeb9d2d1d8d73039f132d12604b41a56a38edbc72` | B4 |
+| `scripts/setup-machine-root.sh` | `9d8b3c4b7c0f9b10816d8950560e0b09a45261ee39f9b8cc77b01bdc15ffe5a5` | B3 |
+| `scripts/test_b3_machine_root.sh` | `31567ee2ef146add1d9d8ae80eda7895e54f6024cff07acf76348ba38ace6b6e` | B3 |
+| `scripts/test_b4_explorer_fresh.sh` | `dc6368da74371559b8086921ee9731be43f6ee158f6c9f7f22642032b6dae1a6` | B4 |
+
+### 4.3 Built Binary Hashes (SHA-256)
+
+Hashes taken from `/home/wineuser/build/wow64/...` on the build VM after the final WoW64 build.
+
+| Binary | Architecture | SHA-256 |
+| :--- | :--- | :--- |
+| `wine` (loader) | x86_64 host | `d7407bd48a4cc962b07507dae9324240640383b6d455b364be2268b4c602f7a2` |
+| `dlls/advapi32/tests/advapi32_test.exe` | x86_64 | `23a6ec43f92b08033ca76a514f032bc1a750c325c39f375365731eb3123fa323` |
+| `dlls/advapi32/tests/advapi32_test.exe` | i386 | `dd1adec53f3a7b2a971970b213daf7937204b092e95e82f722bc8b1757e41cbb` |
+| `dlls/shell32/tests/shell32_test.exe` | x86_64 | `acaa0841b0016353729453cde97641f05cf118687b2a9abf962c1e2ac746faa7` |
+| `dlls/ntdll/tests/ntdll_test.exe` | x86_64 | `952df91b2009505a82705afb27792f425f268acd95187f04b067f2c34b2008ac` |
