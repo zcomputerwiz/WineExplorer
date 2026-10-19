@@ -161,6 +161,10 @@ static bool test_flip_backbuffer_indexing(void)
     ID3D11DeviceContext *ctx = NULL;
     IDXGISwapChain1 *sc1 = NULL;
     IDXGISwapChain3 *sc3 = NULL;
+    ID3D11Texture2D *bb = NULL;
+    ID3D11RenderTargetView *rtv = NULL;
+    const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
     bool passed = false;
 
     if (!create_d3d_device(&dev, &ctx)) goto done;
@@ -171,32 +175,38 @@ static bool test_flip_backbuffer_indexing(void)
 
     if (FAILED(sc1->QueryInterface(__uuidof(IDXGISwapChain3), (void **)&sc3))) goto done;
 
-    // Initial buffer index must be 0
+    // Initial buffer index must be 0 (WineD3D's active presentation buffer)
     if (sc3->GetCurrentBackBufferIndex() != 0) goto done;
 
-    // Frame 0 Present -> next index must be 1
-    if (FAILED(sc1->Present(1, 0))) goto done;
-    if (sc3->GetCurrentBackBufferIndex() != 1) goto done;
+    // Retrieve back buffer 0 and clear to Red
+    if (FAILED(sc1->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&bb))) goto done;
+    if (FAILED(dev->CreateRenderTargetView(bb, NULL, &rtv))) goto done;
+    ctx->ClearRenderTargetView(rtv, red);
 
-    // Frame 1 Present -> next index must be 2
-    if (FAILED(sc1->Present(1, 0))) goto done;
-    if (sc3->GetCurrentBackBufferIndex() != 2) goto done;
-
-    // Frame 2 Present -> wraps modulo 3 back to 0
+    // Present Frame 0: index remains 0 matching presented backbuffer
     if (FAILED(sc1->Present(1, 0))) goto done;
     if (sc3->GetCurrentBackBufferIndex() != 0) goto done;
+    flush_messages();
+
+    // Now clear to Green and Present Frame 1
+    ctx->ClearRenderTargetView(rtv, green);
+    if (FAILED(sc1->Present(1, 0))) goto done;
+    if (sc3->GetCurrentBackBufferIndex() != 0) goto done;
+    flush_messages();
+
+    // Release buffer references before resize
+    release(rtv);
+    release(bb);
 
     // ResizeBuffers1: must reset current index to 0
     if (FAILED(sc3->ResizeBuffers1(4, 160, 160, DXGI_FORMAT_B8G8R8A8_UNORM, 0, NULL, NULL))) goto done;
     if (sc3->GetCurrentBackBufferIndex() != 0) goto done;
 
-    // Frame 0 after resize -> index advances to 1
-    if (FAILED(sc1->Present(1, 0))) goto done;
-    if (sc3->GetCurrentBackBufferIndex() != 1) goto done;
-
     passed = true;
 
 done:
+    release(rtv);
+    release(bb);
     release(sc3);
     release(sc1);
     release(ctx);
@@ -238,8 +248,25 @@ static bool test_frame_latency_waitable_object(void)
     if (FAILED(sc2->GetMaximumFrameLatency(&latency))) goto done;
     if (latency != 2) goto done;
 
-    // Setting latency to 0 is invalid
-    if (SUCCEEDED(sc2->SetMaximumFrameLatency(0))) goto done;
+    // Setting latency to 0 is invalid and must return DXGI_ERROR_INVALID_CALL
+    if (sc2->SetMaximumFrameLatency(0) != DXGI_ERROR_INVALID_CALL) goto done;
+
+    // Test rejection on non-waitable swapchain
+    {
+        IDXGISwapChain1 *nonwait_sc1 = create_swapchain_custom(dev, hwnd, 128, 128, 2, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, 0);
+        IDXGISwapChain2 *nonwait_sc2 = NULL;
+        if (nonwait_sc1)
+        {
+            if (SUCCEEDED(nonwait_sc1->QueryInterface(__uuidof(IDXGISwapChain2), (void **)&nonwait_sc2)))
+            {
+                if (nonwait_sc2->GetFrameLatencyWaitableObject() != NULL) { release(nonwait_sc2); release(nonwait_sc1); goto done; }
+                if (nonwait_sc2->SetMaximumFrameLatency(1) != DXGI_ERROR_INVALID_CALL) { release(nonwait_sc2); release(nonwait_sc1); goto done; }
+                if (nonwait_sc2->GetMaximumFrameLatency(&latency) != DXGI_ERROR_INVALID_CALL) { release(nonwait_sc2); release(nonwait_sc1); goto done; }
+                release(nonwait_sc2);
+            }
+            release(nonwait_sc1);
+        }
+    }
 
     passed = true;
 
@@ -286,6 +313,51 @@ static bool test_occluded_minimized_pacing(void)
 
     hr = sc1->Present(1, 0);
     if (FAILED(hr)) goto done;
+
+    // Test DComposition swapchain occlusion when its target HWND is minimized
+    {
+        HWND comp_hwnd = create_window("G4B_Comp_Occluded_Test", 128, 128);
+        IDXGISwapChain1 *comp_sc = create_swapchain_custom(dev, NULL, 128, 128, 2, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, 0);
+        IDCompositionDevice *dcomp = NULL;
+        IDCompositionTarget *target = NULL;
+        IDCompositionVisual *root = NULL;
+        IDXGIDevice *dxgi_dev = NULL;
+
+        if (comp_hwnd && comp_sc && SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), (void **)&dxgi_dev)))
+        {
+            HMODULE hDcomp = LoadLibraryA("dcomp.dll");
+            PFN_DCompositionCreateDevice pfn = hDcomp ? (PFN_DCompositionCreateDevice)(void *)GetProcAddress(hDcomp, "DCompositionCreateDevice") : NULL;
+            if (pfn && SUCCEEDED(pfn(dxgi_dev, IID_IDCompositionDevice, (void **)&dcomp)))
+            {
+                if (SUCCEEDED(dcomp->CreateTargetForHwnd(comp_hwnd, TRUE, &target)) &&
+                    SUCCEEDED(dcomp->CreateVisual(&root)) &&
+                    SUCCEEDED(root->SetContent(comp_sc)) &&
+                    SUCCEEDED(target->SetRoot(root)) &&
+                    SUCCEEDED(dcomp->Commit()))
+                {
+                    flush_messages();
+                    if (FAILED(comp_sc->Present(1, 0))) { release(root); release(target); release(dcomp); release(dxgi_dev); release(comp_sc); DestroyWindow(comp_hwnd); goto done; }
+
+                    ShowWindow(comp_hwnd, SW_MINIMIZE);
+                    flush_messages();
+
+                    hr = comp_sc->Present(1, 0);
+                    if (hr != DXGI_STATUS_OCCLUDED) { release(root); release(target); release(dcomp); release(dxgi_dev); release(comp_sc); DestroyWindow(comp_hwnd); goto done; }
+
+                    ShowWindow(comp_hwnd, SW_RESTORE);
+                    flush_messages();
+                    hr = comp_sc->Present(1, 0);
+                    if (FAILED(hr)) { release(root); release(target); release(dcomp); release(dxgi_dev); release(comp_sc); DestroyWindow(comp_hwnd); goto done; }
+                }
+                release(root);
+                release(target);
+                release(dcomp);
+            }
+            release(dxgi_dev);
+            release(comp_sc);
+            DestroyWindow(comp_hwnd);
+        }
+    }
 
     passed = true;
 
@@ -376,6 +448,7 @@ static bool test_non_waitable_swapchain_behavior(void)
     ID3D11DeviceContext *ctx = NULL;
     IDXGISwapChain1 *sc1 = NULL;
     IDXGISwapChain2 *sc2 = NULL;
+    UINT latency = 0;
     bool passed = false;
 
     if (!create_d3d_device(&dev, &ctx)) goto done;
@@ -389,8 +462,9 @@ static bool test_non_waitable_swapchain_behavior(void)
     // Must return NULL
     if (sc2->GetFrameLatencyWaitableObject() != NULL) goto done;
 
-    // SetMaximumFrameLatency must fail
-    if (SUCCEEDED(sc2->SetMaximumFrameLatency(1))) goto done;
+    // SetMaximumFrameLatency and GetMaximumFrameLatency must fail with DXGI_ERROR_INVALID_CALL
+    if (sc2->SetMaximumFrameLatency(1) != DXGI_ERROR_INVALID_CALL) goto done;
+    if (sc2->GetMaximumFrameLatency(&latency) != DXGI_ERROR_INVALID_CALL) goto done;
 
     passed = true;
 

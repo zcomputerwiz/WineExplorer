@@ -35,6 +35,8 @@ def compile_probe(source_path: Path, output_exe: Path, compiler: str) -> None:
         str(output_exe),
         "-ld3d11",
         "-ldxgi",
+        "-lgdi32",
+        "-luser32",
         "-lole32",
         "-luuid",
     ]

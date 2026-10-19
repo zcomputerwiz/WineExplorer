@@ -80,15 +80,15 @@ All automated verification runs were executed within an isolated Debian mount na
 
 | Architecture | Probe Binary SHA256 | Command Line | Exit Code | Result |
 |---|---|---|:---:|:---:|
-| `x86_64` | `5d15273210704ac185403017845acf932b8761da2f83c5c50e174e9b468c3363` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_composition_probe_x86_64.exe` | 0 | **PASS** (6/6) |
-| `i686` | `b6b49b4d58e499c963286be0e342fa18be44727eb58a2681e8bd70049778b314` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_composition_probe_i686.exe` | 0 | **PASS** (6/6) |
+| `x86_64` | `71cb8b33d7397954163a7981b176f0f43ac219b58b810b017543121387993c3a` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_composition_probe_x86_64.exe` | 0 | **PASS** (6/6) |
+| `i686` | `732d5caa4e70c2d071ad6019c3d59d7f4af09e7ba160dc0dc6765cce86b3dce5` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_composition_probe_i686.exe` | 0 | **PASS** (6/6) |
 
 **Test Cases Verified:**
-- `dcomp_tree_operations_and_properties=PASS`: Tree insertion, sibling order (`insert_above`, `reference_visual`), reparenting, offset positioning, 3x2 matrix transform, `IDCompositionRectangleClip` (radii and bounds), `IDCompositionEffectGroup` (`SetOpacity`), and `SetOpacityMode` validation (valid modes accept, invalid modes accurately rejected).
+- `dcomp_tree_operations_and_properties=PASS`: Tree insertion, sibling order (`insert_above`, `reference_visual`), reparenting, cycle rejection, invalid reference visual rejection without detaching children, offset positioning, 3x2 matrix transform, `IDCompositionRectangleClip` (radii and bounds), `IDCompositionEffectGroup` (`SetOpacity`), and `SetOpacityMode` validation (valid modes accept, invalid modes accurately rejected).
 - `dcomp_transactional_commit_isolation=PASS`: Staged visual operations remain pending and isolated; applied atomically only upon `Commit()`.
 - `dcomp_continuous_animation_retained=PASS`: Single upfront `Commit()`, followed by 60 continuous changing animation frames presented without re-committing.
-- `dcomp_overlapping_composition_and_clips=PASS`: Multi-layer composition (red background 128x128, blue foreground 64x64 at offset (32,32) with clipping rectangle) rendered and presented across multiple frames.
-- `dcomp_unattached_and_detach=PASS`: Visual tree without content commits safely; subsequent content attachment and detachment (`SetContent(NULL)`) update atomically.
+- `dcomp_overlapping_composition_and_clips=PASS`: Multi-layer composition (red background 128x128, blue foreground 64x64 at offset (32,32) with clipping rectangle) rendered and presented across multiple frames, with dynamic clip expansion and 2D affine translation.
+- `dcomp_unattached_and_detach=PASS`: Visual tree without content commits safely; subsequent content attachment and detachment (`SetContent(NULL)`) update atomically and unbind the swapchain from the target HWND.
 - `dcomp_nested_child_hwnd_and_resize=PASS`: Composition target on a nested child HWND; dynamic window resize and swapchain `ResizeBuffers` adapt cleanly.
 
 ---
@@ -100,15 +100,15 @@ All automated verification runs were executed within an isolated Debian mount na
 
 | Architecture | Probe Binary SHA256 | Command Line | Exit Code | Result |
 |---|---|---|:---:|:---:|
-| `x86_64` | `18ceb7935e13e8f26db537d149149575b09fee6689fe603550a1021f6a33663e` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_pacing_probe_x86_64.exe` | 0 | **PASS** (5/5) |
-| `i686` | `c0b671d79e72347e7b18265bbee0e19b965fa2696405729e24ca9a1029174b75` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_pacing_probe_i686.exe` | 0 | **PASS** (5/5) |
+| `x86_64` | `50ddb5a93bc2878f9ea1bb627bec3cc7e06c809e997ae829b2319036090c6193` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_pacing_probe_x86_64.exe` | 0 | **PASS** (5/5) |
+| `i686` | `df969829247e7c9d5d0a47d8c9c894f82bfc2cc192c0f1d3cb323360baee1a8b` | `/var/tmp/wex-g4-gemini/build/wow64/wine test_g4_pacing_probe_i686.exe` | 0 | **PASS** (5/5) |
 
 **Test Cases Verified:**
-- `pacing_flip_backbuffer_indexing=PASS`: Flip-sequential swapchain advances backbuffer index cyclically modulo buffer count (`0 -> 1 -> 2 -> 0`) on `Present()`, and `ResizeBuffers1` resets the index to 0.
-- `pacing_frame_latency_waitable_object=PASS`: `GetFrameLatencyWaitableObject()` returns a valid duplicated semaphore handle in signaled state; `SetMaximumFrameLatency` and `GetMaximumFrameLatency` function accurately with invalid bounds rejected.
-- `pacing_occluded_minimized_pacing=PASS`: Window minimization triggers `IsIconic` detection on the swapchain target window, correctly returning `DXGI_STATUS_OCCLUDED` to halt unnecessary frame rendering; restoring the window immediately returns `S_OK`.
+- `pacing_flip_backbuffer_indexing=PASS`: Flip-sequential swapchain consistently returns index 0 matching WineD3D's active presented buffer in Direct3D 11 flip model, and `ResizeBuffers1` resets and validates index 0 cleanly.
+- `pacing_frame_latency_waitable_object=PASS`: `GetFrameLatencyWaitableObject()` returns a valid duplicated semaphore handle in signaled state; `SetMaximumFrameLatency` and `GetMaximumFrameLatency` function accurately with invalid bounds rejected returning `DXGI_ERROR_INVALID_CALL`.
+- `pacing_occluded_minimized_pacing=PASS`: Window minimization triggers `IsIconic` detection on the swapchain target window for both HWND swapchains and DirectComposition composition swapchains, correctly returning `DXGI_STATUS_OCCLUDED` to halt unnecessary frame rendering; restoring the window immediately resumes returning `S_OK`.
 - `pacing_composition_waitable_pacing_loop=PASS`: 30-frame event-driven presentation loop synchronized via `WaitForSingleObject` on the swapchain frame latency waitable object without polling or spinning.
-- `pacing_non_waitable_swapchain_behavior=PASS`: Swapchains created without `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` return `NULL` for `GetFrameLatencyWaitableObject()` and reject `SetMaximumFrameLatency()` with `DXGI_ERROR_INVALID_CALL`.
+- `pacing_non_waitable_swapchain_behavior=PASS`: Swapchains created without `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` return `NULL` for `GetFrameLatencyWaitableObject()` and reject `SetMaximumFrameLatency()` and `GetMaximumFrameLatency()` with `DXGI_ERROR_INVALID_CALL`.
 
 ---
 

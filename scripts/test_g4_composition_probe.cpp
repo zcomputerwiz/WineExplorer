@@ -64,6 +64,16 @@ static LRESULT CALLBACK probe_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     }
 }
 
+static void flush_messages(void)
+{
+    MSG msg;
+    while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE))
+    {
+        TranslateMessage(&msg);
+        DispatchMessageA(&msg);
+    }
+}
+
 static HWND create_window(const char *name, int w, int h, HWND parent)
 {
     static BOOL registered = FALSE;
@@ -195,12 +205,22 @@ static bool test_tree_operations_and_properties(void)
     // 1. AddVisual basic
     if (FAILED(root->AddVisual(v1, FALSE, NULL))) goto done;
 
+    // Self-addition must fail with E_INVALIDARG
+    if (root->AddVisual(root, FALSE, NULL) != E_INVALIDARG) goto done;
+
     // 2. Sibling order with reference_visual
     if (FAILED(root->AddVisual(v2, TRUE, v1))) goto done;
     if (FAILED(root->AddVisual(v3, FALSE, v2))) goto done;
 
+    // Invalid reference visual (not a sibling) must fail with E_INVALIDARG
+    if (v1->AddVisual(v3, FALSE, root) != E_INVALIDARG) goto done;
+    if (v1->AddVisual(v3, FALSE, v3) != E_INVALIDARG) goto done;
+
     // 3. Reparenting: moving v3 from root to v1
     if (FAILED(v1->AddVisual(v3, FALSE, NULL))) goto done;
+
+    // Cycle creation must fail with E_INVALIDARG (v3 is child of v1, so v3->AddVisual(v1) is a cycle)
+    if (v3->AddVisual(v1, FALSE, NULL) != E_INVALIDARG) goto done;
 
     // 4. Properties: offsets and transform
     if (FAILED(v1->SetOffsetX(12.5f))) goto done;
@@ -264,6 +284,9 @@ static bool test_transactional_commit_isolation(void)
     IDCompositionTarget *target = NULL;
     IDCompositionVisual *root = NULL, *child = NULL;
     IDXGISwapChain1 *sc1 = NULL, *sc2 = NULL;
+    ID3D11Texture2D *bb1 = NULL;
+    ID3D11RenderTargetView *rtv1 = NULL;
+    const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
     bool passed = false;
 
     if (!create_d3d_and_dcomp(hwnd, &dev, &ctx, &dcomp, &target)) goto done;
@@ -279,20 +302,31 @@ static bool test_transactional_commit_isolation(void)
     if (FAILED(child->SetContent(sc2))) goto done;
     if (FAILED(child->SetOffsetX(16.0f))) goto done;
 
+    if (FAILED(sc1->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&bb1))) goto done;
+    if (FAILED(dev->CreateRenderTargetView(bb1, NULL, &rtv1))) goto done;
+    ctx->ClearRenderTargetView(rtv1, green);
+
     // Stage 1: Add child to root, set root on target, BUT DO NOT COMMIT
     if (FAILED(target->SetRoot(root))) goto done;
     if (FAILED(root->AddVisual(child, FALSE, NULL))) goto done;
 
-    // Changes remain pending until Commit()
+    // Present before Commit: swapchain is NOT yet committed, operates safely
+    if (FAILED(sc1->Present(1, 0))) goto done;
+    flush_messages();
+
     // Stage 2: Call Commit() -> atomically applies all staged visual operations
     if (FAILED(dcomp->Commit())) goto done;
+
+    // Present after Commit: swapchain is now bound to target hwnd
+    if (FAILED(sc1->Present(1, 0))) goto done;
+    flush_messages();
 
     // Stage 3: Make pending modifications without commit
     if (FAILED(child->SetOffsetX(64.0f))) goto done;
     if (FAILED(root->RemoveVisual(child))) goto done;
 
     // Present on swapchain before committing pending removal: retained state remains intact
-    sc1->Present(1, 0);
+    if (FAILED(sc1->Present(1, 0))) goto done;
 
     // Stage 4: Commit removal
     if (FAILED(dcomp->Commit())) goto done;
@@ -300,6 +334,8 @@ static bool test_transactional_commit_isolation(void)
     passed = true;
 
 done:
+    release(rtv1);
+    release(bb1);
     release(child);
     release(root);
     release(sc2);
@@ -389,6 +425,8 @@ static bool test_overlapping_composition_and_clips(void)
     const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
     const float blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
     D2D_RECT_F clip_rect = {0.0f, 0.0f, 32.0f, 64.0f};
+    D2D_RECT_F full_clip = {0.0f, 0.0f, 64.0f, 64.0f};
+    D2D_MATRIX_3X2_F mat_shift = {1.0f, 0.0f, 0.0f, 1.0f, 32.0f, 0.0f};
     MSG msg;
     bool passed = false;
 
@@ -440,6 +478,18 @@ static bool test_overlapping_composition_and_clips(void)
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
     }
+
+    // Live clip update: expand clip right to 64.0f
+    if (FAILED(layer_blue->SetClip(full_clip))) goto done;
+    if (FAILED(dcomp->Commit())) goto done;
+    if (FAILED(sc_blue->Present(1, 0))) goto done;
+    flush_messages();
+
+    // 2D matrix transform: shift blue layer right by 32 (dx=32)
+    if (FAILED(layer_blue->SetTransform(mat_shift))) goto done;
+    if (FAILED(dcomp->Commit())) goto done;
+    if (FAILED(sc_blue->Present(1, 0))) goto done;
+    flush_messages();
 
     passed = true;
 
