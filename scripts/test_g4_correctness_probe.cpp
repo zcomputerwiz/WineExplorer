@@ -140,25 +140,161 @@ static bool unsupported_properties_fail_honestly()
     IDCompositionRectangleClip *clip = NULL;
     IDCompositionVisual *second = NULL;
     bool ok = false;
-    D2D_MATRIX_3X2_F shear = {1,0.5f,0,1,0,0};
     D2D_MATRIX_3X2_F invalid = {1,0,0,1,NAN,0};
     if (FAILED(s.comp->CreateEffectGroup(&effect)) || FAILED(s.comp->CreateRectangleClip(&clip))) goto done;
-    if (effect->SetOpacity(0.5f) != E_NOTIMPL || effect->SetOpacity(1) != S_OK) goto done;
+
+    // Truly unsupported or invalid properties must fail honestly
     if (effect->SetOpacity(NAN) != E_INVALIDARG) goto done;
-    if (clip->SetTopLeftRadiusX(4.0f) != E_NOTIMPL || clip->SetTopLeftRadiusX(0.0f) != S_OK) goto done;
+    if (effect->SetOpacity(-0.5f) != E_INVALIDARG) goto done;
+    if (effect->SetOpacity(1.5f) != E_INVALIDARG) goto done;
+    if (effect->SetOpacity((IDCompositionAnimation *)NULL) != E_NOTIMPL) goto done;
+
+    if (clip->SetTopLeftRadiusX(-1.0f) != E_INVALIDARG) goto done;
+    if (clip->SetTopLeftRadiusX(NAN) != E_INVALIDARG) goto done;
     if (clip->SetRight(NAN) != E_INVALIDARG) goto done;
-    if (s.visual->SetTransform(shear) != E_NOTIMPL) goto done;
+    if (clip->SetTopLeftRadiusX((IDCompositionAnimation *)NULL) != E_NOTIMPL) goto done;
+
     if (s.visual->SetTransform(invalid) != E_INVALIDARG) goto done;
-    if (FAILED(s.comp->CreateVisual(&second)) || FAILED(second->SetContent(s.sc))) goto done;
-    if (FAILED(s.visual->AddVisual(second, TRUE, NULL))) goto done;
-    if (s.comp->Commit() != E_NOTIMPL) goto done;
-    // A rejected transaction must not detach or alter the previously active leaf.
+    if (s.visual->SetOffsetX((IDCompositionAnimation *)NULL) != E_NOTIMPL) goto done;
+
+    // Cycle detection in visual hierarchy: adding parent as child of child must fail
+    if (FAILED(s.comp->CreateVisual(&second))) goto done;
+    if (second->AddVisual(second, TRUE, NULL) != E_INVALIDARG) goto done;
+    if (s.visual->AddVisual(second, TRUE, NULL) != S_OK) goto done;
+    if (second->AddVisual(s.visual, TRUE, NULL) != E_INVALIDARG) goto done;
+
+    // A rejected transaction must not alter the active leaf
     s.black();
     ok = s.present() && s.pixel(8,8,RGB(255,0,0)) && s.pixel(48,8,RGB(0,0,255));
     s.visual->RemoveVisual(second);
+
 done:
     release(second); release(clip); release(effect);
     return ok;
+}
+
+static bool retained_multilayer_and_transform_pixels()
+{
+    // Test 1: Multilayer Z-order and independent presentation
+    // Leaf 1 (Red) and Leaf 2 (Blue) overlapping: Leaf 2 is above Leaf 1.
+    // SC1 Present must not erase Leaf 2. SC2 Present must not erase Leaf 1.
+    Scene s1;
+    if (!s1.init()) return false;
+
+    IDXGISwapChain1 *sc2 = create_comp_swapchain(s1.dev, 64, 64);
+    if (!sc2) return false;
+    ID3D11Texture2D *bb2 = NULL, *pattern2 = NULL;
+    if (FAILED(sc2->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&bb2)))
+    {
+        release(sc2);
+        return false;
+    }
+
+    DWORD blue_pixels[64 * 64];
+    for (unsigned int i = 0; i < ARRAYSIZE(blue_pixels); ++i) blue_pixels[i] = 0xff0000ff;
+    D3D11_TEXTURE2D_DESC desc2 = {};
+    desc2.Width = desc2.Height = 64;
+    desc2.MipLevels = desc2.ArraySize = desc2.SampleDesc.Count = 1;
+    desc2.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc2.Usage = D3D11_USAGE_DEFAULT;
+    desc2.BindFlags = D3D11_BIND_RENDER_TARGET;
+    D3D11_SUBRESOURCE_DATA data2 = {blue_pixels, 64 * 4, 0};
+    if (FAILED(s1.dev->CreateTexture2D(&desc2, &data2, &pattern2)))
+    {
+        release(bb2); release(sc2);
+        return false;
+    }
+
+    auto present2 = [&]() {
+        s1.ctx->CopyResource(bb2, pattern2);
+        s1.ctx->Flush();
+        return sc2->Present(0, 0) == S_OK;
+    };
+
+    IDCompositionVisual *v2 = NULL;
+    if (FAILED(s1.comp->CreateVisual(&v2))) goto fail;
+    if (FAILED(v2->SetContent(sc2))) goto fail;
+    if (FAILED(v2->SetOffsetX(16)) || FAILED(v2->SetOffsetY(16))) goto fail;
+
+    // Add v2 above s1.visual
+    if (FAILED(s1.visual->AddVisual(v2, TRUE, NULL))) goto fail;
+    if (FAILED(s1.comp->Commit()) || FAILED(s1.comp->WaitForCommitCompletion())) goto fail;
+
+    s1.black();
+    if (!s1.present() || !present2()) goto fail;
+
+    // At (8, 8): only s1.visual (Red) is present
+    if (!s1.pixel(8, 8, RGB(255, 0, 0))) goto fail;
+    // At (24, 24): v2 (Blue) is above s1.visual (Red)
+    if (!s1.pixel(24, 24, RGB(0, 0, 255))) goto fail;
+
+    // Gate R1 Test 1: Re-present lower leaf (s1). It must NOT erase upper leaf (v2)!
+    if (!s1.present()) goto fail;
+    if (!s1.pixel(24, 24, RGB(0, 0, 255))) goto fail;
+    if (!s1.pixel(8, 8, RGB(255, 0, 0))) goto fail;
+
+    // Re-present upper leaf (v2). It must NOT erase lower leaf (s1)!
+    if (!present2()) goto fail;
+    if (!s1.pixel(8, 8, RGB(255, 0, 0))) goto fail;
+    if (!s1.pixel(24, 24, RGB(0, 0, 255))) goto fail;
+
+    // Gate R1 Test 2: Layer restoration on removal
+    // Remove v2. Underneath was s1.visual (Red). Red must be restored at (24, 24)!
+    if (FAILED(s1.visual->RemoveVisual(v2))) goto fail;
+    if (FAILED(s1.comp->Commit()) || FAILED(s1.comp->WaitForCommitCompletion())) goto fail;
+    if (!s1.present()) goto fail;
+    if (!s1.pixel(24, 24, RGB(255, 0, 0))) goto fail;
+
+    // Gate R1 Test 3: Opacity Blending
+    // Add v2 back with an EffectGroup having 0.5f opacity.
+    // Opaque Red (255, 0, 0) + 50% opacity Blue (0, 0, 255) = Purple (128, 0, 128)
+    IDCompositionEffectGroup *effect;
+    if (FAILED(s1.comp->CreateEffectGroup(&effect))) goto fail;
+    if (FAILED(effect->SetOpacity(0.5f))) { release(effect); goto fail; }
+    if (FAILED(v2->SetEffect(effect))) { release(effect); goto fail; }
+    release(effect);
+    if (FAILED(s1.visual->AddVisual(v2, TRUE, NULL))) goto fail;
+    if (FAILED(s1.comp->Commit()) || FAILED(s1.comp->WaitForCommitCompletion())) goto fail;
+    if (!s1.present() || !present2()) goto fail;
+    if (!s1.pixel(24, 24, RGB(128, 0, 128))) goto fail;
+
+    // Gate R1 Test 4: Rounded corner clip
+    // Set opacity back to 1.0f on v2
+    if (FAILED(s1.comp->CreateEffectGroup(&effect))) goto fail;
+    if (FAILED(effect->SetOpacity(1.0f)) || FAILED(v2->SetEffect(effect))) { release(effect); goto fail; }
+    release(effect);
+    IDCompositionRectangleClip *rclip;
+    if (FAILED(s1.comp->CreateRectangleClip(&rclip))) goto fail;
+    if (FAILED(rclip->SetLeft(0.0f)) || FAILED(rclip->SetTop(0.0f)) ||
+        FAILED(rclip->SetRight(64.0f)) || FAILED(rclip->SetBottom(64.0f))) { release(rclip); goto fail; }
+    if (FAILED(rclip->SetTopLeftRadiusX(16.0f)) || FAILED(rclip->SetTopLeftRadiusY(16.0f))) { release(rclip); goto fail; }
+    if (FAILED(v2->SetClip(rclip))) { release(rclip); goto fail; }
+    release(rclip);
+    if (FAILED(s1.comp->Commit()) || FAILED(s1.comp->WaitForCommitCompletion())) goto fail;
+    if (!present2()) goto fail;
+    // Outside corner radius -> clipped -> underlying Red visible!
+    if (!s1.pixel(18, 18, RGB(255, 0, 0))) goto fail;
+    // Inside clip -> Blue visible!
+    if (!s1.pixel(32, 32, RGB(0, 0, 255))) goto fail;
+
+    // Gate R1 Test 5: Affine Transform (reflection / negative scale)
+    if (FAILED(s1.visual->RemoveVisual(v2))) goto fail;
+    {
+        D2D_MATRIX_3X2_F reflect = {-1.0f, 0.0f, 0.0f, 1.0f, 64.0f, 0.0f};
+        if (FAILED(s1.visual->SetTransform(reflect))) goto fail;
+        if (FAILED(s1.comp->Commit()) || FAILED(s1.comp->WaitForCommitCompletion())) goto fail;
+        s1.black();
+        if (!s1.present()) goto fail;
+        if (!s1.pixel(8, 8, RGB(0, 0, 255))) goto fail;
+        if (!s1.pixel(56, 8, RGB(255, 0, 0))) goto fail;
+    }
+
+    release(v2); release(pattern2); release(bb2); release(sc2);
+    return true;
+
+fail:
+    release(v2); release(pattern2); release(bb2); release(sc2);
+    return false;
 }
 
 struct CrossCommit { Scene *scene; HRESULT hr; };
@@ -290,11 +426,13 @@ int main(int argc, char **argv)
     printf("supported_pixels_and_transactions=%s\n", a ? "PASS" : "FAIL");
     bool b = unsupported_properties_fail_honestly();
     printf("unsupported_properties_fail_honestly=%s\n", b ? "PASS" : "FAIL");
-    bool c = cross_thread_completion_pixels();
-    printf("cross_thread_completion_pixels=%s\n", c ? "PASS" : "FAIL");
-    bool d = imported_fence_observers();
-    printf("imported_fence_observers=%s\n", d ? "PASS" : "FAIL");
-    bool e = retained_changing_frame_pixels();
-    printf("retained_changing_frame_pixels=%s\n", e ? "PASS" : "FAIL");
-    return a && b && c && d && e ? 0 : 1;
+    bool c = retained_multilayer_and_transform_pixels();
+    printf("retained_multilayer_and_transform_pixels=%s\n", c ? "PASS" : "FAIL");
+    bool d = cross_thread_completion_pixels();
+    printf("cross_thread_completion_pixels=%s\n", d ? "PASS" : "FAIL");
+    bool e = imported_fence_observers();
+    printf("imported_fence_observers=%s\n", e ? "PASS" : "FAIL");
+    bool f = retained_changing_frame_pixels();
+    printf("retained_changing_frame_pixels=%s\n", f ? "PASS" : "FAIL");
+    return a && b && c && d && e && f ? 0 : 1;
 }

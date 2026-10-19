@@ -150,6 +150,7 @@ def main():
                 if args.g4_correctness:
                     required = ('supported_pixels_and_transactions=PASS',
                                 'unsupported_properties_fail_honestly=PASS',
+                                'retained_multilayer_and_transform_pixels=PASS',
                                 'cross_thread_completion_pixels=PASS',
                                 'imported_fence_observers=PASS',
                                 'retained_changing_frame_pixels=PASS')
