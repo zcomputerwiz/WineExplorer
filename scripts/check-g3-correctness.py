@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import select
 import signal
@@ -62,10 +63,14 @@ def main():
     parser.add_argument('--full-suite', action='store_true')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
+    parser.add_argument('--upstream-tests', action='store_true',
+                        help='Run built upstream d3d11/dxgi suites for both architectures; retain failures')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.upstream_tests and (args.g4_correctness or args.full_suite):
+        parser.error('--upstream-tests must be run separately from the custom probes')
     if not shutil.which('Xvfb'):
         parser.error('Xvfb is required; no existing display will be reused')
     sockets = Path('/tmp/.X11-unix')
@@ -129,6 +134,34 @@ def main():
                 result['vulkan_icd_sha256'] = hashlib.sha256(icd.read_bytes()).hexdigest()
             for arch, compiler in (('x86_64', 'x86_64-w64-mingw32-g++'),
                                    ('i686', 'i686-w64-mingw32-g++')):
+                if args.upstream_tests:
+                    for module in ('dxgi', 'd3d11'):
+                        pe_arch = 'i386' if arch == 'i686' else arch
+                        exe = build / 'dlls' / module / 'tests' / (pe_arch + '-windows') / (module + '_test.exe')
+                        if not exe.is_file():
+                            raise FileNotFoundError('Missing upstream test executable: ' + str(exe))
+                        label = module + '-' + arch
+                        prefix = root / label
+                        prefixes.append(prefix)
+                        env = dict(environment, WINEPREFIX=str(prefix), WINETEST_INTERACTIVE='0',
+                                   WINETEST_NO_MT_D3D='1')
+                        command = [str(wine), str(exe), module, '--single']
+                        try:
+                            run = run_logged(command, env, output, label, 1200)
+                            code = run.returncode
+                        except subprocess.TimeoutExpired:
+                            code = 124
+                        stdout = (output / (label + '.stdout.log')).read_text(errors='replace')
+                        stderr = (output / (label + '.stderr.log')).read_text(errors='replace')
+                        summaries = [line for line in (stdout + stderr).splitlines() if 'tests executed' in line]
+                        executed = sum(int(match.group(1)) for line in summaries
+                                       if (match := re.search(r'(\d+) tests executed', line)))
+                        passed = code == 0 and executed > 0
+                        result['cases'][label] = {'command': command, 'exit_code': code,
+                                                  'passed': passed, 'summaries': summaries,
+                                                  'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
+                        print(label, 'PASS' if passed else 'FAIL', code, summaries, flush=True)
+                    continue
                 probe_name = 'test_g4_correctness_probe.cpp' if args.g4_correctness else 'test_g3_ordering_probe.cpp'
                 exe = output / (('g4-correctness-' if args.g4_correctness else 'g3-ordering-') + arch + '.exe')
                 probes.compile_probe(source / probe_name, exe, compiler)
@@ -155,13 +188,16 @@ def main():
                                 'imported_fence_observers=PASS',
                                 'retained_changing_frame_pixels=PASS',
                                 'retained_formats_resize_and_lifetime=PASS',
-                                'retained_nested_group_pixels=PASS')
+                                'retained_nested_group_pixels=PASS',
+                                'concurrent_commit_and_device_lifetime=PASS')
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
                 print(arch, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
                 if not passed:
                     raise RuntimeError('Actual G3 regression failed: ' + arch)
+            if args.upstream_tests and not all(case['passed'] for case in result['cases'].values()):
+                raise RuntimeError('Upstream graphics tests failed; inspect each retained log and compare baseline')
             if args.full_suite:
                 prefix = root / 'full-suite'
                 prefixes.append(prefix)

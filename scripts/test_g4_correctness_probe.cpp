@@ -8,6 +8,8 @@
 #include <d3d11_4.h>
 #include <math.h>
 
+static bool native_visual_control;
+
 struct Scene
 {
     HWND hwnd = NULL;
@@ -22,6 +24,11 @@ struct Scene
     bool init()
     {
         hwnd = create_window("G4 independent pixels", 256, 256, NULL);
+        if (native_visual_control && hwnd)
+        {
+            ShowWindow(hwnd,SW_SHOWNOACTIVATE);
+            SetWindowPos(hwnd,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);
+        }
         if (!hwnd || !create_d3d_and_dcomp(hwnd, &dev, &ctx, &comp, &target)) return false;
         sc = create_comp_swapchain(dev, 64, 64);
         if (!sc || FAILED(comp->CreateVisual(&visual))) return false;
@@ -46,6 +53,14 @@ struct Scene
     {
         RECT rc;
         GetClientRect(hwnd, &rc);
+        if (native_visual_control)
+        {
+            HDC window_dc = GetDC(hwnd);
+            FillRect(window_dc,&rc,(HBRUSH)GetStockObject(BLACK_BRUSH));
+            ReleaseDC(hwnd,window_dc);
+            GdiFlush();
+            return;
+        }
         POINT point = {0, 0};
         ClientToScreen(hwnd, &point);
         OffsetRect(&rc, point.x, point.y);
@@ -70,6 +85,13 @@ struct Scene
         {
             POINT point = {x, y};
             ClientToScreen(hwnd, &point);
+            if (!IsWindowVisible(hwnd) || IsIconic(hwnd)
+                    || GetAncestor(WindowFromPoint(point),GA_ROOT) != GetAncestor(hwnd,GA_ROOT))
+            {
+                printf("PIXEL_NOT_VISIBLE x=%d y=%d visible=%d iconic=%d hwnd=%p at_point=%p\n",
+                        x,y,IsWindowVisible(hwnd),IsIconic(hwnd),(void *)hwnd,(void *)WindowFromPoint(point));
+                return false;
+            }
             HDC dc = GetDC(NULL);
             actual = GetPixel(dc, point.x, point.y);
             ReleaseDC(NULL, dc);
@@ -160,6 +182,24 @@ static bool unsupported_properties_fail_honestly()
     if (s.visual->SetTransform(invalid) != E_INVALIDARG) goto done;
     if (s.visual->SetCompositeMode(DCOMPOSITION_COMPOSITE_MODE_DESTINATION_INVERT) != E_NOTIMPL) goto done;
     if (s.visual->SetOffsetX((IDCompositionAnimation *)NULL) != E_NOTIMPL) goto done;
+    if (s.visual->SetTransformParent(s.visual) != E_NOTIMPL) goto done;
+
+    // Device-owned effect/clip objects cannot be borrowed from another device:
+    // its setters and Commit would otherwise use different synchronization.
+    {
+        ID3D11Device *other_dev = NULL;
+        ID3D11DeviceContext *other_ctx = NULL;
+        IDCompositionDevice *other_comp = NULL;
+        IDCompositionEffectGroup *other_effect = NULL;
+        IDCompositionRectangleClip *other_clip = NULL;
+        bool rejected = create_d3d_and_dcomp(NULL,&other_dev,&other_ctx,&other_comp,NULL)
+                && SUCCEEDED(other_comp->CreateEffectGroup(&other_effect))
+                && SUCCEEDED(other_comp->CreateRectangleClip(&other_clip))
+                && s.visual->SetEffect(other_effect) == E_INVALIDARG
+                && s.visual->SetClip(other_clip) == E_INVALIDARG;
+        release(other_clip); release(other_effect); release(other_comp); release(other_ctx); release(other_dev);
+        if (!rejected) goto done;
+    }
 
     // Cycle detection in visual hierarchy: adding parent as child of child must fail
     if (FAILED(s.comp->CreateVisual(&second))) goto done;
@@ -340,6 +380,8 @@ static bool retained_multilayer_and_transform_pixels()
         D2D_MATRIX_3X2_F rotate = {0,1,-1,0,64,0};
         if (FAILED(s1.visual->SetTransform(rotate)) || FAILED(s1.comp->Commit())) goto fail;
         if (!s1.pixel(8,8,RGB(255,0,0)) || !s1.pixel(8,48,RGB(0,0,255))) goto fail;
+        if (FAILED(s1.visual->SetTransform((IDCompositionTransform *)NULL)) || FAILED(s1.comp->Commit())) goto fail;
+        if (!s1.pixel(8,8,RGB(255,0,0)) || !s1.pixel(48,8,RGB(0,0,255))) goto fail;
     }
 
     release(v2); release(pattern2); release(bb2); release(sc2);
@@ -400,6 +442,87 @@ done:
     s.target->SetRoot(NULL);
     s.comp->Commit();
     release(clip); release(effect); release(middle); release(root);
+    return ok;
+}
+
+struct ConcurrentSceneUpdate
+{
+    IDCompositionDevice *device;
+    IDCompositionVisual *visual;
+    IDCompositionEffectGroup *effect;
+    IDCompositionRectangleClip *clip;
+    HANDLE start;
+    bool passed;
+};
+
+static DWORD WINAPI concurrent_scene_update(void *argument)
+{
+    ConcurrentSceneUpdate *update = (ConcurrentSceneUpdate *)argument;
+    update->passed = false;
+    if (WaitForSingleObject(update->start,10000) != WAIT_OBJECT_0) return 1;
+    for (int i = 0; i < 64; ++i)
+    {
+        if (FAILED(update->visual->SetOffsetX(float(i % 8)))
+                || FAILED(update->effect->SetOpacity(i % 2 ? 0.5f : 1.0f))
+                || FAILED(update->clip->SetRight(i % 2 ? 32.0f : 64.0f))
+                || FAILED(update->device->Commit())) return 2;
+    }
+    update->passed = true;
+    return 0;
+}
+
+static bool concurrent_commit_and_device_lifetime()
+{
+    Scene s;
+    IDCompositionEffectGroup *effect = NULL;
+    IDCompositionRectangleClip *clip = NULL;
+    HANDLE thread = NULL, start = NULL;
+    ConcurrentSceneUpdate update = {};
+    bool ok = false;
+    DWORD code = 1;
+    if (!s.init()) return false;
+    if (FAILED(s.comp->CreateEffectGroup(&effect)) || FAILED(s.comp->CreateRectangleClip(&clip))) goto done;
+    if (FAILED(clip->SetLeft(0.0f)) || FAILED(clip->SetTop(0.0f))
+            || FAILED(clip->SetRight(64.0f)) || FAILED(clip->SetBottom(64.0f))
+            || FAILED(s.visual->SetEffect(effect)) || FAILED(s.visual->SetClip(clip))
+            || FAILED(s.comp->Commit()) || !s.present()) goto done;
+    if (!(start = CreateEventA(NULL,TRUE,FALSE,NULL))) goto done;
+    update = {s.comp,s.visual,effect,clip,start,false};
+    if (!(thread = CreateThread(NULL,0,concurrent_scene_update,&update,0,NULL))) goto done;
+    if (!SetEvent(start)) goto done;
+    for (int i = 0; i < 64; ++i)
+    {
+        flush_messages();
+        if (FAILED(s.comp->Commit()) || !s.present()) goto done;
+    }
+    if (WaitForSingleObject(thread,30000) != WAIT_OBJECT_0
+            || !GetExitCodeThread(thread,&code) || code || !update.passed) goto done;
+    printf("CONCURRENT_STAGE final_commit\n");
+    flush_messages();
+    if (FAILED(s.visual->SetOffsetX(0.0f)) || FAILED(effect->SetOpacity(1.0f))
+            || FAILED(clip->SetRight(64.0f)) || FAILED(s.comp->Commit())
+            || !s.pixel(8,8,RGB(255,0,0)) || !s.pixel(48,8,RGB(0,0,255))) goto done;
+    // Children own their creating device. Drop the caller's last device ref
+    // before mutating/releasing targets, visuals, effects and clips in turn.
+    release(s.comp);
+    if (FAILED(s.visual->SetOffsetX(4.0f)) || FAILED(effect->SetOpacity(0.5f))
+            || FAILED(clip->SetRight(32.0f)) || FAILED(s.target->SetRoot(NULL))) goto done;
+    release(s.target);
+    release(s.visual);
+    if (FAILED(effect->SetOpacity(1.0f)) || FAILED(clip->SetRight(64.0f))) goto done;
+    release(effect);
+    if (FAILED(clip->SetRight(32.0f))) goto done;
+    ok = true;
+done:
+    if (thread)
+    {
+        // Never kill a thread while it can hold a graphics/device lock. Fail the
+        // owned probe process on a stuck worker; the external runner reaps it.
+        if (WaitForSingleObject(thread,30000) != WAIT_OBJECT_0) ExitProcess(124);
+        CloseHandle(thread);
+    }
+    if (start) CloseHandle(start);
+    release(clip); release(effect);
     return ok;
 }
 
@@ -606,6 +729,20 @@ done:
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "--native-visual-control"))
+    {
+        native_visual_control = true;
+        SetProcessDPIAware();
+        // Public DComp semantics only. No Wine-only HRESULT expectations,
+        // private fence interfaces, registry changes or runtime installation.
+        bool layered = retained_multilayer_and_transform_pixels();
+        printf("native_retained_multilayer=%s\n", layered ? "PASS" : "FAIL");
+        bool nested = retained_nested_group_pixels();
+        printf("native_nested_groups=%s\n", nested ? "PASS" : "FAIL");
+        bool lifetime = concurrent_commit_and_device_lifetime();
+        printf("native_concurrent_lifetime=%s\n", lifetime ? "PASS" : "FAIL");
+        return layered && nested && lifetime ? 0 : 1;
+    }
     if (argc == 4 && !strcmp(argv[1], "--observer-child"))
     {
         unsigned long long mapping, ready;
@@ -628,5 +765,7 @@ int main(int argc, char **argv)
     printf("retained_formats_resize_and_lifetime=%s\n", g ? "PASS" : "FAIL");
     bool h = retained_nested_group_pixels();
     printf("retained_nested_group_pixels=%s\n", h ? "PASS" : "FAIL");
-    return a && b && c && d && e && f && g && h ? 0 : 1;
+    bool i = concurrent_commit_and_device_lifetime();
+    printf("concurrent_commit_and_device_lifetime=%s\n", i ? "PASS" : "FAIL");
+    return a && b && c && d && e && f && g && h && i ? 0 : 1;
 }

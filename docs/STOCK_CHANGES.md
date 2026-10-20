@@ -1,5 +1,17 @@
 # Changes to stock Wine / third-party code
 
+## G4 device lifetime and pending-state synchronization (2026-10-20)
+
+`dlls/dcomp/device.c`: visuals, targets, clips and effect groups retain their
+creating device. Target/visual teardown and pending setters share the device's
+recursive critical section with Commit; live clip/opacity setters use that same
+lock. Cross-device clips/effects reject before changing pending state. NULL
+transform-object assignment now resets an earlier matrix; non-NULL unsupported
+transform objects/parents no longer return a successful no-op. Nine regression
+groups pass on both software-GL PE architectures, including concurrent setters,
+Commit and Present, followed by releasing the caller's device before children.
+This bounded stress test is not exhaustive fault-injection/lifetime proof.
+
 ## G4 hierarchical reference composition (2026-10-20)
 
 `dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c`,

@@ -70,6 +70,66 @@ Upstream d3d11/dxgi suites are being enabled separately; absent executables
 are not passes. Usage tool at this checkpoint reports 8% of the five-hour
 window used; no deferred wake-up is necessary yet. OOBE/token work is untouched.
 
+## Device lifetime checkpoint and upstream controls
+
+The next checkpoint retains the creating device in every visual, target,
+effect and clip object; synchronizes pending mutations/teardown with Commit;
+rejects foreign-device clips/effects; and repairs NULL transform-object reset
+and unsupported transform-parent success. Nine groups PASS on both architectures
+in `/var/tmp/wex-g4-tree-20261020/lifetime-boundaries-gl/`, exit 0. The new group
+overlaps 64 worker updates/Commits with 64 owner Commits/Presents, checks the
+final pixels and releases the caller's device before targets/visuals/effects/
+clips. It does not prove every concurrent destruction ordering or allocation fault.
+
+Upstream test build was enabled with the same WoW64 options, replacing
+`--disable-tests` with `--enable-tests`, then
+`make -j6 dlls/d3d11/tests/all dlls/dxgi/tests/all` (exit 0). The runner's new
+`--upstream-tests` mode executes all four built PEs, preserves logs and failures,
+and never accepts absent executables. Commands use `MODULE_test.exe MODULE --single`
+and `WINETEST_INTERACTIVE=0 WINETEST_NO_MT_D3D=1` in separate owned prefixes.
+
+Results at Wine `736b2b0` versus baseline `0fd6cabc`:
+
+| Suite | x86_64 | i686 |
+|---|---|---|
+| DXGI, repaired tree | exit 67; 14,468 assertions, 67 failures, 46 skips | same |
+| DXGI, baseline | exit 67; 14,464 assertions, 67 failures, 46 skips | exit 67; 14,468 assertions, 67 failures, 46 skips |
+| d3d11, both revisions | exit 5, no parent final summary | same |
+
+Failure source-line/count sets match exactly across revisions: DXGI ten sites,
+d3d11 two sites (each architecture). The four-assertion d3d11 summary belongs
+to its subprocess control, NOT a successful full suite. The parent stops after
+the legacy keyed-mutex sharing test's OpenSharedResource failure at line 35549;
+its subsequent unchecked output dereference is a likely cause, not yet a traced
+crash diagnosis. These inherited failures still prevent upstream acceptance.
+No existing assertions were weakened or marked todo to hide them.
+
+Logs: `upstream-tree-gl/`, `upstream-baseline-gl/`, `configure-tests.log`,
+`build-upstream-tests.log`, `build-baseline.log` under the owned evidence root.
+Baseline source was exported from exact Wine `0fd6cabc` via `git archive` into
+`baseline-source/`; only the six changed Wine files were staged into the owned
+native source and three affected DLLs rebuilt. Current Windows sources were
+then restored/rebuilt before the lifetime runs. Test PEs were unchanged.
+
+An optional `--native-visual-control` mode exercises public visual cases only.
+Three native launch attempts in an owned Windows Temp directory were **not
+accepted**: target sample points were obscured by another HWND, even after an
+explicit visibility/DPI adjustment. The oracle now rejects hidden/minimized/
+obscured targets instead of accepting another window's pixels. Native Windows
+remains BLOCKED, not evidence against or in favor of Wine's color semantics.
+All three controls exited; no system settings or runtimes were installed.
+
+The diagnostic pixel reader must remain observational. A trial that pumped
+messages inside the pixel oracle dispatched a pending GDI paint: the pixel was
+red immediately before the pump and white afterward, while temporary renderer
+instrumentation confirmed both the retained source and composed output were red.
+Removed the oracle's message dispatch and the temporary production print; normal
+test-owner loops pump BEFORE Commit/Present. This is not proof that reference
+composition restores itself over arbitrary subsequent GDI painting; that remains
+a delivery/background-preservation gate. Failed runs remain `lifetime-gl/`,
+`lifetime-trace-gl/`, `lifetime-paint-gl/`; first passing stress run is
+`lifetime-final-gl/`, followed by the full boundary checkpoint above.
+
 ## Failed commands and workarounds
 
 - Non-escalated `git status --short --branch` failed to read
