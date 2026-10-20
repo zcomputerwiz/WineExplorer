@@ -1,5 +1,24 @@
 # Changes to stock Wine / third-party code
 
+## G4 hierarchical reference composition (2026-10-20)
+
+`dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c`,
+and `include/wine/{dcomp_layer.h,wined3d.h,winedxgi.idl}` now retain contentless
+visuals as bounded preorder scene nodes (128 visuals, still 32 content entries).
+Each node carries its own transformed clip and opacity mode. The CPU reference
+renderer isolates LAYER subtrees per pixel and propagates MULTIPLY opacity,
+instead of flattening both into leaf opacity. Ancestor clips mask descendants
+in the ancestor's coordinates. Scene intervals are validated before publication;
+the builtin private binding IID is versioned for the changed scene layout.
+New rectangle clips start unbounded, as required by the public API contract.
+
+Both architectures pass eight target-pixel/observer groups on software OpenGL,
+including rotated nested clips, all four independent rounded corners, live
+clip/effect mutation at Commit, and LAYER-versus-MULTIPLY overlap colors.
+This extends the earlier reference slice; it does not establish efficient GPU
+delivery, arbitrary HWND background preservation, multi-target routing, real
+consumers, hardware or desktop/theme acceptance. G4 remains in progress.
+
 ## G4 R1 retained-reference repair (2026-10-20)
 
 `dlls/dcomp/device.c`, `dlls/dxgi/{factory.c,swapchain.c,dxgi_private.h}`,

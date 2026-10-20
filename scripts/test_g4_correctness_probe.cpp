@@ -261,8 +261,7 @@ static bool retained_multilayer_and_transform_pixels()
     // Commit itself restores the retained background without another Present.
     if (!s1.pixel(24, 24, RGB(255, 0, 0))) goto fail;
 
-    // A default LAYER-opacity group needs isolation, which this slice rejects.
-    // MULTIPLY is supported and must give a distinct, discriminating result.
+    // LAYER applies opacity after isolation; MULTIPLY blends each surface.
     {
         IDCompositionEffectGroup *group = NULL;
         IDCompositionVisual2 *root2 = NULL;
@@ -271,8 +270,8 @@ static bool retained_multilayer_and_transform_pixels()
         { release(group); goto fail; }
         release(group);
         if (FAILED(s1.visual->AddVisual(v2, TRUE, NULL))) goto fail;
-        if (s1.comp->Commit() != E_NOTIMPL) goto fail;
-        if (!s1.pixel(24,24,RGB(255,0,0))) goto fail;
+        if (FAILED(s1.comp->Commit())) goto fail;
+        if (!s1.pixel(24,24,RGB(0,0,128)) || !s1.pixel(8,8,RGB(128,0,0))) goto fail;
         if (FAILED(s1.visual->QueryInterface(__uuidof(IDCompositionVisual2), (void **)&root2))) goto fail;
         HRESULT mode_hr = root2->SetOpacityMode(DCOMPOSITION_OPACITY_MODE_MULTIPLY);
         release(root2);
@@ -314,14 +313,15 @@ static bool retained_multilayer_and_transform_pixels()
     // Inside clip -> Blue visible!
     if (!s1.pixel(32, 32, RGB(0, 0, 255))) goto fail;
 
-    // Ancestor clipping is not implemented by this leaf-mask reference slice.
-    // The failed transaction must leave the currently committed pixels intact.
+    // A parent clip masks all descendants, and changes are transactional.
     {
         D2D_RECT_F ancestor_clip = {0,0,8,8};
         if (FAILED(s1.visual->SetClip(ancestor_clip))) goto fail;
-        if (s1.comp->Commit() != E_NOTIMPL) goto fail;
         if (!present2() || !s1.pixel(32,32,RGB(0,0,255))) goto fail;
+        if (FAILED(s1.comp->Commit())) goto fail;
+        if (!s1.pixel(32,32,RGB(0,0,0)) || !s1.pixel(4,4,RGB(255,0,0))) goto fail;
         if (FAILED(s1.visual->SetClip((IDCompositionClip *)NULL))) goto fail;
+        if (FAILED(s1.comp->Commit()) || !s1.pixel(32,32,RGB(0,0,255))) goto fail;
     }
 
     // Gate R1 Test 5: Affine Transform (reflection / negative scale)
@@ -349,6 +349,58 @@ fail:
     printf("retained_multilayer_failure\n");
     release(v2); release(pattern2); release(bb2); release(sc2);
     return false;
+}
+
+static bool retained_nested_group_pixels()
+{
+    Scene s;
+    IDCompositionVisual *root = NULL, *middle = NULL;
+    IDCompositionEffectGroup *effect = NULL;
+    IDCompositionRectangleClip *clip = NULL;
+    bool ok = false;
+    D2D_MATRIX_3X2_F rotate = {0,1,-1,0,128,16};
+    D2D_RECT_F root_clip = {16,8,80,72};
+    if (!s.init()) return false;
+    if (FAILED(s.comp->CreateVisual(&root)) || FAILED(s.comp->CreateVisual(&middle))
+            || FAILED(s.comp->CreateEffectGroup(&effect)) || FAILED(s.comp->CreateRectangleClip(&clip))) goto done;
+    if (FAILED(root->SetTransform(rotate)) || FAILED(root->SetClip(root_clip))
+            || FAILED(middle->SetOffsetX(16.0f)) || FAILED(middle->SetOffsetY(8.0f))
+            || FAILED(middle->SetClip(clip)) || FAILED(root->SetEffect(effect))
+            || FAILED(middle->AddVisual(s.visual,TRUE,NULL)) || FAILED(root->AddVisual(middle,TRUE,NULL))
+            || FAILED(s.target->SetRoot(root)) || FAILED(s.comp->Commit()) || !s.present()) goto done;
+    // A newly created clip is unbounded, not an empty rectangle. Contentless
+    // rotated ancestors must preserve the colored leaf at its transformed location.
+    if (!s.pixel(112,40,RGB(255,0,0)) || !s.pixel(112,88,RGB(0,0,255))) goto done;
+    if (FAILED(clip->SetLeft(0.0f)) || FAILED(clip->SetTop(0.0f))
+            || FAILED(clip->SetRight(64.0f)) || FAILED(clip->SetBottom(64.0f))
+            || FAILED(clip->SetTopLeftRadiusX(16.0f)) || FAILED(clip->SetTopLeftRadiusY(16.0f))
+            || FAILED(clip->SetTopRightRadiusX(8.0f)) || FAILED(clip->SetTopRightRadiusY(12.0f))
+            || FAILED(clip->SetBottomLeftRadiusX(12.0f)) || FAILED(clip->SetBottomLeftRadiusY(8.0f))
+            || FAILED(clip->SetBottomRightRadiusX(4.0f)) || FAILED(clip->SetBottomRightRadiusY(4.0f))) goto done;
+    // Live clip-object mutations are pending too, even if a producer presents.
+    if (!s.present() || !s.pixel(118,34,RGB(255,0,0))) goto done;
+    if (FAILED(s.comp->Commit())) goto done;
+    if (!s.pixel(118,34,RGB(0,0,0)) || !s.pixel(112,40,RGB(255,0,0))
+            || !s.pixel(118,94,RGB(0,0,0)) || !s.pixel(112,88,RGB(0,0,255))
+            || !s.pixel(58,34,RGB(0,0,0)) || !s.pixel(64,40,RGB(255,0,0))
+            || !s.pixel(57,95,RGB(0,0,0)) || !s.pixel(64,88,RGB(0,0,255))) goto done;
+    // Contract the root clip independently of the child's rounded clip. Both
+    // masks must survive transformation; expanding restores the retained image.
+    root_clip.right = 48;
+    if (FAILED(root->SetClip(root_clip)) || !s.present() || !s.pixel(112,88,RGB(0,0,255))) goto done;
+    if (FAILED(s.comp->Commit()) || !s.pixel(112,88,RGB(0,0,0)) || !s.pixel(112,40,RGB(255,0,0))) goto done;
+    root_clip.right = 80;
+    if (FAILED(root->SetClip(root_clip)) || FAILED(s.comp->Commit()) || !s.pixel(112,88,RGB(0,0,255))) goto done;
+    if (FAILED(effect->SetOpacity(0.5f)) || !s.present() || !s.pixel(112,40,RGB(255,0,0))) goto done;
+    if (FAILED(s.comp->Commit()) || !s.pixel(112,40,RGB(128,0,0)) || !s.pixel(112,88,RGB(0,0,128))) goto done;
+    if (FAILED(effect->SetOpacity(1.0f)) || !s.present() || !s.pixel(112,40,RGB(128,0,0))) goto done;
+    if (FAILED(s.comp->Commit()) || !s.pixel(112,40,RGB(255,0,0))) goto done;
+    ok = true;
+done:
+    s.target->SetRoot(NULL);
+    s.comp->Commit();
+    release(clip); release(effect); release(middle); release(root);
+    return ok;
 }
 
 static bool retained_formats_resize_and_lifetime()
@@ -574,5 +626,7 @@ int main(int argc, char **argv)
     printf("retained_changing_frame_pixels=%s\n", f ? "PASS" : "FAIL");
     bool g = retained_formats_resize_and_lifetime();
     printf("retained_formats_resize_and_lifetime=%s\n", g ? "PASS" : "FAIL");
-    return a && b && c && d && e && f && g ? 0 : 1;
+    bool h = retained_nested_group_pixels();
+    printf("retained_nested_group_pixels=%s\n", h ? "PASS" : "FAIL");
+    return a && b && c && d && e && f && g && h ? 0 : 1;
 }
