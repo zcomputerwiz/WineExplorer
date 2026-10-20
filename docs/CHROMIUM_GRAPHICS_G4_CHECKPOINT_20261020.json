@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "status": "IN_PROGRESS_NOT_MERGE_READY",
+  "branch": "codex/g4-r1-completion",
+  "wine_commit": "f5f4312cdf672f8bf3ad3fbd33ff97a96d1dff7c",
+  "classification": "Isolated Xvfb software-renderer functional controls, not physical GPU acceptance",
+  "evidence_root": "/var/tmp/wex-g4-tree-20261020",
+  "build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+  "configure_archs": "i386,x86_64",
+  "dll_sha256": {
+    "x86_64/dcomp.dll": "23be6d275bdb59476ce1d10d47229e8bcbb9b48c638fe6581fcafd52d76fdd5f",
+    "i386/dcomp.dll": "b43fe945f8ac1d3b43e3075ceaae572ad0965b87d0c752fd0d2d4648a281c267",
+    "x86_64/dxgi.dll": "5b8789f36fd7bb5e8bab35bc46b8d96be4b8dc75f21a14030816b153d9949514",
+    "i386/dxgi.dll": "5ce2f4fc88163a3461b64575536dee0ecc84b19f47e67eb11c4dc2d0970f80da",
+    "x86_64/d3d11.dll": "a1c51ecd3ec5c8af92517b39ed1e652b1d690340f52f93905f920c14ec93a22a",
+    "i386/d3d11.dll": "36d00472e61926c77c235e11101922efec34b41b76235035cb4fd41ae161abcc",
+    "x86_64/wined3d.dll": "a543bcf454de95036b98e34e0507ddf4bfba72536e0f551a1eac9f638c604f68",
+    "i386/wined3d.dll": "6df70e1a11c157e9e55d2cc1a1c9f8b166c37576324ec3e1ab723de8fae54210"
+  },
+  "controls": {
+    "video-cap-positive-gl": {
+      "status": "PASS",
+      "required_groups_per_arch": 15,
+      "x86_64_probe_sha256": "8b9fa0ba04e183b1037e5dcec9da44a9750b971ebda27007dee38d18b86473db",
+      "i686_probe_sha256": "f1707f49313fdac966a017fcb1198904b214bd20cabef3f62841023a71b6c157"
+    },
+    "video-cap-positive-vk": {
+      "status": "PASS",
+      "required_groups_per_arch": 15,
+      "icd": "/usr/share/vulkan/icd.d/lvp_icd.json",
+      "x86_64_probe_sha256": "12ecdd4aaf7227c9adcedbc2b657b80e2e9207c4cab0b6f1b018ce771e86052b",
+      "i686_probe_sha256": "85168f9451c66339d4148a5173d17f1e729de53cfa91b43e751dbbfe3160b652"
+    },
+    "video-cap-negative-gl": {"status": "EXPECTED_FAIL_BOTH_ARCHS", "wine_commit": "6b96899", "reason": "VideoDevice1 exposed without VideoContext1"},
+    "video-cap-full-suite-gl": {"status": "PASS_BOTH_ARCHS", "scope": "G0-G3 plus eleven G3 ordering controls"},
+    "gpu-cap-pacing-gl": {"status": "PASS_BOTH_ARCHS", "groups_per_arch": 5, "wine_commit": "6b96899"},
+    "video-cap-upstream-gl": {
+      "status": "FAIL_BOTH_ARCHS",
+      "dxgi_exit": 67,
+      "dxgi_assertions": 14468,
+      "dxgi_failures": 67,
+      "dxgi_skips": 46,
+      "d3d11_exit": 5,
+      "d3d11_parent_final_summary": false
+    },
+    "webview2-default-gl": {"status": "FAIL", "wine_commit": "6b96899", "frames": 0, "reason": "Repeated startup GPU breakpoint; VideoContext1 QI failed"},
+    "webview2-video-cap-gl": {"status": "FAIL", "frames": 83, "reason": "Intermittent progress; Skia backend format fatal/GPU restarts"},
+    "webview2-video-cap-vk": {"status": "FAIL", "frames": 474, "gpu_crashes": 3, "fatal_errors": 3, "note": "Reanalysis rejects frame-only false positive"},
+    "webview2-vk-strict": {"status": "FAIL", "host_exit": 0, "diagnostic_exit": 4, "frames": 463, "gpu_crashes": 3, "fatal_errors": 3},
+    "native_visual_control": {"status": "BLOCKED", "reason": "Sample points obscured by another HWND"},
+    "standalone_angle_probe": {"status": "BLOCKED_BEFORE_EXECUTION", "reason": "Selected runtime has no standalone EGL/GLES DLLs"},
+    "classic_luna_x11_wayland_hardware": {"status": "NOT_RUN", "scope": "Actual desktop/theme states, real Wayland and physical old-Intel/AMD/Nvidia matrix"}
+  },
+  "private_runtime": {
+    "version": "155.0.4283.45",
+    "cab_sha256": "ec533bf1b7354d288703cf821a2d640d0130108224f93e330bb9c09faf3f8010",
+    "msedgewebview2_exe_sha256": "46b3c6ac9169416cc2ee76b23ee3d9db0eb8daefb914b1d9cc0f5d2387b033ac",
+    "host_exe_sha256": "5a5880c176362044ae3bb2064a6727927eb21ca743915a5cb085f413592e958f",
+    "loader_dll_sha256": "3426dcc55fdfb8b5e7ac623cf33b4ccf283fbf68a0c5a65bddfdb4d749a8abee",
+    "payloads_in_git_or_iso": false,
+    "sandbox_bypass_requested": false,
+    "sandbox_enforcement_proven": false
+  },
+  "remaining_gates": [
+    "Actual ANGLE/Skia renderable-format and SharedImage failure",
+    "Interpolation/border/antialias behavior and underlying HWND background preservation",
+    "Full transaction/backend-failure and lifecycle fault coverage",
+    "Fence registration races, process-death cleanup and broader GPU ordering",
+    "Legacy shared-resource/upstream-suite failures",
+    "Efficient cross-process GPU sharing and coherent optional DXVK interop",
+    "Real consumer pixels, input, resize, sandbox-enabled behavior and process cleanup",
+    "Actual Classic/Luna, X11 compositor OFF/ON, Wayland and physical target hardware"
+  ]
+}

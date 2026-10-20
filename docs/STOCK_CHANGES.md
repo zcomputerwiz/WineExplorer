@@ -1,5 +1,17 @@
 # Changes to stock Wine / third-party code
 
+## G4 honest newer video-interface exposure (2026-10-20)
+
+`dlls/d3d11/device.c`: do not advertise ID3D11VideoDevice1 while the matching
+VideoContext1 is absent and VideoDevice1-only entry points are unimplemented.
+The base ID3D11VideoDevice remains available. This repairs a real Chromium
+startup invariant, not video decoding/HDR support. A before/after regression
+fails on both architectures before the change and passes afterward; all 15
+custom correctness groups pass on both software GL/Vulkan architectures.
+The default WebView2 run gets past its initial video-interface CHECK and
+reaches a different Skia backend-format fatal error. G4 is still incomplete;
+no consumer acceptance or security/sandbox enforcement is inferred.
+
 ## G4 opaque retained OpenGL delivery (2026-10-20)
 
 `dlls/wined3d/{swapchain.c,wined3d_private.h,wined3d.spec}`,

@@ -261,3 +261,112 @@ the breakpoint stack still needs tracing. Token claims/integrity stubs also
 appear; sandbox request flags do not prove enforcement. No bypass was applied.
 All matching owned Wine servers exited and Xvfb was terminated; the private
 prefix/profile/logs remain outside Git for diagnosis.
+
+## Video capability mismatch fixed; next real-consumer blocker
+
+The actual immediate context lacks VideoContext1, but the device advertised
+VideoDevice1 and its newer methods were unimplemented. Chromium's
+[startup capability check](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/ui/gl/direct_composition_support.cc)
+requires the paired context after VideoDevice1 QI succeeds. The original runner's
+`--trace-exceptions` control (`webview2-exception-gl/`) consistently records
+STATUS_BREAKPOINT immediately after context QI returns E_NOINTERFACE, with
+RAX=0x80004002. This supports the source-level diagnosis; no native stack symbols
+were obtained and no proprietary assembly/source is committed.
+
+Stop advertising the unsupported VideoDevice1 interface, preserving the base
+video device and ordinary D3D interfaces. Re-enable only with a real coherent
+implementation, not a stub interface or a browser-only flag. This does not add
+HDR, video processors or decoders. The regression also queries through the base
+video interface to check consistent identity/exposure and failure outputs:
+
+- `video-cap-negative-gl/`: both architectures FAIL before the fix:
+  base/video1 QI S_OK, context1 E_NOINTERFACE.
+- `video-cap-positive-gl/` and `video-cap-positive-vk/`: all **15** groups PASS
+  on both architectures after the fix (explicit software Vulkan ICD).
+
+`webview2-video-cap-gl/` gets past that initial startup check. It still FAILS:
+navigation succeeds, 23 samples, only 83 animation frames with intermittent late
+progress, repeated GPU crashes. The new fatal is
+`skia_output_surface_impl.cc:1285`: invalid backend format for color type 4,
+732x486, default GL framebuffer; SharedImage SkSurface creation also fails.
+[Upstream characterization code](https://raw.githubusercontent.com/chromium/chromium/main/components/viz/service/display_embedder/skia_output_surface_impl.cc)
+identifies the next area to trace: ANGLE/Skia renderable-format capability
+reporting and actual framebuffer/SharedImage creation, not another fake success.
+Current upstream source is guidance, not an exact source build of Microsoft's
+cached runtime. Default browser/security flags were unchanged. Recorded process
+maps identify the loaded builtin graphics stack; no native DXVK was injected.
+
+The optional owned-Xvfb screenshots at 8/18 seconds reveal a diagnostic console
+obscuring much of a blank host window. They do NOT establish presented-content
+correctness. Preserve them privately, not in the theme/ISO/Git. The runner now
+returns diagnostic failure for missing/stalled/intermittent frames even when
+the host exits 0, and explicitly never certifies G4 on a diagnostic success.
+The first full/exception runs used the older runner; assess their recorded
+animation state rather than treating their launcher exit as acceptance.
+
+One new test compile attempt (`video-cap-before-gl/`) referenced the G3-only
+`create_device` helper; no PE ran. Replaced it with direct D3D11CreateDevice,
+then obtained the two-architecture negative/positive controls above. A source
+inspection incorrectly guessed `dlls/d3d11/video.c` and `dlls/dcomp/main.c`;
+implementations are in device.c. No missing file was counted as test evidence.
+
+Final video-capability checkpoint Wine `f5f4312`:
+
+- `video-cap-full-suite-gl/`: G0-G3 plus eleven ordering controls PASS for both
+  PEs after rebuilding d3d11. Four harness unit tests PASS again.
+- `video-cap-upstream-gl/`: DXGI still exits 67 with 67 failures / 46 skips,
+  14,468 assertions on both architectures; d3d11 still exits 5 at the inherited
+  legacy-shared-resource failure. No full-suite success is claimed.
+- `webview2-video-cap-vk/`: explicit lavapipe still records three GPU crashes,
+  three fatal Skia errors, seven SkSurface failures and one shared-context
+  failure. Its 474 animation frames / five late deltas of 60 do **not** make it
+  a pass. Screenshots are partly obscured by its diagnostic console.
+
+The analyzer now separates animation state from `diagnostic_passed`: successful
+navigation, sustained frames and a Chromium log are required, and GPU crashes,
+fatal logs, SkSurface/shared-context errors disqualify the run. Five new unit
+tests PASS, including animation-after-crash and missing-log false positives.
+Reanalysis of `webview2-video-cap-vk/` fails correctly despite frame progress;
+the earlier results.json reflects the older frame-only classifier. A fresh run
+with the strict classifier is retained separately in `webview2-vk-strict/`.
+Even diagnostic success is not pixel/sandbox/hardware/G4 certification.
+
+An attempted standalone ANGLE format probe was BLOCKED during file preflight:
+the selected fixed WebView2 runtime has no separate libEGL.dll/libGLESv2.dll.
+No ANGLE PE was run. Removed the untested repo prototype/runner mode rather
+than substituting unrelated ANGLE DLLs and misrepresenting the consumer stack.
+Future format diagnostics must inspect the actual embedded implementation or
+use a separately identified consumer/build and report that distinction.
+
+Fresh strict control `webview2-vk-strict/` confirms the failure exit path:
+host exit 0, diagnostic exit 4, 463 frames, three GPU crashes/fatal errors,
+seven SkSurface errors and one failed shared-context creation. Cleanup records
+no remaining matching server. No active consumer/test process is intentionally
+left running while waiting for the account usage-window reset.
+
+## Resume after the usage checkpoint
+
+At 09:49 Central on October 20 the account tool reported 79% of the five-hour
+window used, reset 13:17:51 Central. Checkpoint/push before deferring this chat
+until after reset. Do not spend its unused one-time reset credit. No master
+merge is authorized by this incomplete evidence; no OOBE/token-worker files
+were changed. Machine-readable hashes/statuses are in
+CHROMIUM_GRAPHICS_G4_CHECKPOINT_20261020.json.
+
+Next work is the actual embedded ANGLE/Skia renderable-format failure, with the
+default consumer/security flags preserved. Current builtin Wine revision is
+`f5f4312`; parent branch is `codex/g4-r1-completion`. Reuse the owned build and
+private lawful runtime instead of downloading/bundling another payload:
+
+```sh
+unshare --mount --net --propagation private sh -c 'mount --bind /var/tmp/wex-g4-r1-repair-20261020/x-sockets /tmp/.X11-unix; python3 -B /var/tmp/wex-g3-repair-20261018/clean-source/scripts/check-g4-webview2.py --wine-build /var/tmp/wex-g3-repair-20261018/clean-source/build/wow64 --runtime /var/tmp/wex-g4-tree-20261020/private-runtime/runtime/Microsoft.WebView2.FixedVersionRuntime.155.0.4283.45.x64 --host /var/tmp/wex-g4-tree-20261020/private-runtime/webview2-probe.exe --output-dir /var/tmp/wex-g4-tree-20261020/NEW-UNIQUE-OUTPUT --trace-exceptions'
+```
+
+Output must be new. Use explicit lavapipe arguments for a separate Vulkan
+control, never infer hardware from the synthetic GTX 470 adapter string.
+Do not rebuild the shared owned build while a probe uses it. After targeted
+repairs, rerun both architectures' 15 correctness groups and G0-G3, pacing and
+upstream controls without weakening assertions; then finish remaining R1-R4
+requirements listed above, particularly actual desktop/theme/Wayland/hardware
+and security-enabled real consumer coverage. No-sandbox/single-process/GPU
+sandbox bypasses or unreviewed token merges cannot establish acceptance.

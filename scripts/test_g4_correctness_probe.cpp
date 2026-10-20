@@ -1022,6 +1022,32 @@ done:
     return ok;
 }
 
+static bool video_capability_consistency()
+{
+    ID3D11Device *device = NULL;
+    ID3D11DeviceContext *context = NULL;
+    ID3D11VideoDevice *video = NULL;
+    ID3D11VideoDevice1 *video1 = NULL, *via_video = NULL;
+    ID3D11VideoContext1 *context1 = NULL;
+    if (FAILED(D3D11CreateDevice(NULL,D3D_DRIVER_TYPE_HARDWARE,NULL,0,NULL,0,
+            D3D11_SDK_VERSION,&device,NULL,&context))) return false;
+    HRESULT base_hr = device->QueryInterface(__uuidof(ID3D11VideoDevice),(void **)&video);
+    HRESULT device_hr = device->QueryInterface(__uuidof(ID3D11VideoDevice1),(void **)&video1);
+    HRESULT context_hr = context->QueryInterface(__uuidof(ID3D11VideoContext1),(void **)&context1);
+    HRESULT nested_hr = video ? video->QueryInterface(__uuidof(ID3D11VideoDevice1),(void **)&via_video)
+                              : E_NOINTERFACE;
+    printf("VIDEO_CAPS base=%08lx device1=%08lx context1=%08lx via_base=%08lx\n",
+            (unsigned long)base_hr,(unsigned long)device_hr,(unsigned long)context_hr,(unsigned long)nested_hr);
+    // Existing base-video support must survive. Newer video-device exposure
+    // implies the paired context; failing QI must clear outputs consistently.
+    bool ok = base_hr == S_OK && video && device_hr == nested_hr
+            && (device_hr == S_OK ? video1 && via_video && context_hr == S_OK && context1
+                                 : device_hr == E_NOINTERFACE && !video1 && !via_video);
+    release(context1); release(via_video); release(video1); release(video);
+    release(context); release(device);
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && !strcmp(argv[1], "--native-visual-control"))
@@ -1059,6 +1085,7 @@ int main(int argc, char **argv)
         {"fence_capacity_and_reclaim",fence_capacity_and_reclaim},
         {"opaque_retained_gpu_delivery",opaque_retained_gpu_delivery},
         {"opaque_multilayer_gpu_delivery",opaque_multilayer_gpu_delivery},
+        {"video_capability_consistency",video_capability_consistency},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;

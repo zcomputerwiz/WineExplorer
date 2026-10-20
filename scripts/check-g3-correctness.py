@@ -69,7 +69,8 @@ def main():
                         'retained_changing_frame_pixels', 'retained_formats_resize_and_lifetime',
                         'retained_nested_group_pixels', 'concurrent_commit_and_device_lifetime',
                         'multi_target_transactions', 'reparented_tree_lifetime', 'fence_capacity_and_reclaim',
-                        'opaque_retained_gpu_delivery', 'opaque_multilayer_gpu_delivery'),
+                        'opaque_retained_gpu_delivery', 'opaque_multilayer_gpu_delivery',
+                        'video_capability_consistency'),
                         help='Run one named G4 regression for controlled before/after comparisons')
     parser.add_argument('--upstream-tests', action='store_true',
                         help='Run built upstream d3d11/dxgi suites for both architectures; retain failures')
@@ -206,7 +207,8 @@ def main():
                                 'reparented_tree_lifetime=PASS',
                                 'fence_capacity_and_reclaim=PASS',
                                 'opaque_retained_gpu_delivery=PASS',
-                                'opaque_multilayer_gpu_delivery=PASS')
+                                'opaque_multilayer_gpu_delivery=PASS',
+                                'video_capability_consistency=PASS')
                 if args.g4_case:
                     required = (args.g4_case + '=PASS',)
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
