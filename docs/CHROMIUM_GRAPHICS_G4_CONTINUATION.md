@@ -158,6 +158,43 @@ are still relevant to the full transaction acceptance gate.
 
 ## Failed commands and workarounds
 
+Additional controls at Wine `a1950f5`:
+
+- Eleven groups PASS on both software Vulkan PEs:
+  `multitarget-vk/`, selected `/usr/share/vulkan/icd.d/lvp_icd.json`.
+- All five pacing controls PASS for both PEs: `pacing-gl/`.
+- Original G0-G3 suites and eleven-case G3 ordering controls PASS for both PEs:
+  `full-suite-bounded-gl/`, including `full-suite.json`. Its reported loop FPS
+  is not displayed/physical FPS evidence.
+- Final upstream rerun `upstream-final-gl/` reproduces DXGI exit 67 / d3d11
+  exit 5 on both PEs; these suites remain failed, not waived by custom probes.
+- The new `--g4-case reparented_tree_lifetime` control FAILS at Wine `e29870e`
+  on BOTH PEs with `REPARENT_LEAK refs=1`, and PASSES at `a1950f5` on both.
+  Logs: `prior-reparent-gl/`, `reparent-positive-gl/`. Baseline source was
+  staged only in the owned native lab; an EXIT trap restored/rebuilt current
+  source. `cmp` verified restoration before the positive run.
+- `--g4-case fence_capacity_and_reclaim` PASSES on both PEs in
+  `fence-capacity-gl/`: 64 live observers, honest 65th registration failure,
+  synchronous slot reclamation with a pending waiter, retry, broadcast to all
+  64 distinct thresholds, duplicate-handle survival and repeated late events.
+  This does NOT yet prove deterministic registration races or process-death
+  reclamation. The runner now finishes both architecture controls before failing.
+
+The legacy G0-G3 harness initially timed out at 240 seconds during 32-bit G0
+(`full-suite-gl/`). Its subprocess capture had unbounded pipe-EOF waits.
+Changed `run_probe` to wait on the PE with a 90-second deadline and read retained
+file descriptors instead; preserved explicit caller builtin overrides. Four
+Wine-free unit tests cover JSON, failed exits, timeout/owned-child termination,
+and preserving the selected DLL stack. The full suite then completed unchanged
+in its assertions. Logs remain for both the timeout and passing rerun.
+
+Read-only VM inventory found an existing WebView2 155.0.4283.45 lab on
+WineExplorer-VM (already running). Approval review blocked copying its cached
+proprietary runtime CAB/host/loader into an isolated host Temp cache as a reverse
+transfer/payload disclosure risk. No transfer was performed; explicit user
+approval has been requested while independent checks continue. No workaround
+transfer, vendor download, VM restart/reset, or Git/ISO payload inclusion occurred.
+
 - Non-escalated `git status --short --branch` failed to read
   `.git/modules/wexcomp` (`Permission denied`). Repeated with approved elevated
   execution; worktree was clean before graphics changes.

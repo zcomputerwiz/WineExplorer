@@ -54,10 +54,26 @@ def run_probe(exe_path: Path, wine_bin: str = "wine") -> dict:
 
     env = os.environ.copy()
     env["WINEDEBUG"] = "-all"
-    env["WINEDLLOVERRIDES"] = "mscoree,mshtml=;winemenubuilder.exe=d"
+    env.setdefault("WINEDLLOVERRIDES", "mscoree,mshtml=;winemenubuilder.exe=d")
 
     cmd = [wine_bin, str(exe_path), "--json"]
-    res = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    # Wine helpers may inherit stdout past the PE's exit. Waiting for pipe EOF
+    # can hang a completed probe; wait for the actual child, then read files.
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as out, \
+            tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
+        process = subprocess.Popen(cmd, env=env, stdout=out, stderr=err)
+        timed_out = False
+        try:
+            code = process.wait(timeout=90)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process.kill()
+            code = process.wait(timeout=5)
+        out.seek(0)
+        err.seek(0)
+        res = subprocess.CompletedProcess(cmd, code, out.read(), err.read())
+        if timed_out:
+            raise RuntimeError(f"Probe timed out after 90 seconds: {cmd}\n{res.stderr}\n{res.stdout}")
     if res.returncode != 0:
         raise RuntimeError(
             f"Probe execution failed (exit code {res.returncode}):\n{res.stderr}\n{res.stdout}"

@@ -815,6 +815,56 @@ done:
     return ok;
 }
 
+static bool fence_capacity_and_reclaim()
+{
+    Scene s;
+    ID3D11Device5 *device = NULL;
+    ID3D11DeviceContext4 *context = NULL;
+    ID3D11Fence *producer = NULL, *observers[65] = {};
+    HANDLE shared = NULL, duplicate = NULL, events[65] = {}, live_events[64] = {};
+    bool ok = false;
+    unsigned int live = 0;
+    if (!s.init()) return false;
+    if (FAILED(s.dev->QueryInterface(__uuidof(ID3D11Device5),(void **)&device))
+            || FAILED(s.ctx->QueryInterface(__uuidof(ID3D11DeviceContext4),(void **)&context))
+            || FAILED(device->CreateFence(0,D3D11_FENCE_FLAG_SHARED,__uuidof(ID3D11Fence),(void **)&producer))
+            || FAILED(producer->CreateSharedHandle(NULL,GENERIC_ALL,NULL,&shared))) goto done;
+    if (!DuplicateHandle(GetCurrentProcess(),shared,GetCurrentProcess(),&duplicate,0,FALSE,DUPLICATE_SAME_ACCESS)) goto done;
+    CloseHandle(shared); shared = NULL;
+    for (unsigned int i = 0; i < ARRAYSIZE(observers); ++i)
+    {
+        if (FAILED(device->OpenSharedFence(duplicate,__uuidof(ID3D11Fence),(void **)&observers[i]))
+                || !(events[i] = CreateEventA(NULL,FALSE,FALSE,NULL))) goto done;
+        HRESULT result = observers[i]->SetEventOnCompletion(i + 1,events[i]);
+        if (i < 64 ? result != S_OK : result != HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES)) goto done;
+    }
+    // Teardown must synchronously revoke the observer slot, even with a pending
+    // completion callback. The previously rejected observer can then retry.
+    release(observers[3]);
+    CloseHandle(events[3]); events[3] = NULL;
+    if (FAILED(observers[64]->SetEventOnCompletion(65,events[64]))) goto done;
+    for (unsigned int i = 0; i < ARRAYSIZE(events); ++i) if (events[i]) live_events[live++] = events[i];
+    if (live != 64 || FAILED(context->Signal(producer,128))
+            || WaitForMultipleObjects(live,live_events,TRUE,10000) != WAIT_OBJECT_0) goto done;
+    for (unsigned int i = 0; i < ARRAYSIZE(observers); ++i)
+        if (observers[i] && observers[i]->GetCompletedValue() < 128) goto done;
+    // Already-completed thresholds must signal immediately, including repeats.
+    for (unsigned int i = 0; i < ARRAYSIZE(observers); ++i)
+        if (observers[i] && (FAILED(observers[i]->SetEventOnCompletion(128,events[i]))
+                || WaitForSingleObject(events[i],0) != WAIT_OBJECT_0)) goto done;
+    ok = true;
+done:
+    for (unsigned int i = 0; i < ARRAYSIZE(observers); ++i)
+    {
+        release(observers[i]);
+        if (events[i]) CloseHandle(events[i]);
+    }
+    if (duplicate) CloseHandle(duplicate);
+    if (shared) CloseHandle(shared);
+    release(producer); release(context); release(device);
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && !strcmp(argv[1], "--native-visual-control"))
@@ -837,27 +887,30 @@ int main(int argc, char **argv)
         if (sscanf(argv[2], "%llx", &mapping) != 1 || sscanf(argv[3], "%llx", &ready) != 1) return 3;
         return observer_child((HANDLE)(UINT_PTR)mapping, (HANDLE)(UINT_PTR)ready);
     }
-    bool a = supported_pixels_and_transactions();
-    printf("supported_pixels_and_transactions=%s\n", a ? "PASS" : "FAIL");
-    bool b = unsupported_properties_fail_honestly();
-    printf("unsupported_properties_fail_honestly=%s\n", b ? "PASS" : "FAIL");
-    bool c = retained_multilayer_and_transform_pixels();
-    printf("retained_multilayer_and_transform_pixels=%s\n", c ? "PASS" : "FAIL");
-    bool d = cross_thread_completion_pixels();
-    printf("cross_thread_completion_pixels=%s\n", d ? "PASS" : "FAIL");
-    bool e = imported_fence_observers();
-    printf("imported_fence_observers=%s\n", e ? "PASS" : "FAIL");
-    bool f = retained_changing_frame_pixels();
-    printf("retained_changing_frame_pixels=%s\n", f ? "PASS" : "FAIL");
-    bool g = retained_formats_resize_and_lifetime();
-    printf("retained_formats_resize_and_lifetime=%s\n", g ? "PASS" : "FAIL");
-    bool h = retained_nested_group_pixels();
-    printf("retained_nested_group_pixels=%s\n", h ? "PASS" : "FAIL");
-    bool i = concurrent_commit_and_device_lifetime();
-    printf("concurrent_commit_and_device_lifetime=%s\n", i ? "PASS" : "FAIL");
-    bool j = multi_target_transactions();
-    printf("multi_target_transactions=%s\n", j ? "PASS" : "FAIL");
-    bool k = reparented_tree_lifetime();
-    printf("reparented_tree_lifetime=%s\n", k ? "PASS" : "FAIL");
-    return a && b && c && d && e && f && g && h && i && j && k ? 0 : 1;
+    const struct { const char *name; bool (*run)(); } cases[] = {
+        {"supported_pixels_and_transactions",supported_pixels_and_transactions},
+        {"unsupported_properties_fail_honestly",unsupported_properties_fail_honestly},
+        {"retained_multilayer_and_transform_pixels",retained_multilayer_and_transform_pixels},
+        {"cross_thread_completion_pixels",cross_thread_completion_pixels},
+        {"imported_fence_observers",imported_fence_observers},
+        {"retained_changing_frame_pixels",retained_changing_frame_pixels},
+        {"retained_formats_resize_and_lifetime",retained_formats_resize_and_lifetime},
+        {"retained_nested_group_pixels",retained_nested_group_pixels},
+        {"concurrent_commit_and_device_lifetime",concurrent_commit_and_device_lifetime},
+        {"multi_target_transactions",multi_target_transactions},
+        {"reparented_tree_lifetime",reparented_tree_lifetime},
+        {"fence_capacity_and_reclaim",fence_capacity_and_reclaim},
+    };
+    const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
+    bool matched = false, passed = true;
+    if (argc != 1 && !selected) return 2;
+    for (const auto &test : cases)
+    {
+        if (selected && strcmp(selected,test.name)) continue;
+        matched = true;
+        bool result = test.run();
+        printf("%s=%s\n",test.name,result ? "PASS" : "FAIL");
+        passed = result && passed;
+    }
+    return !matched ? 2 : passed ? 0 : 1;
 }

@@ -63,6 +63,13 @@ def main():
     parser.add_argument('--full-suite', action='store_true')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
+    parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions',
+                        'unsupported_properties_fail_honestly', 'retained_multilayer_and_transform_pixels',
+                        'cross_thread_completion_pixels', 'imported_fence_observers',
+                        'retained_changing_frame_pixels', 'retained_formats_resize_and_lifetime',
+                        'retained_nested_group_pixels', 'concurrent_commit_and_device_lifetime',
+                        'multi_target_transactions', 'reparented_tree_lifetime', 'fence_capacity_and_reclaim'),
+                        help='Run one named G4 regression for controlled before/after comparisons')
     parser.add_argument('--upstream-tests', action='store_true',
                         help='Run built upstream d3d11/dxgi suites for both architectures; retain failures')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
@@ -71,6 +78,8 @@ def main():
     args = parser.parse_args()
     if args.upstream_tests and (args.g4_correctness or args.full_suite):
         parser.error('--upstream-tests must be run separately from the custom probes')
+    if args.g4_case and not args.g4_correctness:
+        parser.error('--g4-case requires --g4-correctness')
     if not shutil.which('Xvfb'):
         parser.error('Xvfb is required; no existing display will be reused')
     sockets = Path('/tmp/.X11-unix')
@@ -169,6 +178,8 @@ def main():
                 prefixes.append(prefix)
                 env = dict(environment, WINEPREFIX=str(prefix))
                 command = [str(wine), str(exe)]
+                if args.g4_case:
+                    command.extend(('--case', args.g4_case))
                 run = run_logged(command, env, output, arch, 120)
                 required = ('ordinary_buffer_copy=PASS', 'ordinary_texture1d_copy=PASS',
                             'ordinary_texture2d_copy=PASS',
@@ -191,15 +202,16 @@ def main():
                                 'retained_nested_group_pixels=PASS',
                                 'concurrent_commit_and_device_lifetime=PASS',
                                 'multi_target_transactions=PASS',
-                                'reparented_tree_lifetime=PASS')
+                                'reparented_tree_lifetime=PASS',
+                                'fence_capacity_and_reclaim=PASS')
+                if args.g4_case:
+                    required = (args.g4_case + '=PASS',)
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
                 print(arch, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
-                if not passed:
-                    raise RuntimeError('Actual G3 regression failed: ' + arch)
-            if args.upstream_tests and not all(case['passed'] for case in result['cases'].values()):
-                raise RuntimeError('Upstream graphics tests failed; inspect each retained log and compare baseline')
+            if not all(case['passed'] for case in result['cases'].values()):
+                raise RuntimeError('Graphics regressions failed; inspect each retained log and compare baseline')
             if args.full_suite:
                 prefix = root / 'full-suite'
                 prefixes.append(prefix)
