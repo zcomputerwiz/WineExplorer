@@ -2,6 +2,14 @@
 # Gemini work order: complete G4 on the independently repaired baseline
 
 Date: 2026-10-19. Handoff branch in parent and Wine: codex/g4-correctness.
+Update 2026-10-20: the interrupted Gemini R1 reference slice was repaired and
+published on codex/g4-r1-completion (parent and Wine). Read
+CHROMIUM_GRAPHICS_G4_R1_REPAIR_REVIEW.md and its exact gitlink/evidence before
+continuing; use that newer baseline. Seven-group pixel controls now pass on both
+architectures with software GL/Vulkan, but the full R1 gate below is NOT complete.
+Do not reintroduce mutable-backbuffer/raw-pointer scenes or remove the remaining
+honest rejection guards to satisfy an old HRESULT-only probe. The report lists
+the precise unimplemented features and NOT RUN acceptance cells.
 Start from the published parent commit containing this file and its exact Wine
 gitlink. Read CHROMIUM_GRAPHICS_G4_REPAIR_REVIEW.md first. This is G4 completion,
 NOT authorization to label G4 done or move directly to G5.

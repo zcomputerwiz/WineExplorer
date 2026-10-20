@@ -107,6 +107,9 @@ static bool supported_pixels_and_transactions()
     if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())) return false;
     // Cropping must preserve the left red half, not squeeze red+blue into it.
     if (!s.present() || !s.pixel(56,8,RGB(255,0,0)) || !s.pixel(80,8,RGB(0,0,0))) return false;
+    clip.right = 31.25f;
+    if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())) return false;
+    if (!s.present() || !s.pixel(62,8,RGB(255,0,0)) || !s.pixel(63,8,RGB(0,0,0))) return false;
     clip = {0,0,0,0};
     if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())) return false;
     if (!s.present() || !s.pixel(40,8,RGB(0,0,0))) return false;
@@ -155,6 +158,7 @@ static bool unsupported_properties_fail_honestly()
     if (clip->SetTopLeftRadiusX((IDCompositionAnimation *)NULL) != E_NOTIMPL) goto done;
 
     if (s.visual->SetTransform(invalid) != E_INVALIDARG) goto done;
+    if (s.visual->SetCompositeMode(DCOMPOSITION_COMPOSITE_MODE_DESTINATION_INVERT) != E_NOTIMPL) goto done;
     if (s.visual->SetOffsetX((IDCompositionAnimation *)NULL) != E_NOTIMPL) goto done;
 
     // Cycle detection in visual hierarchy: adding parent as child of child must fail
@@ -228,6 +232,18 @@ static bool retained_multilayer_and_transform_pixels()
     // At (24, 24): v2 (Blue) is above s1.visual (Red)
     if (!s1.pixel(24, 24, RGB(0, 0, 255))) goto fail;
 
+    // A producer may render its NEXT frame without presenting it. Re-presenting
+    // another leaf must continue to show this leaf's last PRESENTED frame.
+    for (unsigned int i = 0; i < ARRAYSIZE(blue_pixels); ++i) blue_pixels[i] = 0xff00ff00;
+    s1.ctx->UpdateSubresource(pattern2, 0, NULL, blue_pixels, 64 * 4, 0);
+    s1.ctx->CopyResource(bb2, pattern2);
+    s1.ctx->Flush();
+    if (!s1.present() || !s1.pixel(24,24,RGB(0,0,255))) goto fail;
+    if (!present2() || !s1.pixel(24,24,RGB(0,255,0))) goto fail;
+    for (unsigned int i = 0; i < ARRAYSIZE(blue_pixels); ++i) blue_pixels[i] = 0xff0000ff;
+    s1.ctx->UpdateSubresource(pattern2, 0, NULL, blue_pixels, 64 * 4, 0);
+    if (!present2() || !s1.pixel(24,24,RGB(0,0,255))) goto fail;
+
     // Gate R1 Test 1: Re-present lower leaf (s1). It must NOT erase upper leaf (v2)!
     if (!s1.present()) goto fail;
     if (!s1.pixel(24, 24, RGB(0, 0, 255))) goto fail;
@@ -242,8 +258,29 @@ static bool retained_multilayer_and_transform_pixels()
     // Remove v2. Underneath was s1.visual (Red). Red must be restored at (24, 24)!
     if (FAILED(s1.visual->RemoveVisual(v2))) goto fail;
     if (FAILED(s1.comp->Commit()) || FAILED(s1.comp->WaitForCommitCompletion())) goto fail;
-    if (!s1.present()) goto fail;
+    // Commit itself restores the retained background without another Present.
     if (!s1.pixel(24, 24, RGB(255, 0, 0))) goto fail;
+
+    // A default LAYER-opacity group needs isolation, which this slice rejects.
+    // MULTIPLY is supported and must give a distinct, discriminating result.
+    {
+        IDCompositionEffectGroup *group = NULL;
+        IDCompositionVisual2 *root2 = NULL;
+        if (FAILED(s1.comp->CreateEffectGroup(&group))) goto fail;
+        if (FAILED(group->SetOpacity(0.5f)) || FAILED(s1.visual->SetEffect(group)))
+        { release(group); goto fail; }
+        release(group);
+        if (FAILED(s1.visual->AddVisual(v2, TRUE, NULL))) goto fail;
+        if (s1.comp->Commit() != E_NOTIMPL) goto fail;
+        if (!s1.pixel(24,24,RGB(255,0,0))) goto fail;
+        if (FAILED(s1.visual->QueryInterface(__uuidof(IDCompositionVisual2), (void **)&root2))) goto fail;
+        HRESULT mode_hr = root2->SetOpacityMode(DCOMPOSITION_OPACITY_MODE_MULTIPLY);
+        release(root2);
+        if (FAILED(mode_hr) || FAILED(s1.comp->Commit())) goto fail;
+        if (!s1.pixel(24,24,RGB(64,0,128)) || !s1.pixel(8,8,RGB(128,0,0))) goto fail;
+        if (FAILED(s1.visual->SetEffect(NULL)) || FAILED(s1.visual->RemoveVisual(v2))) goto fail;
+        if (FAILED(s1.comp->Commit())) goto fail;
+    }
 
     // Gate R1 Test 3: Opacity Blending
     // Add v2 back with an EffectGroup having 0.5f opacity.
@@ -277,6 +314,16 @@ static bool retained_multilayer_and_transform_pixels()
     // Inside clip -> Blue visible!
     if (!s1.pixel(32, 32, RGB(0, 0, 255))) goto fail;
 
+    // Ancestor clipping is not implemented by this leaf-mask reference slice.
+    // The failed transaction must leave the currently committed pixels intact.
+    {
+        D2D_RECT_F ancestor_clip = {0,0,8,8};
+        if (FAILED(s1.visual->SetClip(ancestor_clip))) goto fail;
+        if (s1.comp->Commit() != E_NOTIMPL) goto fail;
+        if (!present2() || !s1.pixel(32,32,RGB(0,0,255))) goto fail;
+        if (FAILED(s1.visual->SetClip((IDCompositionClip *)NULL))) goto fail;
+    }
+
     // Gate R1 Test 5: Affine Transform (reflection / negative scale)
     if (FAILED(s1.visual->RemoveVisual(v2))) goto fail;
     {
@@ -287,14 +334,105 @@ static bool retained_multilayer_and_transform_pixels()
         if (!s1.present()) goto fail;
         if (!s1.pixel(8, 8, RGB(0, 0, 255))) goto fail;
         if (!s1.pixel(56, 8, RGB(255, 0, 0))) goto fail;
+        D2D_MATRIX_3X2_F shear = {1,0.5f,0,1,0,0};
+        if (FAILED(s1.visual->SetTransform(shear)) || FAILED(s1.comp->Commit())) goto fail;
+        if (!s1.pixel(8,12,RGB(255,0,0)) || !s1.pixel(8,2,RGB(0,0,0))) goto fail;
+        D2D_MATRIX_3X2_F rotate = {0,1,-1,0,64,0};
+        if (FAILED(s1.visual->SetTransform(rotate)) || FAILED(s1.comp->Commit())) goto fail;
+        if (!s1.pixel(8,8,RGB(255,0,0)) || !s1.pixel(8,48,RGB(0,0,255))) goto fail;
     }
 
     release(v2); release(pattern2); release(bb2); release(sc2);
     return true;
 
 fail:
+    printf("retained_multilayer_failure\n");
     release(v2); release(pattern2); release(bb2); release(sc2);
     return false;
+}
+
+static bool retained_formats_resize_and_lifetime()
+{
+    Scene s;
+    if (!s.init() || FAILED(s.comp->Commit()) || !s.present()) return false;
+    if (!s.pixel(24,24,RGB(255,0,0))) return false;
+    for (int format = 0; format < 2; ++format)
+    for (int ignore = 0; ignore < 2; ++ignore)
+    {
+        IDXGISwapChain1 *sc = create_comp_swapchain(s.dev,64,64,
+                format ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM,
+                ignore ? DXGI_ALPHA_MODE_IGNORE : DXGI_ALPHA_MODE_PREMULTIPLIED);
+        IDCompositionVisual *visual = NULL;
+        ID3D11Texture2D *buffer = NULL;
+        ID3D11RenderTargetView *view = NULL;
+        bool ok = false;
+        const float color[] = {0,0,ignore ? 1.0f : 128.0f/255.0f,ignore ? 0.0f : 128.0f/255.0f};
+        if (!sc) return false;
+        if (FAILED(s.comp->CreateVisual(&visual)) || FAILED(visual->SetContent(sc))) goto cleanup;
+        if (FAILED(visual->SetOffsetX(16)) || FAILED(visual->SetOffsetY(16))) goto cleanup;
+        if (FAILED(sc->GetBuffer(0,__uuidof(ID3D11Texture2D),(void **)&buffer))) goto cleanup;
+        if (FAILED(s.dev->CreateRenderTargetView(buffer,NULL,&view))) goto cleanup;
+        if (FAILED(s.visual->AddVisual(visual,TRUE,NULL)) || FAILED(s.comp->Commit())) goto cleanup;
+        s.ctx->ClearRenderTargetView(view,color);
+        if (FAILED(sc->Present(0,0))) goto cleanup;
+        printf("FORMAT_STAGE format=%d ignore=%d initial\n",format,ignore);
+        if (!s.pixel(24,24,ignore ? RGB(0,0,255) : RGB(127,0,128))) goto cleanup;
+
+        // Reallocate the target surface after a real HWND resize without Commit.
+        if (!SetWindowPos(s.hwnd,NULL,0,0,360,300,SWP_NOMOVE|SWP_NOZORDER)) goto cleanup;
+        flush_messages();
+        printf("FORMAT_STAGE format=%d ignore=%d resized\n",format,ignore);
+        if (!s.present() || !s.pixel(24,24,ignore ? RGB(0,0,255) : RGB(127,0,128))) goto cleanup;
+        if (!s.pixel(300,240,RGB(0,0,0))) goto cleanup;
+
+        // Drop caller references before detaching: retained data must not use
+        // raw producer pointers after the visual releases its last reference.
+        release(view); release(buffer); release(sc);
+        if (FAILED(s.visual->RemoveVisual(visual)) || FAILED(s.comp->Commit())) goto cleanup;
+        release(visual);
+        ok = s.present() && s.pixel(24,24,RGB(255,0,0));
+cleanup:
+        if (visual) s.visual->RemoveVisual(visual);
+        s.comp->Commit();
+        release(view); release(buffer); release(sc); release(visual);
+        if (!ok) { printf("FORMAT_FAIL format=%d ignore=%d\n",format,ignore); return false; }
+    }
+    // One producer can appear twice in a target. Prepare/publish it once, while
+    // retaining both placements and restoring the underlying content on removal.
+    printf("FORMAT_STAGE shared_content\n");
+    {
+        IDCompositionVisual *copy = NULL;
+        if (FAILED(s.comp->CreateVisual(&copy))) return false;
+        bool ok = SUCCEEDED(copy->SetContent(s.sc)) && SUCCEEDED(copy->SetOffsetX(32))
+                && SUCCEEDED(s.visual->AddVisual(copy,TRUE,NULL)) && SUCCEEDED(s.comp->Commit())
+                && s.pixel(40,8,RGB(255,0,0));
+        if (SUCCEEDED(s.visual->RemoveVisual(copy))) s.comp->Commit();
+        release(copy);
+        if (!ok || !s.pixel(40,8,RGB(0,0,255))) return false;
+    }
+    // Deterministic allocation-policy failure: preparation must reject an
+    // oversized target BEFORE applying the staged placement change.
+    printf("FORMAT_STAGE preparation_failure\n");
+    {
+        RECT original;
+        if (!GetWindowRect(s.hwnd,&original) || FAILED(s.visual->SetOffsetX(32))) return false;
+        if (!SetWindowPos(s.hwnd,NULL,0,0,8300,300,SWP_NOMOVE|SWP_NOZORDER|SWP_NOSENDCHANGING)) return false;
+        flush_messages();
+        RECT oversized;
+        if (!GetClientRect(s.hwnd,&oversized)) return false;
+        printf("PREPARE_CLIENT %ld x %ld\n",oversized.right,oversized.bottom);
+        HRESULT rejected = s.comp->Commit();
+        printf("PREPARE_FAILURE_HR %08lx\n",(unsigned long)rejected);
+        if (!SetWindowPos(s.hwnd,NULL,0,0,original.right-original.left,original.bottom-original.top,
+                SWP_NOMOVE|SWP_NOZORDER)) return false;
+        flush_messages();
+        if (rejected != E_NOTIMPL || !s.present() || !s.pixel(8,8,RGB(255,0,0))) return false;
+        if (FAILED(s.visual->SetOffsetX(0.0f)) || FAILED(s.comp->Commit())) return false;
+    }
+    // Target destruction revokes the binding even with a live producing chain.
+    printf("FORMAT_STAGE target_release\n");
+    release(s.target);
+    return s.present();
 }
 
 struct CrossCommit { Scene *scene; HRESULT hr; };
@@ -434,5 +572,7 @@ int main(int argc, char **argv)
     printf("imported_fence_observers=%s\n", e ? "PASS" : "FAIL");
     bool f = retained_changing_frame_pixels();
     printf("retained_changing_frame_pixels=%s\n", f ? "PASS" : "FAIL");
-    return a && b && c && d && e && f ? 0 : 1;
+    bool g = retained_formats_resize_and_lifetime();
+    printf("retained_formats_resize_and_lifetime=%s\n", g ? "PASS" : "FAIL");
+    return a && b && c && d && e && f && g ? 0 : 1;
 }

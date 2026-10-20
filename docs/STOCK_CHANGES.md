@@ -1,5 +1,32 @@
 # Changes to stock Wine / third-party code
 
+## G4 R1 retained-reference repair (2026-10-20)
+
+`dlls/dcomp/device.c`, `dlls/dxgi/{factory.c,swapchain.c,dxgi_private.h}`,
+`dlls/wined3d/{swapchain.c,wined3d_private.h,wined3d.spec}`, and
+`include/wine/{dcomp_layer.h,wined3d.h,winedxgi.idl}`: preserve Gemini's unfinished
+retained renderer, then repair frame ownership and real delivery. Each producer
+retains a reference-counted copy of its last PRESENTED frame, not another
+producer's mutable rotating back buffer or an unowned swapchain pointer. Scene
+preparation allocates before active-state application; shared content is bound
+once. Commit repaints retained frames without consuming a producer back buffer.
+Target release revokes bindings; resize reallocates bounded reference surfaces.
+
+Composition preserves BGRA/RGBA and premultiplied-versus-ignored alpha metadata.
+CPU reference blending feeds Wine's real GL back drawable or Vulkan presentation
+image; scratch textures never impersonate a window drawable. Vulkan recreates a
+resized target before blitting instead of scaling into its stale extent. Leaf
+fractional/rounded masks and bounded affine transforms are retained at Commit.
+Preflight rejects ancestor clips, isolated non-unity LAYER groups, cross-device
+scenes and multiple rooted targets rather than accepting incorrect rendering.
+The extended private COM binding has a new IID; matched builtin DLLs are required.
+
+This is CPU readback/reference composition, NOT zero-copy/GPU composition,
+arbitrary application-background transparency, full R1/G4 acceptance, native DXVK
+interop or Chromium certification. Nearest/binary sampling and remaining gates
+are documented in CHROMIUM_GRAPHICS_G4_R1_REPAIR_REVIEW.md. Classic/Open Luna and
+real X11/Wayland/hardware regressions are not inferred from unchanged theme code.
+
 ## G4 independent correctness boundary (2026-10-19)
 
 Wine f3ecadd3 on codex/g4-correctness repairs shared fence notifications in

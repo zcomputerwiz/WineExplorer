@@ -153,7 +153,8 @@ def main():
                                 'retained_multilayer_and_transform_pixels=PASS',
                                 'cross_thread_completion_pixels=PASS',
                                 'imported_fence_observers=PASS',
-                                'retained_changing_frame_pixels=PASS')
+                                'retained_changing_frame_pixels=PASS',
+                                'retained_formats_resize_and_lifetime=PASS')
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}

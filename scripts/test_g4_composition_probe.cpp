@@ -149,7 +149,9 @@ static bool create_d3d_and_dcomp(HWND hwnd, ID3D11Device **d3d_dev, ID3D11Device
     return true;
 }
 
-static IDXGISwapChain1 *create_comp_swapchain(ID3D11Device *device, UINT width, UINT height)
+static IDXGISwapChain1 *create_comp_swapchain(ID3D11Device *device, UINT width, UINT height,
+        DXGI_FORMAT format = DXGI_FORMAT_B8G8R8A8_UNORM,
+        DXGI_ALPHA_MODE alpha = DXGI_ALPHA_MODE_PREMULTIPLIED)
 {
     IDXGIDevice *dxgi_dev = NULL;
     IDXGIAdapter *adapter = NULL;
@@ -166,13 +168,13 @@ static IDXGISwapChain1 *create_comp_swapchain(ID3D11Device *device, UINT width, 
     DXGI_SWAP_CHAIN_DESC1 desc = {};
     desc.Width = width;
     desc.Height = height;
-    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.Format = format;
     desc.SampleDesc.Count = 1;
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.BufferCount = 2;
     desc.Scaling = DXGI_SCALING_STRETCH;
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    desc.AlphaMode = alpha;
 
     factory->CreateSwapChainForComposition(device, &desc, NULL, &sc);
 

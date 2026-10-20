@@ -1,0 +1,479 @@
+{
+  "schema": 1,
+  "date": "2026-10-20",
+  "branch": "codex/g4-r1-completion",
+  "scope": "Repaired bounded CPU retained-reference slice; not full R1/G4 or browser/desktop acceptance",
+  "parent_base": "97c92930028802917ade95c381578ed3bcd290a0",
+  "saved_gemini_prototype_parent": "7d3142de",
+  "saved_gemini_prototype_wine": "aa8be2e",
+  "published_gemini_parent": "941e97f04f1789f814e1ee3f3492ad6e4aa4a310",
+  "published_gemini_wine": "26a2d8d575fe7e11a14520492c414e92c5d3157a",
+  "wine_commit": "0fd6cabcdd2a6047877ba67185b1732ee2b272d4",
+  "native_source": "/var/tmp/wex-g3-repair-20261018/clean-source",
+  "build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+  "private_evidence": "/var/tmp/wex-g4-r1-repair-20261020/evidence",
+  "configure": "../../wine/configure --enable-archs=i386,x86_64 --prefix=/usr/local --disable-tests",
+  "toolchain": "i686/x86_64 MinGW GCC 14-win32",
+  "renderer": {
+    "opengl": "Mesa 25.0.7-2+deb13u1 llvmpipe (LLVM 19.1.7, 256 bits); accelerated=no",
+    "vulkan": "explicit /usr/share/vulkan/icd.d/lvp_icd.json; functional software control",
+    "wine_adapter_warning": "Wine reports NVIDIA GeForce GTX 470; this is not evidence of a physical Nvidia GPU"
+  },
+  "source_comparison": {
+    "result": "PASS",
+    "wine_files": 10,
+    "project_test_files": 3,
+    "method": "cmp Windows checkout against actual native build source; all exit 0"
+  },
+  "sha256": {
+    "wine/dlls/dcomp/device.c": "820567bb7805963267071ce181811d60b63f81320274f21a8d1740b6beb04284",
+    "wine/dlls/dxgi/swapchain.c": "b69dbf885eb6b79f57b31bc7cd31d74ac6bff3b331248d39f58445f9bdd1a0fc",
+    "wine/dlls/dxgi/factory.c": "0814d004f6d19f398c26bdb3b2c530c0ae8aef46a832d2d6db42f8f833481cde",
+    "wine/dlls/dxgi/dxgi_private.h": "fb33fd1652f9030db88301d7d6dc0bdda723e36e730ed040741466a2bbf976f5",
+    "wine/dlls/wined3d/swapchain.c": "97553578d56bbde429deaf14b64754c549afe2ff956ef63bf328ccc7988c1793",
+    "wine/dlls/wined3d/wined3d.spec": "768aa13213d81374d0153e44e318f51e38f50d67303f69a999600958daf705f5",
+    "wine/dlls/wined3d/wined3d_private.h": "84c6f77586e2edf919a17b4a79d503b1926f6abefb00c295a9ae7a76dd020015",
+    "wine/include/wine/dcomp_layer.h": "384b025b5783186303a2ab2f52fa8c4a247a6bd20d09768214c0c6556be624a3",
+    "wine/include/wine/wined3d.h": "5f11f9f6e30eaab5caa7f61a9593fc1fa96ff7f755265f1f3a581cada5062b75",
+    "wine/include/wine/winedxgi.idl": "aeb1532cb7720da23968c638acf2ae0a39e4f827b596101e952563bb0cea6e02",
+    "scripts/check-g3-correctness.py": "55b1ed9070d357b622951b3f3a65db2c6bf351c59c98c29f5a6deb835cfcc26b",
+    "scripts/test_g4_correctness_probe.cpp": "bff233d7a3d939798c37f7f45d94074e9f89f5cd87db233492d37722b1bbeac2",
+    "scripts/test_g4_composition_probe.cpp": "378d2a5fe2cbaf1ceba39df4a59851614c86b79c0ac854ed89d63fe8c21b19c5",
+    "build/wow64/dlls/dcomp/x86_64-windows/dcomp.dll": "36e550a15030dfb9d8aecccd5543cd93afba3d18e75aac2d120608901e2c47bd",
+    "build/wow64/dlls/dxgi/x86_64-windows/dxgi.dll": "50721e4dd5a0451b3068d34a986f087cad79243498c6aef4c61c6daccb95f24d",
+    "build/wow64/dlls/wined3d/x86_64-windows/wined3d.dll": "912e4dfe9a718efd9e513ebeabda1cbcb91da78b508620622cab3be48486f38d",
+    "build/wow64/dlls/dcomp/i386-windows/dcomp.dll": "1e627e0b876540d7942531feb1000bf4781f17a462b093bc679d99e0df9c4793",
+    "build/wow64/dlls/dxgi/i386-windows/dxgi.dll": "47ef21b71fc0fcf7fd9e6162f7adede43c352af4724971987e247b738de80e36",
+    "build/wow64/dlls/wined3d/i386-windows/wined3d.dll": "314806346375d1069091d31f9f4b4848ac0259e5033f2fcc6979ea49ba4c7ed5",
+    "build/wow64/wine": "477df57788ca7cc54d3297cf7a455cd4220133cb4ffa845de24c2ab5c9c30867",
+    "build/wow64/server/wineserver": "a9ce0193c5b32cbe760fe6e4b66c02f747de775c30e914fa87e7687d1f31c6e5",
+    "build/wow64/config.log": "c2c6623f453307049a8dbf1ccd9855489231710e82ca98428950e4066554ed9a"
+  },
+  "runs": {
+    "gl": {
+      "wine_build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+      "uid": 0,
+      "classification": "Xvfb + software OpenGL functional control",
+      "cases": {
+        "x86_64": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/staged5-gl/g4-correctness-x86_64.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "89ea5e7161537f102ab689a19a127ace36ade763b60dd2c48bd5d7b64ff74ca5"
+        },
+        "i686": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/staged5-gl/g4-correctness-i686.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "cd4e9201a54e37116a28047bb87ea374294716afde8f1d5a0ff52a18e91b8afc"
+        }
+      },
+      "display": ":0",
+      "environment": {
+        "DISPLAY": ":0",
+        "WINE": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+        "WINESERVER": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/server/wineserver",
+        "WINEDLLOVERRIDES": "mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b",
+        "WINEDEBUG": "-all,+winediag",
+        "LIBGL_ALWAYS_SOFTWARE": "1",
+        "WINE_D3D_CONFIG": "renderer=gl"
+      },
+      "cleanup": [
+        {
+          "prefix": "/tmp/wex-g3-correctness-b1jez63l/x86_64",
+          "kill_exit": 1,
+          "wait_exit": 0,
+          "remaining_servers": []
+        },
+        {
+          "prefix": "/tmp/wex-g3-correctness-b1jez63l/i686",
+          "kill_exit": 0,
+          "wait_exit": 0,
+          "remaining_servers": []
+        }
+      ]
+    },
+    "vulkan": {
+      "wine_build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+      "uid": 0,
+      "classification": "Xvfb + explicitly selected Vulkan ICD functional control",
+      "cases": {
+        "x86_64": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/final-vk/g4-correctness-x86_64.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "7cd651ba7e1f83043c6a97be13848471a83133366a1f3cce9c936051873ca8fe"
+        },
+        "i686": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/final-vk/g4-correctness-i686.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "5d217ac474912a82bbd9d63d3ec76a1efd485f7ef6b4348b4fb8c9ac1ca51bb2"
+        }
+      },
+      "display": ":0",
+      "environment": {
+        "DISPLAY": ":0",
+        "WINE": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+        "WINESERVER": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/server/wineserver",
+        "WINEDLLOVERRIDES": "mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b",
+        "WINEDEBUG": "-all,+winediag",
+        "LIBGL_ALWAYS_SOFTWARE": "1",
+        "WINE_D3D_CONFIG": "renderer=vulkan"
+      },
+      "vulkan_icd": "/usr/share/vulkan/icd.d/lvp_icd.json",
+      "vulkan_icd_sha256": "9a6a0d616f3f2efc2d227f89653047e5330ff634b0519ffbf1b2c60dc1c0e0e7",
+      "cleanup": [
+        {
+          "prefix": "/tmp/wex-g3-correctness-_dpl12vx/x86_64",
+          "kill_exit": 1,
+          "wait_exit": 0,
+          "remaining_servers": []
+        },
+        {
+          "prefix": "/tmp/wex-g3-correctness-_dpl12vx/i686",
+          "kill_exit": 0,
+          "wait_exit": 0,
+          "remaining_servers": []
+        }
+      ]
+    },
+    "earlier": {
+      "wine_build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+      "uid": 0,
+      "classification": "Xvfb + software OpenGL functional control",
+      "cases": {
+        "x86_64": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/g3-full-gl/g3-ordering-x86_64.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "f3ec3abcddb1761eb433d420fea479bae96cd2e3961cd9ebf239c4d8a13a9d97"
+        },
+        "i686": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/g3-full-gl/g3-ordering-i686.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "86df4732933ad24699aa1a50809d8aa93028fc8d17079222be1d22355b2034a5"
+        }
+      },
+      "display": ":0",
+      "environment": {
+        "DISPLAY": ":0",
+        "WINE": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+        "WINESERVER": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/server/wineserver",
+        "WINEDLLOVERRIDES": "mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b",
+        "WINEDEBUG": "-all,+winediag",
+        "LIBGL_ALWAYS_SOFTWARE": "1",
+        "WINE_D3D_CONFIG": "renderer=gl"
+      },
+      "full_suite_exit_code": 0,
+      "cleanup": [
+        {
+          "prefix": "/tmp/wex-g3-correctness-9s1j7dzf/x86_64",
+          "kill_exit": 1,
+          "wait_exit": 0,
+          "remaining_servers": []
+        },
+        {
+          "prefix": "/tmp/wex-g3-correctness-9s1j7dzf/i686",
+          "kill_exit": 1,
+          "wait_exit": 0,
+          "remaining_servers": []
+        },
+        {
+          "prefix": "/tmp/wex-g3-correctness-9s1j7dzf/full-suite",
+          "kill_exit": 1,
+          "wait_exit": 0,
+          "remaining_servers": []
+        }
+      ]
+    },
+    "earlier_details": {
+      "g0_baseline": {
+        "x86_64": {
+          "probe1_d3d11": {
+            "device_created": true,
+            "hr": "0x00000000",
+            "driver_type": "HARDWARE",
+            "feature_level": "11_1",
+            "adapter": "NVIDIA GeForce GTX 470",
+            "vendor_id": 4318,
+            "device_id": 1741,
+            "dedicated_vram_bytes": 6174015488,
+            "swapchain_created": true,
+            "swapchain_hr": "0x00000000",
+            "present_succeeded": true,
+            "present_hr": "0x00000000"
+          },
+          "probe2_dcomp": {
+            "dll_loaded": true,
+            "dcomp_create_device_exported": true,
+            "dcomp_create_device_hr": "0x00000000",
+            "dcomp_create_device2_exported": true,
+            "dcomp_create_device2_hr": "0x00000000",
+            "dcomp_create_device3_exported": true,
+            "dcomp_create_device3_hr": "0x00000000",
+            "factory2_available": true,
+            "composition_swapchain_attempted": true,
+            "composition_swapchain_hr": "0x00000000"
+          },
+          "probe3_sharing": {
+            "shared_nt_texture_hr": "0x00000000",
+            "create_shared_handle_hr": "0x00000000",
+            "open_shared_resource1_hr": "0x00000000",
+            "keyed_mutex_texture_hr": "0x00000000",
+            "keyed_mutex_acquire_hr": "0x00000000",
+            "keyed_mutex_release_hr": "0x00000000",
+            "d3d11_device5_query_hr": "0x00000000",
+            "create_fence_hr": "0x00000000"
+          }
+        },
+        "i686": {
+          "probe1_d3d11": {
+            "device_created": true,
+            "hr": "0x00000000",
+            "driver_type": "HARDWARE",
+            "feature_level": "11_1",
+            "adapter": "NVIDIA GeForce GTX 470",
+            "vendor_id": 4318,
+            "device_id": 1741,
+            "dedicated_vram_bytes": 4294967295,
+            "swapchain_created": true,
+            "swapchain_hr": "0x00000000",
+            "present_succeeded": true,
+            "present_hr": "0x00000000"
+          },
+          "probe2_dcomp": {
+            "dll_loaded": true,
+            "dcomp_create_device_exported": true,
+            "dcomp_create_device_hr": "0x00000000",
+            "dcomp_create_device2_exported": true,
+            "dcomp_create_device2_hr": "0x00000000",
+            "dcomp_create_device3_exported": true,
+            "dcomp_create_device3_hr": "0x00000000",
+            "factory2_available": true,
+            "composition_swapchain_attempted": true,
+            "composition_swapchain_hr": "0x00000000"
+          },
+          "probe3_sharing": {
+            "shared_nt_texture_hr": "0x00000000",
+            "create_shared_handle_hr": "0x00000000",
+            "open_shared_resource1_hr": "0x00000000",
+            "keyed_mutex_texture_hr": "0x00000000",
+            "keyed_mutex_acquire_hr": "0x00000000",
+            "keyed_mutex_release_hr": "0x00000000",
+            "d3d11_device5_query_hr": "0x00000000",
+            "create_fence_hr": "0x00000000"
+          }
+        }
+      },
+      "g1_non_dcomp": {
+        "x86_64": {
+          "d3d11_device_created": true,
+          "driver_type": "HARDWARE",
+          "feature_level": "11_1",
+          "adapter": "NVIDIA GeForce GTX 470",
+          "vendor_id": 4318,
+          "device_id": 1741,
+          "parent_hwnd_created": true,
+          "child_hwnd_created": true,
+          "swapchain_created": true,
+          "swapchain_hr": "0x00000000",
+          "frames_rendered": 60,
+          "frames_presented": 60,
+          "last_present_hr": "0x00000000",
+          "resize_attempted": true,
+          "resize_succeeded": true,
+          "resize_hr": "0x00000000",
+          "elapsed_seconds": 0.1157,
+          "fps": 518.51
+        },
+        "i686": {
+          "d3d11_device_created": true,
+          "driver_type": "HARDWARE",
+          "feature_level": "11_1",
+          "adapter": "NVIDIA GeForce GTX 470",
+          "vendor_id": 4318,
+          "device_id": 1741,
+          "parent_hwnd_created": true,
+          "child_hwnd_created": true,
+          "swapchain_created": true,
+          "swapchain_hr": "0x00000000",
+          "frames_rendered": 60,
+          "frames_presented": 60,
+          "last_present_hr": "0x00000000",
+          "resize_attempted": true,
+          "resize_succeeded": true,
+          "resize_hr": "0x00000000",
+          "elapsed_seconds": 0.123,
+          "fps": 487.66
+        }
+      },
+      "g2_dcomp": {
+        "x86_64": {
+          "d3d11_device_created": true,
+          "d3d11_hr": "0x00000000",
+          "driver_type": "HARDWARE",
+          "feature_level": "11_1",
+          "adapter_description": "NVIDIA GeForce GTX 470",
+          "vendor_id": 4318,
+          "device_id": 1741,
+          "parent_hwnd_created": true,
+          "child_hwnd_created": true,
+          "dcomp_dll_loaded": true,
+          "dcomp_create_device_hr": "0x00000000",
+          "dcomp_entry_point_used": "DCompositionCreateDevice3",
+          "composition_swapchain_created": true,
+          "composition_swapchain_hr": "0x00000000",
+          "dcomp_target_created": true,
+          "dcomp_target_hr": "0x00000000",
+          "dcomp_visual_created": true,
+          "dcomp_visual_hr": "0x00000000",
+          "set_content_hr": "0x00000000",
+          "set_root_hr": "0x00000000",
+          "commit_hr": "0x00000000",
+          "commit_count": 1,
+          "frames_rendered": 60,
+          "frames_presented": 60,
+          "last_present_hr": "0x00000000",
+          "retained_tree_verified": true,
+          "resize_attempted": true,
+          "resize_succeeded": true,
+          "resize_hr": "0x00000000",
+          "elapsed_seconds": 0.3909,
+          "fps": 153.51
+        },
+        "i686": {
+          "d3d11_device_created": true,
+          "d3d11_hr": "0x00000000",
+          "driver_type": "HARDWARE",
+          "feature_level": "11_1",
+          "adapter_description": "NVIDIA GeForce GTX 470",
+          "vendor_id": 4318,
+          "device_id": 1741,
+          "parent_hwnd_created": true,
+          "child_hwnd_created": true,
+          "dcomp_dll_loaded": true,
+          "dcomp_create_device_hr": "0x00000000",
+          "dcomp_entry_point_used": "DCompositionCreateDevice3",
+          "composition_swapchain_created": true,
+          "composition_swapchain_hr": "0x00000000",
+          "dcomp_target_created": true,
+          "dcomp_target_hr": "0x00000000",
+          "dcomp_visual_created": true,
+          "dcomp_visual_hr": "0x00000000",
+          "set_content_hr": "0x00000000",
+          "set_root_hr": "0x00000000",
+          "commit_hr": "0x00000000",
+          "commit_count": 1,
+          "frames_rendered": 60,
+          "frames_presented": 60,
+          "last_present_hr": "0x00000000",
+          "retained_tree_verified": true,
+          "resize_attempted": true,
+          "resize_succeeded": true,
+          "resize_hr": "0x00000000",
+          "elapsed_seconds": 0.5336,
+          "fps": 112.45
+        }
+      },
+      "g3_sharing": {
+        "x86_64": {
+          "parent_device_created": true,
+          "shared_texture_created": true,
+          "tex_shared_handle_created": true,
+          "cross_device_open_succeeded": true,
+          "shared_fence_created": true,
+          "fence_shared_handle_created": true,
+          "child_spawned": true,
+          "fence_wait_succeeded": true,
+          "context_wait_succeeded": true,
+          "fence_completed_value": 1,
+          "child_exit_code": 0,
+          "child_render_verified": true,
+          "parent_render_verified": true,
+          "keyed_mutex_verified": true,
+          "keyed_mutex_timeout_verified": true,
+          "cross_device_keyed_mutex_verified": true,
+          "named_resource_verified": true,
+          "error_hr": "0x00000000"
+        },
+        "i686": {
+          "parent_device_created": true,
+          "shared_texture_created": true,
+          "tex_shared_handle_created": true,
+          "cross_device_open_succeeded": true,
+          "shared_fence_created": true,
+          "fence_shared_handle_created": true,
+          "child_spawned": true,
+          "fence_wait_succeeded": true,
+          "context_wait_succeeded": true,
+          "fence_completed_value": 1,
+          "child_exit_code": 0,
+          "child_render_verified": true,
+          "parent_render_verified": true,
+          "keyed_mutex_verified": true,
+          "keyed_mutex_timeout_verified": true,
+          "cross_device_keyed_mutex_verified": true,
+          "named_resource_verified": true,
+          "error_hr": "0x00000000"
+        }
+      }
+    },
+    "pacing": {
+      "wine_build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+      "uid": 0,
+      "classification": "Xvfb + software OpenGL functional control (G4B Presentation & Pacing)",
+      "cases": {
+        "x86_64": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/pacing-gl/test_g4_pacing_probe_x86_64.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "5faad4bfc3d2fe1b866bf8c38dc70574a59f6483395967e8ec5341ab2b7e8cad",
+          "stdout": "pacing_flip_backbuffer_indexing=PASS\npacing_frame_latency_waitable_object=PASS\npacing_occluded_minimized_pacing=PASS\npacing_composition_waitable_pacing_loop=PASS\npacing_non_waitable_swapchain_behavior=PASS\n"
+        },
+        "i686": {
+          "command": [
+            "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64/wine",
+            "/var/tmp/wex-g4-r1-repair-20261020/evidence/pacing-gl/test_g4_pacing_probe_i686.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "1da25ee9cea070b43b4dece8ceda8b55790c96bcd8863751ea936caeb0311ccc",
+          "stdout": "pacing_flip_backbuffer_indexing=PASS\npacing_frame_latency_waitable_object=PASS\npacing_occluded_minimized_pacing=PASS\npacing_composition_waitable_pacing_loop=PASS\npacing_non_waitable_swapchain_behavior=PASS\n"
+        }
+      }
+    }
+  },
+  "remaining": [
+    "Ancestor/nested clips and isolated non-unity LAYER opacity are rejected before active state changes",
+    "Multiple rooted targets and cross-device composition are rejected",
+    "Nearest/binary sampling; full interpolation/antialias and arbitrary application-background transparency are not certified",
+    "Accelerated/zero-copy composition, native DXVK interop and real Chromium/Electron/CEF/WebView2 acceptance pending",
+    "Upstream d3d11/dxgi suites NOT RUN: inherited build configured --disable-tests",
+    "Physical GPUs, real X11/Wayland desktop Classic/Open Luna taskbar/toolbars/tray matrix NOT RUN",
+    "No exhaustive fault-injection, concurrency/leak, idle-CPU or full R2 lifecycle proof"
+  ],
+  "cleanup": "All final runners exited 0; no owned Wine/Xvfb processes remain; no VM started or changed"
+}
