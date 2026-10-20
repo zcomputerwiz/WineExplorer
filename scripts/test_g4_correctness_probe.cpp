@@ -1095,6 +1095,53 @@ static bool present1_dirty_retention()
     return s.sc->Present1(0,0,&parameters) == E_NOTIMPL;
 }
 
+static bool bitmap_interpolation_transactions()
+{
+    Scene s;
+    if (!s.init()) return false;
+    D2D_MATRIX_3X2_F scale = {2,0,0,1,0,0};
+    if (FAILED(s.visual->SetTransform(scale)) || FAILED(s.comp->Commit()) || !s.present()
+            || !s.pixel(63,8,RGB(255,0,0)) || !s.pixel(64,8,RGB(0,0,255))) return false;
+    if (FAILED(s.visual->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR))
+            || !s.present() || !s.pixel(63,8,RGB(255,0,0))) return false;
+    // Pixel centers straddle the red/blue boundary by 1/4 and 3/4 texel.
+    // A property-only Commit must resample the retained image without Present.
+    if (FAILED(s.comp->Commit()) || !s.pixel(63,8,RGB(191,0,64))
+            || !s.pixel(64,8,RGB(64,0,191)) || !s.pixel(0,8,RGB(255,0,0))) return false;
+    IDCompositionVisual *group = NULL;
+    if (FAILED(s.comp->CreateVisual(&group))) return false;
+    bool ok = SUCCEEDED(group->AddVisual(s.visual,FALSE,NULL))
+            && SUCCEEDED(s.target->SetRoot(group))
+            && SUCCEEDED(group->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR))
+            && SUCCEEDED(s.visual->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_INHERIT))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(63,8,RGB(191,0,64));
+    ok = ok && SUCCEEDED(s.visual->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(63,8,RGB(255,0,0));
+    ok = ok && SUCCEEDED(s.visual->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_INHERIT))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(63,8,RGB(191,0,64));
+    ok = ok && s.visual->SetBitmapInterpolationMode((DCOMPOSITION_BITMAP_INTERPOLATION_MODE)2) == E_INVALIDARG
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(63,8,RGB(191,0,64));
+    DWORD pixels[64 * 64];
+    for (UINT y = 0; y < 64; ++y)
+        for (UINT x = 0; x < 64; ++x) pixels[y * 64 + x] = x < 32 ? 0x80800000 : 0x80000080;
+    s.ctx->UpdateSubresource(s.pattern,0,NULL,pixels,64 * 4,0);
+    ok = ok && s.present() && s.pixel(63,8,RGB(96,0,32)) && s.pixel(64,8,RGB(32,0,96));
+    ok = ok && SUCCEEDED(group->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_INHERIT))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(63,8,RGB(128,0,0));
+    for (UINT y = 0; y < 64; ++y)
+        for (UINT x = 0; x < 64; ++x)
+            pixels[y * 64 + x] = y < 32 ? (x < 32 ? 0xffff0000 : 0xff0000ff)
+                    : (x < 32 ? 0xff00ff00 : 0xffffffff);
+    scale._22 = 2;
+    s.ctx->UpdateSubresource(s.pattern,0,NULL,pixels,64 * 4,0);
+    ok = ok && SUCCEEDED(group->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR))
+            && SUCCEEDED(s.visual->SetTransform(scale)) && SUCCEEDED(s.comp->Commit()) && s.present()
+            && s.pixel(63,63,RGB(159,64,64)) && s.pixel(64,64,RGB(159,191,191))
+            && s.pixel(0,0,RGB(255,0,0));
+    release(group);
+    return ok;
+}
+
 static bool multisample_format_capabilities()
 {
     ID3D11Device *device = NULL;
@@ -1226,6 +1273,7 @@ int main(int argc, char **argv)
         {"video_capability_consistency",video_capability_consistency},
         {"multisample_format_capabilities",multisample_format_capabilities},
         {"present1_dirty_retention",present1_dirty_retention},
+        {"bitmap_interpolation_transactions",bitmap_interpolation_transactions},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;

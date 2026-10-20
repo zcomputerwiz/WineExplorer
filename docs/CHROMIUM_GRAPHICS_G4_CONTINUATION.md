@@ -557,3 +557,38 @@ Next R1 work: interpolation mode setters still return success without honoring
 LINEAR or validating enums. Microsoft documents nearest-neighbor as the root
 default, and INHERIT as each visual's default (not linear). Border/antialias,
 background/expose and the remaining R2-R4 gates above remain open.
+
+## Resumed: interpolation is no longer a successful no-op
+
+Wine `01ab041` validates NEAREST/LINEAR/INHERIT and snapshots/inherits the mode
+with the visual tree transaction. Default is INHERIT, resolved to nearest at
+the root, as documented by Microsoft's [setter contract](https://learn.microsoft.com/en-us/windows/win32/api/dcomp/nf-dcomp-idcompositionvisual-setbitmapinterpolationmode)
+and [enumeration](https://learn.microsoft.com/en-us/windows/win32/api/dcomptypes/ne-dcomptypes-dcomposition_bitmap_interpolation_mode).
+The reference compositor samples texel centers bilinearly, clamping four taps
+to the image and interpolating premultiplied components. This does NOT establish
+linear-light blending, soft-border AA or accelerated transformed composition.
+The existing integer-translated opaque unit-scale GL route remains valid for
+both filters because its samples land exactly on texel centers.
+
+Private scene layout changed; matched binding IID is now
+`bc193c8b-df4f-4c75-8a59-0ab8ffccdc0b` (older IID above is historical). Rebuilt
+all matched DComp/DXGI/WineD3D/D3D11 DLLs, both architectures, no mixed versions.
+
+- `resume-interpolation-negative-gl/`: both PEs FAIL the quarter-texel boundary:
+  expected RGB(191,0,64), actual pure red after LINEAR was accepted/committed.
+- `resume-interpolation-positive-gl/`: both PEs PASS inherited modes, explicit
+  child override, reset to INHERIT, invalid enum rejection, pending isolation,
+  retained Commit without Present, texel-edge clamps, premultiplied alpha and
+  two-axis four-color interpolation. Exact expected channel values, no tolerance.
+- `resume-interpolation-full-gl/`, `resume-interpolation-full-vk/`: all **18**
+  required groups PASS both PEs; Vulkan explicitly lavapipe.
+- `resume-interpolation-electron-lifecycle-gl/`: all seven real lifecycle checks
+  PASS, 34 samples / 541 post-reload frames, no GPU/Skia fatal/crash signatures.
+
+Read-only facility check: `/dev/dri` absent in Debian; glxinfo/Xvfb available,
+weston/vulkaninfo/wexcomp not on PATH. This does not prove those facilities are
+absent from the separate VM/project, only that this isolated WSL lab cannot be
+called an old Intel/AMD/Nvidia hardware acceptance cell. Actual desktop/theme
+and Wayland/wexcomp checks remain NOT RUN, not inferred from unchanged assets.
+An attempted read of nonexistent wined3d/fence.c failed; this branch's shared
+fence implementation is in d3d11/device.c. No production fence edit made here.

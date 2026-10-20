@@ -1,5 +1,24 @@
 # Changes to stock Wine / third-party code
 
+## G4 transactional bitmap interpolation (2026-10-20, resumed)
+
+`dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c`,
+`include/wine/{dcomp_layer.h,wined3d.h,winedxgi.idl}`: validate NEAREST/LINEAR/
+INHERIT, retain pending/active interpolation and resolve inheritance at Commit.
+Keep the documented root default nearest-neighbor. Reference composition now
+supports texel-center bilinear interpolation with clamped taps and premultiplied
+channels; integer-aligned unit-scale opaque GL scenes retain their existing
+GPU route because both filters sample identical texel centers there. Scaling,
+fractional transforms and alpha still use the labeled CPU reference fallback.
+
+The private scene layout changes, so its builtin binding IID is now
+`bc193c8b-df4f-4c75-8a59-0ab8ffccdc0b`; matched builtin DLLs required. No DXVK
+interop, linear-light blending, soft-border antialiasing or acceleration claim.
+Both PEs fail the new exact quarter-texel pixel test before the fix; afterward
+all 18 correctness groups pass on software GL/lavapipe, including inheritance,
+override/reset, pending edits, retained property-only Commit, both-axis sampling,
+edge clamping and premultiplied alpha. Real Electron lifecycle remains passing.
+
 ## G4 coherent Present1 damage preservation (2026-10-20, resumed)
 
 `dlls/dxgi/{swapchain.c,dxgi_private.h}`: retain two private GPU history
