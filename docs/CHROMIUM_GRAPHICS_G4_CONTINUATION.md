@@ -708,3 +708,13 @@ step. No OOBE/token work was touched. The automation lookup using CODEX_HOME
 failed because that variable was unset and PowerShell resolved /automations as
 D:\automations; explicit C:\Users\Owner\.codex\automations found the existing
 one-time continuation entry. No duplicate automation was created by that lookup.
+
+Usage checkpoint after publication: 78% of five-hour window used, 25% weekly;
+primary resets 2026-10-20 23:20:24 UTC (18:20:24 Central). Per the user's standing
+instruction, updated the EXISTING one-time thread continuation to 18:23 Central
+today, with the new source/status reports and per-run-socket launcher. Kept the
+unused full-reset credit untouched. Published code checkpoint is f43ec930 /
+Wine 273cacd; the follow-up documentation commit records this scheduling state.
+G4 remains incomplete and no master merge was performed. Next actionable source
+work and unavailable physical/desktop evidence are explicitly listed in the
+status report, not hidden by the passing isolated functional controls.
