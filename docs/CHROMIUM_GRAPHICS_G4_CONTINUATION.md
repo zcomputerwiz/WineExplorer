@@ -442,3 +442,84 @@ compile-only failure is `resume-msaa-negative-gl/`; the actual two-architecture
 negative control is the separately named rerun above. A premature read of the
 not-yet-created Electron log failed while compilation/preflight was pending;
 missing logs were not accepted as execution evidence.
+
+## Resumed: coherent Present1 damage repair
+
+The original Electron fixture can now freeze its DOM at x=160 after eight
+seconds (`--freeze-scene`); RAF counters continue, while capturePage is delayed
+until after the front-window screenshot. `resume-msaa-electron-frozen-gl/`
+showed a yellow stale damage patch on an otherwise green page despite no
+further DOM changes. This distinguishes stale preservation from an animated
+screenshot tearing artifact. Internal capturePage alone was not acceptance.
+
+`resume-dirty-negative-gl/` deterministically reproduces the underlying problem
+on both architectures: after BLUE and RED full frames, a GREEN-only dirty patch
+leaves outside pixels BLUE, not the last coherent RED. Present1 previously
+discarded its dirty/scroll metadata. The repair reconstructs the complement of
+the union of dirty rectangles from an independent previous-frame GPU image,
+then copies scrolled content excluding dirty rectangles. Full Presents also
+record coherent history. Two GPU images keep pending and accepted history
+separate. Existing ordered blits carry copied rectangle values; no caller
+pointers, new CPU readback, or per-frame completion wait are introduced.
+
+Per-swapchain Present/Resize serialization prevents history races. Successful
+resize invalidates it; final release frees it. TEST/minimized/unbound paths do
+not advance history. There is a deliberate bounded limit of 64 dirty rectangles
+(E_NOTIMPL beyond it). Single-sampled sequential/flip-sequential only; scroll
+requires flip-sequential. Memory cost is two full-size images, plus snapshot
+bandwidth each eligible frame. This is correctness-first, NOT zero-copy.
+
+The documented scroll example bounds the destination rectangle; its source is
+destination minus offset. This was tightened during review, with 64-bit clipping
+and a regression that distinguishes destination from source interpretation.
+See Microsoft's [Present parameters](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_present_parameters)
+and [presentation contract](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-2-presentation-improvements).
+No vendor implementation code was copied.
+
+- `resume-dirty-positive-gl/`: initial preservation PASS both PEs.
+- `resume-dirty-scroll-gl/`: initial scroll/invalid/TEST/extreme-offset controls
+  PASS both PEs; superseded by stricter destination assertions below.
+- `resume-dirty-full-gl/`, `resume-dirty-full-vk/`: all 17 groups PASS both PEs
+  before the destination-bound scroll audit; Vulkan explicitly software lavapipe.
+- `resume-dirty-destination-gl/`: all 17 groups PASS both PEs after that audit.
+- `resume-dirty-union-gl/`: expanded overlapping dirty-union and bounded-limit
+  assertions PASS both PEs on the final production source.
+- `resume-dirty-destination-vk/`: all 17 groups, including expanded dirty-union
+  and destination-scroll assertions, PASS both PEs with explicit lavapipe.
+- `resume-dirty-g0-g3/`: G0-G3 and all 11 ordering groups PASS both PEs (before
+  the scroll-only audit); `resume-dirty-pacing/`: five pacing groups PASS both
+  PEs on final production source. Corrected stale probe headers: their assertions
+  check logical D3D11 index 0, NOT physical 0/1/2 cycling.
+- `resume-dirty-electron-frozen-gl/`: 1,140 frames, 24 samples, no crash/fatal/
+  SkSurface/shared-context signatures; the front-window image has one square,
+  correct frozen text and a uniform background, unlike the negative control.
+- `resume-dirty-webgl-gl/`: 540 frames, 21 samples, no fatal/crash signatures;
+  front-window image now has one square and uniform background. These real
+  consumer runs precede only the scroll-coordinate audit; no browser security
+  flags changed, and the sandbox was requested, not proven enforced.
+- `resume-dirty-upstream/`: still FAIL, not waived: DXGI exit 67 / 67 failures /
+  46 skipped both PEs (14,464 x64, 14,468 i686 assertions); D3D11 exit 5 both
+  PEs at the legacy shared-resource failure. Before this repair DXGI also had
+  67 failures and D3D11 exited 5. Representative refresh/fullscreen failures
+  match; small assertion-count variation is retained, not called a clean suite.
+
+Published Wine repair: `498b3029e8200802cfe675f2499908dc9e875124`, branch
+`codex/g4-r1-completion`. The earlier checkpoint JSON is an immutable pre-reset
+snapshot at f5f4312, NOT current HEAD. This section supersedes its current-status
+description; no old evidence is relabeled as this newer build.
+
+All private screenshots/runtime binaries stay outside Git and the ISO. These
+results repair a real consumer output defect but do not establish Classic/Luna,
+X11 compositor OFF/ON, Wayland, physical GPU, full lifecycle or G4 acceptance.
+
+Failed commands retained for this resumed step: unprivileged git status cannot
+read `.git/modules/{wine,wexcomp}` (Permission denied); scoped elevated status
+works and shows only this task's files. A nested sh command quoted using Bash
+escapes in PowerShell failed `sh: 0: -c requires an argument`, then attempted the
+Windows Python alias; no test ran. A PowerShell literal here-string passed to
+WSL fixed quoting. A screenshot copy/view was attempted before screen-18.png
+existed; ls/cp and view_image failed with missing-file errors. After the bounded
+consumer finished, copying/viewing the actual screenshot succeeded. Debian has
+no rg executable (`sh: 1: rg: not found`); use grep for native evidence queries.
+A search for nonexistent `wine/dlls/dcomp/visual.c` failed; implementation is in
+device.c. No global X socket, live prefix, VM, OOBE or token checkout changed.

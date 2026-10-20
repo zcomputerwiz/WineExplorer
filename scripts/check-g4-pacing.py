@@ -4,7 +4,7 @@
 """Run Phase G4B Presentation & Pacing probe on an explicit Wine build.
 
 Verifies:
-- Flip-model backbuffer index cycling (0 -> 1 -> 2 -> 0)
+- D3D11 logical backbuffer index remains 0 while underlying buffers rotate
 - ResizeBuffers1 resets current backbuffer index to 0
 - Frame latency waitable object creation, signal state, latency bounds
 - Occluded / minimized window presentation returns DXGI_STATUS_OCCLUDED

@@ -40,10 +40,14 @@ def main():
     parser.add_argument('--seconds', type=int, default=25, choices=range(5, 301), metavar='5..300')
     parser.add_argument('--electron-app', type=Path,
                         help='Separate original Electron fixture directory; use electron.exe as --host')
+    parser.add_argument('--freeze-scene', action='store_true',
+                        help='Electron fixture only: stop DOM changes at x=160 after eight seconds')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
+    if args.freeze_scene and not args.electron_app:
+        parser.error('--freeze-scene requires --electron-app')
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('--renderer vulkan requires --vulkan-icd')
     icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
@@ -84,6 +88,8 @@ def main():
     environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--enable-logging --v=1'
     if args.graphics_diagnostic:
         environment['WEX_WEBVIEW2_GRAPHICS_DIAGNOSTIC'] = '1'
+    if args.freeze_scene:
+        environment['WEX_WEBVIEW2_FREEZE'] = '1'
     if args.trace_exceptions:
         environment['WINEDEBUG'] += ',+seh'
     if args.trace_graphics:

@@ -3,8 +3,8 @@
  * Phase G4B Presentation & Pacing Diagnostic Probe.
  *
  * Validates:
- * 1. Flip-model backbuffer index cycling (IDXGISwapChain3::GetCurrentBackBufferIndex):
- *    - Sequential cycling through buffer count (0 -> 1 -> 2 -> 0).
+ * 1. D3D11 logical backbuffer index (IDXGISwapChain3::GetCurrentBackBufferIndex):
+ *    - Index remains 0; underlying WineD3D buffers rotate internally.
  *    - Reset to 0 upon ResizeBuffers and ResizeBuffers1.
  * 2. Frame latency waitable object (IDXGISwapChain2):
  *    - GetFrameLatencyWaitableObject returns valid waitable handle.

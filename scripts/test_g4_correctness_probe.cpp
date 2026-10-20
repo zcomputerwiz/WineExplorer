@@ -1022,6 +1022,79 @@ done:
     return ok;
 }
 
+static bool present1_dirty_retention()
+{
+    Scene s;
+    if (!s.init(DXGI_ALPHA_MODE_IGNORE) || FAILED(s.comp->Commit())) return false;
+    DXGI_SWAP_CHAIN_DESC1 desc = {};
+    if (FAILED(s.sc->GetDesc1(&desc)) || desc.BufferCount < 2
+            || desc.SwapEffect != DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL) return false;
+    DWORD pixels[64 * 64], patch[16 * 16];
+    for (DWORD &pixel : pixels) pixel = 0xff0000ff;
+    s.ctx->UpdateSubresource(s.pattern,0,NULL,pixels,64 * 4,0);
+    if (!s.present() || !s.pixel(48,48,RGB(0,0,255))) return false;
+    for (DWORD &pixel : pixels) pixel = 0xffff0000;
+    s.ctx->UpdateSubresource(s.pattern,0,NULL,pixels,64 * 4,0);
+    if (!s.present() || !s.pixel(48,48,RGB(255,0,0))) return false;
+    // Back buffer 0 now contains its older BLUE frame. Modify only the entire
+    // dirty rectangle, per Present1's contract. Runtime preservation must carry
+    // the last presented RED pixels outside that rectangle into the new frame.
+    for (DWORD &pixel : patch) pixel = 0xff00ff00;
+    D3D11_BOX box = {0,0,0,16,16,1};
+    RECT dirty = {0,0,16,16};
+    DXGI_PRESENT_PARAMETERS parameters = {1,&dirty,NULL,NULL};
+    s.ctx->UpdateSubresource(s.bb,0,&box,patch,16 * 4,0);
+    s.ctx->Flush();
+    if (FAILED(s.sc->Present1(0,0,&parameters)) || !s.pixel(8,8,RGB(0,255,0))
+            || !s.pixel(48,48,RGB(255,0,0))) return false;
+    if (FAILED(s.visual->SetOffsetX(32)) || FAILED(s.comp->Commit())
+            || !s.pixel(40,8,RGB(0,255,0)) || !s.pixel(80,48,RGB(255,0,0))) return false;
+    for (DWORD &pixel : patch) pixel = 0xff0000ff;
+    box.left = dirty.left = 40; box.right = dirty.right = 56;
+    s.ctx->UpdateSubresource(s.bb,0,&box,patch,16 * 4,0);
+    s.ctx->Flush();
+    if (FAILED(s.sc->Present1(0,0,&parameters)) || !s.pixel(40,8,RGB(0,255,0))
+            || !s.pixel(80,8,RGB(0,0,255)) || !s.pixel(80,48,RGB(255,0,0))) return false;
+    // Invalid metadata and TEST must neither rotate nor replace coherent history.
+    RECT invalid = {-1,0,16,16};
+    parameters.pDirtyRects = &invalid;
+    if (s.sc->Present1(0,0,&parameters) != DXGI_ERROR_INVALID_CALL) return false;
+    parameters.pDirtyRects = &dirty;
+    if (FAILED(s.sc->Present1(0,DXGI_PRESENT_TEST,&parameters))) return false;
+    // Scroll from the previous coherent image, not an overlapping in-place
+    // producer copy. Explicitly dirtied pixels override the scrolled region.
+    RECT scroll = {8,0,48,16};
+    POINT offset = {16,0};
+    dirty = {24,0,40,16};
+    box.left = 24; box.right = 40;
+    for (DWORD &pixel : patch) pixel = 0xffffffff;
+    s.ctx->UpdateSubresource(s.bb,0,&box,patch,16 * 4,0);
+    parameters.pScrollRect = &scroll;
+    parameters.pScrollOffset = &offset;
+    if (FAILED(s.sc->Present1(0,0,&parameters)) || !s.pixel(52,8,RGB(0,255,0))
+            || !s.pixel(64,8,RGB(255,255,255)) || !s.pixel(84,8,RGB(0,0,255))
+            || !s.pixel(76,8,RGB(255,0,0)) || !s.pixel(80,48,RGB(255,0,0))) return false;
+    // A huge offset clips away without integer overflow or touching old pixels.
+    offset.x = LONG_MIN;
+    dirty = {0,0,16,16}; box.left = 0; box.right = 16;
+    for (DWORD &pixel : patch) pixel = 0xff0000ff;
+    s.ctx->UpdateSubresource(s.bb,0,&box,patch,16 * 4,0);
+    if (FAILED(s.sc->Present1(0,0,&parameters)) || !s.pixel(40,8,RGB(0,0,255))
+            || !s.pixel(64,8,RGB(255,255,255)) || !s.pixel(84,8,RGB(0,0,255))) return false;
+    DWORD union_pixels[24 * 24];
+    for (DWORD &pixel : union_pixels) pixel = 0xffff00ff;
+    RECT overlapping[] = {{0,0,16,16},{8,0,24,16},{0,8,24,24}};
+    box = {0,0,0,24,24,1};
+    s.ctx->UpdateSubresource(s.bb,0,&box,union_pixels,24 * 4,0);
+    parameters = {ARRAYSIZE(overlapping),overlapping,NULL,NULL};
+    if (FAILED(s.sc->Present1(0,0,&parameters)) || !s.pixel(44,12,RGB(255,0,255))
+            || !s.pixel(64,8,RGB(255,255,255)) || !s.pixel(84,8,RGB(0,0,255))) return false;
+    parameters.DirtyRectsCount = 65;
+    // The current bounded implementation rejects unsupported complexity before
+    // inspecting the caller's rectangle array or advancing retained state.
+    return s.sc->Present1(0,0,&parameters) == E_NOTIMPL;
+}
+
 static bool multisample_format_capabilities()
 {
     ID3D11Device *device = NULL;
@@ -1152,6 +1225,7 @@ int main(int argc, char **argv)
         {"opaque_multilayer_gpu_delivery",opaque_multilayer_gpu_delivery},
         {"video_capability_consistency",video_capability_consistency},
         {"multisample_format_capabilities",multisample_format_capabilities},
+        {"present1_dirty_retention",present1_dirty_retention},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;

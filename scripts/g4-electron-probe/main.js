@@ -28,11 +28,18 @@ app.whenReady().then(async () => {
     <input placeholder="Typing test"><button onclick="this.textContent='Clicked'">Click</button>
     <div style="height:900px">Scroll test</div><script>
     window.framesCount=0;window.timerTicks=0;
-    function frame(){framesCount++;box.style.transform='translateX('+framesCount%240+'px)';requestAnimationFrame(frame)}
-    requestAnimationFrame(frame);setInterval(()=>{timerTicks++;counter.textContent='Frames: '+framesCount;
-    document.body.style.background=timerTicks%2?'#e8f5e9':'#fff3e0'},1000);</script>`;
+    function frame(){framesCount++;if(!window.sceneFrozen)box.style.transform='translateX('+framesCount%240+'px)';requestAnimationFrame(frame)}
+    requestAnimationFrame(frame);setInterval(()=>{timerTicks++;if(!window.sceneFrozen){counter.textContent='Frames: '+framesCount;
+    document.body.style.background=timerTicks%2?'#e8f5e9':'#fff3e0'}},1000);</script>`;
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   fs.appendFileSync(logPath, `${Date.now() - started} ms navigation completed hr=0x00000000 success=1 web_error=0\n`);
+  if (process.env.WEX_WEBVIEW2_FREEZE === '1') setTimeout(async () => {
+    try {
+      await win.webContents.executeJavaScript(`window.sceneFrozen=true;box.style.transform='translateX(160px)';
+        counter.textContent='Frozen at x=160';`);
+      log('scene frozen', { x: 160, note: 'RAF counters continue; no further fixture DOM updates' });
+    } catch (error) { log('freeze failed', String(error)); }
+  }, 8000);
   let pending = false;
   const timer = setInterval(async () => {
     if (pending || win.isDestroyed()) return;
@@ -50,7 +57,7 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(path.dirname(logPath), 'electron-capture.png'), image.toPNG());
       log('capture', { size: image.getSize(), empty: image.isEmpty(), note: 'Not proof of front-window presentation' });
     } catch (error) { log('capture failed', String(error)); }
-  }, 12000);
+  }, process.env.WEX_WEBVIEW2_FREEZE === '1' ? 20000 : 12000);
   setTimeout(() => { clearInterval(timer); app.quit(); }, Number(process.env.WEX_WEBVIEW2_SECONDS || 25) * 1000);
 }).catch(error => { log('startup failed', String(error)); app.exit(2); });
 // Bound startup even if a renderer/GPU promise never resolves.

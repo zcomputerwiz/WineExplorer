@@ -1,5 +1,32 @@
 # Changes to stock Wine / third-party code
 
+## G4 coherent Present1 damage preservation (2026-10-20, resumed)
+
+`dlls/dxgi/{swapchain.c,dxgi_private.h}`: retain two private GPU history
+textures for single-sampled sequential / flip-sequential D3D11 swapchains.
+Reconstruct pixels outside the caller's dirty rectangles from the last
+successfully presented coherent frame, then apply scroll from that immutable
+history, excluding dirty pixels. Record full Presents too. Serialize Present
+and ResizeBuffers per swapchain; successful resize invalidates history and
+final release frees it before the owning device/swapchain. Invalid metadata,
+TEST, minimized/unbound presentation and failed Presents do not advance history.
+Scroll is flip-sequential only, destination-bounded, clipped using 64-bit math.
+
+This uses existing ordered GPU blits, not CPU image readback or a new per-frame
+completion wait. Cost is two additional full-size GPU images and a snapshot
+copy per eligible Present, plus reconstruction blits on partial updates; it is
+not a zero-copy or power/performance claim. More than 64 dirty rectangles is
+explicitly E_NOTIMPL, not silently ignored. Unsupported multisampled / discard
+dirty presentation is rejected. D3D12/native DXVK are not changed.
+
+The original two-architecture negative control presents BLUE, RED, then only a
+GREEN dirty patch: pixels outside it incorrectly return to BLUE. The repair
+preserves RED and survives retained visual movement, subsequent damage,
+overlapping dirty rectangles, scroll overlap/priority, invalid metadata, TEST
+and extreme offsets. Real WebView2 and Electron front-window controls no longer
+show the observed stale trails/background patches. These are isolated Xvfb
+software-driver controls, not full G4 or shell/theme acceptance.
+
 ## G4 available multisample render targets (2026-10-20, resumed)
 
 `dlls/d3d11/device.c`: report MULTISAMPLE_RENDERTARGET when a renderable format
