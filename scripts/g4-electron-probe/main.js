@@ -11,6 +11,68 @@ const started = Date.now();
 function log(event, data) {
   fs.appendFileSync(logPath, `${Date.now() - started} ms ${event} ${JSON.stringify(data)}\n`);
 }
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function exerciseLifecycle(win) {
+  const checks = {};
+  const sample = () => win.webContents.executeJavaScript(`({frames:window.framesCount,
+    text:document.querySelector('input').value,button:document.querySelector('button').textContent,
+    scroll:window.scrollY,width:window.innerWidth,height:window.innerHeight})`);
+  const click = async selector => {
+    const p = await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`);
+    win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...p });
+    win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...p });
+  };
+  try {
+    await delay(5000);
+    win.focus();
+    await click('input');
+    for (const keyCode of 'G4 input') win.webContents.sendInputEvent({ type: 'char', keyCode });
+    await click('button');
+    await delay(1000);
+    let state = await sample();
+    checks.input = state.text === 'G4 input' && state.button === 'Clicked';
+    log('lifecycle input', state);
+    win.webContents.sendInputEvent({ type: 'mouseWheel', x: 400, y: 350,
+      deltaY: -160, deltaX: 0, canScroll: true });
+    await delay(1000);
+    state = await sample();
+    checks.scroll = state.scroll > 0;
+    log('lifecycle scroll', state);
+    win.setContentSize(620, 420);
+    await delay(1000);
+    state = await sample();
+    checks.resize = state.width === 620 && state.height === 420;
+    log('lifecycle resize', state);
+    win.minimize();
+    await delay(1000);
+    checks.minimized = win.isMinimized();
+    log('lifecycle minimize', { minimized: win.isMinimized() });
+    win.restore(); win.focus();
+    await delay(1000);
+    const before = await sample();
+    await delay(1000);
+    state = await sample();
+    checks.restored = !win.isMinimized() && state.frames > before.frames;
+    log('lifecycle restore', { before, after: state, minimized: win.isMinimized() });
+    const loaded = new Promise(resolve => win.webContents.once('did-finish-load', resolve));
+    win.webContents.reload();
+    await Promise.race([loaded, delay(5000).then(() => { throw new Error('Reload timed out'); })]);
+    await delay(1000);
+    state = await sample();
+    checks.reload = state.text === '' && state.button === 'Click' && state.scroll === 0 && state.frames > 0;
+    log('lifecycle reload', state);
+    win.setContentSize(740, 520);
+    await delay(1000);
+    state = await sample();
+    checks.resize_back = state.width === 740 && state.height === 520;
+    log('lifecycle resize back', state);
+    log('lifecycle result', { passed: Object.values(checks).every(Boolean), checks,
+      note: 'Electron input injection and API lifecycle; not hardware-input or desktop acceptance' });
+  } catch (error) {
+    log('lifecycle result', { passed: false, checks, error: String(error) });
+  }
+}
 app.setPath('userData', profile);
 app.enableSandbox();
 log('versions', { versions: process.versions, argv: process.argv, sandboxRequested: true });
@@ -33,6 +95,7 @@ app.whenReady().then(async () => {
     document.body.style.background=timerTicks%2?'#e8f5e9':'#fff3e0'}},1000);</script>`;
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   fs.appendFileSync(logPath, `${Date.now() - started} ms navigation completed hr=0x00000000 success=1 web_error=0\n`);
+  if (process.env.WEX_WEBVIEW2_LIFECYCLE === '1') void exerciseLifecycle(win);
   if (process.env.WEX_WEBVIEW2_FREEZE === '1') setTimeout(async () => {
     try {
       await win.webContents.executeJavaScript(`window.sceneFrozen=true;box.style.transform='translateX(160px)';

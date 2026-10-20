@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import select
 import shutil
@@ -23,6 +24,22 @@ import time
 def digest(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def lifecycle_result(log):
+    """Require every named check, not just a fixture's summary boolean."""
+    matches = re.findall(r'^\d+ ms lifecycle result (.+)$', log, re.MULTILINE)
+    required = {'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back'}
+    if len(matches) != 1:
+        return {'passed': False, 'error': 'Expected exactly one lifecycle result'}
+    try:
+        result = json.loads(matches[0])
+        checks = result.get('checks', {})
+        result['passed'] = (result.get('passed') is True and set(checks) == required
+                            and all(value is True for value in checks.values()))
+        return result
+    except (ValueError, AttributeError, TypeError):
+        return {'passed': False, 'error': 'Invalid lifecycle result'}
 
 
 def main():
@@ -42,12 +59,16 @@ def main():
                         help='Separate original Electron fixture directory; use electron.exe as --host')
     parser.add_argument('--freeze-scene', action='store_true',
                         help='Electron fixture only: stop DOM changes at x=160 after eight seconds')
+    parser.add_argument('--lifecycle', action='store_true',
+                        help='Electron fixture only: injected input, wheel scroll, resize, minimize/restore and reload')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
     if args.freeze_scene and not args.electron_app:
         parser.error('--freeze-scene requires --electron-app')
+    if args.lifecycle and (not args.electron_app or args.freeze_scene or args.seconds < 25):
+        parser.error('--lifecycle requires --electron-app, no --freeze-scene, and at least 25 seconds')
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('--renderer vulkan requires --vulkan-icd')
     icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
@@ -90,6 +111,8 @@ def main():
         environment['WEX_WEBVIEW2_GRAPHICS_DIAGNOSTIC'] = '1'
     if args.freeze_scene:
         environment['WEX_WEBVIEW2_FREEZE'] = '1'
+    if args.lifecycle:
+        environment['WEX_WEBVIEW2_LIFECYCLE'] = '1'
     if args.trace_exceptions:
         environment['WINEDEBUG'] += ',+seh'
     if args.trace_graphics:
@@ -177,8 +200,11 @@ def main():
             result['animation_diagnostic'] = analyzer.analyze(output)
         else:
             result['first_failure'] = 'Host did not create its diagnostic log'
-        print(json.dumps(result, indent=2), flush=True)
         passed = result.get('animation_diagnostic', {}).get('diagnostic_passed', False)
+        if args.lifecycle:
+            result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
+            passed = passed and result['lifecycle_diagnostic']['passed']
+        print(json.dumps(result, indent=2), flush=True)
         result['diagnostic_exit'] = 0 if run.returncode == 0 and passed else 4
         return result['diagnostic_exit']
     except Exception as error:

@@ -10,6 +10,9 @@ import unittest
 spec = importlib.util.spec_from_file_location('analysis', Path(__file__).with_name('analyze-webview2-run.py'))
 analysis = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(analysis)
+runner_spec = importlib.util.spec_from_file_location('runner', Path(__file__).with_name('check-g4-webview2.py'))
+runner = importlib.util.module_from_spec(runner_spec)
+runner_spec.loader.exec_module(runner)
 
 
 class AnalysisTests(unittest.TestCase):
@@ -47,6 +50,23 @@ class AnalysisTests(unittest.TestCase):
     def test_shared_image_and_context_errors_are_failures(self):
         for message in ('Unable to initialize SkSurface', 'Failed to create shared context for virtualization'):
             self.assertFalse(self.assess(message)['diagnostic_passed'])
+
+    def test_lifecycle_requires_each_check(self):
+        checks = dict.fromkeys(('input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back'), True)
+        log = lambda values: '20000 ms lifecycle result ' + json.dumps({'passed': True, 'checks': values})
+        self.assertTrue(runner.lifecycle_result(log(checks))['passed'])
+        for key in checks:
+            bad = checks.copy()
+            del bad[key]
+            self.assertFalse(runner.lifecycle_result(log(bad))['passed'])
+            bad[key] = False
+            self.assertFalse(runner.lifecycle_result(log(bad))['passed'])
+            bad[key] = 1
+            self.assertFalse(runner.lifecycle_result(log(bad))['passed'])
+        self.assertFalse(runner.lifecycle_result(log(checks) + '\n' + log(checks))['passed'])
+        for bad in ('', '100 ms lifecycle result {}', '100 ms lifecycle result not-json',
+                    '100 ms lifecycle result []'):
+            self.assertFalse(runner.lifecycle_result(bad)['passed'])
 
 
 if __name__ == '__main__':

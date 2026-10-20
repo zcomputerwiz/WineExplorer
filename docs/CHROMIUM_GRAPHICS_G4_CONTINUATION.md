@@ -523,3 +523,37 @@ consumer finished, copying/viewing the actual screenshot succeeded. Debian has
 no rg executable (`sh: 1: rg: not found`); use grep for native evidence queries.
 A search for nonexistent `wine/dlls/dcomp/visual.c` failed; implementation is in
 device.c. No global X socket, live prefix, VM, OOBE or token checkout changed.
+
+## Resumed: real Electron lifecycle control
+
+Added opt-in `--lifecycle` to the original Electron fixture/runner. It injects
+mouse/character events through Electron (not DOM value assignments), checks
+typed text and click response, injects a wheel scroll, resizes to 620x420,
+minimizes/restores with resumed RAF progress, reloads and verifies fresh DOM
+state, then resizes back to 740x520. Public Electron APIs only; isolated offline
+profile, sandbox requested, no renderer Node or bypass flags. This is not proof
+of native hardware input, Win32 input routing or sandbox enforcement.
+
+`resume-dirty-electron-lifecycle-gl/` correctly FAILS despite continuing frames:
+positive wheel delta attempts to scroll upward from the top, so scrollY stays
+zero. Other six checks pass. The fixture's downward delta is negative;
+`canScroll:true` is now explicit (Electron's converter already defaults true).
+After correction, `resume-dirty-electron-lifecycle-gl-rerun/` exits 0: all seven
+checks true, 34 samples, 558 final post-reload frames, no crash/fatal/SkSurface/
+shared-context signatures. Wine remains the published 498b302 build.
+
+Runner requires exactly one lifecycle result with every named check literally
+true, in addition to navigation/progress/no-error checks. Analyzer tests now
+include missing, false, numeric, duplicate and malformed lifecycle results: six
+unit tests PASS in Debian. Node syntax check PASS. The first Windows unit-test
+attempt failed five tests because sandbox Temp ACLs denied host.log creation
+and temporary-directory cleanup; no renderer assertion failed. Debian rerun
+passes without changing assertions. Those empty sandbox temporary directories
+may remain; no broad cleanup was attempted. Another edit patch failed because
+the expected runner-registry context did not match; atomic verification left
+the proposed interpolation-test changes unapplied.
+
+Next R1 work: interpolation mode setters still return success without honoring
+LINEAR or validating enums. Microsoft documents nearest-neighbor as the root
+default, and INHERIT as each visual's default (not linear). Border/antialias,
+background/expose and the remaining R2-R4 gates above remain open.
