@@ -189,7 +189,9 @@ def main():
                                 'retained_changing_frame_pixels=PASS',
                                 'retained_formats_resize_and_lifetime=PASS',
                                 'retained_nested_group_pixels=PASS',
-                                'concurrent_commit_and_device_lifetime=PASS')
+                                'concurrent_commit_and_device_lifetime=PASS',
+                                'multi_target_transactions=PASS',
+                                'reparented_tree_lifetime=PASS')
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}

@@ -1,5 +1,21 @@
 # Changes to stock Wine / third-party code
 
+## G4 multi-target preparation and safe reparenting (2026-10-20)
+
+`dlls/dcomp/device.c`: prepare independent target snapshots before changing any
+active visual; deduplicate producers within a target and reject unsupported
+cross-target producer routing, duplicate-HWND targets and repeated rooted visual
+identity before publication. Scenes may use distinct D3D devices, but a single
+scene still cannot mix devices. Bounds remain 128 visuals / 32 content entries
+and at most 32 rooted targets per device. Old active nodes are retained while
+ALL old child edges are removed, then the new graph is built. This prevents a
+reparented child's new sibling links from corrupting its old parent's traversal.
+Eleven groups PASS for both software-GL architectures: multi-target pending vs
+active pixels, second-target allocation failure rollback, unsupported routing
+failure isolation, target detach, reparented pixels and final COM edge release.
+This does not claim simultaneous physical scanout or recovery from a backend/
+window/device failure during final publication.
+
 ## G4 device lifetime and pending-state synchronization (2026-10-20)
 
 `dlls/dcomp/device.c`: visuals, targets, clips and effect groups retain their

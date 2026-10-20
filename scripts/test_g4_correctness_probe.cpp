@@ -445,6 +445,94 @@ done:
     return ok;
 }
 
+static bool multi_target_transactions()
+{
+    Scene s, other;
+    bool ok = false;
+    if (!s.init()) return false;
+    other.hwnd = create_window("G4 second target",256,256,NULL);
+    if (!other.hwnd || !SetWindowPos(other.hwnd,NULL,350,10,256,256,SWP_NOZORDER)) return false;
+    other.dev = s.dev; other.dev->AddRef();
+    other.ctx = s.ctx; other.ctx->AddRef();
+    other.comp = s.comp; other.comp->AddRef();
+    other.pattern = s.pattern; other.pattern->AddRef();
+    other.sc = create_comp_swapchain(other.dev,64,64);
+    if (!other.sc || FAILED(s.comp->CreateTargetForHwnd(other.hwnd,TRUE,&other.target))
+            || FAILED(s.comp->CreateVisual(&other.visual))
+            || FAILED(other.visual->SetContent(other.sc)) || FAILED(other.target->SetRoot(other.visual))
+            || FAILED(other.sc->GetBuffer(0,__uuidof(ID3D11Texture2D),(void **)&other.bb))) return false;
+    flush_messages();
+    if (FAILED(s.comp->Commit()) || !s.present() || !other.present()
+            || !s.pixel(4,8,RGB(255,0,0)) || !other.pixel(4,8,RGB(255,0,0))) goto done;
+    if (FAILED(s.visual->SetOffsetX(8.0f)) || FAILED(other.visual->SetOffsetX(16.0f))) goto done;
+    if (!s.present() || !other.present()
+            || !s.pixel(4,8,RGB(255,0,0)) || !other.pixel(4,8,RGB(255,0,0))) goto done;
+    if (FAILED(s.comp->Commit()) || FAILED(s.comp->WaitForCommitCompletion())
+            || !s.pixel(4,8,RGB(0,0,0)) || !other.pixel(4,8,RGB(0,0,0))
+            || !s.pixel(12,8,RGB(255,0,0)) || !other.pixel(20,8,RGB(255,0,0))) goto done;
+    // Allocation failure on target two must not publish target one's edits.
+    if (FAILED(s.visual->SetOffsetX(32.0f)) || FAILED(other.visual->SetOffsetX(40.0f))) goto done;
+    if (!SetWindowPos(other.hwnd,NULL,0,0,8300,300,SWP_NOMOVE|SWP_NOZORDER|SWP_NOSENDCHANGING)) goto done;
+    if (s.comp->Commit() != E_NOTIMPL || !s.pixel(12,8,RGB(255,0,0))) goto done;
+    if (!SetWindowPos(other.hwnd,NULL,0,0,256,256,SWP_NOMOVE|SWP_NOZORDER)) goto done;
+    flush_messages();
+    if (FAILED(s.comp->Commit()) || !s.pixel(12,8,RGB(0,0,0)) || !s.pixel(40,8,RGB(255,0,0))
+            || !other.pixel(20,8,RGB(0,0,0)) || !other.pixel(48,8,RGB(255,0,0))) goto done;
+    // Shared content placements within a target are supported, but the current
+    // one-HWND-per-producer backend must reject ambiguous cross-target routing.
+    if (FAILED(other.visual->SetContent(s.sc)) || FAILED(s.visual->SetOffsetX(0.0f))) goto done;
+    if (s.comp->Commit() != E_NOTIMPL || !s.pixel(12,8,RGB(0,0,0))
+            || !other.pixel(48,8,RGB(255,0,0))) goto done;
+    if (FAILED(other.visual->SetContent(other.sc)) || FAILED(s.visual->SetOffsetX(32.0f))
+            || FAILED(other.target->SetRoot(NULL)) || FAILED(s.comp->Commit())) goto done;
+    ok = s.pixel(40,8,RGB(255,0,0)) && other.pixel(48,8,RGB(0,0,0));
+done:
+    return ok;
+}
+
+static bool reparented_tree_lifetime()
+{
+    Scene s;
+    IDCompositionVisual *a = NULL, *b = NULL, *marker = NULL, *leaf = NULL;
+    IDCompositionVisual **visuals[] = {&a,&b,&marker,&leaf};
+    bool ok = false;
+    if (!s.init()) return false;
+    if (FAILED(s.comp->CreateVisual(&a)) || FAILED(s.comp->CreateVisual(&b))
+            || FAILED(s.comp->CreateVisual(&marker)) || FAILED(s.comp->CreateVisual(&leaf))) goto done;
+    if (FAILED(marker->SetContent(s.sc)) || FAILED(leaf->SetContent(s.sc))
+            || FAILED(marker->SetOffsetX(128.0f)) || FAILED(b->SetOffsetX(64.0f))
+            || FAILED(a->AddVisual(marker,TRUE,NULL)) || FAILED(b->AddVisual(leaf,TRUE,NULL))
+            || FAILED(s.visual->AddVisual(a,TRUE,NULL)) || FAILED(s.visual->AddVisual(b,FALSE,NULL))
+            || FAILED(s.comp->Commit()) || !s.present()
+            || !s.pixel(72,8,RGB(255,0,0)) || !s.pixel(136,8,RGB(255,0,0))) goto done;
+    // The new parent's traversal precedes the old parent's traversal. Reusing
+    // active sibling links too early disconnects or leaks the marker sibling.
+    if (FAILED(leaf->SetOffsetX(16.0f)) || FAILED(a->AddVisual(leaf,TRUE,NULL))
+            || FAILED(s.comp->Commit()) || !s.pixel(72,8,RGB(0,0,255))
+            || !s.pixel(88,8,RGB(0,0,0)) || !s.pixel(136,8,RGB(255,0,0))) goto done;
+    if (FAILED(b->AddVisual(leaf,TRUE,NULL)) || FAILED(s.comp->Commit())
+            || !s.pixel(88,8,RGB(255,0,0)) || !s.pixel(136,8,RGB(255,0,0))) goto done;
+    if (FAILED(a->AddVisual(leaf,TRUE,NULL)) || FAILED(s.comp->Commit())
+            || !s.pixel(88,8,RGB(0,0,0)) || !s.pixel(136,8,RGB(255,0,0))) goto done;
+    if (FAILED(a->RemoveAllVisuals()) || FAILED(b->RemoveAllVisuals())
+            || FAILED(s.visual->RemoveAllVisuals()) || FAILED(s.target->SetRoot(NULL))
+            || FAILED(s.comp->Commit()) || FAILED(s.comp->WaitForCommitCompletion())) goto done;
+    ok = true;
+done:
+    // Wine's explicit active/pending ownership must release every edge, not
+    // just display the right flat scene while orphaning an active COM reference.
+    for (IDCompositionVisual **visual : visuals)
+    {
+        if (*visual)
+        {
+            ULONG refs = (*visual)->Release();
+            *visual = NULL;
+            if (ok && refs) { printf("REPARENT_LEAK refs=%lu\n",(unsigned long)refs); ok = false; }
+        }
+    }
+    return ok;
+}
+
 struct ConcurrentSceneUpdate
 {
     IDCompositionDevice *device;
@@ -767,5 +855,9 @@ int main(int argc, char **argv)
     printf("retained_nested_group_pixels=%s\n", h ? "PASS" : "FAIL");
     bool i = concurrent_commit_and_device_lifetime();
     printf("concurrent_commit_and_device_lifetime=%s\n", i ? "PASS" : "FAIL");
-    return a && b && c && d && e && f && g && h && i ? 0 : 1;
+    bool j = multi_target_transactions();
+    printf("multi_target_transactions=%s\n", j ? "PASS" : "FAIL");
+    bool k = reparented_tree_lifetime();
+    printf("reparented_tree_lifetime=%s\n", k ? "PASS" : "FAIL");
+    return a && b && c && d && e && f && g && h && i && j && k ? 0 : 1;
 }

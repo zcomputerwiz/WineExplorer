@@ -130,6 +130,32 @@ a delivery/background-preservation gate. Failed runs remain `lifetime-gl/`,
 `lifetime-trace-gl/`, `lifetime-paint-gl/`; first passing stress run is
 `lifetime-final-gl/`, followed by the full boundary checkpoint above.
 
+## Multi-target and reparenting checkpoint
+
+`/var/tmp/wex-g4-tree-20261020/reparent-gl/`: exit 0, eleven required groups
+PASS for both PEs. Earlier ten-group checkpoint: `multitarget-gl/`.
+Per-device preparation now covers independent target snapshots before changing
+active state. A second-target oversized-surface failure leaves first-target
+placement unchanged; restoring its size permits both staged edits to publish.
+Unsupported one-producer/multiple-target routing fails before active changes,
+and detaching one target preserves the other. Same-HWND multiple targets and
+repeated visual roots are rejected rather than silently choosing one output.
+
+Reparenting previously reused a child's active sibling pointer before the old
+parent finished traversing it. The new two-phase graph rebuild retains old
+nodes, revokes removed content, clears all old edges, then builds new edges.
+The regression moves a shared-content visual between sibling parents, checks
+restored/retained pixels and requires every detached visual's final caller
+Release to report no orphaned active/pending COM reference. It tests the
+previously hazardous new-parent-before-old-parent order and the reverse move.
+
+The global limits are 128 visuals / 32 content entries / 32 rooted targets.
+Distinct scenes may use different D3D devices; cross-device content within one
+scene and cross-target reuse of one producer remain unsupported. Successful
+preparation is not a promise of simultaneous physical scanout, nor rollback
+after an unexpected final-publish device/window/backend failure. Those limits
+are still relevant to the full transaction acceptance gate.
+
 ## Failed commands and workarounds
 
 - Non-escalated `git status --short --branch` failed to read
