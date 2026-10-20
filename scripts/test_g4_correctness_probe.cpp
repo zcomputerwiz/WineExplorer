@@ -1022,6 +1022,71 @@ done:
     return ok;
 }
 
+static bool multisample_format_capabilities()
+{
+    ID3D11Device *device = NULL;
+    ID3D11DeviceContext *context = NULL;
+    if (FAILED(D3D11CreateDevice(NULL,D3D_DRIVER_TYPE_HARDWARE,NULL,0,NULL,0,
+            D3D11_SDK_VERSION,&device,NULL,&context))) return false;
+    bool ok = true;
+    const DXGI_FORMAT formats[] = {DXGI_FORMAT_R8G8B8A8_UNORM,DXGI_FORMAT_B8G8R8A8_UNORM};
+    for (DXGI_FORMAT format : formats)
+    {
+        UINT flags = 0;
+        bool supported = false;
+        if (FAILED(device->CheckFormatSupport(format,&flags))) { ok = false; continue; }
+        for (UINT samples = 2; samples <= 32; samples *= 2)
+        {
+            UINT quality = 0;
+            HRESULT hr = device->CheckMultisampleQualityLevels(format,samples,&quality);
+            printf("MSAA_CAP format=%u samples=%u hr=%08lx quality=%u flags=%x\n",
+                    (unsigned int)format,samples,(unsigned long)hr,quality,flags);
+            if (FAILED(hr) || !quality) continue;
+            supported = true;
+            ID3D11Texture2D *multi = NULL, *single = NULL, *staging = NULL;
+            ID3D11RenderTargetView *view = NULL;
+            D3D11_TEXTURE2D_DESC desc = {};
+            D3D11_MAPPED_SUBRESOURCE mapped = {};
+            desc.Width = desc.Height = 8;
+            desc.MipLevels = desc.ArraySize = 1;
+            desc.Format = format;
+            desc.SampleDesc.Count = samples;
+            desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+            bool sample_ok = SUCCEEDED(device->CreateTexture2D(&desc,NULL,&multi))
+                    && SUCCEEDED(device->CreateRenderTargetView(multi,NULL,&view));
+            desc.SampleDesc.Count = 1;
+            sample_ok = sample_ok && SUCCEEDED(device->CreateTexture2D(&desc,NULL,&single));
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            sample_ok = sample_ok && SUCCEEDED(device->CreateTexture2D(&desc,NULL,&staging));
+            if (sample_ok)
+            {
+                const float red[] = {1,0,0,1};
+                context->ClearRenderTargetView(view,red);
+                context->ResolveSubresource(single,0,multi,0,format);
+                context->CopyResource(staging,single);
+                sample_ok = SUCCEEDED(context->Map(staging,0,D3D11_MAP_READ,0,&mapped));
+                if (sample_ok)
+                {
+                    DWORD expected = format == DXGI_FORMAT_R8G8B8A8_UNORM ? 0xff0000ff : 0xffff0000;
+                    for (UINT y = 0; y < 8; ++y)
+                        for (UINT x = 0; x < 8; ++x)
+                            if (((DWORD *)((BYTE *)mapped.pData + y * mapped.RowPitch))[x] != expected) sample_ok = false;
+                    context->Unmap(staging,0);
+                }
+            }
+            printf("MSAA_PIXELS format=%u samples=%u result=%s\n",(unsigned int)format,samples,sample_ok ? "PASS" : "FAIL");
+            ok = sample_ok && ok;
+            release(view); release(staging); release(single); release(multi);
+        }
+        // A missing 8x mode must not erase a genuinely usable 2x/4x mode.
+        if (supported != !!(flags & D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET)) ok = false;
+    }
+    release(context); release(device);
+    return ok;
+}
+
 static bool video_capability_consistency()
 {
     ID3D11Device *device = NULL;
@@ -1086,6 +1151,7 @@ int main(int argc, char **argv)
         {"opaque_retained_gpu_delivery",opaque_retained_gpu_delivery},
         {"opaque_multilayer_gpu_delivery",opaque_multilayer_gpu_delivery},
         {"video_capability_consistency",video_capability_consistency},
+        {"multisample_format_capabilities",multisample_format_capabilities},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;

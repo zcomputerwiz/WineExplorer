@@ -16,6 +16,7 @@ static BOOL closing, script_pending;
 static unsigned int samples;
 static EventRegistrationToken navigation_token, process_token;
 static WCHAR browser_arguments[4096];
+static BOOL graphics_diagnostic;
 
 static void log_result(const char *event, HRESULT result, const WCHAR *detail)
 {
@@ -119,6 +120,15 @@ static HRESULT STDMETHODCALLTYPE script_done(ICoreWebView2ExecuteScriptCompleted
 }
 WV_CALLBACK(script, ICoreWebView2ExecuteScriptCompletedHandler, script_done);
 
+static HRESULT STDMETHODCALLTYPE graphics_done(ICoreWebView2ExecuteScriptCompletedHandler *self,
+                                                HRESULT error, LPCWSTR json)
+{
+    (void)self;
+    log_result("graphics capabilities", error, json);
+    return S_OK;
+}
+WV_CALLBACK(graphics, ICoreWebView2ExecuteScriptCompletedHandler, graphics_done);
+
 static HRESULT STDMETHODCALLTYPE navigation_done(ICoreWebView2NavigationCompletedEventHandler *self,
                                                   ICoreWebView2 *sender,
                                                   ICoreWebView2NavigationCompletedEventArgs *args)
@@ -131,6 +141,24 @@ static HRESULT STDMETHODCALLTYPE navigation_done(ICoreWebView2NavigationComplete
     ICoreWebView2NavigationCompletedEventArgs_get_WebErrorStatus(args, &status);
     swprintf(detail, 100, L"success=%d web_error=%d", success, status);
     log_result("navigation completed", S_OK, detail);
+    if (success && graphics_diagnostic)
+        log_result("request graphics capabilities", ICoreWebView2_ExecuteScript(sender,
+            L"(()=>{const inspect=(kind)=>{const c=document.createElement('canvas');c.width=c.height=4;"
+            L"const g=c.getContext(kind,{failIfMajorPerformanceCaveat:true,preserveDrawingBuffer:true});"
+            L"if(!g)return {available:false};const e=g.getExtension('WEBGL_debug_renderer_info');"
+            L"const r={available:true,version:g.getParameter(g.VERSION),renderer:g.getParameter(g.RENDERER),"
+            L"unmasked:e?g.getParameter(e.UNMASKED_RENDERER_WEBGL):null,extensions:g.getSupportedExtensions()};"
+            L"g.clearColor(1,0,0,1);g.clear(g.COLOR_BUFFER_BIT);const p=new Uint8Array(4);"
+            L"g.readPixels(0,0,1,1,g.RGBA,g.UNSIGNED_BYTE,p);r.defaultPixel=Array.from(p);r.defaultError=g.getError();"
+            L"const t=g.createTexture();g.bindTexture(g.TEXTURE_2D,t);"
+            L"g.texImage2D(g.TEXTURE_2D,0,g.RGBA,4,4,0,g.RGBA,g.UNSIGNED_BYTE,null);r.textureError=g.getError();"
+            L"const f=g.createFramebuffer();g.bindFramebuffer(g.FRAMEBUFFER,f);"
+            L"g.framebufferTexture2D(g.FRAMEBUFFER,g.COLOR_ATTACHMENT0,g.TEXTURE_2D,t,0);"
+            L"r.framebufferStatus=g.checkFramebufferStatus(g.FRAMEBUFFER);g.clear(g.COLOR_BUFFER_BIT);"
+            L"g.readPixels(0,0,1,1,g.RGBA,g.UNSIGNED_BYTE,p);r.texturePixel=Array.from(p);r.readError=g.getError();"
+            L"r.lost=g.isContextLost();g.deleteFramebuffer(f);g.deleteTexture(t);return r;};"
+            L"return {webgl:inspect('webgl'),webgl2:inspect('webgl2')};})()",
+            (ICoreWebView2ExecuteScriptCompletedHandler *)&graphics), NULL);
     return S_OK;
 }
 WV_CALLBACK(navigation, ICoreWebView2NavigationCompletedEventHandler, navigation_done);
@@ -241,6 +269,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, WCHAR *command, int 
     HRESULT error;
     (void)previous; (void)command; (void)show;
     started = GetTickCount();
+    graphics_diagnostic = GetEnvironmentVariableW(L"WEX_WEBVIEW2_GRAPHICS_DIAGNOSTIC", seconds, 32)
+            && !lstrcmpW(seconds, L"1");
+    /* Only hide a console created by THIS diagnostic host, never an inherited
+     * user terminal. Child logging must not obscure the page being inspected. */
+    if (!GetConsoleWindow() && AllocConsole()) ShowWindow(GetConsoleWindow(), SW_HIDE);
     GetEnvironmentVariableW(L"WEX_WEBVIEW2_LOG", log_path, 4096);
     if (!log_path[0]) lstrcpyW(log_path, L"webview2-probe.log");
     log_file = _wfopen(log_path, L"w"); if (!log_file) return 2;
@@ -258,6 +291,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, WCHAR *command, int 
     CLSIDFromString(L"{4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d}", &created_environment.iid);
     CLSIDFromString(L"{6c4819f3-c9b7-4260-8127-c9f5bde7f68c}", &created_controller.iid);
     CLSIDFromString(L"{49511172-cc67-4bca-9923-137112f4c4cc}", &script.iid);
+    graphics.iid = script.iid;
     CLSIDFromString(L"{d33a35bf-1c49-4f98-93ab-006e0533fe1c}", &navigation.iid);
     CLSIDFromString(L"{79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1}", &process.iid);
     options.iid = IID_ICoreWebView2EnvironmentOptions;

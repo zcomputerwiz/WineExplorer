@@ -33,6 +33,13 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--trace-exceptions', action='store_true',
                         help='Trace exception addresses; does not change browser/security flags')
+    parser.add_argument('--graphics-diagnostic', action='store_true',
+                        help='Opt-in WebGL capability/pixel readback script in the original host')
+    parser.add_argument('--trace-graphics', action='store_true',
+                        help='Trace builtin D3D11/DXGI calls; retained logs may be large')
+    parser.add_argument('--seconds', type=int, default=25, choices=range(5, 301), metavar='5..300')
+    parser.add_argument('--electron-app', type=Path,
+                        help='Separate original Electron fixture directory; use electron.exe as --host')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
@@ -44,9 +51,9 @@ def main():
     runtime = args.runtime.resolve(strict=True)
     host = args.host.resolve(strict=True)
     loader = host.parent / 'WebView2Loader.dll'
-    browser = runtime / 'msedgewebview2.exe'
+    browser = runtime / ('electron.exe' if args.electron_app else 'msedgewebview2.exe')
     wine, server = build / 'wine', build / 'server/wineserver'
-    payloads = (browser, host, loader)
+    payloads = (browser, host) if args.electron_app else (browser, host, loader)
     for path in (wine, server) + payloads:
         if not path.is_file():
             parser.error('Required file missing: ' + str(path))
@@ -73,12 +80,17 @@ def main():
     winpath = lambda path: 'Z:' + str(path).replace('/', '\\')
     environment.update(WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=winpath(runtime),
                        WEX_WEBVIEW2_PROFILE=winpath(profile), WEX_WEBVIEW2_LOG=winpath(output / 'host.log'),
-                       WEX_WEBVIEW2_SECONDS='25', CHROME_LOG_FILE=winpath(output / 'chromium.log'))
+                       WEX_WEBVIEW2_SECONDS=str(args.seconds), CHROME_LOG_FILE=winpath(output / 'chromium.log'))
     environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--enable-logging --v=1'
+    if args.graphics_diagnostic:
+        environment['WEX_WEBVIEW2_GRAPHICS_DIAGNOSTIC'] = '1'
     if args.trace_exceptions:
         environment['WINEDEBUG'] += ',+seh'
+    if args.trace_graphics:
+        environment['WINEDEBUG'] += ',+d3d11,+dxgi'
     result = {'classification': 'Xvfb offline first-failure diagnostic; not G4 acceptance',
               'renderer': args.renderer,
+              'consumer': 'Electron original fixture' if args.electron_app else 'WebView2',
               'wine_build': str(build),
               'environment': {key: value for key, value in environment.items()
                               if key.startswith(('WINE', 'WEBVIEW2_', 'WEX_WEBVIEW2_', 'CHROME_'))
@@ -145,8 +157,11 @@ def main():
         monitor = threading.Thread(target=observe, daemon=True)
         monitor.start()
         command = [str(wine), str(host)]
+        if args.electron_app:
+            command.extend([winpath(args.electron_app.resolve(strict=True)), '--enable-logging', '--v=1',
+                            '--log-file=' + winpath(output / 'chromium.log')])
         result['command'] = command
-        run = helpers.run_logged(command, environment, output, 'wine', 70)
+        run = helpers.run_logged(command, environment, output, 'wine', args.seconds + 45)
         result['host_exit'] = run.returncode
         hostlog = output / 'host.log'
         if hostlog.exists():

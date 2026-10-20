@@ -370,3 +370,75 @@ upstream controls without weakening assertions; then finish remaining R1-R4
 requirements listed above, particularly actual desktop/theme/Wayland/hardware
 and security-enabled real consumer coverage. No-sandbox/single-process/GPU
 sandbox bypasses or unreviewed token merges cannot establish acceptance.
+
+## Resumed: multisample format reporting repaired
+
+The usage window reset before the one-time wake-up; both worktrees were clean
+at `f9b888d1` / Wine `f5f4312`. Added opt-in WebGL1/2 default/FBO pixel diagnostics
+to the original C host, a bounded-duration/graphics TRACE runner mode, and a
+separate original sandbox-requesting Electron fixture. Vendor SDK headers and
+all binaries remain in private caches, not Git/ISO. The diagnostic host hides
+only a console it created itself, never an inherited terminal. Some console
+border artifacts remain in Xvfb and are not shell/theme acceptance.
+
+`resume-format-trace-gl/` showed RGBA8 flags `0x280f3f3`: render-target support
+present but MULTISAMPLE_RENDERTARGET absent. `resume-msaa-negative-gl-rerun/`
+confirms both PEs report 4x quality=1 while 2x/8x/16x/32x quality=0, yet omit
+that capability bit. ANGLE's
+[capability generator](https://raw.githubusercontent.com/google/angle/main/src/libANGLE/renderer/d3d/d3d11/renderer11_utils.cpp)
+gates its sample-count table on that bit. Its
+[format support data](https://raw.githubusercontent.com/google/angle/main/src/libANGLE/renderer/dxgi_support_data.json)
+makes RGBA8 multisample support a runtime check rather than an always-supported
+flag. Wine's existing all-or-nothing 4x AND 8x check hid usable 4x rendering.
+
+The repair reports the render-target bit for actual supported counts, while
+leaving exact count queries and conservative resolve/load flags unchanged.
+This follows the independent capability meanings in Microsoft's
+[format flags](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_format_support).
+Do not claim unsupported 8x or full FL11.1 compliance: Microsoft's
+[feature-level guarantees](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-checkmultisamplequalitylevels)
+also expose an inherited broader feature-level-reporting gap on this software
+driver, which this narrow fix does not solve by inventing sample counts.
+
+- `resume-msaa-positive-gl/`: both PEs PASS actual 4x RTV clear/resolve/readback
+  for RGBA/BGRA; flags become `0x2a0f3f3`, unsupported counts stay zero.
+- `resume-msaa-full-gl/`, `resume-msaa-full-vk/`: all **16** required groups PASS
+  for both PEs. Vulkan uses the explicitly selected software lavapipe ICD.
+- `resume-msaa-webview2-gl/`: same cached runtime, same original host binary and
+  browser arguments as the failed control; 402 frames, 22 samples, no GPU
+  crashes, Skia fatals, SkSurface or shared-context errors; diagnostic exit 0.
+- `resume-webgl-gl/` (before): WebGL default/FBO pixels black and framebuffer
+  status 36061 (unsupported), delayed capability result after GPU restarts.
+- `resume-msaa-webgl-gl/` (after): WebGL1 AND WebGL2 default/FBO red
+  `[255,0,0,255]`, framebuffer status 36053 (complete), error=0, lost=false;
+  439 frames, no fatal/crash signatures. Both remain software-driver evidence.
+
+Front-window screenshot `resume-msaa-webgl-gl/screen-18.png` now contains the
+actual page instead of a blank window, but its moving square has visible
+duplicates/trails and the displayed counter lags the JavaScript samples. Thus
+this is a real-consumer startup repair, NOT correct retained/damage delivery,
+performance or full G4 acceptance. Keep the image private, not in theme assets.
+
+An additional current Electron control was downloaded from its official
+[v44.9.2 release](https://github.com/electron/electron/releases/tag/v44.9.2),
+verified against SHASUMS256.txt; archive SHA256
+`1a9ed7f4e70291c95ed9479d7fcd384a2d9cf062e5fb7ce846b119c7c63036c3`.
+Its notices remain with the private extracted runtime. It uses Chromium
+152.0.7977.167, not the WebView2 155 build. It also has no standalone EGL/GLES
+DLLs, so the attempted independent DLL probe was not executed and its repo
+prototype was removed. The actual Electron fixture instead uses public Electron
+APIs, explicit sandbox request, isolated profile, no renderer Node integration
+and no security bypasses. `resume-electron-default-gl/` reproduces the SAME Skia
+failure before the MSAA fix: 3 GPU crashes/fatals, 21 SkSurface errors despite
+later animation. Initial GPU-info results precede GPU initialization and show
+a dummy/no-GL record; they are not proof of actual rendering route or security.
+
+Failed attempts retained: system EGL headers lack ANGLE-specific platform
+tokens (standalone probe compile failed; checked official extension definitions
+and retried). The compile then passed, but preflight rejected absent libEGL.dll
+before any PE ran. The new multisample regression initially used a braced range
+without initializer_list; replaced it with an explicit constant array. That
+compile-only failure is `resume-msaa-negative-gl/`; the actual two-architecture
+negative control is the separately named rerun above. A premature read of the
+not-yet-created Electron log failed while compilation/preflight was pending;
+missing logs were not accepted as execution evidence.

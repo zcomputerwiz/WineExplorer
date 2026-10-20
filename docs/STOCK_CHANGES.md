@@ -1,5 +1,23 @@
 # Changes to stock Wine / third-party code
 
+## G4 available multisample render targets (2026-10-20, resumed)
+
+`dlls/d3d11/device.c`: report MULTISAMPLE_RENDERTARGET when a renderable format
+has an actually supported sample count, independently of the previous combined
+4x-and-8x resolve/load check. Keep exact per-count quality queries unchanged and
+do not expand resolve/load flags just because a render target exists. Add a
+TRACE of returned format flags for reproducible capability diagnosis.
+
+The owned Mesa software drivers support 4x RGBA/BGRA but not 2x/8x. Previously
+the bit was absent; ANGLE's checked multisample table became empty and Skia
+rejected ordinary framebuffer formats. Both architectures' negative controls
+fail before the fix; all 16 custom groups pass afterward on GL and lavapipe,
+including real 4x RTV clear/resolve/staging pixels and unsupported-count checks.
+The unchanged WebView2 host now progresses without its prior GPU/Skia fatal
+errors, and an opt-in WebGL1/2 diagnostic reads correct red default/FBO pixels.
+Actual front-window output still shows moving-content trails; no G4 acceptance,
+performance, physical GPU or feature-level-conformance claim is made.
+
 ## G4 honest newer video-interface exposure (2026-10-20)
 
 `dlls/d3d11/device.c`: do not advertise ID3D11VideoDevice1 while the matching
