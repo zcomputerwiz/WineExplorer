@@ -21,7 +21,8 @@ struct Scene
     IDXGISwapChain1 *sc = NULL;
     ID3D11Texture2D *bb = NULL, *pattern = NULL;
 
-    bool init()
+    bool init(DXGI_ALPHA_MODE alpha = DXGI_ALPHA_MODE_PREMULTIPLIED,
+            DXGI_FORMAT format = DXGI_FORMAT_B8G8R8A8_UNORM)
     {
         hwnd = create_window("G4 independent pixels", 256, 256, NULL);
         if (native_visual_control && hwnd)
@@ -30,18 +31,18 @@ struct Scene
             SetWindowPos(hwnd,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);
         }
         if (!hwnd || !create_d3d_and_dcomp(hwnd, &dev, &ctx, &comp, &target)) return false;
-        sc = create_comp_swapchain(dev, 64, 64);
+        sc = create_comp_swapchain(dev, 64, 64, format, alpha);
         if (!sc || FAILED(comp->CreateVisual(&visual))) return false;
         if (FAILED(visual->SetContent(sc)) || FAILED(target->SetRoot(visual))) return false;
         if (FAILED(sc->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&bb))) return false;
         DWORD pixels[64 * 64];
         for (int y = 0; y < 64; ++y)
             for (int x = 0; x < 64; ++x)
-                pixels[y * 64 + x] = x < 32 ? 0xffff0000 : 0xff0000ff;
+                pixels[y * 64 + x] = (x < 32) != (format == DXGI_FORMAT_R8G8B8A8_UNORM) ? 0xffff0000 : 0xff0000ff;
         D3D11_TEXTURE2D_DESC desc = {};
         desc.Width = desc.Height = 64;
         desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
-        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.Format = format;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_RENDER_TARGET;
         D3D11_SUBRESOURCE_DATA data = {pixels, 64 * 4, 0};
@@ -815,6 +816,162 @@ done:
     return ok;
 }
 
+struct DCompPathStats
+{
+    UINT64 gpu_captures, cpu_readbacks, gpu_compositions, cpu_compositions;
+};
+
+static bool dcomp_path_stats(IDXGISwapChain1 *sc, DCompPathStats *stats)
+{
+    // Reserved Wine diagnostic GUID; these are operation counters, not public
+    // DXGI frame/scanout statistics or a claim of physical GPU acceleration.
+    static const GUID guid = {0xa1042da3,0x2ea1,0x4d9a,{0xa4,0x03,0x01,0x1e,0xd3,0x61,0x83,0xfb}};
+    UINT size = sizeof(*stats);
+    if (sc->GetPrivateData(guid,&size,stats) != S_OK || size != sizeof(*stats)) return false;
+    printf("DCOMP_PATH gpu_captures=%llu cpu_readbacks=%llu gpu_compositions=%llu cpu_compositions=%llu\n",
+            (unsigned long long)stats->gpu_captures,(unsigned long long)stats->cpu_readbacks,
+            (unsigned long long)stats->gpu_compositions,(unsigned long long)stats->cpu_compositions);
+    return true;
+}
+
+static bool opaque_retained_gpu_delivery()
+{
+    const char *renderer = getenv("WINE_D3D_CONFIG");
+    bool gl = renderer && strstr(renderer,"renderer=gl");
+    if (!gl && (!renderer || !strstr(renderer,"renderer=vulkan"))) return false;
+    for (int format_index = 0; format_index < 2; ++format_index)
+    {
+        Scene s;
+        ID3D11RenderTargetView *view = NULL;
+        DXGI_FORMAT format = format_index ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
+        DCompPathStats before = {}, after = {};
+        DWORD pixels[64 * 64];
+        D2D_RECT_F clip = {0,0,16,64};
+        const float blue[] = {0,0,1,0}, red[] = {1,0,0,0};
+        bool ok = false;
+        if (!s.init(DXGI_ALPHA_MODE_IGNORE,format)) return false;
+        if (FAILED(s.comp->Commit()) || !s.present()
+                || !s.pixel(8,8,RGB(255,0,0)) || !s.pixel(48,8,RGB(0,0,255))) goto done;
+        for (int frame = 0; frame < 60; ++frame)
+        {
+            DWORD color = frame % 2 ? 0xff00ff00 : format_index ? 0xff0000ff : 0xffff0000;
+            for (DWORD &pixel : pixels) pixel = color;
+            s.ctx->UpdateSubresource(s.pattern,0,NULL,pixels,64 * 4,0);
+            if (!s.present() || !s.pixel(8,8,frame % 2 ? RGB(0,255,0) : RGB(255,0,0))) goto done;
+        }
+        if (!dcomp_path_stats(s.sc,&before)) goto done;
+        if (gl ? before.gpu_captures != 61 || before.cpu_readbacks || before.cpu_compositions
+                        || before.gpu_compositions < 61
+               : before.gpu_captures || before.gpu_compositions || before.cpu_readbacks < 61
+                        || before.cpu_compositions < 61) goto done;
+
+        // Render the next frame, but don't Present it. Commit must move the
+        // retained GPU snapshot (green), not consume that unpublished blue.
+        if (FAILED(s.dev->CreateRenderTargetView(s.bb,NULL,&view))) goto done;
+        s.ctx->ClearRenderTargetView(view,blue);
+        if (FAILED(s.visual->SetOffsetX(32.0f)) || FAILED(s.comp->Commit())
+                || !s.pixel(8,8,RGB(0,0,0)) || !s.pixel(40,8,RGB(0,255,0))) goto done;
+        if (!dcomp_path_stats(s.sc,&after) || after.cpu_readbacks != before.cpu_readbacks) goto done;
+
+        // Switching to the reference path reads the LAST PRESENTED GPU image
+        // once, not the mutable back buffer. Switching back reuses that image.
+        if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())
+                || !s.pixel(40,8,RGB(0,255,0)) || !s.pixel(56,8,RGB(0,0,0))) goto done;
+        if (!dcomp_path_stats(s.sc,&after) || (gl && after.cpu_readbacks != before.cpu_readbacks + 1)) goto done;
+        before = after;
+        if (FAILED(s.visual->SetClip((IDCompositionClip *)NULL)) || FAILED(s.comp->Commit())
+                || !s.pixel(56,8,RGB(0,255,0)) || !dcomp_path_stats(s.sc,&after)
+                || after.cpu_readbacks != before.cpu_readbacks) goto done;
+        if (FAILED(s.sc->Present(0,0)) || !s.pixel(40,8,RGB(0,0,255))) goto done;
+        // A frame actually Presented while the CPU fallback is active must
+        // supersede the older GPU image when the scene becomes GPU-eligible.
+        if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())) goto done;
+        s.ctx->ClearRenderTargetView(view,red);
+        if (FAILED(s.sc->Present(0,0)) || !s.pixel(40,8,RGB(255,0,0))) goto done;
+        if (FAILED(s.visual->SetClip((IDCompositionClip *)NULL)) || FAILED(s.comp->Commit())
+                || !s.pixel(56,8,RGB(255,0,0))) goto done;
+        s.ctx->ClearRenderTargetView(view,blue);
+        if (FAILED(s.sc->Present(0,0)) || !s.pixel(40,8,RGB(0,0,255))) goto done;
+        if (FAILED(s.visual->SetOffsetX(-16.0f)) || FAILED(s.comp->Commit())
+                || !s.pixel(0,8,RGB(0,0,255)) || !s.pixel(47,8,RGB(0,0,255))
+                || !s.pixel(48,8,RGB(0,0,0))) goto done;
+
+        release(view); release(s.bb);
+        if (FAILED(s.sc->ResizeBuffers(2,96,32,format,0))
+                || FAILED(s.sc->GetBuffer(0,__uuidof(ID3D11Texture2D),(void **)&s.bb))
+                || FAILED(s.dev->CreateRenderTargetView(s.bb,NULL,&view))) goto done;
+        s.ctx->ClearRenderTargetView(view,red);
+        if (FAILED(s.sc->Present(0,0)) || !s.pixel(79,8,RGB(255,0,0))
+                || !s.pixel(80,8,RGB(0,0,0)) || !s.pixel(8,40,RGB(0,0,0))) goto done;
+        if (!SetWindowPos(s.hwnd,NULL,0,0,360,300,SWP_NOMOVE|SWP_NOZORDER)) goto done;
+        flush_messages();
+        s.ctx->ClearRenderTargetView(view,red);
+        if (FAILED(s.sc->Present(0,0)) || !s.pixel(79,8,RGB(255,0,0))
+                || !s.pixel(300,240,RGB(0,0,0))) goto done;
+        if (FAILED(s.visual->SetContent(NULL)) || FAILED(s.comp->Commit())
+                || !s.pixel(8,8,RGB(0,0,0))) goto done;
+        ok = true;
+done:
+        release(view);
+        if (!ok) { printf("OPAQUE_GPU_FAIL format=%d gl=%d\n",format_index,gl); return false; }
+    }
+    return true;
+}
+
+static bool opaque_multilayer_gpu_delivery()
+{
+    const char *renderer = getenv("WINE_D3D_CONFIG");
+    bool gl = renderer && strstr(renderer,"renderer=gl");
+    if (!gl && (!renderer || !strstr(renderer,"renderer=vulkan"))) return false;
+    for (int format_index = 0; format_index < 2; ++format_index)
+    {
+        Scene s;
+        IDXGISwapChain1 *upper_sc = NULL;
+        IDCompositionVisual *upper = NULL;
+        ID3D11Texture2D *buffer = NULL;
+        ID3D11RenderTargetView *view = NULL;
+        DXGI_FORMAT format = format_index ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
+        const float blue[] = {0,0,1,0}, red[] = {1,0,0,0};
+        DCompPathStats lower_stats = {}, upper_stats = {};
+        DWORD green[64 * 64];
+        bool ok = false;
+        if (!s.init(DXGI_ALPHA_MODE_IGNORE,format)) return false;
+        upper_sc = create_comp_swapchain(s.dev,64,64,format,DXGI_ALPHA_MODE_IGNORE);
+        if (!upper_sc || FAILED(s.comp->CreateVisual(&upper)) || FAILED(upper->SetContent(upper_sc))
+                || FAILED(upper->SetOffsetX(16.0f)) || FAILED(upper->SetOffsetY(16.0f))
+                || FAILED(upper_sc->GetBuffer(0,__uuidof(ID3D11Texture2D),(void **)&buffer))
+                || FAILED(s.dev->CreateRenderTargetView(buffer,NULL,&view))
+                || FAILED(s.visual->AddVisual(upper,TRUE,NULL)) || FAILED(s.comp->Commit())) goto done;
+        s.ctx->ClearRenderTargetView(view,blue);
+        if (!s.present() || FAILED(upper_sc->Present(0,0))
+                || !s.pixel(8,8,RGB(255,0,0)) || !s.pixel(24,24,RGB(0,0,255))) goto done;
+        s.ctx->ClearRenderTargetView(view,red); // not yet published
+        if (!s.present() || !s.pixel(24,24,RGB(0,0,255))) goto done;
+        if (FAILED(upper_sc->Present(0,0)) || !s.pixel(24,24,RGB(255,0,0))) goto done;
+        for (DWORD &pixel : green) pixel = 0xff00ff00;
+        s.ctx->UpdateSubresource(s.pattern,0,NULL,green,64 * 4,0);
+        if (!s.present() || !s.pixel(8,8,RGB(0,255,0)) || !s.pixel(24,24,RGB(255,0,0))) goto done;
+        if (!dcomp_path_stats(s.sc,&lower_stats) || !dcomp_path_stats(upper_sc,&upper_stats)) goto done;
+        if (gl && (lower_stats.gpu_captures != 3 || upper_stats.gpu_captures != 2
+                || lower_stats.cpu_readbacks || upper_stats.cpu_readbacks
+                || lower_stats.cpu_compositions || upper_stats.cpu_compositions)) goto done;
+        if (!gl && (lower_stats.gpu_captures || upper_stats.gpu_captures
+                || lower_stats.gpu_compositions || upper_stats.gpu_compositions)) goto done;
+        // The target must stop retaining the removed producer's GPU snapshot,
+        // even when its caller references are released before this Commit.
+        release(view); release(buffer); release(upper_sc);
+        if (FAILED(s.visual->RemoveVisual(upper)) || FAILED(s.comp->Commit())
+                || !s.pixel(24,24,RGB(0,255,0))) goto done;
+        ok = true;
+done:
+        if (upper) s.visual->RemoveVisual(upper);
+        s.comp->Commit();
+        release(view); release(buffer); release(upper_sc); release(upper);
+        if (!ok) { printf("OPAQUE_MULTILAYER_FAIL format=%d gl=%d\n",format_index,gl); return false; }
+    }
+    return true;
+}
+
 static bool fence_capacity_and_reclaim()
 {
     Scene s;
@@ -900,6 +1057,8 @@ int main(int argc, char **argv)
         {"multi_target_transactions",multi_target_transactions},
         {"reparented_tree_lifetime",reparented_tree_lifetime},
         {"fence_capacity_and_reclaim",fence_capacity_and_reclaim},
+        {"opaque_retained_gpu_delivery",opaque_retained_gpu_delivery},
+        {"opaque_multilayer_gpu_delivery",opaque_multilayer_gpu_delivery},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;

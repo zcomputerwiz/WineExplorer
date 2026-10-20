@@ -191,9 +191,13 @@ in its assertions. Logs remain for both the timeout and passing rerun.
 Read-only VM inventory found an existing WebView2 155.0.4283.45 lab on
 WineExplorer-VM (already running). Approval review blocked copying its cached
 proprietary runtime CAB/host/loader into an isolated host Temp cache as a reverse
-transfer/payload disclosure risk. No transfer was performed; explicit user
-approval has been requested while independent checks continue. No workaround
-transfer, vendor download, VM restart/reset, or Git/ISO payload inclusion occurred.
+transfer/payload disclosure risk. The user subsequently explicitly authorized
+this isolated transfer; it completed without a vendor download, VM restart/reset
+or Git/ISO payload inclusion. The private CAB matches its recorded SHA-256
+`ec533bf1b7354d288703cf821a2d640d0130108224f93e330bb9c09faf3f8010`.
+cabextract reported a possible 10176-byte trailing area; extraction exited 0.
+The copied original diagnostic host source matches the repository SHA-256
+`a8945957b31453d889d6dc89a075f3564ad6fd0326c1bcff2918ea502aac0d08`.
 
 - Non-escalated `git status --short --branch` failed to read
   `.git/modules/wexcomp` (`Permission denied`). Repeated with approved elevated
@@ -205,3 +209,55 @@ transfer, vendor download, VM restart/reset, or Git/ISO payload inclusion occurr
 - `make -n dlls/dxgi/tests/all` reported `No rule to make target` because the
   owned build was configured with `--disable-tests`. Reconfigure for tests
   using the same WoW64 options rather than treating missing binaries as PASS.
+
+## Opaque retained OpenGL checkpoint
+
+The new narrow GPU route owns a retained texture per producer, copies only on
+real Present and blits eligible opaque layers into the actual drawable. No new
+per-frame CPU completion/readback is added. Eligibility requires non-layered
+HWND, unit opacity/scale, no clips, integer offsets, ignored alpha, FBO support
+and glBlitFramebuffer. Both BGRA/RGBA and multiple producers are covered. Other
+scenes, including Vulkan, keep the reference renderer. Switching to a clipped
+scene reads the last GPU snapshot once; switching back preserves a more recent
+CPU-presented frame until the next actual GPU Present. Allocation is prepared
+before replacing the old texture. This is one retained GPU copy plus drawable
+blits, not zero-copy or accelerated cross-process image sharing.
+
+Private GetPrivateData GUID `a1042da3-2ea1-4d9a-a403-011ed36183fb` returns four
+UINT64 counters: GPU captures, CPU readbacks, GPU compositions, CPU compositions.
+It drains the command queue for diagnostic observation only. These counters do
+not implement public frame statistics or prove displayed frames/physical FPS.
+
+Final capability-gated source evidence under the owned root:
+
+- `gpu-cap-final-gl/`: 14 groups PASS, both architectures; both pixel formats
+  show 61 changing-frame GPU captures and zero Wine-side readbacks before the
+  intentional clip fallback. Multilayer controls independently change each
+  producer, preserve pending versus presented frames and verify z-order.
+- `gpu-cap-final-vk/`: same 14 groups PASS, both architectures, explicit lavapipe
+  CPU fallback (zero GPU-route counters); not Vulkan GPU-composition proof.
+- `gpu-cap-full-suite-gl/`: G0-G3 plus eleven G3 ordering cases PASS, both PEs.
+- `gpu-cap-pacing-gl/`: five pacing controls PASS, both PEs.
+
+Both drivers are software. Upstream-suite failures, required desktop/theme/
+Wayland/physical-hardware checks and full G4 acceptance remain open.
+
+## Real WebView2 first-failure checkpoint
+
+`scripts/check-g4-webview2.py` runs the private cached host/runtime in a fresh
+prefix and owned Xvfb, offline in a private network namespace. It requests only
+logging flags: no version spoof, no --no-sandbox, no single-process, no disabled
+GPU sandbox or security-worker import. It records actual process argv, module
+maps, hashes and bounded cleanup; JavaScript progress is never a pixel pass.
+
+`webview2-default-gl/`: runtime 155.0.4283.45, host exit 0, navigation succeeds,
+23 samples/timer progress, but **zero animation frames and zero paints**. GPU
+process exits repeatedly with STATUS_BREAKPOINT (0x80000003). Therefore this is
+a failed real-consumer test despite successful environment/controller creation.
+Logs immediately preceding each breakpoint include unsupported DComp interface
+`4ca97a18-cbfd-4b0d-89e1-f7fa86d8d63e` and ID3D11VideoContext1
+`a7f026da-a5f8-4487-a564-15e34357651e`. Temporal proximity is NOT proof of cause;
+the breakpoint stack still needs tracing. Token claims/integrity stubs also
+appear; sandbox request flags do not prove enforcement. No bypass was applied.
+All matching owned Wine servers exited and Xvfb was terminated; the private
+prefix/profile/logs remain outside Git for diagnosis.

@@ -1,5 +1,25 @@
 # Changes to stock Wine / third-party code
 
+## G4 opaque retained OpenGL delivery (2026-10-20)
+
+`dlls/wined3d/{swapchain.c,wined3d_private.h,wined3d.spec}`,
+`include/wine/wined3d.h`, `dlls/dxgi/swapchain.c`: retain the last presented
+opaque BGRA/RGBA image in an independently owned GPU texture. Ordinary frames
+copy in the ordered command stream; only allocation/resize drains it. Eligible
+non-layered HWND scenes (unit opacity, no clips, integer translation, unit scale)
+blit retained producers back-to-front into the real window drawable. Capability
+gates require an FBO-attachable source and glBlitFramebuffer. No Vulkan dependency
+or new per-frame CPU readback/completion loop is introduced for this route.
+
+Other scenes still use the explicit CPU reference renderer. Entering that path
+lazily reads the last PRESENTED GPU snapshot, never an unpresented producer
+buffer; returning from a newly presented CPU frame preserves it until the next
+GPU capture. A private diagnostic GetPrivateData GUID exposes capture/readback/
+composition counts, not public frame/scanout statistics. Both architectures pass
+14 correctness groups on llvmpipe GL and lavapipe fallback, G0-G3 regressions and
+five pacing controls. This is not zero-copy, accelerated cross-process sharing,
+physical GPU proof, full alpha/clip GPU rendering or browser certification.
+
 ## G4 multi-target preparation and safe reparenting (2026-10-20)
 
 `dlls/dcomp/device.c`: prepare independent target snapshots before changing any
