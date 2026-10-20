@@ -592,3 +592,23 @@ called an old Intel/AMD/Nvidia hardware acceptance cell. Actual desktop/theme
 and Wayland/wexcomp checks remain NOT RUN, not inferred from unchanged assets.
 An attempted read of nonexistent wined3d/fence.c failed; this branch's shared
 fence implementation is in d3d11/device.c. No production fence edit made here.
+
+## Resumed: process-death observer reclaim and scoped idle CPU
+
+`resume-fence-death-idle-gl/`: new focused group PASS both PEs on Wine 01ab041.
+An owned child imports 64 fence objects and registers unsatisfied completions.
+The parent's 65th observer must explicitly fail capacity. After startup settles,
+GetProcessTimes over two seconds reports parent/child 10/10 ms (x64) and 0/0 ms
+(i686), below the explicit 100 ms per-process ceiling (5% of one core). This is
+scoped process CPU, not whole-VM/wineserver/GPU power or exhaustive idle proof.
+
+The parent intentionally terminates only that child and waits for its death,
+then successfully reuses ALL 64 observer slots and completes all notifications.
+This proves dead-process stale-name reclamation in this scenario, rather than
+only orderly local Release. Child startup failure, capacity loss, any missing
+completion, excessive CPU or cleanup failure cannot count as a pass. The child
+also has a 30-second self-bound if the parent disappears. No production fence
+code changed. The suite now requires 19 groups; previous full 18-group runs are
+not relabeled as 19. Deterministic signal-during-registration hooks, fault
+injection, creator death, broad handle/mapping/COM leak and backend sharing
+efficiency still remain open R2/R3 evidence.

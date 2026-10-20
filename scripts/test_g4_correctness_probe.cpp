@@ -1022,6 +1022,113 @@ done:
     return ok;
 }
 
+static bool process_cpu_ticks(HANDLE process, ULONGLONG *ticks)
+{
+    FILETIME created, exited, kernel, user;
+    if (!GetProcessTimes(process,&created,&exited,&kernel,&user)) return false;
+    *ticks = ((ULONGLONG)kernel.dwHighDateTime << 32) + kernel.dwLowDateTime
+            + ((ULONGLONG)user.dwHighDateTime << 32) + user.dwLowDateTime;
+    return true;
+}
+
+static int dormant_observer_child(HANDLE mapping, HANDLE ready)
+{
+    ID3D11Device *base = NULL;
+    ID3D11DeviceContext *context = NULL;
+    ID3D11Device5 *device = NULL;
+    ID3D11Fence *observers[64] = {};
+    HANDLE events[64] = {};
+    int result = 2;
+    if (FAILED(D3D11CreateDevice(NULL,D3D_DRIVER_TYPE_HARDWARE,NULL,0,NULL,0,
+            D3D11_SDK_VERSION,&base,NULL,&context))
+            || FAILED(base->QueryInterface(__uuidof(ID3D11Device5),(void **)&device))) goto done;
+    for (UINT i = 0; i < ARRAYSIZE(observers); ++i)
+        if (FAILED(device->OpenSharedFence(mapping,__uuidof(ID3D11Fence),(void **)&observers[i]))
+                || !(events[i] = CreateEventA(NULL,FALSE,FALSE,NULL))
+                || FAILED(observers[i]->SetEventOnCompletion(1,events[i]))) goto done;
+    if (!SetEvent(ready)) goto done;
+    // Parent intentionally kills only this owned child, leaving stale registry
+    // slots. A bounded sleep prevents an orphan if the parent itself crashes.
+    Sleep(30000);
+    result = 3;
+done:
+    for (UINT i = 0; i < ARRAYSIZE(observers); ++i)
+    { release(observers[i]); if (events[i]) CloseHandle(events[i]); }
+    release(device); release(context); release(base);
+    CloseHandle(mapping); CloseHandle(ready);
+    return result;
+}
+
+static bool fence_process_death_and_idle()
+{
+    Scene s;
+    ID3D11Device5 *device = NULL;
+    ID3D11DeviceContext4 *context = NULL;
+    ID3D11Fence *producer = NULL, *observers[64] = {};
+    HANDLE mapping = NULL, ready = NULL, events[64] = {};
+    SECURITY_ATTRIBUTES attributes = {sizeof(attributes),NULL,TRUE};
+    PROCESS_INFORMATION child = {};
+    STARTUPINFOA startup = {};
+    char executable[MAX_PATH], command[2 * MAX_PATH];
+    ULONGLONG child_before, child_after, parent_before, parent_after;
+    bool ok = false;
+    if (!s.init()) return false;
+    if (FAILED(s.dev->QueryInterface(__uuidof(ID3D11Device5),(void **)&device))
+            || FAILED(s.ctx->QueryInterface(__uuidof(ID3D11DeviceContext4),(void **)&context))
+            || FAILED(device->CreateFence(0,D3D11_FENCE_FLAG_SHARED,__uuidof(ID3D11Fence),(void **)&producer))
+            || FAILED(producer->CreateSharedHandle(NULL,GENERIC_ALL,NULL,&mapping))
+            || !SetHandleInformation(mapping,HANDLE_FLAG_INHERIT,HANDLE_FLAG_INHERIT)
+            || !(ready = CreateEventA(&attributes,FALSE,FALSE,NULL))
+            || !GetModuleFileNameA(NULL,executable,ARRAYSIZE(executable))) goto done;
+    snprintf(command,sizeof(command),"\"%s\" --dormant-observer-child %llx %llx",executable,
+            (unsigned long long)(UINT_PTR)mapping,(unsigned long long)(UINT_PTR)ready);
+    startup.cb = sizeof(startup);
+    if (!CreateProcessA(NULL,command,NULL,NULL,TRUE,0,NULL,NULL,&startup,&child)) goto done;
+    {
+        HANDLE started[] = {ready,child.hProcess};
+        if (WaitForMultipleObjects(2,started,FALSE,10000) != WAIT_OBJECT_0) goto done;
+    }
+    if (FAILED(device->OpenSharedFence(mapping,__uuidof(ID3D11Fence),(void **)&observers[0]))
+            || !(events[0] = CreateEventA(NULL,FALSE,FALSE,NULL))
+            || observers[0]->SetEventOnCompletion(1,events[0]) != HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES)) goto done;
+    Sleep(500); // exclude device/threadpool startup from the idle interval
+    if (!process_cpu_ticks(child.hProcess,&child_before)
+            || !process_cpu_ticks(GetCurrentProcess(),&parent_before)) goto done;
+    Sleep(2000);
+    if (!process_cpu_ticks(child.hProcess,&child_after)
+            || !process_cpu_ticks(GetCurrentProcess(),&parent_after)) goto done;
+    printf("FENCE_IDLE parent_ms=%llu child_ms=%llu interval_ms=2000 limit_ms=100\n",
+            (unsigned long long)((parent_after-parent_before)/10000),
+            (unsigned long long)((child_after-child_before)/10000));
+    // Each process must consume at most 5% of one core in this scoped interval.
+    if (parent_after-parent_before > 1000000 || child_after-child_before > 1000000) goto done;
+    if (!TerminateProcess(child.hProcess,124) || WaitForSingleObject(child.hProcess,5000) != WAIT_OBJECT_0) goto done;
+    if (FAILED(observers[0]->SetEventOnCompletion(1,events[0]))
+            || FAILED(context->Signal(producer,1)) || WaitForSingleObject(events[0],3000) != WAIT_OBJECT_0) goto done;
+    // All dead-process slots must be reusable, not just the first free slot.
+    for (UINT i = 0; i < ARRAYSIZE(observers); ++i)
+    {
+        if (i && (FAILED(device->OpenSharedFence(mapping,__uuidof(ID3D11Fence),(void **)&observers[i]))
+                || !(events[i] = CreateEventA(NULL,FALSE,FALSE,NULL)))) goto done;
+        if (FAILED(observers[i]->SetEventOnCompletion(2,events[i]))) goto done;
+    }
+    if (FAILED(context->Signal(producer,2)) || WaitForMultipleObjects(64,events,TRUE,5000) != WAIT_OBJECT_0) goto done;
+    ok = true;
+done:
+    if (child.hProcess)
+    {
+        if (WaitForSingleObject(child.hProcess,0) == WAIT_TIMEOUT)
+        { TerminateProcess(child.hProcess,125); WaitForSingleObject(child.hProcess,5000); }
+        CloseHandle(child.hThread); CloseHandle(child.hProcess);
+    }
+    for (UINT i = 0; i < ARRAYSIZE(observers); ++i)
+    { release(observers[i]); if (events[i]) CloseHandle(events[i]); }
+    if (mapping) CloseHandle(mapping);
+    if (ready) CloseHandle(ready);
+    release(producer); release(context); release(device);
+    return ok;
+}
+
 static bool present1_dirty_retention()
 {
     Scene s;
@@ -1255,6 +1362,12 @@ int main(int argc, char **argv)
         if (sscanf(argv[2], "%llx", &mapping) != 1 || sscanf(argv[3], "%llx", &ready) != 1) return 3;
         return observer_child((HANDLE)(UINT_PTR)mapping, (HANDLE)(UINT_PTR)ready);
     }
+    if (argc == 4 && !strcmp(argv[1], "--dormant-observer-child"))
+    {
+        unsigned long long mapping, ready;
+        if (sscanf(argv[2],"%llx",&mapping) != 1 || sscanf(argv[3],"%llx",&ready) != 1) return 3;
+        return dormant_observer_child((HANDLE)(UINT_PTR)mapping,(HANDLE)(UINT_PTR)ready);
+    }
     const struct { const char *name; bool (*run)(); } cases[] = {
         {"supported_pixels_and_transactions",supported_pixels_and_transactions},
         {"unsupported_properties_fail_honestly",unsupported_properties_fail_honestly},
@@ -1274,6 +1387,7 @@ int main(int argc, char **argv)
         {"multisample_format_capabilities",multisample_format_capabilities},
         {"present1_dirty_retention",present1_dirty_retention},
         {"bitmap_interpolation_transactions",bitmap_interpolation_transactions},
+        {"fence_process_death_and_idle",fence_process_death_and_idle},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;
