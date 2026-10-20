@@ -68,6 +68,25 @@ class AnalysisTests(unittest.TestCase):
                     '100 ms lifecycle result []'):
             self.assertFalse(runner.lifecycle_result(bad)['passed'])
 
+    def test_graphics_requires_both_contexts_and_correct_pixels(self):
+        context = {'available': True, 'lost': False, 'defaultError': 0, 'textureError': 0,
+                   'readError': 0, 'framebufferStatus': 36053,
+                   'defaultPixel': [255, 0, 0, 255], 'texturePixel': [255, 0, 0, 255]}
+        assess = lambda data: runner.graphics_result('100 ms graphics capabilities hr=0x00000000 ' + json.dumps(data))
+        self.assertTrue(assess({'webgl': context, 'webgl2': context})['passed'])
+        for name in ('webgl', 'webgl2'):
+            for key, wrong in (('available', False), ('lost', True), ('defaultError', 1282),
+                               ('textureError', 1282), ('readError', 1282), ('framebufferStatus', 36061),
+                               ('defaultPixel', [0, 0, 0, 0]), ('texturePixel', [0, 0, 0, 0])):
+                bad = dict(context, **{key: wrong})
+                data = {'webgl': context, 'webgl2': context, name: bad}
+                self.assertFalse(assess(data)['passed'])
+            self.assertFalse(assess({name: context})['passed'])
+        for bad in ('', '100 ms graphics capabilities hr=0x80004005 {}',
+                    '100 ms graphics capabilities hr=0x00000000 []',
+                    '100 ms graphics capabilities hr=0x00000000 bad-json'):
+            self.assertFalse(runner.graphics_result(bad)['passed'])
+
 
 if __name__ == '__main__':
     unittest.main()

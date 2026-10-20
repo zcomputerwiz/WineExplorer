@@ -42,6 +42,29 @@ def lifecycle_result(log):
         return {'passed': False, 'error': 'Invalid lifecycle result'}
 
 
+def graphics_result(log):
+    matches = re.findall(r'^\d+ ms graphics capabilities hr=(0x[\da-fA-F]+) (.+)$', log, re.MULTILINE)
+    if len(matches) != 1 or matches[0][0].lower() != '0x00000000':
+        return {'passed': False, 'error': 'Expected one successful graphics callback'}
+    try:
+        capabilities = json.loads(matches[0][1])
+        contexts = {}
+        for name in ('webgl', 'webgl2'):
+            item = capabilities[name]
+            contexts[name] = {key: item.get(key) for key in
+                              ('available', 'lost', 'defaultError', 'defaultPixel', 'framebufferStatus',
+                               'textureError', 'readError', 'texturePixel', 'version', 'unmasked')}
+            contexts[name]['passed'] = (item.get('available') is True and item.get('lost') is False
+                                        and all(item.get(key) == 0 for key in
+                                                ('defaultError', 'textureError', 'readError'))
+                                        and item.get('framebufferStatus') == 36053
+                                        and item.get('defaultPixel') == [255, 0, 0, 255]
+                                        and item.get('texturePixel') == [255, 0, 0, 255])
+        return {'passed': all(item['passed'] for item in contexts.values()), 'contexts': contexts}
+    except (ValueError, KeyError, AttributeError, TypeError):
+        return {'passed': False, 'error': 'Invalid graphics capabilities'}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wine-build', type=Path, required=True)
@@ -69,6 +92,8 @@ def main():
         parser.error('--freeze-scene requires --electron-app')
     if args.lifecycle and (not args.electron_app or args.freeze_scene or args.seconds < 25):
         parser.error('--lifecycle requires --electron-app, no --freeze-scene, and at least 25 seconds')
+    if args.graphics_diagnostic and args.electron_app:
+        parser.error('--graphics-diagnostic is supported only by the original WebView2 host')
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('--renderer vulkan requires --vulkan-icd')
     icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
@@ -204,6 +229,9 @@ def main():
         if args.lifecycle:
             result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['lifecycle_diagnostic']['passed']
+        if args.graphics_diagnostic:
+            result['graphics_diagnostic'] = graphics_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
+            passed = passed and result['graphics_diagnostic']['passed']
         print(json.dumps(result, indent=2), flush=True)
         result['diagnostic_exit'] = 0 if run.returncode == 0 and passed else 4
         return result['diagnostic_exit']

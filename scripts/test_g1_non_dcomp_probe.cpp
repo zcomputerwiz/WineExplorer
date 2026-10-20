@@ -102,7 +102,8 @@ static void register_classes(HINSTANCE hInstance)
     wc.lpfnWndProc = ParentWndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = "WEX_G1_ParentWnd";
-    RegisterClassExA(&wc);
+    if (!RegisterClassExA(&wc))
+        fprintf(stderr,"G1 RegisterClass parent failed: %lu\n",GetLastError());
 
     WNDCLASSEXA child_wc;
     memset(&child_wc, 0, sizeof(child_wc));
@@ -110,7 +111,8 @@ static void register_classes(HINSTANCE hInstance)
     child_wc.lpfnWndProc = ChildWndProc;
     child_wc.hInstance = hInstance;
     child_wc.lpszClassName = "WEX_G1_ChildWnd";
-    RegisterClassExA(&child_wc);
+    if (!RegisterClassExA(&child_wc))
+        fprintf(stderr,"G1 RegisterClass child failed: %lu\n",GetLastError());
 }
 
 static void run_g1_probe(const G1ProbeConfig *cfg, G1ProbeMetrics *m)
@@ -124,7 +126,10 @@ static void run_g1_probe(const G1ProbeConfig *cfg, G1ProbeMetrics *m)
                                 parent_style, CW_USEDEFAULT, CW_USEDEFAULT,
                                 cfg->width, cfg->height, NULL, NULL, hInst, NULL);
     m->parent_hwnd_created = (g_hParent != NULL);
-    if (!g_hParent) return;
+    if (!g_hParent) {
+        fprintf(stderr,"G1 parent CreateWindow failed: %lu\n",GetLastError());
+        return;
+    }
 
     RECT rc;
     GetClientRect(g_hParent, &rc);
@@ -140,6 +145,7 @@ static void run_g1_probe(const G1ProbeConfig *cfg, G1ProbeMetrics *m)
                                g_hParent, NULL, hInst, NULL);
     m->child_hwnd_created = (g_hChild != NULL);
     if (!g_hChild) {
+        fprintf(stderr,"G1 child CreateWindow failed: %lu\n",GetLastError());
         DestroyWindow(g_hParent);
         return;
     }

@@ -1,5 +1,24 @@
 # Changes to stock Wine / third-party code
 
+## G4 unrestricted dirty-list assembly (2026-10-20, resumed)
+
+Wine `273cacd`, `dlls/dxgi/swapchain.c`: supersedes the initial 64-rectangle
+complement-slicing implementation below. Assemble pending history in order:
+copy the coherent previous frame, apply clipped scroll, overlay every dirty
+rectangle from the producer, then copy the completed image to the producer's
+presentation buffer. Dirty writes therefore win without interval sorting,
+quadratic complement fragmentation, fixed arrays or an arbitrary count cap.
+All metadata is validated before enqueueing blits. No caller pointer survives
+the call. Full Presents still require only the history snapshot copy.
+
+Partial-frame cost is two full-frame GPU copies plus the scroll and dirty
+regions; two history allocations remain. This is not zero-copy or a measured
+performance win. The real 65-rectangle negative control fails on both PEs
+before this change; all 19 required correctness groups then pass on software
+GL/lavapipe for both PEs. Real WebView2 WebGL1/2 pixels and Electron input/window
+lifecycle remain passing. Baseline startup flakiness and inherited upstream
+failures remain recorded in the continuation report; no merge approval.
+
 ## G4 transactional bitmap interpolation (2026-10-20, resumed)
 
 `dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c`,

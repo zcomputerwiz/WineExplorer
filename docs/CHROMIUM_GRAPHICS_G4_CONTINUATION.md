@@ -5,6 +5,11 @@ Branch in both repositories: `codex/g4-r1-completion`. G4 is **in progress**;
 this report supersedes only the explicitly repaired limitations in
 CHROMIUM_GRAPHICS_G4_R1_REPAIR_REVIEW.md, not its remaining acceptance gates.
 
+Current concise matrix: CHROMIUM_GRAPHICS_G4_STATUS_20261020.md. For NEW parallel
+runs use run-isolated-graphics.py with fresh per-run filesystem sockets; the
+older shared-socket invocations below are historical and must not be reused in
+parallel (a cross-server filesystem-socket collision was reproduced).
+
 ## Hierarchical reference composition
 
 Wine `736b2b0` retains contentless ancestors, transformed nested clip masks and
@@ -612,3 +617,94 @@ code changed. The suite now requires 19 groups; previous full 18-group runs are
 not relabeled as 19. Deterministic signal-during-registration hooks, fault
 injection, creator death, broad handle/mapping/COM leak and backend sharing
 efficiency still remain open R2/R3 evidence.
+
+## Resumed: arbitrary dirty lists and strict real WebGL validation
+
+Wine `273cacd9affa680dbbb4ba79593da685c09e8bec` replaces the initial fixed
+64-rectangle complement algorithm with ordered pending-image assembly: previous
+frame, clipped scroll, caller dirty writes, then coherent image to presentation
+buffer. Dirty regions naturally take priority and overlap safely. Validation
+and command count are linear in the rectangle count; no interval-fragmentation
+arrays or arbitrary cap remain. Two history textures remain; partial updates
+cost two full-frame GPU copies plus dirty/scroll copies. This is correctness
+and compatibility, not a zero-copy, measured speed or power claim.
+
+- `resume-dirty-many-negative-gl/`: valid 65-rectangle Present1 FAIL both PEs on
+  the earlier bounded implementation; no invalid caller array used.
+- `resume-dirty-linear-full-gl/`, `resume-dirty-linear-full-vk/`: all **19**
+  mandatory groups PASS both PEs on final source, including overlapping dirty
+  regions, scrolling, >64 rectangles and process-death/idle CPU. Vulkan lavapipe.
+- `resume-dirty-linear-electron-lifecycle-gl/`: 60-second control, all seven
+  lifecycle checks PASS, 59 samples / 944 final post-reload frames, no GPU/Skia
+  fatal/crash signatures. Not a benchmark or browser-security certificate.
+- `resume-dirty-linear-webgl-gl/`: 30 seconds / 508 frames, both WebGL contexts
+  return correct default/FBO red pixels, complete status and no errors.
+- `resume-final-webgl-strict/`: runner now REQUIRES both WebGL1 and WebGL2 correct
+  pixels, complete framebuffer, no API errors and no context loss in addition
+  to prior no-crash/progress checks. PASS, 26 samples / 440 frames. Seven analyzer
+  unit tests PASS, including malformed/missing/failed contexts and wrong pixels.
+- `resume-final-electron-frozen/`: PASS diagnostic, 1,027 frames; front screen-18
+  inspected again: one blue square at x=160, correct text, uniform background.
+- `resume-final-pacing/`: all five groups PASS both PEs on final source.
+- `resume-final-upstream/`: FAIL unchanged, DXGI 67 failures / 46 skips / 14,468
+  assertions both PEs; D3D11 exit 5 both at legacy sharing failure. The complete
+  x64 DXGI failing-source-line/count set matches resume-msaa-upstream exactly.
+
+`resume-final-g0-g3/` failed G1 i686 HWND creation BEFORE D3D11 initialization
+while several independent controls ran. G0 both, G1 x64 and all eleven G3
+ordering controls both had passed. All-false JSON is NOT a D3D device diagnosis:
+the source returns immediately when parent CreateWindow fails. Added error-only
+RegisterClass/CreateWindow Win32 diagnostics; no assertion or success condition
+changed. Serial rerun is recorded separately; do not erase the failed run or
+assert resource contention was proven merely because a retry succeeds. Disk
+capacity check showed 720 GiB free. Reads using guessed nonexistent G1 filenames
+failed; the actual file is scripts/test_g1_non_dcomp_probe.cpp.
+
+Historical descriptions above retain the initial cap as it existed at those
+checkpoints; this section supersedes it. Current binding IID remains
+bc193c8b-df4f-4c75-8a59-0ab8ffccdc0b. No proprietary payload, screenshot, SDK
+header or font/art entered Git/ISO, and no OOBE/token worker or master changed.
+
+## Resumed: filesystem X socket collision found and isolated
+
+`resume-final-g0-g3-serial/` PASSes all G0-G3 and eleven ordering cases both PEs
+with error-only setup diagnostics and unchanged assertions. That alone did not
+explain the earlier failure. A separate two-Xvfb regression then proved a real
+test-harness hazard: network namespaces isolate abstract Unix sockets, but our
+older shared bind directory did not isolate filesystem sockets. Both servers
+choose display 0; the second replaces X0. SO_PEERCRED in the first namespace
+then reports the SECOND server's PID. This can cross-connect test clients.
+
+- `xsocket-shared-negative/`: expected FAIL; first own PID 360, peer changes
+  from 360 to 367, filesystem inode 465948 to 465951 after the second starts.
+- `xsocket-private-positive/`: PASS; first remains connected to own PID 386 /
+  inode 465955 while second uses PID 393 / inode 465959.
+
+These PIDs are historical evidence, not current processes to terminate. Both
+owned servers and namespace children exit. No global display socket changed.
+New run-isolated-graphics.py gives each invocation a unique owned directory and
+private mount/net namespace, removes only its empty generated directory and
+retains nonempty state rather than recursively deleting it. Caller must still
+use the bounded runner and its own Wine/Xvfb cleanup. This fixes proven
+cross-server isolation, not a claimed traced root cause of the original G1 HWND
+failure. Fresh parallel graphics/consumer controls use `isolated-final-*` names.
+
+Final per-run-socket controls all completed: `isolated-final-full-gl/` and
+`isolated-final-full-vk/` (19 groups both PEs), `isolated-final-g0-g3/` (G0-G3
+and eleven ordering cases both PEs), `isolated-final-pacing/` (five groups both
+PEs), `isolated-final-webgl/` (strict both-context pixels),
+`isolated-final-electron/` (all seven lifecycle checks, 34 samples / 519
+post-reload frames), and `isolated-final-frozen/` (1,100 frames; actual screen-18
+viewed: one x=160 square, correct text and uniform background). Exit 0 for each.
+No physical performance/security/theme claim follows. New checkpoint:
+CHROMIUM_GRAPHICS_G4_CHECKPOINT_20261020_RESUMED.json; current concise matrix:
+CHROMIUM_GRAPHICS_G4_STATUS_20261020.md.
+
+Owned Wine/wineserver/Xvfb process inspection after completion found none left;
+the per-run socket root contains no generated directories. Private browser
+profiles/prefixes, raw evidence and lawful runtime caches remain for diagnosis.
+WineExplorer-VM was not restarted, reset, reinstalled or modified this resumed
+step. No OOBE/token work was touched. The automation lookup using CODEX_HOME
+failed because that variable was unset and PowerShell resolved /automations as
+D:\automations; explicit C:\Users\Owner\.codex\automations found the existing
+one-time continuation entry. No duplicate automation was created by that lookup.

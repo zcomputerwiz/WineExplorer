@@ -1196,10 +1196,14 @@ static bool present1_dirty_retention()
     parameters = {ARRAYSIZE(overlapping),overlapping,NULL,NULL};
     if (FAILED(s.sc->Present1(0,0,&parameters)) || !s.pixel(44,12,RGB(255,0,255))
             || !s.pixel(64,8,RGB(255,255,255)) || !s.pixel(84,8,RGB(0,0,255))) return false;
-    parameters.DirtyRectsCount = 65;
-    // The current bounded implementation rejects unsupported complexity before
-    // inspecting the caller's rectangle array or advancing retained state.
-    return s.sc->Present1(0,0,&parameters) == E_NOTIMPL;
+    RECT many[65];
+    for (RECT &rect : many) rect = {0,0,16,16};
+    for (DWORD &pixel : patch) pixel = 0xffffff00;
+    box = {0,0,0,16,16,1};
+    s.ctx->UpdateSubresource(s.bb,0,&box,patch,16 * 4,0);
+    parameters = {ARRAYSIZE(many),many,NULL,NULL};
+    return SUCCEEDED(s.sc->Present1(0,0,&parameters)) && s.pixel(40,8,RGB(255,255,0))
+            && s.pixel(64,8,RGB(255,255,255)) && s.pixel(84,8,RGB(0,0,255));
 }
 
 static bool bitmap_interpolation_transactions()

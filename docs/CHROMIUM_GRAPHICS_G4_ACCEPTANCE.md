@@ -1,5 +1,8 @@
 # Phase G4 Acceptance Report: DirectComposition Retained Tree, Presentation & Pacing
 
+Current status: [2026-10-20 independent status](CHROMIUM_GRAPHICS_G4_STATUS_20261020.md).
+This file preserves superseded claims for audit, not current acceptance.
+
 > Historical Gemini claims, NOT current acceptance. Independent review of parent
 > b58b9485 / Wine b2038215 found lost-wakeup, ignored-rendering-property,
 > cross-thread completion and non-discriminating test defects. The corrected
