@@ -78,6 +78,27 @@ def configure_private_theme(wine, environment, output, label, mode, style):
     return records
 
 
+def configure_gl_driver(environment, driver):
+    """Explicit per-run selection; never silently inherit a loader override."""
+    for key in ('GALLIUM_DRIVER', 'MESA_LOADER_DRIVER_OVERRIDE', 'LD_LIBRARY_PATH'):
+        environment.pop(key, None)
+    environment['LIBGL_ALWAYS_SOFTWARE'] = '1' if driver == 'software' else '0'
+    if driver == 'd3d12':
+        environment.update(GALLIUM_DRIVER='d3d12', LD_LIBRARY_PATH='/usr/lib/wsl/lib')
+
+
+def verify_gl_driver(environment, output, driver):
+    if driver == 'software':
+        return None
+    result = run_logged(['glxinfo', '-B'], environment, output, 'gl-driver', 30)
+    passed = (result.returncode == 0 and 'Accelerated: yes' in result.stdout
+              and re.search(r'OpenGL renderer string: D3D12 \([^\n]+\)', result.stdout) is not None
+              and not re.search(r'llvmpipe|softpipe|swiftshader', result.stdout, re.I))
+    if not passed:
+        raise RuntimeError('Requested accelerated D3D12 driver unavailable; see gl-driver logs')
+    return {'passed': True, 'stdout': result.stdout, 'exit_code': result.returncode}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wine-build', type=Path, required=True)
@@ -119,9 +140,13 @@ def main():
     parser.add_argument('--upstream-tests', action='store_true',
                         help='Run built upstream d3d11/dxgi suites for both architectures; retain failures')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software',
+                        help='Explicit accelerated WSL Mesa D3D12 control; verified with glxinfo')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.gl_driver != 'software' and (args.renderer != 'gl' or args.full_suite):
+        parser.error('--gl-driver d3d12 requires GL and a standalone probe suite')
     if args.theme_mode == 'open-luna' and not args.theme_style:
         parser.error('--theme-mode open-luna requires --theme-style')
     if args.theme_style and args.theme_mode != 'open-luna':
@@ -194,6 +219,11 @@ def main():
                                WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b',
                                WINEDEBUG=args.wine_debug, LIBGL_ALWAYS_SOFTWARE='1',
                                WINE_D3D_CONFIG='renderer=' + args.renderer)
+            configure_gl_driver(environment, args.gl_driver)
+            result['gl_driver'] = args.gl_driver
+            result['gl_driver_verification'] = verify_gl_driver(environment, output, args.gl_driver)
+            if args.gl_driver != 'software':
+                result['classification'] = 'Xvfb + accelerated WSL Mesa D3D12 functional control; not desktop acceptance'
             if args.renderer == 'vulkan':
                 environment.update(VK_DRIVER_FILES=str(icd), VK_ICD_FILENAMES=str(icd))
             if args.memory_profile:
@@ -210,6 +240,9 @@ def main():
                                      ('DISPLAY', 'WINE', 'WINESERVER', 'WINEDLLOVERRIDES',
                                       'WINEDEBUG', 'LIBGL_ALWAYS_SOFTWARE')}
             result['environment']['WINE_D3D_CONFIG'] = environment['WINE_D3D_CONFIG']
+            for key in ('GALLIUM_DRIVER', 'LD_LIBRARY_PATH'):
+                if key in environment:
+                    result['environment'][key] = environment[key]
             if icd:
                 result['vulkan_icd'] = str(icd)
                 result['vulkan_icd_sha256'] = hashlib.sha256(icd.read_bytes()).hexdigest()

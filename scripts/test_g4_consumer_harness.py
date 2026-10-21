@@ -57,6 +57,7 @@ class RestartOwnership(unittest.TestCase):
                        {'cleanup': {'remaining_servers': [123]}}, {'cleanup': {}},
                        {'consumer': 'WebView2'}, {'wine_build': '/other'}, {'renderer': 'vulkan'},
                        {'sha256': {}}, {'stack_sha256': {}}, {'vulkan_icd_sha256': 'other'}, {'state_root': '/other'},
+                       {'gl_driver': 'd3d12'},
                        {'restart_from': 'already-restarted'}, {'profile_diagnostic': {'passed': False}},
                        {'profile_token': ''}):
             value = copy.deepcopy(self.prior)

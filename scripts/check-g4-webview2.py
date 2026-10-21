@@ -143,7 +143,7 @@ def recovery_acceptance(animation, recovery):
             and all(value == 0 for name, value in errors.items() if name != 'gpu_process_crash'))
 
 
-def restart_state(previous, build, renderer, payload_hashes, stack_hashes, icd_hash=None):
+def restart_state(previous, build, renderer, payload_hashes, stack_hashes, icd_hash=None, gl_driver='software'):
     """Only reuse a successful, stopped fresh run's exact private state."""
     previous = previous.resolve(strict=True)
     prior = json.loads((previous / 'results.json').read_text())
@@ -151,6 +151,7 @@ def restart_state(previous, build, renderer, payload_hashes, stack_hashes, icd_h
             or prior.get('cleanup', {}).get('remaining_servers') != []
             or prior.get('consumer') != 'Electron original fixture'
             or prior.get('wine_build') != str(build) or prior.get('renderer') != renderer
+            or prior.get('gl_driver', 'software') != gl_driver
             or prior.get('sha256') != payload_hashes or prior.get('stack_sha256') != stack_hashes
             or prior.get('vulkan_icd_sha256') != icd_hash
             or prior.get('state_root') != str(previous) or prior.get('restart_from') is not None
@@ -190,9 +191,13 @@ def main():
     parser.add_argument('--gpu-recovery', action='store_true',
                         help='Separate Electron owned-GPU termination/context-recreation diagnostic')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software',
+                        help='Explicit accelerated WSL Mesa D3D12 control, independently verified')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
+    if args.gl_driver != 'software' and args.renderer != 'gl':
+        parser.error('--gl-driver d3d12 requires --renderer gl')
     if args.freeze_scene and not args.electron_app:
         parser.error('--freeze-scene requires --electron-app')
     if args.lifecycle and (not args.electron_app or args.freeze_scene or args.seconds < 25):
@@ -232,7 +237,7 @@ def main():
                     for arch in ('x86_64', 'i386')]
     stack_hashes = {str(path.relative_to(build)): digest(path) for path in stack_files}
     state_root, expected = (restart_state(args.restart_from, build, args.renderer,
-                                         payload_hashes, stack_hashes, digest(icd) if icd else None)
+                                         payload_hashes, stack_hashes, digest(icd) if icd else None, args.gl_driver)
                             if args.restart_from else (output, None))
     # Refuse concurrent reuse; never kill a test running on someone else's state.
     state_lock = (state_root / '.consumer.lock').open('a')
@@ -255,6 +260,7 @@ def main():
                        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b',
                        WINEDEBUG='+timestamp,+pid,+tid,err+all,warn+all,fixme+all',
                        LIBGL_ALWAYS_SOFTWARE='1', WINE_D3D_CONFIG='renderer=' + args.renderer)
+    helpers.configure_gl_driver(environment, args.gl_driver)
     if icd:
         environment.update(VK_DRIVER_FILES=str(icd), VK_ICD_FILENAMES=str(icd))
     winpath = lambda path: 'Z:' + str(path).replace('/', '\\')
@@ -279,11 +285,12 @@ def main():
         environment['WINEDEBUG'] += ',+d3d11,+dxgi'
     result = {'classification': 'Xvfb offline first-failure diagnostic; not G4 acceptance',
               'renderer': args.renderer,
+              'gl_driver': args.gl_driver,
               'consumer': 'Electron original fixture' if args.electron_app else 'WebView2',
               'wine_build': str(build),
               'environment': {key: value for key, value in environment.items()
                               if key.startswith(('WINE', 'WEBVIEW2_', 'WEX_WEBVIEW2_', 'CHROME_'))
-                              or key == 'LIBGL_ALWAYS_SOFTWARE'},
+                              or key in ('LIBGL_ALWAYS_SOFTWARE', 'GALLIUM_DRIVER', 'LD_LIBRARY_PATH')},
               'sha256': payload_hashes, 'stack_sha256': stack_hashes,
               'state_root': str(state_root), 'profile_token': token,
               'restart_from': str(args.restart_from.resolve()) if args.restart_from else None,
@@ -319,7 +326,8 @@ def main():
                             continue
                         argv = (process / 'cmdline').read_bytes().replace(b'\0', b' ').decode(errors='replace')
                         maps = [line for line in (process / 'maps').read_text().splitlines()
-                                if any(name in line.lower() for name in ('d3d11', 'dxgi', 'dcomp', 'wined3d'))]
+                                if any(name in line.lower() for name in
+                                       ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'd3d12', 'dxcore', 'libgallium'))]
                         identity = (process.name, argv, tuple(maps))
                         if identity in seen:
                             continue
@@ -343,6 +351,7 @@ def main():
             raise RuntimeError('Owned Xvfb failed')
         environment['DISPLAY'] = ':' + number
         result['display'] = environment['DISPLAY']
+        result['gl_driver_verification'] = helpers.verify_gl_driver(environment, output, args.gl_driver)
         if not args.restart_from:
             boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
             result['wineboot_exit'] = boot.returncode

@@ -1,6 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_ACCELERATED_WSL_20261021.md`. Physical GPU
+testing is no longer required by the user; accelerated virtual GPU is sufficient.
+The explicit WSL Mesa D3D12 path works even without /dev/dri: all28 groups both
+PEs, WebView2 strict pixels, real Electron lifecycle and both-PE Classic/open
+Luna captions pass. Use --gl-driver d3d12; default remains software. Driver
+verification fails closed, process logs capture D3D12 libs. Remaining installed
+desktop/compositor/Wayland/R2/R3 gates stay open. New VMs/disks belong on D:.
+
 Newest: `CHROMIUM_GRAPHICS_G4_CAPTION_FIXED_20261021.md`, Wine `54bc44a`.
 Startup caption is repaired: no longer double-offset a client-side X11 surface
 shape. Actual Electron initial shape/screenshot, both-PE default/open Luna/

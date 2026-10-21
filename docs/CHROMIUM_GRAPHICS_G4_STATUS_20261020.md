@@ -3,6 +3,14 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_ACCELERATED_WSL_20261021.md`. User accepts
+hardware-accelerated virtual GPU drivers instead of a physical GPU matrix.
+Explicit Mesa D3D12/WSL GPU route (Intel UHD750, acceleration=yes) passes all28
+groups both PEs, real WebView2 strict pixels, Electron lifecycle and both-PE
+Classic/open Luna caption preservation. Default WSL remains software: these
+are separate explicit runs. Installed desktop/compositor/Wayland and remaining
+R2/R3 gates remain open. Any new VM storage must be on host D:.
+
 Newest: `CHROMIUM_GRAPHICS_G4_CAPTION_FIXED_20261021.md`. Wine `54bc44a`
 repairs a doubled X11 surface-shape offset, verified on actual initial Electron
 window before resize. Both PEs pass default/open Luna/unmanaged Classic caption
