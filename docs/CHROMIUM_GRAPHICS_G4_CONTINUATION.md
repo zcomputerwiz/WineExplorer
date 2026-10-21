@@ -1,6 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Latest: `CHROMIUM_GRAPHICS_G4_BORDER_VERIFIED_20261021.md` records R1 border
+implementation and 24-group verification. Earlier border-stub descriptions are
+historical. G4 is still incomplete; next is four-layer HWND integration.
+
 Branch in both repositories: `codex/g4-r1-completion`. G4 is **in progress**;
 this report supersedes only the explicitly repaired limitations in
 CHROMIUM_GRAPHICS_G4_R1_REPAIR_REVIEW.md, not its remaining acceptance gates.

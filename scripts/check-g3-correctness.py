@@ -73,7 +73,8 @@ def main():
                         'multi_target_transactions', 'reparented_tree_lifetime', 'fence_capacity_and_reclaim',
                         'opaque_retained_gpu_delivery', 'opaque_multilayer_gpu_delivery',
                         'video_capability_consistency', 'multisample_format_capabilities', 'present1_dirty_retention',
-                        'bitmap_interpolation_transactions', 'fence_process_death_and_idle',
+                        'bitmap_interpolation_transactions', 'border_mode_transactions', 'border_mode_geometry',
+                        'fence_process_death_and_idle',
                         'application_background_pixels', 'application_background_detach',
                         'application_background_expose'),
                         help='Run one named G4 regression for controlled before/after comparisons')
@@ -216,6 +217,8 @@ def main():
                                 'video_capability_consistency=PASS',
                                 'multisample_format_capabilities=PASS',
                                 'present1_dirty_retention=PASS', 'bitmap_interpolation_transactions=PASS',
+                                'border_mode_transactions=PASS',
+                                'border_mode_geometry=PASS',
                                 'fence_process_death_and_idle=PASS', 'application_background_pixels=PASS',
                                 'application_background_detach=PASS', 'application_background_expose=PASS')
                 if args.g4_case:

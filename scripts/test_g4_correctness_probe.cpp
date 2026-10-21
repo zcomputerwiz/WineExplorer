@@ -83,7 +83,7 @@ struct Scene
         GdiFlush();
         return painted;
     }
-    bool pixel(int x, int y, COLORREF expected)
+    bool pixel(int x, int y, COLORREF expected, unsigned int tolerance = 0)
     {
         COLORREF actual = CLR_INVALID;
         for (int i = 0; i < 100; ++i)
@@ -100,7 +100,10 @@ struct Scene
             HDC dc = GetDC(NULL);
             actual = GetPixel(dc, point.x, point.y);
             ReleaseDC(NULL, dc);
-            if (actual == expected) return true;
+            if (actual != CLR_INVALID
+                    && abs((int)GetRValue(actual) - (int)GetRValue(expected)) <= (int)tolerance
+                    && abs((int)GetGValue(actual) - (int)GetGValue(expected)) <= (int)tolerance
+                    && abs((int)GetBValue(actual) - (int)GetBValue(expected)) <= (int)tolerance) return true;
             Sleep(10); // bounded test observation, not production pacing
         }
         printf("PIXEL_FAIL x=%d y=%d expected=%06lx actual=%06lx\n",
@@ -1480,6 +1483,89 @@ static bool present1_dirty_retention()
             && s.pixel(64,8,RGB(255,255,255)) && s.pixel(84,8,RGB(0,0,255));
 }
 
+static bool border_mode_transactions()
+{
+    Scene s;
+    if (!s.init() || FAILED(s.visual->SetOffsetX(8.25f))
+            || FAILED(s.comp->Commit()) || !s.present()
+            || !s.pixel(8,8,RGB(255,0,0)) || !s.pixel(72,8,RGB(0,0,0))) return false;
+    // Pending state must not leak through a producer Present.
+    if (FAILED(s.visual->SetBorderMode(DCOMPOSITION_BORDER_MODE_SOFT))
+            || !s.present() || !s.pixel(8,8,RGB(255,0,0))) return false;
+    if (FAILED(s.comp->Commit()) || !s.pixel(8,8,RGB(191,0,0))
+            || !s.pixel(72,8,RGB(0,0,64))) return false;
+    if (s.visual->SetBorderMode((DCOMPOSITION_BORDER_MODE)7) != E_INVALIDARG
+            || FAILED(s.comp->Commit()) || !s.pixel(8,8,RGB(191,0,0))) return false;
+    IDCompositionVisual *parent = NULL;
+    if (FAILED(s.comp->CreateVisual(&parent))) return false;
+    bool ok = SUCCEEDED(parent->AddVisual(s.visual,FALSE,NULL))
+            && SUCCEEDED(s.target->SetRoot(parent))
+            && SUCCEEDED(parent->SetBorderMode(DCOMPOSITION_BORDER_MODE_SOFT))
+            && SUCCEEDED(s.visual->SetBorderMode(DCOMPOSITION_BORDER_MODE_INHERIT))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(8,8,RGB(191,0,0));
+    ok = ok && SUCCEEDED(s.visual->SetBorderMode(DCOMPOSITION_BORDER_MODE_HARD))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(8,8,RGB(255,0,0));
+    ok = ok && SUCCEEDED(s.visual->SetBorderMode(DCOMPOSITION_BORDER_MODE_INHERIT))
+            && SUCCEEDED(parent->SetBorderMode(DCOMPOSITION_BORDER_MODE_HARD))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(8,8,RGB(255,0,0));
+    ok = ok && SUCCEEDED(parent->SetBorderMode(DCOMPOSITION_BORDER_MODE_SOFT))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(8,8,RGB(191,0,0));
+    D2D_RECT_F clip = {0,0,16.5f,64};
+    ok = ok && SUCCEEDED(s.visual->SetClip(clip)) && SUCCEEDED(s.comp->Commit())
+            && s.pixel(24,8,RGB(191,0,0)) && s.pixel(25,8,RGB(0,0,0));
+    // A HARD child cannot undo its SOFT ancestor's clip.
+    D2D_RECT_F parent_clip = {0,0,24.75f,64};
+    ok = ok && SUCCEEDED(s.visual->SetClip((IDCompositionClip *)NULL))
+            && SUCCEEDED(s.visual->SetBorderMode(DCOMPOSITION_BORDER_MODE_HARD))
+            && SUCCEEDED(parent->SetClip(parent_clip)) && SUCCEEDED(s.comp->Commit())
+            && s.pixel(24,8,RGB(191,0,0));
+    // Preparation failure must leave both geometry and inherited border active
+    // state untouched, while retaining pending edits for a successful retry.
+    RECT original;
+    ok = ok && GetWindowRect(s.hwnd,&original)
+            && SUCCEEDED(parent->SetBorderMode(DCOMPOSITION_BORDER_MODE_HARD))
+            && SetWindowPos(s.hwnd,NULL,0,0,8300,300,SWP_NOMOVE|SWP_NOZORDER|SWP_NOSENDCHANGING);
+    if (ok)
+    {
+        HRESULT rejected = s.comp->Commit();
+        ok = SetWindowPos(s.hwnd,NULL,0,0,original.right-original.left,original.bottom-original.top,
+                SWP_NOMOVE|SWP_NOZORDER) != FALSE;
+        flush_messages();
+        ok = ok && rejected == E_NOTIMPL && s.black() && s.present() && s.pixel(24,8,RGB(191,0,0))
+                && SUCCEEDED(s.comp->Commit()) && s.pixel(24,8,RGB(255,0,0));
+    }
+    release(parent);
+    return ok;
+}
+
+static bool border_mode_geometry()
+{
+    Scene s;
+    if (!s.init()) return false;
+    // The rotated bitmap edge crosses this target pixel exactly in half.
+    D2D_MATRIX_3X2_F matrix = {1,1,-1,1,32,0};
+    if (FAILED(s.visual->SetTransform(matrix)) || FAILED(s.comp->Commit()) || !s.present()
+            || !s.pixel(24,7,RGB(255,0,0))) return false;
+    if (FAILED(s.visual->SetBorderMode(DCOMPOSITION_BORDER_MODE_SOFT))
+            || FAILED(s.comp->Commit()) || !s.pixel(24,7,RGB(128,0,0),16)) return false;
+    // Rounded clip circle centered at (8,8), radius 8. Independent area
+    // integration of pixel [2,3]x[2,3] gives 193.678/255 coverage; allow
+    // four quantization levels, not an exact native-Windows AA claim.
+    matrix = {1,0,0,1,0,0};
+    IDCompositionRectangleClip *clip = NULL;
+    if (FAILED(s.comp->CreateRectangleClip(&clip))) return false;
+    bool ok = SUCCEEDED(clip->SetLeft(0.0f)) && SUCCEEDED(clip->SetTop(0.0f))
+            && SUCCEEDED(clip->SetRight(16.0f)) && SUCCEEDED(clip->SetBottom(16.0f))
+            && SUCCEEDED(clip->SetTopLeftRadiusX(8.0f)) && SUCCEEDED(clip->SetTopLeftRadiusY(8.0f))
+            && SUCCEEDED(s.visual->SetTransform(matrix)) && SUCCEEDED(s.visual->SetClip(clip))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(2,2,RGB(194,0,0),4)
+            && s.pixel(0,0,RGB(0,0,0)) && s.pixel(8,8,RGB(255,0,0));
+    ok = ok && SUCCEEDED(s.visual->SetBorderMode(DCOMPOSITION_BORDER_MODE_HARD))
+            && SUCCEEDED(s.comp->Commit()) && s.pixel(2,2,RGB(255,0,0));
+    release(clip);
+    return ok;
+}
+
 static bool bitmap_interpolation_transactions()
 {
     Scene s;
@@ -1665,6 +1751,8 @@ int main(int argc, char **argv)
         {"multisample_format_capabilities",multisample_format_capabilities},
         {"present1_dirty_retention",present1_dirty_retention},
         {"bitmap_interpolation_transactions",bitmap_interpolation_transactions},
+        {"border_mode_transactions",border_mode_transactions},
+        {"border_mode_geometry",border_mode_geometry},
         {"fence_process_death_and_idle",fence_process_death_and_idle},
         {"application_background_pixels",application_background_pixels},
         {"application_background_detach",application_background_detach},
