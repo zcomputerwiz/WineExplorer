@@ -54,6 +54,7 @@ Evidence root: `/var/tmp/wex-g4-tree-20261020`.
 | r4-bridge-webview-final-gl / -vk | Real WebView2: strict WebGL1/2 default/FBO pixels PASS; inspected real front content visible |
 | r4-bridge-pacing-final | Five pacing groups PASS both PEs |
 | r4-bridge-g0-g3-final | G0–G3 and11 ordering controls PASS both PEs |
+| r4-bridge-native-recovery-gl / -vulkan | Real owned GPU-child replacement, context-loss/recreation, exact WebGL pixels and inspected recovered front output PASS |
 
 The16 native controls cover attach, wrong parent, exact clipping, invalid size,
 reattach, parent identity revocation, stale identity, newly issued identity,
@@ -95,8 +96,14 @@ not acceleration proof for this native private protocol.
   role cannot simply acquire a different immutable role; migration of an
   existing drawable between these two attachment modes still needs explicit
   handling/testing. Do not claim arbitrary cross-process reparenting works.
-- Repeat settled resize/frame checks and native GPU-process recovery on this
-  bridge. The earlier X11 recovery checks are not this new route.
+- Repeat settled resize/frame checks. Native GPU-process recovery is now
+  verified on this bridge: GL GPU PID532→940 with renderer652 unchanged;
+  Vulkan GPU PID512→920 with renderer632 unchanged. Each sees one intentional
+  GPU exit, no renderer exits, context-loss events in both WebGL versions,
+  correct red default/green FBO readbacks, unchanged backend/features and
+  continued frames. Inspected screen-28 captures show the frozen "GPU recovery
+  verified" page, original blue square and two red WebGL canvases. These are
+  actual compositor images, not solely post-crash animation/API results.
 - Actual installed Classic/open Luna, locked/unlocked taskbar, toolbars and
   tray chevron validation remains. Do not conflate default unthemed diagnostic
   captions with installed-theme acceptance. Qwen's OOBE work is separate.

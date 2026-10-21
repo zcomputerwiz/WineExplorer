@@ -8,6 +8,8 @@ wexcomp1b9df94e. Native blank content is repaired for fully covering opaque
 cross-process Chromium targets. Exact own/foreign pixels pass both PEs/GL/VK;
 16 protocol/lifetime controls,28 correctness groups each backend/PE, G0–G3,
 pacing, actual Electron lifecycle and WebView2 strict pixels pass scoped checks.
+Real Electron native GPU-child recovery also passes GL/Vulkan, including
+context-loss/recreation and inspected independent recovered front images.
 Actual front content verified; one transient resize border capture remains open
 despite complete settled frame. Installed-theme/shell and native accelerated
 checks, scale/role migration and remaining relevant synchronization/sharing

@@ -6,8 +6,10 @@ wexcomp1b9df94e implement the private cross-process render bridge plus opaque
 background-capture elision. Real Chromium front content now works, not merely
 Present/RAF APIs. Both PEs/GL/VK exact pixel controls and full28 regressions,
 16 native protocol/lifetime controls, G0–G3 and pacing pass. Both real consumers
-pass scoped checks. Next: settle/check transient Vulkan resize border, native
-GPU-child recovery, fractional scale/movement/role migration and actual shell/
+pass scoped checks. Native GPU-child recovery now also passes GL/Vulkan with
+unchanged renderer, real context-loss/recreation and inspected recovered front.
+Next: settle/check transient Vulkan resize border,
+fractional scale/movement/role migration and actual shell/
 themes with accelerated virtual GPU. No merge; partial foreign underlay/GDI
 stay explicit negative controls, only gates if real Chromium needs them.
 Use clean-source/build/wow64 (not the stale parent build path); compositor build
