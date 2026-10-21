@@ -1826,9 +1826,9 @@ static NTSTATUS oobe_get_terms( void *args )
         nl = strchr( text_buf, '\n' );
         if (nl)
         {
-            *nl = '\0';
             char digest[65];
             int consumed = 0;
+            *nl = '\0';
             if (sscanf( text_buf + 3, "%64s %lu%n", digest, &expected_bytes, &consumed ) == 2 &&
                 consumed > 0 && !text_buf[3 + consumed] && strlen(digest) == 64 &&
                 strspn(digest, "0123456789abcdef") == 64 && expected_bytes > 0 &&
@@ -2067,6 +2067,345 @@ static NTSTATUS oobe_get_receipts( void *args )
     return STATUS_SUCCESS;
 }
 
+/* BEGIN review-wire strict parsing (Q6) */
+#define OOBE_REVIEW_WIRE_MAX_BYTES 17179869184ULL   /* 16 GiB, matches catalog cap */
+#define OOBE_REVIEW_WIRE_MAX_PACKAGES 4096U         /* generous bound; real components use <= ~11 */
+
+/* Parse one strict base-10 field from *pp: only "0" or [1-9][0-9]* (no sign,
+ * no leading zeros), value <= limit. Advances *pp past the digits on success.
+ * Returns FALSE on any deviation so callers reject the whole frame instead of
+ * trusting sscanf, which would accept signs and wrap overflowing values. */
+static BOOL oobe_wire_decimal( const char **pp, unsigned long long limit,
+                               unsigned long long *out )
+{
+    const char *p = *pp;
+    unsigned long long value = 0;
+
+    if (!*p || (*p < '0' || *p > '9'))
+        return FALSE;
+    if (*p == '0')
+    {
+        if (p[1] >= '0' && p[1] <= '9')
+            return FALSE;   /* "0123" is not canonical */
+        *pp = p + 1;
+        *out = 0;
+        return TRUE;
+    }
+    while (*p >= '0' && *p <= '9')
+    {
+        unsigned digit = (unsigned)(*p - '0');
+        if (digit > limit || value > (limit - digit) / 10)
+            return FALSE;   /* would exceed limit */
+        value = value * 10 + digit;
+        p++;
+    }
+    *pp = p;
+    *out = value;
+    return TRUE;
+}
+
+/* "OK <total> <packages> <cached>\n" with total <= 16 GiB, packages bounded,
+ * cached in {0,1}. Any deviation (signs, leading zeros, overflow, a missing or
+ * extra field) is rejected. */
+static BOOL oobe_parse_review_info( const char *reply, unsigned long long *total,
+                                    unsigned int *packages, unsigned int *cached )
+{
+    const char *p = reply;
+    unsigned long long total_bytes = 0, packages_ll = 0, cached_ll = 0;
+
+    if (strncmp( p, "OK ", 3 ))
+        return FALSE;
+    p += 3;
+    if (!oobe_wire_decimal( &p, OOBE_REVIEW_WIRE_MAX_BYTES, &total_bytes ))
+        return FALSE;
+    if (*p != ' ')
+        return FALSE;
+    p++;
+    if (!oobe_wire_decimal( &p, OOBE_REVIEW_WIRE_MAX_PACKAGES, &packages_ll ))
+        return FALSE;
+    if (*p != ' ')
+        return FALSE;
+    p++;
+    if (!oobe_wire_decimal( &p, 1, &cached_ll ))
+        return FALSE;
+    if (*p != '\n')
+        return FALSE;
+    *total = total_bytes;
+    *packages = (unsigned int)packages_ll;
+    *cached = (unsigned int)cached_ll;
+    return TRUE;
+}
+
+/* "STATUS RUNNING <done> <total>\n" with both counters bounded and done <= total. */
+static BOOL oobe_parse_review_running( const char *reply, unsigned long long *done,
+                                       unsigned long long *total )
+{
+    const char *p = reply;
+
+    if (strncmp( p, "STATUS RUNNING ", 15 ))
+        return FALSE;
+    p += 15;
+    if (!oobe_wire_decimal( &p, OOBE_REVIEW_WIRE_MAX_BYTES, done ))
+        return FALSE;
+    if (*p != ' ')
+        return FALSE;
+    p++;
+    if (!oobe_wire_decimal( &p, OOBE_REVIEW_WIRE_MAX_BYTES, total ))
+        return FALSE;
+    if (*p != '\n')
+        return FALSE;
+    if (*done > *total)
+        return FALSE;   /* progress can never exceed the total */
+    return TRUE;
+}
+
+static NTSTATUS oobe_review_info( void *args )
+{
+    struct oobe_review_info_params *params = args;
+    char cmd[128];
+    char reply[128];
+    ssize_t n, total = 0;
+    unsigned long long total_bytes = 0;
+    unsigned int packages = 0, cached = 0;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    snprintf( cmd, sizeof(cmd), "REVIEW_INFO %s\n", params->verb );
+    if (!oobe_write_all( fd, cmd, strlen(cmd) ))
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    while (total < sizeof(reply) - 1 && (n = oobe_read_retry( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
+        total += n;
+    reply[total] = '\0';
+    close( fd );
+
+    if (n < 0 || !total || reply[total - 1] != '\n')
+    {
+        params->err = ERROR_TIMEOUT;
+    }
+    else if (oobe_parse_review_info( reply, &total_bytes, &packages, &cached ))
+    {
+        params->total = total_bytes;
+        params->packages = packages;
+        params->cached = cached ? TRUE : FALSE;
+        params->err = ERROR_SUCCESS;
+    }
+    else
+    {
+        params->err = ERROR_GEN_FAILURE;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS oobe_review_start( void *args )
+{
+    struct oobe_review_start_params *params = args;
+    char cmd[128];
+    char reply[512];
+    char op_id[96];
+    ssize_t n, total = 0;
+    int consumed = 0;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    snprintf( cmd, sizeof(cmd), "START_REVIEW %s\n", params->verb );
+    if (!oobe_write_all( fd, cmd, strlen(cmd) ))
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    while (total < sizeof(reply) - 1 && (n = oobe_read_retry( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
+        total += n;
+    reply[total] = '\0';
+    close( fd );
+
+    if (n < 0 || !total || reply[total - 1] != '\n')
+    {
+        /* A lost acknowledgement may still have started the download. The
+         * coordinator treats a repeated START for the same verb as idempotent
+         * (it returns the existing operation), so retrying with the same verb
+         * cannot start a second download; it must not be retried with another. */
+        params->err = ERROR_TIMEOUT;
+        snprintf( params->err_buf, sizeof(params->err_buf), "Acknowledgement lost; review outcome unknown" );
+        return STATUS_SUCCESS;
+    }
+
+    op_id[0] = '\0';
+    if (strncmp( reply, "OK ", 3 ) == 0)
+    {
+        if (sscanf( reply, "OK %95s STARTED%n", op_id, &consumed ) < 1 ||
+            !consumed || strcmp( reply + consumed, "\n" ))
+        {
+            params->err = ERROR_GEN_FAILURE;
+            snprintf( params->err_buf, sizeof(params->err_buf), "Malformed coordinator acknowledgement" );
+            return STATUS_SUCCESS;
+        }
+        lstrcpynA( params->op_id, op_id, sizeof(params->op_id) );
+        params->err = ERROR_SUCCESS;
+    }
+    else
+    {
+        params->err = ERROR_GEN_FAILURE;
+        if (strncmp( reply, "ERR ", 4 ) == 0)
+            snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply + 4 );
+        else
+            snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply );
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS oobe_review_query( void *args )
+{
+    struct oobe_review_query_params *params = args;
+    char cmd[160];
+    char reply[512];
+    char fingerprint[65];
+    ssize_t n, total = 0;
+    unsigned long long done = 0, total_bytes = 0;
+    int consumed = 0;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    snprintf( cmd, sizeof(cmd), "QUERY_REVIEW %s\n", params->op_id );
+    if (!oobe_write_all( fd, cmd, strlen(cmd) ))
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    while (total < sizeof(reply) - 1 && (n = oobe_read_retry( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
+        total += n;
+    reply[total] = '\0';
+    close( fd );
+
+    /* Query is read-only: a partial or timed-out frame is retried as-is by the
+     * caller and can never resubmit a start or an install. */
+    if (n < 0 || !total || reply[total - 1] != '\n')
+    {
+        params->err = ERROR_TIMEOUT;
+        return STATUS_SUCCESS;
+    }
+
+    if (!strcmp( reply, "STATUS CANCELLED\n" ))
+    {
+        lstrcpynA( params->status, "CANCELLED", sizeof(params->status) );
+        params->err = ERROR_SUCCESS;
+        return STATUS_SUCCESS;
+    }
+
+    if (oobe_parse_review_running( reply, &done, &total_bytes ))
+    {
+        lstrcpynA( params->status, "RUNNING", sizeof(params->status) );
+        params->done = done;
+        params->total = total_bytes;
+        params->err = ERROR_SUCCESS;
+        return STATUS_SUCCESS;
+    }
+
+    fingerprint[0] = '\0';
+    if (sscanf( reply, "STATUS SUCCESS %64s%n", fingerprint, &consumed ) == 1 &&
+        consumed > 0 && !strcmp( reply + consumed, "\n" ) && strlen(fingerprint) == 64 &&
+        strspn( fingerprint, "0123456789abcdef" ) == 64)
+    {
+        lstrcpynA( params->status, "SUCCESS", sizeof(params->status) );
+        lstrcpynA( params->fingerprint, fingerprint, sizeof(params->fingerprint) );
+        params->err = ERROR_SUCCESS;
+        return STATUS_SUCCESS;
+    }
+
+    if (strncmp( reply, "STATUS FAILED ", 14 ) == 0)
+    {
+        const char *err_text = reply + 14;
+        while (*err_text == ' ') err_text++;
+        lstrcpynA( params->status, "FAILED", sizeof(params->status) );
+        snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", err_text );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+
+    /* ERR Unknown review operation or any other unrecognised frame. */
+    params->status[0] = '\0';
+    params->err = ERROR_INVALID_DATA;
+    if (strncmp( reply, "ERR ", 4 ) == 0)
+        snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply + 4 );
+    else
+        snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS oobe_review_cancel( void *args )
+{
+    struct oobe_review_cancel_params *params = args;
+    char cmd[160];
+    char reply[256];
+    ssize_t n, total = 0;
+    int fd = oobe_connect();
+
+    if (fd < 0)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+
+    snprintf( cmd, sizeof(cmd), "CANCEL_REVIEW %s\n", params->op_id );
+    if (!oobe_write_all( fd, cmd, strlen(cmd) ))
+    {
+        close( fd );
+        params->err = ERROR_GEN_FAILURE;
+        return STATUS_SUCCESS;
+    }
+    shutdown( fd, SHUT_WR );
+
+    while (total < sizeof(reply) - 1 && (n = oobe_read_retry( fd, reply + total, sizeof(reply) - 1 - total )) > 0)
+        total += n;
+    reply[total] = '\0';
+    close( fd );
+
+    if (n < 0 || !total || reply[total - 1] != '\n')
+    {
+        params->err = ERROR_TIMEOUT;
+        return STATUS_SUCCESS;
+    }
+    if (!strcmp( reply, "OK CANCELLING\n" ))
+    {
+        params->err = ERROR_SUCCESS;
+    }
+    else
+    {
+        params->err = ERROR_INVALID_DATA;
+        if (strncmp( reply, "ERR ", 4 ) == 0)
+            snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply + 4 );
+        else
+            snprintf( params->err_buf, sizeof(params->err_buf), "%.255s", reply );
+    }
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -2133,6 +2472,10 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     oobe_get_terms,
     oobe_install,
     oobe_get_receipts,
+    oobe_review_info,
+    oobe_review_start,
+    oobe_review_query,
+    oobe_review_cancel,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -2206,6 +2549,10 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     oobe_get_terms,
     oobe_install,
     oobe_get_receipts,
+    oobe_review_info,
+    oobe_review_start,
+    oobe_review_query,
+    oobe_review_cancel,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif

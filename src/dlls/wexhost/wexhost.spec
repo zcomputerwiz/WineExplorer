@@ -58,3 +58,7 @@
 @ stdcall WexOobeGetTerms(str ptr long ptr long ptr)
 @ stdcall WexOobeInstall(str str ptr long)
 @ stdcall WexOobeGetReceipts(ptr long ptr)
+@ stdcall WexOobeReviewInfo(str ptr ptr ptr)
+@ stdcall WexOobeReviewStart(str str long str long)
+@ stdcall WexOobeReviewQuery(str str long ptr ptr str long str long)
+@ stdcall WexOobeReviewCancel(str str long)

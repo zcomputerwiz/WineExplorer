@@ -46,6 +46,7 @@ def active_oobe_stage(path):
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
@@ -108,6 +109,33 @@ COMPONENTS_METADATA = {
             ('verdan32.exe', 'c1cb61255e363166794e47664e2f21af8e3a26cb6346eb8d2ae2fa85dd5aad96'),
             ('webdin32.exe', '64595b5abc1080fba8610c5c34fab5863408e806aafe84653ca8575bed17d75a'),
         ],
+        # Review-only route: the complete applicable agreements are embedded in the
+        # packages themselves (PE resource RCDATA/LICENSE/1033, CP1252). Reviewing
+        # does not enable installation (see 'disabled' above).
+        'review': {
+            'mode': 'embedded-package-terms',
+            'policy': 'embedded-review-v1',
+            'url_prefix': 'https://downloads.sourceforge.net/corefonts/',
+            'host_suffixes': ('sourceforge.net',),
+            'resource': {'type': 10, 'name': 'LICENSE', 'language': 1033, 'encoding': 'cp1252'},
+            # name: (package bytes, resource bytes, resource SHA-256). The package
+            # SHA-256 values are the recipe_files above. The eleven resources are
+            # NOT assumed identical; every distinct agreement is shown.
+            'packages': {
+                'andale32.exe': (198384, 4920, 'e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57'),
+                'arial32.exe': (554208, 4925, '877a177fe9b15afdf4aac68ec9d6c8366c8b0ca2d2dfe104f5df388ed1cf026b'),
+                'arialb32.exe': (168176, 4920, 'e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57'),
+                'comic32.exe': (246008, 4920, 'e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57'),
+                'courie32.exe': (646368, 4925, '877a177fe9b15afdf4aac68ec9d6c8366c8b0ca2d2dfe104f5df388ed1cf026b'),
+                'georgi32.exe': (392440, 4920, 'e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57'),
+                'impact32.exe': (173288, 4920, 'e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57'),
+                'times32.exe': (661728, 4925, '877a177fe9b15afdf4aac68ec9d6c8366c8b0ca2d2dfe104f5df388ed1cf026b'),
+                'trebuc32.exe': (357200, 4921, '6c265edc5dd8be4a0ac1dfa7bf474e7b68c331fbad5a441b8099d3f78d071d3f'),
+                'verdan32.exe': (351992, 4920, 'e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57'),
+                'webdin32.exe': (185072, 4920, 'e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57'),
+            },
+            'rendered_sha256': '832fa599d8595115775343f4fbbffbd6e616d1d79a25e23a9c25c9d7b6ddfba9',
+        },
     },
     'tahoma': {
         'title': 'Microsoft Tahoma font',
@@ -612,6 +640,10 @@ def fetch_vendor_terms(verb, directory=None):
     directory = directory or TERMS
     validate_verb(verb)
     meta = COMPONENTS_METADATA.get(verb, {})
+    if review_available(verb) and not meta.get('terms_url'):
+        # Terms live inside the package: only the explicit review-download action
+        # may fetch it. Opening/selecting/GET_TERMS never reaches the network.
+        return embedded_license_text(verb, directory)
     if meta.get('disabled'):
         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
 
@@ -671,6 +703,8 @@ def prepare_terms(verb, directory=None):
     if os.getuid() != 0:
         raise PermissionError('Preparing vendor terms requires root elevation')
     meta = COMPONENTS_METADATA.get(verb, {})
+    if review_available(verb) and not meta.get('terms_url'):
+        raise ValueError(f'{verb} terms are embedded in its package; use the explicit review download')
     if meta.get('disabled'):
         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
     return fetch_vendor_terms(verb, directory)
@@ -678,6 +712,9 @@ def prepare_terms(verb, directory=None):
 
 def license_text(verb, directory=None):
     directory = directory or TERMS
+    meta = COMPONENTS_METADATA.get(validate_verb(verb), {})
+    if review_available(verb) and not meta.get('terms_url'):
+        return embedded_license_text(verb, directory)
     path = directory / (validate_verb(verb) + '.json')
     if not path.is_file():
         raise ValueError(f'{verb} terms have not been prepared. Choose Review terms; no payload was downloaded.')
@@ -698,6 +735,521 @@ def license_text(verb, directory=None):
     if len(text.strip()) < 500 or '\x00' in text:
         raise ValueError(f'Full vendor terms required for {verb}')
     return text, hashlib.sha256((component_identity(verb) + '\n' + text).encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Embedded-terms review: explicit "Download package to review its license", static
+# extraction, then a SEPARATE installation acceptance bound to the exact result.
+#
+# Nothing here executes package code, Wine, Winetricks or a vendor extractor, and
+# nothing here reaches an install entry point, a receipt, the machine prefix or
+# HKCU defaults. Permission to download is never recorded as acceptance: the only
+# durable output is a verified private package cache plus the rendered terms.
+# ---------------------------------------------------------------------------
+REVIEW_CACHE = Path('/var/cache/wineexplorer/review')
+REVIEW_RETENTION_SECONDS = 14 * 24 * 3600
+REVIEW_DEADLINE_SECONDS = 1800
+REVIEW_READ_TIMEOUT = 30
+REVIEW_MAX_PACKAGE_BYTES = 128 * 1024 * 1024
+REVIEW_TERMS_SCHEMA = 2
+PE_MAX_SECTIONS = 96
+PE_MAX_RESOURCE_ENTRIES = 512
+PE_MAX_RESOURCE_BYTES = 64 * 1024
+REVIEW_LOCK_WAIT_SECONDS = 60
+REVIEW_SHUTDOWN_JOIN_SECONDS = 30
+REVIEW_OPERATION_RETENTION = 16
+
+
+class ReviewRequired(ValueError):
+    """The package has not been downloaded for review (no network was used)."""
+
+
+class ReviewCancelled(Exception):
+    """The administrator cancelled a review download; nothing was accepted."""
+
+
+def review_available(verb):
+    return bool(COMPONENTS_METADATA.get(verb, {}).get('review'))
+
+
+def review_meta(verb):
+    meta = COMPONENTS_METADATA.get(validate_verb(verb), {})
+    review = meta.get('review')
+    if not review or review.get('mode') != 'embedded-package-terms':
+        raise ValueError(f'{verb} has no reviewed embedded-terms route')
+    return review
+
+
+def review_packages(verb):
+    """Ordered package identities, exactly the pinned recipe manifest."""
+    review = review_meta(verb)
+    result = []
+    for name, sha256 in COMPONENTS_METADATA[verb]['recipe_files']:
+        if name not in review['packages'] or not re.fullmatch(r'[A-Za-z0-9_.-]+', name):
+            raise ValueError('Review package table differs from the pinned recipe manifest')
+        size, license_bytes, license_sha256 = review['packages'][name]
+        result.append({'name': name, 'size': size, 'sha256': sha256,
+                       'license_bytes': license_bytes, 'license_sha256': license_sha256,
+                       'url': review['url_prefix'] + name})
+    if len(result) != len(review['packages']):
+        raise ValueError('Review package table differs from the pinned recipe manifest')
+    return result
+
+
+def review_total_bytes(verb):
+    return sum(package['size'] for package in review_packages(verb))
+
+
+def check_review_url(url, suffixes):
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or '').lower()
+    if (parts.scheme != 'https' or parts.username or parts.password or
+            parts.port not in (None, 443) or
+            not any(host == suffix or host.endswith('.' + suffix) for suffix in suffixes)):
+        raise ValueError('Package request left the reviewed HTTPS source policy')
+
+
+class StrictRedirect(urllib.request.HTTPRedirectHandler):
+    def __init__(self, suffixes):
+        self.suffixes = tuple(suffixes)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_review_url(newurl, self.suffixes)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _pe_unpack(data, offset, fmt):
+    if offset < 0 or offset + struct.calcsize(fmt) > len(data):
+        raise ValueError('Malformed package: truncated PE structure')
+    return struct.unpack_from(fmt, data, offset)
+
+
+def pe_resource(data, rtype, name, language, limit=PE_MAX_RESOURCE_BYTES):
+    """Return exactly one PE resource by static, bounded parsing.
+
+    The input is untrusted: every offset, count and size is range-checked, the
+    resource tree depth is fixed at three levels (no loops) and ambiguous or
+    empty matches fail closed. Nothing is loaded or executed.
+    """
+    if len(data) > REVIEW_MAX_PACKAGE_BYTES or data[:2] != b'MZ':
+        raise ValueError('Package is not a bounded PE file')
+    pe = _pe_unpack(data, 0x3c, '<I')[0]
+    if data[pe:pe + 4] != b'PE\0\0':
+        raise ValueError('Package has no PE header')
+    _, sections, _, _, _, optional_size, _ = _pe_unpack(data, pe + 4, '<HHIIIHH')
+    if not 1 <= sections <= PE_MAX_SECTIONS:
+        raise ValueError('Package has an unexpected PE section count')
+    optional = pe + 24
+    # The declared optional header must fit in the file before any field is read
+    # from it; otherwise bytes past the header could be reinterpreted as header
+    # fields (a zero/short SizeOfOptionalHeader would otherwise slip through).
+    if optional_size < 2 or optional + optional_size > len(data):
+        raise ValueError('Package optional header is truncated')
+    magic = _pe_unpack(data, optional, '<H')[0]
+    if magic not in (0x10b, 0x20b):
+        raise ValueError('Package has an unexpected PE format')
+    # The data-directory table follows the layout-specific fixed fields; its count
+    # field and the resource entry (index 2) must lie inside the declared header.
+    dir_base = 96 if magic == 0x10b else 112
+    if optional_size < dir_base + 3 * 8:
+        raise ValueError('Package optional header is shorter than its data directories')
+    directories = optional + dir_base
+    if _pe_unpack(data, directories - 4, '<I')[0] < 3:
+        raise ValueError('Package has no resource directory')
+    resource_rva, resource_size = _pe_unpack(data, directories + 16, '<II')
+    table = optional + optional_size
+    if table + 40 * sections > len(data):
+        raise ValueError('Package section table exceeds the file')
+    spans = []
+    for index in range(sections):
+        virtual_size, virtual, raw_size, raw = _pe_unpack(data, table + 40 * index + 8, '<IIII')
+        if raw + raw_size > len(data):
+            raise ValueError('Package section lies outside the file')
+        if raw_size and not raw:
+            # A non-empty section at file offset zero would map onto the DOS header.
+            raise ValueError('Package section points into the DOS header')
+        spans.append((virtual, raw, raw_size))
+    for first in range(len(spans)):
+        for second in range(first + 1, len(spans)):
+            start_a, _, size_a = spans[first]
+            start_b, _, size_b = spans[second]
+            if size_a and size_b and start_a < start_b + size_b and start_b < start_a + size_a:
+                # Overlapping VA ranges make RVA-to-file mapping ambiguous.
+                raise ValueError('Package sections overlap in virtual address space')
+
+    def locate(rva, length):
+        for virtual, raw, raw_size in spans:
+            if virtual <= rva < virtual + raw_size:
+                start = raw + rva - virtual
+                if start + length <= raw + raw_size:
+                    return start
+        raise ValueError('Package resource lies outside its section')
+
+    if not resource_rva or not 16 <= resource_size <= len(data):
+        raise ValueError('Package has an invalid resource directory')
+    base = locate(resource_rva, resource_size)
+
+    def entries(relative):
+        if not 0 <= relative < resource_size:
+            raise ValueError('Resource directory offset is out of range')
+        _, _, _, _, named, ids = _pe_unpack(data, base + relative, '<IIHHHH')
+        if named + ids > PE_MAX_RESOURCE_ENTRIES or relative + 16 + 8 * (named + ids) > resource_size:
+            raise ValueError('Resource directory is too large')
+        for index in range(named + ids):
+            ident, target = _pe_unpack(data, base + relative + 16 + 8 * index, '<II')
+            if ident & 0x80000000:
+                at = ident & 0x7fffffff
+                if at + 2 > resource_size:
+                    raise ValueError('Resource name is out of range')
+                length = _pe_unpack(data, base + at, '<H')[0]
+                if not 0 < length <= 64 or at + 2 + 2 * length > resource_size:
+                    raise ValueError('Resource name is malformed')
+                key = bytes(data[base + at + 2:base + at + 2 + 2 * length]).decode('utf-16-le', 'strict')
+            else:
+                key = ident
+            yield key, target
+
+    def find(relative, key, want_directory):
+        found = [target for candidate, target in entries(relative) if candidate == key]
+        if len(found) != 1:
+            raise ValueError('Package resource is missing or ambiguous')
+        target = found[0]
+        if bool(target & 0x80000000) != want_directory:
+            raise ValueError('Package resource tree has an unexpected shape')
+        return target & 0x7fffffff
+
+    level_two = find(0, rtype, True)
+    level_three = find(level_two, name, True)
+    leaf = find(level_three, language, False)
+    if not 0 <= leaf <= resource_size - 16:
+        raise ValueError('Resource data entry is out of range')
+    rva, size, _, _ = _pe_unpack(data, base + leaf, '<IIII')
+    if not 0 < size <= limit:
+        raise ValueError('Package license resource is empty or oversized')
+    start = locate(rva, size)
+    return bytes(data[start:start + size])
+
+
+def decode_embedded_agreement(raw, encoding):
+    """CP1252 resource -> text. Unsupported decodings and controls fail closed."""
+    if encoding != 'cp1252':
+        raise ValueError('Unsupported license encoding')
+    body = raw.rstrip(b'\0')
+    if not body or b'\0' in body:
+        raise ValueError('Unexpected NUL in embedded license')
+    text = body.decode('cp1252', errors='strict').replace('\r\n', '\n').replace('\r', '\n')
+    text = text.replace('\f', '\n')
+    if any(ord(char) < 32 and char not in '\n\t' for char in text):
+        raise ValueError('Unexpected control character in embedded license')
+    text = text.strip('\n') + '\n'
+    if len(text.strip()) < 200:
+        raise ValueError('Embedded license is too short to be complete')
+    return text
+
+
+def render_embedded_terms(verb, agreements, enforce_pin=True):
+    """Ordered, complete rendering. Identical agreements are shown once, with the
+    packages they apply to; distinct agreements are never merged or dropped."""
+    review = review_meta(verb)
+    groups = []
+    for name, text in agreements:
+        for group in groups:
+            if group['text'] == text:
+                group['packages'].append(name)
+                break
+        else:
+            groups.append({'text': text, 'packages': [name]})
+    title = COMPONENTS_METADATA[verb]['title']
+    out = [f'{title} - license agreements read from the downloaded packages.\n',
+           f'{len(groups)} distinct agreement(s) apply to {len(agreements)} package(s). '
+           'Nothing has been installed by reviewing these terms.\n']
+    for index, group in enumerate(groups, 1):
+        out.append(f'\n===== Agreement {index} of {len(groups)} - applies to: '
+                   + ', '.join(group['packages']) + ' =====\n')
+        out.append(group['text'])
+    text = ''.join(out)
+    if len(text.encode('utf-8')) > MAX_TERMS_BYTES or '\x00' in text:
+        raise ValueError('Rendered terms are oversized or malformed')
+    pinned = review.get('rendered_sha256')
+    if enforce_pin and (not pinned or hashlib.sha256(text.encode('utf-8')).hexdigest() != pinned):
+        raise ValueError('Rendered embedded terms differ from the reviewed text')
+    return text
+
+
+def embedded_fingerprint(verb, text):
+    """Consent fingerprint: component/version, every package + recipe + policy
+    (component_identity), each package's raw agreement identity, rendered text."""
+    review = review_meta(verb)
+    raw = ' '.join(f'{package["name"]}:{package["license_sha256"]}' for package in review_packages(verb))
+    return hashlib.sha256('\n'.join((component_identity(verb), review['policy'], raw, text)).encode('utf-8')).hexdigest()
+
+
+def _review_directory_ok(path, create=False):
+    privileged = os.getuid() == 0
+    if create:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for entry in (path, *path.parents):
+        info = entry.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise ValueError(f'Insecure review cache path: {entry}')
+        if privileged and (info.st_uid != 0 or info.st_mode & 0o022):
+            raise ValueError(f'Insecure review cache path: {entry}')
+    if privileged and path.lstat().st_mode & 0o077:
+        raise ValueError('Review cache directory must be private')
+
+
+def _package_valid(path, package):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    if (not stat.S_ISREG(info.st_mode) or info.st_size != package['size'] or
+            (os.getuid() == 0 and (info.st_uid != 0 or info.st_mode & 0o022))):
+        return False
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for chunk in iter(lambda: stream.read(1 << 16), b''):
+            digest.update(chunk)
+    return digest.hexdigest() == package['sha256']
+
+
+def embedded_terms_from_cache(verb, cache_dir=None):
+    """Re-verify every cached package and statically re-extract the terms."""
+    review = review_meta(verb)
+    cache_dir = cache_dir or REVIEW_CACHE / verb
+    _review_directory_ok(cache_dir)
+    resource = review['resource']
+    agreements = []
+    for package in review_packages(verb):
+        path = cache_dir / package['name']
+        if not _package_valid(path, package):
+            raise ReviewRequired(f'{package["name"]} is missing or changed; download it again for review')
+        raw = pe_resource(path.read_bytes(), resource['type'], resource['name'], resource['language'])
+        if len(raw) != package['license_bytes'] or hashlib.sha256(raw).hexdigest() != package['license_sha256']:
+            raise ValueError(f'{package["name"]} embedded agreement differs from the reviewed identity')
+        agreements.append((package['name'], decode_embedded_agreement(raw, resource['encoding'])))
+    text = render_embedded_terms(verb, agreements)
+    return text, embedded_fingerprint(verb, text)
+
+
+def review_state(verb, directory=None):
+    """('none'|'stale'|'unverified'|'cached', total_bytes).
+
+    'cached' means strict revalidation of every cached package against the
+    rendered document succeeded — the same check a root GET_TERMS performs. It
+    never means installed or accepted. The not-verified states are honest,
+    distinct outcomes and must never be advertised as cached:
+      'none'       no terms document was downloaded (ReviewRequired);
+      'stale'      the cached document no longer matches the pinned identity,
+                   policy, or rendered text (StaleTermsError), or the packages
+                   re-verify to a different fingerprint;
+      'unverified' a consistent document exists but its package cache could not
+                   be independently re-verified here — a missing/tampered
+                   package, or an unprivileged reader of the private cache.
+    """
+    total = review_total_bytes(verb)
+    try:
+        _, fingerprint = embedded_license_text(verb, directory, strict=False)
+    except ReviewRequired:
+        return 'none', total
+    except StaleTermsError:
+        return 'stale', total
+    # The document is present and identity/fingerprint-consistent. Advertise
+    # 'cached' only if the package cache still re-verifies to that same
+    # fingerprint — exactly what strict retrieval (root GET_TERMS) requires. A
+    # missing, tampered, or unreadable (unprivileged) package cache is an honest
+    # not-verified state; it is never silently refreshed and never 'cached'.
+    try:
+        _, current = embedded_terms_from_cache(verb)
+    except Exception:
+        return 'unverified', total
+    return ('cached' if current == fingerprint else 'stale'), total
+
+
+def embedded_license_text(verb, directory=None, cache_dir=None, strict=None):
+    """Cached, verified terms. Raises ReviewRequired if nothing was downloaded.
+
+    Root recomputes everything from the verified package cache (strict), so an
+    edited JSON text cannot authorize an installation.
+    """
+    directory = directory or TERMS
+    path = directory / (validate_verb(verb) + '.json')
+    if not path.is_file():
+        raise ReviewRequired(f'{verb} package has not been downloaded for review; no terms are available')
+    for entry in (path, *path.parents):
+        if entry.is_symlink() or entry.stat().st_uid != 0 or entry.stat().st_mode & 0o022:
+            raise ValueError(f'Insecure vendor license path: {entry}')
+    if path.stat().st_size > MAX_TERMS_BYTES:
+        raise ValueError('Oversized cached terms')
+    record = json.loads(path.read_text(encoding='utf-8'))
+    if record.get('schema') != REVIEW_TERMS_SCHEMA or record.get('kind') != 'embedded-review':
+        # Old consent/cache schemas are invalidated, never migrated. A download
+        # authorization is not stored, so none can be migrated into acceptance.
+        raise StaleTermsError('Cached terms use an old schema; download for review again')
+    text = record.get('text', '')
+    if (record.get('component_identity') != component_identity(verb) or
+            hashlib.sha256(text.encode('utf-8')).hexdigest() != review_meta(verb).get('rendered_sha256') or
+            record.get('fingerprint') != embedded_fingerprint(verb, text)):
+        raise StaleTermsError('Cached document/package identity changed; download for review again')
+    fingerprint = record['fingerprint']
+    if strict is None:
+        strict = os.getuid() == 0 and directory == TERMS
+    if strict:
+        _, current = embedded_terms_from_cache(verb, cache_dir)
+        if current != fingerprint:
+            raise StaleTermsError('Package cache no longer matches the reviewed terms')
+    return text, fingerprint
+
+
+def cleanup_review_cache(verb, cache_dir=None, now=None):
+    """Remove partial downloads and packages older than the retention period."""
+    cache_dir = cache_dir or REVIEW_CACHE / verb
+    now = time.time() if now is None else now
+    removed = []
+    if not cache_dir.is_dir() or cache_dir.is_symlink():
+        return removed
+    for entry in cache_dir.iterdir():
+        info = entry.lstat()
+        if entry.name.endswith('.part') or now - info.st_mtime > REVIEW_RETENTION_SECONDS:
+            if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+                continue
+            entry.unlink()
+            removed.append(entry.name)
+    return removed
+
+
+@contextmanager
+def _review_download_lock(cache_dir, cancel=None):
+    """Serialize review downloads per cache directory.
+
+    The coordinator's START_REVIEW thread and a later pkexec --review-download
+    process can target the same cache; without this they race on the O_EXCL
+    partial file and on publication. The lock lives beside, never inside, the
+    package cache so retention cleanup cannot remove a held lock.
+
+    ``cancel`` (the threading.Event passed to review_download) makes acquisition
+    deadline- AND cancellation-aware: a cancelled download stops waiting for the
+    lock instead of blocking up to REVIEW_LOCK_WAIT_SECONDS and then proceeding
+    to write into a cache its caller has abandoned.
+    """
+    lock_path = cache_dir.parent / (cache_dir.name + '.lock')
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    locked = False
+    try:
+        deadline = time.monotonic() + REVIEW_LOCK_WAIT_SECONDS
+        while True:
+            if cancel is not None and cancel.is_set():
+                raise ReviewCancelled()
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise OSError('Another review download is active; try again later')
+                time.sleep(0.1)
+        yield
+    finally:
+        if locked:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def review_download(verb, cache_dir=None, terms_dir=None, progress=None, cancel=None,
+                    opener=None, trace=None):
+    """Download the pinned packages for terms review, then extract the terms.
+
+    Only catalog-derived URLs are requested; frontend-supplied paths, URLs and
+    member names are not inputs. The result is cached, never accepted.
+    """
+    review = review_meta(verb)
+    packages = review_packages(verb)
+    privileged_defaults = cache_dir is None and terms_dir is None
+    if privileged_defaults and os.getuid() != 0:
+        raise PermissionError('Downloading packages for review requires the privileged backend')
+    cache_dir = cache_dir or REVIEW_CACHE / verb
+    terms_dir = terms_dir or TERMS
+    _review_directory_ok(cache_dir, create=True)
+    with _review_download_lock(cache_dir, cancel=cancel):
+        if cancel is not None and cancel.is_set():
+            raise ReviewCancelled()
+        cleanup_review_cache(verb, cache_dir)
+        total = sum(package['size'] for package in packages)
+        if shutil.disk_usage(cache_dir).free < total + (64 << 20):
+            raise OSError('Not enough free disk space to download the packages for review')
+        opener = opener or urllib.request.build_opener(StrictRedirect(review['host_suffixes']))
+        deadline = time.monotonic() + REVIEW_DEADLINE_SECONDS
+        done = 0
+        for package in packages:
+            path = cache_dir / package['name']
+            if _package_valid(path, package):
+                done += package['size']
+                if progress:
+                    progress(done, total)
+                continue
+            if os.path.lexists(path):
+                path.unlink()
+            check_review_url(package['url'], review['host_suffixes'])
+            request = urllib.request.Request(package['url'], headers={'User-Agent': 'WineExplorer-components/1'})
+            if trace:
+                trace('GET', package['url'], package['size'])
+            part = cache_dir / (package['name'] + '.part')
+            descriptor = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                with os.fdopen(descriptor, 'wb') as out, \
+                        opener.open(request, timeout=REVIEW_READ_TIMEOUT) as response:
+                    check_review_url(getattr(response, 'url', package['url']), review['host_suffixes'])
+                    headers = getattr(response, 'headers', None)
+                    declared = headers.get('Content-Length') if headers is not None else None
+                    if declared is not None and int(declared) != package['size']:
+                        raise ValueError(f'{package["name"]} size differs from the reviewed package')
+                    digest = hashlib.sha256()
+                    received = 0
+                    while True:
+                        if cancel is not None and cancel.is_set():
+                            raise ReviewCancelled()
+                        if time.monotonic() > deadline:
+                            raise TimeoutError('Package download exceeded its time limit')
+                        chunk = response.read(1 << 16)
+                        if not chunk:
+                            break
+                        received += len(chunk)
+                        if received > package['size']:
+                            raise ValueError(f'{package["name"]} is larger than the reviewed package')
+                        digest.update(chunk)
+                        out.write(chunk)
+                        if progress:
+                            progress(done + received, total)
+                    if cancel is not None and cancel.is_set():
+                        raise ReviewCancelled()
+                    if received != package['size']:
+                        raise ValueError(f'{package["name"]} download was truncated')
+                    if digest.hexdigest() != package['sha256']:
+                        raise ValueError(f'{package["name"]} does not match the reviewed package hash')
+                    out.flush()
+                    os.fsync(out.fileno())
+                os.replace(part, path)
+            except BaseException:
+                part.unlink(missing_ok=True)
+                raise
+            done += package['size']
+        if cancel is not None and cancel.is_set():
+            raise ReviewCancelled()
+        text, fingerprint = embedded_terms_from_cache(verb, cache_dir)
+        if cancel is not None and cancel.is_set():
+            raise ReviewCancelled()
+        if os.getuid() == 0 or terms_dir != TERMS:
+            terms_dir.mkdir(parents=True, exist_ok=True)
+            if os.getuid() == 0:
+                for entry in (terms_dir, *terms_dir.parents):
+                    if entry.is_symlink() or entry.stat().st_uid != 0 or entry.stat().st_mode & 0o022:
+                        raise ValueError(f'Insecure vendor license path: {entry}')
+            atomic_json(terms_dir / (verb + '.json'),
+                        {'schema': REVIEW_TERMS_SCHEMA, 'kind': 'embedded-review',
+                         'component_identity': component_identity(verb),
+                         'rendered_sha256': review['rendered_sha256'],
+                         'fingerprint': fingerprint, 'text': text}, 0o644)
+        return text, fingerprint
 
 
 def reg(wine, environment, *args, **kwargs):
@@ -1095,23 +1647,94 @@ def install(verb, accepted_digest):
         (receipt / (verb + '.sha256')).write_text(current + '\n', encoding='ascii')
 
 
+def format_size(total):
+    return f'{total / (1 << 20):.1f} MiB'
+
+
+def acquire_review_terms(verb, gui):
+    """Later-launch review: explicit permission, privileged download, cached terms.
+
+    Returns (text, fingerprint), or None when the administrator declines the
+    download. Reading cached terms never needs the network or elevation.
+    """
+    try:
+        return license_text(verb)
+    except (ReviewRequired, StaleTermsError):
+        pass
+    if not is_admin():
+        raise ValueError('Administrator elevation required to download packages for review')
+    review = review_meta(verb)
+    meta = COMPONENTS_METADATA[verb]
+    host = urllib.parse.urlsplit(review['url_prefix']).hostname
+    message = (f'Download {format_size(review_total_bytes(verb))} ({len(review_packages(verb))} packages '
+               f'from {host}, published by {meta["publisher"]}) so the license terms of '
+               f'{COMPONENTS[verb]} can be reviewed?\n\nNo installer or package code will run and '
+               'nothing will be installed. Installation requires a separate acceptance after you '
+               'have read the terms.')
+    if gui:
+        permitted = subprocess.run(['zenity', '--question', '--title=Download for review',
+                                    '--width=520', '--text=' + message]).returncode == 0
+    else:
+        print(message)
+        permitted = input('Download for review? Type yes: ').strip() == 'yes'
+    if not permitted:
+        return None
+    command = [BACKEND, '--review-download', verb]
+    if os.getuid() != 0:
+        command.insert(0, '/usr/bin/pkexec')
+    # The worker enforces REVIEW_DEADLINE_SECONDS itself; the margin keeps a wedged
+    # subprocess from blocking this UI thread indefinitely.
+    try:
+        result = subprocess.run(command, timeout=REVIEW_DEADLINE_SECONDS + 60)
+    except subprocess.TimeoutExpired as error:
+        raise ValueError(f'The review download for {verb} exceeded its time limit') from error
+    if result.returncode != 0:
+        raise ValueError(f'Failed to download {verb} for review')
+    try:
+        return license_text(verb)
+    except (ReviewRequired, StaleTermsError) as error:
+        raise ValueError(f'The review download for {verb} completed without valid terms') from error
+
+
+def review_only(verb, gui):
+    """Show embedded terms for a component whose installation is not yet enabled."""
+    acquired = acquire_review_terms(verb, gui)
+    if acquired is None:
+        return
+    text, _ = acquired
+    note = f'Installation of {COMPONENTS[verb]} is not available yet. Reviewing these terms installed nothing.'
+    if gui:
+        subprocess.run(['zenity', '--text-info', '--title=' + COMPONENTS[verb] + ' - terms for review',
+                        '--width=760', '--height=560'], input=text, text=True)
+        subprocess.run(['zenity', '--info', '--text=' + note])
+    else:
+        print(text)
+        print(note)
+
+
 def consent(verb, gui):
     validate_verb(verb)
     meta = COMPONENTS_METADATA.get(verb, {})
     if meta.get('disabled'):
         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
-    try:
-        text, sha = license_text(verb)
-    except ValueError:
-        if not is_admin():
-            raise ValueError('Administrator elevation required to prepare vendor terms')
-        command = [BACKEND, '--prepare-terms', verb]
-        if os.getuid() != 0:
-            command.insert(0, '/usr/bin/pkexec')
-        res = subprocess.run(command)
-        if res.returncode != 0:
-            raise ValueError(f'Failed to prepare authentic vendor terms for {verb}')
-        text, sha = license_text(verb)
+    if review_available(verb):
+        acquired = acquire_review_terms(verb, gui)
+        if acquired is None:
+            return None
+        text, sha = acquired
+    else:
+        try:
+            text, sha = license_text(verb)
+        except ValueError:
+            if not is_admin():
+                raise ValueError('Administrator elevation required to prepare vendor terms')
+            command = [BACKEND, '--prepare-terms', verb]
+            if os.getuid() != 0:
+                command.insert(0, '/usr/bin/pkexec')
+            res = subprocess.run(command)
+            if res.returncode != 0:
+                raise ValueError(f'Failed to prepare authentic vendor terms for {verb}')
+            text, sha = license_text(verb)
     if gui:
         result = subprocess.run(['zenity', '--text-info', '--title=' + COMPONENTS[verb],
                                  '--width=760', '--height=560',
@@ -1125,12 +1748,13 @@ def consent(verb, gui):
 def frontend(verbs, gui):
     if not is_admin():
         raise ValueError('Windows Components is available to administrators only')
-    # Validate the whole request before displaying terms or invoking elevation.
+
     for verb in verbs:
         validate_verb(verb)
         meta = COMPONENTS_METADATA.get(verb, {})
         if meta.get('disabled'):
             raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
+    review_verbs = []
     if gui:
         command = ['zenity', '--list', '--checklist', '--title=Windows Components',
                    '--column=Install', '--column=Component', '--column=Description',
@@ -1141,15 +1765,34 @@ def frontend(verbs, gui):
             meta = COMPONENTS_METADATA[verb]
             description = name
             if meta.get('disabled'):
+                if review_available(verb):
+                    # A review-only component gets no Install checkbox: checking it could
+                    # be mistaken for an installation acceptance. It is offered by the
+                    # separate review dialog below instead.
+                    continue
                 description += ' [Unavailable: ' + meta.get('disabled_reason', 'verification pending') + ']'
                 checked = 'FALSE'
             command.extend([checked, verb, description])
         result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode or not result.stdout.strip():
+        if result.returncode:
             return
         verbs = [verb for verb in result.stdout.strip().split('|') if verb]
-        if not verbs:
-            return
+        # Review selection is separate from the install checklist: a plain list with
+        # no checkboxes, so selecting terms can never accept an installation.
+        review_rows = []
+        for verb, name in COMPONENTS.items():
+            if review_available(verb):
+                note = ' - installation unavailable' if COMPONENTS_METADATA[verb].get('disabled') else ''
+                review_rows.append([verb, f'{name}{note}'])
+        if review_rows:
+            review_command = ['zenity', '--list', '--title=Review license terms (nothing installs)',
+                              '--column=Component', '--column=Description',
+                              '--print-column=1', '--separator=|', '--width=720', '--height=360']
+            for row in review_rows:
+                review_command.extend(row)
+            review_result = subprocess.run(review_command, capture_output=True, text=True)
+            if not review_result.returncode and review_result.stdout.strip():
+                review_verbs = [verb for verb in review_result.stdout.strip().split('|') if verb]
     for verb in verbs:
         validate_verb(verb)
         meta = COMPONENTS_METADATA.get(verb, {})
@@ -1166,7 +1809,12 @@ def frontend(verbs, gui):
         result = subprocess.run(command)
         if result.returncode:
             raise ValueError(f'{verb} was not installed successfully (exit {result.returncode})')
-    if gui:
+    for verb in review_verbs:
+        validate_verb(verb)
+        if not review_available(verb):
+            raise ValueError(f'{verb} has no license terms to review')
+        review_only(verb, gui=gui)
+    if gui and verbs:
         subprocess.run(['zenity', '--info', '--text=Selected components installed successfully.'])
 
 
@@ -1271,6 +1919,9 @@ def run_oobe_coordinator():
 
     running = True
     active_operations = {}
+    # Review downloads never touch the install journal: they change no machine
+    # state, create no receipt and are not an installation authorization.
+    review_operations = {}
     operations_lock = threading.Lock()
     OPERATION_STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     state_info = OPERATION_STATE.lstat()
@@ -1371,7 +2022,13 @@ def run_oobe_coordinator():
                     dis = '1' if meta.get('disabled') else '0'
                     dis_reason = meta.get('disabled_reason', '')
                     # Format: verb \t title \t publisher \t description \t size \t reboot \t installed \t disabled \t disabled_reason
-                    row = f"{v}\t{meta['title']}\t{meta['publisher']}\t{meta['description']}\t{meta['size']}\t{reb}\t{inst}\t{dis}\t{dis_reason}"
+                    # Review availability is separate from install eligibility:
+                    # 'R:<total bytes>:<cached 0|1>' offers Download-for-review only.
+                    rev = '0'
+                    if review_available(v):
+                        state, total = review_state(v)
+                        rev = f"R:{total}:{1 if state == 'cached' else 0}"
+                    row = f"{v}\t{meta['title']}\t{meta['publisher']}\t{meta['description']}\t{meta['size']}\t{reb}\t{inst}\t{dis}\t{dis_reason}\t{rev}"
                     lines.append(row)
                 conn.sendall(('\n'.join(lines) + '\n').encode('utf-8'))
 
@@ -1380,12 +2037,25 @@ def run_oobe_coordinator():
                 try:
                     validate_verb(verb)
                     meta = COMPONENTS_METADATA.get(verb, {})
-                    if meta.get('disabled'):
+                    if meta.get('disabled') and not review_available(verb):
                         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
-                    try:
-                        text, sha = license_text(verb)
-                    except ValueError:
-                        text, sha = fetch_vendor_terms(verb)
+                    if review_available(verb) and not meta.get('terms_url'):
+                        # Cached, verified terms only. Never an automatic download and
+                        # never a silent refresh: stale or tampered terms must surface
+                        # as a distinct error the client can act on via START_REVIEW.
+                        try:
+                            text, sha = license_text(verb)
+                        except ReviewRequired as err:
+                            conn.sendall(f"ERR NOT_DOWNLOADED {err}\n".encode('utf-8'))
+                            continue
+                        except StaleTermsError as err:
+                            conn.sendall(f"ERR STALE_TERMS {err}\n".encode('utf-8'))
+                            continue
+                    else:
+                        try:
+                            text, sha = license_text(verb)
+                        except ValueError:
+                            text, sha = fetch_vendor_terms(verb)
                     response = f"OK {sha} {len(text.encode('utf-8'))}\n{text}"
                     conn.sendall(response.encode('utf-8'))
                 except Exception as err:
@@ -1502,6 +2172,91 @@ def run_oobe_coordinator():
                     else:
                         conn.sendall(b"ERR No such operation\n")
 
+            elif cmd == 'REVIEW_INFO' and len(parts) == 2:
+                try:
+                    review_meta(parts[1])
+                    state, total = review_state(parts[1])
+                    conn.sendall(f"OK {total} {len(review_packages(parts[1]))} {1 if state == 'cached' else 0}\n".encode('utf-8'))
+                except Exception as err:
+                    conn.sendall(f"ERR {err}\n".encode('utf-8'))
+
+            elif cmd == 'START_REVIEW' and len(parts) == 2:
+                if not active_oobe_stage(stage_file):
+                    conn.sendall(b"ERR Setup OOBE stage expired; review download rejected\n")
+                    continue
+                verb = parts[1]
+                try:
+                    review_meta(verb)
+                except Exception as err:
+                    conn.sendall(f"ERR {err}\n".encode('utf-8'))
+                    continue
+                with operations_lock:
+                    running_review = [(key, value) for key, value in review_operations.items()
+                                      if value['status'] == 'RUNNING']
+                    if running_review:
+                        key, value = running_review[0]
+                        if value['verb'] == verb:
+                            conn.sendall(f"OK {key} STARTED\n".encode('utf-8'))
+                        else:
+                            conn.sendall(b"ERR Another review download is active\n")
+                        continue
+                    review_id = f"review_{verb}_{uuid.uuid4().hex}"
+                    record = {'verb': verb, 'status': 'RUNNING', 'done': 0,
+                              'total': review_total_bytes(verb), 'error': '',
+                              'fingerprint': '', 'cancel': threading.Event(), 'thread': None}
+                    review_operations[review_id] = record
+                    # Bound memory: retain only the newest finished review records.
+                    # Their terms remain on disk and reopen via GET_TERMS cached-only.
+                    finished = [key for key, value in review_operations.items()
+                                if value['status'] != 'RUNNING']
+                    for key in finished[:-REVIEW_OPERATION_RETENTION]:
+                        del review_operations[key]
+
+                    def run_review(key, v, state):
+                        def progress(done, total):
+                            with operations_lock:
+                                state['done'], state['total'] = done, total
+                        try:
+                            _, fingerprint = review_download(
+                                v, progress=progress, cancel=state['cancel'],
+                                trace=lambda method, url, size: print('REVIEW', method, url, size, file=sys.stderr, flush=True))
+                            outcome = ('SUCCESS', fingerprint, '')
+                        except ReviewCancelled:
+                            outcome = ('CANCELLED', '', '')
+                        except Exception as ex:
+                            outcome = ('FAILED', '', str(ex))
+                        with operations_lock:
+                            state['status'], state['fingerprint'], state['error'] = outcome
+
+                    # Review threads never touch install state; a stuck read must not
+                    # hold process exit, and .part cleanup is idempotent on restart.
+                    record['thread'] = threading.Thread(target=run_review, args=(review_id, verb, record), daemon=True)
+                    record['thread'].start()
+                    conn.sendall(f"OK {review_id} STARTED\n".encode('utf-8'))
+
+            elif cmd == 'QUERY_REVIEW' and len(parts) == 2:
+                with operations_lock:
+                    state = review_operations.get(parts[1])
+                    if state is None:
+                        conn.sendall(b"ERR Unknown review operation\n")
+                    elif state['status'] == 'RUNNING':
+                        conn.sendall(f"STATUS RUNNING {state['done']} {state['total']}\n".encode('utf-8'))
+                    elif state['status'] == 'SUCCESS':
+                        conn.sendall(f"STATUS SUCCESS {state['fingerprint']}\n".encode('utf-8'))
+                    elif state['status'] == 'CANCELLED':
+                        conn.sendall(b"STATUS CANCELLED\n")
+                    else:
+                        conn.sendall(f"STATUS FAILED {state['error'].replace(chr(10), ' ').strip()}\n".encode('utf-8'))
+
+            elif cmd == 'CANCEL_REVIEW' and len(parts) == 2:
+                with operations_lock:
+                    state = review_operations.get(parts[1])
+                    if state is not None and state['status'] == 'RUNNING':
+                        state['cancel'].set()
+                        conn.sendall(b"OK CANCELLING\n")
+                    else:
+                        conn.sendall(b"ERR No running review operation\n")
+
             elif cmd == 'GET_RECEIPTS' and len(parts) == 1:
                 installed = get_installed_receipts()
                 conn.sendall(('OK ' + ' '.join(installed) + '\n').encode('utf-8'))
@@ -1527,8 +2282,18 @@ def run_oobe_coordinator():
         pass
     sock_path.unlink(missing_ok=True)
     # Revoke new requests before waiting for workers at their safe completion.
+    for info in review_operations.values():
+        info['cancel'].set()
+    deadline = time.monotonic() + REVIEW_SHUTDOWN_JOIN_SECONDS
+    for info in review_operations.values():
+        thread = info.get('thread')
+        if thread is not None and thread.is_alive():
+            # Review work is best-effort: partials are removed idempotently on the
+            # next run, so a wedged reader must not hold the process open forever.
+            thread.join(timeout=max(0.1, deadline - time.monotonic()))
     for info in active_operations.values():
         if info['thread'] and info['thread'].ident is not None:
+            # Install threads guard machine state; they must finish before exit.
             info['thread'].join()
     print('OOBE coordinator stopped.', file=sys.stderr)
 
@@ -1537,15 +2302,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install', nargs=2, metavar=('VERB', 'ACCEPTED_SHA256'), help=argparse.SUPPRESS)
     parser.add_argument('--prepare-terms', metavar='VERB', help=argparse.SUPPRESS)
+    parser.add_argument('--review-download', metavar='VERB', help=argparse.SUPPRESS)
     parser.add_argument('--oobe-coordinator', action='store_true', help='Run OOBE setup coordinator daemon')
     parser.add_argument('--apply-user-defaults', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--reconcile-operation', metavar='OP_ID', help='Reconcile an inspected interrupted install while coordinator is stopped')
     parser.add_argument('--reconcile-action', choices=['FAILED'], help='Never guesses success or rollback')
     parser.add_argument('--reconcile-note', help='Required inspection record; do not include credentials')
-    parser.add_argument('action', nargs='?', choices=['install', 'list'])
+    parser.add_argument('action', nargs='?', choices=['install', 'list', 'review'])
     parser.add_argument('verbs', nargs='*')
     args = parser.parse_args()
-    privileged_actions = sum(bool(value) for value in (args.install, args.prepare_terms,
+    privileged_actions = sum(bool(value) for value in (args.install, args.prepare_terms, args.review_download,
                              args.oobe_coordinator, args.apply_user_defaults, args.reconcile_operation))
     if privileged_actions > 1 or (privileged_actions and (args.action or args.verbs)):
         parser.error('Choose exactly one backend action, without unrelated positional arguments')
@@ -1561,12 +2327,31 @@ def main():
         oobe_coordinator()
     elif args.prepare_terms:
         prepare_terms(args.prepare_terms)
+    elif args.review_download:
+        last = [-1]
+
+        def show(done, total):
+            percent = done * 100 // max(total, 1)
+            if percent != last[0]:
+                last[0] = percent
+                print(f'Downloading for review: {percent}%', file=sys.stderr, flush=True)
+        review_download(args.review_download, progress=show,
+                        trace=lambda method, url, size: print('REVIEW', method, url, size, file=sys.stderr, flush=True))
     elif args.install:
         install(*args.install)
     elif args.action == 'list':
         for verb, meta in COMPONENTS_METADATA.items():
             status = f" (disabled: {meta['disabled_reason']})" if meta.get('disabled') else ''
             print(f"{verb}: {meta['title']}{status}")
+    elif args.action == 'review':
+        # Review-only path: explicit, user-facing, and never an installation.
+        # Reading cached terms needs no elevation; a download asks first.
+        if len(args.verbs) != 1:
+            parser.error('review requires exactly one supported component')
+        verb = validate_verb(args.verbs[0])
+        if not review_available(verb):
+            raise ValueError(f'{COMPONENTS[verb]} has no embedded license terms to review.')
+        review_only(verb, gui=False)
     else:
         if args.action == 'install' and not args.verbs:
             parser.error('install requires at least one supported component')

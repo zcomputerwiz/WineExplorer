@@ -29,6 +29,7 @@
 #define IDD_OOBE_PASSWORD       106
 #define IDD_OOBE_FINISH         107
 #define IDD_OOBE_TERMS          108
+#define IDD_OOBE_REVIEW         109
 
 #define IDC_STATIC              -1
 
@@ -45,6 +46,14 @@
 
 #define IDC_TERMS_TEXT          1060
 #define IDC_TERMS_AGREE         1061
+
+/* Review-only embedded terms dialog (disabled components such as CoreFonts). */
+#define IDC_REV_INFO            1080   /* vendor / source / size / cache state */
+#define IDC_REV_TERMS           1081   /* rendered terms text */
+#define IDC_REV_STATUS          1082   /* progress and result line */
+#define IDC_BTN_REV_DOWNLOAD    1083   /* authorizes the download, before it starts */
+#define IDC_BTN_REV_CANCEL      1084   /* stops a running download */
+#define IDC_REV_AGREE           1085   /* install acceptance; hidden for review-only rows */
 
 #define IDC_USER1               1031
 #define IDC_USER2               1032

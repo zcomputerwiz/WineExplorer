@@ -28,11 +28,8 @@
 #include <winuser.h>
 #include <winternl.h>
 
-#include "wine/debug.h"
 #include "wexhost_unix.h"
 #include "waylandhost.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL( wexhost );
 
 static BOOL unix_ready;
 static HANDLE agent_thread;
@@ -807,5 +804,71 @@ DWORD WINAPI WexOobeGetReceipts( char *buffer, DWORD size, DWORD *needed )
     params.size = size;
     WEXHOST_CALL( oobe_get_receipts, &params );
     if (needed) *needed = params.needed;
+    return params.err;
+}
+
+DWORD WINAPI WexOobeReviewInfo( const char *verb, ULONG64 *total, DWORD *packages, BOOL *cached )
+{
+    struct oobe_review_info_params params = {0};
+    if (!verb || !*verb) return ERROR_INVALID_PARAMETER;
+    if (total) *total = 0;
+    if (packages) *packages = 0;
+    if (cached) *cached = FALSE;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    lstrcpynA( params.verb, verb, sizeof(params.verb) );
+    WEXHOST_CALL( oobe_review_info, &params );
+    if (!params.err)
+    {
+        if (total) *total = params.total;
+        if (packages) *packages = params.packages;
+        if (cached) *cached = params.cached;
+    }
+    return params.err;
+}
+
+DWORD WINAPI WexOobeReviewStart( const char *verb, char *op_id, DWORD op_id_size, char *err_buf, DWORD err_size )
+{
+    struct oobe_review_start_params params = {0};
+    if (!verb || !*verb) return ERROR_INVALID_PARAMETER;
+    if (op_id && op_id_size) op_id[0] = 0;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    lstrcpynA( params.verb, verb, sizeof(params.verb) );
+    WEXHOST_CALL( oobe_review_start, &params );
+    if (!params.err && op_id && op_id_size) lstrcpynA( op_id, params.op_id, op_id_size );
+    if (err_buf && err_size) lstrcpynA( err_buf, params.err_buf, err_size );
+    return params.err;
+}
+
+DWORD WINAPI WexOobeReviewQuery( const char *op_id, char *status, DWORD status_size, ULONG64 *done,
+                                 ULONG64 *total, char *fingerprint, DWORD fingerprint_size,
+                                 char *err_buf, DWORD err_size )
+{
+    struct oobe_review_query_params params = {0};
+    if (!op_id || !*op_id) return ERROR_INVALID_PARAMETER;
+    if (status && status_size) status[0] = 0;
+    if (done) *done = 0;
+    if (total) *total = 0;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    lstrcpynA( params.op_id, op_id, sizeof(params.op_id) );
+    WEXHOST_CALL( oobe_review_query, &params );
+    if (!params.err)
+    {
+        if (status && status_size) lstrcpynA( status, params.status, status_size );
+        if (done) *done = params.done;
+        if (total) *total = params.total;
+        if (fingerprint && fingerprint_size) lstrcpynA( fingerprint, params.fingerprint, fingerprint_size );
+    }
+    if (err_buf && err_size) lstrcpynA( err_buf, params.err_buf, err_size );
+    return params.err;
+}
+
+DWORD WINAPI WexOobeReviewCancel( const char *op_id, char *err_buf, DWORD err_size )
+{
+    struct oobe_review_cancel_params params = {0};
+    if (!op_id || !*op_id) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    lstrcpynA( params.op_id, op_id, sizeof(params.op_id) );
+    WEXHOST_CALL( oobe_review_cancel, &params );
+    if (err_buf && err_size) lstrcpynA( err_buf, params.err_buf, err_size );
     return params.err;
 }

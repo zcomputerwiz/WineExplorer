@@ -170,6 +170,15 @@ struct oobe_terms_params { char verb[32]; char sha256[65]; ULONG64 buffer; DWORD
 struct oobe_install_params { char verb[32]; char sha256[65]; char err_buf[256]; DWORD err; };
 struct oobe_receipts_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
 
+/* Review-only embedded terms. Bounded op-id (coordinator ids are at most
+ * "review_" + 31-byte verb + "_" + 32 hex = 73 chars), typed numeric fields,
+ * and a fixed fingerprint slot. QUERY/CANCEL are read-mostly: retrying them
+ * can never resubmit a start or an install. */
+struct oobe_review_info_params { char verb[32]; ULONG64 total; DWORD packages; BOOL cached; DWORD err; };
+struct oobe_review_start_params { char verb[32]; char op_id[96]; char err_buf[256]; DWORD err; };
+struct oobe_review_query_params { char op_id[96]; char status[16]; ULONG64 done; ULONG64 total; char fingerprint[65]; char err_buf[256]; DWORD err; };
+struct oobe_review_cancel_params { char op_id[96]; char err_buf[256]; DWORD err; };
+
 enum wexhost_funcs
 {
     unix_init,
@@ -236,6 +245,10 @@ enum wexhost_funcs
     unix_oobe_get_terms,
     unix_oobe_install,
     unix_oobe_get_receipts,
+    unix_oobe_review_info,
+    unix_oobe_review_start,
+    unix_oobe_review_query,
+    unix_oobe_review_cancel,
     unix_funcs_count
 };
 

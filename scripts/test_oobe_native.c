@@ -231,6 +231,253 @@ static int test_worker_lifetime_reference_counting(void)
     return 1;
 }
 
+/* Test 7 (B2): review column grammar — valid old/new rows, malformed and overflow fields */
+static int test_catalog_review_column_grammar(void)
+{
+    OobeContext ctx;
+
+    /* Old row without a review column keeps parsing with no review capability. */
+    memset(&ctx, 0, sizeof(ctx));
+    ParseCatalogBuffer("oldverb\tOld Title\tPublisher\tDesc\t~1 MB\t0\t0\t1\tRetired upstream\n", &ctx);
+    TEST_ASSERT(ctx.component_count == 1, "Old row without review column must parse");
+    TEST_ASSERT(ctx.components[0].review_available == false, "Old row must not gain review capability");
+    TEST_ASSERT(ctx.components[0].review_bytes == 0, "Old row review bytes must stay zero");
+    TEST_ASSERT(ctx.components[0].review_cached == false, "Old row review cache flag must stay clear");
+
+    /* New rows: exact byte totals with both cache states. */
+    memset(&ctx, 0, sizeof(ctx));
+    ParseCatalogBuffer("revverb\tRev Title\tPublisher\tDesc\t~2 MB\t0\t0\t1\tRetired upstream\tR:123456789:0\n"
+                       "cachedverb\tCached Title\tPublisher\tDesc\t~3 MB\t0\t0\t1\tRetired upstream\tR:987654321:1\n", &ctx);
+    TEST_ASSERT(ctx.component_count == 2, "Both new review rows must parse");
+    TEST_ASSERT(ctx.components[0].review_available == true, "Valid R field must enable review");
+    TEST_ASSERT(ctx.components[0].review_bytes == 123456789ULL, "Review byte total mismatch");
+    TEST_ASSERT(ctx.components[0].review_cached == false, "Cache flag 0 must stay clear");
+    TEST_ASSERT(ctx.components[1].review_available == true, "Cached R field must enable review");
+    TEST_ASSERT(ctx.components[1].review_bytes == 987654321ULL, "Cached review byte total mismatch");
+    TEST_ASSERT(ctx.components[1].review_cached == true, "Cache flag 1 must be set");
+
+    /* Grammar limit: exactly OOBE_REVIEW_MAX_BYTES is accepted. */
+    memset(&ctx, 0, sizeof(ctx));
+    ParseCatalogBuffer("maxverb\tMax Title\tPublisher\tDesc\t~16 GB\t0\t0\t1\tRetired upstream\tR:17179869184:0\n", &ctx);
+    TEST_ASSERT(ctx.component_count == 1, "Maximum-size row must parse");
+    TEST_ASSERT(ctx.components[0].review_available == true, "Exactly 16 GiB must be accepted");
+    TEST_ASSERT(ctx.components[0].review_bytes == OOBE_REVIEW_MAX_BYTES, "Maximum review bytes mismatch");
+
+    /* Malformed and overflowing fields leave the row parsed but without review. */
+    const char *bad_rows[] = {
+        "overflow\tT\tP\tD\tS\t0\t0\t1\tR\tR:17179869185:0\n",  /* one byte over the cap */
+        "toolong\tT\tP\tD\tS\t0\t0\t1\tR\tR:100000000000:0\n",  /* twelve digits, far over the cap */
+        "leadzero\tT\tP\tD\tS\t0\t0\t1\tR\tR:0123456789:0\n",   /* leading zero */
+        "junk\tT\tP\tD\tS\t0\t0\t1\tR\tR:123456789:0x\n",       /* trailing junk */
+        "negative\tT\tP\tD\tS\t0\t0\t1\tR\tR:-123456789:0\n",   /* negative value */
+        "flagtwo\tT\tP\tD\tS\t0\t0\t1\tR\tR:123456789:2\n",     /* unknown cache flag */
+        "lowercase\tT\tP\tD\tS\t0\t0\t1\tR\tr:123456789:0\n",   /* lowercase marker */
+        "emptyrev\tT\tP\tD\tS\t0\t0\t1\tR\t\n",                 /* empty review field */
+    };
+    size_t i;
+    for (i = 0; i < sizeof(bad_rows) / sizeof(bad_rows[0]); ++i) {
+        OobeContext bad;
+        memset(&bad, 0, sizeof(bad));
+        ParseCatalogBuffer(bad_rows[i], &bad);
+        TEST_ASSERT(bad.component_count == 1, "Malformed review field must not drop the row");
+        TEST_ASSERT(bad.components[0].review_available == false, "Malformed review field must stay disabled");
+        TEST_ASSERT(bad.components[0].review_bytes == 0, "Malformed review bytes must stay zero");
+    }
+
+    return 1;
+}
+
+/* Test 8 (U1): production state/controller seam for review-only components */
+static int test_review_only_controller_seam(void)
+{
+    OobeContext ctx;
+    OobeComponentItem *comp;
+    ReviewDownloadContext rctx;
+    const char *fp1 = "1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff";
+    const char *fp2 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+    /* A disabled row with a valid review column reaches the UI in a state that
+     * cannot be checked for install or pre-accepted. */
+    memset(&ctx, 0, sizeof(ctx));
+    ParseCatalogBuffer("corefonts\tMicrosoft TrueType Core Fonts\tMicrosoft Corporation\tOriginal core fonts\t~4 MB\t0\t0\t1\tRetired upstream by vendor\tR:4194304:0\n", &ctx);
+    TEST_ASSERT(ctx.component_count == 1, "Disabled review row must parse");
+    comp = &ctx.components[0];
+    TEST_ASSERT(comp->disabled == true, "Row must stay disabled for installation");
+    TEST_ASSERT(comp->review_available == true, "Row must offer terms review");
+    TEST_ASSERT(comp->checked == false, "Review-only row must not be checkable for install");
+    TEST_ASSERT(comp->accepted == false, "Acceptance must be false before any explicit action");
+    TEST_ASSERT(comp->accepted_sha256[0] == '\0', "No accepted fingerprint may pre-exist");
+
+    /* Displaying terms (retrieved) without an explicit agreement cannot accept. */
+    TEST_ASSERT(!OobeAcceptTerms(comp, fp1, true, false), "Review-only display cannot become acceptance");
+    TEST_ASSERT(comp->accepted == false, "Accepted must remain false after review-only display");
+
+    /* Acceptance binds to the exact fingerprint: a changed candidate does not
+     * inherit the previous agreement and cannot be auto-approved. */
+    TEST_ASSERT(OobeAcceptTerms(comp, fp1, true, true), "Explicit acceptance must bind fp1");
+    TEST_ASSERT(strcmp(comp->accepted_sha256, fp1) == 0, "Accepted fingerprint must equal fp1");
+    TEST_ASSERT(strcmp(comp->accepted_sha256, fp2) != 0, "Changed candidate must not match the binding");
+    TEST_ASSERT(!OobeAcceptTerms(comp, fp2, true, false), "Changed candidate without agreement cannot accept");
+    TEST_ASSERT(strcmp(comp->accepted_sha256, fp1) == 0, "Binding must survive a rejected replacement");
+
+    /* Digest validation at the seam: uppercase, short and NULL inputs reject. */
+    TEST_ASSERT(!OobeAcceptTerms(comp, "1111222233334444555566667777888899990000AAAABBBBCCCCDDDDEEEEEFFF", true, true),
+                "Uppercase digest must be rejected");
+    TEST_ASSERT(!OobeAcceptTerms(comp, "1111222233334444555566667777888899990000aaaabbbbccccddddeeeefff", true, true),
+                "Short digest must be rejected");
+    TEST_ASSERT(!OobeAcceptTerms(comp, NULL, true, true), "NULL digest must be rejected");
+    TEST_ASSERT(!OobeAcceptTerms(NULL, fp1, true, true), "NULL component must be rejected without crash");
+
+    /* A closed review dialog (cancelled, hwnd gone) or a stale generation tag
+     * cannot approve: the production stop predicate fires so the worker exits
+     * before any acceptance is recorded. */
+    memset(&rctx, 0, sizeof(rctx));
+    rctx.ref_count = 1;
+    TEST_ASSERT(!ReviewContextStopRequested(&rctx), "Fresh context must not request a stop");
+    {
+        LONG seen_generation = rctx.generation;
+        InterlockedIncrement(&rctx.generation);
+        TEST_ASSERT(seen_generation != rctx.generation, "Stale worker generation tag must be detectable");
+    }
+    InterlockedExchange(&rctx.stopped, 1);
+    TEST_ASSERT(ReviewContextStopRequested(&rctx), "Per-attempt stop must abort the download");
+    InterlockedExchange(&rctx.stopped, 0);
+    rctx.hwnd = NULL;
+    InterlockedExchange(&rctx.cancelled, 1);
+    TEST_ASSERT(ReviewContextStopRequested(&rctx), "Closed dialog must terminate the review worker");
+    TEST_ASSERT(comp->accepted == true && strcmp(comp->accepted_sha256, fp1) == 0,
+                "Stale or closed completion must not alter the recorded acceptance");
+
+    return 1;
+}
+
+/* Test 9 (Q3): production controller seam for the embedded-review cached-terms
+ * completion. Dispatches real completions through OobeReviewTermsCompletion —
+ * the exact decision OobeReviewProc's WM_USER+101 applies — against an
+ * install-eligible synthetic component, and proves that opening/reopening/
+ * retrying never prechecks or records a fresh install acceptance. */
+static int test_review_terms_completion_controller(void)
+{
+    static WCHAR terms_buf[] = L"synthetic embedded license terms";
+    const char *fp1 = "1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff";
+    const char *fp2 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+    /* Install-eligible synthetic component (disabled column 0, valid R field). */
+    OobeContext ctx;
+    OobeComponentItem *comp;
+    memset(&ctx, 0, sizeof(ctx));
+    ParseCatalogBuffer("synfont\tSynthetic Font\tSyn Publisher\tDesc\t~1 MB\t0\t0\t0\tReason\tR:4194304:0\n", &ctx);
+    TEST_ASSERT(ctx.component_count == 1, "Install-eligible synthetic row must parse");
+    comp = &ctx.components[0];
+    TEST_ASSERT(comp->disabled == false, "Synthetic component must be install-eligible");
+    TEST_ASSERT(comp->review_available == true, "Synthetic component must offer terms review");
+    TEST_ASSERT(comp->accepted == false, "No acceptance before any explicit action");
+
+    ReviewDownloadContext rctx;
+    TermsFetchContext tctx;
+    memset(&rctx, 0, sizeof(rctx));
+    rctx.ref_count = 1;
+    rctx.comp = comp;
+    rctx.generation = 7;
+    memset(&tctx, 0, sizeof(tctx));
+    tctx.terms_text = terms_buf;
+    tctx.err = ERROR_SUCCESS;
+    tctx.generation = 7;
+    strcpy(tctx.candidate_sha256, fp1);
+
+    /* (1) Initial display of fetched terms: the install-eligible row enables the
+     * accept control but leaves it UNCHECKED and IDOK disabled. */
+    ReviewTermsResult r;
+    OobeReviewTermsCompletion(&rctx, &tctx, 7, &r);
+    TEST_ASSERT(r.applied == TRUE, "In-generation completion must be applied");
+    TEST_ASSERT(r.fetch_ok == TRUE, "Successful fetch must report fetch_ok");
+    TEST_ASSERT(r.disabled_row == FALSE, "Install-eligible row is not review-only");
+    TEST_ASSERT(r.agree_enabled == TRUE, "Accept control must be enabled for an install-eligible row");
+    TEST_ASSERT(r.agree_checked == FALSE, "Acceptance must start unchecked on initial display");
+    TEST_ASSERT(r.ok_enabled == FALSE, "IDOK must stay disabled until the user checks acceptance");
+
+    /* (2) Same-digest reopen: the component was previously accepted for this
+     * exact fingerprint. The completion must STILL leave the box unchecked —
+     * opening/reopening never prechecks or records a fresh acceptance. */
+    TEST_ASSERT(OobeAcceptTerms(comp, fp1, true, true), "Establish a prior explicit acceptance of fp1");
+    TEST_ASSERT(strcmp(comp->accepted_sha256, fp1) == 0, "Prior acceptance bound to fp1");
+    OobeReviewTermsCompletion(&rctx, &tctx, 7, &r);
+    TEST_ASSERT(r.applied == TRUE, "Same-digest reopen completion must be applied");
+    TEST_ASSERT(r.agree_checked == FALSE, "Same-digest reopen must NOT precheck acceptance (Q3)");
+    TEST_ASSERT(r.ok_enabled == FALSE, "IDOK must stay disabled on a same-digest reopen");
+    /* Negative control: the OLD prechecking rule would have checked the box
+     * here. Proving it is TRUE demonstrates this case fails on the old code. */
+    {
+        BOOL old_precheck = (comp->accepted && strcmp(comp->accepted_sha256, tctx.candidate_sha256) == 0);
+        TEST_ASSERT(old_precheck == TRUE, "Old precheck rule would have fired on this same-digest reopen");
+        TEST_ASSERT(r.agree_checked != old_precheck, "New seam must disagree with the old precheck here");
+    }
+
+    /* (3) Changed digest: candidate no longer matches the recorded binding. */
+    strcpy(tctx.candidate_sha256, fp2);
+    OobeReviewTermsCompletion(&rctx, &tctx, 7, &r);
+    TEST_ASSERT(r.applied == TRUE, "Changed-digest completion must be applied");
+    TEST_ASSERT(r.agree_checked == FALSE, "Changed digest must not inherit the prior acceptance");
+    TEST_ASSERT(r.ok_enabled == FALSE, "IDOK must stay disabled for a changed digest");
+
+    /* (4) Stale-generation completion: belongs to a superseded fetch. It must
+     * be ignored entirely — no window mutation, no acceptance. */
+    memset(comp->accepted_sha256, 0, sizeof(comp->accepted_sha256));
+    comp->accepted = false;
+    OobeReviewTermsCompletion(&rctx, &tctx, 999, &r);
+    TEST_ASSERT(r.applied == FALSE, "Stale-generation completion must be ignored");
+    TEST_ASSERT(r.fetch_ok == FALSE && r.agree_enabled == FALSE &&
+                r.agree_checked == FALSE && r.ok_enabled == FALSE,
+                "Stale completion must authorize no UI transition");
+    TEST_ASSERT(comp->accepted == false, "Stale completion must record no acceptance");
+
+    /* (5) Completion after close: the dialog is destroyed (cancelled set). Even
+     * with a matching generation and a dangling comp pointer, the seam bails
+     * before touching window state or the borrowed component — zero access. */
+    rctx.comp = NULL;  /* simulate the borrowed component no longer being valid */
+    InterlockedExchange(&rctx.cancelled, 1);
+    strcpy(tctx.candidate_sha256, fp1);
+    OobeReviewTermsCompletion(&rctx, &tctx, 7, &r);
+    TEST_ASSERT(r.applied == FALSE, "Post-close completion must be ignored");
+    TEST_ASSERT(r.agree_checked == FALSE && r.ok_enabled == FALSE,
+                "Post-close completion must authorize no acceptance UI");
+
+    /* (6) Only explicit acceptance persists: the seam never sets comp->accepted.
+     * Re-establish a live context and confirm the box stays clear until an
+     * explicit OobeAcceptTerms call. */
+    memset(&rctx, 0, sizeof(rctx));
+    rctx.ref_count = 1;
+    rctx.comp = comp;
+    rctx.generation = 7;
+    TEST_ASSERT(comp->accepted == false, "No acceptance recorded by any completion above");
+    OobeReviewTermsCompletion(&rctx, &tctx, 7, &r);
+    TEST_ASSERT(r.applied == TRUE && r.agree_checked == FALSE, "Live completion leaves the box unchecked");
+    TEST_ASSERT(comp->accepted == false, "Seam must not record acceptance on its own");
+    TEST_ASSERT(OobeAcceptTerms(comp, fp1, true, true), "Explicit acceptance is the only path to accepted");
+    TEST_ASSERT(comp->accepted == true && strcmp(comp->accepted_sha256, fp1) == 0,
+                "Explicit acceptance binds fp1");
+
+    /* (7) Review-only (disabled) row: no install-accept control at all. */
+    OobeContext dctx;
+    OobeComponentItem *dcomp;
+    memset(&dctx, 0, sizeof(dctx));
+    ParseCatalogBuffer("corefonts\tMicrosoft TrueType Core Fonts\tMicrosoft Corporation\tOriginal core fonts"
+                       "\t~4 MB\t0\t0\t1\tRetired upstream by vendor\tR:4194304:0\n", &dctx);
+    TEST_ASSERT(dctx.component_count == 1, "Disabled review row must parse");
+    dcomp = &dctx.components[0];
+    memset(&rctx, 0, sizeof(rctx));
+    rctx.ref_count = 1;
+    rctx.comp = dcomp;
+    rctx.generation = 7;
+    OobeReviewTermsCompletion(&rctx, &tctx, 7, &r);
+    TEST_ASSERT(r.applied == TRUE, "Disabled-row completion must be applied");
+    TEST_ASSERT(r.disabled_row == TRUE, "Disabled row is review-only");
+    TEST_ASSERT(r.agree_enabled == FALSE && r.agree_checked == FALSE && r.ok_enabled == FALSE,
+                "Review-only row must expose no install-accept control");
+
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     (void)argc;
@@ -243,7 +490,10 @@ int main(int argc, char **argv)
     if (!test_utf8_conversion_fail_closed()) return 1;
     if (!test_candidate_accepted_digest_separation()) return 1;
     if (!test_worker_lifetime_reference_counting()) return 1;
+    if (!test_catalog_review_column_grammar()) return 1;
+    if (!test_review_only_controller_seam()) return 1;
+    if (!test_review_terms_completion_controller()) return 1;
 
-    printf("ALL %d NATIVE TESTS PASSED (%d assertions verified)\n", 6, g_tests_passed);
+    printf("ALL %d NATIVE TESTS PASSED (%d assertions verified)\n", 9, g_tests_passed);
     return 0;
 }

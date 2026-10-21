@@ -12,6 +12,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* Largest review payload the catalog grammar will accept (16 GiB). */
+#define OOBE_REVIEW_MAX_BYTES 17179869184ULL
+
 typedef struct {
     char verb[32];
     char title[128];
@@ -22,6 +25,9 @@ typedef struct {
     bool installed;
     bool disabled;
     char disabled_reason[128];
+    bool review_available;
+    unsigned long long review_bytes;
+    bool review_cached;
     bool checked;
     bool accepted;
     char sha256[65];
@@ -114,6 +120,33 @@ static inline void ParseCatalogBuffer(const char *buf, OobeContext *ctx)
                     }
                     if (col_count >= 9) {
                         Utf8ToAnsi(cols[8], item->disabled_reason, sizeof(item->disabled_reason));
+                    }
+                    if (col_count >= 10 && strncmp(cols[9], "R:", 2) == 0) {
+                        /* Strict grammar: R:<digits>:<0|1> and nothing else. No leading
+                         * zeros, value capped at OOBE_REVIEW_MAX_BYTES (inclusive: exactly
+                         * the cap is accepted). The digit guard only prevents unsigned
+                         * overflow; the byte cap is enforced by the accumulation check below,
+                         * which breaks as soon as adding the next digit would exceed the cap.
+                         * Overflow, negative numbers, trailing junk, or unknown flags
+                         * leave the row without review capability. */
+                        const char *start = cols[9] + 2;
+                        const char *digits = start;
+                        unsigned long long r_bytes = 0;
+                        size_t digit_count = 0;
+                        while (*digits >= '0' && *digits <= '9') {
+                            if (digit_count >= 20 ||
+                                r_bytes > (OOBE_REVIEW_MAX_BYTES - (unsigned long long)(*digits - '0')) / 10)
+                                break;
+                            r_bytes = r_bytes * 10 + (*digits - '0');
+                            digits++;
+                            digit_count++;
+                        }
+                        if (digit_count && !(digit_count > 1 && start[0] == '0') &&
+                            *digits == ':' && (digits[1] == '0' || digits[1] == '1') && digits[2] == '\0') {
+                            item->review_available = true;
+                            item->review_bytes = r_bytes;
+                            item->review_cached = (digits[1] == '1');
+                        }
                     }
                     item->checked = false;
                     item->accepted = false;

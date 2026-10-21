@@ -350,6 +350,16 @@ DWORD WINAPI WexOobeGetTerms( const char *verb, char *sha256, DWORD sha256_size,
 DWORD WINAPI WexOobeInstall( const char *verb, const char *sha256, char *err_buf, DWORD err_size );
 DWORD WINAPI WexOobeGetReceipts( char *buffer, DWORD size, DWORD *needed );
 
+/* Review-only embedded terms (CoreFonts). These never install anything:
+ * Info reports payload size/cache state, Start begins a bounded cancellable
+ * download, Query is read-mostly and safe to retry, Cancel stops it. */
+DWORD WINAPI WexOobeReviewInfo( const char *verb, ULONG64 *total, DWORD *packages, BOOL *cached );
+DWORD WINAPI WexOobeReviewStart( const char *verb, char *op_id, DWORD op_id_size, char *err_buf, DWORD err_size );
+DWORD WINAPI WexOobeReviewQuery( const char *op_id, char *status, DWORD status_size, ULONG64 *done,
+                                 ULONG64 *total, char *fingerprint, DWORD fingerprint_size,
+                                 char *err_buf, DWORD err_size );
+DWORD WINAPI WexOobeReviewCancel( const char *op_id, char *err_buf, DWORD err_size );
+
 #ifdef __cplusplus
 }
 #endif

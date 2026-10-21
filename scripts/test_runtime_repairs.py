@@ -681,11 +681,13 @@ class OobeCoordinatorTests(unittest.TestCase):
             self.assertIn(fake_text, resp)
 
     def test_get_terms_offline_failure_returns_clean_error(self):
+        # The vendor-DOCX fallback route (terms_url components, e.g. vcrun2022) is the
+        # only path that may refresh terms from the network. Review-only components
+        # surface NOT_DOWNLOADED/STALE_TERMS instead (see test_oobe_review.py).
         self.start_coordinator()
-        with with_enabled_component('corefonts'), \
-                patch.object(components, 'license_text', side_effect=ValueError('offline')), \
+        with patch.object(components, 'license_text', side_effect=ValueError('offline')), \
                 patch.object(components, 'fetch_vendor_terms', side_effect=OSError('Network unreachable')):
-            resp = self.send_request('GET_TERMS corefonts')
+            resp = self.send_request('GET_TERMS vcrun2022')
             self.assertTrue(resp.startswith('ERR'))
             self.assertIn('Network unreachable', resp)
 
@@ -694,9 +696,16 @@ class OobeCoordinatorTests(unittest.TestCase):
         resp = self.send_request('GET_TERMS physx')
         self.assertTrue(resp.startswith('ERR'))
         self.assertIn('disabled', resp)
+        # Disabled but review-capable components are no longer rejected outright:
+        # GET_TERMS serves verified cached terms only, and an empty cache reports
+        # NOT_DOWNLOADED without any network access or install side effect.
         resp2 = self.send_request('GET_TERMS corefonts')
-        self.assertTrue(resp2.startswith('ERR'))
-        self.assertIn('disabled', resp2)
+        self.assertTrue(resp2.startswith('ERR NOT_DOWNLOADED'))
+        fake_sha = "abcdef0123456789" * 4
+        with patch.object(components, 'license_text', return_value=('cached terms', fake_sha)):
+            resp3 = self.send_request('GET_TERMS corefonts')
+        self.assertTrue(resp3.split('\n', 1)[0].startswith(f'OK {fake_sha}'))
+        self.assertIn('cached terms', resp3)
 
     def test_install_rejects_disabled_component(self):
         self.start_coordinator()
@@ -937,7 +946,7 @@ class NativeSeamTests(unittest.TestCase):
             env['WINEARCH'] = 'win64'
             run_res = subprocess.run([wine, str(binary)], capture_output=True, text=True, env=env, timeout=90)
             self.assertEqual(run_res.returncode, 0, f'Native test run failed:\n{run_res.stdout}\n{run_res.stderr}')
-            self.assertIn('ALL 6 NATIVE TESTS PASSED (54 assertions verified)', run_res.stdout)
+            self.assertIn('ALL 9 NATIVE TESTS PASSED (148 assertions verified)', run_res.stdout)
 
 
 if __name__ == '__main__':

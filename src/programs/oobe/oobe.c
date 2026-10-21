@@ -432,6 +432,380 @@ static INT_PTR CALLBACK OobeTermsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
     return FALSE;
 }
 
+/* --- Review-only embedded terms (disabled components such as CoreFonts) ---
+ * The review dialog never installs anything. For review-only components it has
+ * no accept control at all: closing it records no acceptance and never selects
+ * the component for install. All coordinator traffic runs on the worker thread:
+ * REVIEW_INFO first (size, package count, cache state), START_REVIEW only after
+ * the user authorizes a download, QUERY_REVIEW polled with cancel support, and
+ * CANCEL_REVIEW when the download is stopped or the dialog closes. After a
+ * successful download the terms are read back from the verified local cache
+ * (GET_TERMS, no network). */
+#define WM_OOBE_REV_READY    (WM_USER + 105)
+#define WM_OOBE_REV_PROGRESS (WM_USER + 106)
+#define WM_OOBE_REV_DONE     (WM_USER + 107)
+
+static void FormatReviewBytes(ULONG64 bytes, char *out, size_t out_size)
+{
+    if (bytes >= 1073741824ULL)
+        snprintf(out, out_size, "%.1f GB", (double)bytes / 1073741824.0);
+    else if (bytes >= 1048576ULL)
+        snprintf(out, out_size, "%.1f MB", (double)bytes / 1048576.0);
+    else if (bytes >= 1024ULL)
+        snprintf(out, out_size, "%.1f KB", (double)bytes / 1024.0);
+    else
+        snprintf(out, out_size, "%llu bytes", (unsigned long long)bytes);
+}
+
+static void ReviewDialogStartTermsFetch(HWND hwnd, ReviewDownloadContext *ctx)
+{
+    TermsFetchContext *tctx;
+    if (!ctx || ctx->terms) return; /* one fetch at a time */
+    tctx = calloc(1, sizeof(TermsFetchContext));
+    if (!tctx) {
+        SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Out of memory while loading the cached terms.");
+        EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
+        return;
+    }
+    tctx->ref_count = 2; /* 1 for dialog, 1 for worker thread */
+    tctx->generation = InterlockedIncrement(&g_worker_generation);
+    tctx->hwnd = hwnd;
+    tctx->comp = ctx->comp;
+    ctx->terms = tctx;
+    tctx->hThread = CreateThread(NULL, 0, TermsFetchThread, tctx, 0, NULL);
+    if (!tctx->hThread) {
+        /* No worker owns its reserved reference on failure. */
+        tctx->ref_count = 1;
+        TermsFetchContext_Release(tctx);
+        ctx->terms = NULL;
+        SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Failed to start the terms reader thread.");
+        EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
+    }
+}
+
+static DWORD WINAPI ReviewWorkerThread(LPVOID lpParam)
+{
+    ReviewDownloadContext *ctx = (ReviewDownloadContext *)lpParam;
+
+    ctx->total_bytes = 0;
+    ctx->done_bytes = 0;
+    ctx->package_count = 0;
+    ctx->cached = FALSE;
+    ctx->err = WexOobeReviewInfo(ctx->comp->verb, &ctx->total_bytes, &ctx->package_count, &ctx->cached);
+    {
+        HWND target = InterlockedCompareExchangePointer((void *volatile *)&ctx->hwnd, NULL, NULL);
+        if (target) PostMessageA(target, WM_OOBE_REV_READY, (WPARAM)ctx->generation, 0);
+    }
+
+    while (!InterlockedCompareExchange(&ctx->cancelled, 0, 0)) {
+        char err_buf[256];
+        BOOL running;
+        int query_fails = 0;
+        DWORD ret;
+
+        /* Wait for the user to authorize this download attempt. */
+        if (WaitForSingleObject(ctx->hGoEvent, INFINITE) != WAIT_OBJECT_0) break;
+        if (InterlockedCompareExchange(&ctx->cancelled, 0, 0)) break;
+        if (InterlockedCompareExchange(&ctx->stopped, 0, 0)) {
+            /* A stop raced the authorization: report it and wait for a new attempt. */
+            InterlockedExchange(&ctx->stopped, 0);
+            ctx->err = ERROR_CANCELLED;
+            ctx->err_text[0] = '\0';
+            {
+                HWND target = InterlockedCompareExchangePointer((void *volatile *)&ctx->hwnd, NULL, NULL);
+                if (target) PostMessageA(target, WM_OOBE_REV_DONE, (WPARAM)ctx->generation, 0);
+            }
+            continue;
+        }
+
+        memset(err_buf, 0, sizeof(err_buf));
+        ret = WexOobeReviewStart(ctx->comp->verb, ctx->op_id, sizeof(ctx->op_id), err_buf, sizeof(err_buf));
+        running = (ret == ERROR_SUCCESS);
+        while (running && !ReviewContextStopRequested(ctx)) {
+            char status[16];
+            char fingerprint[65];
+            char qerr[256];
+            ULONG64 done = 0, total = 0;
+            DWORD qret;
+
+            qret = WexOobeReviewQuery(ctx->op_id, status, sizeof(status), &done, &total,
+                                      fingerprint, sizeof(fingerprint), qerr, sizeof(qerr));
+            if (qret == ERROR_SUCCESS) {
+                query_fails = 0;
+                if (!strcmp(status, "RUNNING")) {
+                    ctx->done_bytes = done;
+                    if (total) ctx->total_bytes = total;
+                    {
+                        HWND target = InterlockedCompareExchangePointer((void *volatile *)&ctx->hwnd, NULL, NULL);
+                        if (target) PostMessageA(target, WM_OOBE_REV_PROGRESS, (WPARAM)ctx->generation, 0);
+                    }
+                    /* 500 ms cadence; the same event also carries stop/close. */
+                    if (WaitForSingleObject(ctx->hGoEvent, 500) == WAIT_OBJECT_0 &&
+                        ReviewContextStopRequested(ctx)) break;
+                    continue;
+                }
+                running = FALSE;
+                if (!strcmp(status, "SUCCESS")) {
+                    ret = ERROR_SUCCESS;
+                } else if (!strcmp(status, "CANCELLED")) {
+                    ret = ERROR_CANCELLED;
+                } else if (!strcmp(status, "FAILED")) {
+                    ret = ERROR_GEN_FAILURE;
+                    snprintf(err_buf, sizeof(err_buf), "%s", qerr);
+                } else {
+                    ret = ERROR_INVALID_DATA; /* the bridge only yields the four statuses above */
+                }
+            } else if (qret == ERROR_INVALID_DATA) {
+                /* "Unknown review operation": not transient; do not retry. */
+                running = FALSE;
+                ret = qret;
+                snprintf(err_buf, sizeof(err_buf), "%s", qerr);
+            } else if (++query_fails < 3) {
+                /* Transient transport failure: QUERY_REVIEW is read-only, so a
+                 * bounded retry can never resubmit the start. */
+                WaitForSingleObject(ctx->hGoEvent, 500);
+            } else {
+                running = FALSE;
+                ret = qret;
+                snprintf(err_buf, sizeof(err_buf), "%s", qerr);
+            }
+        }
+        if (running) {
+            /* Stopped by the user or by dialog close while in flight. */
+            char cerr[256];
+            WexOobeReviewCancel(ctx->op_id, cerr, sizeof(cerr));
+            ret = ERROR_CANCELLED;
+            InterlockedExchange(&ctx->stopped, 0); /* a later attempt starts clean */
+        }
+        ctx->err = ret;
+        snprintf(ctx->err_text, sizeof(ctx->err_text), "%s", err_buf);
+        {
+            HWND target = InterlockedCompareExchangePointer((void *volatile *)&ctx->hwnd, NULL, NULL);
+            if (target) PostMessageA(target, WM_OOBE_REV_DONE, (WPARAM)ctx->generation, 0);
+        }
+        if (ret == ERROR_SUCCESS) break; /* no retry after success */
+    }
+
+    ReviewDownloadContext_Release(ctx);
+    return 0;
+}
+
+static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    ReviewDownloadContext *ctx = (ReviewDownloadContext *)GetWindowLongPtrA(hwnd, DWLP_USER);
+    switch (uMsg) {
+        case WM_INITDIALOG: {
+            OobeComponentItem *comp = (OobeComponentItem *)lParam;
+            char title[256];
+
+            ctx = calloc(1, sizeof(ReviewDownloadContext));
+            if (!ctx) {
+                EndDialog(hwnd, IDCANCEL);
+                return TRUE;
+            }
+            ctx->ref_count = 2; /* 1 for dialog, 1 for worker thread */
+            ctx->generation = InterlockedIncrement(&g_worker_generation);
+            ctx->hwnd = hwnd;
+            ctx->comp = comp;
+            ctx->hGoEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+            if (!ctx->hGoEvent) {
+                ctx->ref_count = 1;
+                ReviewDownloadContext_Release(ctx);
+                EndDialog(hwnd, IDCANCEL);
+                return TRUE;
+            }
+            SetWindowLongPtrA(hwnd, DWLP_USER, (LONG_PTR)ctx);
+
+            snprintf(title, sizeof(title), "%s - Embedded License Terms", comp->title);
+            SetWindowTextA(hwnd, title);
+            SetDlgItemTextA(hwnd, IDC_REV_INFO, "Contacting the components coordinator...");
+            SetDlgItemTextA(hwnd, IDC_REV_STATUS, "");
+            SetDlgItemTextW(hwnd, IDC_REV_TERMS, L"The complete license terms will appear here once they are verified.");
+            EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), FALSE);
+            EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_CANCEL), FALSE);
+            if (comp->disabled) {
+                /* Review-only component: no install-accept control for it. */
+                ShowWindow(GetDlgItem(hwnd, IDC_REV_AGREE), SW_HIDE);
+            } else {
+                /* Install-eligible: acceptance is a separate unchecked action. */
+                CheckDlgButton(hwnd, IDC_REV_AGREE, BST_UNCHECKED);
+                EnableWindow(GetDlgItem(hwnd, IDC_REV_AGREE), FALSE);
+                EnableWindow(GetDlgItem(hwnd, IDOK), FALSE);
+                SetWindowTextA(GetDlgItem(hwnd, IDOK), "Accept");
+            }
+
+            ctx->hThread = CreateThread(NULL, 0, ReviewWorkerThread, ctx, 0, NULL);
+            if (!ctx->hThread) {
+                /* No worker owns its reserved reference on failure. */
+                ctx->ref_count = 1;
+                SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Failed to start the review worker thread.");
+            }
+            return TRUE;
+        }
+        case WM_OOBE_REV_READY: {
+            char info[512];
+            char size_str[48];
+            if (!ctx || ctx->generation != (LONG)wParam) return TRUE;
+            FormatReviewBytes(ctx->total_bytes, size_str, sizeof(size_str));
+            if (ctx->err == ERROR_SUCCESS) {
+                /* Q5: name the ACTUAL download provider and host, distinct from the
+                 * publisher. The Core Fonts review route is pinned to the SourceForge
+                 * distribution archive in the coordinator (wex-components.py
+                 * 'review.url_prefix'); it is not a Microsoft-hosted download. The size
+                 * shown is all eleven font packages combined, not a single package. */
+                snprintf(info, sizeof(info),
+                         "Publisher: %s\r\n"
+                         "Downloaded from: SourceForge (downloads.sourceforge.net/corefonts/)\r\n"
+                         "  the pinned Core Fonts distribution archive; not a Microsoft-hosted download.\r\n"
+                         "%lu font packages, %s combined. Local cache: %s.\r\n"
+                         "Nothing will be executed or installed.",
+                         ctx->comp->publisher[0] ? ctx->comp->publisher : "unknown",
+                         ctx->package_count, size_str,
+                         ctx->cached ? "available (no network needed)" : "not present (download required)");
+                SetDlgItemTextA(hwnd, IDC_REV_INFO, info);
+                if (ctx->cached) {
+                    SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Loading the verified terms from the local cache...");
+                    ReviewDialogStartTermsFetch(hwnd, ctx);
+                } else {
+                    EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
+                    SetDlgItemTextA(hwnd, IDC_REV_STATUS,
+                        "Click \"Download terms...\" to authorize downloading the terms. Nothing downloads before you do.");
+                }
+            } else {
+                snprintf(info, sizeof(info),
+                         "The components coordinator is unavailable (error %lu).\r\n"
+                         "You may close this dialog and skip this component.", ctx->err);
+                SetDlgItemTextA(hwnd, IDC_REV_INFO, info);
+                SetDlgItemTextA(hwnd, IDC_REV_STATUS, "");
+            }
+            return TRUE;
+        }
+        case WM_OOBE_REV_PROGRESS: {
+            char s[160];
+            char done_str[48], total_str[48];
+            unsigned pct = 0;
+            if (!ctx || ctx->generation != (LONG)wParam) return TRUE;
+            if (ctx->total_bytes)
+                pct = (unsigned)((ctx->done_bytes * 100) / ctx->total_bytes);
+            FormatReviewBytes(ctx->done_bytes, done_str, sizeof(done_str));
+            FormatReviewBytes(ctx->total_bytes, total_str, sizeof(total_str));
+            snprintf(s, sizeof(s), "Downloading terms: %u%% (%s of %s)", pct, done_str, total_str);
+            SetDlgItemTextA(hwnd, IDC_REV_STATUS, s);
+            return TRUE;
+        }
+        case WM_OOBE_REV_DONE: {
+            if (!ctx || ctx->generation != (LONG)wParam) return TRUE;
+            EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_CANCEL), FALSE);
+            if (ctx->err == ERROR_SUCCESS) {
+                SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Terms downloaded and verified. Loading them from the local cache...");
+                EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), FALSE);
+                ReviewDialogStartTermsFetch(hwnd, ctx);
+            } else if (ctx->err == ERROR_CANCELLED) {
+                /* Q5: cancellation is not a rollback. Verified packages already in the
+                 * local cache are kept; only the partially written files this run owned
+                 * are removed. Say exactly that instead of the inaccurate "or changed". */
+                SetDlgItemTextA(hwnd, IDC_REV_STATUS,
+                    "Download cancelled. Nothing was installed. Verified packages already in the local cache are kept; only this run's partial files were removed.");
+                EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
+            } else {
+                char s[300];
+                snprintf(s, sizeof(s), "Download failed: %s", ctx->err_text[0] ? ctx->err_text : "unknown error");
+                SetDlgItemTextA(hwnd, IDC_REV_STATUS, s);
+                EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
+            }
+            return TRUE;
+        }
+        case WM_USER + 101: { /* cached-terms fetch finished (TermsFetchThread) */
+            TermsFetchContext *tctx = ctx ? ctx->terms : NULL;
+            ReviewTermsResult r;
+            if (!tctx) return TRUE;
+            OobeReviewTermsCompletion(ctx, tctx, (LONG)wParam, &r);
+            if (!r.applied) {
+                /* Stale-generation or post-close completion: it belongs to a
+                 * superseded fetch or a destroyed dialog. Do not release the
+                 * live fetch and do not touch window state or acceptance. */
+                return TRUE;
+            }
+            if (r.fetch_ok) {
+                SetDlgItemTextW(hwnd, IDC_REV_TERMS, tctx->terms_text);
+                ctx->terms_ok = TRUE;
+                memcpy(ctx->terms_sha256, tctx->candidate_sha256, sizeof(ctx->terms_sha256));
+                if (r.disabled_row) {
+                    SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Terms verified from the local cache. Nothing was installed.");
+                } else {
+                    /* Install-eligible: acceptance is a separate action that always
+                     * starts unchecked — never pre-checked on open/reopen/retry (Q3). */
+                    EnableWindow(GetDlgItem(hwnd, IDC_REV_AGREE), r.agree_enabled);
+                    CheckDlgButton(hwnd, IDC_REV_AGREE, r.agree_checked ? BST_CHECKED : BST_UNCHECKED);
+                    EnableWindow(GetDlgItem(hwnd, IDOK), r.ok_enabled);
+                    SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Terms verified. Review them; acceptance is separate and unchecked.");
+                }
+            } else {
+                SetDlgItemTextA(hwnd, IDC_REV_STATUS,
+                    "Unable to load the cached terms. You may try downloading again or close this dialog.");
+                EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
+            }
+            TermsFetchContext_Release(tctx);
+            ctx->terms = NULL;
+            return TRUE;
+        }
+        case WM_COMMAND: {
+            WORD id = LOWORD(wParam);
+            if (id == IDC_BTN_REV_DOWNLOAD) {
+                if (ctx && ctx->hGoEvent) {
+                    SetEvent(ctx->hGoEvent); /* the worker performs START_REVIEW */
+                    EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), FALSE);
+                    EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_CANCEL), TRUE);
+                    SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Starting download...");
+                }
+                return TRUE;
+            } else if (id == IDC_BTN_REV_CANCEL) {
+                if (ctx) {
+                    InterlockedExchange(&ctx->stopped, 1);
+                    if (ctx->hGoEvent) SetEvent(ctx->hGoEvent);
+                    EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_CANCEL), FALSE);
+                    SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Stopping the download...");
+                }
+                return TRUE;
+            } else if (id == IDC_REV_AGREE) {
+                BOOL agreed = (IsDlgButtonChecked(hwnd, IDC_REV_AGREE) == BST_CHECKED);
+                EnableWindow(GetDlgItem(hwnd, IDOK), agreed && ctx && ctx->terms_ok);
+                return TRUE;
+            } else if (id == IDOK) {
+                if (ctx && ctx->comp && !ctx->comp->disabled &&
+                    IsDlgButtonChecked(hwnd, IDC_REV_AGREE) == BST_CHECKED && ctx->terms_ok) {
+                    if (!OobeAcceptTerms(ctx->comp, ctx->terms_sha256, true, true))
+                        return TRUE;
+                }
+                EndDialog(hwnd, IDOK); /* for review-only rows this records nothing */
+                return TRUE;
+            } else if (id == IDCANCEL) {
+                EndDialog(hwnd, IDCANCEL);
+                return TRUE;
+            }
+            break;
+        }
+        case WM_DESTROY: {
+            if (ctx) {
+                InterlockedExchange(&ctx->cancelled, 1);
+                InterlockedExchangePointer((void *volatile *)&ctx->hwnd, NULL);
+                if (ctx->hGoEvent) SetEvent(ctx->hGoEvent);
+                if (ctx->terms) {
+                    TermsFetchContext *tctx = ctx->terms;
+                    InterlockedExchange(&tctx->cancelled, 1);
+                    InterlockedExchangePointer((void *volatile *)&tctx->hwnd, NULL);
+                    TermsFetchContext_Release(tctx);
+                    ctx->terms = NULL;
+                }
+                SetWindowLongPtrA(hwnd, DWLP_USER, 0);
+                ReviewDownloadContext_Release(ctx);
+            }
+            break;
+        }
+    }
+    return FALSE;
+}
+
 static void SetListCheckState(HWND hList, int idx, BOOL checked)
 {
     LVITEMA lvi;
@@ -449,7 +823,11 @@ static void UpdateComponentDetails(HWND hwnd, int idx)
     if (idx < 0 || idx >= g_ctx.component_count) return;
     comp = &g_ctx.components[idx];
     if (comp->disabled) {
-        snprintf(desc_buf, sizeof(desc_buf), "%s\r\n\r\n[DISABLED: %s]", comp->description, comp->disabled_reason);
+        if (comp->review_available)
+            snprintf(desc_buf, sizeof(desc_buf), "%s\r\n\r\n[DISABLED: %s]\r\nLicense terms can be reviewed with the \"Review terms...\" button; this component cannot be installed.",
+                     comp->description, comp->disabled_reason);
+        else
+            snprintf(desc_buf, sizeof(desc_buf), "%s\r\n\r\n[DISABLED: %s]", comp->description, comp->disabled_reason);
     } else {
         snprintf(desc_buf, sizeof(desc_buf), "%s", comp->description);
     }
@@ -465,6 +843,22 @@ static void ReviewComponentTerms(HWND hwnd, int idx)
     INT_PTR res;
     if (idx < 0 || idx >= g_ctx.component_count) return;
     comp = &g_ctx.components[idx];
+    if (comp->review_available) {
+        /* Review flow: reachable even for disabled components. Closing the
+         * dialog never installs anything; for review-only rows it records no
+         * acceptance and must not select the row for install either. */
+        res = DialogBoxParamA(g_hInstance, MAKEINTRESOURCEA(IDD_OOBE_REVIEW), hwnd, OobeReviewProc, (LPARAM)comp);
+        if (!comp->disabled) {
+            if (res == IDOK && comp->accepted) {
+                comp->checked = true;
+                SetListCheckState(hList, idx, TRUE);
+            } else {
+                comp->checked = false;
+                SetListCheckState(hList, idx, FALSE);
+            }
+        }
+        return;
+    }
     if (comp->disabled) {
         char msg[256];
         snprintf(msg, sizeof(msg), "%s is disabled:\n%s", comp->title, comp->disabled_reason);
@@ -688,9 +1082,13 @@ static INT_PTR CALLBACK OobeComponentsProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
                         if (idx >= 0 && idx < g_ctx.component_count) {
                             if (checked) {
                                 if (g_ctx.components[idx].disabled) {
-                                    char msg[256];
-                                    snprintf(msg, sizeof(msg), "%s is disabled:\n%s",
-                                             g_ctx.components[idx].title, g_ctx.components[idx].disabled_reason);
+                                    char msg[320];
+                                    if (g_ctx.components[idx].review_available)
+                                        snprintf(msg, sizeof(msg), "%s is disabled and cannot be selected for install.\nYou can still review its license terms with the \"Review terms...\" button.",
+                                                 g_ctx.components[idx].title);
+                                    else
+                                        snprintf(msg, sizeof(msg), "%s is disabled:\n%s",
+                                                 g_ctx.components[idx].title, g_ctx.components[idx].disabled_reason);
                                     MessageBoxA(hwnd, msg, "Component Unavailable", MB_OK | MB_ICONINFORMATION);
                                     SetListCheckState(GetDlgItem(hwnd, IDC_COMP_LIST), idx, FALSE);
                                 } else if (!g_ctx.components[idx].accepted && !g_ctx.components[idx].installed) {
