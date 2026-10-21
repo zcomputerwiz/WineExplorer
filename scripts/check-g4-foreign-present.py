@@ -29,6 +29,9 @@ def main():
     parser.add_argument('--arch', choices=('x86_64', 'i686'), default='x86_64')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='vulkan')
     parser.add_argument('--vulkan-icd', type=Path)
+    parser.add_argument('--wine-debug', default='-all,+winediag')
+    parser.add_argument('--case', action='append', choices=('own-dcomp', 'foreign-full-dcomp', 'foreign-dcomp', 'foreign-gdi'),
+                        help='Run selected controls; the default retains all controls, including known open gaps')
     args = parser.parse_args()
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('Vulkan requires an explicit ICD')
@@ -46,7 +49,7 @@ def main():
     prefix = output / 'prefix'
     environment.update(WINEPREFIX=str(prefix), WINE=str(wine), WINESERVER=str(server),
                        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b;winex11.drv=d;winewayland.drv=b',
-                       WINEDEBUG='-all,+winediag', LIBGL_ALWAYS_SOFTWARE='1', WINE_D3D_CONFIG='renderer=' + args.renderer)
+                       WINEDEBUG=args.wine_debug, LIBGL_ALWAYS_SOFTWARE='1', WINE_D3D_CONFIG='renderer=' + args.renderer)
     if args.vulkan_icd:
         icd = str(args.vulkan_icd.resolve(strict=True))
         environment.update(VK_DRIVER_FILES=icd, VK_ICD_FILENAMES=icd)
@@ -60,8 +63,11 @@ def main():
         if boot.returncode:
             raise RuntimeError('Owned prefix initialization failed')
         for name, arguments, color in (('own-dcomp', [], (255, 0, 0)),
+                                        ('foreign-full-dcomp', ['--foreign-full'], (255, 0, 0)),
                                         ('foreign-dcomp', ['--foreign'], (255, 0, 0)),
                                         ('foreign-gdi', ['--foreign-gdi'], (0, 255, 0))):
+            if args.case and name not in args.case:
+                continue
             stdout = output / (name + '.stdout.log')
             with stdout.open('wb') as out, (output / (name + '.stderr.log')).open('wb') as err:
                 child = subprocess.Popen([str(wine), str(exe)] + arguments, env=environment,
@@ -82,8 +88,10 @@ def main():
                 count = sum(1 for pixel in image.convert('RGB').getdata()
                             if all(abs(pixel[i] - color[i]) <= 4 for i in range(3)))
             submitted = 'FRAME_SENT ok=1' in stdout.read_text(errors='replace')
-            passed = code == 0 and count >= 512 and submitted
+            expected = 4096
+            passed = code == 0 and count == expected and submitted
             result['cases'][name] = dict(exit_code=code, expected_rgb=color, matching_front_pixels=count,
+                                        expected_front_pixels=expected,
                                         first_frame_submitted=submitted,
                                         passed=passed)
             print(name, 'PASS' if passed else 'FAIL', result['cases'][name], flush=True)

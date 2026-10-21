@@ -5,7 +5,7 @@
 #include "test_g4_composition_probe.cpp"
 #undef main
 
-static int produce(HWND hwnd, bool gdi)
+static int produce(HWND hwnd, bool gdi, bool full = false)
 {
     DWORD owner = 0;
     GetWindowThreadProcessId(hwnd, &owner);
@@ -17,10 +17,13 @@ static int produce(HWND hwnd, bool gdi)
     HWND child_window = NULL;
     if (!gdi && owner != GetCurrentProcessId())
     {
-        child_window = create_window("G4 foreign-root rendering child", 256, 256, hwnd);
+        child_window = create_window("G4 foreign-root rendering child", full ? 64 : 256, full ? 64 : 256, hwnd);
         if (!child_window) return 2;
         hwnd = child_window;
     }
+    fflush(stdout);
+    printf("RENDER_TARGET hwnd=%p root=%p visible=%u style=%08lx\n", (void *)hwnd,
+            (void *)GetAncestor(hwnd,GA_ROOT), IsWindowVisible(hwnd), (unsigned long)GetWindowLongW(hwnd,GWL_STYLE));
     fflush(stdout);
     ID3D11Device *device = NULL;
     ID3D11DeviceContext *context = NULL;
@@ -79,8 +82,9 @@ static int produce(HWND hwnd, bool gdi)
 int main(int argc, char **argv)
 {
     if (argc == 4 && !strcmp(argv[1], "--producer"))
-        return produce((HWND)(UINT_PTR)strtoull(argv[2], NULL, 16), !strcmp(argv[3], "gdi"));
-    bool foreign = argc == 2 && !strcmp(argv[1], "--foreign");
+        return produce((HWND)(UINT_PTR)strtoull(argv[2], NULL, 16), !strcmp(argv[3], "gdi"), !strcmp(argv[3], "full"));
+    bool full = argc == 2 && !strcmp(argv[1], "--foreign-full");
+    bool foreign = argc == 2 && (!strcmp(argv[1], "--foreign") || full);
     bool gdi = argc == 2 && !strcmp(argv[1], "--foreign-gdi");
     HWND hwnd = create_window("G4 owned presentation diagnostic", 300, 300, NULL);
     if (!hwnd) return 2;
@@ -98,7 +102,7 @@ int main(int argc, char **argv)
     STARTUPINFOA startup = {}; PROCESS_INFORMATION child = {};
     GetModuleFileNameA(NULL, executable, sizeof(executable));
     snprintf(command, sizeof(command), "\"%s\" --producer %llx %s", executable,
-             (unsigned long long)(UINT_PTR)hwnd, gdi ? "gdi" : "dcomp");
+             (unsigned long long)(UINT_PTR)hwnd, gdi ? "gdi" : full ? "full" : "dcomp");
     startup.cb = sizeof(startup);
     if (!CreateProcessA(NULL, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &child)) return 3;
     ULONGLONG deadline = GetTickCount64() + 15000;

@@ -1,5 +1,22 @@
 # Changes to stock Wine / third-party code
 
+## G4 native Chromium cross-process rendering (2026-10-21)
+
+Wine `571e907`, `dlls/winewayland.drv/{wayland.c,wayland_surface.c,wayland_wex.c,
+waylanddrv.h,wex-window-v1.xml}` and `dlls/wined3d/swapchain.c`: private v11
+cross-connection rendering role for a producer child beneath a foreign UI root,
+published parent identity/logical scale, cached attachment geometry and narrow
+opaque-cover background-capture elision. Partial/translucent backgrounds are
+not substituted. Matching compositor `1b9df94e` on its dedicated
+`codex/g4-native-render-bridge` branch adds clipped input-passive render roles
+and parent/producer revocation. Source is original, no proprietary payloads.
+Both PEs/GL/Vulkan exact own/foreign full-target pixels;16 native lifecycle
+controls,28 regression groups both backends/both PEs, G0–G3, pacing and real
+Electron/WebView2 controls pass scoped checks. Fractional scale, attachment-role
+migration, native accelerated/installed-shell and transient resize-border
+checks remain; generic foreign GDI/partial underlay remain unsupported.
+Evidence: CHROMIUM_GRAPHICS_G4_NATIVE_BRIDGE_20261021.md. No master merge.
+
 ## G4 X11 startup caption clipping (2026-10-21)
 
 Wine `54bc44a`, `dlls/winex11.drv/window.c`: apply legacy window-region origin

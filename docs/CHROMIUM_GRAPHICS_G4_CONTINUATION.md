@@ -1,6 +1,18 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_BRIDGE_20261021.md`. Wine571e907 /
+wexcomp1b9df94e implement the private cross-process render bridge plus opaque
+background-capture elision. Real Chromium front content now works, not merely
+Present/RAF APIs. Both PEs/GL/VK exact pixel controls and full28 regressions,
+16 native protocol/lifetime controls, G0–G3 and pacing pass. Both real consumers
+pass scoped checks. Next: settle/check transient Vulkan resize border, native
+GPU-child recovery, fractional scale/movement/role migration and actual shell/
+themes with accelerated virtual GPU. No merge; partial foreign underlay/GDI
+stay explicit negative controls, only gates if real Chromium needs them.
+Use clean-source/build/wow64 (not the stale parent build path); compositor build
+directory suffix acc46fe is historical and now contains the new bridge binary.
+
 Newest: `CHROMIUM_GRAPHICS_G4_WEXCOMP_NATIVE_20261021.md`. Built pinned
 wexcomp acc46fe in owned lab and tested actual private native Wayland route.
 Real Electron has blank front content despite API progress on GL/lavapipe.

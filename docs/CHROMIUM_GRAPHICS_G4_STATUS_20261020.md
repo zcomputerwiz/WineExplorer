@@ -3,6 +3,17 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_BRIDGE_20261021.md`, Wine571e907 /
+wexcomp1b9df94e. Native blank content is repaired for fully covering opaque
+cross-process Chromium targets. Exact own/foreign pixels pass both PEs/GL/VK;
+16 protocol/lifetime controls,28 correctness groups each backend/PE, G0–G3,
+pacing, actual Electron lifecycle and WebView2 strict pixels pass scoped checks.
+Actual front content verified; one transient resize border capture remains open
+despite complete settled frame. Installed-theme/shell and native accelerated
+checks, scale/role migration and remaining relevant synchronization/sharing
+evidence still needed. Generic foreign GDI/partial underlay remain negative;
+do not require unrelated completeness unless a real Chromium path needs it.
+
 Newest: `CHROMIUM_GRAPHICS_G4_WEXCOMP_NATIVE_20261021.md`. Native wexcomp
 gate now actually run: real consumer front output is blank despite successful
 API/RAF checks. Independent own-process DComp displays correctly, but a producer
