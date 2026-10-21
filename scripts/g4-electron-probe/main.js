@@ -12,6 +12,22 @@ function log(event, data) {
   fs.appendFileSync(logPath, `${Date.now() - started} ms ${event} ${JSON.stringify(data)}\n`);
 }
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function visualCheckpoint(stage) {
+  if (process.env.WEX_WEBVIEW2_VISUAL_CHECKPOINTS !== '1') return;
+  const ack = path.join(path.dirname(logPath), 'visual-checkpoint.ack');
+  log('visual checkpoint', { stage });
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    try {
+      if (fs.readFileSync(ack, 'utf8') === stage) {
+        log('visual checkpoint captured', { stage });
+        return;
+      }
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await delay(100);
+  }
+  throw new Error('Front-window capture not acknowledged: ' + stage);
+}
 const childExits = [], rendererExits = [];
 
 // Runs inside the ordinary sandboxed renderer, with no preload/Node access.
@@ -124,6 +140,7 @@ async function exerciseLifecycle(win) {
   try {
     await delay(5000);
     win.focus();
+    await visualCheckpoint('ready');
     await click('input');
     for (const keyCode of 'G4 input') win.webContents.sendInputEvent({ type: 'char', keyCode });
     await click('button');
@@ -131,21 +148,25 @@ async function exerciseLifecycle(win) {
     let state = await sample();
     checks.input = state.text === 'G4 input' && state.button === 'Clicked';
     log('lifecycle input', state);
+    await visualCheckpoint('input');
     win.webContents.sendInputEvent({ type: 'mouseWheel', x: 400, y: 350,
       deltaY: -160, deltaX: 0, canScroll: true });
     await delay(1000);
     state = await sample();
     checks.scroll = state.scroll > 0;
     log('lifecycle scroll', state);
+    await visualCheckpoint('scroll');
     win.setContentSize(620, 420);
     await delay(1000);
     state = await sample();
     checks.resize = state.width === 620 && state.height === 420;
     log('lifecycle resize', state);
+    await visualCheckpoint('resize');
     win.minimize();
     await delay(1000);
     checks.minimized = win.isMinimized();
     log('lifecycle minimize', { minimized: win.isMinimized() });
+    await visualCheckpoint('minimized');
     win.restore(); win.focus();
     await delay(1000);
     const before = await sample();
@@ -153,6 +174,7 @@ async function exerciseLifecycle(win) {
     state = await sample();
     checks.restored = !win.isMinimized() && state.frames > before.frames;
     log('lifecycle restore', { before, after: state, minimized: win.isMinimized() });
+    await visualCheckpoint('restored');
     const loaded = new Promise(resolve => win.webContents.once('did-finish-load', resolve));
     win.webContents.reload();
     await Promise.race([loaded, delay(5000).then(() => { throw new Error('Reload timed out'); })]);
@@ -160,11 +182,13 @@ async function exerciseLifecycle(win) {
     state = await sample();
     checks.reload = state.text === '' && state.button === 'Click' && state.scroll === 0 && state.frames > 0;
     log('lifecycle reload', state);
+    await visualCheckpoint('reload');
     win.setContentSize(740, 520);
     await delay(1000);
     state = await sample();
     checks.resize_back = state.width === 740 && state.height === 520;
     log('lifecycle resize back', state);
+    await visualCheckpoint('resize_back');
     log('lifecycle result', { passed: Object.values(checks).every(Boolean), checks,
       note: 'Electron input injection and API lifecycle; not hardware-input or desktop acceptance' });
   } catch (error) {

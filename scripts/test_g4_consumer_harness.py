@@ -151,5 +151,19 @@ class GPURecovery(unittest.TestCase):
         self.assertFalse(consumer.recovery_acceptance(animation, {'passed': False}))
 
 
+class VisualCapture(unittest.TestCase):
+    def test_all_stages_must_be_captured_and_acknowledged_in_order(self):
+        text = ''.join('1 ms visual checkpoint ' + json.dumps({'stage': s}, separators=(',', ':')) + '\n'
+                       + '2 ms visual checkpoint captured ' + json.dumps({'stage': s}, separators=(',', ':')) + '\n'
+                       for s in consumer.VISUAL_STAGES)
+        captures = dict.fromkeys(consumer.VISUAL_STAGES, {})
+        self.assertTrue(consumer.visual_capture_complete(text, captures))
+        self.assertFalse(consumer.visual_capture_complete(text, captures, 'capture failed'))
+        self.assertFalse(consumer.visual_capture_complete(text + text, captures))
+        self.assertFalse(consumer.visual_capture_complete(text, {}))
+        self.assertFalse(consumer.visual_capture_complete(text.replace('checkpoint captured', 'wrong event'), captures))
+        self.assertFalse(consumer.visual_capture_complete(text.replace('"ready"', '"unknown"'), captures))
+
+
 if __name__ == '__main__':
     unittest.main()

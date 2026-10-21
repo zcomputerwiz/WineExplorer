@@ -120,6 +120,12 @@ struct Scene
                 (unsigned long)(whole ? GetPixel(whole,x+origin.x-window.left,y+origin.y-window.top) : CLR_INVALID),
                 GetPropW(hwnd,L"__wine_dcomp_underlay_top") != NULL);
         if (whole) ReleaseDC(hwnd,whole);
+        if (GetEnvironmentVariableA("WEX_G4_INSPECT_FAILURE",NULL,0))
+        {
+            printf("PIXEL_FAILURE_INSPECTION_HOLD milliseconds=10000\n");
+            fflush(stdout);
+            Sleep(10000); // diagnostic-only hold; original failed assertion still returns false
+        }
         return false;
     }
     ~Scene()
@@ -836,7 +842,18 @@ static bool multi_target_transactions()
             || !s.pixel(12,8,RGB(255,0,0)) || !other.pixel(20,8,RGB(255,0,0))) goto done;
     // Allocation failure on target two must not publish target one's edits.
     if (FAILED(s.visual->SetOffsetX(32.0f)) || FAILED(other.visual->SetOffsetX(40.0f))) goto done;
-    if (!SetWindowPos(other.hwnd,NULL,0,0,8300,300,SWP_NOMOVE|SWP_NOZORDER|SWP_NOSENDCHANGING)) goto done;
+    // Overflow height, not width: a real WM may constrain an oversized-width
+    // window's X origin to zero and occlude target one's screen-pixel oracle.
+    // Target two stays in its separate horizontal column while the same
+    // 8192-dimension prepare rejection exercises all-target publication rollback.
+    if (!SetWindowPos(other.hwnd,NULL,0,0,256,8300,SWP_NOMOVE|SWP_NOZORDER|SWP_NOSENDCHANGING)) goto done;
+    {
+        RECT first, second; POINT point = {12,8};
+        GetWindowRect(s.hwnd,&first); GetWindowRect(other.hwnd,&second); ClientToScreen(s.hwnd,&point);
+        printf("MULTI_TARGET_GEOMETRY first=%p:%ld,%ld,%ld,%ld second=%p:%ld,%ld,%ld,%ld sample=%ld,%ld\n",
+                (void *)s.hwnd,first.left,first.top,first.right,first.bottom,(void *)other.hwnd,
+                second.left,second.top,second.right,second.bottom,point.x,point.y);
+    }
     if (s.comp->Commit() != E_NOTIMPL || !s.pixel(12,8,RGB(255,0,0))) goto done;
     if (!SetWindowPos(other.hwnd,NULL,0,0,256,256,SWP_NOMOVE|SWP_NOZORDER)) goto done;
     flush_messages();

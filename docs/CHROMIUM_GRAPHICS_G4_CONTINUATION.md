@@ -1,6 +1,15 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_WM_DIAGNOSTICS_20261021.md`. User clarified:
+wexcomp is the primary acceptance stack; Openbox was only our ad-hoc test WM.
+Prioritize actual pinned wexcomp/private endpoint next. Multi-target failure
+was proven WM-induced screen-oracle occlusion; equivalent height overflow
+preserves rejection/rollback assertions and all28 groups pass both PEs with
+Openbox compositor OFF/ON. Consumer phase captures expose restore/reload
+presentation gaps despite API success; do not infer these occur on wexcomp.
+Wine unchanged54bc44a. No product WM replacement, no master merge.
+
 Newest: `CHROMIUM_GRAPHICS_G4_DESKTOP_CHECKPOINT_20261021.md`. Openbox/X11
 outer compositor controls are now implemented. Real consumer lifecycle/strict
 pixels pass scoped controls, but inspected compositor-OFF Electron frame is

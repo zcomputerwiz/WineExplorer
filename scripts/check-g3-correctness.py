@@ -211,6 +211,8 @@ def main():
                         help='Explicit accelerated WSL Mesa D3D12 control; verified with glxinfo')
     parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none',
                         help='Owned X11 WM with outer compositor off/on; not installed shell acceptance')
+    parser.add_argument('--inspect-pixel-failure', action='store_true',
+                        help='Diagnostic: hold each failed pixel check for ten seconds without changing its result')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
@@ -292,6 +294,9 @@ def main():
                                WINEDEBUG=args.wine_debug, LIBGL_ALWAYS_SOFTWARE='1',
                                WINE_D3D_CONFIG='renderer=' + args.renderer)
             configure_gl_driver(environment, args.gl_driver)
+            if args.inspect_pixel_failure:
+                environment['WEX_G4_INSPECT_FAILURE'] = '1'
+            result['inspect_pixel_failure'] = args.inspect_pixel_failure
             desktop, result['desktop'] = start_desktop(environment, output, args.desktop)
             result['gl_driver'] = args.gl_driver
             result['gl_driver_verification'] = verify_gl_driver(environment, output, args.gl_driver)

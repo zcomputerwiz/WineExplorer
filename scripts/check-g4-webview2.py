@@ -22,6 +22,20 @@ import subprocess
 import threading
 import time
 
+VISUAL_STAGES = ('ready', 'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back')
+
+
+def visual_requests(text, captured=False):
+    event = 'visual checkpoint captured' if captured else 'visual checkpoint'
+    stages = re.findall(r'^\d+ ms ' + event + r' \{"stage":"([a-z_]+)"\}\s*$', text, re.MULTILINE)
+    return [stage for stage in stages if stage in VISUAL_STAGES]
+
+
+def visual_capture_complete(text, captures, error=None):
+    return (error is None and set(captures) == set(VISUAL_STAGES)
+            and visual_requests(text) == list(VISUAL_STAGES)
+            and visual_requests(text, captured=True) == list(VISUAL_STAGES))
+
 
 def digest(path):
     with path.open('rb') as stream:
@@ -185,6 +199,8 @@ def main():
                         help='Electron fixture only: stop DOM changes at x=160 after eight seconds')
     parser.add_argument('--lifecycle', action='store_true',
                         help='Electron fixture only: injected input, wheel scroll, resize, minimize/restore and reload')
+    parser.add_argument('--lifecycle-visuals', action='store_true',
+                        help='Hold eight lifecycle stages until actual owned-display capture is acknowledged')
     parser.add_argument('--profile-proof', action='store_true',
                         help='Electron only: store/flush a fresh persistent Chromium cookie')
     parser.add_argument('--restart-from', type=Path,
@@ -198,6 +214,8 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
+    if args.lifecycle_visuals and (not args.lifecycle or args.seconds < 45 or not shutil.which('import')):
+        parser.error('--lifecycle-visuals requires --lifecycle, >=45 seconds and ImageMagick import')
     if args.restart_from and args.desktop != 'none':
         parser.error('Desktop-mode restart controls are not yet supported')
     if args.gl_driver != 'software' and args.renderer != 'gl':
@@ -278,6 +296,8 @@ def main():
         environment['WEX_WEBVIEW2_FREEZE'] = '1'
     if args.lifecycle:
         environment['WEX_WEBVIEW2_LIFECYCLE'] = '1'
+    if args.lifecycle_visuals:
+        environment['WEX_WEBVIEW2_VISUAL_CHECKPOINTS'] = '1'
     if args.gpu_recovery:
         environment['WEX_WEBVIEW2_GPU_RECOVERY'] = '1'
     if proof:
@@ -315,6 +335,26 @@ def main():
         screenshots = [4, 8, 18, 28] if args.gpu_recovery else [8, 18]
         with (output / 'processes.jsonl').open('w') as log:
             while not stop.wait(.25):
+                if args.lifecycle_visuals and (output / 'host.log').exists():
+                    host_text = (output / 'host.log').read_text(errors='replace')
+                    for stage in visual_requests(host_text):
+                        if stage in result.setdefault('visual_captures', {}):
+                            continue
+                        try:
+                            capture = output / ('stage-' + stage + '.png')
+                            with (output / 'capture.log').open('ab') as capture_log:
+                                subprocess.run(['import', '-window', 'root', str(capture)], env=environment,
+                                               stdout=capture_log, stderr=capture_log, timeout=5, check=True)
+                            if not capture.is_file() or not capture.stat().st_size:
+                                raise RuntimeError('Empty lifecycle capture')
+                            tree = helpers.run_logged(['python3', '-B', str(Path(__file__).with_name('snapshot-graphics-x11.py'))],
+                                                      environment, output, 'stage-' + stage + '-x11', 10)
+                            if tree.returncode:
+                                raise RuntimeError('Lifecycle X11 snapshot failed')
+                            result['visual_captures'][stage] = {'path': str(capture), 'time': time.time()}
+                            (output / 'visual-checkpoint.ack').write_text(stage)
+                        except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+                            result['visual_capture_error'] = str(error)
                 if screenshots and time.monotonic() - started >= screenshots[0]:
                     moment = screenshots.pop(0)
                     if shutil.which('import'):
@@ -389,6 +429,10 @@ def main():
         if args.lifecycle:
             result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['lifecycle_diagnostic']['passed']
+        if args.lifecycle_visuals:
+            passed = passed and visual_capture_complete(hostlog.read_text(errors='replace') if hostlog.exists() else '',
+                                                       result.get('visual_captures', {}), result.get('visual_capture_error'))
+            result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; capture completion is not a pixel verdict'
         if args.graphics_diagnostic:
             result['graphics_diagnostic'] = graphics_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['graphics_diagnostic']['passed']

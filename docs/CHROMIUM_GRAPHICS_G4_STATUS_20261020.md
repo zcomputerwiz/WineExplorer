@@ -3,6 +3,13 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_WM_DIAGNOSTICS_20261021.md`. Primary acceptance
+must use our wexcomp stack, not the temporary Openbox compatibility fixture.
+Multi-target screen-oracle occlusion is diagnosed/corrected without weakening
+transaction assertions:28 groups pass both PEs with Openbox compositor OFF/ON.
+Phase-aligned real consumer captures reveal restore/reload presentation gaps
+on that test stack; reproduce on intended wexcomp before production fixes.
+
 Newest: `CHROMIUM_GRAPHICS_G4_DESKTOP_CHECKPOINT_20261021.md`. X11/Openbox
 outer-compositor checks expose an OFF-mode missing Electron frame despite API
 lifecycle success, plus a multi-target pixel failure both PEs on software and
