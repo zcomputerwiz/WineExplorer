@@ -3,25 +3,26 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
-**Current tip contains an UNVERIFIED repaint follow-up** at Wine bc7011f.
-Read CHROMIUM_GRAPHICS_G4_RESUME_NOTE.md first. The tested underlay checkpoint
-below is parent 97119874 / Wine 48000ca; do not apply its PASSes or hashes to WIP.
-The final stronger GetMessage repaint probe times out, with owned cleanup done.
-User redirected current work to Qwen OOBE review; no automatic graphics resume.
+**Latest repaint slice now passes scoped controls** at Wine bc7011f.
+Read CHROMIUM_GRAPHICS_G4_REPAINT_VERIFIED_20261020.md first. The previous timeout
+was traced to the probe's zero HWND timer identifier versus nonzero success
+return, not an established renderer deadlock. With explicit ID and watchdog,
+all 22 groups pass both PEs/GL/lavapipe; G0-G3, pacing, strict real WebGL1/2,
+Electron lifecycle and inspected frozen front window pass scoped checks.
+The earlier RESUME_NOTE and UNDERLAY.json are historical, not current acceptance.
 
 Branch: `codex/g4-r1-completion` in parent and Wine. Last verified Wine:
-`48000ca83d2240c4dd5d0101d4ebff5fc76f6b74`. Parent revision is the commit
+`bc7011fa4785383988faced54ff7d3e496a95c49`. Parent revision is the commit
 containing this report. Historical Gemini acceptance totals are not current
 acceptance. Detailed chronology/failures: CHROMIUM_GRAPHICS_G4_CONTINUATION.md.
 
-Latest continuation: CHROMIUM_GRAPHICS_G4_BACKGROUND_20261020.md and
-CHROMIUM_GRAPHICS_G4_CHECKPOINT_20261020_UNDERLAY.json. The RESUMED.json is the
-previous Wine 273cacd snapshot, not current binary identities. All 21 correctness
-groups now pass both PEs/software GL/lavapipe; G0-G3 and pacing pass both PEs.
-Ordinary GDI underlay survives clip/move/opacity/resize/detach/target recreation.
-Real strict WebGL1/2, Electron lifecycle and inspected frozen front-window image
-remain passing diagnostics. Automatic expose/repaint, full borders/AA and the
-remaining R2-R4 gates below are still open.
+Latest continuation: CHROMIUM_GRAPHICS_G4_REPAINT_VERIFIED_20261020.md contains
+current binary identities and controls. BACKGROUND_20261020 and UNDERLAY.json
+record Wine 48000ca; RESUMED.json records 273cacd. Ordinary GDI underlay survives
+clip/move/opacity/resize/detach/target recreation, and repeated real WM_PAINT/
+observed obscure-expose without an app Commit/Present now passes. This is not
+general layered/DirectX/native-child integration. Full borders/AA and remaining
+R1-R4 gates below are still open.
 
 ## Actual progress
 
@@ -30,14 +31,15 @@ remaining R2-R4 gates below are still open.
 | ANGLE/Skia startup format failure | Repaired | Real WebView2/Electron no longer crash on the observed MSAA capability defect; unsupported sample counts remain unsupported |
 | Partial Present1 coherent images | Repaired slice | Before/after window-pixel regression, scroll/dirty priority, overlaps, retained movement, invalid metadata, TEST, extreme offsets, >64 rectangles |
 | Bitmap filtering | Repaired slice | Nearest/linear/inherit, pending Commit, retained property-only updates, alpha, both-axis interpolation; no soft-edge AA certification |
-| Custom reference/opaque GPU route | PASS scoped | 19 groups x 2 architectures x software GL/lavapipe; GL opaque unit-scale route avoids per-frame CPU image readback; transformed/alpha reference path still reads back |
+| Custom reference/opaque GPU route | PASS scoped | 22 groups x 2 architectures x software GL/lavapipe; narrow GL opaque route avoids producer image readback, NOT GDI underlay traffic; transformed/alpha reference path still reads back |
+| Ordinary GDI underlay / dirty repaint | PASS scoped | Colored backing, opacity/clip/move/resize/detach/recreate, repeated WM_PAINT and observed cover/expose, pending content preserved, unchanged idle path counters; no full native-child/layered/DirectX proof |
 | Dead observer process / idle wait | PASS scoped | All 64 slots reclaimed; measured waiting processes below 5% of one core over two seconds; not whole-system power or exhaustive race/lifetime proof |
 | WebView2 WebGL1/2 | PASS diagnostic | Real default/FBO red pixels, complete framebuffer, no context loss/API errors or observed GPU/Skia fatals; no physical GPU/security certificate |
 | Electron input/window lifecycle | PASS diagnostic | Injected typing/click/wheel, resize, minimize/restore/progress, reload/reset, resize back; not physical input or full Win32 route |
 | Pacing | PASS scoped | Five groups both architectures, logical D3D11 backbuffer index 0, resize and waitable events; not physical 0/1/2 cycling |
 | Upstream DXGI/D3D11 | FAIL inherited | DXGI 67 failures both architectures; D3D11 exit 5 at legacy sharing; no assertion weakened |
 | G0–G3 baseline | PASS serial, failure retained | One i686 G1 HWND-startup failure under parallel checks; serial retry passes unchanged assertions; test socket-isolation defect independently reproduced |
-| Full R1 | INCOMPLETE | Soft-border/AA, underlying app HWND/GDI content/expose, broader fanout/publication-failure/device-loss cases |
+| Full R1 | INCOMPLETE | Soft-border/AA, general layered/DirectX/native-child/top-bottom integration, broader fanout/publication-failure/device-loss cases |
 | Full R2 | INCOMPLETE | Deterministic registration/rearm races, allocation faults, creator death, broad handle/mapping/COM leak and context-ordering proof |
 | Full R3 | INCOMPLETE | Efficient cross-process GPU sharing/completion fences, private coherent DXVK interop, broader maintained consumer/profile/restart coverage and security integration |
 | Full R4 | NOT RUN | Actual installed Classic/Open Luna, X11 outer compositor OFF/ON, Wayland/wexcomp, resolutions and target physical GPU matrix |
@@ -82,8 +84,8 @@ existing VMs or another worker's checkout to make tests pass.
 
 1. Treat current reports and explicit negative controls as the baseline; do not
    restart from Gemini's historical report or relabel custom tests as full G4.
-2. Finish R1 background/expose and soft-border/AA behavior with discriminating
-   target-window pixels, then broad lifecycle/publication-fault behavior.
+2. Finish R1 soft-border/AA and general underlay/child integration with
+   discriminating target-window pixels, then broad lifecycle/publication faults.
 3. Complete R2 deterministic race and fault/leak coverage and R3 supported
    backend sharing/fences, avoiding a Vulkan requirement for OpenGL-only GPUs.
 4. Arrange/run the actual installed desktop and available physical cells. Record

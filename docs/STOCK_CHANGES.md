@@ -1,14 +1,19 @@
 # Changes to stock Wine / third-party code
 
-## WIP G4 dirty-flush repaint notifications (not verified)
+## G4 dirty-flush repaint notifications (scoped verification completed)
 
 Wine `bc7011f`, dlls/win32u/dce.c, dlls/dxgi/{factory.c,swapchain.c,
 dxgi_private.h}, include/wine/dcomp_underlay.h: experimental asynchronous
 backing-flush notification and retained redraw, with guarded notification-window
-lookup/Release and bounded message coalescing. No production timer/poller. Simple
-focused repaint/expose passes, but repeated-paint and then real GetMessage idle
-tests FAIL/TIME OUT. NOT ACCEPTED; no merge. Full details, owned cleanup, stable
-checkpoint and exact next debugging steps: CHROMIUM_GRAPHICS_G4_RESUME_NOTE.md.
+lookup/Release and bounded message coalescing. No production timer/poller.
+Historical repeated-paint/GetMessage failures are preserved in the resume note;
+the timeout was a zero HWND timer-ID/success-value mismatch in the probe. An
+explicit identifier and separate watchdog repair the test without changing Wine
+or relaxing assertions. All 22 groups now pass both PEs/GL/lavapipe, including
+pending-state preservation, real WM_PAINT/observed obscure-expose, idle unchanged
+path counters and queued teardown. G0-G3, pacing and real consumer controls pass
+scoped checks. No merge: full R1-R4 remain incomplete. Current identities and next
+steps: CHROMIUM_GRAPHICS_G4_REPAINT_VERIFIED_20261020.md.
 
 ## G4 ordinary GDI underlay retention (2026-10-20, second continuation)
 

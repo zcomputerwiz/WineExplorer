@@ -243,23 +243,54 @@ static LRESULT CALLBACK application_paint_wndproc(HWND hwnd, UINT message, WPARA
     return CallWindowProcW(state->previous,hwnd,message,wparam,lparam);
 }
 
+struct ApplicationIdleWatchdog
+{
+    HANDLE completed;
+    DWORD thread;
+};
+
+static DWORD WINAPI application_idle_watchdog(void *argument)
+{
+    ApplicationIdleWatchdog *watchdog = (ApplicationIdleWatchdog *)argument;
+    if (WaitForSingleObject(watchdog->completed,2000) == WAIT_TIMEOUT)
+        PostThreadMessageW(watchdog->thread,WM_APP + 0x45,0,0);
+    return 0;
+}
+
 static bool dispatch_application_idle(HWND hwnd)
 {
     // A real GetMessage idle cycle flushes batched GDI drawing. A single
     // PeekMessage drain is not equivalent, especially for consecutive paints.
     // This bounded application timer is test-only, never production pacing.
-    UINT_PTR timer = SetTimer(hwnd,0,80,NULL);
-    if (!timer) return false;
+    // For an HWND timer, messages use the REQUESTED identifier. With id=0,
+    // Wine returns TRUE for success but WM_TIMER still carries identifier 0.
+    // Comparing that message to the success return value caused the timeout.
+    const UINT_PTR timer_id = 0x47a1;
+    if (!SetTimer(hwnd,timer_id,80,NULL)) return false;
+    ApplicationIdleWatchdog watchdog = {CreateEventW(NULL,TRUE,FALSE,NULL),GetCurrentThreadId()};
+    HANDLE thread = watchdog.completed ? CreateThread(NULL,0,application_idle_watchdog,&watchdog,0,NULL) : NULL;
+    if (!thread)
+    {
+        if (watchdog.completed) CloseHandle(watchdog.completed);
+        KillTimer(hwnd,timer_id);
+        return false;
+    }
+    ULONGLONG started = GetTickCount64();
     MSG message;
     bool completed = false;
     while (GetMessageW(&message,NULL,0,0) > 0)
     {
-        if (message.hwnd == hwnd && message.message == WM_TIMER && message.wParam == timer)
+        if (message.hwnd == hwnd && message.message == WM_TIMER && message.wParam == timer_id)
         { completed = true; break; }
+        if ((!message.hwnd && message.message == WM_APP + 0x45) || GetTickCount64() - started >= 2000) break;
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
-    KillTimer(hwnd,timer);
+    KillTimer(hwnd,timer_id);
+    SetEvent(watchdog.completed);
+    WaitForSingleObject(thread,INFINITE); // worker has a bounded wait and only posts asynchronously
+    CloseHandle(thread);
+    CloseHandle(watchdog.completed);
     flush_messages();
     return completed;
 }

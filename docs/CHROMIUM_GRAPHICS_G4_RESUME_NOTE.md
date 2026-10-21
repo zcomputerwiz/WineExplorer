@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 checkpoint: switch focus to Qwen OOBE review
 
+SUPERSEDED for current graphics status: the user subsequently resumed graphics.
+Read CHROMIUM_GRAPHICS_G4_REPAINT_VERIFIED_20261020.md first. The timeout below
+was a probe timer-ID bug; the corrected full 22-group controls pass both PEs and
+backends on the same Wine bc7011f. This note preserves the historical failed
+investigation and OOBE handoff; do not treat its earlier WIP diagnosis as current.
+
 User explicitly requested wrapping/committing current graphics work and switching
 to reviewing Qwen's OOBE Components task. Do not continue graphics automatically
 or claim G4 finished. No master merge. No other workers' files were edited.
