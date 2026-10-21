@@ -1,5 +1,15 @@
 # Changes to stock Wine / third-party code
 
+## WIP G4 dirty-flush repaint notifications (not verified)
+
+Wine `bc7011f`, dlls/win32u/dce.c, dlls/dxgi/{factory.c,swapchain.c,
+dxgi_private.h}, include/wine/dcomp_underlay.h: experimental asynchronous
+backing-flush notification and retained redraw, with guarded notification-window
+lookup/Release and bounded message coalescing. No production timer/poller. Simple
+focused repaint/expose passes, but repeated-paint and then real GetMessage idle
+tests FAIL/TIME OUT. NOT ACCEPTED; no merge. Full details, owned cleanup, stable
+checkpoint and exact next debugging steps: CHROMIUM_GRAPHICS_G4_RESUME_NOTE.md.
+
 ## G4 ordinary GDI underlay retention (2026-10-20, second continuation)
 
 Wine `48000ca`, `dlls/{dcomp/device.c,dxgi/swapchain.c,wined3d/swapchain.c,

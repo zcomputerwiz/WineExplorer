@@ -3,7 +3,13 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
-Branch: `codex/g4-r1-completion` in parent and Wine. Current Wine:
+**Current tip contains an UNVERIFIED repaint follow-up** at Wine bc7011f.
+Read CHROMIUM_GRAPHICS_G4_RESUME_NOTE.md first. The tested underlay checkpoint
+below is parent 97119874 / Wine 48000ca; do not apply its PASSes or hashes to WIP.
+The final stronger GetMessage repaint probe times out, with owned cleanup done.
+User redirected current work to Qwen OOBE review; no automatic graphics resume.
+
+Branch: `codex/g4-r1-completion` in parent and Wine. Last verified Wine:
 `48000ca83d2240c4dd5d0101d4ebff5fc76f6b74`. Parent revision is the commit
 containing this report. Historical Gemini acceptance totals are not current
 acceptance. Detailed chronology/failures: CHROMIUM_GRAPHICS_G4_CONTINUATION.md.

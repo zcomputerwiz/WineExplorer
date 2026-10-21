@@ -218,6 +218,135 @@ static bool application_background_detach()
     return s.pixel(8,8,RGB(0,160,0));
 }
 
+struct ApplicationPaintState
+{
+    WNDPROC previous;
+    COLORREF color;
+    unsigned int paints;
+};
+
+static LRESULT CALLBACK application_paint_wndproc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    ApplicationPaintState *state = (ApplicationPaintState *)GetPropW(hwnd,L"WEX_G4_PAINT_STATE");
+    if (!state) return DefWindowProcW(hwnd,message,wparam,lparam);
+    if (message == WM_PAINT)
+    {
+        PAINTSTRUCT paint;
+        HDC dc = BeginPaint(hwnd,&paint);
+        HBRUSH brush = CreateSolidBrush(state->color);
+        if (dc && brush) FillRect(dc,&paint.rcPaint,brush);
+        if (brush) DeleteObject(brush);
+        EndPaint(hwnd,&paint);
+        ++state->paints;
+        return 0;
+    }
+    return CallWindowProcW(state->previous,hwnd,message,wparam,lparam);
+}
+
+static bool dispatch_application_idle(HWND hwnd)
+{
+    // A real GetMessage idle cycle flushes batched GDI drawing. A single
+    // PeekMessage drain is not equivalent, especially for consecutive paints.
+    // This bounded application timer is test-only, never production pacing.
+    UINT_PTR timer = SetTimer(hwnd,0,80,NULL);
+    if (!timer) return false;
+    MSG message;
+    bool completed = false;
+    while (GetMessageW(&message,NULL,0,0) > 0)
+    {
+        if (message.hwnd == hwnd && message.message == WM_TIMER && message.wParam == timer)
+        { completed = true; break; }
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+    KillTimer(hwnd,timer);
+    flush_messages();
+    return completed;
+}
+
+static bool application_background_expose()
+{
+    Scene s;
+    if (!s.init() || !paint_application_background(s,RGB(0,160,0))
+            || FAILED(s.comp->Commit()) || !s.present()) return false;
+    // Repainting must not publish pending visual edits or an unpresented
+    // producer buffer. Only the application background changed.
+    ID3D11RenderTargetView *unpublished = NULL;
+    if (FAILED(s.visual->SetOffsetX(80))
+            || FAILED(s.dev->CreateRenderTargetView(s.bb,NULL,&unpublished))) return false;
+    const float blue[] = {0,0,1,1};
+    s.ctx->ClearRenderTargetView(unpublished,blue);
+    s.ctx->Flush();
+    release(unpublished);
+    ApplicationPaintState state = {NULL,RGB(0,0,160),0};
+    if (!SetPropW(s.hwnd,L"WEX_G4_PAINT_STATE",&state)) return false;
+    state.previous = (WNDPROC)SetWindowLongPtrW(s.hwnd,GWLP_WNDPROC,(LONG_PTR)application_paint_wndproc);
+    bool passed = state.previous && InvalidateRect(s.hwnd,NULL,FALSE) && UpdateWindow(s.hwnd);
+    GdiFlush();
+    // This is the explicit application's message dispatch, not a pixel reader
+    // secretly issuing Commit/Present or pumping messages until pixels match.
+    passed = passed && dispatch_application_idle(s.hwnd);
+    printf("APP_WM_PAINT count=%u\n",state.paints);
+    passed = passed && state.paints && s.pixel(8,8,RGB(255,0,0)) && s.pixel(80,80,RGB(0,0,160));
+    for (unsigned int i = 0; passed && i < 4; ++i)
+    {
+        state.color = i % 2 ? RGB(0,0,160) : RGB(0,160,0);
+        passed = InvalidateRect(s.hwnd,NULL,FALSE) && UpdateWindow(s.hwnd);
+        passed = passed && dispatch_application_idle(s.hwnd);
+        passed = passed && s.pixel(8,8,RGB(255,0,0)) && s.pixel(80,80,state.color);
+    }
+    if (passed)
+    {
+        RECT window;
+        GetWindowRect(s.hwnd,&window);
+        HWND cover = CreateWindowExW(WS_EX_TOPMOST,L"STATIC",L"G4 owned occluder",WS_POPUP|WS_VISIBLE|SS_NOTIFY,
+                window.left,window.top,window.right-window.left,window.bottom-window.top,NULL,NULL,NULL,NULL);
+        passed = cover != NULL;
+        if (cover)
+        {
+            ApplicationPaintState cover_state = {NULL,RGB(0,0,0),0};
+            passed = SetPropW(cover,L"WEX_G4_PAINT_STATE",&cover_state);
+            cover_state.previous = (WNDPROC)SetWindowLongPtrW(cover,GWLP_WNDPROC,(LONG_PTR)application_paint_wndproc);
+            passed = passed && cover_state.previous && InvalidateRect(cover,NULL,FALSE) && UpdateWindow(cover);
+            flush_messages();
+            POINT point = {8,8}; ClientToScreen(s.hwnd,&point);
+            HDC screen = GetDC(NULL);
+            COLORREF covered = screen ? GetPixel(screen,point.x,point.y) : CLR_INVALID;
+            if (screen) ReleaseDC(NULL,screen);
+            passed = passed && WindowFromPoint(point) == cover && covered == RGB(0,0,0);
+            printf("APP_OCCLUDER observed=%d pixel=%06lx\n",passed,(unsigned long)covered);
+            DestroyWindow(cover);
+        }
+        flush_messages();
+        passed = passed && s.pixel(8,8,RGB(255,0,0)) && s.pixel(80,80,RGB(0,0,160));
+    }
+    if (passed)
+    {
+        static const GUID stats_guid = {0xa1042da3,0x2ea1,0x4d9a,{0xa4,0x03,0x01,0x1e,0xd3,0x61,0x83,0xfb}};
+        UINT64 before[4], after[4];
+        UINT bytes = sizeof(before);
+        passed = SUCCEEDED(s.sc->GetPrivateData(stats_guid,&bytes,before)) && bytes == sizeof(before);
+        Sleep(250);
+        flush_messages();
+        bytes = sizeof(after);
+        passed = passed && SUCCEEDED(s.sc->GetPrivateData(stats_guid,&bytes,after)) && bytes == sizeof(after)
+                && !memcmp(before,after,sizeof(before));
+        printf("APP_REPAINT_IDLE unchanged=%d interval_ms=250\n",passed);
+        // Leave a repaint queued, then revoke the tree and release its last
+        // producer/target references before dispatch. No stale pointer packet
+        // may outlive the notification window or redraw detached content.
+        passed = passed && InvalidateRect(s.hwnd,NULL,FALSE) && UpdateWindow(s.hwnd)
+                && SUCCEEDED(s.visual->SetContent(NULL)) && SUCCEEDED(s.comp->Commit())
+                && SUCCEEDED(s.target->SetRoot(NULL)) && SUCCEEDED(s.comp->Commit());
+        release(s.visual); release(s.target); release(s.bb); release(s.sc);
+        flush_messages();
+        passed = passed && s.pixel(8,8,RGB(0,0,160));
+    }
+    if (state.previous) SetWindowLongPtrW(s.hwnd,GWLP_WNDPROC,(LONG_PTR)state.previous);
+    RemovePropW(s.hwnd,L"WEX_G4_PAINT_STATE");
+    return passed;
+}
+
 static bool supported_pixels_and_transactions()
 {
     Scene s;
@@ -1508,6 +1637,7 @@ int main(int argc, char **argv)
         {"fence_process_death_and_idle",fence_process_death_and_idle},
         {"application_background_pixels",application_background_pixels},
         {"application_background_detach",application_background_detach},
+        {"application_background_expose",application_background_expose},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;
