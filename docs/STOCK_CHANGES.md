@@ -1,5 +1,24 @@
 # Changes to stock Wine / third-party code
 
+## G4 R2 event and WoW64 Vulkan allocation ownership (2026-10-21)
+
+Wine `2c1e3ef`, `dlls/d3d11/{device.c,d3d11_private.h}`: pending fence waiters
+retain event objects through duplicated handles, close them on all notification/
+teardown/rollback paths, and use distinct CS command identity for cancellation.
+Native Windows x64/x86 comparison reproduces the lost-event bug in old Wine.
+Wine `1dcd479`, `dlls/win32u/vulkan.c`: retain/release Wine-synthesized low-address
+host imports on normal/failure paths, without freeing caller-owned host pointers.
+Repairs an observed64MiB/device WoW64 Vulkan leak and full-suite address-space
+exhaustion. Evidence, limits and open gates: CHROMIUM_GRAPHICS_G4_R2_LIFETIME_20261021.md.
+
+## G4 inherited border modes and coverage (2026-10-21)
+
+Wine `61929ac`, `dlls/{dcomp/device.c,dxgi/swapchain.c,wined3d/swapchain.c}` and
+`include/wine/{dcomp_layer.h,wined3d.h}`: validate/retain/inherit border mode,
+transactional publication, independent soft-edge reference coverage with hard
+default and preserved bitmap interpolation. Scoped evidence and limitations:
+CHROMIUM_GRAPHICS_G4_BORDER_VERIFIED_20261021.md. Not exact native-AA certification.
+
 ## G4 dirty-flush repaint notifications (scoped verification completed)
 
 Wine `bc7011f`, dlls/win32u/dce.c, dlls/dxgi/{factory.c,swapchain.c,

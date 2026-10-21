@@ -3,6 +3,12 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+2026-10-21 update: see `CHROMIUM_GRAPHICS_G4_R2_LIFETIME_20261021.md` for the
+latest27-group GL/lavapipe controls, event lifetime and WoW64 allocation fixes.
+The older matrix below is historical where superseded. Bottom child clipping
+and simultaneous populated top/bottom HWND targets are user-approved deferrals
+for the selected Chromium track, not passing general-Wine compatibility cells.
+
 **Latest repaint slice now passes scoped controls** at Wine bc7011f.
 Read CHROMIUM_GRAPHICS_G4_REPAINT_VERIFIED_20261020.md first. The previous timeout
 was traced to the probe's zero HWND timer identifier versus nonzero success

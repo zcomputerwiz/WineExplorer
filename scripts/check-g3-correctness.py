@@ -63,13 +63,17 @@ def main():
     parser.add_argument('--wine-debug', default='-all,+winediag',
                         help='Wine diagnostic channels (recorded with the run environment)')
     parser.add_argument('--full-suite', action='store_true')
+    parser.add_argument('--memory-profile', action='store_true',
+                        help='Log test-process virtual address-space bounds before each G4 case')
     parser.add_argument('--hwnd-integration', action='store_true',
                         help='Separate G4 HWND child/layer integration gate; failures remain open')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
     parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions',
                         'unsupported_properties_fail_honestly', 'retained_multilayer_and_transform_pixels',
-                        'cross_thread_completion_pixels', 'imported_fence_observers',
+                        'cross_thread_completion_pixels', 'imported_fence_observers', 'fence_event_handle_lifetime',
+                        'fence_waiter_cleanup',
+                        'device_virtual_memory_reclaim',
                         'retained_changing_frame_pixels', 'retained_formats_resize_and_lifetime',
                         'retained_nested_group_pixels', 'concurrent_commit_and_device_lifetime',
                         'multi_target_transactions', 'reparented_tree_lifetime', 'fence_capacity_and_reclaim',
@@ -86,6 +90,8 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.memory_profile and not args.g4_correctness:
+        parser.error('--memory-profile requires --g4-correctness')
     if args.hwnd_integration and (args.upstream_tests or args.g4_correctness or args.full_suite or args.g4_case):
         parser.error('--hwnd-integration must be run separately from other suites')
     if args.upstream_tests and (args.g4_correctness or args.full_suite):
@@ -145,6 +151,9 @@ def main():
                                WINE_D3D_CONFIG='renderer=' + args.renderer)
             if args.renderer == 'vulkan':
                 environment.update(VK_DRIVER_FILES=str(icd), VK_ICD_FILENAMES=str(icd))
+            if args.memory_profile:
+                environment['WEX_G4_MEMORY_TRACE'] = '1'
+            result['memory_profile'] = args.memory_profile
             result['display'] = environment['DISPLAY']
             result['environment'] = {key: environment[key] for key in
                                      ('DISPLAY', 'WINE', 'WINESERVER', 'WINEDLLOVERRIDES',
@@ -212,6 +221,9 @@ def main():
                                 'retained_multilayer_and_transform_pixels=PASS',
                                 'cross_thread_completion_pixels=PASS',
                                 'imported_fence_observers=PASS',
+                                'fence_event_handle_lifetime=PASS',
+                                'fence_waiter_cleanup=PASS',
+                                'device_virtual_memory_reclaim=PASS',
                                 'retained_changing_frame_pixels=PASS',
                                 'retained_formats_resize_and_lifetime=PASS',
                                 'retained_nested_group_pixels=PASS',

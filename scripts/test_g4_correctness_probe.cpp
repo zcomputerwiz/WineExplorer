@@ -7,6 +7,7 @@
 #undef main
 #include <d3d11_4.h>
 #include <math.h>
+#include <stddef.h>
 
 static bool native_visual_control;
 
@@ -1027,6 +1028,140 @@ done:
     return result;
 }
 
+static bool fence_event_handle_lifetime()
+{
+    ID3D11Device *base = NULL;
+    ID3D11DeviceContext *base_context = NULL;
+    IDCompositionDevice *composition = NULL;
+    ID3D11Device5 *device = NULL;
+    ID3D11DeviceContext4 *context = NULL;
+    ID3D11Fence *producer = NULL, *observer = NULL;
+    HANDLE shared = NULL, event = NULL, witness = NULL;
+    bool ok = false;
+    if (!create_d3d_and_dcomp(NULL,&base,&base_context,&composition,NULL)) goto done;
+    if (FAILED(base->QueryInterface(__uuidof(ID3D11Device5),(void **)&device))
+            || FAILED(base_context->QueryInterface(__uuidof(ID3D11DeviceContext4),(void **)&context))
+            || FAILED(device->CreateFence(0,D3D11_FENCE_FLAG_SHARED,__uuidof(ID3D11Fence),(void **)&producer))
+            || FAILED(producer->CreateSharedHandle(NULL,GENERIC_ALL,NULL,&shared))
+            || FAILED(device->OpenSharedFence(shared,__uuidof(ID3D11Fence),(void **)&observer))) goto done;
+    if (!(event = CreateEventA(NULL,FALSE,FALSE,NULL))
+            || !DuplicateHandle(GetCurrentProcess(),event,GetCurrentProcess(),&witness,0,FALSE,DUPLICATE_SAME_ACCESS)
+            || FAILED(observer->SetEventOnCompletion(1,event))) goto done;
+    // Keep the event object alive, but close the numeric registration handle.
+    // Completion must target that object, not whatever later reuses the handle.
+    CloseHandle(event); event = NULL;
+    if (FAILED(context->Signal(producer,1))) goto done;
+    {
+        DWORD wait = WaitForSingleObject(witness,3000);
+        printf("FENCE_EVENT_LIFETIME wait=%lu completed=%llu\n",(unsigned long)wait,
+                (unsigned long long)observer->GetCompletedValue());
+        ok = wait == WAIT_OBJECT_0 && observer->GetCompletedValue() >= 1;
+    }
+done:
+    release(observer); release(producer);
+    if (event) CloseHandle(event);
+    if (witness) CloseHandle(witness);
+    if (shared) CloseHandle(shared);
+    release(context); release(device); release(composition); release(base_context); release(base);
+    return ok;
+}
+
+static bool live_handle_count(DWORD *count)
+{
+    if (GetProcessHandleCount(GetCurrentProcess(),count) && *count) return true;
+    // Wine's ProcessHandleCount currently returns a success-valued zero stub.
+    // Enumerate the actual server handle table; never accept zero as leak proof.
+    struct Entry { void *object; ULONG_PTR process, handle; ULONG access;
+        USHORT backtrace, type; ULONG attributes, reserved; };
+    struct Table { ULONG_PTR count, reserved; Entry entries[1]; };
+    typedef LONG (WINAPI *Query)(ULONG,void *,ULONG,ULONG *);
+    Query query = (Query)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"),"NtQuerySystemInformation");
+    if (!query) return false;
+    ULONG size = 65536;
+    for (unsigned int attempt = 0; attempt < 8; ++attempt)
+    {
+        Table *table = (Table *)malloc(size);
+        if (!table) return false;
+        ULONG needed = 0;
+        LONG status = query(64,table,size,&needed); // SystemExtendedHandleInformation
+        if (status >= 0)
+        {
+            bool valid = table->count <= (size - offsetof(Table,entries)) / sizeof(Entry);
+            *count = 0;
+            if (valid)
+                for (ULONG_PTR i = 0; i < table->count; ++i)
+                    if (table->entries[i].process == GetCurrentProcessId()) ++*count;
+            free(table);
+            return valid && *count != 0;
+        }
+        free(table);
+        if ((ULONG)status != 0xc0000004 && (ULONG)status != 0xc0000023) return false;
+        size = needed > size ? needed : size * 2;
+        if (size > 16 * 1024 * 1024) return false;
+    }
+    return false;
+}
+
+static bool fence_waiter_cleanup()
+{
+    ID3D11Device *base = NULL;
+    ID3D11DeviceContext *base_context = NULL;
+    IDCompositionDevice *composition = NULL;
+    ID3D11Device5 *device = NULL;
+    ID3D11Fence *producer = NULL, *observer = NULL;
+    HANDLE shared = NULL, event = NULL;
+    bool ok = false;
+    if (!create_d3d_and_dcomp(NULL,&base,&base_context,&composition,NULL)
+            || FAILED(base->QueryInterface(__uuidof(ID3D11Device5),(void **)&device))) goto done;
+    {
+        DWORD before = 0, during = 0;
+        HANDLE calibration[8] = {};
+        bool measured = live_handle_count(&before);
+        for (HANDLE &handle : calibration)
+        {
+            handle = CreateEventA(NULL,FALSE,FALSE,NULL);
+            measured = handle && measured;
+        }
+        measured = live_handle_count(&during) && measured;
+        for (HANDLE handle : calibration) if (handle) CloseHandle(handle);
+        printf("FENCE_HANDLE_CALIBRATION before=%lu during=%lu expected_delta=8\n",
+                (unsigned long)before,(unsigned long)during);
+        if (!measured || during < before + 8) goto done;
+    }
+    for (unsigned int imported = 0; imported < 2; ++imported)
+    {
+        DWORD baseline = 0, after = 0;
+        if (imported && (FAILED(device->CreateFence(0,D3D11_FENCE_FLAG_SHARED,__uuidof(ID3D11Fence),(void **)&producer))
+                || FAILED(producer->CreateSharedHandle(NULL,GENERIC_ALL,NULL,&shared)))) goto done;
+        for (unsigned int cycle = 0; cycle < 33; ++cycle)
+        {
+            HRESULT hr = imported ? device->OpenSharedFence(shared,__uuidof(ID3D11Fence),(void **)&observer)
+                    : device->CreateFence(0,D3D11_FENCE_FLAG_NONE,__uuidof(ID3D11Fence),(void **)&observer);
+            if (FAILED(hr) || !(event = CreateEventA(NULL,FALSE,FALSE,NULL))) goto done;
+            // Never signaled: final Release must cancel and close every retained
+            // event reference, including imported observer callback registration.
+            for (unsigned int waiter = 0; waiter < 64; ++waiter)
+                if (FAILED(observer->SetEventOnCompletion(waiter + 1,event))) goto done;
+            CloseHandle(event); event = NULL;
+            release(observer);
+            if (!live_handle_count(&after)) goto done;
+            if (!cycle) baseline = after; // include lazy threadpool setup
+        }
+        printf("FENCE_WAITER_CLEANUP imported=%u baseline=%lu after=%lu registrations=2112\n",
+                imported,(unsigned long)baseline,(unsigned long)after);
+        if (after > baseline + 2) goto done;
+        if (shared) { CloseHandle(shared); shared = NULL; }
+        release(producer);
+    }
+    ok = true;
+done:
+    release(observer); release(producer);
+    if (event) CloseHandle(event);
+    if (shared) CloseHandle(shared);
+    release(device); release(composition); release(base_context); release(base);
+    return ok;
+}
+
 static bool imported_fence_observers()
 {
     Scene s;
@@ -1704,6 +1839,66 @@ static bool video_capability_consistency()
     return ok;
 }
 
+struct VirtualSpace
+{
+    unsigned long long committed = 0, reserved = 0, free_bytes = 0, largest = 0;
+    bool valid = false;
+};
+
+static VirtualSpace measure_virtual_space()
+{
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    UINT_PTR address = 0, limit = (UINT_PTR)info.lpMaximumApplicationAddress;
+    VirtualSpace space;
+    MEMORY_BASIC_INFORMATION region;
+    while (address < limit && VirtualQuery((void *)address,&region,sizeof(region)))
+    {
+        unsigned long long size = region.RegionSize;
+        if (region.State == MEM_COMMIT) space.committed += size;
+        else if (region.State == MEM_RESERVE) space.reserved += size;
+        else if (region.State == MEM_FREE) { space.free_bytes += size; if (size > space.largest) space.largest = size; }
+        UINT_PTR next = (UINT_PTR)region.BaseAddress + region.RegionSize;
+        if (next <= address) break;
+        address = next;
+    }
+    space.valid = address >= limit && space.committed != 0;
+    return space;
+}
+
+static bool device_virtual_memory_reclaim()
+{
+    unsigned long long baseline = 0;
+    for (unsigned int cycle = 0; cycle < 9; ++cycle)
+    {
+        ID3D11Device *device = NULL;
+        ID3D11DeviceContext *context = NULL;
+        IDCompositionDevice *composition = NULL;
+        bool created = create_d3d_and_dcomp(NULL,&device,&context,&composition,NULL);
+        release(composition); release(context); release(device);
+        if (!created) return false;
+        VirtualSpace space = measure_virtual_space();
+        if (!space.valid) return false;
+        if (!cycle) baseline = space.committed;
+        printf("DEVICE_VIRTUAL_MEMORY cycle=%u baseline=%llu committed=%llu limit_growth=33554432\n",
+                cycle,baseline,space.committed);
+        // Permit bounded runtime cache growth, but not even one unreleased
+        // 64 MiB WineD3D allocator chunk per destroyed device.
+        if (space.committed > baseline + 32ull * 1024 * 1024) return false;
+    }
+    return true;
+}
+
+static void trace_virtual_space(const char *stage)
+{
+    char enabled[2];
+    if (GetEnvironmentVariableA("WEX_G4_MEMORY_TRACE",enabled,sizeof(enabled)) != 1 || enabled[0] != '1') return;
+    VirtualSpace space = measure_virtual_space();
+    printf("VIRTUAL_SPACE stage=%s committed=%llu reserved=%llu free=%llu largest=%llu\n",
+            stage,space.committed,space.reserved,space.free_bytes,space.largest);
+    fflush(stdout);
+}
+
 #ifdef WEX_G4_HELPERS_ONLY
 #define main included_g4_main
 #endif
@@ -1741,6 +1936,9 @@ int main(int argc, char **argv)
         {"retained_multilayer_and_transform_pixels",retained_multilayer_and_transform_pixels},
         {"cross_thread_completion_pixels",cross_thread_completion_pixels},
         {"imported_fence_observers",imported_fence_observers},
+        {"fence_event_handle_lifetime",fence_event_handle_lifetime},
+        {"fence_waiter_cleanup",fence_waiter_cleanup},
+        {"device_virtual_memory_reclaim",device_virtual_memory_reclaim},
         {"retained_changing_frame_pixels",retained_changing_frame_pixels},
         {"retained_formats_resize_and_lifetime",retained_formats_resize_and_lifetime},
         {"retained_nested_group_pixels",retained_nested_group_pixels},
@@ -1768,10 +1966,12 @@ int main(int argc, char **argv)
     {
         if (selected && strcmp(selected,test.name)) continue;
         matched = true;
+        trace_virtual_space(test.name);
         bool result = test.run();
         printf("%s=%s\n",test.name,result ? "PASS" : "FAIL");
         passed = result && passed;
     }
+    trace_virtual_space("finished");
     return !matched ? 2 : passed ? 0 : 1;
 }
 #ifdef WEX_G4_HELPERS_ONLY

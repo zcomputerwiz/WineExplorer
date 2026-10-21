@@ -1,6 +1,11 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest R2 checkpoint: `CHROMIUM_GRAPHICS_G4_R2_LIFETIME_20261021.md`, Wine
+`1dcd479`. Fixes retained fence-event ownership and a measured64MiB/device WoW64
+Vulkan leak. All27 groups pass both PEs on GL/lavapipe. Continue deterministic
+registration/rearm and remaining R2/R3; G4 and physical/desktop gates stay open.
+
 Latest: `CHROMIUM_GRAPHICS_G4_BORDER_VERIFIED_20261021.md` records R1 border
 implementation and 24-group verification. Earlier border-stub descriptions are
 historical. The user subsequently approved deferring the demonstrated bottom
