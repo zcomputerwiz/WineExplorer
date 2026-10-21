@@ -183,6 +183,12 @@ async function exerciseLifecycle(win) {
     checks.reload = state.text === '' && state.button === 'Click' && state.scroll === 0 && state.frames > 0;
     log('lifecycle reload', state);
     await visualCheckpoint('reload');
+    if (process.env.WEX_WEBVIEW2_RESIZE_BORDER === '1') {
+      await win.webContents.executeJavaScript(`window.sceneFrozen=true;
+        box.style.transform='translateX(160px)';counter.textContent='Frozen resize border';
+        document.body.style.background='#e8f5e9';`);
+      log('resize border frozen', { x: 160, note: 'No further DOM updates during growth/held captures' });
+    }
     win.setContentSize(740, 520);
     await delay(1000);
     state = await sample();

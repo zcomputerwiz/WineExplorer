@@ -1,6 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+STOP FOR DEBIAN RELOCATION: read
+`CHROMIUM_GRAPHICS_G4_RELOCATION_CHECKPOINT_20261021.md` first. User is moving
+Debian's virtual disk. Do not access/start WSL until explicit all-clear. Owned
+tests/servers/compositors stopped and final process inventory clean. New frozen
+resize-border diagnostic is unit-tested but real runs were interrupted/failed;
+late samples show complete rims but missing blue content. Inspect saved PNGs
+and validate/trace that evidence after relocation; no production fix this slice.
+
 Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_GEOMETRY_20261021.md`. Compositor94faa651
 fixes fully outside/parent-shrink leakage caused by zero clip disabling clipping.
 All24 exact native geometry/lifetime controls pass, plus WoW64 own/foreign pixels.

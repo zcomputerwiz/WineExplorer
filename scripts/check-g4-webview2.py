@@ -209,6 +209,8 @@ def main():
                         help='Electron fixture only: injected input, wheel scroll, resize, minimize/restore and reload')
     parser.add_argument('--lifecycle-visuals', action='store_true',
                         help='Hold eight lifecycle stages until actual owned-display capture is acknowledged')
+    parser.add_argument('--resize-border', action='store_true',
+                        help='Native scale1 only: freeze DOM before final growth and inspect held frame rims over four seconds')
     parser.add_argument('--profile-proof', action='store_true',
                         help='Electron only: store/flush a fresh persistent Chromium cookie')
     parser.add_argument('--restart-from', type=Path,
@@ -234,6 +236,9 @@ def main():
         parser.error('--output-scale requires owned wexcomp and wlr-randr')
     if args.transition_scale is not None and (args.output_scale is None or not args.lifecycle_visuals):
         parser.error('--transition-scale requires --output-scale and --lifecycle-visuals')
+    if args.resize_border and (not args.wexcomp_bin or not args.lifecycle_visuals
+                               or args.output_scale not in (None, 1.0) or args.transition_scale is not None):
+        parser.error('--resize-border requires native held lifecycle visuals at fixed scale1')
     if args.wexcomp_bin and (args.desktop != 'none' or args.restart_from or args.gl_driver != 'software'):
         parser.error('Native Wayland control cannot use X11 desktop/GLX driver verification or restart reuse')
     capture_tool = 'grim' if args.wexcomp_bin else 'import'
@@ -323,6 +328,8 @@ def main():
         environment['WEX_WEBVIEW2_FREEZE'] = '1'
     if args.lifecycle:
         environment['WEX_WEBVIEW2_LIFECYCLE'] = '1'
+    if args.resize_border:
+        environment['WEX_WEBVIEW2_RESIZE_BORDER'] = '1'
     if args.lifecycle_visuals:
         environment['WEX_WEBVIEW2_VISUAL_CHECKPOINTS'] = '1'
     if args.gpu_recovery:
@@ -359,7 +366,7 @@ def main():
     capture_command = lambda path: (['grim', str(path)] if wexcomp_binary
                                     else ['import', '-window', 'root', str(path)])
     scale_probe = None
-    if args.output_scale is not None and args.lifecycle_visuals:
+    if (args.output_scale is not None or args.resize_border) and args.lifecycle_visuals:
         scale_probe = output / 'native-window-state.exe'
         subprocess.run(['x86_64-w64-mingw32-g++', '-O2', '-Wall', '-Wextra', '-Werror',
                         '-static-libgcc', '-static-libstdc++',
@@ -388,7 +395,7 @@ def main():
                                                            'stage-' + stage + '-native-window', 10)
                                 if state.returncode:
                                     raise RuntimeError('Fixture HWND state query failed')
-                                wanted = (args.transition_scale if result.get('output_scale_transition') else args.output_scale)
+                                wanted = (args.transition_scale if result.get('output_scale_transition') else (args.output_scale or 1.0))
                                 result.setdefault('native_window_states', {})[stage] = native_scale_state(state.stdout, wanted)
                             capture = output / ('stage-' + stage + '.png')
                             with (output / 'capture.log').open('ab') as capture_log:
@@ -402,6 +409,22 @@ def main():
                             if tree.returncode:
                                 raise RuntimeError('Lifecycle X11 snapshot failed')
                             result['visual_captures'][stage] = {'path': str(capture), 'time': time.time()}
+                            if args.resize_border and stage == 'resize_back':
+                                from PIL import Image
+                                from graphics_frame_pixels import frame_pixels
+                                samples = []
+                                begin = time.monotonic()
+                                for offset in (0, .25, 1, 2, 4):
+                                    stop.wait(max(0, begin + offset - time.monotonic()))
+                                    path = output / ('resize-border-%s.png' % str(offset))
+                                    subprocess.run(capture_command(path), env=environment, check=True, timeout=5)
+                                    with Image.open(path) as pixels:
+                                        sample = frame_pixels(pixels, result['native_window_states'][stage])
+                                    sample.update(offset=offset, elapsed=time.monotonic() - begin)
+                                    samples.append(sample)
+                                result['resize_border_diagnostic'] = {'samples': samples,
+                                    'passed': all(item['passed'] for item in samples[-2:]),
+                                    'note': 'Bounded settled-frame proof; early mismatches retained, not atomic-resize certification'}
                             (output / 'visual-checkpoint.ack').write_text(stage)
                         except (OSError, subprocess.SubprocessError, RuntimeError) as error:
                             result['visual_capture_error'] = str(error)
@@ -500,6 +523,9 @@ def main():
             passed = passed and visual_capture_complete(hostlog.read_text(errors='replace') if hostlog.exists() else '',
                                                        result.get('visual_captures', {}), result.get('visual_capture_error'))
             result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; capture completion is not a pixel verdict'
+        if args.resize_border:
+            frozen = hostlog.exists() and 'resize border frozen ' in hostlog.read_text(errors='replace')
+            passed = passed and frozen and result.get('resize_border_diagnostic', {}).get('passed') is True
         if args.graphics_diagnostic:
             result['graphics_diagnostic'] = graphics_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['graphics_diagnostic']['passed']
