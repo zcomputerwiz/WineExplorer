@@ -1,7 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
-Newest R2 checkpoint: `CHROMIUM_GRAPHICS_G4_R2_LIFETIME_20261021.md`, Wine
+Newest WSL validation: `CHROMIUM_GRAPHICS_G4_WSL_VALIDATION_20261021.md`.
+All28 groups pass both PEs/GL/lavapipe; normal fence creator exit/re-export also
+passes native Windows controls. Forced creator termination differs on Windows
+(shared fence UINT64_MAX) versus Wine (survives): crash compatibility stays OPEN,
+with a separate strict diagnostic hypothesis, not a portable survival contract.
+Wine unchanged at `1dcd479`; desktop/hardware and remaining R2/R3 are still open.
+
+Preceding R2 checkpoint: `CHROMIUM_GRAPHICS_G4_R2_LIFETIME_20261021.md`, Wine
 `1dcd479`. Fixes retained fence-event ownership and a measured64MiB/device WoW64
 Vulkan leak. All27 groups pass both PEs on GL/lavapipe. Continue deterministic
 registration/rearm and remaining R2/R3; G4 and physical/desktop gates stay open.

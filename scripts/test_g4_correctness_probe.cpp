@@ -1028,6 +1028,149 @@ done:
     return result;
 }
 
+// The child owns the original fence/device. Only a duplicated kernel handle is
+// published; the parent must not accidentally keep the creator's COM object alive.
+static int fence_creator_child(HANDLE ipc, HANDLE ready, HANDLE finish, DWORD parent_pid)
+{
+    ID3D11Device *base = NULL;
+    ID3D11DeviceContext *context = NULL;
+    ID3D11Device5 *device = NULL;
+    ID3D11Fence *fence = NULL;
+    HANDLE shared = NULL, parent = NULL, remote = NULL;
+    UINT64 *published = (UINT64 *)MapViewOfFile(ipc,FILE_MAP_WRITE,0,0,sizeof(UINT64));
+    int result = 2;
+    if (!published) goto done;
+    if (FAILED(D3D11CreateDevice(NULL,D3D_DRIVER_TYPE_HARDWARE,NULL,0,NULL,0,
+            D3D11_SDK_VERSION,&base,NULL,&context))
+            || FAILED(base->QueryInterface(__uuidof(ID3D11Device5),(void **)&device))
+            || FAILED(device->CreateFence(7,D3D11_FENCE_FLAG_SHARED,__uuidof(ID3D11Fence),(void **)&fence))
+            || FAILED(fence->CreateSharedHandle(NULL,GENERIC_ALL,NULL,&shared))
+            || !(parent = OpenProcess(PROCESS_DUP_HANDLE,FALSE,parent_pid))
+            || !DuplicateHandle(GetCurrentProcess(),shared,parent,&remote,0,FALSE,DUPLICATE_SAME_ACCESS)) goto done;
+    *published = (UINT64)(UINT_PTR)remote;
+    if (!SetEvent(ready) || WaitForSingleObject(finish,20000) != WAIT_OBJECT_0) goto done;
+    result = 0;
+done:
+    if (published) UnmapViewOfFile(published);
+    if (shared) CloseHandle(shared);
+    if (parent) CloseHandle(parent);
+    release(fence); release(device); release(context); release(base);
+    CloseHandle(ipc); CloseHandle(ready); CloseHandle(finish);
+    return result;
+}
+
+static bool fence_creator_exit_mode(bool abrupt)
+{
+    ID3D11Device *base = NULL;
+    ID3D11DeviceContext *base_context = NULL;
+    ID3D11Device5 *device = NULL;
+    ID3D11DeviceContext4 *context = NULL;
+    ID3D11Fence *observer = NULL, *signaler = NULL, *reopened = NULL;
+    HANDLE ipc = NULL, ready = NULL, finish = NULL, shared = NULL;
+    HANDLE duplicate = NULL, reexport = NULL, event = NULL;
+    UINT64 *published = NULL;
+    SECURITY_ATTRIBUTES attributes = {sizeof(attributes),NULL,TRUE};
+    PROCESS_INFORMATION child = {};
+    STARTUPINFOA startup = {};
+    char executable[MAX_PATH], command[2 * MAX_PATH];
+    DWORD exit_code = 1;
+    const char *stage = "initialize";
+    bool ok = false;
+    if (FAILED(D3D11CreateDevice(NULL,D3D_DRIVER_TYPE_HARDWARE,NULL,0,NULL,0,
+            D3D11_SDK_VERSION,&base,NULL,&base_context))
+            || FAILED(base->QueryInterface(__uuidof(ID3D11Device5),(void **)&device))
+            || FAILED(base_context->QueryInterface(__uuidof(ID3D11DeviceContext4),(void **)&context))
+            || !(ipc = CreateFileMappingA(INVALID_HANDLE_VALUE,&attributes,PAGE_READWRITE,0,sizeof(UINT64),NULL))
+            || !(published = (UINT64 *)MapViewOfFile(ipc,FILE_MAP_ALL_ACCESS,0,0,sizeof(UINT64)))
+            || !(ready = CreateEventA(&attributes,FALSE,FALSE,NULL))
+            || !(finish = CreateEventA(&attributes,FALSE,FALSE,NULL))
+            || !(event = CreateEventA(NULL,FALSE,FALSE,NULL))
+            || !GetModuleFileNameA(NULL,executable,ARRAYSIZE(executable))) goto done;
+    *published = 0;
+    snprintf(command,sizeof(command),"\"%s\" --fence-creator-child %llx %llx %llx %lu",executable,
+            (unsigned long long)(UINT_PTR)ipc,(unsigned long long)(UINT_PTR)ready,
+            (unsigned long long)(UINT_PTR)finish,(unsigned long)GetCurrentProcessId());
+    startup.cb = sizeof(startup);
+    stage = "spawn";
+    if (!CreateProcessA(NULL,command,NULL,NULL,TRUE,0,NULL,NULL,&startup,&child)) goto done;
+    {
+        HANDLE started[] = {ready,child.hProcess};
+        if (WaitForMultipleObjects(2,started,FALSE,10000) != WAIT_OBJECT_0) goto done;
+    }
+    shared = (HANDLE)(UINT_PTR)*published;
+    *published = 0; // ownership moved to the parent's local cleanup slot
+    stage = "import_and_register";
+    if (!shared || FAILED(device->OpenSharedFence(shared,__uuidof(ID3D11Fence),(void **)&observer))
+            || observer->GetCompletedValue() != 7
+            || FAILED(observer->SetEventOnCompletion(9,event))
+            || WaitForSingleObject(event,0) != WAIT_TIMEOUT) goto done;
+    stage = "creator_exit";
+    if (abrupt)
+    {
+        if (!TerminateProcess(child.hProcess,124)) goto done;
+    }
+    else if (!SetEvent(finish)) goto done;
+    if (WaitForSingleObject(child.hProcess,10000) != WAIT_OBJECT_0
+            || !GetExitCodeProcess(child.hProcess,&exit_code)
+            || exit_code != (abrupt ? 124u : 0u)) goto done;
+    // No creator process/device remains. Duplicate and reopen after its exit,
+    // then close every original export handle before signaling the pending wait.
+    stage = "duplicate_and_open";
+    if (!DuplicateHandle(GetCurrentProcess(),shared,GetCurrentProcess(),&duplicate,0,FALSE,DUPLICATE_SAME_ACCESS)) goto done;
+    CloseHandle(shared); shared = NULL;
+    if (FAILED(device->OpenSharedFence(duplicate,__uuidof(ID3D11Fence),(void **)&signaler))) goto done;
+    CloseHandle(duplicate); duplicate = NULL;
+    stage = "signal_after_exit";
+    if (FAILED(context->Signal(signaler,9)) || WaitForSingleObject(event,3000) != WAIT_OBJECT_0
+            || observer->GetCompletedValue() != 9) goto done;
+    // A re-export must outlive all imported COM references too.
+    stage = "reexport";
+    if (FAILED(signaler->CreateSharedHandle(NULL,GENERIC_ALL,NULL,&reexport))) goto done;
+    release(signaler); release(observer);
+    if (FAILED(device->OpenSharedFence(reexport,__uuidof(ID3D11Fence),(void **)&reopened))) goto done;
+    CloseHandle(reexport); reexport = NULL;
+    stage = "signal_after_reexport";
+    if (reopened->GetCompletedValue() != 9 || FAILED(reopened->SetEventOnCompletion(11,event))
+            || WaitForSingleObject(event,0) != WAIT_TIMEOUT
+            || FAILED(context->Signal(reopened,11)) || WaitForSingleObject(event,3000) != WAIT_OBJECT_0
+            || reopened->GetCompletedValue() != 11) goto done;
+    printf("FENCE_CREATOR_EXIT abrupt=%u exit=%lu initial=7 imported=9 reexported=11\n",
+            abrupt ? 1u : 0u,(unsigned long)exit_code);
+    ok = true;
+done:
+    if (!ok) printf("FENCE_CREATOR_FAILURE abrupt=%u stage=%s exit=%lu completed=%llu removed=%08lx error=%lu\n",
+            abrupt ? 1u : 0u,stage,(unsigned long)exit_code,
+            (unsigned long long)(observer ? observer->GetCompletedValue() : 0),
+            (unsigned long)(base ? base->GetDeviceRemovedReason() : E_FAIL),(unsigned long)GetLastError());
+    if (child.hProcess)
+    {
+        if (WaitForSingleObject(child.hProcess,0) == WAIT_TIMEOUT)
+        { TerminateProcess(child.hProcess,125); WaitForSingleObject(child.hProcess,5000); }
+        CloseHandle(child.hThread); CloseHandle(child.hProcess);
+    }
+    // Also recover a successfully duplicated handle if child failed after publish.
+    if (published && *published) CloseHandle((HANDLE)(UINT_PTR)*published);
+    release(reopened); release(signaler); release(observer);
+    if (shared) CloseHandle(shared);
+    if (duplicate) CloseHandle(duplicate);
+    if (reexport) CloseHandle(reexport);
+    if (published) UnmapViewOfFile(published);
+    if (ipc) CloseHandle(ipc);
+    if (ready) CloseHandle(ready);
+    if (finish) CloseHandle(finish);
+    if (event) CloseHandle(event);
+    release(context); release(device); release(base_context); release(base);
+    return ok;
+}
+
+static bool fence_creator_exit_and_reexport()
+{
+    // Normal creator exit is independently verified against Windows. Forced
+    // termination is a separate, explicitly nonportable hypothesis below:
+    // Windows may poison the shared fence (UINT64_MAX), while Wine preserves it.
+    return fence_creator_exit_mode(false);
+}
+
 static bool fence_event_handle_lifetime()
 {
     ID3D11Device *base = NULL;
@@ -1904,6 +2047,12 @@ static void trace_virtual_space(const char *stage)
 #endif
 int main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1],"--fence-creator-abort-hypothesis"))
+    {
+        // Diagnostic only, NOT a required correctness case or native contract.
+        // Keep the strict survival assertions to expose the observed divergence.
+        return fence_creator_exit_mode(true) ? 0 : 1;
+    }
     if (argc == 2 && !strcmp(argv[1], "--native-visual-control"))
     {
         native_visual_control = true;
@@ -1930,6 +2079,15 @@ int main(int argc, char **argv)
         if (sscanf(argv[2],"%llx",&mapping) != 1 || sscanf(argv[3],"%llx",&ready) != 1) return 3;
         return dormant_observer_child((HANDLE)(UINT_PTR)mapping,(HANDLE)(UINT_PTR)ready);
     }
+    if (argc == 6 && !strcmp(argv[1],"--fence-creator-child"))
+    {
+        unsigned long long ipc, ready, finish;
+        unsigned long parent;
+        if (sscanf(argv[2],"%llx",&ipc) != 1 || sscanf(argv[3],"%llx",&ready) != 1
+                || sscanf(argv[4],"%llx",&finish) != 1 || sscanf(argv[5],"%lu",&parent) != 1) return 3;
+        return fence_creator_child((HANDLE)(UINT_PTR)ipc,(HANDLE)(UINT_PTR)ready,
+                (HANDLE)(UINT_PTR)finish,(DWORD)parent);
+    }
     const struct { const char *name; bool (*run)(); } cases[] = {
         {"supported_pixels_and_transactions",supported_pixels_and_transactions},
         {"unsupported_properties_fail_honestly",unsupported_properties_fail_honestly},
@@ -1938,6 +2096,7 @@ int main(int argc, char **argv)
         {"imported_fence_observers",imported_fence_observers},
         {"fence_event_handle_lifetime",fence_event_handle_lifetime},
         {"fence_waiter_cleanup",fence_waiter_cleanup},
+        {"fence_creator_exit_and_reexport",fence_creator_exit_and_reexport},
         {"device_virtual_memory_reclaim",device_virtual_memory_reclaim},
         {"retained_changing_frame_pixels",retained_changing_frame_pixels},
         {"retained_formats_resize_and_lifetime",retained_formats_resize_and_lifetime},

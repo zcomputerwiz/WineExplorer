@@ -3,6 +3,12 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Latest WSL validation: `CHROMIUM_GRAPHICS_G4_WSL_VALIDATION_20261021.md`.
+All28 groups pass both PEs on GL/lavapipe; native controls prove normal shared
+fence creator exit/re-export. Forced termination differs (native UINT64_MAX vs
+Wine survival); real-consumer crash/restart compatibility remains OPEN. Wine
+unchanged at `1dcd479`. These are software Xvfb controls, not desktop/hardware.
+
 2026-10-21 update: see `CHROMIUM_GRAPHICS_G4_R2_LIFETIME_20261021.md` for the
 latest27-group GL/lavapipe controls, event lifetime and WoW64 allocation fixes.
 The older matrix below is historical where superseded. Bottom child clipping
