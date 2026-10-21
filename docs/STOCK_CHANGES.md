@@ -1,5 +1,16 @@
 # Changes to stock Wine / third-party code
 
+## G4 native empty parent clip (2026-10-21)
+
+Compositor `94faa651`, `src/protocols/wex-window.c`: explicitly disable a render
+subtree when its intersection with the parent is empty; wlroots interprets an
+empty clip as no clipping. Re-enable on nonempty intersection. Independent
+outside-child and parent-shrink leaks reproduced before repair;24 exact native
+pixel/geometry/lifetime controls pass after it. WoW64 own/foreign pixels and
+real Electron GL/Vulkan live125%→150% lifecycle pass scoped controls. Wine571e907
+unchanged. See CHROMIUM_GRAPHICS_G4_NATIVE_GEOMETRY_20261021.md for remaining
+installed-theme/native-accelerated/frame-timing gates; no master merge.
+
 ## G4 native Chromium cross-process rendering (2026-10-21)
 
 Wine `571e907`, `dlls/winewayland.drv/{wayland.c,wayland_surface.c,wayland_wex.c,

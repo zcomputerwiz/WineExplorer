@@ -3,6 +3,13 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_GEOMETRY_20261021.md`. Compositor94faa651
+fixes reproduced empty-clip leaks outside/shrunken parent.24 exact native pixel/
+geometry/lifetime controls pass, WoW64 own/foreign pixels pass. Real Electron
+GL/Vulkan125%→150% live scaling passes lifecycle and independent published-HWND
+scale readbacks with inspected front captures. Wine571e907 unchanged. Transient
+resize border, installed shell/themes and native accelerated validation remain.
+
 Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_BRIDGE_20261021.md`, Wine571e907 /
 wexcomp1b9df94e. Native blank content is repaired for fully covering opaque
 cross-process Chromium targets. Exact own/foreign pixels pass both PEs/GL/VK;

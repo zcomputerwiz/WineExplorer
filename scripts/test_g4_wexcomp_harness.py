@@ -72,6 +72,34 @@ class OwnedCompositor(unittest.TestCase):
             control.verify()
         self.assertEqual(capture_command(self.root / 'frame.png'), ['grim', str(self.root / 'frame.png')])
 
+    def test_scale_requires_exact_live_owned_endpoint(self):
+        control = OwnedWexcomp(self.binary, self.root, self.root, {})
+        with self.assertRaises(RuntimeError):
+            control.set_output_scale(1.25)
+        with self.assertRaises(ValueError):
+            control.set_output_scale(float('nan'))
+        control.record = {'private_protocol_verified': True}
+        control.process = mock.Mock()
+        control.process.poll.return_value = None
+        control.environment.update(WAYLAND_DISPLAY='live', XDG_RUNTIME_DIR='live')
+        with mock.patch('graphics_wexcomp.subprocess.run') as run, self.assertRaises(RuntimeError):
+            control.set_output_scale(1.25)
+        run.assert_not_called()
+
+    def test_scale_verifies_reported_state(self):
+        env = dict(WAYLAND_DISPLAY='wex-shell-0', XDG_RUNTIME_DIR=str(self.root / 'wayland-runtime'))
+        control = OwnedWexcomp(self.binary, self.root, self.root, env)
+        control.record = {'private_protocol_verified': True}
+        control.process = mock.Mock()
+        control.process.poll.return_value = None
+        state = mock.Mock(stdout='HEADLESS-1 "Headless output"\n  Scale: 1.250000\n')
+        with mock.patch('graphics_wexcomp.subprocess.run', return_value=state) as run:
+            control.set_output_scale(1.25)
+            self.assertEqual(run.call_args.kwargs['env'], env)
+            self.assertEqual(control.record['output_scales'], [{'requested': 1.25, 'observed': 1.25}])
+        with mock.patch('graphics_wexcomp.subprocess.run', return_value=state), self.assertRaises(RuntimeError):
+            control.set_output_scale(1.5)
+
 
 if __name__ == '__main__':
     unittest.main()

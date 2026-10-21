@@ -13,6 +13,16 @@ consumer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(consumer)
 
 
+class NativeScale(unittest.TestCase):
+    def test_exact_published_scale(self):
+        text = 'NATIVE_WINDOW fixed=81920 visible=1 x=25 y=25 width=740 height=520\n'
+        self.assertEqual(consumer.native_scale_state(text, 1.25)['width'], 740)
+        for invalid in ('', text * 2, text.replace('81920', '65536'), text.replace('visible=1', 'visible=0'),
+                        text.replace('width=740', 'width=0')):
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeError):
+                consumer.native_scale_state(invalid, 1.25)
+
+
 class ProfileProof(unittest.TestCase):
     def log(self, **changes):
         value = dict(passed=True, expected='old', previous='old', written='new', flushed=True)

@@ -32,13 +32,19 @@ def main():
     environment = {k: v for k, v in os.environ.items() if not k.startswith(('WINE', 'WLR_', 'VK_', 'GALLIUM_', 'MESA_'))
                    and k not in ('DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET', 'LD_PRELOAD', 'LD_LIBRARY_PATH')}
     compositor = OwnedWexcomp(args.wexcomp_bin.resolve(strict=True), args.wexcomp_config.resolve(strict=True), output, environment)
-    expected = dict(attached=4096, wrong_parent=0, clipped=400, invalid_size=0, reattached=4096,
+    expected = dict(attached=4096, moved=4096, negative_clip=2288, outside_parent=0, explicit_bounds=600,
+                    empty_parent=0, buffer_scale_two=1024, wrong_parent=0, clipped=400,
+                    parent_shrunk=0, parent_grown=400, invalid_size=0, reattached=4096,
                     parent_revoked=0, stale_parent=0, new_parent=4096, producer_destroyed=0,
                     producer_recreated=4096, invalid_surface_order_rejected=0, before_disconnect=4096,
                     producer_disconnected=0, producer_reconnected=4096, parent_surface_destroyed=0,
                     destroyed_surface_handle=0)
     result = {'cases': {}, 'classification': 'Private render-role functional contract; not security certification'}
     process = None
+    origin = None
+    geometry = dict(attached=(0, 0, 64, 64), moved=(40, 30, 64, 64), negative_clip=(0, 0, 44, 52),
+                    explicit_bounds=(0, 0, 20, 30), buffer_scale_two=(0, 0, 32, 32),
+                    clipped=(180, 180, 20, 20), parent_grown=(180, 180, 20, 20))
     try:
         result['wexcomp'] = compositor.start()
         with (output / 'probe.stderr.log').open('wb') as err:
@@ -53,8 +59,20 @@ def main():
                 capture = output / (stage + '.png')
                 subprocess.run(['grim', str(capture)], env=environment, check=True, timeout=10)
                 with Image.open(capture) as image:
-                    actual = sum(1 for pixel in image.convert('RGB').getdata() if pixel == (255, 0, 0))
-                result['cases'][stage] = {'expected': count, 'actual': actual, 'passed': actual == count}
+                    points = [(i % image.width, i // image.width) for i, pixel in enumerate(image.convert('RGB').getdata())
+                              if pixel == (255, 0, 0)]
+                actual = len(points)
+                bounds = ([min(p[0] for p in points), min(p[1] for p in points),
+                           max(p[0] for p in points) + 1, max(p[1] for p in points) + 1] if points else None)
+                if stage == 'attached' and bounds:
+                    origin = bounds[:2]
+                expected_bounds = None
+                if stage in geometry and origin:
+                    x, y, width, height = geometry[stage]
+                    expected_bounds = [origin[0] + x, origin[1] + y, origin[0] + x + width, origin[1] + y + height]
+                passed = actual == count and (stage not in geometry or bounds == expected_bounds)
+                result['cases'][stage] = {'expected': count, 'actual': actual, 'bounds': bounds,
+                                          'expected_bounds': expected_bounds, 'passed': passed}
                 print(stage, result['cases'][stage], flush=True)
                 (output / 'stage.ack').write_text(stage)
             result['probe_exit'] = process.wait(timeout=10)

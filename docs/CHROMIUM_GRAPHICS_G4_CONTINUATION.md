@@ -1,6 +1,16 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_GEOMETRY_20261021.md`. Compositor94faa651
+fixes fully outside/parent-shrink leakage caused by zero clip disabling clipping.
+All24 exact native geometry/lifetime controls pass, plus WoW64 own/foreign pixels.
+Both real Electron backends pass live125%→150% output transition with independently
+read HWND scale81920→98304 and actual front content. Wine571e907 unchanged.
+Next: transient resize-frame settled proof, actual shell Classic/open Luna/
+taskbar/toolbars/tray and native accelerated virtual-GPU evidence. Generic role
+migration/foreign GDI are gates only if required by real Chromium, not blanket
+API-completeness work. New report has exact runs, hashes and diagnostic failures.
+
 Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_BRIDGE_20261021.md`. Wine571e907 /
 wexcomp1b9df94e implement the private cross-process render bridge plus opaque
 background-capture elision. Real Chromium front content now works, not merely

@@ -25,6 +25,14 @@ import time
 VISUAL_STAGES = ('ready', 'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back')
 
 
+def native_scale_state(text, expected):
+    rows = re.findall(r'^NATIVE_WINDOW fixed=(\d+) visible=(\d+) x=(-?\d+) y=(-?\d+) width=(\d+) height=(\d+)\s*$', text, re.MULTILINE)
+    if (len(rows) != 1 or int(rows[0][0]) != round(expected * 65536)
+            or int(rows[0][1]) != 1 or int(rows[0][4]) <= 0 or int(rows[0][5]) <= 0):
+        raise RuntimeError('Fixture did not publish the observed native output scale: ' + text)
+    return dict(zip(('fixed', 'visible', 'x', 'y', 'width', 'height'), map(int, rows[0])))
+
+
 def visual_requests(text, captured=False):
     event = 'visual checkpoint captured' if captured else 'visual checkpoint'
     stages = re.findall(r'^\d+ ms ' + event + r' \{"stage":"([a-z_]+)"\}\s*$', text, re.MULTILINE)
@@ -213,11 +221,19 @@ def main():
     parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none')
     parser.add_argument('--wexcomp-bin', type=Path, help='Explicit pinned compositor: owned headless native Wayland control')
     parser.add_argument('--wexcomp-config', type=Path, help='Project Wayland config directory for --wexcomp-bin')
+    parser.add_argument('--output-scale', type=float, choices=(1.0, 1.25, 1.5, 2.0),
+                        help='Explicit initial scale of the owned native headless output (requires wlr-randr)')
+    parser.add_argument('--transition-scale', type=float, choices=(1.0, 1.25, 1.5, 2.0),
+                        help='Change the owned output at the held input stage; require matching published HWND scale')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
     if bool(args.wexcomp_bin) != bool(args.wexcomp_config):
         parser.error('--wexcomp-bin and --wexcomp-config must be specified together')
+    if args.output_scale is not None and (not args.wexcomp_bin or not shutil.which('wlr-randr')):
+        parser.error('--output-scale requires owned wexcomp and wlr-randr')
+    if args.transition_scale is not None and (args.output_scale is None or not args.lifecycle_visuals):
+        parser.error('--transition-scale requires --output-scale and --lifecycle-visuals')
     if args.wexcomp_bin and (args.desktop != 'none' or args.restart_from or args.gl_driver != 'software'):
         parser.error('Native Wayland control cannot use X11 desktop/GLX driver verification or restart reuse')
     capture_tool = 'grim' if args.wexcomp_bin else 'import'
@@ -342,6 +358,13 @@ def main():
     stop = threading.Event()
     capture_command = lambda path: (['grim', str(path)] if wexcomp_binary
                                     else ['import', '-window', 'root', str(path)])
+    scale_probe = None
+    if args.output_scale is not None and args.lifecycle_visuals:
+        scale_probe = output / 'native-window-state.exe'
+        subprocess.run(['x86_64-w64-mingw32-g++', '-O2', '-Wall', '-Wextra', '-Werror',
+                        '-static-libgcc', '-static-libstdc++',
+                        str(Path(__file__).with_name('test_g4_native_window_state.cpp')),
+                        '-o', str(scale_probe), '-luser32'], check=True, timeout=30)
 
     def observe():
         seen = set()
@@ -355,6 +378,18 @@ def main():
                         if stage in result.setdefault('visual_captures', {}):
                             continue
                         try:
+                            if (args.transition_scale is not None and stage == 'input'
+                                    and 'output_scale_transition' not in result):
+                                wexcomp.set_output_scale(args.transition_scale)
+                                result['output_scale_transition'] = {'stage': stage, 'scale': args.transition_scale}
+                                stop.wait(1)  # hold the fixture while native scale/repaint messages are delivered
+                            if scale_probe is not None and stage != 'minimized':
+                                state = helpers.run_logged([str(wine), str(scale_probe)], environment, output,
+                                                           'stage-' + stage + '-native-window', 10)
+                                if state.returncode:
+                                    raise RuntimeError('Fixture HWND state query failed')
+                                wanted = (args.transition_scale if result.get('output_scale_transition') else args.output_scale)
+                                result.setdefault('native_window_states', {})[stage] = native_scale_state(state.stdout, wanted)
                             capture = output / ('stage-' + stage + '.png')
                             with (output / 'capture.log').open('ab') as capture_log:
                                 subprocess.run(capture_command(capture), env=environment,
@@ -405,6 +440,8 @@ def main():
             spec.loader.exec_module(compositor)
             wexcomp = compositor.OwnedWexcomp(wexcomp_binary, wexcomp_config, output, environment)
             result['wexcomp'] = wexcomp.start()
+            if args.output_scale is not None:
+                wexcomp.set_output_scale(args.output_scale)
             result['classification'] = 'Owned pinned wexcomp native Wayland/private endpoint functional control; not installed-shell acceptance'
             result['display'] = environment['WAYLAND_DISPLAY']
             result['desktop'] = None

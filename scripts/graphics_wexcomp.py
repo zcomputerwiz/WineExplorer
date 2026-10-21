@@ -4,6 +4,7 @@
 """Owned headless pinned-wexcomp control, never a user's compositor/session."""
 import hashlib
 from pathlib import Path
+import re
 import subprocess
 import time
 
@@ -48,6 +49,24 @@ class OwnedWexcomp:
                            compositor_renderer='pixman (software)', endpoint='wex-shell-0',
                            private_protocol_verified=True)
         return self.record
+
+    def set_output_scale(self, scale):
+        if scale not in (1.0, 1.25, 1.5, 2.0):
+            raise ValueError('Only explicit diagnostic scales are supported')
+        if (not self.record or not self.process or self.process.poll() is not None
+                or self.environment.get('WAYLAND_DISPLAY') != 'wex-shell-0'
+                or self.environment.get('XDG_RUNTIME_DIR') != str(self.output / 'wayland-runtime')):
+            raise RuntimeError('Scaling requires this live owned compositor/private endpoint')
+        subprocess.run(['wlr-randr', '--output', 'HEADLESS-1', '--scale', str(scale)],
+                       env=self.environment, check=True, timeout=10, capture_output=True, text=True)
+        state = subprocess.run(['wlr-randr'], env=self.environment, check=True, timeout=10,
+                               capture_output=True, text=True).stdout
+        match = re.search(r'(?m)^\s*Scale:\s*([0-9.]+)\s*$', state)
+        if not state.startswith('HEADLESS-1 ') or not match or float(match[1]) != scale:
+            raise RuntimeError('Owned output did not report the requested scale: ' + state)
+        index = len(self.record.setdefault('output_scales', []))
+        (self.output / ('output-scale-%d.log' % index)).write_text(state)
+        self.record['output_scales'].append({'requested': scale, 'observed': float(match[1])})
 
     def verify(self):
         if self.process is None or self.process.poll() is not None:
