@@ -1,6 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_FROZEN_RESIZE_CHECKPOINT_20261021.md`. At5% usage,
+checkpoint only. Frozen client content truly disappears after frame repaint;
+fresh full60-second native Vulkan trace reproduces it with host exit0/API passes
+but settled blue0/pixel failure, clean teardown. Production Wine/compositor
+unchanged. Diagnose retained render-role/buffer lifetime/ordering next; not fixed.
+One continuation scheduled after reset; reset credit untouched. Debian all-clear
+received and111GiB obsolete prefix cleanup complete; older relocation STOP lifted.
+
 RELOCATION ALL-CLEAR received. Read `CHROMIUM_GRAPHICS_G4_DISK_CLEANUP_20261021.md`:
 removed only62 obsolete stopped prefix copies (~111GiB), keeping evidence,
 current r4 runs/builds/runtimes/profile proofs and all other workers' trees.

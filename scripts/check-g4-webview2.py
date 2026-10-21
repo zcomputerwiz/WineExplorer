@@ -211,6 +211,8 @@ def main():
                         help='Hold eight lifecycle stages until actual owned-display capture is acknowledged')
     parser.add_argument('--resize-border', action='store_true',
                         help='Native scale1 only: freeze DOM before final growth and inspect held frame rims over four seconds')
+    parser.add_argument('--trace-native', action='store_true',
+                        help='Owned native control only: retain Wayland wire and Wine driver lifecycle logs')
     parser.add_argument('--profile-proof', action='store_true',
                         help='Electron only: store/flush a fresh persistent Chromium cookie')
     parser.add_argument('--restart-from', type=Path,
@@ -239,6 +241,8 @@ def main():
     if args.resize_border and (not args.wexcomp_bin or not args.lifecycle_visuals
                                or args.output_scale not in (None, 1.0) or args.transition_scale is not None):
         parser.error('--resize-border requires native held lifecycle visuals at fixed scale1')
+    if args.trace_native and not args.wexcomp_bin:
+        parser.error('--trace-native requires owned native wexcomp')
     if args.wexcomp_bin and (args.desktop != 'none' or args.restart_from or args.gl_driver != 'software'):
         parser.error('Native Wayland control cannot use X11 desktop/GLX driver verification or restart reuse')
     capture_tool = 'grim' if args.wexcomp_bin else 'import'
@@ -314,6 +318,8 @@ def main():
                        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b',
                        WINEDEBUG='+timestamp,+pid,+tid,err+all,warn+all,fixme+all',
                        LIBGL_ALWAYS_SOFTWARE='1', WINE_D3D_CONFIG='renderer=' + args.renderer)
+    if args.trace_native:
+        environment.update(WINEDEBUG=environment['WINEDEBUG'] + ',+waylanddrv', WAYLAND_DEBUG='client')
     helpers.configure_gl_driver(environment, args.gl_driver)
     if icd:
         environment.update(VK_DRIVER_FILES=str(icd), VK_ICD_FILENAMES=str(icd))
