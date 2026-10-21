@@ -104,3 +104,12 @@ fields were counted as a pass. Waiting for the owned runner completed with exit
 observed in the reruns. Previous timeout/occluder/batching failures remain in the
 historical resume note rather than being erased. Test runners clean only their
 own prefixes/servers/Xvfb. One-time usage reset credit remains untouched.
+
+The verified parent code/test checkpoint is 8537caca. At 83% of the five-hour
+usage window, a one-shot same-chat continuation was scheduled for October 20,
+2026 at 23:25 America/Chicago, after the reported 23:23:27 reset. Existing
+automation resume-chromium-g4-after-usage-reset was updated, not duplicated.
+Use branch HEAD for later documentation commits. One-time reset credit unused.
+The first patch to add this schedule note failed exact-context verification
+because a wrapped line was matched without its preceding word; the append at
+this verified paragraph succeeded. No source or test was affected.
