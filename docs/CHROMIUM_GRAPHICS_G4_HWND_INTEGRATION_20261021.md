@@ -1,6 +1,29 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 R1 HWND integration: open gates and reproduction
 
+## Scope decision — 2026-10-21
+
+The user approved deferring the two demonstrated general-Wine compatibility
+gaps when they do not affect Chromium rendering. Bottom-target child clipping
+and simultaneous populated top/bottom targets are therefore DEFERRED, not fixed
+or passing, and are no longer prerequisites for the selected Chromium graphics
+track. Keep the separate failing probe for eventual compatibility work.
+
+Chromium's current `ui/gl/dc_layer_tree.cc`, DCLayerTree::Initialize, creates one
+target with `CreateTargetForHwnd(window_, TRUE, &dcomp_target_)`:
+[upstream source](https://raw.githubusercontent.com/chromium/chromium/main/ui/gl/dc_layer_tree.cc).
+This supports deferral for that normal compositor path, alongside our actual
+consumer controls. It is not proof about every Electron/CEF embedding host or
+future browser release. Reopen a deferred gap if a selected consumer trace
+exercises it or a real rendering failure depends on it. Other child/layered
+integration requirements are not automatically waived.
+
+Next work is R2 deterministic observer registration/rearm and lifetime proof,
+then R3 efficient backend image sharing/completion and real-consumer profiling.
+Physical-GPU and actual Classic/Open Luna desktop checks remain required for
+their acceptance claims. This decision does not authorize a master merge or
+declare all G4 gates passed.
+
 This follows published main `1dfc5128` / Wine `61929ac`. Border/repaint controls
 are verified in `CHROMIUM_GRAPHICS_G4_BORDER_VERIFIED_20261021.md`; G4 is NOT
 complete. No production change after that checkpoint is part of this diagnostic.

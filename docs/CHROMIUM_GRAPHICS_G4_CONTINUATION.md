@@ -3,7 +3,10 @@
 
 Latest: `CHROMIUM_GRAPHICS_G4_BORDER_VERIFIED_20261021.md` records R1 border
 implementation and 24-group verification. Earlier border-stub descriptions are
-historical. G4 is still incomplete; next is four-layer HWND integration.
+historical. The user subsequently approved deferring the demonstrated bottom
+child-clipping and simultaneous top/bottom-target gaps for the Chromium track;
+see the scope decision in `CHROMIUM_GRAPHICS_G4_HWND_INTEGRATION_20261021.md`.
+Next is R2 deterministic synchronization/lifetime proof, then R3 efficient delivery.
 `CHROMIUM_GRAPHICS_G4_HWND_INTEGRATION_20261021.md` now records reproducible
 bottom-child clipping and dual-target failures on both software backends. Use
 the separate --hwnd-integration gate; 24 established controls still pass.
