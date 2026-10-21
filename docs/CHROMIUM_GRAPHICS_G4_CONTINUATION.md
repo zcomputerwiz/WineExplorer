@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+RELOCATION ALL-CLEAR received. Read `CHROMIUM_GRAPHICS_G4_DISK_CLEANUP_20261021.md`:
+removed only62 obsolete stopped prefix copies (~111GiB), keeping evidence,
+current r4 runs/builds/runtimes/profile proofs and all other workers' trees.
+The STOP below is historical and lifted. User asks to resume the one selected
+resize-border item; inspect the saved frozen PNGs first. No production fix yet.
+
 STOP FOR DEBIAN RELOCATION: read
 `CHROMIUM_GRAPHICS_G4_RELOCATION_CHECKPOINT_20261021.md` first. User is moving
 Debian's virtual disk. Do not access/start WSL until explicit all-clear. Owned
