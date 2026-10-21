@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "status": "IN_PROGRESS_NOT_MERGE_READY",
+  "branch": "codex/g4-r1-completion",
+  "wine_commit": "48000ca83d2240c4dd5d0101d4ebff5fc76f6b74",
+  "parent_revision": "The commit containing this checkpoint; git log -1 -- this file",
+  "previous_checkpoint": "CHROMIUM_GRAPHICS_G4_CHECKPOINT_20261020_RESUMED.json at Wine 273cacd; evidence remains historical",
+  "report": "CHROMIUM_GRAPHICS_G4_BACKGROUND_20261020.md",
+  "status_report": "CHROMIUM_GRAPHICS_G4_STATUS_20261020.md",
+  "build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+  "configure_archs": "i386,x86_64",
+  "evidence_root": "/var/tmp/wex-g4-tree-20261020",
+  "classification": "Isolated Xvfb software-driver functional controls, not physical GPU, shell/theme or security acceptance",
+  "launcher": "scripts/run-isolated-graphics.py --socket-root /var/tmp/wex-g4-tree-20261020/isolated-sockets -- COMMAND",
+  "private_binding_iid_unchanged": "bc193c8b-df4f-4c75-8a59-0ab8ffccdc0b",
+  "binary_sha256": {
+    "x86_64/dcomp.dll": "c1f4fea4c3518202498264ad337b35a068503c4915de3a2fd9946db4e0e86d12",
+    "i386/dcomp.dll": "af4e1b820f4e8f170934fdfa427a4139ded59da171ca172c2ab0918316cf39c7",
+    "x86_64/dxgi.dll": "3f18181466ae1a7c4a3685e17f989a1fc3d2411f9c9e738850c96a09bedbce6c",
+    "i386/dxgi.dll": "7556caebc204a700dfe2a0277d2a5656af1ddf5000ec3582d983cf67d0f1ae6f",
+    "x86_64/wined3d.dll": "6f938cb57c30d20a9393959b4e4b60533c2f5af55345ed9aba75fca1f879c9bb",
+    "i386/wined3d.dll": "34f4397da7af41a4bd8ed01808d52668be8666e4a75a3d15d38547f3b9a43de1",
+    "native/win32u.so": "13f2a4c35ae3a12c0e3ca2fc2afb4820da05aba3253033a521e35da7d80819d8",
+    "native/winex11.so": "b688da4f7631fa7e1728b090e2a1dd3442d9c614dfff6c18468baf19964db3df"
+  },
+  "controls": {
+    "background-window-life-21-gl": {"status": "PASS_BOTH_ARCHS", "groups_per_arch": 21},
+    "background-window-life-21-vk": {"status": "PASS_BOTH_ARCHS", "groups_per_arch": 21, "icd": "/usr/share/vulkan/icd.d/lvp_icd.json"},
+    "background-hresult-detach": {"status": "PASS_BOTH_ARCHS", "scope": "Final duplicate-layer HRESULT, independent unused lower layer, detach and recreation"},
+    "background-window-life-g0-g3": {"status": "PASS_BOTH_ARCHS", "scope": "G0-G3 plus eleven ordering groups"},
+    "background-window-life-pacing": {"status": "PASS_BOTH_ARCHS", "groups_per_arch": 5},
+    "background-window-life-webgl": {"status": "PASS_DIAGNOSTIC_ONLY", "contexts": ["webgl", "webgl2"], "default_and_fbo_pixels": true, "samples": 20, "frames": 568},
+    "background-window-life-electron": {"status": "PASS_DIAGNOSTIC_ONLY", "lifecycle_checks": 7, "samples": 34, "post_reload_frames": 626},
+    "background-window-life-frozen-electron": {"status": "PASS_DIAGNOSTIC_ONLY", "samples": 24, "frames": 1088, "actual_front_window_inspected": true, "actual": "One blue square at x=160, correct frozen text and uniform cream background"}
+  },
+  "control_revision_note": "Full 21 groups and G0-G3 ran before the final HRESULT-only target-create correction; the focused exact-HRESULT detach control, real consumers and pacing ran on the final build. Rendering code unchanged.",
+  "private_runtimes": "Reuse the lawful private caches recorded in the previous checkpoint; no payload, SDK or screenshot belongs in Git/ISO",
+  "open": [
+    "R1 automatic WM_PAINT and expose without a new Commit or Present",
+    "R1 soft border/AA, simultaneous top/bottom tree and native child ordering, general layered/DirectX underlays and foreign-thread target startup",
+    "R2 deterministic registration/rearm races, allocation faults, creator death and broad leak/order proof",
+    "R3 efficient cross-process backend GPU sharing/completion and private DXVK interop",
+    "Broader maintained consumer/profile/restart and actual sandbox containment evidence",
+    "Inherited upstream DXGI 67 failures and D3D11 exit 5 at legacy sharing, not waived",
+    "Actual installed Classic/Open Luna, X11 compositor OFF/ON, Wayland/wexcomp and physical older Intel/AMD/Nvidia matrix; WSL lacks /dev/dri"
+  ],
+  "prohibitions": ["No master merge", "No sandbox bypass", "No proprietary payload/art publication", "No unreviewed OOBE/token import", "No shared X socket directory across parallel runs"],
+  "owned_sessions_left_running": false,
+  "one_time_usage_reset_credit_consumed": false
+}

@@ -1,5 +1,33 @@
 # Changes to stock Wine / third-party code
 
+## G4 ordinary GDI underlay retention (2026-10-20, second continuation)
+
+Wine `48000ca`, `dlls/{dcomp/device.c,dxgi/swapchain.c,wined3d/swapchain.c,
+wined3d/wined3d_private.h,win32u/dce.c,win32u/window.c,winex11.drv/bitblt.c}` and
+private `include/wine/dcomp_underlay.h`: retain the ordinary HWND GDI background
+below composition content. Cache a reference-counted DIB with prepared/active
+target surfaces, sample the separate GDI backing (never the previous screen
+output), and restore it when the last visual detaches without consuming an
+already prepared scene or rotating an unpublished producer buffer. Explicitly
+deliver that restoration to the application HWND, not the hidden producer.
+
+X11's direct-drawing optimization formerly discarded the GDI backing when a GL
+client drawable existed, causing resize feedback. A private HWND-lifetime policy
+keeps its normal backing alive and win32u keeps GDI DCs on it; live registrations
+remain separately owned/released per top/bottom target layer. Duplicate live
+layers return WINDOW_ALREADY_COMPOSED; foreign-process HWNDs are denied. These
+properties are coordination, not a security mechanism. No polling is added.
+
+Cost: cached target DIB plus ordinary HWND backing, capture/copy and underlay
+upload where needed. A fully covering eligible opaque GL leaf skips the underlay
+work; the four old producer counters do not count GDI traffic. Not zero-copy or
+a power/performance result. All 21 groups pass both PEs on software GL/lavapipe;
+G0-G3, pacing, real WebGL1/2, Electron lifecycle and inspected frozen front-window
+controls pass scoped checks. Automatic expose, general DirectX/layered/child
+ordering, soft AA, R2/R3 and actual Classic/Luna/Wayland/physical hardware remain
+open. See CHROMIUM_GRAPHICS_G4_BACKGROUND_20261020.md for negative controls and
+failed intermediate approaches; no master merge approval.
+
 ## G4 unrestricted dirty-list assembly (2026-10-20, resumed)
 
 Wine `273cacd`, `dlls/dxgi/swapchain.c`: supersedes the initial 64-rectangle

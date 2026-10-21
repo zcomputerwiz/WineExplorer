@@ -48,36 +48,40 @@ struct Scene
         D3D11_SUBRESOURCE_DATA data = {pixels, 64 * 4, 0};
         if (FAILED(dev->CreateTexture2D(&desc, &data, &pattern))) return false;
         flush_messages();
-        return true;
+        return black();
     }
-    void black()
+    bool black()
     {
         RECT rc;
-        GetClientRect(hwnd, &rc);
-        if (native_visual_control)
-        {
-            HDC window_dc = GetDC(hwnd);
-            FillRect(window_dc,&rc,(HBRUSH)GetStockObject(BLACK_BRUSH));
-            ReleaseDC(hwnd,window_dc);
-            GdiFlush();
-            return;
-        }
-        POINT point = {0, 0};
-        ClientToScreen(hwnd, &point);
-        OffsetRect(&rc, point.x, point.y);
-        // Establish the actual visible test background, not Wine's separate
-        // GDI backing bitmap underneath its OpenGL drawable. This is placement
-        // evidence, not automatic exposed-area/retained-layer repaint proof.
-        HDC dc = GetDC(NULL);
-        FillRect(dc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        ReleaseDC(NULL, dc);
+        if (!GetClientRect(hwnd, &rc)) return false;
+        // Establish an actual application underlay, not just black screen
+        // pixels that silently disagree with the window's GDI backing image.
+        HDC dc = GetDC(hwnd);
+        if (!dc) return false;
+        bool painted = FillRect(dc,&rc,(HBRUSH)GetStockObject(BLACK_BRUSH)) != 0;
+        ReleaseDC(hwnd,dc);
         GdiFlush();
+        return painted;
     }
     bool present()
     {
         ctx->CopyResource(bb, pattern);
         ctx->Flush();
         return sc->Present(0, 0) == S_OK;
+    }
+    bool black_new_area(const RECT &previous)
+    {
+        HDC dc = GetDC(hwnd);
+        RECT client;
+        if (!dc) return false;
+        int saved = SaveDC(dc);
+        bool painted = saved && GetClientRect(hwnd,&client)
+                && ExcludeClipRect(dc,previous.left,previous.top,previous.right,previous.bottom) != ERROR
+                && FillRect(dc,&client,(HBRUSH)GetStockObject(BLACK_BRUSH));
+        if (saved) RestoreDC(dc,saved);
+        ReleaseDC(hwnd,dc);
+        GdiFlush();
+        return painted;
     }
     bool pixel(int x, int y, COLORREF expected)
     {
@@ -101,6 +105,17 @@ struct Scene
         }
         printf("PIXEL_FAIL x=%d y=%d expected=%06lx actual=%06lx\n",
                x, y, (unsigned long)expected, (unsigned long)actual);
+        HDC backing = GetDC(hwnd);
+        printf("PIXEL_BACKING x=%d y=%d color=%06lx\n",x,y,
+                (unsigned long)(backing ? GetPixel(backing,x,y) : CLR_INVALID));
+        if (backing) ReleaseDC(hwnd,backing);
+        HDC whole = GetWindowDC(hwnd);
+        POINT origin = {0,0}; RECT window;
+        ClientToScreen(hwnd,&origin); GetWindowRect(hwnd,&window);
+        printf("PIXEL_SURFACE color=%06lx registered=%d\n",
+                (unsigned long)(whole ? GetPixel(whole,x+origin.x-window.left,y+origin.y-window.top) : CLR_INVALID),
+                GetPropW(hwnd,L"__wine_dcomp_underlay_top") != NULL);
+        if (whole) ReleaseDC(hwnd,whole);
         return false;
     }
     ~Scene()
@@ -112,6 +127,96 @@ struct Scene
         if (hwnd) DestroyWindow(hwnd);
     }
 };
+
+static bool paint_application_background(Scene &s, COLORREF color)
+{
+    RECT client;
+    if (!GetClientRect(s.hwnd,&client)) return false;
+    HDC dc = GetDC(s.hwnd);
+    HBRUSH brush = CreateSolidBrush(color);
+    if (!dc || !brush) { if (dc) ReleaseDC(s.hwnd,dc); if (brush) DeleteObject(brush); return false; }
+    bool painted = FillRect(dc,&client,brush) != 0;
+    DeleteObject(brush);
+    ReleaseDC(s.hwnd,dc);
+    GdiFlush();
+    return painted;
+}
+
+static bool application_background_pixels()
+{
+    const DXGI_ALPHA_MODE modes[] = {DXGI_ALPHA_MODE_IGNORE,DXGI_ALPHA_MODE_PREMULTIPLIED};
+    for (DXGI_ALPHA_MODE mode : modes)
+    {
+        Scene s;
+        if (!s.init(mode) || !paint_application_background(s,RGB(0,160,0))
+                || FAILED(s.comp->Commit()) || !s.present()) return false;
+        HDC dc = GetDC(s.hwnd);
+        COLORREF underlying = dc ? GetPixel(dc,8,8) : CLR_INVALID;
+        COLORREF uncovered = dc ? GetPixel(dc,80,80) : CLR_INVALID;
+        if (dc) ReleaseDC(s.hwnd,dc);
+        printf("APP_BACKGROUND mode=%u gdi_under_layer=%06lx gdi_uncovered=%06lx\n",
+                (unsigned int)mode,(unsigned long)underlying,(unsigned long)uncovered);
+        if (underlying != RGB(0,160,0) || uncovered != RGB(0,160,0)
+                || !s.pixel(8,8,RGB(255,0,0)) || !s.pixel(80,80,RGB(0,160,0))) return false;
+        if (FAILED(s.visual->SetOffsetX(80)) || FAILED(s.comp->Commit())
+                || !s.pixel(8,8,RGB(0,160,0)) || !s.pixel(88,8,RGB(255,0,0))) return false;
+        IDCompositionEffectGroup *effect = NULL;
+        if (FAILED(s.comp->CreateEffectGroup(&effect))) return false;
+        bool configured = SUCCEEDED(effect->SetOpacity(0.5f)) && SUCCEEDED(s.visual->SetEffect(effect));
+        release(effect);
+        if (!configured || FAILED(s.comp->Commit()) || !s.pixel(88,8,RGB(128,80,0))) return false;
+        // Repeated retained compositions must not accumulate their own output.
+        for (UINT i = 0; i < 5; ++i)
+            if (FAILED(s.comp->Commit()) || !s.pixel(88,8,RGB(128,80,0))) return false;
+        D2D_RECT_F clip = {0,0,16,64};
+        if (FAILED(s.visual->SetClip(clip)) || FAILED(s.comp->Commit())
+                || !s.pixel(88,8,RGB(128,80,0)) || !s.pixel(104,8,RGB(0,160,0))) return false;
+        if (!paint_application_background(s,RGB(0,0,160)) || !s.present()
+                || !s.pixel(88,8,RGB(128,0,80)) || !s.pixel(104,8,RGB(0,0,160))) return false;
+        // Resizing must not turn the old composed drawable into GDI input.
+        if (!SetWindowPos(s.hwnd,NULL,0,0,360,300,SWP_NOMOVE|SWP_NOZORDER)) return false;
+        flush_messages();
+        if (!s.present() || !s.pixel(88,8,RGB(128,0,80))
+                || !s.pixel(104,8,RGB(0,0,160))) return false;
+        dc = GetDC(s.hwnd);
+        underlying = dc ? GetPixel(dc,88,8) : CLR_INVALID;
+        if (dc) ReleaseDC(s.hwnd,dc);
+        if (underlying != RGB(0,0,160)) return false;
+        if (FAILED(s.visual->SetContent(NULL)) || FAILED(s.comp->Commit())
+                || !s.pixel(88,8,RGB(0,0,160))) return false;
+    }
+    return true;
+}
+
+static bool application_background_detach()
+{
+    Scene s;
+    if (!s.init() || !paint_application_background(s,RGB(0,160,0))
+            || FAILED(s.comp->Commit()) || !s.present() || !s.pixel(8,8,RGB(255,0,0))) return false;
+    IDCompositionTarget *duplicate = NULL, *lower = NULL;
+    HRESULT duplicate_hr = s.comp->CreateTargetForHwnd(s.hwnd,TRUE,&duplicate);
+    release(duplicate);
+    if (duplicate_hr != (HRESULT)0x88980800) return false; // WINDOW_ALREADY_COMPOSED
+    if (FAILED(s.comp->CreateTargetForHwnd(s.hwnd,FALSE,&lower))) return false;
+    release(lower); // An unused second layer must not remove the live target's backing.
+    if (!paint_application_background(s,RGB(0,160,0)) || !s.present()
+            || !s.pixel(8,8,RGB(255,0,0))) return false;
+    if (FAILED(s.visual->SetContent(NULL)) || FAILED(s.comp->Commit())
+            || !s.pixel(8,8,RGB(0,160,0)) || !s.pixel(80,80,RGB(0,160,0))) return false;
+    if (FAILED(s.visual->SetContent(s.sc)) || FAILED(s.comp->Commit()) || !s.present()
+            || !s.pixel(8,8,RGB(255,0,0))) return false;
+    if (FAILED(s.target->SetRoot(NULL)) || FAILED(s.comp->Commit())
+            || !s.pixel(8,8,RGB(0,160,0))) return false;
+    if (FAILED(s.target->SetRoot(s.visual)) || FAILED(s.comp->Commit()) || !s.present()
+            || !s.pixel(8,8,RGB(255,0,0))) return false;
+    release(s.target); // Destroying the target must also expose the underlay.
+    if (!s.pixel(8,8,RGB(0,160,0))) return false;
+    if (FAILED(s.comp->CreateTargetForHwnd(s.hwnd,TRUE,&s.target))
+            || FAILED(s.target->SetRoot(s.visual)) || FAILED(s.comp->Commit())
+            || !s.present() || !s.pixel(8,8,RGB(255,0,0))) return false;
+    release(s.target);
+    return s.pixel(8,8,RGB(0,160,0));
+}
 
 static bool supported_pixels_and_transactions()
 {
@@ -463,6 +568,7 @@ static bool multi_target_transactions()
             || FAILED(other.visual->SetContent(other.sc)) || FAILED(other.target->SetRoot(other.visual))
             || FAILED(other.sc->GetBuffer(0,__uuidof(ID3D11Texture2D),(void **)&other.bb))) return false;
     flush_messages();
+    if (!other.black()) return false;
     if (FAILED(s.comp->Commit()) || !s.present() || !other.present()
             || !s.pixel(4,8,RGB(255,0,0)) || !other.pixel(4,8,RGB(255,0,0))) goto done;
     if (FAILED(s.visual->SetOffsetX(8.0f)) || FAILED(other.visual->SetOffsetX(16.0f))) goto done;
@@ -618,6 +724,7 @@ done:
 static bool retained_formats_resize_and_lifetime()
 {
     Scene s;
+    RECT previous_client;
     if (!s.init() || FAILED(s.comp->Commit()) || !s.present()) return false;
     if (!s.pixel(24,24,RGB(255,0,0))) return false;
     for (int format = 0; format < 2; ++format)
@@ -643,8 +750,12 @@ static bool retained_formats_resize_and_lifetime()
         if (!s.pixel(24,24,ignore ? RGB(0,0,255) : RGB(127,0,128))) goto cleanup;
 
         // Reallocate the target surface after a real HWND resize without Commit.
-        if (!SetWindowPos(s.hwnd,NULL,0,0,360,300,SWP_NOMOVE|SWP_NOZORDER)) goto cleanup;
+        if (!GetClientRect(s.hwnd,&previous_client)
+                || !SetWindowPos(s.hwnd,NULL,0,0,360,300,SWP_NOMOVE|SWP_NOZORDER)) goto cleanup;
         flush_messages();
+        // Paint only the newly exposed application area. Never repaint old
+        // pixels: that would hide underlay feedback or preservation failures.
+        if (!s.black_new_area(previous_client)) goto cleanup;
         printf("FORMAT_STAGE format=%d ignore=%d resized\n",format,ignore);
         if (!s.present() || !s.pixel(24,24,ignore ? RGB(0,0,255) : RGB(127,0,128))) goto cleanup;
         if (!s.pixel(300,240,RGB(0,0,0))) goto cleanup;
@@ -836,6 +947,7 @@ static bool dcomp_path_stats(IDXGISwapChain1 *sc, DCompPathStats *stats)
 
 static bool opaque_retained_gpu_delivery()
 {
+    RECT previous_client;
     const char *renderer = getenv("WINE_D3D_CONFIG");
     bool gl = renderer && strstr(renderer,"renderer=gl");
     if (!gl && (!renderer || !strstr(renderer,"renderer=vulkan"))) return false;
@@ -903,8 +1015,10 @@ static bool opaque_retained_gpu_delivery()
         s.ctx->ClearRenderTargetView(view,red);
         if (FAILED(s.sc->Present(0,0)) || !s.pixel(79,8,RGB(255,0,0))
                 || !s.pixel(80,8,RGB(0,0,0)) || !s.pixel(8,40,RGB(0,0,0))) goto done;
-        if (!SetWindowPos(s.hwnd,NULL,0,0,360,300,SWP_NOMOVE|SWP_NOZORDER)) goto done;
+        if (!GetClientRect(s.hwnd,&previous_client)
+                || !SetWindowPos(s.hwnd,NULL,0,0,360,300,SWP_NOMOVE|SWP_NOZORDER)) goto done;
         flush_messages();
+        if (!s.black_new_area(previous_client)) goto done;
         s.ctx->ClearRenderTargetView(view,red);
         if (FAILED(s.sc->Present(0,0)) || !s.pixel(79,8,RGB(255,0,0))
                 || !s.pixel(300,240,RGB(0,0,0))) goto done;
@@ -1392,6 +1506,8 @@ int main(int argc, char **argv)
         {"present1_dirty_retention",present1_dirty_retention},
         {"bitmap_interpolation_transactions",bitmap_interpolation_transactions},
         {"fence_process_death_and_idle",fence_process_death_and_idle},
+        {"application_background_pixels",application_background_pixels},
+        {"application_background_detach",application_background_detach},
     };
     const char *selected = argc == 3 && !strcmp(argv[1],"--case") ? argv[2] : NULL;
     bool matched = false, passed = true;

@@ -4,9 +4,18 @@
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
 Branch: `codex/g4-r1-completion` in parent and Wine. Current Wine:
-`273cacd9affa680dbbb4ba79593da685c09e8bec`. Parent revision is the commit
+`48000ca83d2240c4dd5d0101d4ebff5fc76f6b74`. Parent revision is the commit
 containing this report. Historical Gemini acceptance totals are not current
 acceptance. Detailed chronology/failures: CHROMIUM_GRAPHICS_G4_CONTINUATION.md.
+
+Latest continuation: CHROMIUM_GRAPHICS_G4_BACKGROUND_20261020.md and
+CHROMIUM_GRAPHICS_G4_CHECKPOINT_20261020_UNDERLAY.json. The RESUMED.json is the
+previous Wine 273cacd snapshot, not current binary identities. All 21 correctness
+groups now pass both PEs/software GL/lavapipe; G0-G3 and pacing pass both PEs.
+Ordinary GDI underlay survives clip/move/opacity/resize/detach/target recreation.
+Real strict WebGL1/2, Electron lifecycle and inspected frozen front-window image
+remain passing diagnostics. Automatic expose/repaint, full borders/AA and the
+remaining R2-R4 gates below are still open.
 
 ## Actual progress
 

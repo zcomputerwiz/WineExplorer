@@ -60,6 +60,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wine-build', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--wine-debug', default='-all,+winediag',
+                        help='Wine diagnostic channels (recorded with the run environment)')
     parser.add_argument('--full-suite', action='store_true')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
@@ -71,7 +73,8 @@ def main():
                         'multi_target_transactions', 'reparented_tree_lifetime', 'fence_capacity_and_reclaim',
                         'opaque_retained_gpu_delivery', 'opaque_multilayer_gpu_delivery',
                         'video_capability_consistency', 'multisample_format_capabilities', 'present1_dirty_retention',
-                        'bitmap_interpolation_transactions', 'fence_process_death_and_idle'),
+                        'bitmap_interpolation_transactions', 'fence_process_death_and_idle',
+                        'application_background_pixels', 'application_background_detach'),
                         help='Run one named G4 regression for controlled before/after comparisons')
     parser.add_argument('--upstream-tests', action='store_true',
                         help='Run built upstream d3d11/dxgi suites for both architectures; retain failures')
@@ -132,7 +135,7 @@ def main():
                            key not in ('LD_PRELOAD', 'LD_LIBRARY_PATH', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY')}
             environment.update(DISPLAY=':' + number, WINE=str(wine), WINESERVER=str(server),
                                WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b',
-                               WINEDEBUG='-all,+winediag', LIBGL_ALWAYS_SOFTWARE='1',
+                               WINEDEBUG=args.wine_debug, LIBGL_ALWAYS_SOFTWARE='1',
                                WINE_D3D_CONFIG='renderer=' + args.renderer)
             if args.renderer == 'vulkan':
                 environment.update(VK_DRIVER_FILES=str(icd), VK_ICD_FILENAMES=str(icd))
@@ -212,7 +215,8 @@ def main():
                                 'video_capability_consistency=PASS',
                                 'multisample_format_capabilities=PASS',
                                 'present1_dirty_retention=PASS', 'bitmap_interpolation_transactions=PASS',
-                                'fence_process_death_and_idle=PASS')
+                                'fence_process_death_and_idle=PASS', 'application_background_pixels=PASS',
+                                'application_background_detach=PASS')
                 if args.g4_case:
                     required = (args.g4_case + '=PASS',)
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
