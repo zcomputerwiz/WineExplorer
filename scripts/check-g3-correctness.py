@@ -56,6 +56,28 @@ def matching_servers(server, prefix):
     return matches
 
 
+def configure_private_theme(wine, environment, output, label, mode, style):
+    """Only the runner's newly allocated prefix; never an installed/user prefix."""
+    if mode == 'default':
+        return []
+    key = r'HKCU\Software\Microsoft\Windows\CurrentVersion\ThemeManager'
+    values = [('ThemeActive', '0' if mode == 'classic' else '1')]
+    if mode == 'open-luna':
+        values += [('DllName', 'Z:' + str(style).replace('/', '\\')),
+                   ('ColorName', 'NormalColor'), ('SizeName', 'NormalSize')]
+    records = []
+    for name, value in values:
+        command = [str(wine), 'reg', 'add', key, '/v', name, '/t', 'REG_SZ', '/d', value, '/f']
+        result = run_logged(command, environment, output, label + '-theme-' + name, 90)
+        records.append({'command': command, 'exit_code': result.returncode})
+        if result.returncode:
+            raise RuntimeError('Private theme setup failed: ' + name)
+    environment['WEX_G4_THEME_EXPECT'] = mode
+    if style:
+        environment['WEX_G4_THEME_STYLE'] = 'Z:' + str(style).replace('/', '\\')
+    return records
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wine-build', type=Path, required=True)
@@ -71,6 +93,12 @@ def main():
                         help='Separate test-process IAT-instrumented Wine fence interleaving/fault controls')
     parser.add_argument('--nonclient-diagnostic', action='store_true',
                         help='Separate native-caption baseline/preservation diagnostic; may fail before D3D setup')
+    parser.add_argument('--theme-mode', choices=('default', 'classic', 'open-luna'), default='default',
+                        help='Configure only this run\'s new prefixes before launching probes')
+    parser.add_argument('--theme-style', type=Path,
+                        help='Locally built open Luna style, required for --theme-mode open-luna')
+    parser.add_argument('--x11-unmanaged', action='store_true',
+                        help='Private-prefix unmanaged windows: Wine draws Classic frames without a host WM')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
     parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions',
@@ -94,6 +122,13 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.theme_mode == 'open-luna' and not args.theme_style:
+        parser.error('--theme-mode open-luna requires --theme-style')
+    if args.theme_style and args.theme_mode != 'open-luna':
+        parser.error('--theme-style is only valid with --theme-mode open-luna')
+    theme_style = args.theme_style.resolve(strict=True) if args.theme_style else None
+    if (args.theme_mode != 'default' or args.x11_unmanaged) and (args.full_suite or args.upstream_tests):
+        parser.error('Explicit theme/window-manager controls are supported only by the standalone probes')
     if args.nonclient_diagnostic and (args.fence_interleaving or args.hwnd_integration or args.upstream_tests
                                      or args.g4_correctness or args.full_suite or args.g4_case or args.memory_profile):
         parser.error('--nonclient-diagnostic must run separately from other suites')
@@ -165,6 +200,11 @@ def main():
                 environment['WEX_G4_MEMORY_TRACE'] = '1'
             result['memory_profile'] = args.memory_profile
             result['test_process_iat_instrumentation'] = args.fence_interleaving
+            result['theme_mode'] = args.theme_mode
+            result['x11_unmanaged'] = args.x11_unmanaged
+            if theme_style:
+                result['theme_style'] = str(theme_style)
+                result['theme_style_sha256'] = hashlib.sha256(theme_style.read_bytes()).hexdigest()
             result['display'] = environment['DISPLAY']
             result['environment'] = {key: environment[key] for key in
                                      ('DISPLAY', 'WINE', 'WINESERVER', 'WINEDLLOVERRIDES',
@@ -218,6 +258,13 @@ def main():
                 prefix = root / arch
                 prefixes.append(prefix)
                 env = dict(environment, WINEPREFIX=str(prefix))
+                theme_setup = configure_private_theme(wine, env, output, arch, args.theme_mode, theme_style)
+                if args.x11_unmanaged:
+                    setup = [str(wine), 'reg', 'add', r'HKCU\Software\Wine\X11 Driver',
+                             '/v', 'Managed', '/t', 'REG_SZ', '/d', 'N', '/f']
+                    configured = run_logged(setup, env, output, arch + '-unmanaged', 90)
+                    if configured.returncode:
+                        raise RuntimeError('Private unmanaged-window setup failed')
                 command = [str(wine), str(exe)]
                 if args.nonclient_diagnostic:
                     command.append('--nonclient-diagnostic')
@@ -272,7 +319,10 @@ def main():
                     required = ('application_nonclient_preservation=PASS',)
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
-                                         'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
+                                         'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest(),
+                                         'theme_setup': theme_setup}
+                if args.x11_unmanaged:
+                    result['cases'][arch]['x11_setup'] = {'command': setup, 'exit_code': configured.returncode}
                 print(arch, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
             if not all(case['passed'] for case in result['cases'].values()):
                 raise RuntimeError('Graphics regressions failed; inspect each retained log and compare baseline')

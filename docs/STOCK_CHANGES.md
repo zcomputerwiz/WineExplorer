@@ -1,5 +1,14 @@
 # Changes to stock Wine / third-party code
 
+## G4 X11 startup caption clipping (2026-10-21)
+
+Wine `54bc44a`, `dlls/winex11.drv/window.c`: apply legacy window-region origin
+adjustment only without client-side graphics. Surface shapes are already in
+drawable coordinates; shifting them again clipped real Chromium startup frames.
+Both PEs pass default/open Luna and explicit unmanaged Classic caption checks;
+all28 correctness groups pass GL/lavapipe. Evidence and remaining desktop gates:
+CHROMIUM_GRAPHICS_G4_CAPTION_FIXED_20261021.md.
+
 ## G4 R2 event and WoW64 Vulkan allocation ownership (2026-10-21)
 
 Wine `2c1e3ef`, `dlls/d3d11/{device.c,d3d11_private.h}`: pending fence waiters

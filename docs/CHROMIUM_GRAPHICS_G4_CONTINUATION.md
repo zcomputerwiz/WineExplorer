@@ -1,6 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_CAPTION_FIXED_20261021.md`, Wine `54bc44a`.
+Startup caption is repaired: no longer double-offset a client-side X11 surface
+shape. Actual Electron initial shape/screenshot, both-PE default/open Luna/
+unmanaged Classic captions, all28 groups GL/lavapipe, GL lifecycle and VK
+GPU-child recovery pass. Do not resume obsolete caption/dirty-clip hypotheses.
+Remaining R2/R3 and actual desktop/hardware gates remain open; no master merge.
+Use the new report for exact lab paths, hashes and negative controls.
+
 Newest: `CHROMIUM_GRAPHICS_G4_GPU_RECOVERY_20261021.md`. Real Electron owned GPU
 child termination/replacement/context recreation passes GL/lavapipe. All28 old
 groups pass both PEs. Caption absence predates the fault; its separate settled

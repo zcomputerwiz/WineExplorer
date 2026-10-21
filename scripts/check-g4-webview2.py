@@ -225,7 +225,8 @@ def main():
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
     payload_hashes = {str(path): digest(path) for path in payloads}
-    stack_files = [wine, server, build / 'dlls/win32u/win32u.so']
+    stack_files = [wine, server, build / 'dlls/win32u/win32u.so',
+                   build / 'dlls/winex11.drv/winex11.so']
     stack_files += [build / 'dlls' / module / (arch + '-windows') / (module + '.dll')
                     for module in ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'win32u')
                     for arch in ('x86_64', 'i386')]

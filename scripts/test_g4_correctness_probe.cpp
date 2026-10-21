@@ -132,6 +132,29 @@ struct Scene
     }
 };
 
+static bool verify_requested_theme()
+{
+    char mode[32], expected_path[1024];
+    if (!GetEnvironmentVariableA("WEX_G4_THEME_EXPECT",mode,sizeof(mode))) return true;
+    HMODULE module = LoadLibraryW(L"uxtheme.dll");
+    typedef BOOL (WINAPI *Active)();
+    typedef HRESULT (WINAPI *Current)(LPWSTR,int,LPWSTR,int,LPWSTR,int);
+    Active active = module ? (Active)(void *)GetProcAddress(module,"IsThemeActive") : NULL;
+    Current current = module ? (Current)(void *)GetProcAddress(module,"GetCurrentThemeName") : NULL;
+    WCHAR file[1024] = {}, expected[1024] = {}, color[80] = {}, size[80] = {};
+    bool enabled = active && active();
+    HRESULT hr = current ? current(file,ARRAYSIZE(file),color,ARRAYSIZE(color),size,ARRAYSIZE(size)) : E_FAIL;
+    bool ok = !strcmp(mode,"classic") && active && !enabled;
+    if (!strcmp(mode,"open-luna") && enabled && SUCCEEDED(hr)
+            && GetEnvironmentVariableA("WEX_G4_THEME_STYLE",expected_path,sizeof(expected_path))
+            && MultiByteToWideChar(CP_UTF8,0,expected_path,-1,expected,ARRAYSIZE(expected)))
+        ok = !_wcsicmp(file,expected) && !wcscmp(color,L"NormalColor") && !wcscmp(size,L"NormalSize");
+    printf("THEME_MODE mode=%s active=%u hr=%08lx path=%ls color=%ls size=%ls verified=%u\n",
+            mode,enabled ? 1u : 0u,(unsigned long)hr,file,color,size,ok ? 1u : 0u);
+    if (module) FreeLibrary(module);
+    return ok;
+}
+
 static bool application_nonclient_preservation()
 {
     Scene s;
@@ -162,6 +185,22 @@ static bool application_nonclient_preservation()
         Sleep(10);
     }
     printf("NONCLIENT_BASELINE x=%ld y=%ld color=%06lx\n",sample.x,sample.y,(unsigned long)color);
+    {
+        HDC backing = GetWindowDC(s.hwnd);
+        RECT clip = {};
+        int region = backing ? GetClipBox(backing,&clip) : ERROR;
+        COLORREF pixel = backing ? GetPixel(backing,100,top / 2) : CLR_INVALID;
+        printf("NONCLIENT_BACKING pixel=%06lx clip_type=%d clip=%ld,%ld,%ld,%ld hwnd=%p\n",
+                (unsigned long)pixel,region,clip.left,clip.top,clip.right,clip.bottom,(void *)s.hwnd);
+        if (backing) ReleaseDC(s.hwnd,backing);
+        HRGN shape = CreateRectRgn(0,0,0,0);
+        RECT box = {};
+        int type = shape ? GetWindowRgn(s.hwnd,shape) : ERROR;
+        if (shape) GetRgnBox(shape,&box);
+        printf("NONCLIENT_SHAPE type=%d box=%ld,%ld,%ld,%ld caption_inside=%d\n",type,
+                box.left,box.top,box.right,box.bottom,shape ? PtInRegion(shape,100,top / 2) : -1);
+        if (shape) DeleteObject(shape);
+    }
     if (color == CLR_INVALID || color == RGB(0,0,0) || stable < 25) return false; // settled native caption required
     auto visible = [&](const char *stage) {
         if (GetAncestor(WindowFromPoint(sample),GA_ROOT) != s.hwnd) return false;
@@ -2103,7 +2142,7 @@ int main(int argc, char **argv)
 {
     if (argc == 2 && !strcmp(argv[1],"--nonclient-diagnostic"))
     {
-        bool passed = application_nonclient_preservation();
+        bool passed = verify_requested_theme() && application_nonclient_preservation();
         printf("application_nonclient_preservation=%s\n",passed ? "PASS" : "FAIL");
         return passed ? 0 : 1;
     }
@@ -2148,6 +2187,7 @@ int main(int argc, char **argv)
         return fence_creator_child((HANDLE)(UINT_PTR)ipc,(HANDLE)(UINT_PTR)ready,
                 (HANDLE)(UINT_PTR)finish,(DWORD)parent);
     }
+    if (!verify_requested_theme()) return 1;
     const struct { const char *name; bool (*run)(); } cases[] = {
         {"supported_pixels_and_transactions",supported_pixels_and_transactions},
         {"unsupported_properties_fail_honestly",unsupported_properties_fail_honestly},

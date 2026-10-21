@@ -3,6 +3,13 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_CAPTION_FIXED_20261021.md`. Wine `54bc44a`
+repairs a doubled X11 surface-shape offset, verified on actual initial Electron
+window before resize. Both PEs pass default/open Luna/unmanaged Classic caption
+controls and all28 groups on GL/lavapipe. Managed Classic needs a host WM.
+Real GL lifecycle and lavapipe GPU-child recovery pass. This supersedes the
+startup-caption OPEN designation below, not the remaining R2/R3/desktop gates.
+
 Newest: `CHROMIUM_GRAPHICS_G4_GPU_RECOVERY_20261021.md`. One real Electron GPU
 child kill/context recreation passes both software backends without renderer
 restart or ANGLE fallback; all28 established correctness groups still pass both
