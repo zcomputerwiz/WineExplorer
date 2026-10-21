@@ -77,5 +77,77 @@ class RestartOwnership(unittest.TestCase):
             self.read(self.prior)
 
 
+class GPURecovery(unittest.TestCase):
+    def result(self):
+        pixel = dict(available=True, lost=False, defaultError=0, textureError=0,
+                     framebufferStatus=36053, defaultPixel=[255, 0, 0, 255],
+                     texturePixel=[0, 255, 0, 255], renderer='ANGLE D3D11 lab adapter')
+        before = dict(contexts={name: copy.deepcopy(pixel) for name in ('webgl', 'webgl2')},
+                      gpu={'pid': 100, 'creationTime': 1}, rendererPid=200,
+                      features={'gpu_compositing': 'enabled'}, frames=10)
+        after = copy.deepcopy(before)
+        after.update(gpu={'pid': 101, 'creationTime': 2}, laterFrames=20,
+                     oldLost={name: {'events': 1, 'lost': True} for name in ('webgl', 'webgl2')})
+        return dict(passed=True, before=before, after=after,
+                    fault={'pid': 100, 'creationTime': 1, 'requested': True}, rendererExits=[],
+                    exits=[{'type': 'GPU', 'reason': 'killed', 'exitCode': 1}])
+
+    def parse(self, result):
+        return consumer.recovery_result(self.log(result))
+
+    def log(self, result):
+        return ('10 ms gpu recovery fault ' + json.dumps(result['fault']) + '\n'
+                + ''.join('11 ms child process gone ' + json.dumps(item) + '\n' for item in result['exits'])
+                + '12 ms gpu recovery result ' + json.dumps(result) + '\n')
+
+    def test_complete_recovery(self):
+        self.assertTrue(self.parse(self.result())['passed'])
+        log = self.log(self.result())
+        for suffix in ('13 ms renderer gone {}\n',
+                       '13 ms child process gone {"type":"GPU","reason":"crashed","exitCode":1}\n'):
+            self.assertFalse(consumer.recovery_result(log + suffix)['passed'])
+
+    def test_reject_missing_fault_wrong_pixels_fallback_or_unproven_recovery(self):
+        changes = [lambda r: r.update(passed=False), lambda r: r.update(fault=None),
+                   lambda r: r['fault'].update(pid=999), lambda r: r['after']['gpu'].update(pid=100),
+                   lambda r: r['after'].update(rendererPid=201), lambda r: r.update(rendererExits=[{}]),
+                   lambda r: r['after'].update(laterFrames=10), lambda r: r.update(exits=[]),
+                   lambda r: r['exits'].append(copy.deepcopy(r['exits'][0])),
+                   lambda r: r['exits'][0].update(reason='clean-exit'),
+                   lambda r: r['exits'][0].update(exitCode=0),
+                   lambda r: r['after']['oldLost']['webgl'].update(events=0),
+                   lambda r: r['after']['contexts']['webgl2'].update(defaultPixel=[0, 0, 0, 0]),
+                   lambda r: r['after']['contexts']['webgl'].update(renderer='SwiftShader'),
+                   lambda r: r['after']['features'].update(gpu_compositing='disabled_software')]
+        for change in changes:
+            result = self.result()
+            change(result)
+            with self.subTest(result=result):
+                self.assertFalse(self.parse(result)['passed'])
+        for log in ('', '12 ms gpu recovery result null\n', '12 ms gpu recovery result []\n'):
+            self.assertFalse(consumer.recovery_result(log)['passed'])
+
+    def test_only_exact_single_injected_crash_is_allowlisted(self):
+        animation = dict(state='animation_progressing', navigation_succeeded=True,
+                         chromium_log_present=True, errors={name: 0 for name in
+                         ('gl_allowlist', 'warp_initialization', 'd3d11_output',
+                          'directcomposition_output', 'gpu_process_crash', 'fatal_log',
+                          'skia_surface', 'shared_context')})
+        animation['errors']['gpu_process_crash'] = 1
+        self.assertTrue(consumer.recovery_acceptance(animation, {'passed': True}))
+        for count in (0, 2):
+            value = copy.deepcopy(animation)
+            value['errors']['gpu_process_crash'] = count
+            self.assertFalse(consumer.recovery_acceptance(value, {'passed': True}))
+        value = copy.deepcopy(animation)
+        value['errors']['fatal_log'] = 1
+        self.assertFalse(consumer.recovery_acceptance(value, {'passed': True}))
+        value = copy.deepcopy(animation)
+        del value['errors']['fatal_log']
+        value['errors']['unknown'] = 0
+        self.assertFalse(consumer.recovery_acceptance(value, {'passed': True}))
+        self.assertFalse(consumer.recovery_acceptance(animation, {'passed': False}))
+
+
 if __name__ == '__main__':
     unittest.main()

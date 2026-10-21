@@ -1,6 +1,13 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_GPU_RECOVERY_20261021.md`. Real Electron owned GPU
+child termination/replacement/context recreation passes GL/lavapipe. All28 old
+groups pass both PEs. Caption absence predates the fault; its separate settled
+plain-GDI baseline fails in headless Wine before D3D but passes both native PEs.
+Next trace baseline NC painting/installed WM, then remaining R2/R3. No production
+Wine edit retained, no merge; source1dcd479, rebuilt win32u.so identity in report.
+
 Newest progress: `CHROMIUM_GRAPHICS_G4_RESTART_SYNC_20261021.md`.
 Real Electron process restart/persistent-cookie proof and lifecycle pass both
 software backends. Separate test-process IAT instrumentation proves signal during

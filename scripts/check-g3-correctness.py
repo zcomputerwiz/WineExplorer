@@ -69,6 +69,8 @@ def main():
                         help='Separate G4 HWND child/layer integration gate; failures remain open')
     parser.add_argument('--fence-interleaving', action='store_true',
                         help='Separate test-process IAT-instrumented Wine fence interleaving/fault controls')
+    parser.add_argument('--nonclient-diagnostic', action='store_true',
+                        help='Separate native-caption baseline/preservation diagnostic; may fail before D3D setup')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
     parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions',
@@ -92,6 +94,9 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.nonclient_diagnostic and (args.fence_interleaving or args.hwnd_integration or args.upstream_tests
+                                     or args.g4_correctness or args.full_suite or args.g4_case or args.memory_profile):
+        parser.error('--nonclient-diagnostic must run separately from other suites')
     if args.fence_interleaving and (args.hwnd_integration or args.upstream_tests or args.g4_correctness
                                    or args.full_suite or args.g4_case or args.memory_profile):
         parser.error('--fence-interleaving must run separately from other suites')
@@ -206,11 +211,16 @@ def main():
                 if args.fence_interleaving:
                     probe_name = 'test_g4_fence_interleaving_probe.cpp'
                     exe = output / ('g4-fence-interleaving-' + arch + '.exe')
+                if args.nonclient_diagnostic:
+                    probe_name = 'test_g4_correctness_probe.cpp'
+                    exe = output / ('g4-nonclient-' + arch + '.exe')
                 probes.compile_probe(source / probe_name, exe, compiler)
                 prefix = root / arch
                 prefixes.append(prefix)
                 env = dict(environment, WINEPREFIX=str(prefix))
                 command = [str(wine), str(exe)]
+                if args.nonclient_diagnostic:
+                    command.append('--nonclient-diagnostic')
                 if args.g4_case:
                     command.extend(('--case', args.g4_case))
                 run = run_logged(command, env, output, arch, 120)
@@ -258,6 +268,8 @@ def main():
                 if args.fence_interleaving:
                     required = ('fence_signal_during_registration_and_callback_tail=PASS',
                                 'fence_registration_failure_rollback=PASS')
+                if args.nonclient_diagnostic:
+                    required = ('application_nonclient_preservation=PASS',)
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}

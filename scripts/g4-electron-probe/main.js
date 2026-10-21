@@ -12,6 +12,104 @@ function log(event, data) {
   fs.appendFileSync(logPath, `${Date.now() - started} ms ${event} ${JSON.stringify(data)}\n`);
 }
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const childExits = [], rendererExits = [];
+
+// Runs inside the ordinary sandboxed renderer, with no preload/Node access.
+function probeRecoveryPixels() {
+  window.g4Losses ||= { webgl: 0, webgl2: 0 };
+  const oldLost = Object.fromEntries(Object.entries(window.g4Contexts || {}).map(([name, item]) =>
+    [name, { lost: item.gl.isContextLost(), events: window.g4Losses[name] }]));
+  for (const item of Object.values(window.g4Contexts || {})) item.canvas.remove();
+  window.g4Contexts = {};
+  const contexts = {};
+  for (const name of ['webgl', 'webgl2']) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 32;
+    document.querySelector('input').before(canvas);
+    const gl = canvas.getContext(name, { antialias: false, preserveDrawingBuffer: true });
+    if (!gl) { contexts[name] = { available: false }; continue; }
+    window.g4Contexts[name] = { gl, canvas };
+    canvas.addEventListener('webglcontextlost', event => {
+      window.g4Losses[name]++; event.preventDefault();
+    });
+    const pixel = () => { const bytes = new Uint8Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, bytes); return Array.from(bytes); };
+    gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    const defaultPixel = pixel(), defaultError = gl.getError();
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const framebuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    const framebufferStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    gl.clearColor(0, 1, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    const texturePixel = pixel(), textureError = gl.getError();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(framebuffer); gl.deleteTexture(texture);
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    contexts[name] = { available: true, lost: gl.isContextLost(), defaultPixel, defaultError,
+      framebufferStatus, texturePixel, textureError,
+      renderer: info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null };
+  }
+  return { contexts, oldLost, frames: window.framesCount };
+}
+
+async function exerciseGPURecovery(win) {
+  let before = null, after = null, fault = null;
+  try {
+    await delay(5000);
+    const snapshot = async () => {
+      const pixels = await win.webContents.executeJavaScript(`(${probeRecoveryPixels.toString()})()`);
+      const gpu = app.getAppMetrics().filter(item => item.type === 'GPU');
+      if (gpu.length !== 1 || gpu[0].pid === process.pid) throw new Error('Expected exactly one owned GPU child');
+      return { ...pixels, gpu: { pid: gpu[0].pid, creationTime: gpu[0].creationTime },
+        rendererPid: win.webContents.getOSProcessId(), features: app.getGPUFeatureStatus() };
+    };
+    before = await snapshot();
+    log('gpu recovery before', before);
+    const valid = item => item.available === true && !item.lost && item.defaultError === 0
+      && item.textureError === 0 && item.framebufferStatus === 36053
+      && JSON.stringify(item.defaultPixel) === '[255,0,0,255]'
+      && JSON.stringify(item.texturePixel) === '[0,255,0,255]'
+      && typeof item.renderer === 'string' && !/swiftshader|software rasterizer/i.test(item.renderer);
+    if (!Object.values(before.contexts).every(valid) || before.features.gpu_compositing !== 'enabled')
+      throw new Error('GPU recovery preconditions failed; no process killed');
+    // Revalidate identity immediately before killing ONLY this app's GPU child.
+    const current = app.getAppMetrics().filter(item => item.type === 'GPU');
+    if (current.length !== 1 || current[0].pid !== before.gpu.pid
+        || current[0].creationTime !== before.gpu.creationTime || childExits.length || rendererExits.length)
+      throw new Error('GPU identity changed before fault injection');
+    fault = { ...before.gpu, requested: true, ms: Date.now() - started };
+    log('gpu recovery fault', fault);
+    process.kill(fault.pid); // Win32 PID in this private Wine server, not a Linux/global PID
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      const gpu = app.getAppMetrics().filter(item => item.type === 'GPU');
+      if (childExits.some(item => item.type === 'GPU') && gpu.length === 1 && gpu[0].pid !== fault.pid) break;
+      await delay(100);
+    }
+    await delay(2000); // allow the genuine context-loss events to reach the page
+    after = await snapshot();
+    const frames = after.frames;
+    await delay(2000);
+    after.laterFrames = await win.webContents.executeJavaScript('window.framesCount');
+    const exits = childExits.filter(item => item.type === 'GPU');
+    const passed = Object.values(after.contexts).every(valid) && after.laterFrames > frames
+      && after.gpu.pid !== before.gpu.pid && after.rendererPid === before.rendererPid
+      && exits.length === 1 && rendererExits.length === 0
+      && ['webgl', 'webgl2'].every(name => after.oldLost[name]?.events >= 1)
+      && JSON.stringify(after.features) === JSON.stringify(before.features)
+      && ['webgl', 'webgl2'].every(name => after.contexts[name].renderer === before.contexts[name].renderer);
+    log('gpu recovery result', { passed, before, after, fault, exits, rendererExits });
+    if (passed) await win.webContents.executeJavaScript(`window.sceneFrozen=true;
+      box.style.transform='translateX(160px)';counter.textContent='GPU recovery verified';
+      document.body.style.background='#fff3e0';`);
+  } catch (error) {
+    log('gpu recovery result', { passed: false, before, after, fault,
+      exits: childExits.filter(item => item.type === 'GPU'), rendererExits, error: String(error) });
+  }
+}
 async function exerciseLifecycle(win) {
   const checks = {};
   const sample = () => win.webContents.executeJavaScript(`({frames:window.framesCount,
@@ -76,8 +174,8 @@ async function exerciseLifecycle(win) {
 app.setPath('userData', profile);
 app.enableSandbox();
 log('versions', { versions: process.versions, argv: process.argv, sandboxRequested: true });
-app.on('child-process-gone', (_event, details) => log('child process gone', details));
-app.on('render-process-gone', (_event, _contents, details) => log('renderer gone', details));
+app.on('child-process-gone', (_event, details) => { childExits.push(details); log('child process gone', details); });
+app.on('render-process-gone', (_event, _contents, details) => { rendererExits.push(details); log('renderer gone', details); });
 app.whenReady().then(async () => {
   if (process.env.WEX_WEBVIEW2_PROFILE_WRITE) {
     // No HTTP request is made. Chromium's persistent cookie store, not a file
@@ -117,6 +215,7 @@ app.whenReady().then(async () => {
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   fs.appendFileSync(logPath, `${Date.now() - started} ms navigation completed hr=0x00000000 success=1 web_error=0\n`);
   if (process.env.WEX_WEBVIEW2_LIFECYCLE === '1') void exerciseLifecycle(win);
+  if (process.env.WEX_WEBVIEW2_GPU_RECOVERY === '1') void exerciseGPURecovery(win);
   if (process.env.WEX_WEBVIEW2_FREEZE === '1') setTimeout(async () => {
     try {
       await win.webContents.executeJavaScript(`window.sceneFrozen=true;box.style.transform='translateX(160px)';

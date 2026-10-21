@@ -25,7 +25,7 @@ struct Scene
     bool init(DXGI_ALPHA_MODE alpha = DXGI_ALPHA_MODE_PREMULTIPLIED,
             DXGI_FORMAT format = DXGI_FORMAT_B8G8R8A8_UNORM)
     {
-        hwnd = create_window("G4 independent pixels", 256, 256, NULL);
+        if (!hwnd) hwnd = create_window("G4 independent pixels", 256, 256, NULL);
         if (native_visual_control && hwnd)
         {
             ShowWindow(hwnd,SW_SHOWNOACTIVATE);
@@ -131,6 +131,60 @@ struct Scene
         if (hwnd) DestroyWindow(hwnd);
     }
 };
+
+static bool application_nonclient_preservation()
+{
+    Scene s;
+    s.hwnd = create_window("NC",256,256,NULL);
+    if (!s.hwnd || !SetWindowPos(s.hwnd,HWND_TOPMOST,0,0,0,0,
+            SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW)) return false;
+    if (!RedrawWindow(s.hwnd,NULL,NULL,RDW_INVALIDATE|RDW_FRAME|RDW_ERASENOW|RDW_UPDATENOW)) return false;
+    flush_messages();
+    RECT window;
+    POINT client = {0,0};
+    if (!GetWindowRect(s.hwnd,&window) || !ClientToScreen(s.hwnd,&client)) return false;
+    int top = client.y - window.top;
+    if (top < 12) return false; // real caption/non-client area required
+    // Observe a blank part of the real, already-painted caption before graphics
+    // setup. Do not assume native DWM permits arbitrary GetWindowDC marker art.
+    POINT sample = {window.left + 100,window.top + top / 2};
+    COLORREF color = CLR_INVALID;
+    unsigned int stable = 0;
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        flush_messages();
+        HDC screen = GetDC(NULL);
+        COLORREF observed = screen ? GetPixel(screen,sample.x,sample.y) : CLR_INVALID;
+        if (screen) ReleaseDC(NULL,screen);
+        stable = observed == color ? stable + 1 : 0;
+        color = observed;
+        if (color != CLR_INVALID && color != RGB(0,0,0) && stable >= 25) break;
+        Sleep(10);
+    }
+    printf("NONCLIENT_BASELINE x=%ld y=%ld color=%06lx\n",sample.x,sample.y,(unsigned long)color);
+    if (color == CLR_INVALID || color == RGB(0,0,0) || stable < 25) return false; // settled native caption required
+    auto visible = [&](const char *stage) {
+        if (GetAncestor(WindowFromPoint(sample),GA_ROOT) != s.hwnd) return false;
+        COLORREF pixel = CLR_INVALID;
+        for (int attempt = 0; attempt < 100; ++attempt)
+        {
+            flush_messages(); // permit normal queued GDI surface/NC paint delivery
+            HDC screen = GetDC(NULL);
+            pixel = screen ? GetPixel(screen,sample.x,sample.y) : CLR_INVALID;
+            if (screen) ReleaseDC(NULL,screen);
+            if (pixel == color) break;
+            Sleep(10);
+        }
+        printf("NONCLIENT_PIXEL stage=%s x=%ld y=%ld expected=%06lx actual=%06lx\n",stage,sample.x,sample.y,
+                (unsigned long)color,(unsigned long)pixel);
+        return pixel == color;
+    };
+    if (!visible("plain_gdi") || !s.init() || !visible("graphics_setup") || FAILED(s.comp->Commit()) || !s.present()
+            || !s.pixel(8,8,RGB(255,0,0)) || !visible("first_present")) return false;
+    for (int i = 0; i < 4; ++i)
+        if (!s.present() || !s.pixel(8,8,RGB(255,0,0)) || !visible("changing_present")) return false;
+    return true;
+}
 
 static bool paint_application_background(Scene &s, COLORREF color)
 {
@@ -2047,6 +2101,12 @@ static void trace_virtual_space(const char *stage)
 #endif
 int main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1],"--nonclient-diagnostic"))
+    {
+        bool passed = application_nonclient_preservation();
+        printf("application_nonclient_preservation=%s\n",passed ? "PASS" : "FAIL");
+        return passed ? 0 : 1;
+    }
     if (argc == 2 && !strcmp(argv[1],"--fence-creator-abort-hypothesis"))
     {
         // Diagnostic only, NOT a required correctness case or native contract.

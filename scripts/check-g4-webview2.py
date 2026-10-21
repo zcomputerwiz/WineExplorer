@@ -82,6 +82,67 @@ def profile_result(log, expected, token):
         return {'passed': False, 'error': 'Invalid profile persistence result'}
 
 
+def recovery_result(log):
+    matches = re.findall(r'^\d+ ms gpu recovery result (.+)$', log, re.MULTILINE)
+    if len(matches) != 1:
+        return {'passed': False, 'error': 'Expected one GPU recovery result'}
+    try:
+        result = json.loads(matches[0])
+        before, after, fault = (result[key] for key in ('before', 'after', 'fault'))
+        # Cross-check the whole run, including exits AFTER the result snapshot.
+        child_records = [json.loads(value) for value in re.findall(r'^\d+ ms child process gone (.+)$', log, re.MULTILINE)]
+        gpu_exits = [item for item in child_records if item.get('type') == 'GPU']
+        faults = [json.loads(value) for value in re.findall(r'^\d+ ms gpu recovery fault (.+)$', log, re.MULTILINE)]
+        def pixels(item):
+            return (item.get('available') is True and item.get('lost') is False
+                    and item.get('defaultError') == 0 and item.get('textureError') == 0
+                    and item.get('framebufferStatus') == 36053
+                    and item.get('defaultPixel') == [255, 0, 0, 255]
+                    and item.get('texturePixel') == [0, 255, 0, 255]
+                    and isinstance(item.get('renderer'), str) and bool(item['renderer'])
+                    and not re.search('swiftshader|software rasterizer', item['renderer'], re.I))
+        checks = {
+            'pixels': all(pixels(phase['contexts'][name]) for phase in (before, after) for name in ('webgl', 'webgl2')),
+            'same_backend': all(before['contexts'][name]['renderer'] == after['contexts'][name]['renderer']
+                                for name in ('webgl', 'webgl2')),
+            'features': (before['features'].get('gpu_compositing') == 'enabled'
+                         and before['features'] == after['features']),
+            'owned_fault': (fault.get('requested') is True and fault['pid'] == before['gpu']['pid']
+                            and fault['creationTime'] == before['gpu']['creationTime']
+                            and type(fault['pid']) is int and fault['pid'] > 0),
+            'new_gpu': (type(after['gpu']['pid']) is int and after['gpu']['pid'] > 0
+                        and after['gpu']['pid'] != before['gpu']['pid']
+                        and after['gpu']['creationTime'] >= before['gpu']['creationTime']),
+            'same_renderer': (type(before['rendererPid']) is int and before['rendererPid'] > 0
+                              and before['rendererPid'] == after['rendererPid'] and result['rendererExits'] == []),
+            'context_loss': all(after['oldLost'][name]['events'] >= 1 for name in ('webgl', 'webgl2')),
+            'frames': (type(after['frames']) is int and type(after['laterFrames']) is int
+                       and after['laterFrames'] > after['frames']),
+            'one_expected_exit': (len(result['exits']) == 1 and result['exits'][0]['type'] == 'GPU'
+                                  and result['exits'][0]['reason'] in ('killed', 'crashed')
+                                  and type(result['exits'][0]['exitCode']) is int and result['exits'][0]['exitCode'] != 0),
+            'whole_run_exits': (gpu_exits == result['exits'] and faults == [fault]
+                                and not re.search(r'^\d+ ms renderer gone ', log, re.MULTILINE)),
+        }
+        result['checks'] = checks
+        result['passed'] = result.get('passed') is True and all(checks.values())
+        return result
+    except (ValueError, AttributeError, TypeError, KeyError):
+        return {'passed': False, 'error': 'Invalid/incomplete GPU recovery result'}
+
+
+def recovery_acceptance(animation, recovery):
+    """Allow exactly the injected fault signature, never a blanket crash ignore."""
+    errors = animation.get('errors', {})
+    return (recovery.get('passed') is True and animation.get('state') == 'animation_progressing'
+            and animation.get('navigation_succeeded') is True and animation.get('chromium_log_present') is True
+            and errors.get('gpu_process_crash') == 1
+            and set(errors) == {'gl_allowlist', 'warp_initialization', 'd3d11_output',
+                                'directcomposition_output', 'gpu_process_crash', 'fatal_log',
+                                'skia_surface', 'shared_context'}
+            and all(value == 0 for name, value in errors.items() if name != 'gpu_process_crash'))
+
+
 def restart_state(previous, build, renderer, payload_hashes, stack_hashes, icd_hash=None):
     """Only reuse a successful, stopped fresh run's exact private state."""
     previous = previous.resolve(strict=True)
@@ -126,6 +187,8 @@ def main():
                         help='Electron only: store/flush a fresh persistent Chromium cookie')
     parser.add_argument('--restart-from', type=Path,
                         help='Restart a successful fresh --profile-proof run using its owned prefix/profile')
+    parser.add_argument('--gpu-recovery', action='store_true',
+                        help='Separate Electron owned-GPU termination/context-recreation diagnostic')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
@@ -138,6 +201,9 @@ def main():
         parser.error('--graphics-diagnostic is supported only by the original WebView2 host')
     if (args.profile_proof or args.restart_from) and not args.electron_app:
         parser.error('--profile-proof/--restart-from require --electron-app')
+    if args.gpu_recovery and (not args.electron_app or args.lifecycle or args.freeze_scene
+                              or args.restart_from or args.seconds < 30):
+        parser.error('--gpu-recovery requires Electron, >=30 seconds, and no lifecycle/freeze/restart')
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('--renderer vulkan requires --vulkan-icd')
     icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
@@ -201,6 +267,8 @@ def main():
         environment['WEX_WEBVIEW2_FREEZE'] = '1'
     if args.lifecycle:
         environment['WEX_WEBVIEW2_LIFECYCLE'] = '1'
+    if args.gpu_recovery:
+        environment['WEX_WEBVIEW2_GPU_RECOVERY'] = '1'
     if proof:
         environment['WEX_WEBVIEW2_PROFILE_EXPECT'] = expected or ''
         environment['WEX_WEBVIEW2_PROFILE_WRITE'] = token
@@ -221,6 +289,8 @@ def main():
               'sandbox_bypass_requested': False, 'acceptance': 'NOT_PROVEN'}
     if icd:
         result.update(vulkan_icd=str(icd), vulkan_icd_sha256=digest(icd))
+    if args.gpu_recovery:
+        result['classification'] = 'Fault-injected owned GPU-process recovery; not normal/G4 acceptance'
     display = None
     read_fd, write_fd = os.pipe()
     monitor = None
@@ -229,7 +299,7 @@ def main():
     def observe():
         seen = set()
         started = time.monotonic()
-        screenshots = [8, 18]
+        screenshots = [4, 8, 18, 28] if args.gpu_recovery else [8, 18]
         with (output / 'processes.jsonl').open('w') as log:
             while not stop.wait(.25):
                 if screenshots and time.monotonic() - started >= screenshots[0]:
@@ -297,6 +367,9 @@ def main():
         else:
             result['first_failure'] = 'Host did not create its diagnostic log'
         passed = result.get('animation_diagnostic', {}).get('diagnostic_passed', False)
+        if args.gpu_recovery:
+            result['gpu_recovery_diagnostic'] = recovery_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
+            passed = recovery_acceptance(result.get('animation_diagnostic', {}), result['gpu_recovery_diagnostic'])
         if args.lifecycle:
             result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['lifecycle_diagnostic']['passed']

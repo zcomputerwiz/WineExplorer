@@ -3,6 +3,13 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_GPU_RECOVERY_20261021.md`. One real Electron GPU
+child kill/context recreation passes both software backends without renderer
+restart or ANGLE fallback; all28 established correctness groups still pass both
+PEs. Separate caption diagnostic fails before graphics in headless Wine and
+passes native controls. Startup NC painting stays OPEN; no speculative Wine fix
+was retained. Wine source remains `1dcd479`; see the new rebuilt ELF hash.
+
 Newest progress: `CHROMIUM_GRAPHICS_G4_RESTART_SYNC_20261021.md` proves real
 Electron restart/persistent cookies and seven lifecycle checks on GL/lavapipe,
 plus deterministic Wine registration/callback-tail and API-failure rollback
