@@ -3,6 +3,13 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_WEXCOMP_NATIVE_20261021.md`. Native wexcomp
+gate now actually run: real consumer front output is blank despite successful
+API/RAF checks. Independent own-process DComp displays correctly, but a producer
+child under another process's top-level does not, both PEs/Vulkan and x64 GL.
+This is a real intended-stack process-boundary attachment gap, not Openbox-only.
+Next repair private Wine/wexcomp render attachment with lifetime/visibility tests.
+
 Newest: `CHROMIUM_GRAPHICS_G4_WM_DIAGNOSTICS_20261021.md`. Primary acceptance
 must use our wexcomp stack, not the temporary Openbox compatibility fixture.
 Multi-target screen-oracle occlusion is diagnosed/corrected without weakening

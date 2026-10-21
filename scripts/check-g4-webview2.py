@@ -211,11 +211,18 @@ def main():
     parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software',
                         help='Explicit accelerated WSL Mesa D3D12 control, independently verified')
     parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none')
+    parser.add_argument('--wexcomp-bin', type=Path, help='Explicit pinned compositor: owned headless native Wayland control')
+    parser.add_argument('--wexcomp-config', type=Path, help='Project Wayland config directory for --wexcomp-bin')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
-    if args.lifecycle_visuals and (not args.lifecycle or args.seconds < 45 or not shutil.which('import')):
-        parser.error('--lifecycle-visuals requires --lifecycle, >=45 seconds and ImageMagick import')
+    if bool(args.wexcomp_bin) != bool(args.wexcomp_config):
+        parser.error('--wexcomp-bin and --wexcomp-config must be specified together')
+    if args.wexcomp_bin and (args.desktop != 'none' or args.restart_from or args.gl_driver != 'software'):
+        parser.error('Native Wayland control cannot use X11 desktop/GLX driver verification or restart reuse')
+    capture_tool = 'grim' if args.wexcomp_bin else 'import'
+    if args.lifecycle_visuals and (not args.lifecycle or args.seconds < 45 or not shutil.which(capture_tool)):
+        parser.error('--lifecycle-visuals requires --lifecycle, >=45 seconds and the selected display capture tool')
     if args.restart_from and args.desktop != 'none':
         parser.error('Desktop-mode restart controls are not yet supported')
     if args.gl_driver != 'software' and args.renderer != 'gl':
@@ -235,6 +242,8 @@ def main():
         parser.error('--renderer vulkan requires --vulkan-icd')
     icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
     build = args.wine_build.resolve(strict=True)
+    wexcomp_binary = args.wexcomp_bin.resolve(strict=True) if args.wexcomp_bin else None
+    wexcomp_config = args.wexcomp_config.resolve(strict=True) if args.wexcomp_config else None
     runtime = args.runtime.resolve(strict=True)
     host = args.host.resolve(strict=True)
     loader = host.parent / 'WebView2Loader.dll'
@@ -254,6 +263,8 @@ def main():
     payload_hashes = {str(path): digest(path) for path in payloads}
     stack_files = [wine, server, build / 'dlls/win32u/win32u.so',
                    build / 'dlls/winex11.drv/winex11.so']
+    if wexcomp_binary:
+        stack_files.append(build / 'dlls/winewayland.drv/winewayland.so')
     stack_files += [build / 'dlls' / module / (arch + '-windows') / (module + '.dll')
                     for module in ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'win32u')
                     for arch in ('x86_64', 'i386')]
@@ -325,9 +336,12 @@ def main():
         result['classification'] = 'Fault-injected owned GPU-process recovery; not normal/G4 acceptance'
     display = None
     desktop = []
+    wexcomp = None
     read_fd, write_fd = os.pipe()
     monitor = None
     stop = threading.Event()
+    capture_command = lambda path: (['grim', str(path)] if wexcomp_binary
+                                    else ['import', '-window', 'root', str(path)])
 
     def observe():
         seen = set()
@@ -343,12 +357,13 @@ def main():
                         try:
                             capture = output / ('stage-' + stage + '.png')
                             with (output / 'capture.log').open('ab') as capture_log:
-                                subprocess.run(['import', '-window', 'root', str(capture)], env=environment,
+                                subprocess.run(capture_command(capture), env=environment,
                                                stdout=capture_log, stderr=capture_log, timeout=5, check=True)
                             if not capture.is_file() or not capture.stat().st_size:
                                 raise RuntimeError('Empty lifecycle capture')
-                            tree = helpers.run_logged(['python3', '-B', str(Path(__file__).with_name('snapshot-graphics-x11.py'))],
-                                                      environment, output, 'stage-' + stage + '-x11', 10)
+                            inspect = (['wayland-info'] if wexcomp_binary else
+                                       ['python3', '-B', str(Path(__file__).with_name('snapshot-graphics-x11.py'))])
+                            tree = helpers.run_logged(inspect, environment, output, 'stage-' + stage + '-display', 10)
                             if tree.returncode:
                                 raise RuntimeError('Lifecycle X11 snapshot failed')
                             result['visual_captures'][stage] = {'path': str(capture), 'time': time.time()}
@@ -357,10 +372,10 @@ def main():
                             result['visual_capture_error'] = str(error)
                 if screenshots and time.monotonic() - started >= screenshots[0]:
                     moment = screenshots.pop(0)
-                    if shutil.which('import'):
+                    if shutil.which(capture_tool):
                         try:
                             with (output / 'capture.log').open('ab') as capture_log:
-                                subprocess.run(['import', '-window', 'root', str(output / ('screen-%d.png' % moment))],
+                                subprocess.run(capture_command(output / ('screen-%d.png' % moment)),
                                                env=environment, stdout=capture_log, stderr=capture_log,
                                                timeout=5, check=True)
                         except (OSError, subprocess.SubprocessError) as error:
@@ -372,7 +387,8 @@ def main():
                         argv = (process / 'cmdline').read_bytes().replace(b'\0', b' ').decode(errors='replace')
                         maps = [line for line in (process / 'maps').read_text().splitlines()
                                 if any(name in line.lower() for name in
-                                       ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'd3d12', 'dxcore', 'libgallium'))]
+                                       ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'd3d12', 'dxcore', 'libgallium',
+                                        'winewayland', 'winex11'))]
                         identity = (process.name, argv, tuple(maps))
                         if identity in seen:
                             continue
@@ -383,21 +399,35 @@ def main():
                     except (OSError, ProcessLookupError):
                         continue
     try:
-        with (output / 'xvfb.log').open('wb') as log:
-            display = subprocess.Popen(['Xvfb', '-displayfd', str(write_fd), '-screen', '0',
-                                        '1024x768x24', '-nolisten', 'tcp'], pass_fds=(write_fd,),
-                                       stdout=log, stderr=log, start_new_session=True)
+        if wexcomp_binary:
+            spec = importlib.util.spec_from_file_location('graphics_wexcomp', Path(__file__).with_name('graphics_wexcomp.py'))
+            compositor = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(compositor)
+            wexcomp = compositor.OwnedWexcomp(wexcomp_binary, wexcomp_config, output, environment)
+            result['wexcomp'] = wexcomp.start()
+            result['classification'] = 'Owned pinned wexcomp native Wayland/private endpoint functional control; not installed-shell acceptance'
+            result['display'] = environment['WAYLAND_DISPLAY']
+            result['desktop'] = None
+            environment['WINEDLLOVERRIDES'] += ';winex11.drv=d;winewayland.drv=b'
+            result['environment'].update({key: environment[key] for key in
+                                         ('XDG_RUNTIME_DIR', 'WAYLAND_DISPLAY', 'WINEDLLOVERRIDES')})
+        else:
+            with (output / 'xvfb.log').open('wb') as log:
+                display = subprocess.Popen(['Xvfb', '-displayfd', str(write_fd), '-screen', '0',
+                                            '1024x768x24', '-nolisten', 'tcp'], pass_fds=(write_fd,),
+                                           stdout=log, stderr=log, start_new_session=True)
         os.close(write_fd)
         write_fd = None
-        if not select.select([read_fd], [], [], 10)[0]:
-            raise TimeoutError('Owned Xvfb did not allocate a display')
-        number = os.read(read_fd, 64).strip().decode('ascii')
-        if not number.isdigit() or display.poll() is not None:
-            raise RuntimeError('Owned Xvfb failed')
-        environment['DISPLAY'] = ':' + number
-        result['display'] = environment['DISPLAY']
-        result['gl_driver_verification'] = helpers.verify_gl_driver(environment, output, args.gl_driver)
-        desktop, result['desktop'] = helpers.start_desktop(environment, output, args.desktop)
+        if not wexcomp_binary:
+            if not select.select([read_fd], [], [], 10)[0]:
+                raise TimeoutError('Owned Xvfb did not allocate a display')
+            number = os.read(read_fd, 64).strip().decode('ascii')
+            if not number.isdigit() or display.poll() is not None:
+                raise RuntimeError('Owned Xvfb failed')
+            environment['DISPLAY'] = ':' + number
+            result['display'] = environment['DISPLAY']
+            result['gl_driver_verification'] = helpers.verify_gl_driver(environment, output, args.gl_driver)
+            desktop, result['desktop'] = helpers.start_desktop(environment, output, args.desktop)
         if not args.restart_from:
             boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
             result['wineboot_exit'] = boot.returncode
@@ -441,6 +471,11 @@ def main():
                                                          expected, token)
             passed = passed and result['profile_diagnostic']['passed']
         helpers.verify_desktop(environment, desktop, result['desktop'])
+        if wexcomp:
+            wexcomp.verify()
+            maps = (output / 'processes.jsonl').read_text(errors='replace')
+            result['native_wayland_driver_observed'] = 'winewayland.so' in maps and 'winex11.so' not in maps
+            passed = passed and result['native_wayland_driver_observed']
         print(json.dumps(result, indent=2), flush=True)
         result['diagnostic_exit'] = 0 if run.returncode == 0 and passed else 4
         return result['diagnostic_exit']
@@ -466,6 +501,8 @@ def main():
         except (OSError, subprocess.SubprocessError, RuntimeError) as error:
             result['cleanup_error'] = str(error)
         helpers.stop_desktop(desktop)
+        if wexcomp:
+            wexcomp.stop()
         if display and display.poll() is None:
             os.killpg(display.pid, signal.SIGTERM)
             try:

@@ -1,6 +1,15 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_WEXCOMP_NATIVE_20261021.md`. Built pinned
+wexcomp acc46fe in owned lab and tested actual private native Wayland route.
+Real Electron has blank front content despite API progress on GL/lavapipe.
+Independent actual compositor pixels: own-process DComp PASS4096; producer-owned
+child under foreign UI root FAIL0 on x64/x86 Vulkan and x64 GL, with all producer
+Present loops exiting0. Foreign GDI also fails. Implement explicit private
+cross-process render-surface attachment; no single-process/sandbox workaround.
+Wine54bc44a/compositor sources unchanged; tests and reproducible evidence added.
+
 Newest: `CHROMIUM_GRAPHICS_G4_WM_DIAGNOSTICS_20261021.md`. User clarified:
 wexcomp is the primary acceptance stack; Openbox was only our ad-hoc test WM.
 Prioritize actual pinned wexcomp/private endpoint next. Multi-target failure

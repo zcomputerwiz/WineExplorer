@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+"""Owned compositor lifecycle and private endpoint setup; no real display required."""
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+from graphics_wexcomp import OwnedWexcomp, capture_command
+
+
+class OwnedCompositor(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='wexcomp-harness-unit-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.binary = self.root / 'compositor'
+        self.binary.write_bytes(b'test-only fixture')
+
+    def test_private_environment_and_bounded_exact_process_cleanup(self):
+        env = dict(DISPLAY=':live', WAYLAND_DISPLAY='live', DBUS_SESSION_BUS_ADDRESS='live', WAYLAND_SOCKET='99')
+        original = dict(env)
+        control = OwnedWexcomp(self.binary, self.root, self.root, env)
+        process = mock.Mock()
+        process.poll.return_value = None
+
+        def protocols(*args, **kwargs):
+            kwargs['stdout'].write(b"interface: 'wex_window_manager_v1'\n")
+
+        with mock.patch('graphics_wexcomp.subprocess.Popen', return_value=process) as launch, \
+                mock.patch('graphics_wexcomp.subprocess.run', side_effect=protocols), \
+                mock.patch.object(Path, 'is_socket', return_value=True):
+            record = control.start()
+            started_env = launch.call_args.kwargs['env']
+            for key in ('DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET', 'DBUS_SESSION_BUS_ADDRESS'):
+                self.assertNotIn(key, started_env)
+            self.assertEqual(started_env['WLR_BACKENDS'], 'headless')
+            self.assertEqual(started_env['WLR_RENDERER'], 'pixman')
+            self.assertTrue(launch.call_args.kwargs['start_new_session'])
+            self.assertEqual(env['WAYLAND_DISPLAY'], 'wex-shell-0')
+            self.assertNotIn('DISPLAY', env)
+            self.assertTrue(record['private_protocol_verified'])
+            self.assertEqual(original['DISPLAY'], ':live')
+            control.verify()
+            self.assertTrue(record['alive_at_end'])
+            control.stop()
+            process.terminate.assert_called_once()
+            process.wait.assert_called_once_with(timeout=10)
+
+    def test_existing_runtime_not_reused(self):
+        (self.root / 'wayland-runtime').mkdir()
+        control = OwnedWexcomp(self.binary, self.root, self.root, {})
+        with mock.patch('graphics_wexcomp.subprocess.Popen') as launch, self.assertRaises(FileExistsError):
+            control.start()
+        launch.assert_not_called()
+
+    def test_missing_private_protocol_is_not_success(self):
+        control = OwnedWexcomp(self.binary, self.root, self.root, {})
+        process = mock.Mock()
+        process.poll.return_value = None
+        with mock.patch('graphics_wexcomp.subprocess.Popen', return_value=process), \
+                mock.patch('graphics_wexcomp.subprocess.run'), \
+                mock.patch.object(Path, 'is_socket', return_value=True), \
+                self.assertRaisesRegex(RuntimeError, 'lacks project protocol'):
+            control.start()
+        control.stop()
+        process.terminate.assert_called_once()
+
+    def test_exited_compositor_and_capture_command(self):
+        control = OwnedWexcomp(self.binary, self.root, self.root, {})
+        with self.assertRaises(RuntimeError):
+            control.verify()
+        self.assertEqual(capture_command(self.root / 'frame.png'), ['grim', str(self.root / 'frame.png')])
+
+
+if __name__ == '__main__':
+    unittest.main()
