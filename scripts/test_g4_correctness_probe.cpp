@@ -1704,6 +1704,9 @@ static bool video_capability_consistency()
     return ok;
 }
 
+#ifdef WEX_G4_HELPERS_ONLY
+#define main included_g4_main
+#endif
 int main(int argc, char **argv)
 {
     if (argc == 2 && !strcmp(argv[1], "--native-visual-control"))
@@ -1771,3 +1774,6 @@ int main(int argc, char **argv)
     }
     return !matched ? 2 : passed ? 0 : 1;
 }
+#ifdef WEX_G4_HELPERS_ONLY
+#undef main
+#endif

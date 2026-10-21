@@ -63,6 +63,8 @@ def main():
     parser.add_argument('--wine-debug', default='-all,+winediag',
                         help='Wine diagnostic channels (recorded with the run environment)')
     parser.add_argument('--full-suite', action='store_true')
+    parser.add_argument('--hwnd-integration', action='store_true',
+                        help='Separate G4 HWND child/layer integration gate; failures remain open')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
     parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions',
@@ -84,6 +86,8 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.hwnd_integration and (args.upstream_tests or args.g4_correctness or args.full_suite or args.g4_case):
+        parser.error('--hwnd-integration must be run separately from other suites')
     if args.upstream_tests and (args.g4_correctness or args.full_suite):
         parser.error('--upstream-tests must be run separately from the custom probes')
     if args.g4_case and not args.g4_correctness:
@@ -181,6 +185,9 @@ def main():
                     continue
                 probe_name = 'test_g4_correctness_probe.cpp' if args.g4_correctness else 'test_g3_ordering_probe.cpp'
                 exe = output / (('g4-correctness-' if args.g4_correctness else 'g3-ordering-') + arch + '.exe')
+                if args.hwnd_integration:
+                    probe_name = 'test_g4_hwnd_integration_probe.cpp'
+                    exe = output / ('g4-hwnd-integration-' + arch + '.exe')
                 probes.compile_probe(source / probe_name, exe, compiler)
                 prefix = root / arch
                 prefixes.append(prefix)
@@ -223,6 +230,9 @@ def main():
                                 'application_background_detach=PASS', 'application_background_expose=PASS')
                 if args.g4_case:
                     required = (args.g4_case + '=PASS',)
+                if args.hwnd_integration:
+                    required = ('hwnd_top_child_clip=PASS', 'hwnd_bottom_child_clip=PASS',
+                                'hwnd_two_target_retention=PASS')
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
