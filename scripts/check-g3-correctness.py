@@ -67,6 +67,8 @@ def main():
                         help='Log test-process virtual address-space bounds before each G4 case')
     parser.add_argument('--hwnd-integration', action='store_true',
                         help='Separate G4 HWND child/layer integration gate; failures remain open')
+    parser.add_argument('--fence-interleaving', action='store_true',
+                        help='Separate test-process IAT-instrumented Wine fence interleaving/fault controls')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
     parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions',
@@ -90,6 +92,9 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.fence_interleaving and (args.hwnd_integration or args.upstream_tests or args.g4_correctness
+                                   or args.full_suite or args.g4_case or args.memory_profile):
+        parser.error('--fence-interleaving must run separately from other suites')
     if args.memory_profile and not args.g4_correctness:
         parser.error('--memory-profile requires --g4-correctness')
     if args.hwnd_integration and (args.upstream_tests or args.g4_correctness or args.full_suite or args.g4_case):
@@ -154,6 +159,7 @@ def main():
             if args.memory_profile:
                 environment['WEX_G4_MEMORY_TRACE'] = '1'
             result['memory_profile'] = args.memory_profile
+            result['test_process_iat_instrumentation'] = args.fence_interleaving
             result['display'] = environment['DISPLAY']
             result['environment'] = {key: environment[key] for key in
                                      ('DISPLAY', 'WINE', 'WINESERVER', 'WINEDLLOVERRIDES',
@@ -197,6 +203,9 @@ def main():
                 if args.hwnd_integration:
                     probe_name = 'test_g4_hwnd_integration_probe.cpp'
                     exe = output / ('g4-hwnd-integration-' + arch + '.exe')
+                if args.fence_interleaving:
+                    probe_name = 'test_g4_fence_interleaving_probe.cpp'
+                    exe = output / ('g4-fence-interleaving-' + arch + '.exe')
                 probes.compile_probe(source / probe_name, exe, compiler)
                 prefix = root / arch
                 prefixes.append(prefix)
@@ -246,6 +255,9 @@ def main():
                 if args.hwnd_integration:
                     required = ('hwnd_top_child_clip=PASS', 'hwnd_bottom_child_clip=PASS',
                                 'hwnd_two_target_retention=PASS')
+                if args.fence_interleaving:
+                    required = ('fence_signal_during_registration_and_callback_tail=PASS',
+                                'fence_registration_failure_rollback=PASS')
                 passed = run.returncode == 0 and all(marker in run.stdout for marker in required)
                 result['cases'][arch] = {'command': command, 'exit_code': run.returncode,
                                          'passed': passed, 'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}

@@ -7,11 +7,13 @@ host/loader. No downloading, installation, sandbox bypass or system prefix use.
 Run inside a private mount/network namespace if WSLg owns the X socket directory.
 """
 import argparse
+import fcntl
 import hashlib
 import importlib.util
 import json
 import os
 import re
+import secrets
 from pathlib import Path
 import select
 import shutil
@@ -65,6 +67,42 @@ def graphics_result(log):
         return {'passed': False, 'error': 'Invalid graphics capabilities'}
 
 
+def profile_result(log, expected, token):
+    """A caller-supplied fresh nonce must survive a complete process restart."""
+    matches = re.findall(r'^\d+ ms profile persistence (.+)$', log, re.MULTILINE)
+    if len(matches) != 1:
+        return {'passed': False, 'error': 'Expected exactly one profile persistence result'}
+    try:
+        result = json.loads(matches[0])
+        result['passed'] = (result.get('passed') is True and result.get('expected') == expected
+                            and result.get('previous') == expected and result.get('written') == token
+                            and result.get('flushed') is True)
+        return result
+    except (ValueError, AttributeError, TypeError):
+        return {'passed': False, 'error': 'Invalid profile persistence result'}
+
+
+def restart_state(previous, build, renderer, payload_hashes, stack_hashes, icd_hash=None):
+    """Only reuse a successful, stopped fresh run's exact private state."""
+    previous = previous.resolve(strict=True)
+    prior = json.loads((previous / 'results.json').read_text())
+    if (prior.get('diagnostic_exit') != 0 or 'cleanup_error' in prior
+            or prior.get('cleanup', {}).get('remaining_servers') != []
+            or prior.get('consumer') != 'Electron original fixture'
+            or prior.get('wine_build') != str(build) or prior.get('renderer') != renderer
+            or prior.get('sha256') != payload_hashes or prior.get('stack_sha256') != stack_hashes
+            or prior.get('vulkan_icd_sha256') != icd_hash
+            or prior.get('state_root') != str(previous) or prior.get('restart_from') is not None
+            or prior.get('profile_diagnostic', {}).get('passed') is not True
+            or not re.fullmatch('[0-9a-f]{32}', prior.get('profile_token', ''))):
+        raise ValueError('Restart requires a successful cleaned fresh proof run with identical binaries/backend')
+    for name in ('prefix', 'profile'):
+        path = previous / name
+        if not path.is_dir() or path.resolve(strict=True) != path:
+            raise ValueError('Restart state must be the original private nonsymlink directory')
+    return previous, prior['profile_token']
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wine-build', type=Path, required=True)
@@ -84,6 +122,10 @@ def main():
                         help='Electron fixture only: stop DOM changes at x=160 after eight seconds')
     parser.add_argument('--lifecycle', action='store_true',
                         help='Electron fixture only: injected input, wheel scroll, resize, minimize/restore and reload')
+    parser.add_argument('--profile-proof', action='store_true',
+                        help='Electron only: store/flush a fresh persistent Chromium cookie')
+    parser.add_argument('--restart-from', type=Path,
+                        help='Restart a successful fresh --profile-proof run using its owned prefix/profile')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
@@ -94,6 +136,8 @@ def main():
         parser.error('--lifecycle requires --electron-app, no --freeze-scene, and at least 25 seconds')
     if args.graphics_diagnostic and args.electron_app:
         parser.error('--graphics-diagnostic is supported only by the original WebView2 host')
+    if (args.profile_proof or args.restart_from) and not args.electron_app:
+        parser.error('--profile-proof/--restart-from require --electron-app')
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('--renderer vulkan requires --vulkan-icd')
     icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
@@ -103,7 +147,9 @@ def main():
     loader = host.parent / 'WebView2Loader.dll'
     browser = runtime / ('electron.exe' if args.electron_app else 'msedgewebview2.exe')
     wine, server = build / 'wine', build / 'server/wineserver'
-    payloads = (browser, host) if args.electron_app else (browser, host, loader)
+    payloads = ((browser, host, args.electron_app.resolve(strict=True) / 'main.js',
+                 args.electron_app.resolve(strict=True) / 'package.json')
+                if args.electron_app else (browser, host, loader))
     for path in (wine, server) + payloads:
         if not path.is_file():
             parser.error('Required file missing: ' + str(path))
@@ -112,12 +158,29 @@ def main():
         parser.error('Use an owned X socket directory in a private mount namespace')
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    prefix = output / 'prefix'
-    profile = output / 'profile'
-    profile.mkdir()
+    payload_hashes = {str(path): digest(path) for path in payloads}
+    stack_files = [wine, server, build / 'dlls/win32u/win32u.so']
+    stack_files += [build / 'dlls' / module / (arch + '-windows') / (module + '.dll')
+                    for module in ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'win32u')
+                    for arch in ('x86_64', 'i386')]
+    stack_hashes = {str(path.relative_to(build)): digest(path) for path in stack_files}
+    state_root, expected = (restart_state(args.restart_from, build, args.renderer,
+                                         payload_hashes, stack_hashes, digest(icd) if icd else None)
+                            if args.restart_from else (output, None))
+    # Refuse concurrent reuse; never kill a test running on someone else's state.
+    state_lock = (state_root / '.consumer.lock').open('a')
+    fcntl.flock(state_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    prefix = state_root / 'prefix'
+    profile = state_root / 'profile'
+    if not args.restart_from:
+        profile.mkdir()
+    proof = args.profile_proof or bool(args.restart_from)
+    token = secrets.token_hex(16) if proof else None
     spec = importlib.util.spec_from_file_location('g4_runner', Path(__file__).with_name('check-g3-correctness.py'))
     helpers = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helpers)
+    if helpers.matching_servers(server, prefix):
+        raise RuntimeError('Owned state still has a running server; refusing reuse')
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(('WINE', 'VK_', 'WEBVIEW2_', 'WEX_WEBVIEW2_', 'CHROME_'))
                    and key not in ('LD_PRELOAD', 'LD_LIBRARY_PATH', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY')}
@@ -138,6 +201,9 @@ def main():
         environment['WEX_WEBVIEW2_FREEZE'] = '1'
     if args.lifecycle:
         environment['WEX_WEBVIEW2_LIFECYCLE'] = '1'
+    if proof:
+        environment['WEX_WEBVIEW2_PROFILE_EXPECT'] = expected or ''
+        environment['WEX_WEBVIEW2_PROFILE_WRITE'] = token
     if args.trace_exceptions:
         environment['WINEDEBUG'] += ',+seh'
     if args.trace_graphics:
@@ -149,7 +215,9 @@ def main():
               'environment': {key: value for key, value in environment.items()
                               if key.startswith(('WINE', 'WEBVIEW2_', 'WEX_WEBVIEW2_', 'CHROME_'))
                               or key == 'LIBGL_ALWAYS_SOFTWARE'},
-              'sha256': {str(path): digest(path) for path in payloads},
+              'sha256': payload_hashes, 'stack_sha256': stack_hashes,
+              'state_root': str(state_root), 'profile_token': token,
+              'restart_from': str(args.restart_from.resolve()) if args.restart_from else None,
               'sandbox_bypass_requested': False, 'acceptance': 'NOT_PROVEN'}
     if icd:
         result.update(vulkan_icd=str(icd), vulkan_icd_sha256=digest(icd))
@@ -204,10 +272,13 @@ def main():
             raise RuntimeError('Owned Xvfb failed')
         environment['DISPLAY'] = ':' + number
         result['display'] = environment['DISPLAY']
-        boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
-        result['wineboot_exit'] = boot.returncode
-        if boot.returncode:
-            raise RuntimeError('Fresh prefix initialization failed')
+        if not args.restart_from:
+            boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
+            result['wineboot_exit'] = boot.returncode
+            if boot.returncode:
+                raise RuntimeError('Fresh prefix initialization failed')
+        else:
+            result['wineboot_exit'] = None  # preserve existing state; no wineboot -u rewrite
         monitor = threading.Thread(target=observe, daemon=True)
         monitor.start()
         command = [str(wine), str(host)]
@@ -232,6 +303,10 @@ def main():
         if args.graphics_diagnostic:
             result['graphics_diagnostic'] = graphics_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['graphics_diagnostic']['passed']
+        if proof:
+            result['profile_diagnostic'] = profile_result(hostlog.read_text(errors='replace') if hostlog.exists() else '',
+                                                         expected, token)
+            passed = passed and result['profile_diagnostic']['passed']
         print(json.dumps(result, indent=2), flush=True)
         result['diagnostic_exit'] = 0 if run.returncode == 0 and passed else 4
         return result['diagnostic_exit']
@@ -264,6 +339,7 @@ def main():
                 os.killpg(display.pid, signal.SIGKILL)
                 display.wait(timeout=5)
         (output / 'results.json').write_text(json.dumps(result, indent=2) + '\n')
+        state_lock.close()
         if 'cleanup_error' in result:
             raise RuntimeError(result['cleanup_error'])
 

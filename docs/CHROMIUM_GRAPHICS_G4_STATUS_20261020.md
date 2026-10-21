@@ -3,6 +3,12 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest progress: `CHROMIUM_GRAPHICS_G4_RESTART_SYNC_20261021.md` proves real
+Electron restart/persistent cookies and seven lifecycle checks on GL/lavapipe,
+plus deterministic Wine registration/callback-tail and API-failure rollback
+controls for both PEs. These narrow R2/R3 cells pass; GPU crash/device-loss,
+efficient sharing, remaining concurrency and desktop/hardware gates stay open.
+
 Latest WSL validation: `CHROMIUM_GRAPHICS_G4_WSL_VALIDATION_20261021.md`.
 All28 groups pass both PEs on GL/lavapipe; native controls prove normal shared
 fence creator exit/re-export. Forced termination differs (native UINT64_MAX vs

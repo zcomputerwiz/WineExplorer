@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Original offline fixture; no npm packages, preload or renderer Node access.
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -79,6 +79,27 @@ log('versions', { versions: process.versions, argv: process.argv, sandboxRequest
 app.on('child-process-gone', (_event, details) => log('child process gone', details));
 app.on('render-process-gone', (_event, _contents, details) => log('renderer gone', details));
 app.whenReady().then(async () => {
+  if (process.env.WEX_WEBVIEW2_PROFILE_WRITE) {
+    // No HTTP request is made. Chromium's persistent cookie store, not a file
+    // written directly by this fixture, must carry the nonce across processes.
+    const url = 'https://g4.invalid/';
+    const name = 'wex-g4-restart-proof';
+    const expected = process.env.WEX_WEBVIEW2_PROFILE_EXPECT || null;
+    const written = process.env.WEX_WEBVIEW2_PROFILE_WRITE;
+    const cookies = await session.defaultSession.cookies.get({ url, name });
+    const previous = cookies.length === 0 ? null : cookies.length === 1 ? cookies[0].value : 'DUPLICATE';
+    if (previous !== expected) {
+      log('profile persistence', { passed: false, expected, previous, written, flushed: false });
+      throw new Error('Persistent Chromium cookie did not match previous process');
+    }
+    await session.defaultSession.cookies.set({ url, name, value: written, secure: true,
+      expirationDate: Date.now() / 1000 + 3600 });
+    await session.defaultSession.cookies.flushStore();
+    const check = await session.defaultSession.cookies.get({ url, name });
+    const passed = check.length === 1 && check[0].value === written;
+    log('profile persistence', { passed, expected, previous, written, flushed: true });
+    if (!passed) throw new Error('Persistent Chromium cookie write/readback failed');
+  }
   const win = new BrowserWindow({ x: 25, y: 25, width: 740, height: 520,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
   app.getGPUInfo('complete').then(info => log('gpu info', info)).catch(error => log('gpu info failed', String(error)));

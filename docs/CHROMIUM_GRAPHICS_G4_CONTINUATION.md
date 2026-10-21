@@ -1,6 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest progress: `CHROMIUM_GRAPHICS_G4_RESTART_SYNC_20261021.md`.
+Real Electron process restart/persistent-cookie proof and lifecycle pass both
+software backends. Separate test-process IAT instrumentation proves signal during
+Wine registration/active callback tail and65 failure rollback/retry, both PEs.
+No Wine code changed (`1dcd479`); remaining R2/R3/desktop/hardware gates stay open.
+
 Newest WSL validation: `CHROMIUM_GRAPHICS_G4_WSL_VALIDATION_20261021.md`.
 All28 groups pass both PEs/GL/lavapipe; normal fence creator exit/re-export also
 passes native Windows controls. Forced creator termination differs on Windows
