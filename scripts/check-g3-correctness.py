@@ -7,6 +7,7 @@ Software Xvfb evidence is functional evidence, never physical-GPU acceptance.
 No installed runtime, live prefix, inherited override, or global cleanup is used.
 """
 import argparse
+import ctypes
 import hashlib
 import importlib.util
 import json
@@ -18,6 +19,7 @@ import signal
 import shutil
 import subprocess
 import tempfile
+import time
 
 
 def run_logged(command, environment, output, label, timeout):
@@ -99,6 +101,71 @@ def verify_gl_driver(environment, output, driver):
     return {'passed': True, 'stdout': result.stdout, 'exit_code': result.returncode}
 
 
+def desktop_selections(environment):
+    x = ctypes.CDLL('libX11.so.6')
+    x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x.XOpenDisplay.restype = ctypes.c_void_p
+    x.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x.XInternAtom.restype = ctypes.c_ulong
+    x.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x.XGetSelectionOwner.restype = ctypes.c_ulong
+    x.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    display = x.XOpenDisplay(environment['DISPLAY'].encode())
+    if not display:
+        raise RuntimeError('Cannot inspect owned desktop display')
+    try:
+        return {name: x.XGetSelectionOwner(display, x.XInternAtom(display, name.encode(), 0))
+                for name in ('WM_S0', '_NET_WM_CM_S0')}
+    finally:
+        x.XCloseDisplay(display)
+
+
+def stop_desktop(processes):
+    for process in reversed(processes):
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+
+def start_desktop(environment, output, mode):
+    """Only on the runner's newly allocated X server, never on a live desktop."""
+    if mode == 'none':
+        return [], None
+    processes = []
+    try:
+        commands = [['openbox', '--sm-disable']]
+        if mode == 'composited':
+            commands.append(['xcompmgr', '-a'])
+        for command in commands:
+            with (output / (command[0] + '.log')).open('wb') as log:
+                processes.append(subprocess.Popen(command, env=environment, stdout=log, stderr=log,
+                                                  start_new_session=True))
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            state = desktop_selections(environment)
+            if any(p.poll() is not None for p in processes):
+                raise RuntimeError('Owned desktop process exited; see desktop logs')
+            if state['WM_S0'] and bool(state['_NET_WM_CM_S0']) == (mode == 'composited'):
+                return processes, {'mode': mode, 'commands': commands, 'selections': state, 'verified': True}
+            time.sleep(.1)
+        raise RuntimeError('Owned WM/compositor selections not established')
+    except BaseException:
+        stop_desktop(processes)
+        raise
+
+
+def verify_desktop(environment, processes, record):
+    if record is not None:
+        if (any(p.poll() is not None for p in processes)
+                or desktop_selections(environment) != record['selections']):
+            raise RuntimeError('Owned desktop exited or selection ownership changed during test')
+        record['verified_at_end'] = True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wine-build', type=Path, required=True)
@@ -142,9 +209,13 @@ def main():
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software',
                         help='Explicit accelerated WSL Mesa D3D12 control; verified with glxinfo')
+    parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none',
+                        help='Owned X11 WM with outer compositor off/on; not installed shell acceptance')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Explicit ICD JSON for optional Vulkan control; no inherited driver selection')
     args = parser.parse_args()
+    if args.desktop != 'none' and args.full_suite:
+        parser.error('--desktop requires a standalone probe suite')
     if args.gl_driver != 'software' and (args.renderer != 'gl' or args.full_suite):
         parser.error('--gl-driver d3d12 requires GL and a standalone probe suite')
     if args.theme_mode == 'open-luna' and not args.theme_style:
@@ -193,6 +264,7 @@ def main():
                                  else 'Xvfb + explicitly selected Vulkan ICD functional control'),
               'cases': {}}
     display = None
+    desktop = []
     environment = None
     prefixes = []
     scratch = tempfile.TemporaryDirectory(prefix='wex-g3-correctness-', delete=False)
@@ -220,6 +292,7 @@ def main():
                                WINEDEBUG=args.wine_debug, LIBGL_ALWAYS_SOFTWARE='1',
                                WINE_D3D_CONFIG='renderer=' + args.renderer)
             configure_gl_driver(environment, args.gl_driver)
+            desktop, result['desktop'] = start_desktop(environment, output, args.desktop)
             result['gl_driver'] = args.gl_driver
             result['gl_driver_verification'] = verify_gl_driver(environment, output, args.gl_driver)
             if args.gl_driver != 'software':
@@ -357,6 +430,7 @@ def main():
                 if args.x11_unmanaged:
                     result['cases'][arch]['x11_setup'] = {'command': setup, 'exit_code': configured.returncode}
                 print(arch, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
+            verify_desktop(environment, desktop, result['desktop'])
             if not all(case['passed'] for case in result['cases'].values()):
                 raise RuntimeError('Graphics regressions failed; inspect each retained log and compare baseline')
             if args.full_suite:
@@ -396,6 +470,7 @@ def main():
                                                              'wait_exit': 0, 'remaining_servers': []})
                 except (OSError, subprocess.SubprocessError, RuntimeError) as error:
                     cleanup_errors.append(str(error))
+            stop_desktop(desktop)
             if display and display.poll() is None:
                 os.killpg(display.pid, signal.SIGTERM)
                 try:

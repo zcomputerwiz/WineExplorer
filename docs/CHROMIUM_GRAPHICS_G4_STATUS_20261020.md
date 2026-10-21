@@ -3,6 +3,12 @@
 
 **IN PROGRESS. NOT MERGE READY. No G5 handoff.**
 
+Newest: `CHROMIUM_GRAPHICS_G4_DESKTOP_CHECKPOINT_20261021.md`. X11/Openbox
+outer-compositor checks expose an OFF-mode missing Electron frame despite API
+lifecycle success, plus a multi-target pixel failure both PEs on software and
+accelerated GL. These remain OPEN. Composited WebView2 strict pixels and
+Electron lifecycle pass scoped checks; not complete installed-desktop acceptance.
+
 Newest: `CHROMIUM_GRAPHICS_G4_ACCELERATED_WSL_20261021.md`. User accepts
 hardware-accelerated virtual GPU drivers instead of a physical GPU matrix.
 Explicit Mesa D3D12/WSL GPU route (Intel UHD750, acceleration=yes) passes all28

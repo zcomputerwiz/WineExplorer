@@ -1,6 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_DESKTOP_CHECKPOINT_20261021.md`. Openbox/X11
+outer compositor controls are now implemented. Real consumer lifecycle/strict
+pixels pass scoped controls, but inspected compositor-OFF Electron frame is
+missing; generic multi_target_transactions fails both PEs on accelerated and
+software GL with Openbox. Neither failure is waived. Diagnose those before
+claiming desktop readiness. Wine unchanged54bc44a. Resume note has exact runs,
+remaining gates and environment changes. New VM storage on D: only.
+
 Newest: `CHROMIUM_GRAPHICS_G4_ACCELERATED_WSL_20261021.md`. Physical GPU
 testing is no longer required by the user; accelerated virtual GPU is sufficient.
 The explicit WSL Mesa D3D12 path works even without /dev/dri: all28 groups both

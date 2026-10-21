@@ -152,6 +152,7 @@ def restart_state(previous, build, renderer, payload_hashes, stack_hashes, icd_h
             or prior.get('consumer') != 'Electron original fixture'
             or prior.get('wine_build') != str(build) or prior.get('renderer') != renderer
             or prior.get('gl_driver', 'software') != gl_driver
+            or (prior.get('desktop') or {}).get('mode', 'none') != 'none'
             or prior.get('sha256') != payload_hashes or prior.get('stack_sha256') != stack_hashes
             or prior.get('vulkan_icd_sha256') != icd_hash
             or prior.get('state_root') != str(previous) or prior.get('restart_from') is not None
@@ -193,9 +194,12 @@ def main():
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software',
                         help='Explicit accelerated WSL Mesa D3D12 control, independently verified')
+    parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none')
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
+    if args.restart_from and args.desktop != 'none':
+        parser.error('Desktop-mode restart controls are not yet supported')
     if args.gl_driver != 'software' and args.renderer != 'gl':
         parser.error('--gl-driver d3d12 requires --renderer gl')
     if args.freeze_scene and not args.electron_app:
@@ -300,6 +304,7 @@ def main():
     if args.gpu_recovery:
         result['classification'] = 'Fault-injected owned GPU-process recovery; not normal/G4 acceptance'
     display = None
+    desktop = []
     read_fd, write_fd = os.pipe()
     monitor = None
     stop = threading.Event()
@@ -352,6 +357,7 @@ def main():
         environment['DISPLAY'] = ':' + number
         result['display'] = environment['DISPLAY']
         result['gl_driver_verification'] = helpers.verify_gl_driver(environment, output, args.gl_driver)
+        desktop, result['desktop'] = helpers.start_desktop(environment, output, args.desktop)
         if not args.restart_from:
             boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
             result['wineboot_exit'] = boot.returncode
@@ -390,6 +396,7 @@ def main():
             result['profile_diagnostic'] = profile_result(hostlog.read_text(errors='replace') if hostlog.exists() else '',
                                                          expected, token)
             passed = passed and result['profile_diagnostic']['passed']
+        helpers.verify_desktop(environment, desktop, result['desktop'])
         print(json.dumps(result, indent=2), flush=True)
         result['diagnostic_exit'] = 0 if run.returncode == 0 and passed else 4
         return result['diagnostic_exit']
@@ -414,6 +421,7 @@ def main():
             result['cleanup'] = {'remaining_servers': [], 'prefix_retained_for_diagnosis': str(prefix)}
         except (OSError, subprocess.SubprocessError, RuntimeError) as error:
             result['cleanup_error'] = str(error)
+        helpers.stop_desktop(desktop)
         if display and display.poll() is None:
             os.killpg(display.pid, signal.SIGTERM)
             try:

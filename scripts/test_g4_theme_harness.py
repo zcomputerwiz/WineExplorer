@@ -73,5 +73,28 @@ class DriverSetup(unittest.TestCase):
                         runner.verify_gl_driver({}, Path('/owned'), 'd3d12')
 
 
+class DesktopSetup(unittest.TestCase):
+    def test_none_never_starts_processes(self):
+        with mock.patch.object(runner.subprocess, 'Popen') as launch:
+            self.assertEqual(runner.start_desktop({}, Path('/owned'), 'none'), ([], None))
+            runner.verify_desktop({}, [], None)
+            launch.assert_not_called()
+
+    def test_changed_selection_or_dead_process_is_rejected(self):
+        process = mock.Mock()
+        for exited, selections in ((False, {'WM_S0': 1, '_NET_WM_CM_S0': 2}),
+                                    (True, {'WM_S0': 1, '_NET_WM_CM_S0': 2}),
+                                    (False, {'WM_S0': 1, '_NET_WM_CM_S0': 0})):
+            process.poll.return_value = 0 if exited else None
+            record = {'selections': {'WM_S0': 1, '_NET_WM_CM_S0': 2}}
+            with mock.patch.object(runner, 'desktop_selections', return_value=selections):
+                if not exited and selections == record['selections']:
+                    runner.verify_desktop({}, [process], record)
+                    self.assertTrue(record['verified_at_end'])
+                else:
+                    with self.assertRaises(RuntimeError):
+                        runner.verify_desktop({}, [process], record)
+
+
 if __name__ == '__main__':
     unittest.main()
