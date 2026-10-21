@@ -1,5 +1,18 @@
 # Changes to stock Wine / third-party code
 
+## G4 unbound composition frame retention (2026-10-21)
+
+Wine `4315be8`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c` and
+`include/wine/wined3d.h`: capture-only internal Present retains a composition
+producer frame submitted before DComp target binding, without drawing it.
+Normal command-stream ordering/latency/rotation and retained ownership remain;
+later Commit cannot accidentally substitute an unpresented backbuffer. GL/Vulkan
+only, same bounded formats/sizes. All29 correctness groups both PEs/backends,
+G0-G3, pacing and two real frozen Electron lifecycle runs per backend pass.
+Actual settled frames inspected; early resize transients remain negative and
+no installed-shell/native-acceleration or G4 merge-ready claim is made. See
+CHROMIUM_GRAPHICS_G4_FROZEN_RESIZE_FIXED_20261021.md. Compositor unchanged.
+
 ## G4 native empty parent clip (2026-10-21)
 
 Compositor `94faa651`, `src/protocols/wex-window.c`: explicitly disable a render

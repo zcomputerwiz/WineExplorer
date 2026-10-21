@@ -1,6 +1,16 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_FROZEN_RESIZE_FIXED_20261021.md`. Wine4315be8
+retains composition Present frames submitted before target binding instead of
+silently dropping them. The selected persistent frozen-content-loss issue is
+fixed: all29 correctness groups both PEs/GL/Vulkan, G0-G3, pacing and two real
+native Electron frozen-resize runs per backend pass scoped controls. Actual
+settled front images inspected. Early transient mismatches remain recorded;
+atomic resize, installed-shell and native acceleration are not certified.
+Compositor94faa651 unchanged. No master merge or other workers' changes.
+Older unfixed/relocation-stop notes below are historical, not current instructions.
+
 Newest: `CHROMIUM_GRAPHICS_G4_FROZEN_RESIZE_CHECKPOINT_20261021.md`. At5% usage,
 checkpoint only. Frozen client content truly disappears after frame repaint;
 fresh full60-second native Vulkan trace reproduces it with host exit0/API passes

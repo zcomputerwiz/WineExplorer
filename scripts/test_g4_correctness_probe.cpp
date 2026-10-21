@@ -481,6 +481,47 @@ static bool application_background_expose()
     return passed;
 }
 
+static bool unbound_present_retention_case(DXGI_ALPHA_MODE alpha, DXGI_FORMAT format)
+{
+    Scene s;
+    if (!s.init(alpha, format)) return false;
+    flush_messages();
+    POINT origin = {16, 16};
+    ClientToScreen(s.hwnd, &origin);
+    HDC screen = GetDC(NULL);
+    COLORREF before = screen ? GetPixel(screen, origin.x, origin.y) : CLR_INVALID;
+    if (screen) ReleaseDC(NULL, screen);
+    if (before == CLR_INVALID || !s.present()) return false;
+    // Present before the first DComp Commit must retain that frame without
+    // exposing it. A later unpresented render must not replace the snapshot.
+    bool invisible = s.pixel(16, 16, before);
+    UINT count = 0;
+    bool counted = SUCCEEDED(s.sc->GetLastPresentCount(&count)) && count == 1;
+    printf("UNBOUND_PRESENT alpha=%u format=%u count=%u invisible=%u\n", alpha, format, count, invisible);
+    ID3D11RenderTargetView *rtv = NULL;
+    if (FAILED(s.dev->CreateRenderTargetView(s.bb, NULL, &rtv))) return false;
+    const float green[] = {0, 1, 0, 1};
+    s.ctx->ClearRenderTargetView(rtv, green);
+    s.ctx->Flush();
+    release(rtv);
+    if (FAILED(s.comp->Commit())) return false;
+    bool retained = s.pixel(16, 16, RGB(255, 0, 0)) && s.pixel(48, 16, RGB(0, 0, 255));
+    if (FAILED(s.visual->SetOffsetX(8)) || FAILED(s.comp->Commit())) return false;
+    bool recommitted = s.pixel(24, 16, RGB(255, 0, 0)) && s.pixel(56, 16, RGB(0, 0, 255));
+    return invisible && counted && retained && recommitted;
+}
+
+static bool unbound_present_retention()
+{
+    const DXGI_ALPHA_MODE alphas[] = {DXGI_ALPHA_MODE_IGNORE, DXGI_ALPHA_MODE_PREMULTIPLIED};
+    const DXGI_FORMAT formats[] = {DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM};
+    bool passed = true;
+    for (DXGI_ALPHA_MODE alpha : alphas)
+        for (DXGI_FORMAT format : formats)
+            passed = unbound_present_retention_case(alpha, format) && passed;
+    return passed;
+}
+
 static bool supported_pixels_and_transactions()
 {
     Scene s;
@@ -2207,6 +2248,7 @@ int main(int argc, char **argv)
     if (!verify_requested_theme()) return 1;
     const struct { const char *name; bool (*run)(); } cases[] = {
         {"supported_pixels_and_transactions",supported_pixels_and_transactions},
+        {"unbound_present_retention",unbound_present_retention},
         {"unsupported_properties_fail_honestly",unsupported_properties_fail_honestly},
         {"retained_multilayer_and_transform_pixels",retained_multilayer_and_transform_pixels},
         {"cross_thread_completion_pixels",cross_thread_completion_pixels},

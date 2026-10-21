@@ -189,7 +189,7 @@ def main():
                         help='Private-prefix unmanaged windows: Wine draws Classic frames without a host WM')
     parser.add_argument('--g4-correctness', action='store_true',
                         help='Run the independent G4 target-pixel and observer regression probe')
-    parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions',
+    parser.add_argument('--g4-case', choices=('supported_pixels_and_transactions', 'unbound_present_retention',
                         'unsupported_properties_fail_honestly', 'retained_multilayer_and_transform_pixels',
                         'cross_thread_completion_pixels', 'imported_fence_observers', 'fence_event_handle_lifetime',
                         'fence_waiter_cleanup', 'fence_creator_exit_and_reexport',
@@ -394,6 +394,7 @@ def main():
                             'deferred_context_rejection=PASS')
                 if args.g4_correctness:
                     required = ('supported_pixels_and_transactions=PASS',
+                                'unbound_present_retention=PASS',
                                 'unsupported_properties_fail_honestly=PASS',
                                 'retained_multilayer_and_transform_pixels=PASS',
                                 'cross_thread_completion_pixels=PASS',
