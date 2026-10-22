@@ -8,9 +8,70 @@ set -euo pipefail
 MACHINE_ROOT="${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}"
 SKEL_PFX="${WEX_SKEL_PFX:-/etc/skel/.wine}"
 
+ACTION="${1:-apply}"
+
+# Ownership Model:
+# On production multi-user systems, 'wexsys' is the dedicated system group owning
+# shared machine prefixes and hives (/var/lib/wineexplorer/machine), isolating
+# administrative assets from interactive sudo accounts. On standard single-user or
+# desktop setups without wexsys, 'sudo' is used as the administrative fallback group.
+MACHINE_GROUP="${WEX_MACHINE_GROUP:-}"
+if [ -z "$MACHINE_GROUP" ]; then
+    if getent group wexsys >/dev/null 2>&1; then
+        MACHINE_GROUP="wexsys"
+    else
+        MACHINE_GROUP="sudo"
+    fi
+fi
+
+ACL_BACKUP="${WEX_ACL_BACKUP:-$MACHINE_ROOT/.wex-metadata-backup.acl}"
+STAT_BACKUP="${WEX_STAT_BACKUP:-$MACHINE_ROOT/.wex-metadata-backup.stat}"
+
+# Validate target path sanity
+if [ -z "$MACHINE_ROOT" ] || [ "$MACHINE_ROOT" = "/" ] || [ "$MACHINE_ROOT" = "/var" ] || [ "$MACHINE_ROOT" = "/etc" ]; then
+    echo "Error: Invalid or dangerous machine root path: $MACHINE_ROOT" >&2
+    exit 1
+fi
+
+if [ "$ACTION" = "rollback" ] || [ "$ACTION" = "--rollback" ]; then
+    echo "=== Rolling back permissions and ACLs on machine root: $MACHINE_ROOT ==="
+    if [ ! -d "$MACHINE_ROOT" ]; then
+        echo "Error: Machine root does not exist: $MACHINE_ROOT" >&2
+        exit 1
+    fi
+
+    if [ -f "$STAT_BACKUP" ]; then
+        echo "Restoring ownership and mode bits from $STAT_BACKUP..."
+        while read -r mode uid gid file; do
+            [ -e "$file" ] || continue
+            chown "$uid:$gid" "$file"
+            chmod "$mode" "$file"
+        done < "$STAT_BACKUP"
+    fi
+
+    if [ -f "$ACL_BACKUP" ] && command -v setfacl >/dev/null 2>&1; then
+        echo "Restoring exact POSIX ACLs from $ACL_BACKUP..."
+        setfacl --restore="$ACL_BACKUP"
+    elif command -v setfacl >/dev/null 2>&1; then
+        echo "No ACL backup found; stripping extended POSIX ACLs from machine root..."
+        setfacl -R -b "$MACHINE_ROOT"
+        setfacl -R -k "$MACHINE_ROOT"
+        echo "Reverting ownership to root:root and default restrictive permissions..."
+        chown -R root:root "$MACHINE_ROOT"
+        find "$MACHINE_ROOT" -type d -exec chmod 755 {} +
+        find "$MACHINE_ROOT" -type f -exec chmod 644 {} +
+        find "$MACHINE_ROOT" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 755 {} +
+    fi
+
+    rm -f "$ACL_BACKUP" "$STAT_BACKUP"
+    echo "=== Rollback completed successfully ==="
+    exit 0
+fi
+
 echo "=== WineExplorer S2 Machine Root Setup ==="
 echo "Machine root: $MACHINE_ROOT"
 echo "Template prefix: $SKEL_PFX"
+echo "Machine group: $MACHINE_GROUP"
 
 ensure_machine_prefix_links()
 {
@@ -18,7 +79,7 @@ ensure_machine_prefix_links()
     ln -sfn ../drive_c "$MACHINE_ROOT/dosdevices/c:"
     rm -f "$MACHINE_ROOT/dosdevices/z:"
     ln -s / "$MACHINE_ROOT/dosdevices/z:"
-    chown root:sudo "$MACHINE_ROOT"
+    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT"
 }
 
 ensure_common_shell_dirs()
@@ -33,6 +94,9 @@ ensure_common_shell_dirs()
     mkdir -p "$MACHINE_ROOT/drive_c/users/Public/Pictures"
     mkdir -p "$MACHINE_ROOT/drive_c/users/Public/Videos"
 }
+
+WINE_BIN="${WEX_WINE_BIN:-/usr/local/bin/wine}"
+WINESERVER_BIN="${WEX_WINESERVER_BIN:-/usr/local/bin/wineserver}"
 
 # 1. Initialize or update machine root
 if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
@@ -62,19 +126,22 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
             echo "$MACHINE_ROOT exists but has no drive_c/windows/system32; refusing to replace it" >&2
             exit 1
         fi
-        ensure_machine_prefix_links
 
-        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
-            WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -i
-        WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
+        if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
+            WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+                WINEPREFIX="$MACHINE_ROOT" "$WINE_BIN" wineboot.exe -i
+            WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+        fi
         ensure_common_shell_dirs
     fi
 else
     echo "Updating existing machine root at $MACHINE_ROOT..."
     ensure_machine_prefix_links
-    WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
-        WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wine wineboot.exe -u
-    WINEPREFIX="$MACHINE_ROOT" /usr/local/bin/wineserver -w
+    if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
+        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+            WINEPREFIX="$MACHINE_ROOT" "$WINE_BIN" wineboot.exe -u
+        WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+    fi
     ensure_common_shell_dirs
 fi
 
@@ -99,37 +166,47 @@ if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
     cp -f "$WEX_LOCAL_LUNA" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" 2>/dev/null || true
 fi
 
+# Capture metadata before modifying permissions if no backup exists yet
+if [ ! -f "$STAT_BACKUP" ] && [ -d "$MACHINE_ROOT" ]; then
+    echo "Capturing filesystem metadata before permission changes..."
+    find "$MACHINE_ROOT" -exec stat -c "%a %u %g %n" {} + > "$STAT_BACKUP"
+fi
+if [ ! -f "$ACL_BACKUP" ] && [ -d "$MACHINE_ROOT" ] && command -v getfacl >/dev/null 2>&1; then
+    echo "Capturing exact POSIX ACLs before permission changes..."
+    getfacl -R -p "$MACHINE_ROOT" > "$ACL_BACKUP"
+fi
+
 # 2. Ensure permissions and POSIX default ACLs on machine root:
-# Owned by root:sudo (preserving admin owners in Program Files), setgid 2775 on dirs,
-# 664 on regular files, 775 on .exe/.dll, and default ACL g:sudo:rwX so files created
-# by members of sudo remain group-writable regardless of process umask.
-echo "Applying permissions and default ACLs to machine root (root:sudo, mode 2775, default ACL g:sudo:rwX)..."
-chown root:sudo "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
-chown -R root:sudo "$MACHINE_ROOT/drive_c/windows"
-chgrp -R sudo "$MACHINE_ROOT/drive_c"
+# Owned by root:$MACHINE_GROUP (preserving admin owners in Program Files), setgid 2775 on dirs,
+# 664 on regular files, 775 on .exe/.dll, and default ACL g:$MACHINE_GROUP:rwX so files created
+# by members of $MACHINE_GROUP remain group-writable regardless of process umask.
+echo "Applying permissions and default ACLs to machine root (root:$MACHINE_GROUP, mode 2775, default ACL g:$MACHINE_GROUP:rwX)..."
+chown "root:$MACHINE_GROUP" "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
+chown -R "root:$MACHINE_GROUP" "$MACHINE_ROOT/drive_c/windows"
+chgrp -R "$MACHINE_GROUP" "$MACHINE_ROOT/drive_c"
 chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
 find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
 find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +
 find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 775 {} +
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
-    chown root:sudo "$MACHINE_ROOT/system.reg"
+    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT/system.reg"
     chmod 664 "$MACHINE_ROOT/system.reg"
     sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
 fi
 if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-    chown root:sudo "$MACHINE_ROOT/userdef.reg"
+    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT/userdef.reg"
     chmod 664 "$MACHINE_ROOT/userdef.reg"
 fi
 if command -v setfacl >/dev/null 2>&1; then
-    setfacl -m g:sudo:rwX "$MACHINE_ROOT"
-    setfacl -d -m u::rwX,g::rwX,g:sudo:rwX,o::r-x "$MACHINE_ROOT"
-    setfacl -R -m g:sudo:rwX "$MACHINE_ROOT/drive_c"
-    setfacl -R -d -m u::rwX,g::rwX,g:sudo:rwX,o::r-x "$MACHINE_ROOT/drive_c"
+    setfacl -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT"
+    setfacl -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT"
+    setfacl -R -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT/drive_c"
+    setfacl -R -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT/drive_c"
     if [ -f "$MACHINE_ROOT/system.reg" ]; then
-        setfacl -m g:sudo:rw "$MACHINE_ROOT/system.reg"
+        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/system.reg"
     fi
     if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-        setfacl -m g:sudo:rw "$MACHINE_ROOT/userdef.reg"
+        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/userdef.reg"
     fi
 fi
 

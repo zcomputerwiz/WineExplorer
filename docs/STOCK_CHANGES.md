@@ -1,5 +1,36 @@
 # Changes to stock Wine / third-party code
 
+## Independent token-security correctness repair (2026-10-18)
+
+`codex/token-security-correctness` retains deny-only groups in the deny-ACE
+matching path even when ENABLED is clear, while excluding them from allow ACEs.
+Shell elevation preserves helper cancellation versus actual startup/unsupported/
+timeout errors and never returns a target handle on helper rejection. Duplicate
+fork `programs/consent` sources were removed (recoverable in Git); the owned
+`src/programs/consent` module is the single assembly source. It has no shipping
+fixture/direct-password-helper bypass and fails unsupported credential requests
+closed. This is functional repair, not complete host authorization/containment.
+See TOKEN_SECURITY_REPAIR_REVIEW.md and the checkpoint-B work order.
+
+## Checkpoint B: Request-bound authorization, helper audit and clean isolation (2026-10-18)
+
+- `server/token.c`:
+  - Added explicit `is_restricted` flag in `struct token`.
+  - Replaced internal `null_sid` (`S-1-0-0`) sentinel insertion with native disjoint-restriction semantics: an empty restricting set remains restricted, allowing 0 access rights and failing all access checks immediately without synthetic SIDs.
+  - Hardened `filter_token` against memory allocation failures, failing closed with `STATUS_NO_MEMORY` without publishing partial tokens or leaking handles.
+- `programs/explorer/systray.c`:
+  - Resolved fresh-prefix explorer null pointer dereference / division-by-zero crash (`0x14000ca88`) by adding NULL checks on icon in `tray_icon_wndproc`, `balloon_create_timer`, and `balloon_timer`, cleaning up active balloon timers before destroying icon windows in `delete_icon`, and clearing `GWLP_USERDATA`.
+- `dlls/shell32/shlexec.c`:
+  - Replaced boolean helper check with strict three-state status: `HELPER_UNSET` (key/value not found or `L""`), `HELPER_CONFIGURED` (valid path), and `HELPER_INVALID` (read denied, wrong registry type, odd bytes, oversized, invalid characters).
+  - Invalid helper configuration fails closed immediately with exact error (`ERROR_DATATYPE_MISMATCH`, `ERROR_INVALID_DATA`, `ERROR_BAD_PATHNAME`, or access denied) and returns no child handle.
+- `dlls/kernelbase/process.c`:
+  - Updated `is_elevation_required`: queries manifest first; only `HELPER_UNSET` falls back to stock compatibility; `HELPER_INVALID` returns TRUE (forcing `ERROR_ELEVATION_REQUIRED` 740).
+- `dlls/ntdll/loader.c`:
+  - Updated `elevate_token()` callsite to verify `get_elevation_helper_status() == HELPER_UNSET`. Invalid or denied helper configurations do not silently elevate.
+- `dlls/advapi32/tests/security.c`:
+  - Updated `test_restricted_sid_intersection` to test the native disjoint-restriction contract: `GroupCount == 0` and `is_restricted == TRUE` without synthetic null SIDs (3,691 tests passing, 0 failures).
+
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.
@@ -356,6 +387,83 @@ smoke without changing the production pin (REBASE.md).
 - `dlls/ntdll/unix/sync.c` (`NtSetSystemTime` running `sudo date`): clock changes go through the applet's elevation
   prompt only.
 - `dlls/shell32/dialogs.c` (Run dialog placement).
+
+## Token Security, Elevation & Chromium Compatibility (gemini/token-security)
+- `include/winnt.h`: Added definition for `SECURITY_CAPABILITIES`.
+- `dlls/kernelbase/process.c`: Added attribute length check for `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`; zeroed output buffer in `GetProcessMitigationPolicy` stub.
+- `server/protocol.def`:
+  - Extended `filter_token` with `disable_sids_size` and VARARG `restrict_sids`.
+  - Added request `create_lowbox_token` with `package_sid` and `capabilities`.
+  - Extended `get_token_groups` with `which_groups` selector (0=groups, 1=restricted SIDs).
+  - Added request `set_token_integrity_level`.
+  - Extended `get_token_info` reply with `integrity_rid`, `is_app_container`, `is_restricted`.
+- `server/token.c`:
+  - Added `integrity_rid`, `restricted_sids`, `app_container`, and `capabilities` to `struct token`.
+  - Implemented token filtering flags `DISABLE_MAX_PRIVILEGE`, `LUA_TOKEN`, and restricting SIDs storage.
+  - Implemented `create_lowbox_token` handler setting AppContainer SID, Low integrity (`0x1000`), and capabilities.
+  - Implemented `set_token_integrity_level` handler for setting token integrity labels.
+  - Implemented restricting SID intersection check in `token_access_check`.
+  - Implemented Mandatory Integrity Check (`SYSTEM_MANDATORY_LABEL_NO_WRITE_UP`, `NO_READ_UP`, `NO_EXECUTE_UP`) in `token_access_check` and `check_object_access`.
+- `dlls/ntdll/unix/security.c`:
+  - Implemented `NtCreateLowBoxToken` wineserver call.
+  - Extended `NtFilterToken` passing `restrict_sids` and `disable_sids_size`.
+  - Implemented `NtSetInformationToken(TokenIntegrityLevel)`.
+  - Implemented `NtQueryInformationToken` for `TokenIntegrityLevel`, `TokenAppContainerSid`, `TokenIsAppContainer`, `TokenIsRestricted`, `TokenHasRestrictions`, and `TokenRestrictedSids`.
+- `dlls/wow64/security.c`: Added WOW64 thunks for `NtCreateLowBoxToken` and 32-bit queries for `TokenIsRestricted`, `TokenHasRestrictions`, `TokenRestrictedSids`, and `TokenAppContainerSid`.
+- `dlls/kernelbase/process.c`:
+  - Added `is_elevation_required(HANDLE token, const WCHAR *filename)`: checks PE manifest runlevel (`RunlevelInformationInActivationContext`). If `requireAdministrator` (or `highestAvailable` on limited token) and elevation helper is configured in `HKLM\Software\Wine\Elevation\Helper`, `CreateProcessInternalW` fails with `STATUS_ELEVATION_REQUIRED` (`ERROR_ELEVATION_REQUIRED` / 740).
+- `dlls/ntdll/loader.c`:
+  - Added `is_elevation_helper_configured()`: prevents silent in-process token elevation (`elevate_token()`) when helper is configured, maintaining stock behavior when unconfigured.
+- `dlls/shell32/shlexec.c`:
+  - Added `get_elevation_helper()` and `run_elevation_helper()`: invokes configured helper on verb `"runas"` or upon `ERROR_ELEVATION_REQUIRED`.
+  - On helper approval (exit 0), spawns elevated process with `CreateProcessAsUserW(get_admin_token(), ...)` and returns genuine `hProcess`.
+  - On helper refusal or cancellation (exit non-zero), sets `GetLastError() = ERROR_CANCELLED` (1223) and returns `SE_ERR_ACCESSDENIED`.
+  - Handles working directory normalization, quoted helpers with arguments, and token closing safely.
+- `dlls/shell32/tests/shlexec.c`:
+  - Added `test_elevation()`: tests stock unprompted behavior, direct `CreateProcess` 740 failure with `requireAdministrator` manifest, `ShellExecuteEx` approval with genuine `hProcess`, `runas` approval, `ShellExecuteEx` cancellation with `ERROR_CANCELLED` (1223) and `hProcess == NULL`, and registry rollback.
+- `programs/consent/`:
+  - User Account Control Consent Dialog (`consent.exe`), resource script, 4-quadrant golden shield graphics, Authenticode verification, consent and credentials modes with automated test overrides (`WINE_CONSENT_AUTO_APPROVE` / `WINE_CONSENT_AUTO_DENY`).
+- `include/winnt.h`:
+  - Added `CLAIM_SECURITY_ATTRIBUTES_INFORMATION` structure definition for token security attribute queries.
+- `dlls/ntdll/unix/security.c`:
+  - Implemented `TokenUserClaimAttributes` (33) and `TokenSecurityAttributes` (39) returning valid empty claim blocks (`Version = 1, AttributeCount = 0`). Updated `info_len` table.
+- `dlls/wow64/security.c`:
+  - Implemented 32-bit thunking in `wow64_NtQueryInformationToken` for `TokenUserClaimAttributes` and `TokenSecurityAttributes` (12-byte layout).
+- `dlls/advapi32/security.c`:
+  - Handled `REVOKE_ACCESS` in `SetEntriesInAclW` first pass to cleanly remove matching ACEs without error.
+- `dlls/advapi32/tests/security.c`:
+  - Added unit tests `test_claim_security_attributes` and `test_revoke_access_acl` (3,665 tests passing, 0 failures).
+- `dlls/kernelbase/process.c`:
+  - Supported `PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER` (26), `PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` (15), `PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY` (18), `PROC_THREAD_ATTRIBUTE_MITIGATION_AUDIT_POLICY` (24), and `PROC_THREAD_ATTRIBUTE_WIN32K_FILTER` (16) in `validate_proc_thread_attribute` and `CreateProcessInternalW`.
+  - Silenced `GetProcessMitigationPolicy` stub logging to TRACE.
+- `server/protocol.def`:
+  - Added `@REQ(get_process_handle_table)` with `count` reply field.
+  - Added `@REQ(get_thread_page_priority)` and `@REQ(set_thread_page_priority)`.
+- `server/handle.c`:
+  - Implemented `DECL_HANDLER(get_process_handle_table)`: queries handle table, validates buffer capacity, sets `STATUS_INFO_LENGTH_MISMATCH` with required length on undersized buffers.
+- `server/thread.h`, `server/thread.c`:
+  - Added `page_priority` in `struct thread` (default 5).
+  - Implemented `DECL_HANDLER(get_thread_page_priority)` and `DECL_HANDLER(set_thread_page_priority)` enforcing priority range 0..5 and `THREAD_SET_LIMITED_INFORMATION` access checks.
+- `server/token.c`:
+  - Implemented two-pass DACL evaluation in `token_access_check`: Pass 1 checks user and group SIDs; Pass 2 checks restricting SIDs in DACL order, honoring `ACCESS_DENIED_ACE_TYPE` before allow ACEs.
+  - Implemented strict intersection semantics in `filter_token`: intersecting existing restrictions with new restrictions, retaining `null_sid` (`S-1-0-0`) on disjoint sets.
+  - Wired LowBox AppContainer package and capability SID checks in `token_sid_present`.
+- `dlls/kernelbase/process.c`:
+  - Wired `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` in `CreateProcessInternalW` to create lowbox tokens via `NtCreateLowBoxToken` and assign them to child processes.
+- `dlls/ntdll/unix/process.c`:
+  - Handled `ProcessHandleTable` (58) in `NtQueryInformationProcess`, querying `server_get_process_handle_table` and setting required buffer length on `STATUS_INFO_LENGTH_MISMATCH`.
+- `dlls/ntdll/unix/thread.c`:
+  - Implemented `ThreadPagePriority` (24) query and set in `NtQueryInformationThread` and `NtSetInformationThread` via wineserver requests.
+- `dlls/advapi32/tests/security.c`:
+  - Added unit tests for Case C deny on restricting SIDs in `test_restricted_token_access_check`, and `test_restricted_sid_intersection` (3,692 tests passing, 0 failures on x86_64 and WOW64).
+- `dlls/ntdll/tests/info.c`:
+  - Enhanced unit tests `test_process_handle_table` and `test_thread_page_priority` (2,798 64-bit and 2,729 WOW64 tests passing, 0 failures).
+- `dlls/shell32/shlexec.c`:
+  - Added 30-second bounded wait in `run_elevation_helper` with `TerminateProcess(pi.hProcess, 1223)` on timeout.
+- `programs/consent/consent.c`:
+  - Removed `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` environment bypasses.
+  - Implemented genuine PAM shadow password verification via `/sbin/unix_chkpwd <username> nullok`.
+  - Added root-only opt-in fixture `/etc/wineexplorer/test-elevation.conf`.
 
 ## License headers
 

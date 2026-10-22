@@ -1,0 +1,155 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+# Research: tokens, elevation and Chromium compatibility
+
+Researched 2026-10-17. Companion: `TOKEN_SECURITY_WORKORDER.md`.
+This is a source review, not a new browser test or a security certification.
+
+## Findings and recommended source hierarchy
+
+Build on Wine, not a new kernel or a parallel token database. Use public API
+contracts and observable tests for behavior; ReactOS for implementation ideas;
+Samba for Windows/Unix translation design; Chromium for consumer requirements.
+No reviewed source supplies a complete drop-in Windows token layer for Linux.
+
+URLs below track moving upstream branches. Before adapting code or tests, record
+the exact revision, path, file license and any relevant dependencies in the
+implementation report. Do not describe these research links as pinned sources.
+
+### R1. Wine: primary implementation and regression baseline
+
+- Local `wine/server/token.c`: token objects, duplication/filtering, access checks,
+  linked-token construction. Start here rather than replacing the server model.
+- Local `wine/server/security.h`, `object.c`, `handle.c`, `process.c`, `thread.c`,
+  `registry.c`, `file.c`, `winstation.c`, and `protocol.def`: inspect effective
+  identity, object access, handle rights and client/server serialization.
+- Local `wine/dlls/ntdll/unix/security.c`, `sync.c`, and
+  `wine/dlls/kernelbase/process.c`: token, job and mitigation entry points.
+- Local `wine/dlls/advapi32/tests/security.c`: existing token, label, duplication,
+  process-token and object-security tests. Also inspect ntdll `om.c`, `sync.c`,
+  `process.c`, and shell32 `shlexec.c` tests.
+- [Upstream security tests](https://github.com/wine-mirror/wine/blob/master/dlls/advapi32/tests/security.c).
+
+Parent HEAD at research time: `a5945fdf`; recorded Wine gitlink:
+`ed5fe967ed471ca524666631ad70dabbed6af076`. These identify the inspected checkout's
+recorded base, not necessarily a future implementation base or all working edits.
+Inspected Wine token/test files carry LGPL-2.1-or-later notices.
+
+### R2. Public Windows API contracts: behavioral authority, not source code
+
+- [Access tokens](https://learn.microsoft.com/en-us/windows/win32/secauthz/access-tokens):
+  the model is structured identity and attributes, not a numeric privilege rank.
+- [Restricted tokens](https://learn.microsoft.com/en-us/windows/win32/secauthz/restricted-tokens):
+  ordinary and restricting SID checks both participate in access decisions.
+- [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken):
+  flag behavior, deny-only SIDs and privilege changes. In particular,
+  `DISABLE_MAX_PRIVILEGE` has an exception for `SeChangeNotifyPrivilege`.
+- [Mandatory integrity control](https://learn.microsoft.com/en-us/windows/win32/secauthz/mandatory-integrity-control):
+  token integrity, object labels and mandatory policy are distinct from DACLs;
+  an unlabeled object is normally treated as medium integrity.
+- [Impersonation levels](https://learn.microsoft.com/en-us/windows/win32/secauthz/impersonation-levels):
+  identification is not permission to act as the caller.
+- [SHELLEXECUTEINFO](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shellexecuteinfow):
+  process-handle behavior matters to callers, not merely launching a Unix PID.
+
+Use documentation as contracts and write original code. No proprietary Windows
+source, binaries, copied/traced artwork or undocumented-source leaks belong in
+this repository. Public API documentation is not permission to copy proprietary
+implementation code. A modern Windows VM, if separately available, is a useful
+behavioral control; the XP VM cannot validate Vista+ UAC/MIC/AppContainer behavior.
+
+### R3. ReactOS: strongest open NT-token implementation reference
+
+- [tokenlif.c](https://github.com/reactos/reactos/blob/master/ntoskrnl/se/tokenlif.c):
+  token creation, duplication and filtering.
+- [token.c](https://github.com/reactos/reactos/blob/master/ntoskrnl/se/token.c):
+  base token routines, comparisons and context handling.
+- [tokencls.c](https://github.com/reactos/reactos/blob/master/ntoskrnl/se/tokencls.c):
+  information-class sizing and query/set handling.
+- [accesschk.c](https://github.com/reactos/reactos/blob/master/ntoskrnl/se/accesschk.c):
+  access-check organization and rights evaluation.
+
+All four inspected headers say GPL-2.0-or-later. They are kernel code with ReactOS
+dependencies, not a ready-made wineserver library. Do not assume modern MIC,
+AppContainer or Chromium completeness from API names. Validate individual paths.
+GPL-2.0-or-later fits the project's overall license, but copying it into an LGPL
+Wine module may prevent retaining an LGPL-only upstream patch. Prefer original
+Wine-compatible implementations; document any deliberate GPL import and obtain
+review of the licensing/upstreamability decision before importing it.
+
+### R4. Samba: strongest Windows-to-Unix translation precedent
+
+- [source4/auth/unix_token.c](https://github.com/samba-team/samba/blob/master/source4/auth/unix_token.c):
+  converts Windows security-token SIDs into a Unix UID/GID/group context.
+- [libcli/security/access_check.c](https://github.com/samba-team/samba/blob/master/libcli/security/access_check.c):
+  Windows-style security descriptor and access-mask evaluation.
+
+Both inspected files are GPL-3.0-or-later: **design reference only for this work
+order; do not copy code without a separately approved licensing decision**.
+Samba is request-oriented server software, not a full local Windows process
+security layer. Its SYSTEM-to-root mapping is not our policy: Windows SYSTEM and
+Windows administrators must not automatically become Linux root.
+
+### R5. Chromium: concrete consumer behavior and tests
+
+- [Sandbox design](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md):
+  broker/target separation and startup-token lowering. The browser's sandbox
+  broker is an ordinary-user process, not our privileged elevation service.
+- [sandbox_win.cc](https://github.com/chromium/chromium/blob/main/sandbox/policy/win/sandbox_win.cc):
+  actual per-process policy, including AppContainer/LPAC variants. Check this
+  alongside the design document, which includes historical descriptions.
+- [restricted_token_utils.cc](https://github.com/chromium/chromium/blob/main/sandbox/win/src/restricted_token_utils.cc)
+  and [restricted_token.cc](https://github.com/chromium/chromium/blob/main/sandbox/win/src/restricted_token.cc):
+  token-level construction and required operations.
+- [restricted_token_unittest.cc](https://github.com/chromium/chromium/blob/main/sandbox/win/src/restricted_token_unittest.cc):
+  a useful starting acceptance suite, not proof of full browser containment.
+- [process_mitigations.cc](https://github.com/chromium/chromium/blob/main/sandbox/win/src/process_mitigations.cc):
+  inventory of requested mitigations; accepted flags are not evidence of enforcement.
+- [Chromium LICENSE](https://github.com/chromium/chromium/blob/main/LICENSE):
+  BSD-style terms for Chromium-authored code. Check each copied file and its
+  dependencies; third-party subtrees can have other licenses. Preserve notices.
+
+Pin the tested Chromium executable version and corresponding source revision;
+HEAD policy alone cannot establish the needs of that executable. Prefer freely
+redistributable Chromium for the first test; do not add vendor browser binaries
+or runtime payloads to Git or the ISO without a separate distribution review.
+
+### R6. Linux and polkit: backend mechanisms, not NT replacements
+
+- [Kernel credentials](https://docs.kernel.org/security/credentials.html):
+  `struct cred`, credential lifetime and kernel-side subjective overrides.
+  `override_creds()` is not a userspace Windows impersonation API.
+- [polkit](https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html):
+  authorization of privileged mechanisms and authentication agents; it is not
+  the token/object-access engine. Reuse the existing wexhost agent.
+- [no_new_privs](https://docs.kernel.org/userspace-api/no_new_privs.html),
+  [seccomp](https://docs.kernel.org/userspace-api/seccomp_filter.html), and
+  [Landlock](https://docs.kernel.org/userspace-api/landlock.html): later hardening
+  mechanisms. Irreversible restrictions need careful placement around Wine's
+  loader and thread-token startup sequence. Seccomp alone is not a full sandbox.
+
+These are design references. No kernel-code import or custom Linux kernel is
+required by the initial functional milestones.
+
+## Locally confirmed gaps, not an exhaustive audit
+
+At the recorded Wine base, `NtFilterToken` ignores flags/restricting SIDs;
+integrity setters return success without storing the requested level and queries
+report high; LowBox creation returns success with a null handle; job UI limits
+and kernelbase mitigation APIs are success-returning stubs. Existing DACL/token
+machinery does exist: saying Wine has no security model at all would be wrong.
+Linked-token queries construct an opposite-elevation admin token on demand.
+`runas` currently obtains an admin token without the planned approval flow.
+
+Reproduce these observations against the selected implementation base before
+editing. They describe compatibility/semantics gaps, not newly demonstrated
+exploits. `WEBVIEW2.md` records a working rendering workaround but explicitly does
+not establish sandbox enforcement. Linux confinement and attack-resistance are
+deferred; ordinary functional permission denials remain part of initial scope.
+
+## Research access limitations
+
+Raw GitHub retrieval of Samba `unix_token.c` failed; the official repository's
+GitHub file view succeeded. Some Gitiles Chromium source views failed; the
+Chromium project's GitHub source mirror succeeded. A guessed ReactOS
+`modules/rostests/apitests/ntdll/NtFilterToken.c` URL could not be retrieved and is
+not a verified test reference. Use the inspected Wine and Chromium tests above.
