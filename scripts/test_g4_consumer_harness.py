@@ -188,6 +188,13 @@ class VisualCapture(unittest.TestCase):
         self.assertFalse(consumer.visual_capture_complete(text.replace('checkpoint captured', 'wrong event'), captures))
         self.assertFalse(consumer.visual_capture_complete(text.replace('"ready"', '"unknown"'), captures))
 
+    def test_observer_exception_is_preserved_for_fail_closed_acceptance(self):
+        result = {}
+        def broken_observer():
+            raise RuntimeError('capture backend disappeared')
+        consumer.observe_fail_closed(broken_observer, result)
+        self.assertEqual(result.get('observer_error'), 'RuntimeError: capture backend disappeared')
+
 
 if __name__ == '__main__':
     unittest.main()

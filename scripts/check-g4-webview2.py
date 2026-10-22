@@ -46,6 +46,14 @@ def visual_capture_complete(text, captures, error=None):
             and visual_requests(text, captured=True) == list(VISUAL_STAGES))
 
 
+def observe_fail_closed(observer, result):
+    """Keep background observer failures in the acceptance result."""
+    try:
+        observer()
+    except Exception as error:
+        result['observer_error'] = '%s: %s' % (type(error).__name__, error)
+
+
 def digest(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -522,7 +530,7 @@ def main():
                 raise RuntimeError('Fresh prefix initialization failed')
         else:
             result['wineboot_exit'] = None  # preserve existing state; no wineboot -u rewrite
-        monitor = threading.Thread(target=observe, daemon=True)
+        monitor = threading.Thread(target=observe_fail_closed, args=(observe, result), daemon=True)
         monitor.start()
         command = [str(wine), str(host)]
         if args.electron_app:
@@ -531,6 +539,10 @@ def main():
         result['command'] = command
         run = helpers.run_logged(command, environment, output, 'wine', args.seconds + 45)
         result['host_exit'] = run.returncode
+        stop.set()
+        monitor.join(timeout=5)
+        if monitor.is_alive():
+            result['observer_error'] = 'Observer did not stop within 5 seconds'
         hostlog = output / 'host.log'
         if hostlog.exists():
             analyzer_spec = importlib.util.spec_from_file_location('analyzer', Path(__file__).with_name('analyze-webview2-run.py'))
@@ -543,6 +555,7 @@ def main():
         if args.gpu_recovery:
             result['gpu_recovery_diagnostic'] = recovery_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = recovery_acceptance(result.get('animation_diagnostic', {}), result['gpu_recovery_diagnostic'])
+            passed = passed and 'observer_error' not in result
         if args.lifecycle:
             result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['lifecycle_diagnostic']['passed']

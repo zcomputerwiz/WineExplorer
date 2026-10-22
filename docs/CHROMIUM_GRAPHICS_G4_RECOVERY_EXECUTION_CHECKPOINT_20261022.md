@@ -51,3 +51,23 @@ Resume after the window resets. Preserve this exact checkpoint and plan.
 No automation has been scheduled by this checkpoint. If work reaches the
 user's5% usage threshold, finish only the bounded active step, commit/push a
 continuation note and schedule the reset continuation as previously requested.
+
+## Live continuation update — 2026-10-21
+
+The user authorized continued execution until usage limits out and asked to
+leave the existing heartbeat enabled. Automation
+`resume-accelerated-chromium-gpu-recovery` was verified in the app and remains
+enabled for the next window. Last usage check: 95% of the five-hour window and
+90% of the weekly window consumed; the one-time reset credit remains untouched.
+
+At branch commit `4cb294cf`, root files were clean. A bounded harness fix is now
+in progress: unexpected exceptions from the background observer are preserved
+as `observer_error` and fail the GPU-recovery verdict; an observer that cannot
+join within five seconds also fails the verdict. A Wine-free regression test
+was added. AST parsing and `git diff --check` pass. The complete unit suite was
+attempted on Windows: 12/13 pass; the remaining symlink test requires a
+privilege Windows lacks. WSL execution was denied by the current environment.
+No VM boot, recovery fault injection, guest modification, or reset-credit use
+occurred. Re-run the full Linux suite when WSL is available, then continue with
+the healthy accelerated control and the two serial single-fault VirGL trials
+from the plan. Preserve the D: storage boundary and private runtime policy.
