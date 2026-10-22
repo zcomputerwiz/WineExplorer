@@ -416,7 +416,8 @@ expect_spass()   # name user arch mode args...
     ok "$name"
 }
 
-for u in ${WEX_C3_USERS:-$STD $ADM}; do   # WEX_C3_USERS restricts the users (development)
+C3_USERS="${WEX_C3_USERS:-$STD $ADM}"; [ "$C3_USERS" != - ] || C3_USERS=""   # WEX_C3_USERS restricts the users (development)
+for u in $C3_USERS; do
     rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
     echo "--- system role: $u"
     probe "$u" 64 hold >/dev/null 2>&1 & HOLD=$!
@@ -507,11 +508,17 @@ for u in ${WEX_C3_USERS:-$STD $ADM}; do   # WEX_C3_USERS restricts the users (de
         grep -q '^user=S-1-5-18$' <<<"$OUT" && { echo "$OUT" >&2; fail "a user copy of services.exe got SYSTEM"; }
         grep -q '^admins=enabled$' <<<"$OUT" && { echo "$OUT" >&2; fail "a user copy of services.exe got Administrators"; }
         ok c3_user_copy_of_services_exe_gets_no_system_role
-        set +e
-        OUT="$(run_as "$u" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "/home/$u/usr/services.exe" token 2>&1 | tr -d '\r')"; rc=$?
-        set -e
-        grep -q '^user=' <<<"$OUT" && { echo "$OUT" >&2; fail "a system group process with a user image ran (rc $rc)"; }
+        # the server stops it (from its main loop, a moment after the image is seen); it must not keep running, and the
+        # server must survive it
+        run_as "$u" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "/home/$u/usr/services.exe" hold >/dev/null 2>&1 &
+        STOPPED=$!
+        sleep 12
+        [ -z "$(pgrep -u "$u" -f 'usr.services.exe hold' | while read -r p; do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || echo "$p"; done)" ] ||
+            fail "a system group process with a user image kept running"
+        wait "$STOPPED" 2>/dev/null || true
         ok c3_system_group_process_with_unlisted_image_is_stopped
+        [ -n "$(server_pid "$u")" ] || fail "the server died when it stopped the process"
+        expect_rpass c3_server_survives_the_stopped_process "$u" 64 token
     fi
 
     if [ "$u" = "$ADM" ]; then
@@ -523,12 +530,12 @@ for u in ${WEX_C3_USERS:-$STD $ADM}; do   # WEX_C3_USERS restricts the users (de
     fi
 
     # -- the limited and the standard user
-    for arch in 64 32; do
+    for arch in ${WEX_C3_ARCHS:-64 32}; do
         for img in services.exe winedevice.exe wexsvc.exe; do
             expect_rpass "c3_${u}_cannot_open_${img%.exe}_$arch" "$u" "$arch" proc-denied "$img"
         done
         expect_rpass "c3_${u}_scm_create_and_reconfigure_denied_$arch" "$u" "$arch" scm-denied WexSvcSys
-        expect_rpass "c3_${u}_scm_create_and_reconfigure_denied_ls_$arch" "$u" "$arch" scm-denied WexSvcLs
+        expect_rpass "c3_${u}_scm_create_and_reconfigure_denied_ns_$arch" "$u" "$arch" scm-denied WexSvcNs   # WexSvcLs got a descriptor above
         expect_rpass "c3_${u}_cannot_create_tokens_$arch" "$u" "$arch" token-denied
         expect_rpass "c3_${u}_scm_connect_and_enumerate_work_$arch" "$u" "$arch" scm-allowed
         expect_rpass "c3_${u}_boot_state_grants_are_gone_$arch" "$u" "$arch" grants denied
@@ -537,6 +544,8 @@ for u in ${WEX_C3_USERS:-$STD $ADM}; do   # WEX_C3_USERS restricts the users (de
     if [ "$u" = "$STD" ]; then
         # the descriptor was saved with the machine hive and is read again by the next services.exe
         prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
+        [ "$(grep -c '^"Security"=hex' "$M/system.reg")" = 1 ] || fail "the service descriptor was not saved in the machine hive"
+        ok c3_service_descriptor_saved_in_the_machine_hive
         rm -f "$SVCDIR"/*.txt
         probe "$u" 64 hold >/dev/null 2>&1 & HOLD=$!
         sleep 4

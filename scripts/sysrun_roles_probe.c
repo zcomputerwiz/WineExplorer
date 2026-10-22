@@ -559,14 +559,14 @@ static void svc_sd_set(const char *name)
         check(service_dacl(svc, &before), "QueryServiceObjectSecurity returns the DACL");
         printf("before=%s\n", before);
         check(strstr(before, ";;;AU)") != NULL, "the default descriptor has an entry for Authenticated Users");
-        check(strstr(before, "(A;;0x10;;;AU)") == NULL, "Authenticated Users cannot start the service by default");
+        check(strstr(before, "(A;;RP;;;AU)") == NULL, "Authenticated Users cannot start the service by default");
         check(ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;0x2018d;;;AU)(A;;0x10;;;AU)(A;;0x201fd;;;SY)(A;;0xf01ff;;;BA)",
                                                                    SDDL_REVISION_1, &sd, NULL), "build the new DACL");
         check(SetServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, sd), "SetServiceObjectSecurity(DACL) works for the system role");
         LocalFree(sd);
         check(service_dacl(svc, &after), "QueryServiceObjectSecurity returns the DACL again");
         printf("after=%s\n", after);
-        check(strstr(after, "(A;;0x10;;;AU)") != NULL, "the new DACL is what the service has now");
+        check(strstr(after, "(A;;RP;;;AU)") != NULL, "the new DACL is what the service has now");
         CloseServiceHandle(svc);
     }
     CloseServiceHandle(scm);
