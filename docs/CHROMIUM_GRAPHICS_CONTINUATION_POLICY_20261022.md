@@ -5,6 +5,10 @@ User direction: the parent plans and reviews bounded work; a GPT-6 Luna agent
 implements it. Continue high-value Chromium/Edge graphics work until weekly
 usage has **1% remaining**. Record lower-priority work as TODOs.
 
+Current state is superseded by
+CHROMIUM_GRAPHICS_G4_WEEKLY_CHECKPOINT_20261022.md: weekly stop reached at 99%
+used. Read that checkpoint before the historical selected-work notes below.
+
 Check account limits at each milestone and before a long guest run. At weekly
 usedPercent >= 99, stop safely, publish a checkpoint and report the weekly
 limit stop; do not schedule another pre-reset work cycle. At five-hour
