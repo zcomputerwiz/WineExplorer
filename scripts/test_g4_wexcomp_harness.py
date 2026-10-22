@@ -54,6 +54,11 @@ class OwnedCompositor(unittest.TestCase):
             control.start()
         launch.assert_not_called()
 
+    def test_only_explicit_outer_renderers(self):
+        self.assertEqual(OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='gles2').renderer, 'gles2')
+        with self.assertRaises(ValueError):
+            OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='automatic-fallback')
+
     def test_missing_private_protocol_is_not_success(self):
         control = OwnedWexcomp(self.binary, self.root, self.root, {})
         process = mock.Mock()

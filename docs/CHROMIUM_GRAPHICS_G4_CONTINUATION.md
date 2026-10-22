@@ -1,6 +1,16 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_ACCELERATION_PROGRESS.md`, scope in
+`CHROMIUM_GRAPHICS_G4_NATIVE_ACCELERATION_SCOPE.md`. Native Wayland EGL proves
+WSL D3D12 client acceleration; real Electron lifecycle/frozen resize/recovery,
+strict WebView2 pixels and both-PE own/foreign4096 pixel controls pass. Outer
+wexcomp remains pixman; explicit GLES2 startup fails without DRM FD in WSL.
+Owned resource profiling and probe copy/Present CPU counters added. Real
+Chromium copy/completion measurements and a DRM-capable accelerated outer
+compositor cell remain. No new VM/clones, existing sessions or production
+Wine/compositor edits in this slice. Do not infer zero-copy or idle-power proof.
+
 Newest: `CHROMIUM_GRAPHICS_G4_FROZEN_RESIZE_FIXED_20261021.md`. Wine4315be8
 retains composition Present frames submitted before target binding instead of
 silently dropping them. The selected persistent frozen-content-loss issue is

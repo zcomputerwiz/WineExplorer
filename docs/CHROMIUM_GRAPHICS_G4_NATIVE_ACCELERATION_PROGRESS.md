@@ -48,7 +48,7 @@ New opt-in `--resource-profile` samples only processes carrying the exact owned
 Wine prefix, including the owned compositor, once per second. PID start ticks
 guard reuse; process-churn intervals are counted/excluded from CPU averages.
 Pure parser/accounting tests include process names with parentheses and PID reuse.
-Current compositor/consumer/resource harness tests:21 PASS.
+Current compositor/consumer/resource harness tests:22 PASS.
 
 `native-accel-electron-profile/resources.jsonl` and results.json record:
 
@@ -70,6 +70,10 @@ compositions over160 frames (both PEs), not zero-copy; Present CPU total1703ms /
 max15ms on x64,1570ms/max12ms on x86. Those small diagnostic scenes are not the
 real Chromium image graph and CPU API return time is not GPU completion/scanout.
 Real Chromium path counts and GPU stalls remain to be measured separately.
+Foreign-full reference controls also show160 readbacks/160 CPU compositions:
+x64 total819ms/max11ms, x86 total807ms/max10ms. These probes intentionally use
+premultiplied swapchains; this does not establish the opaque GPU path is unused
+by Chromium. No zero-copy/efficient-delivery pass is inferred from rendering.
 
 ## Outer compositor limitation / next checks
 
