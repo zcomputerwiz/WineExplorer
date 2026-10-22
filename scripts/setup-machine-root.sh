@@ -24,49 +24,137 @@ if [ -z "$MACHINE_GROUP" ]; then
     fi
 fi
 
-ACL_BACKUP="${WEX_ACL_BACKUP:-$MACHINE_ROOT/.wex-metadata-backup.acl}"
-STAT_BACKUP="${WEX_STAT_BACKUP:-$MACHINE_ROOT/.wex-metadata-backup.stat}"
-
-# Validate target path sanity
-if [ -z "$MACHINE_ROOT" ] || [ "$MACHINE_ROOT" = "/" ] || [ "$MACHINE_ROOT" = "/var" ] || [ "$MACHINE_ROOT" = "/etc" ]; then
-    echo "Error: Invalid or dangerous machine root path: $MACHINE_ROOT" >&2
+die()
+{
+    echo "Error: $*" >&2
     exit 1
+}
+
+case "$ACTION" in
+    apply|rollback|--rollback) ;;
+    *) die "unknown action: $ACTION (use apply or rollback)" ;;
+esac
+
+[ "$(id -u)" -eq 0 ] || die "must run as root"
+
+# Validate the target before anything else. The path must already be canonical (no symlink
+# components, no "..", no trailing slash) and must not be a system directory.
+[ -n "$MACHINE_ROOT" ] || die "empty machine root"
+case "$MACHINE_ROOT" in
+    /*) ;;
+    *) die "machine root must be an absolute path: $MACHINE_ROOT" ;;
+esac
+[ "$(realpath -m -- "$MACHINE_ROOT")" = "$MACHINE_ROOT" ] ||
+    die "machine root is not a canonical path: $MACHINE_ROOT"
+case "$MACHINE_ROOT" in
+    /|/bin|/boot|/dev|/etc|/home|/lib|/lib32|/lib64|/opt|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var|/var/lib)
+        die "dangerous machine root path: $MACHINE_ROOT" ;;
+esac
+
+# Metadata backups live outside the machine root: members of the machine group can write there,
+# and rollback runs as root and trusts the backup.
+BACKUP_ROOT="${WEX_BACKUP_DIR:-/var/lib/wineexplorer/backup}"
+[ "$(realpath -m -- "$BACKUP_ROOT")" = "$BACKUP_ROOT" ] || die "backup directory is not a canonical path: $BACKUP_ROOT"
+case "$BACKUP_ROOT/" in
+    "$MACHINE_ROOT"/*) die "backup directory must be outside the machine root" ;;
+esac
+BACKUP_DIR="$BACKUP_ROOT/$(printf '%s' "$MACHINE_ROOT" | sha256sum | cut -c1-16)"
+ACL_BACKUP="$BACKUP_DIR/acl"
+STAT_BACKUP="$BACKUP_DIR/stat"
+
+check_private_dir()
+{
+    [ -d "$1" ] && [ ! -L "$1" ] || die "not a plain directory: $1"
+    [ "$(stat -c '%u' -- "$1")" = "0" ] || die "not owned by root: $1"
+    [ $(( 0$(stat -c '%a' -- "$1") & 022 )) -eq 0 ] || die "group or other writable: $1"
+}
+
+if [ "$ACTION" = "apply" ]; then
+    mkdir -p -- "$BACKUP_ROOT"
+    install -d -m 0700 -o root -g root -- "$BACKUP_DIR"
 fi
+check_private_dir "$BACKUP_ROOT"
+check_private_dir "$BACKUP_DIR"
+
+# A path may only be touched when it is canonical and inside the machine root.
+inside_machine_root()
+{
+    case "$1" in
+        "$MACHINE_ROOT"|"$MACHINE_ROOT"/*) ;;
+        *) return 1 ;;
+    esac
+    local parent
+    parent="$(dirname -- "$1")"
+    [ "$(realpath -e -- "$parent")" = "$parent" ]
+}
 
 if [ "$ACTION" = "rollback" ] || [ "$ACTION" = "--rollback" ]; then
     echo "=== Rolling back permissions and ACLs on machine root: $MACHINE_ROOT ==="
-    if [ ! -d "$MACHINE_ROOT" ]; then
-        echo "Error: Machine root does not exist: $MACHINE_ROOT" >&2
+    [ -d "$MACHINE_ROOT" ] || die "machine root does not exist: $MACHINE_ROOT"
+    [ -f "$STAT_BACKUP" ] || die "no metadata backup in $BACKUP_DIR; refusing to guess original ownership and modes"
+
+    failed=0
+
+    echo "Restoring ownership and mode bits from $STAT_BACKUP..."
+    while read -r mode uid gid file; do
+        [ -e "$file" ] || [ -L "$file" ] || continue
+        if ! inside_machine_root "$file"; then
+            echo "Error: backup entry outside the machine root: $file" >&2
+            failed=1
+            continue
+        fi
+        chown -h "$uid:$gid" "$file" || failed=1
+        [ -L "$file" ] || chmod "$mode" "$file" || failed=1
+    done < "$STAT_BACKUP"
+
+    if [ -f "$ACL_BACKUP" ]; then
+        command -v setfacl >/dev/null 2>&1 || die "setfacl is required to restore $ACL_BACKUP"
+        echo "Restoring exact POSIX ACLs from $ACL_BACKUP..."
+        block=""
+        restore_acl_block()
+        {
+            [ -n "$block" ] || return 0
+            local path="${block%%$'\n'*}"
+            path="${path#\# file: }"
+            if [ ! -e "$path" ]; then block=""; return 0; fi
+            if [ "$(realpath -e -- "$path" 2>/dev/null)" != "$path" ] || ! inside_machine_root "$path"; then
+                echo "Error: ACL backup entry outside the machine root or not canonical: $path" >&2
+                failed=1
+            else
+                printf '%s' "$block" | setfacl --restore=- || failed=1
+            fi
+            block=""
+        }
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [ -z "$line" ]; then restore_acl_block; else block+="$line"$'\n'; fi
+        done < "$ACL_BACKUP"
+        restore_acl_block
+    fi
+
+    if [ "$failed" -ne 0 ]; then
+        echo "=== Rollback FAILED; backups kept in $BACKUP_DIR ===" >&2
         exit 1
     fi
-
-    if [ -f "$STAT_BACKUP" ]; then
-        echo "Restoring ownership and mode bits from $STAT_BACKUP..."
-        while read -r mode uid gid file; do
-            [ -e "$file" ] || continue
-            chown "$uid:$gid" "$file"
-            chmod "$mode" "$file"
-        done < "$STAT_BACKUP"
-    fi
-
-    if [ -f "$ACL_BACKUP" ] && command -v setfacl >/dev/null 2>&1; then
-        echo "Restoring exact POSIX ACLs from $ACL_BACKUP..."
-        setfacl --restore="$ACL_BACKUP"
-    elif command -v setfacl >/dev/null 2>&1; then
-        echo "No ACL backup found; stripping extended POSIX ACLs from machine root..."
-        setfacl -R -b "$MACHINE_ROOT"
-        setfacl -R -k "$MACHINE_ROOT"
-        echo "Reverting ownership to root:root and default restrictive permissions..."
-        chown -R root:root "$MACHINE_ROOT"
-        find "$MACHINE_ROOT" -type d -exec chmod 755 {} +
-        find "$MACHINE_ROOT" -type f -exec chmod 644 {} +
-        find "$MACHINE_ROOT" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 755 {} +
-    fi
-
-    rm -f "$ACL_BACKUP" "$STAT_BACKUP"
+    rm -f -- "$ACL_BACKUP" "$STAT_BACKUP"
     echo "=== Rollback completed successfully ==="
     exit 0
 fi
+
+# Capture metadata before ANY change to the machine root (the first backup wins).
+if [ -d "$MACHINE_ROOT" ] && [ ! -f "$STAT_BACKUP" ]; then
+    echo "Capturing filesystem metadata before permission changes..."
+    if [ -n "$(find "$MACHINE_ROOT" \( -name $'*\n*' -o -name '*\\*' \) -print -quit)" ]; then
+        die "machine root contains file names with newline or backslash; cannot capture exact metadata"
+    fi
+    find "$MACHINE_ROOT" -exec stat -c "%a %u %g %n" {} + > "$STAT_BACKUP.tmp"
+    mv -- "$STAT_BACKUP.tmp" "$STAT_BACKUP"
+    if command -v getfacl >/dev/null 2>&1; then
+        echo "Capturing exact POSIX ACLs before permission changes..."
+        getfacl -R -p "$MACHINE_ROOT" > "$ACL_BACKUP.tmp"
+        mv -- "$ACL_BACKUP.tmp" "$ACL_BACKUP"
+    fi
+fi
+trap 'echo "Setup failed; run \"$0 rollback\" to restore the captured metadata." >&2' ERR
 
 echo "=== WineExplorer S2 Machine Root Setup ==="
 echo "Machine root: $MACHINE_ROOT"
@@ -108,17 +196,17 @@ if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
         mv "$SKEL_PFX/drive_c/Program Files (x86)" "$MACHINE_ROOT/drive_c/"
         ensure_common_shell_dirs
         if [ -d "$SKEL_PFX/drive_c/ProgramData" ] && [ ! -L "$SKEL_PFX/drive_c/ProgramData" ]; then
-            cp -a "$SKEL_PFX/drive_c/ProgramData"/. "$MACHINE_ROOT/drive_c/ProgramData/" 2>/dev/null || true
+            cp -a "$SKEL_PFX/drive_c/ProgramData"/. "$MACHINE_ROOT/drive_c/ProgramData/"
             rm -rf "$SKEL_PFX/drive_c/ProgramData"
         fi
         if [ -d "$SKEL_PFX/drive_c/users/Public" ] && [ ! -L "$SKEL_PFX/drive_c/users/Public" ]; then
-            cp -a "$SKEL_PFX/drive_c/users/Public"/. "$MACHINE_ROOT/drive_c/users/Public/" 2>/dev/null || true
+            cp -a "$SKEL_PFX/drive_c/users/Public"/. "$MACHINE_ROOT/drive_c/users/Public/"
             rm -rf "$SKEL_PFX/drive_c/users/Public"
         fi
-        cp "$SKEL_PFX/system.reg" "$MACHINE_ROOT/" 2>/dev/null || true
-        cp "$SKEL_PFX/userdef.reg" "$MACHINE_ROOT/" 2>/dev/null || true
-        cp "$SKEL_PFX/user.reg" "$MACHINE_ROOT/" 2>/dev/null || true
-        cp "$SKEL_PFX/.update-timestamp" "$MACHINE_ROOT/" 2>/dev/null || true
+        [ ! -f "$SKEL_PFX/system.reg" ] || cp "$SKEL_PFX/system.reg" "$MACHINE_ROOT/"
+        [ ! -f "$SKEL_PFX/userdef.reg" ] || cp "$SKEL_PFX/userdef.reg" "$MACHINE_ROOT/"
+        [ ! -f "$SKEL_PFX/user.reg" ] || cp "$SKEL_PFX/user.reg" "$MACHINE_ROOT/"
+        [ ! -f "$SKEL_PFX/.update-timestamp" ] || cp "$SKEL_PFX/.update-timestamp" "$MACHINE_ROOT/"
     else
         echo "Bootstrapping machine root at $MACHINE_ROOT..."
         # never wipe an existing machine root: it holds the programs installed for all users
@@ -164,16 +252,6 @@ fi
 if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
     mkdir -p "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna"
     cp -f "$WEX_LOCAL_LUNA" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" 2>/dev/null || true
-fi
-
-# Capture metadata before modifying permissions if no backup exists yet
-if [ ! -f "$STAT_BACKUP" ] && [ -d "$MACHINE_ROOT" ]; then
-    echo "Capturing filesystem metadata before permission changes..."
-    find "$MACHINE_ROOT" -exec stat -c "%a %u %g %n" {} + > "$STAT_BACKUP"
-fi
-if [ ! -f "$ACL_BACKUP" ] && [ -d "$MACHINE_ROOT" ] && command -v getfacl >/dev/null 2>&1; then
-    echo "Capturing exact POSIX ACLs before permission changes..."
-    getfacl -R -p "$MACHINE_ROOT" > "$ACL_BACKUP"
 fi
 
 # 2. Ensure permissions and POSIX default ACLs on machine root:
