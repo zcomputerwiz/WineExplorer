@@ -134,7 +134,7 @@ static bool shell_helpers()
     std::vector<BYTE> old_value;
     GetModuleFileNameW(NULL, module, MAX_PATH);
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
-                        KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition)) return false;
+                        KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, &disposition)) return false;
     bool had_value = RegQueryValueExW(key, L"Helper", NULL, &old_type, NULL, &old_size) == ERROR_SUCCESS;
     if (had_value)
     {
@@ -169,15 +169,11 @@ static bool shell_helpers()
             check(!launched && !info.hProcess && error == result, "helper refusal/error preserved; no child handle");
         else
         {
-            check(launched && info.hProcess, "mock approval returns actual child handle");
-            if (info.hProcess)
-            {
-                DWORD code = 0;
-                check(WaitForSingleObject(info.hProcess, 20) == WAIT_TIMEOUT, "target still alive, not helper handle");
-                check(release_event && SetEvent(release_event), "release actual target");
-                check(WaitForSingleObject(info.hProcess, 10000) == WAIT_OBJECT_0, "target exits");
-                check(GetExitCodeProcess(info.hProcess, &code) && code == 37, "target exit code 37");
-            }
+            // While a helper is configured the linked token is unusable by a non-elevated process (native
+            // Windows refuses it with 1346), so even an approving helper cannot start the target until the
+            // elevation broker (docs/ELEVATION_BOUNDARY_PLAN.md, step 4) does it. No child may be left behind.
+            check(!launched && !info.hProcess && error == ERROR_BAD_IMPERSONATION_LEVEL,
+                  "mock approval cannot start the target with the linked token; no child handle");
         }
         if (info.hProcess) CloseHandle(info.hProcess);
         if (release_event) {SetEvent(release_event); CloseHandle(release_event);}
@@ -377,7 +373,7 @@ static bool helper_states()
     HKEY key;
     DWORD old_type = 0, old_size = 0;
     std::vector<BYTE> old_value;
-    bool had_key = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, KEY_READ, &key) == ERROR_SUCCESS;
+    bool had_key = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, KEY_READ | KEY_WOW64_64KEY, &key) == ERROR_SUCCESS;
     bool had_value = false;
     if (had_key)
     {
@@ -394,14 +390,14 @@ static bool helper_states()
     {
         if (state.kind == helper_state::DELETE_KEY)
         {
-            LSTATUS status = RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation");
+            LSTATUS status = RegDeleteKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", KEY_WOW64_64KEY, 0);
             check(status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND, "delete Elevation key");
         }
         else
         {
             DWORD disposition;
             check(RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
-                                  KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition) == ERROR_SUCCESS,
+                                  KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, &disposition) == ERROR_SUCCESS,
                   "create Elevation key");
             LSTATUS status = ERROR_SUCCESS;
             if (state.kind == helper_state::DELETE_VALUE)
@@ -441,9 +437,12 @@ static bool helper_states()
         code = error = 0;
         launched = run_child(launch_shellexecute, child, &code, &error);
         printf("helper_state %-20s ShellExecuteExW launched=%d error=%lu code=%lu\n", state.name, launched, error, code);
-        if (allowed)
+        if (state.unset)
             check(launched && code == 100 + TokenElevationTypeFull,
-                  "unset or mock-approved helper: ShellExecuteExW starts the child with a full token");
+                  "unset helper: ShellExecuteExW starts the child with a full token");
+        else if (state.kind == helper_state::MOCK_HELPER)
+            check(!launched && error == ERROR_BAD_IMPERSONATION_LEVEL,
+                  "mock-approved helper: the linked token cannot start the child until the broker exists");
         else
             check(!launched && error == state.shell_error, "invalid helper: ShellExecuteExW fails with the exact error");
     }
@@ -452,7 +451,7 @@ static bool helper_states()
     {
         DWORD disposition;
         if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
-                            KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition) == ERROR_SUCCESS)
+                            KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, &disposition) == ERROR_SUCCESS)
         {
             if (had_value) RegSetValueExW(key, L"Helper", 0, old_type, old_value.data(), old_size);
             else RegDeleteValueW(key, L"Helper");
@@ -461,7 +460,7 @@ static bool helper_states()
     }
     else
     {
-        RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation");
+        RegDeleteKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", KEY_WOW64_64KEY, 0);
     }
     return failures == before;
 }
@@ -549,7 +548,7 @@ static bool linked_token_routes()
     DWORD disposition, old_type = 0, old_size = 0;
     std::vector<BYTE> old_value;
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
-                        KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition)) return false;
+                        KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, &disposition)) return false;
     bool had_value = RegQueryValueExW(key, L"Helper", NULL, &old_type, NULL, &old_size) == ERROR_SUCCESS;
     if (had_value)
     {
@@ -588,7 +587,24 @@ static bool linked_token_routes()
     check(error == ERROR_BAD_IMPERSONATION_LEVEL && code == 0, "N2 CreateProcessAsUserW(linked) is refused with 1346");
     error = create_as_user(linked_handle, true, &code);
     printf("linked_route CreateProcessWithTokenW error=%lu code=%lu\n", error, code);
-    check(error == ERROR_PRIVILEGE_NOT_HELD && code == 0, "N2 CreateProcessWithTokenW(linked) is refused with 1314");
+    // Native refuses with 1314 because a filtered administrator has no SeImpersonatePrivilege. Wine's
+    // "limited" token still holds it (see docs/ELEVATION_BOUNDARY_PLAN.md, "Limited token"), so the refusal
+    // comes from the impersonation level, 1346, until that token is really limited.
+    {
+        TOKEN_PRIVILEGES *privileges;
+        DWORD privilege_size = 0;
+        LUID impersonate;
+        bool holds = false;
+        LookupPrivilegeValueW(NULL, L"SeImpersonatePrivilege", &impersonate);
+        GetTokenInformation(self, TokenPrivileges, NULL, 0, &privilege_size);
+        privileges = (TOKEN_PRIVILEGES *)malloc(privilege_size);
+        if (privileges && GetTokenInformation(self, TokenPrivileges, privileges, privilege_size, &privilege_size))
+            for (DWORD i = 0; i < privileges->PrivilegeCount; i++)
+                if (privileges->Privileges[i].Luid.LowPart == impersonate.LowPart) holds = true;
+        free(privileges);
+        check(code == 0 && error == (holds ? ERROR_BAD_IMPERSONATION_LEVEL : ERROR_PRIVILEGE_NOT_HELD),
+              "N2 CreateProcessWithTokenW(linked) is refused (1314 without SeImpersonatePrivilege, else 1346)");
+    }
 
     // N3: it cannot be raised to a primary token.
     HANDLE copy = NULL;
