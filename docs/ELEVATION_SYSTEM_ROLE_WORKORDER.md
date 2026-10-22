@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: the system role and elevation as a Unix group (`wexsys`)
 
-Date: 2026-10-22. Status: scoped; phase 0 (facts) first. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
+Date: 2026-10-22. Status: phase 0 done, design calls decided; phases A and B next. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
 item 5 and decision D2, and gives the broker (step 4) and polkit consent (step 6) their Unix anchor.
 
 ## Why
@@ -67,6 +67,27 @@ Answer with `file:line`, from `/home/user/wine-dev` and `/home/user/WineExplorer
   group), and what standard users get (no linked token, as on Windows). **User decision.**
 - S4. Migration of existing installs from `sudo` to `wexsys`, and what desktop admins lose until the broker
   exists (installing into the shared `Program Files`).
+
+### Decisions (2026-10-22)
+
+- **S1 (user):** for now, `wineserver` is started through the launcher with effective group `wexsys`, and the
+  two `access()` checks of the registry save path (`server/registry.c`) use `faccessat(..., AT_EACCESS)`. The
+  registry checks decide which writes are made; the user cannot ptrace the server. Direction for later (user):
+  an always-running system service, so that user sessions are fully separate; this phase must not make that
+  harder (keep the system role tied to the peer credentials and image path, not to "same server").
+- **S2:** the launcher accepts `wineserver`, `services.exe` (via `wineboot --init`, which writes the boot-time
+  `HKLM` state) and nothing else now; the broker is added in step 4. With those in place the temporary
+  `ServiceCurrent` and `ActiveComputerName` grants are removed.
+- **S3 (user):** members of the Unix `sudo` group are administrators (override like `WEX_MACHINE_GROUP`). The
+  decision is made when the user's session starts (the root token is created), from the group database
+  (`getgrouplist`), so a change of `sudo` membership takes effect at the next logon, as on Windows. An
+  administrator gets today's limited token with a linked full token; anyone else gets a standard-user token: no
+  Administrators group, Medium integrity, `TokenElevationTypeDefault`, no linked token. Wine's view of the local
+  Administrators group (`NetLocalGroupGetMembers`, `net localgroup Administrators`, the local users and groups
+  UI) lists exactly the `sudo` members, refreshed the same way at logon.
+- **S4:** `setup-machine-root.sh --update` migrates `root:sudo` to `root:wexsys`. Until the broker exists,
+  administrators cannot install into the shared `Program Files`; the S2/S3/S4 acceptance tests change from
+  direct writes by alice to writes through the launcher's test hook or are marked as waiting for step 4.
 
 ## Phases after the design calls
 
