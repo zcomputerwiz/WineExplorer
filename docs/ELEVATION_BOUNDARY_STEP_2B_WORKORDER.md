@@ -80,8 +80,13 @@ A limited process can therefore enable `SeTcbPrivilege` and pass every check fro
     token as a primary token (native N6). In a user-writable prefix a limited process can replace
     `services.exe`, or create or reconfigure a LocalSystem service (Wine checks neither file nor registry ACLs
     yet), so an ungated SYSTEM token would be a way around the elevation boundary.
-  - Not trusted (user-writable prefix): LocalSystem services run on the user's limited token, LocalService and
-    NetworkService still get their minimal tokens. Documented as a limit of user-writable prefixes.
+  - Making any service token needs an enabled `SeTcbPrivilege`, as `LogonUser` for a service account does on
+    Windows: LocalService and NetworkService hold `SeImpersonatePrivilege`, which the limited token lacks, so
+    handing them to an untrusted caller would also widen its rights. Today `services.exe` starts every service
+    with plain `CreateProcessW` (`programs/services/services.c`), so services inherit its token; it will build
+    the token named by `ObjectName` and use `CreateProcessAsUserW` when it holds the system role.
+  - Not trusted (user-writable prefix): `services.exe` has no system role, so every service runs on the user's
+    limited token, whatever its `ObjectName`. Documented as a limit of user-writable prefixes.
   - Even in the machine root, creating or changing a service must need `SC_MANAGER_CREATE_SERVICE` /
     `SERVICE_CHANGE_CONFIG`, which a limited token does not get on native, and the `Services` registry key must
     be write-protected (registry enforcement work order). Until both hold, the SYSTEM token stays off even in
@@ -112,13 +117,13 @@ A limited process can therefore enable `SeTcbPrivilege` and pass every check fro
 
    This can be unconditional, because with today's tokens Administrators is enabled and the effective access
    does not change. Prove that with the unset-helper suite.
-5. **System role (D2 decided, see above).** Implement it in two parts, each with a probe:
-   - service tokens: a LocalService and a NetworkService test service report S-1-5-19 / S-1-5-20 as user,
-     minimal privileges and no Administrators group; a LocalSystem service in a user-writable prefix reports
-     the user's limited token;
-   - SYSTEM role, after the registry enforcement work order: in the machine root, `services.exe`,
-     `winedevice.exe` and a LocalSystem service report S-1-5-18; a copy of `services.exe` started by the user
-     from a user-writable directory does not, and a limited process cannot create or reconfigure a service.
+5. **System role (D2 decided, see above), after `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`.** Probe:
+   - in the machine root, `services.exe`, `winedevice.exe` and a LocalSystem test service report S-1-5-18;
+     LocalService and NetworkService test services report S-1-5-19 / S-1-5-20 as user, minimal privileges and
+     no Administrators group;
+   - a copy of `services.exe` started by the user from a user-writable directory gets no system role, and in a
+     user-writable prefix every service reports the user's limited token;
+   - a limited process cannot create or reconfigure a service.
 6. **Breakage sweep under enforcement**, with the B4 smoke test in `WEX_B4_HELPER=1` mode plus:
    - `wineboot -u`;
    - `regedit` reading `HKLM`;
