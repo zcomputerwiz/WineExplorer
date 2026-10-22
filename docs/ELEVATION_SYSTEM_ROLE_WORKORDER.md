@@ -532,4 +532,4 @@ and `runas`) gives no full token.
 | same file made 0666 | ignored, standard shape (PASS) |
 | B4 smoke, helper unset / `WEX_B4_HELPER=1`, as `wexadm` | PASS 34 s / PASS 54 s |
 | B4 smoke, helper unset / `WEX_B4_HELPER=1`, as `wexstd` | PASS 37 s / PASS 54 s |
-| `--all` as root | not accepted as a baseline: root is a standard user here and, being uid 0, passes file DACL checks, so advapi32 security reports 3732/6 (`security.c:3995-4047`) |
+| `--all` as root | not accepted as a baseline: root is a standard user here and, probably because uid 0 passes the file permission checks, so advapi32 security reports 3732/6 (`security.c:3995-4047`) |
