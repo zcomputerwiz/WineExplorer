@@ -219,7 +219,10 @@ def main():
                 command = [str(wine), str(test), case]
                 run = run_logged(command, env, output, label, 180)
                 counts = re.findall(r'(\d+) tests executed[^\n]*?\b(\d+) failures', run.stdout + run.stderr)
-                passed = run.returncode == 0 and bool(counts) and all(int(n) > 0 and int(f) == 0 for n, f in counts)
+                # Test programs that spawn children print one summary per process (children often run 0 tests), so
+                # require assertions to have run overall and no failures in any process.
+                passed = (run.returncode == 0 and bool(counts) and any(int(n) > 0 for n, f in counts) and
+                          all(int(f) == 0 for n, f in counts))
                 result['cases'][label] = {'command': command, 'exit_code': run.returncode,
                                          'summary_counts': counts, 'passed': passed}
                 if not passed:
