@@ -36,6 +36,16 @@ capturePage may itself cause rendering/readback work and affect the result.
 
 ## Execution sequence
 
+Host/guest path reminder: Debian WSL is the root-owned **host** for QEMU. Its
+launcher is `/mnt/d/DeepThought/Projects/WineExplorer/build/g4-virgl-20261022/launch.py`.
+Run it through `wsl -d Debian --exec unshare --mount --propagation private
+python3 -B <launcher>` after assigning a fresh output directory. The account
+`debian` and `/home/debian/wex-g4` are **inside the QEMU guest** and become
+accessible through loopback SSH port 2235 after boot; their absence on the WSL
+host is expected. The existing lab keypair is on D: under VirtualBox_VMs;
+use the private per-guest known_hosts file and never print private credentials.
+See the VirGL report's Guest and containment section for launch details.
+
 1. **Re-establish the lab.** Read the execution checkpoint and original recovery
    plan. Check account usage, branch/submodule status, VM ownership/power state,
    WSL access and free space. Use only the existing D:-backed
