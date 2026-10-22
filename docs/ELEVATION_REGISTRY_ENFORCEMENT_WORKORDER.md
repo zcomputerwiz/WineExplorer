@@ -181,3 +181,20 @@ be rechecked with the probe, because a fail-open window would defeat the enforce
   data argues against it. The same applies to the display-device writes.
 - Whichever option is chosen, `reg_empty_key` (`sysparams.c:825`) needs a failure exit; without it any
   `HKLM`-denied delete turns into a hang at 40% CPU instead of an error.
+
+### Results, fail-open recheck (2026-10-22)
+
+The intermittent `HKLM` write successes in item 1 are not a token fail-open. A probe (`tp64.exe`, `tp32.exe`)
+printed the process token and tried `RegSetValueEx` on the existing `HKLM\Software\Microsoft`, from a fresh
+server each run (alternating `wineserver -w` and `-k`, 0 to 9 s apart), as `wextest` with the helper set:
+
+| Build | Runs (x64 + x86) | Token | `HKLM` write |
+| :--- | :--- | :--- | :--- |
+| `ccr-work`, no trial patch | 24 | always Limited, Medium (`0x2000`), Administrators `0x19` (deny-only) | 0 (succeeds, no enforcement yet) |
+| trial patch | 40 | same, every run | 5 (`ERROR_ACCESS_DENIED`) every run |
+
+Cause of the earlier successes: `reg add` to a key that does not exist yet. `create_key` creates the key and
+returns its handle through `alloc_handle_no_access_check`, so the creating process holds full access and its value
+write succeeds; the next `reg add` to the now-existing key is denied (reproduced: first run exit 0, second exit 1).
+The item 1 batches wrote to new key names, which explains the pattern. Item 3's `KEY_CREATE_SUB_KEY` check on the
+parent, with the requested access checked on the new key's descriptor, closes it.
