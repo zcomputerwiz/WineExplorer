@@ -64,8 +64,39 @@ The bounded harness fix is committed and pushed as `8d0e819f`: unexpected
 background observer exceptions are preserved as `observer_error` and fail the
 GPU-recovery verdict; an observer that cannot join within five seconds also
 fails the verdict. The regression test was added. The complete Linux suite ran
-in Debian WSL from `scripts/`: 13/13 passed. No VM boot, recovery fault
-injection, guest modification, or reset-credit use has occurred in this
-continuation. Next, validate the owned guest/launcher state, then run the
-healthy accelerated control and two serial single-fault VirGL trials per plan.
-Preserve the D: storage boundary and private runtime policy.
+in Debian WSL from `scripts/`: 13/13 passed. The pre-execution state below was
+superseded by the 2026-10-22 accelerated execution update.
+
+## 2026-10-22 accelerated execution update
+
+The current branch is `codex/g4-r1-completion`, pushed through checkpoint
+`712f8885`. Usage was 96% five-hour / 90% weekly at the last check; leave the
+one-time reset credit untouched and keep the existing heartbeat enabled.
+
+The private launcher was changed to a fresh output directory and the existing
+D:-resident VirGL VM was started. It is the only active guest; D: has1.8TB
+free. Host and both guest GLES2 contexts report
+`virgl (D3D12 (Intel(R) UHD Graphics 750))`. No-fault Electron baseline:
+host0, diagnostic0, animation progressed to964 frames over60s, zero classified
+Chromium fatal/GPU/Skia/shared-context/output errors, actual captured window
+visually rendered, owned Wine servers cleaned up.
+
+First single-fault trial (`/home/debian/wex-g4/recovery-virgl-run-01`, output
+preserved in `D:/VirtualBox_VMs/WEX-G4-VirGL-20261022/recovery-trial-01`):
+diagnostic0; one owned GPU child killed (PID604, creation-time revalidated),
+replacement PID936, same renderer PID676; both old WebGL contexts reported
+loss and both replacements passed exact red default / green FBO pixels; GPU
+compositing/features/backend remained stable; frames progressed51 to later51;
+no renderer exits and no extra Chromium errors. However timed screenshots show
+blank front at8s and again28s, while18s shows the recovered app. The latter
+also reveals an intrusive red test canvas. Therefore this is a functional
+recovery diagnostic, **not visual acceptance**; the intermittent blank capture
+must be reproduced/triaged before another trial is treated as evidence.
+
+Uncommitted probe refinement now keeps recovery WebGL canvases offscreen and
+captures every2s from12–32s. Validate syntax and all13 Linux tests, transfer
+only current open helpers, then run a fresh single-fault reproduction. Inspect
+the front images and compositor/client logs, not just recovery parser output.
+Preserve this VM overlay; do not start another VM or modify production code
+without a discriminating root-cause reproduction. At finish, gracefully power
+down the guest and keep evidence only on D:.

@@ -41,6 +41,9 @@ function probeRecoveryPixels() {
   for (const name of ['webgl', 'webgl2']) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 32;
+    // Keep the diagnostic WebGL surface alive without adding a visible test
+    // swatch or changing the app's front-window layout during recovery capture.
+    canvas.style.cssText = 'position:absolute;left:-10000px;top:0';
     document.querySelector('input').before(canvas);
     const gl = canvas.getContext(name, { antialias: false, preserveDrawingBuffer: true });
     if (!gl) { contexts[name] = { available: false }; continue; }
