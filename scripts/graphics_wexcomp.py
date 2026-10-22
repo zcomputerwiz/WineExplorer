@@ -77,6 +77,25 @@ class OwnedWexcomp:
             raise RuntimeError('Owned wexcomp exited during control')
         self.record['alive_at_end'] = True
 
+    def verify_gpu_renderer(self, driver):
+        """Observe the outer compositor's own context, not a client's EGL query."""
+        self.verify()
+        if self.renderer != 'gles2' or driver not in ('d3d12', 'svga'):
+            raise ValueError('GPU renderer verification requires an explicit supported GLES2 driver')
+        data = (self.output / 'wexcomp.log').read_bytes()
+        log = data.decode(errors='replace')
+        matches = re.findall(r'(?m)\bGL renderer: ([^\r\n]+)', log)
+        expected = r'D3D12 \(' if driver == 'd3d12' else r'SVGA3D(?:;|$)'
+        if ('Creating GLES2 renderer' not in log or len(matches) != 1
+                or not re.match(expected, matches[0])
+                or re.search(r'llvmpipe|softpipe|swiftshader|Microsoft Basic Render', matches[0], re.I)):
+            raise RuntimeError('Outer compositor GPU renderer not verified; see wexcomp.log')
+        record = {'driver': driver, 'renderer': matches[0], 'passed': True,
+                  'startup_log_sha256': hashlib.sha256(data).hexdigest()}
+        self.record['compositor_renderer'] = 'gles2: ' + matches[0]
+        self.record['outer_gl_driver_verification'] = record
+        return record
+
     def stop(self):
         if self.process and self.process.poll() is None:
             self.process.terminate()
@@ -95,7 +114,7 @@ def verify_native_gl_driver(environment, output, driver):
     """Check the actual owned Wayland EGL context, never an unrelated GLX display."""
     if driver == 'software':
         return None
-    if driver != 'd3d12':
+    if driver not in ('d3d12', 'svga'):
         raise ValueError('Unsupported native GL driver')
     if (environment.get('WAYLAND_DISPLAY') != 'wex-shell-0'
             or environment.get('XDG_RUNTIME_DIR') != str(output / 'wayland-runtime')
@@ -106,10 +125,11 @@ def verify_native_gl_driver(environment, output, driver):
             (output / 'native-egl.stderr.log').open('w') as err:
         result = subprocess.run(command, env=environment, stdout=out, stderr=err, timeout=30)
     text = (output / 'native-egl.stdout.log').read_text(errors='replace')
+    renderer = r'D3D12 \([^\n]+\)' if driver == 'd3d12' else r'SVGA3D[^\n]*'
     passed = (result.returncode == 0 and 'Wayland platform:' in text
-              and re.search(r'OpenGL (?:core profile |compatibility profile )?renderer(?: string)?: D3D12 \([^\n]+\)', text)
+              and re.search(r'OpenGL (?:core profile |compatibility profile )?renderer(?: string)?: ' + renderer, text)
               and not re.search(r'llvmpipe|softpipe|swiftshader|Microsoft Basic Render', text, re.I))
     if not passed:
-        raise RuntimeError('Requested native D3D12 EGL driver unavailable; see native-egl logs')
+        raise RuntimeError('Requested native ' + driver + ' EGL driver unavailable; see native-egl logs')
     return {'passed': True, 'platform': 'wayland', 'command': command,
             'exit_code': result.returncode, 'stdout': text}

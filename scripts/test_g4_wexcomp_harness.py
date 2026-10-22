@@ -59,6 +59,26 @@ class OwnedCompositor(unittest.TestCase):
         with self.assertRaises(ValueError):
             OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='automatic-fallback')
 
+    def test_outer_renderer_requires_its_own_unique_live_context(self):
+        control = OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='gles2')
+        control.process = mock.Mock()
+        control.process.poll.return_value = None
+        control.record = {}
+        text = 'Creating GLES2 renderer\nGL renderer: SVGA3D; build: RELEASE; LLVM;\n'
+        path = self.root / 'wexcomp.log'
+        path.write_text(text)
+        self.assertTrue(control.verify_gpu_renderer('svga')['passed'])
+        for invalid in ('', text * 2, text.replace('SVGA3D', 'llvmpipe'), text.replace('Creating GLES2 renderer', 'other')):
+            path.write_text(invalid)
+            with self.subTest(text=invalid), self.assertRaises(RuntimeError):
+                control.verify_gpu_renderer('svga')
+        path.write_text(text)
+        with self.assertRaises(RuntimeError):
+            control.verify_gpu_renderer('d3d12')
+        control.process.poll.return_value = 1
+        with self.assertRaises(RuntimeError):
+            control.verify_gpu_renderer('svga')
+
     def test_missing_private_protocol_is_not_success(self):
         control = OwnedWexcomp(self.binary, self.root, self.root, {})
         process = mock.Mock()
@@ -139,6 +159,16 @@ class NativeGLVerification(unittest.TestCase):
             run.assert_not_called()
             self.env = original
         self.assertIsNone(verify_native_gl_driver({}, self.root, 'software'))
+
+    def test_svga_is_verified_separately_from_wsl(self):
+        text = 'Wayland platform:\nOpenGL core profile renderer: SVGA3D; build: RELEASE; LLVM;\n'
+        def probe(*args, **kwargs):
+            kwargs['stdout'].write(text)
+            return mock.Mock(returncode=0)
+        with mock.patch('graphics_wexcomp.subprocess.run', side_effect=probe):
+            self.assertTrue(verify_native_gl_driver(self.env, self.root, 'svga')['passed'])
+            with self.assertRaises(RuntimeError):
+                verify_native_gl_driver(self.env, self.root, 'd3d12')
 
 
 if __name__ == '__main__':

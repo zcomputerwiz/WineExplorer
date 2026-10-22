@@ -1,6 +1,15 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_ACCELERATED_VM_20261022.md`. Fresh authorized
+VirtualBox guest WEX-G4-Acceleration-20261022 lives entirely on D:, SSH2234/debian.
+Real vmwgfx DRM nodes and SVGA3D GL4.1 verified; exact pinned wexcomp GLES2
+renderer passes all24 native pixel/lifetime controls twice, software control
+also24 PASS. This removes the WSL DRM limitation for further testing, not the
+end-to-end Chromium acceptance gate. No Wine/Chromium payload staged yet.
+Guest gracefully powered off; existing workers/VMs untouched. Continue with
+explicit SVGA/GLES2 real-consumer harness support and owned WoW64 runtime bundle.
+
 Newest: `CHROMIUM_GRAPHICS_G4_NATIVE_ACCELERATION_PROGRESS.md`, scope in
 `CHROMIUM_GRAPHICS_G4_NATIVE_ACCELERATION_SCOPE.md`. Native Wayland EGL proves
 WSL D3D12 client acceleration; real Electron lifecycle/frozen resize/recovery,

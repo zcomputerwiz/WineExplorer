@@ -16,19 +16,24 @@ def main():
     parser.add_argument('--wexcomp-config', required=True, type=Path)
     parser.add_argument('--output-dir', required=True, type=Path)
     parser.add_argument('--compositor-renderer', choices=('pixman', 'gles2'), default='pixman')
+    parser.add_argument('--gl-driver', choices=('d3d12', 'svga'), default='d3d12')
     args = parser.parse_args()
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
     environment = {k: v for k, v in os.environ.items()
                    if not k.startswith(('WINE', 'VK_', 'WLR_', 'MESA_', 'GALLIUM_', 'EGL_'))
                    and k not in ('DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET', 'LD_PRELOAD', 'LD_LIBRARY_PATH')}
-    environment.update(GALLIUM_DRIVER='d3d12', LIBGL_ALWAYS_SOFTWARE='0', LD_LIBRARY_PATH='/usr/lib/wsl/lib')
+    environment.update(GALLIUM_DRIVER=args.gl_driver, LIBGL_ALWAYS_SOFTWARE='0')
+    if args.gl_driver == 'd3d12':
+        environment['LD_LIBRARY_PATH'] = '/usr/lib/wsl/lib'
     control = OwnedWexcomp(args.wexcomp_bin.resolve(strict=True),
                            args.wexcomp_config.resolve(strict=True), output, environment, args.compositor_renderer)
     result = {'classification': 'Native EGL inventory only; not Chromium/desktop acceptance', 'passed': False}
     try:
         result['wexcomp'] = control.start()
-        result['native_gl_driver'] = verify_native_gl_driver(environment, output, 'd3d12')
+        result['native_gl_driver'] = verify_native_gl_driver(environment, output, args.gl_driver)
+        if args.compositor_renderer == 'gles2':
+            result['outer_gl_driver'] = control.verify_gpu_renderer(args.gl_driver)
         control.verify()
         result['passed'] = True
     except Exception as error:
