@@ -466,6 +466,224 @@ static bool helper_states()
     return failures == before;
 }
 
+// The linked (full) admin token must not be usable by a non-elevated process while the elevation helper is
+// configured. Expected values are the ones measured natively on Windows 10.0.26300
+// (docs/ELEVATION_BOUNDARY_PLAN.md, "Native results"). A suspended copy of this program is the target, and it
+// reports 100 + its token elevation type (Default 1, Full 2, Limited 3).
+typedef LONG (NTAPI *set_information_process_fn)(HANDLE, ULONG, void *, ULONG);
+struct access_token_info {HANDLE token; HANDLE thread;};
+
+static const LONG STATUS_BAD_IMPERSONATION_LEVEL_VALUE = (LONG)0xc00000a5;
+static const LONG STATUS_PRIVILEGE_NOT_HELD_VALUE = (LONG)0xc0000061;
+
+static set_information_process_fn get_set_information_process()
+{
+    return reinterpret_cast<set_information_process_fn>(reinterpret_cast<void *>(
+        GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtSetInformationProcess")));
+}
+
+static bool start_suspended_self(PROCESS_INFORMATION *info)
+{
+    WCHAR module[MAX_PATH], command[MAX_PATH + 40];
+    STARTUPINFOW startup = {};
+    startup.cb = sizeof(startup);
+    GetModuleFileNameW(NULL, module, MAX_PATH);
+    swprintf(command, MAX_PATH + 40, L"\"%ls\" --child-elevation", module);
+    return CreateProcessW(NULL, command, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &startup, info) != FALSE;
+}
+
+static DWORD finish_child(PROCESS_INFORMATION *info)
+{
+    DWORD code = 0;
+    ResumeThread(info->hThread);
+    check(WaitForSingleObject(info->hProcess, 20000) == WAIT_OBJECT_0, "token child exits");
+    GetExitCodeProcess(info->hProcess, &code);
+    CloseHandle(info->hProcess);
+    CloseHandle(info->hThread);
+    return code;
+}
+
+// Assign a token to a suspended child with ProcessAccessToken. Returns the NTSTATUS and the child's report.
+static LONG assign_to_child(HANDLE token, DWORD *child_code)
+{
+    PROCESS_INFORMATION info = {};
+    *child_code = 0;
+    if (!start_suspended_self(&info)) {check(false, "start suspended token child"); return -1;}
+    access_token_info assign = {token, info.hThread};
+    LONG status = get_set_information_process()(info.hProcess, 9 /* ProcessAccessToken */, &assign, sizeof(assign));
+    *child_code = finish_child(&info);
+    return status;
+}
+
+static DWORD create_as_user(HANDLE token, bool with_token_api, DWORD *child_code)
+{
+    WCHAR module[MAX_PATH], command[MAX_PATH + 40];
+    STARTUPINFOW startup = {};
+    PROCESS_INFORMATION info = {};
+    startup.cb = sizeof(startup);
+    GetModuleFileNameW(NULL, module, MAX_PATH);
+    swprintf(command, MAX_PATH + 40, L"\"%ls\" --child-elevation", module);
+    *child_code = 0;
+    SetLastError(0xdeadbeef);
+    BOOL ok = with_token_api
+        ? CreateProcessWithTokenW(token, 0, NULL, command, 0, NULL, NULL, &startup, &info)
+        : CreateProcessAsUserW(token, NULL, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &info);
+    DWORD error = ok ? 0 : GetLastError();
+    if (ok)
+    {
+        check(WaitForSingleObject(info.hProcess, 20000) == WAIT_OBJECT_0, "token child exits");
+        GetExitCodeProcess(info.hProcess, child_code);
+        CloseHandle(info.hProcess);
+        CloseHandle(info.hThread);
+    }
+    return error;
+}
+
+static bool linked_token_routes()
+{
+    if (!getenv("WINEPREFIX") || !getenv("WEX_TOKEN_REGRESSION_TEST")) return false;
+    unsigned int before = failures;
+    const DWORD limited = 100 + TokenElevationTypeLimited;
+
+    HKEY key;
+    DWORD disposition, old_type = 0, old_size = 0;
+    std::vector<BYTE> old_value;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
+                        KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition)) return false;
+    bool had_value = RegQueryValueExW(key, L"Helper", NULL, &old_type, NULL, &old_size) == ERROR_SUCCESS;
+    if (had_value)
+    {
+        old_value.resize(old_size);
+        if (RegQueryValueExW(key, L"Helper", NULL, &old_type, old_value.data(), &old_size))
+        {RegCloseKey(key); return false;}
+    }
+    // Any configured helper turns enforcement on; nothing here runs it.
+    static const WCHAR configured[] = L"C:\\windows\\system32\\wex-test-helper-never-run.exe";
+    check(RegSetValueExW(key, L"Helper", 0, REG_SZ, (const BYTE *)configured, sizeof(configured)) == ERROR_SUCCESS,
+          "configure helper to turn enforcement on");
+
+    HANDLE self, linked_handle = NULL;
+    TOKEN_LINKED_TOKEN linked = {};
+    TOKEN_ELEVATION_TYPE elevation = (TOKEN_ELEVATION_TYPE)0;
+    DWORD size;
+    check(OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &self), "open own token");
+    check(GetTokenInformation(self, TokenElevationType, &elevation, sizeof(elevation), &size) &&
+          elevation == TokenElevationTypeLimited, "test process has a limited token");
+    check(GetTokenInformation(self, TokenLinkedToken, &linked, sizeof(linked), &size), "query the linked token");
+    linked_handle = linked.LinkedToken;
+
+    // N1: the linked token is an identification-level impersonation token.
+    TOKEN_TYPE type = (TOKEN_TYPE)0;
+    SECURITY_IMPERSONATION_LEVEL level = (SECURITY_IMPERSONATION_LEVEL)-1;
+    check(GetTokenInformation(linked_handle, TokenType, &type, sizeof(type), &size) && type == TokenImpersonation,
+          "N1 linked token is an impersonation token");
+    check(GetTokenInformation(linked_handle, TokenImpersonationLevel, &level, sizeof(level), &size) &&
+          level == SecurityIdentification, "N1 linked token is identification level");
+
+    DWORD code = 0, error;
+
+    // N2: neither process-creation API accepts it.
+    error = create_as_user(linked_handle, false, &code);
+    printf("linked_route CreateProcessAsUserW error=%lu code=%lu\n", error, code);
+    check(error == ERROR_BAD_IMPERSONATION_LEVEL && code == 0, "N2 CreateProcessAsUserW(linked) is refused with 1346");
+    error = create_as_user(linked_handle, true, &code);
+    printf("linked_route CreateProcessWithTokenW error=%lu code=%lu\n", error, code);
+    check(error == ERROR_PRIVILEGE_NOT_HELD && code == 0, "N2 CreateProcessWithTokenW(linked) is refused with 1314");
+
+    // N3: it cannot be raised to a primary token.
+    HANDLE copy = NULL;
+    SetLastError(0xdeadbeef);
+    BOOL ok = DuplicateTokenEx(linked_handle, MAXIMUM_ALLOWED, NULL, SecurityIdentification, TokenPrimary, &copy);
+    error = GetLastError();
+    printf("linked_route DuplicateTokenEx(primary) ok=%d error=%lu\n", ok, ok ? 0 : error);
+    check(!ok && error == ERROR_BAD_IMPERSONATION_LEVEL, "N3 duplicate linked token to primary is refused with 1346");
+    if (ok && copy) CloseHandle(copy);
+    copy = NULL;
+    SetLastError(0xdeadbeef);
+    ok = DuplicateTokenEx(linked_handle, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenImpersonation, &copy);
+    error = GetLastError();
+    check(!ok && error == ERROR_BAD_IMPERSONATION_LEVEL, "N3 raise linked token to impersonation level is refused with 1346");
+    if (ok && copy) CloseHandle(copy);
+
+    // N4: it cannot be assigned to a process.
+    LONG status = assign_to_child(linked_handle, &code);
+    printf("linked_route ProcessAccessToken(linked) status=0x%08lx code=%lu\n", (unsigned long)status, code);
+    check(status == STATUS_BAD_IMPERSONATION_LEVEL_VALUE && code == limited,
+          "N4 assigning the linked token fails and the child stays limited");
+
+    // The grant-admin request must also fail, aimed at a child so that a failure cannot elevate this process.
+    {
+        PROCESS_INFORMATION info = {};
+        if (start_suspended_self(&info))
+        {
+            status = get_set_information_process()(info.hProcess, 1002 /* ProcessWineGrantAdminToken */, NULL, 0);
+            code = finish_child(&info);
+            printf("linked_route ProcessWineGrantAdminToken status=0x%08lx code=%lu\n", (unsigned long)status, code);
+            check(status == STATUS_PRIVILEGE_NOT_HELD_VALUE && code == limited,
+                  "ProcessWineGrantAdminToken is refused without SeTcbPrivilege and the child stays limited");
+        }
+        else check(false, "start suspended child for the grant-admin request");
+    }
+
+    // N5: impersonating the linked token must not open objects.
+    check(SetThreadToken(NULL, linked_handle), "N5 SetThreadToken(linked) succeeds");
+    {
+        WCHAR path[MAX_PATH];
+        GetSystemDirectoryW(path, MAX_PATH);
+        lstrcatW(path, L"\\kernel32.dll");
+        SetLastError(0xdeadbeef);
+        HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        DWORD file_error = file == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+        HANDLE process_token = NULL;
+        SetLastError(0xdeadbeef);
+        BOOL opened = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &process_token);
+        DWORD token_error = opened ? 0 : GetLastError();
+        if (process_token) CloseHandle(process_token);
+        HKEY software = NULL;
+        LONG reg_error = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft", 0, KEY_READ, &software);
+        if (software) RegCloseKey(software);
+        RevertToSelf();
+        printf("linked_route impersonation file=%lu process_token=%lu key=%ld\n", file_error, token_error, reg_error);
+        check(file_error == ERROR_BAD_IMPERSONATION_LEVEL, "N5 opening a file while impersonating the linked token fails with 1346");
+        check(token_error == ERROR_BAD_IMPERSONATION_LEVEL, "N5 opening the process token while impersonating fails with 1346");
+        check(reg_error == ERROR_ACCESS_DENIED, "N5 opening a registry key while impersonating fails with 5");
+    }
+
+    // Controls that Windows accepts: the caller's own token.
+    HANDLE own_impersonation = NULL, own_primary = NULL, own_restricted = NULL;
+    if (DuplicateTokenEx(self, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenImpersonation, &own_impersonation))
+    {
+        error = create_as_user(own_impersonation, false, &code);
+        check(error == 0 && code == limited, "control: own impersonation token starts a limited child");
+        CloseHandle(own_impersonation);
+    }
+    else check(false, "control: duplicate own token as impersonation");
+    if (DuplicateTokenEx(self, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &own_primary))
+    {
+        status = assign_to_child(own_primary, &code);
+        check(status == 0 && code == limited, "control: own primary copy is assigned and the child stays limited");
+        CloseHandle(own_primary);
+    }
+    else check(false, "control: duplicate own token as primary");
+    if (CreateRestrictedToken(self, DISABLE_MAX_PRIVILEGE, 0, NULL, 0, NULL, 0, NULL, &own_restricted))
+    {
+        status = assign_to_child(own_restricted, &code);
+        check(status == 0 && code == limited, "control: own restricted copy is assigned");
+        CloseHandle(own_restricted);
+    }
+    else check(false, "control: create restricted token");
+
+    CloseHandle(linked_handle);
+    CloseHandle(self);
+
+    // Restore the original helper value.
+    if (had_value) RegSetValueExW(key, L"Helper", 0, old_type, old_value.data(), old_size);
+    else RegDeleteValueW(key, L"Helper");
+    RegCloseKey(key);
+    return failures == before;
+}
+
 struct dialog_search {DWORD pid; HWND window;};
 static BOOL CALLBACK find_dialog(HWND window, LPARAM parameter)
 {
@@ -557,6 +775,15 @@ int main(int argc, char **argv)
     // The shell appends request metadata after a configured mock helper's args.
     if (argc >= 3 && !strcmp(argv[1], "--helper-exit")) return atoi(argv[2]);
     if (argc >= 3 && !strcmp(argv[1], "--child-exit")) {Sleep(500); return atoi(argv[2]);}
+    if (argc >= 2 && !strcmp(argv[1], "--child-elevation"))
+    {
+        HANDLE token;
+        TOKEN_ELEVATION_TYPE type = (TOKEN_ELEVATION_TYPE)0;
+        DWORD size;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return 2;
+        if (!GetTokenInformation(token, TokenElevationType, &type, sizeof(type), &size)) return 3;
+        return 100 + (int)type;
+    }
     if (argc >= 4 && !strcmp(argv[1], "--child-wait"))
     {
         WCHAR name[128];
@@ -589,7 +816,9 @@ int main(int argc, char **argv)
         printf("elevation_helper_errors_and_child_handle=%s\n", shell ? "PASS" : "FAIL");
         bool states = helper_states();
         printf("elevation_helper_states_manifest_child=%s\n", states ? "PASS" : "FAIL");
-        return token && shell && states ? 0 : 1;
+        bool routes = linked_token_routes();
+        printf("linked_token_routes_closed=%s\n", routes ? "PASS" : "FAIL");
+        return token && shell && states && routes ? 0 : 1;
     }
     return token ? 0 : 1;
 }

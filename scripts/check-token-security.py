@@ -205,6 +205,7 @@ def main():
             if not args.checkpoint_a:
                 markers.append('elevation_helper_errors_and_child_handle=PASS')
                 markers.append('elevation_helper_states_manifest_child=PASS')
+                markers.append('linked_token_routes_closed=PASS')
             passed = run.returncode == 0 and all(marker in run.stdout for marker in markers)
             result['cases'][arch] = {'command': command, 'exit_code': run.returncode, 'passed': passed,
                                      'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
