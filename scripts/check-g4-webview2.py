@@ -401,8 +401,8 @@ def main():
         seen = set()
         started = time.monotonic()
         next_resources = started
-        screenshots = ([4, 8, 12, 16, 18, 20, 22, 24, 26, 28, 30, 32]
-                       if args.gpu_recovery else [8, 18])
+        screenshots = ([4, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
+                       if args.gpu_recovery or args.freeze_scene else [8, 18])
         with (output / 'processes.jsonl').open('w') as log:
             while not stop.wait(.25):
                 now = time.monotonic()
