@@ -178,6 +178,16 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def electron_payloads(browser, host, electron_app, gpu_recovery=False):
+    if electron_app is None:
+        return browser, host
+    app = electron_app.resolve(strict=True)
+    paths = (browser, host, app / 'main.js', app / 'package.json')
+    if gpu_recovery:
+        paths += (app / 'recovery-frame-wait.js',)
+    return paths
+
+
 def lifecycle_result(log):
     """Require every named check, not just a fixture's summary boolean."""
     matches = re.findall(r'^\d+ ms lifecycle result (.+)$', log, re.MULTILINE)
@@ -378,6 +388,10 @@ def main():
         # through the fixture's frozen-frame acknowledgement handshake.
         from graphics_frame_pixels import frame_pixels
     if args.gpu_recovery:
+        recovery_wait = (args.electron_app / 'recovery-frame-wait.js'
+                         if args.electron_app else None)
+        if recovery_wait is None or not recovery_wait.is_file():
+            parser.error('GPU recovery fixture dependency missing: ' + str(recovery_wait))
         # PNG decoding and pixel-oracle availability are mandatory preconditions,
         # checked before any private Wine process or GPU fault can start.
         from PIL import Image  # noqa: F401
@@ -429,8 +443,7 @@ def main():
     loader = host.parent / 'WebView2Loader.dll'
     browser = runtime / ('electron.exe' if args.electron_app else 'msedgewebview2.exe')
     wine, server = build / 'wine', build / 'server/wineserver'
-    payloads = ((browser, host, args.electron_app.resolve(strict=True) / 'main.js',
-                 args.electron_app.resolve(strict=True) / 'package.json')
+    payloads = (electron_payloads(browser, host, args.electron_app, args.gpu_recovery)
                 if args.electron_app else (browser, host, loader))
     for path in (wine, server) + payloads:
         if not path.is_file():

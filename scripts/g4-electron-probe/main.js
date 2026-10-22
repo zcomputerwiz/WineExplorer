@@ -3,6 +3,7 @@
 const { app, BrowserWindow, session } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { waitForRendererFrames } = require('./recovery-frame-wait');
 
 const logPath = process.env.WEX_WEBVIEW2_LOG;
 const profile = process.env.WEX_WEBVIEW2_PROFILE;
@@ -91,6 +92,12 @@ async function recoveryPageCapture(win, stage) {
   throw new Error('GPU recovery page pixels were not accepted: ' + stage);
 }
 
+async function waitForFrozenSceneFrames(win, stage) {
+  const timing = await waitForRendererFrames(win.webContents, stage);
+  log('gpu recovery render opportunity', timing);
+  if (!timing.passed) throw new Error(`Renderer frame wait timed out before ${stage} capture`);
+}
+
 // Runs inside the ordinary sandboxed renderer, with no preload/Node access.
 function probeRecoveryPixels() {
   window.g4Losses ||= { webgl: 0, webgl2: 0 };
@@ -166,6 +173,7 @@ async function exerciseGPURecovery(win) {
     await win.webContents.executeJavaScript(`window.sceneFrozen=true;
       box.style.transform='translateX(160px)';counter.textContent='Frozen recovery checkpoint';
       document.body.style.background='#e8f5e9';`);
+    await waitForFrozenSceneFrames(win, 'pre_fault');
     const healthyPixels = await recoveryPageCapture(win, 'pre_fault');
     if (!healthyPixels.frontPixelPassed || !healthyPixels.pagePixelPassed)
       throw new Error('Healthy pre-fault front or page pixels failed; no process killed');
@@ -207,6 +215,7 @@ async function exerciseGPURecovery(win) {
       await win.webContents.executeJavaScript(`window.sceneFrozen=true;
         box.style.transform='translateX(160px)';counter.textContent='GPU recovery verified';
         document.body.style.background='#fff3e0';`);
+      await waitForFrozenSceneFrames(win, 'recovered');
       const captureDir = process.env.WEX_WEBVIEW2_RECOVERY_CAPTURE_DIR;
       if (!captureDir) throw new Error('GPU recovery capture directory is missing');
       for (const [stage, wait] of [['recovered', 0], ['settled_2s', 2000], ['settled_4s', 2000]]) {

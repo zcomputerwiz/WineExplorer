@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Wine-free fail-closed restart/profile parser tests; uses only owned temp state."""
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -28,6 +29,34 @@ class DependencyPreflight(unittest.TestCase):
             with self.assertRaises(ModuleNotFoundError):
                 consumer.main()
             launch.assert_not_called()
+
+    def test_missing_renderer_frame_helper_fails_before_wine_launch(self):
+        arguments = ['check-g4-webview2.py', '--wine-build', '/not-started/build',
+                     '--runtime', '/not-started/runtime', '--host', '/not-started/host.exe',
+                     '--electron-app', '/not-started/fixture', '--gpu-recovery', '--seconds', '30',
+                     '--gl-driver', 'virgl', '--wexcomp-bin', '/not-started/labwc',
+                     '--wexcomp-config', '/not-started/config', '--compositor-renderer', 'gles2',
+                     '--output-dir', '/not-started/output']
+        with mock.patch('sys.argv', arguments), \
+                mock.patch.object(consumer.shutil, 'which', return_value='/usr/bin/grim'), \
+                mock.patch.object(consumer.subprocess, 'Popen') as launch:
+            with self.assertRaises(SystemExit) as raised:
+                consumer.main()
+            self.assertEqual(raised.exception.code, 2)
+            launch.assert_not_called()
+
+    def test_recovery_fixture_payload_hash_inventory_includes_wait_helper(self):
+        with tempfile.TemporaryDirectory(prefix='wex-frame-wait-fixture-') as temp:
+            app = Path(temp)
+            for name in ('main.js', 'package.json', 'recovery-frame-wait.js'):
+                (app / name).write_text(name, encoding='utf-8')
+            browser, host = app / 'electron.exe', app / 'host.exe'
+            payloads = consumer.electron_payloads(browser, host, app, gpu_recovery=True)
+            self.assertEqual(payloads, (browser, host, app / 'main.js', app / 'package.json',
+                                        app / 'recovery-frame-wait.js'))
+            helper = payloads[-1]
+            self.assertEqual(consumer.digest(helper), hashlib.sha256(
+                b'recovery-frame-wait.js').hexdigest())
 
 
 class NativeScale(unittest.TestCase):
