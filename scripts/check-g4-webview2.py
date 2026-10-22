@@ -21,6 +21,7 @@ import signal
 import subprocess
 import threading
 import time
+import graphics_resources
 
 VISUAL_STAGES = ('ready', 'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back')
 
@@ -220,6 +221,8 @@ def main():
     parser.add_argument('--gpu-recovery', action='store_true',
                         help='Separate Electron owned-GPU termination/context-recreation diagnostic')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
+    parser.add_argument('--resource-profile', action='store_true',
+                        help='Read-only one-second owned-process CPU/RSS samples; not GPU telemetry')
     parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software',
                         help='Explicit accelerated WSL Mesa D3D12 control, independently verified')
     parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none')
@@ -243,8 +246,8 @@ def main():
         parser.error('--resize-border requires native held lifecycle visuals at fixed scale1')
     if args.trace_native and not args.wexcomp_bin:
         parser.error('--trace-native requires owned native wexcomp')
-    if args.wexcomp_bin and (args.desktop != 'none' or args.restart_from or args.gl_driver != 'software'):
-        parser.error('Native Wayland control cannot use X11 desktop/GLX driver verification or restart reuse')
+    if args.wexcomp_bin and (args.desktop != 'none' or args.restart_from):
+        parser.error('Native Wayland control cannot use an X11 desktop or restart reuse')
     capture_tool = 'grim' if args.wexcomp_bin else 'import'
     if args.lifecycle_visuals and (not args.lifecycle or args.seconds < 45 or not shutil.which(capture_tool)):
         parser.error('--lifecycle-visuals requires --lifecycle, >=45 seconds and the selected display capture tool')
@@ -382,9 +385,18 @@ def main():
     def observe():
         seen = set()
         started = time.monotonic()
+        next_resources = started
         screenshots = [4, 8, 18, 28] if args.gpu_recovery else [8, 18]
         with (output / 'processes.jsonl').open('w') as log:
             while not stop.wait(.25):
+                now = time.monotonic()
+                if args.resource_profile and now >= next_resources:
+                    next_resources = now + 1
+                    settled = result.get('resize_border_diagnostic', {}).get('passed') is True
+                    point = {'seconds': now - started, 'phase': 'frozen-settled' if settled else 'active-lifecycle',
+                             'processes': graphics_resources.sample(prefix)}
+                    with (output / 'resources.jsonl').open('a') as resources:
+                        resources.write(json.dumps(point) + '\n')
                 if args.lifecycle_visuals and (output / 'host.log').exists():
                     host_text = (output / 'host.log').read_text(errors='replace')
                     for stage in visual_requests(host_text):
@@ -469,6 +481,7 @@ def main():
             spec.loader.exec_module(compositor)
             wexcomp = compositor.OwnedWexcomp(wexcomp_binary, wexcomp_config, output, environment)
             result['wexcomp'] = wexcomp.start()
+            result['gl_driver_verification'] = compositor.verify_native_gl_driver(environment, output, args.gl_driver)
             if args.output_scale is not None:
                 wexcomp.set_output_scale(args.output_scale)
             result['classification'] = 'Owned pinned wexcomp native Wayland/private endpoint functional control; not installed-shell acceptance'
@@ -555,6 +568,12 @@ def main():
         stop.set()
         if monitor:
             monitor.join(timeout=5)
+        if args.resource_profile and (output / 'resources.jsonl').exists():
+            try:
+                samples = [json.loads(line) for line in (output / 'resources.jsonl').read_text().splitlines()]
+                result['resource_profile'] = graphics_resources.summarize(samples, os.sysconf('SC_CLK_TCK'))
+            except (OSError, ValueError, KeyError) as error:
+                result['resource_profile_error'] = str(error)  # never skip owned-process cleanup
         os.close(read_fd)
         if write_fd is not None:
             os.close(write_fd)

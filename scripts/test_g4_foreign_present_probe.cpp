@@ -44,6 +44,7 @@ static int produce(HWND hwnd, bool gdi, bool full = false)
                 && SUCCEEDED(target->SetRoot(visual)) && SUCCEEDED(comp->Commit());
     }
     unsigned int frames = 0;
+    ULONGLONG present_total_ms = 0, present_max_ms = 0;
     ULONGLONG deadline = GetTickCount64() + 8000;
     while (ok && GetTickCount64() < deadline)
     {
@@ -63,13 +64,31 @@ static int produce(HWND hwnd, bool gdi, bool full = false)
             const float red[] = {1,0,0,1};
             context->ClearRenderTargetView(rtv, red);
             context->Flush();
+            ULONGLONG start = GetTickCount64();
             ok = swapchain->Present(0,0) == S_OK;
+            ULONGLONG elapsed = GetTickCount64() - start;
+            present_total_ms += elapsed;
+            if (elapsed > present_max_ms) present_max_ms = elapsed;
         }
         if (!frames) { printf("FRAME_SENT ok=%u\n", ok); fflush(stdout); }
         ++frames;
         Sleep(50);
     }
     printf("PRODUCER_COMPLETE ok=%u frames=%u\n", ok, frames);
+    if (swapchain)
+    {
+        static const GUID guid = {0xa1042da3,0x2ea1,0x4d9a,{0xa4,0x03,0x01,0x1e,0xd3,0x61,0x83,0xfb}};
+        struct { UINT64 gpu_captures, cpu_readbacks, gpu_compositions, cpu_compositions; } stats = {};
+        UINT size = sizeof(stats);
+        if (swapchain->GetPrivateData(guid, &size, &stats) == S_OK && size == sizeof(stats))
+            printf("FRAME_PATH gpu_captures=%llu cpu_readbacks=%llu gpu_compositions=%llu cpu_compositions=%llu\n",
+                    (unsigned long long)stats.gpu_captures, (unsigned long long)stats.cpu_readbacks,
+                    (unsigned long long)stats.gpu_compositions, (unsigned long long)stats.cpu_compositions);
+        // CPU API-call duration, not GPU completion/scanout timing. The loop's
+        // explicit50ms diagnostic sleep is deliberately not included.
+        printf("PRESENT_CPU frames=%u total_ms=%llu max_ms=%llu\n", frames,
+                (unsigned long long)present_total_ms, (unsigned long long)present_max_ms);
+    }
     fflush(stdout);
     if (target) target->SetRoot(NULL);
     if (comp) comp->Commit();

@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 import time
 from PIL import Image
-from graphics_wexcomp import OwnedWexcomp
+from graphics_wexcomp import OwnedWexcomp, verify_native_gl_driver
 
 
 def load(name, path):
@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--arch', choices=('x86_64', 'i686'), default='x86_64')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='vulkan')
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software')
     parser.add_argument('--vulkan-icd', type=Path)
     parser.add_argument('--wine-debug', default='-all,+winediag')
     parser.add_argument('--case', action='append', choices=('own-dcomp', 'foreign-full-dcomp', 'foreign-dcomp', 'foreign-gdi'),
@@ -35,6 +36,8 @@ def main():
     args = parser.parse_args()
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('Vulkan requires an explicit ICD')
+    if args.gl_driver == 'd3d12' and args.renderer != 'gl':
+        parser.error('D3D12 GL driver requires --renderer gl')
     build = args.wine_build.resolve(strict=True)
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -50,15 +53,17 @@ def main():
     environment.update(WINEPREFIX=str(prefix), WINE=str(wine), WINESERVER=str(server),
                        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b;winex11.drv=d;winewayland.drv=b',
                        WINEDEBUG=args.wine_debug, LIBGL_ALWAYS_SOFTWARE='1', WINE_D3D_CONFIG='renderer=' + args.renderer)
+    helpers.configure_gl_driver(environment, args.gl_driver)
     if args.vulkan_icd:
         icd = str(args.vulkan_icd.resolve(strict=True))
         environment.update(VK_DRIVER_FILES=icd, VK_ICD_FILENAMES=icd)
     compositor = OwnedWexcomp(args.wexcomp_bin.resolve(strict=True), args.wexcomp_config.resolve(strict=True), output, environment)
-    result = {'classification': 'Native wexcomp process-boundary presentation diagnostic; software backend',
-              'arch': args.arch, 'renderer': args.renderer, 'cases': {}}
+    result = {'classification': 'Native wexcomp process-boundary presentation diagnostic; outer compositor pixman',
+              'arch': args.arch, 'renderer': args.renderer, 'gl_driver': args.gl_driver, 'cases': {}}
     child = None
     try:
         result['wexcomp'] = compositor.start()
+        result['gl_driver_verification'] = verify_native_gl_driver(environment, output, args.gl_driver)
         boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
         if boot.returncode:
             raise RuntimeError('Owned prefix initialization failed')

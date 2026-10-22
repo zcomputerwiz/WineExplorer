@@ -10,9 +10,12 @@ import time
 
 
 class OwnedWexcomp:
-    def __init__(self, binary, config, output, environment):
+    def __init__(self, binary, config, output, environment, renderer='pixman'):
+        if renderer not in ('pixman', 'gles2'):
+            raise ValueError('Only explicit pixman/gles2 diagnostic renderers are supported')
         self.binary, self.config, self.output = binary, config, output
         self.environment = environment
+        self.renderer = renderer
         self.process = None
         self.record = None
 
@@ -25,7 +28,7 @@ class OwnedWexcomp:
             env.pop(key, None)
         env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(runtime / 'config'),
                    XDG_CONFIG_DIRS=str(self.config), WLR_BACKENDS='headless',
-                   WLR_HEADLESS_OUTPUTS='1', WLR_RENDERER='pixman', WEX_SHELL_SOCKET='wex-shell-0')
+                   WLR_HEADLESS_OUTPUTS='1', WLR_RENDERER=self.renderer, WEX_SHELL_SOCKET='wex-shell-0')
         command = [str(self.binary), '-V', '-C', str(self.config)]
         with (self.output / 'wexcomp.log').open('wb') as log:
             self.process = subprocess.Popen(command, env=env, stdout=log, stderr=log, start_new_session=True)
@@ -46,7 +49,8 @@ class OwnedWexcomp:
             raise RuntimeError('Private wexcomp endpoint lacks project protocol')
         self.record = dict(binary=str(self.binary), sha256=hashlib.sha256(self.binary.read_bytes()).hexdigest(),
                            config=str(self.config), command=command, backend='headless',
-                           compositor_renderer='pixman (software)', endpoint='wex-shell-0',
+                           compositor_renderer=('pixman (software)' if self.renderer == 'pixman'
+                                                else 'gles2 (requested; acceleration not yet verified)'), endpoint='wex-shell-0',
                            private_protocol_verified=True)
         return self.record
 
@@ -85,3 +89,27 @@ class OwnedWexcomp:
 
 def capture_command(target):
     return ['grim', str(Path(target))]
+
+
+def verify_native_gl_driver(environment, output, driver):
+    """Check the actual owned Wayland EGL context, never an unrelated GLX display."""
+    if driver == 'software':
+        return None
+    if driver != 'd3d12':
+        raise ValueError('Unsupported native GL driver')
+    if (environment.get('WAYLAND_DISPLAY') != 'wex-shell-0'
+            or environment.get('XDG_RUNTIME_DIR') != str(output / 'wayland-runtime')
+            or 'DISPLAY' in environment):
+        raise RuntimeError('Native EGL verification requires the owned private endpoint')
+    command = ['eglinfo', '-B', '-p', 'wayland', '-a', 'gl']
+    with (output / 'native-egl.stdout.log').open('w') as out, \
+            (output / 'native-egl.stderr.log').open('w') as err:
+        result = subprocess.run(command, env=environment, stdout=out, stderr=err, timeout=30)
+    text = (output / 'native-egl.stdout.log').read_text(errors='replace')
+    passed = (result.returncode == 0 and 'Wayland platform:' in text
+              and re.search(r'OpenGL (?:core profile |compatibility profile )?renderer(?: string)?: D3D12 \([^\n]+\)', text)
+              and not re.search(r'llvmpipe|softpipe|swiftshader|Microsoft Basic Render', text, re.I))
+    if not passed:
+        raise RuntimeError('Requested native D3D12 EGL driver unavailable; see native-egl logs')
+    return {'passed': True, 'platform': 'wayland', 'command': command,
+            'exit_code': result.returncode, 'stdout': text}

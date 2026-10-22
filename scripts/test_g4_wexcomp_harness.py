@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
-from graphics_wexcomp import OwnedWexcomp, capture_command
+from graphics_wexcomp import OwnedWexcomp, capture_command, verify_native_gl_driver
 
 
 class OwnedCompositor(unittest.TestCase):
@@ -99,6 +99,41 @@ class OwnedCompositor(unittest.TestCase):
             self.assertEqual(control.record['output_scales'], [{'requested': 1.25, 'observed': 1.25}])
         with mock.patch('graphics_wexcomp.subprocess.run', return_value=state), self.assertRaises(RuntimeError):
             control.set_output_scale(1.5)
+
+
+class NativeGLVerification(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='wexcomp-egl-unit-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.env = {'WAYLAND_DISPLAY': 'wex-shell-0', 'XDG_RUNTIME_DIR': str(self.root / 'wayland-runtime')}
+
+    def probe(self, text, code=0):
+        def run(*args, **kwargs):
+            kwargs['stdout'].write(text)
+            return mock.Mock(returncode=code)
+        with mock.patch('graphics_wexcomp.subprocess.run', side_effect=run):
+            return verify_native_gl_driver(self.env, self.root, 'd3d12')
+
+    def test_actual_native_renderer_required(self):
+        text = 'Wayland platform:\nOpenGL core profile renderer: D3D12 (Intel(R) UHD Graphics 750)\n'
+        self.assertTrue(self.probe(text)['passed'])
+        for invalid in ('', text.replace('Wayland', 'X11'), text.replace('D3D12', 'llvmpipe'),
+                        text + 'llvmpipe', text.replace('Intel(R) UHD Graphics 750', 'Microsoft Basic Render Driver')):
+            with self.subTest(text=invalid), self.assertRaises(RuntimeError):
+                self.probe(invalid)
+        with self.assertRaises(RuntimeError):
+            self.probe(text, code=1)
+
+    def test_no_foreign_endpoint_or_glx(self):
+        for change in ({'WAYLAND_DISPLAY': 'live'}, {'XDG_RUNTIME_DIR': '/run/user/live'}, {'DISPLAY': ':0'}):
+            original = self.env.copy()
+            self.env.update(change)
+            with mock.patch('graphics_wexcomp.subprocess.run') as run, self.assertRaises(RuntimeError):
+                verify_native_gl_driver(self.env, self.root, 'd3d12')
+            run.assert_not_called()
+            self.env = original
+        self.assertIsNone(verify_native_gl_driver({}, self.root, 'software'))
 
 
 if __name__ == '__main__':
