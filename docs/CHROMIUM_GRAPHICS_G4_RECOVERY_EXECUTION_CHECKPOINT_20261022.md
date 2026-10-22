@@ -179,7 +179,14 @@ two focused test modules. Node syntax validation passed. Twenty-eight focused
 unit tests passed on Windows with a test-only `fcntl` shim; one existing
 symlink-creation test was skipped because the sandbox lacks Windows symlink
 privilege. WSL returned `Wsl/ERROR_ACCESS_DENIED`, so no Linux-suite result is
-claimed. No VM was booted in this continuation. These changes and this note
-still need Git commit/push; normal Git metadata writes were denied by the
-workspace sandbox. Current branch head is
-`e1f870f39075997df2a98a98b96b7bedbb656c29`; use it and preserve all local work.
+claimed. No VM was booted in this continuation. The implementation, tests and
+checkpoint were committed and pushed as `11c03894` on
+`codex/g4-r1-completion`; the Git metadata write required approved sandbox
+escalation. The worktree was clean at commit time. At next continuation, first
+recheck usage, branch/status, WSL access, and that the D:-backed guest is off.
+If WSL is available, stage/hash the current dependencies and run the healthy
+VirGL baseline before any fault injection. If WSL remains inaccessible, do not
+start the VM through an unverified path; record the blocker and preserve the
+heartbeat. Then proceed with two serial single-fault trials only after the
+baseline passes, keeping screenshots on D: and manually inspecting all three
+front/page capture pairs per run.
