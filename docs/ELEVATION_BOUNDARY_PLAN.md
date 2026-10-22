@@ -383,8 +383,10 @@ Commit after each working step. Each step lists how it is accepted.
   service's `ObjectName`: LocalSystem (S-1-5-18, the default), LocalService (S-1-5-19) or NetworkService
   (S-1-5-20). The SYSTEM token is handed out only when `services.exe` runs from the machine root owned by Unix
   root, the same anchor as the broker (Q2). In a user-writable prefix a limited process could replace
-  `services.exe` or register a LocalSystem service, so there LocalSystem services run on the user's limited token
-  (documented). Details: step 2b work order, D2.
+  `services.exe` or register a LocalSystem service, so there every service runs on the user's limited token
+  (documented); making any service token needs `SeTcbPrivilege`. Order: registry enforcement and SCM access
+  checks (`ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`) first, then the system role. Details: step 2b work
+  order, D2.
 - **Q5.** The Microsoft documentation settles the direction of N2 to N5 but not the exact codes, N1 or N6. A
   worker on one of your Windows machines ran the native probe (step 1, done).
 
