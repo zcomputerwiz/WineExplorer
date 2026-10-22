@@ -170,6 +170,18 @@ def main():
             compiled = run_logged(command, environment, output, arch + '.compile', 90)
             if compiled.returncode:
                 raise RuntimeError('Probe compilation failed: ' + arch)
+            windres = ('x86_64' if arch == 'x86_64' else 'i686') + '-w64-mingw32-windres'
+            child_object = output / ('token-manifest-child-' + arch + '.res.o')
+            child_exe = output / ('token-manifest-child-' + arch + '.exe')
+            for label, child_command in (
+                    ('child-res', [windres, str(source / 'token_manifest_child.rc'), '-I', str(source), '-O', 'coff',
+                                   '-o', str(child_object)]),
+                    ('child-exe', [compiler, '-O2', '-Wall', '-Wextra', '-Werror', '-static-libgcc',
+                                   '-static-libstdc++', str(source / 'token_manifest_child.cpp'),
+                                   str(child_object), '-o', str(child_exe)])):
+                built = run_logged(child_command, environment, output, arch + '.' + label, 90)
+                if built.returncode:
+                    raise RuntimeError('Manifest child build failed: ' + arch + ' ' + label)
             prefix = root / arch
             prefixes.append(prefix)
             env = dict(environment, WINEPREFIX=str(prefix))
@@ -192,6 +204,7 @@ def main():
             markers = ['deny_only_acl_and_object_open=PASS']
             if not args.checkpoint_a:
                 markers.append('elevation_helper_errors_and_child_handle=PASS')
+                markers.append('elevation_helper_states_manifest_child=PASS')
             passed = run.returncode == 0 and all(marker in run.stdout for marker in markers)
             result['cases'][arch] = {'command': command, 'exit_code': run.returncode, 'passed': passed,
                                      'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
@@ -206,7 +219,10 @@ def main():
                 command = [str(wine), str(test), case]
                 run = run_logged(command, env, output, label, 180)
                 counts = re.findall(r'(\d+) tests executed[^\n]*?\b(\d+) failures', run.stdout + run.stderr)
-                passed = run.returncode == 0 and bool(counts) and all(int(n) > 0 and int(f) == 0 for n, f in counts)
+                # Test programs that spawn children print one summary per process (children often run 0 tests), so
+                # require assertions to have run overall and no failures in any process.
+                passed = (run.returncode == 0 and bool(counts) and any(int(n) > 0 for n, f in counts) and
+                          all(int(f) == 0 for n, f in counts))
                 result['cases'][label] = {'command': command, 'exit_code': run.returncode,
                                          'summary_counts': counts, 'passed': passed}
                 if not passed:
@@ -254,6 +270,11 @@ def main():
                 if killed.returncode not in (0, 1):
                     raise RuntimeError('Unexpected wineserver -k exit: ' + str(killed.returncode))
                 subprocess.run([str(server), '-w'], env=env, timeout=15, check=True)
+                # Background processes (conhost, explorer, services) write to the probe's stderr log after
+                # the probe exits, so look for unhandled exceptions only once the server is idle.
+                log = output / (prefix.name + '.stderr.log')
+                if log.exists() and 'Unhandled' in log.read_text(errors='replace'):
+                    raise RuntimeError('Unhandled exception in a background process: ' + log.name)
                 remaining = matching_servers(server, prefix)
                 if remaining:
                     raise RuntimeError('Owned server still running: ' + str(remaining))
