@@ -213,7 +213,7 @@ Sources, from the pushed blobs (`git show REV:path | sha256sum`); the build tree
 | `wine/dlls/ntdll/loader.c` | `12bc347bf5586ccf6515e5e5ad7a7866070acb6ce115a5d11159dd7a49377636` |
 | `wine/programs/explorer/systray.c` | `19582c9b087ab113400e95b52be6676f07b0782294b911d48d11bca7a7bf76e9` |
 | `wine/programs/conhost/window.c` | `5d6f9e4e38deb261db9e04c9493059f2b6177764d3bb8fb56e786ec836b7a34d` |
-| `scripts/setup-machine-root.sh` | `b2ebe0e7d4168b22981bb5a036dcc9f81568907107a7eae29049d8f05bbb8d70` |
+| `scripts/setup-machine-root.sh` | `7108912c973b11140a7e848203990a3adc7ef6ff6fdcec174c4218b3d0982b85` |
 | `scripts/test_b3_machine_root.sh` | `d315dde3f466ed67d8844ba90cbe14691a04823e06056097a06969564bd775e7` |
 | `scripts/test_b4_explorer_fresh.sh` | `aa912361da0e88cf8d35195b49db289f789431b7f9e0a31c9aab5e1c817d8e55` |
 | `scripts/tray_balloon_probe.cpp` | `4b17dda34150a06f694c0550712ba6da1ec23955042cc20e67a04b95fb43c955` |

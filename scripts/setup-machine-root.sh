@@ -31,8 +31,9 @@ die()
 }
 
 case "$ACTION" in
-    apply|rollback|--rollback) ;;
-    *) die "unknown action: $ACTION (use apply or rollback)" ;;
+    apply|update|--update) ACTION=apply ;;  # the package postinst passes --update
+    rollback|--rollback) ;;
+    *) die "unknown action: $ACTION (use apply, --update or rollback)" ;;
 esac
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
