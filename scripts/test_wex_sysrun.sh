@@ -26,8 +26,10 @@ cleanup()
 {
     [ -z "${FIFO_PID:-}" ] || kill "$FIFO_PID" 2>/dev/null || true
     [ -z "${SYS_PID:-}" ] || kill "$SYS_PID" 2>/dev/null || true
+    [ -z "${FIFO2_PID:-}" ] || kill "$FIFO2_PID" 2>/dev/null || true
+    [ -z "${SYS2_PID:-}" ] || kill "$SYS2_PID" 2>/dev/null || true
     exec 8>&- 2>/dev/null || true
-    rm -rf "$FIX"
+    rm -rf "$FIX" "/home/$USR" "/home/$USR2" "/tmp/.wine-${USR_UID:-x}" "/tmp/.wine-${USR2_UID:-x}"
     userdel "$USR" 2>/dev/null || true
     userdel "$USR2" 2>/dev/null || true
     groupdel "$GRP" 2>/dev/null || true
@@ -43,6 +45,8 @@ useradd -M -N -s /bin/bash -d "/home/$USR2" "$USR2"
 USR_GID="$(id -g "$USR")"
 SYS_GID="$(getent group "$GRP" | cut -d: -f3)"
 USR_UID="$(id -u "$USR")"
+USR2_UID="$(id -u "$USR2")"
+for u in "$USR" "$USR2"; do install -d -m 0755 -o "$u" "/home/$u" "/home/$u/.wine"; done
 
 install -d -m 0755 "$FIX" "$FIX/bin" "$FIX/lib" "$FIX/etc" "$FIX/libexec"
 install -d -m 0700 "$OUTDIR"
@@ -189,6 +193,13 @@ OUT="$("$SYSRUN" wineserver 2>&1 </dev/null)" && rc=0 || rc=$?
 ok sysrun_root_refused
 
 # 6. Success: identity, dumpability, environment, descriptors.
+# A stand-in server (the launcher-started program, listening where the real server does) for the wineboot-init mode.
+mkfifo "$FIX/hold"; chmod 0666 "$FIX/hold"
+sleep 300 > "$FIX/hold" & FIFO_PID=$!   # keeps the fifo's write side open
+runuser -u "$USR" -- "$SYSRUN" wineserver < "$FIX/hold" > "$OUTDIR/hold.txt" 2>&1 & SYS_PID=$!
+for _ in $(seq 1 50); do grep -q '^READY' "$OUTDIR/hold.txt" 2>/dev/null && break; sleep 0.1; done
+grep -q '^READY' "$OUTDIR/hold.txt" || fail "held process did not start: $(cat "$OUTDIR/hold.txt")"
+TPID="$(sed -n 's/^PID //p' "$OUTDIR/hold.txt")"
 exec 7</etc/hostname   # an inherited descriptor that must not reach the program
 POISON=(WINEDLLPATH=/tmp/evil WINEDLLOVERRIDES=ntdll=n WINEDEBUG=+all WINELOADER=/tmp/evil/wine
         WINESERVER=/tmp/evil/wineserver WINESERVERSOCKET=7 WINEPREFIX=/tmp/evil-prefix WINEARCH=win32
@@ -204,11 +215,16 @@ for mode in wineserver wineboot-init; do
     OUT="$(sysrun "${POISON[@]}" "$SYSRUN" $mode </dev/null 7</etc/hostname)" || fail "$mode failed: $OUT"
     echo "$OUT" > "$OUTDIR/$mode.txt"
     ENVS="$(grep '^ENV ' <<<"$OUT" | cut -c5-)"
-    for bad in WINEDLLPATH WINEDLLOVERRIDES WINEDEBUG WINELOADER WINESERVER WINESERVERSOCKET WINEARCH WINE_MACHINE_ROOT \
+    for bad in WINEDLLPATH WINEDLLOVERRIDES WINEDEBUG WINELOADER WINESERVER WINEARCH WINE_MACHINE_ROOT \
                LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT SHELL BASH_ENV IFS TZ; do
         ! grep -q "^$bad=" <<<"$ENVS" || fail "$mode: $bad reached the program"
     done
-    grep -qx "WINEPREFIX=/home/$USR/.wine" <<<"$ENVS" || fail "$mode: WINEPREFIX is not the passwd home's prefix: $ENVS"
+    if [ "$mode" = wineboot-init ]; then
+        grep -qx "WINEPREFIX=$M" <<<"$ENVS" || fail "$mode: WINEPREFIX is not the machine root: $ENVS"
+        grep -qx "WINESERVERSOCKET=3" <<<"$ENVS" || fail "$mode: the server socket is not passed as descriptor 3"
+    else
+        grep -qx "WINEPREFIX=/home/$USR/.wine" <<<"$ENVS" || fail "$mode: WINEPREFIX is not the passwd home's prefix: $ENVS"
+    fi
     grep -qx "HOME=/home/$USR" <<<"$ENVS" || fail "$mode: HOME is not the passwd home"
     grep -qx "USER=$USR" <<<"$ENVS" && grep -qx "LOGNAME=$USR" <<<"$ENVS" || fail "$mode: USER or LOGNAME wrong"
     grep -qx "PATH=/usr/bin:/bin" <<<"$ENVS" || fail "$mode: PATH is not fixed"
@@ -220,14 +236,18 @@ for mode in wineserver wineboot-init; do
     else
         ! grep -qE "^(DISPLAY|WAYLAND_DISPLAY|XDG_RUNTIME_DIR)=" <<<"$ENVS" || fail "wineserver: display variables passed"
     fi
+    [ "$mode" = wineboot-init ] || ! grep -q "^WINESERVERSOCKET=" <<<"$ENVS" || fail "wineserver: WINESERVERSOCKET reached the program"
     [ "$(grep -c '^ENV ' <<<"$OUT")" -le 12 ] || fail "$mode: unexpected extra variables: $ENVS"
     ok "sysrun_${mode}_environment_clean"
     grep -qx "UID $USR_UID $USR_UID $USR_UID" <<<"$OUT" || fail "$mode: uid changed: $(grep '^UID' <<<"$OUT")"
-    grep -qx "GID $USR_GID $SYS_GID $SYS_GID" <<<"$OUT" || fail "$mode: gids are not (user, $GRP, $GRP): $(grep '^GID' <<<"$OUT")"
+    # the stand-in server drops the effective group as the real server does; the client keeps it
+    wantgid="$USR_GID $SYS_GID $SYS_GID"; [ "$mode" != wineserver ] || wantgid="$USR_GID $USR_GID $SYS_GID"
+    grep -qx "GID $wantgid" <<<"$OUT" || fail "$mode: gids are not ($wantgid): $(grep '^GID' <<<"$OUT")"
     grep -qx "DUMPABLE 0" <<<"$OUT" || fail "$mode: process is dumpable"
     grep -qx "AT_SECURE 1" <<<"$OUT" || fail "$mode: AT_SECURE is not set"
     grep -qx "CWD /" <<<"$OUT" || fail "$mode: cwd is not /"
-    [ "$(grep '^FD ' <<<"$OUT" | sort | tr '\n' ' ')" = "FD 0 FD 1 FD 2 " ] || fail "$mode: inherited fds: $(grep '^FD ' <<<"$OUT" | tr '\n' ' ')"
+    want="FD 0 FD 1 FD 2 "; [ "$mode" != wineboot-init ] || want="FD 0 FD 1 FD 2 FD 3 "
+    [ "$(grep '^FD ' <<<"$OUT" | sort | tr '\n' ' ')" = "$want" ] || fail "$mode: inherited fds: $(grep '^FD ' <<<"$OUT" | tr '\n' ' ')"
     ok "sysrun_${mode}_identity_dumpable_fds"
 done
 grep -qx "ARG 0 wineserver" "$OUTDIR/wineserver.txt" && ! grep -q "^ARG 1" "$OUTDIR/wineserver.txt" ||
@@ -242,6 +262,29 @@ exec 7<&-
 OUT="$(run_as "$USR2" "$SYSRUN" wineserver </dev/null)" && grep -qx "ENV WINEPREFIX=/home/$USR2/.wine" <<<"$OUT" ||
     fail "second user did not get the prefix of the passwd home: $OUT"
 ok sysrun_prefix_from_passwd_home
+
+# 6b. The server the launcher connects to: a replacement server that the user started without the launcher, a
+#     missing server, and a server in another user's prefix are refused. The stand-in started above sits at the
+#     real place; its process has the user's real and effective group and the system group as saved group.
+HPID="$(sed -n 's/^PID //p' "$OUTDIR/hold.txt")"
+ST="$(awk '/^Gid:/ { print $2, $3, $4 }' "/proc/$HPID/status")"
+[ "$ST" = "$USR_GID $USR_GID $SYS_GID" ] || fail "stand-in server gids are not (user, user, $GRP): $ST"
+ok sysrun_server_effective_group_dropped_saved_kept
+[ "$(stat -c %U "/proc/$HPID/environ")" = root ] ||
+    fail "the server after dropping the effective group is dumpable (its /proc/pid/environ is not root-owned)"
+ok sysrun_server_non_dumpable_after_setegid
+expect_refused sysrun_no_server_refused "no server socket of the user" run_as "$USR2" "$SYSRUN" wineboot-init </dev/null
+# a replacement server of the second user, run directly (no launcher)
+mkfifo "$FIX/hold2"; chmod 0666 "$FIX/hold2"
+sleep 300 > "$FIX/hold2" & FIFO2_PID=$!
+runuser -u "$USR2" -- env WINEPREFIX="/home/$USR2/.wine" "$FIX/bin/wineserver" < "$FIX/hold2" > "$OUTDIR/hold2.txt" 2>&1 & SYS2_PID=$!
+for _ in $(seq 1 50); do grep -q '^READY' "$OUTDIR/hold2.txt" 2>/dev/null && break; sleep 0.1; done
+grep -q '^SERVING' "$OUTDIR/hold2.txt" || fail "replacement server did not start: $(cat "$OUTDIR/hold2.txt")"
+expect_refused sysrun_replacement_server_refused "the server was not started by this launcher" \
+    run_as "$USR2" "$SYSRUN" wineboot-init </dev/null
+kill "$FIFO2_PID" 2>/dev/null || true; wait "$SYS2_PID" 2>/dev/null || true
+expect_refused sysrun_no_server_after_replacement_exits "no server socket of the user" \
+    run_as "$USR2" "$SYSRUN" wineboot-init </dev/null
 
 # 7. ptrace and /proc/pid/mem by the user fail against the started process, and work against the user's own
 #    process (control).
@@ -274,12 +317,6 @@ print("CONTROL_ATTACH", r, e, "CONTROL_MEM", cm)
 r, e = attach(target)
 print("TARGET_ATTACH", r, e, "TARGET_MEM", memopen(target))
 EOF
-mkfifo "$FIX/hold"; chmod 0666 "$FIX/hold"
-sleep 300 > "$FIX/hold" & FIFO_PID=$!   # keeps the fifo's write side open
-runuser -u "$USR" -- "$SYSRUN" wineserver < "$FIX/hold" > "$OUTDIR/hold.txt" 2>&1 & SYS_PID=$!
-for _ in $(seq 1 50); do grep -q '^READY' "$OUTDIR/hold.txt" 2>/dev/null && break; sleep 0.1; done
-grep -q '^READY' "$OUTDIR/hold.txt" || fail "held process did not start: $(cat "$OUTDIR/hold.txt")"
-TPID="$(sed -n 's/^PID //p' "$OUTDIR/hold.txt")"
 PT="$(runuser -u "$USR" -- python3 -I "$FIX/ptrace_try.py" "$TPID" 2>&1)" || fail "ptrace helper failed: $PT"
 echo "$PT"
 case "$PT" in

@@ -31,8 +31,13 @@
  *
  * The paths come from one root-owned file (SYSRUN_CONF, default /etc/wineexplorer/sysrun.conf), lines "key=value":
  * group, loader, ntdll, wineserver, machine_root, and admin_group (read by the Wine server, ignored here).
- * No file descriptor except 0-2 is passed on, so the WINESERVERSOCKET variable is never set: both programs
- * start a fresh connection to their own server.
+ * wineserver mode starts a fresh server for the user's own prefix (<passwd home>/.wine). The server drops its
+ * effective group to the user's real group at once and keeps the system group as its saved group; it raises it
+ * only to load and save the machine hives and for clients that have the system group themselves.
+ * wineboot-init mode never reads the user's prefix: the launcher connects to the user's server itself (the path
+ * is computed from the user's own prefix with stat, not from the environment), checks that the server is a
+ * launcher-started one, and passes the connected socket as WINESERVERSOCKET (descriptor 3). WINEPREFIX is then
+ * the machine root, whose dosdevices and drive_c are root-owned.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -44,6 +49,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -210,6 +217,69 @@ static int safe_value(const char *v, const char *extra)
     return 1;
 }
 
+/* Is the process at the other end of the socket a server that this launcher started? The kernel gives the pid
+ * and uid at listen time; the process must have the user's own ids and the system group as its saved group (its
+ * effective group is the user's, or the system group while it is raised). Only a program run through a setgid
+ * program of the system group has that saved group, and the only ones that this launcher runs are the
+ * configured server and the loader. /proc/<pid>/exe is not readable for a non-dumpable process, so the image
+ * cannot be compared. */
+static int server_ok(int fd, uid_t uid, gid_t rgid, gid_t sys_gid)
+{
+    unsigned int ruid, euid, suid, fuid, r, e, sg, f;
+    int got_uid = 0, got_gid = 0, sfd;
+    struct ucred cred;
+    socklen_t len = sizeof(cred);
+    char path[64], buf[8192], *p;
+    ssize_t n;
+
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) || cred.pid <= 0 || cred.uid != uid) return 0;
+    snprintf(path, sizeof(path), "/proc/%d/status", (int)cred.pid);
+    if ((sfd = open(path, O_RDONLY | O_CLOEXEC)) < 0) return 0;
+    n = read(sfd, buf, sizeof(buf) - 1);
+    close(sfd);
+    if (n <= 0) return 0;
+    buf[n] = 0;
+    for (p = buf; p; p = strchr(p, '\n'))
+    {
+        if (*p == '\n') p++;
+        if (!strncmp(p, "Uid:", 4)) got_uid = sscanf(p + 4, "%u %u %u %u", &ruid, &euid, &suid, &fuid) == 4;
+        else if (!strncmp(p, "Gid:", 4)) got_gid = sscanf(p + 4, "%u %u %u %u", &r, &e, &sg, &f) == 4;
+    }
+    return got_uid && got_gid && ruid == uid && euid == uid && suid == uid && fuid == uid &&
+           r == rgid && sg == sys_gid && (e == rgid || e == sys_gid);
+}
+
+/* Connect to the socket of the server of the user's own prefix and check the server. The directory name is what
+ * Wine computes: /tmp/.wine-<uid>/server-<device>-<inode> of the prefix. */
+static int connect_server(const struct passwd *pw, uid_t uid, gid_t rgid, gid_t sys_gid)
+{
+    char prefix[PATH_MAX], dir[PATH_MAX], path[PATH_MAX];
+    struct sockaddr_un addr;
+    struct stat st;
+    int fd;
+
+    if (snprintf(prefix, sizeof(prefix), "%s/.wine", pw->pw_dir) >= (int)sizeof(prefix)) refuse("prefix path too long", NULL);
+    if (stat(prefix, &st) || st.st_uid != uid) refuse("the prefix does not exist or is not the user's", prefix);
+    snprintf(dir, sizeof(dir), "/tmp/.wine-%u", (unsigned int)uid);
+    if (lstat(dir, &st) || !S_ISDIR(st.st_mode) || st.st_uid != uid || (st.st_mode & 077))
+        refuse("the server directory is not the user's private directory", dir);
+    if (stat(prefix, &st)) refuse("cannot stat", prefix);
+    if (snprintf(dir, sizeof(dir), "/tmp/.wine-%u/server-%llx-%llx", (unsigned int)uid,
+                 (unsigned long long)st.st_dev, (unsigned long long)st.st_ino) >= (int)sizeof(dir) ||
+        snprintf(path, sizeof(path), "%s/socket", dir) >= (int)sizeof(addr.sun_path))
+        refuse("server socket path too long", dir);
+    if (lstat(dir, &st) || !S_ISDIR(st.st_mode) || st.st_uid != uid || (st.st_mode & 077))
+        refuse("the server directory is not the user's private directory", dir);
+    if (lstat(path, &st) || !S_ISSOCK(st.st_mode) || st.st_uid != uid) refuse("no server socket of the user", path);
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, path);
+    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) refuse("socket failed", NULL);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr))) refuse("cannot connect to the server", path);
+    if (!server_ok(fd, uid, rgid, sys_gid)) refuse("the server was not started by this launcher", path);
+    return fd;
+}
+
 #define MAX_ENV 40
 
 static void add_env(char **env, int *count, const char *key, const char *value)
@@ -221,19 +291,23 @@ static void add_env(char **env, int *count, const char *key, const char *value)
 }
 
 /* The environment of the new program: nothing but what is derived here or taken from a short list, checked. */
-static void build_env(char **env, int with_display, const struct passwd *pw)
+static void build_env(char **env, int with_display, const struct passwd *pw, const char *prefix, int server_fd)
 {
     extern char **environ;
     char **e;
     int count = 0;
-    char *prefix;
+    char fdstr[16];
 
     add_env(env, &count, "HOME", pw->pw_dir);
     add_env(env, &count, "USER", pw->pw_name);
     add_env(env, &count, "LOGNAME", pw->pw_name);
     add_env(env, &count, "PATH", "/usr/bin:/bin");
-    if (asprintf(&prefix, "%s/.wine", pw->pw_dir) < 0) refuse("out of memory", NULL);
     add_env(env, &count, "WINEPREFIX", prefix);
+    if (server_fd >= 0)
+    {
+        snprintf(fdstr, sizeof(fdstr), "%d", server_fd);
+        add_env(env, &count, "WINESERVERSOCKET", fdstr);
+    }
     for (e = environ; e && *e; e++)
     {
         char *eq = strchr(*e, '=');
@@ -263,8 +337,8 @@ int main(int argc, char **argv)
     struct group *gr;
     gid_t rgid, egid, sgid, groups[NGROUPS_MAX];
     uid_t uid;
-    int i, ngroups, wineboot_mode;
-    char wineboot[PATH_MAX], services[PATH_MAX], *env[MAX_ENV], *args[4];
+    int i, ngroups, wineboot_mode, server_fd = -1;
+    char wineboot[PATH_MAX], services[PATH_MAX], user_prefix[PATH_MAX], *env[MAX_ENV], *args[4];
 
     fix_std_fds();
     /* The table of modes. Anything else, and any extra argument, is refused. */
@@ -300,13 +374,23 @@ int main(int argc, char **argv)
     check_trusted(wineboot);
     check_trusted(services);
 
-    build_env(env, wineboot_mode, pw);
+    if (snprintf(user_prefix, sizeof(user_prefix), "%s/.wine", pw->pw_dir) >= (int)sizeof(user_prefix))
+        refuse("home directory path too long", pw->pw_dir);
     /* Keep the real gid: egid != rgid is what keeps the new image non-dumpable and AT_SECURE. */
     if (setresgid(rgid, gr->gr_gid, gr->gr_gid)) refuse("setresgid failed", NULL);
     if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)) refuse("PR_SET_DUMPABLE failed", NULL);
     umask(022);
     if (chdir("/")) refuse("cannot chdir to /", NULL);
     close_other_fds();
+
+    if (wineboot_mode)
+    {
+        /* the new process is a client of the user's server and never reads the user's prefix */
+        server_fd = connect_server(pw, uid, rgid, gr->gr_gid);
+        if (server_fd != 3 && (dup2(server_fd, 3) != 3 || close(server_fd))) refuse("cannot place the server socket", NULL);
+        server_fd = 3;
+    }
+    build_env(env, wineboot_mode, pw, wineboot_mode ? cfg.machine_root : user_prefix, server_fd);
 
     if (wineboot_mode)
     {

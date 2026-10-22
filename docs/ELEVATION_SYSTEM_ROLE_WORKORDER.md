@@ -109,6 +109,18 @@ d. `HKU\S-1-5-18` and the other well-known service profiles are not part of the 
    `key_in_user_tree` must match only the token user's own SID subtree.
 e. Known gap: no UIPI or Session 0 isolation, so window messages from limited processes reach system-role windows;
    services must not create visible windows.
+f. Wine's server opens files for its clients (`create_file` and `open_fd` in `server/fd.c`, and the requests that
+   rename, link, unlink or delete on close). A `wineserver` that runs with effective group `wexsys` would open
+   machine-root files for write on behalf of any limited client: a confused deputy. So the `wexsys` server runs with
+   effective gid = the user's real gid and keeps `wexsys` only as its saved gid (`setegid` back and forth is allowed
+   because the saved gid is `wexsys`). It raises the effective gid only (1) around the machine hive load and save,
+   and (2) for Unix paths requested by a client that itself runs with effective gid `wexsys` (`SO_PEERCRED` of that
+   client's connection, recorded at connect time, never the client-sent `unix_pid`), and drops it again straight
+   after. The kernel rule to check and prove in a test: a process stays non-dumpable (and not ptraceable) across
+   these `setegid` calls, because `commit_creds` sets the dumpable flag to `fs.suid_dumpable` (normally 0) when the
+   effective gid changes, and ptrace needs real, effective and saved ids to match the caller's. Because the server's
+   effective gid is then the user's, "the peer has `wexsys`" is checked on the saved gid from
+   `/proc/<pid>/status`, not on `SO_PEERCRED`.
 
 ## Phases after the design calls
 
