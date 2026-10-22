@@ -64,6 +64,9 @@ struct config
     char machine_root[PATH_MAX];
 };
 
+/* The configured system group; until the configuration is read only root's group may have write permission. */
+static gid_t sys_gid = (gid_t)-1;
+
 static void refuse(const char *what, const char *path)
 {
     fprintf(stderr, "wex-sysrun: refused: %s%s%s\n", what, path ? ": " : "", path ? path : "");
@@ -81,6 +84,9 @@ static void check_node(const char *path)
     if (st.st_mode & S_IWOTH) refuse("writable by others", path);
     /* access() uses the real uid and the real and supplementary groups, ACLs included, but not wexsys. */
     if (!access(path, W_OK)) refuse("writable by the invoking user", path);
+    /* Group write is only fine for root's group and the system group (the machine root is wexsys-writable). */
+    if ((st.st_mode & S_IWGRP) && st.st_gid != 0 && st.st_gid != sys_gid)
+        refuse("writable by a group other than root and the system group", path);
 }
 
 /* Check every component of an absolute path, from / down to the path itself. */
@@ -271,6 +277,7 @@ int main(int argc, char **argv)
     if (getresgid(&rgid, &egid, &sgid)) refuse("getresgid failed", NULL);
     read_config(&cfg);
     if (!(gr = getgrnam(cfg.group))) refuse("no such group", cfg.group);
+    sys_gid = gr->gr_gid;
     if (egid != gr->gr_gid || sgid != gr->gr_gid) refuse("the effective group is not the system group", cfg.group);
     if (rgid == gr->gr_gid) refuse("the invoking user's primary group is the system group", cfg.group);
     if ((ngroups = getgroups(NGROUPS_MAX, groups)) < 0) refuse("getgroups failed", NULL);

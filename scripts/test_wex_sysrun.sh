@@ -121,6 +121,17 @@ for f in "$FIX/bin/wineserver" "$FIX/bin/wine" "$FIX/lib/ntdll.so" "$M/drive_c/w
 done
 OUT="$(sysrun "$SYSRUN" wineserver </dev/null)" || fail "control after the file tests: $OUT"
 
+# 2b. Group write by a group that is neither root's nor the system group (Debian's /usr/local is root:staff 2775).
+groupadd --system "${GRP}o"
+for d in "$FIX/bin" "$FIX/bin/wineserver" "$M/drive_c"; do
+    orig="$(stat -c '%a %u:%g' "$d")"
+    chgrp "${GRP}o" "$d"; chmod g+w "$d"
+    expect_refused "sysrun_other_group_writable_$(basename "$d")" "writable by a group other than root" sysrun "$SYSRUN" wineserver
+    chown "${orig#* }" "$d"; chmod "${orig%% *}" "$d"
+done
+groupdel "${GRP}o"
+OUT="$(sysrun "$SYSRUN" wineserver </dev/null)" || fail "control after the other-group tests: $OUT"
+
 # 3. A directory on the way that is not safe, at each level that the test controls (fixture root, a machine root
 #    directory, the directory of a symlink target).
 for d in "$FIX" "$FIX/bin" "$M" "$M/drive_c/windows/system32"; do
@@ -281,5 +292,20 @@ case "$PT" in
 esac
 kill "$FIFO_PID" 2>/dev/null || true; FIFO_PID=""
 wait "$SYS_PID" 2>/dev/null || true; SYS_PID=""
+
+# 8. The setup script installs the launcher only when WEX_SYSRUN_ENABLE=1.
+S="$FIX/setup"; mkdir -p "$S/m/drive_c/windows/system32"
+setup_run()
+{
+    env WEX_MACHINE_ROOT="$S/m" WEX_SKEL_PFX="$S/skel" WEX_BACKUP_DIR="$S/bk" WEX_MACHINE_GROUP="$GRP" \
+        WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_DIR="$S/lib" WEX_SYSRUN_CONF="$S/etc/sysrun.conf" "$@" \
+        bash "$SRC_DIR/../../scripts/setup-machine-root.sh" --update >/dev/null 2>&1
+}
+setup_run || fail "setup failed"
+[ ! -e "$S/lib/wex-sysrun" ] && [ ! -e "$S/etc/sysrun.conf" ] || fail "setup installed the launcher without WEX_SYSRUN_ENABLE"
+ok setup_does_not_install_launcher_by_default
+setup_run WEX_SYSRUN_ENABLE=1 || fail "setup with WEX_SYSRUN_ENABLE failed"
+[ "$(stat -c '%a %U:%G' "$S/lib/wex-sysrun")" = "2755 root:$GRP" ] || fail "enabled setup: wrong launcher mode"
+ok setup_installs_launcher_when_enabled
 
 echo "=== wex-sysrun: $PASS checks passed ==="
