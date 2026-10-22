@@ -221,18 +221,34 @@ class VisualCapture(unittest.TestCase):
         identity = {'pid': 41, 'start_ticks': 900}
         stages = consumer.RECOVERY_VISUAL_STAGES
         log = ''.join(
-            '10 ms gpu recovery front capture requested ' + json.dumps({'stage': stage, 'runId': run_id}) + '\n'
+            '10 ms gpu recovery front capture requested ' + json.dumps({'stage': stage, 'runId': run_id,
+                'windowBounds': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
+                'clientBounds': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
+                'viewport': {'width': 800, 'height': 600},
+                'marker': {'x': 50, 'y': 100, 'width': 40, 'height': 40},
+                'background': [232, 245, 233]}) + '\n'
             + '11 ms gpu recovery front capture acknowledged ' + json.dumps({'stage': stage, 'runId': run_id}) + '\n'
             + '12 ms gpu recovery page capture ' + json.dumps({'stage': stage, 'empty': False,
-                'bytes': 100, 'size': {'width': 800, 'height': 600}}) + '\n'
+                'bytes': 100, 'size': {'width': 800, 'height': 600},
+                'viewport': {'width': 800, 'height': 600},
+                'clientBounds': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
+                'marker': {'x': 50, 'y': 100, 'width': 40, 'height': 40},
+                'background': [232, 245, 233]}) + '\n'
             for stage in stages)
         captures = {stage: {'sha256': 'b' * 64, 'bytes': 128, 'width': 800, 'height': 600,
+                            'geometry': {'x': 0, 'y': 0, 'width': 800, 'height': 600,
+                                         'fixed': 65536, 'visible': 1},
+                            'client_bounds': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
                             'compositor_identity': identity} for stage in stages}
+        pixels = {stage: {'front': {'passed': True}, 'page': {'passed': True}} for stage in stages}
         assess = lambda text=log, files=captures, error=None, before=identity, after=identity: \
-            consumer.recovery_front_capture_result(text, files, run_id, error, before, after)
+            consumer.recovery_front_capture_result(text, files, run_id, error, before, after, pixels)
         self.assertTrue(assess()['passed'])
         self.assertFalse(assess(text=log.replace(run_id, 'c' * 32))['passed'])
         self.assertFalse(assess(text=log.replace('settled_2s', 'recovered', 1))['passed'])
+        self.assertFalse(assess(text=log.replace('pre_fault', 'recovered', 1))['passed'])
+        self.assertFalse(assess(text=log.replace('"background": [232, 245, 233]',
+                                                   '"background": [0, 0, 0]', 1))['passed'])
         self.assertFalse(assess(files={})['passed'])
         self.assertFalse(assess(error='grim failed')['passed'])
         self.assertFalse(assess(after={'pid': 42, 'start_ticks': 900})['passed'])
@@ -240,6 +256,11 @@ class VisualCapture(unittest.TestCase):
         self.assertFalse(assess(text=log.replace(
             'gpu recovery page capture {', 'gpu recovery page capture [', 1).replace(
             '"height": 600}}', '"height": 600}]', 1))['passed'])
+        pixels['settled_4s']['front']['passed'] = False
+        self.assertFalse(assess()['passed'])
+        pixels['settled_4s']['front']['passed'] = True
+        self.assertFalse(consumer.recovery_front_capture_result(
+            log, captures, run_id, None, identity, identity, {})['passed'])
 
 
 if __name__ == '__main__':

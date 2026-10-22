@@ -30,18 +30,25 @@ async function visualCheckpoint(stage) {
 }
 const childExits = [], rendererExits = [];
 
-async function recoveryFrontCheckpoint(stage) {
+async function recoveryFrontCheckpoint(stage, win) {
   const runId = process.env.WEX_WEBVIEW2_RECOVERY_CAPTURE_RUN_ID;
   if (!runId) throw new Error('GPU recovery front-capture run ID is missing');
   const ack = path.join(path.dirname(logPath), `gpu-recovery-${runId}-${stage}.ack`);
-  log('gpu recovery front capture requested', { stage, runId });
+  const observation = await win.webContents.executeJavaScript(`(() => {
+    const r = document.querySelector('#box').getBoundingClientRect();
+    const background = getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number);
+    return { viewport: { width: innerWidth, height: innerHeight },
+      marker: { x: r.left, y: r.top, width: r.width, height: r.height }, background };
+  })()`);
+  log('gpu recovery front capture requested', { stage, runId,
+    windowBounds: win.getBounds(), clientBounds: win.getContentBounds(), ...observation });
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     try {
       const value = JSON.parse(fs.readFileSync(ack, 'utf8'));
       if (value.runId === runId && value.stage === stage && value.passed === true) {
         log('gpu recovery front capture acknowledged', { stage, runId });
-        return;
+        return observation;
       }
       throw new Error('Mismatched GPU recovery front-capture acknowledgement');
     } catch (error) {
@@ -50,6 +57,31 @@ async function recoveryFrontCheckpoint(stage) {
     await delay(50);
   }
   throw new Error('GPU recovery front capture was not acknowledged: ' + stage);
+}
+
+async function recoveryPageCapture(win, stage) {
+  const details = await recoveryFrontCheckpoint(stage, win);
+  const page = await win.webContents.capturePage();
+  const size = page.getSize();
+  const file = path.join(process.env.WEX_WEBVIEW2_RECOVERY_CAPTURE_DIR, `recovery-page-${stage}.png`);
+  const bytes = page.toPNG();
+  if (page.isEmpty() || size.width <= 0 || size.height <= 0 || bytes.length < 64)
+    throw new Error('GPU recovery page capture is empty: ' + stage);
+  fs.writeFileSync(file, bytes, { flag: 'wx' });
+  log('gpu recovery page capture', { stage, file, size, empty: false, bytes: bytes.length,
+    clientBounds: win.getContentBounds(), ...details });
+  const runId = process.env.WEX_WEBVIEW2_RECOVERY_CAPTURE_RUN_ID;
+  const pageAck = path.join(path.dirname(logPath), `gpu-recovery-${runId}-${stage}.page.ack`);
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    try {
+      const value = JSON.parse(fs.readFileSync(pageAck, 'utf8'));
+      if (value.runId === runId && value.stage === stage && value.passed === true) return;
+      throw new Error('Mismatched GPU recovery page-pixel verdict');
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await delay(50);
+  }
+  throw new Error('GPU recovery page pixels were not accepted: ' + stage);
 }
 
 // Runs inside the ordinary sandboxed renderer, with no preload/Node access.
@@ -123,6 +155,10 @@ async function exerciseGPURecovery(win) {
       && typeof item.renderer === 'string' && !/swiftshader|software rasterizer/i.test(item.renderer);
     if (!Object.values(before.contexts).every(valid) || before.features.gpu_compositing !== 'enabled')
       throw new Error('GPU recovery preconditions failed; no process killed');
+    await win.webContents.executeJavaScript(`window.sceneFrozen=true;
+      box.style.transform='translateX(160px)';counter.textContent='Frozen recovery checkpoint';
+      document.body.style.background='#e8f5e9';`);
+    await recoveryPageCapture(win, 'pre_fault');
     // Revalidate identity immediately before killing ONLY this app's GPU child.
     const current = app.getAppMetrics().filter(item => item.type === 'GPU');
     if (current.length !== 1 || current[0].pid !== before.gpu.pid
@@ -162,15 +198,7 @@ async function exerciseGPURecovery(win) {
       if (!captureDir) throw new Error('GPU recovery capture directory is missing');
       for (const [stage, wait] of [['recovered', 0], ['settled_2s', 2000], ['settled_4s', 2000]]) {
         if (wait) await delay(wait);
-        await recoveryFrontCheckpoint(stage);
-        const page = await win.webContents.capturePage();
-        const size = page.getSize();
-        const file = path.join(captureDir, `recovery-page-${stage}.png`);
-        const bytes = page.toPNG();
-        if (page.isEmpty() || size.width <= 0 || size.height <= 0 || bytes.length < 64)
-          throw new Error('GPU recovery page capture is empty: ' + stage);
-        fs.writeFileSync(file, bytes, { flag: 'wx' });
-        log('gpu recovery page capture', { stage, file, size, empty: false, bytes: bytes.length });
+        await recoveryPageCapture(win, stage);
       }
     }
   } catch (error) {
