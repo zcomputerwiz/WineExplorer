@@ -70,7 +70,7 @@ superseded by the 2026-10-22 accelerated execution update.
 ## 2026-10-22 accelerated execution update
 
 The current branch is `codex/g4-r1-completion`, pushed through checkpoint
-`712f8885`. Usage was 96% five-hour / 90% weekly at the last check; leave the
+`4b01e419`. Usage was 97% five-hour / 90% weekly at the last check; leave the
 one-time reset credit untouched and keep the existing heartbeat enabled.
 
 The private launcher was changed to a fresh output directory and the existing
@@ -93,10 +93,36 @@ also reveals an intrusive red test canvas. Therefore this is a functional
 recovery diagnostic, **not visual acceptance**; the intermittent blank capture
 must be reproduced/triaged before another trial is treated as evidence.
 
-Uncommitted probe refinement now keeps recovery WebGL canvases offscreen and
-captures every2s from12–32s. Validate syntax and all13 Linux tests, transfer
-only current open helpers, then run a fresh single-fault reproduction. Inspect
-the front images and compositor/client logs, not just recovery parser output.
-Preserve this VM overlay; do not start another VM or modify production code
-without a discriminating root-cause reproduction. At finish, gracefully power
-down the guest and keep evidence only on D:.
+The fixture refinement that keeps recovery WebGL canvases offscreen and captures
+every2s from12–32s is committed/pushed in `4b01e419`; all13 Linux harness tests
+pass. Two additional fresh-prefix trials with that code also report diagnostic0
+and pass every recovery-parser gate. But actual captured front state remains
+intermittently black: in trial02, captures16,20,22,26,32 are black/blank while
+18,24,28,30 show the full recovered UI; in trial03, captures20,22,26,28,32 are
+black/blank while18,24,30 show it. Trial03 capture16 also had only partial
+content. Thus the fixture canvas was not the cause, and recovered content is
+not reliably present in the captured compositor output. Trial02's and
+trial03's Chromium logs both report `DirectCompositionSupport::CheckFormatSupport`
+failure after GPU-process reinitialization; trial03 also logs
+`Creation of StagingBuffer's SharedImage failed` at the injected-crash point.
+These are temporal correlations, not yet a proven cause of the alternating
+captures. Do not count either repeat as visual acceptance or proceed to the
+post-fault regression matrix.
+
+The user-visible renderer logs still say visible and frames increase; that
+does not resolve the actual front-buffer discrepancy. Both inner WebGL API
+state and outer renderer remain accelerated, so do not classify it as software
+fallback. All guest consumer probes completed with no remaining Wine servers.
+The verified QEMU launcher's parent was sent SIGINT and the launcher performed
+QMP ACPI shutdown; QEMU stopped cleanly. VM overlay remains intact on D:.
+
+Next: isolate whether the black frames originate in Chromium/DComp content,
+Wine native-Wayland surface commits, labwc's composited output, or `grim`
+screencopy. Correlate real front capture with the actual surface/buffer commit
+sequence and a second independent capture path at sub-second intervals around
+the first disappearance; first run a no-fault frozen-scene control in the same
+topology. Preserve every failure image/log. Do not weaken parser checks, change
+production code without a discriminating reproduction, or start another fault-
+injection trial until the capture discrepancy is understood. Then implement stage-aligned
+pre-fault/recovered/settled capture acknowledgement and deterministic visual
+pixels before further acceptance. Keep all VM and evidence data on D:.
