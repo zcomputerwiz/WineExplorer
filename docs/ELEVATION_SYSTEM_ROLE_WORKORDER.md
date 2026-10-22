@@ -470,3 +470,66 @@ two checks that the setup script installs the launcher only with `WEX_SYSRUN_ENA
   either, the setup prints a warning and installs no launcher.
 - The launcher is not wired into Wine's startup (phases C and D).
 
+
+### Results, C1 (administrator identity)
+
+Date: 2026-10-22. Decision S3. Wine `f180417289b` (branch `ccr-work`, pushed as `ccr-08223ee4-p830bf`); WineExplorer
+commits on `ccr-08223ee4-p830bf`. Entries in `STOCK_CHANGES.md`: "Elevation boundary: administrator identity (C1)".
+
+What was built (only while the elevation helper is configured; with it unset nothing changes):
+
+- The server decides once per lifetime whether its user is in the administrator group (`user_is_administrator()` in
+  `server/registry.c`: `getpwuid(getuid())`, `getgrouplist`, group `sudo`). The override is `admin_group=` in
+  `/etc/wineexplorer/sysrun.conf`, honoured only if the file is a regular, root-owned, not group/other-writable file
+  (checked on the open descriptor). The environment is deliberately not a source: a user could name a group they
+  belong to (their own primary group) and become an administrator. A missing user or group means standard user.
+- Administrator: unchanged (filtered token with the linked full token). Standard user: the filtered token without the
+  Administrators group, Medium integrity, `TokenElevationTypeDefault`, the filtered privilege set. `create_linked_token`
+  fails with `STATUS_NO_SUCH_LOGON_SESSION` (Win32 1312) and `grant_process_admin_token` with `STATUS_ACCESS_DENIED`
+  once the session was made standard. The refusal is keyed to the session (`standard_user_session`), not to the group
+  lookup at call time, and not to the token's elevation type: a standard user can `NtFilterToken(LUA_TOKEN)` its own
+  token, which makes it Limited again, so a type-based check would hand it a linked full token.
+- Provisional: the error code 1312 for `TokenLinkedToken` on a non-split token. Microsoft Learn documents only that
+  `TokenElevationTypeDefault` means "the token does not have a linked token"; no native measurement was made. Check
+  with `native_token_contract_probe.cpp` on a standard native account.
+- A user who is root (uid 0) but not in `sudo` is a standard user. Run Wine as an unprivileged user in `sudo` to get
+  the administrator shape.
+- `tools/wex-sysrun/wex-sysrun.c` ignores the `admin_group` key (it refused unknown keys).
+- Shell: for a standard user `runas` finds no linked token and starts the program with the caller's own (Default)
+  token. Native Windows would ask for administrator credentials; the consent program has no credentials mode
+  (`ERROR_NOT_SUPPORTED`), so this stays a gap. The probe checks that no full token results.
+
+Not done (needs a design call): item 3, Wine's view of the local Administrators group. Findings: `NetLocalGroupGetMembers`
+(`dlls/netapi32/netapi32.c`) is a stub that returns the current user for level 3 only (and `NetLocalGroupEnum` returns
+no groups); `programs/net` has no `localgroup` command at all (net.c lacks it), and there is no local users and groups
+UI. A real list needs a new netapi32 unix call (`getgrnam` and a walk of the passwd database, because `gr_mem` leaves
+out users whose primary group is `sudo`), levels 0-3 of `LOCALGROUP_MEMBERS_INFO`, `NetLocalGroupEnum` and
+`NetLocalGroupGetInfo` for "Administrators", a copy of the `admin_group` config rule on the client side (about 250
+lines, plus a `localgroup` command in `programs/net`, plus changes to `dlls/netapi32/tests/access.c`, which assumes
+the stub). Decision needed: the client side re-reads the group database when queried, so it can disagree with the
+session's token until the next logon; making them agree needs a server request that returns the cached answer and
+member list. Stopped here as instructed.
+
+Test users (created as root in the container, removed afterwards): `wexadm` (member of `sudo`) and `wexstd` (not).
+Run the harness from a directory the user can write, and make the user the owner of the `advapi32`, `ntdll` and
+`shell32` test executables for the run: `security.c:4750` sets a DACL on the test executable itself and fails with 5
+(access denied) when it is root-owned (also on the commit before C1; it is not caused by this change).
+
+Probe: `scripts/test_token_security_regressions.cpp` has `--standard-shape` (marker `admin_identity=PASS|FAIL`; the
+administrator case prints the same marker after `--limited-shape`). `scripts/check-token-security.py` works out the
+identity of the user it runs as (same rule as the server) and runs the matching shape check; registry and pipe
+checks run only for an administrator. Standard-user checks: no Administrators SID in `TokenGroups`, Users enabled,
+Medium, exact filtered privileges, `TokenLinkedToken` fails with 1312, `ProcessWineGrantAdminToken` refused and the
+child stays Default, `CreateProcessW` of a `requireAdministrator` program gives 740, `ShellExecuteExW` (default verb
+and `runas`) gives no full token.
+
+| Run | Result |
+|---|---|
+| `check-token-security.py --all`, as `wexadm` (administrator), x86_64 and i386 | exit 0; limited, registry, pipe PASS; advapi32 security 3728/0 (both); ntdll info 2811/0 and 2744/0; shell32 shlexec 1805/2 (both); consent PASS |
+| same, as `wexstd` (standard) | exit 0; standard-shape PASS (`admin_identity=PASS`); advapi32 3728/0; ntdll 2811/0 and 2744/0; shlexec 1805/2; consent PASS |
+| `--focused`, helper set in the throw-away prefix, both archs, `wexadm` / `wexstd` | PASS / PASS |
+| override: `admin_group=wexstd` in a root-owned 0644 `sysrun.conf`, run as `wexstd` | administrator shape (PASS) |
+| same file made 0666 | ignored, standard shape (PASS) |
+| B4 smoke, helper unset / `WEX_B4_HELPER=1`, as `wexadm` | PASS 34 s / PASS 54 s |
+| B4 smoke, helper unset / `WEX_B4_HELPER=1`, as `wexstd` | PASS 37 s / PASS 54 s |
+| `--all` as root | not accepted as a baseline: root is a standard user here and, being uid 0, passes file DACL checks, so advapi32 security reports 3732/6 (`security.c:3995-4047`) |

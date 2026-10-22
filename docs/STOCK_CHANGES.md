@@ -383,6 +383,30 @@ is in refactor/P4.md; P5 assessment keeps unsupported extension replacements
 as X commits. The separately pushed P6 candidate passes full build/runtime
 smoke without changing the production pin (REBASE.md).
 
+## Elevation boundary: administrator identity (C1, 2026-10-22)
+
+Decision S3 of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Applies only while `HKLM\Software\Wine\Elevation\Helper` is
+configured (`elevation_enforced()`); with the helper unset nothing changes. Wine commit (working branch
+`ccr-work`): `f180417289b`.
+
+- `server/registry.c` (`user_is_administrator`, `admin_group_name`): the server's user is an administrator when the
+  group database says so (`getpwuid(getuid())`, `getgrouplist`) for the group `sudo`, or the group named by
+  `admin_group=` in `/etc/wineexplorer/sysrun.conf`. That file is read only if it is a regular, root-owned file that
+  is not group- or other-writable (checked on the open descriptor, `O_NOFOLLOW`); otherwise `sudo`. The environment
+  is never consulted: the user controls it and could name a group they are in. Cached for the server's lifetime, so a
+  membership change applies at the next logon.
+- `server/process.c` (`create_process`), `server/token.c` (`token_make_standard`): the first token of a session
+  made while enforced is filtered as before; for a user outside the group it also loses the Administrators group
+  and becomes `TokenElevationTypeDefault` (Medium integrity and the filtered privileges are the filtered token's).
+  `standard_user_session` is then set for the server's life.
+- `server/token.c` (`create_linked_token`): fails with `STATUS_NO_SUCH_LOGON_SESSION` once `standard_user_session`
+  is set (provisional: the native error of `GetTokenInformation(TokenLinkedToken)` on a token without a split is not
+  documented; Microsoft only says `TokenElevationTypeDefault` means no linked token).
+- `server/process.c` (`grant_process_admin_token`): `STATUS_ACCESS_DENIED` once `standard_user_session` is set.
+- The `wex-sysrun` launcher (`tools/wex-sysrun`) ignores the `admin_group` key instead of refusing the file.
+- Not done here: the local Administrators group view of netapi32 (`NetLocalGroupGetMembers`, a stub that reports the
+  current user), see the work order's "Results, C1".
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|
