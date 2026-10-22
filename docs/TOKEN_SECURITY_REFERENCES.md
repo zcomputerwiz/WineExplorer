@@ -172,4 +172,16 @@ are kept outside the repository.
 | `SetThreadToken(linked)`, then open file / process token / registry key | succeeds; 1346 / 1346 / 5 |
 | `CreateProcessAsUserW` with own token duplicated as impersonation token | succeeds |
 | `ProcessAccessToken` with own primary copy and own restricted copy | both succeed |
-| SYSTEM, `--tcb` path (`WTSQueryUserToken`, then linked token) | not yet run: the scheduled task executed the non-TCB path (`user.linked_error=1312`) |
+
+SYSTEM with `--tcb` (scheduled task, x64; the first SYSTEM run took the non-TCB path and printed
+`user.linked_error=1312`):
+
+| Case | Result |
+| :--- | :--- |
+| `WTSQueryUserToken` | primary, `TokenElevationTypeLimited` |
+| `TokenLinkedToken` | **primary**, `TokenElevationTypeFull` |
+| `CreateProcessAsUserW(linked)` | succeeds, full-token child |
+| `CreateProcessWithTokenW(linked)` | succeeds; child exit `0xC0000142` (desktop access from a SYSTEM task, not a token result) |
+| `DuplicateTokenEx(linked)` to primary / impersonation | both succeed (impersonation copy at `SecurityImpersonation`) |
+| `ProcessAccessToken(linked)` | `0xC0000061` `STATUS_PRIVILEGE_NOT_HELD` (probe does not enable `SeAssignPrimaryTokenPrivilege`) |
+| `SetThreadToken(linked)` | 1349 `ERROR_BAD_TOKEN_TYPE` (primary token) |

@@ -106,7 +106,7 @@ Run as a filtered administrator. The own-token rows are controls.
 | N5 impersonate linked, open file / process token | 1346 | `SetThreadToken` succeeds; file and process token 1346; registry key 5 | all opens succeed |
 | N2 control: own token as impersonation token (`SecurityImpersonation`) | `ERROR_BAD_TOKEN_TYPE` | **succeeds** | succeeds |
 | N4 control: own primary copy, own restricted copy | first fails | **both succeed** (status 0) | both succeed |
-| N6 linked token for a `SeTcbPrivilege` caller | usable | **not established**, see below | n/a |
+| N6 linked token for a `SeTcbPrivilege` caller (SYSTEM, user token from `WTSQueryUserToken`) | usable | **primary** token, full; see below | n/a |
 
 Corrections to the design:
 - **Impersonation level, not token type.** Windows accepts an impersonation token at `SecurityImpersonation`
@@ -116,11 +116,21 @@ Corrections to the design:
 - **`CreateProcessWithTokenW`** fails earlier, on the missing `SeImpersonatePrivilege` (1314), for a filtered
   user.
 
-N6 is not established. The SYSTEM run printed `user.*` keys and `user.linked_error=1312`
-(`ERROR_NO_SUCH_LOGON_SESSION`), which come from the probe's non-TCB path querying the SYSTEM token itself.
-The `--tcb` path (keys `tcb.*`, using `WTSQueryUserToken`) did not run, so the scheduled task most likely
-dropped the argument. The child exit codes are as expected: 101 is `TokenElevationTypeDefault` (SYSTEM), 103 is
-`TokenElevationTypeLimited` (filtered user). Rerun N6 and check that the output starts with `tcb.user`.
+N6, run as SYSTEM through a scheduled task with `--tcb`, x64 (x86 not rerun):
+
+| Case | Native |
+| :--- | :--- |
+| user token from `WTSQueryUserToken` | primary, limited |
+| linked token | **primary**, `TokenElevationTypeFull` (no impersonation level) |
+| `CreateProcessAsUserW(linked)` | succeeds, child reports full (102) |
+| `CreateProcessWithTokenW(linked)` | succeeds; the child exited `0xC0000142` (`STATUS_DLL_INIT_FAILED`), most likely because a SYSTEM task has no access to the user's interactive desktop; not a token result |
+| `DuplicateTokenEx(linked)` to primary / to impersonation | both succeed; the impersonation copy is at `SecurityImpersonation` |
+| `ProcessAccessToken(linked)` | `0xC0000061` `STATUS_PRIVILEGE_NOT_HELD`: assigning another user's or session's token needs `SeAssignPrimaryTokenPrivilege` enabled, which the probe does not enable |
+| `SetThreadToken(linked)` | 1349 `ERROR_BAD_TOKEN_TYPE`, because the token is primary |
+
+So Windows does not hand a TCB caller a higher impersonation level: it hands it a different kind of token, a
+usable primary token. The child exit codes are as expected: 101 is `TokenElevationTypeDefault` (SYSTEM), 103
+is `TokenElevationTypeLimited` (filtered user).
 
 ### Wine baseline (`c01c57ef`, both architectures, identical)
 
@@ -163,7 +173,9 @@ These apply only while enforced, and follow the native results above:
    token fails with `ERROR_BAD_IMPERSONATION_LEVEL`. A registry key fails with `ERROR_ACCESS_DENIED` (N5).
 5. `grant_process_admin_token` requires `SeTcbPrivilege` in the caller's token. Under enforcement explorer
    runs with the user's limited token (Q3: decided).
-6. `create_linked_token` returns a usable token only to a caller holding `SeTcbPrivilege`, once N6 is known.
+6. `create_linked_token` returns the linked token as a **primary** token to a caller holding
+   `SeTcbPrivilege` (N6), and as an identification-level impersonation token to everyone else (N1, as now).
+   The broker (D3) uses the primary token directly with `CreateProcessAsUserW`.
 
 ### D3. The broker (the AppInfo role)
 
@@ -186,7 +198,7 @@ caller. Do the same:
      (`src/dlls/wexshell/uac_agent.c`, `src/dlls/wexhost/unixlib.c`) shows the request on the secure desktop,
      and PAM checks the password through `polkit-agent-helper-1`.
 4. **Launch.** The broker:
-   - duplicates the linked token, which it can do because it holds TCB;
+   - gets the linked token as a primary token, which it can because it holds TCB (N6);
    - creates the process with `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` set to the caller;
    - duplicates the process handle into the caller.
 
@@ -238,9 +250,8 @@ Each must work through the broker when enforced, or be shown not to need elevati
 
 Commit after each working step. Each step lists how it is accepted.
 
-1. **Native control.** Done for N1 to N5 on Windows 10.0.26300 (section "Native results"). N6 needs a rerun
-   of the `--tcb` path.
-   Accept: N6 recorded with `tcb.*` keys.
+1. **Native control.** Done on Windows 10.0.26300 (section "Native results"): N1 to N5 on x64 and x86, N6 on
+   x64.
 2. **Bypass probes.** Add N1–N5 and `ProcessWineGrantAdminToken` cases to
    `scripts/test_token_security_regressions.cpp`. Run them with the helper configured.
    Accept: they fail on `c01c57ef`. This reproduces the bypass in the harness.
@@ -289,7 +300,7 @@ Commit after each working step. Each step lists how it is accepted.
 - **Q4.** Instead of requiring credentials for every elevation, implement a secure desktop (D5). Click consent
   on the secure desktop is the default; credentials stay for policies 1 and 3.
 - **Q5.** The Microsoft documentation settles the direction of N2 to N5 but not the exact codes, N1 or N6. A
-  worker on one of your Windows machines runs the native probe (step 1).
+  worker on one of your Windows machines ran the native probe (step 1, done).
 
 ## Risks
 
