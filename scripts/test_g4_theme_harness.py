@@ -48,7 +48,7 @@ class ThemeSetup(unittest.TestCase):
 
 class DriverSetup(unittest.TestCase):
     def test_selection_clears_inherited_loader(self):
-        for driver in ('software', 'd3d12'):
+        for driver in ('software', 'd3d12', 'svga'):
             env = dict(GALLIUM_DRIVER='other', MESA_LOADER_DRIVER_OVERRIDE='other', LD_LIBRARY_PATH='/other')
             runner.configure_gl_driver(env, driver)
             self.assertNotIn('MESA_LOADER_DRIVER_OVERRIDE', env)
@@ -56,9 +56,21 @@ class DriverSetup(unittest.TestCase):
             if driver == 'software':
                 self.assertNotIn('GALLIUM_DRIVER', env)
                 self.assertNotIn('LD_LIBRARY_PATH', env)
-            else:
+            elif driver == 'd3d12':
                 self.assertEqual(env['GALLIUM_DRIVER'], 'd3d12')
                 self.assertEqual(env['LD_LIBRARY_PATH'], '/usr/lib/wsl/lib')
+            else:
+                self.assertEqual(env['GALLIUM_DRIVER'], 'svga')
+                self.assertNotIn('LD_LIBRARY_PATH', env)
+        with self.assertRaises(ValueError):
+            runner.configure_gl_driver({}, 'unknown')
+
+    def test_svga_verification_is_not_wsl_or_software(self):
+        good = 'Accelerated: yes\nOpenGL renderer string: SVGA3D; build: RELEASE; LLVM;\n'
+        with mock.patch.object(runner, 'run_logged', return_value=subprocess.CompletedProcess([], 0, good, '')):
+            self.assertTrue(runner.verify_gl_driver({}, Path('/owned'), 'svga')['passed'])
+            with self.assertRaises(RuntimeError):
+                runner.verify_gl_driver({}, Path('/owned'), 'd3d12')
 
     def test_no_silent_acceleration_fallback(self):
         good = 'Accelerated: yes\nOpenGL renderer string: D3D12 (Intel test)\n'

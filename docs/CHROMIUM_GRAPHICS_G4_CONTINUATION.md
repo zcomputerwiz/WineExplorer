@@ -1,6 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_GPU_CONSUMERS_20261022.md`. Actual VirtualBox
+SVGA/GLES2 Chromium consumers FAIL (feature-level9.3 ceiling without polygon
+offset clamp; separate wlroots/vmwgfx DMA-BUF handle error). Official Mesa26
+backports did not fix caps. Explicit accelerated consumer harness and33 unit
+tests pass, not consumer acceptance. Wine4315be8/compositor94faa651 unchanged.
+Diskless paused QEMU/VirGL host startup on WSL D3D12 passes only feasibility;
+guest capabilities/pixels still unproven. Do not merge or spoof capabilities.
+
 Newest: `CHROMIUM_GRAPHICS_G4_ACCELERATED_VM_20261022.md`. Fresh authorized
 VirtualBox guest WEX-G4-Acceleration-20261022 lives entirely on D:, SSH2234/debian.
 Real vmwgfx DRM nodes and SVGA3D GL4.1 verified; exact pinned wexcomp GLES2

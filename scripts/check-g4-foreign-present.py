@@ -28,7 +28,8 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--arch', choices=('x86_64', 'i686'), default='x86_64')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='vulkan')
-    parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software')
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12', 'svga'), default='software')
+    parser.add_argument('--compositor-renderer', choices=('pixman', 'gles2'), default='pixman')
     parser.add_argument('--vulkan-icd', type=Path)
     parser.add_argument('--wine-debug', default='-all,+winediag')
     parser.add_argument('--case', action='append', choices=('own-dcomp', 'foreign-full-dcomp', 'foreign-dcomp', 'foreign-gdi'),
@@ -36,8 +37,10 @@ def main():
     args = parser.parse_args()
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('Vulkan requires an explicit ICD')
-    if args.gl_driver == 'd3d12' and args.renderer != 'gl':
-        parser.error('D3D12 GL driver requires --renderer gl')
+    if args.gl_driver != 'software' and args.renderer != 'gl':
+        parser.error('Accelerated GL drivers require --renderer gl')
+    if args.compositor_renderer == 'gles2' and args.gl_driver == 'software':
+        parser.error('GLES2 outer control requires an explicit accelerated driver')
     build = args.wine_build.resolve(strict=True)
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -57,12 +60,15 @@ def main():
     if args.vulkan_icd:
         icd = str(args.vulkan_icd.resolve(strict=True))
         environment.update(VK_DRIVER_FILES=icd, VK_ICD_FILENAMES=icd)
-    compositor = OwnedWexcomp(args.wexcomp_bin.resolve(strict=True), args.wexcomp_config.resolve(strict=True), output, environment)
-    result = {'classification': 'Native wexcomp process-boundary presentation diagnostic; outer compositor pixman',
+    compositor = OwnedWexcomp(args.wexcomp_bin.resolve(strict=True), args.wexcomp_config.resolve(strict=True),
+                              output, environment, args.compositor_renderer)
+    result = {'classification': 'Native wexcomp process-boundary presentation diagnostic; explicit outer renderer',
               'arch': args.arch, 'renderer': args.renderer, 'gl_driver': args.gl_driver, 'cases': {}}
     child = None
     try:
         result['wexcomp'] = compositor.start()
+        if args.compositor_renderer == 'gles2':
+            result['outer_gl_driver_verification'] = compositor.verify_gpu_renderer(args.gl_driver)
         result['gl_driver_verification'] = verify_native_gl_driver(environment, output, args.gl_driver)
         boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
         if boot.returncode:

@@ -223,11 +223,12 @@ def main():
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--resource-profile', action='store_true',
                         help='Read-only one-second owned-process CPU/RSS samples; not GPU telemetry')
-    parser.add_argument('--gl-driver', choices=('software', 'd3d12'), default='software',
-                        help='Explicit accelerated WSL Mesa D3D12 control, independently verified')
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12', 'svga'), default='software',
+                        help='Explicit software/WSL D3D12/VM SVGA driver, independently verified')
     parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none')
     parser.add_argument('--wexcomp-bin', type=Path, help='Explicit pinned compositor: owned headless native Wayland control')
     parser.add_argument('--wexcomp-config', type=Path, help='Project Wayland config directory for --wexcomp-bin')
+    parser.add_argument('--compositor-renderer', choices=('pixman', 'gles2'), default='pixman')
     parser.add_argument('--output-scale', type=float, choices=(1.0, 1.25, 1.5, 2.0),
                         help='Explicit initial scale of the owned native headless output (requires wlr-randr)')
     parser.add_argument('--transition-scale', type=float, choices=(1.0, 1.25, 1.5, 2.0),
@@ -237,6 +238,8 @@ def main():
     args = parser.parse_args()
     if bool(args.wexcomp_bin) != bool(args.wexcomp_config):
         parser.error('--wexcomp-bin and --wexcomp-config must be specified together')
+    if args.compositor_renderer == 'gles2' and (not args.wexcomp_bin or args.gl_driver == 'software'):
+        parser.error('GLES2 outer control requires owned wexcomp and an explicit accelerated driver')
     if args.output_scale is not None and (not args.wexcomp_bin or not shutil.which('wlr-randr')):
         parser.error('--output-scale requires owned wexcomp and wlr-randr')
     if args.transition_scale is not None and (args.output_scale is None or not args.lifecycle_visuals):
@@ -254,7 +257,7 @@ def main():
     if args.restart_from and args.desktop != 'none':
         parser.error('Desktop-mode restart controls are not yet supported')
     if args.gl_driver != 'software' and args.renderer != 'gl':
-        parser.error('--gl-driver d3d12 requires --renderer gl')
+        parser.error('Accelerated GL driver controls require --renderer gl')
     if args.freeze_scene and not args.electron_app:
         parser.error('--freeze-scene requires --electron-app')
     if args.lifecycle and (not args.electron_app or args.freeze_scene or args.seconds < 25):
@@ -479,8 +482,10 @@ def main():
             spec = importlib.util.spec_from_file_location('graphics_wexcomp', Path(__file__).with_name('graphics_wexcomp.py'))
             compositor = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(compositor)
-            wexcomp = compositor.OwnedWexcomp(wexcomp_binary, wexcomp_config, output, environment)
+            wexcomp = compositor.OwnedWexcomp(wexcomp_binary, wexcomp_config, output, environment, args.compositor_renderer)
             result['wexcomp'] = wexcomp.start()
+            if args.compositor_renderer == 'gles2':
+                result['outer_gl_driver_verification'] = wexcomp.verify_gpu_renderer(args.gl_driver)
             result['gl_driver_verification'] = compositor.verify_native_gl_driver(environment, output, args.gl_driver)
             if args.output_scale is not None:
                 wexcomp.set_output_scale(args.output_scale)
