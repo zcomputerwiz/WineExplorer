@@ -476,8 +476,8 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
   check a limited process could make an administrator token, impersonate it, and pass every access check.
 - `server/sysrun.c`, `server/process.c`, `server/process.h`, `server/thread.c`, `server/mapping.c`
   (`sysrun_process_created`, `sysrun_thread_created`, `sysrun_main_image`): a root process whose connection has the
-  system group is protected from the start (process and thread descriptor from the SYSTEM default DACL, so a limited
-  or standard token cannot open it with any right) and gets the SYSTEM token when its main image is verified: the
+  system group is protected from the start (process and thread descriptor as below, so a limited
+  or standard token cannot open it with any dangerous right) and gets the SYSTEM token when its main image is verified: the
   mapped file's device and inode (`fstat` of the server's descriptor) must equal `services.exe`, `wineboot.exe` or
   `winedevice.exe` of the machine root's `system32` (or `wineboot.exe` and `winedevice.exe` of `syswow64`). The NT
   path is never used, it goes through the user's prefix links. Any other image: its raised file access ends at once and
@@ -485,6 +485,13 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
   descriptor from it when that token is SYSTEM, LocalService or NetworkService. The connection credentials of a
   child are those of the process that made the socket pair, so the server clears `peer_gid` for a child with a
   service-account token: it never gets the system group's file access.
+- `server/token.c` (`set_token_integrity_level`): while elevation is enforced, raising a token's integrity level
+  needs an enabled SeTcbPrivilege in the caller's process token (`STATUS_PRIVILEGE_NOT_HELD`), lowering does not (as on
+  Windows).
+- `server/sysrun.c` (`protect_object`): the descriptor of a system role process or thread is SYSTEM (and the service
+  account) full control, Administrators query + read the descriptor, Users and Authenticated Users the limited query +
+  SYNCHRONIZE (thread: `THREAD_QUERY_LIMITED_INFORMATION`), as Windows does for service processes. Full access needs
+  an enabled SeDebugPrivilege.
 - `server/token.c` (`check_object_access`): an enabled SeDebugPrivilege opens any process or thread whatever its
   descriptor says (Windows does the same), while the system role is active. A filtered or standard token has no
   SeDebugPrivilege; an elevated administrator token has it disabled until the program enables it.
@@ -512,7 +519,7 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
   on the service handle, takes the DACL only (shortcut) and writes the value; `QueryServiceObjectSecurity` returns
   owner, group and DACL (it was `ERROR_CALL_NOT_IMPLEMENTED`). `dlls/sechost/service.c`
   (`QueryServiceObjectSecurity`, `SetServiceObjectSecurity`) call these over RPC; they were a semi-stub (an empty
-  DACL) and `return TRUE`. Not gated: this is the documented behavior, for every services.exe.
+  DACL) and `return TRUE`. **Ungated**: this is the documented behavior, for every services.exe, with or without the system role or enforcement.
 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |

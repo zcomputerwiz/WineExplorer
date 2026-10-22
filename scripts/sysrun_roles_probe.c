@@ -312,7 +312,19 @@ static void proc_denied_pid(const char *image, DWORD pid)
         check(!h && err == ERROR_ACCESS_DENIED, what);
         if (h) CloseHandle(h);
     }
+    /* what a task manager needs is still granted */
+    h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
+    snprintf(what, sizeof(what), "OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE) of %s %lu works (error %lu)", image, pid, GetLastError());
+    check(h != NULL, what);
+    if (h) CloseHandle(h);
     tid = find_tid(pid);
+    if (tid)
+    {
+        h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, tid);
+        snprintf(what, sizeof(what), "OpenThread(THREAD_QUERY_LIMITED_INFORMATION | SYNCHRONIZE) of %s %lu works (error %lu)", image, pid, GetLastError());
+        check(h != NULL, what);
+        if (h) CloseHandle(h);
+    }
     snprintf(what, sizeof(what), "%s %lu has a thread in the thread list (tid %lu)", image, pid, tid);
     check(tid != 0, what);
     for (i = 0; tid && i < sizeof(thread_rights) / sizeof(thread_rights[0]); i++)
@@ -430,6 +442,22 @@ static void admin_open(const char *image)
     check(!status, "the system role process turns its token into an administrator token");
     check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &token), "open the new token");
     token_facts(stdout, token);
+    {
+        DWORD pids[16];
+        int i, n = find_pids(image, pids, 16);
+        HANDLE h;
+
+        for (i = 0; i < n; i++)
+        {
+            SetLastError(0);
+            h = OpenProcess(PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, pids[i]);
+            check(!h && GetLastError() == ERROR_ACCESS_DENIED, "an administrator token without SeDebugPrivilege is denied PROCESS_VM_WRITE");
+            if (h) CloseHandle(h);
+            h = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | READ_CONTROL, FALSE, pids[i]);
+            check(h != NULL, "an administrator token without SeDebugPrivilege can query it");
+            if (h) CloseHandle(h);
+        }
+    }
     tp.PrivilegeCount = 1;
     tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
     LookupPrivilegeValueA(NULL, "SeDebugPrivilege", &tp.Privileges[0].Luid);
@@ -617,6 +645,45 @@ static void token_denied(void)
     FreeSid(sid);
 
 #ifdef _WIN64
+    {
+        HANDLE own, copy;
+        DWORD level;
+        SID_IDENTIFIER_AUTHORITY label = { SECURITY_MANDATORY_LABEL_AUTHORITY };
+        static const DWORD levels[] = { SECURITY_MANDATORY_HIGH_RID, SECURITY_MANDATORY_SYSTEM_RID };
+        unsigned int i;
+
+        check(OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT, &own), "open own token");
+        check(DuplicateTokenEx(own, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &copy), "duplicate it");
+        for (i = 0; i < 2; i++)
+        {
+            TOKEN_MANDATORY_LABEL tml = { { 0, SE_GROUP_INTEGRITY } };
+            PSID sid;
+
+            AllocateAndInitializeSid(&label, 1, levels[i], 0, 0, 0, 0, 0, 0, 0, &sid);
+            tml.Label.Sid = sid;
+            SetLastError(0);
+            check(!SetTokenInformation(copy, TokenIntegrityLevel, &tml, sizeof(tml)) && GetLastError() == ERROR_PRIVILEGE_NOT_HELD,
+                  levels[i] == SECURITY_MANDATORY_HIGH_RID ? "raising a duplicate to High is refused with ERROR_PRIVILEGE_NOT_HELD"
+                                                           : "raising a duplicate to System is refused with ERROR_PRIVILEGE_NOT_HELD");
+            SetLastError(0);
+            check(!SetTokenInformation(own, TokenIntegrityLevel, &tml, sizeof(tml)) && GetLastError() == ERROR_PRIVILEGE_NOT_HELD,
+                  "raising the process token itself is refused");
+            FreeSid(sid);
+        }
+        {
+            TOKEN_MANDATORY_LABEL tml = { { 0, SE_GROUP_INTEGRITY } };
+            PSID sid;
+
+            AllocateAndInitializeSid(&label, 1, SECURITY_MANDATORY_LOW_RID, 0, 0, 0, 0, 0, 0, 0, &sid);
+            tml.Label.Sid = sid;
+            check(SetTokenInformation(copy, TokenIntegrityLevel, &tml, sizeof(tml)), "lowering a duplicate to Low is allowed");
+            FreeSid(sid);
+        }
+        (void)level;
+        CloseHandle(copy);
+        CloseHandle(own);
+    }
+
     status = create_service_token(0, &token);
     snprintf(what, sizeof(what), "creating a service token is refused with STATUS_PRIVILEGE_NOT_HELD (0x%lx)", (unsigned long)status);
     check(status == 0xC0000061, what);

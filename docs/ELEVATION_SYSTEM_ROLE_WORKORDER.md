@@ -786,11 +786,9 @@ default.
    it the descriptors of the system role (and every other access check) could be bypassed by impersonating a made-up
    administrator token. It changes stock behavior under enforcement only; `advapi32` tests that create tokens run with
    the helper unset.
-3. **Administrators get the same access to the system role's processes as SYSTEM** (the default DACL of the work order),
-   where Windows gives them less and lets SeDebugPrivilege through. SeDebugPrivilege is honored on top (an administrator
-   token with it enabled opens LocalService processes, which have no Administrators entry). Native Windows gives
-   standard users `PROCESS_QUERY_LIMITED_INFORMATION` on most system processes; here they get nothing. Task manager style
-   tools see less. Say if the limited-information right should be granted to Users.
+3. **Process and thread descriptors (revised after review):** SYSTEM (and the service account) full; Administrators
+   query + `READ_CONTROL` + `SYNCHRONIZE`; Users and Authenticated Users `PROCESS_QUERY_LIMITED_INFORMATION` +
+   `SYNCHRONIZE` (threads `THREAD_QUERY_LIMITED_INFORMATION`). Full access only through an enabled SeDebugPrivilege.
 4. **LocalService and NetworkService processes are ordinary Unix processes of the user** (real, effective and saved
    group the user's, no setgid). They cannot write the machine root, but the user can signal them, and can
    ptrace them if `kernel.yama.ptrace_scope` is 0 in the short window before the process marks itself not dumpable.
@@ -798,12 +796,29 @@ default.
 5. **Standard users have no way to elevate** (as the work order says), so the administrator check runs for the
    administrator user only.
 6. **Known gaps (constraint e), not closed here:** window messages and global hooks reach system role windows; services
-   started by services.exe are on their own window station, which limits this. `TokenIntegrityLevel` can be raised by the
-   token's holder without SeTcbPrivilege in `set_token_integrity_level` (read from the code, not tested): it does not
-   open a protected process (the descriptors have no label), but Windows refuses it. A limited process can still
-   kill the user's wineserver (T5).
+   started by services.exe are on their own window station, which limits this. A limited process can still kill the
+   user's wineserver (T5). Raising a token's integrity level now needs SeTcbPrivilege while enforced (review fix).
+   **Known limits:** (a) the machine hives are saved in place (`pwrite` and `ftruncate`, not an atomic rename) because a
+   new file would belong to the user's uid; upgrade when the system role has its own uid. (b) With
+   `kernel.yama.ptrace_scope` 0 the user could attach to a LocalService or NetworkService process in the short window
+   between its exec and the not-dumpable flag. (c) sechost's `QueryServiceObjectSecurity` and `SetServiceObjectSecurity`
+   changed for everyone (ungated); `SetServiceObjectSecurity` takes the DACL only.
 7. **Not measured natively:** the privilege and group lists above (provisional), the error codes of the refusals
    (`STATUS_PRIVILEGE_NOT_HELD` for NtCreateToken follows the documented requirement).
 8. **item 7:** `setup-machine-root.sh` still installs the launcher only with `WEX_SYSRUN_ENABLE=1`. All probes of
    constraint g pass; the default is yours to flip.
+
+#### C3 review fixes (2026-10-22)
+
+- `set_token_integrity_level`: raising above the current level needs an enabled SeTcbPrivilege while enforced
+  (`STATUS_PRIVILEGE_NOT_HELD`, 1314); lowering is allowed. Probe: a limited process cannot raise a duplicate or its own
+  token to High or System, can lower a duplicate.
+- Process and thread descriptors as in call 3 above. Probes: limited and standard users open with
+  `PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE` (and threads with the limited query) and are still denied the
+  dangerous rights; an administrator token without SeDebugPrivilege is denied `PROCESS_VM_WRITE` but can query, with it
+  enabled it opens everything.
+Tests after the fixes: `test_sysrun_server.sh` section 8 (fresh fixture, both users, both architectures, own prefix):
+**95 checks, 0 failures**; `check-token-security.py --all`, helper unset, as `wexadm`: exit 0, advapi32 security
+3728/0 (both architectures), ntdll info 2820/0 and 2742/0 (counts vary with the environment), shlexec 1805/2 (the known
+two), limited, registry, pipe and consent PASS.
 
