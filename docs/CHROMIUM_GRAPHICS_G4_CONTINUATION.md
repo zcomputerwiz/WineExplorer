@@ -1,6 +1,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_RECOVERY_EXECUTION_CHECKPOINT_20261022.md`.
+User authorized execution. Preflight clean at parent9dcd781d; both owned
+disposable guests powered off, D: free~1.9TB, no probes active. Usage94%
+consumed (6% remains), so no long recovery run was started. Resume after reset:
+implement event-aligned recovery front capture/identity harness and tests,
+then healthy baseline, two serial GPU-child faults, post-fault regressions.
+Detailed steps in `CHROMIUM_GRAPHICS_G4_ACCELERATED_RECOVERY_PLAN.md`.
+
 Newest: `CHROMIUM_GRAPHICS_G4_VIRGL_20261022.md`. Fresh authorized D:-backed
 QEMU/VirGL guest establishes real virtio_gpu DRM and accelerated outer GLES2
 wexcomp, host D3D12/Intel UHD750. Both PEs own/foreign-full exact4096 pixels
