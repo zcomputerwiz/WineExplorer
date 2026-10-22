@@ -124,6 +124,39 @@ theme acceptance or efficiency work.
 
 ## Deliverables and stop conditions
 
+### Next bounded experiment after the phase-4 pre-fault stop
+
+The parent inspected the new paired pre_fault images: front at approximately
+7555 ms still shows Frames: 2 and the old marker position, whereas page at
+7589 ms shows the newly frozen scene. The later screen-8.png already shows
+the correct frozen front. No fault occurred. This establishes an early stale
+observation, not persistent rendering loss or its cause. The runner currently
+requests capture immediately after changing the DOM; DOM command completion
+does not establish that rendering has had an opportunity to present it.
+
+Luna's next bounded harness change should wait for two renderer animation-frame
+callbacks after each frozen-scene change before requesting the existing front
+checkpoint. Use a bounded timeout that fails the run, record frame/timing
+observations, and retain front-before-page capture order. Do not retry failed
+pixel captures until they pass, force a repaint with capturePage first, or claim
+that animation-frame callbacks themselves prove presentation. The strict actual
+pixel gate still decides whether the healthy front is ready to permit a fault.
+Add an executable callback-sequence test and timeout control, rather than only
+asserting that a source string contains requestAnimationFrame.
+
+Review this change before live execution. Then rerun the healthy no-fault
+control and at most one recovery attempt with the unchanged strict pre-fault
+gate. A stale front after the rendering-opportunity wait calls for a separate
+fixed-timeline no-fault experiment; do not keep extending sleeps or bypass the
+gate. Preserve the previous failed pair and compare actual new images.
+
+Before boot, also resolve the previous launcher's missing final shutdown
+record. The parent verified no QEMU process and ran offline qemu-img check:
+no errors. This does not prove graceful guest shutdown. Require an owned launch
+session that persists, a verified launcher PID/start identity, explicit SIGINT
+to that identity for its existing QMP ACPI cleanup, and a complete final
+shutdown/exit record. Diagnose premature launcher termination before reuse.
+
 - Committed/pushed instrumentation and pixel tests, then a separately reviewable
   production fix if required, including any Wine/compositor submodule commits.
 - A report identifying the first failing layer with exact run paths, revisions,
