@@ -108,6 +108,10 @@ marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`.
     `HARDWARE\DEVICEMAP`, `Software\Microsoft\DirectX`, with their subkeys. win32u's `prepare_devices` rewrites
     them in every GUI process, where Windows has SYSTEM components do it. A new key above one of them (for example
     `HARDWARE\DEVICEMAP`) may be created too. Effect: a limited process can change the cached display configuration.
+  - **Deviation, accepted by the user, temporary:** `Control\ServiceCurrent` (the control pipe number services.exe
+    writes for each service process it starts) and `Control\ComputerName\ActiveComputerName` (written by
+    `wineboot --init`) are in the same table. Both writers run on the limited token until they get the system
+    role; that step removes the two entries (`shortcut:` comment in `server/registry.c`).
 - `server/named_pipe.c`: the client end of a named pipe records the token of the thread that opened it, and
   `FSCTL_PIPE_IMPERSONATE` impersonates a copy of that token (stock Wine impersonates the caller itself, with a
   FIXME). Needed so a service can check the access its client really has.

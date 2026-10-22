@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: registry and service manager access checks under enforcement
 
-Date: 2026-10-22. Status: items 1 to 5 implemented; **blocked on a design call** (services.exe and Wine's
-service processes cannot run on the limited token, see "Results, items 3 to 5"). Part of `ELEVATION_BOUNDARY_PLAN.md`; prerequisite of the system role (step 2b
+Date: 2026-10-22. Status: **done**. Items 1 to 5 implemented; the services blocker was resolved by the
+user's decision below ("Results, grant of ServiceCurrent and ActiveComputerName"). Part of `ELEVATION_BOUNDARY_PLAN.md`; prerequisite of the system role (step 2b
 work order, item 5 and decision D2).
 
 ## Why
@@ -343,3 +343,18 @@ probe (`--pipe-impersonation`) and the B4 script.
 | Full harness `--all`, both architectures | limited shape, registry, pipe, consent PASS; `advapi32 security` 3728 / 0; `ntdll info` 2811 and 2744 / 0; `shlexec` 1805 / 2 |
 | B4 helper set | PASS, 56 s |
 | Committed state, focused harness | `registry_enforcement=FAIL` on the four SCM rows (1722), as above |
+
+### Results, grant of ServiceCurrent and ActiveComputerName (2026-10-22)
+
+Decision (user): `Control\ServiceCurrent` and `Control\ComputerName\ActiveComputerName` join the Users-writable
+table in `server/registry.c` for now, and are removed when services.exe and `wineboot --init` get the system role
+(step 2b work order, item 5). Reason: in a user-writable prefix a limited process can already rewrite `system.reg`
+through `Z:` (same Unix user), so registry protection there is not a boundary; in the machine root no service gets
+a SYSTEM token before the system role exists, and the pipe impersonation rule gives a hijacked control pipe only an
+identification-level token.
+
+| Check | Result |
+| :--- | :--- |
+| Focused harness, helper set, x86_64 and i386 | all markers PASS, among them `limited_token_shape`, `linked_token_routes_closed`, `registry_enforcement`, `pipe_impersonation`, consent |
+| B4 smoke test, `WEX_B4_HELPER=1` | PASS, 57 s |
+| Errors after the helper is set (fresh prefix: `wineboot -i`, `-u`, helper, then `cmd` and a token probe) | only `winemenubuilder` (disabled by the override); no RpcSs, service start or computer-name errors; the probe reports a Limited, Medium token and `HKLM` write 5 |
