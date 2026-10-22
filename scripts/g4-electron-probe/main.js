@@ -46,9 +46,11 @@ async function recoveryFrontCheckpoint(stage, win) {
   while (Date.now() < deadline) {
     try {
       const value = JSON.parse(fs.readFileSync(ack, 'utf8'));
-      if (value.runId === runId && value.stage === stage && value.passed === true) {
-        log('gpu recovery front capture acknowledged', { stage, runId });
-        return observation;
+      if (value.runId === runId && value.stage === stage && value.captured === true
+          && typeof value.pixelPassed === 'boolean') {
+        log('gpu recovery front capture acknowledged', { stage, runId,
+          captured: value.captured, pixelPassed: value.pixelPassed });
+        return { ...observation, frontPixelPassed: value.pixelPassed };
       }
       throw new Error('Mismatched GPU recovery front-capture acknowledgement');
     } catch (error) {
@@ -76,7 +78,12 @@ async function recoveryPageCapture(win, stage) {
   while (Date.now() < deadline) {
     try {
       const value = JSON.parse(fs.readFileSync(pageAck, 'utf8'));
-      if (value.runId === runId && value.stage === stage && value.passed === true) return;
+      if (value.runId === runId && value.stage === stage && value.captured === true
+          && typeof value.pixelPassed === 'boolean') {
+        log('gpu recovery page capture acknowledged', { stage, runId,
+          captured: value.captured, pixelPassed: value.pixelPassed });
+        return { frontPixelPassed: details.frontPixelPassed, pagePixelPassed: value.pixelPassed };
+      }
       throw new Error('Mismatched GPU recovery page-pixel verdict');
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
     await delay(50);
@@ -125,7 +132,8 @@ function probeRecoveryPixels() {
       framebufferStatus, texturePixel, textureError,
       renderer: info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null };
   }
-  return { contexts, oldLost, frames: window.framesCount };
+  return { contexts, oldLost, frames: window.framesCount,
+    scene: { transform: box.style.transform, background: getComputedStyle(document.body).backgroundColor } };
 }
 
 async function exerciseGPURecovery(win) {
@@ -158,7 +166,10 @@ async function exerciseGPURecovery(win) {
     await win.webContents.executeJavaScript(`window.sceneFrozen=true;
       box.style.transform='translateX(160px)';counter.textContent='Frozen recovery checkpoint';
       document.body.style.background='#e8f5e9';`);
-    await recoveryPageCapture(win, 'pre_fault');
+    const healthyPixels = await recoveryPageCapture(win, 'pre_fault');
+    if (!healthyPixels.frontPixelPassed || !healthyPixels.pagePixelPassed)
+      throw new Error('Healthy pre-fault front or page pixels failed; no process killed');
+    await win.webContents.executeJavaScript('window.sceneFrozen=false');
     // Revalidate identity immediately before killing ONLY this app's GPU child.
     const current = app.getAppMetrics().filter(item => item.type === 'GPU');
     if (current.length !== 1 || current[0].pid !== before.gpu.pid
@@ -178,8 +189,10 @@ async function exerciseGPURecovery(win) {
     const frames = after.frames;
     await delay(2000);
     after.laterFrames = await win.webContents.executeJavaScript('window.framesCount');
+    after.laterTransform = await win.webContents.executeJavaScript('box.style.transform');
     const exits = childExits.filter(item => item.type === 'GPU');
     const passed = Object.values(after.contexts).every(valid) && after.laterFrames > frames
+      && after.laterTransform !== after.scene.transform
       && after.gpu.pid !== before.gpu.pid
       && after.browserMain.pid === before.browserMain.pid
       && after.browserMain.creationTime === before.browserMain.creationTime

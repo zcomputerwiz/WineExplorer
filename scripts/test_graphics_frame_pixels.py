@@ -39,31 +39,49 @@ class FramePixels(unittest.TestCase):
             frame_pixels(image, state)
 
     def recovery_images(self, scale=1):
-        state = dict(x=20, y=20, width=300, height=250, fixed=65536 * scale, visible=1,
-                     client_bounds={'x': 20, 'y': 20, 'width': 300, 'height': 250})
+        state = dict(x=20, y=20, width=320, height=300, fixed=round(65536 * scale), visible=1,
+                     client_bounds={'x': 20, 'y': 50, 'width': 300, 'height': 250})
         marker = dict(x=50, y=100, width=40, height=40)
         background = (232, 245, 233)
-        front = Image.new('RGB', (400 * scale, 320 * scale), 'black')
-        for x in range(20 * scale, 320 * scale):
-            for y in range(20 * scale, 270 * scale):
-                front.putpixel((x, y), (255, 255, 255) if x < 24 * scale or x >= 316 * scale
-                               or y < 80 * scale or y >= 266 * scale else background)
-        page = Image.new('RGB', (300 * scale, 250 * scale), background)
-        for x in range((marker['x'] + 5) * scale, (marker['x'] + 35) * scale):
-            for y in range((marker['y'] + 5) * scale, (marker['y'] + 35) * scale):
+        front = Image.new('RGB', (round(400 * scale), round(400 * scale)), 'black')
+        sx, sy = round(state['x'] * scale), round(state['y'] * scale)
+        sw, sh = round(state['width'] * scale), round(state['height'] * scale)
+        for x in range(sx, sx + sw):
+            for y in range(sy, sy + sh):
+                front.putpixel((x, y), (255, 255, 255)
+                               if x < sx + round(4 * scale) or x >= sx + sw - round(4 * scale)
+                               or y < sy + round(60 * scale) or y >= sy + sh - round(4 * scale)
+                               else background)
+        page = Image.new('RGB', (round(300 * scale), round(250 * scale)), background)
+        for x in range(round((marker['x'] + 5) * scale), round((marker['x'] + 35) * scale)):
+            for y in range(round((marker['y'] + 5) * scale), round((marker['y'] + 35) * scale)):
                 page.putpixel((x, y), (21, 101, 192))
-                front.putpixel((state['x'] * scale + x, state['y'] * scale + y), (21, 101, 192))
+                front.putpixel((round(state['client_bounds']['x'] * scale) + x,
+                                round(state['client_bounds']['y'] * scale) + y), (21, 101, 192))
         return front, page, state, marker, background
 
     def test_recovery_front_and_page_use_observed_geometry_scale_and_pixels(self):
-        front, page, state, marker, background = self.recovery_images()
-        verdict = recovery_pixels(front, state, 1, marker, background)
+        front, page, state, marker, background = self.recovery_images(1.25)
+        verdict = recovery_pixels(front, state, 1.25, marker, background)
         self.assertTrue(verdict['passed'])
-        self.assertTrue(recovery_page_pixels(page, {'width': 300, 'height': 250}, 1,
+        self.assertTrue(recovery_page_pixels(page, {'width': 300, 'height': 250}, 1.25,
                                              marker, background)['passed'])
-        recovered, _, _, _, _ = self.recovery_images()
-        self.assertTrue(recovery_pixels(recovered, state, 1, marker, background,
+        self.assertNotEqual((state['x'], state['y']),
+                            (state['client_bounds']['x'], state['client_bounds']['y']))
+        recovered, _, _, _, _ = self.recovery_images(1.25)
+        self.assertTrue(recovery_pixels(recovered, state, 1.25, marker, background,
                                         verdict['rim'])['passed'])
+
+    def test_recovery_rejects_missing_initial_rim_with_valid_client_marker(self):
+        front, _, state, marker, background = self.recovery_images(1.25)
+        for x in range(round((state['x'] + 1) * 1.25), round((state['x'] + 3) * 1.25)):
+            for y in range(round((state['y'] + 80) * 1.25), round((state['y'] + 290) * 1.25)):
+                front.putpixel((x, y), (0, 0, 0))
+        verdict = recovery_pixels(front, state, 1.25, marker, background)
+        self.assertFalse(verdict['passed'])
+        self.assertEqual(verdict['samples']['marker_region']['blue_pixels'],
+                         verdict['samples']['marker_region']['sampled_pixels'])
+        self.assertFalse(verdict['samples']['rim_valid'])
 
     def test_recovery_rejects_blank_partial_wrong_scale_crop_and_missing_marker(self):
         front, page, state, marker, background = self.recovery_images()
@@ -80,7 +98,7 @@ class FramePixels(unittest.TestCase):
         with self.assertRaises(ValueError):
             recovery_pixels(front.crop((0, 0, 200, 200)), state, 1, marker, background)
         no_front_marker = front.copy()
-        no_front_marker.paste(Image.new('RGB', (40, 40), background), (70, 120))
+        no_front_marker.paste(Image.new('RGB', (40, 40), background), (70, 150))
         self.assertFalse(recovery_pixels(no_front_marker, state, 1, marker, background)['passed'])
         no_marker = page.copy()
         no_marker.paste(Image.new('RGB', (40, 40), background), (50, 100))
@@ -95,7 +113,7 @@ class FramePixels(unittest.TestCase):
         front, _, state, marker, background = self.recovery_images()
         baseline = recovery_pixels(front, state, 1, marker, background)['rim']
         changed = front.copy()
-        for y in range(100, 262):
+        for y in range(150, 362):
             changed.putpixel((21, y), (0, 0, 0))
         self.assertFalse(recovery_pixels(changed, state, 1, marker, background, baseline)['passed'])
 

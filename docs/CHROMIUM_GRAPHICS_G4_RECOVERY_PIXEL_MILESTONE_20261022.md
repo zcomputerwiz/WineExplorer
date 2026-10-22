@@ -12,10 +12,11 @@ It is a harness and synthetic-test milestone, not GPU-recovery acceptance.
 
 - Added an ordered `pre_fault` checkpoint to the existing per-run nonce and
   capture-acknowledgement mechanism. The fixture freezes its existing blue
-  square and green background before the checkpoint. The front observer must
-  decode and pass the front PNG before acknowledging it; Electron then captures
-  its client page and waits for a separate observer pixel verdict. A failed
-  healthy checkpoint therefore prevents fault injection.
+  square and green background before the checkpoint. The front observer
+  records capture completion separately from its pixel verdict. Electron then
+  captures its client page and waits for a separate observer pixel verdict. A
+  failed healthy checkpoint therefore prevents fault injection after both
+  images have been preserved.
 - At each stage, recorded the actual HWND bounds, Electron content bounds,
   renderer viewport, marker rectangle, background color, PNG dimensions,
   compositor identity and capture time. The front oracle maps client marker
@@ -47,23 +48,47 @@ It is a harness and synthetic-test milestone, not GPU-recovery acceptance.
   `qemu-system-x86_64` process was present. No VM was booted or modified.
 - Linux focused validation passed: from `scripts/`,
   `python3 -m unittest -v test_graphics_frame_pixels.py test_g4_consumer_harness.py`
-  — 21 tests passed. `python3 -m py_compile check-g4-webview2.py
+  — 23 tests passed, including blank post-fault front with a paired page
+  capture, pre-fault injection gating, valid 1.25× scale with nonzero client
+  origin, and initial rim rejection. `python3 -m py_compile check-g4-webview2.py
   graphics_frame_pixels.py` passed. Windows Node syntax validation,
   `node.exe --check scripts/g4-electron-probe/main.js`, passed. Linux Node.js
   was unavailable, so the JavaScript syntax check ran on the Windows host.
 - Final `git diff --check` passed.
+- Usage at the parent-review correction: 6% of the five-hour window used and
+  92% of the weekly window used. The reset credit remains untouched.
 
 ## Limits and continuation
 
-No VM or guest payload was staged. No healthy live run, fault injection, image
-inspection, causal diagnosis, production fix, repeated recovery trial or
-post-fault controls have been performed. Synthetic PNG tests do not establish
-that the observed Electron and Wine coordinate systems align in the live
-VirGL guest. The first authorized experiment must verify the healthy pre-fault
-front and page pixel verdicts; the fixture will now refuse to inject a fault if
-either fails. Only after that baseline passes should the parent review authorize
-the next phases. Use the already-owned
+No VM or guest payload was staged. No new healthy live run, fault injection,
+causal diagnosis, production fix, repeated recovery trial or post-fault controls
+have been performed. Synthetic PNG tests do not establish that the observed
+Electron and Wine coordinate systems align in the live VirGL guest. The updated
+handshake preserves failed front and page evidence separately; it allows
+post-fault page capture after a front pixel failure, while the healthy pre-fault
+checkpoint refuses fault injection unless both views pass. Only after parent
+review should the next phases run. Use the already-owned
 `D:/VirtualBox_VMs/WEX-G4-VirGL-20261022` overlay and its private build/runtime;
 do not touch the unrelated active VM or other checkouts.
 
 No production fix or G4 acceptance claim is made here.
+
+## Historical trial 03 provenance correction
+
+Parent inspection of
+`D:/VirtualBox_VMs/WEX-G4-VirGL-20261022/recovery-trial-03` found
+`screen-18.png` showing the complete window with the red canvas, and
+`screen-20.png` entirely black, including caption and frame. The `main.js` hash
+in that run's `results.json`,
+`bbae69f715168249c487c44ad32d8be5dc28b63bfe8c1a8b1c690e40b8842337`, matches
+`4b01e419^:scripts/g4-electron-probe/main.js`, not `4b01e419` (whose hash is
+`75a3c2437d58b1e72c75fa23c10438f91ed121e4ba40e209ca4b84b571267451`). The
+historical checkpoint's statement that trial 03 exercised the offscreen-canvas
+revision was incorrect. That trial does not test or reject the offscreen-canvas
+change. The black full-window capture is evidence of capture/output loss, but
+does not identify its owning layer. Before any next live run, stage the exact
+current helper and fixture revisions, record their hashes in a deployment
+manifest, and verify the guest's files against that manifest.
+
+Lower-priority TODO after recovery diagnosis: revisit installed-shell theme
+acceptance and sharing efficiency; neither is part of this recovery slice.

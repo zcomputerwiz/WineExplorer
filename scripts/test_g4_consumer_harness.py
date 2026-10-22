@@ -115,9 +115,11 @@ class GPURecovery(unittest.TestCase):
                       gpu={'pid': 100, 'creationTime': 1},
                       browserMain={'pid': 150, 'creationTime': 1000},
                       renderer={'pid': 200, 'creationTime': 1001},
-                      features={'gpu_compositing': 'enabled'}, frames=10)
+                      features={'gpu_compositing': 'enabled'}, frames=10,
+                      scene={'transform': 'translateX(10px)', 'background': 'rgb(232, 245, 233)'})
         after = copy.deepcopy(before)
         after.update(gpu={'pid': 101, 'creationTime': 2}, laterFrames=20,
+                     laterTransform='translateX(30px)',
                      oldLost={name: {'events': 1, 'lost': True} for name in ('webgl', 'webgl2')})
         return dict(passed=True, before=before, after=after,
                     fault={'pid': 100, 'creationTime': 1, 'requested': True}, rendererExits=[],
@@ -145,6 +147,7 @@ class GPURecovery(unittest.TestCase):
                    lambda r: r['after']['browserMain'].update(pid=151),
                    lambda r: r.update(rendererExits=[{}]),
                    lambda r: r['after'].update(laterFrames=10), lambda r: r.update(exits=[]),
+                   lambda r: r['after'].update(laterTransform=r['after']['scene']['transform']),
                    lambda r: r['exits'].append(copy.deepcopy(r['exits'][0])),
                    lambda r: r['exits'][0].update(reason='clean-exit'),
                    lambda r: r['exits'][0].update(exitCode=0),
@@ -227,13 +230,16 @@ class VisualCapture(unittest.TestCase):
                 'viewport': {'width': 800, 'height': 600},
                 'marker': {'x': 50, 'y': 100, 'width': 40, 'height': 40},
                 'background': [232, 245, 233]}) + '\n'
-            + '11 ms gpu recovery front capture acknowledged ' + json.dumps({'stage': stage, 'runId': run_id}) + '\n'
+            + '11 ms gpu recovery front capture acknowledged ' + json.dumps({'stage': stage, 'runId': run_id,
+                'captured': True, 'pixelPassed': True}) + '\n'
             + '12 ms gpu recovery page capture ' + json.dumps({'stage': stage, 'empty': False,
                 'bytes': 100, 'size': {'width': 800, 'height': 600},
                 'viewport': {'width': 800, 'height': 600},
                 'clientBounds': {'x': 0, 'y': 0, 'width': 800, 'height': 600},
                 'marker': {'x': 50, 'y': 100, 'width': 40, 'height': 40},
                 'background': [232, 245, 233]}) + '\n'
+            + '13 ms gpu recovery page capture acknowledged ' + json.dumps({'stage': stage, 'runId': run_id,
+                'captured': True, 'pixelPassed': True}) + '\n'
             for stage in stages)
         captures = {stage: {'sha256': 'b' * 64, 'bytes': 128, 'width': 800, 'height': 600,
                             'geometry': {'x': 0, 'y': 0, 'width': 800, 'height': 600,
@@ -249,6 +255,35 @@ class VisualCapture(unittest.TestCase):
         self.assertFalse(assess(text=log.replace('pre_fault', 'recovered', 1))['passed'])
         self.assertFalse(assess(text=log.replace('"background": [232, 245, 233]',
                                                    '"background": [0, 0, 0]', 1))['passed'])
+        failed_pixels = log.replace('"stage": "settled_2s", "runId": "' + run_id
+                                   + '", "captured": true, "pixelPassed": true}',
+                                   '"stage": "settled_2s", "runId": "' + run_id
+                                   + '", "captured": true, "pixelPassed": false}', 1)
+        pixels['settled_2s']['front']['passed'] = False
+        failed_post_fault = assess(text=failed_pixels)
+        self.assertFalse(failed_post_fault['passed'])
+        self.assertEqual(len(failed_post_fault['page_captures']), 4)
+        self.assertTrue(failed_post_fault['checks']['ordered_page_acknowledgements'])
+        pixels['settled_2s']['front']['passed'] = True
+        failed_pre_fault = log.replace('"stage": "pre_fault", "runId": "' + run_id
+                                      + '", "captured": true, "pixelPassed": true}',
+                                      '"stage": "pre_fault", "runId": "' + run_id
+                                      + '", "captured": true, "pixelPassed": false}', 1)
+        failed_pre_fault += '14 ms gpu recovery fault {"requested":true}\n'
+        pixels['pre_fault']['front']['passed'] = False
+        pre_fault_result = assess(text=failed_pre_fault)
+        self.assertFalse(pre_fault_result['passed'])
+        self.assertFalse(pre_fault_result['checks']['healthy_pre_fault_before_injection'])
+        pixels['pre_fault']['front']['passed'] = True
+        page_ack = '13 ms gpu recovery page capture acknowledged ' + json.dumps(
+            {'stage': 'settled_2s', 'runId': run_id, 'captured': True, 'pixelPassed': True})
+        page_failed = log.replace(page_ack, page_ack.replace('"pixelPassed": true',
+                                                             '"pixelPassed": false'), 1)
+        pixels['settled_2s']['page']['passed'] = False
+        page_failure = assess(text=page_failed)
+        self.assertFalse(page_failure['passed'])
+        self.assertTrue(page_failure['checks']['ordered_page_acknowledgements'])
+        pixels['settled_2s']['page']['passed'] = True
         self.assertFalse(assess(files={})['passed'])
         self.assertFalse(assess(error='grim failed')['passed'])
         self.assertFalse(assess(after={'pid': 42, 'start_ticks': 900})['passed'])
@@ -261,6 +296,22 @@ class VisualCapture(unittest.TestCase):
         pixels['settled_4s']['front']['passed'] = True
         self.assertFalse(consumer.recovery_front_capture_result(
             log, captures, run_id, None, identity, identity, {})['passed'])
+
+    def test_front_pixel_failure_does_not_skip_paired_page_capture_or_pre_fault_gate(self):
+        source = (Path(__file__).with_name('g4-electron-probe') / 'main.js').read_text()
+        page_flow = source.split('async function recoveryPageCapture(win, stage) {', 1)[1].split(
+            '// Runs inside the ordinary sandboxed renderer', 1)[0]
+        self.assertIn('typeof value.pixelPassed === \'boolean\'', page_flow)
+        self.assertLess(page_flow.index('await recoveryFrontCheckpoint(stage, win)'),
+                        page_flow.index('win.webContents.capturePage()'))
+        self.assertNotIn('if (!details.frontPixelPassed)', page_flow)
+        fixture = source.split('async function exerciseGPURecovery(win) {', 1)[1].split(
+            'async function exerciseLifecycle(win)', 1)[0]
+        baseline = fixture.index("recoveryPageCapture(win, 'pre_fault')")
+        gate = fixture.index('if (!healthyPixels.frontPixelPassed || !healthyPixels.pagePixelPassed)')
+        fault = fixture.index('process.kill(fault.pid)')
+        self.assertLess(baseline, gate)
+        self.assertLess(gate, fault)
 
 
 if __name__ == '__main__':

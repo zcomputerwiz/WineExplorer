@@ -64,18 +64,38 @@ def recovery_front_capture_result(text, captures, run_id, error=None,
     requested = recovery_front_requests(text)
     acknowledged = recovery_front_requests(text, acknowledged=True)
     page = []
-    for raw in re.findall(r'^\d+ ms gpu recovery page capture (.+)$', text, re.MULTILINE):
+    page_acknowledged = []
+    for raw in re.findall(r'^\d+ ms gpu recovery page capture (?!acknowledged )(.+)$', text, re.MULTILINE):
         try:
             page.append(json.loads(raw))
         except (ValueError, TypeError):
             return {'passed': False, 'error': 'Malformed Electron page-capture record'}
+    for raw in re.findall(r'^\d+ ms gpu recovery page capture acknowledged (.+)$', text, re.MULTILINE):
+        try:
+            page_acknowledged.append(json.loads(raw))
+        except (ValueError, TypeError):
+            return {'passed': False, 'error': 'Malformed page-capture acknowledgement'}
     stages = list(RECOVERY_VISUAL_STAGES)
     valid_requests = (requested is not None and all(isinstance(item, dict) for item in requested)
                       and [item.get('stage') for item in requested] == stages
                       and all(item.get('runId') == run_id for item in requested))
     valid_acks = (acknowledged is not None and all(isinstance(item, dict) for item in acknowledged)
                   and [item.get('stage') for item in acknowledged] == stages
-                  and all(item.get('runId') == run_id for item in acknowledged))
+                  and all(item.get('runId') == run_id and item.get('captured') is True
+                          and type(item.get('pixelPassed')) is bool
+                          and isinstance(pixel_verdicts, dict)
+                          and isinstance(pixel_verdicts.get(item.get('stage')), dict)
+                          and item['pixelPassed'] == pixel_verdicts[item['stage']].get('front', {}).get('passed')
+                          for item in acknowledged))
+    valid_page_acks = (len(page_acknowledged) == len(stages)
+                       and all(isinstance(item, dict) for item in page_acknowledged)
+                       and [item.get('stage') for item in page_acknowledged] == stages
+                       and all(item.get('runId') == run_id and item.get('captured') is True
+                               and type(item.get('pixelPassed')) is bool
+                               and isinstance(pixel_verdicts, dict)
+                               and isinstance(pixel_verdicts.get(item.get('stage')), dict)
+                               and item['pixelPassed'] == pixel_verdicts[item['stage']].get('page', {}).get('passed')
+                               for item in page_acknowledged))
     observations_match = (requested is not None and len(requested) == len(page) == len(stages)
                           and all(isinstance(item, dict) for item in requested + page)
                           and all(request.get(key) == capture.get(key)
@@ -114,7 +134,17 @@ def recovery_front_capture_result(text, captures, run_id, error=None,
                             for s in stages))
     identity_stable = (isinstance(compositor_before, dict) and compositor_before
                        and compositor_after == compositor_before)
+    fault_at = text.find(' gpu recovery fault ')
+    pre_front_ack = next((item for item in acknowledged or [] if item.get('stage') == 'pre_fault'), {})
+    pre_page_ack = next((item for item in page_acknowledged if item.get('stage') == 'pre_fault'), {})
+    pre_fault_gate = (fault_at < 0 or
+                      (pre_front_ack.get('captured') is True and pre_front_ack.get('pixelPassed') is True
+                       and pre_page_ack.get('captured') is True and pre_page_ack.get('pixelPassed') is True
+                       and text.find(' gpu recovery front capture acknowledged ', 0, fault_at) >= 0
+                       and text.find(' gpu recovery page capture acknowledged ', 0, fault_at) >= 0))
     checks = {'ordered_requests': valid_requests, 'ordered_acknowledgements': valid_acks,
+              'ordered_page_acknowledgements': valid_page_acks,
+              'healthy_pre_fault_before_injection': pre_fault_gate,
               'stage_geometry_stable': observations_match,
               'nonempty_page_captures': valid_page, 'nonempty_front_captures': valid_front,
               'actual_front_and_page_pixels': valid_pixels,
@@ -234,6 +264,9 @@ def recovery_result(log):
             'context_loss': all(after['oldLost'][name]['events'] >= 1 for name in ('webgl', 'webgl2')),
             'frames': (type(after['frames']) is int and type(after['laterFrames']) is int
                        and after['laterFrames'] > after['frames']),
+            'visible_animation_resumed': (isinstance(after.get('scene'), dict)
+                                          and isinstance(after.get('laterTransform'), str)
+                                          and after['laterTransform'] != after['scene'].get('transform')),
             'one_expected_exit': (len(result['exits']) == 1 and result['exits'][0]['type'] == 'GPU'
                                   and result['exits'][0]['reason'] in ('killed', 'crashed')
                                   and type(result['exits'][0]['exitCode']) is int and result['exits'][0]['exitCode'] != 0),
@@ -563,26 +596,26 @@ def main():
                                               'observed_scale': geometry['fixed'] / 65536,
                                               'time': time.time(),
                                               'compositor_identity': identity}
-                            from PIL import Image
-                            from graphics_frame_pixels import recovery_pixels
-                            with Image.open(capture) as front_image:
-                                if front_image.size != (capture_record['width'], capture_record['height']):
-                                    raise RuntimeError('Front PNG dimensions disagree with its capture record')
-                                front_verdict = recovery_pixels(
-                                    front_image, {**geometry, 'client_bounds': client_bounds},
-                                    capture_record['observed_scale'], request['marker'], request['background'],
-                                    recovery_front_pixel_verdicts.get('pre_fault', {}).get('rim'))
-                            if stage == 'pre_fault' and not front_verdict['passed']:
-                                raise RuntimeError('Healthy pre-fault front pixels failed; no fault will be injected')
-                            if not front_verdict['passed']:
-                                raise RuntimeError('GPU recovery front pixels failed: ' + stage)
-                            recovery_front_pixel_verdicts[stage] = front_verdict
-                            result['recovery_front_pixel_verdicts'] = dict(recovery_front_pixel_verdicts)
                             recovery_front_captures[stage] = capture_record
                             result['recovery_front_captures'] = dict(recovery_front_captures)
+                            from PIL import Image
+                            from graphics_frame_pixels import recovery_pixels
+                            try:
+                                with Image.open(capture) as front_image:
+                                    if front_image.size != (capture_record['width'], capture_record['height']):
+                                        raise RuntimeError('Front PNG dimensions disagree with its capture record')
+                                    front_verdict = recovery_pixels(
+                                        front_image, {**geometry, 'client_bounds': client_bounds},
+                                        capture_record['observed_scale'], request['marker'], request['background'],
+                                        recovery_front_pixel_verdicts.get('pre_fault', {}).get('rim'))
+                            except ValueError as error:
+                                front_verdict = {'passed': False, 'error': '%s: %s' % (type(error).__name__, error)}
+                            recovery_front_pixel_verdicts[stage] = front_verdict
+                            result['recovery_front_pixel_verdicts'] = dict(recovery_front_pixel_verdicts)
                             ack = output / ('gpu-recovery-%s-%s.ack' % (run_id, stage))
                             with ack.open('x', encoding='utf-8') as stream:
-                                json.dump({'runId': run_id, 'stage': stage, 'passed': True,
+                                json.dump({'runId': run_id, 'stage': stage, 'captured': True,
+                                           'pixelPassed': front_verdict['passed'],
                                            'sha256': capture_record['sha256']}, stream)
                         except Exception as error:
                             result['recovery_front_capture_error'] = '%s: %s' % (type(error).__name__, error)
@@ -604,17 +637,21 @@ def main():
                             with Image.open(page_file) as page_image:
                                 if page_image.size != (page['size']['width'], page['size']['height']):
                                     raise RuntimeError('Page PNG dimensions disagree with its capture record')
-                                page_verdict = recovery_page_pixels(page_image, page['viewport'],
-                                                                    recovery_front_captures[stage]['observed_scale'],
-                                                                    page['marker'], page['background'])
-                            if not page_verdict['passed']:
-                                raise RuntimeError('GPU recovery client-page pixels failed: ' + stage)
+                                try:
+                                    page_verdict = recovery_page_pixels(
+                                        page_image, page['viewport'],
+                                        recovery_front_captures[stage]['observed_scale'],
+                                        page['marker'], page['background'])
+                                except ValueError as error:
+                                    page_verdict = {'passed': False,
+                                                    'error': '%s: %s' % (type(error).__name__, error)}
                             recovery_page_pixel_verdicts[stage] = page_verdict
                             result['recovery_page_pixel_verdicts'] = dict(recovery_page_pixel_verdicts)
                             page_ack = output / ('gpu-recovery-%s-%s.page.ack' %
                                                  (recovery_capture_run_id, stage))
                             with page_ack.open('x', encoding='utf-8') as stream:
-                                json.dump({'runId': recovery_capture_run_id, 'stage': stage, 'passed': True}, stream)
+                                json.dump({'runId': recovery_capture_run_id, 'stage': stage,
+                                           'captured': True, 'pixelPassed': page_verdict['passed']}, stream)
                         except Exception as error:
                             result['recovery_page_capture_error'] = '%s: %s' % (type(error).__name__, error)
                             raise
@@ -774,7 +811,7 @@ def main():
             from graphics_frame_pixels import recovery_page_pixels, recovery_pixels
             page_records = []
             for line in recovery_log.splitlines():
-                if ' gpu recovery page capture ' not in line:
+                if ' gpu recovery page capture ' not in line or ' gpu recovery page capture acknowledged ' in line:
                     continue
                 try:
                     page_records.append(json.loads(line.split(' gpu recovery page capture ', 1)[1]))

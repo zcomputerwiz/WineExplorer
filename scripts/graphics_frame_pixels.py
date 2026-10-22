@@ -38,6 +38,9 @@ def recovery_pixels(image, state, scale, marker, background, baseline=None):
         raise ValueError('Observed recovery window is outside the captured output')
     client = state['client_bounds']
     cx, cy, cw, ch = (client[key] for key in ('x', 'y', 'width', 'height'))
+    if (cw < 100 or ch < 120 or cx < x or cy < y
+            or cx + cw > x + width or cy + ch > y + height):
+        raise ValueError('Observed Electron client bounds are outside the HWND bounds')
     mx, my, mw, mh = (marker[key] for key in ('x', 'y', 'width', 'height'))
     if (min(mx, my, mw, mh) < 0 or mw < 8 or mh < 8
             or mx + mw > cw or my + mh > ch):
@@ -58,6 +61,10 @@ def recovery_pixels(image, state, scale, marker, background, baseline=None):
         'bottom': [(column, sy + sh - 2) for column in range(sx + 8, sx + sw - 8)],
     }
     rim = {name: [image.getpixel(point) for point in points] for name, points in strips.items()}
+    neutral = lambda pixel: min(pixel) >= 128 and max(pixel) - min(pixel) <= 4
+    rim_fractions = {name: (sum(map(neutral, pixels)) / len(pixels) if pixels else 0)
+                     for name, pixels in rim.items()}
+    rim_valid = all(value >= .98 for value in rim_fractions.values())
     rim_match = None
     if baseline is not None:
         rim_match = {name: (len(samples) == len(baseline.get(name, [])) and bool(samples)
@@ -67,6 +74,7 @@ def recovery_pixels(image, state, scale, marker, background, baseline=None):
     return {
         'passed': actual_box == expected_box and actual_body == expected_body
                   and blue_pixels / len(marker_region) >= .98
+                  and rim_valid
                   and (rim_match is None or all(rim_match.values())),
         'geometry': {'window': {'x': x, 'y': y, 'width': width, 'height': height},
                      'scale': scale, 'output_window': {'x': sx, 'y': sy, 'width': sw, 'height': sh},
@@ -75,6 +83,7 @@ def recovery_pixels(image, state, scale, marker, background, baseline=None):
                     'marker_region': {'sampled_pixels': len(marker_region), 'blue_pixels': blue_pixels},
                     'background': {'point': body, 'expected': expected_body, 'actual': actual_body},
                     'rim_pixels': {name: len(points) for name, points in strips.items()},
+                    'rim_fractions': rim_fractions, 'rim_valid': rim_valid,
                     'rim_match': rim_match},
         'rim': rim,
     }
