@@ -144,3 +144,12 @@ understood. Then implement stage-aligned pre-fault/recovered/settled capture
 acknowledgement and deterministic visual pixels before further acceptance.
 The Linux suite passes14/14 after the optional-capability warning refinement.
 Keep all VM and evidence data on D:.
+
+Uncommitted instrumentation now captures Electron's own page image immediately
+after recovery and at2s/4s settled offsets, while the outer dense `grim`
+sequence runs in parallel. It writes only into the private run output and logs
+stage, dimensions, and empty status. The no-fault comparison is already saved
+at `D:/VirtualBox_VMs/WEX-G4-VirGL-20261022/frozen-control-01`; the guest is
+off. Validate this instrumentation with the next single fault-injection
+reproduction, then compare the page and outer captures before changing Wine or
+compositor code.

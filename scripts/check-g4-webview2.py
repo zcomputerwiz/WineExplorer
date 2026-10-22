@@ -358,6 +358,7 @@ def main():
         environment['WEX_WEBVIEW2_VISUAL_CHECKPOINTS'] = '1'
     if args.gpu_recovery:
         environment['WEX_WEBVIEW2_GPU_RECOVERY'] = '1'
+        environment['WEX_WEBVIEW2_RECOVERY_CAPTURE_DIR'] = winpath(output)
     if proof:
         environment['WEX_WEBVIEW2_PROFILE_EXPECT'] = expected or ''
         environment['WEX_WEBVIEW2_PROFILE_WRITE'] = token

@@ -121,9 +121,25 @@ async function exerciseGPURecovery(win) {
       && JSON.stringify(after.features) === JSON.stringify(before.features)
       && ['webgl', 'webgl2'].every(name => after.contexts[name].renderer === before.contexts[name].renderer);
     log('gpu recovery result', { passed, before, after, fault, exits, rendererExits });
-    if (passed) await win.webContents.executeJavaScript(`window.sceneFrozen=true;
-      box.style.transform='translateX(160px)';counter.textContent='GPU recovery verified';
-      document.body.style.background='#fff3e0';`);
+    if (passed) {
+      await win.webContents.executeJavaScript(`window.sceneFrozen=true;
+        box.style.transform='translateX(160px)';counter.textContent='GPU recovery verified';
+        document.body.style.background='#fff3e0';`);
+      const captureDir = process.env.WEX_WEBVIEW2_RECOVERY_CAPTURE_DIR;
+      if (captureDir) {
+        for (const [stage, wait] of [['recovered', 0], ['settled_2s', 2000], ['settled_4s', 2000]]) {
+          if (wait) await delay(wait);
+          try {
+            const page = await win.webContents.capturePage();
+            const file = path.join(captureDir, 'recovery-page-' + stage + '.png');
+            fs.writeFileSync(file, page.toPNG());
+            log('gpu recovery page capture', { stage, file, size: page.getSize(), empty: page.isEmpty() });
+          } catch (error) {
+            log('gpu recovery page capture failed', { stage, error: String(error) });
+          }
+        }
+      }
+    }
   } catch (error) {
     log('gpu recovery result', { passed: false, before, after, fault,
       exits: childExits.filter(item => item.type === 'GPU'), rendererExits, error: String(error) });
