@@ -40,9 +40,13 @@ Human expressly accepted current Edge terms and private D:-VM download/install.
 Edge Stable 156.0.4314.42 MSI provenance dd87d264 was independently verified by
 parent: size/SHA256 match Microsoft metadata and Valid Microsoft Authenticode.
 Private artifact is on D:; no host/VM installation or browser execution yet.
-Luna Dirac is implementing installer-only runner/tests/offline preparation; inspect
-current HEAD/status before touching its files. Parent must review code/tests and
-manifest before ONE private-prefix installer attempt, no automatic retries,
+Luna Dirac completed installer-only runner/tests/offline preparation in
+9348b4be/f15ed581. Parent reviewed code/private procedure, independently passed
+all 53 focused Linux tests with no skips, and verified the current v2 archive's
+seven members, five current source hashes and five host-helper hashes. Read
+CHROMIUM_GRAPHICS_G4_EDGE_INSTALL_REVIEW_CHECKPOINT_20261022.md before proceeding.
+The VM/installer/browser have NOT run for this item. Resume the same Luna agent
+for ONE private-prefix installer attempt after the usage reset, no automatic retries,
 administrative-extraction substitution, extra components or security bypass.
 No production patch/master merge; keep historical stale/blanking uncertainty open.
 
