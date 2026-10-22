@@ -89,4 +89,95 @@ items 3 to 5 after the main session records the item 2 decision here.
 
 ## Results
 
-(none yet)
+### Item 1: diagnosis of the hang (2026-10-22)
+
+Setup: the trial patch applied cleanly to `server/token.c` (scratch branch `trial-registry-enforce` in
+`wine-dev`, local only, never pushed), WoW64 build, fresh prefix, `wineboot -i`, helper set, then
+`wineboot -u` under `timeout 300` and `WINEDEBUG=+reg,+server,+process` as the user `wextest`. Control: the same
+sequence without the patch finishes in 13 s with exit 0.
+
+**The looping process is `explorer.exe /desktop`** (the second instance, pid 00b4, thread 00b8), not
+`wineboot`, `services.exe` or `rundll32 setupapi`; those sit at 0% CPU while it loops. `wineserver` runs at about
+49% and the explorer at about 37%. In the first 600 MB of the log thread 00b8 issues 1.30 M `enum_key`, 0.98 M
+`open_key`, 0.98 M `close_handle` and 326 k `delete_key` requests, every `delete_key` answered `ACCESS_DENIED`;
+all other threads together issue 17 k requests. The loop never ends because nothing in it changes.
+
+**Denied loop key:** `HKLM\System\CurrentControlSet\Enum\DISPLAY\Default_Monitor\0000&0000\Device Parameters`
+(`delete_key` needs `DELETE`, 0x10000). The caller opened it with `access=02000000` (`MAXIMUM_ALLOWED`); the
+default key descriptor (`key_get_sd`, `server/registry.c:921`) gives Users only `KEY_READ`, so the granted mask
+has no `DELETE` for the filtered token.
+
+**Root cause (caller source):** `reg_empty_key` in `dlls/win32u/sysparams.c:825-826`:
+
+```
+while (!NtEnumerateKey( hkey, 0, KeyNodeInformation, key, sizeof(buffer), &size ))
+    reg_delete_tree( hkey, key->Name, key->NameLength );
+```
+
+It always enumerates index 0 and ignores the result of `reg_delete_tree`, which returns FALSE when
+`NtDeleteKey` fails (`dlls/win32u/font.c:652-669`). With a key that cannot be deleted, index 0 is the same key
+forever. It is called from `prepare_devices` (`sysparams.c:891`, `reg_empty_key( enum_key, "DISPLAY", FALSE )`;
+further calls at 894, 900, 905, 911 for `Control\Class\{monitor}`, `DEVICEMAP\VIDEO`, `Class\{display}` and the
+DirectX key) on every display-cache rebuild. So this is not part of the prefix update: every `explorer.exe`
+start, in any prefix with the helper set, would hang once the check is enforced on keys without a descriptor.
+The expected cause in item 1 (prefix update processes failing) is only half right: they are denied too (table
+below) but fail and go on; only the unchecked-return delete loop spins.
+
+**Denied requests** (all `STATUS_ACCESS_DENIED`; the same two or three rows appear in every process at startup,
+and processes continue):
+
+| Process | Request | Key | Access |
+| :--- | :--- | :--- | :--- |
+| every process (start, wineboot, services, winedevice, plugplay, svchost, rundll32, explorer) | `open_key` | `HKLM\Software\Microsoft\Windows NT\CurrentVersion` and `...\Windows\CurrentVersion` | `0xf003f` |
+| every process | `create_key` | `HKLM\System\CurrentControlSet\Control\Nls`, `HKLM\Software\Microsoft\Windows NT\CurrentVersion\Time Zones` | `0xf003f` |
+| `wineboot --init` | `set_key_value` x5 | `Session Manager\Environment` (`PROCESSOR_*`, `NUMBER_OF_PROCESSORS`) | handle |
+| `wineboot --init` | `create_key` | `Services\Tcpip\Parameters`, `ProfileList` (x6), `SQMClient`, `RunOnce`, `RunServicesOnce` | `0xf003f` |
+| `wineboot --init` | `open_key` | `Session Manager`, `Session Manager\KnownDLLs` | `0xf003f` |
+| `wineboot -u` | `create_key` | `Hardware\Description\System`, `ActiveComputerName`, `Services\Tcpip\Parameters`, `RunServicesOnce` | `0xf003f` |
+| `wineboot -u` | `create_key` | `PerfStats\StatData`, `Config Manager\Enum` | `0x20006` |
+| `services.exe`, `winedevice.exe` | `open_key` | `CurrentControlSet\Enum\`, `HARDWARE`, `Software` | `0xf003f`, `0xf013f` |
+| `plugplay.exe` | `set_key_value`, `delete_key_value` | value `Noto Color Emoji` | handle |
+| `explorer.exe` (both) | `open_key` | `System` (under the machine root) | `0x102` |
+| `explorer.exe` (second) | `delete_key` (looping) | `Enum\DISPLAY\Default_Monitor\0000&0000\Device Parameters` | `DELETE` |
+
+The log was capped at 600 MB, so denials after the loop starts are unknown (the later `reg_empty_key` calls on
+`Control\Class\...` and `DEVICEMAP\VIDEO` were not reached; `create_key` on `DEVICEMAP\VIDEO` succeeded because
+`create_key` does not check access).
+
+### Item 4: limited `reg.exe` with the trial patch
+
+Prefix finished `wineboot -u` without the patch, helper set, server built with the patch; `reg` is the 64-bit
+`reg.exe`, the 32-bit run used `C:\windows\syswow64\reg.exe`. Results are identical for both. Exit codes from
+`WINEDEBUG=-all` runs.
+
+| Command | Exit | Message | Native |
+| :--- | :--- | :--- | :--- |
+| `reg add HKCU\Software\WexProbe /f` | 0 | The operation completed successfully | 0 |
+| `reg add HKLM\Software\WexProbe /f` (key does not exist) | 0 | The operation completed successfully | 1 |
+| `reg add HKLM\Software\WexProbe /f` (key exists) | 1 | Unable to access or create the specified registry key | 1 |
+| `reg add HKLM\Software\Microsoft /v WexX /d 1 /f` | 1 | Unable to access or create the specified registry key | 1 |
+| `reg query HKLM\Software\Microsoft` | 0 | lists subkeys | 0 |
+
+So the patch denies opens of existing keys and value writes, but creating a new `HKLM` key still succeeds:
+`create_key` still uses `alloc_handle_no_access_check` (item 3 must check `KEY_CREATE_SUB_KEY` on the parent).
+Unexplained: in 2 of the first 4 batches of probe runs every `HKLM` write succeeded (also on existing keys and
+for value writes); all later runs, including 6 spaced 5 to 30 s apart after the server exited, were denied as
+above. The helper value was present throughout. Not reproduced, so not diagnosed; it should
+be rechecked with the probe, because a fail-open window would defeat the enforcement.
+
+### Evidence for item 2
+
+- (a) `wineboot -u` with the full token: not tested here. The server filters every root process (no parent) when
+  enforced (`server/process.c:674`), so a Unix-launched `wineboot` is indistinguishable from any other limited
+  Unix-launched process; the weakness in the work order stands.
+- (b) Machine-root-only updates: consistent with the data (the unpatched control finishes in 13 s with the helper
+  set, and the prefix-update writes are a large set: Environment, ProfileList, Tcpip, RunOnce, Hardware, Config
+  Manager, fonts, display devices). It does not cover explorer: `prepare_devices` writes `HKLM` (Enum, Control,
+  DirectX) on every explorer start, not only during a prefix update, so under item 3 explorer needs either a fix
+  to `reg_empty_key` (stop on a failed delete, advance the index) plus a writable location or exemption for the
+  display-device keys, or the display-device tree must be created by the system role. This applies to every
+  prefix with the helper set, the machine root included.
+- (c) Broker elevation: the denied set above is the list of what an elevated update would need; nothing in the
+  data argues against it. The same applies to the display-device writes.
+- Whichever option is chosen, `reg_empty_key` (`sysparams.c:825`) needs a failure exit; without it any
+  `HKLM`-denied delete turns into a hang at 40% CPU instead of an error.
