@@ -849,6 +849,119 @@ static bool limited_token_shape()
     return failures == before;
 }
 
+// Registry and service manager access checks of the limited token (docs/ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md).
+// Rows marked "native" are the results of a filtered token on Windows 10.0.26300 (TOKEN_SECURITY_REFERENCES.md).
+static bool registry_enforcement()
+{
+    unsigned int before = failures;
+    HKEY key = NULL;
+    DWORD disposition = 0;
+    LONG result;
+
+    // HKCU stays writable.
+    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WexRegistryProbe", 0, NULL, 0, KEY_ALL_ACCESS, NULL,
+                             &key, &disposition);
+    printf("registry_enforcement HKCU create result=%ld\n", result);
+    check(result == ERROR_SUCCESS, "registry: create a key under HKCU");
+    if (!result)
+    {
+        static const BYTE data[] = {'x', 0};
+        check(RegSetValueExW(key, L"A", 0, REG_BINARY, data, sizeof(data)) == ERROR_SUCCESS,
+              "registry: set a value under HKCU");
+        RegCloseKey(key);
+        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\WexRegistryProbe");
+    }
+
+    // native: open HKLM\SOFTWARE for KEY_READ succeeds
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE", 0, KEY_READ, &key);
+    printf("registry_enforcement HKLM open KEY_READ result=%ld\n", result);
+    check(result == ERROR_SUCCESS, "registry: open HKLM\\SOFTWARE for KEY_READ");
+    if (!result) RegCloseKey(key);
+
+    // native: create a key under HKLM\SOFTWARE gives ERROR_ACCESS_DENIED
+    result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WexRegistryProbeNew", 0, NULL, 0, KEY_ALL_ACCESS, NULL,
+                             &key, &disposition);
+    printf("registry_enforcement HKLM create result=%ld\n", result);
+    check(result == ERROR_ACCESS_DENIED, "registry: new key under HKLM\\SOFTWARE is denied");
+    if (!result)
+    {
+        RegCloseKey(key);
+        RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WexRegistryProbeNew");
+    }
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WexRegistryProbeNew", 0, KEY_READ, &key);
+    check(result == ERROR_FILE_NOT_FOUND, "registry: the denied key was not created");
+    if (!result) RegCloseKey(key);
+
+    // native: reg add HKLM\SOFTWARE\Microsoft /v X (set value) gives ERROR_ACCESS_DENIED
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft", 0, KEY_SET_VALUE, &key);
+    printf("registry_enforcement HKLM open KEY_SET_VALUE result=%ld\n", result);
+    check(result == ERROR_ACCESS_DENIED, "registry: HKLM\\SOFTWARE\\Microsoft for KEY_SET_VALUE is denied");
+    if (!result) RegCloseKey(key);
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft", 0, KEY_ALL_ACCESS, &key);
+    check(result == ERROR_ACCESS_DENIED, "registry: HKLM\\SOFTWARE\\Microsoft for KEY_ALL_ACCESS is denied");
+    if (!result) RegCloseKey(key);
+
+    // The display device cache is written by every GUI process, so a limited token may write it (deviation).
+    DISPLAY_DEVICEW device = {};
+    device.cb = sizeof(device);
+    check(EnumDisplayDevicesW(NULL, 0, &device, 0) && device.DeviceName[0], "registry: display devices enumerate");
+    result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Enum\\DISPLAY\\WexRegistryProbe", 0, NULL,
+                             0, KEY_ALL_ACCESS, NULL, &key, &disposition);
+    printf("registry_enforcement display cache create result=%ld\n", result);
+    check(result == ERROR_SUCCESS, "registry: display cache key is writable");
+    if (!result)
+    {
+        static const BYTE data[] = {'x', 0};
+        check(RegSetValueExW(key, L"A", 0, REG_BINARY, data, sizeof(data)) == ERROR_SUCCESS,
+              "registry: set a value in the display cache");
+        RegCloseKey(key);
+        RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Enum\\DISPLAY\\WexRegistryProbe");
+    }
+
+    // native: OpenSCManager(SC_MANAGER_CREATE_SERVICE) gives ERROR_ACCESS_DENIED, SC_MANAGER_CONNECT succeeds
+    SC_HANDLE manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
+    printf("registry_enforcement OpenSCManager(CONNECT) %s error=%lu\n", manager ? "ok" : "failed", manager ? 0 : GetLastError());
+    check(manager != NULL, "services: OpenSCManager(SC_MANAGER_CONNECT) succeeds");
+    SC_HANDLE denied = OpenSCManagerW(NULL, NULL, SC_MANAGER_CREATE_SERVICE);
+    DWORD error = GetLastError();
+    printf("registry_enforcement OpenSCManager(CREATE_SERVICE) %s error=%lu\n", denied ? "ok" : "failed", denied ? 0 : error);
+    check(!denied && error == ERROR_ACCESS_DENIED, "services: OpenSCManager(SC_MANAGER_CREATE_SERVICE) is denied");
+    if (denied) CloseServiceHandle(denied);
+
+    SC_HANDLE enumerator = OpenSCManagerW(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
+    check(enumerator != NULL, "services: OpenSCManager(SC_MANAGER_ENUMERATE_SERVICE) succeeds");
+    std::vector<BYTE> services(64 * 1024);
+    DWORD needed = 0, count = 0, resume = 0;
+    bool enumerated = enumerator && EnumServicesStatusExW(enumerator, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL,
+                                                          services.data(), (DWORD)services.size(), &needed, &count,
+                                                          &resume, NULL) && count;
+    printf("registry_enforcement EnumServicesStatusEx ok=%d count=%lu\n", enumerated, count);
+    check(enumerated, "services: EnumServicesStatusEx succeeds");
+    if (enumerator) CloseServiceHandle(enumerator);
+
+    if (manager && enumerated)
+    {
+        const WCHAR *name = ((ENUM_SERVICE_STATUS_PROCESSW *)services.data())->lpServiceName;
+        // native: ChangeServiceConfig on an existing service gives ERROR_ACCESS_DENIED
+        SC_HANDLE service = OpenServiceW(manager, name, SERVICE_CHANGE_CONFIG);
+        error = GetLastError();
+        printf("registry_enforcement OpenService(%ls, CHANGE_CONFIG) %s error=%lu\n", name, service ? "ok" : "failed", service ? 0 : error);
+        check(!service && error == ERROR_ACCESS_DENIED, "services: OpenService(SERVICE_CHANGE_CONFIG) is denied");
+        if (service) CloseServiceHandle(service);
+        service = OpenServiceW(manager, name, SERVICE_QUERY_STATUS);
+        check(service != NULL, "services: OpenService(SERVICE_QUERY_STATUS) succeeds");
+        if (service) CloseServiceHandle(service);
+        service = CreateServiceW(manager, L"WexRegistryProbe", NULL, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS,
+                                 SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, L"C:\\windows\\system32\\wexprobe.exe",
+                                 NULL, NULL, NULL, NULL, NULL);
+        error = GetLastError();
+        check(!service && error == ERROR_ACCESS_DENIED, "services: CreateService is denied");
+        if (service) CloseServiceHandle(service);
+    }
+    if (manager) CloseServiceHandle(manager);
+    return failures == before;
+}
+
 // Sets (or clears) the helper so that a later process in this prefix gets the filtered root token.
 static bool set_helper(bool enable)
 {
@@ -985,6 +1098,12 @@ int main(int argc, char **argv)
         bool shape = limited_token_shape();
         printf("limited_token_shape=%s\n", shape ? "PASS" : "FAIL");
         return shape ? 0 : 1;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--registry-enforcement"))
+    {
+        bool registry = registry_enforcement();
+        printf("registry_enforcement=%s\n", registry ? "PASS" : "FAIL");
+        return registry ? 0 : 1;
     }
     if (argc == 3 && !strcmp(argv[1], "--consent"))
     {
