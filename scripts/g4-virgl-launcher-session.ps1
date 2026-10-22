@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $labRoot = 'D:\VirtualBox_VMs\WEX-G4-VirGL-20261022'
 $wslExe = Join-Path $env:WINDIR 'System32\wsl.exe'
+$windowsLauncher = 'D:\DeepThought\Projects\WineExplorer\build\g4-virgl-20261022\launch.py'
 $linuxLauncher = '/mnt/d/DeepThought/Projects/WineExplorer/build/g4-virgl-20261022/launch.py'
 $outputDir = Join-Path $labRoot $RunName
 $stdoutPath = Join-Path $labRoot ($RunName + '.wsl.stdout.log')
@@ -17,8 +18,8 @@ $sessionPath = Join-Path $labRoot ($RunName + '.wsl-session.json')
 foreach ($path in @($outputDir, $stdoutPath, $stderrPath, $sessionPath)) {
     if (Test-Path -LiteralPath $path) { throw "Refusing existing run artifact: $path" }
 }
-if (-not (Test-Path -LiteralPath $linuxLauncher -PathType Leaf)) {
-    throw "Launcher missing: $linuxLauncher"
+if (-not (Test-Path -LiteralPath $windowsLauncher -PathType Leaf)) {
+    throw "Launcher missing: $windowsLauncher"
 }
 
 $arguments = @('-d', 'Debian', '--exec', 'unshare', '--mount', '--propagation', 'private',
