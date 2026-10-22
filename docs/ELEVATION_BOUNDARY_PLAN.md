@@ -43,17 +43,69 @@ the identity channel from `ELEVATION.md` section 6 D exists.
 
 ## Native contract to establish first
 
-Write these as Wine conformance tests (both architectures) and confirm each one on a native Windows 10/11
-control before changing Wine. The XP VM cannot answer them.
+Write these as Wine conformance tests (both architectures) and confirm each one on native Windows 10/11 before
+changing Wine. The XP VM cannot answer them.
 
-| ID | Case | Expected on Windows (to verify) |
-| :--- | :--- | :--- |
-| N1 | `TokenLinkedToken` from a limited token, caller without `SeTcbPrivilege` | impersonation token, `SecurityIdentification` (Wine already does this) |
-| N2 | `CreateProcessAsUserW`, `CreateProcessWithTokenW`, `NtCreateUserProcess` with an impersonation token | fails, `ERROR_BAD_TOKEN_TYPE` |
-| N3 | `DuplicateTokenEx` of an identification-level token to `TokenPrimary` or `SecurityImpersonation` | fails, `ERROR_BAD_IMPERSONATION_LEVEL` |
-| N4 | `NtSetInformationProcess(ProcessAccessToken)` with a non-primary token, or a primary token that is not a filtered version of the caller's, without `SeAssignPrimaryTokenPrivilege` | fails |
-| N5 | Impersonating an identification-level token, then opening a secured object | fails, `ERROR_BAD_IMPERSONATION_LEVEL` |
-| N6 | Same as N1, but the caller holds `SeTcbPrivilege` | usable linked token |
+| ID | Case | Microsoft documentation (checked 2026-10-22) | Needs native run |
+| :--- | :--- | :--- | :--- |
+| N1 | `TokenLinkedToken` from a limited token, caller without `SeTcbPrivilege` | Not documented: `TOKEN_INFORMATION_CLASS` and `TOKEN_LINKED_TOKEN` say only "a handle to another token that is linked" | yes: type and level |
+| N2 | `CreateProcessAsUserW`, `CreateProcessWithTokenW` with an impersonation token | Documented: `hToken` must be a primary token; tokens from `DuplicateToken` "are not valid for CreateProcessAsUser". The error code is not documented | yes: error codes |
+| N3 | `DuplicateTokenEx` of an identification-level token to `TokenPrimary` or `SecurityImpersonation` | Partly: `NtDuplicateToken` returns `STATUS_BAD_IMPERSONATION_LEVEL` when the requested level is higher than the existing one. The primary case is not stated | yes: primary case |
+| N4 | `NtSetInformationProcess(ProcessAccessToken)` and `CreateProcessAsUserW` with a token other than a restricted version of the caller's | Documented: assigning a primary token needs `TOKEN_ASSIGN_PRIMARY` and `SeAssignPrimaryTokenPrivilege`, except for a restricted version of the caller's primary token | yes: status codes |
+| N5 | Impersonating an identification-level token, then opening a secured object | Documented in outline: at Identify level the server "can impersonate the client for ACL checking, but it cannot access system objects as the client". The error code is not documented | yes: error codes |
+| N6 | Same as N1, but the caller holds `SeTcbPrivilege` | Not documented | yes |
+
+Sources: learn.microsoft.com pages for `CreateProcessAsUserW`, `CreateProcessWithTokenW`, `DuplicateToken`,
+`DuplicateTokenEx`, `NtDuplicateToken`, `TOKEN_INFORMATION_CLASS`, Restricted Tokens, Access Rights for
+Access-Token Objects, and the COM impersonation level constants.
+
+The documentation fixes the direction of N2 to N5 but not the exact error codes, and says nothing about N1 or
+N6. A native run is needed.
+
+### Native probe
+
+`scripts/native_token_contract_probe.cpp` prints one `key=value` line per case and asserts nothing. Build it
+with MinGW for x64 and x86:
+
+```bash
+x86_64-w64-mingw32-g++ -O2 -static-libgcc -static-libstdc++ scripts/native_token_contract_probe.cpp \
+    -o probe-x64.exe -ladvapi32 -lwtsapi32
+i686-w64-mingw32-g++ -O2 -static-libgcc -static-libstdc++ scripts/native_token_contract_probe.cpp \
+    -o probe-x86.exe -ladvapi32 -lwtsapi32
+```
+
+Run on Windows 10 or 11 x64, signed in as a member of Administrators with UAC at its default setting:
+
+1. From a normal (non-elevated) command prompt: `probe-x64.exe > user-x64.txt` and
+   `probe-x86.exe > user-x86.txt`.
+2. As SYSTEM, for N6, with the same administrator signed in at the console:
+
+   ```bat
+   schtasks /create /tn wexprobe /sc once /st 23:59 /ru SYSTEM /f /tr "cmd /c C:\wexprobe\probe-x64.exe --tcb > C:\wexprobe\tcb-x64.txt 2>&1"
+   schtasks /run /tn wexprobe
+   schtasks /delete /tn wexprobe /f
+   ```
+
+   Repeat with `probe-x86.exe` and `tcb-x86.txt`.
+3. Commit the four outputs, the Windows build number and the probe SHA-256 to
+   `TOKEN_SECURITY_REFERENCES.md`.
+
+### Wine baseline (`c01c57ef`, both architectures, identical)
+
+```text
+user.N1.linked.type=2 level=1 elevation=2                    impersonation, Identification, full
+user.N2.create_as_user_linked.ok=1 child_exit=102            full-token child
+user.N2.create_with_token_linked.ok=1 child_exit=102         full-token child
+user.N3.dup_primary.ok=1, then create.ok=1 child_exit=102    identification raised to primary
+user.N3.dup_impersonation.ok=0 error=1346                    already refused (ERROR_BAD_IMPERSONATION_LEVEL)
+user.N4.assign_linked.status=0x00000000 child_exit=102       full token assigned to a child
+user.N5.impersonate_linked open_file/open_key/open_token errors=0   identification impersonation opens objects
+user.N2.create_as_user_own_impersonation.ok=1                impersonation token accepted for a process
+user.N4.assign_own_primary_copy.status=0                     non-restricted primary assigned without privilege
+```
+
+There are five routes to a full-token process: two in N2, one in N3, one in N4, plus
+`ProcessWineGrantAdminToken`. N5 shows that an identification-level token works like an impersonation token.
 
 ## Design
 
@@ -62,7 +114,7 @@ control before changing Wine. The XP VM cannot answer them.
 Enforcement is on exactly when the elevation helper is configured: the same "not unset" rule that
 `kernelbase` and `ntdll` already use. Stock Wine and helper-unset prefixes keep today's behaviour, including
 silent elevation and `ProcessWineGrantAdminToken`. The server reads `HKLM\Software\Wine\Elevation\Helper` from
-its in-memory registry each time it checks. That is cheap and needs no new protocol. See Q1.
+its in-memory registry each time it checks. That is cheap and needs no new protocol. (Q1: decided.)
 
 ### D2. Server enforcement (`server/process.c`, `server/token.c`)
 
@@ -73,8 +125,9 @@ These apply only while enforced:
    - reject any non-primary token with `STATUS_BAD_TOKEN_TYPE` where N2 and N4 say so.
 2. `token_duplicate` refuses to raise an identification-level token to primary or impersonation (N3). Check
    whether the existing level check already covers the primary case.
-3. `grant_process_admin_token` requires `SeTcbPrivilege` in the caller's token. Find out whether explorer still
-   needs an elevated desktop under enforcement (Q3).
+3. `grant_process_admin_token` requires `SeTcbPrivilege` in the caller's token. Under enforcement explorer
+   runs with the user's limited token (Q3: decided).
+5. Impersonating an identification-level token must not grant object access (N5).
 4. `create_linked_token` returns a usable token only to a caller holding `SeTcbPrivilege` (N6).
 
 ### D3. The broker (the AppInfo role)
@@ -83,20 +136,20 @@ Windows starts elevated processes from the AppInfo service, which holds `SeTcbPr
 caller. Do the same:
 
 1. **Broker process.** `wexelevate.exe`, a new program under `src/programs`, started once per prefix session by
-   wineboot or services. The server gives `SeTcbPrivilege` only to a process it starts in a system role, never
-   to an arbitrary client. Exactly how the server recognises the broker is decision Q2. One option is a
-   server-started service flag, similar to `make_process_system`.
+   wineboot or services. The server gives `SeTcbPrivilege` only to a process it starts in a system role
+   itself, never to an arbitrary client (Q2: decided). This is documented as a Win32 boundary only.
 2. **Request.** The caller sends: image path, argv vector, cwd, environment policy, parent process. Transport
    is a named pipe owned by the broker; the broker reads the caller's PID and token from the server, not from
    the request. The broker freezes the request, assigns a single-use ID, and rejects truncated or changed
    targets.
-3. **Authorization.** The broker calls polkit `CheckAuthorization` for itself, for action
-   `org.wineexplorer.elevation.runas`, with `AllowUserInteraction`. The details include the exact image and
-   command line. Default policy is `auth_admin`, never `*_keep`.
-   - The existing wexhost agent (`src/dlls/wexshell/uac_agent.c`, `src/dlls/wexhost/unixlib.c`) shows the
-     frozen request.
-   - PAM checks the password through `polkit-agent-helper-1`.
-   - A synthetic click cannot supply a password; that is why D3 requires credentials (Q4).
+3. **Authorization.** This depends on the consent policy:
+   - `ConsentPromptBehaviorAdmin` = 2 (filtered administrator, default): consent on the secure desktop
+     (D5). A synthetic click cannot reach it, which is why click consent is acceptable there (Q4: decided).
+   - Policies 1 and 3 (credentials): the broker calls polkit `CheckAuthorization` for itself, for action
+     `org.wineexplorer.elevation.runas`, with `AllowUserInteraction`. The details carry the frozen image and
+     command line. Default policy is `auth_admin`, never `*_keep`. The existing wexhost agent
+     (`src/dlls/wexshell/uac_agent.c`, `src/dlls/wexhost/unixlib.c`) shows the request on the secure desktop,
+     and PAM checks the password through `polkit-agent-helper-1`.
 4. **Launch.** The broker:
    - duplicates the linked token, which it can do because it holds TCB;
    - creates the process with `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` set to the caller;
@@ -110,6 +163,29 @@ caller. Do the same:
    - A request is used once and destroyed on completion, error or caller exit. Concurrent requests stay
      independent.
 
+### D5. Secure desktop
+
+Windows shows consent on a separate desktop that ordinary programs cannot see, send messages to or inject
+input into. Do the same in the Win32 layer:
+
+1. **Research (first).** Wine already tracks an input desktop per window station (`set_input_desktop` in
+   `server/winstation.c`, `get_hardware_input_desktop` in `server/queue.c`). Establish, with probes:
+   - what `SwitchDesktop` does today under the X11 and Wayland drivers, and with a virtual desktop;
+   - whether `SendInput`, `keybd_event`, `PostMessage`, `SendMessage`, `SetWindowsHookEx`,
+     `AttachThreadInput`, `SetForegroundWindow` and window enumeration cross desktops;
+   - what the host sees: does a second desktop get its own X11 or Wayland surface?
+2. **Desktop.** The broker creates `WinSta0\Winlogon` with a DACL that admits only the broker's system role.
+   It runs the consent UI there, calls `SwitchDesktop` for the prompt and switches back afterwards, on every
+   exit path.
+3. **Server enforcement.** While the secure desktop is the input desktop:
+   - injected input from a process on another desktop fails, as on Windows;
+   - messages, hooks and thread attachment do not cross into it;
+   - only the broker can switch back.
+4. **Presentation.** The host shows the secure desktop full screen over the user's session, with a dimmed
+   snapshot of the previous screen as background. The snapshot is cosmetic and is labelled so in the docs.
+5. **Limits.** Native X11 or Wayland clients outside Wine (for example `xdotool`), and same-UID native code,
+   can still reach the host surface. That stays T5 and is stated in every status line.
+
 ### D4. In-tree callers that rely on the bypass
 
 Each must work through the broker when enforced, or be shown not to need elevation:
@@ -119,7 +195,7 @@ Each must work through the broker when enforced, or be shown not to need elevati
 | `dlls/shell32/shlexec.c` `runas` and `ERROR_ELEVATION_REQUIRED` | linked token + `CreateProcessAsUserW` after the helper approves | broker request; the helper exit code is no longer trusted |
 | `dlls/ntdll/loader.c` `elevate_token` | silent elevation when helper unset | unchanged (never runs when enforced) |
 | `dlls/msi/custom.c` elevated custom actions | linked token + `CreateProcessAsUserW` | broker request, or run unelevated with an explicit FIXME; decide after testing an installer |
-| `programs/explorer/desktop.c` | `ProcessWineGrantAdminToken` | Q3 |
+| `programs/explorer/desktop.c` | `ProcessWineGrantAdminToken` | runs with the user's limited token (Q3); fix what breaks |
 | `programs/winetest/main.c` | linked token for elevated tests | test-only; leave, document |
 | `programs/consent` | consent dialog, helper exit code | becomes the broker's UI for click-only policy outside enforcement; under enforcement the polkit agent is the UI |
 
@@ -127,9 +203,10 @@ Each must work through the broker when enforced, or be shown not to need elevati
 
 Commit after each working step. Each step lists how it is accepted.
 
-1. **Native control.** Run N1–N6 on Windows 10/11 x64 with a 32-bit and a 64-bit probe. Record the results in
+1. **Native control.** A worker on one of your Windows 10/11 machines runs the native probe (section "Native
+   probe") for x64 and x86, as a filtered administrator and as SYSTEM. Record the results in
    `TOKEN_SECURITY_REFERENCES.md`.
-   Accept: every expectation above is confirmed or corrected.
+   Accept: every row in the contract table is confirmed or corrected with exact error codes.
 2. **Bypass probes.** Add N1–N5 and `ProcessWineGrantAdminToken` cases to
    `scripts/test_token_security_regressions.cpp`. Run them with the helper configured.
    Accept: they fail on `c01c57ef`. This reproduces the bypass in the harness.
@@ -143,41 +220,42 @@ Commit after each working step. Each step lists how it is accepted.
    - a request whose target changes after freezing is rejected;
    - A/B concurrency: approving A does not approve B;
    - long, Unicode and quoted arguments survive unchanged.
-5. **polkit authorization (D3.3).** Policy file, `CheckAuthorization` from the broker, agent display of the
-   frozen request. Test with a system `dbus-daemon` and `polkitd` started in the test container, and two
-   accounts with known test passwords: one administrator (in `sudo`), one not.
+5. **Secure desktop (D5).** Research probes first, then the desktop, the server enforcement and the
+   presentation.
+   Accept, with a probe on the default desktop:
+   - `SendInput` and `PostMessage(BM_CLICK)` aimed at the consent dialog have no effect;
+   - hooks and `AttachThreadInput` fail;
+   - the user's real keyboard and mouse reach the dialog;
+   - every exit path (approve, cancel, timeout, broker crash) returns to the default desktop.
+6. **Consent and polkit authorization (D3.3).** Click consent on the secure desktop for policy 2, and the
+   polkit policy file and `CheckAuthorization` for policies 1 and 3. Test with a system `dbus-daemon` and
+   `polkitd` started in the test container, and two accounts with known test passwords: one administrator
+   (in `sudo`), one not.
    Accept:
-   - a valid admin password launches exactly one target;
-   - wrong, empty and arbitrary passwords, a valid non-admin password, cancel, no agent, no polkitd and a
-     timeout all launch nothing and return their distinct errors;
+   - approve launches exactly one target;
+   - cancel, close, no agent, no polkitd and a timeout launch nothing and return distinct errors;
+   - for credential policies, a valid admin password launches the target, while wrong, empty and arbitrary
+     passwords and a valid non-admin password do not;
    - no password or cookie appears in any log or argv.
-6. **Caller migration (D4).** Move `shell32` and `msi` to the broker under enforcement, and settle explorer.
+7. **Caller migration (D4).** Move `shell32` and `msi` to the broker under enforcement, and settle explorer.
    Accept:
    - `runas`, `requireAdministrator` and `highestAvailable` work under standard, filtered and full tokens;
    - a 32-bit and a 64-bit benign installer elevate through the broker;
    - the B4 smoke test and the full harness pass.
-7. **Documents.** Update `ELEVATION.md` (B1 design becomes implemented for the filtered-admin route),
+8. **Documents.** Update `ELEVATION.md` (B1 design becomes implemented for the filtered-admin route),
    `STOCK_CHANGES.md`, `TOKEN_SECURITY.md` and the acceptance matrix. B2 can move to PASS only for the
    filtered-administrator route; standard-user elevation stays NOT SUPPORTED.
 
-## Decisions needed before step 3
+## Decisions (2026-10-22)
 
-- **Q1. Enforcement trigger.** Tie it to "helper configured", as above, or use a separate
-  `HKLM\Software\Wine\Elevation\Enforce` value? Recommendation: helper configured, so there is one switch.
-- **Q2. How the server recognises the broker.** Options:
-  - a server-started system-role process;
-  - a fixed path checked by the server (weak);
-  - a broker under a separate Unix UID, which needs the cross-UID handle design the B1 order warns about.
-
-  Recommendation: the system-role process, documented as a Win32 boundary only.
-- **Q3. Explorer's admin desktop under enforcement.** Refuse `ProcessWineGrantAdminToken` and run the desktop
-  with the user's limited token, or let the broker start explorer elevated? Recommendation: limited token
-  first, then fix whatever breaks.
-- **Q4. Click-only consent (`ConsentPromptBehaviorAdmin` = 2) under enforcement.** Without a secure desktop,
-  any same-desktop program can click "Yes". Recommendation: require credentials whenever enforcement is on;
-  keep click consent only when it is off.
-- **Q5. Native control.** Is a Windows 10/11 VM available for step 1? Without it, N1–N6 stay "per
-  documentation" and the server changes carry that risk.
+- **Q1.** Enforcement is tied to a configured elevation helper.
+- **Q2.** The server recognises the broker as a process it started in a system role. This is a Win32 boundary
+  only.
+- **Q3.** Explorer runs with the user's limited token under enforcement.
+- **Q4.** Instead of requiring credentials for every elevation, implement a secure desktop (D5). Click consent
+  on the secure desktop is the default; credentials stay for policies 1 and 3.
+- **Q5.** The Microsoft documentation settles the direction of N2 to N5 but not the exact codes, N1 or N6. A
+  worker on one of your Windows machines runs the native probe (step 1).
 
 ## Risks
 
