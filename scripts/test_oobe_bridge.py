@@ -371,6 +371,28 @@ int main(int argc, char **argv) {
         output, _ = self.exercise([b'ERR No running review operation\n'], mode='cancel')
         self.assertEqual(output.strip(), '13|No running review operation', output)
 
+    # F1: a well-formed first line followed by extra bytes (a second frame or an
+    # embedded NUL) must be rejected as a whole, not parsed to its C-string
+    # prefix. The C readers stop at the first NUL, so only validating the full
+    # byte-counted reply catches these. All-zero review-info totals are also
+    # rejected: a real catalog always has bytes and at least one package.
+    def test_review_rejects_trailing_frames_and_embedded_nuls(self):
+        info_frames = [b'OK 123456 3 0\nEXTRA\n',      # trailing second frame
+                       b'OK 123456 3 0\n\x00EXTRA\n',  # embedded NUL then junk
+                       b'OK 0 0 0\n']                   # zero total and count
+        for index, frame in enumerate(info_frames):
+            with self.subTest(index=index):
+                output, _ = self.exercise([frame], mode='info')
+                # Nonzero error (GEN_FAILURE) and no successful metadata leaked.
+                self.assertEqual(output.strip(), '31|0|0|0', output)
+        query_frames = [b'STATUS RUNNING 1 2\nEXTRA\n',     # trailing second frame
+                        b'STATUS RUNNING 1 2\n\x00EXTRA\n'] # embedded NUL then junk
+        for index, frame in enumerate(query_frames):
+            with self.subTest(index=index):
+                output, _ = self.exercise([frame], mode='query')
+                # Nonzero error (INVALID_DATA), no status and no progress reported.
+                self.assertEqual(output.strip(), '13||0|0||', output)
+
     def test_review_unreachable_socket_is_not_supported(self):
         endpoint = str(Path(self.scratch.name) / 'missing.sock')
         for mode in ('info', 'start', 'query', 'cancel'):

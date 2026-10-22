@@ -1081,17 +1081,32 @@ def embedded_license_text(verb, directory=None, cache_dir=None, strict=None):
             raise ValueError(f'Insecure vendor license path: {entry}')
     if path.stat().st_size > MAX_TERMS_BYTES:
         raise ValueError('Oversized cached terms')
-    record = json.loads(path.read_text(encoding='utf-8'))
+    try:
+        record = json.loads(path.read_text(encoding='utf-8'))
+    except ValueError as error:
+        # A truncated or mis-encoded cached document is damaged data, not a
+        # verified cache and never grounds an implicit download. It maps to
+        # 'stale' so the normal re-review flow recovers it; the integrity/size
+        # checks above stay hard errors. JSONDecodeError and UnicodeDecodeError
+        # are both ValueError subclasses.
+        raise StaleTermsError('Cached terms document is damaged; download for review again') from error
+    if not isinstance(record, dict):
+        raise StaleTermsError('Cached terms document is damaged; download for review again')
+    text = record.get('text', '')
+    fingerprint = record.get('fingerprint')
+    if not isinstance(text, str) or not isinstance(fingerprint, str):
+        # A wrong text/fingerprint type would otherwise escape as an uncaught
+        # AttributeError/KeyError and suppress the whole catalog; classify it as
+        # damaged so other component rows stay accessible.
+        raise StaleTermsError('Cached terms document is damaged; download for review again')
     if record.get('schema') != REVIEW_TERMS_SCHEMA or record.get('kind') != 'embedded-review':
         # Old consent/cache schemas are invalidated, never migrated. A download
         # authorization is not stored, so none can be migrated into acceptance.
         raise StaleTermsError('Cached terms use an old schema; download for review again')
-    text = record.get('text', '')
     if (record.get('component_identity') != component_identity(verb) or
             hashlib.sha256(text.encode('utf-8')).hexdigest() != review_meta(verb).get('rendered_sha256') or
-            record.get('fingerprint') != embedded_fingerprint(verb, text)):
+            fingerprint != embedded_fingerprint(verb, text)):
         raise StaleTermsError('Cached document/package identity changed; download for review again')
-    fingerprint = record['fingerprint']
     if strict is None:
         strict = os.getuid() == 0 and directory == TERMS
     if strict:

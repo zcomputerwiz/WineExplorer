@@ -645,8 +645,13 @@ static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
         case WM_OOBE_REV_READY: {
             char info[512];
             char size_str[48];
+            char need_str[48];
             if (!ctx || ctx->generation != (LONG)wParam) return TRUE;
             FormatReviewBytes(ctx->total_bytes, size_str, sizeof(size_str));
+            /* F3: the coordinator reserves total + 64 MiB of working headroom on disk
+             * before it will start a download (wex-components.py review_download), so
+             * show the free space the user actually needs, not just the package size. */
+            FormatReviewBytes(ctx->total_bytes + (64ULL * 1024 * 1024), need_str, sizeof(need_str));
             if (ctx->err == ERROR_SUCCESS) {
                 /* Q5: name the ACTUAL download provider and host, distinct from the
                  * publisher. The Core Fonts review route is pinned to the SourceForge
@@ -658,10 +663,12 @@ static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
                          "Downloaded from: SourceForge (downloads.sourceforge.net/corefonts/)\r\n"
                          "  the pinned Core Fonts distribution archive; not a Microsoft-hosted download.\r\n"
                          "%lu font packages, %s combined. Local cache: %s.\r\n"
+                         "Free space needed: %s (packages plus 64 MB of working headroom).\r\n"
                          "Nothing will be executed or installed.",
                          ctx->comp->publisher[0] ? ctx->comp->publisher : "unknown",
                          ctx->package_count, size_str,
-                         ctx->cached ? "available (no network needed)" : "not present (download required)");
+                         ctx->cached ? "available (no network needed)" : "not present (download required)",
+                         need_str);
                 SetDlgItemTextA(hwnd, IDC_REV_INFO, info);
                 if (ctx->cached) {
                     SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Loading the verified terms from the local cache...");
@@ -669,7 +676,7 @@ static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
                 } else {
                     EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
                     SetDlgItemTextA(hwnd, IDC_REV_STATUS,
-                        "Click \"Download terms...\" to authorize downloading the terms. Nothing downloads before you do.");
+                        "Click \"Download packages to review\" to authorize downloading the font packages for review. Nothing downloads before you do.");
                 }
             } else {
                 snprintf(info, sizeof(info),
@@ -689,7 +696,7 @@ static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
                 pct = (unsigned)((ctx->done_bytes * 100) / ctx->total_bytes);
             FormatReviewBytes(ctx->done_bytes, done_str, sizeof(done_str));
             FormatReviewBytes(ctx->total_bytes, total_str, sizeof(total_str));
-            snprintf(s, sizeof(s), "Downloading terms: %u%% (%s of %s)", pct, done_str, total_str);
+            snprintf(s, sizeof(s), "Downloading packages: %u%% (%s of %s)", pct, done_str, total_str);
             SetDlgItemTextA(hwnd, IDC_REV_STATUS, s);
             return TRUE;
         }
@@ -697,7 +704,7 @@ static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
             if (!ctx || ctx->generation != (LONG)wParam) return TRUE;
             EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_CANCEL), FALSE);
             if (ctx->err == ERROR_SUCCESS) {
-                SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Terms downloaded and verified. Loading them from the local cache...");
+                SetDlgItemTextA(hwnd, IDC_REV_STATUS, "Packages downloaded and verified. Loading the terms from the local cache...");
                 EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), FALSE);
                 ReviewDialogStartTermsFetch(hwnd, ctx);
             } else if (ctx->err == ERROR_CANCELLED) {

@@ -2104,9 +2104,29 @@ static BOOL oobe_wire_decimal( const char **pp, unsigned long long limit,
     return TRUE;
 }
 
+/* TRUE iff reply[0..len) is exactly one protocol line: nonempty, ending in a
+ * single trailing '\n', with no embedded NUL and no second newline. The C-string
+ * readers (strcmp/strncmp/sscanf) stop at the first NUL, so they alone cannot
+ * reject a trailing frame or an embedded NUL; this validates every received byte
+ * of the counted reply before any field is parsed. */
+static BOOL oobe_wire_single_line( const char *reply, size_t len )
+{
+    size_t i;
+
+    if (!len || reply[len - 1] != '\n')
+        return FALSE;
+    for (i = 0; i < len; i++)
+    {
+        if (reply[i] == '\0' || (i + 1 < len && reply[i] == '\n'))
+            return FALSE;
+    }
+    return TRUE;
+}
+
 /* "OK <total> <packages> <cached>\n" with total <= 16 GiB, packages bounded,
  * cached in {0,1}. Any deviation (signs, leading zeros, overflow, a missing or
- * extra field) is rejected. */
+ * extra field) is rejected. A real review catalog always has a positive byte
+ * total and at least one package; all-zero totals are not a valid response. */
 static BOOL oobe_parse_review_info( const char *reply, unsigned long long *total,
                                     unsigned int *packages, unsigned int *cached )
 {
@@ -2130,6 +2150,8 @@ static BOOL oobe_parse_review_info( const char *reply, unsigned long long *total
         return FALSE;
     if (*p != '\n')
         return FALSE;
+    if (total_bytes == 0 || packages_ll == 0)
+        return FALSE;   /* a real review catalog has bytes and at least one package */
     *total = total_bytes;
     *packages = (unsigned int)packages_ll;
     *cached = (unsigned int)cached_ll;
@@ -2193,6 +2215,10 @@ static NTSTATUS oobe_review_info( void *args )
     {
         params->err = ERROR_TIMEOUT;
     }
+    else if (!oobe_wire_single_line( reply, (size_t)total ))
+    {
+        params->err = ERROR_GEN_FAILURE;   /* embedded NUL or trailing frame */
+    }
     else if (oobe_parse_review_info( reply, &total_bytes, &packages, &cached ))
     {
         params->total = total_bytes;
@@ -2245,6 +2271,13 @@ static NTSTATUS oobe_review_start( void *args )
          * cannot start a second download; it must not be retried with another. */
         params->err = ERROR_TIMEOUT;
         snprintf( params->err_buf, sizeof(params->err_buf), "Acknowledgement lost; review outcome unknown" );
+        return STATUS_SUCCESS;
+    }
+
+    if (!oobe_wire_single_line( reply, (size_t)total ))
+    {
+        params->err = ERROR_GEN_FAILURE;
+        snprintf( params->err_buf, sizeof(params->err_buf), "Malformed coordinator acknowledgement" );
         return STATUS_SUCCESS;
     }
 
@@ -2308,6 +2341,13 @@ static NTSTATUS oobe_review_query( void *args )
     if (n < 0 || !total || reply[total - 1] != '\n')
     {
         params->err = ERROR_TIMEOUT;
+        return STATUS_SUCCESS;
+    }
+
+    if (!oobe_wire_single_line( reply, (size_t)total ))
+    {
+        params->status[0] = '\0';
+        params->err = ERROR_INVALID_DATA;   /* embedded NUL or trailing frame */
         return STATUS_SUCCESS;
     }
 
@@ -2389,6 +2429,11 @@ static NTSTATUS oobe_review_cancel( void *args )
     if (n < 0 || !total || reply[total - 1] != '\n')
     {
         params->err = ERROR_TIMEOUT;
+        return STATUS_SUCCESS;
+    }
+    if (!oobe_wire_single_line( reply, (size_t)total ))
+    {
+        params->err = ERROR_INVALID_DATA;   /* embedded NUL or trailing frame */
         return STATUS_SUCCESS;
     }
     if (!strcmp( reply, "OK CANCELLING\n" ))

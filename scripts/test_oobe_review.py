@@ -253,6 +253,122 @@ class CatalogAndTermsProtocolTests(CoordinatorReviewTests):
         self.assertTrue(reply.startswith('ERR STALE_TERMS '), reply)
 
 
+class DamagedTermsDocumentTests(CoordinatorReviewTests):
+    """F2: one damaged cached terms document must not suppress the whole catalog.
+
+    A truncated, mis-typed, or mis-encoded review document is classified as stale —
+    never advertised as a verified cache and never grounding an implicit download —
+    so every unrelated component row stays accessible, REVIEW_INFO reports an honest
+    cache-miss (not a coordinator error), and GET_TERMS keeps its strict rejection.
+    An explicitly authorized re-review then repairs the cache without introducing any
+    accepted/install receipt or machine-default mutation.
+    """
+
+    def synfont_total(self):
+        return sum(size for size, _, _ in tcr.FIXTURES['synfont']['table'].values())
+
+    def write_terms_doc(self, data):
+        self.terms_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        path = self.terms_dir / 'synfont.json'
+        if isinstance(data, str):
+            with open(path, 'w', encoding='utf-8') as out:
+                out.write(data)
+        else:
+            with open(path, 'wb') as out:
+                out.write(data)
+        os.chmod(path, 0o644)  # root-owned, no group/other write: passes integrity
+        return path
+
+    def assert_damaged_behavior(self):
+        total = self.synfont_total()
+        # Production availability (in-process): the real review_state classifies a
+        # damaged document as 'stale' — never 'cached', and never an uncaught error.
+        state, state_total = components.review_state('synfont', directory=self.terms_dir)
+        self.assertEqual(state, 'stale')
+        self.assertEqual(state_total, total)
+        # GET_COMPONENTS: a nonempty valid catalog; the damaged row is honest (0) and
+        # every unrelated component row remains accessible (the whole iteration did not
+        # abort on this one document).
+        catalog = self.send_request('GET_COMPONENTS')
+        self.assertTrue(catalog.startswith('OK\n'), repr(catalog[:80]))
+        lines = catalog.splitlines()
+        synfont_rows = [line for line in lines if line.startswith('synfont\t')]
+        other_rows = [line for line in lines
+                      if line.startswith(('vcrun2022\t', 'corefonts\t'))]
+        self.assertTrue(synfont_rows, 'the damaged component row disappeared')
+        self.assertTrue(other_rows, 'one damaged doc suppressed unrelated rows')
+        self.assertTrue(synfont_rows[0].endswith(f'\tR:{total}:0'), synfont_rows[0])
+        # REVIEW_INFO: an honest cache-miss (cached=0), not a coordinator error. This
+        # keeps the native download action enabled so re-review is recoverable.
+        self.assertEqual(self.send_request('REVIEW_INFO synfont'), f'OK {total} 3 0\n')
+        # GET_TERMS: strict rejection preserved as a distinct, non-accepting error.
+        terms = self.send_request('GET_TERMS synfont')
+        self.assertTrue(terms.startswith('ERR STALE_TERMS '), terms)
+
+    def test_F2_truncated_json_does_not_suppress_catalog(self):
+        opener = self.start_fake_network()
+        self.start_coordinator()
+        self.write_terms_doc('{truncated')
+        self.assert_damaged_behavior()
+        # A damaged document grounds no implicit download and no install.
+        self.assertEqual(opener.log, [])
+        self.assert_no_install_state()
+
+    def test_F2_wrong_top_level_type_does_not_suppress_catalog(self):
+        opener = self.start_fake_network()
+        self.start_coordinator()
+        self.write_terms_doc('[1, 2, 3]')
+        self.assert_damaged_behavior()
+        self.assertEqual(opener.log, [])
+        self.assert_no_install_state()
+
+    def test_F2_wrong_text_and_fingerprint_types_do_not_suppress_catalog(self):
+        opener = self.start_fake_network()
+        self.start_coordinator()
+        # Everything but the text/fingerprint types is well-formed, so only the
+        # type guard (not the schema/identity checks) can classify this as stale.
+        self.write_terms_doc(json.dumps({
+            'schema': components.REVIEW_TERMS_SCHEMA,
+            'kind': 'embedded-review',
+            'component_identity': components.component_identity('synfont'),
+            'text': 12345,
+            'fingerprint': ['not', 'a', 'string'],
+        }))
+        self.assert_damaged_behavior()
+        self.assertEqual(opener.log, [])
+        self.assert_no_install_state()
+
+    def test_F2_invalid_encoding_does_not_suppress_catalog(self):
+        opener = self.start_fake_network()
+        self.start_coordinator()
+        self.write_terms_doc(b'\xff\xfe\x00 not valid utf-8 \x80\x81')
+        self.assert_damaged_behavior()
+        self.assertEqual(opener.log, [])
+        self.assert_no_install_state()
+
+    def test_F2_authorized_rereview_repairs_damaged_cache(self):
+        total = self.synfont_total()
+        self.start_fake_network()
+        self.start_coordinator()
+        # Establish a valid cache + terms document via an authorized download.
+        op_id = self.start_review('synfont')
+        reply, _running = self.wait_review(op_id)
+        self.assertTrue(reply.startswith('STATUS SUCCESS '), reply)
+        self.assertEqual(self.send_request('REVIEW_INFO synfont'), f'OK {total} 3 1\n')
+        # Damage ONLY the root-owned terms document; the package cache stays intact.
+        self.write_terms_doc('{truncated')
+        self.assert_damaged_behavior()
+        # An explicitly authorized re-review repairs the cache from the packages.
+        op_id2 = self.start_review('synfont')
+        reply2, _running2 = self.wait_review(op_id2)
+        self.assertTrue(reply2.startswith('STATUS SUCCESS '), reply2)
+        self.assertEqual(self.send_request('REVIEW_INFO synfont'), f'OK {total} 3 1\n')
+        terms = self.send_request('GET_TERMS synfont')
+        self.assertTrue(terms.startswith('OK '), repr(terms[:80]))
+        # The repair introduces no accepted/install receipt or machine-default change.
+        self.assert_no_install_state()
+
+
 class ReviewLifecycleProtocolTests(CoordinatorReviewTests):
     """N3/L1 protocol: explicit start, progress, cancel, retry, cached reopen."""
 
