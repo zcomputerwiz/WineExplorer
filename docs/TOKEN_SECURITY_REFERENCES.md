@@ -185,3 +185,46 @@ SYSTEM with `--tcb` (scheduled task, x64; the first SYSTEM run took the non-TCB 
 | `DuplicateTokenEx(linked)` to primary / impersonation | both succeed (impersonation copy at `SecurityImpersonation`) |
 | `ProcessAccessToken(linked)` | `0xC0000061` `STATUS_PRIVILEGE_NOT_HELD` (probe does not enable `SeAssignPrimaryTokenPrivilege`) |
 | `SetThreadToken(linked)` | 1349 `ERROR_BAD_TOKEN_TYPE` (primary token) |
+
+## Native filtered and elevated token, registry ACLs (D1, 2026-10-22)
+
+Measured on Windows 10.0.26300 (26H2) with `whoami /all`, `reg` and the registry security descriptors, for an
+administrator account.
+
+Filtered (non-elevated) token:
+
+| Item | Value |
+| :--- | :--- |
+| Privileges | SeShutdownPrivilege (Disabled), SeChangeNotifyPrivilege (Enabled), SeUndockPrivilege (Disabled), SeIncreaseWorkingSetPrivilege (Disabled), SeTimeZonePrivilege (Disabled) |
+| Groups | Administrators and S-1-5-114 deny-only; Everyone, Users and Authenticated Users enabled |
+| Integrity label | Medium, S-1-16-8192 |
+
+Elevated token: 24 privileges, of which SeDebugPrivilege, SeChangeNotifyPrivilege, SeImpersonatePrivilege and
+SeCreateGlobalPrivilege are enabled (SeDebug may be enabled only because of how the window was launched).
+Administrators and S-1-5-114 are enabled, and Administrators is the "Group owner". Integrity label High,
+S-1-16-12288.
+
+Registry security descriptors (SDDL; `…` marks a truncated capability SID):
+
+| Key | SDDL |
+| :--- | :--- |
+| `HKLM\SOFTWARE` | `O:BAG:SYD:PAI(A;CI;KA;;;CO)(A;CI;KA;;;SY)(A;CI;KA;;;BA)(A;CI;KR;;;BU)(A;CI;KR;;;AC)(A;CI;KR;;;S-1-15-3-1024-…)` |
+| `HKLM\SOFTWARE\Microsoft`, `HKLM\SYSTEM\CurrentControlSet` | `O:BAG:SYD:(A;;KA;;;BA)(A;CIID;KR;;;BU)(A;CIID;KA;;;BA)(A;CIID;KA;;;SY)(A;CIIOID;KA;;;CO)(A;CIID;KR;;;AC)(A;CIID;KR;;;S-1-15-3-…)` |
+| `HKCU\` | `O:BAG:SYD:P(A;OICI;KR;;;RC)(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KA;;;<user SID>)(A;;KR;;;AC)(A;;KR;;;S-1-15-3-…)` |
+| `HKCU\Software` | as `HKCU\`, with owner SY |
+| `HKU\.DEFAULT` | like `HKLM\SOFTWARE`, with the AC and capability entries non-inheriting |
+
+Write tests with the filtered token:
+
+| Test | Result |
+| :--- | :--- |
+| Create a key under `HKCU` | succeeds |
+| Create a key under `HKLM` | denied |
+| `reg add HKLM\SOFTWARE\Microsoft` | `ERROR: Access is denied.`, exit 1 |
+
+Wine today: the default descriptors in `server/registry.c` (`key_alloc_default_sd`) already grant Users read and
+SYSTEM and Administrators full control, and the user tree goes to the user. They lack the CREATOR OWNER,
+RESTRICTED and AppContainer entries. Wine does not access-check keys that have no explicit descriptor, so the
+write tests above do not hold in Wine yet; that is the job of the registry enforcement work order. The
+descriptors are unchanged here. For the privilege list, Wine defines no SeIncreaseWorkingSet or SeTimeZone, so
+its filtered token keeps SeChangeNotify (enabled) and SeShutdown and SeUndock (disabled).

@@ -69,12 +69,14 @@ Wine commits `4fced06b`, `839c0f31`, `4fa6f4ac` (hashes of the working branch; t
 
 - `server/token.c`, `server/security.h`: the `LUA_TOKEN` and `DISABLE_MAX_PRIVILEGE` bodies of
   `DECL_HANDLER(filter_token)` moved into `token_apply_filter()`; `filter_token` behaves as before.
-  `token_make_filtered()` applies both flags to a token. No behaviour change on its own.
+  `token_make_filtered()` applies the filtering to the root token. No behaviour change on its own.
 - `server/process.c`: while a helper is configured, the root token (the one every process inherits) goes through
   `token_make_filtered()`: Administrators deny-only, `SeChangeNotifyPrivilege` only, Medium integrity, elevation
   Limited. Helper unset: unchanged. The registry is loaded in `init_registry()` before the first client can
-  connect, so the setting is known when the first process is created. The privilege list is provisional until the
-  native `whoami /all` of a filtered administrator is recorded (D1).
+  connect, so the setting is known when the first process is created.
+- `server/token.c` (`token_make_filtered`): the filtered root token keeps the native filtered-admin privilege set that
+  Wine defines (D1): `SeChangeNotifyPrivilege` enabled, `SeShutdownPrivilege` and `SeUndockPrivilege` disabled.
+  `filter_token` with `DISABLE_MAX_PRIVILEGE` still keeps only `SeChangeNotifyPrivilege`, as on Windows.
 - `server/token.c` (`create_linked_token`): the linked (full) token is the same token, but its handle is now granted
   with the access the caller's integrity level allows (`check_object_access` with `MAXIMUM_ALLOWED`) instead of an
   unconditional `TOKEN_ALL_ACCESS`. A Medium caller otherwise cannot get a handle to a High-labelled token (error 5).
