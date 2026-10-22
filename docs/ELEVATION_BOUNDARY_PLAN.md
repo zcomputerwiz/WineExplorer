@@ -149,6 +149,47 @@ user.N4.assign_own_primary_copy.status=0                     non-restricted prim
 There are five routes to a full-token process: two in N2, one in N3, one in N4, plus
 `ProcessWineGrantAdminToken`. N5 shows that an identification-level token works like an impersonation token.
 
+## Prior art
+
+No open project has a UAC broker with a secure desktop to reuse whole. These parts have usable prior art.
+ReactOS code may be read and ported under the project's rules, but the Wine server is LGPL: re-implement the
+logic there instead of copying GPL code, so the change stays upstreamable.
+
+| Area | Prior art | Use |
+| :--- | :--- | :--- |
+| Primary token assignment (D2) | ReactOS `PspSetPrimaryToken` (`ntoskrnl/ps/security.c`): a new primary token must be a child or a sibling of the current one (`SeIsTokenChild`, `SeIsTokenSibling`, comparing parent and authentication IDs); otherwise `SeAssignPrimaryTokenPrivilege` is required. The sibling test was added in 2018 | The rule behind the native N4 controls (own primary and restricted copies succeed). Re-implement in `server/process.c` |
+| Linked tokens, `runas`, msi (D4) | Wine-Staging's UAC series, now mostly upstream: limited admin token by default, linked token, `start /elevate`, shell32 `runas`, msi's elevated custom-action server. Bug 40613 lists the applications that need it | Explains today's call sites; its discussions list the installers that fail without elevation, which become step 7 test cases |
+| Conformance tests (step 2) | `dlls/advapi32/tests/security.c` already queries the linked token's elevation and impersonation level (around lines 7195 and 8321) | Add N1-N5 there as Wine tests, besides the harness probes |
+| Secure desktop (D5) | ReactOS winlogon (`base/system/winlogon/security.c`, `wlx.c`) creates the Winlogon desktop with a descriptor that admits only winlogon and administrators; its history records handle-inheritance and access-right pitfalls (2009, 2015) and an open FIXME on restricting the desktop. Microsoft documents WinSta0's Default, ScreenSaver and Winlogon desktops and the switch to Winlogon for Ctrl+Alt+Del and UAC | Model for the desktop, its DACL and creation sequence. Wine already has `NtUserSwitchDesktop` (`dlls/win32u/winstation.c`) and an input desktop in the server |
+| Broker (D3) | Microsoft's UAC model: a process cannot elevate itself and must ask the system to start a new elevated process (AppInfo) | Shape only; ReactOS has no UAC, so there is no code to port |
+| Credential prompts (D3.3) | polkit authentication agents; the existing wexhost agent | Already in the tree. Samba (GPLv3) stays design guidance only |
+
+Sources: ReactOS `ntoskrnl/ps/security.c` and ros-diffs threads for the sibling check; ReactOS doxygen for
+`base/system/winlogon/security.c`; Wine-Staging and wine-bugs threads for bug 40613; Microsoft Learn
+"Desktops", "Winlogon" and "UAC distilled". These were read as summaries and excerpts; read the current source
+before porting.
+
+## Order of work
+
+Do this plan before the remaining B2 and B3 work, because both depend on it:
+- B2 authorization means nothing while any program can elevate itself;
+- B3's "non-elevated Win32 writes fail" cannot hold while elevation is free.
+
+Inside the plan, the order is by value and size:
+1. **Steps 2 and 3 first.** They are small and close all five routes. With the helper unset, stock behaviour
+   is unchanged. With it configured, `runas` fails closed until the broker lands, which is acceptable in the
+   meantime.
+2. **Step 4 (broker), then step 6 (consent) with a plain consent window.** This restores elevation through a
+   boundary that holds against direct token use, though not yet against synthetic clicks.
+3. **Step 5 (secure desktop).** The largest and most uncertain part. Its research sub-step can start early, in
+   parallel, because it only reads and probes.
+4. **Step 7 (caller migration), then step 8 (documents).**
+
+Checkpoint C (the Chromium and Edge sandbox) does not depend on this plan. The browser's sandbox uses
+restricted tokens, job objects and AppContainer, not UAC elevation, so C can proceed in parallel. The one
+exception: a C acceptance claim that medium-integrity browser code cannot gain a full token needs steps 2 and
+3.
+
 ## Design
 
 ### D1. Enforcement switch
@@ -165,6 +206,8 @@ These apply only while enforced, and follow the native results above:
 1. `new_process` and `set_process_info(SET_PROCESS_INFO_TOKEN)` reject a non-primary token below
    `SecurityImpersonation` with `STATUS_BAD_IMPERSONATION_LEVEL` (N2, N4). Impersonation tokens at
    `SecurityImpersonation` or above, and copies of the caller's own token, stay accepted.
+   For assignment, follow ReactOS's rule: a token that is a child or sibling of the current one (same parent
+   and authentication IDs) needs no privilege; any other token requires `SeAssignPrimaryTokenPrivilege`.
 2. `CreateProcessWithTokenW` requires `SeImpersonatePrivilege` in the caller's token and fails with
    `ERROR_PRIVILEGE_NOT_HELD` otherwise (N2).
 3. `token_duplicate` refuses to raise an identification-level token to a primary token, with
@@ -215,7 +258,8 @@ caller. Do the same:
 Windows shows consent on a separate desktop that ordinary programs cannot see, send messages to or inject
 input into. Do the same in the Win32 layer:
 
-1. **Research (first).** Wine already tracks an input desktop per window station (`set_input_desktop` in
+1. **Research (first).** Start from ReactOS winlogon's Winlogon desktop setup and its recorded pitfalls (see
+   Prior art). Wine already tracks an input desktop per window station (`set_input_desktop` in
    `server/winstation.c`, `get_hardware_input_desktop` in `server/queue.c`). Establish, with probes:
    - what `SwitchDesktop` does today under the X11 and Wayland drivers, and with a virtual desktop;
    - whether `SendInput`, `keybd_event`, `PostMessage`, `SendMessage`, `SetWindowsHookEx`,
@@ -253,7 +297,9 @@ Commit after each working step. Each step lists how it is accepted.
 1. **Native control.** Done on Windows 10.0.26300 (section "Native results"): N1 to N5 on x64 and x86, N6 on
    x64.
 2. **Bypass probes.** Add N1–N5 and `ProcessWineGrantAdminToken` cases to
-   `scripts/test_token_security_regressions.cpp`. Run them with the helper configured.
+   `scripts/test_token_security_regressions.cpp`, and N1-N5 as conformance tests in
+   `dlls/advapi32/tests/security.c` next to the existing linked-token checks. Run them with the helper
+   configured.
    Accept: they fail on `c01c57ef`. This reproduces the bypass in the harness.
 3. **Server enforcement (D1, D2).**
    Accept: the step 2 probes pass, and the existing focused, `advapi32 security` and `ntdll info` results are
@@ -286,6 +332,7 @@ Commit after each working step. Each step lists how it is accepted.
    Accept:
    - `runas`, `requireAdministrator` and `highestAvailable` work under standard, filtered and full tokens;
    - a 32-bit and a 64-bit benign installer elevate through the broker;
+   - installers named in Wine bug 40613 and its Wine-Staging discussions that need elevation still install;
    - the B4 smoke test and the full harness pass.
 8. **Documents.** Update `ELEVATION.md` (B1 design becomes implemented for the filtered-admin route),
    `STOCK_CHANGES.md`, `TOKEN_SECURITY.md` and the acceptance matrix. B2 can move to PASS only for the
