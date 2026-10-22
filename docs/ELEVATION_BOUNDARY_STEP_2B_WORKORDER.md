@@ -124,6 +124,9 @@ A limited process can therefore enable `SeTcbPrivilege` and pass every check fro
    - a copy of `services.exe` started by the user from a user-writable directory gets no system role, and in a
      user-writable prefix every service reports the user's limited token;
    - a limited process cannot create or reconfigure a service.
+   - remove `Control\ServiceCurrent` and `ActiveComputerName` from the Users-writable table in
+     `server/registry.c` once services.exe and `wineboot --init` write them with the system role, and prove the
+     limited token can no longer write them.
 6. **Breakage sweep under enforcement**, with the B4 smoke test in `WEX_B4_HELPER=1` mode plus:
    - `wineboot -u`;
    - `regedit` reading `HKLM`;

@@ -849,6 +849,207 @@ static bool limited_token_shape()
     return failures == before;
 }
 
+// Registry and service manager access checks of the limited token (docs/ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md).
+// Rows marked "native" are the results of a filtered token on Windows 10.0.26300 (TOKEN_SECURITY_REFERENCES.md).
+static bool registry_enforcement()
+{
+    unsigned int before = failures;
+    HKEY key = NULL;
+    DWORD disposition = 0;
+    LONG result;
+
+    // HKCU stays writable.
+    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WexRegistryProbe", 0, NULL, 0, KEY_ALL_ACCESS, NULL,
+                             &key, &disposition);
+    printf("registry_enforcement HKCU create result=%ld\n", result);
+    check(result == ERROR_SUCCESS, "registry: create a key under HKCU");
+    if (!result)
+    {
+        static const BYTE data[] = {'x', 0};
+        check(RegSetValueExW(key, L"A", 0, REG_BINARY, data, sizeof(data)) == ERROR_SUCCESS,
+              "registry: set a value under HKCU");
+        RegCloseKey(key);
+        RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\WexRegistryProbe");
+    }
+
+    // native: open HKLM\SOFTWARE for KEY_READ succeeds
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE", 0, KEY_READ, &key);
+    printf("registry_enforcement HKLM open KEY_READ result=%ld\n", result);
+    check(result == ERROR_SUCCESS, "registry: open HKLM\\SOFTWARE for KEY_READ");
+    if (!result) RegCloseKey(key);
+
+    // native: create a key under HKLM\SOFTWARE gives ERROR_ACCESS_DENIED
+    result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WexRegistryProbeNew", 0, NULL, 0, KEY_ALL_ACCESS, NULL,
+                             &key, &disposition);
+    printf("registry_enforcement HKLM create result=%ld\n", result);
+    check(result == ERROR_ACCESS_DENIED, "registry: new key under HKLM\\SOFTWARE is denied");
+    if (!result)
+    {
+        RegCloseKey(key);
+        RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WexRegistryProbeNew");
+    }
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WexRegistryProbeNew", 0, KEY_READ, &key);
+    check(result == ERROR_FILE_NOT_FOUND, "registry: the denied key was not created");
+    if (!result) RegCloseKey(key);
+
+    // native: reg add HKLM\SOFTWARE\Microsoft /v X (set value) gives ERROR_ACCESS_DENIED
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft", 0, KEY_SET_VALUE, &key);
+    printf("registry_enforcement HKLM open KEY_SET_VALUE result=%ld\n", result);
+    check(result == ERROR_ACCESS_DENIED, "registry: HKLM\\SOFTWARE\\Microsoft for KEY_SET_VALUE is denied");
+    if (!result) RegCloseKey(key);
+    result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft", 0, KEY_ALL_ACCESS, &key);
+    check(result == ERROR_ACCESS_DENIED, "registry: HKLM\\SOFTWARE\\Microsoft for KEY_ALL_ACCESS is denied");
+    if (!result) RegCloseKey(key);
+
+    // The display device cache is written by every GUI process, so a limited token may write it (deviation).
+    DISPLAY_DEVICEW device = {};
+    device.cb = sizeof(device);
+    check(EnumDisplayDevicesW(NULL, 0, &device, 0) && device.DeviceName[0], "registry: display devices enumerate");
+    result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Enum\\DISPLAY\\WexRegistryProbe", 0, NULL,
+                             0, KEY_ALL_ACCESS, NULL, &key, &disposition);
+    printf("registry_enforcement display cache create result=%ld\n", result);
+    check(result == ERROR_SUCCESS, "registry: display cache key is writable");
+    if (!result)
+    {
+        static const BYTE data[] = {'x', 0};
+        check(RegSetValueExW(key, L"A", 0, REG_BINARY, data, sizeof(data)) == ERROR_SUCCESS,
+              "registry: set a value in the display cache");
+        RegCloseKey(key);
+        RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Enum\\DISPLAY\\WexRegistryProbe");
+    }
+
+    // native: OpenSCManager(SC_MANAGER_CREATE_SERVICE) gives ERROR_ACCESS_DENIED, SC_MANAGER_CONNECT succeeds
+    SC_HANDLE manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
+    printf("registry_enforcement OpenSCManager(CONNECT) %s error=%lu\n", manager ? "ok" : "failed", manager ? 0 : GetLastError());
+    check(manager != NULL, "services: OpenSCManager(SC_MANAGER_CONNECT) succeeds");
+    SC_HANDLE denied = OpenSCManagerW(NULL, NULL, SC_MANAGER_CREATE_SERVICE);
+    DWORD error = GetLastError();
+    printf("registry_enforcement OpenSCManager(CREATE_SERVICE) %s error=%lu\n", denied ? "ok" : "failed", denied ? 0 : error);
+    check(!denied && error == ERROR_ACCESS_DENIED, "services: OpenSCManager(SC_MANAGER_CREATE_SERVICE) is denied");
+    if (denied) CloseServiceHandle(denied);
+
+    SC_HANDLE enumerator = OpenSCManagerW(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
+    check(enumerator != NULL, "services: OpenSCManager(SC_MANAGER_ENUMERATE_SERVICE) succeeds");
+    std::vector<BYTE> services(64 * 1024);
+    DWORD needed = 0, count = 0, resume = 0;
+    bool enumerated = enumerator && EnumServicesStatusExW(enumerator, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL,
+                                                          services.data(), (DWORD)services.size(), &needed, &count,
+                                                          &resume, NULL) && count;
+    printf("registry_enforcement EnumServicesStatusEx ok=%d count=%lu\n", enumerated, count);
+    check(enumerated, "services: EnumServicesStatusEx succeeds");
+    if (enumerator) CloseServiceHandle(enumerator);
+
+    if (manager && enumerated)
+    {
+        const WCHAR *name = ((ENUM_SERVICE_STATUS_PROCESSW *)services.data())->lpServiceName;
+        // native: ChangeServiceConfig on an existing service gives ERROR_ACCESS_DENIED
+        SC_HANDLE service = OpenServiceW(manager, name, SERVICE_CHANGE_CONFIG);
+        error = GetLastError();
+        printf("registry_enforcement OpenService(%ls, CHANGE_CONFIG) %s error=%lu\n", name, service ? "ok" : "failed", service ? 0 : error);
+        check(!service && error == ERROR_ACCESS_DENIED, "services: OpenService(SERVICE_CHANGE_CONFIG) is denied");
+        if (service) CloseServiceHandle(service);
+        service = OpenServiceW(manager, name, SERVICE_QUERY_STATUS);
+        check(service != NULL, "services: OpenService(SERVICE_QUERY_STATUS) succeeds");
+        if (service) CloseServiceHandle(service);
+        service = CreateServiceW(manager, L"WexRegistryProbe", NULL, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS,
+                                 SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, L"C:\\windows\\system32\\wexprobe.exe",
+                                 NULL, NULL, NULL, NULL, NULL);
+        error = GetLastError();
+        check(!service && error == ERROR_ACCESS_DENIED, "services: CreateService is denied");
+        if (service) CloseServiceHandle(service);
+    }
+    if (manager) CloseServiceHandle(manager);
+    return failures == before;
+}
+
+// Impersonation level a pipe server gets (docs/ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md, SeTokenCanImpersonate).
+// The limited token has no SeImpersonatePrivilege, so the level depends on integrity. The process lowers itself to
+// Low after taking a Medium copy of its token, which a client thread then impersonates.
+struct pipe_case {const WCHAR *name; HANDLE ready; DWORD level;};
+
+static DWORD WINAPI pipe_server(void *parameter)
+{
+    pipe_case *pc = (pipe_case *)parameter;
+    HANDLE pipe = CreateNamedPipeW(pc->name, PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_WAIT, 1, 64, 64, 0, NULL);
+    char byte;
+    DWORD read, size;
+    HANDLE token = NULL;
+    pc->level = 99;
+    SetEvent(pc->ready);
+    if (pipe == INVALID_HANDLE_VALUE) return 1;
+    if (ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED)
+    {
+        ReadFile(pipe, &byte, 1, &read, NULL);
+        if (ImpersonateNamedPipeClient(pipe))
+        {
+            if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token))
+            {
+                GetTokenInformation(token, TokenImpersonationLevel, &pc->level, sizeof(pc->level), &size);
+                CloseHandle(token);
+            }
+            else printf("pipe_impersonation OpenThreadToken error=%lu\n", GetLastError());
+            RevertToSelf();
+        }
+        else printf("pipe_impersonation ImpersonateNamedPipeClient error=%lu\n", GetLastError());
+    }
+    CloseHandle(pipe);
+    return 0;
+}
+
+// Returns the level the server got, with the calling thread impersonating `as` when it is not NULL.
+static DWORD pipe_level(const WCHAR *name, HANDLE as)
+{
+    pipe_case pc = {name, CreateEventW(NULL, TRUE, FALSE, NULL), 99};
+    HANDLE thread = CreateThread(NULL, 0, pipe_server, &pc, 0, NULL);
+    WaitForSingleObject(pc.ready, 5000);
+    Sleep(200);
+    if (as && !SetThreadToken(NULL, as)) printf("pipe_impersonation SetThreadToken error=%lu\n", GetLastError());
+    HANDLE client = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (as) SetThreadToken(NULL, NULL);
+    if (client == INVALID_HANDLE_VALUE) printf("pipe_impersonation client open error=%lu\n", GetLastError());
+    if (client != INVALID_HANDLE_VALUE) {DWORD written; WriteFile(client, "x", 1, &written, NULL);}
+    WaitForSingleObject(thread, 5000);
+    if (client != INVALID_HANDLE_VALUE) CloseHandle(client);
+    CloseHandle(thread);
+    CloseHandle(pc.ready);
+    return pc.level;
+}
+
+static bool pipe_impersonation()
+{
+    unsigned int before = failures;
+    HANDLE self = NULL, medium = NULL;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT, &self)) return false;
+    check(DuplicateTokenEx(self, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenImpersonation, &medium),
+          "pipe: duplicate the Medium token");
+
+    DWORD level = pipe_level(L"\\\\.\\pipe\\wex_pipe_same", NULL);
+    printf("pipe_impersonation same integrity level=%lu\n", level);
+    check(level == SecurityImpersonation, "pipe: same integrity gets impersonation level");
+
+    BYTE sid[SECURITY_MAX_SID_SIZE];
+    DWORD sid_size = sizeof(sid);
+    TOKEN_MANDATORY_LABEL label = {};
+    check(CreateWellKnownSid(WinLowLabelSid, NULL, sid, &sid_size), "pipe: low label sid");
+    label.Label.Sid = sid;
+    label.Label.Attributes = SE_GROUP_INTEGRITY;
+    check(SetTokenInformation(self, TokenIntegrityLevel, &label, sizeof(label) + sid_size),
+          "pipe: lower the process to Low integrity");
+    printf("pipe_impersonation process integrity=%#lx\n", integrity_rid(self));
+
+    level = pipe_level(L"\\\\.\\pipe\\wex_pipe_higher", medium);
+    printf("pipe_impersonation higher client level=%lu\n", level);
+    check(level == SecurityIdentification, "pipe: higher integrity client gets identification level");
+
+    level = pipe_level(L"\\\\.\\pipe\\wex_pipe_low", NULL);
+    printf("pipe_impersonation low client level=%lu\n", level);
+    check(level == SecurityImpersonation, "pipe: same (Low) integrity gets impersonation level");
+
+    CloseHandle(medium);
+    CloseHandle(self);
+    return failures == before;
+}
+
 // Sets (or clears) the helper so that a later process in this prefix gets the filtered root token.
 static bool set_helper(bool enable)
 {
@@ -985,6 +1186,18 @@ int main(int argc, char **argv)
         bool shape = limited_token_shape();
         printf("limited_token_shape=%s\n", shape ? "PASS" : "FAIL");
         return shape ? 0 : 1;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--registry-enforcement"))
+    {
+        bool registry = registry_enforcement();
+        printf("registry_enforcement=%s\n", registry ? "PASS" : "FAIL");
+        return registry ? 0 : 1;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--pipe-impersonation"))
+    {
+        bool pipe = pipe_impersonation();
+        printf("pipe_impersonation=%s\n", pipe ? "PASS" : "FAIL");
+        return pipe ? 0 : 1;
     }
     if (argc == 3 && !strcmp(argv[1], "--consent"))
     {

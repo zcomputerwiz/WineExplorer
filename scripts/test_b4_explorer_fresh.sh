@@ -53,6 +53,9 @@ echo "Booting fresh prefix at $WORK/pfx on $DISPLAY..."
 # WEX_B4_HELPER=1 configures an elevation helper first, which turns elevation enforcement on in the server:
 # explorer then runs with the user's limited token instead of granting itself an admin token.
 if [ "${WEX_B4_HELPER:-0}" = 1 ]; then
+    # An enforced prefix cannot be updated afterwards (HKLM is read-only), so update it while it is still open.
+    "$WINE" wineboot.exe -u >>"$WORK/boot.out" 2>>"$WORK/boot.err" || fail "wineboot -u failed"
+    "$WINESERVER" -w
     "$WINE" reg add 'HKLM\Software\Wine\Elevation' /v Helper /t REG_SZ \
         /d 'C:\windows\system32\wex-test-helper-never-run.exe' /f /reg:64 >"$WORK/reg.out" 2>>"$WORK/reg.err" ||
         fail "could not configure the elevation helper"

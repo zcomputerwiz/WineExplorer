@@ -222,6 +222,11 @@ def main():
                 shape_prefix = root / (arch + '-limited')
                 prefixes.append(shape_prefix)
                 shape_env = dict(environment, WINEPREFIX=str(shape_prefix))
+                # The prefix update writes HKLM and is denied under enforcement, so run it before the helper is set.
+                update = run_logged([str(wine), 'wineboot', '-u'], shape_env, output, arch + '.limited-update', 180)
+                if update.returncode:
+                    raise RuntimeError('Could not update the limited-token prefix: ' + arch)
+                subprocess.run([str(server), '-w'], env=shape_env, timeout=60)
                 setup = run_logged([str(wine), str(exe), '--helper-set'], shape_env, output, arch + '.limited-setup', 120)
                 if setup.returncode:
                     raise RuntimeError('Could not configure the helper for the limited-token probe: ' + arch)
@@ -234,6 +239,22 @@ def main():
                 print(arch, 'limited PASS' if passed else 'limited FAIL', run.stdout, flush=True)
                 if not passed:
                     raise RuntimeError('Limited token shape failed: ' + arch)
+                # Registry and service manager access checks, in the same limited prefix.
+                command = [str(wine), str(exe), '--registry-enforcement']
+                run = run_logged(command, shape_env, output, arch + '.registry', 120)
+                passed = run.returncode == 0 and 'registry_enforcement=PASS' in run.stdout
+                result['cases'][arch + '.registry'] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
+                print(arch, 'registry PASS' if passed else 'registry FAIL', run.stdout, flush=True)
+                if not passed:
+                    raise RuntimeError('Registry enforcement failed: ' + arch)
+                # Pipe impersonation level; it lowers the probe's own integrity, so it gets its own process.
+                command = [str(wine), str(exe), '--pipe-impersonation']
+                run = run_logged(command, shape_env, output, arch + '.pipe', 120)
+                passed = run.returncode == 0 and 'pipe_impersonation=PASS' in run.stdout
+                result['cases'][arch + '.pipe'] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
+                print(arch, 'pipe PASS' if passed else 'pipe FAIL', run.stdout, flush=True)
+                if not passed:
+                    raise RuntimeError('Pipe impersonation failed: ' + arch)
             for suite_arch, dll, case in suites:
                 if suite_arch != arch:
                     continue

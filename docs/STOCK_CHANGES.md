@@ -88,6 +88,56 @@ Wine commits `4fced06b`, `839c0f31`, `4fa6f4ac` (hashes of the working branch; t
   descriptor as unprotected, and `key_get_sd` is only used when a descriptor is queried, so this change alters
   what `GetSecurityInfo` returns, not what a limited process may do. See the step 2b work order, "Results".
 
+## Elevation boundary: registry and service manager access checks (2026-10-22)
+
+Applies only while `HKLM\Software\Wine\Elevation\Helper` is configured (`elevation_enforced()`), except where
+marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`. Wine commits (working branch
+`ccr-work`): `91b53ca8`, `c28aafba`, `437525d3`, `2487739e`, `9bb835d1`, `a252e52b`, `d668329f`.
+
+- `dlls/win32u/sysparams.c` (`reg_empty_key`): stops at the first failed delete instead of enumerating index 0
+  forever. **Unconditional**, upstreamable.
+- `server/token.c` (`check_object_access`): a registry key without an explicit descriptor is checked against its
+  default one (`key_get_sd`) instead of being granted.
+- `server/registry.c`:
+  - `create_key` checks `KEY_CREATE_SUB_KEY` on the parent before it creates a new key (a lookup of the parent
+    first, so a denied create leaves no key behind). The handle of a new key is still granted without a check;
+    opening an existing key already checked the requested access.
+  - **Deviation, accepted by the user (work order item 2):** the keys of the display device cache default to
+    Users full control (`display_cache_paths`, `key_in_display_cache`): `Enum\DISPLAY`, `Enum\PCI`, the display
+    and monitor `Control\Class` GUID keys, `Control\Video`, `Control\DeviceClasses`, `Hardware Profiles\Current`,
+    `HARDWARE\DEVICEMAP`, `Software\Microsoft\DirectX`, with their subkeys. win32u's `prepare_devices` rewrites
+    them in every GUI process, where Windows has SYSTEM components do it. A new key above one of them (for example
+    `HARDWARE\DEVICEMAP`) may be created too. Effect: a limited process can change the cached display configuration.
+  - **Deviation, accepted by the user, temporary:** `Control\ServiceCurrent` (the control pipe number services.exe
+    writes for each service process it starts) and `Control\ComputerName\ActiveComputerName` (written by
+    `wineboot --init`) are in the same table. Both writers run on the limited token until they get the system
+    role; that step removes the two entries (`shortcut:` comment in `server/registry.c`).
+- `server/named_pipe.c`: the client end of a named pipe records the token of the thread that opened it, and
+  `FSCTL_PIPE_IMPERSONATE` impersonates a copy of that token (stock Wine impersonates the caller itself, with a
+  FIXME). Needed so a service can check the access its client really has.
+- `programs/services/rpc.c`: `OpenSCManager`, `OpenService` and `CreateService` check the requested access against
+  the documented default descriptors of the service control manager and of a service, with the RPC client's token
+  (`check_client_access`). The checks are skipped while no helper is configured.
+- `server/named_pipe.c`, `server/token.c` (`token_impersonation_level`): the level a pipe server gets is capped like
+  Windows' SeTokenCanImpersonate. Without `SeImpersonatePrivilege` in the server's process token it is
+  identification, unless the client has the server's user, is not more trusted (integrity) and is not elevated
+  while the server is not. The client's requested SQOS level is not sent to the server (`shortcut:` comment), so
+  the cap is the client token's own level. `open_token` with `OPEN_TOKEN_AS_SELF` checks access against the
+  process token, so an identification-level caller can still read its client's identity.
+- `programs/services/rpc.c`, `dlls/rpcrt4/rpc_transport.c`, `dlls/sechost/service.c`: `OpenService` also grants
+  the process the SCM started for a service the rights it uses to report status
+  (`SERVICE_SET_STATUS`, query, `READ_CONTROL`), found by comparing `I_RpcBindingInqLocalClientPID` with the
+  recorded process id. rpcrt4 implements that call for `ncacn_np` (stock has it for `ncalrpc` only). sechost opens
+  the second handle of its own service with `SERVICE_QUERY_STATUS|SERVICE_QUERY_CONFIG` instead of
+  `GENERIC_READ|GENERIC_WRITE`. `RpcSs` is openable for start and status by anyone, because Wine starts it on demand
+  (`shortcut:` comment).
+- Callers that asked for `KEY_ALL_ACCESS` on `HKLM` only to read: `dlls/ntdll/version.c` (Windows version values,
+  `KEY_READ`), `dlls/kernelbase/locale.c` (NLS and time zone keys, `KEY_READ`). Upstreamable.
+- `dlls/shell32/shellpath.c` (`_SHOpenProfilesKey`): when the create with `KEY_ALL_ACCESS` is denied, opens
+  `ProfileList` for `KEY_READ`, so shell folders resolve for a limited token.
+- `programs/explorer/desktop.c`: the display driver key is created with `MAXIMUM_ALLOWED`; creating a missing
+  parent chain opens the existing parents with the requested access, which `KEY_SET_VALUE` is not on `System`.
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.
