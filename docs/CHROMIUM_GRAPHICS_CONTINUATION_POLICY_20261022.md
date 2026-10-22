@@ -9,6 +9,11 @@ Current state is superseded by
 CHROMIUM_GRAPHICS_G4_WEEKLY_CHECKPOINT_20261022.md: weekly stop reached at 99%
 used. Read that checkpoint before the historical selected-work notes below.
 
+Resume update: the user subsequently used a full reset and authorized continued
+work. Both windows were verified at 0% used. Follow
+CHROMIUM_GRAPHICS_G4_PRESENTATION_TIMING_PLAN_20261022.md for the next bounded
+step; the old weekly stop applies only to the exhausted pre-reset window.
+
 Check account limits at each milestone and before a long guest run. At weekly
 usedPercent >= 99, stop safely, publish a checkpoint and report the weekly
 limit stop; do not schedule another pre-reset work cycle. At five-hour
