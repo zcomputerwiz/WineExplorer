@@ -587,9 +587,9 @@ static bool linked_token_routes()
     check(error == ERROR_BAD_IMPERSONATION_LEVEL && code == 0, "N2 CreateProcessAsUserW(linked) is refused with 1346");
     error = create_as_user(linked_handle, true, &code);
     printf("linked_route CreateProcessWithTokenW error=%lu code=%lu\n", error, code);
-    // Native refuses with 1314 because a filtered administrator has no SeImpersonatePrivilege. Wine's
-    // "limited" token still holds it (see docs/ELEVATION_BOUNDARY_PLAN.md, "Limited token"), so the refusal
-    // comes from the impersonation level, 1346, until that token is really limited.
+    // Native refuses with 1314 because a filtered administrator has no SeImpersonatePrivilege. This process
+    // started before the helper was configured, so its token is not filtered and still holds it: 1346 here.
+    // limited_token_shape() runs in a filtered process and expects 1314.
     {
         TOKEN_PRIVILEGES *privileges;
         DWORD privilege_size = 0;
