@@ -71,9 +71,26 @@ $V shot "$VM" "$STEPS/20-notepad64.png"
 echo "PASS: 64-bit system32 notepad window drawn"
 
 if [ "$PROGRAMS_ONLY" != --programs-only ]; then
-echo "=== 4. Alice (admin) installs program for all users into Program Files ==="
+echo "=== 4. Program for all users is installed into Program Files ==="
+# Changed for S4 (ELEVATION_SYSTEM_ROLE_WORKORDER.md, phase A): the machine root is root:wexsys and Alice (an
+# administrator in sudo) is not in wexsys, so she cannot write it directly. Alice must be denied, and the install
+# runs as root (it stands for the installer package step) until the broker exists (step 4); set
+# WEX_BROKER_AVAILABLE=1 to run Alice's own install again.
+if [ "${WEX_BROKER_AVAILABLE:-0}" = 1 ]; then
 $V sh "$VM" root "$PWFILE" 'su - alice -c "mkdir -p \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp\" && cp /tmp/test32.exe \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp/common_app.exe\" && chmod 775 \"/var/lib/wineexplorer/machine/drive_c/Program Files/CommonApp/common_app.exe\""'
 echo "PASS: Program installed by Alice for all users"
+else
+OUT=$($V sh "$VM" root "$PWFILE" 'M=/var/lib/wineexplorer/machine; su alice -c "mkdir -p \"$M/drive_c/Program Files/AliceDirect\"" 2>/dev/null && echo "WR""OTE alice"; su alice -c "echo x >> $M/system.reg" 2>/dev/null && echo "WR""OTE alice system.reg"; true')
+echo "$OUT"
+if echo "$OUT" | grep -q WROTE; then
+    echo "FAIL: Alice (sudo, not wexsys) could write to the machine root" >&2
+    exit 1
+fi
+echo "PASS: Alice was denied direct write access to the machine root"
+$V sh "$VM" root "$PWFILE" 'M=/var/lib/wineexplorer/machine; G=$(stat -c %G "$M"); install -d -m 2775 -o root -g "$G" "$M/drive_c/Program Files/CommonApp" && install -m 775 -o root -g "$G" /tmp/test32.exe "$M/drive_c/Program Files/CommonApp/common_app.exe"'
+echo "PASS: Program installed for all users by the root step"
+echo "WAITING (step 4, broker): Alice's own session installing into Program Files"
+fi
 
 echo "=== 5. Bob (standard user) executes application installed by Alice ==="
 # The common app uses the same fixture caption. Remove the earlier instance
