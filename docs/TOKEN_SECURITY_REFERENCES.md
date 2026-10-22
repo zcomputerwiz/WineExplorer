@@ -153,3 +153,23 @@ GitHub file view succeeded. Some Gitiles Chromium source views failed; the
 Chromium project's GitHub source mirror succeeded. A guessed ReactOS
 `modules/rostests/apitests/ntdll/NtFilterToken.c` URL could not be retrieved and is
 not a verified test reference. Use the inspected Wine and Chromium tests above.
+
+## Native UAC linked-token contract (2026-10-22)
+
+Probe: `scripts/native_token_contract_probe.cpp` (x64 SHA-256 `07a76e4534f0fff6a87d23209bfab4eca71243bdf57325156faa26639ae0805a`,
+x86 `bd5846e4ed807f66f7724e243fdca1ebb0a298c425def10787f5e472d27afe4b`). Windows 10.0.26300, x64 and x86 builds
+gave identical results. Run by the project owner's worker as a filtered administrator. The raw output files
+are kept outside the repository.
+
+| Case | Result |
+| :--- | :--- |
+| own token | primary, `TokenElevationTypeLimited` |
+| `TokenLinkedToken` | impersonation, `SecurityIdentification`, `TokenElevationTypeFull` |
+| `CreateProcessAsUserW(linked)` | 1346 `ERROR_BAD_IMPERSONATION_LEVEL` |
+| `CreateProcessWithTokenW(linked)` | 1314 `ERROR_PRIVILEGE_NOT_HELD` |
+| `DuplicateTokenEx(linked)` to primary and to impersonation | 1346 |
+| `NtSetInformationProcess(ProcessAccessToken, linked)` | `0xC00000A5` `STATUS_BAD_IMPERSONATION_LEVEL` |
+| `SetThreadToken(linked)`, then open file / process token / registry key | succeeds; 1346 / 1346 / 5 |
+| `CreateProcessAsUserW` with own token duplicated as impersonation token | succeeds |
+| `ProcessAccessToken` with own primary copy and own restricted copy | both succeed |
+| SYSTEM, `--tcb` path (`WTSQueryUserToken`, then linked token) | not yet run: the scheduled task executed the non-TCB path (`user.linked_error=1312`) |

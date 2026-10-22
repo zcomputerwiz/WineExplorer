@@ -90,6 +90,38 @@ Run on Windows 10 or 11 x64, signed in as a member of Administrators with UAC at
 3. Commit the four outputs, the Windows build number and the probe SHA-256 to
    `TOKEN_SECURITY_REFERENCES.md`.
 
+### Native results (Windows 10.0.26300, x64 and x86 identical, 2026-10-22)
+
+Run as a filtered administrator. The own-token rows are controls.
+
+| Case | Plan expectation | Native | Wine `c01c57ef` |
+| :--- | :--- | :--- | :--- |
+| self | limited | primary, `TokenElevationTypeLimited` | same |
+| N1 linked token | impersonation, Identification | impersonation, Identification, full | same |
+| N2 `CreateProcessAsUserW(linked)` | `ERROR_BAD_TOKEN_TYPE` | **1346** `ERROR_BAD_IMPERSONATION_LEVEL` | succeeds, full-token child |
+| N2 `CreateProcessWithTokenW(linked)` | `ERROR_BAD_TOKEN_TYPE` | **1314** `ERROR_PRIVILEGE_NOT_HELD` | succeeds, full-token child |
+| N3 duplicate linked to primary | 1346 | 1346 | succeeds; the copy starts a full-token child |
+| N3 duplicate linked to impersonation | 1346 | 1346 | 1346 (already correct) |
+| N4 assign linked to a child | fails | `0xC00000A5` `STATUS_BAD_IMPERSONATION_LEVEL` | succeeds, full-token child |
+| N5 impersonate linked, open file / process token | 1346 | `SetThreadToken` succeeds; file and process token 1346; registry key 5 | all opens succeed |
+| N2 control: own token as impersonation token (`SecurityImpersonation`) | `ERROR_BAD_TOKEN_TYPE` | **succeeds** | succeeds |
+| N4 control: own primary copy, own restricted copy | first fails | **both succeed** (status 0) | both succeed |
+| N6 linked token for a `SeTcbPrivilege` caller | usable | **not established**, see below | n/a |
+
+Corrections to the design:
+- **Impersonation level, not token type.** Windows accepts an impersonation token at `SecurityImpersonation`
+  for `CreateProcessAsUserW`, and an unrestricted copy of the caller's own token for `ProcessAccessToken`.
+  The rule that blocks the linked token is its Identification level, so D2 checks the level and does not
+  reject impersonation tokens or own-token copies.
+- **`CreateProcessWithTokenW`** fails earlier, on the missing `SeImpersonatePrivilege` (1314), for a filtered
+  user.
+
+N6 is not established. The SYSTEM run printed `user.*` keys and `user.linked_error=1312`
+(`ERROR_NO_SUCH_LOGON_SESSION`), which come from the probe's non-TCB path querying the SYSTEM token itself.
+The `--tcb` path (keys `tcb.*`, using `WTSQueryUserToken`) did not run, so the scheduled task most likely
+dropped the argument. The child exit codes are as expected: 101 is `TokenElevationTypeDefault` (SYSTEM), 103 is
+`TokenElevationTypeLimited` (filtered user). Rerun N6 and check that the output starts with `tcb.user`.
+
 ### Wine baseline (`c01c57ef`, both architectures, identical)
 
 ```text
@@ -118,17 +150,20 @@ its in-memory registry each time it checks. That is cheap and needs no new proto
 
 ### D2. Server enforcement (`server/process.c`, `server/token.c`)
 
-These apply only while enforced:
+These apply only while enforced, and follow the native results above:
 
-1. `new_process` and `set_process_info(SET_PROCESS_INFO_TOKEN)`:
-   - reject a non-primary token below `SecurityImpersonation` with `STATUS_BAD_IMPERSONATION_LEVEL`;
-   - reject any non-primary token with `STATUS_BAD_TOKEN_TYPE` where N2 and N4 say so.
-2. `token_duplicate` refuses to raise an identification-level token to primary or impersonation (N3). Check
-   whether the existing level check already covers the primary case.
-3. `grant_process_admin_token` requires `SeTcbPrivilege` in the caller's token. Under enforcement explorer
+1. `new_process` and `set_process_info(SET_PROCESS_INFO_TOKEN)` reject a non-primary token below
+   `SecurityImpersonation` with `STATUS_BAD_IMPERSONATION_LEVEL` (N2, N4). Impersonation tokens at
+   `SecurityImpersonation` or above, and copies of the caller's own token, stay accepted.
+2. `CreateProcessWithTokenW` requires `SeImpersonatePrivilege` in the caller's token and fails with
+   `ERROR_PRIVILEGE_NOT_HELD` otherwise (N2).
+3. `token_duplicate` refuses to raise an identification-level token to a primary token, with
+   `STATUS_BAD_IMPERSONATION_LEVEL` (N3). Raising it to impersonation is already refused.
+4. Opening a file, a process token or another secured object while impersonating an identification-level
+   token fails with `ERROR_BAD_IMPERSONATION_LEVEL`. A registry key fails with `ERROR_ACCESS_DENIED` (N5).
+5. `grant_process_admin_token` requires `SeTcbPrivilege` in the caller's token. Under enforcement explorer
    runs with the user's limited token (Q3: decided).
-5. Impersonating an identification-level token must not grant object access (N5).
-4. `create_linked_token` returns a usable token only to a caller holding `SeTcbPrivilege` (N6).
+6. `create_linked_token` returns a usable token only to a caller holding `SeTcbPrivilege`, once N6 is known.
 
 ### D3. The broker (the AppInfo role)
 
@@ -203,10 +238,9 @@ Each must work through the broker when enforced, or be shown not to need elevati
 
 Commit after each working step. Each step lists how it is accepted.
 
-1. **Native control.** A worker on one of your Windows 10/11 machines runs the native probe (section "Native
-   probe") for x64 and x86, as a filtered administrator and as SYSTEM. Record the results in
-   `TOKEN_SECURITY_REFERENCES.md`.
-   Accept: every row in the contract table is confirmed or corrected with exact error codes.
+1. **Native control.** Done for N1 to N5 on Windows 10.0.26300 (section "Native results"). N6 needs a rerun
+   of the `--tcb` path.
+   Accept: N6 recorded with `tcb.*` keys.
 2. **Bypass probes.** Add N1–N5 and `ProcessWineGrantAdminToken` cases to
    `scripts/test_token_security_regressions.cpp`. Run them with the helper configured.
    Accept: they fail on `c01c57ef`. This reproduces the bypass in the harness.
