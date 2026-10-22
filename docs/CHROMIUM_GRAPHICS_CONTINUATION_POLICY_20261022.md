@@ -38,6 +38,16 @@ patch and evidence before further acceptance trials.
 
 1. Complete accelerated recovery acceptance and matched WebView2/32-bit
    regressions; only close cells supported by actual front images and logs.
+   High-priority remaining consumer coverage: visible WebGL1/2 surfaces after
+   GPU-child recovery. The current recovery fixture moves its WebGL canvases
+   offscreen; the historical failing fixture displayed them. Offscreen exact
+   readback plus intact CSS/front content cannot certify visible WebGL
+   composition, nor explain the historical all-black-window failure. After
+   the current repeat/regression slice, scope a controlled visible-canvas
+   variant with actual canvas-region front/page pixel assertions and unchanged
+   ownership/backend/error gates. Compare matched source/binary/capture timing;
+   preserve any difference before proposing a production fix. This affects
+   genuine browser graphics workloads and belongs ahead of cosmetic TODOs.
 2. Investigate any remaining reproducible real Chromium/Edge consumer rendering
    or startup failure on the supported accelerated route. Scope a concrete
    failing consumer before implementing additional APIs.
