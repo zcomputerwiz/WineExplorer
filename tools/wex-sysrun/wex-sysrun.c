@@ -30,8 +30,9 @@
  *                   starts inherits wexsys.
  *
  * The paths come from one root-owned file (SYSRUN_CONF, default /etc/wineexplorer/sysrun.conf), lines "key=value":
- * group, loader, ntdll, wineserver, machine_root. No file descriptor except 0-2 is passed on, so the
- * WINESERVERSOCKET variable is never set: both programs start a fresh connection to their own server.
+ * group, loader, ntdll, wineserver, machine_root, and admin_group (read by the Wine server, ignored here).
+ * No file descriptor except 0-2 is passed on, so the WINESERVERSOCKET variable is never set: both programs
+ * start a fresh connection to their own server.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -164,6 +165,7 @@ static void read_config(struct config *c)
         else if (!strcmp(line, "ntdll")) set_value(c->ntdll, sizeof(c->ntdll), eq, line);
         else if (!strcmp(line, "wineserver")) set_value(c->wineserver, sizeof(c->wineserver), eq, line);
         else if (!strcmp(line, "machine_root")) set_value(c->machine_root, sizeof(c->machine_root), eq, line);
+        else if (!strcmp(line, "admin_group")) continue;
         else refuse("unknown config key", line);
     }
     if (!c->loader[0] || !c->ntdll[0] || !c->wineserver[0] || !c->machine_root[0])
