@@ -125,16 +125,22 @@ fallback. All guest consumer probes completed with no remaining Wine servers.
 The verified QEMU launcher's parent was sent SIGINT and the launcher performed
 QMP ACPI shutdown; QEMU stopped cleanly. VM overlay remains intact on D:.
 
-Next: first run a no-fault frozen-scene control in the same topology. Then
-correlate `grim` front captures with Electron `webContents.capturePage()` (a
-separate client-content view, not itself front-presentation proof), Chromium
-raster/SharedImage logs, Wine native-Wayland surface commits, and labwc frame
-commits at sub-second intervals around the first disappearance. This should
-separate page raster/checkerboarding from native surface/output/capture failure.
-Preserve every failure image/log. Do not weaken parser checks, change
-production code without a discriminating reproduction, or start another fault-
-injection trial until the capture discrepancy is understood. Then implement
-stage-aligned pre-fault/recovered/settled capture acknowledgement and
-deterministic visual pixels before further acceptance. The Linux suite must be
-rerun after this optional-capability warning refinement. Keep all VM and
-evidence data on D:.
+No-fault control completed: host0/diagnostic0 on the same accelerated outer and
+client route, with `--freeze-scene`. The12 screenshots from12s through32s are
+byte-identical and visually show the complete frozen window; the guest was
+cleanly QMP-powered off. This establishes that the dense `grim` capture cadence
+and ordinary frozen content do not cause the blanking. The failure is specific
+to the GPU-recovery sequence (or its post-restart behavior).
+
+Next correlate `grim` front captures with Electron `webContents.capturePage()`
+(a separate client-content view, not itself front-presentation proof),
+Chromium raster/SharedImage logs, Wine native-Wayland surface commits, and
+labwc frame commits at sub-second intervals around the first disappearance.
+This should separate page raster/checkerboarding from native
+surface/output/capture failure. Preserve every failure image/log. Do not weaken
+parser checks, change production code without a discriminating reproduction,
+or start another fault-injection trial until the capture discrepancy is
+understood. Then implement stage-aligned pre-fault/recovered/settled capture
+acknowledgement and deterministic visual pixels before further acceptance.
+The Linux suite passes14/14 after the optional-capability warning refinement.
+Keep all VM and evidence data on D:.
