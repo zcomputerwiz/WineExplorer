@@ -303,6 +303,56 @@ async function exerciseLifecycle(win) {
     log('lifecycle result', { passed: false, checks, error: String(error) });
   }
 }
+async function exercisePresentationTiming(win) {
+  // Load diagnostic dependencies only for this explicit mode. In particular,
+  // ordinary Electron controls can still stage just main.js/package.json.
+  const { runPresentationTiming } = require('./presentation-timing');
+  await delay(5000);
+  const runId = process.env.WEX_WEBVIEW2_TIMING_RUN_ID;
+  const observe = async () => ({ windowBounds: win.getBounds(), clientBounds: win.getContentBounds(),
+    ...await win.webContents.executeJavaScript(`(() => {
+      const r = box.getBoundingClientRect();
+      return {viewport:{width:innerWidth,height:innerHeight},
+        marker:{x:r.left,y:r.top,width:r.width,height:r.height},
+        background:getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0,3).map(Number)};
+    })()`) });
+  await runPresentationTiming({ runId, observe,
+    prepare: async bounded => {
+      const before = await bounded('WebGL preparation', () =>
+        win.webContents.executeJavaScript(`(${probeRecoveryPixels.toString()})()`));
+      log('presentation timing WebGL preparation', before);
+      const valid = item => item.available === true && !item.lost && item.defaultError === 0
+        && item.textureError === 0 && item.framebufferStatus === 36053
+        && JSON.stringify(item.defaultPixel) === '[255,0,0,255]'
+        && JSON.stringify(item.texturePixel) === '[0,255,0,255]'
+        && typeof item.renderer === 'string' && !/swiftshader|software rasterizer/i.test(item.renderer);
+      if (!['webgl', 'webgl2'].every(name => valid(before.contexts[name]))
+          || app.getGPUFeatureStatus().gpu_compositing !== 'enabled') throw new Error('Timing WebGL preconditions failed');
+      await bounded('freeze scene', () => win.webContents.executeJavaScript(`window.sceneFrozen=true;
+        box.style.transform='translateX(160px)';counter.textContent='Frozen recovery checkpoint';
+        document.body.style.background='#e8f5e9';`));
+      const { waitForRendererFrames } = require('./recovery-frame-wait');
+      const frames = await waitForRendererFrames(win.webContents, 'presentation_timing');
+      log('presentation timing render opportunity', frames);
+      if (!frames.passed) throw new Error('Presentation timing renderer-frame wait failed');
+    },
+    capturePage: () => win.webContents.capturePage(),
+    publishPage: page => {
+      const size = page.getSize(), bytes = page.toPNG();
+      if (page.isEmpty() || size.width <= 0 || size.height <= 0 || bytes.length < 64)
+        throw new Error('Invalid presentation timing page PNG');
+      const file = path.join(path.dirname(logPath), 'presentation-page.png');
+      fs.writeFileSync(file, bytes, { flag: 'wx' });
+      return { file, size, bytes: bytes.length, empty: false };
+    },
+    readAck: stage => {
+      try { return JSON.parse(fs.readFileSync(path.join(path.dirname(logPath),
+        `presentation-${runId}-${stage}.ack`), 'utf8')); }
+      catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    },
+    log: (event, value) => log('presentation timing ' + event, value),
+  });
+}
 app.setPath('userData', profile);
 app.enableSandbox();
 log('versions', { versions: process.versions, argv: process.argv, sandboxRequested: true });
@@ -346,6 +396,10 @@ app.whenReady().then(async () => {
     document.body.style.background=timerTicks%2?'#e8f5e9':'#fff3e0'}},1000);</script>`;
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   fs.appendFileSync(logPath, `${Date.now() - started} ms navigation completed hr=0x00000000 success=1 web_error=0\n`);
+  const timingMode = process.env.WEX_WEBVIEW2_PRESENTATION_TIMING === '1';
+  if (timingMode && ['WEX_WEBVIEW2_GPU_RECOVERY', 'WEX_WEBVIEW2_LIFECYCLE', 'WEX_WEBVIEW2_FREEZE',
+    'WEX_WEBVIEW2_PROFILE_WRITE'].some(name => process.env[name])) throw new Error('Conflicting timing mode');
+  if (timingMode) void exercisePresentationTiming(win);
   if (process.env.WEX_WEBVIEW2_LIFECYCLE === '1') void exerciseLifecycle(win);
   if (process.env.WEX_WEBVIEW2_GPU_RECOVERY === '1') void exerciseGPURecovery(win);
   if (process.env.WEX_WEBVIEW2_FREEZE === '1') setTimeout(async () => {
@@ -366,7 +420,7 @@ app.whenReady().then(async () => {
     } catch (error) { log('sample failed', String(error)); }
     finally { pending = false; }
   }, 1000);
-  setTimeout(async () => {
+  if (!timingMode) setTimeout(async () => {
     try {
       const image = await win.webContents.capturePage();
       fs.writeFileSync(path.join(path.dirname(logPath), 'electron-capture.png'), image.toPNG());

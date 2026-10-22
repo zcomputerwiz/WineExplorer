@@ -25,6 +25,180 @@ import graphics_resources
 
 VISUAL_STAGES = ('ready', 'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back')
 RECOVERY_VISUAL_STAGES = ('pre_fault', 'recovered', 'settled_2s', 'settled_4s')
+TIMING_FRONTS = (('front_0', 0), ('front_250', 250), ('front_1000', 1000), ('front_3000', 3000))
+TIMING_OVERALL_MS = 30000
+
+
+def screenshot_schedule(presentation_timing=False, gpu_recovery=False, freeze_scene=False):
+    if presentation_timing:
+        return []
+    return ([4, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
+            if gpu_recovery or freeze_scene else [8, 18])
+
+
+def timing_events(text, event):
+    values = []
+    for raw in re.findall(r'^\d+ ms presentation timing ' + re.escape(event) + r' (.*)$', text, re.MULTILINE):
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError('Invalid presentation timing event: ' + event)
+        values.append(value)
+    return values
+
+
+def write_timing_ack(output, run_id, stage, details):
+    """Publish complete JSON atomically, without replacing an existing ACK."""
+    ack = output / ('presentation-%s-%s.ack' % (run_id, stage))
+    temporary = ack.with_suffix('.tmp')
+    with temporary.open('x') as stream:
+        json.dump({'runId': run_id, 'stage': stage, 'captured': True, **details}, stream)
+    try:
+        os.link(temporary, ack)
+    finally:
+        temporary.unlink()
+
+
+class PresentationTimingCollector:
+    """Fixed front schedule; pixel failures never drive scheduling or completion ACKs.
+
+    Callback bounds include geometry/identity observation, PNG capture and decoding.
+    The fixture owns the 30-second overall deadline; the observer also bounds its
+    work by the remaining budget published in the nonce-bound request.
+    """
+    def __init__(self, run_id, capture_front, capture_page, acknowledge,
+                 now=time.monotonic, sleep=time.sleep):
+        self.run_id, self.front, self.page, self.ack = run_id, capture_front, capture_page, acknowledge
+        self.now, self.sleep = now, sleep
+        self.request = None
+        self.deadline = None
+        self.samples = []
+        self.page_record = None
+        self.error = None
+
+    def remaining(self):
+        remaining = self.deadline - self.now()
+        if remaining <= 0:
+            raise TimeoutError('Presentation timing overall deadline expired')
+        return remaining
+
+    def sample(self, stage, offset_ms, origin):
+        target = origin + offset_ms / 1000
+        self.sleep(min(max(0, target - self.now()), self.remaining()))
+        timeout = min(5, self.remaining())
+        started = self.now()
+        record = {'stage': stage, 'target_offset_ms': offset_ms,
+                  'origin_monotonic': origin, 'target_monotonic': target,
+                  'started_monotonic': started,
+                  'actual_offset_ms': (started - origin) * 1000,
+                  'lateness_ms': max(0, (started - target) * 1000)}
+        # Retain the attempted sample even if observation/capture throws.
+        self.samples.append(record)
+        try:
+            record.update(self.front(stage, self.request, timeout, record))
+        finally:
+            record['ended_monotonic'] = self.now()
+            record['duration_ms'] = (record['ended_monotonic'] - started) * 1000
+        capture_started = record.get('capture_started_monotonic', started)
+        record['capture_actual_offset_ms'] = (capture_started - origin) * 1000
+        record['capture_lateness_ms'] = max(0, (capture_started - target) * 1000)
+        if record['duration_ms'] > timeout * 1000:
+            raise TimeoutError('Presentation timing front callback exceeded its bound')
+        self.remaining()
+
+    def poll(self, text):
+        if self.error:
+            raise RuntimeError(self.error)
+        try:
+            requests = timing_events(text, 'requested')
+            pages = timing_events(text, 'page capture')
+            if len(requests) > 1 or len(pages) > 1:
+                raise ValueError('Duplicate presentation timing event')
+            if self.request is not None and requests != [self.request]:
+                raise ValueError('Presentation timing request changed/disappeared')
+            if pages and self.request is None:
+                raise ValueError('Page readback arrived before front completion acknowledgement')
+            if requests and self.request is None:
+                received = self.now()
+                request = requests[0]
+                budget = request.get('remainingMs')
+                if (request.get('runId') != self.run_id or type(budget) not in (int, float)
+                        or not 0 < budget <= TIMING_OVERALL_MS):
+                    raise ValueError('Stale/invalid presentation timing request')
+                if (request.get('background') != [232, 245, 233]
+                        or not all(isinstance(request.get(key), dict) for key in
+                                   ('windowBounds', 'clientBounds', 'viewport', 'marker'))
+                        or any(request['viewport'].get(k) != request['clientBounds'].get(k)
+                               for k in ('width', 'height'))):
+                    raise ValueError('Invalid presentation timing fixed scene/geometry')
+                self.request = request
+                self.deadline = received + budget / 1000
+                for stage, offset in TIMING_FRONTS:
+                    self.sample(stage, offset, received)
+                self.ack('fronts_complete', {'samples': [s for s, _ in TIMING_FRONTS]})
+            if pages and self.page_record is None:
+                received = self.now()
+                if self.request is None or len(self.samples) != 4:
+                    raise ValueError('Page readback arrived before the four fronts')
+                page = pages[0]
+                if (page.get('runId') != self.run_id or any(page.get(key) != self.request.get(key)
+                        for key in ('windowBounds', 'clientBounds', 'viewport', 'marker', 'background'))):
+                    raise ValueError('Presentation timing page identity/geometry changed')
+                started = self.now()
+                timeout = min(5, self.remaining())
+                self.page_record = {'received_monotonic': received, 'fixture_capture': page}
+                try:
+                    self.page_record.update(self.page(page, self.request, timeout))
+                finally:
+                    self.page_record['observed_end_monotonic'] = self.now()
+                if self.now() - started > timeout:
+                    raise TimeoutError('Presentation timing page callback exceeded its bound')
+                self.remaining()
+                self.sample('front_after_page_250', 250, received)
+                self.ack('page_and_post_complete', {'pixelPassed': self.page_record['pixels']['passed']})
+            if self.deadline and len(self.samples) < 5:
+                self.remaining()
+        except Exception as error:
+            self.error = '%s: %s' % (type(error).__name__, error)
+            raise
+
+    def result(self, text, observer_error=None):
+        valid = False
+        error = self.error or observer_error
+        completed = []
+        try:
+            completed = timing_events(text, 'result')
+            acks = timing_events(text, 'acknowledged')
+            valid = (not error and self.page_record is not None and len(self.samples) == 5
+                     and len(completed) == 1 and completed[0].get('collectionValid') is True
+                     and completed[0].get('runId') == self.run_id
+                     and [a.get('stage') for a in acks] == ['fronts_complete', 'page_and_post_complete']
+                     and all(a.get('runId') == self.run_id and a.get('captured') is True for a in acks)
+                     and acks[0].get('samples') == [s for s, _ in TIMING_FRONTS]
+                     and type(acks[1].get('pixelPassed')) is bool
+                     and acks[1]['pixelPassed'] == self.page_record['pixels']['passed']
+                     and ' gpu recovery fault ' not in text)
+        except (ValueError, TypeError) as exc:
+            error = str(exc)
+        classification = 'invalid/inconclusive'
+        if valid and self.page_record['pixels']['passed']:
+            before = [s['pixels']['passed'] for s in self.samples[:4]]
+            after = self.samples[4]['pixels']['passed']
+            on_timeline = all(s['ended_monotonic'] <= self.samples[i + 1]['target_monotonic']
+                              for i, s in enumerate(self.samples[:3]))
+            if on_timeline:
+                if all(before) and after:
+                    classification = 'correct before page readback'
+                elif not before[0] and before[-1] and after and before == sorted(before):
+                    classification = 'stale then correct before page readback'
+                elif not any(before):
+                    classification = 'stale until after page readback' if after else 'still stale'
+        return {'collection_valid': bool(valid), 'classification': classification,
+                'acceptance': 'NOT_PROVEN', 'overall_timeout_ms': TIMING_OVERALL_MS,
+                'generic_front_and_page_captures_suppressed': True,
+                'request': self.request, 'front_samples': self.samples,
+                'page': self.page_record, 'fixture_results': completed,
+                'error': error or (None if valid else 'Incomplete/failed timing protocol; inspect fixture results and ACKs'),
+                'note': 'Readback correlation does not establish a production cause; lateness is retained.'}
 
 
 def native_scale_state(text, expected):
@@ -178,13 +352,19 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def electron_payloads(browser, host, electron_app, gpu_recovery=False):
+def electron_payloads(browser, host, electron_app, gpu_recovery=False, presentation_timing=False):
     if electron_app is None:
         return browser, host
     app = electron_app.resolve(strict=True)
     paths = (browser, host, app / 'main.js', app / 'package.json')
-    if gpu_recovery:
+    if gpu_recovery or presentation_timing:
         paths += (app / 'recovery-frame-wait.js',)
+    if presentation_timing:
+        paths += (app / 'presentation-timing.js',)
+        paths += tuple(Path(__file__).with_name(name) for name in (
+            'check-g4-webview2.py', 'check-g3-correctness.py', 'graphics_resources.py',
+            'graphics_frame_pixels.py', 'graphics_wexcomp.py', 'analyze-webview2-run.py',
+            'run-isolated-graphics.py', 'test_g4_native_window_state.cpp'))
     return paths
 
 
@@ -367,6 +547,8 @@ def main():
                         help='Restart a successful fresh --profile-proof run using its owned prefix/profile')
     parser.add_argument('--gpu-recovery', action='store_true',
                         help='Separate Electron owned-GPU termination/context-recreation diagnostic')
+    parser.add_argument('--presentation-timing', action='store_true',
+                        help='No-fault fixed front/page presentation timeline; collection is not graphics acceptance')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--resource-profile', action='store_true',
                         help='Read-only one-second owned-process CPU/RSS samples; not GPU telemetry')
@@ -383,15 +565,23 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
+    if args.presentation_timing and (not args.electron_app or args.gpu_recovery or args.lifecycle
+            or args.lifecycle_visuals or args.freeze_scene or args.restart_from or args.profile_proof
+            or args.resize_border or args.transition_scale is not None or args.seconds < 45):
+        parser.error('--presentation-timing requires Electron, >=45 seconds and no recovery/lifecycle/freeze/restart/profile/transition modes')
+    if args.presentation_timing and (not args.wexcomp_bin or args.compositor_renderer != 'gles2'
+            or args.gl_driver != 'virgl' or args.renderer != 'gl' or not shutil.which('grim')):
+        parser.error('--presentation-timing requires owned GLES2 VirGL and grim')
     if args.resize_border:
         # Fail before launching Wine rather than killing the observer halfway
         # through the fixture's frozen-frame acknowledgement handshake.
         from graphics_frame_pixels import frame_pixels
-    if args.gpu_recovery:
+    if args.gpu_recovery or args.presentation_timing:
         recovery_wait = (args.electron_app / 'recovery-frame-wait.js'
                          if args.electron_app else None)
         if recovery_wait is None or not recovery_wait.is_file():
-            parser.error('GPU recovery fixture dependency missing: ' + str(recovery_wait))
+            parser.error(('Presentation timing' if args.presentation_timing else 'GPU recovery')
+                         + ' fixture dependency missing: ' + str(recovery_wait))
         # PNG decoding and pixel-oracle availability are mandatory preconditions,
         # checked before any private Wine process or GPU fault can start.
         from PIL import Image  # noqa: F401
@@ -443,7 +633,7 @@ def main():
     loader = host.parent / 'WebView2Loader.dll'
     browser = runtime / ('electron.exe' if args.electron_app else 'msedgewebview2.exe')
     wine, server = build / 'wine', build / 'server/wineserver'
-    payloads = (electron_payloads(browser, host, args.electron_app, args.gpu_recovery)
+    payloads = (electron_payloads(browser, host, args.electron_app, args.gpu_recovery, args.presentation_timing)
                 if args.electron_app else (browser, host, loader))
     for path in (wine, server) + payloads:
         if not path.is_file():
@@ -454,6 +644,7 @@ def main():
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
     recovery_capture_run_id = secrets.token_hex(16) if args.gpu_recovery else None
+    timing_run_id = secrets.token_hex(16) if args.presentation_timing else None
     payload_hashes = {str(path): digest(path) for path in payloads}
     stack_files = [wine, server, build / 'dlls/win32u/win32u.so',
                    build / 'dlls/winex11.drv/winex11.so']
@@ -511,6 +702,9 @@ def main():
         environment['WEX_WEBVIEW2_GPU_RECOVERY'] = '1'
         environment['WEX_WEBVIEW2_RECOVERY_CAPTURE_DIR'] = winpath(output)
         environment['WEX_WEBVIEW2_RECOVERY_CAPTURE_RUN_ID'] = recovery_capture_run_id
+    if args.presentation_timing:
+        environment['WEX_WEBVIEW2_PRESENTATION_TIMING'] = '1'
+        environment['WEX_WEBVIEW2_TIMING_RUN_ID'] = timing_run_id
     if proof:
         environment['WEX_WEBVIEW2_PROFILE_EXPECT'] = expected or ''
         environment['WEX_WEBVIEW2_PROFILE_WRITE'] = token
@@ -540,28 +734,103 @@ def main():
     recovery_front_captures = {}
     recovery_front_pixel_verdicts = {}
     recovery_page_pixel_verdicts = {}
+    timing_collector = None
     read_fd, write_fd = os.pipe()
     monitor = None
     stop = threading.Event()
     capture_command = lambda path: (['grim', str(path)] if wexcomp_binary
                                     else ['import', '-window', 'root', str(path)])
     scale_probe = None
-    if args.gpu_recovery or ((args.output_scale is not None or args.resize_border) and args.lifecycle_visuals):
+    if args.gpu_recovery or args.presentation_timing or ((args.output_scale is not None or args.resize_border) and args.lifecycle_visuals):
         scale_probe = output / 'native-window-state.exe'
         subprocess.run(['x86_64-w64-mingw32-g++', '-O2', '-Wall', '-Wextra', '-Werror',
                         '-static-libgcc', '-static-libstdc++',
                         str(Path(__file__).with_name('test_g4_native_window_state.cpp')),
                         '-o', str(scale_probe), '-luser32'], check=True, timeout=30)
+        if args.presentation_timing:
+            result['presentation_native_probe_sha256'] = digest(scale_probe)
+
+    def timing_front(stage, request, timeout, record):
+        from PIL import Image
+        from graphics_frame_pixels import recovery_pixels
+        deadline = time.monotonic() + timeout
+
+        def bound(maximum):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Presentation timing front capture deadline')
+            return min(maximum, remaining)
+
+        identity = wexcomp.verify_identity(result['wexcomp']['process_identity'])
+
+        def geometry_query(suffix):
+            state = helpers.run_logged([str(wine), str(scale_probe)], environment, output,
+                                       'presentation-' + stage + suffix + '-native-window', bound(1.5))
+            if state.returncode:
+                raise RuntimeError('Presentation timing native HWND observation failed')
+            geometry = native_scale_state(state.stdout, args.output_scale or 1.0)
+            if any(request['windowBounds'].get(k) != geometry[k] for k in ('x', 'y', 'width', 'height')):
+                raise ValueError('Presentation timing native HWND geometry changed')
+            return geometry
+
+        geometry = geometry_query('-before')
+        capture = output / ('presentation-' + stage + '.png')
+        capture_started = time.monotonic()
+        record.update(path=str(capture), geometry=geometry, client_bounds=request['clientBounds'],
+                      observed_scale=geometry['fixed'] / 65536, compositor_identity=identity,
+                      capture_started_monotonic=capture_started)
+        with (output / 'capture.log').open('ab') as capture_log:
+            subprocess.run(capture_command(capture), env=environment, stdout=capture_log,
+                           stderr=capture_log, timeout=bound(3), check=True)
+        capture_ended = time.monotonic()
+        record.update(sha256=digest(capture), bytes=capture.stat().st_size,
+                      capture_ended_monotonic=capture_ended,
+                      capture_duration_ms=(capture_ended - capture_started) * 1000)
+        # Decode the whole PNG: corruption/geometry errors are collection failures,
+        # while a successfully decoded stale marker/rim is evidence to retain.
+        with Image.open(capture) as image:
+            image.load()
+            pixels = recovery_pixels(image, {**geometry, 'client_bounds': request['clientBounds']},
+                                     geometry['fixed'] / 65536, request['marker'], request['background'])
+            width, height = image.size
+        record.update(width=width, height=height, pixels=pixels)
+        if geometry_query('-after') != geometry:
+            raise ValueError('Presentation timing HWND changed during capture')
+        wexcomp.verify_identity(identity)
+        return {}
+
+    def timing_page(page, request, timeout):
+        from PIL import Image
+        from graphics_frame_pixels import recovery_page_pixels
+        capture = output / 'presentation-page.png'
+        if page.get('empty') is not False or page.get('bytes') != capture.stat().st_size:
+            raise ValueError('Presentation timing invalid page capture metadata')
+        with Image.open(capture) as image:
+            image.load()
+            if page.get('size') != dict(zip(('width', 'height'), image.size)):
+                raise ValueError('Presentation timing page dimensions changed')
+            pixels = recovery_page_pixels(image, request['viewport'],
+                                           timing_collector.samples[0]['observed_scale'],
+                                           request['marker'], request['background'])
+        return {'path': str(capture), 'sha256': digest(capture), 'bytes': capture.stat().st_size,
+                'pixels': pixels}
+
+    def timing_ack(stage, details):
+        write_timing_ack(output, timing_run_id, stage, details)
+
+    if args.presentation_timing:
+        timing_collector = PresentationTimingCollector(timing_run_id, timing_front, timing_page, timing_ack)
 
     def observe():
         seen = set()
         started = time.monotonic()
         next_resources = started
-        screenshots = ([4, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
-                       if args.gpu_recovery or args.freeze_scene else [8, 18])
+        screenshots = screenshot_schedule(args.presentation_timing, args.gpu_recovery, args.freeze_scene)
         with (output / 'processes.jsonl').open('w') as log:
             while not stop.wait(.25):
                 now = time.monotonic()
+                if timing_collector and (output / 'host.log').exists():
+                    timing_collector.poll((output / 'host.log').read_text(errors='replace'))
                 if args.resource_profile and now >= next_resources:
                     next_resources = now + 1
                     settled = result.get('resize_border_diagnostic', {}).get('passed') is True
@@ -862,6 +1131,12 @@ def main():
                 result.get('recovery_compositor_identity_after'), pixel_verdicts)
             passed = passed and result['recovery_front_capture_diagnostic']['passed']
             result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; inspect actual front/page captures'
+        if args.presentation_timing:
+            timing_log = hostlog.read_text(errors='replace') if hostlog.exists() else ''
+            result['presentation_timing_diagnostic'] = timing_collector.result(timing_log, result.get('observer_error'))
+            result['classification'] = 'No-fault presentation timing collection; graphics acceptance NOT_PROVEN'
+            passed = result['presentation_timing_diagnostic']['collection_valid']
+            passed = passed and result['outer_gl_driver_verification']['passed'] and result['gl_driver_verification']['passed']
         if args.lifecycle:
             result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['lifecycle_diagnostic']['passed']
@@ -895,6 +1170,11 @@ def main():
         stop.set()
         if monitor:
             monitor.join(timeout=5)
+        if timing_collector:
+            logpath = output / 'host.log'
+            result['presentation_timing_diagnostic'] = timing_collector.result(
+                logpath.read_text(errors='replace') if logpath.exists() else '',
+                result.get('observer_error') or result.get('failure'))
         if args.resource_profile and (output / 'resources.jsonl').exists():
             try:
                 samples = [json.loads(line) for line in (output / 'resources.jsonl').read_text().splitlines()]
