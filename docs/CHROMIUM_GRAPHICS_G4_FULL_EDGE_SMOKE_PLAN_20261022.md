@@ -67,3 +67,32 @@ Record startup failures with a narrow demonstrated owner for the next plan.
 Full tabbed Edge, lifecycle/recovery, Chromium/CEF variants, installed Classic/Luna
 shell and efficiency remain distinct later cells, not passes from this smoke.
 No master merge. Check usage and preserve the standing checkpoint/weekly limits.
+
+## Current authority and immediate acquisition milestone
+
+The human replied to the explicit terms/download/install question: "Yes, accept
+and test privately" on 2026-10-22. Edge payload acquisition/private VM testing is
+now authorized; no additional acceptance is inferred for unrelated agreements.
+The prerequisite regression cells are complete (9cb47a12, 9d8e6935). Parent
+independently inspected x64/i686/WebView2 images and all 44 archive hashes;
+i686 EXE machine is actually 0x014c. Corrected guards and both final shutdowns
+passed. Preserve x64's original procedure failure and the guard repair history.
+
+Next dispatch is acquisition/provenance ONLY, no VM boot/install/browser launch:
+resolve current Stable Windows x64 MSI from Microsoft's first-party
+https://edgeupdates.microsoft.com/api/products?view=enterprise metadata, preserving
+the exact selected product/release/artifact record and timestamp. Validate the
+official HTTPS artifact URL/final host, expected hash algorithm and payload digest;
+verify valid Microsoft Authenticode on the downloaded MSI using the host's
+read-only signature verification. Preserve signer/chain/status and exact version.
+Missing/invalid provenance, hash or signature stops this milestone without execution.
+Use a new private D:-resident directory, no vendor file or artwork in Git.
+Record the user's authorization and official terms URL privately/as concise notes.
+Commit/push a concise original provenance summary, return for parent verification
+before fixture implementation/guest installation. Never run host msiexec/setup.
+
+Future coverage note: current WebGL controls clear/read pixels but do not compile
+and draw a textured shader workload. Record that gap; add real shader/texture draw
+coverage in a later bounded graphics step rather than calling clear-only checks
+complete WebGL application compatibility. Full tabbed-browser operation is likewise
+distinct from the proposed app-window smoke.
