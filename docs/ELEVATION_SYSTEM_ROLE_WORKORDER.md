@@ -125,6 +125,18 @@ f. Wine's server opens files for its clients (`create_file` and `open_fd` in `se
    effective gid is then the user's, "the peer has `wexsys`" is checked on the saved gid from
    `/proc/<pid>/status`, not on `SO_PEERCRED`.
 
+g. Review of C2 (main session): until C3, the processes the launcher starts (`wineboot --init`, `services.exe` and
+   the services it starts) run on the user's own token, so a limited process can open them through Win32
+   (`OpenProcess` with full access) and run code in them without ptrace: `CreateRemoteThread`,
+   `QueueUserAPC`, `WriteProcessMemory` and handle duplication go through the server, not the kernel. That code
+   then has effective group `wexsys`. So the launcher must stay disabled (`WEX_SYSRUN_ENABLE` test-only) until C3
+   gives every process with effective group `wexsys` the SYSTEM token (or its service token) with a default DACL
+   and process descriptor that deny the user, and a probe proves that a limited and a standard-user process both
+   get `ERROR_ACCESS_DENIED` for `OpenProcess(PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_DUP_HANDLE)`
+   on them, and cannot inject an APC or duplicate a handle into them. The same holds for the `wexsys` server's
+   in-process objects the user's token can name. An elevated administrator with `SeDebugPrivilege` may open them,
+   as on Windows (administrator to SYSTEM is not a boundary there either).
+
 ## Phases after the design calls
 
 A. Machine root on `wexsys`: `setup-machine-root.sh` (create the group, ownership, mode, default ACLs, `--update`
