@@ -23,19 +23,23 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
-Use CHROMIUM_GRAPHICS_G4_VISIBLE_WEBGL_PLAN_20261022.md (2a1c4400).
-Luna agent Dirac owns implementation/tests only; parent independently reviews
-before any live control or fault trial. Three no-fault timing runs had correct
-fronts before page readback (reports ed5229e8/e1eca023), without explaining or
-fixing the intermittent stale front. Keep that failure and historical post-fault
-blanking open. The next high-value coverage is actual visible WebGL1/2 surfaces,
-not offscreen readback alone. No production patch or master merge is authorized.
+Use CHROMIUM_GRAPHICS_G4_POST_RECOVERY_CONTROLS_PLAN_20261022.md (2a1a88de).
+The user refreshed both usage windows again; verified 0% at 19:18 UTC. New
+five-hour reset is 2026-10-23 00:18:39 UTC. Latest usage always governs.
+Visible implementation eecf8bb3 and healthy visual control 69d6c22f were reviewed;
+then two independent single-fault visible recovery trials passed (50012793,
+ed7f7ccc). Parent inspected actual final fronts, independently checked all 78
+archive hashes, all recovery/capture gates and graceful QMP/QEMU/Windows exits.
+This is scoped recovery evidence, not a historical stale/blanking fix or full G4.
 
-After implementation review, dispatch one fresh-prefix visible no-fault timing
-control in the owned D:-backed VirGL guest. Inspect actual images before separately
-authorizing one visible GPU-child recovery trial. Preserve failures; do not retry
-until success. Use the existing persistent launcher/identity stopper and bounded
-cleanup procedure. An unhealthy pre-fault image must prevent fault injection.
+Luna agent Dirac now prepares the three regression controls for parent review:
+x86_64/i686 own/foreign-full DComp exact 4096 pixels, then strict real WebView2
+WebGL1/2. No new GPU fault. Complete nested source dependencies must be staged
+before boot. Parent reviews manifests before dispatch; preserve failures and
+stop on first failed control, not repeated attempts to obtain a pass. These are
+fresh-process/prefix controls after a reboot; do not claim faulted-process lifetime
+or pre-reboot GPU-global resource survival from them. No production patch or
+master merge is authorized. Keep historical stale-front/blanking uncertainty open.
 
 ## Priority queue after this rendering blocker
 
