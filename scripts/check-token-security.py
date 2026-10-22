@@ -247,6 +247,14 @@ def main():
                 print(arch, 'registry PASS' if passed else 'registry FAIL', run.stdout, flush=True)
                 if not passed:
                     raise RuntimeError('Registry enforcement failed: ' + arch)
+                # Pipe impersonation level; it lowers the probe's own integrity, so it gets its own process.
+                command = [str(wine), str(exe), '--pipe-impersonation']
+                run = run_logged(command, shape_env, output, arch + '.pipe', 120)
+                passed = run.returncode == 0 and 'pipe_impersonation=PASS' in run.stdout
+                result['cases'][arch + '.pipe'] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
+                print(arch, 'pipe PASS' if passed else 'pipe FAIL', run.stdout, flush=True)
+                if not passed:
+                    raise RuntimeError('Pipe impersonation failed: ' + arch)
             for suite_arch, dll, case in suites:
                 if suite_arch != arch:
                     continue

@@ -962,6 +962,94 @@ static bool registry_enforcement()
     return failures == before;
 }
 
+// Impersonation level a pipe server gets (docs/ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md, SeTokenCanImpersonate).
+// The limited token has no SeImpersonatePrivilege, so the level depends on integrity. The process lowers itself to
+// Low after taking a Medium copy of its token, which a client thread then impersonates.
+struct pipe_case {const WCHAR *name; HANDLE ready; DWORD level;};
+
+static DWORD WINAPI pipe_server(void *parameter)
+{
+    pipe_case *pc = (pipe_case *)parameter;
+    HANDLE pipe = CreateNamedPipeW(pc->name, PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_WAIT, 1, 64, 64, 0, NULL);
+    char byte;
+    DWORD read, size;
+    HANDLE token = NULL;
+    pc->level = 99;
+    SetEvent(pc->ready);
+    if (pipe == INVALID_HANDLE_VALUE) return 1;
+    if (ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED)
+    {
+        ReadFile(pipe, &byte, 1, &read, NULL);
+        if (ImpersonateNamedPipeClient(pipe))
+        {
+            if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token))
+            {
+                GetTokenInformation(token, TokenImpersonationLevel, &pc->level, sizeof(pc->level), &size);
+                CloseHandle(token);
+            }
+            else printf("pipe_impersonation OpenThreadToken error=%lu\n", GetLastError());
+            RevertToSelf();
+        }
+        else printf("pipe_impersonation ImpersonateNamedPipeClient error=%lu\n", GetLastError());
+    }
+    CloseHandle(pipe);
+    return 0;
+}
+
+// Returns the level the server got, with the calling thread impersonating `as` when it is not NULL.
+static DWORD pipe_level(const WCHAR *name, HANDLE as)
+{
+    pipe_case pc = {name, CreateEventW(NULL, TRUE, FALSE, NULL), 99};
+    HANDLE thread = CreateThread(NULL, 0, pipe_server, &pc, 0, NULL);
+    WaitForSingleObject(pc.ready, 5000);
+    Sleep(200);
+    if (as && !SetThreadToken(NULL, as)) printf("pipe_impersonation SetThreadToken error=%lu\n", GetLastError());
+    HANDLE client = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (as) SetThreadToken(NULL, NULL);
+    if (client == INVALID_HANDLE_VALUE) printf("pipe_impersonation client open error=%lu\n", GetLastError());
+    if (client != INVALID_HANDLE_VALUE) {DWORD written; WriteFile(client, "x", 1, &written, NULL);}
+    WaitForSingleObject(thread, 5000);
+    if (client != INVALID_HANDLE_VALUE) CloseHandle(client);
+    CloseHandle(thread);
+    CloseHandle(pc.ready);
+    return pc.level;
+}
+
+static bool pipe_impersonation()
+{
+    unsigned int before = failures;
+    HANDLE self = NULL, medium = NULL;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT, &self)) return false;
+    check(DuplicateTokenEx(self, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenImpersonation, &medium),
+          "pipe: duplicate the Medium token");
+
+    DWORD level = pipe_level(L"\\\\.\\pipe\\wex_pipe_same", NULL);
+    printf("pipe_impersonation same integrity level=%lu\n", level);
+    check(level == SecurityImpersonation, "pipe: same integrity gets impersonation level");
+
+    BYTE sid[SECURITY_MAX_SID_SIZE];
+    DWORD sid_size = sizeof(sid);
+    TOKEN_MANDATORY_LABEL label = {};
+    check(CreateWellKnownSid(WinLowLabelSid, NULL, sid, &sid_size), "pipe: low label sid");
+    label.Label.Sid = sid;
+    label.Label.Attributes = SE_GROUP_INTEGRITY;
+    check(SetTokenInformation(self, TokenIntegrityLevel, &label, sizeof(label) + sid_size),
+          "pipe: lower the process to Low integrity");
+    printf("pipe_impersonation process integrity=%#lx\n", integrity_rid(self));
+
+    level = pipe_level(L"\\\\.\\pipe\\wex_pipe_higher", medium);
+    printf("pipe_impersonation higher client level=%lu\n", level);
+    check(level == SecurityIdentification, "pipe: higher integrity client gets identification level");
+
+    level = pipe_level(L"\\\\.\\pipe\\wex_pipe_low", NULL);
+    printf("pipe_impersonation low client level=%lu\n", level);
+    check(level == SecurityImpersonation, "pipe: same (Low) integrity gets impersonation level");
+
+    CloseHandle(medium);
+    CloseHandle(self);
+    return failures == before;
+}
+
 // Sets (or clears) the helper so that a later process in this prefix gets the filtered root token.
 static bool set_helper(bool enable)
 {
@@ -1104,6 +1192,12 @@ int main(int argc, char **argv)
         bool registry = registry_enforcement();
         printf("registry_enforcement=%s\n", registry ? "PASS" : "FAIL");
         return registry ? 0 : 1;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--pipe-impersonation"))
+    {
+        bool pipe = pipe_impersonation();
+        printf("pipe_impersonation=%s\n", pipe ? "PASS" : "FAIL");
+        return pipe ? 0 : 1;
     }
     if (argc == 3 && !strcmp(argv[1], "--consent"))
     {
