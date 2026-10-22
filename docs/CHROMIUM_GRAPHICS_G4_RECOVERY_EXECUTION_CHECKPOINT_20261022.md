@@ -105,7 +105,10 @@ not reliably present in the captured compositor output. Trial02's and
 trial03's Chromium logs both report `DirectCompositionSupport::CheckFormatSupport`
 failure after GPU-process reinitialization; trial03 also logs
 `Creation of StagingBuffer's SharedImage failed` at the injected-crash point.
-These are temporal correlations, not yet a proven cause of the alternating
+Chromium source shows the format query is for optional P010 video-processor /
+HDR overlay support, so it is now recorded as a capability warning rather
+than a generic rendering failure. SharedImage failure coincides with the
+injected child exit. Neither log is yet a proven cause of the alternating
 captures. Do not count either repeat as visual acceptance or proceed to the
 post-fault regression matrix.
 
@@ -125,7 +128,6 @@ topology. Preserve every failure image/log. Do not weaken parser checks, change
 production code without a discriminating reproduction, or start another fault-
 injection trial until the capture discrepancy is understood. Then implement
 stage-aligned pre-fault/recovered/settled capture acknowledgement and
-deterministic visual pixels before further acceptance. A regression guard is
-now being added so `CheckFormatSupport failed` in the restarted GPU path cannot
-be hidden by the intentionally injected GPU-crash allowlist; its 14-test Linux
-suite passes. Keep all VM and evidence data on D:.
+deterministic visual pixels before further acceptance. The Linux suite must be
+rerun after this optional-capability warning refinement. Keep all VM and
+evidence data on D:.

@@ -39,13 +39,15 @@ def analyze(root):
         "warp_initialization": r"eglInitialize D3D11Warp failed",
         "d3d11_output": r"D3D11CreateDevice failed",
         "directcomposition_output": r"DCompositionCreateDevice failed",
-        "directcomposition_format_support": r"CheckFormatSupport failed",
         "gpu_process_crash": r"GPU process exited unexpectedly",
         "fatal_log": r":FATAL:",
         "skia_surface": r"Unable to initialize SkSurface",
         "shared_context": r"Failed to create shared context for virtualization",
     }.items():
         signatures[name] = len(re.findall(pattern, chromium))
+    optional_capability_warnings = {
+        "p010_video_processor_format_support": len(re.findall(r"CheckFormatSupport failed", chromium)),
+    }
     navigation = "success=1 web_error=0" in host
     return {
         "state": state, "navigation_succeeded": "success=1 web_error=0" in host,
@@ -54,6 +56,7 @@ def analyze(root):
         "samples": len(samples), "first": samples[0] if samples else None,
         "last": samples[-1] if samples else None, "late_frame_deltas": changes,
         "chromium_log_present": chromium_path.exists(), "errors": signatures,
+        "optional_capability_warnings": optional_capability_warnings,
         "note": "Animation progression is not proof of correct visual presentation; inspect the VM screenshot.",
     }
 
