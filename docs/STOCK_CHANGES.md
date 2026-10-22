@@ -36,6 +36,33 @@ See TOKEN_SECURITY_REPAIR_REVIEW.md and the checkpoint-B work order.
   disjoint intersection.
 
 
+## Elevation boundary, plan steps 2 and 3 (2026-10-22)
+
+Everything below applies only while `HKLM\Software\Wine\Elevation\Helper` (64-bit view) is configured, using
+the same unset rule as the ntdll loader. With the helper unset nothing changes. Native values come from
+`TOKEN_SECURITY_REFERENCES.md`.
+
+- `server/registry.c`: `elevation_helper_unset()` reads the helper from the in-memory registry;
+  `object_is_registry_key()`.
+- `server/security.h`: `elevation_enforced()` and the declarations below.
+- `server/token.c`:
+  - tokens carry a `lineage_id` shared by a token and its duplicates and filtered copies;
+  - `token_check_assign_primary()`: a non-primary token below `SecurityImpersonation` is refused
+    (`STATUS_BAD_IMPERSONATION_LEVEL`); a token outside the caller's lineage needs an enabled
+    `SeAssignPrimaryTokenPrivilege` or `SeTcbPrivilege` (`STATUS_PRIVILEGE_NOT_HELD`), re-implementing ReactOS's
+    child/sibling rule;
+  - `token_duplicate` will not raise an identification-level token to a primary token;
+  - `check_object_access` fails every open made while impersonating an identification-level token
+    (`STATUS_BAD_IMPERSONATION_LEVEL`, a registry key `STATUS_ACCESS_DENIED`).
+- `server/process.c`: `new_process` and `set_process_info(SET_PROCESS_INFO_TOKEN)` call
+  `token_check_assign_primary()`; `grant_process_admin_token` needs an enabled `SeTcbPrivilege`.
+- `dlls/advapi32/security.c`: `CreateProcessWithTokenW` needs `SeImpersonatePrivilege`
+  (`ERROR_PRIVILEGE_NOT_HELD`).
+- `dlls/shell32/shlexec.c`, `dlls/kernelbase/process.c`, `dlls/ntdll/loader.c`: read the helper from the 64-bit
+  registry view, as the server does. 32-bit processes previously read `Wow6432Node`.
+- `dlls/advapi32/tests/security.c`, `dlls/shell32/tests/shlexec.c`: conformance tests for the above, and the
+  approved-helper cases now expect `ERROR_BAD_IMPERSONATION_LEVEL` until the elevation broker exists.
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.

@@ -169,6 +169,35 @@ Sources: ReactOS `ntoskrnl/ps/security.c` and ros-diffs threads for the sibling 
 "Desktops", "Winlogon" and "UAC distilled". These were read as summaries and excerpts; read the current source
 before porting.
 
+## Status (2026-10-22)
+
+- Steps 1 to 3: **done** (details in `ELEVATION_BOUNDARY_STEP_2_3_WORKORDER.md`, "Results"). The five routes
+  and identification-level impersonation now match native Windows while a helper is configured.
+- **Finding that changes the plan: Wine's "limited" token is limited in name only.** The default process token
+  differs from the linked (full) token only in its elevation type. Measured with `GetTokenInformation` on
+  `c01c57ef`:
+  - all 21 admin privileges are present, among them `SeTcbPrivilege`, `SeDebugPrivilege`, `SeBackupPrivilege`
+    and `SeLoadDriverPrivilege`. Four are enabled; the rest can be enabled with `AdjustTokenPrivileges`;
+  - the Administrators group is enabled (attributes `0xf`), not deny-only;
+  - the integrity level is High (`0x3000`), not Medium.
+
+  On native Windows a filtered token has only `SeChangeNotifyPrivilege` and a few others, Administrators as
+  deny-only, and Medium integrity. So the checks above close the *token-handling* routes, but a limited process
+  can still enable `SeTcbPrivilege` itself and pass the privilege checks, and is already an enabled
+  Administrator at High integrity for every access check inside the server. The boundary is real only once the
+  limited token is really limited.
+- New step **2b**, between steps 3 and 4: create the default limited token the way `filter_token(LUA_TOKEN)`
+  already does (admin groups deny-only, privileges removed except change-notify, medium integrity) while a
+  helper is configured. This is a compatibility change for every Wine program, so it needs its own work
+  order, the Wine-Staging discussions on bug 40613 as a source of applications to test, and a decision on
+  scope (see "Decision needed" below). Until it lands, the rest of the plan (broker, secure desktop) protects
+  nothing a limited process cannot already do.
+- `CreateProcessWithTokenW(linked)` returns 1346 instead of native 1314 for the same reason: the limited token
+  still holds `SeImpersonatePrivilege`.
+
+Decision needed: do step 2b now, before the broker. Recommendation: yes. It is the part that makes the
+boundary real, and the broker and secure desktop depend on it.
+
 ## Order of work
 
 Do this plan before the remaining B2 and B3 work, because both depend on it:

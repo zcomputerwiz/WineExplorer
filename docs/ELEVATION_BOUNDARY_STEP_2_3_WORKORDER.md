@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: close the linked-token elevation bypass (plan steps 2 and 3)
 
-Date: 2026-10-22. Status: ready to start. Parent plan: `docs/ELEVATION_BOUNDARY_PLAN.md` (read its "Native
+Date: 2026-10-22. Status: **done**, see "Results" at the end. Parent plan: `docs/ELEVATION_BOUNDARY_PLAN.md` (read its "Native
 results", "Prior art" and D1/D2 sections first).
 
 ## Goal
@@ -140,3 +140,44 @@ All on a WoW64 build, both architectures, as an unprivileged user:
 - **Hidden callers.** Something besides `shell32`, `msi`, `explorer` and `winetest` may depend on the bypass.
   Grep for `TokenLinkedToken`, `CreateProcessAsUser`, `ProcessAccessToken` and `ProcessWineGrantAdminToken`
   before changing the server, and list every hit in the PR.
+
+## Results (2026-10-22)
+
+Wine branch `ccr-08223ee4-p830bf` on top of `f179c7e2`; all runs on a WoW64 build as an unprivileged user.
+
+Commits (Wine): server checks `427d5e19`, `CreateProcessWithTokenW` `3ea780f2`, 64-bit registry view
+`5a4a5e4c`, shell32 test `bc3bca27`, advapi32 conformance tests `8735faf8`.
+
+| Check | Result |
+| :--- | :--- |
+| New probes on the starting build (`c01c57ef`) | failed on all 8 routes, as expected |
+| Probes after the change, x86_64 and i386 | `linked_token_routes_closed=PASS` |
+| `native_token_contract_probe.cpp` under Wine, helper configured, x64 and x86 | equals the native table, except `CreateProcessWithTokenW` returns 1346 (native 1314), see the plan's status section |
+| Full harness, helper unset (`--all`), both architectures | `advapi32 security` 3726 tests / 0 failures; `ntdll info` 2687 and 2618 / 0; `shell32 shlexec` 1805 / 2 failures; consent PASS |
+| `shell32 shlexec` baseline | the same 2 failures occur on stock Wine master; the harness now accepts exactly that count and no more |
+| Runner sentinel | success, failure, timeout, signal PASS |
+| B4 smoke test, helper unset and `WEX_B4_HELPER=1` | PASS both |
+
+Deviations from this order:
+- **`token_duplicate` rule gated.** It applies only while a helper is configured. Ungated it broke shell32
+  `runas`, msi and the ntdll loader, which start processes from the linked token when no helper is set.
+- **Privilege checks use enabled privileges only**, as Windows does, and `SeTcbPrivilege` stands in for
+  `SeAssignPrimaryTokenPrivilege`, which no Wine token holds (`shortcut:` comment in `token.c`).
+- **Registry view.** 32-bit processes read the helper from `Wow6432Node` while the server reads the 64-bit
+  view, so 32-bit runs saw an unset helper. All readers and tests now use `KEY_WOW64_64KEY`.
+- **Existing expectations changed** as listed: harness `shell_helpers` and `helper_states`, and the approved-helper
+  cases in `dlls/shell32/tests/shlexec.c`.
+- **Hidden callers.** Grep for `TokenLinkedToken`, `CreateProcessAsUser`, `ProcessAccessToken` and
+  `ProcessWineGrantAdminToken` found `shell32`, `msi`, `ntdll/loader`, `explorer`, `winetest` and the tests;
+  none outside the planned list.
+
+Open: the limited token finding (plan, "Status"). With the helper configured, explorer's desktop runs on the
+limited token and the B4 smoke test passes.
+
+SHA-256 of the pushed sources: `server/registry.c` `18fe03ab…`, `server/security.h` `93a12fe9…`,
+`server/token.c` `3f2b98cd…`, `server/process.c` `3173a834…`, `dlls/advapi32/security.c` `8d2f8e63…`,
+`dlls/advapi32/tests/security.c` `65962666…`, `dlls/shell32/shlexec.c` `998e1ef5…`,
+`dlls/shell32/tests/shlexec.c` `d4b2a4df…`, `dlls/kernelbase/process.c` `bc1738b1…`,
+`dlls/ntdll/loader.c` `7327cff4…`. Built binaries: `server/wineserver` `9c5efdd3…`,
+`advapi32_test.exe` x86_64 `f3c5b888…` and i386 `374b1f67…`, `shell32_test.exe` x86_64 `51cddc7a…` and
+i386 `c51401ec…`. The build tree files equal the pushed blobs.

@@ -11,7 +11,7 @@
 # with the default WINEDEBUG so that diagnostics are not hidden. It does not reproduce the conhost crash by
 # itself, so it passes before and after the conhost fix.
 #
-# Usage: test_b4_explorer_fresh.sh WINE_BUILD_DIR   (run as an unprivileged user)
+# Usage: [WEX_B4_HELPER=1] test_b4_explorer_fresh.sh WINE_BUILD_DIR   (run as an unprivileged user)
 set -euo pipefail
 
 [ "$(id -u)" -ne 0 ] || { echo "run as an unprivileged user" >&2; exit 2; }
@@ -49,6 +49,15 @@ x86_64-w64-mingw32-g++ -O2 -Wall -Wextra -Werror -static-libgcc -static-libstdc+
 echo "Booting fresh prefix at $WORK/pfx on $DISPLAY..."
 "$WINE" wineboot.exe -i >"$WORK/boot.out" 2>"$WORK/boot.err" || fail "wineboot failed"
 "$WINESERVER" -w
+
+# WEX_B4_HELPER=1 configures an elevation helper first, which turns elevation enforcement on in the server:
+# explorer then runs with the user's limited token instead of granting itself an admin token.
+if [ "${WEX_B4_HELPER:-0}" = 1 ]; then
+    "$WINE" reg add 'HKLM\Software\Wine\Elevation' /v Helper /t REG_SZ \
+        /d 'C:\windows\system32\wex-test-helper-never-run.exe' /f /reg:64 >"$WORK/reg.out" 2>>"$WORK/reg.err" ||
+        fail "could not configure the elevation helper"
+    "$WINESERVER" -w
+fi
 
 # 1. A console program in its own new console, native and WoW64: this creates a conhost.exe window.
 for cmd in 'C:\windows\system32\cmd.exe' 'C:\windows\syswow64\cmd.exe'; do

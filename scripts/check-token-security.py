@@ -19,6 +19,9 @@ import subprocess
 import tempfile
 
 
+KNOWN_UPSTREAM_FAILURES = {('shell32', 'shlexec'): 2}
+
+
 def run_logged(command, environment, output, label, timeout):
     """Keep diagnostics even when a regression hangs instead of exiting."""
     stdout = output / (label + '.stdout.log')
@@ -205,6 +208,7 @@ def main():
             if not args.checkpoint_a:
                 markers.append('elevation_helper_errors_and_child_handle=PASS')
                 markers.append('elevation_helper_states_manifest_child=PASS')
+                markers.append('linked_token_routes_closed=PASS')
             passed = run.returncode == 0 and all(marker in run.stdout for marker in markers)
             result['cases'][arch] = {'command': command, 'exit_code': run.returncode, 'passed': passed,
                                      'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
@@ -221,8 +225,11 @@ def main():
                 counts = re.findall(r'(\d+) tests executed[^\n]*?\b(\d+) failures', run.stdout + run.stderr)
                 # Test programs that spawn children print one summary per process (children often run 0 tests), so
                 # require assertions to have run overall and no failures in any process.
-                passed = (run.returncode == 0 and bool(counts) and any(int(n) > 0 for n, f in counts) and
-                          all(int(f) == 0 for n, f in counts))
+                # shell32 shlexec has 2 failures on unmodified Wine master in this environment (the
+                # SEE_MASK_CLASSNAME .exe cases); anything beyond that baseline fails the run.
+                expected = KNOWN_UPSTREAM_FAILURES.get((dll, case), 0)
+                passed = ((run.returncode == 0 or (expected and run.returncode != 0)) and bool(counts) and
+                          any(int(n) > 0 for n, f in counts) and sum(int(f) for n, f in counts) == expected)
                 result['cases'][label] = {'command': command, 'exit_code': run.returncode,
                                          'summary_counts': counts, 'passed': passed}
                 if not passed:
