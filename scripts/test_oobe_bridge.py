@@ -294,6 +294,35 @@ int main(int argc, char **argv) {
                 else:
                     self.assertEqual(message, 'Malformed coordinator acknowledgement')
 
+    # F1 (Round 2): the STARTED acknowledgement's operation id must match the
+    # coordinator's exact grammar for the requested verb — "review_" <verb> "_" +
+    # exactly 32 lowercase hex digits. A framed-but-wrong token (wrong verb,
+    # uppercase, short/long, non-hex, or an extra trailing token) must neither
+    # succeed nor populate an accepted id that later rides into QUERY/CANCEL.
+    def test_review_start_rejects_malformed_operation_ids(self):
+        hex32 = b'0123456789abcdef0123456789abcdef'
+        bad_frames = [
+            b'OK review_synfont_' + hex32 + b' STARTED\n',             # wrong verb
+            b'OK review_corefonts_0123456789ABCDEF0123456789ABCDEF STARTED\n',  # uppercase hex
+            b'OK review_corefonts_' + hex32[:31] + b' STARTED\n',      # one byte short
+            b'OK review_corefonts_' + hex32 + b'0 STARTED\n',          # one byte long
+            b'OK review_corefonts_' + b'g' * 32 + b' STARTED\n',       # non-hex digits
+            b'OK corefonts_' + hex32 + b' STARTED\n',                  # missing "review_" prefix
+            b'OK review_corefonts_' + hex32 + b' extra STARTED\n',     # trailing token
+        ]
+        for index, frame in enumerate(bad_frames):
+            with self.subTest(index=index):
+                output, _ = self.exercise([frame], mode='start')
+                parts = output.strip().split('|')
+                self.assertEqual(parts[0], '31', output)          # ERROR_GEN_FAILURE
+                self.assertEqual(parts[1], '', output)            # no accepted id populated
+                self.assertEqual(parts[2], 'Malformed coordinator acknowledgement', output)
+        # Positive control: the exact grammar for the requested verb is accepted and
+        # populates the id that later rides into QUERY_REVIEW/CANCEL_REVIEW.
+        good = b'review_corefonts_' + hex32
+        output, _ = self.exercise([b'OK ' + good + b' STARTED\n'], mode='start')
+        self.assertEqual(output.strip().split('|'), ['0', good.decode(), ''], output)
+
     def test_review_query_states_and_fingerprint_validation(self):
         digest = b'0123456789abcdef' * 4
         output, requests = self.exercise([b'STATUS RUNNING 1024 4096\n'], mode='query')
@@ -334,6 +363,7 @@ int main(int argc, char **argv) {
                   b'STATUS RUNNING 1024 +4096\n',           # plus sign unsupported
                   b'STATUS RUNNING 01024 4096\n',           # leading zero not canonical
                   b'STATUS RUNNING 8192 4096\n',            # done exceeds total
+                  b'STATUS RUNNING 0 0\n',                  # zero total: no bytes to transfer
                   b'STATUS RUNNING 17179869185 17179869185\n',  # over-cap counters
                   b'STATUS RUNNING 1024 4096 x\n']          # trailing junk
         for index, frame in enumerate(frames):
@@ -345,6 +375,9 @@ int main(int argc, char **argv) {
         # The exact 16 GiB boundary with done == total is a valid terminal frame.
         output, _ = self.exercise([b'STATUS RUNNING 17179869184 17179869184\n'], mode='query')
         self.assertEqual(output.strip(), '0|RUNNING|17179869184|17179869184||', output)
+        # done == 0 is a valid start-of-transfer state whenever total is positive.
+        output, _ = self.exercise([b'STATUS RUNNING 0 4096\n'], mode='query')
+        self.assertEqual(output.strip(), '0|RUNNING|0|4096||', output)
 
     def test_review_query_retry_is_read_only(self):
         output, requests = self.exercise([b'', b'STATUS CANCELLED\n'], mode='query_retry')

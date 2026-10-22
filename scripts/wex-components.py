@@ -1099,6 +1099,16 @@ def embedded_license_text(verb, directory=None, cache_dir=None, strict=None):
         # AttributeError/KeyError and suppress the whole catalog; classify it as
         # damaged so other component rows stay accessible.
         raise StaleTermsError('Cached terms document is damaged; download for review again')
+    try:
+        text.encode('utf-8')
+    except UnicodeEncodeError as error:
+        # Valid JSON may carry an escaped lone surrogate (e.g. "\ud800"), which
+        # json.loads decodes into a str that cannot be re-encoded to UTF-8. The
+        # fingerprint encode below would otherwise raise an uncaught
+        # UnicodeEncodeError out of review_state and suppress the whole catalog;
+        # classify it as damaged so siblings stay accessible and strict GET_TERMS
+        # fails closed. Path/owner/mode/size and package-cache checks are untouched.
+        raise StaleTermsError('Cached terms document is damaged; download for review again') from error
     if record.get('schema') != REVIEW_TERMS_SCHEMA or record.get('kind') != 'embedded-review':
         # Old consent/cache schemas are invalidated, never migrated. A download
         # authorization is not stored, so none can be migrated into acceptance.

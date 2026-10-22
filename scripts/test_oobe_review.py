@@ -346,6 +346,26 @@ class DamagedTermsDocumentTests(CoordinatorReviewTests):
         self.assertEqual(opener.log, [])
         self.assert_no_install_state()
 
+    def test_F2_escaped_lone_surrogate_does_not_suppress_catalog(self):
+        # Valid JSON whose text field carries an escaped lone surrogate (U+D800).
+        # json.loads decodes it into a str that cannot be re-encoded to UTF-8; the
+        # fingerprint encode used to raise an uncaught UnicodeEncodeError out of
+        # review_state, aborting GET_COMPONENTS and hiding every sibling row. The
+        # encodability guard now classifies this document as damaged/stale instead.
+        opener = self.start_fake_network()
+        self.start_coordinator()
+        self.write_terms_doc(json.dumps({
+            'schema': components.REVIEW_TERMS_SCHEMA,
+            'kind': 'embedded-review',
+            'component_identity': components.component_identity('synfont'),
+            'text': '\ud800',
+            'fingerprint': '0' * 64,
+        }))
+        self.assert_damaged_behavior()
+        # The damaged document grounds no implicit download and no install/accept.
+        self.assertEqual(opener.log, [])
+        self.assert_no_install_state()
+
     def test_F2_authorized_rereview_repairs_damaged_cache(self):
         total = self.synfont_total()
         self.start_fake_network()

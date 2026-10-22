@@ -2158,7 +2158,10 @@ static BOOL oobe_parse_review_info( const char *reply, unsigned long long *total
     return TRUE;
 }
 
-/* "STATUS RUNNING <done> <total>\n" with both counters bounded and done <= total. */
+/* "STATUS RUNNING <done> <total>\n" with both counters bounded, done <= total,
+ * and a positive total. A real review download always has bytes to transfer, so
+ * zero total is malformed even though zero done (the start of the transfer) is
+ * valid whenever total is positive. */
 static BOOL oobe_parse_review_running( const char *reply, unsigned long long *done,
                                        unsigned long long *total )
 {
@@ -2176,9 +2179,38 @@ static BOOL oobe_parse_review_running( const char *reply, unsigned long long *do
         return FALSE;
     if (*p != '\n')
         return FALSE;
+    if (*total == 0)
+        return FALSE;   /* a real review download has a positive byte total */
     if (*done > *total)
         return FALSE;   /* progress can never exceed the total */
     return TRUE;
+}
+
+/* TRUE iff op_id is exactly the coordinator's own operation id for this verb:
+ * "review_" <verb> "_" followed by precisely 32 lowercase hex digits and nothing
+ * else. The value is echoed back in QUERY_REVIEW/CANCEL_REVIEW, so accepting an
+ * arbitrary non-whitespace token here would let a damaged or hostile STARTED
+ * acknowledgement seed an id the coordinator cannot match to a real operation. */
+static BOOL oobe_valid_review_op_id( const char *op_id, const char *verb )
+{
+    static const char prefix[] = "review_";
+    size_t vlen = strlen( verb );
+    size_t i;
+
+    if (strncmp( op_id, prefix, sizeof(prefix) - 1 ))
+        return FALSE;
+    op_id += sizeof(prefix) - 1;
+    if (strncmp( op_id, verb, vlen ) || op_id[vlen] != '_')
+        return FALSE;
+    op_id += vlen + 1;
+    for (i = 0; i < 32; i++)
+    {
+        char c = op_id[i];
+        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+            continue;
+        return FALSE;   /* non-hex, uppercase hex, or a short id */
+    }
+    return op_id[32] == '\0';   /* exactly 32 hex digits, no trailing token */
 }
 
 static NTSTATUS oobe_review_info( void *args )
@@ -2281,12 +2313,25 @@ static NTSTATUS oobe_review_start( void *args )
         return STATUS_SUCCESS;
     }
 
+    /* No reject path may leave an accepted id behind: clear it up front so a
+     * malformed, wrong-verb, or unrecognised acknowledgement can never populate
+     * the value that later rides into QUERY_REVIEW/CANCEL_REVIEW. */
     op_id[0] = '\0';
+    params->op_id[0] = '\0';
     if (strncmp( reply, "OK ", 3 ) == 0)
     {
         if (sscanf( reply, "OK %95s STARTED%n", op_id, &consumed ) < 1 ||
             !consumed || strcmp( reply + consumed, "\n" ))
         {
+            params->err = ERROR_GEN_FAILURE;
+            snprintf( params->err_buf, sizeof(params->err_buf), "Malformed coordinator acknowledgement" );
+            return STATUS_SUCCESS;
+        }
+        if (!oobe_valid_review_op_id( op_id, params->verb ))
+        {
+            /* Framed correctly but not the coordinator's own id for this verb: a
+             * wrong-verb, uppercase, short/long, or non-hex token is rejected
+             * with the (already-cleared) accepted id left empty. */
             params->err = ERROR_GEN_FAILURE;
             snprintf( params->err_buf, sizeof(params->err_buf), "Malformed coordinator acknowledgement" );
             return STATUS_SUCCESS;
