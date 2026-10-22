@@ -302,3 +302,44 @@ rows pass only with the local, uncommitted `ServiceCurrent` entry):
 | `notepad`, `taskmgr` under enforcement | start and keep running (12 s), `taskmgr` prints only the usual fixmes; `notepad` logs "Failed to open RpcSs service" |
 | 32-bit program (`hkcu32.exe`) under enforcement | HKCU create and set value succeed; new key under `HKLM\Software` gives 5 |
 | `cmd /c reg add HKCU\...` from `syswow64\cmd.exe` | exit 0 |
+
+### Results, review fixes (2026-10-22)
+
+Wine commits `a252e52b` (pipe impersonation level) and `d668329f` (service process access); parent commits for the
+probe (`--pipe-impersonation`) and the B4 script.
+
+1. **Pipe impersonation (blocking).** `token_impersonation_level()` in `server/token.c` follows SeTokenCanImpersonate:
+   a server whose process token lacks an enabled `SeImpersonatePrivilege` gets identification level unless the client
+   has the server's user, its integrity is not higher, and it is not elevated (Full) while the server is not. The
+   requested SQOS level is **not** plumbed (the create_file request carries no SQOS; it would need a protocol change),
+   so the cap is the client token's own level; marked with a `shortcut:` comment. Needed a second fix: `open_token`
+   with `OpenAsSelf` checked access with the impersonated identification token and failed (1346), so it now checks
+   against the process token. Probe `pipe_impersonation=PASS` (x86_64 and i386): a Medium client thread against a
+   server lowered to Low gets level 1 (identification); equal integrity gets level 2 (impersonation). The harness
+   requires it.
+2. **Services under enforcement.** Findings:
+   - `Control\ServiceCurrent` is **not** informational. services.exe writes the next pipe number into it for each
+     service process it starts and sechost in the service process reads it to find `NtControlPipe<N>`. Without the key
+     no service process can be reached, so tolerating the failure would break every service. A limited services.exe
+     cannot create it without a grant, and I kept the key out of `display_cache_paths` as ordered. **This is the one
+     remaining blocker**: committed state still fails `registry_enforcement` with 1722 on the SCM rows. Options:
+     the one-line table entry, or run services.exe on the system token (the system role).
+   - Own-process rights: done (`own_process_access` in `programs/services/rpc.c`, pid from
+     `I_RpcBindingInqLocalClientPID`, which needed an `ncacn_np` implementation in rpcrt4). sechost's second handle now
+     asks only `SERVICE_QUERY_STATUS|SERVICE_QUERY_CONFIG`.
+   - `RpcSs` (started on demand by `ole32`/`combase` with `SERVICE_START|SERVICE_QUERY_STATUS`) is openable for start
+     and status by anyone; native has it running from boot.
+   - With the local `ServiceCurrent` entry, winedevice, plugplay, mountmgr, eventlog, svchost start, and the NDIS 1053
+     and "Failed to open RpcSs service" errors are gone. Left: "Failed to retrieve the computer name, error 2" from
+     rpcrt4 (`ActiveComputerName` is written by `wineboot --init`, denied), harmless.
+3. `test_b4_explorer_fresh.sh` runs `wineboot -u` before it sets the helper.
+4. **Display table lookup cost.** `wineboot -u` with the helper set, same prefix, server restarted per run: with the
+   lookup 13.6 to 15.8 s; with the lookup skipped (every key treated as display cache) 17.6 s; helper unset about 13 s.
+   The lookup is not measurable against noise, so no cache is needed now. B4 with `WEX_B4_HELPER=1`: 56 s including
+   the 14 s `wineboot -u`, down from 2 min 18 s; helper unset 36 s.
+
+| Check (local `ServiceCurrent` entry, uncommitted) | Result |
+| :--- | :--- |
+| Full harness `--all`, both architectures | limited shape, registry, pipe, consent PASS; `advapi32 security` 3728 / 0; `ntdll info` 2811 and 2744 / 0; `shlexec` 1805 / 2 |
+| B4 helper set | PASS, 56 s |
+| Committed state, focused harness | `registry_enforcement=FAIL` on the four SCM rows (1722), as above |

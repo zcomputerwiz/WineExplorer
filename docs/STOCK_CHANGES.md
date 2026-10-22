@@ -92,7 +92,7 @@ Wine commits `4fced06b`, `839c0f31`, `4fa6f4ac` (hashes of the working branch; t
 
 Applies only while `HKLM\Software\Wine\Elevation\Helper` is configured (`elevation_enforced()`), except where
 marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`. Wine commits (working branch
-`ccr-work`): `91b53ca8`, `c28aafba`, `437525d3`, `2487739e`, `9bb835d1`.
+`ccr-work`): `91b53ca8`, `c28aafba`, `437525d3`, `2487739e`, `9bb835d1`, `a252e52b`, `d668329f`.
 
 - `dlls/win32u/sysparams.c` (`reg_empty_key`): stops at the first failed delete instead of enumerating index 0
   forever. **Unconditional**, upstreamable.
@@ -114,6 +114,19 @@ marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`.
 - `programs/services/rpc.c`: `OpenSCManager`, `OpenService` and `CreateService` check the requested access against
   the documented default descriptors of the service control manager and of a service, with the RPC client's token
   (`check_client_access`). The checks are skipped while no helper is configured.
+- `server/named_pipe.c`, `server/token.c` (`token_impersonation_level`): the level a pipe server gets is capped like
+  Windows' SeTokenCanImpersonate. Without `SeImpersonatePrivilege` in the server's process token it is
+  identification, unless the client has the server's user, is not more trusted (integrity) and is not elevated
+  while the server is not. The client's requested SQOS level is not sent to the server (`shortcut:` comment), so
+  the cap is the client token's own level. `open_token` with `OPEN_TOKEN_AS_SELF` checks access against the
+  process token, so an identification-level caller can still read its client's identity.
+- `programs/services/rpc.c`, `dlls/rpcrt4/rpc_transport.c`, `dlls/sechost/service.c`: `OpenService` also grants
+  the process the SCM started for a service the rights it uses to report status
+  (`SERVICE_SET_STATUS`, query, `READ_CONTROL`), found by comparing `I_RpcBindingInqLocalClientPID` with the
+  recorded process id. rpcrt4 implements that call for `ncacn_np` (stock has it for `ncalrpc` only). sechost opens
+  the second handle of its own service with `SERVICE_QUERY_STATUS|SERVICE_QUERY_CONFIG` instead of
+  `GENERIC_READ|GENERIC_WRITE`. `RpcSs` is openable for start and status by anyone, because Wine starts it on demand
+  (`shortcut:` comment).
 - Callers that asked for `KEY_ALL_ACCESS` on `HKLM` only to read: `dlls/ntdll/version.c` (Windows version values,
   `KEY_READ`), `dlls/kernelbase/locale.c` (NLS and time zone keys, `KEY_READ`). Upstreamable.
 - `dlls/shell32/shellpath.c` (`_SHOpenProfilesKey`): when the create with `KEY_ALL_ACCESS` is denied, opens
