@@ -195,8 +195,8 @@ before porting.
 - `CreateProcessWithTokenW(linked)` returns 1346 instead of native 1314 for the same reason: the limited token
   still holds `SeImpersonatePrivilege`.
 
-Decision needed: do step 2b now, before the broker. Recommendation: yes. It is the part that makes the
-boundary real, and the broker and secure desktop depend on it.
+Step 2b is scoped in `ELEVATION_BOUNDARY_STEP_2B_WORKORDER.md` (decided: do it before the broker). It found a
+second blocker: the default registry key descriptor gives a really limited token no access, even to `HKCU`.
 
 ## Order of work
 
