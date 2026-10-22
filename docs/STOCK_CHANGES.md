@@ -456,8 +456,7 @@ Phases C and D and constraint g of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Everyth
 system role is active (the server was started by the setgid launcher, `sysrun_active`) **and** elevation is enforced
 (`HKLM\Software\Wine\Elevation\Helper` set); otherwise stock behavior. Exception: `programs/services` also checks
 whether its own token is SYSTEM, which only the system role gives it.
-Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`; fixes after test runs are listed in the work order's
-"Results, C3".
+Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
 
 - `server/token.c`, `server/security.h` (`token_create_service`, `token_service_account`): primary tokens of
   LocalSystem (S-1-5-18: groups Administrators (enabled, owner and primary group), Everyone, Authenticated Users),
@@ -481,11 +480,14 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`; fixes after test
   or standard token cannot open it with any right) and gets the SYSTEM token when its main image is verified: the
   mapped file's device and inode (`fstat` of the server's descriptor) must equal `services.exe`, `wineboot.exe` or
   `winedevice.exe` of the machine root's `system32` (or `wineboot.exe` and `winedevice.exe` of `syswow64`). The NT
-  path is never used, it goes through the user's prefix links. Any other image: the request fails with
-  `STATUS_ACCESS_DENIED`, the process is killed. A child gets its parent's token or the one it is given and a
+  path is never used, it goes through the user's prefix links. Any other image: its raised file access ends at once and
+  the process is killed from the main loop (a timer, 10 ms later: killing it inside its own request crashed the server). A child gets its parent's token or the one it is given and a
   descriptor from it when that token is SYSTEM, LocalService or NetworkService. The connection credentials of a
   child are those of the process that made the socket pair, so the server clears `peer_gid` for a child with a
   service-account token: it never gets the system group's file access.
+- `server/token.c` (`check_object_access`): an enabled SeDebugPrivilege opens any process or thread whatever its
+  descriptor says (Windows does the same), while the system role is active. A filtered or standard token has no
+  SeDebugPrivilege; an elevated administrator token has it disabled until the program enables it.
 - `server/sysrun.c` (`sysrun_check_process_access`), `server/hook.c` (`set_hook` with a thread or process),
   `server/queue.c` (`attach_thread_input`), `server/console.c` (`AttachConsole`): the requests that name another
   process or thread by id instead of by handle are checked against its descriptor.
@@ -508,7 +510,9 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`; fixes after test
   `svcctl_QueryServiceObjectSecurity`, `svcctl_SetServiceObjectSecurity`): the descriptor of a service is the
   binary `Security` value of its registry key, else the native default; `SetServiceObjectSecurity` needs `WRITE_DAC`
   on the service handle, takes the DACL only (shortcut) and writes the value; `QueryServiceObjectSecurity` returns
-  owner, group and DACL (it was `ERROR_CALL_NOT_IMPLEMENTED`).
+  owner, group and DACL (it was `ERROR_CALL_NOT_IMPLEMENTED`). `dlls/sechost/service.c`
+  (`QueryServiceObjectSecurity`, `SetServiceObjectSecurity`) call these over RPC; they were a semi-stub (an empty
+  DACL) and `return TRUE`. Not gated: this is the documented behavior, for every services.exe.
 
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |

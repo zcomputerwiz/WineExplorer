@@ -164,7 +164,7 @@ A limited process can therefore enable `SeTcbPrivilege` and pass every check fro
 ## Results (2026-10-22, scope items 2 to 4 and the scriptable part of 6)
 
 Wine branch `ccr-work` on top of `0e402796`, parent branch `ccr-08223ee4-p830bf`. WoW64 build, both architectures,
-unprivileged user `wextest`. Not done: item 5 (system role, waits for D2), and the
+unprivileged user `wextest`. Item 5 (system role): done in C3, see below. Not done: the
 interactive part of item 6 (`regedit`, `notepad`, `taskmgr`). Wine commits (working-branch hashes): `4fced06b`
 filter helper, `839c0f31` root token, `4fa6f4ac` registry default descriptor. Parent commits: the probe, then
 this documentation.
@@ -248,7 +248,11 @@ will only show once registry enforcement exists. Not run: `regedit`, `notepad`, 
 
 ### Open
 
-- System role (item 5, D2).
+- System role (item 5, D2): **done** (2026-10-22, C3). Probes: `scripts/test_sysrun_server.sh` section 8 and
+  `ELEVATION_SYSTEM_ROLE_WORKORDER.md` "Results, C3". Services report S-1-5-18/19/20, a user copy of `services.exe`
+  gets no role, a limited and a standard user cannot create or reconfigure a service or open the system processes,
+  and the two temporary Users-writable grants are gone while the system role is active (kept without it). The launcher
+  is not installed by default yet (constraint g).
 - Registry enforcement for default-descriptor keys (finding 1), then re-run the sweep.
 - Plan "Status" and the SHA-256 list of the pushed sources: after the planner pushes and merges.
 

@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: the system role and elevation as a Unix group (`wexsys`)
 
-Date: 2026-10-22. Status: phase 0 done, design calls decided; phases A and B done (see Results); phases C to F next. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
+Date: 2026-10-22. Status: phase 0 done, design calls decided; phases A and B done, C1, C2 and C3 done (see Results); the launcher is still off by default (constraint g: the user decides), F (documentation) is mostly in the commits. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
 item 5 and decision D2, and gives the broker (step 4) and polkit consent (step 6) their Unix anchor.
 
 ## Why
@@ -125,7 +125,7 @@ f. Wine's server opens files for its clients (`create_file` and `open_fd` in `se
    effective gid is then the user's, "the peer has `wexsys`" is checked on the saved gid from
    `/proc/<pid>/status`, not on `SO_PEERCRED`.
 
-g. Review of C2 (main session): until C3, the processes the launcher starts (`wineboot --init`, `services.exe` and
+g. Review of C2 (main session; met by C3, probes in `scripts/test_sysrun_server.sh` section 8): until C3, the processes the launcher starts (`wineboot --init`, `services.exe` and
    the services it starts) run on the user's own token, so a limited process can open them through Win32
    (`OpenProcess` with full access) and run code in them without ptrace: `CreateRemoteThread`,
    `QueueUserAPC`, `WriteProcessMemory` and handle duplication go through the server, not the kernel. That code
@@ -631,3 +631,179 @@ with its output discarded.
 Known gaps: Unix-socket `bind` and other paths opened by the client itself (not by the server) are the client's
 own rights; a system-group client that is itself malicious is out of scope (it is the system role). The saved-gid
 check does not tell the server from `wineboot-init`, which also has the saved gid; both are launcher-run programs.
+
+
+### Results, C3 (system role recognition, SYSTEM and service tokens, services.exe, probes)
+
+Date: 2026-10-22. Phases C and D, the probes of phase E and step 2b item 5, honoring constraint g. Wine commits (branch
+`ccr-work`, pushed as `ccr-08223ee4-p830bf`): `edf575a2260` (server), `9ab7dee645e` (ntdll, services), `bd22d5ee0d9` (deferred stop of an unverified process, sechost). Entries in
+`STOCK_CHANGES.md`: "Elevation boundary: the system role, SYSTEM and service tokens (C3)". Everything is active only
+with the launcher-started server and elevation enforced; without either, stock behavior (one exception: sechost's
+service security calls, below).
+
+**The default stays off.** `setup-machine-root.sh` still installs the launcher only with `WEX_SYSRUN_ENABLE=1`. The
+probes below pass; the decision is the user's (item 7).
+
+#### What was built
+
+- **Recognition (item 1).** A root process (a new connection) whose `SO_PEERCRED` uid and gid are the server's user
+  and the system group is *protected from its first moment*: process and thread objects get an owner, group and DACL
+  from the SYSTEM token (SYSTEM and Administrators only), so there is no window in which a limited token could open
+  it. It gets the SYSTEM token when its **main image is verified**: `add_process_view` hands the server's descriptor of
+  the mapped file to `sysrun_main_image`, which compares device and inode with `drive_c/windows/system32/{services,
+  wineboot,winedevice}.exe` and `syswow64/{wineboot,winedevice}.exe` of the machine root (`stat` of the configured
+  path; the NT path is never used, it goes through the user's prefix links). With C2 the launcher-started processes
+  use the machine root as prefix; verified in the probe. Any other image: `STATUS_ACCESS_DENIED` for the mapping and
+  `kill_process`. A child gets its parent's token (duplicate) or the one it is given and, if that token's user is
+  SYSTEM, LocalService or NetworkService, the same kind of descriptor from that token. Services that services.exe
+  starts are children, so they are not checked by image: the check is for the processes the user can get started with
+  the system group.
+- **Connection credentials of a child.** `SO_PEERCRED` of a new process is that of the process that made the socket
+  pair (the parent), not of the child. So a service started by services.exe would look like it has the system group
+  even after the child dropped it. The server therefore clears `peer_gid` for a child whose token is LocalService or
+  NetworkService: such a process never gets the raised-group file access of constraint f.
+- **Tokens (item 2).** `token_create_service` and the request `create_service_token` (reached through
+  `NtSetInformationProcess(ProcessWineCreateServiceToken = 1003)`: input account 0 LocalSystem, 1 LocalService, 2
+  NetworkService; output token handle). `STATUS_PRIVILEGE_NOT_HELD` without an enabled SeTcbPrivilege,
+  `STATUS_ACCESS_DENIED` for a caller that is not the system role's SYSTEM process (Wine's administrator token has
+  SeTcbPrivilege too: this is stricter than the work order), `STATUS_NOT_SUPPORTED` when the system role is off,
+  `STATUS_INVALID_PARAMETER` for another account number.
+- **services.exe (item 3).** With the SYSTEM token every service starts through `CreateProcessAsUserW` with the token
+  of its `ObjectName`. winedevice is a service entry with `LocalSystem`. `ObjectName` other than the three: the
+  service does not start, `ERROR_SERVICE_LOGON_FAILED` (1069), documented. The control pipe of a service has a
+  descriptor for SYSTEM and the account. services.exe sets its own token's default DACL to SYSTEM, Administrators
+  and Authenticated Users (read, write, execute), because objects it creates without a descriptor (the `\pipe\svcctl`
+  endpoint made by rpcrt4, the started event) would otherwise be reachable by SYSTEM and Administrators only.
+- **Dropping the system group (item 3, no design call needed).** The Wine path is `NtCreateUserProcess` ->
+  `spawn_process` (`dlls/ntdll/unix/process.c`), which forks twice and execs the loader. A client with the system group
+  checks the token it was given (`sysrun_must_drop_group`: `NtQueryInformationToken(TokenUser)`; not SYSTEM, or no
+  answer, means drop) and in the forked child calls `setresgid(gid, gid, gid)` before the exec: effective and saved
+  group become the real group, the child cannot get the system group back. Because that makes it an ordinary dumpable
+  process of the user, it also marks itself not dumpable first thing (`WINESERVICENODUMP`, read in `__wine_main`),
+  and so do its children. Shortcut: the flag is set after the exec; in the short window before it, with
+  `kernel.yama.ptrace_scope` 0, the user could attach. With scope 1 (the Debian default) a non-descendant cannot.
+  Upgrade: a service-child mode in the launcher.
+- **Registry grants (item 4).** `ServiceCurrent` and `ActiveComputerName` are Users-writable only while the system role
+  is not active (`!sysrun_active`). Without a launcher services.exe and `wineboot --init` run limited and still need
+  them.
+- **Service security (item 5).** `Services\<name>\Security` (binary, self-relative) is read at load; the check in
+  `OpenService` uses it, else the native default. `SetServiceObjectSecurity` needs `WRITE_DAC` on the handle, takes the
+  DACL only (shortcut), writes the value (saved with the machine hive). `QueryServiceObjectSecurity` returns owner,
+  group and DACL. sechost's two calls were a semi-stub and `return TRUE`; they now call the RPC functions. This is
+  the only change that is not gated.
+- **Found and fixed on the way.** (1) `NtCreateToken` needed no privilege: a limited process could make itself an
+  administrator token, impersonate it and pass every access check, so no descriptor of the system role would have held.
+  While enforced it now needs SeCreateTokenPrivilege, which no Wine token has. (2) `token_duplicate` lost an owner
+  that is the user (a service account's owner is the account). (3) SeDebugPrivilege now opens any process or thread
+  (Windows does; without it an administrator could not open a LocalService process).
+
+#### Privilege lists (all provisional: not measured on a native system)
+
+Wine defines privileges 2 to 30 only, so SeIncreaseWorkingSet and SeTimeZone are missing. The lists are from memory
+of `whoami /priv` in a service and the documented defaults. A native measurement should replace them (the probe
+`native_token_contract_probe.cpp` can print them).
+
+| Account | Enabled | Disabled |
+| :--- | :--- | :--- |
+| LocalSystem | Tcb, Debug, Backup, Restore, Shutdown, SystemEnvironment, Audit, Impersonate, CreateGlobal, ChangeNotify, SystemProfile, ProfileSingleProcess, IncreaseBasePriority, CreatePagefile, ManageVolume, LockMemory, CreatePermanent | AssignPrimaryToken, IncreaseQuota, Security, TakeOwnership, LoadDriver, Systemtime, RemoteShutdown, Undock |
+| LocalService | ChangeNotify, CreateGlobal, Impersonate | AssignPrimaryToken, Audit, Shutdown, Undock |
+| NetworkService | ChangeNotify, CreateGlobal, Impersonate | AssignPrimaryToken, Audit, IncreaseQuota |
+
+Groups: SYSTEM: Administrators (enabled, owner, primary), Everyone, Authenticated Users. The service accounts:
+Everyone, Users, Authenticated Users, SERVICE (S-1-5-6), LOCAL (S-1-2-0); no Administrators; owner is the account.
+All three: System integrity, `TokenElevationTypeDefault`, no linked token, primary. Default DACL: SYSTEM and
+Administrators for SYSTEM, SYSTEM and the account for the others. Unknown (provisional): the native primary group of the
+service accounts (Users here), CONSOLE LOGON and the logon SID, the exact native SYSTEM group list (native also has
+BUILTIN\Users).
+
+#### Cross-process server paths and their access checks (item 1)
+
+All of these check against the descriptor of the target, because a handle to a protected process or thread can only be
+made through a path that checks it (`alloc_handle` -> `check_object_access`) or by the process that created it.
+
+| Path | Requests | Right | How |
+| :--- | :--- | :--- | :--- |
+| OpenProcess, OpenThread | `open_process`, `open_thread` | the requested rights | `alloc_handle` checks the descriptor |
+| NtGetNextProcess, NtGetNextThread | `get_next_process`, `get_next_thread` | the requested rights | `alloc_handle` |
+| DuplicateHandle | `duplicate_handle` | `PROCESS_DUP_HANDLE` on both process handles; more rights than the source handle has: checked against the descriptor with both tokens | handle rights, `check_object_access` |
+| QueueUserAPC | `queue_apc` | `THREAD_SET_CONTEXT` | handle rights |
+| CreateRemoteThread, VirtualAllocEx and friends | `queue_apc` with the create-thread and virtual-memory calls | `PROCESS_CREATE_THREAD`, `PROCESS_VM_OPERATION` | handle rights |
+| New thread in another process | `new_thread` | only the initial thread of a process that has no thread yet | the creator's own child |
+| Read and WriteProcessMemory | `read_process_memory`, `write_process_memory` | `PROCESS_VM_READ`, `PROCESS_VM_WRITE` | handle rights |
+| Get and SetThreadContext | `get_thread_context`, `set_thread_context` | `THREAD_GET_CONTEXT`, `THREAD_SET_CONTEXT` | handle rights |
+| Debug attach | `debug_process` | `PROCESS_VM_READ`, `PROCESS_VM_WRITE`, `PROCESS_SUSPEND_RESUME` | handle rights |
+| NtSetInformationProcess | `set_process_info` (priority, affinity, token), `grant_process_admin_token`, `make_process_system`, `ProcessWineCreateServiceToken` | `PROCESS_SET_INFORMATION` (plus SeTcb) | handle rights |
+| Suspend, resume, terminate, job assignment, new process with a parent | `suspend_*`, `resume_*`, `terminate_*`, `assign_job`, `new_process` | `PROCESS_SUSPEND_RESUME`, `PROCESS_TERMINATE`, `PROCESS_SET_QUOTA`, `PROCESS_CREATE_PROCESS` | handle rights |
+| **By id, no handle:** targeted `SetWindowsHookEx` (`set_hook` with a thread or process) | `set_hook` | `PROCESS_VM_WRITE` and `PROCESS_CREATE_THREAD` | **new**: `sysrun_check_process_access` |
+| **By id:** AttachThreadInput | `attach_thread_input` | `PROCESS_SET_INFORMATION` | **new** |
+| **By id:** AttachConsole | console ioctl | `PROCESS_QUERY_INFORMATION` | **new** |
+
+Not checked, and why: window messages sent or posted by thread id or window handle (`send_message`, `post_message`,
+`get_thread_input`) and global hooks: known gap e (no UIPI or Session 0 isolation). Services started by services.exe
+use the `__wineservice_winstation` window station, which the user's desktop does not share, so a global hook of the
+user's does not reach them. `get_process_image_name` by pid and `list_processes` only report names. The wexsys server
+has no Windows objects of its own that a token can name.
+
+#### Test results
+
+Run as root in this container (fixture: throw-away group, machine root, two users, all removed afterwards), Wine
+`/home/user/build/dev`, WoW64, both architectures.
+
+| Run | Result |
+| :--- | :--- |
+| `scripts/test_sysrun_server.sh`, complete, fresh fixture (C2 sections 1 to 7 and the new section 8, both users, both architectures, the user's own prefix) | **121 checks, 0 failures**, exit 0 (28 C2 checks, 93 C3 checks). Two checks (system programs not dumpable) were added after that run and passed in a later fresh-fixture run of section 8 for the standard user, 64-bit only (65 checks, 0 failures) |
+| Section 8, tokens the services report: LocalSystem service S-1-5-18, System integrity, Administrators enabled and owner, Default elevation, no linked token, primary, SeTcb and SeDebug enabled, writes the machine root | PASS |
+| LocalService and NetworkService services: S-1-5-19 and S-1-5-20, owner the account, System integrity, Default, no linked token, in Everyone, Authenticated Users, SERVICE, LOCAL, **no Administrators**, exact privilege lists (7 and 6 entries), cannot write the machine root | PASS |
+| Unix side: the LocalSystem service has gids (user, wexsys, wexsys); the LocalService and NetworkService services have (user, user, user) and a root-owned `/proc/<pid>/environ` (not dumpable); services.exe and winedevice.exe not dumpable | PASS |
+| services.exe (64-bit probe and 32-bit probe), winedevice.exe: SYSTEM, System integrity, Administrators enabled; a verified machine-root image gets the SYSTEM token | PASS |
+| A service with a user account in `ObjectName` | `ERROR_SERVICE_LOGON_FAILED` (1069) |
+| Service-token request by the system role (64-bit; the three tokens; account 3 refused) | PASS |
+| Copy of a system program in the user's directory, started by the user: no SYSTEM token, no Administrators. Same copy started with the system group: stopped by the server within 12 s, the server survives | PASS |
+| Limited (administrator user) and standard user, 64-bit and 32-bit: `OpenProcess` of services.exe, winedevice.exe and the LocalSystem, LocalService and NetworkService service processes with VM_WRITE, CREATE_THREAD, DUP_HANDLE, SET_INFORMATION, VM_OPERATION, VM_READ, TERMINATE, SUSPEND_RESUME, CREATE_PROCESS, QUERY_INFORMATION and ALL_ACCESS: `ERROR_ACCESS_DENIED`; `OpenThread` with SET_CONTEXT, GET_CONTEXT, SUSPEND_RESUME, SET_INFORMATION, TERMINATE, ALL_ACCESS: denied; `NtGetNextProcess` hands out no such handle; `AttachConsole` fails | PASS |
+| Same users: `CreateService` and `OpenSCManager(CREATE_SERVICE)` denied; `OpenService` with CHANGE_CONFIG, START, STOP, WRITE_DAC, WRITE_OWNER, DELETE denied; connect, enumerate and query work; `NtCreateToken` and the service-token request refused with `STATUS_PRIVILEGE_NOT_HELD` (64-bit: the 32-bit probe cannot reach the native-only request) | PASS |
+| Administrator user, a system role process that turns its token into an administrator token and enables SeDebugPrivilege: opens services.exe, winedevice.exe and the LocalService/NetworkService/LocalSystem service processes with `PROCESS_ALL_ACCESS`, allocates memory in them, opens a thread with `THREAD_SET_CONTEXT` | PASS |
+| `Control\ServiceCurrent` and `ActiveComputerName` written by the limited and the standard user with the system role active: `ERROR_ACCESS_DENIED` (5), both architectures. In a prefix of the user's own (no launcher): written (0), services run with the user's token | PASS |
+| Service descriptor: default does not let Authenticated Users start; `SetServiceObjectSecurity` by the system role; applies at once; other services keep the default; saved in the machine hive; read again after a restart | PASS |
+| `scripts/test_wex_sysrun.sh` (launcher unit test, root) | 60 checks, 0 failures |
+| `scripts/test_b3_machine_root.sh` (root) | exit 0, every assertion PASS |
+| `check-token-security.py --all`, helper unset, as `wexadm` (unprivileged, in `sudo`; the six test executables owned by `wexadm` for the run) | exit 0; limited, registry, pipe, consent PASS; advapi32 security 3728/0 (both); ntdll info 2811/0 (x86_64) and 2744/0 (i386); shell32 shlexec 1805/2 (both, the known upstream failures) |
+| `--focused`, helper set in the throw-away prefix, both architectures, as `wexadm` (administrator shape) and as `wexstd` (standard shape) | exit 0, PASS and PASS |
+| B4 smoke (`test_b4_explorer_fresh.sh`), helper unset / `WEX_B4_HELPER=1`, as `wexadm` | PASS (29 s) / PASS (53 s) |
+
+Failures along the way and what they were (all fixed): the first stop of an unverified process crashed the server (the
+killed thread was still in use by the request; the probe passed anyway because the stopped process printed nothing, so
+the probe now checks that the server survives and that the descriptor reaches the hive); the 32-bit probe called
+the native-only service-token request; the first administrator check ran as a standard user, who has no
+administrator token; the CRLF of Wine's console output; WexSvcLs got a descriptor in the same run that expected the
+default.
+
+
+#### Design calls and decisions to review
+
+1. **create_service_token needs the system role as well as SeTcbPrivilege** (stricter than the work order): Wine's
+   administrator token has SeTcbPrivilege too, and an elevated administrator could otherwise make SYSTEM tokens.
+2. **NtCreateToken needs SeCreateTokenPrivilege while enforced.** New, outside the letter of the work order, but without
+   it the descriptors of the system role (and every other access check) could be bypassed by impersonating a made-up
+   administrator token. It changes stock behavior under enforcement only; `advapi32` tests that create tokens run with
+   the helper unset.
+3. **Administrators get the same access to the system role's processes as SYSTEM** (the default DACL of the work order),
+   where Windows gives them less and lets SeDebugPrivilege through. SeDebugPrivilege is honored on top (an administrator
+   token with it enabled opens LocalService processes, which have no Administrators entry). Native Windows gives
+   standard users `PROCESS_QUERY_LIMITED_INFORMATION` on most system processes; here they get nothing. Task manager style
+   tools see less. Say if the limited-information right should be granted to Users.
+4. **LocalService and NetworkService processes are ordinary Unix processes of the user** (real, effective and saved
+   group the user's, no setgid). They cannot write the machine root, but the user can signal them, and can
+   ptrace them if `kernel.yama.ptrace_scope` is 0 in the short window before the process marks itself not dumpable.
+   Closing the window needs a launcher mode for service children. Decision for the user: accept, or add that mode.
+5. **Standard users have no way to elevate** (as the work order says), so the administrator check runs for the
+   administrator user only.
+6. **Known gaps (constraint e), not closed here:** window messages and global hooks reach system role windows; services
+   started by services.exe are on their own window station, which limits this. `TokenIntegrityLevel` can be raised by the
+   token's holder without SeTcbPrivilege in `set_token_integrity_level` (read from the code, not tested): it does not
+   open a protected process (the descriptors have no label), but Windows refuses it. A limited process can still
+   kill the user's wineserver (T5).
+7. **Not measured natively:** the privilege and group lists above (provisional), the error codes of the refusals
+   (`STATUS_PRIVILEGE_NOT_HELD` for NtCreateToken follows the documented requirement).
+8. **item 7:** `setup-machine-root.sh` still installs the launcher only with `WEX_SYSRUN_ENABLE=1`. All probes of
+   constraint g pass; the default is yours to flip.
+

@@ -460,6 +460,15 @@ for u in $C3_USERS; do
         P="$(svc_pid "$u" WexSvcSys)"; [ -n "$P" ] || fail "no WexSvcSys process"
         [ "$(proc_gids "$P")" = "$STD_GID $GRP_GID $GRP_GID" ] || fail "WexSvcSys gids: $(proc_gids "$P")"
         ok c3_sys_service_process_has_system_group
+        [ "$(stat -c %U "/proc/$P/environ")" = root ] || fail "the LocalSystem service is dumpable, the user could ptrace it"
+        ok c3_sys_service_process_is_not_dumpable
+        for img in services.exe winedevice.exe; do
+            for P in $(pgrep -u "$u" -f "windows.system32.$img"); do
+                grep -q '^State:.*Z' "/proc/$P/status" 2>/dev/null && continue
+                [ "$(stat -c %U "/proc/$P/environ")" = root ] || fail "$img ($P) is dumpable, the user could ptrace it"
+            done
+        done
+        ok c3_system_programs_are_not_dumpable
         for nm in WexSvcLs WexSvcNs; do
             P="$(svc_pid "$u" "$nm")"; [ -n "$P" ] || fail "no $nm process"
             [ "$(proc_gids "$P")" = "$STD_GID $STD_GID $STD_GID" ] || fail "$nm gids: $(proc_gids "$P")"
