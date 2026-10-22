@@ -85,6 +85,9 @@ Answer with `file:line`, from `/home/user/wine-dev` and `/home/user/WineExplorer
   Administrators group, Medium integrity, `TokenElevationTypeDefault`, no linked token. Wine's view of the local
   Administrators group (`NetLocalGroupGetMembers`, `net localgroup Administrators`, the local users and groups
   UI) lists exactly the `sudo` members, refreshed the same way at logon.
+- **Administrators group view (user, 2026-10-22):** `NetLocalGroupGetMembers`, `NetLocalGroupEnum` and
+  `net localgroup` ask the server, the one authoritative source that holds the membership read at logon and refreshes
+  it at logon and logoff; implemented after the system role.
 - **S4:** `setup-machine-root.sh --update` migrates `root:sudo` to `root:wexsys`. Until the broker exists,
   administrators cannot install into the shared `Program Files`; the S2/S3/S4 acceptance tests change from
   direct writes by alice to writes through the launcher's test hook or are marked as waiting for step 4.
@@ -109,6 +112,30 @@ d. `HKU\S-1-5-18` and the other well-known service profiles are not part of the 
    `key_in_user_tree` must match only the token user's own SID subtree.
 e. Known gap: no UIPI or Session 0 isolation, so window messages from limited processes reach system-role windows;
    services must not create visible windows.
+f. Wine's server opens files for its clients (`create_file` and `open_fd` in `server/fd.c`, and the requests that
+   rename, link, unlink or delete on close). A `wineserver` that runs with effective group `wexsys` would open
+   machine-root files for write on behalf of any limited client: a confused deputy. So the `wexsys` server runs with
+   effective gid = the user's real gid and keeps `wexsys` only as its saved gid (`setegid` back and forth is allowed
+   because the saved gid is `wexsys`). It raises the effective gid only (1) around the machine hive load and save,
+   and (2) for Unix paths requested by a client that itself runs with effective gid `wexsys` (`SO_PEERCRED` of that
+   client's connection, recorded at connect time, never the client-sent `unix_pid`), and drops it again straight
+   after. The kernel rule to check and prove in a test: a process stays non-dumpable (and not ptraceable) across
+   these `setegid` calls, because `commit_creds` sets the dumpable flag to `fs.suid_dumpable` (normally 0) when the
+   effective gid changes, and ptrace needs real, effective and saved ids to match the caller's. Because the server's
+   effective gid is then the user's, "the peer has `wexsys`" is checked on the saved gid from
+   `/proc/<pid>/status`, not on `SO_PEERCRED`.
+
+g. Review of C2 (main session): until C3, the processes the launcher starts (`wineboot --init`, `services.exe` and
+   the services it starts) run on the user's own token, so a limited process can open them through Win32
+   (`OpenProcess` with full access) and run code in them without ptrace: `CreateRemoteThread`,
+   `QueueUserAPC`, `WriteProcessMemory` and handle duplication go through the server, not the kernel. That code
+   then has effective group `wexsys`. So the launcher must stay disabled (`WEX_SYSRUN_ENABLE` test-only) until C3
+   gives every process with effective group `wexsys` the SYSTEM token (or its service token) with a default DACL
+   and process descriptor that deny the user, and a probe proves that a limited and a standard-user process both
+   get `ERROR_ACCESS_DENIED` for `OpenProcess(PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_DUP_HANDLE)`
+   on them, and cannot inject an APC or duplicate a handle into them. The same holds for the `wexsys` server's
+   in-process objects the user's token can name. An elevated administrator with `SeDebugPrivilege` may open them,
+   as on Windows (administrator to SYSTEM is not a boundary there either).
 
 ## Phases after the design calls
 
@@ -533,3 +560,74 @@ and `runas`) gives no full token.
 | B4 smoke, helper unset / `WEX_B4_HELPER=1`, as `wexadm` | PASS 34 s / PASS 54 s |
 | B4 smoke, helper unset / `WEX_B4_HELPER=1`, as `wexstd` | PASS 37 s / PASS 54 s |
 | `--all` as root | not accepted as a baseline: root is a standard user here and, probably because uid 0 passes the file permission checks, so advapi32 security reports 3732/6 (`security.c:3995-4047`) |
+
+### Results, C2 (server and launcher wiring, constraints a to d and f)
+
+Date: 2026-10-22. Wine commits on `ccr-work` (pushed as `ccr-08223ee4-p830bf`): `0e98e935c36`, `71fe07ea021`.
+Entries in `STOCK_CHANGES.md`: "Elevation boundary: system role server and launcher wiring (C2)". Not done here: the
+SYSTEM token and service tokens (C3).
+
+What was built (active only when the root-owned `/etc/wineexplorer/sysrun.conf` names the machine root and the
+server was started by the setgid launcher; otherwise stock behavior):
+
+- Constraint f. The server keeps `wexsys` only as its saved gid and runs with the user's gid (`sysrun_init`). It
+  raises the effective gid for the machine hive load and save, and for a Unix path a client asks it to touch, only if
+  that client's connection credentials (`SO_PEERCRED`, recorded in `create_process`) are the server's uid and the
+  system gid. The `unix_pid` the client sends is never used. The server calls `prctl(PR_SET_DUMPABLE, 0)` after every
+  `setegid`.
+- Server-side opens for a client, and how each is handled (all of `server/*.c` was searched for `open`, `creat`,
+  `mkdir`, `rename`, `link`, `unlink`, `rmdir`, `symlink`, `truncate`, `chmod`, `bind` and the like):
+  `open_fd` `mkdir` and `open` (also the read-only retry for a directory), `set_reparse_point` and
+  `delete_reparse_point` `rename`, `set_fd_name` `unlink` (replace) and `link` and `rename`, and `unlink_closed_fd`
+  `unlink` and `rmdir` (delete on close, disposition): all raise only for a system-group client
+  (`sysrun_open`, `sysrun_mkdir`, `sysrun_rename`, `sysrun_link`, `sysrun_unlink`), and the delete runs raised only
+  for a file such a client opened. Run with the user's group, by design: `ftruncate` and `fchmod` on a descriptor that
+  was already opened (`fd.c`, `file.c`, `change.c`; they need ownership, not the group), the mapping temporary file in
+  the server directory (`mapping.c`), the prefix directories created at start (`registry.c`, the user's prefix), the
+  server lock and socket (`request.c`), Unix socket `bind` for a Win32 `AF_UNIX` socket (`sock.c`; a system-group
+  client cannot bind in the machine root, which no stock feature needs), and `/proc` reads (`procfs.c`, `ptrace.c`).
+  The machine hive lock, temporary and in-place files are opened only inside the raised save. There were no more
+  client-path opens than the two dozen call sites above, so the design held.
+- Constraint c. Machine hives come from the fixed machine root (`O_NOFOLLOW`, `fstat`: regular file, root, system
+  group, not other-writable) and are written in place (`save_hive_in_place`; `faccessat(AT_EACCESS)` and the raise
+  only there). Shortcut: the write is a `pwrite` and a `ftruncate`, not an atomic rename, because a new file would
+  belong to the user's uid; upgrade when the system role has its own uid.
+- Constraint d. `key_in_user_tree` matches the token user's own SID subtree and `_Classes` only; `S-1-5-18/19/20` are
+  created at start and, like `.DEFAULT`, get the machine default descriptor.
+- Constraints a and b. `wex-sysrun wineserver` and `wineboot-init` connect to the server socket of the user's own
+  prefix themselves (dev and inode of `~/.wine` from `stat`, not from the environment), check the peer, pass the
+  descriptor as `WINESERVERSOCKET`, and set `WINEPREFIX` to the machine root for `wineboot-init`. ntdll in a client
+  whose effective gid is the system group refuses a server that fails the same check.
+  Design call: the check is on the peer's ids and saved gid in `/proc/<pid>/status`, not on `/proc/<pid>/exe`,
+  because the server is non-dumpable and its `exe` link is not readable for the user or for a group member without
+  `CAP_SYS_PTRACE`. The saved gid is sufficient: only a program run through the setgid launcher has it, and the
+  launcher runs only the configured server and the loader.
+- Wiring. `start_server` starts `wex-sysrun wineserver` and `run_wineboot` starts `wex-sysrun wineboot-init` (the
+  normal wineboot still follows for the user's part); a launcher refusal (exit 77) prints a warning and falls back
+  to stock. The system-group `wineboot --init` starts `services.exe`; `wineboot` does not start a second one. The
+  launcher serves only the user's own `~/.wine`; another prefix gets a warning and stock behavior.
+- Found while testing and fixed: a machine hive file owned by the user would stay writable for the user, so the
+  server refuses hives not owned by root; saving by temporary file and rename would create such a file, hence the
+  in-place save.
+
+Tests (run as root here; the fixture is a throw-away group, machine root and two users, all removed):
+
+| Run | Result |
+|---|---|
+| `scripts/test_sysrun_server.sh` (launcher-started server; ids user/user/saved `wexsys`; `services.exe` with the system group; limited client create, write, truncate, rename, link, delete, delete-on-close and mkdir in the machine root all denied, 64 and 32 bit; system-group client does them; replacement server refused by `wex-sysrun` (exit 77) and by a system-group client; limited client of a replacement server still denied; `system.reg` and `userdef.reg` symlinks into a machine-root file: target not overwritten, HKLM from the machine root, hives stay `root:wexsys`; `wineboot --init` writes the machine root; server not ptraceable and `/proc/<pid>/environ` root-owned before a save, after saves, after limited and system-group opens, and with `fs.suid_dumpable=1`; with the helper set `HKU\S-1-5-18/19/20` and `.DEFAULT` not writable, `wexadm` and `wexstd`, both archs) | 28 checks, 0 failures |
+| `scripts/test_wex_sysrun.sh` (launcher unit test) | 60 checks, 0 failures |
+| `check-token-security.py --all`, helper unset, as `wexadm` (unprivileged, in `sudo`; the three test executables owned by `wexadm` for the run) | exit 0; advapi32 security 3728/0 (both archs); ntdll info 2811/0 (x86_64) and 2733/0 (i386); shell32 shlexec 1805/2 (both, the known upstream failures); limited, registry, pipe, consent PASS |
+| `--focused`, helper set in the throw-away prefix, both archs, as `wexadm` and as `wexstd` | exit 0, PASS / PASS |
+| B4 smoke, helper unset / `WEX_B4_HELPER=1`, as `wexadm` | PASS 35 s / PASS 53 s |
+
+Note: the i386 `ntdll info` count is 2733 here; the C1 table says 2744. Both have 0 failures. Not investigated (the
+count is the executed-test total and changes with the environment); the gated code is not reached without the
+configuration.
+
+Test hygiene found: a probe started inside `$(...)` hangs the script when it is the first client of a prefix,
+because `wineboot` starts `services.exe`, which keeps the captured output open. The test starts the first client
+with its output discarded.
+
+Known gaps: Unix-socket `bind` and other paths opened by the client itself (not by the server) are the client's
+own rights; a system-group client that is itself malicious is out of scope (it is the system role). The saved-gid
+check does not tell the server from `wineboot-init`, which also has the saved gid; both are launcher-run programs.

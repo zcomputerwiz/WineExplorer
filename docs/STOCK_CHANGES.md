@@ -407,6 +407,49 @@ configured (`elevation_enforced()`); with the helper unset nothing changes. Wine
 - Not done here: the local Administrators group view of netapi32 (`NetLocalGroupGetMembers`, a stub that reports the
   current user), see the work order's "Results, C1".
 
+## Elevation boundary: system role server and launcher wiring (C2, 2026-10-22)
+
+Constraints a to d and f of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Active only when the root-owned, not
+group/other-writable `/etc/wineexplorer/sysrun.conf` (regular file, checked on the open descriptor, `O_NOFOLLOW`)
+names the machine root, and, for the server, only in a process that the setgid launcher started (real gid differs
+from the saved gid, effective gid equals the saved gid, and the saved gid is the configured group). Otherwise nothing
+changes. The launcher is installed only with `WEX_SYSRUN_ENABLE=1`. Wine commits (branch `ccr-work`): `0e98e935c36`,
+`71fe07ea021`.
+
+- `server/sysrun.c`, `server/sysrun.h` (new), `server/Makefile.in`, `server/main.c` (`sysrun_init`): the server drops
+  its effective gid to the real one at once and keeps the system group as saved gid, and sets the process
+  non-dumpable (`PR_SET_DUMPABLE 0`) after every `setegid`, so that `fs.suid_dumpable` cannot make it dumpable.
+  `sysrun_raise` and `sysrun_drop` raise and drop the effective group.
+- `server/process.c`, `server/process.h` (`create_process`): `SO_PEERCRED` of the connection (pid, uid, gid) is
+  recorded per process when the system role is active. The `unix_pid` the client sends is not used for this.
+- `server/fd.c`: every open, create, mkdir, rename, link and unlink that the server does for a client goes through
+  `sysrun_open`, `sysrun_mkdir`, `sysrun_rename`, `sysrun_link` and `sysrun_unlink`, which raise the effective group
+  only when the requesting client has the system group (its connection credentials: uid equal to the server's and
+  gid equal to the system group). The unlink or rmdir of delete-on-close and disposition runs raised only for a file
+  that such a client opened (`closed_fd::sysrun`, inherited by `dup_fd_object`). Everything else, including `ftruncate`
+  and `fchmod` on an already opened descriptor, runs with the user's group.
+- `server/registry.c`: the machine hives (`system.reg`, `userdef.reg`) come from the fixed machine root of the
+  configuration, not from the prefix: `O_NOFOLLOW` on the open, `fstat` must show a regular file of root and the
+  system group that others cannot write, else the server refuses to start. They are saved with the raised group
+  (`faccessat(AT_EACCESS)` only there) into the existing file, in place (`save_hive_in_place`; a new file would belong
+  to the user's uid); a symlink at the hive is never followed on save; a missing file is not created.
+- `server/registry.c` (`key_in_user_tree`): while elevation is enforced and the system role is active, only the
+  subtree of the token user's own SID and its `_Classes` count as the user's tree. `HKU\S-1-5-18`, `-19`, `-20` are
+  created at start and, like `.DEFAULT`, get the machine default descriptor.
+- `dlls/ntdll/unix/sysrun.c` (new), `dlls/ntdll/Makefile.in`, `unix_private.h`: reads the configuration, spawns the
+  launcher, and checks a server for a client whose own effective gid is the system group
+  (`sysrun_client_is_system`, `sysrun_server_ok`). Such a client refuses a server whose saved gid (from
+  `/proc/<pid>/status`) is not the system group, whose ids are not the user's, or whose connection uid differs.
+  The image path (`/proc/<pid>/exe`) cannot be compared: it is not readable for the non-dumpable server.
+- `dlls/ntdll/unix/server.c` (`server_connect`): the check above; `dlls/ntdll/unix/loader.c` (`start_server`): with the
+  configuration and the launcher the server starts through `wex-sysrun wineserver`; if the launcher refuses (exit
+  77) a warning is printed and the stock start follows.
+- `dlls/ntdll/unix/env.c` (`run_wineboot`): with the launcher a `wex-sysrun wineboot-init` runs first (machine root
+  prefix, system group, connected to the user's server by the launcher), then the normal wineboot still does the
+  user's part; a refusal prints a warning and only the normal one runs. A client with the system group does not start
+  wineboot itself. `programs/wineboot/wineboot.c` (`start_services_process`): does not start `services.exe` again when
+  the `SVCCTL_STARTED_EVENT` is already signaled.
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|
