@@ -700,6 +700,156 @@ static bool linked_token_routes()
     return failures == before;
 }
 
+// Shape of the limited token while an elevation helper is configured (docs/ELEVATION_BOUNDARY_STEP_2B_WORKORDER.md).
+// The root token is built when a process connects to the server without a parent, which every Unix-launched
+// `wine program.exe` does, and it is filtered only if the helper is already configured at that moment. A
+// process cannot start such a process itself (a child inherits its parent's token), so the harness runs
+// `--helper-set` in a fresh prefix and then starts `--limited-shape` as a new Unix-launched process there.
+static bool token_query(HANDLE token, TOKEN_INFORMATION_CLASS klass, std::vector<BYTE> *data)
+{
+    DWORD size = 0;
+    GetTokenInformation(token, klass, NULL, 0, &size);
+    data->assign(size ? size : 1, 0);
+    return GetTokenInformation(token, klass, data->data(), (DWORD)data->size(), &size) != FALSE;
+}
+
+static bool has_group(HANDLE token, WELL_KNOWN_SID_TYPE type, DWORD *attributes)
+{
+    BYTE sid[SECURITY_MAX_SID_SIZE];
+    DWORD sid_size = sizeof(sid);
+    std::vector<BYTE> data;
+    if (!CreateWellKnownSid(type, NULL, sid, &sid_size) || !token_query(token, TokenGroups, &data)) return false;
+    TOKEN_GROUPS *groups = (TOKEN_GROUPS *)data.data();
+    for (DWORD i = 0; i < groups->GroupCount; ++i)
+        if (EqualSid(sid, groups->Groups[i].Sid)) {*attributes = groups->Groups[i].Attributes; return true;}
+    return false;
+}
+
+static DWORD integrity_rid(HANDLE token)
+{
+    std::vector<BYTE> data;
+    if (!token_query(token, TokenIntegrityLevel, &data)) return 0;
+    PSID sid = ((TOKEN_MANDATORY_LABEL *)data.data())->Label.Sid;
+    return *GetSidSubAuthority(sid, *GetSidSubAuthorityCount(sid) - 1);
+}
+
+static std::vector<std::wstring> privilege_names(HANDLE token)
+{
+    std::vector<std::wstring> names;
+    std::vector<BYTE> data;
+    if (!token_query(token, TokenPrivileges, &data)) return names;
+    TOKEN_PRIVILEGES *privileges = (TOKEN_PRIVILEGES *)data.data();
+    for (DWORD i = 0; i < privileges->PrivilegeCount; ++i)
+    {
+        WCHAR name[128];
+        DWORD length = 128;
+        if (LookupPrivilegeNameW(NULL, &privileges->Privileges[i].Luid, name, &length)) names.push_back(name);
+        else names.push_back(L"?");
+    }
+    return names;
+}
+
+// Provisional: filter_token(DISABLE_MAX_PRIVILEGE) keeps SeChangeNotifyPrivilege only. Replace with the list from
+// the native `whoami /all` of a non-elevated administrator (decision D1) once it is recorded.
+static const WCHAR *const limited_privileges[] = {L"SeChangeNotifyPrivilege"};
+
+static bool limited_token_shape()
+{
+    unsigned int before = failures;
+    HANDLE self = NULL, linked_handle = NULL;
+    DWORD size, attributes = 0;
+    TOKEN_ELEVATION_TYPE elevation = (TOKEN_ELEVATION_TYPE)0;
+
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &self)) return false;
+    check(GetTokenInformation(self, TokenElevationType, &elevation, sizeof(elevation), &size) &&
+          elevation == TokenElevationTypeLimited, "limited: elevation type is Limited");
+    bool found = has_group(self, WinBuiltinAdministratorsSid, &attributes);
+    printf("limited_shape administrators found=%d attributes=%#lx integrity=%#lx\n", found, attributes, integrity_rid(self));
+    check(found && (attributes & SE_GROUP_USE_FOR_DENY_ONLY) && !(attributes & SE_GROUP_ENABLED),
+          "limited: Administrators is deny-only and not enabled");
+    check(integrity_rid(self) == SECURITY_MANDATORY_MEDIUM_RID, "limited: integrity level is Medium");
+
+    std::vector<std::wstring> names = privilege_names(self);
+    std::wstring joined;
+    for (const std::wstring &name : names) joined += name + L" ";
+    printf("limited_shape privileges=%ls\n", joined.c_str());
+    bool exact = names.size() == sizeof(limited_privileges) / sizeof(*limited_privileges);
+    for (const WCHAR *wanted : limited_privileges)
+    {
+        bool present = false;
+        for (const std::wstring &name : names) present = present || name == wanted;
+        exact = exact && present;
+    }
+    check(exact, "limited: privileges are exactly the filtered list");
+
+    // The limited process must not be able to switch SeTcbPrivilege on.
+    {
+        TOKEN_PRIVILEGES enable = {};
+        enable.PrivilegeCount = 1;
+        enable.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        check(LookupPrivilegeValueW(NULL, L"SeTcbPrivilege", &enable.Privileges[0].Luid), "look up SeTcbPrivilege");
+        SetLastError(0xdeadbeef);
+        BOOL ok = AdjustTokenPrivileges(self, FALSE, &enable, 0, NULL, NULL);
+        DWORD error = GetLastError();
+        printf("limited_shape AdjustTokenPrivileges(SeTcbPrivilege) ok=%d error=%lu\n", ok, error);
+        check(ok && error == ERROR_NOT_ALL_ASSIGNED, "limited: enabling SeTcbPrivilege gives ERROR_NOT_ALL_ASSIGNED");
+    }
+    {
+        PROCESS_INFORMATION info = {};
+        if (start_suspended_self(&info))
+        {
+            LONG status = get_set_information_process()(info.hProcess, 1002 /* ProcessWineGrantAdminToken */, NULL, 0);
+            DWORD code = finish_child(&info);
+            printf("limited_shape ProcessWineGrantAdminToken status=0x%08lx code=%lu\n", (unsigned long)status, code);
+            check(status == STATUS_PRIVILEGE_NOT_HELD_VALUE && code == 100 + TokenElevationTypeLimited,
+                  "limited: ProcessWineGrantAdminToken stays refused and the child stays limited");
+        }
+        else check(false, "limited: start suspended child for the grant-admin request");
+    }
+
+    // The linked token stays the full administrator token.
+    TOKEN_LINKED_TOKEN linked = {};
+    check(GetTokenInformation(self, TokenLinkedToken, &linked, sizeof(linked), &size), "limited: query the linked token");
+    linked_handle = linked.LinkedToken;
+    if (linked_handle)
+    {
+        attributes = 0;
+        elevation = (TOKEN_ELEVATION_TYPE)0;
+        check(GetTokenInformation(linked_handle, TokenElevationType, &elevation, sizeof(elevation), &size) &&
+              elevation == TokenElevationTypeFull, "linked: elevation type is Full");
+        found = has_group(linked_handle, WinBuiltinAdministratorsSid, &attributes);
+        check(found && (attributes & SE_GROUP_ENABLED) && !(attributes & SE_GROUP_USE_FOR_DENY_ONLY),
+              "linked: Administrators is enabled");
+        check(integrity_rid(linked_handle) == SECURITY_MANDATORY_HIGH_RID, "linked: integrity level is High");
+        bool tcb = false;
+        for (const std::wstring &name : privilege_names(linked_handle)) tcb = tcb || name == L"SeTcbPrivilege";
+        check(tcb, "linked: SeTcbPrivilege is present");
+
+        // Native: a filtered administrator has no SeImpersonatePrivilege, so the refusal is 1314.
+        DWORD code = 0;
+        DWORD error = create_as_user(linked_handle, true, &code);
+        printf("limited_shape CreateProcessWithTokenW(linked) error=%lu code=%lu\n", error, code);
+        check(error == ERROR_PRIVILEGE_NOT_HELD && code == 0, "limited: CreateProcessWithTokenW(linked) gives 1314");
+        CloseHandle(linked_handle);
+    }
+    CloseHandle(self);
+    return failures == before;
+}
+
+// Sets (or clears) the helper so that a later process in this prefix gets the filtered root token.
+static bool set_helper(bool enable)
+{
+    HKEY key;
+    DWORD disposition;
+    static const WCHAR configured[] = L"C:\\windows\\system32\\wex-test-helper-never-run.exe";
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
+                        KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, &disposition)) return false;
+    LONG result = enable ? RegSetValueExW(key, L"Helper", 0, REG_SZ, (const BYTE *)configured, sizeof(configured))
+                         : RegDeleteValueW(key, L"Helper");
+    RegCloseKey(key);
+    return result == ERROR_SUCCESS;
+}
+
 struct dialog_search {DWORD pid; HWND window;};
 static BOOL CALLBACK find_dialog(HWND window, LPARAM parameter)
 {
@@ -815,6 +965,13 @@ int main(int argc, char **argv)
         puts("fixture_ready");
         for (unsigned int i = 0; i < 600; ++i) {Sleep(500); puts("fixture_heartbeat");}
         return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--helper-set")) return set_helper(true) ? 0 : 1;
+    if (argc == 2 && !strcmp(argv[1], "--limited-shape"))
+    {
+        bool shape = limited_token_shape();
+        printf("limited_token_shape=%s\n", shape ? "PASS" : "FAIL");
+        return shape ? 0 : 1;
     }
     if (argc == 3 && !strcmp(argv[1], "--consent"))
     {
