@@ -205,10 +205,7 @@ def main():
             if not args.checkpoint_a:
                 markers.append('elevation_helper_errors_and_child_handle=PASS')
                 markers.append('elevation_helper_states_manifest_child=PASS')
-            # An unhandled exception in any background process (conhost, explorer, services) is a failure,
-            # even when the probe itself exits successfully.
-            passed = (run.returncode == 0 and all(marker in run.stdout for marker in markers) and
-                      'Unhandled' not in run.stderr)
+            passed = run.returncode == 0 and all(marker in run.stdout for marker in markers)
             result['cases'][arch] = {'command': command, 'exit_code': run.returncode, 'passed': passed,
                                      'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
             print(arch, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
@@ -270,6 +267,11 @@ def main():
                 if killed.returncode not in (0, 1):
                     raise RuntimeError('Unexpected wineserver -k exit: ' + str(killed.returncode))
                 subprocess.run([str(server), '-w'], env=env, timeout=15, check=True)
+                # Background processes (conhost, explorer, services) write to the probe's stderr log after
+                # the probe exits, so look for unhandled exceptions only once the server is idle.
+                log = output / (prefix.name + '.stderr.log')
+                if log.exists() and 'Unhandled' in log.read_text(errors='replace'):
+                    raise RuntimeError('Unhandled exception in a background process: ' + log.name)
                 remaining = matching_servers(server, prefix)
                 if remaining:
                     raise RuntimeError('Owned server still running: ' + str(remaining))
