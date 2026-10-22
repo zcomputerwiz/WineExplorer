@@ -10,19 +10,11 @@ SKEL_PFX="${WEX_SKEL_PFX:-/etc/skel/.wine}"
 
 ACTION="${1:-apply}"
 
-# Ownership Model:
-# On production multi-user systems, 'wexsys' is the dedicated system group owning
-# shared machine prefixes and hives (/var/lib/wineexplorer/machine), isolating
-# administrative assets from interactive sudo accounts. On standard single-user or
-# desktop setups without wexsys, 'sudo' is used as the administrative fallback group.
-MACHINE_GROUP="${WEX_MACHINE_GROUP:-}"
-if [ -z "$MACHINE_GROUP" ]; then
-    if getent group wexsys >/dev/null 2>&1; then
-        MACHINE_GROUP="wexsys"
-    else
-        MACHINE_GROUP="sudo"
-    fi
-fi
+# Ownership model (docs/ELEVATION_SYSTEM_ROLE_WORKORDER.md): the machine root belongs to root:wexsys.
+# wexsys is a system group that no desktop user is a member of, sudo members included. Only processes that the
+# setgid wex-sysrun launcher starts have wexsys as their effective group, so a limited process cannot write the
+# machine root, even with raw Linux syscalls. WEX_MACHINE_GROUP overrides the name (tests use a throw-away group).
+MACHINE_GROUP="${WEX_MACHINE_GROUP:-wexsys}"
 
 die()
 {
@@ -37,6 +29,13 @@ case "$ACTION" in
 esac
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
+
+# The system group must exist and must not be a group that desktop users belong to: wexsys members would write
+# the machine root directly. No user is ever added to it here.
+case "$MACHINE_GROUP" in
+    sudo|wheel|admin|adm|staff|users|root)
+        die "$MACHINE_GROUP is a desktop or administrative group; the machine root needs a dedicated system group (wexsys)" ;;
+esac
 
 # Validate the target before anything else. The path must already be canonical (no symlink
 # components, no "..", no trailing slash) and must not be a system directory.
@@ -70,6 +69,10 @@ check_private_dir()
     [ $(( 0$(stat -c '%a' -- "$1") & 022 )) -eq 0 ] || die "group or other writable: $1"
 }
 
+if [ "$ACTION" = "apply" ] && ! getent group "$MACHINE_GROUP" >/dev/null 2>&1; then
+    echo "Creating system group $MACHINE_GROUP..."
+    groupadd --system "$MACHINE_GROUP"
+fi
 if [ "$ACTION" = "apply" ]; then
     mkdir -p -- "$BACKUP_ROOT"
     install -d -m 0700 -o root -g root -- "$BACKUP_DIR"
@@ -255,25 +258,37 @@ if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
     cp -f "$WEX_LOCAL_LUNA" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" 2>/dev/null || true
 fi
 
-# 2. Ensure permissions and POSIX default ACLs on machine root:
-# Owned by root:$MACHINE_GROUP (preserving admin owners in Program Files), setgid 2775 on dirs,
-# 664 on regular files, 775 on .exe/.dll, and default ACL g:$MACHINE_GROUP:rwX so files created
-# by members of $MACHINE_GROUP remain group-writable regardless of process umask.
+# 2. Ensure ownership, permissions and POSIX default ACLs on machine root. This also migrates an existing
+# root:sudo machine root (setup --update): everything below the root is made root:$MACHINE_GROUP, files that a
+# desktop administrator created or owns included, and every extended ACL entry (g:sudo:rwX, user entries) is
+# dropped before the entries for $MACHINE_GROUP are set. Running it again changes nothing.
+# Result: root:$MACHINE_GROUP, setgid 2775 on dirs, 664 on regular files, 775 on .exe/.dll, and default ACL
+# g:$MACHINE_GROUP:rwX so files created with the effective group $MACHINE_GROUP (wex-sysrun) stay group-writable
+# regardless of the umask. No desktop user is in $MACHINE_GROUP, so desktop users cannot write the machine root.
+OLD_GROUP="$(stat -c '%G' -- "$MACHINE_ROOT")"
+if [ "$OLD_GROUP" != "$MACHINE_GROUP" ]; then
+    echo "Migrating machine root from group $OLD_GROUP to $MACHINE_GROUP..."
+fi
 echo "Applying permissions and default ACLs to machine root (root:$MACHINE_GROUP, mode 2775, default ACL g:$MACHINE_GROUP:rwX)..."
-chown "root:$MACHINE_GROUP" "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
-chown -R "root:$MACHINE_GROUP" "$MACHINE_ROOT/drive_c/windows"
-chgrp -R "$MACHINE_GROUP" "$MACHINE_ROOT/drive_c"
+if command -v setfacl >/dev/null 2>&1; then
+    setfacl -b "$MACHINE_ROOT"
+    setfacl -R -b "$MACHINE_ROOT/drive_c"
+    for f in system.reg userdef.reg; do
+        if [ -f "$MACHINE_ROOT/$f" ]; then setfacl -b "$MACHINE_ROOT/$f"; fi
+    done
+fi
+find "$MACHINE_ROOT" -mindepth 1 -maxdepth 1 ! -type l -exec chown -h "root:$MACHINE_GROUP" {} +
+chown -h "root:$MACHINE_GROUP" "$MACHINE_ROOT"
+chown -R -h "root:$MACHINE_GROUP" "$MACHINE_ROOT/drive_c"
 chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
 find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
 find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +
 find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 775 {} +
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
-    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT/system.reg"
     chmod 664 "$MACHINE_ROOT/system.reg"
     sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
 fi
 if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-    chown "root:$MACHINE_GROUP" "$MACHINE_ROOT/userdef.reg"
     chmod 664 "$MACHINE_ROOT/userdef.reg"
 fi
 if command -v setfacl >/dev/null 2>&1; then
@@ -287,6 +302,46 @@ if command -v setfacl >/dev/null 2>&1; then
     if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
         setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/userdef.reg"
     fi
+fi
+# Nothing may remain that a desktop user owns (an owner can always write), and nothing may have another group.
+LEFTOVER="$(find "$MACHINE_ROOT" ! -type l \( ! -user root -o ! -group "$MACHINE_GROUP" \) -print -quit)"
+[ -z "$LEFTOVER" ] || die "migration incomplete: $LEFTOVER is not root:$MACHINE_GROUP"
+
+# 2b. Install the launcher wex-sysrun (tools/wex-sysrun) root:$MACHINE_GROUP, mode 2755, in a root-owned
+# directory, with its root-owned configuration of fixed paths. DISABLED BY DEFAULT: it stays off until phase C of
+# ELEVATION_SYSTEM_ROLE_WORKORDER.md lands its "Constraints for phase C", because a wexsys process that reads the
+# user's prefix (dosdevices, user.reg, the system.reg symlink) can be made to run user code or overwrite machine
+# files. WEX_SYSRUN_ENABLE=1 installs it (tests only). WEX_SYSRUN_BIN installs a prebuilt binary instead of
+# building from the source next to this script.
+if [ "${WEX_SYSRUN_ENABLE:-0}" = "1" ]; then
+    SYSRUN_DIR="${WEX_SYSRUN_DIR:-/usr/local/libexec/wineexplorer}"
+    SYSRUN_CONF="${WEX_SYSRUN_CONF:-/etc/wineexplorer/sysrun.conf}"
+    SYSRUN_SRC="$(dirname -- "$(readlink -f -- "$0")")/../tools/wex-sysrun/wex-sysrun.c"
+    SYSRUN_TMP="$(mktemp -d)"
+    if [ -n "${WEX_SYSRUN_BIN:-}" ]; then
+        cp -- "$WEX_SYSRUN_BIN" "$SYSRUN_TMP/wex-sysrun"
+    elif [ -f "$SYSRUN_SRC" ] && command -v cc >/dev/null 2>&1; then
+        cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+            -DSYSRUN_CONF="\"$SYSRUN_CONF\"" -o "$SYSRUN_TMP/wex-sysrun" "$SYSRUN_SRC"
+    else
+        echo "Warning: no wex-sysrun source or compiler; the launcher is not installed" >&2
+    fi
+    if [ -f "$SYSRUN_TMP/wex-sysrun" ]; then
+        echo "Installing wex-sysrun to $SYSRUN_DIR (root:$MACHINE_GROUP, mode 2755), configuration $SYSRUN_CONF..."
+        install -d -m 0755 -o root -g root -- "$SYSRUN_DIR" "$(dirname -- "$SYSRUN_CONF")"
+        install -m 2755 -o root -g "$MACHINE_GROUP" -- "$SYSRUN_TMP/wex-sysrun" "$SYSRUN_DIR/wex-sysrun"
+        cat > "$SYSRUN_TMP/sysrun.conf" <<EOF
+# Written by setup-machine-root.sh. Read by wex-sysrun; it refuses a file that is not root-owned or that
+# group or others can write.
+group=$MACHINE_GROUP
+loader=$WINE_BIN
+ntdll=${WEX_NTDLL:-/usr/local/lib/wine/x86_64-unix/ntdll.so}
+wineserver=$WINESERVER_BIN
+machine_root=$MACHINE_ROOT
+EOF
+        install -m 0644 -o root -g root -- "$SYSRUN_TMP/sysrun.conf" "$SYSRUN_CONF"
+    fi
+    rm -rf -- "$SYSRUN_TMP"
 fi
 
 # 3. Create or update template prefix in /etc/skel/.wine

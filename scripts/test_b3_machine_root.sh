@@ -3,7 +3,9 @@
 # Copyright 2026 WineExplorer contributors
 # Machine root metadata capture, apply, rollback and path/backup safety, in a disposable fixture.
 # Run as root. Unix-tier only: group-write enforcement here is not Windows elevation (see
-# docs/TOKEN_SECURITY_B_ACCEPTANCE.md).
+# docs/TOKEN_SECURITY_B_ACCEPTANCE.md). The throw-away group stands for wexsys: its member stands for a process
+# that has wexsys as its effective group (started by wex-sysrun); no desktop user is a member of the real wexsys
+# (docs/ELEVATION_SYSTEM_ROLE_WORKORDER.md, phase A). DESKTOP_USER stands for a desktop administrator in sudo.
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 2; }
@@ -18,11 +20,16 @@ SHIM="/tmp/disposable-shim-$$"
 GROUP="wextestgrp$$"
 IN_USER="wextest$$"
 OUT_USER="wexout$$"
+DESKTOP_USER="wexdesk$$"
+GROUP2="wextestgrpn$$"
+FIX2="/tmp/disposable-migrate-$$"
 
 cleanup()
 {
-    rm -rf "$FIXTURE" "$SKEL" "$BACKUPS" "$OUTSIDE" "$SHIM"
+    rm -rf "$FIXTURE" "$SKEL" "$BACKUPS" "$OUTSIDE" "$SHIM" "$FIX2" "$FIX2-backup"
     userdel "$IN_USER" 2>/dev/null || true
+    userdel "$DESKTOP_USER" 2>/dev/null || true
+    groupdel "$GROUP2" 2>/dev/null || true
     userdel "$OUT_USER" 2>/dev/null || true
     groupdel "$GROUP" 2>/dev/null || true
 }
@@ -33,6 +40,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 groupadd "$GROUP"
 useradd -M -N -s /bin/bash -G "$GROUP" "$IN_USER"
 useradd -M -N -s /bin/bash "$OUT_USER"
+useradd -M -N -s /bin/bash -G sudo "$DESKTOP_USER"
 
 run_setup()
 {
@@ -111,8 +119,15 @@ write_as "$IN_USER" "$SELF_TMP/in" >/dev/null || fail "positive control: $IN_USE
 write_as "$OUT_USER" "$SELF_TMP/out" >/dev/null || fail "positive control: $OUT_USER cannot write its own temp dir"
 rm -rf "$SELF_TMP"
 write_as "$IN_USER" "$FIXTURE/drive_c/windows/in_group_write.txt" >/dev/null ||
-    fail "machine group member cannot write the machine root"
-echo "b3_unix_group_write_allowed=PASS (Unix tier only: group members write without Windows elevation)"
+    fail "a process with the machine group cannot write the machine root"
+echo "b3_unix_group_write_allowed=PASS (Unix tier only: a process with the machine group writes without Windows elevation)"
+# Phase A: a desktop administrator (member of sudo, not of the machine group) cannot write it directly.
+OUT="$(write_as "$DESKTOP_USER" "$FIXTURE/drive_c/windows/desktop_write.txt" || true)"
+case "$OUT" in
+    *"Permission denied"*) echo "b3_desktop_admin_write_denied=PASS" ;;
+    *) fail "desktop administrator (sudo, not in the machine group) was not denied: $OUT" ;;
+esac
+[ ! -e "$FIXTURE/drive_c/windows/desktop_write.txt" ] || fail "desktop administrator write succeeded"
 OUT="$(write_as "$OUT_USER" "$FIXTURE/drive_c/windows/outsider_write.txt" || true)"
 case "$OUT" in
     *"Permission denied"*) echo "b3_unix_outsider_write_denied=PASS" ;;
@@ -128,6 +143,11 @@ OUT="$(write_as "$IN_USER" "$BACKUPS/injected" || true)"
 case "$OUT" in
     *"Permission denied"*) echo "b3_backup_dir_not_writable_by_group=PASS" ;;
     *) fail "machine group member could write to the backup directory: $OUT" ;;
+esac
+OUT="$(write_as "$DESKTOP_USER" "$BACKUPS/injected" || true)"
+case "$OUT" in
+    *"Permission denied"*) ;;
+    *) fail "desktop administrator could write to the backup directory: $OUT" ;;
 esac
 
 # 2. Tampered backup entry pointing outside the machine root must be refused.
@@ -173,5 +193,63 @@ for bad in "/" "/home" "/var/" "/var/lib" "relative/path" "/tmp/../etc" "/tmp"; 
     grep -q "^Error:" /tmp/b3-path-$$.log || fail "path '$bad' rejected for the wrong reason: $(cat /tmp/b3-path-$$.log)"
 done
 echo "b3_path_validation_and_safety=PASS"
+
+# 7. Migration from root:sudo (--update) and creation of the system group. FIX2 is an old-style machine root:
+# group sudo, default ACL g:sudo:rwX, files owned by a desktop administrator, wrong hive modes.
+mkdir -p "$FIX2/drive_c/windows/system32" "$FIX2/drive_c/Program Files/OldApp" "$FIX2/dosdevices"
+echo hive > "$FIX2/system.reg"; echo hive > "$FIX2/userdef.reg"
+ln -s /usr/bin/true "$FIX2/drive_c/windows/system32/link.dll"
+echo app > "$FIX2/drive_c/Program Files/OldApp/app.exe"
+chown -R "$DESKTOP_USER:sudo" "$FIX2/drive_c/Program Files"
+chown root:sudo "$FIX2" "$FIX2/drive_c" "$FIX2/drive_c/windows" "$FIX2/system.reg" "$FIX2/userdef.reg"
+chmod 2775 "$FIX2" "$FIX2/drive_c" "$FIX2/drive_c/windows"
+chmod 664 "$FIX2/system.reg" "$FIX2/userdef.reg"
+setfacl -R -m g:sudo:rwX "$FIX2/drive_c"
+setfacl -R -d -m g:sudo:rwX "$FIX2/drive_c"
+setfacl -d -m g:sudo:rwX "$FIX2"
+run_setup2()
+{
+    WEX_MACHINE_ROOT="$FIX2" WEX_SKEL_PFX="$SKEL" WEX_MACHINE_GROUP="$GROUP2" \
+        WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 bash "$SETUP" "$@"
+}
+! getent group "$GROUP2" >/dev/null || fail "test group $GROUP2 exists before the run"
+run_setup2 --update >/tmp/b3-mig-$$.log 2>&1 || { cat /tmp/b3-mig-$$.log; fail "migration failed"; }
+getent group "$GROUP2" >/dev/null || fail "setup did not create the system group"
+[ "$(getent group "$GROUP2" | cut -d: -f4)" = "" ] || fail "setup added members to the system group"
+[ "$(getent group "$GROUP2" | cut -d: -f3)" -lt 1000 ] || fail "the system group is not a system group (gid >= 1000)"
+echo "b3_group_created_without_members=PASS"
+BAD="$(find "$FIX2" ! -type l \( ! -user root -o ! -group "$GROUP2" \) -print)"
+[ -z "$BAD" ] || fail "migration left entries not root:$GROUP2: $BAD"
+ACLS="$(getfacl -R -p "$FIX2" 2>/dev/null)"
+case "$ACLS" in *sudo*) fail "migration left g:sudo ACL entries" ;; esac
+case "$ACLS" in *"default:group:$GROUP2:rwx"*) ;; *) fail "default ACL for $GROUP2 missing" ;; esac
+[ "$(stat -c '%a' "$FIX2/system.reg")" = "664" ] && [ "$(stat -c '%a' "$FIX2/userdef.reg")" = "664" ] ||
+    fail "hive modes are not 664"
+[ "$(stat -c '%a' "$FIX2/drive_c/Program Files/OldApp/app.exe")" = "775" ] || fail "app.exe mode is not 775"
+OUT="$(write_as "$DESKTOP_USER" "$FIX2/drive_c/Program Files/desktop_write.txt" || true)"
+case "$OUT" in *"Permission denied"*) ;; *) fail "after migration the desktop administrator can still write: $OUT" ;; esac
+OUT="$(runuser -u "$DESKTOP_USER" -- bash -c 'echo x >> "$1"' _ "$FIX2/system.reg" 2>&1 || true)"
+case "$OUT" in *"Permission denied"*) ;; *) fail "after migration the desktop administrator can write system.reg: $OUT" ;; esac
+OUT="$(runuser -u "$DESKTOP_USER" -- bash -c 'echo x >> "$1"' _ "$FIX2/drive_c/Program Files/OldApp/app.exe" 2>&1 || true)"
+case "$OUT" in *"Permission denied"*) ;; *) fail "after migration the desktop administrator still owns app.exe: $OUT" ;; esac
+write_as "$IN_USER" "$FIX2/probe" >/dev/null 2>&1 && fail "a user outside $GROUP2 wrote the machine root"
+echo "b3_migration_from_sudo=PASS"
+snapshot_of()
+{
+    find "$1" -exec stat -c "%a %u %g %n" {} + | sort -k4
+    getfacl -R -p "$1" 2>/dev/null
+}
+snapshot_of "$FIX2" > /tmp/b3-mig1-$$.txt
+run_setup2 --update >/tmp/b3-mig-$$.log 2>&1 || { cat /tmp/b3-mig-$$.log; fail "second migration run failed"; }
+snapshot_of "$FIX2" > /tmp/b3-mig2-$$.txt
+cmp -s /tmp/b3-mig1-$$.txt /tmp/b3-mig2-$$.txt || { diff /tmp/b3-mig1-$$.txt /tmp/b3-mig2-$$.txt || true; fail "migration is not idempotent"; }
+echo "b3_migration_idempotent=PASS"
+# The system group may not be sudo (desktop users would write the machine root).
+if WEX_MACHINE_ROOT="$FIX2" WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 WEX_MACHINE_GROUP=sudo \
+    bash "$SETUP" --update >/tmp/b3-sudo-$$.log 2>&1; then
+    fail "setup accepted sudo as the machine group"
+fi
+grep -q "dedicated system group" /tmp/b3-sudo-$$.log || fail "sudo refusal has the wrong reason"
+echo "b3_sudo_group_refused=PASS"
 
 rm -f /tmp/b3-*-$$ /tmp/b3-*-$$.txt /tmp/b3-*-$$.log

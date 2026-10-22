@@ -2,8 +2,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 # Phase S2 Acceptance Test:
-# 1. Alice (administrator in sudo) installs program & config into C:\Program Files
-# 2. Carol (second administrator in sudo) modifies Alice's installed files (default ACL g:sudo:rwX)
+# 0. (phase A of ELEVATION_SYSTEM_ROLE_WORKORDER.md, decision S4) The machine root is root:wexsys and no desktop
+#    user is in wexsys: Alice and Carol (administrators in sudo) and Bob cannot write it directly. Writes the test
+#    needs run as root (setup step) until the broker exists (step 4); the assertions that need an administrator's
+#    own session to install are kept and run when WEX_BROKER_AVAILABLE=1, otherwise they print WAITING.
+# 1. Alice (administrator in sudo) installs program & config into C:\Program Files  [root step until step 4]
+# 2. Carol (second administrator in sudo) modifies Alice's installed files  [waits for step 4]
 # 3. Verify .exe/.dll mode 775 and per-user TEMP/TMP in user.reg (not C:\windows\temp)
 # 4. Bob (limited user) sees and runs 64-bit and 32-bit programs from C:\Program Files
 # 5. Bob cannot write C:\WINDOWS\system32 or C:\Program Files
@@ -13,6 +17,8 @@ set -euo pipefail
 
 MACHINE_ROOT="/var/lib/wineexplorer/machine"
 SKEL_PFX="/etc/skel/.wine"
+SYS_GRP="${WEX_MACHINE_GROUP:-wexsys}"
+BROKER="${WEX_BROKER_AVAILABLE:-0}"   # 1 once administrators can install through the broker (step 4)
 
 echo "=== WineExplorer Phase S2 Acceptance Test ==="
 
@@ -26,6 +32,15 @@ id carol >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo carol
 id bob >/dev/null 2>&1 || useradd -m -s /bin/bash bob
 usermod -a -G sudo alice
 usermod -a -G sudo carol
+
+# --- Phase A: no desktop user is in the system group, and none can write the machine root directly ---
+for u in alice carol bob; do
+    if id -nG "$u" | tr ' ' '\n' | grep -qx "$SYS_GRP"; then
+        echo "FAIL: $u is a member of $SYS_GRP; desktop users must not be!"
+        exit 1
+    fi
+done
+echo "PASS: alice, carol and bob are not members of $SYS_GRP."
 
 # Initialize prefixes for alice, carol, and bob from /etc/skel/.wine
 echo "--- Initializing user prefixes from /etc/skel/.wine ---"
@@ -68,9 +83,36 @@ find "$MACHINE_ROOT/drive_c" -type f -printf "%p %u:%g %m\n" | sort > "$MANIFEST
 FILES_COUNT_BEFORE=$(wc -l < "$MANIFEST_BEFORE")
 echo "Machine root drive_c files before test: $FILES_COUNT_BEFORE"
 
+# --- Test 0: desktop users, administrators included, cannot write the machine root directly (S4) ---
+echo "--- Test 0: alice, carol and bob cannot write the machine root ---"
+for u in alice carol bob; do
+    for f in "$MACHINE_ROOT/drive_c/windows/${u}_direct.txt" "$MACHINE_ROOT/drive_c/Program Files/${u}_direct.txt" "$MACHINE_ROOT/${u}_direct.txt"; do
+        if su - "$u" -c "touch \"$f\"" 2>/dev/null; then
+            echo "FAIL: $u wrote $f directly into the machine root!"
+            exit 1
+        fi
+    done
+    if su - "$u" -c "echo x >> \"$MACHINE_ROOT/system.reg\"" 2>/dev/null; then
+        echo "FAIL: $u appended to the machine system.reg directly!"
+        exit 1
+    fi
+done
+echo "PASS: alice, carol and bob were denied direct writes to the machine root."
+
 # --- Test 1: Alice (Administrator, umask 0022) installs a program into C:\Program Files and COW-breaks a built-in DLL ---
 echo "--- Test 1: Alice installs a program and config into C:\Program Files and COW-breaks msvcp140.dll ---"
-su - alice -c '
+if [ "$BROKER" != 1 ]; then
+    # Changed for S4: the install runs as root (the setup/package step), not in Alice's session. The COW break of
+    # msvcp140.dll by an administrator's session and Carol's overwrite wait for the broker (step 4).
+    echo "Installing AliceApp into the machine root as root (stands for the installer package step)..."
+    install -d -m 2775 -o root -g "$SYS_GRP" "$MACHINE_ROOT/drive_c/Program Files/AliceApp"
+    echo "Installed_By_Alice=1" > /tmp/alice_cfg.ini
+    install -m 775 -o root -g "$SYS_GRP" /usr/local/bin/check_s1_64.exe "$MACHINE_ROOT/drive_c/Program Files/AliceApp/app64.exe"
+    install -m 775 -o root -g "$SYS_GRP" /usr/local/bin/check_s1_32.exe "$MACHINE_ROOT/drive_c/Program Files/AliceApp/app32.exe"
+    install -m 664 -o root -g "$SYS_GRP" /tmp/alice_cfg.ini "$MACHINE_ROOT/drive_c/Program Files/AliceApp/settings.ini"
+    rm -f /tmp/alice_cfg.ini
+fi
+[ "$BROKER" != 1 ] || su - alice -c '
     umask 0022
     echo "Installed_By_Alice=1" > /tmp/alice_cfg.ini
     export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
@@ -89,7 +131,15 @@ APP32="$MACHINE_ROOT/drive_c/Program Files/AliceApp/app32.exe"
 CFG="$MACHINE_ROOT/drive_c/Program Files/AliceApp/settings.ini"
 COW_DLL="$MACHINE_ROOT/drive_c/windows/system32/msvcp140.dll"
 
-if [ -f "$APP64" ] && [ -f "$APP32" ] && [ -f "$CFG" ] && [ ! -L "$COW_DLL" ] && [ -f "$COW_DLL" ]; then
+if [ "$BROKER" != 1 ]; then
+    if [ -f "$APP64" ] && [ -f "$APP32" ] && [ -f "$CFG" ]; then
+        echo "PASS: AliceApp (app64.exe, app32.exe, settings.ini) installed by the root step."
+        echo "WAITING (step 4, broker): COW break of msvcp140.dll by an administrator's own session."
+    else
+        echo "FAIL: the root step did not install AliceApp!"
+        exit 1
+    fi
+elif [ -f "$APP64" ] && [ -f "$APP32" ] && [ -f "$CFG" ] && [ ! -L "$COW_DLL" ] && [ -f "$COW_DLL" ]; then
     echo "PASS: Alice installed app64.exe, app32.exe, settings.ini, and COW-broke msvcp140.dll!"
     ls -la "$MACHINE_ROOT/drive_c/Program Files/AliceApp"
     ls -la "$COW_DLL"
@@ -102,7 +152,19 @@ fi
 
 # --- Test 1b: Carol (second Administrator in sudo, umask 0022) modifies Alice's files and COW-broken DLL ---
 echo "--- Test 1b: Carol (second Administrator) modifies Alice's installed files and COW-broken msvcp140.dll ---"
-su - carol -c '
+if [ "$BROKER" != 1 ]; then
+    # Changed for S4: Carol, like Alice, is not in wexsys, so she cannot modify the installed files.
+    echo "Carol_must_not_write=1" > /tmp/carol_cfg.ini
+    chmod 644 /tmp/carol_cfg.ini
+    if su - carol -c "cat /tmp/carol_cfg.ini > \"$CFG\"" 2>/dev/null; then
+        echo "FAIL: Carol overwrote Alice's settings.ini directly!"
+        exit 1
+    fi
+    rm -f /tmp/carol_cfg.ini
+    echo "PASS: Carol could not modify Alice's files directly."
+    echo "WAITING (step 4, broker): Carol modifying Alice's files and the COW-broken msvcp140.dll through the broker."
+fi
+[ "$BROKER" != 1 ] || su - carol -c '
     umask 0022
     echo "Modified_By_Carol=2" > /tmp/carol_cfg.ini
     export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
@@ -115,7 +177,14 @@ su - carol -c '
 '
 CFG_CONTENT=$(cat "$CFG")
 echo "settings.ini content after Carol update: $CFG_CONTENT"
-if [ "$CFG_CONTENT" = "Modified_By_Carol=2" ]; then
+if [ "$BROKER" != 1 ]; then
+    if [ "$CFG_CONTENT" = "Installed_By_Alice=1" ]; then
+        echo "PASS: settings.ini unchanged by Carol."
+    else
+        echo "FAIL: settings.ini changed unexpectedly!"
+        exit 1
+    fi
+elif [ "$CFG_CONTENT" = "Modified_By_Carol=2" ]; then
     echo "PASS: Second administrator (Carol) modified Alice's files in C:\\Program Files and COW-broken msvcp140.dll!"
 else
     echo "FAIL: Carol could not modify Alice's file!"

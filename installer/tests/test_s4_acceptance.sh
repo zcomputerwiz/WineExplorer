@@ -12,13 +12,18 @@
 #         - Theme copy is safely skipped on split prefix without permission errors.
 # Case 4: Prefix migration script (scripts/migrate-prefix-split.sh):
 #         Converts monolithic prefix to split layout, reduces size < 10 MB, preserves user data.
-# Case 5: Alice (administrator) installs application for all users into Program Files;
-#         Bob (limited user) executes it; Bob is denied write access to machine root.
+# Case 5: An application is installed for all users into Program Files; Bob (limited user) executes it;
+#         Alice (administrator in sudo) and Bob are denied write access to the machine root. Phase A
+#         (ELEVATION_SYSTEM_ROLE_WORKORDER.md, decision S4): the machine root is root:wexsys and Alice is not in
+#         wexsys, so the install runs as root until the broker exists (step 4); Alice's own install runs when
+#         WEX_BROKER_AVAILABLE=1 and otherwise prints WAITING.
 # Case 6: Symlink integrity, permissions, and 0 leftover temporary files.
 set -euo pipefail
 
 MACHINE_ROOT="/var/lib/wineexplorer/machine"
 SKEL_PFX="/etc/skel/.wine"
+SYS_GRP="${WEX_MACHINE_GROUP:-wexsys}"
+BROKER="${WEX_BROKER_AVAILABLE:-0}"   # 1 once administrators can install through the broker (step 4)
 
 echo "=== WineExplorer Phase S4 Acceptance Test ==="
 
@@ -50,8 +55,8 @@ verify_symlinks() {
     local sys_mode sys_grp
     sys_mode=$(stat -c "%a" "$MACHINE_ROOT/system.reg")
     sys_grp=$(stat -c "%G" "$MACHINE_ROOT/system.reg")
-    if [ "$sys_mode" != "664" ] || [ "$sys_grp" != "sudo" ]; then
-        echo "FAIL [$stage]: $MACHINE_ROOT/system.reg has mode $sys_mode group $sys_grp, expected 664 sudo"
+    if [ "$sys_mode" != "664" ] || [ "$sys_grp" != "$SYS_GRP" ]; then
+        echo "FAIL [$stage]: $MACHINE_ROOT/system.reg has mode $sys_mode group $sys_grp, expected 664 $SYS_GRP"
         exit 1
     fi
 
@@ -61,7 +66,7 @@ verify_symlinks() {
         echo "FAIL [$stage]: Found $tmp_count leftover reg*.tmp files in $MACHINE_ROOT!"
         exit 1
     fi
-    echo "PASS [$stage]: All symlinks intact, 0664 sudo permissions verified, 0 temp files."
+    echo "PASS [$stage]: All symlinks intact, 0664 $SYS_GRP permissions verified, 0 temp files."
 }
 
 # ==============================================================================
@@ -105,6 +110,14 @@ id bob >/dev/null 2>&1 || useradd -m -s /bin/bash bob
 usermod -a -G sudo alice
 usermod -a -G sudo carol
 
+# Phase A: no desktop user is in the system group.
+for u in alice carol bob; do
+    if id -nG "$u" | tr ' ' '\n' | grep -qx "$SYS_GRP"; then
+        echo "FAIL: $u is a member of $SYS_GRP; desktop users must not be!"
+        exit 1
+    fi
+done
+
 for u in alice carol bob; do
     rm -rf "/home/$u/.wine"
     # Populate per-user prefix from template
@@ -127,11 +140,11 @@ for u in alice carol bob; do
         exit 1
     fi
 
-    # Verify that machine files remain owned by root:sudo
+    # Verify that machine files remain owned by root:$SYS_GRP
     win_owner=$(stat -c "%U:%G" "$MACHINE_ROOT/drive_c/windows")
     sys_owner=$(stat -c "%U:%G" "$MACHINE_ROOT/system.reg")
-    if [ "$win_owner" != "root:sudo" ] || [ "$sys_owner" != "root:sudo" ]; then
-        echo "FAIL: Machine root ownership corrupted to $win_owner / $sys_owner, expected root:sudo!"
+    if [ "$win_owner" != "root:$SYS_GRP" ] || [ "$sys_owner" != "root:$SYS_GRP" ]; then
+        echo "FAIL: Machine root ownership corrupted to $win_owner / $sys_owner, expected root:$SYS_GRP!"
         exit 1
     fi
 done
@@ -294,8 +307,16 @@ echo "PASS: Case 4 migration script correctly migrated prefix, preserved user da
 # ==============================================================================
 echo "=== Case 5: Alice installs for all users, Bob executes, Bob denied write ==="
 
-# Alice (in sudo) installs a shared application
-su - alice -c '
+# Alice (in sudo) installs a shared application. Changed for S4: the install runs as root (it stands for the
+# installer package step) until the broker exists; Alice's own install waits for step 4.
+if [ "$BROKER" != 1 ]; then
+    install -d -m 2775 -o root -g "$SYS_GRP" "$MACHINE_ROOT/drive_c/Program Files/SharedTool"
+    printf '@echo off\r\necho Shared Tool Running Successfully\r\n' > /tmp/s4_tool.bat
+    install -m 775 -o root -g "$SYS_GRP" /tmp/s4_tool.bat "$MACHINE_ROOT/drive_c/Program Files/SharedTool/tool.bat"
+    rm -f /tmp/s4_tool.bat
+    echo "WAITING (step 4, broker): Alice's own session installing into Program Files."
+fi
+[ "$BROKER" != 1 ] || su - alice -c '
     set -euo pipefail
     mkdir -p "/var/lib/wineexplorer/machine/drive_c/Program Files/SharedTool"
     cat << "EOF" > "/var/lib/wineexplorer/machine/drive_c/Program Files/SharedTool/tool.bat"
@@ -316,8 +337,19 @@ su - bob -c '
 '
 echo "PASS: Bob successfully executed application installed for all users by Alice."
 
-# Bob attempts to write to machine root; must be denied
-echo "--- Verifying Bob is denied write access to machine root ---"
+# Alice (administrator in sudo, not in wexsys) and Bob attempt to write to the machine root; must be denied
+echo "--- Verifying Alice and Bob are denied write access to machine root ---"
+for u in alice carol; do
+    if su - "$u" -c 'touch "/var/lib/wineexplorer/machine/drive_c/Program Files/${USER}_hack.txt"' 2>/dev/null; then
+        echo "FAIL: $u was able to write to machine Program Files directory!"
+        exit 1
+    fi
+    if su - "$u" -c 'echo "fail" >> /var/lib/wineexplorer/machine/system.reg' 2>/dev/null; then
+        echo "FAIL: $u was able to write to machine system.reg!"
+        exit 1
+    fi
+done
+echo "PASS: Alice and Carol (sudo, not wexsys) were denied direct write access to the machine root."
 if su - bob -c 'touch "/var/lib/wineexplorer/machine/drive_c/windows/bob_hack.txt"' 2>/dev/null; then
     echo "FAIL: Bob was able to write to machine windows directory!"
     exit 1
