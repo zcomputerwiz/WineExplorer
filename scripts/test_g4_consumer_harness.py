@@ -12,6 +12,9 @@ from unittest import mock
 spec = importlib.util.spec_from_file_location('consumer', Path(__file__).with_name('check-g4-webview2.py'))
 consumer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(consumer)
+analyzer_spec = importlib.util.spec_from_file_location('analyzer', Path(__file__).with_name('analyze-webview2-run.py'))
+analyzer = importlib.util.module_from_spec(analyzer_spec)
+analyzer_spec.loader.exec_module(analyzer)
 
 
 class DependencyPreflight(unittest.TestCase):
@@ -157,7 +160,8 @@ class GPURecovery(unittest.TestCase):
         animation = dict(state='animation_progressing', navigation_succeeded=True,
                          chromium_log_present=True, errors={name: 0 for name in
                          ('gl_allowlist', 'warp_initialization', 'd3d11_output',
-                          'directcomposition_output', 'gpu_process_crash', 'fatal_log',
+                          'directcomposition_output', 'directcomposition_format_support',
+                          'gpu_process_crash', 'fatal_log',
                           'skia_surface', 'shared_context')})
         animation['errors']['gpu_process_crash'] = 1
         self.assertTrue(consumer.recovery_acceptance(animation, {'passed': True}))
@@ -169,10 +173,27 @@ class GPURecovery(unittest.TestCase):
         value['errors']['fatal_log'] = 1
         self.assertFalse(consumer.recovery_acceptance(value, {'passed': True}))
         value = copy.deepcopy(animation)
+        value['errors']['directcomposition_format_support'] = 1
+        self.assertFalse(consumer.recovery_acceptance(value, {'passed': True}))
+        value = copy.deepcopy(animation)
         del value['errors']['fatal_log']
         value['errors']['unknown'] = 0
         self.assertFalse(consumer.recovery_acceptance(value, {'passed': True}))
         self.assertFalse(consumer.recovery_acceptance(animation, {'passed': False}))
+
+    def test_reinitialized_directcomposition_format_failure_is_classified(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'host.log').write_text(''.join(
+                '%d ms sample hr=0x00000000 {"frames":%d}\n' % (n * 1000, n * 10)
+                for n in range(6)) +
+                '7000 ms navigation completed hr=0x00000000 success=1 web_error=0\n')
+            (root / 'chromium.log').write_text(
+                '[900:1022/000000.000:ERROR:ui\\gl\\direct_composition_support.cc:949] '
+                'CheckFormatSupport failed: Call failed. (0x80004005)\n')
+            result = analyzer.analyze(root)
+            self.assertEqual(result['errors']['directcomposition_format_support'], 1)
+            self.assertFalse(result['diagnostic_passed'])
 
 
 class VisualCapture(unittest.TestCase):

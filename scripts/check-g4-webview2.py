@@ -169,7 +169,8 @@ def recovery_acceptance(animation, recovery):
             and animation.get('navigation_succeeded') is True and animation.get('chromium_log_present') is True
             and errors.get('gpu_process_crash') == 1
             and set(errors) == {'gl_allowlist', 'warp_initialization', 'd3d11_output',
-                                'directcomposition_output', 'gpu_process_crash', 'fatal_log',
+                                'directcomposition_output', 'directcomposition_format_support',
+                                'gpu_process_crash', 'fatal_log',
                                 'skia_surface', 'shared_context'}
             and all(value == 0 for name, value in errors.items() if name != 'gpu_process_crash'))
 

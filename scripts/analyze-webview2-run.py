@@ -39,6 +39,7 @@ def analyze(root):
         "warp_initialization": r"eglInitialize D3D11Warp failed",
         "d3d11_output": r"D3D11CreateDevice failed",
         "directcomposition_output": r"DCompositionCreateDevice failed",
+        "directcomposition_format_support": r"CheckFormatSupport failed",
         "gpu_process_crash": r"GPU process exited unexpectedly",
         "fatal_log": r":FATAL:",
         "skia_surface": r"Unable to initialize SkSurface",

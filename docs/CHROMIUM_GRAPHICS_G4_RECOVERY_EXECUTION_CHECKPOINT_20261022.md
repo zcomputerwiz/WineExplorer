@@ -123,6 +123,9 @@ sequence and a second independent capture path at sub-second intervals around
 the first disappearance; first run a no-fault frozen-scene control in the same
 topology. Preserve every failure image/log. Do not weaken parser checks, change
 production code without a discriminating reproduction, or start another fault-
-injection trial until the capture discrepancy is understood. Then implement stage-aligned
-pre-fault/recovered/settled capture acknowledgement and deterministic visual
-pixels before further acceptance. Keep all VM and evidence data on D:.
+injection trial until the capture discrepancy is understood. Then implement
+stage-aligned pre-fault/recovered/settled capture acknowledgement and
+deterministic visual pixels before further acceptance. A regression guard is
+now being added so `CheckFormatSupport failed` in the restarted GPU path cannot
+be hidden by the intentionally injected GPU-crash allowlist; its 14-test Linux
+suite passes. Keep all VM and evidence data on D:.
