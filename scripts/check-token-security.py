@@ -9,8 +9,10 @@ No installed runtime, live prefix, inherited override, or global cleanup is used
 import argparse
 import hashlib
 import re
+import grp
 import json
 import os
+import pwd
 from pathlib import Path
 import select
 import signal
@@ -40,6 +42,26 @@ def run_logged(command, environment, output, label, timeout):
             raise
     return subprocess.CompletedProcess(command, code, stdout.read_text(errors='replace'),
                                        stderr.read_text(errors='replace'))
+
+
+def user_is_administrator():
+    """Same rule as user_is_administrator() in the Wine server: the user is in the group database's admin group,
+    named by `admin_group` of a root-owned /etc/wineexplorer/sysrun.conf, else `sudo`."""
+    name = 'sudo'
+    try:
+        conf = Path('/etc/wineexplorer/sysrun.conf')
+        try:
+            info = conf.stat()
+            if info.st_uid == 0 and not info.st_mode & 0o022:
+                for line in conf.read_text().splitlines():
+                    if line.startswith('admin_group=') and line[12:]:
+                        name = line[12:]
+        except FileNotFoundError:
+            pass
+        user = pwd.getpwuid(os.getuid())
+        return grp.getgrnam(name).gr_gid in os.getgrouplist(user.pw_name, user.pw_gid)
+    except (OSError, KeyError):
+        return False
 
 
 def matching_servers(server, prefix):
@@ -232,29 +254,31 @@ def main():
                     raise RuntimeError('Could not configure the helper for the limited-token probe: ' + arch)
                 subprocess.run([str(server), '-k'], env=shape_env, timeout=15)
                 subprocess.run([str(server), '-w'], env=shape_env, timeout=30)  # registry is saved on exit
-                command = [str(wine), str(exe), '--limited-shape']
+                # Administrator identity (decision S3): members of the admin group get the limited token with a
+                # linked full token, everyone else a standard-user token. Run the runner as a user of each kind.
+                standard = not user_is_administrator()
+                result['identity'] = 'standard' if standard else 'administrator'
+                command = [str(wine), str(exe), '--standard-shape' if standard else '--limited-shape']
                 run = run_logged(command, shape_env, output, arch + '.limited', 120)
-                passed = run.returncode == 0 and 'limited_token_shape=PASS' in run.stdout
+                passed = (run.returncode == 0 and 'admin_identity=PASS' in run.stdout and
+                          (standard or 'limited_token_shape=PASS' in run.stdout))
                 result['cases'][arch + '.limited'] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
-                print(arch, 'limited PASS' if passed else 'limited FAIL', run.stdout, flush=True)
+                print(arch, result['identity'], 'limited PASS' if passed else 'limited FAIL', run.stdout, flush=True)
                 if not passed:
-                    raise RuntimeError('Limited token shape failed: ' + arch)
-                # Registry and service manager access checks, in the same limited prefix.
-                command = [str(wine), str(exe), '--registry-enforcement']
-                run = run_logged(command, shape_env, output, arch + '.registry', 120)
-                passed = run.returncode == 0 and 'registry_enforcement=PASS' in run.stdout
-                result['cases'][arch + '.registry'] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
-                print(arch, 'registry PASS' if passed else 'registry FAIL', run.stdout, flush=True)
-                if not passed:
-                    raise RuntimeError('Registry enforcement failed: ' + arch)
-                # Pipe impersonation level; it lowers the probe's own integrity, so it gets its own process.
-                command = [str(wine), str(exe), '--pipe-impersonation']
-                run = run_logged(command, shape_env, output, arch + '.pipe', 120)
-                passed = run.returncode == 0 and 'pipe_impersonation=PASS' in run.stdout
-                result['cases'][arch + '.pipe'] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
-                print(arch, 'pipe PASS' if passed else 'pipe FAIL', run.stdout, flush=True)
-                if not passed:
-                    raise RuntimeError('Pipe impersonation failed: ' + arch)
+                    raise RuntimeError('Token shape failed: ' + arch)
+                # The registry and pipe rows are the administrator's limited token; a standard user is not run on them.
+                for name, flag, marker in (() if standard else
+                                           (('registry', '--registry-enforcement', 'registry_enforcement=PASS'),
+                                            # Pipe impersonation lowers the probe's own integrity: its own process.
+                                            ('pipe', '--pipe-impersonation', 'pipe_impersonation=PASS'))):
+                    # Registry and service manager access checks, in the same limited prefix.
+                    command = [str(wine), str(exe), flag]
+                    run = run_logged(command, shape_env, output, arch + '.' + name, 120)
+                    passed = run.returncode == 0 and marker in run.stdout
+                    result['cases'][arch + '.' + name] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
+                    print(arch, name, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
+                    if not passed:
+                        raise RuntimeError(name + ' check failed: ' + arch)
             for suite_arch, dll, case in suites:
                 if suite_arch != arch:
                     continue

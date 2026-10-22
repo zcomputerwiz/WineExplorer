@@ -849,6 +849,102 @@ static bool limited_token_shape()
     return failures == before;
 }
 
+// Shape of the token of a standard user (not in the Unix `sudo` group, decision S3 of
+// docs/ELEVATION_SYSTEM_ROLE_WORKORDER.md): no Administrators group at all, Medium integrity, the same filtered
+// privileges, TokenElevationTypeDefault and no linked token. Same setup as limited_token_shape().
+static bool standard_token_shape()
+{
+    unsigned int before = failures;
+    HANDLE self = NULL;
+    DWORD size, attributes = 0;
+    TOKEN_ELEVATION_TYPE elevation = (TOKEN_ELEVATION_TYPE)0;
+
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &self)) return false;
+    check(GetTokenInformation(self, TokenElevationType, &elevation, sizeof(elevation), &size) &&
+          elevation == TokenElevationTypeDefault, "standard: elevation type is Default");
+    bool found = has_group(self, WinBuiltinAdministratorsSid, &attributes);
+    printf("standard_shape administrators found=%d integrity=%#lx\n", found, integrity_rid(self));
+    check(!found, "standard: no Administrators SID in TokenGroups");
+    check(has_group(self, WinBuiltinUsersSid, &attributes) && (attributes & SE_GROUP_ENABLED),
+          "standard: Users is enabled");
+    check(integrity_rid(self) == SECURITY_MANDATORY_MEDIUM_RID, "standard: integrity level is Medium");
+
+    std::vector<std::wstring> names = privilege_names(self);
+    bool exact = names.size() == sizeof(limited_privileges) / sizeof(*limited_privileges);
+    for (const WCHAR *wanted : limited_privileges)
+    {
+        bool present = false;
+        for (const std::wstring &name : names) present = present || name == wanted;
+        exact = exact && present;
+    }
+    check(exact, "standard: privileges are exactly the filtered list");
+
+    // Native: a token without a split has no linked token. The error code is provisional: Microsoft documents
+    // TokenElevationTypeDefault as "does not have a linked token" but not the error of the query.
+    TOKEN_LINKED_TOKEN linked = {};
+    SetLastError(0xdeadbeef);
+    BOOL ok = GetTokenInformation(self, TokenLinkedToken, &linked, sizeof(linked), &size);
+    DWORD error = GetLastError();
+    printf("standard_shape TokenLinkedToken ok=%d error=%lu\n", ok, error);
+    check(!ok && error == ERROR_NO_SUCH_LOGON_SESSION, "standard: TokenLinkedToken fails with ERROR_NO_SUCH_LOGON_SESSION");
+    if (ok && linked.LinkedToken) CloseHandle(linked.LinkedToken);
+
+    {
+        PROCESS_INFORMATION info = {};
+        if (start_suspended_self(&info))
+        {
+            LONG status = get_set_information_process()(info.hProcess, 1002 /* ProcessWineGrantAdminToken */, NULL, 0);
+            DWORD code = finish_child(&info);
+            printf("standard_shape ProcessWineGrantAdminToken status=0x%08lx code=%lu\n", (unsigned long)status, code);
+            check(status < 0 && code == 100 + TokenElevationTypeDefault,
+                  "standard: ProcessWineGrantAdminToken is refused and the child stays Default");
+        }
+        else check(false, "standard: start suspended child for the grant-admin request");
+    }
+
+    // A program that demands administrator rights gets no full token, by CreateProcess or by ShellExecute
+    // (default verb and runas) with an elevation helper configured; the helper of this prefix never runs.
+    {
+        WCHAR module[MAX_PATH], child[MAX_PATH + 40];
+        GetModuleFileNameW(NULL, module, MAX_PATH);
+        WCHAR *slash = wcsrchr(module, L'\\');
+        if (slash)
+        {
+            slash[1] = 0;
+            swprintf(child, MAX_PATH + 40, L"%lstoken-manifest-child-%ls.exe", module, sizeof(void *) == 8 ? L"x86_64" : L"i386");
+            DWORD code = 0, launch_error = 0;
+            bool launched = run_child(launch_createprocess, child, &code, &launch_error);
+            printf("standard_shape CreateProcessW launched=%d error=%lu code=%lu\n", launched, launch_error, code);
+            check(!launched && launch_error == ERROR_ELEVATION_REQUIRED, "standard: CreateProcessW requires elevation");
+
+            code = launch_error = 0;
+            launched = run_child(launch_shellexecute, child, &code, &launch_error);
+            printf("standard_shape ShellExecuteExW launched=%d error=%lu code=%lu\n", launched, launch_error, code);
+            check(!launched || code != 100 + TokenElevationTypeFull, "standard: ShellExecuteExW gives no full token");
+
+            SHELLEXECUTEINFOW info = {};
+            info.cbSize = sizeof(info);
+            info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+            info.lpVerb = L"runas";
+            info.lpFile = child;
+            info.nShow = SW_HIDE;
+            code = 0;
+            launched = ShellExecuteExW(&info) != FALSE;
+            if (launched && info.hProcess)
+            {
+                WaitForSingleObject(info.hProcess, 20000);
+                GetExitCodeProcess(info.hProcess, &code);
+                CloseHandle(info.hProcess);
+            }
+            printf("standard_shape ShellExecuteExW runas launched=%d code=%lu\n", launched, code);
+            check(!launched || code != 100 + TokenElevationTypeFull, "standard: ShellExecuteExW runas gives no full token");
+        }
+        else check(false, "standard: locate the manifest child");
+    }
+    CloseHandle(self);
+    return failures == before;
+}
+
 // Registry and service manager access checks of the limited token (docs/ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md).
 // Rows marked "native" are the results of a filtered token on Windows 10.0.26300 (TOKEN_SECURITY_REFERENCES.md).
 static bool registry_enforcement()
@@ -1185,6 +1281,13 @@ int main(int argc, char **argv)
     {
         bool shape = limited_token_shape();
         printf("limited_token_shape=%s\n", shape ? "PASS" : "FAIL");
+        printf("admin_identity=%s\n", shape ? "PASS" : "FAIL");
+        return shape ? 0 : 1;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--standard-shape"))
+    {
+        bool shape = standard_token_shape();
+        printf("admin_identity=%s\n", shape ? "PASS" : "FAIL");
         return shape ? 0 : 1;
     }
     if (argc == 2 && !strcmp(argv[1], "--registry-enforcement"))
