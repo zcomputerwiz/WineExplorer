@@ -104,3 +104,25 @@ and post-fault x86_64/i686/WebView2 controls remain later milestones.
 This is additional consumer coverage, not resolution of the historical blanking
 or G4/full Edge/merge acceptance. Follow standing usage checkpoints: stop safely
 at 95% five-hour or 99% weekly used; never consume reset credits.
+
+## First recovery reviewed; independent repeat
+
+After the user authorized continuation, both usage windows were verified at 0%.
+Parent reviewed trial/report 50012793: exact source/helper/archive hashes matched,
+all eight stage PNGs passed, and the inspected actual settled front contains the
+whole scene/frame and new yellow/blue WebGL surfaces. GPU child 528 was replaced
+by 912; browser/renderer/compositor identities and backend/features stayed stable,
+both old contexts reported loss events and new contexts passed exact readback.
+Parent independently verified all 39 archived file hashes, full recovery and
+capture gates, and graceful QMP/QEMU/Windows exit 0. This is ONE scoped pass,
+not a historical failure fix or full G4 acceptance.
+
+Next authorize exactly one independent fresh-prefix/profile/output visible
+recovery repeat, unique run name visible-webgl-recovery-r2-20261022, identical
+reviewed source/binaries/flags. Prepare its manifest before boot, use a separate
+owned boot and the existing isolation/cleanup procedure. No extra timing control,
+tracing, diagnostic edits or image retries. Any unhealthy pre-fault gate must
+prevent fault injection. Preserve failures and all available paired evidence,
+shut down and return for parent review, even if the run fails before faulting.
+Post-fault both-PE/WebView2 controls are separately dispatched after review of
+the two trials; do not silently credit historical pre-fault controls.
