@@ -329,7 +329,8 @@ class TimingCLI(unittest.TestCase):
         self.assertEqual(consumer.screenshot_schedule(True), [])
         self.assertEqual(consumer.screenshot_schedule(True, True, True), [])
         self.assertEqual(consumer.screenshot_schedule(), [8, 18])
-        self.assertIn(32, consumer.screenshot_schedule(gpu_recovery=True))
+        self.assertEqual(consumer.screenshot_schedule(gpu_recovery=True), [])
+        self.assertIn(32, consumer.screenshot_schedule(freeze_scene=True))
 
     def test_conflicting_modes_fail_before_launch(self):
         base = ['runner', '--wine-build', '/absent', '--runtime', '/absent', '--host', '/absent',

@@ -79,10 +79,10 @@ def presentation_timing_result(collector, text, analysis, observer_error=None):
 
 
 def screenshot_schedule(presentation_timing=False, gpu_recovery=False, freeze_scene=False):
-    if presentation_timing:
+    if presentation_timing or gpu_recovery:
         return []
     return ([4, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
-            if gpu_recovery or freeze_scene else [8, 18])
+            if freeze_scene else [8, 18])
 
 
 def timing_events(text, event):
@@ -115,7 +115,7 @@ class PresentationTimingCollector:
     work by the remaining budget published in the nonce-bound request.
     """
     def __init__(self, run_id, capture_front, capture_page, acknowledge,
-                 now=time.monotonic, sleep=time.sleep):
+                 now=time.monotonic, sleep=time.sleep, visible_webgl=False):
         self.run_id, self.front, self.page, self.ack = run_id, capture_front, capture_page, acknowledge
         self.now, self.sleep = now, sleep
         self.request = None
@@ -123,6 +123,7 @@ class PresentationTimingCollector:
         self.samples = []
         self.page_record = None
         self.error = None
+        self.visible_webgl = visible_webgl
 
     def remaining(self):
         remaining = self.deadline - self.now()
@@ -180,6 +181,9 @@ class PresentationTimingCollector:
                                for k in ('width', 'height'))):
                     raise ValueError('Invalid presentation timing fixed scene/geometry')
                 self.request = request
+                if self.visible_webgl:
+                    from graphics_frame_pixels import visible_canvas_geometry
+                    visible_canvas_geometry(request, 'pre_fault')
                 self.deadline = received + budget / 1000
                 for stage, offset in TIMING_FRONTS:
                     self.sample(stage, offset, received)
@@ -190,7 +194,8 @@ class PresentationTimingCollector:
                     raise ValueError('Page readback arrived before the four fronts')
                 page = pages[0]
                 if (page.get('runId') != self.run_id or any(page.get(key) != self.request.get(key)
-                        for key in ('windowBounds', 'clientBounds', 'viewport', 'marker', 'background'))):
+                        for key in ('windowBounds', 'clientBounds', 'viewport', 'marker', 'background')
+                        + (('visibleCanvases', 'canvasExclusions') if self.visible_webgl else ()))):
                     raise ValueError('Presentation timing page identity/geometry changed')
                 started = self.now()
                 timeout = min(5, self.remaining())
@@ -300,7 +305,7 @@ def recovery_page_events(text):
 
 def recovery_front_capture_result(text, captures, run_id, error=None,
                                   compositor_before=None, compositor_after=None,
-                                  pixel_verdicts=None):
+                                  pixel_verdicts=None, visible_webgl=False):
     requested = recovery_front_requests(text)
     acknowledged = recovery_front_requests(text, acknowledged=True)
     try:
@@ -332,7 +337,15 @@ def recovery_front_capture_result(text, captures, run_id, error=None,
                           and all(isinstance(item, dict) for item in requested + page)
                           and all(request.get(key) == capture.get(key)
                                   for request, capture in zip(requested, page)
-                                  for key in ('clientBounds', 'viewport', 'marker', 'background')))
+                                  for key in ('clientBounds', 'viewport', 'marker', 'background')
+                                  + (('visibleCanvases', 'canvasExclusions') if visible_webgl else ())))
+    if visible_webgl:
+        try:
+            from graphics_frame_pixels import visible_canvas_geometry
+            for item in (requested or []) + page:
+                visible_canvas_geometry(item, item['stage'])
+        except (ValueError, TypeError, KeyError):
+            observations_match = False
     valid_page = (len(page) == len(stages) and all(isinstance(item, dict) for item in page)
                   and [item.get('stage') for item in page] == stages
                   and all(item.get('empty') is False and type(item.get('bytes')) is int
@@ -598,6 +611,8 @@ def main():
                         help='Separate Electron owned-GPU termination/context-recreation diagnostic')
     parser.add_argument('--presentation-timing', action='store_true',
                         help='No-fault fixed front/page presentation timeline; collection is not graphics acceptance')
+    parser.add_argument('--visible-webgl', action='store_true',
+                        help='Opt-in separate stage-colored visible WebGL1/2 surfaces in timing/recovery only')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--resource-profile', action='store_true',
                         help='Read-only one-second owned-process CPU/RSS samples; not GPU telemetry')
@@ -614,6 +629,8 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
+    if args.visible_webgl and (not args.electron_app or not (args.gpu_recovery or args.presentation_timing)):
+        parser.error('--visible-webgl requires Electron timing or GPU recovery')
     if args.presentation_timing and (not args.electron_app or args.gpu_recovery or args.lifecycle
             or args.lifecycle_visuals or args.freeze_scene or args.restart_from or args.profile_proof
             or args.resize_border or args.transition_scale is not None or args.seconds < 45):
@@ -754,6 +771,8 @@ def main():
     if args.presentation_timing:
         environment['WEX_WEBVIEW2_PRESENTATION_TIMING'] = '1'
         environment['WEX_WEBVIEW2_TIMING_RUN_ID'] = timing_run_id
+    if args.visible_webgl:
+        environment['WEX_WEBVIEW2_VISIBLE_WEBGL'] = '1'
     if proof:
         environment['WEX_WEBVIEW2_PROFILE_EXPECT'] = expected or ''
         environment['WEX_WEBVIEW2_PROFILE_WRITE'] = token
@@ -765,6 +784,7 @@ def main():
               'renderer': args.renderer,
               'gl_driver': args.gl_driver,
               'consumer': 'Electron original fixture' if args.electron_app else 'WebView2',
+              'fixture_variant': 'visible-webgl' if args.visible_webgl else 'original',
               'wine_build': str(build),
               'environment': {key: value for key, value in environment.items()
                               if key.startswith(('WINE', 'WEBVIEW2_', 'WEX_WEBVIEW2_', 'CHROME_'))
@@ -840,7 +860,8 @@ def main():
         with Image.open(capture) as image:
             image.load()
             pixels = recovery_pixels(image, {**geometry, 'client_bounds': request['clientBounds']},
-                                     geometry['fixed'] / 65536, request['marker'], request['background'])
+                                     geometry['fixed'] / 65536, request['marker'], request['background'],
+                                     visible=request if args.visible_webgl else None)
             width, height = image.size
         record.update(width=width, height=height, pixels=pixels)
         if geometry_query('-after') != geometry:
@@ -860,7 +881,8 @@ def main():
                 raise ValueError('Presentation timing page dimensions changed')
             pixels = recovery_page_pixels(image, request['viewport'],
                                            timing_collector.samples[0]['observed_scale'],
-                                           request['marker'], request['background'])
+                                           request['marker'], request['background'],
+                                           visible=page if args.visible_webgl else None)
         return {'path': str(capture), 'sha256': digest(capture), 'bytes': capture.stat().st_size,
                 'pixels': pixels}
 
@@ -868,7 +890,8 @@ def main():
         write_timing_ack(output, timing_run_id, stage, details)
 
     if args.presentation_timing:
-        timing_collector = PresentationTimingCollector(timing_run_id, timing_front, timing_page, timing_ack)
+        timing_collector = PresentationTimingCollector(timing_run_id, timing_front, timing_page, timing_ack,
+                                                      visible_webgl=args.visible_webgl)
 
     def observe():
         seen = set()
@@ -917,6 +940,9 @@ def main():
                                            or client_bounds[key] <= 0 for key in ('width', 'height'))
                                     or any(type(client_bounds.get(key)) is not int for key in ('x', 'y'))):
                                 raise RuntimeError('Missing/invalid observed Electron client bounds')
+                            if args.visible_webgl:
+                                from graphics_frame_pixels import visible_canvas_geometry
+                                visible_canvas_geometry(request, stage)
                             capture = output / ('recovery-front-' + stage + '.png')
                             with (output / 'capture.log').open('ab') as capture_log:
                                 subprocess.run(capture_command(capture), env=environment,
@@ -938,6 +964,9 @@ def main():
                                               'observed_scale': geometry['fixed'] / 65536,
                                               'time': time.time(),
                                               'compositor_identity': identity}
+                            if args.visible_webgl:
+                                capture_record['visibleCanvases'] = request['visibleCanvases']
+                                capture_record['canvasExclusions'] = request['canvasExclusions']
                             recovery_front_captures[stage] = capture_record
                             result['recovery_front_captures'] = dict(recovery_front_captures)
                             from PIL import Image
@@ -949,7 +978,8 @@ def main():
                                     front_verdict = recovery_pixels(
                                         front_image, {**geometry, 'client_bounds': client_bounds},
                                         capture_record['observed_scale'], request['marker'], request['background'],
-                                        recovery_front_pixel_verdicts.get('pre_fault', {}).get('rim'))
+                                        recovery_front_pixel_verdicts.get('pre_fault', {}).get('rim'),
+                                        visible=request if args.visible_webgl else None, stage=stage)
                             except ValueError as error:
                                 front_verdict = {'passed': False, 'error': '%s: %s' % (type(error).__name__, error)}
                             recovery_front_pixel_verdicts[stage] = front_verdict
@@ -972,6 +1002,12 @@ def main():
                             from graphics_frame_pixels import recovery_page_pixels
                             if stage not in recovery_front_captures:
                                 raise RuntimeError('Page capture arrived without its front checkpoint')
+                            if args.visible_webgl:
+                                from graphics_frame_pixels import visible_canvas_geometry
+                                visible_canvas_geometry(page, stage)
+                                if any(page[key] != recovery_front_captures[stage][key]
+                                       for key in ('visibleCanvases', 'canvasExclusions')):
+                                    raise ValueError('Visible canvas front/page observations disagree')
                             page_file = output / ('recovery-page-' + stage + '.png')
                             with Image.open(page_file) as page_image:
                                 if page_image.size != (page['size']['width'], page['size']['height']):
@@ -980,7 +1016,8 @@ def main():
                                     page_verdict = recovery_page_pixels(
                                         page_image, page['viewport'],
                                         recovery_front_captures[stage]['observed_scale'],
-                                        page['marker'], page['background'])
+                                        page['marker'], page['background'],
+                                        visible=page if args.visible_webgl else None, stage=stage)
                                 except ValueError as error:
                                     page_verdict = {'passed': False,
                                                     'error': '%s: %s' % (type(error).__name__, error)}
@@ -1162,12 +1199,14 @@ def main():
                         front_verdict = recovery_pixels(
                             front_image, {**capture_record['geometry'],
                                           'client_bounds': capture_record['client_bounds']},
-                            scale, metadata['marker'], metadata['background'], baseline_rim)
+                            scale, metadata['marker'], metadata['background'], baseline_rim,
+                            visible=metadata if args.visible_webgl else None, stage=stage)
                     if stage == 'pre_fault':
                         baseline_rim = front_verdict['rim']
                     with Image.open(output / ('recovery-page-' + stage + '.png')) as page_image:
                         page_verdict = recovery_page_pixels(page_image, metadata['viewport'], scale,
-                                                            metadata['marker'], metadata['background'])
+                                                            metadata['marker'], metadata['background'],
+                                                            visible=metadata if args.visible_webgl else None, stage=stage)
                     pixel_verdicts[stage] = {'front': front_verdict, 'page': page_verdict,
                                              'captured_at': capture_record.get('time')}
                 except Exception as error:
@@ -1177,7 +1216,7 @@ def main():
             result['recovery_front_capture_diagnostic'] = recovery_front_capture_result(
                 recovery_log, result['recovery_front_captures'], recovery_capture_run_id,
                 result.get('recovery_front_capture_error'), result['wexcomp']['process_identity'],
-                result.get('recovery_compositor_identity_after'), pixel_verdicts)
+                result.get('recovery_compositor_identity_after'), pixel_verdicts, args.visible_webgl)
             passed = passed and result['recovery_front_capture_diagnostic']['passed']
             result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; inspect actual front/page captures'
         if args.presentation_timing:

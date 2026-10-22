@@ -29,19 +29,32 @@ async function visualCheckpoint(stage) {
   throw new Error('Front-window capture not acknowledged: ' + stage);
 }
 const childExits = [], rendererExits = [];
+const visibleWebGL = process.env.WEX_WEBVIEW2_VISIBLE_WEBGL === '1';
+
+function observeScene() {
+  const rect = node => { const r = node.getBoundingClientRect();
+    return { x: r.left, y: r.top, width: r.width, height: r.height }; };
+  const observation = { viewport: { width: innerWidth, height: innerHeight }, marker: rect(box),
+    background: getComputedStyle(document.body).backgroundColor.match(/[\d.]+/g).slice(0, 3).map(Number) };
+  if (window.g4VisibleWebGL) {
+    observation.visibleCanvases = Object.fromEntries(Object.entries(window.g4Contexts).map(([api, item]) =>
+      [api, { api, stage: item.stage, rect: rect(item.canvas) }]));
+    observation.canvasExclusions = Object.fromEntries(['h1', '#counter', 'input', 'button', '#scroll-label']
+      .map(selector => [selector, rect(document.querySelector(selector))]));
+  }
+  return observation;
+}
+async function sceneObservation(win) {
+  return { windowBounds: win.getBounds(), clientBounds: win.getContentBounds(),
+    ...await win.webContents.executeJavaScript(`(${observeScene.toString()})()`) };
+}
 
 async function recoveryFrontCheckpoint(stage, win) {
   const runId = process.env.WEX_WEBVIEW2_RECOVERY_CAPTURE_RUN_ID;
   if (!runId) throw new Error('GPU recovery front-capture run ID is missing');
   const ack = path.join(path.dirname(logPath), `gpu-recovery-${runId}-${stage}.ack`);
-  const observation = await win.webContents.executeJavaScript(`(() => {
-    const r = document.querySelector('#box').getBoundingClientRect();
-    const background = getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number);
-    return { viewport: { width: innerWidth, height: innerHeight },
-      marker: { x: r.left, y: r.top, width: r.width, height: r.height }, background };
-  })()`);
-  log('gpu recovery front capture requested', { stage, runId,
-    windowBounds: win.getBounds(), clientBounds: win.getContentBounds(), ...observation });
+  const observation = await sceneObservation(win);
+  log('gpu recovery front capture requested', { stage, runId, ...observation });
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     try {
@@ -70,8 +83,12 @@ async function recoveryPageCapture(win, stage) {
   if (page.isEmpty() || size.width <= 0 || size.height <= 0 || bytes.length < 64)
     throw new Error('GPU recovery page capture is empty: ' + stage);
   fs.writeFileSync(file, bytes, { flag: 'wx' });
+  const { frontPixelPassed, ...expectedObservation } = details;
+  const observed = await sceneObservation(win);
   log('gpu recovery page capture', { stage, file, size, empty: false, bytes: bytes.length,
-    clientBounds: win.getContentBounds(), ...details });
+    ...observed, frontPixelPassed });
+  if (JSON.stringify(observed) !== JSON.stringify(expectedObservation))
+    throw new Error('Recovery capture scene geometry changed');
   const runId = process.env.WEX_WEBVIEW2_RECOVERY_CAPTURE_RUN_ID;
   const pageAck = path.join(path.dirname(logPath), `gpu-recovery-${runId}-${stage}.page.ack`);
   const deadline = Date.now() + 10000;
@@ -99,7 +116,8 @@ async function waitForFrozenSceneFrames(win, stage) {
 }
 
 // Runs inside the ordinary sandboxed renderer, with no preload/Node access.
-function probeRecoveryPixels() {
+function probeRecoveryPixels(stage = 'pre_fault', visible = false) {
+  window.g4VisibleWebGL = visible;
   window.g4Losses ||= { webgl: 0, webgl2: 0 };
   const oldLost = Object.fromEntries(Object.entries(window.g4Contexts || {}).map(([name, item]) =>
     [name, { lost: item.gl.isContextLost(), events: window.g4Losses[name] }]));
@@ -108,14 +126,17 @@ function probeRecoveryPixels() {
   const contexts = {};
   for (const name of ['webgl', 'webgl2']) {
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 32;
-    // Keep the diagnostic WebGL surface alive without adding a visible test
-    // swatch or changing the app's front-window layout during recovery capture.
-    canvas.style.cssText = 'position:absolute;left:-10000px;top:0';
+    canvas.width = canvas.height = visible ? 64 : 32;
+    // Default probes remain offscreen; the opt-in variant uses real GL surfaces,
+    // with no CSS color fallback that could pass when GPU content is missing.
+    canvas.style.cssText = visible
+      ? `position:absolute;left:${name === 'webgl' ? 360 : 456}px;top:300px;width:64px;height:64px;opacity:1`
+      : 'position:absolute;left:-10000px;top:0';
     document.querySelector('input').before(canvas);
-    const gl = canvas.getContext(name, { antialias: false, preserveDrawingBuffer: true });
+    const gl = canvas.getContext(name, { antialias: false, preserveDrawingBuffer: true,
+      ...(visible ? { alpha: false } : {}) });
     if (!gl) { contexts[name] = { available: false }; continue; }
-    window.g4Contexts[name] = { gl, canvas };
+    window.g4Contexts[name] = { gl, canvas, stage };
     canvas.addEventListener('webglcontextlost', event => {
       window.g4Losses[name]++; event.preventDefault();
     });
@@ -134,9 +155,16 @@ function probeRecoveryPixels() {
     const texturePixel = pixel(), textureError = gl.getError();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.deleteFramebuffer(framebuffer); gl.deleteTexture(texture);
+    let visibleError = null;
+    if (visible) {
+      const palettes = { pre_fault: { webgl: [1,0,1], webgl2: [0,1,1] },
+        recovered: { webgl: [1,1,0], webgl2: [0,0,1] } };
+      gl.clearColor(...palettes[stage][name], 1); gl.clear(gl.COLOR_BUFFER_BIT);
+      visibleError = gl.getError();
+    }
     const info = gl.getExtension('WEBGL_debug_renderer_info');
     contexts[name] = { available: true, lost: gl.isContextLost(), defaultPixel, defaultError,
-      framebufferStatus, texturePixel, textureError,
+      framebufferStatus, texturePixel, textureError, visibleError,
       renderer: info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null };
   }
   return { contexts, oldLost, frames: window.framesCount,
@@ -147,8 +175,8 @@ async function exerciseGPURecovery(win) {
   let before = null, after = null, fault = null;
   try {
     await delay(5000);
-    const snapshot = async () => {
-      const pixels = await win.webContents.executeJavaScript(`(${probeRecoveryPixels.toString()})()`);
+    const snapshot = async (stage = 'pre_fault') => {
+      const pixels = await win.webContents.executeJavaScript(`(${probeRecoveryPixels.toString()})(${JSON.stringify(stage)},${visibleWebGL})`);
       const metrics = app.getAppMetrics();
       const gpu = metrics.filter(item => item.type === 'GPU');
       if (gpu.length !== 1 || gpu[0].pid === process.pid) throw new Error('Expected exactly one owned GPU child');
@@ -167,7 +195,8 @@ async function exerciseGPURecovery(win) {
       && item.textureError === 0 && item.framebufferStatus === 36053
       && JSON.stringify(item.defaultPixel) === '[255,0,0,255]'
       && JSON.stringify(item.texturePixel) === '[0,255,0,255]'
-      && typeof item.renderer === 'string' && !/swiftshader|software rasterizer/i.test(item.renderer);
+      && typeof item.renderer === 'string' && !/swiftshader|software rasterizer/i.test(item.renderer)
+      && (!visibleWebGL || item.visibleError === 0);
     if (!Object.values(before.contexts).every(valid) || before.features.gpu_compositing !== 'enabled')
       throw new Error('GPU recovery preconditions failed; no process killed');
     await win.webContents.executeJavaScript(`window.sceneFrozen=true;
@@ -193,7 +222,7 @@ async function exerciseGPURecovery(win) {
       await delay(100);
     }
     await delay(2000); // allow the genuine context-loss events to reach the page
-    after = await snapshot();
+    after = await snapshot('recovered');
     const frames = after.frames;
     await delay(2000);
     after.laterFrames = await win.webContents.executeJavaScript('window.framesCount');
@@ -309,23 +338,18 @@ async function exercisePresentationTiming(win) {
   const { runPresentationTiming } = require('./presentation-timing');
   await delay(5000);
   const runId = process.env.WEX_WEBVIEW2_TIMING_RUN_ID;
-  const observe = async () => ({ windowBounds: win.getBounds(), clientBounds: win.getContentBounds(),
-    ...await win.webContents.executeJavaScript(`(() => {
-      const r = box.getBoundingClientRect();
-      return {viewport:{width:innerWidth,height:innerHeight},
-        marker:{x:r.left,y:r.top,width:r.width,height:r.height},
-        background:getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0,3).map(Number)};
-    })()`) });
+  const observe = () => sceneObservation(win);
   await runPresentationTiming({ runId, observe,
     prepare: async bounded => {
       const before = await bounded('WebGL preparation', () =>
-        win.webContents.executeJavaScript(`(${probeRecoveryPixels.toString()})()`));
+        win.webContents.executeJavaScript(`(${probeRecoveryPixels.toString()})('pre_fault',${visibleWebGL})`));
       log('presentation timing WebGL preparation', before);
       const valid = item => item.available === true && !item.lost && item.defaultError === 0
         && item.textureError === 0 && item.framebufferStatus === 36053
         && JSON.stringify(item.defaultPixel) === '[255,0,0,255]'
         && JSON.stringify(item.texturePixel) === '[0,255,0,255]'
-        && typeof item.renderer === 'string' && !/swiftshader|software rasterizer/i.test(item.renderer);
+        && typeof item.renderer === 'string' && !/swiftshader|software rasterizer/i.test(item.renderer)
+        && (!visibleWebGL || item.visibleError === 0);
       if (!['webgl', 'webgl2'].every(name => valid(before.contexts[name]))
           || app.getGPUFeatureStatus().gpu_compositing !== 'enabled') throw new Error('Timing WebGL preconditions failed');
       await bounded('freeze scene', () => win.webContents.executeJavaScript(`window.sceneFrozen=true;
@@ -356,6 +380,7 @@ async function exercisePresentationTiming(win) {
 app.setPath('userData', profile);
 app.enableSandbox();
 log('versions', { versions: process.versions, argv: process.argv, sandboxRequested: true });
+log('fixture variant', { visibleWebGL });
 app.on('child-process-gone', (_event, details) => { childExits.push(details); log('child process gone', details); });
 app.on('render-process-gone', (_event, _contents, details) => { rendererExits.push(details); log('renderer gone', details); });
 app.whenReady().then(async () => {
@@ -389,7 +414,7 @@ app.whenReady().then(async () => {
     #box{background:#1565c0;width:40px;height:40px}</style>
     <h1>Original G4 rendering fixture</h1><p id="counter">Starting</p><div id="box"></div>
     <input placeholder="Typing test"><button onclick="this.textContent='Clicked'">Click</button>
-    <div style="height:900px">Scroll test</div><script>
+    <div style="height:900px"><span id="scroll-label">Scroll test</span></div><script>
     window.framesCount=0;window.timerTicks=0;
     function frame(){framesCount++;if(!window.sceneFrozen)box.style.transform='translateX('+framesCount%240+'px)';requestAnimationFrame(frame)}
     requestAnimationFrame(frame);setInterval(()=>{timerTicks++;if(!window.sceneFrozen){counter.textContent='Frames: '+framesCount;
@@ -397,6 +422,8 @@ app.whenReady().then(async () => {
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   fs.appendFileSync(logPath, `${Date.now() - started} ms navigation completed hr=0x00000000 success=1 web_error=0\n`);
   const timingMode = process.env.WEX_WEBVIEW2_PRESENTATION_TIMING === '1';
+  if (visibleWebGL && !timingMode && process.env.WEX_WEBVIEW2_GPU_RECOVERY !== '1')
+    throw new Error('Visible WebGL requires timing or recovery');
   if (timingMode && ['WEX_WEBVIEW2_GPU_RECOVERY', 'WEX_WEBVIEW2_LIFECYCLE', 'WEX_WEBVIEW2_FREEZE',
     'WEX_WEBVIEW2_PROFILE_WRITE'].some(name => process.env[name])) throw new Error('Conflicting timing mode');
   if (timingMode) void exercisePresentationTiming(win);
@@ -420,7 +447,7 @@ app.whenReady().then(async () => {
     } catch (error) { log('sample failed', String(error)); }
     finally { pending = false; }
   }, 1000);
-  if (!timingMode) setTimeout(async () => {
+  if (!timingMode && process.env.WEX_WEBVIEW2_GPU_RECOVERY !== '1') setTimeout(async () => {
     try {
       const image = await win.webContents.capturePage();
       fs.writeFileSync(path.join(path.dirname(logPath), 'electron-capture.png'), image.toPNG());
