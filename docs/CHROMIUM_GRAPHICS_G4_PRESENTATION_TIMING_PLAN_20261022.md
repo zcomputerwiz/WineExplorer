@@ -80,3 +80,23 @@ No production Wine/compositor patch, extra sleep/retry in recovery, fault trial,
 post-fault regression matrix or master merge belongs to this implementation
 milestone. Visible WebGL recovery remains high priority after readiness is
 understood; installed-shell/efficiency work remains recorded TODO.
+
+## First result and bounded repeat
+
+Parent reviewed the first live collection (report ed5229e8): experiment and
+collection valid, all five fronts/page correct, first actual PNG capture started
+64.986 ms after observer request receipt, all five front PNG hashes identical.
+Actual first image shows the full frozen scene. Independent shutdown review
+confirmed graceful QMP powerdown, both children stopped, QEMU and Windows WSL
+exit 0. This does not reproduce or explain the earlier stale-front failures.
+
+Next collect at most two additional serial fresh-prefix/profile/output timing
+runs with identical reviewed code, binaries, flags and no heavy tracing. Reuse
+the prepared host procedure with unique run names; prepare both commands and
+dependency manifests before boot. Each experiment keeps its own compositor,
+nonce and evidence. Preserve the shared guest/cache context in the report.
+If either run has stale pixels or a collection/health failure, finish collecting
+that experiment, stop further runs, shut down cleanly and return for parent
+review. Do not retry images or change the measurement to obtain a preferred
+outcome. If both are correct, report a bounded non-reproduction, not a fix.
+Keep the 900-second launcher/90-second cleanup reserve and standing usage stops.
