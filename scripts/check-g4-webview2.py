@@ -27,6 +27,55 @@ VISUAL_STAGES = ('ready', 'input', 'scroll', 'resize', 'minimized', 'restored', 
 RECOVERY_VISUAL_STAGES = ('pre_fault', 'recovered', 'settled_2s', 'settled_4s')
 TIMING_FRONTS = (('front_0', 0), ('front_250', 250), ('front_1000', 1000), ('front_3000', 3000))
 TIMING_OVERALL_MS = 30000
+TIMING_ERROR_COUNTERS = frozenset(('gl_allowlist', 'warp_initialization', 'd3d11_output',
+                                 'directcomposition_output', 'gpu_process_crash', 'fatal_log',
+                                 'skia_surface', 'shared_context'))
+
+
+def presentation_experiment_health(text, analysis):
+    """No-fault interpretation requires healthy processes/logs, not animation.
+
+    Keep this independent from collection validity: even an unhealthy experiment
+    should preserve every valid image and its decoded pixel verdict.
+    """
+    children, renderers, malformed = [], [], []
+    for line in text.splitlines():
+        match = re.match(r'^\d+ ms (child process gone|renderer gone)(?:\s|$)', line)
+        if match is None:
+            continue
+        try:
+            value = json.loads(line[match.end():].strip())
+            if (not isinstance(value, dict) or not isinstance(value.get('reason'), str)
+                    or not value['reason'].strip() or type(value.get('exitCode')) is not int
+                    or (match[1] == 'child process gone'
+                        and (not isinstance(value.get('type'), str) or not value['type'].strip()))):
+                raise ValueError('Invalid process event shape')
+            (children if match[1] == 'child process gone' else renderers).append(value)
+        except (ValueError, TypeError) as error:
+            malformed.append({'line': line, 'error': str(error)})
+    errors = analysis.get('errors') if isinstance(analysis, dict) else None
+    valid_counters = (isinstance(errors, dict) and TIMING_ERROR_COUNTERS <= errors.keys()
+                      and all(type(value) is int and value >= 0 for value in errors.values()))
+    checks = {'valid_process_events': not malformed,
+              'no_gpu_exit': not any(item['type'].strip().lower() == 'gpu' for item in children),
+              'no_renderer_exit': not renderers,
+              'valid_analyzer_error_counters': valid_counters,
+              'no_classified_chromium_errors': valid_counters and not any(errors.values()),
+              'chromium_log_present': isinstance(analysis, dict) and analysis.get('chromium_log_present') is True,
+              'navigation_succeeded': isinstance(analysis, dict) and analysis.get('navigation_succeeded') is True}
+    return {'passed': all(checks.values()), 'checks': checks, 'child_exits': children,
+            'renderer_exits': renderers, 'malformed_process_events': malformed,
+            'analyzer_errors': errors}
+
+
+def presentation_timing_result(collector, text, analysis, observer_error=None):
+    diagnostic = collector.result(text, observer_error)
+    health = presentation_experiment_health(text, analysis)
+    diagnostic['experiment_health'] = health
+    diagnostic['experiment_valid'] = diagnostic['collection_valid'] and health['passed']
+    if not health['passed']:
+        diagnostic['classification'] = 'invalid/inconclusive'
+    return diagnostic
 
 
 def screenshot_schedule(presentation_timing=False, gpu_recovery=False, freeze_scene=False):
@@ -1133,9 +1182,10 @@ def main():
             result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; inspect actual front/page captures'
         if args.presentation_timing:
             timing_log = hostlog.read_text(errors='replace') if hostlog.exists() else ''
-            result['presentation_timing_diagnostic'] = timing_collector.result(timing_log, result.get('observer_error'))
+            result['presentation_timing_diagnostic'] = presentation_timing_result(
+                timing_collector, timing_log, result.get('animation_diagnostic'), result.get('observer_error'))
             result['classification'] = 'No-fault presentation timing collection; graphics acceptance NOT_PROVEN'
-            passed = result['presentation_timing_diagnostic']['collection_valid']
+            passed = result['presentation_timing_diagnostic']['experiment_valid']
             passed = passed and result['outer_gl_driver_verification']['passed'] and result['gl_driver_verification']['passed']
         if args.lifecycle:
             result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
@@ -1172,8 +1222,9 @@ def main():
             monitor.join(timeout=5)
         if timing_collector:
             logpath = output / 'host.log'
-            result['presentation_timing_diagnostic'] = timing_collector.result(
-                logpath.read_text(errors='replace') if logpath.exists() else '',
+            result['presentation_timing_diagnostic'] = presentation_timing_result(
+                timing_collector, logpath.read_text(errors='replace') if logpath.exists() else '',
+                result.get('animation_diagnostic'),
                 result.get('observer_error') or result.get('failure'))
         if args.resource_profile and (output / 'resources.jsonl').exists():
             try:

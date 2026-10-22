@@ -57,14 +57,26 @@ Missing/corrupt PNGs, geometry/identity changes, malformed/stale/missing ACKs,
 observer errors and expired bounds fail collection. Valid stale pixels remain
 decoded evidence, including stale page pixels, and do not abort later samples.
 
-`presentation_timing_diagnostic.collection_valid` controls this diagnostic's
-exit status. It is separate from all pixel results and always retains
-`acceptance=NOT_PROVEN`. Its descriptive classifications are correct before
+`presentation_timing_diagnostic.collection_valid` records capture/protocol
+completion separately from `experiment_health`. The final diagnostic requires
+both (`experiment_valid`), along with the existing host/backend/driver gates.
+All pixel results remain separate, and `acceptance=NOT_PROVEN` is retained.
+Its descriptive classifications are correct before
 page readback, stale then correct before page readback, stale until after page
 readback, still stale, and invalid/inconclusive. Slots that overlap later
 targets, inconsistent pixel transitions or a stale page make interpretation
 inconclusive even if collection completed. Correlation with readback does not
 assign a production cause. Existing recovery gates and schemas are unchanged.
+
+Parent review correction: a complete collection no longer bypasses classified
+Chromium errors. The explicit experiment-health diagnostic rejects GPU child
+exits, any renderer exit, malformed process events, missing/malformed analyzer
+error evidence, and all eight existing classified error counters (GL allowlist,
+WARP initialization, D3D11/DirectComposition output, GPU crash, fatal, Skia and
+shared-context errors). It also requires navigation and a Chromium log. Health
+failure keeps the collection and images intact but makes classification
+invalid/inconclusive and the final exit unsuccessful. Frozen/stalled animation
+alone is allowed; no animation/RAF progression gate was added.
 
 ## Files and deployment inventory
 
@@ -99,7 +111,7 @@ frame-wait JS helpers. Preserve source/deployed hashes before guest execution.
 
 ## Validation
 
-Linux/WSL focused command (63 tests, PASS):
+Linux/WSL focused command (67 tests, PASS):
 
 ```sh
 cd /mnt/d/DeepThought/Projects/WineExplorer/scripts
@@ -124,6 +136,10 @@ evidence, descriptive classifications, no early/extra readback, duplicate or
 bad events, missing/stale/bad ACKs, bounded hung preparation/readback, timeout
 cleanup, observer/geometry failures, atomic ACK publication, CLI exclusions,
 dependency preflight, normal startup and actual no-fault fixture dispatch.
+Health regressions run the real analyzer on temporary logs with complete stale
+pixel collections: healthy stalled animation remains useful data; unexpected
+GPU/renderer exits, every classified Chromium error and malformed process or
+analyzer evidence invalidate interpretation without discarding captures.
 `git diff --check` passed. No Windows shims were used for Python/Linux coverage.
 
 ## Review boundary and remaining work

@@ -17,6 +17,9 @@ import test_graphics_frame_pixels as frame_fixtures
 spec = importlib.util.spec_from_file_location('consumer_timing', Path(__file__).with_name('check-g4-webview2.py'))
 consumer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(consumer)
+analyzer_spec = importlib.util.spec_from_file_location('timing_analyzer', Path(__file__).with_name('analyze-webview2-run.py'))
+analyzer = importlib.util.module_from_spec(analyzer_spec)
+analyzer_spec.loader.exec_module(analyzer)
 
 
 class Timeline(unittest.TestCase):
@@ -101,6 +104,78 @@ class Timeline(unittest.TestCase):
         self.assertTrue(result['page']['pixels']['passed'])
         self.collector.poll(text)  # rereading the append-only log must not recapture
         self.assertEqual(len(self.calls), 6)
+
+    def evaluate_health(self, text, chromium=''):
+        # Exercise the existing analyzer on real logs. Frames intentionally stall:
+        # process/log health, not animation progression, gates this experiment.
+        text += '0 ms navigation completed hr=0x00000000 success=1 web_error=0\n'
+        text += ''.join('%d ms sample hr=0x00000000 {"frames":14}\n' % (1000 * i)
+                        for i in range(1, 7))
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            (root / 'host.log').write_text(text)
+            (root / 'chromium.log').write_text(chromium)
+            analysis = analyzer.analyze(root)
+        return consumer.presentation_timing_result(self.collector, text, analysis), analysis
+
+    def test_complete_stale_collection_requires_health_but_not_animation(self):
+        original, text = self.collect()
+        result, analysis = self.evaluate_health(text)
+        self.assertEqual(analysis['state'], 'animation_stalled')
+        self.assertFalse(analysis['diagnostic_passed'])
+        self.assertTrue(result['collection_valid'])
+        self.assertTrue(result['experiment_health']['passed'])
+        self.assertTrue(result['experiment_valid'])
+        self.assertEqual(result['classification'], 'stale until after page readback')
+        self.assertEqual(result['front_samples'], original['front_samples'])
+
+    def test_complete_collection_with_unexpected_gpu_or_renderer_exit_is_inconclusive(self):
+        original, text = self.collect()
+        for event, details in (('child process gone', {'type': 'GPU', 'reason': 'crashed', 'exitCode': 1}),
+                               ('renderer gone', {'reason': 'killed', 'exitCode': 9})):
+            with self.subTest(event=event):
+                result, _ = self.evaluate_health(text + '9 ms %s %s\n' % (event, json.dumps(details)))
+                self.assertTrue(result['collection_valid'])
+                self.assertFalse(result['experiment_health']['passed'])
+                self.assertFalse(result['experiment_valid'])
+                self.assertEqual(result['classification'], 'invalid/inconclusive')
+                self.assertEqual(result['front_samples'], original['front_samples'])
+                self.assertEqual(result['page'], original['page'])
+
+    def test_all_existing_classified_chromium_errors_invalidate_complete_experiment(self):
+        original, text = self.collect()
+        for chromium in ('Requested GL implementation test not found', 'eglInitialize D3D11Warp failed',
+                         'D3D11CreateDevice failed', 'DCompositionCreateDevice failed',
+                         'GPU process exited unexpectedly', 'test:FATAL: crash',
+                         'Unable to initialize SkSurface', 'Failed to create shared context for virtualization'):
+            with self.subTest(chromium=chromium):
+                result, analysis = self.evaluate_health(text, chromium)
+                self.assertTrue(any(analysis['errors'].values()))
+                self.assertTrue(result['collection_valid'])
+                self.assertFalse(result['experiment_valid'])
+                self.assertEqual(result['classification'], 'invalid/inconclusive')
+                self.assertEqual(result['front_samples'], original['front_samples'])
+
+    def test_malformed_process_events_or_analyzer_evidence_fail_closed(self):
+        _, text = self.collect()
+        for event in ('child process gone {bad', 'child process gone []',
+                      'child process gone {"reason":"crashed","exitCode":1}',
+                      'child process gone {"type":7,"reason":"crashed","exitCode":1}',
+                      'renderer gone {"reason":"crashed","exitCode":true}',
+                      'renderer gone {"reason":7,"exitCode":1}', 'renderer gone'):
+            with self.subTest(event=event):
+                result, _ = self.evaluate_health(text + '9 ms ' + event + '\n')
+                self.assertTrue(result['collection_valid'])
+                self.assertFalse(result['experiment_valid'])
+                self.assertTrue(result['experiment_health']['malformed_process_events'])
+                self.assertEqual(result['classification'], 'invalid/inconclusive')
+        _, analysis = self.evaluate_health(text)
+        for invalid in (None, {}, {**analysis, 'errors': {}}, {**analysis, 'chromium_log_present': False},
+                        {**analysis, 'errors': {**analysis['errors'], 'fatal_log': False}}):
+            with self.subTest(invalid=invalid):
+                result = consumer.presentation_timing_result(self.collector, text, invalid)
+                self.assertTrue(result['collection_valid'])
+                self.assertFalse(result['experiment_valid'])
 
     def test_lateness_is_preserved_without_retry_or_pixel_abort(self):
         self.front_duration = .4
