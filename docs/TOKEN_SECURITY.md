@@ -14,12 +14,24 @@ same-server functional UI seam, not host authorization or secure desktop proof.
 See `TOKEN_SECURITY_REPAIR_REVIEW.md` for exact tested scope and revisions, and
 `TOKEN_SECURITY_CHECKPOINT_B_WORKORDER.md` for the next stage.
 
-### Checkpoint B Progress (2026-10-18):
-- **Entry Gate A:** Re-verified baseline on WOW64 VM: focused probe (`deny_only_acl_and_object_open=PASS`, `elevation_helper_errors_and_child_handle=PASS`, `shipping_consent_has_no_approval_bypass=PASS`), runner sentinel isolation (all 4 cases PASS), upstream `advapi32 security` (3,691 tests, 0 failures), and native disjoint-restriction contract established in `server/token.c` without synthetic null SIDs.
-- **B1 Design Contract:** Documented request-bound authorization and 4-identity model in `docs/ELEVATION.md`. Standard-user elevation fails closed with `ERROR_NOT_SUPPORTED`.
-- **B2 Real Authorization & Seam Audit:** Strict helper configuration audit implemented across `dlls/shell32/shlexec.c`, `dlls/kernelbase/process.c`, and `dlls/ntdll/loader.c`. Non-configured compatibility mode (`HELPER_UNSET`) is strictly separated from invalid/denied configurations (`HELPER_INVALID`), which fail closed without leaking handles or bypassing UAC. Negative regression tests verified on WOW64.
-- **B3 Migration & Rollback:** Exact filesystem metadata and POSIX ACL capture and error-checked restoration implemented in `scripts/setup-machine-root.sh`. Verified with unprivileged write denial on disposable fixture.
-- **B4 Fresh-Prefix Explorer Diagnostic:** Fresh-prefix explorer null pointer dereference / division-by-zero crash at `0x14000ca88` investigated and resolved in `wine/programs/explorer/systray.c`. Verified clean startup and shutdown on WOW64 VM.
+### Checkpoint B status (2026-10-22, corrected)
+
+The 2026-10-18 progress claims are superseded by `TOKEN_SECURITY_B_ACCEPTANCE.md`, which has the per-case
+matrix and evidence.
+
+- **Entry gate A:** focused probe, runner sentinel, `advapi32 security` (3691 tests, 0 failures) and `ntdll info`
+  pass. `shell32 shlexec` has 2 failures that also occur on the unmodified submission. The disjoint-restriction
+  behaviour is tested in Wine only; there is no native Windows control (PARTIAL).
+- **B1:** the authorization and identity design is written in `ELEVATION.md`; nothing is implemented (PARTIAL).
+- **B2:** the helper configuration audit across `shell32`, `kernelbase` and `ntdll` is implemented and tested
+  for ten registry states on both architectures. Real authorization (polkit, request binding, administrator
+  authentication) is not implemented (PARTIAL).
+- **B3:** metadata capture before the first change, root-only backups, validated rollback and path checks pass
+  in a disposable Unix fixture. Windows-side write denial, an approved installer and the second-user restart
+  check are NOT RUN (PARTIAL).
+- **B4:** the fresh-prefix division by zero is in `conhost.exe` (`update_window`), not explorer. Fixed there;
+  the earlier `systray.c` change is reverted.
+- **Checkpoint C:** NOT RUN.
 
 Date: 2026-10-17. Implementation branch: `gemini/token-security`.  
 Base commit: `1fa63233` (master) | Submodule `wine`: `ed5fe967` | `wexcomp`: `acc46fe6`.  

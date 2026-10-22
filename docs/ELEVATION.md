@@ -223,6 +223,6 @@ Polkit's `Authority.CheckAuthorization` returns an authorization result (`IsAuth
 - A successful helper exit code cannot be equated with a valid Windows administrative credential without an authoritative identity channel.
 
 **Current Architectural Seam:**
-- **Filtered Administrator Consent:** Fully supported and validated. Requesting user already possesses an administrative linked token.
+- **Filtered Administrator Consent:** Designed; not implemented or validated end to end. The requesting user already possesses an administrative linked token, and the helper configuration audit is tested, but there is no polkit mechanism, request record or authentication test yet.
 - **Standard-User Elevation:** Until an authoritative D-Bus/PAM identity channel is deployed that returns the verified administrator identity to wineserver for token synthesis, standard-user elevation **fails closed** with `ERROR_NOT_SUPPORTED`. It never falls back to unauthenticated elevation or synthetic admin SIDs.
 

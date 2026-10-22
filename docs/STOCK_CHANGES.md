@@ -12,23 +12,28 @@ fixture/direct-password-helper bypass and fails unsupported credential requests
 closed. This is functional repair, not complete host authorization/containment.
 See TOKEN_SECURITY_REPAIR_REVIEW.md and the checkpoint-B work order.
 
-## Checkpoint B: Request-bound authorization, helper audit and clean isolation (2026-10-18)
+## Checkpoint B: elevation helper audit and token restriction (2026-10-22, corrected)
 
 - `server/token.c`:
-  - Added explicit `is_restricted` flag in `struct token`.
-  - Replaced internal `null_sid` (`S-1-0-0`) sentinel insertion with native disjoint-restriction semantics: an empty restricting set remains restricted, allowing 0 access rights and failing all access checks immediately without synthetic SIDs.
-  - Hardened `filter_token` against memory allocation failures, failing closed with `STATUS_NO_MEMORY` without publishing partial tokens or leaking handles.
-- `programs/explorer/systray.c`:
-  - Resolved fresh-prefix explorer null pointer dereference / division-by-zero crash (`0x14000ca88`) by adding NULL checks on icon in `tray_icon_wndproc`, `balloon_create_timer`, and `balloon_timer`, cleaning up active balloon timers before destroying icon windows in `delete_icon`, and clearing `GWLP_USERDATA`.
+  - Added an explicit `is_restricted` flag in `struct token`.
+  - Replaced the synthetic Null SID (`S-1-0-0`) inserted for a disjoint restriction with an empty restricting
+    set that stays restricted, so every access check is denied.
+  - `filter_token` fails with `STATUS_NO_MEMORY` when allocating a restricting SID fails, without publishing
+    a partial token.
 - `dlls/shell32/shlexec.c`:
-  - Replaced boolean helper check with strict three-state status: `HELPER_UNSET` (key/value not found or `L""`), `HELPER_CONFIGURED` (valid path), and `HELPER_INVALID` (read denied, wrong registry type, odd bytes, oversized, invalid characters).
-  - Invalid helper configuration fails closed immediately with exact error (`ERROR_DATATYPE_MISMATCH`, `ERROR_INVALID_DATA`, `ERROR_BAD_PATHNAME`, or access denied) and returns no child handle.
-- `dlls/kernelbase/process.c`:
-  - Updated `is_elevation_required`: queries manifest first; only `HELPER_UNSET` falls back to stock compatibility; `HELPER_INVALID` returns TRUE (forcing `ERROR_ELEVATION_REQUIRED` 740).
-- `dlls/ntdll/loader.c`:
-  - Updated `elevate_token()` callsite to verify `get_elevation_helper_status() == HELPER_UNSET`. Invalid or denied helper configurations do not silently elevate.
-- `dlls/advapi32/tests/security.c`:
-  - Updated `test_restricted_sid_intersection` to test the native disjoint-restriction contract: `GroupCount == 0` and `is_restricted == TRUE` without synthetic null SIDs (3,691 tests passing, 0 failures).
+  - Three-state helper status: unset (key or value absent, or an empty string), configured, invalid (wrong
+    type, odd or oversized data, whitespace, control characters, read error). Invalid fails closed with the
+    exact error and no process handle.
+  - With the helper unset, `ERROR_ELEVATION_REQUIRED` from `CreateProcess` returns `ERROR_BAD_FORMAT` as before.
+- `dlls/kernelbase/process.c`: `is_elevation_required` reads the helper first. Unset returns before the
+  manifest is parsed; anything else falls through to the manifest check.
+- `dlls/ntdll/loader.c`: `is_elevation_helper_unset` replaces the boolean check; only an unset helper lets the
+  loader elevate silently.
+- `programs/conhost/window.c`: `update_window` skips the maximum window size computation when the console
+  font cell size is zero (no usable console font), which raised an unhandled division by zero.
+- `programs/explorer/systray.c`: no change. The checkpoint B edits were reverted.
+- `dlls/advapi32/tests/security.c`: `test_restricted_sid_intersection` expects 0 restricting SIDs for a
+  disjoint intersection.
 
 
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
