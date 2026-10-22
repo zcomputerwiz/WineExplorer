@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: registry and service manager access checks under enforcement
 
-Date: 2026-10-22. Status: scoped. Part of `ELEVATION_BOUNDARY_PLAN.md`; prerequisite of the system role (step 2b
+Date: 2026-10-22. Status: items 1 to 5 implemented; **blocked on a design call** (services.exe and Wine's
+service processes cannot run on the limited token, see "Results, items 3 to 5"). Part of `ELEVATION_BOUNDARY_PLAN.md`; prerequisite of the system role (step 2b
 work order, item 5 and decision D2).
 
 ## Why
@@ -214,3 +215,90 @@ returns its handle through `alloc_handle_no_access_check`, so the creating proce
 write succeeds; the next `reg add` to the now-existing key is denied (reproduced: first run exit 0, second exit 1).
 The item 1 batches wrote to new key names, which explains the pattern. Item 3's `KEY_CREATE_SUB_KEY` check on the
 parent, with the requested access checked on the new key's descriptor, closes it.
+
+### Results, items 3 to 5 (2026-10-22)
+
+Wine branch `ccr-work` (pushed as `ccr-08223ee4-p830bf`), on top of `b4a3861b`. WoW64 build, both architectures,
+unprivileged `wextest`. Stock changes are in `STOCK_CHANGES.md` ("Elevation boundary: registry and service manager
+access checks").
+
+| Commit | Item | Change |
+| :--- | :--- | :--- |
+| `91b53ca8` | A | `reg_empty_key` stops at the first failed delete (unconditional) |
+| `c28aafba` | B, C | default descriptor for the display cache keys; `check_object_access` uses `key_get_sd`; `create_key` checks `KEY_CREATE_SUB_KEY` on the parent |
+| `437525d3` | D | read-only `HKLM` callers ask for `KEY_READ` (ntdll version, kernelbase locale), shell32 `ProfileList` fallback, explorer driver key |
+| `2487739e` | E (needed) | `FSCTL_PIPE_IMPERSONATE` impersonates the pipe client's token while enforced |
+| `9bb835d1` | E | SCM and service default descriptors, `AccessCheck` with the RPC client's token in `OpenSCManager`, `OpenService`, `CreateService` |
+
+**Things the work order did not expect**
+
+1. `create_key` on an existing key already used `alloc_handle` (checked); only a new key used
+   `alloc_handle_no_access_check`. So only the parent check was added; the new key's handle is still granted
+   without a check (the creator holds `KEY_CREATE_SUB_KEY` on the parent; checking the new key's default
+   descriptor would leave the key behind when it fails).
+2. Wine's `FSCTL_PIPE_IMPERSONATE` impersonates the *server's own token* ("FIXME: use the client token"), so
+   `RpcImpersonateClient` could not return the client. Fixed in `server/named_pipe.c`, enforced only.
+3. kernelbase's `create_key` fallback (missing parent chain) opens every existing parent with the *requested* access.
+   `RegCreateKeyEx(HKLM, "System\...\Video\{guid}\0000", KEY_SET_VALUE)` therefore fails on `System`, even though
+   the target is writable. explorer's driver key now asks for `MAXIMUM_ALLOWED`. The same applies to any limited
+   caller creating a deep path under `HKLM` (it is denied anyway there, but `reg add HKLM\...` reports it from the
+   parent open, not from the create).
+4. A prefix that has only had `wineboot -i` is not updated (no `Svchost` key, no services registered). Under
+   enforcement it cannot be updated afterwards (decision (b)). `check-token-security.py` now runs `wineboot -u`
+   in the limited prefix before it sets the helper.
+
+**Display cache keys** (`display_cache_paths` in `server/registry.c`, Users full control, with subkeys; relative to
+`\Registry\Machine`): `System\ControlSet001\Enum\DISPLAY`, `...\Enum\PCI`, `...\Control\Class\{4D36E968-...}`
+(display), `...\Control\Class\{4D36E96E-...}` (monitor), `...\Control\Video`, `...\Control\DeviceClasses`,
+`System\ControlSet001\Hardware Profiles\Current`, `HARDWARE\DEVICEMAP`, `Software\Microsoft\DirectX`. A new key
+above one of them (`HARDWARE`, `HARDWARE\DEVICEMAP` after a server restart, since they are volatile) may be created.
+This is slightly wider than the list in the "Decided" block: `Control\Video` (the per-GPU symbolic links),
+`Control\DeviceClasses` (`link_device`) and `Hardware Profiles\Current` (source and config links) are written by
+`prepare_devices` and the functions it calls on every start as well.
+
+**Read-only `HKLM` callers changed to `KEY_READ`:** `ntdll/version.c` (`CurrentVersion` x2, `Control\Windows`,
+`Control\ProductOptions`: Windows version, service pack, product type), `kernelbase/locale.c` (`Control\Nls`, `Time
+Zones`, and the time zone lookups under them). `shell32/shellpath.c` `_SHOpenProfilesKey` falls back to a
+`KEY_READ` open when the `KEY_ALL_ACCESS` create is denied (it writes defaults when a value is missing, so it
+cannot simply ask for `KEY_READ`).
+
+**Callers that still write `HKLM` at runtime as a limited process (listed, not widened):**
+`services.exe` (`Control\ServiceCurrent`, volatile, at start: **it exits with code 5**); the processes services.exe
+starts (`OpenService(SERVICE_SET_STATUS)` and `GENERIC_READ|GENERIC_WRITE` on their own service, see below);
+every process at start (`kernelbase/locale.c` writes `Control\TimeZoneInformation`, and `Control\Nls\Codepage`
+when the locale changed); `wineboot --init` (`Session Manager\Environment` values, `ActiveComputerName` (volatile,
+so rpcrt4 later logs "Failed to retrieve the computer name, error 2"), `Hardware\Description\System`, `Tcpip\Parameters`,
+`SQMClient`, `RunOnce`, `RunServicesOnce`, `ProfileList`, `\Registry\DynData`, opens `Session Manager` and
+`KnownDLLs` with `KEY_ALL_ACCESS`); win32u's font code (`Noto Color Emoji` value set and delete, in `winedevice`
+and `plugplay`). `wineboot -u` additionally has the `setupapi` INF pass, which opens thousands of `HKLM\Software\Classes`
+keys with `DELETE` (denied, it goes on).
+
+**Design call needed (stopped here).** With the helper set, `services.exe` runs on the limited token and cannot create
+`Control\ServiceCurrent`; it returns the error and exits (`wineboot` logs "Unexpected termination of services.exe -
+exit code 5"). Every SCM call then fails with 1722. Adding `System\ControlSet001\Control\ServiceCurrent` to
+`display_cache_paths` lets services.exe start, and the probe and the full harness then pass (table below), but that
+widens access for a key outside the accepted deviation, so it is **not committed**. Even with it, item 4 makes the
+service processes that services.exe starts (`winedevice`, `svchost`, `rpcss`, `plugplay`, `mountmgr`...) fail:
+sechost opens the process's own service with `SERVICE_SET_STATUS` (a Wine-only right, `0x8000`) and
+`GENERIC_READ|GENERIC_WRITE`, which the native default descriptor does not give a limited token or LocalSystem
+(`SERVICE_CHANGE_CONFIG`). Result under enforcement: "failed to open service Winedevice1", MountMgr/NDIS "failed to
+start: 1053" (30 s timeouts each), "Failed to open RpcSs service" in `ole32 start_rpcss` (needs `SERVICE_START`).
+This is what the system role is for: services.exe and its service processes need the system token, and the SCM
+descriptor needs a way to identify a service's own process. Suggested order: system role first, then these checks stay on.
+
+**Test results** (focused harness lines are from `check-token-security.py --all --focused`; the registry and service
+rows pass only with the local, uncommitted `ServiceCurrent` entry):
+
+| Check | Result |
+| :--- | :--- |
+| Full harness, helper unset (`--all`), both architectures (local `ServiceCurrent` entry present; irrelevant with the helper unset) | `advapi32 security` 3728 / 0; `ntdll info` 2811 (x86_64) and 2744 (i386) / 0; `shell32 shlexec` 1805 / 2; consent PASS |
+| Focused, helper set, both architectures, with the `ServiceCurrent` entry | `limited_token_shape=PASS`, `linked_token_routes_closed=PASS`, `registry_enforcement=PASS` |
+| Focused, helper set, committed state (no `ServiceCurrent`) | `limited_token_shape=PASS`; `registry_enforcement=FAIL` on x86_64: the registry rows pass, `FAIL: services: OpenSCManager(SC_MANAGER_CONNECT) succeeds (error 1722)`, `OpenSCManager(SC_MANAGER_CREATE_SERVICE) is denied (error 1722)`, `OpenSCManager(SC_MANAGER_ENUMERATE_SERVICE) succeeds (error 1722)`, `EnumServicesStatusEx succeeds (error 1722)`; the run stops there |
+| Runner sentinel | success, failure, timeout, signal PASS |
+| B4 smoke test, helper unset | PASS, 36 s |
+| B4 smoke test, `WEX_B4_HELPER=1` | PASS, no hang, but 2 min 18 s (MountMgr/NDIS 1053 timeouts); log lines: "Auto-start service NDIS failed to start: 1053", "Failed to open RpcSs service" |
+| `wineboot -u` under enforcement (updated prefix, helper set) | finishes, exit 0, 63 to 69 s (about 13 s without the helper); denied writes as listed above |
+| `regedit /e` of `HKLM\Software\Microsoft\Windows\CurrentVersion` under enforcement | exit 0, 799796 bytes |
+| `notepad`, `taskmgr` under enforcement | start and keep running (12 s), `taskmgr` prints only the usual fixmes; `notepad` logs "Failed to open RpcSs service" |
+| 32-bit program (`hkcu32.exe`) under enforcement | HKCU create and set value succeed; new key under `HKLM\Software` gives 5 |
+| `cmd /c reg add HKCU\...` from `syswow64\cmd.exe` | exit 0 |
