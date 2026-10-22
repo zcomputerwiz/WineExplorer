@@ -57,6 +57,13 @@ It is a harness and synthetic-test milestone, not GPU-recovery acceptance.
 - Final `git diff --check` passed.
 - Usage at the parent-review correction: 6% of the five-hour window used and
   92% of the weekly window used. The reset credit remains untouched.
+- Follow-up parser correction after parent review: the live observer and final
+  evaluation now use the same exact-event parser, which separates page PNG
+  records from their interleaved acknowledgements. Malformed page records or
+  acknowledgements fail closed; malformed non-object front acknowledgements
+  no longer cause an exception while evaluating the pre-fault gate. The
+  focused suite now passes 24 tests, including interleaved events and malformed
+  event controls.
 
 ## Limits and continuation
 

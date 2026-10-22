@@ -200,6 +200,19 @@ class GPURecovery(unittest.TestCase):
 
 
 class VisualCapture(unittest.TestCase):
+    def test_page_event_parser_separates_interleaved_records_and_acknowledgements(self):
+        events = ('10 ms gpu recovery page capture {"stage":"pre_fault"}\n'
+                  '11 ms gpu recovery page capture acknowledged {"stage":"pre_fault"}\n'
+                  '12 ms gpu recovery page capture {"stage":"recovered"}\n')
+        records, acknowledgements = consumer.recovery_page_events(events)
+        self.assertEqual(records, [{'stage': 'pre_fault'}, {'stage': 'recovered'}])
+        self.assertEqual(acknowledgements, [{'stage': 'pre_fault'}])
+        with self.assertRaisesRegex(RuntimeError, 'Malformed GPU recovery page-capture record'):
+            consumer.recovery_page_events(events + '13 ms gpu recovery page capture {bad json}\n')
+        with self.assertRaisesRegex(RuntimeError, 'Malformed GPU recovery page-capture acknowledgement'):
+            consumer.recovery_page_events(events +
+                                          '13 ms gpu recovery page capture acknowledged {bad json}\n')
+
     def test_all_stages_must_be_captured_and_acknowledged_in_order(self):
         text = ''.join('1 ms visual checkpoint ' + json.dumps({'stage': s}, separators=(',', ':')) + '\n'
                        + '2 ms visual checkpoint captured ' + json.dumps({'stage': s}, separators=(',', ':')) + '\n'
@@ -296,6 +309,12 @@ class VisualCapture(unittest.TestCase):
         pixels['settled_4s']['front']['passed'] = True
         self.assertFalse(consumer.recovery_front_capture_result(
             log, captures, run_id, None, identity, identity, {})['passed'])
+        malformed_ack_lines = log.splitlines()
+        first_ack = next(index for index, line in enumerate(malformed_ack_lines)
+                         if 'gpu recovery front capture acknowledged ' in line)
+        malformed_ack_lines[first_ack] = '11 ms gpu recovery front capture acknowledged []'
+        malformed_ack_shape = '\n'.join(malformed_ack_lines) + '\n'
+        self.assertFalse(assess(text=malformed_ack_shape)['passed'])
 
     def test_front_pixel_failure_does_not_skip_paired_page_capture_or_pre_fault_gate(self):
         source = (Path(__file__).with_name('g4-electron-probe') / 'main.js').read_text()

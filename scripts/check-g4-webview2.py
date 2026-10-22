@@ -58,23 +58,32 @@ def recovery_front_requests(text, acknowledged=False):
     return values
 
 
+def recovery_page_events(text):
+    """Parse only exact page-capture and page-ack events from the shared log."""
+    captures, acknowledgements = [], []
+    event = re.compile(r'^\d+ ms gpu recovery page capture(?P<ack> acknowledged)? (?P<json>.*)$')
+    for line in text.splitlines():
+        match = event.fullmatch(line)
+        if match is None:
+            continue
+        try:
+            value = json.loads(match.group('json'))
+        except (ValueError, TypeError) as error:
+            kind = 'acknowledgement' if match.group('ack') else 'record'
+            raise RuntimeError('Malformed GPU recovery page-capture ' + kind) from error
+        (acknowledgements if match.group('ack') else captures).append(value)
+    return captures, acknowledgements
+
+
 def recovery_front_capture_result(text, captures, run_id, error=None,
                                   compositor_before=None, compositor_after=None,
                                   pixel_verdicts=None):
     requested = recovery_front_requests(text)
     acknowledged = recovery_front_requests(text, acknowledged=True)
-    page = []
-    page_acknowledged = []
-    for raw in re.findall(r'^\d+ ms gpu recovery page capture (?!acknowledged )(.+)$', text, re.MULTILINE):
-        try:
-            page.append(json.loads(raw))
-        except (ValueError, TypeError):
-            return {'passed': False, 'error': 'Malformed Electron page-capture record'}
-    for raw in re.findall(r'^\d+ ms gpu recovery page capture acknowledged (.+)$', text, re.MULTILINE):
-        try:
-            page_acknowledged.append(json.loads(raw))
-        except (ValueError, TypeError):
-            return {'passed': False, 'error': 'Malformed page-capture acknowledgement'}
+    try:
+        page, page_acknowledged = recovery_page_events(text)
+    except RuntimeError as error:
+        return {'passed': False, 'error': str(error)}
     stages = list(RECOVERY_VISUAL_STAGES)
     valid_requests = (requested is not None and all(isinstance(item, dict) for item in requested)
                       and [item.get('stage') for item in requested] == stages
@@ -135,8 +144,10 @@ def recovery_front_capture_result(text, captures, run_id, error=None,
     identity_stable = (isinstance(compositor_before, dict) and compositor_before
                        and compositor_after == compositor_before)
     fault_at = text.find(' gpu recovery fault ')
-    pre_front_ack = next((item for item in acknowledged or [] if item.get('stage') == 'pre_fault'), {})
-    pre_page_ack = next((item for item in page_acknowledged if item.get('stage') == 'pre_fault'), {})
+    pre_front_ack = next((item for item in acknowledged or []
+                          if isinstance(item, dict) and item.get('stage') == 'pre_fault'), {})
+    pre_page_ack = next((item for item in page_acknowledged
+                         if isinstance(item, dict) and item.get('stage') == 'pre_fault'), {})
     pre_fault_gate = (fault_at < 0 or
                       (pre_front_ack.get('captured') is True and pre_front_ack.get('pixelPassed') is True
                        and pre_page_ack.get('captured') is True and pre_page_ack.get('pixelPassed') is True
@@ -620,11 +631,8 @@ def main():
                         except Exception as error:
                             result['recovery_front_capture_error'] = '%s: %s' % (type(error).__name__, error)
                             raise
-                    for raw in re.findall(r'^\d+ ms gpu recovery page capture (.+)$', host_text, re.MULTILINE):
-                        try:
-                            page = json.loads(raw)
-                        except (ValueError, TypeError):
-                            raise RuntimeError('Malformed GPU recovery page-capture record')
+                    page_records, _ = recovery_page_events(host_text)
+                    for page in page_records:
                         stage = page.get('stage') if isinstance(page, dict) else None
                         if stage not in RECOVERY_VISUAL_STAGES or stage in recovery_page_pixel_verdicts:
                             continue
@@ -809,14 +817,7 @@ def main():
             passed = passed and 'observer_error' not in result
             from PIL import Image
             from graphics_frame_pixels import recovery_page_pixels, recovery_pixels
-            page_records = []
-            for line in recovery_log.splitlines():
-                if ' gpu recovery page capture ' not in line or ' gpu recovery page capture acknowledged ' in line:
-                    continue
-                try:
-                    page_records.append(json.loads(line.split(' gpu recovery page capture ', 1)[1]))
-                except (ValueError, TypeError):
-                    continue
+            page_records, _ = recovery_page_events(recovery_log)
             pixel_verdicts = {}
             baseline_rim = None
             for stage in RECOVERY_VISUAL_STAGES:
