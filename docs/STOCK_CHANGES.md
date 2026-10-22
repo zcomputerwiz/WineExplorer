@@ -63,6 +63,29 @@ the same unset rule as the ntdll loader. With the helper unset nothing changes. 
 - `dlls/advapi32/tests/security.c`, `dlls/shell32/tests/shlexec.c`: conformance tests for the above, and the
   approved-helper cases now expect `ERROR_BAD_IMPERSONATION_LEVEL` until the elevation broker exists.
 
+## Elevation boundary, plan step 2b: the limited token (2026-10-22)
+
+Wine commits `4fced06b`, `839c0f31`, `4fa6f4ac` (hashes of the working branch; the pushed ones differ).
+
+- `server/token.c`, `server/security.h`: the `LUA_TOKEN` and `DISABLE_MAX_PRIVILEGE` bodies of
+  `DECL_HANDLER(filter_token)` moved into `token_apply_filter()`; `filter_token` behaves as before.
+  `token_make_filtered()` applies both flags to a token. No behaviour change on its own.
+- `server/process.c`: while a helper is configured, the root token (the one every process inherits) goes through
+  `token_make_filtered()`: Administrators deny-only, `SeChangeNotifyPrivilege` only, Medium integrity, elevation
+  Limited. Helper unset: unchanged. The registry is loaded in `init_registry()` before the first client can
+  connect, so the setting is known when the first process is created. The privilege list is provisional until the
+  native `whoami /all` of a filtered administrator is recorded (D1).
+- `server/token.c` (`create_linked_token`): the linked (full) token is the same token, but its handle is now granted
+  with the access the caller's integrity level allows (`check_object_access` with `MAXIMUM_ALLOWED`) instead of an
+  unconditional `TOKEN_ALL_ACCESS`. A Medium caller otherwise cannot get a handle to a High-labelled token (error 5).
+  For a High caller the granted mask is the same as before.
+- `server/registry.c` (`key_get_sd`): the default key descriptor now has two variants. Keys under `\Registry\User`
+  grant the user, SYSTEM and Administrators full control; other keys grant Users read on the key itself, SYSTEM and
+  Administrators full control, and keep the old inherit-only Users ACE last (`advapi32` test `test_GetNamedSecurityInfoA`
+  inspects the last Users ACE). Unconditional. **Note:** `check_object_access` treats a key with no explicit
+  descriptor as unprotected, and `key_get_sd` is only used when a descriptor is queried, so this change alters
+  what `GetSecurityInfo` returns, not what a limited process may do. See the step 2b work order, "Results".
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.

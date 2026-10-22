@@ -195,7 +195,11 @@ before porting.
 - `CreateProcessWithTokenW(linked)` returns 1346 instead of native 1314 for the same reason: the limited token
   still holds `SeImpersonatePrivilege`.
 
-Step 2b is scoped in `ELEVATION_BOUNDARY_STEP_2B_WORKORDER.md` (decided: do it before the broker). It found a
+Step 2b (`ELEVATION_BOUNDARY_STEP_2B_WORKORDER.md`, "Results"): the root token is now filtered while a helper
+is configured, and `limited_token_shape=PASS` holds on both architectures. Still open: the native privilege list
+(D1), the system role for services (D2), and a further finding. The server never enforces the default registry
+descriptor, because keys without an explicit descriptor are granted everything, so `HKLM` writes still succeed
+for a limited token. That needs its own work order (a first attempt hung `wineboot -u`). Original scoping: (decided: do it before the broker). It found a
 second blocker: the default registry key descriptor gives a really limited token no access, even to `HKCU`.
 
 ## Order of work

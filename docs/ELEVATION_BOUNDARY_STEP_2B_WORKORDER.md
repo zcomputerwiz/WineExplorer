@@ -128,3 +128,95 @@ A limited process can therefore enable `SeTcbPrivilege` and pass every check fro
 - **Implementation: a Sonnet agent.** It takes scope items 2 to 4 first, then 5 once D2 is decided, then 6,
   from this file.
 - **Review:** the main session reviews each push against this order before merging.
+
+## Results (2026-10-22, scope items 2 to 4 and the scriptable part of 6)
+
+Wine branch `ccr-work` on top of `0e402796`, parent branch `ccr-08223ee4-p830bf`. WoW64 build, both architectures,
+unprivileged user `wextest`. Not done: item 1 (native reference), item 5 (system role, waits for D2), and the
+interactive part of item 6 (`regedit`, `notepad`, `taskmgr`). Wine commits (working-branch hashes): `4fced06b`
+filter helper, `839c0f31` root token, `4fa6f4ac` registry default descriptor. Parent commits: the probe, then
+this documentation.
+
+### Probe design (item 2)
+
+`limited_token_shape()` in `scripts/test_token_security_regressions.cpp` asserts: elevation Limited; Administrators
+deny-only and not enabled; Medium integrity; the privileges are exactly `limited_privileges[]` (one array, marked
+provisional, `SeChangeNotifyPrivilege` only); enabling `SeTcbPrivilege` gives `ERROR_NOT_ALL_ASSIGNED`;
+`ProcessWineGrantAdminToken` on a suspended child stays refused and the child reports Limited; the linked token is
+Full, has Administrators enabled, High integrity and `SeTcbPrivilege`; `CreateProcessWithTokenW(linked)` gives 1314.
+
+The root token is built when a client connects to the server without a parent (`server/request.c`), which every
+Unix-launched `wine program.exe` does, and it is filtered only if the helper is already set at that moment. A child
+inherits its parent's token, so the probe cannot run from the `--shell-tests` process. Instead the harness
+(`check-token-security.py`) makes a second throw-away prefix per architecture, runs `exe --helper-set` there, kills
+the server (so the registry is saved), and starts `exe --limited-shape` as a new process. It prints
+`limited_token_shape=PASS|FAIL`; the harness requires it. Deviation: the marker comes from that second command, not
+from `--shell-tests`. In the `--shell-tests` process the token is unfiltered by design, so its N2 check keeps the
+1346/1314 dual expectation; the 1314 expectation lives in `limited_token_shape()`.
+
+| Run | Result |
+| :--- | :--- |
+| Focused harness on `0e402796` + probe (`/tmp/wexout/p1`) | FAIL as expected: Administrators enabled (`0xf`), integrity `0x3000`, 21 privileges, `SeTcbPrivilege` enabled without error, grant-admin succeeded (child `101`), `CreateProcessWithTokenW(linked)` 1346 |
+| After the root token only (`p2`) | shape correct, but the linked token handle failed with error 5 (see deviations) |
+| Focused harness, final, x86_64 and i386 | `limited_token_shape=PASS`, `linked_token_routes_closed=PASS`, consent PASS |
+
+### Acceptance
+
+| Check | Result |
+| :--- | :--- |
+| Full harness, helper unset (`--all`), both architectures | `advapi32 security` 3728 tests / 0 failures; `ntdll info` 2811 (x86_64) and 2744 (i386) / 0; `shell32 shlexec` 1805 / 2 (the known two); consent PASS |
+| Runner sentinel | success, failure, timeout, signal PASS |
+| B4 smoke test, helper unset and `WEX_B4_HELPER=1` | PASS both |
+| Native-contract probe under Wine, helper configured, x64 and x86 | equals the native table; `CreateProcessWithTokenW(linked)` is now 1314; own-token controls succeed; child exit 103 (Limited) |
+| Sources in `/home/user/wine-dev` equal `git show HEAD:<file>` | `server/token.c`, `process.c`, `registry.c`, `security.h`: identical |
+
+Counts against the baseline (3726, 2687, 2618): `advapi32 security` is +2 because the test runs one `ok()` per ACE
+of the `HKLM\Software` descriptor and it now has four ACEs instead of two. `ntdll info` is +124 and +126; the logs
+differ from the baseline only in process IDs, and I did not find which loop scales with them. Failure counts equal
+the baseline.
+
+### Deviations and findings
+
+1. **The registry premise of item 4 is wrong.** `check_object_access` grants everything on an object whose `sd` is
+   NULL (`server/token.c`), and `key_get_sd` is only used when a descriptor is queried (`server/handle.c`). Default-
+   descriptor keys were never protected. So a filtered process could already use `HKCU` and `HKLM`, and still can:
+   `reg add HKLM\Software\Wine /v WexX` and `reg add HKLM\Software\WexSweep` both succeed under the filtered token.
+   The registry change therefore only changes what `GetSecurityInfo` reports (as Windows would: user full control of
+   `HKCU`, Users read on `HKLM`). It is unconditional, and the unset-helper suites show no failure.
+   Making `HKLM` writes fail needs two more changes: use `key_get_sd` in `check_object_access` for keys, and check
+   `KEY_CREATE_SUB_KEY` on the parent in `create_key` (Wine creates the key first and then grants the handle with
+   `alloc_handle_no_access_check`). I tried the first one, gated on enforcement (patch kept in
+   `/tmp/wexout/registry-enforce-trial.patch`, not committed): `wineboot -u` then never finished and `wineserver`
+   spent 4 minutes at 40% CPU. I reverted it. Decision needed before this item can be finished; I suggest a separate
+   work order that includes the system role (D2), because services are the likely cause.
+2. **Linked token handle.** A Medium caller got error 5 for `TokenLinkedToken` because the handle was requested with
+   `TOKEN_ALL_ACCESS` and the High mandatory label denies the write rights. `create_linked_token` now grants the
+   access `check_object_access(MAXIMUM_ALLOWED)` returns, masked with `TOKEN_ALL_ACCESS`. Using `alloc_handle(...,
+   MAXIMUM_ALLOWED)` directly changed the mask to `0x1f01ff` and broke `test_elevation`, so it was not used.
+3. **Registry descriptor shape.** The advapi32 test expects the last Users ACE to be inherit-only with
+   `GENERIC_READ` and the Administrators ACE to have flags 0 (`broken()` values only apply on Windows), so the new
+   key-itself Users ACE comes first and the old one stays last.
+
+### Breakage sweep under enforcement (`/tmp/wexout/sweep2.sh`)
+
+Prefix booted unfiltered, helper set, server restarted so that `wineboot`, `services.exe`, `winedevice.exe`,
+`plugplay.exe` and `rpcss` start from the filtered root token. Compared with the same script without the helper.
+
+| Step | Helper set | Control |
+| :--- | :--- | :--- |
+| `wineboot -u` | exit 0 | exit 0 |
+| `reg query HKLM\...\CurrentVersion /v ProgramFilesDir` | works | works |
+| `reg add HKCU\Software\WexSweep` and query | works | works |
+| `reg add HKLM\Software\WexSweep` | **succeeds** (should fail, see finding 1) | succeeds |
+| `cmd /c exit 0`, system32 (64-bit) and syswow64 (32-bit) | exit 0 | exit 0 |
+| `err:` lines | no line that the control lacks (`winebth` driver load `c00000e5`, `RpcSs`, setupapi `do_file_copyW` appear in both) | |
+
+So nothing breaks yet, because the registry is not enforced (finding 1). The breakage from services running limited
+will only show once registry enforcement exists. Not run: `regedit`, `notepad`, `taskmgr` (interactive).
+
+### Open
+
+- Native `whoami /all` reference (item 1, D1): `limited_privileges[]` stays provisional.
+- System role (item 5, D2).
+- Registry enforcement for default-descriptor keys (finding 1), then re-run the sweep.
+- Plan "Status" and the SHA-256 list of the pushed sources: after the planner pushes and merges.

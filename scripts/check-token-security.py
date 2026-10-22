@@ -215,6 +215,25 @@ def main():
             print(arch, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
             if not passed:
                 raise RuntimeError('Token regression failed: ' + arch)
+            if not args.checkpoint_a:
+                # The root token is filtered only if the helper is configured before the process connects to the
+                # server, and a child inherits its parent's token. So configure it in a second, throw-away prefix
+                # and start the probe as a new Unix-launched process there (see limited_token_shape()).
+                shape_prefix = root / (arch + '-limited')
+                prefixes.append(shape_prefix)
+                shape_env = dict(environment, WINEPREFIX=str(shape_prefix))
+                setup = run_logged([str(wine), str(exe), '--helper-set'], shape_env, output, arch + '.limited-setup', 120)
+                if setup.returncode:
+                    raise RuntimeError('Could not configure the helper for the limited-token probe: ' + arch)
+                subprocess.run([str(server), '-k'], env=shape_env, timeout=15)
+                subprocess.run([str(server), '-w'], env=shape_env, timeout=30)  # registry is saved on exit
+                command = [str(wine), str(exe), '--limited-shape']
+                run = run_logged(command, shape_env, output, arch + '.limited', 120)
+                passed = run.returncode == 0 and 'limited_token_shape=PASS' in run.stdout
+                result['cases'][arch + '.limited'] = {'command': command, 'exit_code': run.returncode, 'passed': passed}
+                print(arch, 'limited PASS' if passed else 'limited FAIL', run.stdout, flush=True)
+                if not passed:
+                    raise RuntimeError('Limited token shape failed: ' + arch)
             for suite_arch, dll, case in suites:
                 if suite_arch != arch:
                     continue
