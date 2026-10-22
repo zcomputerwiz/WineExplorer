@@ -108,8 +108,14 @@ failure after GPU-process reinitialization; trial03 also logs
 Chromium source shows the format query is for optional P010 video-processor /
 HDR overlay support, so it is now recorded as a capability warning rather
 than a generic rendering failure. SharedImage failure coincides with the
-injected child exit. Neither log is yet a proven cause of the alternating
-captures. Do not count either repeat as visual acceptance or proceed to the
+injected child exit. Chromium's one-copy raster path returns false if staging
+SharedImage creation fails; its caller then has no tile to copy and documents
+checkerboarding/OOM retry behavior. This makes the failure a plausible
+contributor to missing page tiles, though it does not prove why later captures
+alternate between intact and black. See the primary
+[Chromium raster implementation](https://chromium.googlesource.com/chromium/src/+/HEAD/cc/raster/one_copy_raster_buffer_provider.cc)
+and [P010 overlay support check](https://chromium.googlesource.com/chromium/src/+/HEAD/components/viz/service/display/dc_layer_overlay.cc).
+Do not count either repeat as visual acceptance or proceed to the
 post-fault regression matrix.
 
 The user-visible renderer logs still say visible and frames increase; that
@@ -119,12 +125,13 @@ fallback. All guest consumer probes completed with no remaining Wine servers.
 The verified QEMU launcher's parent was sent SIGINT and the launcher performed
 QMP ACPI shutdown; QEMU stopped cleanly. VM overlay remains intact on D:.
 
-Next: isolate whether the black frames originate in Chromium/DComp content,
-Wine native-Wayland surface commits, labwc's composited output, or `grim`
-screencopy. Correlate real front capture with the actual surface/buffer commit
-sequence and a second independent capture path at sub-second intervals around
-the first disappearance; first run a no-fault frozen-scene control in the same
-topology. Preserve every failure image/log. Do not weaken parser checks, change
+Next: first run a no-fault frozen-scene control in the same topology. Then
+correlate `grim` front captures with Electron `webContents.capturePage()` (a
+separate client-content view, not itself front-presentation proof), Chromium
+raster/SharedImage logs, Wine native-Wayland surface commits, and labwc frame
+commits at sub-second intervals around the first disappearance. This should
+separate page raster/checkerboarding from native surface/output/capture failure.
+Preserve every failure image/log. Do not weaken parser checks, change
 production code without a discriminating reproduction, or start another fault-
 injection trial until the capture discrepancy is understood. Then implement
 stage-aligned pre-fault/recovered/settled capture acknowledgement and
