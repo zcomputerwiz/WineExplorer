@@ -60,14 +60,12 @@ leave the existing heartbeat enabled. Automation
 enabled for the next window. Last usage check: 95% of the five-hour window and
 90% of the weekly window consumed; the one-time reset credit remains untouched.
 
-At branch commit `4cb294cf`, root files were clean. A bounded harness fix is now
-in progress: unexpected exceptions from the background observer are preserved
-as `observer_error` and fail the GPU-recovery verdict; an observer that cannot
-join within five seconds also fails the verdict. A Wine-free regression test
-was added. AST parsing and `git diff --check` pass. The complete unit suite was
-attempted on Windows: 12/13 pass; the remaining symlink test requires a
-privilege Windows lacks. WSL execution was denied by the current environment.
-No VM boot, recovery fault injection, guest modification, or reset-credit use
-occurred. Re-run the full Linux suite when WSL is available, then continue with
-the healthy accelerated control and the two serial single-fault VirGL trials
-from the plan. Preserve the D: storage boundary and private runtime policy.
+The bounded harness fix is committed and pushed as `8d0e819f`: unexpected
+background observer exceptions are preserved as `observer_error` and fail the
+GPU-recovery verdict; an observer that cannot join within five seconds also
+fails the verdict. The regression test was added. The complete Linux suite ran
+in Debian WSL from `scripts/`: 13/13 passed. No VM boot, recovery fault
+injection, guest modification, or reset-credit use has occurred in this
+continuation. Next, validate the owned guest/launcher state, then run the
+healthy accelerated control and two serial single-fault VirGL trials per plan.
+Preserve the D: storage boundary and private runtime policy.
