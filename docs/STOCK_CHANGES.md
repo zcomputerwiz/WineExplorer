@@ -450,6 +450,77 @@ changes. The launcher is installed only with `WEX_SYSRUN_ENABLE=1`. Wine commits
   wineboot itself. `programs/wineboot/wineboot.c` (`start_services_process`): does not start `services.exe` again when
   the `SVCCTL_STARTED_EVENT` is already signaled.
 
+## Elevation boundary: the system role, SYSTEM and service tokens (C3, 2026-10-22)
+
+Phases C and D and constraint g of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Everything below is active only while the
+system role is active (the server was started by the setgid launcher, `sysrun_active`) **and** elevation is enforced
+(`HKLM\Software\Wine\Elevation\Helper` set); otherwise stock behavior. Exception: `programs/services` also checks
+whether its own token is SYSTEM, which only the system role gives it.
+Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
+
+- `server/token.c`, `server/security.h` (`token_create_service`, `token_service_account`): primary tokens of
+  LocalSystem (S-1-5-18: groups Administrators (enabled, owner and primary group), Everyone, Authenticated Users),
+  LocalService (S-1-5-19) and NetworkService (S-1-5-20: Everyone, Users, Authenticated Users, SERVICE S-1-5-6,
+  LOCAL S-1-2-0; the account owns what it creates), System integrity (S-1-16-16384), `TokenElevationTypeDefault`, no
+  linked token. Default DACL: SYSTEM and Administrators for LocalSystem, SYSTEM and the account for the others. The
+  privilege lists are provisional (not measured on a native system, see the work order's "Results, C3"). Wine defines
+  no SeIncreaseWorkingSet or SeTimeZone, so they are missing.
+- `server/token.c` (`token_duplicate`): a token whose owner is its user keeps that owner in a copy.
+- `server/protocol.def`, `server/token.c` (`create_service_token`), `include/winternl.h`,
+  `dlls/ntdll/unix/process.c` (`ProcessWineCreateServiceToken` = 1003, input account number 0 to 2, output the
+  token handle): creates such a primary token. Refused with `STATUS_PRIVILEGE_NOT_HELD` without an enabled
+  SeTcbPrivilege, with `STATUS_ACCESS_DENIED` for a caller that is not the SYSTEM process of the system role (Wine's
+  administrator token holds SeTcbPrivilege too), `STATUS_NOT_SUPPORTED` without the system role.
+- `server/token.c` (`create_token`): while elevation is enforced, `NtCreateToken` needs an enabled
+  SeCreateTokenPrivilege, which no Wine token has (native: the same privilege, held only by the LSA). Without this
+  check a limited process could make an administrator token, impersonate it, and pass every access check.
+- `server/sysrun.c`, `server/process.c`, `server/process.h`, `server/thread.c`, `server/mapping.c`
+  (`sysrun_process_created`, `sysrun_thread_created`, `sysrun_main_image`): a root process whose connection has the
+  system group is protected from the start (process and thread descriptor as below, so a limited
+  or standard token cannot open it with any dangerous right) and gets the SYSTEM token when its main image is verified: the
+  mapped file's device and inode (`fstat` of the server's descriptor) must equal `services.exe`, `wineboot.exe` or
+  `winedevice.exe` of the machine root's `system32` (or `wineboot.exe` and `winedevice.exe` of `syswow64`). The NT
+  path is never used, it goes through the user's prefix links. Any other image: its raised file access ends at once and
+  the process is killed from the main loop (a timer, 10 ms later: killing it inside its own request crashed the server). A child gets its parent's token or the one it is given and a
+  descriptor from it when that token is SYSTEM, LocalService or NetworkService. The connection credentials of a
+  child are those of the process that made the socket pair, so the server clears `peer_gid` for a child with a
+  service-account token: it never gets the system group's file access.
+- `server/token.c` (`set_token_integrity_level`): while elevation is enforced, raising a token's integrity level
+  needs an enabled SeTcbPrivilege in the caller's process token (`STATUS_PRIVILEGE_NOT_HELD`), lowering does not (as on
+  Windows).
+- `server/sysrun.c` (`protect_object`): the descriptor of a system role process or thread is SYSTEM (and the service
+  account) full control, Administrators query + read the descriptor, Users and Authenticated Users the limited query +
+  SYNCHRONIZE (thread: `THREAD_QUERY_LIMITED_INFORMATION`), as Windows does for service processes. Full access needs
+  an enabled SeDebugPrivilege.
+- `server/token.c` (`check_object_access`): an enabled SeDebugPrivilege opens any process or thread whatever its
+  descriptor says (Windows does the same), while the system role is active. A filtered or standard token has no
+  SeDebugPrivilege; an elevated administrator token has it disabled until the program enables it.
+- `server/sysrun.c` (`sysrun_check_process_access`), `server/hook.c` (`set_hook` with a thread or process),
+  `server/queue.c` (`attach_thread_input`), `server/console.c` (`AttachConsole`): the requests that name another
+  process or thread by id instead of by handle are checked against its descriptor.
+- `server/registry.c` (`boot_state_paths`): `Control\ServiceCurrent` and `Control\ComputerName\ActiveComputerName` are
+  Users-writable only while the system role is **not** active (no launcher: services.exe and `wineboot --init` run
+  limited); with it they are written as SYSTEM and the grant is gone.
+- `dlls/ntdll/unix/sysrun.c`, `process.c`, `loader.c`, `unix_private.h` (`sysrun_must_drop_group`,
+  `sysrun_prepare_child`, `sysrun_early_init`): a client with the system group that starts a process with a token
+  other than SYSTEM (or none) drops the group in the forked child (`setresgid(gid, gid, gid)`, the child cannot get
+  it back) before the loader is executed. The child marks itself not dumpable first thing (`WINESERVICENODUMP`), and
+  so do its children, so the user cannot ptrace it. Shortcut: a short window between the exec and the flag.
+- `programs/services/services.c` (`has_system_role`, `get_service_token`, `service_start_process`,
+  `process_create`): with the SYSTEM token services.exe starts every service with `CreateProcessAsUserW` and the token
+  its `ObjectName` names (empty or `LocalSystem`; `NT AUTHORITY\LocalService`; `NT AUTHORITY\NetworkService`).
+  Any other name fails with `ERROR_SERVICE_LOGON_FAILED` for now (a user account needs a logon). The control pipe of a
+  service has a descriptor for SYSTEM and the account. services.exe sets its own token's default DACL to
+  SYSTEM, Administrators and Authenticated Users (read, write, execute): objects with no descriptor (the
+  `\pipe\svcctl` endpoint, `__wine_SvcctlStarted`) are created from it. Without the system role nothing changes.
+- `programs/services/rpc.c`, `services.c`, `services.h` (`load_service_security`, `check_client_access`,
+  `svcctl_QueryServiceObjectSecurity`, `svcctl_SetServiceObjectSecurity`): the descriptor of a service is the
+  binary `Security` value of its registry key, else the native default; `SetServiceObjectSecurity` needs `WRITE_DAC`
+  on the service handle, takes the DACL only (shortcut) and writes the value; `QueryServiceObjectSecurity` returns
+  owner, group and DACL (it was `ERROR_CALL_NOT_IMPLEMENTED`). `dlls/sechost/service.c`
+  (`QueryServiceObjectSecurity`, `SetServiceObjectSecurity`) call these over RPC; they were a semi-stub (an empty
+  DACL) and `return TRUE`. **Ungated**: this is the documented behavior, for every services.exe, with or without the system role or enforcement.
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|

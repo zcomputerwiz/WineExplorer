@@ -228,3 +228,21 @@ RESTRICTED and AppContainer entries. Wine does not access-check keys that have n
 write tests above do not hold in Wine yet; that is the job of the registry enforcement work order. The
 descriptors are unchanged here. For the privilege list, Wine defines no SeIncreaseWorkingSet or SeTimeZone, so
 its filtered token keeps SeChangeNotify (enabled) and SeShutdown and SeUndock (disabled).
+
+## SYSTEM, LocalService and NetworkService tokens (C3, 2026-10-22): not measured
+
+`token_create_service` (`server/token.c`) follows the documented defaults and the author's memory of `whoami /priv` in
+a service; no native run was made, so every privilege state and group below is **provisional**. To replace them, run
+`native_token_contract_probe.cpp` (or `whoami /all`) as a LocalSystem, a LocalService and a NetworkService service on the
+Windows 10.0.26300 worker and record the groups, the primary group, the owner, the integrity level, the default DACL and
+the privileges with their states here.
+
+| Account | Wine today |
+| :--- | :--- |
+| LocalSystem | user S-1-5-18; groups Administrators (enabled, owner, primary), Everyone, Authenticated Users; System integrity; 17 privileges enabled, 8 disabled (the work order's table) |
+| LocalService | user S-1-5-19; groups Everyone, Users, Authenticated Users, SERVICE, LOCAL; owner the account; System integrity; ChangeNotify, CreateGlobal, Impersonate enabled; AssignPrimaryToken, Audit, Shutdown, Undock disabled |
+| NetworkService | user S-1-5-20; same groups; ChangeNotify, CreateGlobal, Impersonate enabled; AssignPrimaryToken, Audit, IncreaseQuota disabled |
+
+Wine defines no SeIncreaseWorkingSet or SeTimeZone, which the native service accounts also hold. Not recorded: the native
+primary group of the service accounts, CONSOLE LOGON, the logon SID, BUILTIN\Users in the SYSTEM token, and whether
+SeBackup and SeRestore are enabled in a LocalSystem service (Wine enables them).
