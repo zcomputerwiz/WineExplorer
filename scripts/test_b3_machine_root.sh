@@ -45,7 +45,7 @@ useradd -M -N -s /bin/bash -G sudo "$DESKTOP_USER"
 run_setup()
 {
     WEX_MACHINE_ROOT="$FIXTURE" WEX_SKEL_PFX="$SKEL" WEX_MACHINE_GROUP="$GROUP" \
-        WEX_BACKUP_DIR="$BACKUPS" WEX_SKIP_WINEBOOT=1 bash "$SETUP" "$@"
+        WEX_BACKUP_DIR="$BACKUPS" WEX_SKIP_WINEBOOT=1 WEX_SKIP_SYSRUN=1 bash "$SETUP" "$@"
 }
 
 # Fixture with non-default owner, mode and ACL state on the root, a nested dir, files with an
@@ -210,7 +210,7 @@ setfacl -d -m g:sudo:rwX "$FIX2"
 run_setup2()
 {
     WEX_MACHINE_ROOT="$FIX2" WEX_SKEL_PFX="$SKEL" WEX_MACHINE_GROUP="$GROUP2" \
-        WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 bash "$SETUP" "$@"
+        WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 WEX_SKIP_SYSRUN=1 bash "$SETUP" "$@"
 }
 ! getent group "$GROUP2" >/dev/null || fail "test group $GROUP2 exists before the run"
 run_setup2 --update >/tmp/b3-mig-$$.log 2>&1 || { cat /tmp/b3-mig-$$.log; fail "migration failed"; }

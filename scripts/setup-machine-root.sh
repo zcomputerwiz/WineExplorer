@@ -36,10 +36,6 @@ case "$MACHINE_GROUP" in
     sudo|wheel|admin|adm|staff|users|root)
         die "$MACHINE_GROUP is a desktop or administrative group; the machine root needs a dedicated system group (wexsys)" ;;
 esac
-if [ "$ACTION" = "apply" ] && ! getent group "$MACHINE_GROUP" >/dev/null 2>&1; then
-    echo "Creating system group $MACHINE_GROUP..."
-    groupadd --system "$MACHINE_GROUP"
-fi
 
 # Validate the target before anything else. The path must already be canonical (no symlink
 # components, no "..", no trailing slash) and must not be a system directory.
@@ -73,6 +69,10 @@ check_private_dir()
     [ $(( 0$(stat -c '%a' -- "$1") & 022 )) -eq 0 ] || die "group or other writable: $1"
 }
 
+if [ "$ACTION" = "apply" ] && ! getent group "$MACHINE_GROUP" >/dev/null 2>&1; then
+    echo "Creating system group $MACHINE_GROUP..."
+    groupadd --system "$MACHINE_GROUP"
+fi
 if [ "$ACTION" = "apply" ]; then
     mkdir -p -- "$BACKUP_ROOT"
     install -d -m 0700 -o root -g root -- "$BACKUP_DIR"
@@ -306,6 +306,40 @@ fi
 # Nothing may remain that a desktop user owns (an owner can always write), and nothing may have another group.
 LEFTOVER="$(find "$MACHINE_ROOT" ! -type l \( ! -user root -o ! -group "$MACHINE_GROUP" \) -print -quit)"
 [ -z "$LEFTOVER" ] || die "migration incomplete: $LEFTOVER is not root:$MACHINE_GROUP"
+
+# 2b. Install the launcher wex-sysrun (tools/wex-sysrun) root:$MACHINE_GROUP, mode 2755, in a root-owned
+# directory, with its root-owned configuration of fixed paths. WEX_SYSRUN_BIN installs a prebuilt binary instead
+# of building from the source next to this script; WEX_SKIP_SYSRUN=1 skips the step (tests of the machine root).
+if [ "${WEX_SKIP_SYSRUN:-0}" != "1" ]; then
+    SYSRUN_DIR="${WEX_SYSRUN_DIR:-/usr/local/libexec/wineexplorer}"
+    SYSRUN_CONF="${WEX_SYSRUN_CONF:-/etc/wineexplorer/sysrun.conf}"
+    SYSRUN_SRC="$(dirname -- "$(readlink -f -- "$0")")/../tools/wex-sysrun/wex-sysrun.c"
+    SYSRUN_TMP="$(mktemp -d)"
+    if [ -n "${WEX_SYSRUN_BIN:-}" ]; then
+        cp -- "$WEX_SYSRUN_BIN" "$SYSRUN_TMP/wex-sysrun"
+    elif [ -f "$SYSRUN_SRC" ] && command -v cc >/dev/null 2>&1; then
+        cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+            -DSYSRUN_CONF="\"$SYSRUN_CONF\"" -o "$SYSRUN_TMP/wex-sysrun" "$SYSRUN_SRC"
+    else
+        echo "Warning: no wex-sysrun source or compiler; the launcher is not installed" >&2
+    fi
+    if [ -f "$SYSRUN_TMP/wex-sysrun" ]; then
+        echo "Installing wex-sysrun to $SYSRUN_DIR (root:$MACHINE_GROUP, mode 2755), configuration $SYSRUN_CONF..."
+        install -d -m 0755 -o root -g root -- "$SYSRUN_DIR" "$(dirname -- "$SYSRUN_CONF")"
+        install -m 2755 -o root -g "$MACHINE_GROUP" -- "$SYSRUN_TMP/wex-sysrun" "$SYSRUN_DIR/wex-sysrun"
+        cat > "$SYSRUN_TMP/sysrun.conf" <<EOF
+# Written by setup-machine-root.sh. Read by wex-sysrun; it refuses a file that is not root-owned or that
+# group or others can write.
+group=$MACHINE_GROUP
+loader=$WINE_BIN
+ntdll=${WEX_NTDLL:-/usr/local/lib/wine/x86_64-unix/ntdll.so}
+wineserver=$WINESERVER_BIN
+machine_root=$MACHINE_ROOT
+EOF
+        install -m 0644 -o root -g root -- "$SYSRUN_TMP/sysrun.conf" "$SYSRUN_CONF"
+    fi
+    rm -rf -- "$SYSRUN_TMP"
+fi
 
 # 3. Create or update template prefix in /etc/skel/.wine
 echo "Configuring template prefix in $SKEL_PFX..."

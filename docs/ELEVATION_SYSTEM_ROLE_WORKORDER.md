@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: the system role and elevation as a Unix group (`wexsys`)
 
-Date: 2026-10-22. Status: phase 0 done, design calls decided; phases A and B next. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
+Date: 2026-10-22. Status: phase 0 done, design calls decided; phases A and B done (see Results); phases C to F next. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
 item 5 and decision D2, and gives the broker (step 4) and polkit consent (step 6) their Unix anchor.
 
 ## Why
@@ -343,3 +343,107 @@ chown, mode and ACL (`:171`, `:263-265`, `:271`, `:276`, `:280-288`). The migrat
   direct write (step 4) no longer works until the broker exists; step 6 stays valid.
 - Implication: tests that must change: s2 (user setup `:24-28`, header), s3 (`:52-53`, `:63`, `:84-88`), s4
   (`:102-103`), b3 (`:113-115`), and `check-wow64.sh` step 4 (`:75`); none other reads `sudo`.
+
+### Results, phases A and B
+
+Date: 2026-10-22. Branch `ccr-08223ee4-p830bf` of WineExplorer. No Wine file changed, so `STOCK_CHANGES.md` has no
+entry. The container has no installed Wine and no `/root/WineExplorer`, so the S2, S3, S4 and `check-wow64.sh`
+tests were edited and syntax-checked (`bash -n`) but not run; `test_b3_machine_root.sh` and `test_wex_sysrun.sh`
+were run here as root (below).
+
+Commits: `878a2483` (phase A: machine root on `wexsys`, migration, test updates, `PREFIX_SPLIT.md` note) and the
+phase B commit (launcher, probe, test, setup-script install step, the group-creation move, this section).
+
+#### Phase A: what changed
+
+- `scripts/setup-machine-root.sh`: the group is `wexsys` by default (`WEX_MACHINE_GROUP` overrides); it is created
+  with `groupadd --system` on apply/`--update`, after the path checks, when missing; no user is ever added.
+  `sudo`, `wheel`, `admin`, `adm`, `staff`, `users` and `root` are refused as the machine group. Apply and
+  `--update` now also migrate: extended ACLs are removed (`setfacl -b`) and set again for the group, everything
+  below the root (`chown -R -h`, so files owned by a desktop administrator too) becomes `root:<group>`, modes and
+  default ACLs as before (`2775`, `664`, `775` for `.exe`/`.dll`, hives `664`), and a final scan fails if anything is
+  not `root:<group>`. A second run changes nothing (tested). Rollback restores the first captured metadata, so it
+  returns to `root:sudo`.
+- `PREFIX_SPLIT.md`: note at the top that `root:sudo` and `g:sudo` are superseded.
+
+#### Phase A: test assertions changed
+
+| File | Assertion | Change |
+|---|---|---|
+| `scripts/test_b3_machine_root.sh` | `b3_unix_group_write_allowed` | Kept (a member of the throw-away group writes). Meaning changed: the member stands for a process with effective group `wexsys`. Message reworded. |
+| same | outsider, backup-dir checks | Unchanged. |
+| same | new `b3_desktop_admin_write_denied`, backup dir not writable by a `sudo` user | A `sudo` user outside the machine group is denied. |
+| same | new `b3_group_created_without_members`, `b3_migration_from_sudo`, `b3_migration_idempotent`, `b3_sudo_group_refused` | Old-style `root:sudo` fixture with `g:sudo:rwX` and files owned by a desktop user migrates; owner cannot write afterwards; second run identical; `sudo` refused. |
+| same | `run_setup` | Passes `WEX_SKIP_SYSRUN=1` so the fixture does not install the launcher. |
+| `installer/tests/test_s2_acceptance.sh` | header, user setup | New check: alice, carol, bob are not in `wexsys`. New Test 0: all three are denied `touch` in `windows`, `Program Files`, the root, and `echo >> system.reg`. |
+| same | Test 1 (Alice installs `AliceApp`, COW-breaks `msvcp140.dll`) | Without `WEX_BROKER_AVAILABLE=1` the install runs as root (`install`, `root:wexsys`); the assertion checks `app64.exe`, `app32.exe`, `settings.ini`; the COW-break part prints WAITING. With `=1` the original block and assertion run. |
+| same | Test 1b (Carol modifies Alice's files and the COW-broken DLL) | Without the broker: Carol's overwrite must be denied and `settings.ini` stays `Installed_By_Alice=1`; the original `Modified_By_Carol=2` assertion runs only with `=1`; prints WAITING. |
+| `installer/tests/test_s3_acceptance.sh` | `verify_symlinks` | `sudo` group replaced by `$SYS_GRP` (default `wexsys`); message likewise. |
+| same | setup | New: not in `wexsys`, and `echo >> system.reg` denied, for alice, carol, bob. |
+| same | Case 1 (Alice registers COM and Uninstall keys) | Without the broker, root does the same install and `reg add` on the machine root and flushes; the grep for the keys in `system.reg` and Bob's three checks are unchanged. Alice's own session runs with `=1`. |
+| same | Case 3, Case 3b | Whole cases wait for the broker (WAITING line); `verify_symlinks` still runs. |
+| same | Case 4 | Root upgrade part and the `MachineUpgrade` assertions still run. Alice's session, the `AlicePostUpgrade` assertion and Bob's `AlicePostUpgrade` query wait. |
+| same | Case 2 | Unchanged (Bob's in-memory write, S0.2 keys, unlinked prefix); the "not saved" checks now hold trivially for Alice. |
+| `installer/tests/test_s4_acceptance.sh` | `verify_symlinks`, Case 2 ownership | `sudo` / `root:sudo` replaced by `$SYS_GRP` / `root:$SYS_GRP`. New not-in-`wexsys` check. |
+| same | Case 5 (Alice installs `SharedTool`) | Without the broker the install runs as root; WAITING for Alice's own. New: alice and carol are denied `touch` in `Program Files` and `>> system.reg`. Bob's run and Bob's denial unchanged. |
+| `installer/tests/check-wow64.sh` | step 4 (Alice installs `CommonApp`) | Without the broker: Alice is denied (`mkdir` in `Program Files`, `>> system.reg`), then root installs `CommonApp`; WAITING for Alice's own. With `WEX_BROKER_AVAILABLE=1` the original command runs. Steps 5 and 6 unchanged. |
+
+#### Phase B: the launcher
+
+- `tools/wex-sysrun/wex-sysrun.c` (about 320 lines, GPL-2.0-or-later header); `tools/wex-sysrun/sysrun-probe.c` is
+  the test stand-in for loader and server. `setup-machine-root.sh` builds the launcher (or installs the binary in
+  `WEX_SYSRUN_BIN`) to `/usr/local/libexec/wineexplorer/wex-sysrun`, `root:<group>` mode `2755`, and writes
+  `/etc/wineexplorer/sysrun.conf` (`group`, `loader`, `ntdll`, `wineserver`, `machine_root`; `root:root 0644`).
+  The configuration path is compiled in, so neither environment nor arguments can change it.
+- Modes: `wineserver` runs the configured server with no arguments; `wineboot-init` runs the loader with the
+  machine root's `drive_c/windows/system32/wineboot.exe --init` as a Unix path (so the image is the verified file
+  whatever `dosdevices` says). Anything else, and any extra argument, exits 77.
+- Checks before exec: no `no_new_privs`; effective and saved gid are the configured group; the real gid and the
+  supplementary groups do not contain it; the passwd entry gives an absolute home. Then the loader, `ntdll.so`,
+  the server, the machine root's `wineboot.exe` and `services.exe`, the configuration file, and every directory
+  up to `/` (as written and as resolved): root-owned, no other-write bit, and `access(W_OK)` with the real ids
+  fails (that covers the user's groups and ACLs). Root itself is refused by the same test.
+- Environment built fresh: `HOME`, `USER`, `LOGNAME` and `WINEPREFIX=<passwd home>/.wine` from the passwd entry,
+  `PATH=/usr/bin:/bin`, `LANG` and `LC_*` with a safe charset, and for `wineboot-init` only `DISPLAY`,
+  `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR` (safe charset). Nothing starting `WINE` or `LD_` comes through.
+- `setresgid(rgid, wexsys, wexsys)`, `PR_SET_DUMPABLE 0`, `umask 022`, `chdir /`, all fds above 2 closed
+  (`close_range`). Decision from phase 0 item 2: no descriptor is passed and `WINESERVERSOCKET` is never set,
+  because `wineserver` starts a fresh server and `wineboot --init` connects to the user's server like any first
+  client.
+
+#### Phase B: test results (`scripts/test_wex_sysrun.sh`, run as root here, 50 checks, 0 failures)
+
+Last lines of the run: `sysrun_ptrace_and_mem_denied=PASS` and `=== wex-sysrun: 50 checks passed ===`.
+
+| Check | Result |
+|---|---|
+| positive control (good fixture runs) | pass |
+| unknown mode (`services`, `/bin/sh`), no mode, extra argument (both modes) | refused, exit 77 |
+| each trusted file (server, loader, `ntdll.so`, `wineboot.exe`, `services.exe`): other-writable, user-owned, group-writable by the user's group | refused (15 checks) |
+| directories (fixture root, `bin`, machine root, `system32`): other-writable, user-group-writable, user-owned | refused (12 checks) |
+| symlink whose target lies in a user-owned directory | refused |
+| config user-owned, group-writable, world-writable, unknown key, symlink | refused |
+| `setpriv --no-new-privs`; copy without the setgid bit; user in the system group; root | refused |
+| environment injection (`WINEDLLPATH`, `WINEDLLOVERRIDES`, `WINEDEBUG`, `WINELOADER`, `WINESERVER`, `WINESERVERSOCKET`, `WINEPREFIX`, `WINEARCH`, `WINE_MACHINE_ROOT`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, `HOME`, `USER`, `PATH`, `SHELL`, `BASH_ENV`, `IFS`, `TZ`, unsafe `LC_*`) | none reaches the program; `WINEPREFIX` and `HOME` come from passwd; positive control shows the variables did reach the user's process |
+| success, both modes | uid unchanged; gids `(user, wexsys, wexsys)`; `DUMPABLE 0`; `AT_SECURE 1`; cwd `/`; fds exactly 0, 1, 2 (descriptor 7 closed); fixed argument lists |
+| ptrace attach and `/proc/<pid>/mem` by the user | `EPERM` and `EACCES` (control on the user's own child succeeds) |
+
+#### Open points and design notes for phases C and D
+
+- **services.exe identity.** `wineboot --init` starts `services.exe` as `C:\windows\system32\services.exe`,
+  resolved through the user's own prefix (`drive_c/windows` and `dosdevices/c:` symlinks, which the user owns and
+  can change after the launcher's check). The launcher verifies the machine root's file, but cannot stop the user
+  from pointing the prefix elsewhere. The server in phase C should therefore decide the system role from the
+  image's file identity (device and inode of the opened image against the machine root's `services.exe`), not
+  from the NT path.
+- `WINEPREFIX` is fixed to `<passwd home>/.wine`, as the work order says. A user with a different prefix gets no
+  system role for it.
+- The writability test is the invoking user's real access plus the other-write bit. It does not look at write
+  permission of a different group the invoker is not in (for example `/usr/local` as `root:staff 2775` on Debian)
+  or at ACL entries for other users.
+- Migration drops every extended ACL in the machine root, user entries included, before setting the group's.
+- Packaging: `installer/package-wine.sh` was not changed. The packaged `wex-setup-machine.sh` has no source next
+  to it, so it needs `WEX_SYSRUN_BIN` pointing at a prebuilt launcher or the source shipped beside it; without
+  either, the setup prints a warning and installs no launcher.
+- The launcher is not wired into Wine's startup (phases C and D).
+
