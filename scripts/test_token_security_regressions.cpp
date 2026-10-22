@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 static unsigned int failures;
@@ -272,6 +273,199 @@ static bool shell_helpers()
     return failures == before;
 }
 
+// Every registry state of HKLM\Software\Wine\Elevation\Helper against a child that requests administrator
+// rights, through CreateProcessW (kernelbase) and ShellExecuteExW without a verb (shell32). The process runs
+// with a limited token. Unset states let the loader elevate silently, so the child reports a full token.
+// Every other state must refuse with ERROR_ELEVATION_REQUIRED (CreateProcessW) or the shell32 error.
+// A key whose read is denied by its DACL is not covered: Wine's registry does not enforce key DACLs for reads.
+struct helper_state
+{
+    const char *name;
+    enum {DELETE_KEY, DELETE_VALUE, STRING, BINARY, DWORD_VALUE, MOCK_HELPER} kind;
+    std::wstring text;      // STRING
+    DWORD type;             // BINARY
+    std::vector<BYTE> data; // BINARY
+    bool unset;
+    DWORD shell_error;      // ShellExecuteExW error for refused states
+};
+
+static std::vector<BYTE> wide_bytes(const std::wstring &text)
+{
+    const BYTE *begin = (const BYTE *)text.c_str();
+    return std::vector<BYTE>(begin, begin + (text.size() + 1) * sizeof(WCHAR));
+}
+
+static bool run_child(BOOL (*launch)(const WCHAR *, HANDLE *, DWORD *), const WCHAR *child, DWORD *code,
+                      DWORD *error)
+{
+    HANDLE process = NULL;
+    SetLastError(0xdeadbeef);
+    BOOL launched = launch(child, &process, error);
+    if (launched && process)
+    {
+        check(WaitForSingleObject(process, 20000) == WAIT_OBJECT_0, "manifest child exits");
+        check(GetExitCodeProcess(process, code), "manifest child exit code");
+        CloseHandle(process);
+    }
+    else check(!process, "refused launch returns no process handle");
+    return launched != FALSE;
+}
+
+static BOOL launch_createprocess(const WCHAR *child, HANDLE *process, DWORD *error)
+{
+    STARTUPINFOW startup = {};
+    PROCESS_INFORMATION info = {};
+    startup.cb = sizeof(startup);
+    BOOL ok = CreateProcessW(child, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &info);
+    *error = GetLastError();
+    if (ok) {*process = info.hProcess; CloseHandle(info.hThread);}
+    return ok;
+}
+
+static BOOL launch_shellexecute(const WCHAR *child, HANDLE *process, DWORD *error)
+{
+    SHELLEXECUTEINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+    info.lpFile = child;
+    info.nShow = SW_HIDE;
+    BOOL ok = ShellExecuteExW(&info);
+    *error = GetLastError();
+    *process = info.hProcess;
+    return ok;
+}
+
+static bool helper_states()
+{
+    if (!getenv("WINEPREFIX") || !getenv("WEX_TOKEN_REGRESSION_TEST")) return false;
+    unsigned int before = failures;
+    WCHAR module[MAX_PATH], child[MAX_PATH + 40];
+    GetModuleFileNameW(NULL, module, MAX_PATH);
+    WCHAR *slash = wcsrchr(module, L'\\');
+    if (!slash) return false;
+    slash[1] = 0;
+    swprintf(child, MAX_PATH + 40, L"%lstoken-manifest-child-%ls.exe", module, sizeof(void *) == 8 ? L"x86_64" : L"i386");
+    GetModuleFileNameW(NULL, module, MAX_PATH);
+    check(GetFileAttributesW(child) != INVALID_FILE_ATTRIBUTES, "manifest child exists");
+
+    HANDLE token;
+    TOKEN_ELEVATION_TYPE elevation = (TOKEN_ELEVATION_TYPE)0;
+    DWORD size;
+    check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) &&
+          GetTokenInformation(token, TokenElevationType, &elevation, sizeof(elevation), &size) &&
+          elevation == TokenElevationTypeLimited, "test process has a limited token");
+    CloseHandle(token);
+
+    std::wstring mock = L"\"" + std::wstring(module) + L"\" --helper-exit 0";
+    std::wstring oversized(MAX_PATH + 10, L'a');
+    static const BYTE odd[5] = {'a', 0, 'b', 0, 'c'};
+    DWORD one = 1;
+    std::vector<helper_state> states = {
+        {"absent key", helper_state::DELETE_KEY, L"", 0, {}, true, 0},
+        {"absent value", helper_state::DELETE_VALUE, L"", 0, {}, true, 0},
+        {"empty string", helper_state::STRING, L"", 0, {}, true, 0},
+        {"zero-length REG_SZ", helper_state::BINARY, L"", REG_SZ, {}, true, 0},
+        {"REG_DWORD", helper_state::DWORD_VALUE, L"", 0, std::vector<BYTE>((BYTE *)&one, (BYTE *)&one + 4), false,
+         ERROR_DATATYPE_MISMATCH},
+        {"odd length", helper_state::BINARY, L"", REG_SZ, std::vector<BYTE>(odd, odd + 5), false, ERROR_INVALID_DATA},
+        {"whitespace only", helper_state::STRING, L"   \t  ", 0, {}, false, ERROR_BAD_PATHNAME},
+        {"control character", helper_state::STRING, std::wstring(L"a\x01") + L"b", 0, {}, false, ERROR_BAD_PATHNAME},
+        {"oversized", helper_state::STRING, oversized, 0, {}, false, ERROR_FILENAME_EXCED_RANGE},
+        {"mock helper approves", helper_state::MOCK_HELPER, mock, 0, {}, false, 0},
+    };
+
+    HKEY key;
+    DWORD old_type = 0, old_size = 0;
+    std::vector<BYTE> old_value;
+    bool had_key = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, KEY_READ, &key) == ERROR_SUCCESS;
+    bool had_value = false;
+    if (had_key)
+    {
+        had_value = RegQueryValueExW(key, L"Helper", NULL, &old_type, NULL, &old_size) == ERROR_SUCCESS;
+        if (had_value)
+        {
+            old_value.resize(old_size);
+            RegQueryValueExW(key, L"Helper", NULL, &old_type, old_value.data(), &old_size);
+        }
+        RegCloseKey(key);
+    }
+
+    for (const helper_state &state : states)
+    {
+        if (state.kind == helper_state::DELETE_KEY)
+        {
+            LSTATUS status = RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation");
+            check(status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND, "delete Elevation key");
+        }
+        else
+        {
+            DWORD disposition;
+            check(RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
+                                  KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition) == ERROR_SUCCESS,
+                  "create Elevation key");
+            LSTATUS status = ERROR_SUCCESS;
+            if (state.kind == helper_state::DELETE_VALUE)
+            {
+                status = RegDeleteValueW(key, L"Helper");
+                if (status == ERROR_FILE_NOT_FOUND) status = ERROR_SUCCESS;
+            }
+            else if (state.kind == helper_state::STRING || state.kind == helper_state::MOCK_HELPER)
+            {
+                std::vector<BYTE> bytes = wide_bytes(state.text);
+                status = RegSetValueExW(key, L"Helper", 0, REG_SZ, bytes.data(), bytes.size());
+            }
+            else if (state.kind == helper_state::DWORD_VALUE)
+                status = RegSetValueExW(key, L"Helper", 0, REG_DWORD, state.data.data(), state.data.size());
+            else
+                status = RegSetValueExW(key, L"Helper", 0, state.type, state.data.data(), state.data.size());
+            check(status == ERROR_SUCCESS, "configure helper state");
+            RegCloseKey(key);
+        }
+
+        bool allowed = state.unset || state.kind == helper_state::MOCK_HELPER;
+        DWORD code = 0, error = 0;
+        bool launched = run_child(launch_createprocess, child, &code, &error);
+        printf("helper_state %-20s CreateProcessW launched=%d error=%lu code=%lu\n", state.name, launched, error, code);
+        if (allowed)
+        {
+            // A mock helper is only consulted by shell32; CreateProcessW still demands elevation.
+            if (state.unset) check(launched && code == 100 + TokenElevationTypeFull,
+                                   "unset helper: CreateProcessW starts the child with a full token");
+            else check(!launched && error == ERROR_ELEVATION_REQUIRED,
+                       "configured helper: CreateProcessW requires elevation");
+        }
+        else
+            check(!launched && error == ERROR_ELEVATION_REQUIRED,
+                  "invalid helper: CreateProcessW requires elevation");
+
+        code = error = 0;
+        launched = run_child(launch_shellexecute, child, &code, &error);
+        printf("helper_state %-20s ShellExecuteExW launched=%d error=%lu code=%lu\n", state.name, launched, error, code);
+        if (allowed)
+            check(launched && code == 100 + TokenElevationTypeFull,
+                  "unset or mock-approved helper: ShellExecuteExW starts the child with a full token");
+        else
+            check(!launched && error == state.shell_error, "invalid helper: ShellExecuteExW fails with the exact error");
+    }
+
+    if (had_key)
+    {
+        DWORD disposition;
+        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, NULL, 0,
+                            KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, &disposition) == ERROR_SUCCESS)
+        {
+            if (had_value) RegSetValueExW(key, L"Helper", 0, old_type, old_value.data(), old_size);
+            else RegDeleteValueW(key, L"Helper");
+            RegCloseKey(key);
+        }
+    }
+    else
+    {
+        RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation");
+    }
+    return failures == before;
+}
+
 struct dialog_search {DWORD pid; HWND window;};
 static BOOL CALLBACK find_dialog(HWND window, LPARAM parameter)
 {
@@ -393,7 +587,9 @@ int main(int argc, char **argv)
     {
         bool shell = shell_helpers();
         printf("elevation_helper_errors_and_child_handle=%s\n", shell ? "PASS" : "FAIL");
-        return token && shell ? 0 : 1;
+        bool states = helper_states();
+        printf("elevation_helper_states_manifest_child=%s\n", states ? "PASS" : "FAIL");
+        return token && shell && states ? 0 : 1;
     }
     return token ? 0 : 1;
 }

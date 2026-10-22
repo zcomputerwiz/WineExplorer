@@ -170,6 +170,18 @@ def main():
             compiled = run_logged(command, environment, output, arch + '.compile', 90)
             if compiled.returncode:
                 raise RuntimeError('Probe compilation failed: ' + arch)
+            windres = ('x86_64' if arch == 'x86_64' else 'i686') + '-w64-mingw32-windres'
+            child_object = output / ('token-manifest-child-' + arch + '.res.o')
+            child_exe = output / ('token-manifest-child-' + arch + '.exe')
+            for label, child_command in (
+                    ('child-res', [windres, str(source / 'token_manifest_child.rc'), '-I', str(source), '-O', 'coff',
+                                   '-o', str(child_object)]),
+                    ('child-exe', [compiler, '-O2', '-Wall', '-Wextra', '-Werror', '-static-libgcc',
+                                   '-static-libstdc++', str(source / 'token_manifest_child.cpp'),
+                                   str(child_object), '-o', str(child_exe)])):
+                built = run_logged(child_command, environment, output, arch + '.' + label, 90)
+                if built.returncode:
+                    raise RuntimeError('Manifest child build failed: ' + arch + ' ' + label)
             prefix = root / arch
             prefixes.append(prefix)
             env = dict(environment, WINEPREFIX=str(prefix))
@@ -192,6 +204,7 @@ def main():
             markers = ['deny_only_acl_and_object_open=PASS']
             if not args.checkpoint_a:
                 markers.append('elevation_helper_errors_and_child_handle=PASS')
+                markers.append('elevation_helper_states_manifest_child=PASS')
             # An unhandled exception in any background process (conhost, explorer, services) is a failure,
             # even when the probe itself exits successfully.
             passed = (run.returncode == 0 and all(marker in run.stdout for marker in markers) and
