@@ -23,25 +23,19 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
-Use CHROMIUM_GRAPHICS_G4_RECOVERY_BLANKING_PLAN.md. Parent review of Luna commit
-3bc142eb found corrections needed before any guest fault trial:
+Use CHROMIUM_GRAPHICS_G4_VISIBLE_WEBGL_PLAN_20261022.md (2a1c4400).
+Luna agent Dirac owns implementation/tests only; parent independently reviews
+before any live control or fault trial. Three no-fault timing runs had correct
+fronts before page readback (reports ed5229e8/e1eca023), without explaining or
+fixing the intermittent stale front. Keep that failure and historical post-fault
+blanking open. The next high-value coverage is actual visible WebGL1/2 surfaces,
+not offscreen readback alone. No production patch or master merge is authorized.
 
-- Preserve paired page evidence when post-fault front pixels fail. Distinguish
-  capture completion from a successful pixel verdict; the final run must fail.
-- Establish initial rim validity rather than comparing later rims against an
-  unvalidated baseline. Preserve failed capture metadata and pixel verdicts.
-- Resume visible updates after pre-fault capture, then freeze for recovered
-  captures. Validate content-origin offsets and a valid fractional-scale case.
-
-Luna agent Dirac owns this bounded correction and its focused tests. Parent
-independently reproduced the original 21 Linux tests; their passing result does
-not close the identified coverage gaps. Parent review precedes VM execution.
-
-After review: reserve only the owned D:-backed VirGL guest for serial healthy
-control and one diagnostic recovery reproduction. Inspect actual evidence and
-locate the failing layer before selecting any production fix. Request another
-bounded Luna implementation step for a demonstrated defect; parent reviews the
-patch and evidence before further acceptance trials.
+After implementation review, dispatch one fresh-prefix visible no-fault timing
+control in the owned D:-backed VirGL guest. Inspect actual images before separately
+authorizing one visible GPU-child recovery trial. Preserve failures; do not retry
+until success. Use the existing persistent launcher/identity stopper and bounded
+cleanup procedure. An unhealthy pre-fault image must prevent fault injection.
 
 ## Priority queue after this rendering blocker
 
