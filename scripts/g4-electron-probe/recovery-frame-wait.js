@@ -33,12 +33,24 @@ function collectRendererFrames(requestAnimationFrame, setTimeoutFn, clearTimeout
   });
 }
 
-async function waitForRendererFrames(webContents, stage, timeoutMs = 1500) {
+async function waitForRendererFrames(webContents, stage, timeoutMs = 1500,
+                                     mainTimers = { setTimeout, clearTimeout }) {
   const expression = `(${collectRendererFrames.toString()})(
     window.requestAnimationFrame.bind(window),
     window.setTimeout.bind(window), window.clearTimeout.bind(window),
     () => performance.now(), 2, ${JSON.stringify(timeoutMs)})`;
-  const result = await webContents.executeJavaScript(expression);
+  let deadlineTimer;
+  const deadline = new Promise((resolve, reject) => {
+    deadlineTimer = mainTimers.setTimeout(() => {
+      reject(new Error(`Renderer frame request timed out before ${stage}`));
+    }, timeoutMs);
+  });
+  let result;
+  try {
+    result = await Promise.race([webContents.executeJavaScript(expression), deadline]);
+  } finally {
+    mainTimers.clearTimeout(deadlineTimer);
+  }
   if (!result || typeof result !== 'object' || typeof result.passed !== 'boolean'
       || result.requiredFrames !== 2 || !Number.isSafeInteger(result.observedFrames)
       || !Array.isArray(result.timestamps) || !Number.isFinite(result.elapsedMs)

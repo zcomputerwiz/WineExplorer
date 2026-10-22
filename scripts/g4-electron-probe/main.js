@@ -3,7 +3,6 @@
 const { app, BrowserWindow, session } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { waitForRendererFrames } = require('./recovery-frame-wait');
 
 const logPath = process.env.WEX_WEBVIEW2_LOG;
 const profile = process.env.WEX_WEBVIEW2_PROFILE;
@@ -93,6 +92,7 @@ async function recoveryPageCapture(win, stage) {
 }
 
 async function waitForFrozenSceneFrames(win, stage) {
+  const { waitForRendererFrames } = require('./recovery-frame-wait');
   const timing = await waitForRendererFrames(win.webContents, stage);
   log('gpu recovery render opportunity', timing);
   if (!timing.passed) throw new Error(`Renderer frame wait timed out before ${stage} capture`);
