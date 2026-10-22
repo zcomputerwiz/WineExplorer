@@ -51,8 +51,22 @@ class OwnedWexcomp:
                            config=str(self.config), command=command, backend='headless',
                            compositor_renderer=('pixman (software)' if self.renderer == 'pixman'
                                                 else 'gles2 (requested; acceleration not yet verified)'), endpoint='wex-shell-0',
-                           private_protocol_verified=True)
+                           private_protocol_verified=True, process_identity=self.identity())
         return self.record
+
+    def identity(self):
+        """Return PID plus kernel start ticks so PID reuse cannot mimic continuity."""
+        if self.process is None or self.process.poll() is not None:
+            raise RuntimeError('Owned compositor is not running')
+        stat = Path('/proc/%d/stat' % self.process.pid).read_text()
+        fields = stat[stat.rfind(')') + 2:].split()  # starts at field 3; starttime is field 22
+        return {'pid': self.process.pid, 'start_ticks': int(fields[19])}
+
+    def verify_identity(self, expected):
+        actual = self.identity()
+        if expected is not None and actual != expected:
+            raise RuntimeError('Owned compositor identity changed during the probe')
+        return actual
 
     def set_output_scale(self, scale):
         if scale not in (1.0, 1.25, 1.5, 2.0):

@@ -112,7 +112,9 @@ class GPURecovery(unittest.TestCase):
                      framebufferStatus=36053, defaultPixel=[255, 0, 0, 255],
                      texturePixel=[0, 255, 0, 255], renderer='ANGLE D3D11 lab adapter')
         before = dict(contexts={name: copy.deepcopy(pixel) for name in ('webgl', 'webgl2')},
-                      gpu={'pid': 100, 'creationTime': 1}, rendererPid=200,
+                      gpu={'pid': 100, 'creationTime': 1},
+                      browserMain={'pid': 150, 'creationTime': 1000},
+                      renderer={'pid': 200, 'creationTime': 1001},
                       features={'gpu_compositing': 'enabled'}, frames=10)
         after = copy.deepcopy(before)
         after.update(gpu={'pid': 101, 'creationTime': 2}, laterFrames=20,
@@ -139,7 +141,9 @@ class GPURecovery(unittest.TestCase):
     def test_reject_missing_fault_wrong_pixels_fallback_or_unproven_recovery(self):
         changes = [lambda r: r.update(passed=False), lambda r: r.update(fault=None),
                    lambda r: r['fault'].update(pid=999), lambda r: r['after']['gpu'].update(pid=100),
-                   lambda r: r['after'].update(rendererPid=201), lambda r: r.update(rendererExits=[{}]),
+                   lambda r: r['after']['renderer'].update(pid=201),
+                   lambda r: r['after']['browserMain'].update(pid=151),
+                   lambda r: r.update(rendererExits=[{}]),
                    lambda r: r['after'].update(laterFrames=10), lambda r: r.update(exits=[]),
                    lambda r: r['exits'].append(copy.deepcopy(r['exits'][0])),
                    lambda r: r['exits'][0].update(reason='clean-exit'),
@@ -211,6 +215,31 @@ class VisualCapture(unittest.TestCase):
             raise RuntimeError('capture backend disappeared')
         consumer.observe_fail_closed(broken_observer, result)
         self.assertEqual(result.get('observer_error'), 'RuntimeError: capture backend disappeared')
+
+    def test_gpu_recovery_captures_require_fresh_ordered_ack_and_stable_compositor(self):
+        run_id = 'a' * 32
+        identity = {'pid': 41, 'start_ticks': 900}
+        stages = consumer.RECOVERY_VISUAL_STAGES
+        log = ''.join(
+            '10 ms gpu recovery front capture requested ' + json.dumps({'stage': stage, 'runId': run_id}) + '\n'
+            + '11 ms gpu recovery front capture acknowledged ' + json.dumps({'stage': stage, 'runId': run_id}) + '\n'
+            + '12 ms gpu recovery page capture ' + json.dumps({'stage': stage, 'empty': False,
+                'bytes': 100, 'size': {'width': 800, 'height': 600}}) + '\n'
+            for stage in stages)
+        captures = {stage: {'sha256': 'b' * 64, 'bytes': 128, 'width': 800, 'height': 600,
+                            'compositor_identity': identity} for stage in stages}
+        assess = lambda text=log, files=captures, error=None, before=identity, after=identity: \
+            consumer.recovery_front_capture_result(text, files, run_id, error, before, after)
+        self.assertTrue(assess()['passed'])
+        self.assertFalse(assess(text=log.replace(run_id, 'c' * 32))['passed'])
+        self.assertFalse(assess(text=log.replace('settled_2s', 'recovered', 1))['passed'])
+        self.assertFalse(assess(files={})['passed'])
+        self.assertFalse(assess(error='grim failed')['passed'])
+        self.assertFalse(assess(after={'pid': 42, 'start_ticks': 900})['passed'])
+        self.assertFalse(assess(text=log.replace('"empty": false', '"empty": true'))['passed'])
+        self.assertFalse(assess(text=log.replace(
+            'gpu recovery page capture {', 'gpu recovery page capture [', 1).replace(
+            '"height": 600}}', '"height": 600}]', 1))['passed'])
 
 
 if __name__ == '__main__':

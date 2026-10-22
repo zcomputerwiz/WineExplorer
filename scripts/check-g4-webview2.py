@@ -24,6 +24,7 @@ import time
 import graphics_resources
 
 VISUAL_STAGES = ('ready', 'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back')
+RECOVERY_VISUAL_STAGES = ('recovered', 'settled_2s', 'settled_4s')
 
 
 def native_scale_state(text, expected):
@@ -44,6 +45,60 @@ def visual_capture_complete(text, captures, error=None):
     return (error is None and set(captures) == set(VISUAL_STAGES)
             and visual_requests(text) == list(VISUAL_STAGES)
             and visual_requests(text, captured=True) == list(VISUAL_STAGES))
+
+
+def recovery_front_requests(text, acknowledged=False):
+    event = 'gpu recovery front capture acknowledged' if acknowledged else 'gpu recovery front capture requested'
+    values = []
+    for raw in re.findall(r'^\d+ ms ' + re.escape(event) + r' (.+)$', text, re.MULTILINE):
+        try:
+            values.append(json.loads(raw))
+        except (ValueError, TypeError):
+            return None
+    return values
+
+
+def recovery_front_capture_result(text, captures, run_id, error=None,
+                                  compositor_before=None, compositor_after=None):
+    requested = recovery_front_requests(text)
+    acknowledged = recovery_front_requests(text, acknowledged=True)
+    page = []
+    for raw in re.findall(r'^\d+ ms gpu recovery page capture (.+)$', text, re.MULTILINE):
+        try:
+            page.append(json.loads(raw))
+        except (ValueError, TypeError):
+            return {'passed': False, 'error': 'Malformed Electron page-capture record'}
+    stages = list(RECOVERY_VISUAL_STAGES)
+    valid_requests = (requested is not None and all(isinstance(item, dict) for item in requested)
+                      and [item.get('stage') for item in requested] == stages
+                      and all(item.get('runId') == run_id for item in requested))
+    valid_acks = (acknowledged is not None and all(isinstance(item, dict) for item in acknowledged)
+                  and [item.get('stage') for item in acknowledged] == stages
+                  and all(item.get('runId') == run_id for item in acknowledged))
+    valid_page = (len(page) == len(stages) and all(isinstance(item, dict) for item in page)
+                  and [item.get('stage') for item in page] == stages
+                  and all(item.get('empty') is False and type(item.get('bytes')) is int
+                          and item.get('bytes', 0) >= 64 and isinstance(item.get('size'), dict)
+                          and all(type(item['size'].get(key)) is int
+                                  and item['size'][key] > 0 for key in ('width', 'height'))
+                          for item in page))
+    valid_front = (isinstance(captures, dict) and set(captures) == set(stages)
+                   and all(isinstance(captures[s], dict)
+                           and isinstance(captures[s].get('sha256'), str)
+                           and re.fullmatch(r'[0-9a-f]{64}', captures[s]['sha256'])
+                           and type(captures[s].get('bytes')) is int and captures[s]['bytes'] >= 64
+                           and type(captures[s].get('width')) is int and captures[s]['width'] > 0
+                           and type(captures[s].get('height')) is int and captures[s]['height'] > 0
+                           and captures[s].get('compositor_identity') == compositor_before
+                           for s in stages))
+    identity_stable = (isinstance(compositor_before, dict) and compositor_before
+                       and compositor_after == compositor_before)
+    checks = {'ordered_requests': valid_requests, 'ordered_acknowledgements': valid_acks,
+              'nonempty_page_captures': valid_page, 'nonempty_front_captures': valid_front,
+              'stable_compositor_identity': identity_stable, 'no_capture_error': error is None}
+    return {'passed': all(checks.values()), 'checks': checks, 'requested': requested,
+            'acknowledged': acknowledged, 'page_captures': page,
+            'front_captures': captures, 'error': error}
 
 
 def observe_fail_closed(observer, result):
@@ -144,8 +199,15 @@ def recovery_result(log):
             'new_gpu': (type(after['gpu']['pid']) is int and after['gpu']['pid'] > 0
                         and after['gpu']['pid'] != before['gpu']['pid']
                         and after['gpu']['creationTime'] >= before['gpu']['creationTime']),
-            'same_renderer': (type(before['rendererPid']) is int and before['rendererPid'] > 0
-                              and before['rendererPid'] == after['rendererPid'] and result['rendererExits'] == []),
+            'same_browser_main': (before['browserMain'] == after['browserMain']
+                                  and type(before['browserMain']['pid']) is int
+                                  and before['browserMain']['pid'] > 0
+                                  and type(before['browserMain']['creationTime']) in (int, float)),
+            'same_renderer': (before['renderer'] == after['renderer']
+                              and type(before['renderer']['pid']) is int
+                              and before['renderer']['pid'] > 0
+                              and type(before['renderer']['creationTime']) in (int, float)
+                              and result['rendererExits'] == []),
             'context_loss': all(after['oldLost'][name]['events'] >= 1 for name in ('webgl', 'webgl2')),
             'frames': (type(after['frames']) is int and type(after['laterFrames']) is int
                        and after['laterFrames'] > after['frames']),
@@ -281,6 +343,9 @@ def main():
     if args.gpu_recovery and (not args.electron_app or args.lifecycle or args.freeze_scene
                               or args.restart_from or args.seconds < 30):
         parser.error('--gpu-recovery requires Electron, >=30 seconds, and no lifecycle/freeze/restart')
+    if args.gpu_recovery and (not args.wexcomp_bin or args.compositor_renderer != 'gles2'
+                              or args.gl_driver != 'virgl' or not shutil.which('grim')):
+        parser.error('--gpu-recovery requires the owned GLES2 VirGL compositor and grim front captures')
     if args.renderer == 'vulkan' and not args.vulkan_icd:
         parser.error('--renderer vulkan requires --vulkan-icd')
     icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
@@ -303,6 +368,7 @@ def main():
         parser.error('Use an owned X socket directory in a private mount namespace')
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    recovery_capture_run_id = secrets.token_hex(16) if args.gpu_recovery else None
     payload_hashes = {str(path): digest(path) for path in payloads}
     stack_files = [wine, server, build / 'dlls/win32u/win32u.so',
                    build / 'dlls/winex11.drv/winex11.so']
@@ -359,6 +425,7 @@ def main():
     if args.gpu_recovery:
         environment['WEX_WEBVIEW2_GPU_RECOVERY'] = '1'
         environment['WEX_WEBVIEW2_RECOVERY_CAPTURE_DIR'] = winpath(output)
+        environment['WEX_WEBVIEW2_RECOVERY_CAPTURE_RUN_ID'] = recovery_capture_run_id
     if proof:
         environment['WEX_WEBVIEW2_PROFILE_EXPECT'] = expected or ''
         environment['WEX_WEBVIEW2_PROFILE_WRITE'] = token
@@ -385,6 +452,7 @@ def main():
     display = None
     desktop = []
     wexcomp = None
+    recovery_front_captures = {}
     read_fd, write_fd = os.pipe()
     monitor = None
     stop = threading.Event()
@@ -414,6 +482,44 @@ def main():
                              'processes': graphics_resources.sample(prefix)}
                     with (output / 'resources.jsonl').open('a') as resources:
                         resources.write(json.dumps(point) + '\n')
+                if args.gpu_recovery and (output / 'host.log').exists():
+                    host_text = (output / 'host.log').read_text(errors='replace')
+                    for request in recovery_front_requests(host_text) or []:
+                        stage, run_id = request.get('stage'), request.get('runId')
+                        if stage in recovery_front_captures:
+                            continue
+                        try:
+                            next_stage = RECOVERY_VISUAL_STAGES[len(recovery_front_captures)]
+                            if stage != next_stage or run_id != recovery_capture_run_id:
+                                raise RuntimeError('Unexpected/stale GPU recovery capture request')
+                            if wexcomp is None:
+                                raise RuntimeError('Owned compositor unavailable for recovery front capture')
+                            identity = wexcomp.verify_identity(result['wexcomp']['process_identity'])
+                            capture = output / ('recovery-front-' + stage + '.png')
+                            with (output / 'capture.log').open('ab') as capture_log:
+                                subprocess.run(capture_command(capture), env=environment,
+                                               stdout=capture_log, stderr=capture_log, timeout=5, check=True)
+                            data = capture.read_bytes()
+                            if (not capture.is_file() or len(data) < 64
+                                    or data[:8] != b'\x89PNG\r\n\x1a\n'
+                                    or data[12:16] != b'IHDR'
+                                    or int.from_bytes(data[16:20], 'big') <= 0
+                                    or int.from_bytes(data[20:24], 'big') <= 0):
+                                raise RuntimeError('Invalid/empty recovered front PNG: ' + stage)
+                            capture_record = {'path': str(capture), 'bytes': len(data),
+                                              'sha256': hashlib.sha256(data).hexdigest(),
+                                              'width': int.from_bytes(data[16:20], 'big'),
+                                              'height': int.from_bytes(data[20:24], 'big'),
+                                              'compositor_identity': identity}
+                            recovery_front_captures[stage] = capture_record
+                            result['recovery_front_captures'] = dict(recovery_front_captures)
+                            ack = output / ('gpu-recovery-%s-%s.ack' % (run_id, stage))
+                            with ack.open('x', encoding='utf-8') as stream:
+                                json.dump({'runId': run_id, 'stage': stage, 'passed': True,
+                                           'sha256': capture_record['sha256']}, stream)
+                        except Exception as error:
+                            result['recovery_front_capture_error'] = '%s: %s' % (type(error).__name__, error)
+                            raise
                 if args.lifecycle_visuals and (output / 'host.log').exists():
                     host_text = (output / 'host.log').read_text(errors='replace')
                     for stage in visual_requests(host_text):
@@ -545,6 +651,13 @@ def main():
         monitor.join(timeout=5)
         if monitor.is_alive():
             result['observer_error'] = 'Observer did not stop within 5 seconds'
+        if args.gpu_recovery:
+            result['recovery_front_captures'] = dict(recovery_front_captures)
+            try:
+                result['recovery_compositor_identity_after'] = wexcomp.verify_identity(
+                    result['wexcomp']['process_identity'])
+            except Exception as error:
+                result['recovery_front_capture_error'] = '%s: %s' % (type(error).__name__, error)
         hostlog = output / 'host.log'
         if hostlog.exists():
             analyzer_spec = importlib.util.spec_from_file_location('analyzer', Path(__file__).with_name('analyze-webview2-run.py'))
@@ -555,9 +668,16 @@ def main():
             result['first_failure'] = 'Host did not create its diagnostic log'
         passed = result.get('animation_diagnostic', {}).get('diagnostic_passed', False)
         if args.gpu_recovery:
-            result['gpu_recovery_diagnostic'] = recovery_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
+            recovery_log = hostlog.read_text(errors='replace') if hostlog.exists() else ''
+            result['gpu_recovery_diagnostic'] = recovery_result(recovery_log)
             passed = recovery_acceptance(result.get('animation_diagnostic', {}), result['gpu_recovery_diagnostic'])
             passed = passed and 'observer_error' not in result
+            result['recovery_front_capture_diagnostic'] = recovery_front_capture_result(
+                recovery_log, result['recovery_front_captures'], recovery_capture_run_id,
+                result.get('recovery_front_capture_error'), result['wexcomp']['process_identity'],
+                result.get('recovery_compositor_identity_after'))
+            passed = passed and result['recovery_front_capture_diagnostic']['passed']
+            result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; capture integrity is not a pixel verdict'
         if args.lifecycle:
             result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
             passed = passed and result['lifecycle_diagnostic']['passed']

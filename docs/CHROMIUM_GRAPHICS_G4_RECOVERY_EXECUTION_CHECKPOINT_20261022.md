@@ -153,3 +153,33 @@ at `D:/VirtualBox_VMs/WEX-G4-VirGL-20261022/frozen-control-01`; the guest is
 off. Validate this instrumentation with the next single fault-injection
 reproduction, then compare the page and outer captures before changing Wine or
 compositor code.
+
+Continuation update (2026-10-22): the prior probe command timed out waiting for
+Electron after 105s (`subprocess.TimeoutExpired`). The host-side run record at
+`D:/VirtualBox_VMs/WEX-G4-VirGL-20261022/recovery-page-capture-20261022` classifies
+that boot as guest-bootstrap-only and records QEMU/Xvfb stopped cleanly; its
+serial log shows the VM booted, but no Electron front/page captures or guest
+probe summary were present. SSH to forwarded port 2235 was refused after
+shutdown. Treat it as neither a recovery run nor a pass.
+
+After the usage window reset (initial usage 0%; no reset credit consumed), the
+recovery observer now uses a per-run random nonce and requests exact ordered
+`recovered`, `settled_2s`, and `settled_4s` compositor-front captures. Electron
+waits for each fresh capture acknowledgement before writing a corresponding
+`capturePage()` PNG; missing/empty captures, bad ordering, stale IDs and
+observer errors fail closed. The browser-main and renderer PID/creation-time
+identities are compared before/after recovery. The owned compositor is pinned
+by Linux PID plus `/proc` start ticks and checked through every capture and at
+the end. Capture completion is explicitly not a pixel verdict; manually inspect
+the captured PNGs on the next successful run.
+
+Changed files: `scripts/check-g4-webview2.py`,
+`scripts/g4-electron-probe/main.js`, `scripts/graphics_wexcomp.py`, and their
+two focused test modules. Node syntax validation passed. Twenty-eight focused
+unit tests passed on Windows with a test-only `fcntl` shim; one existing
+symlink-creation test was skipped because the sandbox lacks Windows symlink
+privilege. WSL returned `Wsl/ERROR_ACCESS_DENIED`, so no Linux-suite result is
+claimed. No VM was booted in this continuation. These changes and this note
+still need Git commit/push; normal Git metadata writes were denied by the
+workspace sandbox. Current branch head is
+`e1f870f39075997df2a98a98b96b7bedbb656c29`; use it and preserve all local work.

@@ -21,14 +21,21 @@ class OwnedCompositor(unittest.TestCase):
         env = dict(DISPLAY=':live', WAYLAND_DISPLAY='live', DBUS_SESSION_BUS_ADDRESS='live', WAYLAND_SOCKET='99')
         original = dict(env)
         control = OwnedWexcomp(self.binary, self.root, self.root, env)
-        process = mock.Mock()
+        process = mock.Mock(pid=42)
         process.poll.return_value = None
+        original_read_text = Path.read_text
+        stat_fields = ['S'] + ['0'] * 18 + ['900']
+        def read_text(path, *args, **kwargs):
+            if str(path).replace('\\', '/') == '/proc/42/stat':
+                return '42 (wexcomp) ' + ' '.join(stat_fields)
+            return original_read_text(path, *args, **kwargs)
 
         def protocols(*args, **kwargs):
             kwargs['stdout'].write(b"interface: 'wex_window_manager_v1'\n")
 
         with mock.patch('graphics_wexcomp.subprocess.Popen', return_value=process) as launch, \
                 mock.patch('graphics_wexcomp.subprocess.run', side_effect=protocols), \
+                mock.patch.object(Path, 'read_text', read_text), \
                 mock.patch.object(Path, 'is_socket', return_value=True):
             record = control.start()
             started_env = launch.call_args.kwargs['env']
@@ -58,6 +65,21 @@ class OwnedCompositor(unittest.TestCase):
         self.assertEqual(OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='gles2').renderer, 'gles2')
         with self.assertRaises(ValueError):
             OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='automatic-fallback')
+
+    def test_compositor_identity_includes_kernel_start_ticks(self):
+        control = OwnedWexcomp(self.binary, self.root, self.root, {})
+        control.process = mock.Mock(pid=42)
+        control.process.poll.return_value = None
+        fields = ['S'] + ['0'] * 18 + ['900']
+        with mock.patch.object(Path, 'read_text', return_value='42 (wexcomp) ' + ' '.join(fields)):
+            identity = control.identity()
+            self.assertEqual(identity, {'pid': 42, 'start_ticks': 900})
+            self.assertEqual(control.verify_identity(identity), identity)
+            with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+                control.verify_identity({'pid': 41, 'start_ticks': 900})
+        control.process.poll.return_value = 1
+        with self.assertRaisesRegex(RuntimeError, 'not running'):
+            control.identity()
 
     def test_outer_renderer_requires_its_own_unique_live_context(self):
         control = OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='gles2')
