@@ -53,6 +53,22 @@ is today (the unset-helper suites prove it).
      prefixes are updated with the helper unset.
    - (c) The prefix update asks for elevation through the broker once it exists (plan step 4).
    Recommendation to check against the data: (b) now, (c) later.
+
+   **Decided (2026-10-22), from the item 1 data:**
+   - Prefix update: (b) now, (c) once the broker exists. User-writable prefixes are updated with the helper
+     unset.
+   - Display device cache (deviation, accepted by the user): win32u's `prepare_devices`
+     (`dlls/win32u/sysparams.c`) rewrites `HKLM\System\CurrentControlSet\Enum\DISPLAY`, `Enum\PCI` display
+     entries, the display and monitor `Control\Class` keys, `HARDWARE\DEVICEMAP\VIDEO` and the DirectX key on
+     every start of a GUI process, which on Windows SYSTEM components do. The server's default descriptor for
+     exactly those keys and their subkeys grants Users full control (like `key_in_user_tree` selects the user
+     descriptor). Effect: a limited process can change the cached display configuration. Listed in
+     `STOCK_CHANGES.md` as a deviation.
+   - `reg_empty_key` gets a failure exit (stops when a delete fails), so a denied delete is an error, not a
+     hang. Upstreamable.
+   - Callers that open `HKLM` keys with `KEY_ALL_ACCESS` (or `MAXIMUM_ALLOWED` and then write) only to read
+     ask for `KEY_READ` instead (upstreamable; Windows would deny them too). Callers that really write `HKLM`
+     at runtime as a limited process are listed, not widened.
 3. **Key access checks.** With the agreed design from item 2:
    - `check_object_access` uses the key's effective descriptor (`key_get_sd`, explicit or default) for keys
      when enforced;
