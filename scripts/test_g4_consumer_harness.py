@@ -7,10 +7,24 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location('consumer', Path(__file__).with_name('check-g4-webview2.py'))
 consumer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(consumer)
+
+
+class DependencyPreflight(unittest.TestCase):
+    def test_missing_resize_analyzer_fails_before_launch(self):
+        arguments = ['check-g4-webview2.py', '--wine-build', '/not-started/build',
+                     '--runtime', '/not-started/runtime', '--host', '/not-started/host.exe',
+                     '--output-dir', '/not-started/output', '--resize-border']
+        with mock.patch('sys.argv', arguments), \
+                mock.patch.dict('sys.modules', {'graphics_frame_pixels': None}), \
+                mock.patch.object(consumer.subprocess, 'Popen') as launch:
+            with self.assertRaises(ModuleNotFoundError):
+                consumer.main()
+            launch.assert_not_called()
 
 
 class NativeScale(unittest.TestCase):

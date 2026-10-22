@@ -28,7 +28,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--arch', choices=('x86_64', 'i686'), default='x86_64')
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='vulkan')
-    parser.add_argument('--gl-driver', choices=('software', 'd3d12', 'svga'), default='software')
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12', 'svga', 'virgl'), default='software')
     parser.add_argument('--compositor-renderer', choices=('pixman', 'gles2'), default='pixman')
     parser.add_argument('--vulkan-icd', type=Path)
     parser.add_argument('--wine-debug', default='-all,+winediag')

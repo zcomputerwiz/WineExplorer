@@ -82,22 +82,23 @@ def configure_private_theme(wine, environment, output, label, mode, style):
 
 def configure_gl_driver(environment, driver):
     """Explicit per-run selection; never silently inherit a loader override."""
-    if driver not in ('software', 'd3d12', 'svga'):
+    if driver not in ('software', 'd3d12', 'svga', 'virgl'):
         raise ValueError('Unsupported diagnostic GL driver')
     for key in ('GALLIUM_DRIVER', 'MESA_LOADER_DRIVER_OVERRIDE', 'LD_LIBRARY_PATH'):
         environment.pop(key, None)
     environment['LIBGL_ALWAYS_SOFTWARE'] = '1' if driver == 'software' else '0'
     if driver == 'd3d12':
         environment.update(GALLIUM_DRIVER='d3d12', LD_LIBRARY_PATH='/usr/lib/wsl/lib')
-    elif driver == 'svga':
-        environment['GALLIUM_DRIVER'] = 'svga'
+    elif driver in ('svga', 'virgl'):
+        environment['GALLIUM_DRIVER'] = driver
 
 
 def verify_gl_driver(environment, output, driver):
     if driver == 'software':
         return None
     result = run_logged(['glxinfo', '-B'], environment, output, 'gl-driver', 30)
-    renderer = r'D3D12 \([^\n]+\)' if driver == 'd3d12' else r'SVGA3D[^\n]*'
+    renderer = {'d3d12': r'D3D12 \([^\n]+\)', 'svga': r'SVGA3D[^\n]*',
+                'virgl': r'virgl \([^\n]+\)'}[driver]
     passed = (result.returncode == 0 and 'Accelerated: yes' in result.stdout
               and re.search(r'OpenGL renderer string: ' + renderer, result.stdout) is not None
               and not re.search(r'llvmpipe|softpipe|swiftshader', result.stdout, re.I))

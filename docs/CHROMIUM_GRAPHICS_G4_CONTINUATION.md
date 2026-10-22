@@ -1,6 +1,17 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # G4 completion progress — 2026-10-20
 
+Newest: `CHROMIUM_GRAPHICS_G4_VIRGL_20261022.md`. Fresh authorized D:-backed
+QEMU/VirGL guest establishes real virtio_gpu DRM and accelerated outer GLES2
+wexcomp, host D3D12/Intel UHD750. Both PEs own/foreign-full exact4096 pixels
+PASS; real WebView2 strict WebGL1/2 pixels PASS and actual front inspected.
+Wine reports max10.1, no spoofing.36 harness tests pass; production pins unchanged.
+Electron complete repeat PASS lifecycle/frozen front1600 pixels; actual image
+inspected. First Electron staging failure retained, import preflight repaired.
+Both disposable GPU guests gracefully powered off; owned probes stopped.
+See report final addendum for exact runs/next GPU recovery/shell cells. Not installed-shell,
+zero-copy, broad synchronization/security or complete G4 acceptance. No merge.
+
 Newest: `CHROMIUM_GRAPHICS_G4_GPU_CONSUMERS_20261022.md`. Actual VirtualBox
 SVGA/GLES2 Chromium consumers FAIL (feature-level9.3 ceiling without polygon
 offset clamp; separate wlroots/vmwgfx DMA-BUF handle error). Official Mesa26

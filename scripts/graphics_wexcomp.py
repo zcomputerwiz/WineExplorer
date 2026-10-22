@@ -80,12 +80,12 @@ class OwnedWexcomp:
     def verify_gpu_renderer(self, driver):
         """Observe the outer compositor's own context, not a client's EGL query."""
         self.verify()
-        if self.renderer != 'gles2' or driver not in ('d3d12', 'svga'):
+        if self.renderer != 'gles2' or driver not in ('d3d12', 'svga', 'virgl'):
             raise ValueError('GPU renderer verification requires an explicit supported GLES2 driver')
         data = (self.output / 'wexcomp.log').read_bytes()
         log = data.decode(errors='replace')
         matches = re.findall(r'(?m)\bGL renderer: ([^\r\n]+)', log)
-        expected = r'D3D12 \(' if driver == 'd3d12' else r'SVGA3D(?:;|$)'
+        expected = {'d3d12': r'D3D12 \(', 'svga': r'SVGA3D(?:;|$)', 'virgl': r'virgl \('}[driver]
         if ('Creating GLES2 renderer' not in log or len(matches) != 1
                 or not re.match(expected, matches[0])
                 or re.search(r'llvmpipe|softpipe|swiftshader|Microsoft Basic Render', matches[0], re.I)):
@@ -114,7 +114,7 @@ def verify_native_gl_driver(environment, output, driver):
     """Check the actual owned Wayland EGL context, never an unrelated GLX display."""
     if driver == 'software':
         return None
-    if driver not in ('d3d12', 'svga'):
+    if driver not in ('d3d12', 'svga', 'virgl'):
         raise ValueError('Unsupported native GL driver')
     if (environment.get('WAYLAND_DISPLAY') != 'wex-shell-0'
             or environment.get('XDG_RUNTIME_DIR') != str(output / 'wayland-runtime')
@@ -125,7 +125,8 @@ def verify_native_gl_driver(environment, output, driver):
             (output / 'native-egl.stderr.log').open('w') as err:
         result = subprocess.run(command, env=environment, stdout=out, stderr=err, timeout=30)
     text = (output / 'native-egl.stdout.log').read_text(errors='replace')
-    renderer = r'D3D12 \([^\n]+\)' if driver == 'd3d12' else r'SVGA3D[^\n]*'
+    renderer = {'d3d12': r'D3D12 \([^\n]+\)', 'svga': r'SVGA3D[^\n]*',
+                'virgl': r'virgl \([^\n]+\)'}[driver]
     passed = (result.returncode == 0 and 'Wayland platform:' in text
               and re.search(r'OpenGL (?:core profile |compatibility profile )?renderer(?: string)?: ' + renderer, text)
               and not re.search(r'llvmpipe|softpipe|swiftshader|Microsoft Basic Render', text, re.I))

@@ -223,7 +223,7 @@ def main():
     parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
     parser.add_argument('--resource-profile', action='store_true',
                         help='Read-only one-second owned-process CPU/RSS samples; not GPU telemetry')
-    parser.add_argument('--gl-driver', choices=('software', 'd3d12', 'svga'), default='software',
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12', 'svga', 'virgl'), default='software',
                         help='Explicit software/WSL D3D12/VM SVGA driver, independently verified')
     parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none')
     parser.add_argument('--wexcomp-bin', type=Path, help='Explicit pinned compositor: owned headless native Wayland control')
@@ -236,6 +236,10 @@ def main():
     parser.add_argument('--vulkan-icd', type=Path,
                         help='Required explicit software/hardware ICD for a Vulkan control')
     args = parser.parse_args()
+    if args.resize_border:
+        # Fail before launching Wine rather than killing the observer halfway
+        # through the fixture's frozen-frame acknowledgement handshake.
+        from graphics_frame_pixels import frame_pixels
     if bool(args.wexcomp_bin) != bool(args.wexcomp_config):
         parser.error('--wexcomp-bin and --wexcomp-config must be specified together')
     if args.compositor_renderer == 'gles2' and (not args.wexcomp_bin or args.gl_driver == 'software'):
@@ -432,7 +436,6 @@ def main():
                             result['visual_captures'][stage] = {'path': str(capture), 'time': time.time()}
                             if args.resize_border and stage == 'resize_back':
                                 from PIL import Image
-                                from graphics_frame_pixels import frame_pixels
                                 samples = []
                                 begin = time.monotonic()
                                 for offset in (0, .25, 1, 2, 4):

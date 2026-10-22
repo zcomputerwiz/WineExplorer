@@ -91,6 +91,19 @@ class OwnedCompositor(unittest.TestCase):
         control.stop()
         process.terminate.assert_called_once()
 
+    def test_virgl_outer_context_rejects_nested_software(self):
+        control = OwnedWexcomp(self.binary, self.root, self.root, {}, renderer='gles2')
+        control.process = mock.Mock()
+        control.process.poll.return_value = None
+        control.record = {}
+        for device, passed in (('D3D12 (Intel test)', True), ('llvmpipe', False), ('softpipe', False)):
+            (self.root / 'wexcomp.log').write_text('Creating GLES2 renderer\nGL renderer: virgl (' + device + ')\n')
+            if passed:
+                self.assertTrue(control.verify_gpu_renderer('virgl')['passed'])
+            else:
+                with self.assertRaises(RuntimeError):
+                    control.verify_gpu_renderer('virgl')
+
     def test_exited_compositor_and_capture_command(self):
         control = OwnedWexcomp(self.binary, self.root, self.root, {})
         with self.assertRaises(RuntimeError):

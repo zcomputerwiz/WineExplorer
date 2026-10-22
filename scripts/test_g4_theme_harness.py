@@ -48,7 +48,7 @@ class ThemeSetup(unittest.TestCase):
 
 class DriverSetup(unittest.TestCase):
     def test_selection_clears_inherited_loader(self):
-        for driver in ('software', 'd3d12', 'svga'):
+        for driver in ('software', 'd3d12', 'svga', 'virgl'):
             env = dict(GALLIUM_DRIVER='other', MESA_LOADER_DRIVER_OVERRIDE='other', LD_LIBRARY_PATH='/other')
             runner.configure_gl_driver(env, driver)
             self.assertNotIn('MESA_LOADER_DRIVER_OVERRIDE', env)
@@ -60,7 +60,7 @@ class DriverSetup(unittest.TestCase):
                 self.assertEqual(env['GALLIUM_DRIVER'], 'd3d12')
                 self.assertEqual(env['LD_LIBRARY_PATH'], '/usr/lib/wsl/lib')
             else:
-                self.assertEqual(env['GALLIUM_DRIVER'], 'svga')
+                self.assertEqual(env['GALLIUM_DRIVER'], driver)
                 self.assertNotIn('LD_LIBRARY_PATH', env)
         with self.assertRaises(ValueError):
             runner.configure_gl_driver({}, 'unknown')
@@ -83,6 +83,16 @@ class DriverSetup(unittest.TestCase):
                 else:
                     with self.assertRaises(RuntimeError):
                         runner.verify_gl_driver({}, Path('/owned'), 'd3d12')
+
+    def test_virgl_rejects_nested_software_renderer(self):
+        for device, passed in (('D3D12 (Intel test)', True), ('llvmpipe', False), ('softpipe', False)):
+            text = 'Accelerated: yes\nOpenGL renderer string: virgl (' + device + ')\n'
+            with mock.patch.object(runner, 'run_logged', return_value=subprocess.CompletedProcess([], 0, text, '')):
+                if passed:
+                    self.assertTrue(runner.verify_gl_driver({}, Path('/owned'), 'virgl')['passed'])
+                else:
+                    with self.assertRaises(RuntimeError):
+                        runner.verify_gl_driver({}, Path('/owned'), 'virgl')
 
 
 class DesktopSetup(unittest.TestCase):
