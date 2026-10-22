@@ -749,9 +749,8 @@ static std::vector<std::wstring> privilege_names(HANDLE token)
     return names;
 }
 
-// Provisional: filter_token(DISABLE_MAX_PRIVILEGE) keeps SeChangeNotifyPrivilege only. Replace with the list from
-// the native `whoami /all` of a non-elevated administrator (decision D1) once it is recorded.
-static const WCHAR *const limited_privileges[] = {L"SeChangeNotifyPrivilege"};
+// Native filtered admin token (Windows 10.0.26300, decision D1) also has SeIncreaseWorkingSet and SeTimeZone, which Wine lacks.
+static const WCHAR *const limited_privileges[] = {L"SeChangeNotifyPrivilege", L"SeShutdownPrivilege", L"SeUndockPrivilege"};
 
 static bool limited_token_shape()
 {
@@ -781,6 +780,20 @@ static bool limited_token_shape()
         exact = exact && present;
     }
     check(exact, "limited: privileges are exactly the filtered list");
+    {
+        std::vector<BYTE> data;
+        bool state_ok = token_query(self, TokenPrivileges, &data);
+        TOKEN_PRIVILEGES *privileges = (TOKEN_PRIVILEGES *)data.data();
+        for (DWORD i = 0; state_ok && i < privileges->PrivilegeCount; ++i)
+        {
+            WCHAR name[128];
+            DWORD length = 128;
+            bool enabled = (privileges->Privileges[i].Attributes & SE_PRIVILEGE_ENABLED) != 0;
+            state_ok = LookupPrivilegeNameW(NULL, &privileges->Privileges[i].Luid, name, &length) &&
+                       enabled == !wcscmp(name, L"SeChangeNotifyPrivilege");
+        }
+        check(state_ok, "limited: SeChangeNotifyPrivilege is enabled, SeShutdownPrivilege and SeUndockPrivilege are not");
+    }
 
     // The limited process must not be able to switch SeTcbPrivilege on.
     {
