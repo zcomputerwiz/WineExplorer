@@ -86,7 +86,8 @@ PRIVATE = Path(__file__).resolve().parents[1]/'build/g4-virgl-20261022/presentat
 @unittest.skipUnless(PRIVATE.is_file(), 'Private lab procedure unavailable; pure budget tests remain portable')
 class ProcedureTests(unittest.TestCase):
     """Execute the actual private procedure with all guest/process calls mocked."""
-    def exercise(self, seconds, *, state='running', missing=False, identity_failure=False):
+    def exercise(self, seconds, *, state='running', missing=False, identity_failure=False,
+                 consumer_failure=False, archive_failure=False):
         spec = importlib.util.spec_from_file_location('budget_private_procedure', PRIVATE)
         procedure = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(procedure)
@@ -116,10 +117,14 @@ class ProcedureTests(unittest.TestCase):
             def remote(argv, **kwargs):
                 self.assertEqual(argv[0], 'ssh')
                 command = shlex.split(argv[1]); calls.append(command)
+                if command[0] == 'consumer' and consumer_failure:
+                    raise RuntimeError('primary consumer failure')
                 if command[0] == 'sha256sum':
                     hashes = {'/bin/wine':'a'*64, '/guest/stage/script.py':'b'*64}
                     return subprocess.CompletedProcess(argv, 0, ''.join(hashes[p]+'  '+p+'\n' for p in command[2:]))
                 if command[:2] == ['tar','-C']:
+                    if archive_failure:
+                        raise RuntimeError('secondary archive failure')
                     with tarfile.open(fileobj=kwargs['stdout'], mode='w:gz') as archive:
                         data=b'{}'; item=tarfile.TarInfo('results.json'); item.size=len(data)
                         archive.addfile(item, io.BytesIO(data))
@@ -175,6 +180,24 @@ class ProcedureTests(unittest.TestCase):
                 self.assertEqual(calls, [])
                 self.assertIsNotNone(error)
                 self.assertIn('archive_skipped', info)
+
+    def test_primary_failure_survives_archive_exception_and_metadata_is_saved(self):
+        calls, _, info, logs, error = self.exercise([52.078,100], consumer_failure=True, archive_failure=True)
+        self.assertEqual(error, 'primary consumer failure')
+        self.assertIn('primary consumer failure', info['error'])
+        self.assertIn('secondary archive failure', info['archive_error'])
+        self.assertIn('finished_utc', info)
+        self.assertTrue(all(log['passed'] for log in logs.values()))
+        self.assertEqual(calls[-2][0], 'consumer')
+        self.assertEqual(calls[-1][:2], ['tar','-C'])
+
+    def test_archive_only_exception_still_fails_and_saves_guard_and_consumer_state(self):
+        _, _, info, logs, error = self.exercise([52.078,100], archive_failure=True)
+        self.assertEqual(error, 'secondary archive failure')
+        self.assertEqual(info['consumer_ssh_exit'], 0)
+        self.assertIn('secondary archive failure', info['archive_error'])
+        self.assertIn('finished_utc', info)
+        self.assertEqual(len(logs), 2)
 
 
 if __name__ == '__main__':
