@@ -196,8 +196,7 @@ before porting.
   still holds `SeImpersonatePrivilege`.
 
 Step 2b (`ELEVATION_BOUNDARY_STEP_2B_WORKORDER.md`, "Results"): the root token is now filtered while a helper
-is configured, and `limited_token_shape=PASS` holds on both architectures. Still open: the native privilege list
-(D1), the system role for services (D2), and a further finding. The server never enforces the default registry
+is configured, and `limited_token_shape=PASS` holds on both architectures. Still open: the system role for services (D2), and a further finding. The server never enforces the default registry
 descriptor, because keys without an explicit descriptor are granted everything, so `HKLM` writes still succeed
 for a limited token. That needs its own work order (a first attempt hung `wineboot -u`). Original scoping: (decided: do it before the broker). It found a
 second blocker: the default registry key descriptor gives a really limited token no access, even to `HKCU`.
@@ -379,6 +378,7 @@ Commit after each working step. Each step lists how it is accepted.
 - **Q3.** Explorer runs with the user's limited token under enforcement.
 - **Q4.** Instead of requiring credentials for every elevation, implement a secure desktop (D5). Click consent
   on the secure desktop is the default; credentials stay for policies 1 and 3.
+- **D1 (native filtered token): resolved 2026-10-22.** Privilege set and registry ACLs recorded in `TOKEN_SECURITY_REFERENCES.md`; applied in `token_make_filtered()` (step 2b work order, "Results, item 1").
 - **Q5.** The Microsoft documentation settles the direction of N2 to N5 but not the exact codes, N1 or N6. A
   worker on one of your Windows machines ran the native probe (step 1, done).
 

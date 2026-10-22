@@ -71,7 +71,7 @@ A limited process can therefore enable `SeTcbPrivilege` and pass every check fro
 
 ## Scope
 
-1. **Native reference (worker).** Run `whoami /all` non-elevated and elevated. Record both in
+1. **Native reference (worker). Done (D1, 2026-10-22).** Run `whoami /all` non-elevated and elevated. Record both in
    `TOKEN_SECURITY_REFERENCES.md`.
 2. **Probe first.** Extend `scripts/test_token_security_regressions.cpp` with `limited_token_shape()`, run with
    the helper configured. It asserts the D1 shape of the process token and that the linked token is still full.
@@ -132,7 +132,7 @@ A limited process can therefore enable `SeTcbPrivilege` and pass every check fro
 ## Results (2026-10-22, scope items 2 to 4 and the scriptable part of 6)
 
 Wine branch `ccr-work` on top of `0e402796`, parent branch `ccr-08223ee4-p830bf`. WoW64 build, both architectures,
-unprivileged user `wextest`. Not done: item 1 (native reference), item 5 (system role, waits for D2), and the
+unprivileged user `wextest`. Not done: item 5 (system role, waits for D2), and the
 interactive part of item 6 (`regedit`, `notepad`, `taskmgr`). Wine commits (working-branch hashes): `4fced06b`
 filter helper, `839c0f31` root token, `4fa6f4ac` registry default descriptor. Parent commits: the probe, then
 this documentation.
@@ -216,7 +216,30 @@ will only show once registry enforcement exists. Not run: `regedit`, `notepad`, 
 
 ### Open
 
-- Native `whoami /all` reference (item 1, D1): `limited_privileges[]` stays provisional.
 - System role (item 5, D2).
 - Registry enforcement for default-descriptor keys (finding 1), then re-run the sweep.
 - Plan "Status" and the SHA-256 list of the pushed sources: after the planner pushes and merges.
+
+## Results, item 1 (D1)
+
+The native reference is recorded in `TOKEN_SECURITY_REFERENCES.md` ("Native filtered and elevated token, registry
+ACLs"). A native filtered administrator token keeps SeShutdown (disabled), SeChangeNotify (enabled), SeUndock
+(disabled), SeIncreaseWorkingSet (disabled) and SeTimeZone (disabled). Wine has no LUID for the last two, so
+`token_make_filtered()` keeps the first three. `filter_token(DISABLE_MAX_PRIVILEGE)` is unchanged (change-notify
+only, as `CreateRestrictedToken` on Windows). The probe's `limited_privileges[]` now lists the three names and the
+probe checks that only SeChangeNotify is enabled.
+
+Commits: Wine `595d604961d` (working branch `ccr-work`, `token_make_filtered`), WineExplorer `4230334` (probe),
+then this documentation. WoW64 build, user `wextest`, both architectures.
+
+| Check | Result |
+| :--- | :--- |
+| Focused harness (`--checkpoint-b --focused`) | `limited_token_shape=PASS`, `linked_token_routes_closed=PASS`, consent PASS, x86_64 and i386; privileges `SeChangeNotifyPrivilege SeShutdownPrivilege SeUndockPrivilege` |
+| Full harness (`--all`) `advapi32 security` | 3728 tests / 0 failures, both architectures |
+| Full harness `ntdll info` | 2811 (x86_64), 2744 (i386) / 0 failures |
+| Full harness `shell32 shlexec` | 1805 / 2 (the known two), both architectures |
+| Full harness consent | PASS, both architectures |
+| `test_b4_explorer_fresh.sh`, helper unset and `WEX_B4_HELPER=1` | PASS both |
+
+Note: the harness must run from a directory the test user can write (the advapi32 file tests create files in the
+current directory); started from the repository checkout it fails 15 `advapi32 security` tests for that reason only.
