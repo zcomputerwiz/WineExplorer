@@ -192,7 +192,10 @@ def main():
             markers = ['deny_only_acl_and_object_open=PASS']
             if not args.checkpoint_a:
                 markers.append('elevation_helper_errors_and_child_handle=PASS')
-            passed = run.returncode == 0 and all(marker in run.stdout for marker in markers)
+            # An unhandled exception in any background process (conhost, explorer, services) is a failure,
+            # even when the probe itself exits successfully.
+            passed = (run.returncode == 0 and all(marker in run.stdout for marker in markers) and
+                      'Unhandled' not in run.stderr)
             result['cases'][arch] = {'command': command, 'exit_code': run.returncode, 'passed': passed,
                                      'sha256': hashlib.sha256(exe.read_bytes()).hexdigest()}
             print(arch, 'PASS' if passed else 'FAIL', run.stdout, flush=True)
