@@ -167,6 +167,38 @@ shutdown/exit record. Diagnose premature launcher termination before reuse.
 - Updated continuation notes with guest power/process state and the exact next
   command. Shut down only owned processes/guest after bounded work.
 
+### Repeat and regression slice after the first reviewed pass
+
+The parent reviewed run `recovery-r1-fixed-timeline-20261022`: consumer and
+visual gates passed, inspected settled front was intact, and decoded dense
+captures from 12 through 32 seconds contained no all-black window. Independent
+shutdown review confirmed signal-driven graceful QMP powerdown, QEMU exit 0,
+both children stopped and Windows WSL exit 0. This is one revised-fixture pass;
+the cause of the historical blank captures is still unassigned.
+
+Next reuse the exact reviewed code and binary pins for one independent fresh
+prefix/profile/output recovery trial, with one owned GPU fault and all existing
+pre-fault/context/identity/backend/front/page checks. Retain a fresh healthy
+control and deployed manifest. Inspect all named pairs and late timed captures.
+Do not use a repeated-fault run as the second independent trial.
+
+After a passing repeat, run `check-g4-foreign-present.py` for both x86_64 and
+i686 with explicit GL/VirGL/GLES2 and both `--case own-dcomp` and
+`--case foreign-full-dcomp`. Require each 4096/4096 actual front-pixel result,
+producer exit and verified outer/client acceleration. Then run the existing
+private WebView2 strict WebGL1/2 diagnostic with the approved cached host/runtime.
+Stage/hash all transitive script/native-include dependencies first; record
+actual commands and runtime/host identities, not inferred paths or test counts.
+
+The 900-second launcher budget includes staging, prefix initialization, tests,
+evidence collection and shutdown. Reserve at least 90 seconds for cleanup; if
+the next control's bounded maximum does not fit, stop cleanly and checkpoint
+that cell as unrun for a new boot. Record any reboot between fault and controls;
+fresh-process controls do not prove resource lifetime in the faulted process.
+Do not change production code on a passing diagnostic or generalize Electron
+and WebView2 results to the full Edge browser, installed shell, efficiency or
+full G4. Stop at the standing usage limits even if some controls remain unrun.
+
 At the standing 5% remaining usage threshold, finish the bounded operation,
 commit/push and checkpoint. Preserve the existing heartbeat and leave the reset
 credit untouched. If no causal diagnosis is established, deliver the narrowed
