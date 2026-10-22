@@ -46,8 +46,10 @@ capture/IPC calls. If a target slot is late, preserve that fact.
 The fixture's existing generic timed capturePage (normally at 12 seconds,
 20 seconds for freeze mode) MUST be suppressed in this mode. Audit all other
 capturePage call sites so there is no earlier incidental page readback. Keep
-the normal metadata sampler read-only. No forced repaint, resize or page-first
-capture to make the front pass.
+the normal metadata sampler read-only. Suppress the runner's generic timed
+front screenshots in this mode too; only the documented timeline should issue
+screencopy requests. No forced repaint, resize or page-first capture to make
+the front pass.
 
 Output a separate presentation_timing_diagnostic with collection validity and
 per-sample pixel results. A complete collection may contain failed front pixels;
