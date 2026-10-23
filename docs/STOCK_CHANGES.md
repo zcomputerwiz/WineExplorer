@@ -471,7 +471,8 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
   of SeIncreaseWorkingSet 33, SeTimeZone 34, SeCreateSymbolicLink 35, SeDelegateSessionUserImpersonate 36;
   `SE_MAX_WELL_KNOWN_PRIVILEGE` is 36; 31 and 32 have no name), so LookupPrivilegeNameW and LookupPrivilegeValueW
   resolve them. `token_make_filtered` adds SeIncreaseWorkingSet and SeTimeZone (disabled), as the native filtered
-  token has. `token_create_admin` is unchanged.
+  token has. `LookupPrivilegeNameW` fails with ERROR_NO_SUCH_PRIVILEGE for the unnamed LUIDs 31 and 32 instead of
+  dereferencing a NULL name. `token_create_admin` is unchanged.
 - `server/token.c` (`token_duplicate`): a token whose owner is its user keeps that owner in a copy.
 - `server/protocol.def`, `server/token.c` (`create_service_token`), `include/winternl.h`,
   `dlls/ntdll/unix/process.c` (`ProcessWineCreateServiceToken` = 1003, input account number 0 to 2, output the
