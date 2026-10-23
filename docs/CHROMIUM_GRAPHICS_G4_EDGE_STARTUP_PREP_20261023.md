@@ -87,3 +87,14 @@ profile/output are NEW. Bounds remain285s/300s SSH, 45s readiness, 650/435 raw-U
 guards, 900s owned launcher, 90s shutdown reserve and exact-identity stopper.
 No acquisition/reinstall, browser retry, bypass, production patch or G4 claim.
 Return for independent parent review before a separately authorized live attempt.
+
+## Parent review / one diagnostic dispatch
+
+Parent read implementation/native helper/tests/private control additions and
+independently passed all104 focused Linux tests, actual-fixture Node tests and
+diff checks. Independently verified the current nine archive members, sizes,
+current sources, archive hash, five host helpers and installed-evidence reference;
+future output absent. Offline milestone accepted for ONE diagnostic execution
+using this manifest. Preserve the primary failure/front/logs and exact shutdown
+evidence; diagnostic exit1 is expected by design, not itself a new product defect.
+No inference of readiness/rendering success or a security/graphics cause in advance.
