@@ -32,13 +32,17 @@ include source AND exact generated original PE in fresh source-stage inventory.
 All generated binaries/private evidence D:. Reuse compiled PE in guest, no rebuild
 of loaded binaries. Hash it before wait, verify, release and afterward.
 
-Start ONE --wait nonce child, <=3s bounded readiness read <=4096 bytes, exact
+Start ONE --wait nonce child, <=30s bounded initial readiness read <=4096 bytes, exact
 five-field JSON/nonce, no additional/trailing output. Independently validate
 recorded Linux Popen PID/start/prefix/exact original-image argv, still alive;
 run native --verify before attach and after debugger exit, compare full identity.
 Keep before/after records and hashes. Missing/ambiguous/reused/foreign ownership
 fails closed, no process scan/alternate tool/privilege fallback. The child gets
 its own separate group; its native30s lifetime remains unchanged.
+The initial30s allows ordinary retained-prefix/loader startup, not a forced
+update or retry; after the flushed readiness record, budget the native waiter's
+remaining lifetime separately and refuse attach if adequate time is unavailable.
+This preparatory cap does not change the existing Edge45s readiness criterion.
 
 Generate ONLY attach PID / bt MAIN_TID / bt WORKER_TID / detach / quit using the
 existing strict generator. Parent inspected pinned Wine debug.l: digit tokens are
