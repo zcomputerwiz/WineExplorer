@@ -76,3 +76,40 @@ enter normal argv, wrong/absent runtime files fail before consumer launch, and
 capture/cleanup/readiness failures cannot pass. Execute original Node fixture
 tests and affected focused Python regressions; report actual counts/skips.
 No unchanged full graphics/native socket reruns when their code is untouched.
+
+## Parent notice-format correction from actual package/source
+
+Actual pinned ZIP downloaded once with SHA256
+6bdfecb33dbfa7159e5666798bdc28c76347bef913573e899cb43930b78d26cc,
+correct length/published MD5 and258 extracted files; three main PE version
+resources report156.0.8078.0. Initial cache record FAILED_PRESERVED solely on
+an invented standalone license/credits/notice FILENAME requirement. Preserve
+that failed acquisition.json and all bytes, no redownload or re-extraction.
+
+Parent actually fetched these exact-revision primary sources as Gitiles TEXT:
+
+- [LICENSE](https://chromium.googlesource.com/chromium/src/+/7d9824099030f5c28c939ba08654562faaad7c09/LICENSE).
+- [about_ui.cc](https://chromium.googlesource.com/chromium/src/+/7d9824099030f5c28c939ba08654562faaad7c09/chrome/browser/ui/webui/about/about_ui.cc)
+  dispatches the credits page to about_ui::GetCredits.
+- [credit_utils.cc](https://chromium.googlesource.com/chromium/src/+/7d9824099030f5c28c939ba08654562faaad7c09/components/webui/about/credit_utils.cc)
+  loads IDR_ABOUT_UI_CREDITS_HTML from ResourceBundle.
+- [about_ui_resources.grdp](https://chromium.googlesource.com/chromium/src/+/7d9824099030f5c28c939ba08654562faaad7c09/components/resources/about_ui_resources.grdp)
+  declares that generated HTML as Brotli-compressed binary data.
+- [win-archive-rel.json](https://chromium.googlesource.com/chromium/src/+/7d9824099030f5c28c939ba08654562faaad7c09/infra/archive_config/win-archive-rel.json)
+  is the archive config, not obsolete FILES.cfg; includes resources.pak.
+
+Amend the retention check for this PRIVATE diagnostic: retain ALL original ZIP/
+runtime/resource bytes unchanged and fetch/hash the exact source LICENSE and
+these small provenance documents into a fresh private subdirectory. Do not
+require a standalone filename that upstream does not provide. Do not claim
+compiled credits text was extracted/inspected, that the root license covers
+every component, or that redistribution/ISO bundling has been cleared. Browser
+credits may be inspected later once functional; no host/guest launch just for
+this check and no new decoder/build dependency or symbols download is needed.
+
+Luna may add a fresh, additive cache-review record referencing the original
+failed record's SHA256 and actual unchanged ZIP/tree/version evidence. Revalidate
+actual paths/versions/checksums after the targeted file_versions fix, without
+overwriting initial evidence. Only this specifically reviewed notice-format
+failure is eligible; other missing/mismatched payload/version/archive evidence
+must still fail. Parent reviews the resulting evidence before live authority.
