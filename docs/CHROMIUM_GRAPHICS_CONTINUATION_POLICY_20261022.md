@@ -23,14 +23,20 @@ Read CHROMIUM_GRAPHICS_G4_SOURCE_WORKTREE_20261023.md FIRST: main D: checkout
 is now master and must be left alone. Continue tracked work in the existing owned
 C:/Users/Owner/.codex/worktrees/chromium-graphics-plan/WineExplorer worktree on
 codex/g4-r1-completion, explicit cwd, never stage its unused Wine gitlink mismatch.
-Private VM/runtime/evidence storage stays D:. Offline path portability review
-precedes the unchanged next HTTP diagnostic. Latest live limits govern; at the
+Private VM/runtime/evidence storage stays D:. Path portability and HTTP diagnostic
+are COMPLETE; read EDGE_HTTP_R1 and EDGE_OWNED_THREAD_PLAN_20261023 next. Latest live
+limits govern; at the
 05:24 UTC wake they were0% five-hour/30% weekly, reset10:24:23 UTC.
 
-Read CHROMIUM_GRAPHICS_G4_EDGE_NAVIGATION_CHECKPOINT_20261023.md first, then
-CHROMIUM_GRAPHICS_G4_EDGE_LOOPBACK_CONTROL_PLAN_20261023.md (conditional HTTP stage).
-The five-hour window reset; verified 0% at the 2026-10-23 00:21 UTC wake.
-New five-hour reset is 2026-10-23 05:21:16 UTC. Latest usage always governs.
+The navigation checkpoint and loopback plan below are historical starting context,
+not instructions to repeat controls. Current five-hour reset10:24:23 UTC Oct23;
+latest usage always governs. Parent accepted the HTTP implementation after146
+independent focused tests/no skips, actual fixture/controller/socket checks and
+complete source/helper/preparation audit. One HTTP arm715360ea timed out: full
+637-byte HTML response, no scene.js request or sampled renderer/readiness, white
+front. Parent viewed actual PNG and independently rehashed107 files, checked
+live source/binary/lo/backend/budget records and QMP/QEMU/Xvfb/controller exit0.
+No file-only/sandbox/token/graphics cause established. No retry authorized.
 Visible implementation eecf8bb3 and healthy visual control 69d6c22f were reviewed;
 then two independent single-fault visible recovery trials passed (50012793,
 ed7f7ccc). Parent inspected actual final fronts, independently checked all 78
@@ -69,12 +75,13 @@ verified all105 archive hashes/clean shutdown. Private-loopback-UP same-file con
 another105 independently checked hashes and clean shutdown. Loopback DOWN alone
 does not explain the failure. Read the latest checkpoint for exact evidence.
 
-Next Luna milestone is OFFLINE implementation of the conditional isolated HTTP
-control, same original page/security/app mode and loopback UP; parent reviews
-source/tests/manifest before ONE diagnostic. No HTTP server/control implemented
-yet. Same installed prefix, NEW profile; no security/backend changes, repeated
-launches, extraction substitution, extra components or speculative production fix.
-No master merge; keep historical stale/blanking uncertainty open.
+Next Luna milestone is OFFLINE implementation of the explicit owned-browser
+read-only thread/wait inventory under EDGE_OWNED_THREAD_PLAN_20261023. Parent
+reviews source/tests/manifest before one later diagnostic. No debugger/attach,
+suspend, token privilege changes or broad fallback; Win32 and Linux IDs remain
+separately labelled. Same installed prefix, NEW profile, original HTTP fixture;
+no reinstall, security/backend change, repeated trial or speculative production
+fix. No master merge; keep historical stale/blanking uncertainty open.
 
 ## Priority queue after this rendering blocker
 
