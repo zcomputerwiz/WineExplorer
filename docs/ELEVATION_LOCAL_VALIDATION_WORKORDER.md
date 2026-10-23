@@ -377,3 +377,20 @@ member: exit 0, advapi32 security 0 failures, shlexec 1805 tests 2 failures (the
 failures; `--focused` (sets the helper itself) as a `sudo` member and as a standard user: exit 0 / exit 0. All fixture
 users, groups, `/etc/wineexplorer` and `/usr/local/libexec/wineexplorer` were removed. Not rerun: S2, S3, S4 (need the
 installed guest and the broker).
+
+### Results, second validation run (2026-10-23, after the follow-up fixes)
+
+Sources: WineExplorer `claude/elev-validation-2` from `1d3add0f`, Wine `gemini/token-security-b` at `1309a1db`
+(WoW64: `configure --enable-archs=i386,x86_64`, `make -j14`), wexcomp `acc46fe6`. Built in Debian WSL (kernel
+6.18.33.2-microsoft-standard-WSL2, `ptrace_scope` 1, `suid_dumpable` 0); the earlier leftovers (guest disk,
+`/var/tmp/elev`, `/opt/elev`, users `tkadm` and `tkstd`) were removed first. Fresh ISO (1.7 GB), fresh QEMU guest
+`elev-val2` (kernel 6.12.113+deb13-amd64).
+
+Step 1, reinstall and acceptance (guest as root; `check_s1_32/64.exe` prebuilt, `gcc` and `acl` added to the guest):
+
+| Test | Result |
+| :--- | :--- |
+| `install-interactive.sh` (incl. `check-wow64.sh`) | PASS |
+| `test_s2_acceptance.sh` | **PASS** (Test 6 now passes); WAITING: COW break by an administrator's own session; Carol modifying Alice's files |
+| `test_s3_acceptance.sh` | PASS; WAITING: Case 1 COM/Uninstall by Alice, Case 3 and 3b (HKLM persistence needs two administrator sessions), Case 4 |
+| `test_s4_acceptance.sh` | PASS; WAITING: Alice's own session installing into Program Files |
