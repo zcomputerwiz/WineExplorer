@@ -554,3 +554,47 @@ left with launcher on, helper set and the carol2 account, which is gone with it.
 - Follow-up: S3 (and S2) still use the installed accounts `alice` and `bob` (many `su - alice` calls); they should use
   their own test users. `wineboot -u` in a user prefix also runs shell32's `DllRegisterServer` (`[UserRegisterDlls]`
   in `wine.inf.in`) and can hit the same early return under enforcement; not changed here.
+
+### Results, third validation run (2026-10-23, new accounts and first logon)
+
+Sources: WineExplorer `claude/elev-validation-3` from `e3fc0769`, Wine `gemini/token-security-b` at `5d373ba6`
+(WoW64, `configure --enable-archs=i386,x86_64`, `make -j14`), wexcomp `acc46fe6`. Built in Debian WSL (kernel
+6.18.33.2-microsoft-standard-WSL2); fresh ISO (1.7 GB); fresh QEMU guest `elev-val3` (kernel 6.12.113+deb13-amd64).
+`install-interactive.sh` (with `check-wow64.sh`): PASS.
+
+1. **`test_s3_acceptance.sh`, launcher installed** (`WEX_SYSRUN_ENABLE=1 setup-machine-root.sh --update`, then the
+   test with `WEX_SYSRUN_ENABLE=1` so its own `setup-machine-root.sh` runs keep the launcher): "ALL PHASE S3 ACCEPTANCE
+   TESTS PASSED PERFECTLY"; WAITING lines as before (Case 1 COM/Uninstall by Alice, Case 3 and 3b HKLM persistence
+   with two administrators, Case 4). The test deletes and rebuilds the machine root (`rm -rf` at its start), so a helper
+   set before it would be lost; I set the helper (`HKLM\Software\Wine\Elevation\Helper`, machine hive, as root, no
+   server running) **after** S3, so the S3 run itself had the launcher but not the helper. Machine root afterwards
+   `root:wexsys` 2775, `system.reg` 664, launcher `root:wexsys` 2755.
+2. **New `sudo` user `dana`** (`useradd -m -G sudo`, passwordless, copy of `/etc/skel` including `.wine`), launcher
+   installed and helper set, first logon through the Welcome screen:
+
+   | Step | Result |
+   | :--- | :--- |
+   | Desktop after the first logon | **icons present** (My Documents, My Computer, My Network Places, Recycle Bin, Internet Explorer); session log: `regsvr32: Successfully installed DLL 'shell32.dll'`; `Desktop`, `Documents`, `Downloads`, `Favorites`, `Links`, `Music`, `Pictures`, `Saved Games`, `Searches`, `Videos`, `Contacts` created, owned by `dana` |
+   | Explorer: My Computer, `C:\`, `C:\Program Files` | pass; listings shown (`AliceApp` from S3, `Common Files`, `Internet Explorer`, `Windows Media Player`, `Windows NT`) |
+   | "Make a new folder" in `C:\Program Files` | no folder created, no dialog, no crash (still 5 objects; none new on disk) |
+   | `notepad` (Run), type text, Save As in My Documents | pass: `dananote.txt` in `/home/dana/.wine/drive_c/users/dana/Documents/` (26 bytes) |
+   | Log off, log on again | pass; desktop with icons again |
+   | During the sessions | `wineserver` uid 1004, gid 1004, egid 1004, sgid 987 (`wexsys`), both sessions; `system.reg` md5 `60d6a44e...` before and after |
+
+3. **New standard user `erin`** (`useradd -m`, not in `sudo`, passwordless), same steps: icons present at the first logon
+   (`regsvr32: Successfully installed DLL 'shell32.dll'`), all profile folders created, Explorer browsing ok, no folder
+   created in `Program Files`, `notepad` saved `erinnote.txt` in her Documents, log off and on again ok; `wineserver`
+   uid/gid/egid 1005, sgid 987; `system.reg` md5 unchanged (`60d6a44e...`).
+
+At the end (guest stopped): launcher present, helper present in `system.reg`, `Program Files` unchanged, machine root
+`root:wexsys`. This confirms the first-logon fix of `09798772` with the helper set for both a `sudo` member and a standard
+user.
+
+Not checked: the HKLM denial and service creation in the GUI for these users (covered by the earlier command-line runs);
+the 32-bit program in the session (the install-time `check-wow64.sh` passed on this image). Observation, not
+investigated: right after a log off the Welcome screen shows the account as "Logged on" for a moment (dana, screenshot
+`dana-11-welcome-end.png`); the sessions did restart cleanly each time. The in-guest collector script was not installed
+in this guest, so only `ps`, `md5sum` and a directory listing were taken per session (`build/v3/shots/*-ps*.txt`;
+screenshots in `build/v3/shots/`, not committed).
+
+Cleanup: guest `elev-val3` and the build tree under `/var/tmp/elev` are deleted after this commit.
