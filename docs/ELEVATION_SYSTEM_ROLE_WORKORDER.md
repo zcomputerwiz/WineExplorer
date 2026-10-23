@@ -697,7 +697,7 @@ probes below pass; the decision is the user's (item 7).
   that is the user (a service account's owner is the account). (3) SeDebugPrivilege now opens any process or thread
   (Windows does; without it an administrator could not open a LocalService process).
 
-#### Privilege lists (all provisional: not measured on a native system)
+#### Privilege lists (superseded: now the measured native lists, see docs/TOKEN_SECURITY_REFERENCES.md "SYSTEM, LocalService and NetworkService tokens"; the table below is the first provisional version)
 
 Wine defines privileges 2 to 30 only, so SeIncreaseWorkingSet and SeTimeZone are missing. The lists are from memory
 of `whoami /priv` in a service and the documented defaults. A native measurement should replace them (the probe
@@ -803,7 +803,7 @@ default.
    `kernel.yama.ptrace_scope` 0 the user could attach to a LocalService or NetworkService process in the short window
    between its exec and the not-dumpable flag. (c) sechost's `QueryServiceObjectSecurity` and `SetServiceObjectSecurity`
    changed for everyone (ungated); `SetServiceObjectSecurity` takes the DACL only.
-7. **Not measured natively:** the privilege and group lists above (provisional), the error codes of the refusals
+7. **Not measured natively:** (the privilege and group lists above were measured later, see the references) the error codes of the refusals
    (`STATUS_PRIVILEGE_NOT_HELD` for NtCreateToken follows the documented requirement).
 8. **item 7:** `setup-machine-root.sh` still installs the launcher only with `WEX_SYSRUN_ENABLE=1`. All probes of
    constraint g pass; the default is yours to flip.
@@ -811,7 +811,7 @@ default.
 #### C3 review fixes (2026-10-22)
 
 - `set_token_integrity_level`: raising above the current level needs an enabled SeTcbPrivilege while enforced
-  (`STATUS_PRIVILEGE_NOT_HELD`, 1314); lowering is allowed. Probe: a limited process cannot raise a duplicate or its own
+  (`STATUS_PRIVILEGE_NOT_HELD`, 1314); lowering is allowed (measured natively: same results). Probe: a limited process cannot raise a duplicate or its own
   token to High or System, can lower a duplicate.
 - Process and thread descriptors as in call 3 above. Probes: limited and standard users open with
   `PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE` (and threads with the limited query) and are still denied the

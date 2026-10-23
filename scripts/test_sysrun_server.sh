@@ -449,12 +449,30 @@ for u in $C3_USERS; do
             expect_in "c3_${nm}_service_in_local_group" "$f" group=S-1-2-0:enabled
             expect_in "c3_${nm}_service_in_authenticated_users" "$f" group=S-1-5-11:enabled
             expect_in "c3_${nm}_service_in_everyone" "$f" group=S-1-1-0:enabled
+            expect_in "c3_${nm}_service_in_users" "$f" group=S-1-5-32-545:enabled
+            expect_in "c3_${nm}_service_in_console_logon" "$f" group=S-1-2-1:enabled
+            expect_in "c3_${nm}_service_in_this_organization" "$f" group=S-1-5-15:enabled
             expect_fact "c3_${nm}_service_cannot_write_machine_root" "$f" machine_root_write denied
         done
+        # native table (docs/ELEVATION_LOCAL_VALIDATION_WORKORDER.md); SeImpersonate stays enabled (documented default)
         expect_privs c3_localservice_service_privileges "$SVCDIR/ls.txt" SeAssignPrimaryTokenPrivilege:D SeAuditPrivilege:D \
-            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeShutdownPrivilege:D SeUndockPrivilege:D
+            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeShutdownPrivilege:D SeUndockPrivilege:D \
+            SeSystemtimePrivilege:D SeIncreaseWorkingSetPrivilege:D SeTimeZonePrivilege:D
         expect_privs c3_networkservice_service_privileges "$SVCDIR/ns.txt" SeAssignPrimaryTokenPrivilege:D SeAuditPrivilege:D \
-            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeIncreaseQuotaPrivilege:D
+            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeIncreaseQuotaPrivilege:D \
+            SeShutdownPrivilege:D SeUndockPrivilege:D SeIncreaseWorkingSetPrivilege:D SeTimeZonePrivilege:D
+        expect_privs c3_system_service_privileges "$SVCDIR/sys.txt" \
+            SeLockMemoryPrivilege:E SeTcbPrivilege:E SeSystemProfilePrivilege:E SeProfileSingleProcessPrivilege:E \
+            SeIncreaseBasePriorityPrivilege:E SeCreatePagefilePrivilege:E SeCreatePermanentPrivilege:E SeDebugPrivilege:E \
+            SeAuditPrivilege:E SeChangeNotifyPrivilege:E SeImpersonatePrivilege:E SeCreateGlobalPrivilege:E \
+            SeIncreaseWorkingSetPrivilege:E SeTimeZonePrivilege:E SeCreateSymbolicLinkPrivilege:E \
+            SeDelegateSessionUserImpersonatePrivilege:E SeAssignPrimaryTokenPrivilege:D SeIncreaseQuotaPrivilege:D \
+            SeSecurityPrivilege:D SeTakeOwnershipPrivilege:D SeLoadDriverPrivilege:D SeSystemtimePrivilege:D \
+            SeBackupPrivilege:D SeRestorePrivilege:D SeShutdownPrivilege:D SeSystemEnvironmentPrivilege:D \
+            SeUndockPrivilege:D SeManageVolumePrivilege:D
+        for g in S-1-1-0 S-1-5-32-545 S-1-5-6 S-1-2-1 S-1-5-11 S-1-5-15 S-1-2-0 S-1-5-32-544; do
+            expect_in "c3_sys_service_in_group_$g" "$SVCDIR/sys.txt" group=$g:enabled
+        done
 
         # -- the Unix side: the system service keeps the system group, the other two lose it and are not dumpable
         P="$(svc_pid "$u" WexSvcSys)"; [ -n "$P" ] || fail "no WexSvcSys process"

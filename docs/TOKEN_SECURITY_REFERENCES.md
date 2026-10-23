@@ -226,23 +226,45 @@ Wine today: the default descriptors in `server/registry.c` (`key_alloc_default_s
 SYSTEM and Administrators full control, and the user tree goes to the user. They lack the CREATOR OWNER,
 RESTRICTED and AppContainer entries. Wine does not access-check keys that have no explicit descriptor, so the
 write tests above do not hold in Wine yet; that is the job of the registry enforcement work order. The
-descriptors are unchanged here. For the privilege list, Wine defines no SeIncreaseWorkingSet or SeTimeZone, so
-its filtered token keeps SeChangeNotify (enabled) and SeShutdown and SeUndock (disabled).
+descriptors are unchanged here. The Wine filtered token has the native privilege list: SeChangeNotify (enabled) and
+SeShutdown, SeUndock, SeIncreaseWorkingSet and SeTimeZone (disabled).
 
-## SYSTEM, LocalService and NetworkService tokens (C3, 2026-10-22): not measured
+## SYSTEM, LocalService and NetworkService tokens (C3): measured 2026-10-22
 
-`token_create_service` (`server/token.c`) follows the documented defaults and the author's memory of `whoami /priv` in
-a service; no native run was made, so every privilege state and group below is **provisional**. To replace them, run
-`native_token_contract_probe.cpp` (or `whoami /all`) as a LocalSystem, a LocalService and a NetworkService service on the
-Windows 10.0.26300 worker and record the groups, the primary group, the owner, the integrity level, the default DACL and
-the privileges with their states here.
+Measured on Windows 10.0.26300 with `whoami /all` in one-shot Task Scheduler tasks (`schtasks /ru`); the full tables
+and the Wine differences are in "Results" of `docs/ELEVATION_LOCAL_VALIDATION_WORKORDER.md`. `token_create_service`
+(`server/token.c`) now follows them. Integrity is System (S-1-16-16384) for all three.
 
-| Account | Wine today |
+| Account | Wine now |
 | :--- | :--- |
-| LocalSystem | user S-1-5-18; groups Administrators (enabled, owner, primary), Everyone, Authenticated Users; System integrity; 17 privileges enabled, 8 disabled (the work order's table) |
-| LocalService | user S-1-5-19; groups Everyone, Users, Authenticated Users, SERVICE, LOCAL; owner the account; System integrity; ChangeNotify, CreateGlobal, Impersonate enabled; AssignPrimaryToken, Audit, Shutdown, Undock disabled |
-| NetworkService | user S-1-5-20; same groups; ChangeNotify, CreateGlobal, Impersonate enabled; AssignPrimaryToken, Audit, IncreaseQuota disabled |
+| LocalSystem | user S-1-5-18; groups Everyone, Users, SERVICE, CONSOLE LOGON, Authenticated Users, This Organization, LOCAL (all mandatory) and Administrators (enabled, owner, not mandatory; also the primary group); enabled: LockMemory, Tcb, SystemProfile, ProfileSingleProcess, IncreaseBasePriority, CreatePagefile, CreatePermanent, Debug, Audit, ChangeNotify, Impersonate, CreateGlobal, IncreaseWorkingSet, TimeZone, CreateSymbolicLink, DelegateSessionUserImpersonate; disabled: AssignPrimaryToken, IncreaseQuota, Security, TakeOwnership, LoadDriver, Systemtime, Backup, Restore, Shutdown, SystemEnvironment, Undock, ManageVolume |
+| LocalService | user S-1-5-19; the same groups without Administrators (primary group Users, owner the account); enabled: ChangeNotify, CreateGlobal, Impersonate; disabled: AssignPrimaryToken, Systemtime, Shutdown, Audit, Undock, IncreaseWorkingSet, TimeZone |
+| NetworkService | user S-1-5-20; groups as LocalService; enabled: ChangeNotify, CreateGlobal, Impersonate; disabled: AssignPrimaryToken, IncreaseQuota, Shutdown, Audit, Undock, IncreaseWorkingSet, TimeZone |
 
-Wine defines no SeIncreaseWorkingSet or SeTimeZone, which the native service accounts also hold. Not recorded: the native
-primary group of the service accounts, CONSOLE LOGON, the logon SID, BUILTIN\Users in the SYSTEM token, and whether
-SeBackup and SeRestore are enabled in a LocalSystem service (Wine enables them).
+Decisions and caveats:
+
+- **SeImpersonate** is kept enabled on LocalService and NetworkService although the measured Task Scheduler tokens lack
+  it: Microsoft documents that service accounts (Local Service, Network Service, Local System) hold
+  SeImpersonatePrivilege by default
+  (learn.microsoft.com/dotnet/framework/wcf/feature-details/using-impersonation-with-transport-security). The
+  measurement came from tasks, not from SCM services.
+- **CONSOLE LOGON** (S-1-2-1) is in all three tokens, but it may be an artifact of running as a task: provisional.
+- Not copied: the per-task and per-service SIDs (`NT SERVICE\Schedule`, `NT TASK\...`) and the eight unknown
+  `S-1-5-32-*` SIDs of the LocalService task token.
+- The measured LocalService token has no SeIncreaseQuota (the table; the "Differences" list says otherwise), so Wine
+  has none. The primary group and the default DACL were not printed by `whoami`; Wine keeps Administrators (SYSTEM) and
+  Users (the others) as primary group.
+- The filtered administrator token also gets SeIncreaseWorkingSet and SeTimeZone (disabled), as measured in D1.
+
+Raising the integrity level, measured on Windows 10.0.26300 from a non-elevated PowerShell with
+`SetTokenInformation(TokenIntegrityLevel)`:
+
+| Case | Result |
+| :--- | :--- |
+| raise a primary duplicate of the process token to High (S-1-16-12288) | 1314 `ERROR_PRIVILEGE_NOT_HELD` |
+| raise it to System (S-1-16-16384) | 1314 |
+| lower the duplicate to Low (S-1-16-4096) | succeeds |
+| raise the process's own token to High | 1314 |
+
+This matches Wine's `set_token_integrity_level` (raising needs an enabled SeTcbPrivilege, else
+`STATUS_PRIVILEGE_NOT_HELD`; lowering is allowed).
