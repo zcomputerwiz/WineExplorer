@@ -19,11 +19,11 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
-User's latest approved direction: vanilla Windows x64 Chromium comparison FIRST,
-after required capacity maintenance. Read VANILLA_CHROMIUM_PLAN_20261023. This
-supersedes the next Edge navigation-trace candidate below; preserve Edge evidence
-and keep Edge as eventual target. At95%five-hour/60%weekly checkpoint only, no new
-implementation/run until reset15:27:29UTC Oct23; scheduled wake15:30UTC remains.
+User's latest approved direction: vanilla Windows x64 Chromium comparison FIRST.
+Read VANILLA_CHROMIUM_PLAN, CHROMIUM_CANDIDATE and CHROMIUM_PREP_HANDOFF_20261023.
+This supersedes the next Edge navigation-trace candidate below; preserve Edge
+evidence and keep Edge as eventual target. Current wake15:30UTC Oct23 reset the
+five-hour window; latest observed53%five-hour/68%weekly, reset20:30:34UTC.
 
 Latest milestone: selected-stack R1 executed ONCE,0c4288ee; parent independently
 reviewed actual white front/122 archive hashes/19 binary+15 deployed source hashes,
@@ -33,18 +33,24 @@ win32u RVA0x150c4 is NtUserMsgWaitForMultipleObjectsEx syscall return, not a cau
 Calibration12799159 passed once; do not repeat calibration or completed browser
 arms. Earlier scoped Electron/WebView2/pixel results remain valid, not full Edge.
 
-Current blocker: guest free725,929,984 bytes, below1GiB. No further browser/profile/
-staging may ignore gate; no evidence deletion. Next is CAPACITY_PLAN_20261023
-Stage A OFFLINE implementation/read-only GPT proof/tests/preparation; Luna owns
-that bounded implementation. Parent reviews before any image creation/resize or
-VM boot. Automatic GROWROOT runs on boot: larger-disk boot IS mutation. Preserve
-original64GiB system.qcow2 AND Debian backing, use only a new D:80GiB top layer
-if separately approved. No downward commit/rebase/compaction/in-place resize.
-Later EDGE_NAVIGATION_TRACE_TODO_20261023 is research-only, NOT run authority.
+Capacity blocker RESOLVED: one authorized maintenance9c294968 grew ONLY a new
+D:80GiB top overlay, with16,947,539,968 bytes free. Parent independently42hashes,
+actual root/UUID/other partitions/19 binaries/guards/clean shutdown and original
+full pre/post hashes pass. Read CAPACITY_MAINTENANCE_R1_20261023. Use ONLY new
+system-capacity-r1-20261023.qcow2 with current launcher hashd96f6854..., preserve
+original64GiB+Debian backing/all evidence. No resize/repeat boot/deletion/downward
+commit/rebase/compaction or reuse of old consumer manifests with stale launcher.
+
+NEXT: Luna OFFLINE bounded official Chromium acquisition/adapter/tests/fresh
+preparation per CHROMIUM_PREP_HANDOFF. Candidate156.0.8078.0/Win_x64/1706509,
+generation1790650091108450; same-major, not exact Edge source equivalence. No
+guest staging/boot/browser execution/symbols/source build before parent review
+of code/tests/cache/manifest and separate ONE baseline authorization. All owned
+VM/controller processes stopped. EDGE_NAVIGATION_TRACE_TODO is superseded.
 
 Read latest HEAD reports first. EDGE_STACK_CHECKPOINT_20261023 and descriptions
 below are historical, not current next-step instructions. Source checkout rules
-remain current. Current window reset15:27:29 UTC Oct23; live usage governs.
+remain current. Current window reset20:30:34 UTC Oct23; live usage governs.
 
 Read CHROMIUM_GRAPHICS_G4_SOURCE_WORKTREE_20261023.md FIRST: main D: checkout
 is now master and must be left alone. Continue tracked work in the existing owned

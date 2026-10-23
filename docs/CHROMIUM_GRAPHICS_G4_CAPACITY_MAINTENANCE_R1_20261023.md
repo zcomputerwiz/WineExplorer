@@ -89,3 +89,23 @@ proof. Actual guest/provenance/cleanup results above provide maintenance evidenc
 only, not filesystem-wide integrity, graphics acceptance or Chromium readiness.
 All disks/evidence preserved, D: master/other workers/submodules untouched;
 pre-existing C: `M wine` unstaged. Stop for parent review before Chromium prep.
+
+## Independent parent acceptance
+
+Parent independently rehashed all42 listed run/adjacent evidence records with
+zero discrepancies. Revalidated actual guest stdout against the manifest:
+exact grown root/UUIDs/other extents/attributes,16,947,539,968 free bytes and19
+accepted hashes. All nine exact commands exit0/reaped/within bounds; actual stdin
+matches pinned source. Checked actual650/435 rawUTC guards, source/seed/tool/
+proposed launcher hashes, creation exit/three-layer chain, QMP/QEMU/Windows0
+and all owned Linux identities absent. Both original full post-hash records
+match preparation AND precreate contents/identities; current original file
+identities still match. No capacity or cleanup waiver; no extra boot/probe.
+
+Capacity maintenance is accepted. The only future writable root is the NEW
+system-capacity-r1-20261023.qcow2; keep every backing file intact, never open
+the old root writable. New Chromium preparation MUST use current launcher hash
+d96f6854... and fresh inventory, not old consumer preflights. Parent authorizes
+only the offline acquisition/adapter/tests/preparation in CHROMIUM_PREP_HANDOFF,
+VANILLA_CHROMIUM_PLAN and CHROMIUM_CANDIDATE_20261023. No guest staging/boot,
+browser execution, symbols or alternate runtime until separate parent review.
