@@ -106,6 +106,25 @@ class ProcedureTests(unittest.TestCase):
         self.assertIn('runtime changed',error);self.assertNotIn('consumer',[c[0] for c in calls])
         self.assertIn('archive_skipped',info)
 
+    def test_native_exit_commands_only_original_calibration_private_lo(self):
+        with mock.patch.dict('os.environ',{'WEX_G4_CONTROL':'native-exit-calibration','WEX_TIMING_RUN_NAME':'native-exit-calibration-r1-20261023'}):
+            spec=importlib.util.spec_from_file_location('native_exit_commands',PRIVATE)
+            procedure=importlib.util.module_from_spec(spec);spec.loader.exec_module(procedure)
+        _,argv=procedure.commands(Path('/private/key'))
+        self.assertIn('--private-loopback',argv)
+        self.assertIn(procedure.STAGE+'/scripts/check-g4-native-exit-calibration.py',argv)
+        self.assertNotIn('--runtime',argv)
+        self.assertFalse(any(v in ' '.join(argv) for v in ('check-g4-stack','chrome.exe','--no-sandbox','--owned-')))
+
+    def test_native_exit_idle_before_stage_no_vendor_extraction_and_both_budget_guards(self):
+        calls,checks,info,logs,error=self.exercise([10,50],native=True)
+        self.assertIsNone(error);self.assertEqual(checks,[650,435]);self.assertEqual(info['prefix_idle_before_stage'],[])
+        labels=[c[0] for c in calls];self.assertLess(labels.index('sudo'),labels.index('mkdir'))
+        self.assertNotIn('extract-runtime',labels);self.assertIn('consumer',labels)
+        calls,_,info,_,error=self.exercise([10,50],native=True,prefix_busy=True)
+        self.assertIn('not idle before stage',error);self.assertNotIn('mkdir',[c[0] for c in calls])
+        self.assertNotIn('consumer',[c[0] for c in calls]);self.assertIn('archive_skipped',info)
+
     def test_windows_worktree_head_read_uses_mapped_actual_repo(self):
         spec = importlib.util.spec_from_file_location('budget_private_paths', PRIVATE)
         procedure = importlib.util.module_from_spec(spec)
@@ -121,7 +140,7 @@ class ProcedureTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError): procedure.source_head()
 
     def exercise(self, seconds, *, state='running', missing=False, identity_failure=False,
-                 consumer_failure=False, archive_failure=False,chromium=False,runtime_failure=False):
+                 consumer_failure=False, archive_failure=False,chromium=False,runtime_failure=False,native=False,prefix_busy=False):
         spec = importlib.util.spec_from_file_location('budget_private_procedure', PRIVATE)
         procedure = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(procedure)
@@ -136,8 +155,8 @@ class ProcedureTests(unittest.TestCase):
                           known_binary_sha256={'/bin/wine':'a'*64}, source_manifest={'script.py':{'sha256':'b'*64}})
             (prep/'preflight.json').write_text(json.dumps(record))
             (prep/'source-stage.tar').write_bytes(b'offline staged archive')
-            if chromium:
-                procedure.CONTROL='chromium-headful'
+            if chromium or native:
+                procedure.CONTROL='native-exit-calibration' if native else 'chromium-headful'
                 record.update(host_helpers_sha256={},stage_archive_sha256=procedure.sha(prep/'source-stage.tar'),
                     current_overlay='/owned/new.qcow2',minimum_guest_free_bytes=5*1024**3,
                     runtime_extraction_argv=['extract-runtime'],runtime_files={'chrome-win/chrome.exe':{'sha256':'c'*64}})
@@ -169,7 +188,8 @@ class ProcedureTests(unittest.TestCase):
                     with tarfile.open(fileobj=kwargs['stdout'], mode='w:gz') as archive:
                         data=b'{}'; item=tarfile.TarInfo('results.json'); item.size=len(data)
                         archive.addfile(item, io.BytesIO(data))
-                return subprocess.CompletedProcess(argv, 0, str(10*1024**3) if chromium else 'offline disk space')
+                if native and command[0]=='sudo':return subprocess.CompletedProcess(argv,0,'[123]' if prefix_busy else '[]')
+                return subprocess.CompletedProcess(argv, 0, str(10*1024**3) if chromium or native else 'offline disk space')
             caught = None
             with mock.patch.object(g4_virgl_budget, 'check_budget', side_effect=check), \
                  mock.patch.object(stop_g4_virgl_launcher, 'validate_identity',

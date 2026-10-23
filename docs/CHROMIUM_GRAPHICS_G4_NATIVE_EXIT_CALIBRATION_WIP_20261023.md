@@ -56,3 +56,14 @@ exit-child.exe6087e3ef18afca2381d7d675e3c7b3ef19141be34d5427c8293684fdfab6c5f9.
 All test output/temp D:. No unrelated tests repeated. Stop for parent review:
 NOT_PREPARED, no live authority. Pre-existing `M wine`, D: master/submodules and
 other workers unchanged. No general orchestration framework added.
+
+## Subsequent parent correction — original schema confirmed
+
+Parent independently reread committed1a48edc8/source8eb2... and actual366c... PE
+format, confirming mode IS present and calibration manifest IS null. The no-mode/
+fixed-marker instruction above came from a stale parent working-copy review.
+Parser/tests restored to the original correct mode=calibration/null schema,
+without modifying/rebuilding either PE. Read-only discrepancy evidence and this
+historical NOT_PREPARED checkpoint remain preserved. See subsequent
+NATIVE_EXIT_CALIBRATION_PREP_20261023 for the newly audited preparation/current
+status; still no VM/Wine/native-API calibration authority implied.

@@ -30,7 +30,6 @@ CORE += ['dlls/'+dll+'/'+arch+'-windows/'+dll+'.dll' for dll in ('d3d11','dxgi',
 CORE += ['programs/winedbg/x86_64-windows/winedbg.exe','dlls/dbghelp/x86_64-windows/dbghelp.dll'] # hash ONLY, never invoke
 TOTAL,CLEANUP,OPERATION,LOADER,REAP=285,55,42,30,5
 EVENT_LIMIT,LOG_LIMIT=16384,1024**2
-MANIFEST_MARKER='8fc037ca464bc22952c9f9d63447cf0feb7dcab07e20489cb2d3a4ef3e1a8ba7'
 
 
 def win(path):return 'Z:'+str(path).replace('/','\\')
@@ -57,18 +56,18 @@ def decode(line):
 def binding(value,nonce,image):
     if not isinstance(nonce,str) or len(nonce)!=32 or any(c not in '0123456789abcdef' for c in nonce):
         raise ValueError('Exact lowercase32hex calibration nonce required')
-    keys={'v','event','nonce','helper_pid','child_pid','creation_time','image','command_line',
+    keys={'v','event','mode','nonce','helper_pid','child_pid','creation_time','image','command_line',
           'creation_flags','inherit_handles','environment','manifest_sha256','manifest_verified_by_native','tick_ms'}
     expected=' '.join('"'+v+'"' for v in (image,'--exit-status','3221225599','--nonce',nonce))
     if (not isinstance(value,dict) or set(value)!=keys or type(value.get('v')) is not int or value['v']!=1
-            or value.get('event')!='bound' or value.get('nonce')!=nonce
+            or value.get('event')!='bound' or value.get('mode')!='calibration' or value.get('nonce')!=nonce
             or not uint(value.get('helper_pid'),32) or not value['helper_pid']
             or not uint(value.get('child_pid'),32) or not value['child_pid'] or value['child_pid']==value['helper_pid']
             or not uint(value.get('creation_time')) or not value['creation_time']
             or not isinstance(value.get('image'),str) or value['image'].casefold()!=image.casefold()
             or value.get('command_line')!=expected or type(value.get('creation_flags')) is not int or value['creation_flags']!=0
             or value.get('inherit_handles') is not False or value.get('environment')!='inherited_NULL'
-            or value.get('manifest_sha256')!=MANIFEST_MARKER or value.get('manifest_verified_by_native') is not False
+            or value.get('manifest_sha256') is not None or value.get('manifest_verified_by_native') is not False
             or not uint(value.get('tick_ms'))):raise ValueError('Missing/foreign/malformed native binding')
     return value
 
@@ -90,7 +89,7 @@ def parse(raw,nonce,image):
     if (not uint(end.get('exit_code'),32) or end['exit_code']!=0xc000007f or end.get('exit_hex')!='0xc000007f'):
         raise ValueError('Original calibration status mismatch; signaled259 is not liveness')
     return {'bound':before,'exit':end,'native_child_status':end['exit_code'],'native_child_hex':end['exit_hex'],
-            'manifest_marker':'UNVERIFIED marker only; NOT calibration runtime attestation',
+            'manifest_marker':'Calibration null; native helper does NOT attest runtime bytes',
             'classification':'Held-handle original-child calibration ONLY; not Chromium or graphics'}
 
 

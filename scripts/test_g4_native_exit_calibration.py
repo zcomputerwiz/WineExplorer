@@ -16,9 +16,9 @@ HOST_LAB=Path('/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022')
 
 
 def events(nonce,image):
-    a=dict(v=1,event='bound',nonce=nonce,helper_pid=32,child_pid=36,creation_time=123456,
+    a=dict(v=1,event='bound',mode='calibration',nonce=nonce,helper_pid=32,child_pid=36,creation_time=123456,
         image=image,command_line=' '.join('"'+x+'"' for x in (image,'--exit-status','3221225599','--nonce',nonce)),
-        creation_flags=0,inherit_handles=False,environment='inherited_NULL',manifest_sha256=cal.MANIFEST_MARKER,
+        creation_flags=0,inherit_handles=False,environment='inherited_NULL',manifest_sha256=None,
         manifest_verified_by_native=False,tick_ms=100)
     b=dict(v=1,event='exit',nonce=nonce,child_pid=36,creation_time=123456,wait_result=0,
            exit_code=3221225599,exit_hex='0xc000007f',tick_ms=1100)
@@ -56,7 +56,7 @@ class ParserTests(unittest.TestCase):
             ('helper_pid',36),('child_pid',0),('child_pid',2**32),('creation_time',False),('creation_time',0),
             ('image','exit-child.exe'),('image',r'Z:\foreign\exit-child.exe'),('command_line',a['command_line']+' --no-sandbox'),
             ('command_line',a['command_line'].replace('"','')),('creation_flags',False),('creation_flags',4),
-            ('inherit_handles',True),('environment','modified'),('manifest_sha256','invented'),('manifest_sha256',None),
+            ('inherit_handles',True),('environment','modified'),('manifest_sha256','invented'),
             ('manifest_verified_by_native',True),('tick_ms',False),('tick_ms',-1),('tick_ms',2**64),('extra',1)]:
             bad=dict(a);bad[key]=value
             with self.subTest(key=key,value=value),self.assertRaises(ValueError):cal.parse(raw((bad,b)),self.nonce,self.image)
