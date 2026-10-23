@@ -537,3 +537,20 @@ Desktop and Alice's profile are readable. Alice's prefix after the tests: `drive
 
 Cleanup: after this run the guest `elev-val2` and `/var/tmp/elev` are deleted (see the PR description); the guest was
 left with launcher on, helper set and the carol2 account, which is gone with it.
+
+#### Fix of the first-logon folders
+
+- Wine: `DllInstall(TRUE, L"U")` of shell32 is now the per-user setup (HKCU shell folders, the user's folders, per-user
+  extra folders; no HKLM write). `DllRegisterServer` is stock. Listed in `docs/STOCK_CHANGES.md`. The machine part
+  is done by `wineboot -i` in `setup-machine-root.sh` (`wine.inf` `RegisterDllsSection` registers `shell32.dll`).
+- `scripts/wine-explorer-session-common.sh`: the first logon runs `regsvr32.exe /s /n /i:U shell32.dll` and logs a
+  warning to the session log when it fails.
+- Check: `check-token-security.py` (also `--focused`) simulates a first logon in a fresh prefix per architecture, with
+  the helper unset and set (profile folders deleted but `AppData`, `regsvr32 /s /n /i:U shell32.dll`), and prints
+  `first_logon_folders=PASS|FAIL`: Desktop, Documents, Downloads, Music, Pictures, Videos exist and the shell32 class
+  under `HKLM\Software\Classes` (deleted beforehand) was not written. Run here as a `sudo` member: PASS in all four.
+- `installer/tests/test_s3_acceptance.sh`: the rename `sed` now has the four backslashes it needs (checked on a sample
+  line). Not run (needs the installed guest; `bash -n` only).
+- Follow-up: S3 (and S2) still use the installed accounts `alice` and `bob` (many `su - alice` calls); they should use
+  their own test users. `wineboot -u` in a user prefix also runs shell32's `DllRegisterServer` (`[UserRegisterDlls]`
+  in `wine.inf.in`) and can hit the same early return under enforcement; not changed here.

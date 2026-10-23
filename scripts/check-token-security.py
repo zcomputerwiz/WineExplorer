@@ -64,6 +64,47 @@ def user_is_administrator():
         return False
 
 
+def first_logon_folders(wine, server, env, output, prefix, exe, label, helper):
+    """Simulate a first logon: delete the profile folders but AppData, run `regsvr32 /s shell32.dll` as the
+    runner's user (`/n /i:U`, shell32's DllInstall "U") and check that the per-user shell folders are back.
+    The machine-wide part (HKLM\\Software\\Classes) is not touched by it, helper or not."""
+    folders = ('Desktop', 'Documents', 'Downloads', 'Music', 'Pictures', 'Videos')
+    clsid = r'HKLM\Software\Classes\CLSID\{00021400-0000-0000-C000-000000000046}'
+    prefix_env = dict(env, WINEPREFIX=str(prefix))
+
+    def wine_run(args, name, timeout=120):
+        return run_logged([str(wine)] + args, prefix_env, output, label + '.' + name, timeout)
+
+    def settle():
+        subprocess.run([str(server), '-k'], env=prefix_env, timeout=15)
+        subprocess.run([str(server), '-w'], env=prefix_env, timeout=30)
+
+    if wine_run(['wineboot', '-u'], 'update', 180).returncode:
+        raise RuntimeError('Could not update the first-logon prefix: ' + label)
+    wine_run(['reg', 'delete', clsid, '/f', '/reg:64'], 'unregister')
+    if wine_run(['reg', 'query', clsid, '/reg:64'], 'query0').returncode == 0:
+        raise RuntimeError('Could not remove the shell32 class from the first-logon prefix: ' + label)
+    settle()
+    if helper:
+        if wine_run([str(exe), '--helper-set'], 'helper').returncode:
+            raise RuntimeError('Could not set the helper for the first-logon check: ' + label)
+        settle()
+    profile = prefix / 'drive_c/users' / pwd.getpwuid(os.getuid()).pw_name
+    for child in profile.iterdir():
+        if child.name != 'AppData':
+            shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
+    register = wine_run(['regsvr32.exe', '/s', '/n', '/i:U', 'shell32.dll'], 'regsvr32')
+    machine_written = wine_run(['reg', 'query', clsid, '/reg:64'], 'query1').returncode == 0
+    settle()
+    missing = [name for name in folders if not (profile / name).is_dir()]
+    failed = register.returncode != 0
+    passed = not missing and not machine_written and not failed
+    print(label, 'first_logon_folders=' + ('PASS' if passed else 'FAIL'), 'helper=' + str(helper),
+          'regsvr32_exit=' + str(register.returncode), 'machine_written=' + str(machine_written),
+          'missing=' + ','.join(missing), flush=True)
+    return passed
+
+
 def matching_servers(server, prefix):
     """Read-only backstop after -w; never select servers merely by process name."""
     matches = []
@@ -266,6 +307,15 @@ def main():
                 print(arch, result['identity'], 'limited PASS' if passed else 'limited FAIL', run.stdout, flush=True)
                 if not passed:
                     raise RuntimeError('Token shape failed: ' + arch)
+                # First logon: the profile folders are created whether or not the machine-wide part is denied.
+                for helper in (False, True):
+                    first_prefix = root / (arch + '-first-logon-' + ('helper' if helper else 'plain'))
+                    prefixes.append(first_prefix)
+                    ok = first_logon_folders(wine, server, environment, output, first_prefix, exe,
+                                             arch + '.first-logon-' + ('helper' if helper else 'plain'), helper)
+                    result['cases'][arch + '.first-logon-' + ('helper' if helper else 'plain')] = {'passed': ok}
+                    if not ok:
+                        raise RuntimeError('first_logon_folders=FAIL: ' + arch + (' helper' if helper else ''))
                 # The registry and pipe rows are the administrator's limited token; a standard user is not run on them.
                 for name, flag, marker in (() if standard else
                                            (('registry', '--registry-enforcement', 'registry_enforcement=PASS'),
