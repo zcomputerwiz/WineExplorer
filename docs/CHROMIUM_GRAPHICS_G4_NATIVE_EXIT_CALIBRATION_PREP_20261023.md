@@ -82,3 +82,33 @@ No unrelated graphics/Node/native-PE compile reruns; accepted binaries unchanged
 Stop for independent parent source/PE/manifest review. C: tracked branch only;
 pre-existing `M wine`, D: master/other agents/submodules and all failed evidence
 untouched. No actual native API calibration has run.
+
+## Independent parent review / ONE calibration authorized
+
+Parent re-read committed helper1a48edc8 bound formatter and independently inspected
+the ASCII format in actual366c6928... PE. Both contain mode and select null
+manifest for calibration. Parent's earlier warning used an interim working-file
+snapshot, not that committed formatter; the correction is explicit and the WIP
+conflict evidence remains preserved. Current parser matches actual code/binary.
+
+Parent independently passed36 focused tests/no skips in5.478s. Reviewed current
+runner/parser and exact private-procedure additions: guarded fixed calibration
+argv, no browser/debugger/vendor extraction, prefix idle BEFORE stage, original
+PE rehash, exact Linux helper identity/natural exit, raw native full status,
+cleanup-start/reap-before-prefix teardown and failure preservation. Unknown
+proc identity deliberately prevents signal/adoption and cannot pass.
+
+Independent inventory audit: all16 actual TAR/current inputs, five host helpers,
+two seed sources plus actual seed.iso,19 capacity-accepted pins, worker build
+record/eight logs, unchanged mutable-top inode/device/size/timestamps pass.
+Preflighte686a0f3... and TAR06b8b14d... match; future run absent. Source_commit
+base/WIP distinction is honest; facd17be commits the actual per-file inputs.
+All original helper sources and both PEs unchanged. No runtime recopy/rebuild.
+
+Live usage61%five-hour/9%weekly permits ONE exact prepared ORIGINAL-CHILD
+calibration now, after fresh identity/hash/space gates. Same manifest commands,
+NEW80GiB top only,650/435 guards and all isolation/backend/cleanup requirements.
+No retry or Chromium/Edge execution. Preserve raw events/failures; separately
+require QMP/QEMU0/Windows0 and owned identities absent. Commit AND push results,
+STOP for parent actual-event/identity/hash review. This authority is tool
+calibration ONLY, not a diagnosis of the browser or G4 acceptance.

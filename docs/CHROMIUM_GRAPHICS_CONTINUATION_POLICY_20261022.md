@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST native helper1a48edc8 acceptedc8396008; original-child calibration offline
+prepfacd17be independently36tests/16TAR+currentinputs/5helpers/19pins/2seeds+ISO/
+buildlogs/topidentity pass. Read NATIVE_EXIT_CALIBRATION_PREP_20261023 including
+parent acceptance. ONE exact original-child calibration is now authorized with
+fresh gates, NO browser/retry. Correct actualhelper schema mode=calibration/null
+manifest confirmed from committedsource AND actual366cPE; earlier parentstale
+working-snapshot warning resolved, historicalWIP evidence preserved. Runtime
+unchanged. Currentusage61%fivehour/9%weekly. Parent reviews actual calibration
+before any Chromium integration/diagnostic. Older next-step text historical.
+
 LATEST live Chromium baseline f11f85cf FAILED before readiness: launcher exited,
 later Linux wait127, ZERO HTTP requests, no visible browser window, actual terminal
 front black plus pointer. Parent independently37 archive hashes/15 sources/258
