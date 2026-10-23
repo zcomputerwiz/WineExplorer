@@ -598,3 +598,5 @@ in this guest, so only `ps`, `md5sum` and a directory listing were taken per ses
 screenshots in `build/v3/shots/`, not committed).
 
 Cleanup: guest `elev-val3` and the build tree under `/var/tmp/elev` are deleted after this commit.
+
+Closing note (2026-10-23): the evidence above met the condition; the launcher is now installed by default (`WEX_SYSRUN_ENABLE=0` opts out).

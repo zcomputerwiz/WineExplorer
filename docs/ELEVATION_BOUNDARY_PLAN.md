@@ -169,7 +169,11 @@ Sources: ReactOS `ntoskrnl/ps/security.c` and ros-diffs threads for the sibling 
 "Desktops", "Winlogon" and "UAC distilled". These were read as summaries and excerpts; read the current source
 before porting.
 
-## Status (2026-10-22)
+## Status (2026-10-22; updated 2026-10-23)
+
+- **Launcher on by default (2026-10-23):** `setup-machine-root.sh` installs `wex-sysrun`; `WEX_SYSRUN_ENABLE=0` opts out.
+  Known limits: no UIPI or Session 0 isolation; `ptrace_scope` 0 leaves a window for service children; the in-place
+  hive save is not atomic; a user can replace their own wineserver and lose the system role for that session.
 
 - Steps 1 to 3: **done** (details in `ELEVATION_BOUNDARY_STEP_2_3_WORKORDER.md`, "Results"). The five routes
   and identification-level impersonation now match native Windows while a helper is configured.

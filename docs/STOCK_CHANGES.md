@@ -416,7 +416,7 @@ Constraints a to d and f of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Active only wh
 group/other-writable `/etc/wineexplorer/sysrun.conf` (regular file, checked on the open descriptor, `O_NOFOLLOW`)
 names the machine root, and, for the server, only in a process that the setgid launcher started (real gid differs
 from the saved gid, effective gid equals the saved gid, and the saved gid is the configured group). Otherwise nothing
-changes. The launcher is installed only with `WEX_SYSRUN_ENABLE=1`. Wine commits (branch `ccr-work`): `0e98e935c36`,
+changes. The launcher is installed by default (since 2026-10-23; `WEX_SYSRUN_ENABLE=0` opts out). Wine commits (branch `ccr-work`): `0e98e935c36`,
 `71fe07ea021`.
 
 - `server/sysrun.c`, `server/sysrun.h` (new), `server/Makefile.in`, `server/main.c` (`sysrun_init`): the server drops
