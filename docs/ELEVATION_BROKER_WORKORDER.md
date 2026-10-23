@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: the elevation broker (plan step 4)
 
-Date: 2026-10-23. Status: scoped. Part of `ELEVATION_BOUNDARY_PLAN.md` (design D3, step 4). Builds on the system
+Date: 2026-10-23. Status: scoped, decisions B1-B8 settled. Part of `ELEVATION_BOUNDARY_PLAN.md` (design D3, step 4). Builds on the system
 role (`ELEVATION_SYSTEM_ROLE_WORKORDER.md`): the `wexsys` launcher is on by default, `services.exe` runs as SYSTEM,
 and service tokens exist.
 
@@ -37,7 +37,8 @@ token as a primary token).
 - **B6. Launch.** The broker gets the caller's linked token as a primary token (TCB), creates the process with
   `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` = the caller, and duplicates the new process handle into the caller.
   The caller sees a real `hProcess` (wait and exit code work as before).
-- **B7. Unix rights of the elevated process (awaiting the user's confirmation).** It keeps the effective group `wexsys` (it is an administrator's
+- **B7. Unix rights of the elevated process (decided by the user, 2026-10-23: match Windows; any process holding an
+  administrator's full token may write the shared machine root).** It keeps the effective group `wexsys` (it is an administrator's
   elevated process, so it may write the machine root, as an elevated installer must). C3's ntdll rule that drops
   the group for non-SYSTEM tokens must make an exception for a token with `TokenElevationTypeFull` created by the
   broker. The process stays non-dumpable (egid differs from rgid), so the user cannot ptrace it.
