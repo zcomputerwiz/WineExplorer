@@ -411,3 +411,50 @@ and fresh `wineserver` each):
 The only `err:` lines left in these runs are the headless first start of a prefix without a display
 (`nodrv_CreateWindow`, `systray`, `winemenubuilder.exe` 126). `system.reg` stayed `root:wexsys` 664 and the machine
 root `root:wexsys` 2775.
+
+Step 3, Part 3 graphical steps, driven by me through the guest's QEMU display (screenshots, mouse and keyboard through
+the monitor; no human input), in the default WineExplorer (X11) session. The guest had the launcher installed and the
+helper set (`HKLM\Software\Wine\Elevation\Helper`), as in P2. Note: this is the installed WineExplorer XP-style desktop
+(logonui Welcome screen, Explorer shell), not Openbox; the guest has no Openbox session. Screenshots are in
+`build/ev/` of the working tree (not committed).
+
+As `bobsmith` (standard user, passwordless):
+
+| Step | Result |
+| :--- | :--- |
+| Log on from the Welcome screen, desktop with icons | pass (about 5 s) |
+| Explorer: My Computer, `C:\`, `C:\windows`, `C:\Program Files` | pass: listings shown (`Common Files`, `Internet Explorer`, `Windows Media Player`, `Windows NT` in Program Files); no crash |
+| Create a folder in `C:\Program Files` ("Make a new folder") | no folder created, no dialog, no crash (still 4 objects; nothing new on disk) |
+| `regedit` (Run): read `HKLM\Software` | pass (`Hardware`, `Software`, `System` listed) |
+| `regedit`: create a key under `HKLM\Software` | denied: dialog "Unable to create a new registry key." |
+| `regedit`: create a key under `HKCU` | pass |
+| `notepad`: type text, Save As in `My Documents` | pass: `bobnote.txt` is at `/home/bobsmith/.wine/drive_c/users/bobsmith/Documents/` |
+| `taskmgr` Processes: `services.exe`, `winedevice.exe` (two), `plugplay.exe`, `svchost.exe`, `rpcss.exe` listed | pass |
+| `taskmgr`: End Process on `services.exe` and on `winedevice.exe` | denied, "Unable to Terminate: Access denied. (5)" |
+| `taskmgr`: Set Priority to High on `services.exe` | denied, "Unable to Change Priority: Access denied. (5)" |
+| 32-bit program | passed earlier on the same guest image in `check-wow64.sh` (window drawn, 32-bit and 64-bit notepad); not repeated in this session |
+| Log off | pass; afterwards only the greeter's `wineserver` (uid 102) is left, none of `bobsmith`; `system.reg` unchanged |
+
+During bobsmith's session, from the guest console: `ps -o pid,uid,gid,egid,sgid,args -C wineserver` showed
+`1001 1001 1001 987` (uid, gid, egid... wineserver of the user with sgid 987 = `wexsys`; egid = the user's group 1001);
+`ls -l system.reg` = `root:wexsys` 664, md5 `64f47250...` as before the session, no `WexGui` string in it.
+
+As `alice` (in `sudo`, password logon): the desktop appeared but **without the desktop icons** (only the taskbar), see
+open observation 1. `regedit`: creating a key under `HKLM\Software` is denied with the same dialog; `taskmgr`:
+End Process on `services.exe` denied ("Access denied. (5)"). Not done as alice: Explorer browsing, notepad, folder
+creation in `Program Files`, `sc`; the Alice session was a shortened pass.
+
+Not done: `sc query`, `sc qc`, `sc create` in the GUI session (the Wine `sc.exe` does not support them; the command-line
+`sc create` denial is recorded in step 2), the log-out-and-in of Alice, the display-manager restart.
+
+Open observations (no verdict): 
+1. Alice's desktop has no icons after the test sequence (S2, S3, S4 reset her prefix; launcher on and helper set).
+   Right after the install, before the tests, Alice's desktop had them (`15-alice-desktop.png`), and Bob's after the same
+   tests did. I did not find out whether the test resets, the helper or the administrator token causes it.
+2. The `kernel_writewatch_init` and `winehid` lines are gone in the command-line runs (step 2); I did not read the
+   session logs of the graphical runs.
+
+Step 4, cleanup: done at the start of this run for the earlier leftovers (guest `elev-val` disk, `/var/tmp/elev`,
+`/opt/elev`, `/opt/wexbuild`, users `tkadm` and `tkstd`, group `tkadmg`) in Debian WSL; the Proton build VM is not
+running. The leftovers of this run (guest `elev-val2` under `/var/tmp/wineexplorer-vmtest`, `/var/tmp/elev`, the
+`/tmp/.X11-unix` tmpfs mounts were private to `unshare`) are kept until the pull request is reviewed.
