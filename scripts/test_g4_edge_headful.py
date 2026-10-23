@@ -58,6 +58,7 @@ class HeadfulTests(unittest.TestCase):
             'class':'Chrome_WidgetWin_1','image':'Z:'+str(self.exe).replace('/','\\'),'fixed':65536,
             'window':dict(x=20,y=30,width=660,height=520),'client':dict(x=30,y=60,width=640,height=480)}
         self.clock=0; self.calls=[];self.codes={};self.failures={};self.boot_action=lambda:None
+        self.startup_diagnostic=False
         self.browser=Mock();self.browser.poll.return_value=None;self.browser.wait.return_value=0
         self.browser.pid=900
         def start_browser(*args,**kwargs):
@@ -87,8 +88,12 @@ class HeadfulTests(unittest.TestCase):
         if label=='wineboot': self.boot_action()
         text=''
         if label=='observer-build':Path(argv[4]).write_bytes(b'mocked original observer executable')
+        if label=='fixture-file-probe':
+            data=self.fixture.read_bytes()
+            text=json.dumps(dict(ok=True,error=0,size=len(data),read=min(64,len(data)),prefix_hex=data[:64].hex()))
         if label.startswith('native-'): text=json.dumps([self.window])
-        if label.endswith('-capture'): self.png(Path(argv[-1]))
+        if label=='failure-front-capture':Image.new('RGB',(1600,1200),'gray').save(Path(argv[-1]))
+        elif label.endswith('-capture'): self.png(Path(argv[-1]))
         return SimpleNamespace(returncode=self.codes.get(label,0),stdout=text)
 
     def execute(self):
@@ -96,7 +101,8 @@ class HeadfulTests(unittest.TestCase):
              patch.object(edge,'verify_native_gl_driver',return_value={'passed':True}), \
              patch.object(edge.secrets,'token_hex',return_value=self.nonce):
             code=edge.run(self.output,self.fixture,self.helpers,now=lambda:self.clock,
-                          sleep=lambda seconds:setattr(self,'clock',self.clock+seconds),popen=self.popen)
+                          sleep=lambda seconds:setattr(self,'clock',self.clock+seconds),popen=self.popen,
+                          startup_diagnostic=self.startup_diagnostic)
         return code,json.loads((self.output/'results.json').read_text())
 
     def test_actual_fixture_protocol(self):
@@ -344,6 +350,147 @@ class HeadfulTests(unittest.TestCase):
         self.helpers.run_logged=logged
         code,r=self.execute();self.assertEqual(code,1);self.assertTrue(r['completed'])
         self.assertEqual(r['log_errors']['renderer_exit'],1)
+
+    def test_terminal_front_preserves_primary_and_precedes_cleanup(self):
+        self.failures['native-0']=RuntimeError('PRIMARY observer')
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('PRIMARY observer',r['error'])
+        self.assertTrue(r['failure_front']['captured']);self.assertNotIn('pixels',r['failure_front'])
+        self.assertEqual(r['front_samples'],[])
+        labels=[c[2] for c in self.calls]
+        self.assertEqual(labels.count('failure-front-capture'),1)
+        self.assertLess(labels.index('failure-front-capture'),labels.index('cleanup-kill'))
+        self.assertLessEqual(next(c[3] for c in self.calls if c[2]=='failure-front-capture'),3)
+
+    def test_failed_terminal_front_preserves_primary(self):
+        self.failures['native-0']=RuntimeError('PRIMARY')
+        self.failures['failure-front-capture']=OSError('SECONDARY')
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('PRIMARY',r['error'])
+        self.assertIn('SECONDARY',r['failure_front']['error']);self.assertEqual(r['cleanup_wait'],0)
+
+    def test_timeout_terminal_front_preserves_primary(self):
+        self.failures['native-0']=RuntimeError('PRIMARY')
+        self.failures['failure-front-capture']=subprocess.TimeoutExpired('grim',3)
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('PRIMARY',r['error'])
+        self.assertIn('TimeoutExpired',r['failure_front']['error']);self.assertEqual(r['cleanup_wait'],0)
+
+    def test_dead_compositor_never_captures(self):
+        self.failures['native-0']=RuntimeError('PRIMARY')
+        self.comp.verify.side_effect=[None,RuntimeError('compositor dead')]
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('PRIMARY',r['error'])
+        self.assertIn('compositor dead',r['failure_front']['error'])
+        self.assertFalse(any(c[2]=='failure-front-capture' for c in self.calls))
+
+    def test_no_browser_no_failure_front(self):
+        self.popen.side_effect=OSError('browser not created')
+        code,r=self.execute();self.assertEqual(code,1);self.assertNotIn('failure_front',r)
+
+    def test_terminal_front_does_not_consume_cleanup_reserve(self):
+        original=self.helpers.run_logged
+        def logged(*args):
+            if args[3]=='native-0':
+                self.clock=edge.TOTAL-edge.RESERVE
+                raise RuntimeError('PRIMARY')
+            return original(*args)
+        self.helpers.run_logged=logged
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('PRIMARY',r['error'])
+        self.assertIn('budget exhausted',r['failure_front']['error'])
+        self.assertFalse(any(c[2]=='failure-front-capture' for c in self.calls));self.assertEqual(r['cleanup_wait'],0)
+
+    def test_diagnostic_mode_never_passes_and_only_changes_logging(self):
+        self.startup_diagnostic=True
+        code,r=self.execute();self.assertEqual(code,1);self.assertTrue(r['completed']);self.assertFalse(r['passed'])
+        self.assertIn('NOT_EVALUATED',r['classification'])
+        normal=edge.command(self.fixture,self.output,self.nonce)
+        self.assertEqual(r['argv'][:-1],normal);self.assertEqual(r['argv'][-1],'--vmodule='+edge.VLOG_MODULES)
+        browser_env=self.popen.call_args.kwargs['env']
+        self.assertEqual(browser_env['WINEDEBUG'],'-all,+timestamp,+pid,+tid,+winediag,+process,+file,+seh')
+        for _,env,_,_ in self.calls:self.assertNotIn('+file',env['WINEDEBUG'])
+        probe=next(c for c in self.calls if c[2]=='fixture-file-probe')
+        self.assertEqual(probe[0][-2:],['--fixture-file','Z:'+str(self.fixture).replace('/','\\')])
+        self.assertLessEqual(probe[3],5)
+        self.assertTrue(r['fixture_file_probe']['ok']);self.assertNotIn('failure_front',r)
+
+    def test_diagnostic_log_quota_stops_wait_and_preserves_logs(self):
+        self.startup_diagnostic=True
+        with patch.object(edge,'LOG_LIMIT',8):
+            code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('log quota exceeded',r['error'])
+        self.assertGreater(r['log_quota']['total_bytes'],8)
+        self.assertTrue(r['failure_front']['captured']);self.assertTrue((self.output/'chromium.log').read_text())
+        self.assertEqual(r['front_samples'],[]);self.assertEqual(r['cleanup_wait'],0)
+
+    def test_normal_mode_does_not_enable_probe_or_log_quota(self):
+        with patch.object(edge,'LOG_LIMIT',1):code,r=self.execute()
+        self.assertEqual(code,0);self.assertNotIn('fixture_file_probe',r);self.assertNotIn('log_quota',r)
+        self.assertNotIn('+file',self.popen.call_args.kwargs['env']['WINEDEBUG'])
+
+    def test_probe_failure_gates_browser(self):
+        self.startup_diagnostic=True;self.codes['fixture-file-probe']=1
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('file probe failed',r['error'])
+        self.popen.assert_not_called();self.assertNotIn('failure_front',r)
+
+    def test_probe_protocol_positive_negative(self):
+        data=self.fixture.read_bytes()
+        value=dict(ok=True,error=0,size=len(data),read=min(64,len(data)),prefix_hex=data[:64].hex())
+        self.assertTrue(edge.fixture_probe_record(json.dumps(value),self.fixture)['ok'])
+        for key,bad in [('ok',False),('size',999),('read',0),('prefix_hex','ff'),('error',5)]:
+            wrong=dict(value);wrong[key]=bad
+            with self.subTest(key=key),self.assertRaises(ValueError):edge.fixture_probe_record(json.dumps(wrong),self.fixture)
+        with self.assertRaises(ValueError):edge.fixture_probe_record(json.dumps(value)+'junk',self.fixture)
+
+    def test_quota_limit_is_combined_and_boundary_inclusive(self):
+        self.output.mkdir()
+        for name in ('browser.stdout.log','browser.stderr.log','chromium.log'):(self.output/name).write_bytes(b'123')
+        with patch.object(edge,'LOG_LIMIT',9):self.assertTrue(edge.diagnostic_log_usage(self.output)['passed'])
+        with patch.object(edge,'LOG_LIMIT',8):self.assertFalse(edge.diagnostic_log_usage(self.output)['passed'])
+
+    def test_corrupt_terminal_capture_preserves_primary_and_raw_file(self):
+        self.failures['native-0']=RuntimeError('PRIMARY')
+        original=self.helpers.run_logged
+        def logged(*args):
+            value=original(*args)
+            if args[3]=='failure-front-capture':Path(args[0][-1]).write_bytes(b'corrupt PNG')
+            return value
+        self.helpers.run_logged=logged
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('PRIMARY',r['error'])
+        self.assertIn('error',r['failure_front']);self.assertEqual((self.output/'failure-front.png').read_bytes(),b'corrupt PNG')
+
+    def test_mismatched_probe_success_exit_still_gates_browser(self):
+        self.startup_diagnostic=True
+        original=self.helpers.run_logged
+        def logged(*args):
+            value=original(*args)
+            if args[3]=='fixture-file-probe':value.stdout='{"ok":true,"error":0,"size":0,"read":0,"prefix_hex":""}'
+            return value
+        self.helpers.run_logged=logged
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('probe failed/mismatched',r['error'])
+        self.popen.assert_not_called();self.assertNotIn('failure_front',r)
+
+    def test_probe_timeout_gates_browser(self):
+        self.startup_diagnostic=True;self.failures['fixture-file-probe']=subprocess.TimeoutExpired('probe',5)
+        code,r=self.execute();self.assertEqual(code,1);self.assertIn('TimeoutExpired',r['error'])
+        self.popen.assert_not_called();self.assertNotIn('failure_front',r)
+
+    def test_log_close_failure_preserves_primary_and_results(self):
+        self.failures['native-0']=RuntimeError('PRIMARY')
+        original=Path.open
+        class FailingClose:
+            def __init__(self,stream):self.stream=stream
+            def close(self):self.stream.close();raise OSError('SECONDARY LOG CLOSE')
+        def opened(path,*args,**kwargs):
+            stream=original(path,*args,**kwargs)
+            return FailingClose(stream) if path.name=='browser.stdout.log' and args and args[0]=='wb' else stream
+        with patch.object(Path,'open',opened):code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('PRIMARY',r['error'])
+        self.assertIn('SECONDARY LOG CLOSE',str(r['cleanup_errors']))
+
+    def test_cli_dispatches_explicit_mode(self):
+        import sys
+        with patch.object(sys,'argv',['check-g4-edge-headful.py','--output-dir',str(self.output),
+                                     '--fixture',str(self.fixture),'--startup-diagnostic']), \
+             patch.object(edge,'run',return_value=1) as run,patch.object(edge,'load',return_value=self.helpers):
+            self.assertEqual(edge.main(),1)
+            self.assertTrue(run.call_args.kwargs['startup_diagnostic'])
 
 
 if __name__=='__main__':unittest.main()

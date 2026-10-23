@@ -31,6 +31,9 @@ PREFIX=LAB/'edge-install-r1-v2-20261022/prefix'
 EXE=PREFIX/'drive_c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
 EXE_SHA='bb74db4c753133706f4ab0a483a87aa28a90ddd6eeb305fe001376ba73a40fc3'
 TOTAL, RESERVE=285,55  # include bounded server/browser/monitor/compositor cleanup tails
+LOG_LIMIT=128*1024**2  # soft stop threshold, never truncate diagnostic logs
+VLOG_MODULES=('file_url_loader_factory=2,navigation_request=2,render_process_host_impl=2,'
+              'child_process_launcher_helper=2,child_process_launcher_helper_win=2')
 RECTS={'marker':dict(x=32,y=32,width=48,height=48),
        'webgl':dict(x=32,y=112,width=96,height=96),
        'webgl2':dict(x=160,y=112,width=96,height=96)}
@@ -92,13 +95,63 @@ def validate(output,fixture):
     return before
 
 
-def command(fixture,output,nonce):
+def command(fixture,output,nonce,startup_diagnostic=False):
     win=lambda p:'Z:'+str(p).replace('/','\\')
     # file URL is interpreted by Windows Edge, not by the Linux host.
     url='file:///Z:'+str(fixture).replace(' ','%20')+'#nonce='+nonce
-    return [str(BUILD/'wine'),str(EXE),'--app='+url,
+    argv=[str(BUILD/'wine'),str(EXE),'--app='+url,
             '--user-data-dir='+win(output/'profile'),'--no-first-run','--no-default-browser-check',
             '--enable-logging','--log-file='+win(output/'chromium.log'),'--v=1']
+    if startup_diagnostic: argv.append('--vmodule='+VLOG_MODULES)
+    return argv
+
+
+def browser_environment(env,startup_diagnostic):
+    private=dict(env)
+    if startup_diagnostic: private['WINEDEBUG']+=',+file,+seh'
+    return private
+
+
+def diagnostic_log_usage(output):
+    files={name:(output/name).stat().st_size if (output/name).exists() else 0
+           for name in ('browser.stdout.log','browser.stderr.log','chromium.log')}
+    total=sum(files.values())
+    return {'files':files,'total_bytes':total,'limit_bytes':LOG_LIMIT,'passed':total<=LOG_LIMIT}
+
+
+def fixture_probe_record(text,fixture):
+    value,end=strict_json(text.strip())
+    if text.strip()[end:] or not isinstance(value,dict): raise ValueError('Invalid fixture file probe JSON')
+    with fixture.open('rb') as stream: expected=stream.read(64).hex()
+    if (value.get('ok') is not True or type(value.get('size')) is not int or value['size']!=fixture.stat().st_size
+            or type(value.get('error')) is not int or value['error']!=0
+            or type(value.get('read')) is not int or value['read']!=len(expected)//2 or value.get('prefix_hex')!=expected):
+        raise ValueError('Original fixture Win32 file probe failed/mismatched')
+    return value
+
+
+def terminal_failure_front(result,output,comp,helpers,env,bound,now):
+    """One best-effort whole front before cleanup; never replace the primary error."""
+    record={'classification':'FAILURE_ONLY_DIAGNOSTIC_NOT_PIXEL_ACCEPTANCE','started_monotonic':now()}
+    result['failure_front']=record
+    try:
+        comp.verify()
+        timeout=bound(3)  # preserve the entire cleanup reserve
+        record['timeout_seconds']=timeout
+        path=output/'failure-front.png'
+        record['path']=str(path)
+        captured=helpers.run_logged(capture_command(path),env,output,'failure-front-capture',timeout)
+        record['capture_exit']=captured.returncode
+        if captured.returncode: raise RuntimeError('Terminal front capture failed')
+        from PIL import Image
+        with Image.open(path) as image:
+            image.load();record['dimensions']=list(image.size)
+        record['sha256']=install.digest(path)
+        record['captured']=True
+    except Exception as error:
+        record['error']=repr(error)
+    finally:
+        record['finished_monotonic']=now()
 
 
 def strict_json(text):
@@ -255,7 +308,7 @@ def record_roles(result,previous,snapshot,cleanup):
     return roles
 
 
-def run(output,fixture,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
+def run(output,fixture,helpers,*,startup_diagnostic=False,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
     start=now(); before=validate(output,fixture)  # never cleanup on a rejected guard
     output.mkdir(); save(output/'persistence-before.json',before)
     env=install.environment(output); env['WINEPREFIX']=str(PREFIX)
@@ -265,7 +318,10 @@ def run(output,fixture,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subpr
     comp=OwnedWexcomp(LAB/'labwc',LAB/'wayland',output,env,'gles2')
     nonce=secrets.token_hex(16)
     result={'passed':False,'classification':'Scoped headful clear/readback/front smoke only; GPU compositing NOT_PROVEN',
-            'nonce':nonce,'argv':command(fixture,output,nonce),'front_samples':[],'win32_pid_is_not_linux_pid':True}
+            'nonce':nonce,'argv':command(fixture,output,nonce,startup_diagnostic),'front_samples':[],
+            'startup_diagnostic':startup_diagnostic,'win32_pid_is_not_linux_pid':True}
+    if startup_diagnostic:
+        result['classification']='Startup diagnostic ONLY; rendering acceptance NOT_EVALUATED'
     deadline=start+TOTAL; browser=None; files=[]; stop=threading.Event(); cleanup_started=threading.Event(); monitor=None
     result.update(observed_process_roles={},role_exits_before_cleanup=[])
     def bound(cap,cleanup=False):
@@ -301,6 +357,13 @@ def run(output,fixture,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subpr
         save(output/'persistence-after.json',persistence())
         if boot.returncode: raise RuntimeError('Retained prefix Wineboot failed')
         result['installed_after_boot']=require_payload()
+        if startup_diagnostic:
+            probe=helpers.run_logged([str(BUILD/'wine'),str(observer),'--fixture-file',
+                'Z:'+str(fixture).replace('/','\\')],env,output,'fixture-file-probe',bound(5))
+            result['fixture_file_probe_exit']=probe.returncode
+            result['fixture_file_probe_stdout']=probe.stdout
+            if probe.returncode: raise RuntimeError('Original fixture Win32 file probe failed')
+            result['fixture_file_probe']=fixture_probe_record(probe.stdout,fixture)
         def observe():
             n=len(result.setdefault('observations',[])); label='native-'+str(n)
             completed=helpers.run_logged([str(BUILD/'wine'),str(observer)],env,output,label,bound(5))
@@ -310,13 +373,17 @@ def run(output,fixture,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subpr
             result['observations'].append({'elapsed':now()-start,'windows':rows})
             return window_record(rows,nonce)
         def alive():
+            if startup_diagnostic:
+                result['log_quota']=diagnostic_log_usage(output)
+                result['log_quota_checks']=result.get('log_quota_checks',0)+1
+                if not result['log_quota']['passed']: raise RuntimeError('Startup diagnostic log quota exceeded')
             comp.verify()
             if browser.poll() is not None: raise RuntimeError('Browser launcher exited before collection completed')
             if result['role_exits_before_cleanup']: raise RuntimeError('Observed GPU/renderer process exited before cleanup')
             if any(log_health(output).values()): raise RuntimeError('Browser fatal/renderer/GPU/graphics log failure')
         readiness_seconds=bound(45)  # refuse an exhausted budget BEFORE browser creation
         files=[(output/'browser.stdout.log').open('wb'),(output/'browser.stderr.log').open('wb')]
-        browser=popen(result['argv'],env=env,stdout=files[0],stderr=files[1],start_new_session=True)
+        browser=popen(result['argv'],env=browser_environment(env,startup_diagnostic),stdout=files[0],stderr=files[1],start_new_session=True)
         result['browser_launcher_linux_pid']=browser.pid
         result['browser_launcher_prefix_sample']=graphics_resources.sample(PREFIX).get(str(browser.pid))
         readiness_deadline=now()+readiness_seconds
@@ -332,7 +399,10 @@ def run(output,fixture,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subpr
             if code: raise RuntimeError('Front capture failed')
         result['settled_fronts_passed']=collect_fronts(observe,capture,alive,output,initial,result['front_samples'],now=now,sleep=sleep)
         result['completed']=True
-    except Exception as error: result['error']=repr(error)
+    except Exception as error:
+        result['error']=repr(error)
+        if browser is not None:
+            terminal_failure_front(result,output,comp,helpers,env,bound,now)
     finally:
         cleanup_started.set()
         for label,args in (('kill',['-k']),('wait',['-w'])):
@@ -348,17 +418,22 @@ def run(output,fixture,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subpr
         except Exception as error: result.setdefault('cleanup_errors',[]).append(repr(error))
         stop.set()
         if monitor is not None and monitor.ident is not None: monitor.join(timeout=1)
-        for stream in files: stream.close()
+        for stream in files:
+            try: stream.close()
+            except Exception as error: result.setdefault('cleanup_errors',[]).append(repr(error))
         try:
             comp.stop()
             result['remaining_servers']=helpers.matching_servers(BUILD/'server/wineserver',PREFIX)
             result['remaining_prefix_processes']=graphics_resources.sample(PREFIX)
-            result['log_errors']=log_health(output)
+            if startup_diagnostic:
+                result['log_quota_after_cleanup']=diagnostic_log_usage(output)
+            result['log_errors']=({'log_quota':1} if startup_diagnostic and
+                not result['log_quota_after_cleanup']['passed'] else log_health(output))
             result['chromium_log_present']=((output/'chromium.log').is_file() and (output/'chromium.log').stat().st_size>0)
         except Exception as error: result.setdefault('cleanup_errors',[]).append(repr(error))
         finally:
             result['elapsed_seconds']=now()-start
-            result['passed']=(result.get('completed') is True and result.get('settled_fronts_passed') is True
+            result['passed']=(not startup_diagnostic and result.get('completed') is True and result.get('settled_fronts_passed') is True
                 and not result.get('error') and not result.get('monitor_error') and not result.get('cleanup_errors')
                 and not result['role_exits_before_cleanup']
                 and result.get('chromium_log_present') is True
@@ -374,8 +449,9 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--fixture',type=Path,required=True)
+    parser.add_argument('--startup-diagnostic',action='store_true',help='Bounded logging/file probe only; can never pass rendering acceptance')
     args=parser.parse_args()
-    return run(args.output_dir,args.fixture,load('check-g3-correctness'))
+    return run(args.output_dir,args.fixture,load('check-g3-correctness'),startup_diagnostic=args.startup_diagnostic)
 
 
 if __name__=='__main__': raise SystemExit(main())

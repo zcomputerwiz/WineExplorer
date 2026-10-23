@@ -3,6 +3,7 @@
 #define _WIN32_WINNT 0x0600
 #include <windows.h>
 #include <stdio.h>
+#include <string.h>
 #include <vector>
 
 static void string(const wchar_t *text) {
@@ -41,7 +42,35 @@ static BOOL CALLBACK inspect(HWND hwnd, LPARAM count) {
     printf(",\"window\":");rectangle(outer);printf(",\"client\":");rectangle(client);printf("}");
     return TRUE;
 }
-int main() {
+static int fixture_file(const char *path) {
+    // Only this lab's staged ORIGINAL index.html. Never open Microsoft payloads.
+    const char *root="Z:\\home\\debian\\wex-g4\\edge-headful-";
+    const char *suffix="-stage\\scripts\\g4-edge-probe\\index.html";
+    size_t n=strlen(path), r=strlen(root), s=strlen(suffix);
+    bool allowed=n>r+s && n<512 && !strncmp(path,root,r) && !strcmp(path+n-s,suffix);
+    for (size_t i=r;allowed && i<n-s;i++) {
+        char c=path[i]; allowed=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.';
+    }
+    if (!allowed) { printf("{\"ok\":false,\"error\":\"path rejected\"}\n");return 1; }
+    wchar_t wide[512]={};
+    if (!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,wide,512)) return 1;
+    WIN32_FILE_ATTRIBUTE_DATA attr={};
+    if (!GetFileAttributesExW(wide,GetFileExInfoStandard,&attr) || (attr.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)) {
+        printf("{\"ok\":false,\"error\":%lu}\n",GetLastError());return 1;
+    }
+    HANDLE file=CreateFileW(wide,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,
+                            OPEN_EXISTING,FILE_FLAG_SEQUENTIAL_SCAN,NULL);
+    if (file==INVALID_HANDLE_VALUE) { printf("{\"ok\":false,\"error\":%lu}\n",GetLastError());return 1; }
+    unsigned char bytes[64]={};DWORD read=0;
+    BOOL ok=ReadFile(file,bytes,sizeof(bytes),&read,NULL);DWORD error=ok?0:GetLastError();CloseHandle(file);
+    printf("{\"ok\":%s,\"error\":%lu,\"size\":%llu,\"read\":%lu,\"prefix_hex\":\"",ok?"true":"false",error,
+        ((unsigned long long)attr.nFileSizeHigh<<32)|attr.nFileSizeLow,read);
+    for (DWORD i=0;i<read;i++) printf("%02x",bytes[i]);
+    printf("\"}\n");return ok?0:1;
+}
+int main(int argc,char **argv) {
+    if (argc==3 && !strcmp(argv[1],"--fixture-file")) return fixture_file(argv[2]);
+    if (argc!=1) return 1;
     SetProcessDPIAware(); int count=0;
     printf("["); BOOL ok=EnumWindows(inspect,(LPARAM)&count); printf("]\n");
     return ok ? 0 : 1;
