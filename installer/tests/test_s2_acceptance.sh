@@ -323,6 +323,7 @@ MANIFEST_AFTER=$(mktemp)
 find "$MACHINE_ROOT/drive_c" -type f -printf "%p %u:%g %m\n" | sort > "$MANIFEST_AFTER"
 DIFF_COUNT=$(diff -u "$MANIFEST_BEFORE" "$MANIFEST_AFTER" | grep -E '^\+[^+]|^\-[^-]' | wc -l || true)
 
+[ "$DIFF_COUNT" -eq 0 ] || diff -u "$MANIFEST_BEFORE" "$MANIFEST_AFTER" | head -120
 rm -f "$MANIFEST_BEFORE" "$MANIFEST_AFTER"
 
 if [ "$DIFF_COUNT" -eq 0 ]; then

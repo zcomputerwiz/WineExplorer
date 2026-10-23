@@ -452,9 +452,11 @@ for u in $C3_USERS; do
             expect_fact "c3_${nm}_service_cannot_write_machine_root" "$f" machine_root_write denied
         done
         expect_privs c3_localservice_service_privileges "$SVCDIR/ls.txt" SeAssignPrimaryTokenPrivilege:D SeAuditPrivilege:D \
-            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeShutdownPrivilege:D SeUndockPrivilege:D
+            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeIncreaseWorkingSetPrivilege:D \
+            SeShutdownPrivilege:D SeSystemtimePrivilege:D SeTimeZonePrivilege:D SeUndockPrivilege:D
         expect_privs c3_networkservice_service_privileges "$SVCDIR/ns.txt" SeAssignPrimaryTokenPrivilege:D SeAuditPrivilege:D \
-            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeIncreaseQuotaPrivilege:D
+            SeChangeNotifyPrivilege:E SeCreateGlobalPrivilege:E SeImpersonatePrivilege:E SeIncreaseQuotaPrivilege:D \
+            SeIncreaseWorkingSetPrivilege:D SeShutdownPrivilege:D SeTimeZonePrivilege:D SeUndockPrivilege:D
 
         # -- the Unix side: the system service keeps the system group, the other two lose it and are not dumpable
         P="$(svc_pid "$u" WexSvcSys)"; [ -n "$P" ] || fail "no WexSvcSys process"
