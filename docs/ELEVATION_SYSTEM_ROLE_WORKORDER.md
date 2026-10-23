@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: the system role and elevation as a Unix group (`wexsys`)
 
-Date: 2026-10-22. Status: phase 0 done, design calls decided; phases A and B done, C1, C2 and C3 done (see Results); the launcher is still off by default (constraint g: the user decides), F (documentation) is mostly in the commits. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
+Date: 2026-10-22. Status: phase 0 done, design calls decided; phases A and B done, C1, C2 and C3 done (see Results); the launcher is on by default since 2026-10-23 (constraint g met; `WEX_SYSRUN_ENABLE=0` opts out), F (documentation) is mostly in the commits. Part of `ELEVATION_BOUNDARY_PLAN.md`; implements step 2b
 item 5 and decision D2, and gives the broker (step 4) and polkit consent (step 6) their Unix anchor.
 
 ## Why
@@ -96,7 +96,7 @@ Answer with `file:line`, from `/home/user/wine-dev` and `/home/user/WineExplorer
 
 The launcher alone is not safe to install setgid: a process with egid `wexsys` that consumes the user's prefix
 (`dosdevices`, `user.reg` DLL overrides, the `system.reg` symlink) can be made to run user code or overwrite machine
-files. Until these hold, `setup-machine-root.sh` installs the launcher only with `WEX_SYSRUN_ENABLE=1`.
+files. These now hold (2026-10-23): `setup-machine-root.sh` installs the launcher by default; `WEX_SYSRUN_ENABLE=0` opts out.
 
 a. A process with egid `wexsys` never reads the user's prefix. System-role clients run with `WINEPREFIX` = the
    machine root (root-owned `dosdevices` and drive mapping) and connect to the user's server through a socket that
@@ -641,7 +641,7 @@ Date: 2026-10-22. Phases C and D, the probes of phase E and step 2b item 5, hono
 with the launcher-started server and elevation enforced; without either, stock behavior (one exception: sechost's
 service security calls, below).
 
-**The default stays off.** `setup-machine-root.sh` still installs the launcher only with `WEX_SYSRUN_ENABLE=1`. The
+**The default was off at this point (flipped on 2026-10-23, see "Launcher on by default").** `setup-machine-root.sh` then installed the launcher only with `WEX_SYSRUN_ENABLE=1`. The
 probes below pass; the decision is the user's (item 7).
 
 #### What was built
@@ -822,3 +822,12 @@ Tests after the fixes: `test_sysrun_server.sh` section 8 (fresh fixture, both us
 3728/0 (both architectures), ntdll info 2820/0 and 2742/0 (counts vary with the environment), shlexec 1805/2 (the known
 two), limited, registry, pipe and consent PASS.
 
+### Launcher on by default (2026-10-23)
+
+Condition met: constraint g (C3) plus the local validation runs in `ELEVATION_LOCAL_VALIDATION_WORKORDER.md`. The user
+approved the flip. `setup-machine-root.sh` now installs `wex-sysrun` (root:wexsys, 2755) unless `WEX_SYSRUN_ENABLE=0`.
+`WEX_SYSRUN_BIN` still installs a prebuilt binary. Packaging: `installer/package-wine.sh` builds the launcher and
+ships it as `/usr/local/bin/wex-sysrun.bin`; the packaged setup script `wex-setup-machine.sh` installs it from there
+(no source tree or compiler on the target). Packaging was not run here, only `bash -n`. `scripts/test_wex_sysrun.sh`:
+60 checks pass ("installs by default", "`WEX_SYSRUN_ENABLE=0` opts out"); `test_b3_machine_root.sh` passes (its runs
+set `WEX_SYSRUN_ENABLE=0` so they do not write to the real `/usr/local/libexec` and `/etc/wineexplorer`).

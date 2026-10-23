@@ -312,16 +312,17 @@ LEFTOVER="$(find "$MACHINE_ROOT" ! -type l \( ! -user root -o ! -group "$MACHINE
 [ -z "$LEFTOVER" ] || die "migration incomplete: $LEFTOVER is not root:$MACHINE_GROUP"
 
 # 2b. Install the launcher wex-sysrun (tools/wex-sysrun) root:$MACHINE_GROUP, mode 2755, in a root-owned
-# directory, with its root-owned configuration of fixed paths. DISABLED BY DEFAULT: it stays off until phase C of
-# ELEVATION_SYSTEM_ROLE_WORKORDER.md lands its "Constraints for phase C", because a wexsys process that reads the
-# user's prefix (dosdevices, user.reg, the system.reg symlink) can be made to run user code or overwrite machine
-# files. WEX_SYSRUN_ENABLE=1 installs it (tests only). WEX_SYSRUN_BIN installs a prebuilt binary instead of
-# building from the source next to this script.
-if [ "${WEX_SYSRUN_ENABLE:-0}" = "1" ]; then
+# directory, with its root-owned configuration of fixed paths. ON BY DEFAULT: the constraints of
+# ELEVATION_SYSTEM_ROLE_WORKORDER.md (phase C) are met and validated (ELEVATION_LOCAL_VALIDATION_WORKORDER.md).
+# WEX_SYSRUN_ENABLE=0 opts out. WEX_SYSRUN_BIN installs a prebuilt binary instead of building from the source next
+# to this script; a packaged setup finds the binary wex-sysrun.bin next to itself.
+if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
     SYSRUN_DIR="${WEX_SYSRUN_DIR:-/usr/local/libexec/wineexplorer}"
     SYSRUN_CONF="${WEX_SYSRUN_CONF:-/etc/wineexplorer/sysrun.conf}"
     SYSRUN_SRC="$(dirname -- "$(readlink -f -- "$0")")/../tools/wex-sysrun/wex-sysrun.c"
     SYSRUN_TMP="$(mktemp -d)"
+    SYSRUN_PKG="$(dirname -- "$(readlink -f -- "$0")")/wex-sysrun.bin"
+    [ -n "${WEX_SYSRUN_BIN:-}" ] || [ ! -f "$SYSRUN_PKG" ] || WEX_SYSRUN_BIN="$SYSRUN_PKG"
     if [ -n "${WEX_SYSRUN_BIN:-}" ]; then
         cp -- "$WEX_SYSRUN_BIN" "$SYSRUN_TMP/wex-sysrun"
     elif [ -f "$SYSRUN_SRC" ] && command -v cc >/dev/null 2>&1; then
