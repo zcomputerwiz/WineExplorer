@@ -377,3 +377,84 @@ member: exit 0, advapi32 security 0 failures, shlexec 1805 tests 2 failures (the
 failures; `--focused` (sets the helper itself) as a `sudo` member and as a standard user: exit 0 / exit 0. All fixture
 users, groups, `/etc/wineexplorer` and `/usr/local/libexec/wineexplorer` were removed. Not rerun: S2, S3, S4 (need the
 installed guest and the broker).
+
+### Results, second validation run (2026-10-23, after the follow-up fixes)
+
+Sources: WineExplorer `claude/elev-validation-2` from `1d3add0f`, Wine `gemini/token-security-b` at `1309a1db`
+(WoW64: `configure --enable-archs=i386,x86_64`, `make -j14`), wexcomp `acc46fe6`. Built in Debian WSL (kernel
+6.18.33.2-microsoft-standard-WSL2, `ptrace_scope` 1, `suid_dumpable` 0); the earlier leftovers (guest disk,
+`/var/tmp/elev`, `/opt/elev`, users `tkadm` and `tkstd`) were removed first. Fresh ISO (1.7 GB), fresh QEMU guest
+`elev-val2` (kernel 6.12.113+deb13-amd64).
+
+Step 1, reinstall and acceptance (guest as root; `check_s1_32/64.exe` prebuilt, `gcc` and `acl` added to the guest):
+
+| Test | Result |
+| :--- | :--- |
+| `install-interactive.sh` (incl. `check-wow64.sh`) | PASS |
+| `test_s2_acceptance.sh` | **PASS** (Test 6 now passes); WAITING: COW break by an administrator's own session; Carol modifying Alice's files |
+| `test_s3_acceptance.sh` | PASS; WAITING: Case 1 COM/Uninstall by Alice, Case 3 and 3b (HKLM persistence needs two administrator sessions), Case 4 |
+| `test_s4_acceptance.sh` | PASS; WAITING: Alice's own session installing into Program Files |
+
+Step 2, Part 3 phase P1 and P2 repeated in the new guest (alice in `sudo`, bobsmith standard; command line, own prefix
+and fresh `wineserver` each):
+
+| Check | P1 (launcher on, helper unset) | P2 (launcher on, helper set) |
+| :--- | :--- | :--- |
+| `reg add HKLM\Software\WexProbe...` | succeeds in the session | denied ("Unable to access or create the specified registry key"), key not visible afterwards |
+| `system.reg` md5 before / after each session | `39c99d30...` before and after alice, and after bobsmith (unchanged); `WexProbe` lines in `system.reg`: 0 | `64f47250...` before and after both sessions (unchanged); 0 lines |
+| `mkdir "C:\Program Files\..."` | Access denied | Access denied |
+| `sc create` | succeeds in the session, not persisted | denied (`failed to open service manager: 5`) |
+| 32-bit and 64-bit console program | ok | ok |
+| `wineserver` ids | uid=gid=egid=user, sgid 987 | same |
+| `winehid` or `kernel_writewatch_init`/`pagemap` lines | none | none (0 matches in all stderr files) |
+
+The only `err:` lines left in these runs are the headless first start of a prefix without a display
+(`nodrv_CreateWindow`, `systray`, `winemenubuilder.exe` 126). `system.reg` stayed `root:wexsys` 664 and the machine
+root `root:wexsys` 2775.
+
+Step 3, Part 3 graphical steps, driven by me through the guest's QEMU display (screenshots, mouse and keyboard through
+the monitor; no human input), in the default WineExplorer (X11) session. The guest had the launcher installed and the
+helper set (`HKLM\Software\Wine\Elevation\Helper`), as in P2. Note: this is the installed WineExplorer XP-style desktop
+(logonui Welcome screen, Explorer shell), not Openbox; the guest has no Openbox session. Screenshots are in
+`build/ev/` of the working tree (not committed).
+
+As `bobsmith` (standard user, passwordless):
+
+| Step | Result |
+| :--- | :--- |
+| Log on from the Welcome screen, desktop with icons | pass (about 5 s) |
+| Explorer: My Computer, `C:\`, `C:\windows`, `C:\Program Files` | pass: listings shown (`Common Files`, `Internet Explorer`, `Windows Media Player`, `Windows NT` in Program Files); no crash |
+| Create a folder in `C:\Program Files` ("Make a new folder") | no folder created, no dialog, no crash (still 4 objects; nothing new on disk) |
+| `regedit` (Run): read `HKLM\Software` | pass (`Hardware`, `Software`, `System` listed) |
+| `regedit`: create a key under `HKLM\Software` | denied: dialog "Unable to create a new registry key." |
+| `regedit`: create a key under `HKCU` | pass |
+| `notepad`: type text, Save As in `My Documents` | pass: `bobnote.txt` is at `/home/bobsmith/.wine/drive_c/users/bobsmith/Documents/` |
+| `taskmgr` Processes: `services.exe`, `winedevice.exe` (two), `plugplay.exe`, `svchost.exe`, `rpcss.exe` listed | pass |
+| `taskmgr`: End Process on `services.exe` and on `winedevice.exe` | denied, "Unable to Terminate: Access denied. (5)" |
+| `taskmgr`: Set Priority to High on `services.exe` | denied, "Unable to Change Priority: Access denied. (5)" |
+| 32-bit program | passed earlier on the same guest image in `check-wow64.sh` (window drawn, 32-bit and 64-bit notepad); not repeated in this session |
+| Log off | pass; afterwards only the greeter's `wineserver` (uid 102) is left, none of `bobsmith`; `system.reg` unchanged |
+
+During bobsmith's session, from the guest console: `ps -o pid,uid,gid,egid,sgid,args -C wineserver` showed
+uid 1001, gid 1001, egid 1001, sgid 987 (`wexsys`) for the user's `wineserver`;
+`ls -l system.reg` = `root:wexsys` 664, md5 `64f47250...` as before the session, no `WexGui` string in it.
+
+As `alice` (in `sudo`, password logon): the desktop appeared but **without the desktop icons** (only the taskbar), see
+open observation 1. `regedit`: creating a key under `HKLM\Software` is denied with the same dialog; `taskmgr`:
+End Process on `services.exe` denied ("Access denied. (5)"). Not done as alice: Explorer browsing, notepad, folder
+creation in `Program Files`, `sc`; the Alice session was a shortened pass.
+
+Not done: `sc query`, `sc qc`, `sc create` in the GUI session (the Wine `sc.exe` does not support them; the command-line
+`sc create` denial is recorded in step 2), the log-out-and-in of Alice, the display-manager restart.
+
+Open observations (no verdict): 
+1. Alice's desktop has no icons after the test sequence (S2, S3, S4 reset her prefix; launcher on and helper set).
+   Right after the install, before the tests, Alice's desktop had them (`15-alice-desktop.png`), and Bob's after the same
+   tests did. I did not find out whether the test resets, the helper or the administrator token causes it.
+2. The `kernel_writewatch_init` and `winehid` lines are gone in the command-line runs (step 2); I did not read the
+   session logs of the graphical runs.
+
+Step 4, cleanup: done at the start of this run for the earlier leftovers (guest `elev-val` disk, `/var/tmp/elev`,
+`/opt/elev`, `/opt/wexbuild`, users `tkadm` and `tkstd`, group `tkadmg`) in Debian WSL; the Proton build VM is not
+running. The leftovers of this run (guest `elev-val2` under `/var/tmp/wineexplorer-vmtest`, `/var/tmp/elev`, the
+`/tmp/.X11-unix` tmpfs mounts were private to `unshare`) are kept until the pull request is reviewed.
