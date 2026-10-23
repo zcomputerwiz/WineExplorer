@@ -40,7 +40,8 @@ wex_prepare_prefix()
                    -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
                 "$WINEPREFIX/system.reg"
         fi
-        "$WINE" regsvr32.exe /s shell32.dll
+        # Per-user setup only (shell32 DllInstall "U", as Windows' Active Setup); the machine part was done by wineboot.
+        "$WINE" regsvr32.exe /s /n /i:U shell32.dll || echo "warning: regsvr32 /n /i:U shell32.dll failed (exit $?): the profile folders may be missing" >&2
         "$(dirname "$WINE")/wineserver" -k
         sleep 1
     fi

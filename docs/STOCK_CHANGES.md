@@ -726,6 +726,7 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
   - Removed `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` environment bypasses.
   - Implemented genuine PAM shadow password verification via `/sbin/unix_chkpwd <username> nullok`.
   - Added root-only opt-in fixture `/etc/wineexplorer/test-elevation.conf`.
+- `dlls/shell32/shell32_main.c`, `shellpath.c`, `shell32_main.h` (always; upstreamable): `DllInstall(TRUE, L"U")` (was a stub) does the per-user setup, as Windows' Active Setup does at first logon (`regsvr32 /s /n /i:U shell32.dll`): `_SHRegisterUserShellFolders(FALSE)` (HKCU, creates the user's folders) and `create_extra_folders(TRUE)` (TEMP/TMP, Temp, Themes, AccountPictures, Screenshots; not the COMMON_APPDATA step). It writes no HKLM, so it works when the elevation helper denies machine writes, where `DllRegisterServer` stops at its first HKLM write and never creates the folders. `DllRegisterServer` and other `DllInstall` arguments are unchanged.
 
 ## License headers
 

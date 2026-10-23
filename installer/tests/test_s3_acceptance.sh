@@ -85,7 +85,9 @@ reset_all_users() {
         rm -rf "/home/$u/.wine"
         cp -a "$SKEL_PFX" "/home/$u/.wine"
         mkdir -p "/home/$u/.wine/drive_c/users/$u"
-        sed -i -e "s/users\\\\wexsetup/users\\\\$u/g" "/home/$u/.wine/user.reg"
+        # The registry text has two backslashes between path parts, so sed needs four in the double-quoted script.
+        sed -i -e "s/\\\\\\\\users\\\\\\\\wexsetup\\\\\\\\/\\\\\\\\users\\\\\\\\$u\\\\\\\\/g" \
+               -e "s/\\\\\\\\users\\\\\\\\wexsetup\"/\\\\\\\\users\\\\\\\\$u\"/g" "/home/$u/.wine/user.reg"
         chown -R -h "$u:$u" "/home/$u/.wine"
     done
     verify_symlinks "initial reset"
