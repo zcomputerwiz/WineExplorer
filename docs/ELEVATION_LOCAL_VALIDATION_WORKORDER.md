@@ -458,3 +458,82 @@ Step 4, cleanup: done at the start of this run for the earlier leftovers (guest 
 `/opt/elev`, `/opt/wexbuild`, users `tkadm` and `tkstd`, group `tkadmg`) in Debian WSL; the Proton build VM is not
 running. The leftovers of this run (guest `elev-val2` under `/var/tmp/wineexplorer-vmtest`, `/var/tmp/elev`, the
 `/tmp/.X11-unix` tmpfs mounts were private to `unshare`) are kept until the pull request is reviewed.
+
+### Results, why Alice's desktop has no icons (2026-10-23)
+
+Same guest (`elev-val2`, Wine `1309a1db`, WineExplorer `1d3add0f` plus PR 29), one change at a time, each time a
+cold boot, a logon from the Welcome screen and a collector run as root in the live session. The launcher default was
+not touched; the launcher and the helper were switched only in this disposable guest (launcher: the
+`/usr/local/libexec/wineexplorer` directory and `/etc/wineexplorer/sysrun.conf` moved away; helper:
+`HKLM\Software\Wine\Elevation\Helper` removed from or added to `system.reg` offline). Before every Alice run her
+prefix was reset exactly the way `reset_all_users()` of `installer/tests/test_s3_acceptance.sh` does it (copy of
+`/etc/skel/.wine`, `mkdir users/alice`, `chown`). Explorer ran with
+`WINEDEBUG=-all,err+all,fixme+all,+shell,+file` (via `~/.xsessionrc`); the logs (about 3 MB each, `+file` is noisy) are
+in `build/al/out/<scenario>/` of the working tree, not committed.
+
+**Cause.** The first logon of an account runs `"$WINE" regsvr32.exe /s shell32.dll` as that user
+(`scripts/wine-explorer-session-common.sh:43`, block "First logon of an account made by Setup", line 27 onward).
+`DllRegisterServer` of shell32 (`dlls/shell32/shell32_main.c:1122`) first runs `__wine_register_resources()`, which
+writes `HKLM\Software\Classes\Typelib\...`; with the elevation helper set the server denies that write to the limited
+token (`NtSetValueKey` -> 5, `warn:atl:do_process_key Could set value of key: 00000005`,
+`regsvr32.exe` exit 5, trace in `build/al/regsvr32-shell32.trace`). The function returns the error, so
+`SHELL_RegisterShellFolders()` (`dlls/shell32/shellpath.c:4731`: per-user shell folders, `create_extra_folders()`)
+never runs and the profile folders (`Desktop`, `Documents`, `Downloads`, `Favorites`, `Links`, `Music`, `Pictures`,
+`Videos`, `Searches`, `Contacts`, `Saved Games`) are never created. The `/s` switch hides the failure; the session
+continues with `users/<name>/` holding only `AppData`, and the shell shows the taskbar but no desktop icons
+(`C:\users\alice\Desktop` does not exist: `GetFileAttributesW` fails in the `+file` trace). The registry values are
+identical with and without the failure (`"Desktop"="C:\\users\\alice\\Desktop"` in `user.reg`, from the sed in the
+same script); only the directories are missing.
+
+It is **not** specific to Alice, to the administrator token, to the launcher or to the S2/S3/S4 tests: it happens
+at the first logon of any account whose prefix is a template copy when the helper is set.
+
+| Scenario | Launcher | Helper | Account, prefix | `regsvr32 shell32.dll` | `Desktop` folder (owner, mode) | Icons |
+| :--- | :---: | :---: | :--- | :--- | :--- | :---: |
+| s1 | on | set | alice (`sudo`), reset | **Failed** | absent (profile: `AppData` only) | no |
+| s2 | on | unset | alice, reset | Successfully registered | alice:alice 755, empty | yes |
+| s3 | off | set | alice, reset | **Failed** | absent | no |
+| s4 | off | off | alice, reset | Successfully registered | alice:alice 775, empty | yes |
+| s5 | on | set | new `sudo` user carol2 (`useradd -m`, passwordless) | **Failed** | absent | no |
+| s6 | on | set | bobsmith (already personalized at install) | not run (`wexsetup` names already replaced) | bobsmith:bobsmith 775 | yes |
+| s7 | on | set | carol2 with the folders created by hand before logon | not run | carol2 755 | yes |
+
+So the helper is the only switch that matters (s1 vs s2, s3 vs s4); s7 shows that creating the missing directories
+is enough to bring the icons back with the helper set. `Public Desktop`
+(`/var/lib/wineexplorer/machine/drive_c/users/Public/Desktop`) was empty, `root:wexsys` `drwxrwsr-x+`, in every
+scenario: no `.lnk` files exist there, so no link points at an unreadable file; the icons (My Computer, My Documents,
+Recycle Bin, ...) come from the shell namespace and need only the user's `Desktop` directory. The only `err:` line of
+every session is the known `winemenubuilder.exe -a -r (126)`; explorer logged no `err:` or `fixme:` of its own in her
+session.
+
+**Step 3, did S2, S3 and S4 change Alice's prefix?** Yes, S3 does: `reset_all_users()`
+(`installer/tests/test_s3_acceptance.sh:82`) deletes `/home/alice/.wine` and `/home/bob/.wine` and copies the template,
+and on the installed guest `alice` is the account the installer made, so her real prefix is replaced. S2 initialises the
+same prefixes. The reset also keeps the template user name: the `sed` at line 88
+(`s/users\\\\wexsetup/users\\\\$u/g` in the script, i.e. one backslash after `users` in sed) never matches the
+registry text, which has two backslashes, so `user.reg` still says `wexsetup` after the reset; that is why the next
+logon runs the first-logon block above. The machine root ownership change (`root:wexsys`) did not matter here: the Public
+Desktop and Alice's profile are readable. Alice's prefix after the tests: `drive_c/users/alice` only holds `AppData`
+(created at the failed first logon), her `user.reg` is the personalized template.
+
+**Proposed fix** (not applied; product code was not touched):
+
+1. `scripts/wine-explorer-session-common.sh:43`: do not depend on `regsvr32` for the per-user part. The machine-wide
+   registration should come from the machine setup (`scripts/setup-machine-root.sh` runs `wineboot -i` as root; I did
+   not check that it includes everything `DllRegisterServer` of shell32 writes), so after the rename of the template
+   user only the profile folders are needed (s7 shows that suffices). Smallest fix, no Wine change: after the `sed`
+   block, `mkdir -p` the folders (`Desktop Documents Downloads Favorites Links Music Pictures Videos Searches Contacts
+   "Saved Games"` under `$WINEPREFIX/drive_c/users/$USER`; s2 and s4 list the full set, including
+   `Documents/My Music`, `My Pictures`, `My Videos` links and `desktop.ini`, and `Pictures/Screenshots`) and keep
+   `regsvr32` only as the fallback when the helper is unset. Also stop discarding the result: log
+   `regsvr32 failed (exit N)` so the next case is visible. Alternative with a stock change (list it in
+   `docs/STOCK_CHANGES.md`): make shell32 `DllInstall(TRUE, L"user")` (a stub today, `shell32_main.c:1113`) run only the
+   per-user part (`_SHRegisterUserShellFolders(FALSE)` and `create_extra_folders()`), and call
+   `regsvr32 /s /n /i:user shell32.dll`.
+2. Test: `installer/tests/test_s3_acceptance.sh:88` and the same reset in `test_s2_acceptance.sh`: use the right
+   number of backslashes (or do not rename at all), and run the tests with their own users (for example `wext-alice`),
+   not with the installed accounts `alice` and `bob`, so an acceptance run does not replace a real account's prefix.
+   Add one check that a freshly created user with the helper set gets a `Desktop` directory.
+
+Cleanup: after this run the guest `elev-val2` and `/var/tmp/elev` are deleted (see the PR description); the guest was
+left with launcher on, helper set and the carol2 account, which is gone with it.
