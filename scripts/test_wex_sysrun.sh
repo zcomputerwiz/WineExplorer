@@ -334,7 +334,7 @@ wait "$SYS_PID" 2>/dev/null || true; SYS_PID=""
 S="$FIX/setup"; mkdir -p "$S/m/drive_c/windows/system32"
 setup_run()
 {
-    env WEX_MACHINE_ROOT="$S/m" WEX_SKEL_PFX="$S/skel" WEX_BACKUP_DIR="$S/bk" WEX_MACHINE_GROUP="$GRP" \
+    env -u WEX_SYSRUN_ENABLE WEX_MACHINE_ROOT="$S/m" WEX_SKEL_PFX="$S/skel" WEX_BACKUP_DIR="$S/bk" WEX_MACHINE_GROUP="$GRP" \
         WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_DIR="$S/lib" WEX_SYSRUN_CONF="$S/etc/sysrun.conf" "$@" \
         bash "$SRC_DIR/../../scripts/setup-machine-root.sh" --update >/dev/null 2>&1
 }

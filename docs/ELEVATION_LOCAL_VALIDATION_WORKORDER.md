@@ -107,4 +107,225 @@ step list, and every product bug found with file:line. Then open the pull reques
 
 ## Results
 
-(none yet)
+### Environment
+
+| Item | Value |
+| :--- | :--- |
+| Windows host | 10.0.26300.0 (Windows 11 Pro) |
+| WSL kernel (Debian) | 6.18.33.2-microsoft-standard-WSL2 |
+| `yama/ptrace_scope` / `suid_dumpable` (Debian WSL) | 1 / 0 |
+| WineExplorer | branch `claude/elev-local-validation` from `9ae0203c` |
+| Wine (`gemini/token-security-b`) | `cc8a92f6` |
+
+Parts 2 and 3: not run yet (see "Status").
+
+### Part 1: native tokens (measured 2026-10-22, elevated by the user)
+
+Method: one-shot scheduled tasks (`schtasks /ru`) running `whoami /all`. **Caveat:** these are Task Scheduler
+tokens, not Service Control Manager service tokens. Task-specific groups (`NT SERVICE\Schedule`, `NT TASK\<task>`)
+and the absence of SeImpersonate on LocalService/NetworkService may differ for a real service (SCM is documented to
+add SeImpersonate); that was not measured. Raw output: `build/elevation-validation/tokens/*.txt` (not committed).
+`whoami` does not print the primary group, owner or default DACL.
+
+Integrity: **System Mandatory Level (S-1-16-16384)** for all three. Matches Wine (`system_label_sid`).
+
+**Groups** (all `Mandatory group, Enabled by default, Enabled group` unless noted):
+
+| Group | SYSTEM S-1-5-18 | LocalService S-1-5-19 | NetworkService S-1-5-20 |
+| :--- | :---: | :---: | :---: |
+| Everyone S-1-1-0 | yes | yes | yes |
+| BUILTIN\Users S-1-5-32-545 | yes | yes | yes |
+| NT AUTHORITY\SERVICE S-1-5-6 | yes | yes | yes |
+| CONSOLE LOGON S-1-2-1 | yes | yes | yes |
+| Authenticated Users S-1-5-11 | yes | yes | yes |
+| This Organization S-1-5-15 | yes | yes | yes |
+| LOCAL S-1-2-0 | yes | yes | yes |
+| BUILTIN\Administrators S-1-5-32-544 | yes, not mandatory, Group owner | no | no |
+| Per-task SID (not mandatory; owner) | `NT SERVICE\Schedule` S-1-5-80-... | `NT TASK\wex-localservice` S-1-5-87-... | `NT TASK\wex-networkservice` S-1-5-87-... |
+| Unknown `S-1-5-32-<8 subauthorities>` (mandatory) | no | 8 of them | no |
+
+**Privileges** (E = enabled, d = disabled; "-" = absent):
+
+| Privilege | SYSTEM native | SYSTEM Wine | LocalService native | LS Wine | NetworkService native | NS Wine |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| SeAssignPrimaryToken | d | d | d | d | d | d |
+| SeLockMemory | E | E | - | - | - | - |
+| SeIncreaseQuota | d | d | - | - | d | d |
+| SeTcb | E | E | - | - | - | - |
+| SeSecurity | d | d | - | - | - | - |
+| SeTakeOwnership | d | d | - | - | - | - |
+| SeLoadDriver | d | d | - | - | - | - |
+| SeSystemProfile | E | E | - | - | - | - |
+| SeSystemtime | d | d | d | - | - | - |
+| SeProfileSingleProcess | E | E | - | - | - | - |
+| SeIncreaseBasePriority | E | E | - | - | - | - |
+| SeCreatePagefile | E | E | - | - | - | - |
+| SeCreatePermanent | E | E | - | - | - | - |
+| SeBackup | d | **E** | - | - | - | - |
+| SeRestore | d | **E** | - | - | - | - |
+| SeShutdown | d | **E** | d | d | d | - |
+| SeDebug | E | E | - | - | - | - |
+| SeAudit | E | E | d | d | d | d |
+| SeSystemEnvironment | d | **E** | - | - | - | - |
+| SeChangeNotify | E | E | E | E | E | E |
+| SeUndock | d | d | d | d | d | - |
+| SeManageVolume | d | **E** | - | - | - | - |
+| SeImpersonate | E | E | - | **E** | - | **E** |
+| SeCreateGlobal | E | E | E | E | E | E |
+| SeIncreaseWorkingSet | E | - | d | - | d | - |
+| SeTimeZone | E | - | d | - | d | - |
+| SeCreateSymbolicLink | E | - | - | - | - | - |
+| SeDelegateSessionUserImpersonate | E | - | - | - | - | - |
+| SeRemoteShutdown | - | d | - | - | - | - |
+
+### Differences to fix (Wine `token_create_service`, `server/token.c:898`; not changed here)
+
+SYSTEM:
+1. Wine enables SeBackup, SeRestore, SeShutdown, SeSystemEnvironment, SeManageVolume; native has them **disabled**.
+2. Wine has SeRemoteShutdown (disabled); native SYSTEM has none.
+3. Wine lacks SeIncreaseWorkingSet, SeTimeZone, SeCreateSymbolicLink, SeDelegateSessionUserImpersonate (all enabled
+   natively). Wine defines no LUID for them.
+4. Groups: Wine has only Everyone, Authenticated Users, Administrators (owner, primary). Native also has BUILTIN\Users,
+   SERVICE, CONSOLE LOGON, This Organization, LOCAL and a per-service SID. Administrators is not mandatory natively
+   (Wine sets MANDATORY).
+
+LocalService:
+5. Wine has SeImpersonate enabled; absent in the measured token (see caveat: SCM services may differ).
+6. Wine lacks SeIncreaseQuota, SeSystemtime, SeIncreaseWorkingSet, SeTimeZone (all disabled natively).
+7. Groups: Wine lacks CONSOLE LOGON, This Organization, per-service/task SID, and the eight unknown S-1-5-32-* SIDs
+   (these look service-specific; do not copy them).
+
+NetworkService:
+8. Wine has SeImpersonate enabled (absent natively, same caveat).
+9. Wine lacks SeShutdown, SeUndock, SeIncreaseWorkingSet, SeTimeZone (all disabled natively).
+10. Groups: same missing groups as LocalService, minus the eight unknown SIDs (NetworkService had none).
+
+Integrity, user SIDs, SeChangeNotify and SeCreateGlobal (enabled), SeAssignPrimaryToken, SeAudit (LS/NS): match.
+
+Cleanup: scheduled tasks deleted by the script; `C:\wex-tokens` removed after the copy.
+
+Note on the Wine side: the Wine branch moved after the work order was written. This run used Wine `c2b4fb9`, which
+contains `117b0a7` ("align SYSTEM, LocalService, NetworkService and filtered tokens with native measurements"). Against
+that commit the remaining differences from the tables above are: LocalService and NetworkService still hold
+SeImpersonate (enabled; absent in the measured scheduled-task tokens, possibly added by the SCM for real services,
+not measured), LocalService has no SeIncreaseQuota, and the group lists (items 4, 7, 10) are as before. The test
+expectations below were updated to what Wine now produces.
+
+### Part 2: build, install, acceptance tests
+
+Environment (all rows recorded in the same run):
+
+| Item | Build and test host (Debian WSL) | Installed system (QEMU/KVM guest `elev-val`) |
+| :--- | :--- | :--- |
+| Kernel | 6.18.33.2-microsoft-standard-WSL2 | 6.12.113+deb13-amd64 |
+| `yama/ptrace_scope` | 1 | 0 |
+| `fs/suid_dumpable` | 0 | 0 |
+| Filesystem for setgid | ext4 (`/var/tmp`, `/opt`) | ext4 root |
+| Sources | WineExplorer `claude/elev-local-validation` (from `9ae0203c`), Wine `gemini/token-security-b` at `c2b4fb9`, wexcomp `acc46fe6` | same ISO |
+
+Deviation: the Proton build VM (SSH 2223) has 1.3 GB free on `/` and 9 GB on `/srv`, too little for a WoW64 build, so
+I powered it off unused (it is not running now) and built in Debian WSL under `/var/tmp/elev` (a shallow clone of the
+Wine fork; the WineExplorer tree came from `git archive` because a GitHub clone of it stalled). Build: `assemble.sh`,
+`configure --enable-archs=i386,x86_64 --prefix=/usr/local`, `make -j14`: ok. ISO: `installer/build-iso.sh --clean`:
+ok, 1.7 GB. Install: `installer/tests/install-interactive.sh` (VM `elev-val`, 20 GB disk): **PASS**, including the
+Alice/Bob logons and `check-wow64.sh` (32-bit and 64-bit test programs, 32-bit and 64-bit notepad, Alice denied
+direct writes to the machine root, root install, Bob runs it and is denied, Fluent theme listed).
+
+Machine root ownership, fresh install (identical after `setup-machine-root.sh --update`): `root:wexsys` 2775 for the
+root, `drive_c`, `windows`, `system32`, `Program Files`; `system.reg` and `userdef.reg` 664, `user.reg` 644, all
+`root:wexsys`; ACL `group:wexsys:rwx` plus the same default ACL; group `wexsys` (gid 987) has no members; Alice is
+in `sudo`. No pre-migration `root:sudo` machine root existed; the migration is covered by `test_b3_machine_root.sh`
+(`b3_migration_from_sudo`, `b3_migration_idempotent`) and by the setup output "Migrating machine root from group root
+to wexsys" during the S2 and S3 runs.
+
+| Test | Where | Result |
+| :--- | :--- | :--- |
+| `scripts/test_b3_machine_root.sh` | WSL | 13 of 13 PASS |
+| `test_s2_acceptance.sh` | guest | Tests 0 to 5 PASS; **Test 6 FAIL** (product bug 1); WAITING lines: COW break of `msvcp140.dll` by an administrator's own session; Carol modifying Alice's files |
+| `test_s3_acceptance.sh` | guest | PASS ("ALL PHASE S3 ACCEPTANCE TESTS PASSED"); WAITING: Case 1 (Alice registers COM class and Uninstall entry), Case 3 and 3b (HKLM persistence needs two administrator sessions), Case 4 (Alice's post-upgrade key) |
+| `test_s4_acceptance.sh` | guest | PASS; WAITING: Alice's own session installing into Program Files |
+| `check-wow64.sh` | guest (inside the install run) | PASS |
+| `scripts/test_wex_sysrun.sh`, `WEX_SYSRUN_ENABLE=1` | WSL | 60 of 60 PASS after the test fix (test bug 2) |
+| `scripts/test_sysrun_server.sh`, `WEX_SYSRUN_ENABLE=1` | WSL, build under `/opt/elev` | 123 of 123 PASS after the test fixes (test bugs 3 to 6) |
+| `check-token-security.py --all`, helper unset | WSL, as `sudo` member and as standard user, both archs | exit 0 / exit 0 after test bug 7: limited/standard shape, registry, pipe and consent PASS |
+| `check-token-security.py --focused` | WSL, as `sudo` member and as standard user | exit 0 / exit 0 |
+
+Failures, with causes (test assumption = fixed in this branch; product bug = not fixed):
+
+1. **Product bug: `--update` nests the themes.** S2 Test 6 compares the machine root before and after the root
+   `--update` and reports `FAIL: 77 unexpected changes in machine root!`. The diff (now printed by the test) is new
+   files `Themes/Fluent/Fluent/...`, `Themes/XP/XP/...` and `Themes/Luna/Luna/Luna.msstyles`.
+   `scripts/setup-machine-root.sh:251` runs `cp -rf "$theme_dir" ".../Themes/$tname"` with `$theme_dir` ending in a
+   slash; when the destination exists (every run after the first) `cp` copies into `.../$tname/$tname`. Proposed
+   patch: `cp -rfT "$theme_dir" ".../Themes/$tname"` (or `mkdir -p` the destination and copy `"$theme_dir".`).
+2. Test: `test_wex_sysrun.sh` check "setup installed the launcher without WEX_SYSRUN_ENABLE" fails when the caller
+   exports `WEX_SYSRUN_ENABLE=1`, which is how this work order says to run it. Fix: `env -u WEX_SYSRUN_ENABLE` in
+   `setup_run`.
+3. Test: `test_sysrun_server.sh` cleanup used `$XV_PID` unset (`set -u`), so an early failure aborted the cleanup
+   with "XV_PID: unbound variable" and left the group, users and `/var/lib/wexsys-c2` behind. Fixed with `${XV_PID:-}`.
+4. Environment: WSLg's `/tmp/.X11-unix` has mode 0777, not 1777, so Xvfb refuses to start. Run that test under
+   `unshare -m` with a tmpfs mounted over `/tmp/.X11-unix`.
+5. Test assumption: the launcher refuses a build tree below `/var/tmp` (world-writable directory), so the server
+   was not started through it and the test reported "server ids are not (user, user, saved wexsysc2)". The Wine build
+   dir must sit under a root-owned chain such as `/opt/elev/we/build/wow64` (with its source tree beside it, since the
+   build tree links into it).
+6. Test: `test_sysrun_server.sh` expected the old provisional privilege lists for LocalService and NetworkService;
+   updated to the lists from Wine `117b0a7`.
+7. Test: `test_token_security_regressions.cpp` expected exactly three privileges in the filtered token; Wine now also
+   gives SeIncreaseWorkingSet and SeTimeZone (disabled). Expected list updated.
+8. Test prerequisite, not in the repo: S2 and S3 need `/usr/local/bin/check_s1_32.exe` and `check_s1_64.exe`
+   (without them: `install: cannot stat '/usr/local/bin/check_s1_64.exe'`). Built from `installer/tests/test_s1.c`
+   with `-lversion` (i686 and x86_64 MinGW) and installed. Not documented anywhere I could find.
+9. Test cleanup leaves `winedevice.exe` of the test user running, so `userdel` of that user failed ("currently used
+   by process"); I killed it by hand.
+
+`XDG_RUNTIME_DIR is invalid or not set` is printed twice by `setup-machine-root.sh` when run as root from a script
+(noise from the wine invocations, not a failure).
+
+### Part 3: desktop session
+
+Only the command-line part was done. The graphical steps (Explorer, regedit, notepad, taskmgr, logging out and in
+through the display manager) were **not run**: driving them through OCR and screenshots in the guest was out of
+reach here, and they need a person or a longer session. What was run in the installed guest, as `alice` (in `sudo`)
+and `bobsmith` (standard), each with its own prefix and a fresh `wineserver`, in three phases: P0 no launcher, P1
+launcher installed with `WEX_SYSRUN_ENABLE=1 setup-machine-root.sh --update` and the helper unset, P2 launcher and the
+helper configured (`HKLM\Software\Wine\Elevation\Helper` written into the machine hive, offline, as root).
+
+| Step | P0 | P1 | P2 (helper set) |
+| :--- | :--- | :--- | :--- |
+| `mkdir "C:\Program Files\WexProbe..."` | Access denied | Access denied | Access denied |
+| `reg add HKLM\Software\WexProbe...` | succeeds | **succeeds** (writes system.reg) | **denied** ("Unable to access or create the specified registry key") |
+| `reg add HKCU\Software\WexProbe...` | ok | ok | ok |
+| `sc create` | succeeds | succeeds | **denied** (`failed to open service manager: 5`) |
+| 32-bit and 64-bit console program (`check_s1_32/64.exe`) | ok | ok | ok |
+| `tasklist` | ok | ok | ok (`services.exe` listed) |
+| `wineserver` ids | n/a | uid=gid=egid=user, sgid 987 (`wexsys`) | same |
+| `system.reg` | `root:wexsys` 664 | same | same |
+
+So the launcher alone changes nothing about what a user may write (P1); enforcement needs the helper (P2), as the
+plan says. The wineserver runs with the user's egid and `wexsys` as saved gid, and the machine root stays
+`root:wexsys` after every phase. `sc query` and `sc qc` are not supported by this Wine's `sc.exe` (usage / "command not
+supported"), so those steps could not be checked. `cd /d "C:\Program Files" && dir` printed "Path not found" in every
+phase including P0; that is a cmd quoting artifact of my script, so listing `Program Files` is unverified.
+
+Slowness: none; every command took 0.1 to 0.6 s. New `err:` lines compared with P0:
+- With the launcher (P1 and P2), seven lines `err:virtual:kernel_writewatch_init Error opening /proc/self/pagemap.`
+  per run (`dlls/ntdll/unix/virtual.c:301`). Hypothesis, not confirmed: processes started with the system group are
+  non-dumpable, so `/proc/self/pagemap` is root-owned to them; Wine falls back, but logs at ERR level. Proposed
+  patch: log it at TRACE/WARN, or open `/proc/self/pagemap` before the privilege drop.
+- With the helper (P2) also `err:plugplay:load_function_driver Failed to load driver L"winehid", status 0xc0000001`
+  twice, presumably because the user's own services cannot load drivers under enforcement; expected, but new noise.
+
+### Product bugs found
+
+1. `scripts/setup-machine-root.sh:251`: theme directories nested on `--update` (above).
+2. `dlls/ntdll/unix/virtual.c:301` (Wine): `err:` noise for processes started through the launcher (above).
+
+### Status
+
+Done: Part 1 (except the optional integrity-raise test, which needs the user's consent), Part 2 (all listed scripts
+run, one product bug), Part 3 command-line subset. Not done: Part 3 graphical steps; `--update` on a pre-migration
+`root:sudo` machine root outside the B3 fixture (none existed); the `WAITING` assertions need the broker.
+Leftovers: QEMU guest `elev-val` disk under `/var/tmp/wineexplorer-vmtest/elev-val` (stopped); build and ISO under
+`/var/tmp/elev` in Debian WSL; test users `tkadm`, `tkstd` and `/opt/elev` in Debian WSL. Logs are under
+`build/elevation-validation/` (not committed).
