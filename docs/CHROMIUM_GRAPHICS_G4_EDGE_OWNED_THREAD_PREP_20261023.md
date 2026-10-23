@@ -106,3 +106,21 @@ dispatch still needs1GiB pre-stage space,17 actual binary/11 deployed-source has
 650/435 rawUTC guards, inner/outer VirGL/private lo proof,285 runner/300 SSH/900
 launcher/90 shutdown reserve and exact identity SIGINT/QMP/child/Windows exits.
 No additional run, debugger plan or speculative production/security patch now.
+
+## Independent parent review: one diagnostic authorized
+
+Parent read all native/Python/runner/test and private dispatch changes. Independent
+170-test Linux rerun PASS/no skips, actual Node fixture and intercepted controller
+PASS, actual native-path X-socket control PASS at
+`/var/tmp/wex-owned-threads-parent-xsocket-20261023-r1`. Independent native x64
+cross-compile with -Wall -Wextra emitted no warnings (D: parent-owned-thread-observer
+PE; not executed). Parent's real owned Linux child inventory also passed, not Wine.
+The nested JSON bool/int review finding was corrected with regression coverage.
+
+Independently verified exact preflight/archive hashes above, all11 tar/current
+sources,5 actual helpers,2 seeds, installed reference,17 expected binaries, source/
+storage paths, opt-in flags, absent run and unchanged original HTML/JS hashes.
+ONE live owned-thread diagnostic is authorized with this immutable preparation,
+subject to all live gates above. No retries, debugger or additional run. Preserve
+native and Linux records independently, all query limitations and actual front;
+parent reviews before choosing any later stack observation or production patch.
