@@ -19,6 +19,18 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST: Chromium OFFLINE preparation ba5eb615 independently accepted46f971dd.
+Read CHROMIUM_READY_CHECKPOINT_20261023 FIRST after source mapping. Payload and
+all258 files verified, additive embedded-notice retention reviewed (original
+failure preserved),158 parent tests/no skips + full Node fixture pass. Exact
+immutable prep a89d0103.../archive60e3ff9c.../runtime manifest8fc037ca... audited.
+No Chromium guest staging/boot/browser yet. Near five-hour cutoff: do not start
+a new live step this window. NEXT AFTER reset20:30:34UTC is ONE exact prepared
+Chromium baseline with fresh usage/hash/space/identity checks. Existing wake
+20:35UTC remains enabled. No duplicate download/extraction/preparation or capacity
+maintenance. All owned processes stopped; original M wine remains unstaged.
+Older next-step text below is historical where it conflicts with this paragraph.
+
 User's latest approved direction: vanilla Windows x64 Chromium comparison FIRST.
 Read VANILLA_CHROMIUM_PLAN, CHROMIUM_CANDIDATE and CHROMIUM_PREP_HANDOFF_20261023.
 This supersedes the next Edge navigation-trace candidate below; preserve Edge
