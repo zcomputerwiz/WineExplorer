@@ -26,7 +26,7 @@ FIX2="/tmp/disposable-migrate-$$"
 
 cleanup()
 {
-    rm -rf "$FIXTURE" "$SKEL" "$BACKUPS" "$OUTSIDE" "$SHIM" "$FIX2" "$FIX2-backup"
+    rm -rf "$FIXTURE" "$SKEL" "$BACKUPS" "$OUTSIDE" "$SHIM" "$FIX2" "$FIX2-backup" "$FIX2-themes"
     userdel "$IN_USER" 2>/dev/null || true
     userdel "$DESKTOP_USER" 2>/dev/null || true
     groupdel "$GROUP2" 2>/dev/null || true
@@ -251,5 +251,18 @@ if WEX_MACHINE_ROOT="$FIX2" WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 WE
 fi
 grep -q "dedicated system group" /tmp/b3-sudo-$$.log || fail "sudo refusal has the wrong reason"
 echo "b3_sudo_group_refused=PASS"
+# --update must not nest the theme directories (S2 Test 6 compares the machine root before and after).
+mkdir -p "$FIX2-themes/Luna"
+echo style > "$FIX2-themes/Luna/Luna.msstyles"
+echo theme > "$FIX2-themes/Luna.theme"
+THEME_ROOT="$FIX2/drive_c/windows/Resources/Themes"
+mkdir -p "$THEME_ROOT/Luna/Luna"   # the nesting left behind by an earlier --update
+WEX_THEME_DATA_DIR="$FIX2-themes" run_setup2 --update >/tmp/b3-th1-$$.log 2>&1 || { cat /tmp/b3-th1-$$.log; fail "theme run 1 failed"; }
+find "$THEME_ROOT" | sort > /tmp/b3-th1-$$.txt
+WEX_THEME_DATA_DIR="$FIX2-themes" run_setup2 --update >/tmp/b3-th2-$$.log 2>&1 || { cat /tmp/b3-th2-$$.log; fail "theme run 2 failed"; }
+find "$THEME_ROOT" | sort > /tmp/b3-th2-$$.txt
+cmp -s /tmp/b3-th1-$$.txt /tmp/b3-th2-$$.txt || { diff /tmp/b3-th1-$$.txt /tmp/b3-th2-$$.txt || true; fail "--update changes the themes"; }
+[ -f "$THEME_ROOT/Luna/Luna.msstyles" ] && [ ! -e "$THEME_ROOT/Luna/Luna" ] || fail "theme directory nested: $(cat /tmp/b3-th2-$$.txt)"
+echo "b3_update_themes_not_nested=PASS"
 
 rm -f /tmp/b3-*-$$ /tmp/b3-*-$$.txt /tmp/b3-*-$$.log

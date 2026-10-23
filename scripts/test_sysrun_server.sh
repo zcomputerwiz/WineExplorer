@@ -63,7 +63,8 @@ cleanup()
     ! type standin_off >/dev/null 2>&1 || standin_off
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
     kill_servers
-    pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null
+    pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null   # includes winedevice.exe, which blocks userdel
+    sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
         echo "fixture kept: $ROOT, users $ADM $STD, group $GRP, $CONF, $LIBEXEC" >&2
@@ -202,8 +203,10 @@ ok c2_hklm_from_machine_root_with_diverted_symlink
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 [ "$(cat "$M/drive_c/windows/wex_marker2.txt")" = MARKER2 ] || fail "the machine-root file behind the prefix symlink was overwritten"
 ok c2_symlink_target_not_overwritten
-grep -q '"Written"="yes"' "$M/system.reg" || fail "the machine hive was not saved to the machine root"
-ok c2_machine_hive_saved_with_raised_group
+# Without an elevation helper nobody may persist machine hive changes: the server saves them only with the real
+# user's own rights (stock rule), and the machine hives belong to root and the system group.
+! grep -q '"Written"="yes"' "$M/system.reg" || fail "the machine hive was saved without enforced elevation"
+ok c2_machine_hive_not_saved_without_enforcement
 [ "$(stat -c '%U:%G' "$M/system.reg" "$M/userdef.reg" | sort -u)" = "root:$GRP" ] ||
     fail "a saved machine hive is not root:$GRP any more (its owner could change it): $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
 ok c2_machine_hives_stay_root_owned_after_save
@@ -212,6 +215,12 @@ for hive in system.reg userdef.reg; do
     run_as "$STD" ln -sfn "$M/$hive" "/home/$STD/.wine/$hive"
 done
 ok c2_prefix_links_left_alone
+for u in "$STD" "$ADM"; do
+    wine_as "$u" reg add 'HKLM\Software\WexUnenforced' /v "$u" /d 1 /f >/dev/null 2>&1 || fail "reg add HKLM as $u (the write must work in memory)"
+    prefix_server_env "$u" -k || true; prefix_server_env "$u" -w
+    ! grep -q 'WexUnenforced' "$M/system.reg" || fail "an HKLM write of $u reached the machine system.reg without enforced elevation"
+    ok "c2_unenforced_hklm_write_not_persisted_$u"
+done
 
 # ---- 4. (ii) a replacement server ------------------------------------------------------------------------------
 echo "--- replacement server (ii)"
@@ -333,6 +342,12 @@ for u in "$STD" "$ADM"; do
     done
     prefix_server_env "$u" -k || true; prefix_server_env "$u" -w
 done
+
+echo "--- machine hive writes, elevation enforced"
+wine_as "$STD" reg add 'HKLM\Software\WexEnforced' /v std /d 1 /f >/dev/null 2>&1 && fail "a standard user could write HKLM with enforced elevation"
+prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
+! grep -q 'WexEnforced' "$M/system.reg" || fail "a denied HKLM write of $STD reached the machine system.reg"
+ok c2_enforced_standard_user_hklm_write_denied_and_not_persisted
 
 # ---- 8. the system role (C3), elevation enforced --------------------------------------------------------------
 # services.exe, winedevice.exe and the LocalSystem service report SYSTEM; the LocalService and NetworkService
