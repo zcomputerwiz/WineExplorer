@@ -19,6 +19,12 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+User's latest approved direction: vanilla Windows x64 Chromium comparison FIRST,
+after required capacity maintenance. Read VANILLA_CHROMIUM_PLAN_20261023. This
+supersedes the next Edge navigation-trace candidate below; preserve Edge evidence
+and keep Edge as eventual target. At95%five-hour/60%weekly checkpoint only, no new
+implementation/run until reset15:27:29UTC Oct23; scheduled wake15:30UTC remains.
+
 Latest milestone: selected-stack R1 executed ONCE,0c4288ee; parent independently
 reviewed actual white front/122 archive hashes/19 binary+15 deployed source hashes,
 post native/Linux identities, privateLO and graceful shutdown, f41feae5. Eight
