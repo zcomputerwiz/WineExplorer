@@ -86,3 +86,28 @@ hash timeout and original GPT safety cases. Fakes are not mutation/growth proof.
 
 Return for parent review/explicit ONE maintenance authorization. No live step,
 capacity recovery, Chromium download/adapter or graphics acceptance is claimed.
+
+## Independent parent review / ONE maintenance authorization
+
+Parent read all new source/tests and final two added host gates. Independently
+passed28 tests (including the actual14s Linux timeout/kill/reap child) and both
+later added methods: all30 current methods covered, no skips. Independently
+audited actual immutable manifest f5fef641...:8 current source/helper hashes,
+2 seeds/seed/tool hashes,19 accepted pins and provenance, unchanged original
+file identities, matching before/after chain, exact proposed launcher content,
+correct Windows boot argv, exact80GiB new-layer create argv, absent overlay/run.
+Actual original full hashes were recorded within356.567s; mandatory precreate
+and postshutdown full revalidation are NOT waived by this review.
+
+ONE exact maintenance execution is authorized using this preparation and code
+68dbd402. Recheck live usage, original full hashes/inventory/owners/space and
+all absent targets BEFORE create; record real creation exit and inspect chain.
+Apply ONLY the reviewed private launcher change after successful creation/gate,
+verify its proposed SHA before first boot. That boot may automatically enlarge
+root and IS mutation of the NEW top layer only. No browser, Wine, runtime
+download, manual resize/repair, second boot, overwrite/retry or evidence deletion.
+Always execute exact-identity shutdown and original-chain posthash proof, even
+if the guest probe fails. Preserve all failure/partial output and stop for parent
+review; both validation gates must pass before capacity acceptance. This does
+not authorize Chromium implementation/download/live testing until parent review
+of actual maintenance evidence. No master/submodule/other-worker changes.
