@@ -70,3 +70,22 @@ Stop for parent source/test review before integration/preparation or calibration
 No unrelated regression reruns: existing runners/fixture/binaries untouched.
 Only these five source/test files and this report staged; existing `M wine`,
 D: master, other agents/submodules untouched. No live authority implied.
+
+## Independent parent acceptance of this building block
+
+Parent read all five source/test files and independently ran actual shared C
+contract test:1 unittest PASS/no skips in0.326s. Independently cross-compiled both
+Windows sources using -std=c++17 -O2 -static -municode -Wall -Wextra -Werror,
+exit0/no diagnostics; data-only PE parser confirmed AMD64. Parent output on D:
+native-exit-parent-review-r1-20261023 is separate and NOT the deployment pin;
+timestamps/compiler options mean these bytes need not equal the worker's PE.
+Parent PE hashes3415b452.../33ebecac... retained, neither PE executed. The file(1)
+utility was unavailable in WSL; PE verification instead used actual existing
+g4_chromium_cache.pe. No warning or test failure was waived.
+
+Code correctly preserves fixed normal flags, explicit application/mutable quoted
+command, flags0/no inheritance/NULL environment, held-handle identity and
+signaled-before-status distinction (including259). Fake callbacks execute the
+same decision function as production helper; this is NOT real Win32/Wine proof.
+No runner integration accepted yet. Next OFFLINE only calibration runner/prep
+under appended CHROMIUM_EXIT_PLAN; no browser/guest/native calibration authority.

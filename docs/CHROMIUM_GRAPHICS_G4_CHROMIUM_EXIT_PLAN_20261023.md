@@ -104,3 +104,47 @@ Keep95% five-hour/99% weekly stopping policy and heartbeat enabled; no credits.
 All private VM/cache/profiles/evidence remain D:. No master merge or other worker
 VM/checkouts/OOBE/security changes. Historical Edge and stale/blanking failures
 remain open; earlier scoped Electron/WebView2/pixel passes remain valid.
+
+## Narrowed next handoff after helper1a48edc8
+
+Parent independently accepted native helper/shared host tests and warning-clean
+PE compilation. Complete ONLY OFFLINE calibration runner/tests/preparation next;
+defer Chromium runner integration until actual native API calibration is reviewed.
+No VM/SSH/Wine/browser/calibration execution in this handoff.
+
+- Reuse existing ownership, isolated execution, compositor/backend, pin/space,
+  bounded operation and cleanup patterns. Do not build a general framework or
+  change old runners/defaults. One explicit native-exit-calibration control in
+  existing private procedure is sufficient. Never invoke WineDbg or stack code.
+- Fixed future run native-exit-calibration-r1-20261023; original child in its
+  fresh stage/original/exit-child.exe, current helper alongside it. Use existing
+  worker build PEs366c6928.../6087e3ef... only after rehashing all five source
+  hashes/compile logs/build record. Do not use parent's separate compile outputs
+  or rebuild/overwrite any executable during a probe. No vendor runtime staging.
+- Before staging require >=1GiB guest free, idle retained Edge prefix, all19
+  accepted binaries and fresh source/helper/seed/overlay identities. Keep exact
+  unique sockets/privateLO/actualVirGL/650435rawUTC/900launcher90shutdown reserve.
+  Expected local data/guest paths and exact launch/run/stop argv in immutable prep.
+- Calibration invokes ONLY helper --calibration fixed image/events/nonce schema,
+  never Chromium. Native child exits0xc000007f; helper success0 means observation
+  success, child status must be unsigned3221225599/hex0xc000007f after signaled
+  wait. Native process and helper IDs/creation/time/full image must agree across
+  strict duplicate-key-free bounded JSONL events. Require exactly one bound and
+  one exit in order, matching nonce/childPID/creation, monotonic event times,
+  fixed flags/noinherit/inherited environment and actual expected command line.
+  Missing/partial/extra/trailing/error/timeout/259-is-running substitutions fail.
+- Independently bind Linux helper Popen PID/start/fullargv/prefix, observe and
+  record code0 BEFORE any cleanup signal, not as native-child status. Record
+  cleanup-start; reap helper first, then own prefix kill/wait, compositor/server
+  and exact VM/controller shutdown. On exception preserve raw events/error,
+  collect bounded logs, exact-identity kill/reap only owned helper; no broad
+  process kill or error replacement. No remaining owned servers/processes.
+- Tests must execute actual parser/runner decision paths including all malformed
+  events/identity/status/time/command, failed or early helper exit, timeout/
+  quota/space/hash/namespace drift, reaping and primary-error preservation.
+  Existing shared-C unittest remains; do not inflate counts with duplicated tests.
+- Fresh PREPARED_NOT_RUN inventory/source TAR/helper and two PE hashes, source
+  hashes/environment19 pins/seed/newoverlay/budget/space/path/argv and unit results.
+  No output/profile/guest mutation now. Commit AND push; STOP for parent review
+  and separate ONE native calibration authorization. Browser execution is not
+  authorized even by a later successful calibration. Preserve all failed arms.
