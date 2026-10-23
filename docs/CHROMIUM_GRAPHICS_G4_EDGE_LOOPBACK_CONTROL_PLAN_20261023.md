@@ -1,5 +1,31 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
-# One ordinary-HTTP navigation control before a speculative patch
+# Private loopback control before a speculative patch
+
+## Refinement: test loopback independently FIRST
+
+Parent inspected a fresh actual WSL `unshare --net ip -j address show`: only lo
+exists, DOWN with no addresses. The current isolation wrapper never raises it.
+Thus an HTTP arm would change TWO variables: loopback availability and transport/
+origin. A successful HTTP arm alone could not establish a file-specific gap.
+
+The CURRENT selected bounded milestone is therefore smaller: explicit opt-in
+private-namespace loopback setup/verification, its executable tests and a fresh
+PREPARED_NOT_RUN manifest for the SAME file-URL startup diagnostic with lo UP.
+Do NOT implement/dispatch HTTP as the first live control. No HTTP server is needed
+for this milestone; any already-started optional server work must stay separate
+and cannot silently alter the selected arm. All fixture/browser/security/URL/logging
+and acceptance defaults stay unchanged; only isolated loopback availability differs.
+It remains diagnostic-only/exit1, no advance claim of a cause or production fix.
+
+After parent review, execute ONE file-URL/loopback-UP control with a NEW profile.
+If readiness still fails, return for review before the later HTTP control below.
+If readiness succeeds, attribute only the observed dependency on the tested
+namespace change, not security enforcement or a particular internal IPC cause;
+plan an uninstrumented confirmation and review any actual geometry/pixel finding.
+No change to the guest's real network namespace, routing, DNS, SSH or firewall.
+This refinement takes precedence over the proposed HTTP deliverables below.
+
+## Conditional later HTTP control (NOT current execution authority)
 
 Parent reviewed65081f50: rehashed all105 archived files, inspected the real blank
 front and browser file trace. The browser read all637 original HTML bytes; no
