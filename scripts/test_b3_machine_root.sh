@@ -45,7 +45,7 @@ useradd -M -N -s /bin/bash -G sudo "$DESKTOP_USER"
 run_setup()
 {
     WEX_MACHINE_ROOT="$FIXTURE" WEX_SKEL_PFX="$SKEL" WEX_MACHINE_GROUP="$GROUP" \
-        WEX_BACKUP_DIR="$BACKUPS" WEX_SKIP_WINEBOOT=1 bash "$SETUP" "$@"
+        WEX_BACKUP_DIR="$BACKUPS" WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_ENABLE=0 bash "$SETUP" "$@"
 }
 
 # Fixture with non-default owner, mode and ACL state on the root, a nested dir, files with an
@@ -186,7 +186,7 @@ echo "b3_rollback_without_backup_refused=PASS"
 
 # 6. Dangerous or non-canonical roots are rejected before anything changes.
 for bad in "/" "/home" "/var/" "/var/lib" "relative/path" "/tmp/../etc" "/tmp"; do
-    if WEX_MACHINE_ROOT="$bad" WEX_BACKUP_DIR="$BACKUPS" WEX_SKIP_WINEBOOT=1 \
+    if WEX_MACHINE_ROOT="$bad" WEX_BACKUP_DIR="$BACKUPS" WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_ENABLE=0 \
         bash "$SETUP" apply >/tmp/b3-path-$$.log 2>&1; then
         fail "setup-machine-root accepted machine root: $bad"
     fi
@@ -210,7 +210,7 @@ setfacl -d -m g:sudo:rwX "$FIX2"
 run_setup2()
 {
     WEX_MACHINE_ROOT="$FIX2" WEX_SKEL_PFX="$SKEL" WEX_MACHINE_GROUP="$GROUP2" \
-        WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 bash "$SETUP" "$@"
+        WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_ENABLE=0 bash "$SETUP" "$@"
 }
 ! getent group "$GROUP2" >/dev/null || fail "test group $GROUP2 exists before the run"
 run_setup2 --update >/tmp/b3-mig-$$.log 2>&1 || { cat /tmp/b3-mig-$$.log; fail "migration failed"; }
@@ -245,7 +245,7 @@ snapshot_of "$FIX2" > /tmp/b3-mig2-$$.txt
 cmp -s /tmp/b3-mig1-$$.txt /tmp/b3-mig2-$$.txt || { diff /tmp/b3-mig1-$$.txt /tmp/b3-mig2-$$.txt || true; fail "migration is not idempotent"; }
 echo "b3_migration_idempotent=PASS"
 # The system group may not be sudo (desktop users would write the machine root).
-if WEX_MACHINE_ROOT="$FIX2" WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 WEX_MACHINE_GROUP=sudo \
+if WEX_MACHINE_ROOT="$FIX2" WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_ENABLE=0 WEX_MACHINE_GROUP=sudo \
     bash "$SETUP" --update >/tmp/b3-sudo-$$.log 2>&1; then
     fail "setup accepted sudo as the machine group"
 fi

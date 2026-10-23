@@ -330,7 +330,7 @@ esac
 kill "$FIFO_PID" 2>/dev/null || true; FIFO_PID=""
 wait "$SYS_PID" 2>/dev/null || true; SYS_PID=""
 
-# 8. The setup script installs the launcher only when WEX_SYSRUN_ENABLE=1.
+# 8. The setup script installs the launcher by default; WEX_SYSRUN_ENABLE=0 opts out.
 S="$FIX/setup"; mkdir -p "$S/m/drive_c/windows/system32"
 setup_run()
 {
@@ -339,10 +339,12 @@ setup_run()
         bash "$SRC_DIR/../../scripts/setup-machine-root.sh" --update >/dev/null 2>&1
 }
 setup_run || fail "setup failed"
-[ ! -e "$S/lib/wex-sysrun" ] && [ ! -e "$S/etc/sysrun.conf" ] || fail "setup installed the launcher without WEX_SYSRUN_ENABLE"
-ok setup_does_not_install_launcher_by_default
-setup_run WEX_SYSRUN_ENABLE=1 || fail "setup with WEX_SYSRUN_ENABLE failed"
-[ "$(stat -c '%a %U:%G' "$S/lib/wex-sysrun")" = "2755 root:$GRP" ] || fail "enabled setup: wrong launcher mode"
-ok setup_installs_launcher_when_enabled
+[ "$(stat -c '%a %U:%G' "$S/lib/wex-sysrun")" = "2755 root:$GRP" ] || fail "default setup: wrong launcher mode"
+[ -f "$S/etc/sysrun.conf" ] || fail "default setup: no sysrun.conf"
+ok setup_installs_launcher_by_default
+rm -rf "$S/lib" "$S/etc"
+setup_run WEX_SYSRUN_ENABLE=0 || fail "setup with WEX_SYSRUN_ENABLE=0 failed"
+[ ! -e "$S/lib/wex-sysrun" ] && [ ! -e "$S/etc/sysrun.conf" ] || fail "WEX_SYSRUN_ENABLE=0 still installed the launcher"
+ok setup_opt_out_with_enable_0
 
 echo "=== wex-sysrun: $PASS checks passed ==="
