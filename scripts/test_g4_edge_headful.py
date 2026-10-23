@@ -161,6 +161,13 @@ class HeadfulTests(unittest.TestCase):
             ImageDraw.Draw(image).rectangle([62,172,130,245],fill=(0,0,0));image.save(path)
         self.assertFalse(edge.front_pixels(path,self.state())['passed'])
 
+    def test_wrong_pixel_scale_and_clipped_output(self):
+        path=self.root/'front.png';self.png(path)
+        state=self.state();state['scale']=1.25
+        self.assertFalse(edge.front_pixels(path,state)['passed'])
+        with Image.open(path) as image:image.crop((0,0,200,200)).save(path)
+        with self.assertRaises(ValueError):edge.front_pixels(path,self.state())
+
     def test_capture_order_is_not_pixel_driven_and_lateness_recorded(self):
         records=[]; events=[];state=self.state()
         def capture(path):
