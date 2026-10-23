@@ -394,3 +394,20 @@ Step 1, reinstall and acceptance (guest as root; `check_s1_32/64.exe` prebuilt, 
 | `test_s2_acceptance.sh` | **PASS** (Test 6 now passes); WAITING: COW break by an administrator's own session; Carol modifying Alice's files |
 | `test_s3_acceptance.sh` | PASS; WAITING: Case 1 COM/Uninstall by Alice, Case 3 and 3b (HKLM persistence needs two administrator sessions), Case 4 |
 | `test_s4_acceptance.sh` | PASS; WAITING: Alice's own session installing into Program Files |
+
+Step 2, Part 3 phase P1 and P2 repeated in the new guest (alice in `sudo`, bobsmith standard; command line, own prefix
+and fresh `wineserver` each):
+
+| Check | P1 (launcher on, helper unset) | P2 (launcher on, helper set) |
+| :--- | :--- | :--- |
+| `reg add HKLM\Software\WexProbe...` | succeeds in the session | denied ("Unable to access or create the specified registry key"), key not visible afterwards |
+| `system.reg` md5 before / after each session | `39c99d30...` before and after alice, and after bobsmith (unchanged); `WexProbe` lines in `system.reg`: 0 | `64f47250...` before and after both sessions (unchanged); 0 lines |
+| `mkdir "C:\Program Files\..."` | Access denied | Access denied |
+| `sc create` | succeeds in the session, not persisted | denied (`failed to open service manager: 5`) |
+| 32-bit and 64-bit console program | ok | ok |
+| `wineserver` ids | uid=gid=egid=user, sgid 987 | same |
+| `winehid` or `kernel_writewatch_init`/`pagemap` lines | none | none (0 matches in all stderr files) |
+
+The only `err:` lines left in these runs are the headless first start of a prefix without a display
+(`nodrv_CreateWindow`, `systray`, `winemenubuilder.exe` 126). `system.reg` stayed `root:wexsys` 664 and the machine
+root `root:wexsys` 2775.
