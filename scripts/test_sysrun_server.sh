@@ -64,7 +64,7 @@ cleanup()
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
     kill_servers
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null
-    [ -z "$XV_PID" ] || kill "$XV_PID" 2>/dev/null
+    [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
         echo "fixture kept: $ROOT, users $ADM $STD, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
