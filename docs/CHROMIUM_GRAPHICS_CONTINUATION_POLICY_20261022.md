@@ -19,9 +19,9 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
-Use CHROMIUM_GRAPHICS_G4_EDGE_INSTALL_PREFLIGHT_PLAN_20261022.md (fc08dc89).
-The user refreshed both usage windows again; verified 0% at 19:18 UTC. New
-five-hour reset is 2026-10-23 00:18:39 UTC. Latest usage always governs.
+Use CHROMIUM_GRAPHICS_G4_EDGE_STARTUP_DIAGNOSIS_PLAN_20261023.md (67932dcd).
+The five-hour window reset; verified 0% at the 2026-10-23 00:21 UTC wake.
+New five-hour reset is 2026-10-23 05:21:16 UTC. Latest usage always governs.
 Visible implementation eecf8bb3 and healthy visual control 69d6c22f were reviewed;
 then two independent single-fault visible recovery trials passed (50012793,
 ed7f7ccc). Parent inspected actual final fronts, independently checked all 78
@@ -39,20 +39,30 @@ fresh-process/prefix/reboot regression cells, not faulted-process lifetime proof
 Human expressly accepted current Edge terms and private D:-VM download/install.
 Edge Stable 156.0.4314.42 MSI provenance dd87d264 was independently verified by
 parent: size/SHA256 match Microsoft metadata and Valid Microsoft Authenticode.
-Private artifact is on D:; no host/VM installation or browser execution yet.
-Luna Dirac completed installer-only runner/tests/offline preparation in
-9348b4be/f15ed581. Parent reviewed code/private procedure, independently passed
-all 53 focused Linux tests with no skips, and verified the current v2 archive's
-seven members, five current source hashes and five host-helper hashes. Read
-CHROMIUM_GRAPHICS_G4_EDGE_INSTALL_REVIEW_CHECKPOINT_20261022.md before proceeding.
-The VM/installer/browser have NOT run for this item. Resume the same Luna agent
-for ONE private-prefix installer attempt after the usage reset, no automatic retries,
-administrative-extraction substitution, extra components or security bypass.
-No production patch/master merge; keep historical stale/blanking uncertainty open.
+One ordinary private-prefix MSI install passed (b340f8a7), parent independently
+checked all17 archive hashes, actual success/cleanup/shutdown evidence. No repeat
+installation needed. The installed executable/registration survived a later
+ordinary Wineboot; on-disk pending-operation snapshots are not proof the live
+queue was processed. Prefix/payload remain private on the owned D:-backed guest.
+
+Luna implemented headful smoke18363266/f395aa2d; parent independently passed all87
+focused Linux tests plus actual-fixture Node tests and verified nine staged members,
+five helpers/provenance reference before dispatch. ONE real browser trial FAILED
+readiness (6fccc595), with visible owned Edge window/GPU child and FileURLLoader
+Start but no observed renderer/fixture readiness. No front PNG was reached. Parent
+independently rehashed all280 archived files and checked graceful shutdown. Cause
+is unproven: not automatically sandbox/graphics/IO. Keep r1 failure intact.
+
+Current offline Luna item adds a failure-only terminal front and narrowly bounded
+startup logging/optional small read-only original-fixture file probe. Inspect
+current agent/HEAD; parent reviews code/tests/preparation before ONE diagnostic
+run. Same installed prefix, NEW profile; no URL/security/backend changes, repeated
+launches, extraction substitution, extra components or speculative production fix.
+No master merge; keep historical stale/blanking uncertainty open.
 
 ## Priority queue after this rendering blocker
 
-1. Finish reviewed Edge installer prerequisite, then actual full Edge executable
+1. Diagnose the current full Edge startup/readiness blocker before retrying its
    headful graphics smoke under FULL_EDGE_SMOKE_PLAN (consent granted). Install
    success is not browser/rendering acceptance; app-window smoke is not full tabbed
    browser/lifecycle acceptance. Preserve a concrete startup failure before fixing
