@@ -433,6 +433,12 @@ changes. The launcher is installed only with `WEX_SYSRUN_ENABLE=1`. Wine commits
   system group that others cannot write, else the server refuses to start. They are saved with the raised group
   (`faccessat(AT_EACCESS)` only there) into the existing file, in place (`save_hive_in_place`; a new file would belong
   to the user's uid); a symlink at the hive is never followed on save; a missing file is not created.
+  The group is raised for the save only if elevation was enforced by the machine hive loaded at start
+  (`machine_hive_saved`, not the live helper value, which a user could set in memory); otherwise the hive keeps the
+  stock rule (saved only if the real user can write it), so with the launcher but no helper nothing persists.
+- `dlls/ntdll/unix/virtual.c` (`kernel_writewatch_init`): a failed open of `/proc/self/pagemap` with `EACCES` or
+  `EPERM` in a non-dumpable process (`PR_GET_DUMPABLE` is 0: the system group of the launcher) logs at WARN, not ERR;
+  the fallback is unchanged. `/proc/self/*` of a non-dumpable process belongs to root.
 - `server/registry.c` (`key_in_user_tree`): while elevation is enforced and the system role is active, only the
   subtree of the token user's own SID and its `_Classes` count as the user's tree. `HKU\S-1-5-18`, `-19`, `-20` are
   created at start and, like `.DEFAULT`, get the machine default descriptor.

@@ -248,7 +248,11 @@ if [ -d "$THEME_DATA_DIR" ]; then
     for theme_dir in "$THEME_DATA_DIR/"*/; do
         [ -d "$theme_dir" ] || continue
         tname="$(basename "$theme_dir")"
-        cp -rf "$theme_dir" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/$tname" 2>/dev/null || true
+        tdest="$MACHINE_ROOT/drive_c/windows/Resources/Themes/$tname"
+        # -T: an existing destination is the target itself, else --update copies into $tname/$tname
+        cp -rfT "$theme_dir" "$tdest" 2>/dev/null || true
+        # remove the copy nested by earlier --update runs
+        [ -e "$theme_dir$tname" ] || rm -rf "$tdest/$tname"
     done
 fi
 

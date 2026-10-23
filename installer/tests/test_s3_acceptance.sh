@@ -20,6 +20,14 @@
 #         /home/alice/.wine, /home/carol/.wine, /home/bob/.wine.
 set -euo pipefail
 
+# The test programs the machine-root installs use; built here when missing (i686 and x86_64 MinGW)
+for arch in 32 64; do
+    [ -f "/usr/local/bin/check_s1_$arch.exe" ] && continue
+    cc=i686-w64-mingw32-gcc; [ "$arch" = 64 ] && cc=x86_64-w64-mingw32-gcc
+    "$cc" -O2 -o "/usr/local/bin/check_s1_$arch.exe" "$(dirname "${BASH_SOURCE[0]}")/test_s1.c" -lversion ||
+        { echo "cannot build /usr/local/bin/check_s1_$arch.exe from installer/tests/test_s1.c" >&2; exit 2; }
+done
+
 MACHINE_ROOT="/var/lib/wineexplorer/machine"
 SKEL_PFX="/etc/skel/.wine"
 SYS_GRP="${WEX_MACHINE_GROUP:-wexsys}"
