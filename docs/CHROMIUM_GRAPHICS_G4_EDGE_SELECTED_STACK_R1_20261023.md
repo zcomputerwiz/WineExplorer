@@ -93,3 +93,28 @@ states EXECUTED_ONCE_PRIMARY_READINESS_TIMEOUT_STACKS_OBSERVED_POST_OWNERSHIP_ON
 
 Return for parent actual-stack/front/log review. No additional execution, offset
 research, speculative patch, healthy-detach claim or next experiment selected.
+
+## Independent parent review
+
+Parent viewed the actual failure-front PNG: frame/caption present, client white.
+Independently rehashed all122 extracted files AND matching archive members with
+zero discrepancies; actual19 binary hashes equal the immutable preflight and
+all15 deployed source hashes equal its manifest. Selected-stack native/Linux
+before/after records and tool hashes are unchanged, deadline passed, primary
+timeout retained, private-loopback records unchanged. Prefix kill/wait both0,
+no remaining prefix processes/servers. Launcher records show graceful QMP,
+QEMU0, Xvfb stopped; Windows controller exited0. No rendering acceptance.
+
+Parent inspected the owned host x64 win32u.dll: SHA256
+`3d23f2187e2897e19fca533e43fbf0fcc264ba0c960233df71919786d2d2a0d6`
+matches the guest's pinned on-disk PE. Its symbol/disassembly places
+`NtUserMsgWaitForMultipleObjectsEx` at RVA0x150b0 and the syscall return at
+RVA0x150c4, exactly the GUI/three COMSTA top offsets. This identifies the
+own-Wine API stub, NOT Microsoft callers, wait handles/timeout arguments,
+loaded-file attestation, deadlock or root cause. IOCP and other wait samples
+also do not establish an error. Browser logs remain active on other work.
+
+Further live tests are blocked by capacity, not authorized to ignore the1GiB
+gate. Do not delete failed profiles/evidence, repeat the completed arms, or
+reinstall Edge. Next bounded work is a recoverable D:-backed storage plan,
+then separately reviewed maintenance; no browser run is part of maintenance.
