@@ -39,7 +39,11 @@ Immediately used the exact-identity SIGINT stopper, no further guest command.
 Launcher stop_reason=`signal`; existing QMP system_powerdown path timed out after
 45s and entered its existing terminate fallback. `results.json` records QEMU0,
 both children stopped, but **no graceful_powerdown=true**. Stopper therefore
-correctly exited1. Do NOT infer graceful guest shutdown from QEMU0/controller0.
+correctly exited1. Do NOT infer graceful guest shutdown from QEMU0/controller0
+or claim a clean filesystem. Full `powerdown_error` TimeoutExpired (actual QEMU
+argv and45s bound) remains in raw `results.json`; stopper's terminal error was
+`RuntimeError: Launcher final result does not attest signal-driven graceful cleanup`.
+Raw `qemu.stderr.log` confirms `qemu: terminating on signal 15 from pid 453919 (python3)`.
 
 Persistent controller session was held through exit: WindowsWSL exit0 at
 21:25:13.0917622Z (PowerShell session exit0). Independent host checks confirmed
