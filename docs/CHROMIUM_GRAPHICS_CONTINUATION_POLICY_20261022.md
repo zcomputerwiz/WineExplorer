@@ -19,6 +19,14 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+Current checkpoint: CHROMIUM_GRAPHICS_G4_EDGE_STACK_CHECKPOINT_20261023.md.
+HTTP and owned-thread controls and metadata discovery are COMPLETE. Small stack
+calibration building blocks381ef400/d363fa33 passed176 parent tests but are
+NOT_RUN_NOT_INTEGRATED. Next is offline calibration integration/tests/preparation
+and parent review, not Edge/debugger execution. Detailed historical milestones
+below are context, not authority to repeat completed controls. Final window usage
+95% five-hour/45% weekly; reset10:24:23 UTC Oct23.
+
 Read CHROMIUM_GRAPHICS_G4_SOURCE_WORKTREE_20261023.md FIRST: main D: checkout
 is now master and must be left alone. Continue tracked work in the existing owned
 C:/Users/Owner/.codex/worktrees/chromium-graphics-plan/WineExplorer worktree on
