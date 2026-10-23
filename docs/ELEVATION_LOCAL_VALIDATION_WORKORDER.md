@@ -329,3 +329,51 @@ run, one product bug), Part 3 command-line subset. Not done: Part 3 graphical st
 Leftovers: QEMU guest `elev-val` disk under `/var/tmp/wineexplorer-vmtest/elev-val` (stopped); build and ISO under
 `/var/tmp/elev` in Debian WSL; test users `tkadm`, `tkstd` and `/opt/elev` in Debian WSL. Logs are under
 `build/elevation-validation/` (not committed).
+
+### Follow-up fixes
+
+Session `ccr-08223ee4-p830bf`, Wine `ccr-work` (from `c2b4fb9`), WineExplorer from `a242f559`.
+
+1. **Security: P1 persisted every user's HKLM write.** With the launcher and the helper unset, `save_branch()` raised the
+   system group for the machine hive save, so any user's `reg add HKLM\...` reached the shared `system.reg`. Fix in
+   `server/registry.c`: the group is raised only if the machine hive loaded at start enforced elevation
+   (`machine_hive_saved`, set once after loading `system.reg`). The live helper value is deliberately not used: with
+   it a user could set `Helper` in memory, and the next save would persist that write and everything else. Without
+   enforcement the hive keeps the stock/S3 rule (real-user access), so nothing is written (the files are `root:wexsys`
+   664 and no user is in `wexsys`). The load path is unchanged and still comes from the machine root either way.
+   Fixtures in `scripts/test_sysrun_server.sh`: `c2_unenforced_hklm_write_not_persisted_wexstd` and `..._wexadm`
+   (launcher on, helper unset, `reg add HKLM` works in memory but `system.reg` is unchanged),
+   `c2_machine_hive_not_saved_without_enforcement` (replaces the old "saved with raised group" check, which asserted
+   the bug), `c2_enforced_standard_user_hklm_write_denied_and_not_persisted` (helper set), and the existing
+   `c3_service_descriptor_saved_in_the_machine_hive` (system role write persists). Not covered: a `wineboot --init`
+   boot state key in `system.reg` (`ActiveComputerName` is volatile, not saved), so the persisting system-role write
+   that is checked is the service descriptor.
+2. **`--update` nested the themes.** `scripts/setup-machine-root.sh` uses `cp -rfT` and removes a `Themes/<name>/<name>`
+   left by earlier runs. `test_b3_machine_root.sh` gained `b3_update_themes_not_nested` (two `--update` runs, same
+   file list; fails with the old `cp`). This is the cause of S2 Test 6 ("77 unexpected changes"); S2 itself was not
+   rerun here (needs the installed guest).
+3. **`kernel_writewatch_init` ERR.** Cause as suspected: the launcher's processes run with the system group and are
+   non-dumpable, so `/proc/self/pagemap` is owned by root and `open` fails with EACCES. `virtual.c` now logs at WARN
+   when the open fails with EACCES/EPERM and `PR_GET_DUMPABLE` is 0; the fallback is unchanged. The ERR line is gone
+   from a launcher run.
+4. **`Failed to load driver L"winehid", status 0xc0000001`.** `winedevice.exe` (plugplay) does run as SYSTEM through the
+   launcher. `ZwLoadDriver` -> `open_driver` calls `OpenServiceW(winehid, SERVICE_QUERY_CONFIG | SERVICE_SET_STATUS)`;
+   that failed with `ERROR_ACCESS_DENIED`. Under enforcement `services.exe` checks the request against the default
+   service descriptor, and the SYSTEM ACE (`0x201fd`) lacked Wine's `SERVICE_SET_STATUS` (0x8000). The only other way
+   to get it is `own_process_access`, which requires the service's recorded process id to equal the client's; the
+   driver service `winehid` is never started by `services.exe`, so it has no process record. So even SYSTEM was
+   refused; it was not a missing privilege or a Services key read. Fix in `programs/services/rpc.c`: the default
+   descriptor gives SY `0x2a1fd` (adds 0x8000). Standard users and Administrators are unchanged. Both errors are gone
+   in a helper-set run; `winebth` still reports `c00000e5` (unrelated, no Bluetooth stack).
+5. **Test hygiene.** `test_s2_acceptance.sh` and `test_s3_acceptance.sh` build `/usr/local/bin/check_s1_32.exe` and
+   `check_s1_64.exe` from `installer/tests/test_s1.c` (`-lversion`, i686 and x86_64 MinGW) when missing. The cleanup of
+   `test_sysrun_server.sh` now sends SIGKILL to the test users' remaining processes (the `winedevice.exe` that blocked
+   `userdel`).
+
+Acceptance after the fixes (Debian cloud container, Wine build `/home/user/build/dev`): `test_sysrun_server.sh`
+`WEX_SYSRUN_ENABLE=1`: 141 checks passed (was 123 before the new checks); `test_wex_sysrun.sh`: 60 passed;
+`test_b3_machine_root.sh`: 14 PASS lines; `check-token-security.py --all`, helper unset, as an unprivileged `sudo`
+member: exit 0, advapi32 security 0 failures, shlexec 1805 tests 2 failures (the known baseline), ntdll info 0
+failures; `--focused` (sets the helper itself) as a `sudo` member and as a standard user: exit 0 / exit 0. All fixture
+users, groups, `/etc/wineexplorer` and `/usr/local/libexec/wineexplorer` were removed. Not rerun: S2, S3, S4 (need the
+installed guest and the broker).
