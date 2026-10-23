@@ -118,3 +118,33 @@ Synthetic tests use no real network, browser, guest or cache mutation.
 
 Stop for parent code/cache/manifest review. C: branch only, pre-existing `M wine`
 unstaged; D: master/other agents/submodules untouched. No actual baseline result.
+
+## Independent parent review / ready for ONE baseline after reset
+
+Parent read adapter/common-runner changes, cache/review code and tests, and
+explicit private procedure additions. Requested/fixed normal-mode failure-front
+and quota coverage, independent negative-test restoration, nonduplicated Edge
+TestCase discovery and actual before/after namespace mismatch coverage.
+Independently passed158 focused tests/no skips in6.103s and the complete original
+Windows Node fixture control. Native observer and production binaries unchanged.
+
+Parent independently hashed ZIP and all258 extracted files; additive review's
+five raw/decoded source hashes/roundtrips and exact three version-resource paths
+pass, original failure record unchanged. Runtime inventory8fc037ca... matches
+adapter. Independently verified all15 TAR members/current inputs, five current
+helpers, two seed sources, archive60e3ff9c.../preflighta89d0103... hashes,19 pins
+against accepted capacity and258 runtime entries. Correct new overlay/C:source/
+D:private storage, normal HTTP/privateLO argv and runtime paths; future run absent.
+
+OFFLINE preparation is accepted. Do NOT execute this window: nearing95% usage
+cutoff. After reset, with fresh usage/space/source/helper/manifest/identity checks,
+ONE exact prepared Chromium baseline is authorized. No second build/retry,
+debugger/symbol acquisition/alternate URL or additional Edge arm. Preserve every
+failure and actual failure-front. Always exact-identity shutdown and explicitly
+check QMP/QEMU/Windows0; archive/consumer results and actual pixel proof remain
+separate. Parent reviews live evidence before deciding the next experiment.
+
+This normal baseline intentionally does not add the old Edge diagnostic arm's
+file/SEH/vmodule tracing. Thus source revision/vendor AND diagnostic overhead
+differ from those historical arms; a result alone cannot establish vendor-only
+causality. Effective sandbox and full GPU-compositing/G4 remain NOT_PROVEN.
