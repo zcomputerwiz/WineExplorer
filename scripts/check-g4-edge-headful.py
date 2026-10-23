@@ -308,8 +308,13 @@ def record_roles(result,previous,snapshot,cleanup):
     return roles
 
 
-def run(output,fixture,helpers,*,startup_diagnostic=False,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
-    start=now(); before=validate(output,fixture)  # never cleanup on a rejected guard
+def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_control=False,
+        now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
+    start=now()
+    if private_loopback_control and not startup_diagnostic:
+        raise ValueError('Private loopback control requires startup diagnostic mode')
+    before=validate(output,fixture)  # never cleanup on a rejected guard
+    loopback=load('run-isolated-graphics').verify_private_loopback() if private_loopback_control else None
     output.mkdir(); save(output/'persistence-before.json',before)
     env=install.environment(output); env['WINEPREFIX']=str(PREFIX)
     env['WINEDEBUG']='-all,+timestamp,+pid,+tid,+winediag,+process'
@@ -322,6 +327,7 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,now=time.monotonic,sle
             'startup_diagnostic':startup_diagnostic,'win32_pid_is_not_linux_pid':True}
     if startup_diagnostic:
         result['classification']='Startup diagnostic ONLY; rendering acceptance NOT_EVALUATED'
+    if private_loopback_control: result['private_loopback_before']=loopback
     deadline=start+TOTAL; browser=None; files=[]; stop=threading.Event(); cleanup_started=threading.Event(); monitor=None
     result.update(observed_process_roles={},role_exits_before_cleanup=[])
     def bound(cap,cleanup=False):
@@ -425,6 +431,8 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,now=time.monotonic,sle
             comp.stop()
             result['remaining_servers']=helpers.matching_servers(BUILD/'server/wineserver',PREFIX)
             result['remaining_prefix_processes']=graphics_resources.sample(PREFIX)
+            if private_loopback_control:
+                result['private_loopback_after']=load('run-isolated-graphics').verify_private_loopback()
             if startup_diagnostic:
                 result['log_quota_after_cleanup']=diagnostic_log_usage(output)
             result['log_errors']=({'log_quota':1} if startup_diagnostic and
@@ -450,8 +458,10 @@ def main():
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--fixture',type=Path,required=True)
     parser.add_argument('--startup-diagnostic',action='store_true',help='Bounded logging/file probe only; can never pass rendering acceptance')
+    parser.add_argument('--private-loopback-control',action='store_true',help='Same FILE URL diagnostic; require inherited proof of private lo UP')
     args=parser.parse_args()
-    return run(args.output_dir,args.fixture,load('check-g3-correctness'),startup_diagnostic=args.startup_diagnostic)
+    return run(args.output_dir,args.fixture,load('check-g3-correctness'),startup_diagnostic=args.startup_diagnostic,
+               private_loopback_control=args.private_loopback_control)
 
 
 if __name__=='__main__': raise SystemExit(main())

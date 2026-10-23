@@ -59,6 +59,7 @@ class HeadfulTests(unittest.TestCase):
             'window':dict(x=20,y=30,width=660,height=520),'client':dict(x=30,y=60,width=640,height=480)}
         self.clock=0; self.calls=[];self.codes={};self.failures={};self.boot_action=lambda:None
         self.startup_diagnostic=False
+        self.private_loopback_control=False
         self.browser=Mock();self.browser.poll.return_value=None;self.browser.wait.return_value=0
         self.browser.pid=900
         def start_browser(*args,**kwargs):
@@ -102,7 +103,7 @@ class HeadfulTests(unittest.TestCase):
              patch.object(edge.secrets,'token_hex',return_value=self.nonce):
             code=edge.run(self.output,self.fixture,self.helpers,now=lambda:self.clock,
                           sleep=lambda seconds:setattr(self,'clock',self.clock+seconds),popen=self.popen,
-                          startup_diagnostic=self.startup_diagnostic)
+                          startup_diagnostic=self.startup_diagnostic,private_loopback_control=self.private_loopback_control)
         return code,json.loads((self.output/'results.json').read_text())
 
     def test_actual_fixture_protocol(self):
@@ -487,10 +488,42 @@ class HeadfulTests(unittest.TestCase):
     def test_cli_dispatches_explicit_mode(self):
         import sys
         with patch.object(sys,'argv',['check-g4-edge-headful.py','--output-dir',str(self.output),
-                                     '--fixture',str(self.fixture),'--startup-diagnostic']), \
+                                     '--fixture',str(self.fixture),'--startup-diagnostic','--private-loopback-control']), \
              patch.object(edge,'run',return_value=1) as run,patch.object(edge,'load',return_value=self.helpers):
             self.assertEqual(edge.main(),1)
             self.assertTrue(run.call_args.kwargs['startup_diagnostic'])
+            self.assertTrue(run.call_args.kwargs['private_loopback_control'])
+
+    def test_loopback_requires_diagnostic_before_processes(self):
+        with self.assertRaises(ValueError):edge.run(self.output,self.fixture,self.helpers,private_loopback_control=True)
+        self.assertFalse(self.output.exists());self.assertEqual(self.calls,[])
+
+    def test_loopback_requires_inherited_private_namespace_proof(self):
+        with patch.dict(edge.os.environ,{},clear=True):
+            with self.assertRaises(RuntimeError):edge.run(self.output,self.fixture,self.helpers,
+                private_loopback_control=True,startup_diagnostic=True)
+        self.assertFalse(self.output.exists());self.assertEqual(self.calls,[])
+
+    def test_loopback_control_still_file_url_and_nonacceptance(self):
+        self.private_loopback_control=True;self.startup_diagnostic=True
+        original=edge.load
+        proof={'parent_namespace':{'inode':1},'observed':{'namespace':{'inode':2}}}
+        module=SimpleNamespace(verify_private_loopback=Mock(return_value=proof))
+        with patch.object(edge,'load',side_effect=lambda name:module if name=='run-isolated-graphics' else original(name)):
+            code,r=self.execute()
+        self.assertEqual(code,1);self.assertTrue(r['completed']);self.assertFalse(r['passed'])
+        self.assertEqual(r['argv'],edge.command(self.fixture,self.output,self.nonce,True))
+        self.assertTrue(r['argv'][2].startswith('--app=file:///Z:'))
+        self.assertEqual(r['private_loopback_before'],proof);self.assertEqual(r['private_loopback_after'],proof)
+        self.assertEqual(module.verify_private_loopback.call_count,2)
+
+    def test_lost_loopback_proof_is_cleanup_failure(self):
+        self.private_loopback_control=True;self.startup_diagnostic=True
+        original=edge.load
+        module=SimpleNamespace(verify_private_loopback=Mock(side_effect=[{'valid':True},RuntimeError('lost private netns')]))
+        with patch.object(edge,'load',side_effect=lambda name:module if name=='run-isolated-graphics' else original(name)):
+            code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('lost private netns',str(r['cleanup_errors']))
 
 
 if __name__=='__main__':unittest.main()
