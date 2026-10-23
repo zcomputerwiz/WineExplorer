@@ -586,7 +586,9 @@ for u in $C3_USERS; do
     if [ "$u" = "$STD" ]; then
         # the descriptor was saved with the machine hive and is read again by the next services.exe
         prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
-        [ "$(grep -c '^"Security"=hex' "$M/system.reg")" = 1 ] || fail "the service descriptor was not saved in the machine hive"
+        # wine.inf gives the broker service a descriptor of its own (WexElevate), so the count is not 1 any more
+        [ "$(awk '/^\[/ { in_ls = ($0 ~ /Services.*WexSvcLs\]/) } in_ls && /^"Security"=hex/ { n++ } END { print n + 0 }' "$M/system.reg")" = 1 ] &&
+            [ "$(grep -c '^"Security"=hex' "$M/system.reg")" = 2 ] || fail "the service descriptor was not saved in the machine hive"
         ok c3_service_descriptor_saved_in_the_machine_hive
         rm -f "$SVCDIR"/*.txt
         probe "$u" 64 hold >/dev/null 2>&1 & HOLD=$!
@@ -597,6 +599,195 @@ for u in $C3_USERS; do
     fi
     prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
 done
+
+# ---- 9. the elevation broker (plan step 4), elevation enforced -------------------------------------------------
+# wexelevate.exe is a LocalSystem service. The shipping broker has no way to ask for consent and fails closed
+# (ERROR_NOT_READY); a broker built from the same source with -DWEXELEVATE_TEST_APPROVAL calls an approval stub that
+# exists only here. Checks: the elevated process has the full token, High integrity, Administrators enabled and
+# the system group, its parent is the caller and the caller's handle waits; frozen requests, A/B, arguments, forged
+# ids; a standard user and a prefix without the launcher get ERROR_NOT_SUPPORTED; a limited process of the same user
+# cannot open the elevated process or its threads; the stub is not in the shipping build.
+if [ "${WEX_C4_SKIP:-0}" != 1 ]; then
+echo "--- elevation broker (step 4)"
+EL=/tmp/wexelev
+BROKER_ORIG=""
+el_clean() { rm -rf "$EL"; install -d -m 1777 "$EL"; }
+winpath() { echo "Z:${1//\//\\}"; }
+bprobe() { local u="$1" arch="$2"; shift 2; wine_as "$u" "$ROOT/probes/wexelevate_probe$arch.exe" "$@" 2>&1 | tr -d '\r'; }
+bp()   # name user arch mode args...: the probe must print "<mode>=PASS"
+{
+    local name="$1" out; out="$(bprobe "${@:2}")" || { echo "$out" >&2; fail "$name"; }
+    grep -q "^$4=PASS" <<<"$out" || { echo "$out" >&2; fail "$name: no PASS line"; }
+    ok "$name"
+}
+el_up() { probe "$1" 64 hold >/dev/null 2>&1 & EL_HOLD=$!; sleep 4; }
+el_down() { prefix_server_env "$1" -k || true; prefix_server_env "$1" -w; wait "$EL_HOLD" 2>/dev/null || true; }
+el_wait_file() { local i; for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done; fail "no $1"; }
+el_proc() { local p; for p in $(pgrep -u "$1" -f "$2"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || { echo "$p"; return; }; done; }
+el_fact() { grep -m1 "^$2=" "$1" | cut -d= -f2- | tr -d '\r'; }
+SYS32="$M/drive_c/windows/system32"
+
+# the stub is not in a shipping build: the macro is not defined by any Makefile, and the installed program and the
+# machine root do not contain the stub's name or the macro
+cat > "$ROOT/has_str.py" <<'EOF'
+import sys
+data = open(sys.argv[1], 'rb').read()
+sys.exit(0 if sys.argv[2].encode('utf-16-le') in data or sys.argv[2].encode() in data else 1)
+EOF
+has_str() { python3 -I "$ROOT/has_str.py" "$1" "$2"; }   # the string as ASCII or UTF-16
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_ship.exe" \
+    "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_test.exe" \
+    "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scripts/wexelevate_stub.c"
+for arch in 64 32; do
+    cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
+    $cc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32
+done
+chmod 0755 "$ROOT/probes"/*.exe
+has_str "$ROOT/probes/wexelevate_test.exe" wexelevate_stub || fail "the test broker does not call the stub (control)"
+! has_str "$ROOT/probes/wexelevate_ship.exe" wexelevate_stub || fail "a broker built without the macro contains the stub name"
+! grep -rn 'WEXELEVATE_TEST_APPROVAL' "$SRC/src" "$SRC/installer" "$SRC/tools" --include=Makefile.in --include='*.mk' --include='*.inf' \
+    --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a build file defines WEXELEVATE_TEST_APPROVAL"
+for f in "$BUILD"/programs/wexelevate/*-windows/wexelevate.exe; do
+    ! has_str "$f" wexelevate_stub || fail "the installed program $f contains the stub name"
+done
+[ -z "$(find "$M" "$BUILD/programs" "$BUILD/dlls" \( -name 'wexelevate_stub*' -o -name 'wexelevate_test*' \) -print -quit)" ] ||
+    fail "the stub or the test broker is in the installed tree"
+[ -z "$(grep -rlaF wexelevate_stub "$M/drive_c/windows" 2>/dev/null | head -1)" ] || fail "the machine root names the stub"
+ok c4_test_stub_absent_from_shipping_build
+
+for u in "$ADM" "$STD"; do
+    run_as "$u" install -d "/home/$u/wexel"
+    for img in p64 p32 a b victim; do
+        arch=64; [ $img = p32 ] && arch=32
+        run_as "$u" cp "$ROOT/probes/wexelevate_probe$arch.exe" "/home/$u/wexel/$img.exe"
+    done
+done
+
+# -- the shipping broker: no consent exists yet, so a request fails closed; a standard user is not served
+el_clean
+el_up "$ADM"
+for arch in 64 32; do
+    bp "c4_shipping_broker_fails_closed_admin_$arch" "$ADM" "$arch" run "$(winpath /home/$ADM/wexel/p$arch.exe)" 21 "$(winpath $EL/out.ship)" -
+done
+el_down "$ADM"
+el_up "$STD"
+bp c4_standard_user_not_supported_shipping "$STD" 64 run "$(winpath /home/$STD/wexel/p64.exe)" 50 "$(winpath $EL/out.ship)" -
+[ ! -e "$EL/out.ship" ] || fail "a refused request started a process"
+el_down "$STD"
+ok c4_nothing_started_without_consent
+
+# -- the test broker and its stub. Wine loads a program of system32 that has a builtin twin from the builtin
+# directory whatever the file is, so the test broker has another name and the service points to it.
+cat "$M/system.reg" > "$ROOT/system.reg.c4"
+install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
+install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
+reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
+BROKER_ORIG=1
+el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe"; BROKER_ORIG=""; }; }
+
+el_up "$ADM"
+IMG="$(winpath /home/$ADM/wexel/p64.exe)"
+
+# the control: a limited process has neither the token nor the folder
+el_clean
+bp c4_control_limited_process_facts "$ADM" 64 facts "$(winpath $EL/out.limited)"
+[ "$(el_fact "$EL/out.limited" elevation)" = 3 ] && [ "$(el_fact "$EL/out.limited" admins)" = denyonly ] &&
+    [ "$(el_fact "$EL/out.limited" program_files)" != writable ] || { cat "$EL/out.limited" >&2; fail "the limited control is not limited"; }
+ok c4_control_limited_process_is_limited
+
+# -- 1. the elevated process
+for arch in 64 32; do
+    el_clean; touch "$EL/approve.all"
+    bp "c4_admin_elevates_full_token_parent_is_caller_wait_and_exit_code_$arch" "$ADM" "$arch" run "$(winpath /home/$ADM/wexel/p$arch.exe)" 0 "$(winpath $EL/out.run)" -
+done
+el_clean; touch "$EL/approve.all"
+bp c4_environment_block_of_the_request_arrives "$ADM" 64 run "$IMG" 0 "$(winpath $EL/out.env)" e
+bp c4_default_environment_of_the_user_without_a_block "$ADM" 64 run "$IMG" 0 "$(winpath $EL/out.env2)" -
+bp c4_elevated_caller_is_not_served "$ADM" 64 run "$IMG" 0 "$(winpath $EL/out.again)" - again
+[ "$(el_fact "$EL/out.again" again)" = 50 ] || { cat "$EL/out.again" >&2; fail "an elevated caller was served (again=$(el_fact "$EL/out.again" again))"; }
+ok c4_elevated_caller_gets_not_supported
+
+bp c4_child_of_an_elevated_process_is_elevated_and_can_write_program_files "$ADM" 64 run "$IMG" 0 "$(winpath $EL/out.spawn)" - spawn
+[ "$(el_fact "$EL/out.spawn.sub" elevation)" = 2 ] && [ "$(el_fact "$EL/out.spawn.sub" program_files)" = writable ] &&
+    [ "$(el_fact "$EL/out.spawn.sub" integrity)" = 12288 ] || { cat "$EL/out.spawn.sub" >&2; fail "the child of an elevated process is not elevated"; }
+ok c4_grandchild_is_elevated_and_keeps_the_system_group
+
+# -- 2. the Unix side of the elevated process, and a limited process of the same user against it (B7, B8)
+el_clean; touch "$EL/approve.all"
+bprobe "$ADM" 64 attack "$IMG" "$(winpath $EL/out.attack)" t1 > "$ROOT/attack.log" 2>&1 & APID=$!
+for _ in $(seq 1 60); do CP="$(el_proc "$ADM" 'child .*hold t1')"; [ -n "$CP" ] && break; sleep 1; done
+[ -n "${CP:-}" ] || { cat "$ROOT/attack.log" >&2; fail "no elevated process"; }
+for _ in $(seq 1 30); do grep -q 'ready=1' "$EL/out.attack" 2>/dev/null && break; sleep 1; done
+[ "$(proc_gids "$CP")" = "$ADM_GID $GRP_GID $GRP_GID" ] || fail "the elevated process gids: $(proc_gids "$CP")"
+ok c4_elevated_process_has_the_system_group
+[ "$(stat -c %U "/proc/$CP/environ")" = root ] || fail "the elevated process is dumpable, the user could ptrace it"
+ok c4_elevated_process_is_not_dumpable
+touch "$EL/continue.t1"
+wait "$APID" || { cat "$ROOT/attack.log" >&2; fail "the attack probe"; }
+grep -q '^attack=PASS' "$ROOT/attack.log" || { cat "$ROOT/attack.log" >&2; fail "the attack probe: no PASS"; }
+ok c4_limited_process_cannot_open_the_elevated_process_or_its_threads
+
+# -- 3. frozen requests
+frozen()   # name variant expected-error
+{
+    el_clean; touch "$EL/wait-for-gate" "$EL/approve.victim.exe"
+    run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/victim.exe"
+    bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/victim.exe)" "$3" "$(winpath $EL/out.frozen)" - > "$ROOT/frozen.log" 2>&1 & FP=$!
+    el_wait_file "$EL/started.victim.exe"
+    case "$2" in
+        append) run_as "$ADM" bash -c 'printf x >> "$1"' _ "/home/$ADM/wexel/victim.exe" ;;
+        replace) run_as "$ADM" bash -c 'cp "$1" "$1.new" && mv "$1.new" "$1"' _ "/home/$ADM/wexel/victim.exe" ;;
+        none) ;;
+    esac
+    touch "$EL/gate"
+    wait "$FP" || { cat "$ROOT/frozen.log" >&2; fail "$1"; }
+    grep -q '^run=PASS' "$ROOT/frozen.log" || { cat "$ROOT/frozen.log" >&2; fail "$1: no PASS"; }
+    ok "$1"
+}
+frozen c4_unchanged_image_runs_after_a_pending_approval none 0
+frozen c4_image_changed_in_place_after_freezing_is_rejected append 1392
+[ ! -e "$EL/out.frozen" ] || fail "the changed image ran"
+frozen c4_image_replaced_after_freezing_is_rejected replace 1392
+[ ! -e "$EL/out.frozen" ] || fail "the replaced image ran"
+
+# -- 4. A/B concurrency: approving A does not approve B
+el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
+bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \
+    > "$ROOT/conc.log" 2>&1 & CPID=$!
+el_wait_file "$EL/started.a.exe"; el_wait_file "$EL/started.b.exe"
+[ "$(head -1 "$EL/started.a.exe")" != "$(head -1 "$EL/started.b.exe")" ] || fail "two requests have the same id"
+touch "$EL/gate"
+wait "$CPID" || { cat "$ROOT/conc.log" >&2; fail "concurrent"; }
+grep -q '^concurrent=PASS' "$ROOT/conc.log" || { cat "$ROOT/conc.log" >&2; fail "concurrent: no PASS"; }
+ok c4_approving_a_does_not_approve_b
+
+# -- 5. arguments, a refusal, bad requests, a forged id
+el_clean; touch "$EL/approve.all"
+bp c4_long_unicode_and_quoted_arguments_survive "$ADM" 64 args "$IMG" "$(winpath $EL/out.args)"
+bp c4_long_unicode_and_quoted_arguments_survive_32 "$ADM" 32 args "$(winpath /home/$ADM/wexel/p32.exe)" "$(winpath $EL/out.args32)"
+bp c4_forged_pid_is_attributed_to_the_real_caller "$ADM" 64 forge "$IMG" "$(winpath $EL/out.forge)"
+bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
+bp c4_missing_image_is_reported "$ADM" 64 run "$(winpath $EL/missing.exe)" 2 "$(winpath $EL/out.bad)" -
+rm -f "$EL/approve.all"
+bp c4_refused_consent_is_error_cancelled "$ADM" 64 run "$IMG" 1223 "$(winpath $EL/out.refused)" -
+[ ! -e "$EL/out.refused" ] || fail "a refused request started a process"
+ok c4_refused_request_started_nothing
+el_down "$ADM"
+
+# -- 6. a standard user
+el_clean; touch "$EL/approve.all"
+el_up "$STD"
+for arch in 64 32; do
+    bp "c4_standard_user_gets_not_supported_$arch" "$STD" "$arch" run "$(winpath /home/$STD/wexel/p$arch.exe)" 50 "$(winpath $EL/out.std)" -
+done
+[ ! -e "$EL/out.std" ] || fail "a standard user's request started a process"
+ok c4_standard_user_started_nothing
+el_down "$STD"
+el_restore_broker
+rm -rf "$EL"
+fi   # WEX_C4_SKIP
 
 if [ "${WEX_C3_NO_OWN:-0}" != 1 ]; then
 echo "--- no launcher: a prefix of the user's own"
@@ -633,6 +824,27 @@ for arch in 64 32; do
     ok "c3_own_prefix_boot_state_grants_present_$arch"
 done
 own_server -k || true; own_server -w; wait "$HOLD" 2>/dev/null || true
+if [ "${WEX_C4_SKIP:-0}" != 1 ]; then
+    # no launcher: the broker runs on the user's token, so even an administrator's request is refused
+    echo "--- broker without the launcher: a prefix of the administrator's own"
+    UPA="/home/$ADM/.wine-own"
+    rm -rf "$UPA" "$EL"; install -d -m 1777 "$EL"
+    own_wine_a() { run_as "$ADM" WINEPREFIX="$UPA" "$BUILD/wine" "$@" 2>&1; }
+    own_server_a() { run_as "$ADM" WINEPREFIX="$UPA" "$BUILD/server/wineserver" "$@"; }
+    own_wine_a wineboot.exe -i >"$ROOT/own-boot-a.log" 2>&1 || true
+    own_server_a -w
+    printf '\n[Software\\\\Wine\\\\Elevation] 1700000000\n#time=1d9a0000000000\n"Helper"="C:\\\\windows\\\\system32\\\\consent.exe"\n' |
+        run_as "$ADM" tee -a "$UPA/system.reg" >/dev/null
+    own_wine_a "$ROOT/probes/wexelevate_probe64.exe" hold >/dev/null 2>&1 & HOLD=$!
+    sleep 4
+    OUT="$(own_wine_a "$ROOT/probes/wexelevate_probe64.exe" run "$(winpath /home/$ADM/wexel/p64.exe)" 50 "$(winpath $EL/out.own)" - | tr -d '\r')" ||
+        { echo "$OUT" >&2; fail "broker request without the launcher"; }
+    grep -q '^run=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "broker request without the launcher: no PASS"; }
+    [ ! -e "$EL/out.own" ] || fail "a process was started without the system role"
+    ok c4_without_the_launcher_every_request_gets_not_supported
+    own_server_a -k || true; own_server_a -w; wait "$HOLD" 2>/dev/null || true
+    rm -rf "$UPA" "$EL"
+fi
 fi
 standin_off
 

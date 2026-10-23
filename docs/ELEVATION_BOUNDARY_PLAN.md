@@ -171,6 +171,12 @@ before porting.
 
 ## Status (2026-10-22; updated 2026-10-23)
 
+- **Step 4 (broker): done (2026-10-23)**, see `ELEVATION_BROKER_WORKORDER.md` "Results". `wexelevate.exe` is a LocalSystem
+  service; request protocol, freezing, single-use id, linked primary token, parent = the caller and handle return work,
+  with the approval stub only in the test harness (shipping: `ERROR_NOT_READY`). The server protects elevated processes
+  (descriptor owned by Administrators; token open needs the query right), they keep the group `wexsys` (B7). 174
+  `test_sysrun_server.sh` checks, the usual harness unchanged. Open: consent (steps 5 and 6) and the callers (step 7).
+
 - **Launcher on by default (2026-10-23):** `setup-machine-root.sh` installs `wex-sysrun`; `WEX_SYSRUN_ENABLE=0` opts out.
   Known limits: no UIPI or Session 0 isolation; `ptrace_scope` 0 leaves a window for service children; the in-place
   hive save is not atomic; a user can replace their own wineserver and lose the system role for that session.
@@ -340,7 +346,7 @@ Commit after each working step. Each step lists how it is accepted.
 3. **Server enforcement (D1, D2).**
    Accept: the step 2 probes pass, and the existing focused, `advapi32 security` and `ntdll info` results are
    unchanged with the helper unset. `shell32` `runas` now fails closed under enforcement until step 5.
-4. **Broker skeleton (D3.1, D3.2).** Request protocol, freezing, single use, handle return. Use a test-only
+4. **Broker skeleton (D3.1, D3.2) (done 2026-10-23).** Request protocol, freezing, single use, handle return. Use a test-only
    approval stub that is built only into the test harness and never into shipping code.
    Accept:
    - the repair's target `hProcess` contract passes through the broker;

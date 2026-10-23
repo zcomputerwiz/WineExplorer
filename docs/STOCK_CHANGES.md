@@ -538,6 +538,41 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
   (`QueryServiceObjectSecurity`, `SetServiceObjectSecurity`) call these over RPC; they were a semi-stub (an empty
   DACL) and `return TRUE`. **Ungated**: this is the documented behavior, for every services.exe, with or without the system role or enforcement.
 
+## Elevation boundary: the elevation broker (plan step 4, 2026-10-23)
+
+`ELEVATION_BROKER_WORKORDER.md`, items 1 and 2. Everything below is active only while the system role is active and
+elevation is enforced; otherwise stock behavior (the build files and the service entry are the only ungated parts).
+
+- `configure.ac`, `include/Makefile.in`, `loader/wine.inf.in`: the project program `programs/wexelevate` (source in
+  WineExplorer `src/programs/wexelevate`, header `include/wexelevate.h`) is built and installed; `wine.inf` registers the
+  demand-start LocalSystem service `wexelevate` ("Application Information", `[WexElevateService]`, all four
+  `[DefaultInstall*.Services]` lists) with a `Security` value that lets Authenticated Users query and start it (a
+  binary self-relative descriptor, `O:SYG:SYD:(A;;0x2019d;;;AU)(A;;0x2a1fd;;;SY)(A;;0xf01ff;;;BA)`, the default
+  descriptor plus `SERVICE_START` for users). Always.
+- `server/token.c` (`create_linked_token`): while elevation is enforced, a caller that is the system role's SYSTEM
+  process (SYSTEM user, system group, enabled SeTcbPrivilege) gets the linked token as a **primary** token
+  (native N6); everybody else still gets the identification-level token. Stricter than N6: Wine's administrator token
+  holds SeTcbPrivilege too.
+- `server/token.c`, `server/security.h` (`token_is_elevated`, `token_protect_elevated`), `server/sysrun.c`
+  (`sysrun_process_created`, `protect_object`): **B8.** The server applies mandatory integrity labels to token
+  objects but not to process and thread objects (no label, no descriptor, any access granted), so a process whose
+  token is the full half of a split token gets the descriptor of a system role process: SYSTEM and the full token's
+  Administrators full control, Users and Authenticated Users the limited query and SYNCHRONIZE; so do its threads.
+  **The owner is Administrators, not the user**: an owner always gets WRITE_DAC, so a limited token of the user
+  would rewrite the descriptor. The token object of an elevated process gets a descriptor of SYSTEM and
+  Administrators only. Any other new process whose connection has the system group loses the raised file access
+  (`peer_gid` cleared): its Unix process dropped the group.
+- `server/token.c` (`open_token`): while the system role is active and elevation is enforced, opening the token of
+  another process needs `PROCESS_QUERY_INFORMATION` (a thread: `THREAD_QUERY_INFORMATION`), as on Windows. Stock Wine
+  asks for no right at all, so a limited process could open the full token of an elevated process of its user and
+  impersonate it.
+- `server/sysrun.c` (`system_images`): `drive_c/windows/system32/wexelevate.exe` may be the main image of a system
+  group root process (B1). Dormant until the launcher accepts the broker as a mode; the broker is started by
+  services.exe as a LocalSystem service and does not need it.
+- `dlls/ntdll/unix/sysrun.c` (`sysrun_must_drop_group`): **B7.** A client with the system group keeps it for a child
+  whose token has `TokenElevationTypeFull` (an elevated process), in addition to the SYSTEM token. The process stays
+  non-dumpable (its effective group differs from its real group).
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|
