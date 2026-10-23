@@ -85,6 +85,7 @@ class HeadfulTests(unittest.TestCase):
         self.startup_diagnostic=False
         self.private_loopback_control=False
         self.http_fixture_control=False
+        self.owned_thread_diagnostic=False
         self.browser=Mock();self.browser.poll.return_value=None;self.browser.wait.return_value=0
         self.browser.pid=900
         def start_browser(*args,**kwargs):
@@ -129,7 +130,7 @@ class HeadfulTests(unittest.TestCase):
             code=edge.run(self.output,self.fixture,self.helpers,now=lambda:self.clock,
                           sleep=lambda seconds:setattr(self,'clock',self.clock+seconds),popen=self.popen,
                           startup_diagnostic=self.startup_diagnostic,private_loopback_control=self.private_loopback_control,
-                          http_fixture_control=self.http_fixture_control)
+                          http_fixture_control=self.http_fixture_control,owned_thread_diagnostic=self.owned_thread_diagnostic)
         return code,json.loads((self.output/'results.json').read_text())
 
     def test_actual_fixture_protocol(self):
@@ -664,6 +665,99 @@ class HeadfulTests(unittest.TestCase):
         self.assertTrue(all(v['response_completed'] for v in http['requests']))
         with self.assertRaises(OSError):
             socket.create_connection((http['listener']['host'],http['listener']['port']),timeout=.2)
+
+    def owned_mocks(self):
+        self.owned_thread_diagnostic=True
+        server,module,proof,loader=self.http_mocks()
+        record={'within_deadline':True,'classification':'Separate Win32/Linux mock inventories'}
+        observation=SimpleNamespace(collect=Mock(return_value=record))
+        original=loader.kwargs['side_effect']
+        return server,observation,patch.object(edge,'load',side_effect=lambda name:
+            observation if name=='g4_edge_owned_threads' else original(name))
+
+    def test_owned_flags_and_proof_before_output_or_process(self):
+        for flags in ({},{'startup_diagnostic':True},{'startup_diagnostic':True,'http_fixture_control':True},
+                      {'startup_diagnostic':True,'http_fixture_control':True,'private_loopback_control':True}):
+            with self.subTest(flags=flags),patch.dict(edge.os.environ,{},clear=True):
+                with self.assertRaises((ValueError,RuntimeError)):
+                    edge.run(self.output,self.fixture,self.helpers,owned_thread_diagnostic=True,**flags)
+            self.assertFalse(self.output.exists());self.assertEqual(self.calls,[])
+
+    def test_owned_inventory_only_after_timeout_before_cleanup_primary_preserved(self):
+        server,observation,loader=self.owned_mocks();self.window['title']='127.0.0.1_/'+self.nonce+'/index.html'
+        def collect(native,*args,**kwargs):
+            self.assertTrue((self.output/'failure-front.png').exists())
+            self.assertFalse(any(c[2]=='cleanup-kill' for c in self.calls))
+            self.assertEqual(args[2],self.browser.pid)
+            self.assertLessEqual(kwargs['seconds'],5)
+            return {'within_deadline':True,'native_error':'MOCK query denied','linux_error':'MOCK unavailable'}
+        observation.collect.side_effect=collect
+        server.close.side_effect=RuntimeError('SECONDARY server close')
+        with loader:code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('No nonce-bound',r['error'])
+        self.assertIn('SECONDARY server close',str(r['cleanup_errors']))
+        self.assertIn('MOCK query denied',r['owned_threads']['native_error'])
+        self.assertTrue((self.output/'owned-threads.json').is_file());observation.collect.assert_called_once()
+
+    def test_owned_observer_timeout_preserves_primary_front_and_cleanup(self):
+        _,observation,loader=self.owned_mocks();self.window['title']='WEXEDGE loading'
+        observation.collect.side_effect=subprocess.TimeoutExpired('MOCK observer',5)
+        with loader:code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('No nonce-bound',r['error'])
+        self.assertIn('TimeoutExpired',r['owned_threads_error']);self.assertTrue(r['failure_front']['captured'])
+        self.assertEqual(r['cleanup_wait'],0)
+
+    def test_owned_never_collects_for_success_or_other_failure(self):
+        _,observation,loader=self.owned_mocks()
+        with loader:code,r=self.execute()
+        self.assertEqual(code,1);self.assertTrue(r['completed']);observation.collect.assert_not_called()
+
+    def test_owned_never_collects_for_nonreadiness_error(self):
+        _,observation,loader=self.owned_mocks();self.failures['native-0']=RuntimeError('PRIMARY other failure')
+        with loader:code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('PRIMARY other failure',r['error']);observation.collect.assert_not_called()
+
+    def test_default_http_does_not_import_owned_inventory_helper(self):
+        _,_,_,loader=self.http_mocks()
+        original=loader.kwargs['side_effect']
+        def load(name):
+            if name=='g4_edge_owned_threads':raise ImportError('Owned helper deliberately unavailable')
+            return original(name)
+        with patch.object(edge,'load',side_effect=load):code,r=self.execute()
+        self.assertEqual(code,1);self.assertTrue(r['completed']);self.assertNotIn('owned_threads',r)
+
+    def test_cli_owned_flag_dispatch(self):
+        import sys
+        with patch.object(sys,'argv',['check-g4-edge-headful.py','--output-dir',str(self.output),'--fixture',str(self.fixture),
+                '--startup-diagnostic','--private-loopback-control','--http-fixture-control','--owned-thread-diagnostic']), \
+             patch.object(edge,'run',return_value=1) as run,patch.object(edge,'load',return_value=self.helpers):
+            self.assertEqual(edge.main(),1);self.assertTrue(run.call_args.kwargs['owned_thread_diagnostic'])
+
+    @unittest.skipUnless(__import__('os').name=='posix','Owned helper transport uses Linux process groups')
+    def test_owned_query_helper_transport_actual_success_timeout_and_raw_logs(self):
+        import sys,time,os
+        self.output.mkdir()
+        done=edge.owned_native_logged([sys.executable,'-c','import json;print(json.dumps({"ok":True}))'],os.environ,self.output,'transport-ok',1)
+        self.assertEqual(done.returncode,0);self.assertTrue(json.loads(done.stdout)['ok'])
+        start=time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            edge.owned_native_logged([sys.executable,'-c','import os,time;print(os.getpid(),flush=True);time.sleep(5)'],
+                                     os.environ,self.output,'transport-timeout',.5)
+        self.assertLess(time.monotonic()-start,1)
+        helper_pid=int((self.output/'transport-timeout.stdout.log').read_text().strip())
+        with self.assertRaises(ProcessLookupError):os.kill(helper_pid,0)
+        self.assertTrue((self.output/'transport-timeout.stderr.log').is_file())
+
+    @unittest.skipUnless(__import__('os').name=='posix','Owned helper transport uses Linux process groups')
+    def test_owned_query_transport_rejects_oversized_raw_logs_without_truncating_them(self):
+        import sys,os
+        self.output.mkdir()
+        for stream in ('stdout','stderr'):
+            label='transport-large-'+stream
+            with self.assertRaisesRegex(ValueError,'log size limit'):
+                edge.owned_native_logged([sys.executable,'-c','import sys;sys.'+stream+'.write("x"*524289)'],
+                                         os.environ,self.output,label,1)
+            self.assertEqual((self.output/(label+'.'+stream+'.log')).stat().st_size,524289)
 
 
 if __name__=='__main__':unittest.main()

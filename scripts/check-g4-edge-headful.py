@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import signal
 import shutil
 import subprocess
 import threading
@@ -152,6 +153,27 @@ def terminal_failure_front(result,output,comp,helpers,env,bound,now):
         record['error']=repr(error)
     finally:
         record['finished_monotonic']=now()
+
+
+def owned_native_logged(command,env,output,label,timeout):
+    """Only this query helper's group; reserve kill/reap INSIDE its time cap.
+
+    General run_logged adds a five-second reap tail, too long for this entire
+    observation's five-second bound. Never signal the selected browser here.
+    """
+    deadline=time.monotonic()+timeout;tail=min(.25,timeout/2)
+    stdout=output/(label+'.stdout.log');stderr=output/(label+'.stderr.log')
+    with stdout.open('wb') as out,stderr.open('wb') as err:
+        process=subprocess.Popen(command,env=env,stdout=out,stderr=err,start_new_session=True)
+        try: code=process.wait(timeout=max(0,deadline-time.monotonic()-tail))
+        except BaseException:
+            if process.poll() is None:
+                os.killpg(process.pid,signal.SIGKILL)
+                process.wait(timeout=max(0,deadline-time.monotonic()))
+            raise
+    with stdout.open('rb') as stream: text=stream.read(512*1024+1)
+    if len(text)>512*1024 or stderr.stat().st_size>512*1024: raise ValueError('Owned native log size limit')
+    return subprocess.CompletedProcess(command,code,stdout=text.decode('utf-8'))
 
 
 def strict_json(text):
@@ -309,12 +331,15 @@ def record_roles(result,previous,snapshot,cleanup):
 
 
 def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_control=False,http_fixture_control=False,
+        owned_thread_diagnostic=False,
         now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
     start=now()
     if private_loopback_control and not startup_diagnostic:
         raise ValueError('Private loopback control requires startup diagnostic mode')
     if http_fixture_control and not (startup_diagnostic and private_loopback_control):
         raise ValueError('HTTP fixture control requires startup diagnostic and private loopback proof')
+    if owned_thread_diagnostic and not (startup_diagnostic and private_loopback_control and http_fixture_control):
+        raise ValueError('Owned threads require startup diagnostic, HTTP and private loopback proof')
     before=validate(output,fixture)  # never cleanup on a rejected guard
     loopback=load('run-isolated-graphics').verify_private_loopback() if private_loopback_control else None
     output.mkdir(); save(output/'persistence-before.json',before)
@@ -333,6 +358,7 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
     if http_fixture_control: result['http_fixture_control']=True
     deadline=start+TOTAL; browser=None; files=[]; stop=threading.Event(); cleanup_started=threading.Event(); monitor=None
     http_server=None
+    readiness_failed=False
     result.update(observed_process_roles={},role_exits_before_cleanup=[])
     def bound(cap,cleanup=False):
         remaining=deadline-now()-(0 if cleanup else RESERVE)
@@ -408,7 +434,9 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             alive();initial=observe()
             if initial: break
             sleep(min(.25,max(0,readiness_deadline-now())))
-        if initial is None: raise TimeoutError('No nonce-bound ready browser window')
+        if initial is None:
+            readiness_failed=True
+            raise TimeoutError('No nonce-bound ready browser window')
         result['ready_elapsed']=now()-start
         def capture(path):
             code=helpers.run_logged(capture_command(path),env,output,path.stem+'-capture',bound(5)).returncode
@@ -419,6 +447,18 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
         result['error']=repr(error)
         if browser is not None:
             terminal_failure_front(result,output,comp,helpers,env,bound,now)
+        if owned_thread_diagnostic and readiness_failed and browser is not None:
+            try:
+                def native(args,label,timeout):
+                    return owned_native_logged([str(BUILD/'wine'),str(observer)]+args,env,output,label,bound(timeout))
+                aliases=result['installed_after_boot']['owner_aliases']
+                record=load('g4_edge_owned_threads').collect(native,nonce,aliases,browser.pid,
+                    result.get('browser_launcher_prefix_sample'),PREFIX,result['argv'],seconds=bound(5),now=now)
+                path=output/'owned-threads.json';save(path,record)
+                result['owned_threads']={'path':str(path),'sha256':install.digest(path),
+                    'within_deadline':record['within_deadline'],
+                    'native_error':record.get('native_error'),'linux_error':record.get('linux_error')}
+            except Exception as observation_error: result['owned_threads_error']=repr(observation_error)
     finally:
         cleanup_started.set()
         for label,args in (('kill',['-k']),('wait',['-w'])):
@@ -473,9 +513,11 @@ def main():
     parser.add_argument('--startup-diagnostic',action='store_true',help='Bounded logging/file probe only; can never pass rendering acceptance')
     parser.add_argument('--private-loopback-control',action='store_true',help='Require inherited proof of private lo UP; FILE unless explicit HTTP control')
     parser.add_argument('--http-fixture-control',action='store_true',help='Two original-fixture HTTP routes; requires startup diagnostic and private loopback control')
+    parser.add_argument('--owned-thread-diagnostic',action='store_true',help='Read-only independent Win32/Linux inventories ONLY after readiness timeout; requires HTTP diagnostic/private loopback')
     args=parser.parse_args()
     return run(args.output_dir,args.fixture,load('check-g3-correctness'),startup_diagnostic=args.startup_diagnostic,
-               private_loopback_control=args.private_loopback_control,http_fixture_control=args.http_fixture_control)
+               private_loopback_control=args.private_loopback_control,http_fixture_control=args.http_fixture_control,
+               owned_thread_diagnostic=args.owned_thread_diagnostic)
 
 
 if __name__=='__main__': raise SystemExit(main())
