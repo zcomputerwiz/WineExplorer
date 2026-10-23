@@ -105,3 +105,20 @@ The existing private `presentation-timing-trial.py` gained only the explicit
 host helper SHA256 `3f5b9dfa9f3236508e38ce8d8c0436815493b2f0635d4d23b27d5d4124e3e8a8`.
 Old preparations/history are preserved. No controller/stopper or existing
 consumer implementation changed. Return for parent review before live execution.
+
+## Independent parent review and bounded live dispatch
+
+Parent read the final runner, original page, native observer, executable tests
+and private procedure additions. Independently reran all **87 focused Linux tests**
+without skips, plus the actual-fixture Node tests; all passed. Independently
+verified the tar digest, all nine member sizes/hashes/current sources, all five
+host helpers and the accepted installed-evidence reference hash. Output was absent.
+Early review corrections retain explicit loading as pending, require exact mapped
+C:/Z: owners and check identity/geometry after each front, including the last.
+
+Offline milestone accepted for ONE live dispatch of the manifest above. This is
+not advance acceptance of the native observer/Edge custom chrome or persistence.
+Preserve a concrete startup, geometry, capture or renderer failure and stop for
+parent diagnosis, without repeat launches or guessed offsets. Record all timing,
+before/after payload state and graceful shutdown evidence. No GPU-compositing,
+tabbed-browser or G4 claim from this smoke. No production changes/master merge.
