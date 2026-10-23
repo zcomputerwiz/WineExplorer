@@ -73,3 +73,17 @@ the boot string as a template. Full original system+backing content SHA256
 measurement/unchanged pre-post gate remains MANDATORY before/after Stage B;
 not measured this window. No permission to rerun preparation or create/boot
 follows from the corrected replay. Return promptly for parent review/checkpoint.
+
+## Independent parent review
+
+Parent read both source files, independently passed13 focused tests/no skips,
+replayed the validator against both actual retained GPT blobs, and matched both
+raw hashes above. Actual root is physically last with33,554,432 projected new
+sectors. Independently compared original file identities and before/after chain
+JSON: unchanged. Owner snapshot empty; proposed overlay does not exist.
+This accepts the read-only layout proof, NOT a ready maintenance execution.
+
+The exact root type is documented as AMD64/x86-64 root in the
+[Discoverable Partitions Specification](https://github.com/uapi-group/specifications/blob/main/specs/discoverable_partitions_specification.md).
+The corrected validator rejects generic/other-architecture root types rather
+than broadly accepting unknown layouts. Filesystem/boot growth still untested.
