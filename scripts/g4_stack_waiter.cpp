@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
+#include <stdlib.h>
+#include <errno.h>
 
 struct State { HANDLE release,ready; ULONGLONG wait_end; volatile LONG error; };
 static DWORD remaining(ULONGLONG end) {
@@ -37,7 +39,53 @@ static DWORD WINAPI worker(void *value) {
 static int error(const char *message) {
     fprintf(stderr,"stack waiter: %s (Win32 %lu)\n",message,GetLastError());return 1;
 }
+static bool number(const char *text,unsigned long long maximum,unsigned long long &value) {
+    if (!*text) return false;
+    for (const char *p=text;*p;p++) if (*p<'0'||*p>'9') return false;
+    errno=0;char *end=NULL;value=strtoull(text,&end,10);
+    return !errno && end && !*end && value && value<=maximum;
+}
+static bool nonce_valid(const char *text) {
+    if (strlen(text)!=32) return false;
+    for (const char *p=text;*p;p++) if (!((*p>='0'&&*p<='9')||(*p>='a'&&*p<='f')||(*p>='A'&&*p<='F'))) return false;
+    return true;
+}
+static int verify(char **argv) {
+    unsigned long long pid,created,main_tid,worker_tid;
+    if (!nonce_valid(argv[2]) || !number(argv[3],0xffffffffULL,pid) || !number(argv[4],~0ULL,created) ||
+        !number(argv[5],0xffffffffULL,main_tid) || !number(argv[6],0xffffffffULL,worker_tid) || main_tid==worker_tid)
+        return error("verify identity arguments");
+    wchar_t own[1024]={},target[1024]={};
+    DWORD n=GetModuleFileNameW(NULL,own,1024);
+    if (!n || n>=1024) return error("verifier module path unavailable/truncated");
+    HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,(DWORD)pid);
+    if (!process) return error("verify process query");
+    DWORD size=1024,code=0;FILETIME c={},e={},k={},u={};
+    bool ok=QueryFullProcessImageNameW(process,0,target,&size) && !_wcsicmp(own,target) &&
+        GetProcessTimes(process,&c,&e,&k,&u) && (((unsigned long long)c.dwHighDateTime<<32)|c.dwLowDateTime)==created &&
+        GetExitCodeProcess(process,&code) && code==STILL_ACTIVE;
+    DWORD tids[2]={(DWORD)main_tid,(DWORD)worker_tid};
+    for (unsigned i=0;ok && i<2;i++) {
+        HANDLE thread=OpenThread(THREAD_QUERY_LIMITED_INFORMATION,FALSE,tids[i]);
+        if (!thread) { ok=false;break; }
+        ok=GetThreadId(thread)==tids[i] && GetProcessIdOfThread(thread)==(DWORD)pid &&
+            GetExitCodeThread(thread,&code) && code==STILL_ACTIVE;
+        if (!CloseHandle(thread)) ok=false;
+    }
+    // Recheck target liveness/creation after querying both thread owners.
+    ok=ok && GetProcessTimes(process,&c,&e,&k,&u) &&
+        (((unsigned long long)c.dwHighDateTime<<32)|c.dwLowDateTime)==created &&
+        GetExitCodeProcess(process,&code) && code==STILL_ACTIVE;
+    if (!CloseHandle(process)) ok=false;
+    if (!ok) return error("verify image/creation/liveness/thread owner mismatch");
+    // Nonce is echoed, not read from another process: integration independently
+    // binds its readiness + exact Linux Popen argv to this nonce.
+    if (printf("{\"pid\":%llu,\"main_tid\":%llu,\"worker_tid\":%llu,\"creation_time\":%llu,\"nonce\":\"%s\"}\n",
+               pid,main_tid,worker_tid,created,argv[2])<=0 || fflush(stdout)) return error("verify output");
+    return 0;
+}
 int main(int argc,char **argv) {
+    if (argc==7 && !strcmp(argv[1],"--verify")) return verify(argv);
     if (argc!=3 || (strcmp(argv[1],"--wait") && strcmp(argv[1],"--release")) || strlen(argv[2])!=32)
         return error("exact --wait/--release NONCE32 required");
     wchar_t event_name[96]=L"Local\\WEXStackCalibration-";size_t offset=wcslen(event_name);
