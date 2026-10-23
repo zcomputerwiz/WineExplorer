@@ -86,3 +86,15 @@ iproute2 is an explicit required tool, not a downloaded dependency. Existing
 90s shutdown reserve and exact identity/QMP/controller stopper remain required.
 Old preparations/evidence untouched. Return for parent review before ONE later
 same-file/LO-UP live control; no HTTP, retry, production patch or G4 claim.
+
+## Parent review / bounded dispatch
+
+Parent read opt-in isolation/runner changes and tests; independently passed
+all118 Linux tests without skips (including real private loopback and runuser
+handoff), original-fixture Node tests, and the X-socket SO_PEERCRED/inode control
+with native Linux paths `/var/tmp/wex-lo-parent-20261023-x01`. Verified all nine
+archive/current-source sizes/hashes, five helpers, installed-evidence reference,
+explicit mode flags and absent output. The source/manifest is accepted for ONE
+same-file/loopback-UP diagnostic, only if live usage still permits safe execution
+(do not boot at>=90% five-hour used). Capture/keep evidence and cleanly stop;
+return before another profile/run or any HTTP arm. No advance causal/acceptance claim.
