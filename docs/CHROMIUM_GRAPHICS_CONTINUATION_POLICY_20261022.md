@@ -19,6 +19,17 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST original calibration attempt c6a2ef20/44fa88a4 FAILED PREFLIGHT before
+stage/transfer/helper/consumer. Native/graphics result NOT_OBSERVED. Parent
+independently23 records/19pins/raw cleanQMP-QEMU-Windows0/PIDs absent pass. Idle
+remote command exited1, underlying stderr lost by inherited exception wrapper;
+cause unproven. NO retry. NEXT OFFLINE ONLY REMOTE_FAILURE_PLAN_20261023: preserve
+bounded captured remote stdout/stderr/returncode with executable negatives,
+original error and no further SSH; leave idle policy unchanged pending evidence.
+Parent reviews before separately authorizing any read-only guest diagnostic.
+Both original PEs/runtimes unchanged; oldR1 failedhost/prep preserved. Older
+calibration authorization below is CONSUMED, not authority for another run.
+
 LATEST native helper1a48edc8 acceptedc8396008; original-child calibration offline
 prepfacd17be independently36tests/16TAR+currentinputs/5helpers/19pins/2seeds+ISO/
 buildlogs/topidentity pass. Read NATIVE_EXIT_CALIBRATION_PREP_20261023 including
