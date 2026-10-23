@@ -331,7 +331,7 @@ def record_roles(result,previous,snapshot,cleanup):
 
 
 def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_control=False,http_fixture_control=False,
-        owned_thread_diagnostic=False,
+        owned_thread_diagnostic=False,owned_stack_diagnostic=False,
         now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
     start=now()
     if private_loopback_control and not startup_diagnostic:
@@ -340,8 +340,12 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
         raise ValueError('HTTP fixture control requires startup diagnostic and private loopback proof')
     if owned_thread_diagnostic and not (startup_diagnostic and private_loopback_control and http_fixture_control):
         raise ValueError('Owned threads require startup diagnostic, HTTP and private loopback proof')
+    if owned_stack_diagnostic and not (startup_diagnostic and private_loopback_control and http_fixture_control and owned_thread_diagnostic):
+        raise ValueError('Owned stacks require startup diagnostic, private loopback, HTTP and owned threads')
     before=validate(output,fixture)  # never cleanup on a rejected guard
     loopback=load('run-isolated-graphics').verify_private_loopback() if private_loopback_control else None
+    stacks=load('g4_edge_selected_stacks') if owned_stack_diagnostic else None
+    stack_tools=stacks.guard_tools() if stacks is not None else None  # before output/listener/consumer
     output.mkdir(); save(output/'persistence-before.json',before)
     env=install.environment(output); env['WINEPREFIX']=str(PREFIX)
     env['WINEDEBUG']='-all,+timestamp,+pid,+tid,+winediag,+process'
@@ -356,6 +360,7 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
         result['classification']='Startup diagnostic ONLY; rendering acceptance NOT_EVALUATED'
     if private_loopback_control: result['private_loopback_before']=loopback
     if http_fixture_control: result['http_fixture_control']=True
+    if owned_stack_diagnostic: result['owned_stack_tools']=stack_tools
     deadline=start+TOTAL; browser=None; files=[]; stop=threading.Event(); cleanup_started=threading.Event(); monitor=None
     http_server=None
     readiness_failed=False
@@ -458,6 +463,24 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
                 result['owned_threads']={'path':str(path),'sha256':install.digest(path),
                     'within_deadline':record['within_deadline'],
                     'native_error':record.get('native_error'),'linux_error':record.get('linux_error')}
+                if stacks is not None:
+                    def stack_monitor():
+                        # Cheap existing browser-log/process guards throughout
+                        # helper waits; no repeated scan of the large raw trace.
+                        usage=diagnostic_log_usage(output)
+                        if not usage['passed']: raise RuntimeError('Browser log quota during stack collection')
+                        if result.get('monitor_error') or result['role_exits_before_cleanup']:
+                            raise RuntimeError('Browser process monitor/role exit during stack collection')
+                        if browser.poll() is not None: raise RuntimeError('Browser exited during stack collection')
+                        comp.verify();http_server.check()
+                    try:
+                        stack_record=stacks.collect(record,nonce,aliases,browser,result.get('browser_launcher_prefix_sample'),
+                            PREFIX,result['argv'],env,output,observer,stack_monitor,seconds=bound(20),now=now)
+                        stack_path=output/'selected-stacks.json';save(stack_path,stack_record)
+                        result['selected_stacks']={'path':str(stack_path),'sha256':install.digest(stack_path),
+                            'status':stack_record['status'],'within_deadline':stack_record['within_deadline'],
+                            'ui_resume':'NOT_PROVEN'}
+                    except Exception as stack_error: result['selected_stacks_error']=repr(stack_error)
             except Exception as observation_error: result['owned_threads_error']=repr(observation_error)
     finally:
         cleanup_started.set()
@@ -514,10 +537,11 @@ def main():
     parser.add_argument('--private-loopback-control',action='store_true',help='Require inherited proof of private lo UP; FILE unless explicit HTTP control')
     parser.add_argument('--http-fixture-control',action='store_true',help='Two original-fixture HTTP routes; requires startup diagnostic and private loopback control')
     parser.add_argument('--owned-thread-diagnostic',action='store_true',help='Read-only independent Win32/Linux inventories ONLY after readiness timeout; requires HTTP diagnostic/private loopback')
+    parser.add_argument('--owned-stack-diagnostic',action='store_true',help='Timeout-only <=8 explicit owned Edge threads; requires startup/private-lo/HTTP/owned-thread diagnostic; never acceptance')
     args=parser.parse_args()
     return run(args.output_dir,args.fixture,load('check-g3-correctness'),startup_diagnostic=args.startup_diagnostic,
                private_loopback_control=args.private_loopback_control,http_fixture_control=args.http_fixture_control,
-               owned_thread_diagnostic=args.owned_thread_diagnostic)
+               owned_thread_diagnostic=args.owned_thread_diagnostic,owned_stack_diagnostic=args.owned_stack_diagnostic)
 
 
 if __name__=='__main__': raise SystemExit(main())

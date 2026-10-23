@@ -86,6 +86,7 @@ class HeadfulTests(unittest.TestCase):
         self.private_loopback_control=False
         self.http_fixture_control=False
         self.owned_thread_diagnostic=False
+        self.owned_stack_diagnostic=False
         self.browser=Mock();self.browser.poll.return_value=None;self.browser.wait.return_value=0
         self.browser.pid=900
         def start_browser(*args,**kwargs):
@@ -130,7 +131,8 @@ class HeadfulTests(unittest.TestCase):
             code=edge.run(self.output,self.fixture,self.helpers,now=lambda:self.clock,
                           sleep=lambda seconds:setattr(self,'clock',self.clock+seconds),popen=self.popen,
                           startup_diagnostic=self.startup_diagnostic,private_loopback_control=self.private_loopback_control,
-                          http_fixture_control=self.http_fixture_control,owned_thread_diagnostic=self.owned_thread_diagnostic)
+                          http_fixture_control=self.http_fixture_control,owned_thread_diagnostic=self.owned_thread_diagnostic,
+                          owned_stack_diagnostic=self.owned_stack_diagnostic)
         return code,json.loads((self.output/'results.json').read_text())
 
     def test_actual_fixture_protocol(self):
@@ -732,6 +734,81 @@ class HeadfulTests(unittest.TestCase):
                 '--startup-diagnostic','--private-loopback-control','--http-fixture-control','--owned-thread-diagnostic']), \
              patch.object(edge,'run',return_value=1) as run,patch.object(edge,'load',return_value=self.helpers):
             self.assertEqual(edge.main(),1);self.assertTrue(run.call_args.kwargs['owned_thread_diagnostic'])
+
+    def test_stack_mode_all_four_flags_required_before_output_or_optional_import(self):
+        flags=dict(startup_diagnostic=True,private_loopback_control=True,http_fixture_control=True,owned_thread_diagnostic=True)
+        for missing in flags:
+            with patch.object(edge,'load') as loader:
+                with self.assertRaises(ValueError):edge.run(self.output,self.fixture,self.helpers,owned_stack_diagnostic=True,**dict(flags,**{missing:False}))
+                loader.assert_not_called()
+            self.assertFalse(self.output.exists());self.popen.assert_not_called()
+
+    def test_normal_modes_never_load_optional_stack_code(self):
+        original=edge.load
+        def load(name):
+            if name=='g4_edge_selected_stacks':raise ImportError('Optional stack code unavailable')
+            return original(name)
+        with patch.object(edge,'load',side_effect=load):code,r=self.execute()
+        self.assertEqual(code,0);self.assertTrue(r['passed'])
+
+    def test_http_default_never_loads_optional_stack_code(self):
+        _,_,_,loader=self.http_mocks();original=loader.kwargs['side_effect']
+        def load(name):
+            if name=='g4_edge_selected_stacks':raise ImportError('Optional stack code unavailable')
+            return original(name)
+        with patch.object(edge,'load',side_effect=load):code,r=self.execute()
+        self.assertEqual(code,1);self.assertTrue(r['completed']);self.assertNotIn('selected_stacks',r)
+
+    def test_owned_default_never_loads_optional_stack_code(self):
+        _,observation,loader=self.owned_mocks();self.window['title']='WEXEDGE loading'
+        original=loader.kwargs['side_effect']
+        def load(name):
+            if name=='g4_edge_selected_stacks':raise ImportError('Optional stack code unavailable')
+            return original(name)
+        with patch.object(edge,'load',side_effect=load):code,r=self.execute()
+        self.assertEqual(code,1);observation.collect.assert_called_once();self.assertNotIn('selected_stacks',r)
+
+    def test_cli_selected_stack_flag_dispatch(self):
+        import sys
+        with patch.object(sys,'argv',['check-g4-edge-headful.py','--output-dir',str(self.output),'--fixture',str(self.fixture),
+                '--startup-diagnostic','--private-loopback-control','--http-fixture-control','--owned-thread-diagnostic','--owned-stack-diagnostic']), \
+             patch.object(edge,'run',return_value=1) as run,patch.object(edge,'load',return_value=self.helpers):
+            self.assertEqual(edge.main(),1);self.assertTrue(run.call_args.kwargs['owned_stack_diagnostic'])
+
+    def test_stack_pins_guard_before_output_browser_or_compositor(self):
+        _,observation,loader=self.owned_mocks();self.owned_stack_diagnostic=True
+        original=loader.kwargs['side_effect'];stack=SimpleNamespace(guard_tools=Mock(side_effect=ValueError('Wrong tool pins')))
+        with patch.object(edge,'load',side_effect=lambda name:stack if name=='g4_edge_selected_stacks' else original(name)):
+            with self.assertRaisesRegex(ValueError,'tool pins'):self.execute()
+        self.assertFalse(self.output.exists());self.popen.assert_not_called();self.comp.start.assert_not_called()
+
+    def test_stacks_only_after_timeout_front_inventory_primary_retained(self):
+        _,observation,loader=self.owned_mocks();self.owned_stack_diagnostic=True
+        self.window['title']='127.0.0.1_/'+self.nonce+'/index.html'
+        original=loader.kwargs['side_effect']
+        stack=SimpleNamespace(guard_tools=Mock(return_value={'pins':'mock'}),collect=Mock())
+        def collect(*args,**kw):
+            self.assertTrue((self.output/'failure-front.png').exists());self.assertTrue((self.output/'owned-threads.json').exists())
+            self.assertFalse(any(c[2]=='cleanup-kill' for c in self.calls));self.assertLessEqual(kw['seconds'],20)
+            return {'status':'STACKS_OBSERVED_POST_OWNERSHIP_ONLY','within_deadline':True,'ui_resume':'NOT_PROVEN'}
+        stack.collect.side_effect=collect
+        with patch.object(edge,'load',side_effect=lambda name:stack if name=='g4_edge_selected_stacks' else original(name)):code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('No nonce-bound',r['error']);self.assertFalse(r['passed'])
+        self.assertEqual(r['selected_stacks']['ui_resume'],'NOT_PROVEN');stack.collect.assert_called_once()
+
+    def test_stack_failure_preserves_timeout_and_cleanup_errors(self):
+        _,observation,loader=self.owned_mocks();self.owned_stack_diagnostic=True
+        self.window['title']='WEXEDGE loading';self.failures['cleanup-kill']=RuntimeError('SECONDARY cleanup')
+        original=loader.kwargs['side_effect'];stack=SimpleNamespace(guard_tools=Mock(return_value={}),collect=Mock(side_effect=TimeoutError('stack timeout')))
+        with patch.object(edge,'load',side_effect=lambda name:stack if name=='g4_edge_selected_stacks' else original(name)):code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('No nonce-bound',r['error']);self.assertIn('stack timeout',str(r))
+        self.assertIn('SECONDARY',str(r['cleanup_errors']))
+
+    def test_stack_successful_readiness_never_dispatches_debugger(self):
+        _,observation,loader=self.owned_mocks();self.owned_stack_diagnostic=True
+        original=loader.kwargs['side_effect'];stack=SimpleNamespace(guard_tools=Mock(return_value={}),collect=Mock())
+        with patch.object(edge,'load',side_effect=lambda name:stack if name=='g4_edge_selected_stacks' else original(name)):code,r=self.execute()
+        self.assertEqual(code,1);self.assertTrue(r['completed']);stack.collect.assert_not_called()
 
     @unittest.skipUnless(__import__('os').name=='posix','Owned helper transport uses Linux process groups')
     def test_owned_query_helper_transport_actual_success_timeout_and_raw_logs(self):
