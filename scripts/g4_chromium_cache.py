@@ -20,6 +20,8 @@ REVISION='7d9824099030f5c28c939ba08654562faaad7c09'
 GENERATION='1790650091108450'
 BYTES=358598977
 MD5='cdyiojrRPrbsty2zyhfLXg=='
+ZIP_SHA='6bdfecb33dbfa7159e5666798bdc28c76347bef913573e899cb43930b78d26cc'
+FAILED_SHA='fd7eebd5dcb30e9a66074b09135faef6d2d7f961c246f1035dd7a5c52145b995'
 META='https://storage.googleapis.com/storage/v1/b/chromium-browser-snapshots/o/Win_x64%2F1706509%2Fchrome-win.zip'
 MEDIA='https://storage.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Win_x64%2F1706509%2Fchrome-win.zip?generation='+GENERATION+'&alt=media'
 REVISIONS='https://commondatastorage.googleapis.com/chromium-browser-snapshots/Win_x64/1706509/REVISIONS'
@@ -182,6 +184,55 @@ def retained_notices(root):
              if p.is_file() and re.search('license|credits|notice',p.name,re.I)]
     if not records: raise ValueError('No retained license/notices')
     return records
+
+
+def review(cache,output):
+    """Only the reviewed notice-format correction; preserve initial failure."""
+    if output.parent!=cache or output.exists() or output.is_symlink(): raise ValueError('Fresh additive cache review required')
+    failed=cache/'acquisition.json'
+    if digest(failed)!=FAILED_SHA: raise ValueError('Initial failed record changed')
+    initial=json.loads(failed.read_text())
+    if initial.get('status')!='FAILED_PRESERVED' or initial.get('error')!="ValueError('No retained license/notices')":
+        raise ValueError('Only reviewed notice-format failure eligible')
+    output.mkdir();record={'status':'FAILED_REVIEW_PRESERVED','original_failed_record_sha256':FAILED_SHA}
+    try:
+        metadata(json.loads((cache/'metadata.json').read_text()),json.loads((cache/'REVISIONS').read_text()),(cache/'VERSION.base64').read_bytes())
+        payload=cache/'chrome-win.zip'
+        if payload.stat().st_size!=BYTES or digest(payload)!=ZIP_SHA: raise ValueError('ZIP changed')
+        with payload.open('rb') as stream: md5=base64.b64encode(hashlib.file_digest(stream,'md5').digest()).decode()
+        if md5!=MD5: raise ValueError('ZIP published checksum mismatch')
+        with zipfile.ZipFile(payload) as archive:
+            entries,total=zip_inventory(archive)
+            expected={v.filename for v in entries if not v.is_dir()}
+        tree=cache/'runtime'
+        paths=list(tree.rglob('*'))
+        if any(p.is_symlink() for p in paths): raise ValueError('Runtime symlink')
+        if {p.relative_to(tree).as_posix() for p in paths if p.is_file()}!=expected or expected!=set(initial['files']):
+            raise ValueError('Runtime inventory changed')
+        for name,item in initial['files'].items():
+            p=tree/name
+            if p.stat().st_size!=item['bytes'] or digest(p)!=item['sha256']: raise ValueError('Runtime bytes changed')
+        root=tree/'chrome-win'
+        record.update(zip_sha256=ZIP_SHA,published_md5=md5,files=initial['files'],expanded_bytes=total,
+            pe={n:pe(root/n) for n in ('chrome.exe','chrome.dll','chrome_elf.dll','D3DCompiler_47.dll','libEGL.dll','libGLESv2.dll')},
+            versions=file_versions(root),source_documents={})
+        for name,source in (('LICENSE','LICENSE'),('about_ui.cc','chrome/browser/ui/webui/about/about_ui.cc'),
+                ('credit_utils.cc','components/webui/about/credit_utils.cc'),
+                ('about_ui_resources.grdp','components/resources/about_ui_resources.grdp'),
+                ('win-archive-rel.json','infra/archive_config/win-archive-rel.json')):
+            url='https://chromium.googlesource.com/chromium/src/+/'+REVISION+'/'+source+'?format=TEXT'
+            info=fetch(url,output/(name+'.base64'),1024**2,timeout=30)
+            data=base64.b64decode((output/(name+'.base64')).read_bytes(),validate=True)
+            if not data: raise ValueError('Empty primary provenance document')
+            (output/name).write_bytes(data)
+            record['source_documents'][name]={'response':info,'decoded_bytes':len(data),'decoded_sha256':digest(output/name)}
+        if digest(failed)!=FAILED_SHA: raise ValueError('Failed record changed during review')
+        record.update(status='PRIVATE_DIAGNOSTIC_CACHE_REVIEWED_NOT_EXECUTED',
+            notice_retention='Complete ZIP/runtime/resources retained plus exact source LICENSE/provenance; compiled credits NOT inspected; redistribution NOT cleared',
+            revision=REVISION,version=VERSION,generation=GENERATION)
+    except Exception as error: record['error']=repr(error);raise
+    finally: save(output/'cache-review.json',record)
+    return record
 
 
 def acquire(output):

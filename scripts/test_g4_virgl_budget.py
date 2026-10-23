@@ -86,6 +86,26 @@ PRIVATE = Path(__file__).resolve().parents[1]/'build/g4-virgl-20261022/presentat
 @unittest.skipUnless(PRIVATE.is_file(), 'Private lab procedure unavailable; pure budget tests remain portable')
 class ProcedureTests(unittest.TestCase):
     """Execute the actual private procedure with all guest/process calls mocked."""
+    def test_chromium_commands_only_normal_http_private_lo_and_owned_staged_runtime(self):
+        with mock.patch.dict('os.environ',{'WEX_G4_CONTROL':'chromium-headful','WEX_TIMING_RUN_NAME':'chromium-headful-test'}):
+            spec=importlib.util.spec_from_file_location('chromium_commands',PRIVATE)
+            procedure=importlib.util.module_from_spec(spec);spec.loader.exec_module(procedure)
+        _,argv=procedure.commands(Path('/private/key'))
+        self.assertIn('--private-loopback',argv)
+        self.assertIn(procedure.STAGE+'/scripts/check-g4-chromium-headful.py',argv)
+        self.assertEqual(argv[argv.index('--runtime')+1],procedure.STAGE+'/vendor/extracted/chrome-win')
+        self.assertFalse(any(v in ' '.join(argv) for v in ('--startup-diagnostic','--owned-','--gpu-recovery','--no-sandbox')))
+
+    def test_chromium_extraction_and_all_runtime_hashes_before_consumer(self):
+        calls,checks,info,logs,error=self.exercise([10,50],chromium=True)
+        self.assertIsNone(error);self.assertEqual(checks,[650,435])
+        labels=[c[0] for c in calls]
+        self.assertLess(labels.index('extract-runtime'),labels.index('consumer'))
+        self.assertEqual(info['deployed_runtime_sha256'],{'/guest/stage/vendor/extracted/chrome-win/chrome.exe':'c'*64})
+        calls,_,info,_,error=self.exercise([10,50],chromium=True,runtime_failure=True)
+        self.assertIn('runtime changed',error);self.assertNotIn('consumer',[c[0] for c in calls])
+        self.assertIn('archive_skipped',info)
+
     def test_windows_worktree_head_read_uses_mapped_actual_repo(self):
         spec = importlib.util.spec_from_file_location('budget_private_paths', PRIVATE)
         procedure = importlib.util.module_from_spec(spec)
@@ -101,7 +121,7 @@ class ProcedureTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError): procedure.source_head()
 
     def exercise(self, seconds, *, state='running', missing=False, identity_failure=False,
-                 consumer_failure=False, archive_failure=False):
+                 consumer_failure=False, archive_failure=False,chromium=False,runtime_failure=False):
         spec = importlib.util.spec_from_file_location('budget_private_procedure', PRIVATE)
         procedure = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(procedure)
@@ -116,6 +136,12 @@ class ProcedureTests(unittest.TestCase):
                           known_binary_sha256={'/bin/wine':'a'*64}, source_manifest={'script.py':{'sha256':'b'*64}})
             (prep/'preflight.json').write_text(json.dumps(record))
             (prep/'source-stage.tar').write_bytes(b'offline staged archive')
+            if chromium:
+                procedure.CONTROL='chromium-headful'
+                record.update(host_helpers_sha256={},stage_archive_sha256=procedure.sha(prep/'source-stage.tar'),
+                    current_overlay='/owned/new.qcow2',minimum_guest_free_bytes=5*1024**3,
+                    runtime_extraction_argv=['extract-runtime'],runtime_files={'chrome-win/chrome.exe':{'sha256':'c'*64}})
+                (prep/'preflight.json').write_text(json.dumps(record))
             identity = {'qemu_pid':2,'qemu_start_ticks':22,'xvfb_pid':3,'xvfb_start_ticks':33}
             (run/'launcher-identity.json').write_text(json.dumps(identity))
             if not missing:
@@ -134,7 +160,8 @@ class ProcedureTests(unittest.TestCase):
                 if command[0] == 'consumer' and consumer_failure:
                     raise RuntimeError('primary consumer failure')
                 if command[0] == 'sha256sum':
-                    hashes = {'/bin/wine':'a'*64, '/guest/stage/script.py':'b'*64}
+                    hashes = {'/bin/wine':'a'*64, '/guest/stage/script.py':'b'*64,
+                              '/guest/stage/vendor/extracted/chrome-win/chrome.exe':('d' if runtime_failure else 'c')*64}
                     return subprocess.CompletedProcess(argv, 0, ''.join(hashes[p]+'  '+p+'\n' for p in command[2:]))
                 if command[:2] == ['tar','-C']:
                     if archive_failure:
@@ -142,14 +169,15 @@ class ProcedureTests(unittest.TestCase):
                     with tarfile.open(fileobj=kwargs['stdout'], mode='w:gz') as archive:
                         data=b'{}'; item=tarfile.TarInfo('results.json'); item.size=len(data)
                         archive.addfile(item, io.BytesIO(data))
-                return subprocess.CompletedProcess(argv, 0, 'offline disk space')
+                return subprocess.CompletedProcess(argv, 0, str(10*1024**3) if chromium else 'offline disk space')
             caught = None
             with mock.patch.object(g4_virgl_budget, 'check_budget', side_effect=check), \
                  mock.patch.object(stop_g4_virgl_launcher, 'validate_identity',
                                    side_effect=RuntimeError('identity failure') if identity_failure else None,
                                    return_value={'pid':1}) as ownership, \
                  mock.patch.object(stop_g4_virgl_launcher, 'proc_identity',
-                                   side_effect=lambda pid: {'start_ticks':22 if pid==2 else 33}), \
+                                   side_effect=lambda pid: {'start_ticks':22 if pid==2 else 33,
+                                       'cmdline':['qemu','file=/owned/new.qcow2,format=qcow2,if=virtio']}), \
                  mock.patch.object(procedure.subprocess, 'run', side_effect=remote), mock.patch('builtins.print'):
                 try:
                     procedure.run()

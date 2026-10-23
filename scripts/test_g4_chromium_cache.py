@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import base64
 import copy
+from contextlib import ExitStack
 import hashlib
 import io
 import json
@@ -166,6 +167,68 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(fetch.call_count,1);extract.assert_not_called()
         record=save.call_args.args[1]
         self.assertEqual(record['status'],'FAILED_PRESERVED');self.assertIn('primary download deadline',record['error'])
+
+    def review_fixture(self,stack):
+        root=self.root/str(len(list(self.root.iterdir())));root.mkdir()
+        payload=self.archive();(root/'chrome-win.zip').write_bytes(payload)
+        cache.extract(root/'chrome-win.zip',root/'runtime',free=10*1024**3)
+        files={p.relative_to(root/'runtime').as_posix():dict(bytes=p.stat().st_size,sha256=cache.digest(p))
+               for p in (root/'runtime').rglob('*') if p.is_file()}
+        cache.save(root/'acquisition.json',dict(status='FAILED_PRESERVED',error="ValueError('No retained license/notices')",files=files))
+        for name in ('metadata.json','REVISIONS'):(root/name).write_text('{}')
+        (root/'VERSION.base64').write_text('original')
+        for name,value in (('FAILED_SHA',cache.digest(root/'acquisition.json')),('ZIP_SHA',cache.digest(root/'chrome-win.zip')),
+                           ('BYTES',len(payload)),('MD5',base64.b64encode(hashlib.md5(payload).digest()).decode())):
+            stack.enter_context(patch.object(cache,name,value))
+        stack.enter_context(patch.object(cache,'metadata'))
+        stack.enter_context(patch.object(cache,'pe',return_value={'machine':0x8664}))
+        stack.enter_context(patch.object(cache,'file_versions',return_value=['synthetic data only']))
+        def fetch(url,path,*a,**k):
+            path.write_bytes(base64.b64encode(b'original source document'))
+            return {'url':url,'sha256':cache.digest(path)}
+        remote=stack.enter_context(patch.object(cache,'fetch',side_effect=fetch))
+        return root,remote
+
+    def test_additive_review_success_preserves_initial_bytes(self):
+        with ExitStack() as stack:
+            root,remote=self.review_fixture(stack);before=(root/'acquisition.json').read_bytes()
+            r=cache.review(root,root/'review')
+            self.assertEqual(r['status'],'PRIVATE_DIAGNOSTIC_CACHE_REVIEWED_NOT_EXECUTED')
+            self.assertEqual(len(r['source_documents']),5);self.assertEqual(remote.call_count,5)
+            self.assertEqual((root/'acquisition.json').read_bytes(),before)
+            self.assertIn('compiled credits NOT inspected',r['notice_retention'])
+
+    def test_review_wrong_record_and_unrelated_failure_never_fetch(self):
+        for other_error in (False,True):
+            with ExitStack() as stack:
+                root,remote=self.review_fixture(stack)
+                (root/'acquisition.json').write_text(json.dumps(dict(status='FAILED_PRESERVED',error='other failure')))
+                if other_error:stack.enter_context(patch.object(cache,'FAILED_SHA',cache.digest(root/'acquisition.json')))
+                with self.assertRaises(ValueError):cache.review(root,root/'review')
+                self.assertFalse((root/'review').exists());remote.assert_not_called()
+
+    def test_review_changed_zip_tree_missing_extra_and_symlink_fail_closed(self):
+        mutations=[lambda p:(p/'chrome-win.zip').write_bytes(b'changed'),
+                   lambda p:(p/'runtime/chrome-win/chrome.exe').write_bytes(b'changed'),
+                   lambda p:(p/'runtime/chrome-win/chrome.exe').unlink(),
+                   lambda p:(p/'runtime/chrome-win/extra').write_bytes(b'extra'),
+                   lambda p:(p/'runtime/chrome-win/link').symlink_to('chrome.exe')]
+        for change in mutations:
+            with ExitStack() as stack:
+                root,remote=self.review_fixture(stack);change(root)
+                with self.assertRaises(ValueError):cache.review(root,root/'review')
+                r=json.loads((root/'review/cache-review.json').read_text())
+                self.assertEqual(r['status'],'FAILED_REVIEW_PRESERVED');remote.assert_not_called()
+
+    def test_review_fetch_decode_and_version_failure_preserved_never_verified(self):
+        for fault in ('fetch','decode','version'):
+            with ExitStack() as stack:
+                root,remote=self.review_fixture(stack)
+                if fault=='fetch':remote.side_effect=TimeoutError('source deadline')
+                if fault=='decode':remote.side_effect=lambda url,path,*a,**k:(path.write_bytes(b'!bad base64!') or {})
+                if fault=='version':stack.enter_context(patch.object(cache,'file_versions',side_effect=ValueError('wrong version')))
+                with self.assertRaises((ValueError,TimeoutError)):cache.review(root,root/'review')
+                self.assertEqual(json.loads((root/'review/cache-review.json').read_text())['status'],'FAILED_REVIEW_PRESERVED')
 
 
 if __name__=='__main__':unittest.main()

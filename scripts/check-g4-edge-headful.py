@@ -78,9 +78,9 @@ def require_payload():
     return record
 
 
-def validate(output,fixture):
+def validate(output,fixture,*,output_prefix='edge-headful'):
     if (not output.is_absolute() or output.parent.resolve()!=LAB.resolve()
-            or not re.fullmatch(r'edge-headful-[A-Za-z0-9._-]+',output.name)
+            or not re.fullmatch(re.escape(output_prefix)+r'-[A-Za-z0-9._-]+',output.name)
             or output.exists() or output.is_symlink()):
         raise ValueError('Fresh direct owned edge-headful-* output required')
     expected=LAB/(output.name+'-stage')/'scripts/g4-edge-probe/index.html'
@@ -192,10 +192,11 @@ def strict_json(text):
     return decoder.raw_decode(text)
 
 
-def page_record(title,nonce):
+def page_record(title,nonce,*,vendor='edge'):
+    if vendor not in ('edge','chromium'): raise ValueError('Unknown explicit browser vendor')
     if not isinstance(title,str) or not title.startswith('WEXEDGE '): raise ValueError('Missing readiness title')
     data,end=strict_json(title[8:])
-    if title[8+end:] not in ('',' - Microsoft Edge'): raise ValueError('Unexpected title suffix')
+    if title[8+end:] not in ('',' - Microsoft Edge' if vendor=='edge' else ' - Chromium'): raise ValueError('Unexpected title suffix')
     if (not isinstance(data,dict) or type(data.get('v')) is not int or data['v']!=1 or data.get('nonce')!=nonce
             or data.get('kind')!='ready' or data.get('passed') is not True):
         raise ValueError('Stale/failed readiness')
@@ -223,15 +224,21 @@ def page_record(title,nonce):
     return data
 
 
-def window_record(rows,nonce):
+def window_record(rows,nonce,*,vendor='edge',owner_aliases=None):
     if not isinstance(rows,list) or len(rows)>4096 or any(not isinstance(w,dict) or not isinstance(w.get('title'),str) for w in rows):
         raise ValueError('Malformed observer inventory')
     candidates=[w for w in rows if w['title'].startswith('WEXEDGE ') and w['title']!='WEXEDGE loading']
     if not candidates: return None
     if len(candidates)!=1: raise ValueError('Ambiguous readiness windows')
     w=candidates[0]
-    data=page_record(w['title'],nonce)
-    aliases=['C:\\'+str(EXE.relative_to(PREFIX/'drive_c')).replace('/','\\'),r'Z:'+str(EXE).replace('/','\\')]
+    data=page_record(w['title'],nonce,vendor=vendor)
+    if vendor=='chromium':
+        if not owner_aliases: raise ValueError('Verified Chromium full-image alias required')
+        aliases=owner_aliases
+        if (w.get('top_level') is not True or type(w.get('creation_time')) is not int or w['creation_time']<=0
+                or w.get('class')!='Chrome_WidgetWin_1'): raise ValueError('Invalid Chromium native owner')
+    else:
+        aliases=['C:\\'+str(EXE.relative_to(PREFIX/'drive_c')).replace('/','\\'),r'Z:'+str(EXE).replace('/','\\')]
     if (not isinstance(w.get('image'),str) or w['image'].casefold() not in [p.casefold() for p in aliases] or w.get('visible') is not True
             or w.get('geometry_valid') is not True or type(w.get('pid')) is not int or not 0<w['pid']<=0xffffffff
             or type(w.get('hwnd')) is not int or not 0<w['hwnd']<=0xffffffffffffffff
@@ -241,6 +248,8 @@ def window_record(rows,nonce):
     scale=w['fixed']/65536
     for key in ('window','client'):
         r=w.get(key)
+        if vendor=='chromium' and (not isinstance(r,dict) or set(r)!= {'x','y','width','height'}):
+            raise ValueError('Invalid Chromium native rectangle schema')
         if (not isinstance(r,dict) or any(type(r.get(k)) is not int for k in ('x','y','width','height'))
                 or min(r['x'],r['y'])<0 or min(r['width'],r['height'])<=0
                 or max(r.values())>8192): raise ValueError('Invalid native geometry')
@@ -277,8 +286,10 @@ def front_pixels(path,state):
 def collect_fronts(observe,capture,alive,output,initial,records,*,now=time.monotonic,sleep=time.sleep):
     origin=now()
     def unchanged(state):
+        fields=('hwnd','pid','image','class','window','client','fixed','visible')+tuple(
+            k for k in ('creation_time','top_level') if k in initial['native'])
         if state is None or state['page']!=initial['page'] or any(state['native'][k]!=initial['native'][k]
-                for k in ('hwnd','pid','image','class','window','client','fixed','visible')):
+                for k in fields):
             raise ValueError('Frozen readiness/window identity changed')
     for offset in (0,1,3):
         target=origin+offset
@@ -332,17 +343,22 @@ def record_roles(result,previous,snapshot,cleanup):
 
 def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_control=False,http_fixture_control=False,
         owned_thread_diagnostic=False,owned_stack_diagnostic=False,
-        now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
+        chromium=None,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
     start=now()
-    if private_loopback_control and not startup_diagnostic:
+    quota_enabled=startup_diagnostic or chromium is not None
+    if chromium is not None and (startup_diagnostic or owned_thread_diagnostic or owned_stack_diagnostic
+            or not private_loopback_control or not http_fixture_control):
+        raise ValueError('Chromium baseline requires ONLY normal HTTP/private-lo; no diagnostic/attachment modes')
+    if private_loopback_control and not (startup_diagnostic or chromium is not None):
         raise ValueError('Private loopback control requires startup diagnostic mode')
-    if http_fixture_control and not (startup_diagnostic and private_loopback_control):
+    if http_fixture_control and not ((startup_diagnostic or chromium is not None) and private_loopback_control):
         raise ValueError('HTTP fixture control requires startup diagnostic and private loopback proof')
     if owned_thread_diagnostic and not (startup_diagnostic and private_loopback_control and http_fixture_control):
         raise ValueError('Owned threads require startup diagnostic, HTTP and private loopback proof')
     if owned_stack_diagnostic and not (startup_diagnostic and private_loopback_control and http_fixture_control and owned_thread_diagnostic):
         raise ValueError('Owned stacks require startup diagnostic, private loopback, HTTP and owned threads')
-    before=validate(output,fixture)  # never cleanup on a rejected guard
+    before=validate(output,fixture,**({'output_prefix':'chromium-headful'} if chromium is not None else {}))  # no cleanup on rejected guard
+    if chromium is not None: before['chromium']=chromium.require_payload(output,fixture)
     loopback=load('run-isolated-graphics').verify_private_loopback() if private_loopback_control else None
     stacks=load('g4_edge_selected_stacks') if owned_stack_diagnostic else None
     stack_tools=stacks.guard_tools() if stacks is not None else None  # before output/listener/consumer
@@ -354,12 +370,15 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
     comp=OwnedWexcomp(LAB/'labwc',LAB/'wayland',output,env,'gles2')
     nonce=secrets.token_hex(16)
     result={'passed':False,'classification':'Scoped headful clear/readback/front smoke only; GPU compositing NOT_PROVEN',
-            'nonce':nonce,'argv':command(fixture,output,nonce,startup_diagnostic),'front_samples':[],
+            'nonce':nonce,'argv':None if chromium is not None else command(fixture,output,nonce,startup_diagnostic),'front_samples':[],
             'startup_diagnostic':startup_diagnostic,'win32_pid_is_not_linux_pid':True}
     if startup_diagnostic:
         result['classification']='Startup diagnostic ONLY; rendering acceptance NOT_EVALUATED'
     if private_loopback_control: result['private_loopback_before']=loopback
     if http_fixture_control: result['http_fixture_control']=True
+    if chromium is not None:
+        result.update(browser_vendor='chromium',shared_installed_edge_prefix=True,
+                      runtime_before=before['chromium'])
     if owned_stack_diagnostic: result['owned_stack_tools']=stack_tools
     deadline=start+TOTAL; browser=None; files=[]; stop=threading.Event(); cleanup_started=threading.Event(); monitor=None
     http_server=None
@@ -374,6 +393,8 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             previous={}
             with (output/'processes.jsonl').open('a') as stream:
                 while not stop.is_set():
+                    if quota_enabled and not diagnostic_log_usage(output)['passed']:
+                        raise RuntimeError('Browser log quota exceeded in process monitor')
                     snapshot=graphics_resources.sample(PREFIX)
                     for pid,item in snapshot.items():
                         try: item['cmdline']=(Path('/proc')/pid/'cmdline').read_bytes().replace(b'\0',b' ').decode(errors='replace')
@@ -398,6 +419,7 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
         save(output/'persistence-after.json',persistence())
         if boot.returncode: raise RuntimeError('Retained prefix Wineboot failed')
         result['installed_after_boot']=require_payload()
+        if chromium is not None: result['runtime_after_boot']=chromium.require_payload(output,fixture)
         if startup_diagnostic:
             probe=helpers.run_logged([str(BUILD/'wine'),str(observer),'--fixture-file',
                 'Z:'+str(fixture).replace('/','\\')],env,output,'fixture-file-probe',bound(5))
@@ -412,10 +434,11 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             rows,end=strict_json(completed.stdout.strip())
             if completed.stdout.strip()[end:]: raise ValueError('Trailing observer output')
             result['observations'].append({'elapsed':now()-start,'windows':rows})
-            return window_record(rows,nonce)
+            return window_record(rows,nonce,**({'vendor':'chromium','owner_aliases':before['chromium']['owner_aliases']}
+                                               if chromium is not None else {}))
         def alive():
             if http_server is not None: http_server.check()
-            if startup_diagnostic:
+            if quota_enabled:
                 result['log_quota']=diagnostic_log_usage(output)
                 result['log_quota_checks']=result.get('log_quota_checks',0)+1
                 if not result['log_quota']['passed']: raise RuntimeError('Startup diagnostic log quota exceeded')
@@ -427,7 +450,8 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             http_server=load('g4_edge_http_fixture').FixtureServer(fixture,nonce)
             result['http_fixture']=http_server.record
             url=http_server.start(timeout=bound(2))
-            result['argv']=command(fixture,output,nonce,startup_diagnostic,http_url=url)
+            result['argv']=(chromium.command(fixture,output,nonce,url) if chromium is not None else
+                            command(fixture,output,nonce,startup_diagnostic,http_url=url))
         readiness_seconds=bound(45)  # refuse an exhausted budget BEFORE browser creation
         files=[(output/'browser.stdout.log').open('wb'),(output/'browser.stderr.log').open('wb')]
         browser=popen(result['argv'],env=browser_environment(env,startup_diagnostic),stdout=files[0],stderr=files[1],start_new_session=True)
@@ -443,10 +467,16 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             readiness_failed=True
             raise TimeoutError('No nonce-bound ready browser window')
         result['ready_elapsed']=now()-start
+        if chromium is not None:
+            result['linux_owner_before']=chromium.linux_owner(browser.pid,result['browser_launcher_prefix_sample'],result['argv'])
         def capture(path):
             code=helpers.run_logged(capture_command(path),env,output,path.stem+'-capture',bound(5)).returncode
             if code: raise RuntimeError('Front capture failed')
         result['settled_fronts_passed']=collect_fronts(observe,capture,alive,output,initial,result['front_samples'],now=now,sleep=sleep)
+        if chromium is not None:
+            result['linux_owner_after']=chromium.linux_owner(browser.pid,result['browser_launcher_prefix_sample'],result['argv'])
+            if result['linux_owner_before']!=result['linux_owner_after']: raise ValueError('Chromium Linux owner changed')
+            result['runtime_after_collection']=chromium.require_payload(output,fixture)
         result['completed']=True
     except Exception as error:
         result['error']=repr(error)
@@ -509,9 +539,9 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             result['remaining_prefix_processes']=graphics_resources.sample(PREFIX)
             if private_loopback_control:
                 result['private_loopback_after']=load('run-isolated-graphics').verify_private_loopback()
-            if startup_diagnostic:
+            if quota_enabled:
                 result['log_quota_after_cleanup']=diagnostic_log_usage(output)
-            result['log_errors']=({'log_quota':1} if startup_diagnostic and
+            result['log_errors']=({'log_quota':1} if quota_enabled and
                 not result['log_quota_after_cleanup']['passed'] else log_health(output))
             result['chromium_log_present']=((output/'chromium.log').is_file() and (output/'chromium.log').stat().st_size>0)
         except Exception as error: result.setdefault('cleanup_errors',[]).append(repr(error))
@@ -524,6 +554,10 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
                 and result.get('cleanup_kill') in (0,1) and result.get('cleanup_wait')==0
                 and result.get('remaining_servers')==[] and result.get('remaining_prefix_processes')=={}
                 and not any(result.get('log_errors',{'missing':1}).values())
+                and (chromium is None or (result.get('linux_owner_before') is not None
+                    and result.get('linux_owner_before')==result.get('linux_owner_after')
+                    and result.get('runtime_after_collection')==result.get('runtime_before')
+                    and result.get('private_loopback_after')==result.get('private_loopback_before')))
                 and (monitor is None or not monitor.is_alive()) and result['elapsed_seconds']<=TOTAL)
             save(output/'results.json',result)
     return 0 if result['passed'] else 1
