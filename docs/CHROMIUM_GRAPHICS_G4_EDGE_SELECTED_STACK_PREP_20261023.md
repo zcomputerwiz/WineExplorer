@@ -90,3 +90,21 @@ URL/security/backend unchanged. Last live free1,308,176,384 bytes is historical:
 future >=1GiB check BEFORE staging/creation remains mandatory, no evidence deletion
 or reinstall. Guest hash/backend/ownership checks NOT performed offline. No live
 authority from this preparation; return for parent source/tests/inventory review.
+
+## Independent parent review / one diagnostic authorized
+
+Parent read all changed source/tests and private mode additions. Independently
+passed226 Linux tests/no skips, Node/controller, actual Linux-native socket control
+and observer cross-compile without warnings. Pure selector also accepted actual
+historical56/seven-empty-name inventory as8 selected/48 excluded; current shared
+parser accepted actual calibrated waiter stdout with8/6 frames unchanged. Neither
+offline replay is a new Wine/Edge run or proof of Edge UI resume.
+
+Independently verified exact preflight/archive hashes above, all15 tar/current
+sources,5 helpers,2 public seeds, installed-reference hash,19 exact pins matching
+accepted calibration, correct commands/flags/C:source/D:storage and absent run.
+ONE timeout-only Edge selected-stack diagnostic is authorized with this immutable
+preparation and all live gates. No retry, extra browser, calibration repetition,
+fault or production/security change. Preserve primary timeout and raw partial
+evidence; debugger failure may kill its attached owned browser. Parent reviews
+actual stacks and post-ownership before choosing any next action. Never a G4 pass.
