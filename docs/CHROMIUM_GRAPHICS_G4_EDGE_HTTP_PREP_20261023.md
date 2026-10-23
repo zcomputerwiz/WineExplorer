@@ -93,3 +93,21 @@ diagnostic. Future dispatch still requires>=1GiB before staging,17 actual binary
 deployed hashes,650/435 raw-UTC guards, inner/outer VirGL,285s runner/300s SSH,
 900s owned launcher/90s cleanup reserve and identity SIGINT/QMP/child/Windows exits.
 No boot now, no speculative security/production patch, no acceptance claim.
+
+## Independent parent review / single diagnostic authorized
+
+Parent read the complete helper, runner changes, new tests and private dispatch
+procedure. Independently reran all146 Linux tests in a fresh loopback-only
+namespace (PASS, no skips), actual Node fixture and intercepted PowerShell
+controller (PASS), and actual X-socket peer-credential control at
+`/var/tmp/wex-http-parent-20261023-x01` (PASS, distinct sockets and correct PIDs).
+Independently verified the exact preflight/archive hashes above, all10 tar/current
+sources,5 actual helpers,2 seeds, installed reference,17 expected binary entries,
+C: source/D: storage paths, explicit diagnostic/loopback/HTTP flags and absent run.
+Original HTML/JS hashes also match the prior failed FILE/LO-UP manifest exactly.
+
+ONE live HTTP diagnostic is authorized using this immutable preparation and its
+exact commands, subject to live space/binary/deployed-source/backend/budget and
+owned shutdown gates above. No retries, FILE repeats or rendering acceptance.
+Preserve every request/completion/error and actual failure front; parent reviews
+the result before selecting the next step. No production/security change.
