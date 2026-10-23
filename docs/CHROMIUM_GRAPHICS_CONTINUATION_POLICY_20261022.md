@@ -19,6 +19,18 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST live Chromium baseline f11f85cf FAILED before readiness: launcher exited,
+later Linux wait127, ZERO HTTP requests, no visible browser window, actual terminal
+front black plus pointer. Parent independently37 archive hashes/15 sources/258
+runtime files/19 pins and actual front/guards/space/privateLO/innerouterVirGL/
+QMP-QEMU-Windows0 and owned PID absence pass. This is preserved failure, NOT G4
+or cause proof. Do NOT rerun baseline/prep/capacity/download. NEXT OFFLINE ONLY
+CHROMIUM_EXIT_PLAN_20261023: tiny ordinary native CreateProcess/held-handle full
+exit observation (no debugger/security change), explicit changed-parentage
+diagnostic, tests and fresh preparation, parent review BEFORE any calibration or
+browser execution. Reuse Luna Dirac. Fresh manual reset observed0%both windows;
+latest12%five-hour/2%weekly, live usage governs. Old next-step text below historical.
+
 LATEST: Chromium OFFLINE preparation ba5eb615 independently accepted46f971dd.
 Read CHROMIUM_READY_CHECKPOINT_20261023 FIRST after source mapping. Payload and
 all258 files verified, additive embedded-notice retention reviewed (original
