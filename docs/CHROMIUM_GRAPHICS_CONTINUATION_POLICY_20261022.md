@@ -19,7 +19,8 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
-Use CHROMIUM_GRAPHICS_G4_EDGE_STARTUP_DIAGNOSIS_PLAN_20261023.md (67932dcd).
+Read CHROMIUM_GRAPHICS_G4_EDGE_NAVIGATION_CHECKPOINT_20261023.md first, then
+CHROMIUM_GRAPHICS_G4_EDGE_LOOPBACK_CONTROL_PLAN_20261023.md (conditional HTTP stage).
 The five-hour window reset; verified 0% at the 2026-10-23 00:21 UTC wake.
 New five-hour reset is 2026-10-23 05:21:16 UTC. Latest usage always governs.
 Visible implementation eecf8bb3 and healthy visual control 69d6c22f were reviewed;
@@ -53,10 +54,17 @@ Start but no observed renderer/fixture readiness. No front PNG was reached. Pare
 independently rehashed all280 archived files and checked graceful shutdown. Cause
 is unproven: not automatically sandbox/graphics/IO. Keep r1 failure intact.
 
-Current offline Luna item adds a failure-only terminal front and narrowly bounded
-startup logging/optional small read-only original-fixture file probe. Inspect
-current agent/HEAD; parent reviews code/tests/preparation before ONE diagnostic
-run. Same installed prefix, NEW profile; no URL/security/backend changes, repeated
+Instrumented startup65081f50 proves the browser read all637 HTML bytes, but no
+renderer/readiness arrived; actual terminal front is white. Parent viewed it and
+verified all105 archive hashes/clean shutdown. Private-loopback-UP same-file control
+50f3da4f also timed out, with verified private network at start/end, white front,
+another105 independently checked hashes and clean shutdown. Loopback DOWN alone
+does not explain the failure. Read the latest checkpoint for exact evidence.
+
+Next Luna milestone is OFFLINE implementation of the conditional isolated HTTP
+control, same original page/security/app mode and loopback UP; parent reviews
+source/tests/manifest before ONE diagnostic. No HTTP server/control implemented
+yet. Same installed prefix, NEW profile; no security/backend changes, repeated
 launches, extraction substitution, extra components or speculative production fix.
 No master merge; keep historical stale/blanking uncertainty open.
 
