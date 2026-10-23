@@ -89,3 +89,25 @@ overall host HEAD differs4315, guest source absent: no reproducible-build or
 whole-source attestation. No guest hashes/space/backend were queried this step;
 those are mandatory future preflight checks, not claimed results. Next step is
 parent source/test/manifest review, NOT an Edge stack probe or live authority.
+
+## Independent parent review / one original-child calibration authorized
+
+Parent read complete fixture/verifier, runner, command/trace parser, tests and
+private dispatch additions. Independently passed205 Linux tests/no skips, actual
+Node/controller and native-path X-socket peer/inode checks, and separate native
+x64 -O0 -g -static -Wall -Wextra cross-compilation without warnings. PE not executed.
+Review corrections (in-flight child quotas, exact namespace equality, explicit
+functional release/exit gate, full image headers and legitimate zero frame
+pointer) are covered by negative/positive controls, not consumer assertion changes.
+
+Independently verified exact preflight/archive hashes above, all12 tar/current
+source/PE/pins members,5 current host helpers,2 seeds, installed-reference hash,
+19 exact core+tool pins (prior17 unchanged), original PE/source/compiler log
+records, correct C: commands/D: storage and absent prospective run.
+
+ONE healthy ORIGINAL child calibration is authorized using this immutable
+preparation, all live space/hash/650435/namespace/VirGL/owned-shutdown gates.
+No Edge, fault injection, retry or additional run. Preserve partial failures;
+debugger timeout may kill the selected original child and is not harmless.
+Parent reviews actual selected stacks/detach-responsiveness evidence afterward;
+this does not authorize an Edge attach or establish graphics acceptance.
