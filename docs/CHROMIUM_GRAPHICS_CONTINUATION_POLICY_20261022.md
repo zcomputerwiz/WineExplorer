@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST STOP/CHECKPOINT at97%five-hour/15%weekly: read
+CHROMIUM_GRAPHICS_G4_STARTUP_CHECKPOINT_20261023 FIRST after source mapping.
+Readonly49b313be/8e0fa18e SSH255 failed BEFOREdf/19pins/435/idleprobe. Liveerror
+captureworks but originalidleexit1UNKNOWN. QMP45s timedout, SIGTERMfallback,
+QEMU0/Windows0/stopper1; NOTgraceful/cleanfilesystem. AllownedPIDsabsent. NEXT
+afterreset ONLY offline readiness/shutdown plan+Luna implementation/parentreview,
+not anotherboot/calibration/browser retry. AllpriorliveauthoritiesCONSUMED.
+Currentproceduree663e8f5..., sourceHEAD/latestreportsgovern. Wake01:25UTC Oct24;
+reset01:21:09UTC. Older next-step paragraphs below are historical.
+
 LATEST original calibration attempt c6a2ef20/44fa88a4 FAILED PREFLIGHT before
 stage/transfer/helper/consumer. Native/graphics result NOT_OBSERVED. Parent
 independently23 records/19pins/raw cleanQMP-QEMU-Windows0/PIDs absent pass. Idle
