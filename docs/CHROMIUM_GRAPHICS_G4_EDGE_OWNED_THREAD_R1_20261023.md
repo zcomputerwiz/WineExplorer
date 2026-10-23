@@ -54,7 +54,9 @@ outputs and no QEMU/launcher before boot. Live usage67% five-hour/40% weekly,
 credits0. Guest free1,913,167,872 bytes BEFORE transfer/create,17 actual binaries
 and11 deployed sources matched.650/435 rawUTC guards passed with853.575218/
 851.541587s remaining. Inner/outer VirGL passed, host D3D12 passed; private-lo
-start/end proof unchanged. Retained payload/registration survived ordinary boot.
+start/end proof unchanged. Retained payload/registration survived Wineboot -u
+(forced update), not a plain OS reboot. On-disk pending-hive observations do not
+prove live pending-operation processing.
 
 Exact immutable preflight launch/run/stop commands executed: C: session controller
 -RunName edge-headful-owned-threads-r1-20261023; C: private procedure run with
