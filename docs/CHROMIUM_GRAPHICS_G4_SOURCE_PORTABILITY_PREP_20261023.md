@@ -79,3 +79,14 @@ unchanged isolation arguments and absence of run artifacts. Original-fixture
 Node GL/FBO/frame/timeout/error/context-loss controls PASS. No live coverage or
 graphics acceptance implied. Next: parent relocation review, then separately
 bounded offline HTTP milestone per the navigation/loopback plan.
+
+## Independent parent acceptance
+
+Parent independently passed the73 Linux tests without skips, actual Node fixture,
+and the real PowerShell controller test intercepted before process creation.
+Verified all9 current archive members/sizes/hashes,5 helpers at their actual C:
+paths,2 seed hashes, installed reference and prospective run absence. Main D:
+checkout remains master with its original submodule mismatches, unchanged.
+Relocation prerequisite accepted. This v3 inventory is an OFFLINE AUDIT ONLY,
+never an authorization to rerun the same-file arm. Next is HTTP implementation,
+new complete preparation and independent review before ONE HTTP diagnostic.

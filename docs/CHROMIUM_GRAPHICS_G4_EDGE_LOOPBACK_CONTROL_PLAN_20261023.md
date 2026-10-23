@@ -1,6 +1,17 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Private loopback control before a speculative patch
 
+## Current stage after reviewed controls
+
+The historical same-file/loopback-UP stage below is COMPLETE:50f3da4f still timed
+out; parent inspected the white front, all105 hashes and clean shutdown. Do not
+repeat it. The CURRENT selected stage is OFFLINE implementation of the HTTP
+control below; this activates implementation, not live browser execution.
+Work in the existing owned C: graphics worktree described in SOURCE_WORKTREE and
+SOURCE_PORTABILITY_PREP. Parent accepted relocation after73 independent tests,
+actual fixture/controller checks and9-source/5-helper/2-seed inventory verification.
+Preserve D: master and its submodules. All private VM/payload/evidence storage D:.
+
 ## Refinement: test loopback independently FIRST
 
 Parent inspected a fresh actual WSL `unshare --net ip -j address show`: only lo
