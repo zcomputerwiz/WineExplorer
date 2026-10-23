@@ -749,8 +749,7 @@ static std::vector<std::wstring> privilege_names(HANDLE token)
     return names;
 }
 
-// Native filtered admin token (Windows 10.0.26300, decision D1); Wine has SeIncreaseWorkingSet and SeTimeZone since
-// "server: align SYSTEM, LocalService, NetworkService and filtered tokens with native measurements".
+// Native filtered admin token (Windows 10.0.26300, decision D1).
 static const WCHAR *const limited_privileges[] = {L"SeChangeNotifyPrivilege", L"SeShutdownPrivilege", L"SeUndockPrivilege",
                                                   L"SeIncreaseWorkingSetPrivilege", L"SeTimeZonePrivilege"};
 

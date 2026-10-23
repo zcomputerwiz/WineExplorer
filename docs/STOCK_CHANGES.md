@@ -459,12 +459,20 @@ whether its own token is SYSTEM, which only the system role gives it.
 Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
 
 - `server/token.c`, `server/security.h` (`token_create_service`, `token_service_account`): primary tokens of
-  LocalSystem (S-1-5-18: groups Administrators (enabled, owner and primary group), Everyone, Authenticated Users),
-  LocalService (S-1-5-19) and NetworkService (S-1-5-20: Everyone, Users, Authenticated Users, SERVICE S-1-5-6,
-  LOCAL S-1-2-0; the account owns what it creates), System integrity (S-1-16-16384), `TokenElevationTypeDefault`, no
+  LocalSystem (S-1-5-18: groups Everyone, Users, SERVICE, CONSOLE LOGON S-1-2-1, Authenticated Users, This
+  Organization S-1-5-15, LOCAL S-1-2-0, Administrators (enabled, owner and primary group, not mandatory)),
+  LocalService (S-1-5-19) and NetworkService (S-1-5-20: the same without Administrators; the account owns what it
+  creates), System integrity (S-1-16-16384), `TokenElevationTypeDefault`, no
   linked token. Default DACL: SYSTEM and Administrators for LocalSystem, SYSTEM and the account for the others. The
-  privilege lists are provisional (not measured on a native system, see the work order's "Results, C3"). Wine defines
-  no SeIncreaseWorkingSet or SeTimeZone, so they are missing.
+  privilege and group lists are the native ones measured in docs/ELEVATION_LOCAL_VALIDATION_WORKORDER.md; SeImpersonate
+  stays enabled on the service accounts (documented default) and CONSOLE LOGON is provisional (possible task
+  artifact); per-task SIDs and the unknown S-1-5-32-* SIDs are not copied (docs/TOKEN_SECURITY_REFERENCES.md).
+- `include/winternl.h`, `dlls/advapi32/security.c`, `server/token.c`: privileges 31 to 36 are known (names and LUIDs
+  of SeIncreaseWorkingSet 33, SeTimeZone 34, SeCreateSymbolicLink 35, SeDelegateSessionUserImpersonate 36;
+  `SE_MAX_WELL_KNOWN_PRIVILEGE` is 36; 31 and 32 have no name), so LookupPrivilegeNameW and LookupPrivilegeValueW
+  resolve them. `token_make_filtered` adds SeIncreaseWorkingSet and SeTimeZone (disabled), as the native filtered
+  token has. `LookupPrivilegeNameW` fails with ERROR_NO_SUCH_PRIVILEGE for the unnamed LUIDs 31 and 32 instead of
+  dereferencing a NULL name. `token_create_admin` is unchanged.
 - `server/token.c` (`token_duplicate`): a token whose owner is its user keeps that owner in a copy.
 - `server/protocol.def`, `server/token.c` (`create_service_token`), `include/winternl.h`,
   `dlls/ntdll/unix/process.c` (`ProcessWineCreateServiceToken` = 1003, input account number 0 to 2, output the
@@ -486,8 +494,8 @@ Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
   child are those of the process that made the socket pair, so the server clears `peer_gid` for a child with a
   service-account token: it never gets the system group's file access.
 - `server/token.c` (`set_token_integrity_level`): while elevation is enforced, raising a token's integrity level
-  needs an enabled SeTcbPrivilege in the caller's process token (`STATUS_PRIVILEGE_NOT_HELD`), lowering does not (as on
-  Windows).
+  needs an enabled SeTcbPrivilege in the caller's process token (`STATUS_PRIVILEGE_NOT_HELD`), lowering does not (as
+  on Windows; measured natively, docs/TOKEN_SECURITY_REFERENCES.md).
 - `server/sysrun.c` (`protect_object`): the descriptor of a system role process or thread is SYSTEM (and the service
   account) full control, Administrators query + read the descriptor, Users and Authenticated Users the limited query +
   SYNCHRONIZE (thread: `THREAD_QUERY_LIMITED_INFORMATION`), as Windows does for service processes. Full access needs
