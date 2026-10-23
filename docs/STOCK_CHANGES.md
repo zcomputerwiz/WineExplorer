@@ -118,6 +118,9 @@ marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`.
 - `programs/services/rpc.c`: `OpenSCManager`, `OpenService` and `CreateService` check the requested access against
   the documented default descriptors of the service control manager and of a service, with the RPC client's token
   (`check_client_access`). The checks are skipped while no helper is configured.
+  The default service descriptor gives LocalSystem Wine's `SERVICE_SET_STATUS` (0x8000) too: plugplay in
+  `winedevice.exe` (SYSTEM) opens the driver service of `ZwLoadDriver` (for example `winehid`) with it, and no process
+  record of `services.exe` names that process for a driver, so the own-process rule did not apply and the load failed.
 - `server/named_pipe.c`, `server/token.c` (`token_impersonation_level`): the level a pipe server gets is capped like
   Windows' SeTokenCanImpersonate. Without `SeImpersonatePrivilege` in the server's process token it is
   identification, unless the client has the server's user, is not more trusted (integrity) and is not elevated
