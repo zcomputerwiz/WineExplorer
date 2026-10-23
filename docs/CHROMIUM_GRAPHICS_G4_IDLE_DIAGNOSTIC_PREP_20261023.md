@@ -65,3 +65,27 @@ STOP for parent review; **no live authority this handoff**. Usage88% five-hour /
 14% weekly at checkpoint; no credits used. Any future live attempt requires
 separate approval and fresh ownership/hash/usage/space checks plus clean owned
 shutdown; no automatic calibration follows this observation.
+
+## Independent parent acceptance / ONE short observation
+
+Parent read actual current private control/formatter/preparer/early-return and
+all new tests. Independently31 PASS/no skips in2.716s; audited all five helpers,
+three test sources, two seeds+actual ISO, prior preparation reference,19 accepted
+pins, original probe hash/syntax and top size/mtime. Manifestb084c73b... matches,
+run absent, consumer argv empty. No TAR/staging/consumer path in this control.
+Repaired failure capture and raw success-before-parse behavior remain intact.
+
+Known cosmetic metadata limitation: captured_output's byte_origin still says
+CalledProcessError captured bytes even on success. Success has no exception_type
+and records actual returncode0; it is NOT an exception or product acceptance.
+This label is not a guard and should be clarified in a later fresh preparation,
+not by silently changing this immutable helper pin. Archive-skipped's generic
+preflight wording likewise does not imply a successful observation failed.
+
+At90% five-hour/14%weekly ONE exact prepared read-only observation is authorized
+NOW only if fresh launch usage <=92%. If higher, stop without boot and preserve
+preparation for after reset. Exact manifest commands; no extra SSH/staging/Wine/
+helper/browser/calibration/retry. Always immediate exact-identity SIGINT/QMP,
+QEMU0 AND Windows0/owned identities absent. Retain raw decoded command error and
+all bounds/pins/output, concise committed AND pushed report, STOP. At95% finish
+only this bounded operation/cleanup/checkpoint. No follow-on fix this window.
