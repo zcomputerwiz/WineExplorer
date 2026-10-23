@@ -436,7 +436,7 @@ As `bobsmith` (standard user, passwordless):
 | Log off | pass; afterwards only the greeter's `wineserver` (uid 102) is left, none of `bobsmith`; `system.reg` unchanged |
 
 During bobsmith's session, from the guest console: `ps -o pid,uid,gid,egid,sgid,args -C wineserver` showed
-`1001 1001 1001 987` (uid, gid, egid... wineserver of the user with sgid 987 = `wexsys`; egid = the user's group 1001);
+uid 1001, gid 1001, egid 1001, sgid 987 (`wexsys`) for the user's `wineserver`;
 `ls -l system.reg` = `root:wexsys` 664, md5 `64f47250...` as before the session, no `WexGui` string in it.
 
 As `alice` (in `sudo`, password logon): the desktop appeared but **without the desktop icons** (only the taskbar), see
