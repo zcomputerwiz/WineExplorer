@@ -19,6 +19,14 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+Read CHROMIUM_GRAPHICS_G4_SOURCE_WORKTREE_20261023.md FIRST: main D: checkout
+is now master and must be left alone. Continue tracked work in the existing owned
+C:/Users/Owner/.codex/worktrees/chromium-graphics-plan/WineExplorer worktree on
+codex/g4-r1-completion, explicit cwd, never stage its unused Wine gitlink mismatch.
+Private VM/runtime/evidence storage stays D:. Offline path portability review
+precedes the unchanged next HTTP diagnostic. Latest live limits govern; at the
+05:24 UTC wake they were0% five-hour/30% weekly, reset10:24:23 UTC.
+
 Read CHROMIUM_GRAPHICS_G4_EDGE_NAVIGATION_CHECKPOINT_20261023.md first, then
 CHROMIUM_GRAPHICS_G4_EDGE_LOOPBACK_CONTROL_PLAN_20261023.md (conditional HTTP stage).
 The five-hour window reset; verified 0% at the 2026-10-23 00:21 UTC wake.
