@@ -19,6 +19,15 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+Latest milestone: calibration12799159 PASSED ONCE; parent inspected actual two
+stacks, independently checked20 archive hashes/19 binaries/12 deployed files,
+normal debugger exit/post identities/release0/child0 and clean VM/controller.
+Integration381bb46a/ff5acdd1 passed205 independent parent tests, not just176.
+Current next: OFFLINE EDGE_SELECTED_STACK_PLAN_20261023 implementation/tests/fresh
+preparation, parent review before ONE timeout-only Edge diagnostic. No calibration
+repeat. Read latest report/HEAD; the checkpoint below is the prior window's base.
+Current window reset15:27:29 UTC Oct23; live usage always governs.
+
 Current checkpoint: CHROMIUM_GRAPHICS_G4_EDGE_STACK_CHECKPOINT_20261023.md.
 HTTP and owned-thread controls and metadata discovery are COMPLETE. Small stack
 calibration building blocks381ef400/d363fa33 passed176 parent tests but are
