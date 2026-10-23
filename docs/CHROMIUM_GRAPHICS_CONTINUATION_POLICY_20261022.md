@@ -19,22 +19,26 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
-Latest milestone: calibration12799159 PASSED ONCE; parent inspected actual two
-stacks, independently checked20 archive hashes/19 binaries/12 deployed files,
-normal debugger exit/post identities/release0/child0 and clean VM/controller.
-Integration381bb46a/ff5acdd1 passed205 independent parent tests, not just176.
-Current next: OFFLINE EDGE_SELECTED_STACK_PLAN_20261023 implementation/tests/fresh
-preparation, parent review before ONE timeout-only Edge diagnostic. No calibration
-repeat. Read latest report/HEAD; the checkpoint below is the prior window's base.
-Current window reset15:27:29 UTC Oct23; live usage always governs.
+Latest milestone: selected-stack R1 executed ONCE,0c4288ee; parent independently
+reviewed actual white front/122 archive hashes/19 binary+15 deployed source hashes,
+post native/Linux identities, privateLO and graceful shutdown, f41feae5. Eight
+selected stacks observed, primary readiness timeout preserved. Own pinned Wine
+win32u RVA0x150c4 is NtUserMsgWaitForMultipleObjectsEx syscall return, not a cause.
+Calibration12799159 passed once; do not repeat calibration or completed browser
+arms. Earlier scoped Electron/WebView2/pixel results remain valid, not full Edge.
 
-Current checkpoint: CHROMIUM_GRAPHICS_G4_EDGE_STACK_CHECKPOINT_20261023.md.
-HTTP and owned-thread controls and metadata discovery are COMPLETE. Small stack
-calibration building blocks381ef400/d363fa33 passed176 parent tests but are
-NOT_RUN_NOT_INTEGRATED. Next is offline calibration integration/tests/preparation
-and parent review, not Edge/debugger execution. Detailed historical milestones
-below are context, not authority to repeat completed controls. Final window usage
-95% five-hour/45% weekly; reset10:24:23 UTC Oct23.
+Current blocker: guest free725,929,984 bytes, below1GiB. No further browser/profile/
+staging may ignore gate; no evidence deletion. Next is CAPACITY_PLAN_20261023
+Stage A OFFLINE implementation/read-only GPT proof/tests/preparation; Luna owns
+that bounded implementation. Parent reviews before any image creation/resize or
+VM boot. Automatic GROWROOT runs on boot: larger-disk boot IS mutation. Preserve
+original64GiB system.qcow2 AND Debian backing, use only a new D:80GiB top layer
+if separately approved. No downward commit/rebase/compaction/in-place resize.
+Later EDGE_NAVIGATION_TRACE_TODO_20261023 is research-only, NOT run authority.
+
+Read latest HEAD reports first. EDGE_STACK_CHECKPOINT_20261023 and descriptions
+below are historical, not current next-step instructions. Source checkout rules
+remain current. Current window reset15:27:29 UTC Oct23; live usage governs.
 
 Read CHROMIUM_GRAPHICS_G4_SOURCE_WORKTREE_20261023.md FIRST: main D: checkout
 is now master and must be left alone. Continue tracked work in the existing owned
