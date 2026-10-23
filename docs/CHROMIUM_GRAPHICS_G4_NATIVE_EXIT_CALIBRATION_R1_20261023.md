@@ -44,7 +44,7 @@ diagnostic retry to recover missing stderr, and no deletion/rebuild/re-extractio
 Finally invoked the separate exact-identity SIGINT stopper, never Ctrl-C.
 Launcher435960/start5825424, QEMU435975/start5825466, Xvfb435962/start5825435.
 QMP graceful_powerdown=true, stop_reason=signal, QEMU exit0 and both children
-stopped. Persistent Windows WSL controller38548 started21:05:38.0745995Z and
+stopped. Persistent Windows WSL controller38548 started21:05:38.0745996Z and
 exited0 at21:06:26.5683004Z; host controller session completed0. All three Linux
 PIDs plus Windows PID independently absent; no launcher/QEMU/open-chain owner.
 postshutdown-audit.json explicitly verifies QEMU0 AND Windows0, identity match,
