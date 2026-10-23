@@ -95,10 +95,10 @@ def validate(output,fixture):
     return before
 
 
-def command(fixture,output,nonce,startup_diagnostic=False):
+def command(fixture,output,nonce,startup_diagnostic=False,*,http_url=None):
     win=lambda p:'Z:'+str(p).replace('/','\\')
     # file URL is interpreted by Windows Edge, not by the Linux host.
-    url='file:///Z:'+str(fixture).replace(' ','%20')+'#nonce='+nonce
+    url=http_url if http_url is not None else 'file:///Z:'+str(fixture).replace(' ','%20')+'#nonce='+nonce
     argv=[str(BUILD/'wine'),str(EXE),'--app='+url,
             '--user-data-dir='+win(output/'profile'),'--no-first-run','--no-default-browser-check',
             '--enable-logging','--log-file='+win(output/'chromium.log'),'--v=1']
@@ -308,11 +308,13 @@ def record_roles(result,previous,snapshot,cleanup):
     return roles
 
 
-def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_control=False,
+def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_control=False,http_fixture_control=False,
         now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
     start=now()
     if private_loopback_control and not startup_diagnostic:
         raise ValueError('Private loopback control requires startup diagnostic mode')
+    if http_fixture_control and not (startup_diagnostic and private_loopback_control):
+        raise ValueError('HTTP fixture control requires startup diagnostic and private loopback proof')
     before=validate(output,fixture)  # never cleanup on a rejected guard
     loopback=load('run-isolated-graphics').verify_private_loopback() if private_loopback_control else None
     output.mkdir(); save(output/'persistence-before.json',before)
@@ -328,7 +330,9 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
     if startup_diagnostic:
         result['classification']='Startup diagnostic ONLY; rendering acceptance NOT_EVALUATED'
     if private_loopback_control: result['private_loopback_before']=loopback
+    if http_fixture_control: result['http_fixture_control']=True
     deadline=start+TOTAL; browser=None; files=[]; stop=threading.Event(); cleanup_started=threading.Event(); monitor=None
+    http_server=None
     result.update(observed_process_roles={},role_exits_before_cleanup=[])
     def bound(cap,cleanup=False):
         remaining=deadline-now()-(0 if cleanup else RESERVE)
@@ -379,6 +383,7 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             result['observations'].append({'elapsed':now()-start,'windows':rows})
             return window_record(rows,nonce)
         def alive():
+            if http_server is not None: http_server.check()
             if startup_diagnostic:
                 result['log_quota']=diagnostic_log_usage(output)
                 result['log_quota_checks']=result.get('log_quota_checks',0)+1
@@ -387,6 +392,11 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
             if browser.poll() is not None: raise RuntimeError('Browser launcher exited before collection completed')
             if result['role_exits_before_cleanup']: raise RuntimeError('Observed GPU/renderer process exited before cleanup')
             if any(log_health(output).values()): raise RuntimeError('Browser fatal/renderer/GPU/graphics log failure')
+        if http_fixture_control:
+            http_server=load('g4_edge_http_fixture').FixtureServer(fixture,nonce)
+            result['http_fixture']=http_server.record
+            url=http_server.start(timeout=bound(2))
+            result['argv']=command(fixture,output,nonce,startup_diagnostic,http_url=url)
         readiness_seconds=bound(45)  # refuse an exhausted budget BEFORE browser creation
         files=[(output/'browser.stdout.log').open('wb'),(output/'browser.stderr.log').open('wb')]
         browser=popen(result['argv'],env=browser_environment(env,startup_diagnostic),stdout=files[0],stderr=files[1],start_new_session=True)
@@ -422,6 +432,9 @@ def run(output,fixture,helpers,*,startup_diagnostic=False,private_loopback_contr
                     browser.terminate(); result['browser_exit_after_cleanup']=browser.wait(timeout=bound(5,True))
                     result.setdefault('cleanup_errors',[]).append('Browser required termination after prefix cleanup')
         except Exception as error: result.setdefault('cleanup_errors',[]).append(repr(error))
+        if http_server is not None:
+            try: http_server.close(timeout=min(2,max(0,deadline-now())))
+            except Exception as error: result.setdefault('cleanup_errors',[]).append(repr(error))
         stop.set()
         if monitor is not None and monitor.ident is not None: monitor.join(timeout=1)
         for stream in files:
@@ -458,10 +471,11 @@ def main():
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--fixture',type=Path,required=True)
     parser.add_argument('--startup-diagnostic',action='store_true',help='Bounded logging/file probe only; can never pass rendering acceptance')
-    parser.add_argument('--private-loopback-control',action='store_true',help='Same FILE URL diagnostic; require inherited proof of private lo UP')
+    parser.add_argument('--private-loopback-control',action='store_true',help='Require inherited proof of private lo UP; FILE unless explicit HTTP control')
+    parser.add_argument('--http-fixture-control',action='store_true',help='Two original-fixture HTTP routes; requires startup diagnostic and private loopback control')
     args=parser.parse_args()
     return run(args.output_dir,args.fixture,load('check-g3-correctness'),startup_diagnostic=args.startup_diagnostic,
-               private_loopback_control=args.private_loopback_control)
+               private_loopback_control=args.private_loopback_control,http_fixture_control=args.http_fixture_control)
 
 
 if __name__=='__main__': raise SystemExit(main())

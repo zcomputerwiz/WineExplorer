@@ -84,6 +84,7 @@ class HeadfulTests(unittest.TestCase):
         self.clock=0; self.calls=[];self.codes={};self.failures={};self.boot_action=lambda:None
         self.startup_diagnostic=False
         self.private_loopback_control=False
+        self.http_fixture_control=False
         self.browser=Mock();self.browser.poll.return_value=None;self.browser.wait.return_value=0
         self.browser.pid=900
         def start_browser(*args,**kwargs):
@@ -127,7 +128,8 @@ class HeadfulTests(unittest.TestCase):
              patch.object(edge.secrets,'token_hex',return_value=self.nonce):
             code=edge.run(self.output,self.fixture,self.helpers,now=lambda:self.clock,
                           sleep=lambda seconds:setattr(self,'clock',self.clock+seconds),popen=self.popen,
-                          startup_diagnostic=self.startup_diagnostic,private_loopback_control=self.private_loopback_control)
+                          startup_diagnostic=self.startup_diagnostic,private_loopback_control=self.private_loopback_control,
+                          http_fixture_control=self.http_fixture_control)
         return code,json.loads((self.output/'results.json').read_text())
 
     def test_actual_fixture_protocol(self):
@@ -548,6 +550,120 @@ class HeadfulTests(unittest.TestCase):
         with patch.object(edge,'load',side_effect=lambda name:module if name=='run-isolated-graphics' else original(name)):
             code,r=self.execute()
         self.assertEqual(code,1);self.assertIn('lost private netns',str(r['cleanup_errors']))
+
+    def http_mocks(self):
+        self.startup_diagnostic=self.private_loopback_control=self.http_fixture_control=True
+        server=Mock();server.record={'requests':[],'errors':[]}
+        server.start.return_value='http://127.0.0.1:12345/'+self.nonce+'/index.html#nonce='+self.nonce
+        module=SimpleNamespace(FixtureServer=Mock(return_value=server))
+        proof=SimpleNamespace(verify_private_loopback=Mock(return_value={'private':True}))
+        original=edge.load
+        loader=patch.object(edge,'load',side_effect=lambda name: module if name=='g4_edge_http_fixture' else
+                          proof if name=='run-isolated-graphics' else original(name))
+        return server,module,proof,loader
+
+    def test_http_requires_both_flags_and_proof_before_output_or_listener(self):
+        for diagnostic,loopback in ((False,False),(True,False),(False,True),(True,True)):
+            with self.subTest(diagnostic=diagnostic,loopback=loopback), \
+                 patch.dict(edge.os.environ,{},clear=True),patch.object(edge,'load',wraps=edge.load) as loader:
+                with self.assertRaises((ValueError,RuntimeError)):
+                    edge.run(self.output,self.fixture,self.helpers,http_fixture_control=True,
+                             startup_diagnostic=diagnostic,private_loopback_control=loopback)
+                self.assertFalse(self.output.exists());self.assertEqual(self.calls,[])
+                self.assertNotIn('g4_edge_http_fixture',[c.args[0] for c in loader.call_args_list])
+
+    def test_default_file_mode_does_not_load_optional_http_helper(self):
+        original=edge.load
+        def load(name):
+            if name=='g4_edge_http_fixture': raise ImportError('HTTP helper deliberately unavailable')
+            return original(name)
+        with patch.object(edge,'load',side_effect=load): code,r=self.execute()
+        self.assertEqual(code,0);self.assertNotIn('http_fixture',r)
+        self.assertEqual(r['argv'],edge.command(self.fixture,self.output,self.nonce))
+
+    def test_http_only_url_changes_and_diagnostic_cannot_pass(self):
+        server,module,proof,loader=self.http_mocks()
+        with loader: code,r=self.execute()
+        self.assertEqual(code,1);self.assertFalse(r['passed']);self.assertTrue(r['completed'])
+        expected=edge.command(self.fixture,self.output,self.nonce,True)
+        expected[2]='--app='+server.start.return_value
+        self.assertEqual(r['argv'],expected);self.assertEqual(r['http_fixture'],server.record)
+        module.FixtureServer.assert_called_once_with(self.fixture,self.nonce)
+        self.assertLessEqual(server.start.call_args.kwargs['timeout'],2)
+        server.close.assert_called_once();self.assertLessEqual(server.close.call_args.kwargs['timeout'],2)
+        self.assertEqual(proof.verify_private_loopback.call_count,2)
+
+    def test_http_startup_failure_still_closes_and_never_browser(self):
+        server,_,_,loader=self.http_mocks();server.start.side_effect=OSError('LISTENER FAIL')
+        with loader: code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('LISTENER FAIL',r['error'])
+        server.close.assert_called_once();self.popen.assert_not_called()
+        self.assertNotIn('failure_front',r)
+
+    def test_http_startup_timeout_is_bounded_and_preserved(self):
+        server,_,_,loader=self.http_mocks();server.start.side_effect=TimeoutError('START DEADLINE')
+        with loader: code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('START DEADLINE',r['error'])
+        server.close.assert_called_once();self.popen.assert_not_called()
+
+    def test_http_internal_error_stops_collection_and_retains_front(self):
+        server,_,_,loader=self.http_mocks();server.check.side_effect=RuntimeError('WORKER FAIL')
+        with loader: code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('WORKER FAIL',r['error'])
+        self.assertTrue(r['failure_front']['captured']);server.close.assert_called_once()
+
+    def test_http_cleanup_error_preserves_primary_and_results(self):
+        server,_,_,loader=self.http_mocks();server.close.side_effect=RuntimeError('SECONDARY HTTP CLOSE')
+        self.failures['native-0']=RuntimeError('PRIMARY browser observation')
+        with loader: code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('PRIMARY browser observation',r['error'])
+        self.assertIn('SECONDARY HTTP CLOSE',str(r['cleanup_errors']))
+        self.assertTrue(r['failure_front']['captured'])
+
+    def test_http_cleanup_error_invalidates_otherwise_complete_collection(self):
+        server,_,_,loader=self.http_mocks();server.close.side_effect=TimeoutError('JOIN DEADLINE')
+        with loader: code,r=self.execute()
+        self.assertEqual(code,1);self.assertTrue(r['completed']);self.assertIn('JOIN DEADLINE',str(r['cleanup_errors']))
+
+    def test_cli_http_flag_dispatch(self):
+        import sys
+        with patch.object(sys,'argv',['check-g4-edge-headful.py','--output-dir',str(self.output),
+                '--fixture',str(self.fixture),'--startup-diagnostic','--private-loopback-control','--http-fixture-control']), \
+             patch.object(edge,'run',return_value=1) as run,patch.object(edge,'load',return_value=self.helpers):
+            self.assertEqual(edge.main(),1)
+            self.assertTrue(run.call_args.kwargs['http_fixture_control'])
+
+    def test_http_real_server_in_runner_callback_and_owned_shutdown(self):
+        import http.client
+        import socket
+        from urllib.parse import urlsplit
+        self.startup_diagnostic=self.private_loopback_control=self.http_fixture_control=True
+        originals=Path(__file__).with_name('g4-edge-probe')
+        for name in ('index.html','scene.js'):
+            self.fixture.with_name(name).write_bytes((originals/name).read_bytes())
+        def browser_callback(argv,**kwargs):
+            url=urlsplit(argv[2].removeprefix('--app='))
+            for name in ('index.html','scene.js'):
+                connection=http.client.HTTPConnection(url.hostname,url.port,timeout=2)
+                try:
+                    connection.request('GET','/'+self.nonce+'/'+name)
+                    response=connection.getresponse()
+                    self.assertEqual(response.status,200)
+                    self.assertEqual(response.read(),(originals/name).read_bytes())
+                finally: connection.close()
+            (self.output/'chromium.log').write_text('Mock browser diagnostic log\n')
+            return self.browser
+        self.popen.side_effect=browser_callback
+        original=edge.load
+        proof=SimpleNamespace(verify_private_loopback=Mock(return_value={'private':True}))
+        with patch.object(edge,'load',side_effect=lambda name:proof if name=='run-isolated-graphics' else original(name)):
+            code,r=self.execute()
+        self.assertEqual(code,1);self.assertTrue(r['completed']);self.assertFalse(r['passed'])
+        http=r['http_fixture'];self.assertTrue(http['thread_stopped']);self.assertEqual(http['errors'],[])
+        self.assertEqual(len(http['requests']),2)
+        self.assertTrue(all(v['response_completed'] for v in http['requests']))
+        with self.assertRaises(OSError):
+            socket.create_connection((http['listener']['host'],http['listener']['port']),timeout=.2)
 
 
 if __name__=='__main__':unittest.main()
