@@ -86,6 +86,20 @@ PRIVATE = Path(__file__).resolve().parents[1]/'build/g4-virgl-20261022/presentat
 @unittest.skipUnless(PRIVATE.is_file(), 'Private lab procedure unavailable; pure budget tests remain portable')
 class ProcedureTests(unittest.TestCase):
     """Execute the actual private procedure with all guest/process calls mocked."""
+    def test_windows_worktree_head_read_uses_mapped_actual_repo(self):
+        spec = importlib.util.spec_from_file_location('budget_private_paths', PRIVATE)
+        procedure = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(procedure)
+        with mock.patch.object(procedure.subprocess, 'check_output',
+                               side_effect=['C:\\owned checkout\n', 'abc123\n']) as query:
+            self.assertEqual(procedure.source_head(), 'abc123')
+        self.assertEqual(query.call_args_list, [
+            mock.call(['wslpath', '-w', str(procedure.REPO)], text=True),
+            mock.call(['git.exe', '-C', 'C:\\owned checkout', 'rev-parse', 'HEAD'], text=True)])
+        with mock.patch.object(procedure.subprocess, 'check_output',
+                               side_effect=subprocess.CalledProcessError(1, 'wslpath')):
+            with self.assertRaises(subprocess.CalledProcessError): procedure.source_head()
+
     def exercise(self, seconds, *, state='running', missing=False, identity_failure=False,
                  consumer_failure=False, archive_failure=False):
         spec = importlib.util.spec_from_file_location('budget_private_procedure', PRIVATE)

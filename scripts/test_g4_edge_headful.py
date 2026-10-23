@@ -17,16 +17,40 @@ spec=importlib.util.spec_from_file_location('headful',Path(__file__).with_name('
 edge=importlib.util.module_from_spec(spec);spec.loader.exec_module(edge)
 
 
+def fixture_node_command():
+    script=Path(__file__).with_name('test_g4_edge_scene.js').resolve()
+    node=shutil.which('node')
+    if not node:
+        node='/mnt/c/Program Files/nodejs/node.exe'
+        if not Path(node).is_file(): raise RuntimeError('Node required; no fixture test skip')
+        # Windows Node must read THIS checkout, not a historical D: checkout.
+        script=subprocess.check_output(['wslpath','-w',str(script)],text=True).strip()
+        if not script: raise RuntimeError('Empty Windows fixture path')
+    return [node,str(script),'--record']
+
+
+class FixturePathTests(unittest.TestCase):
+    def test_native_node_uses_actual_checkout_without_conversion(self):
+        with patch.object(shutil,'which',return_value='/usr/bin/node'), patch.object(subprocess,'check_output') as convert:
+            command=fixture_node_command()
+        convert.assert_not_called()
+        self.assertEqual(command,['/usr/bin/node',str(Path(__file__).with_name('test_g4_edge_scene.js').resolve()),'--record'])
+
+    def test_windows_fallback_converts_actual_source_and_fails_closed(self):
+        with patch.object(shutil,'which',return_value=None), patch.object(Path,'is_file',return_value=True), \
+                patch.object(subprocess,'check_output',return_value='C:\\owned checkout\\scripts\\test_g4_edge_scene.js\n') as convert:
+            self.assertEqual(fixture_node_command()[1],'C:\\owned checkout\\scripts\\test_g4_edge_scene.js')
+            convert.assert_called_once_with(['wslpath','-w',str(Path(__file__).with_name('test_g4_edge_scene.js').resolve())],text=True)
+            convert.side_effect=subprocess.CalledProcessError(1,'wslpath')
+            with self.assertRaises(subprocess.CalledProcessError): fixture_node_command()
+            convert.side_effect=None;convert.return_value='\n'
+            with self.assertRaises(RuntimeError): fixture_node_command()
+
+
 class HeadfulTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        script=Path(__file__).with_name('test_g4_edge_scene.js').resolve()
-        node=shutil.which('node')
-        if not node:
-            node='/mnt/c/Program Files/nodejs/node.exe'
-            if not Path(node).is_file(): raise RuntimeError('Node required; no fixture test skip')
-            script='D:/DeepThought/Projects/WineExplorer/scripts/test_g4_edge_scene.js'
-        cls.title=subprocess.check_output([node,str(script),'--record'],text=True).strip()
+        cls.title=subprocess.check_output(fixture_node_command(),text=True).strip()
         cls.page=json.loads(cls.title[8:])
         cls.nonce=cls.page['nonce']
 

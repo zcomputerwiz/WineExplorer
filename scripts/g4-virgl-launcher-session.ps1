@@ -8,8 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $labRoot = 'D:\VirtualBox_VMs\WEX-G4-VirGL-20261022'
 $wslExe = Join-Path $env:WINDIR 'System32\wsl.exe'
-$windowsLauncher = 'D:\DeepThought\Projects\WineExplorer\build\g4-virgl-20261022\launch.py'
-$linuxLauncher = '/mnt/d/DeepThought/Projects/WineExplorer/build/g4-virgl-20261022/launch.py'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$windowsLauncher = Join-Path $repoRoot 'build\g4-virgl-20261022\launch.py'
 $outputDir = Join-Path $labRoot $RunName
 $stdoutPath = Join-Path $labRoot ($RunName + '.wsl.stdout.log')
 $stderrPath = Join-Path $labRoot ($RunName + '.wsl.stderr.log')
@@ -20,6 +20,10 @@ foreach ($path in @($outputDir, $stdoutPath, $stderrPath, $sessionPath)) {
 }
 if (-not (Test-Path -LiteralPath $windowsLauncher -PathType Leaf)) {
     throw "Launcher missing: $windowsLauncher"
+}
+$linuxLauncher = & $wslExe -d Debian --exec wslpath -u $windowsLauncher
+if ($LASTEXITCODE -ne 0 -or @($linuxLauncher).Count -ne 1 -or $linuxLauncher -notmatch '^/') {
+    throw "Cannot map owned Windows launcher into Debian: $windowsLauncher"
 }
 
 $arguments = @('-d', 'Debian', '--exec', 'unshare', '--mount', '--propagation', 'private',
@@ -32,6 +36,8 @@ $record = [ordered]@{
     windowsPid = $wsl.Id
     windowsStartTimeUtc = $wsl.StartTime.ToUniversalTime().ToString('o')
     wslExecutable = $wslExe
+    windowsLauncher = $windowsLauncher
+    linuxLauncher = $linuxLauncher
     arguments = $arguments
     stdout = $stdoutPath
     stderr = $stderrPath

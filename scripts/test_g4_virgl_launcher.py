@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Identity validation tests for the owned VirGL launcher stop procedure."""
+import ast
 import importlib.util
 import json
 from pathlib import Path
@@ -55,6 +56,27 @@ class LauncherIdentity(unittest.TestCase):
                 write_proc(self.proc_root, 71, ticks, command)
                 with self.assertRaises(RuntimeError):
                     stop_launcher.validate_identity(self.identity, self.identity_path, self.proc_root)
+
+
+class StagedLauncherIdentity(unittest.TestCase):
+    def test_private_launcher_records_own_file_not_repository_alias(self):
+        launcher = Path(__file__).resolve().parents[1]/'build/g4-virgl-20261022/launch.py'
+        if not launcher.is_file():
+            self.skipTest('Private launcher unavailable')
+        # Execute ONLY the actual identity update AST, never the boot script.
+        tree = ast.parse(launcher.read_text())
+        updates = [node for node in tree.body if isinstance(node, ast.Expr)
+                   and isinstance(node.value, ast.Call)
+                   and isinstance(node.value.func, ast.Attribute)
+                   and isinstance(node.value.func.value, ast.Name)
+                   and node.value.func.value.id == 'launcher_identity'
+                   and node.value.func.attr == 'update']
+        self.assertEqual(len(updates), 1)
+        identity = {}
+        namespace = dict(Path=Path, __file__=str(launcher), launcher_identity=identity,
+                         repo=Path('/wrong/old/checkout'), output=Path('/owned/run'), run_name='owned')
+        exec(compile(ast.Module(body=updates, type_ignores=[]), str(launcher), 'exec'), namespace)
+        self.assertEqual(identity['launcher_path'], str(launcher.resolve()))
 
 
 if __name__ == '__main__':
