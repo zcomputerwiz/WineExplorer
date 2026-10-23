@@ -107,4 +107,104 @@ step list, and every product bug found with file:line. Then open the pull reques
 
 ## Results
 
-(none yet)
+### Environment
+
+| Item | Value |
+| :--- | :--- |
+| Windows host | 10.0.26300.0 (Windows 11 Pro) |
+| WSL kernel (Debian) | 6.18.33.2-microsoft-standard-WSL2 |
+| `yama/ptrace_scope` / `suid_dumpable` (Debian WSL) | 1 / 0 |
+| WineExplorer | branch `claude/elev-local-validation` from `9ae0203c` |
+| Wine (`gemini/token-security-b`) | `cc8a92f6` |
+
+Parts 2 and 3: not run yet (see "Status").
+
+### Part 1: native tokens (measured 2026-10-22, elevated by the user)
+
+Method: one-shot scheduled tasks (`schtasks /ru`) running `whoami /all`. **Caveat:** these are Task Scheduler
+tokens, not Service Control Manager service tokens. Task-specific groups (`NT SERVICE\Schedule`, `NT TASK\<task>`)
+and the absence of SeImpersonate on LocalService/NetworkService may differ for a real service (SCM is documented to
+add SeImpersonate); that was not measured. Raw output: `build/elevation-validation/tokens/*.txt` (not committed).
+`whoami` does not print the primary group, owner or default DACL.
+
+Integrity: **System Mandatory Level (S-1-16-16384)** for all three. Matches Wine (`system_label_sid`).
+
+**Groups** (all `Mandatory group, Enabled by default, Enabled group` unless noted):
+
+| Group | SYSTEM S-1-5-18 | LocalService S-1-5-19 | NetworkService S-1-5-20 |
+| :--- | :---: | :---: | :---: |
+| Everyone S-1-1-0 | yes | yes | yes |
+| BUILTIN\Users S-1-5-32-545 | yes | yes | yes |
+| NT AUTHORITY\SERVICE S-1-5-6 | yes | yes | yes |
+| CONSOLE LOGON S-1-2-1 | yes | yes | yes |
+| Authenticated Users S-1-5-11 | yes | yes | yes |
+| This Organization S-1-5-15 | yes | yes | yes |
+| LOCAL S-1-2-0 | yes | yes | yes |
+| BUILTIN\Administrators S-1-5-32-544 | yes, not mandatory, Group owner | no | no |
+| Per-task SID (not mandatory; owner) | `NT SERVICE\Schedule` S-1-5-80-... | `NT TASK\wex-localservice` S-1-5-87-... | `NT TASK\wex-networkservice` S-1-5-87-... |
+| Unknown `S-1-5-32-<8 subauthorities>` (mandatory) | no | 8 of them | no |
+
+**Privileges** (E = enabled, d = disabled; "-" = absent):
+
+| Privilege | SYSTEM native | SYSTEM Wine | LocalService native | LS Wine | NetworkService native | NS Wine |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| SeAssignPrimaryToken | d | d | d | d | d | d |
+| SeLockMemory | E | E | - | - | - | - |
+| SeIncreaseQuota | d | d | - | - | d | d |
+| SeTcb | E | E | - | - | - | - |
+| SeSecurity | d | d | - | - | - | - |
+| SeTakeOwnership | d | d | - | - | - | - |
+| SeLoadDriver | d | d | - | - | - | - |
+| SeSystemProfile | E | E | - | - | - | - |
+| SeSystemtime | d | d | d | - | - | - |
+| SeProfileSingleProcess | E | E | - | - | - | - |
+| SeIncreaseBasePriority | E | E | - | - | - | - |
+| SeCreatePagefile | E | E | - | - | - | - |
+| SeCreatePermanent | E | E | - | - | - | - |
+| SeBackup | d | **E** | - | - | - | - |
+| SeRestore | d | **E** | - | - | - | - |
+| SeShutdown | d | **E** | d | d | d | - |
+| SeDebug | E | E | - | - | - | - |
+| SeAudit | E | E | d | d | d | d |
+| SeSystemEnvironment | d | **E** | - | - | - | - |
+| SeChangeNotify | E | E | E | E | E | E |
+| SeUndock | d | d | d | d | d | - |
+| SeManageVolume | d | **E** | - | - | - | - |
+| SeImpersonate | E | E | - | **E** | - | **E** |
+| SeCreateGlobal | E | E | E | E | E | E |
+| SeIncreaseWorkingSet | E | - | d | - | d | - |
+| SeTimeZone | E | - | d | - | d | - |
+| SeCreateSymbolicLink | E | - | - | - | - | - |
+| SeDelegateSessionUserImpersonate | E | - | - | - | - | - |
+| SeRemoteShutdown | - | d | - | - | - | - |
+
+### Differences to fix (Wine `token_create_service`, `server/token.c:898`; not changed here)
+
+SYSTEM:
+1. Wine enables SeBackup, SeRestore, SeShutdown, SeSystemEnvironment, SeManageVolume; native has them **disabled**.
+2. Wine has SeRemoteShutdown (disabled); native SYSTEM has none.
+3. Wine lacks SeIncreaseWorkingSet, SeTimeZone, SeCreateSymbolicLink, SeDelegateSessionUserImpersonate (all enabled
+   natively). Wine defines no LUID for them.
+4. Groups: Wine has only Everyone, Authenticated Users, Administrators (owner, primary). Native also has BUILTIN\Users,
+   SERVICE, CONSOLE LOGON, This Organization, LOCAL and a per-service SID. Administrators is not mandatory natively
+   (Wine sets MANDATORY).
+
+LocalService:
+5. Wine has SeImpersonate enabled; absent in the measured token (see caveat: SCM services may differ).
+6. Wine lacks SeIncreaseQuota, SeSystemtime, SeIncreaseWorkingSet, SeTimeZone (all disabled natively).
+7. Groups: Wine lacks CONSOLE LOGON, This Organization, per-service/task SID, and the eight unknown S-1-5-32-* SIDs
+   (these look service-specific; do not copy them).
+
+NetworkService:
+8. Wine has SeImpersonate enabled (absent natively, same caveat).
+9. Wine lacks SeShutdown, SeUndock, SeIncreaseWorkingSet, SeTimeZone (all disabled natively).
+10. Groups: same missing groups as LocalService, minus the eight unknown SIDs (NetworkService had none).
+
+Integrity, user SIDs, SeChangeNotify and SeCreateGlobal (enabled), SeAssignPrimaryToken, SeAudit (LS/NS): match.
+
+Cleanup: scheduled tasks deleted by the script; `C:\wex-tokens` removed after the copy.
+
+### Status
+
+Part 1 done. Optional integrity-raise test (SetTokenInformation to High, expected 1314): not done, needs user consent.
+Parts 2 and 3 (WSL/VM build, install, acceptance tests, desktop session): pending.
