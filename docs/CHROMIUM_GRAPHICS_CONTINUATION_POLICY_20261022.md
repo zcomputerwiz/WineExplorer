@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT: R2 b759008a independently46seal/16archive/actual same-thread warning+
+c06d007f/nativejournal/shutdown reviewed. Demonstrated missing userenv SID API.
+USERENV_SID_PLAN_20261024 authorizes isolated sparse Wine source/API+unit work,
+not VM deployment/browser or root gitlink import. Parent Windows public-API oracle
+establishes SID vectors/64-unit boundary/simple downcase semantics. No speculative
+other missing-API patch, profile/token/server work or sandbox bypass.
+
 CURRENT CHECKPOINT: read MODULE_WARN_CHECKPOINT_20261024 first. d9c713f9 offline
 R2 code/build accepted parent36 tests/18artifacts/source reviewed. Next only fresh
 R2 offline adapter/preparation, then parent review before ONE warn+module/SEH
