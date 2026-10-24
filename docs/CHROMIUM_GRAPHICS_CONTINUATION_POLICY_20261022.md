@@ -19,6 +19,15 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST protected preparation48183f33 accepted by parent with69 independent
+tests/no skips,27 current-file hashes,19 expected pins, unchanged probe and
+normal-lock original3-layer identities/full frozen-top SHA c2acebb9... . Read
+READY_BOOT_PARENT_REVIEW_20261024. Next is ONE exact new safety-overlay CREATION
+ONLY with fresh before/after gates, report/commit AND push; parent reviews before
+any boot/SSH. New disk/run absent at acceptance. No consumer/calibration authority.
+Reusable harness documented APP_TEST_HARNESS.md (0e23e4e6). Latest actual usage
+51%five-hour/23%weekly; older next-step descriptions below are historical.
+
 LATEST user resumed after reset:0%five-hour/15%weekly. Readiness helper9d485b42
 accepteddd5946fb with36 independent tests; Luna now implements QMP helper ONLY,
 no integration/guest authority. Read BOOT_SAFETY_REVIEW_20261024 (519cafe6) and
