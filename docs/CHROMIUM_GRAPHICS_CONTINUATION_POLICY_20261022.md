@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST user resumed after reset:0%five-hour/15%weekly. Readiness helper9d485b42
+accepteddd5946fb with36 independent tests; Luna now implements QMP helper ONLY,
+no integration/guest authority. Read BOOT_SAFETY_REVIEW_20261024 (519cafe6) and
+conditional READY_BOOT_INTEGRATION_PLAN_20261024. Current top fullSHA c2acebb9...
+recorded unchanged/idle; plan fresh D:safety overlay before writable boot, NOT
+created. Existing current private launch/procedure/pins unchanged. All old live
+permissions consumed. Next separate QMP review, then ONE offline integration/
+prep, parent review before creation and before boot. Latest actual usage/HEAD
+govern; old97% stop below is historical, not this new window's status.
+
 LATEST STOP/CHECKPOINT at97%five-hour/15%weekly: read
 CHROMIUM_GRAPHICS_G4_STARTUP_CHECKPOINT_20261023 FIRST after source mapping.
 Readonly49b313be/8e0fa18e SSH255 failed BEFOREdf/19pins/435/idleprobe. Liveerror
