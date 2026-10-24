@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST rejected-observation9f86add0 accepted:158 independent tests/no skips,
+15source/snapshot/log/history hashes reviewed; exact matching/rejection intact.
+NEXT NATIVE_IDENTITY_ISOLATION_PLAN_20261024 OFFLINEONLY: freshHOSTr3 preparation,
+preserve originalPE/fixedGUESTR1 paths and failedR2layer. Propose newD:overlay
+backing frozen capacity parent; NO create/boot authority until parentreviews.
+Explicitly pin newPythonreader/runner approval, not obsolete R1 source hash.
+
 LATEST resumed11:30UTC Oct24 at0%five-hour/46%weekly. REJECTED_IDENTITY_PLAN_
 20261024 is next OFFLINE work order: preserve bounded actual rejected stat/
 cmdline/prefix status and timing from exact owned Popen before rejection/reap;
