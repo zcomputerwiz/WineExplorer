@@ -15,6 +15,7 @@ from unittest import mock
 import g4_guest_readiness
 import g4_virgl_budget
 import stop_g4_virgl_launcher
+import g4_capacity
 
 REPO=Path(__file__).resolve().parents[1]
 PRIVATE=REPO/'build/g4-virgl-20261022'
@@ -167,6 +168,69 @@ class ReadyBootIntegration(unittest.TestCase):
         for mutation in ('helper','source','pins','old-overlay'):
             _,calls,_,_,error=self.exercise(mutation=mutation)
             self.assertIsNotNone(error);self.assertEqual(calls,[])
+
+    def prep_module(self):
+        spec=importlib.util.spec_from_file_location('durable_private',PRIVATE/'presentation-timing-trial.py')
+        p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+        return p
+
+    def test_r2_existing_top_missing_changed_or_wrong_backing_fail_without_mutation(self):
+        capacity=json.loads((LAB/'capacity-maintenance-r1-20261023.preflight/preflight.json').read_text())
+        retained=json.loads((LAB/'native-idle-ready-r1-20261024.host-audit-r2/after.json').read_text())
+        target=LAB/'system-readiness-r1-20261024.qcow2'
+        real_id=g4_capacity.file_id
+        for problem in ('missing','identity','content','backing'):
+            p=self.prep_module();real_sha=p.sha
+            def identity(path):
+                if path==target and problem=='missing':raise FileNotFoundError('missing reviewed top')
+                value=real_id(path)
+                if path==target and problem=='identity':value={**value,'bytes':value['bytes']+1}
+                return value
+            rows=json.loads(json.dumps(retained['chain']))
+            rows[0]['backing-filename']='/wrong/backing'
+            def dispatch(argv,**kwargs):
+                self.assertEqual(argv,['/usr/bin/qemu-img','info','--output=json','--backing-chain',str(target)])
+                return subprocess.CompletedProcess(argv,0,json.dumps(rows).encode())
+            with mock.patch.object(g4_capacity,'file_id',side_effect=identity), \
+                 mock.patch.object(g4_capacity,'owners',return_value={'idle':True}), \
+                 mock.patch.object(p.shutil,'disk_usage',return_value=mock.Mock(free=100*1024**3)), \
+                 mock.patch.object(p,'sha',side_effect=lambda path:'0'*64 if path==target and problem=='content' else real_sha(path)), \
+                 mock.patch.object(p.subprocess,'run',side_effect=dispatch) as calls:
+                with self.assertRaises((FileNotFoundError,RuntimeError)) as caught:p.prepare_ready_storage(capacity)
+            self.assertIn({'missing':'missing reviewed top','identity':'identity changed','content':'content changed','backing':'backing metadata changed'}[problem],str(caught.exception))
+            self.assertEqual(calls.call_count,1 if problem=='backing' else 0)
+
+    def test_r2_stale_or_missing_credential_fails_before_process(self):
+        p=self.prep_module()
+        with mock.patch.object(p.subprocess,'run') as run:
+            with self.assertRaisesRegex(RuntimeError,'no stale /tmp'):
+                p.prepare_durable_credential(Path('/tmp/wex-visible-recovery-r1/vm_key'),Path('/unused-seed'))
+            with mock.patch.object(Path,'resolve',side_effect=FileNotFoundError('missing durable path')):
+                with self.assertRaises(FileNotFoundError):
+                    p.prepare_durable_credential(Path('/var/tmp/wex-g4-lab-credentials/vm_key'),Path('/unused-seed'))
+        run.assert_not_called()
+
+    def test_r2_actual_preparation_records_both_durable_paths_no_create_or_network(self):
+        p=self.prep_module();name='native-idle-ready-r2-20261024'
+        with tempfile.TemporaryDirectory(prefix='durable-prep-fixture-',dir=LAB) as temp:
+            p.NAME=p.BOOT_NAME=name;p.RUN=p.BOOT=Path(temp)/name;p.PREP=Path(temp)/'prep';p.CONTROL='native-idle-ready'
+            state=dict(safety_top_identity={'path':str(LAB/'system-readiness-r1-20261024.qcow2')},
+                       safety_top_previously_booted=True,image_creation_authorized=False)
+            with mock.patch.object(p,'prepare_ready_storage',return_value=state), \
+                 mock.patch.object(p,'prepare_durable_credential',return_value={'public_matches_seed':True}), \
+                 mock.patch.object(p,'source_head',return_value='offline-test'), \
+                 mock.patch.object(p,'windows_path',return_value='C:\\owned\\controller.ps1'), \
+                 mock.patch.object(p.subprocess,'run',side_effect=AssertionError('Forbidden create/network dispatch')) as dispatch, \
+                 mock.patch('builtins.print'):
+                p.prepare_idle()
+            record=json.loads((p.PREP/'preflight.json').read_text())
+            self.assertEqual(record['ssh_key_path'],'/var/tmp/wex-g4-lab-credentials/vm_key')
+            self.assertEqual(record['ssh_argv'][2],record['ssh_key_path'])
+            self.assertEqual(record['guest_test_argv'],[]);self.assertEqual(record['mode'],'native-idle-ready')
+            self.assertTrue(record['storage']['safety_top_previously_booted'])
+            self.assertNotIn('create_argv',record['storage']);self.assertNotIn('absent_until_separate_creation',record['overlay_identity'])
+            self.assertEqual(record['limits']['stopper_seconds'],80)
+            self.assertIn(name,record['run_command']);dispatch.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
