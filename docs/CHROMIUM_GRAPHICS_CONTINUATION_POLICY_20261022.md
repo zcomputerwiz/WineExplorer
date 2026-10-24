@@ -19,6 +19,17 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST CHECKPOINT near95%five-hour/46%weekly: read NATIVE_IDENTITY_CHECKPOINT_
+20261024 FIRST after source mapping. Ownership5fc0cead PASS134tasks/115kernel/
+completeempty/strictstop, parent31seal reviewed. Nativecalibrationb10d27ef/
+15b73527 FAILconsumer1: laterLinuxargv identitycheck rejected unknown bytes,
+savedvalidsnapshotsmatched; helperkilled/reaped-9, no nativejournal/fullstatus.
+Parent47seal/11archive hashes and actualfailure/strictshutdownWindows0 reviewed.
+Allownedstopped; frozen3 unchanged; currenttopda698bec... . GUESTR1stage/output
+nowEXIST; preserve/nooverwrite/no boot authority. NEXT AFTERRESET OFFLINE ONLY
+failingidentity observability plan/Luna tests; no guessedargvacceptance/VM/SSH.
+Freshisolation/pathplan needed before laterretest. Reset11:26:11UTC/wake11:30UTC.
+
 LATEST native refresh258b950e accepted:129 independent tests/no skips,49current
 hashes/16TARmembers/originalPEs/normal4chain/credential/idle/absentHOST verified.
 Read NATIVE_CALIBRATION_R2_AUTHORITY_20261024: ONE exact original-child native
