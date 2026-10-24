@@ -162,31 +162,38 @@ def read_owned_stat(pid,*,deadline,now=time.monotonic):
     return raw
 
 
-def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
-    start=now();end=min(deadline,start+OPERATION);child=None;stamp=None
+def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen,contract=None):
+    operation=OPERATION if contract is None else contract['operation_seconds']
+    image=win(LAB/(NAME+'-stage')/'original/exit-child.exe') if contract is None else contract['image']
+    bind=binding if contract is None else contract['binding']
+    parse_journal=parse if contract is None else contract['parse']
+    start=now();end=min(deadline,start+operation);child=None;stamp=None
     result.update(helper_started=False,helper_reaped=False)
-    result.update(nonce=secrets.token_hex(16),helper_operation_maximum_seconds=OPERATION)
-    argv=command(output,result['nonce']);result['helper_argv']=argv
+    result.update(nonce=secrets.token_hex(16) if contract is None else contract['nonce'],helper_operation_maximum_seconds=operation,helper_phase='before_popen')
+    argv=(command if contract is None else contract['command'])(output,result['nonce']);result['helper_argv']=argv
     def remaining():
         left=end-now()
         if left<=0:raise TimeoutError('Owned helper reap deadline exhausted')
         return left
     try:
-        if end-start<OPERATION:raise TimeoutError('Insufficient complete helper42s/reap budget')
+        if end-start<operation:raise TimeoutError('Insufficient complete helper operation/reap budget')
         with (output/'helper.stdout.log').open('wb') as out,(output/'helper.stderr.log').open('wb') as err:
             child=popen(argv,env=env,stdout=out,stderr=err,start_new_session=True)
             result['helper_started']=True
+        result['helper_phase']='initial_proc_identity'
         remaining();stamp=stat_record(read_owned_stat(child.pid,deadline=end-REAP,now=now),child.pid)['start_ticks'];remaining()
         result['linux_helper_popen']={'pid':child.pid,'start_ticks':stamp,'not_native_child_pid':True}
         while True:
             code=child.poll()
             if code is not None:
+                result['helper_phase']='natural_exit_before_identity' if 'linux_helper_first_live' not in result else 'natural_exit'
                 result['linux_helper_exit_observed']={'code':code,'monotonic':now(),'before_cleanup':True}
                 result['linux_helper_wait_exit']=child.wait(timeout=min(2,remaining()));result['helper_reaped']=True
                 if type(code) is not int or code!=0 or type(result['linux_helper_wait_exit']) is not int or result['linux_helper_wait_exit']!=code:raise ValueError('Linux helper failed/exit mismatch')
                 if 'linux_helper_first_live' not in result:raise ValueError('Helper exited before independent Linux identity')
                 break
             try:
+                result['helper_phase']='linux_identity'
                 record=linux_identity(Path('/proc'),child.pid,stamp,PREFIX,argv,approved_loader=str(APPROVED_LOADER),deadline=end-REAP,now=now)
             except LinuxIdentityError as error:
                 result['linux_helper_rejected_identity']=error.observation
@@ -207,15 +214,17 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
             monitor();logs(output)
             raw=journal(output)
             if b'\n' in raw:
-                binding(decode(raw.split(b'\n')[0].decode()),result['nonce'],win(LAB/(NAME+'-stage')/'original/exit-child.exe'))
+                bind(decode(raw.split(b'\n')[0].decode()),result['nonce'],image)
                 result.setdefault('binding_received_monotonic',now())
             elif now()-start>=LOADER:raise TimeoutError('Initial native binding30s deadline')
             if now()>=end-REAP:raise TimeoutError('Helper operation timeout; reserved5s kill/reap')
             sleep(.02)
         monitor();logs(output)
-        result['native']=parse(journal(output),result['nonce'],win(LAB/(NAME+'-stage')/'original/exit-child.exe'))
+        result['helper_phase']='journal_parse'
+        result['native']=parse_journal(journal(output),result['nonce'],image)
         if now()>end:raise TimeoutError('Helper readback exceeded operation bound')
-        result['calibration_observation_complete']=True
+        result['calibration_observation_complete' if contract is None else 'observation_complete']=True
+        result['helper_phase']='observation_complete'
     finally:
         if child is not None and not result['helper_reaped']:
             try:
