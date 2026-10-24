@@ -27,8 +27,11 @@ documents them, §3 carries the new counts (grand total **180**, up from 178), a
 the updated hashes and NOT-RUN cells. (These Round-2 F1/F2 labels restart per review round and
 are distinct from the Round-1 F1–F3 in §1b.) The Round-2 C delta is function-body-only inside
 `unixlib.c` (no struct/ABI/resource change); it is verified by compiling and executing the exact
-production seam under `-Werror` (§3 row 8). A fresh native-PE re-execute this round is recorded
-as NOT RUN in §4b/§6, not claimed as a pass.
+production seam under `-Werror` (§3 row 8). The Round-2 native-PE rebuild + welcome-page
+re-execute was NOT RUN in Round 2 itself (VM at 97% disk, no display taken over) and is recorded
+as such in §4b/§6; it was then **executed on 2026-10-24 (Round 3)** on an authorized fresh clone
+of the lab VM — `wexhost.so` rebuilt from the committed R2 source, both PEs re-executed to their
+welcome pages (§4b; §6 cell now PASS).
 
 Labs used this session:
 - **Lab A — synthetic / source-controller / native-executed.** Owned VirtualBox VM
@@ -293,12 +296,23 @@ functions**: `test_oobe_bridge.py` extracts the current `oobe_review_start`,
 `-Wall -Wextra -Werror`, and drives them over a live AF_UNIX socket against a scripted peer
 (§3 row 8, 17 tests rc=0). That is a real compiled-C execution of the changed code, not a mock.
 
-A **fresh Round-2 native-PE rebuild + welcome-page re-execute was NOT RUN** this round: the VM
-was at **97% disk (1.9 G free)** when R2 work began and executing `oobe.exe` to its welcome page
-requires an Xvfb display I did not take over. It is therefore listed as a NOT-RUN verification
-limit (§6), carried forward from the Round-1 PE evidence — **not** claimed as a new pass. The
-§5 binary hashes below remain the Round-1 POST-state artifacts and were **not** rebuilt in Round 2
-(see the note under §5).
+A fresh Round-2 native-PE rebuild + welcome-page re-execute was **NOT RUN in Round 2 itself**: the
+VM was at **97% disk (1.9 G free)** when R2 work began and executing `oobe.exe` to its welcome page
+requires an Xvfb display that was not taken over. It was carried forward as a NOT-RUN verification
+limit (§6) — **not** claimed as a pass.
+
+**Resolved on 2026-10-24 (Round 3).** On the authorized fresh clone of the lab VM
+(`WEX-OOBE-Fresh-20261024`; other workstream data removed from the clone, disk 97% → 34%), the
+committed Round-2 sources were re-deployed and hash-verified in place (all 16 files OK; the
+in-lab `src/` tree moved R1→R2, e.g. `unixlib.c` `788e7a5b…`→`a6876abd…`, per
+`r3_pre_deploy_hashes.txt`). `wexhost.so` was then rebuilt for both archs (`make_wexhost_rc=0`; the
+only warning is the pre-existing `-Wformat-truncation`, note under §5) and **both `oobe.exe` PEs
+were executed to their welcome pages** under the project's combined loader against the new
+`wexhost.so` (fresh prefix, Xvfb :95/:96; `r3_rebuild.log`, `r3_exec_oobe.log`, screenshots
+`oobe_i386_r3_welcome.png` / `oobe_x64_r3_welcome.png`). The PE binaries are byte-identical to the
+Round-1 POST-state values because the R2 delta touches no PE-target source (function-body-only in
+`unixlib.c`, which compiles into `wexhost.so`, not into the PEs) — make confirmed "Nothing to be
+done" for both PE targets. See §5 (hashes) and §6 (cell now PASS).
 
 ## §5 — Source & binary hashes (current code, VM-verified)
 
@@ -333,17 +347,22 @@ in Round 1. All four changed hashes were re-verified against the working tree wi
 | `scripts/oobe_review_layout_probe.c` (F3, new) | `18e50d0a90bf58deb60f8673ca1b35963d15caecd0947db28a795d9fa0765eed` |
 | `scripts/oobe_review_render.c` (F3, new) | `f70d0d38faf48274150fc6a477648174f18b2b9b6e0914d38241527f012aa0e1` |
 
-**Binaries (sha256) — Review Round 1 POST-state; NOT rebuilt in Round 2**
-(`vm_rebuild.log`):
+**Binaries (sha256) — current state after the Round-3 rebuild** (Round 1 per `vm_rebuild.log`;
+Round 3 per `r3_rebuild.log`, 2026-10-24):
 - `wine/configure` args: `--enable-archs=i386,x86_64 --prefix=/home/wineuser/oobe-lab/install`
   (combined WoW64). wine submodule pin: `ed5fe967ed471ca524666631ad70dabbed6af076`.
-- `make -C build/dlls/wexhost` → `make_wexhost_rc=0`; `make -C build/programs/oobe` →
+- Round 1: `make -C build/dlls/wexhost` → `make_wexhost_rc=0`; `make -C build/programs/oobe` →
   `make_oobe_rc=0` (no format warnings on either arch).
+- Round 3 (fresh clone VM): `make -C build/dlls/wexhost` recompiled the changed `unixlib.c` and
+  relinked → `make_wexhost_rc=0` (only warning: pre-existing `-Wformat-truncation`, note below);
+  `make -C build/programs/oobe` → "Nothing to be done" (`make_oobe_rc=0`) — correct, since the R2
+  delta changes no PE-target source.
 - `build/loader/wine` = `a8e56871b5c728c68699b79d5f6eba0c5e549a705c267d7e8f87052eeed4e4b9`
 - `build/loader/wine-preloader` = `6161143796133a42db09df2e3810b27dc3499caa48fd000d24a9e834f5636231`
 - `build/programs/oobe/i386-windows/oobe.exe` = `c1421b7a66be950759756f44a6ca7d943cbd1a70aa3be10afaae999078edebf4`
 - `build/programs/oobe/x86_64-windows/oobe.exe` = `f6f8edad494766da9f369aafe414e671b63da946fc86e9299ce4397b3affb328`
-- `build/dlls/wexhost/wexhost.so` = `810e79f17b9a1a16c385e372c8d66f2cf7ecd41f56876221be5a5747a984388b`
+- `build/dlls/wexhost/wexhost.so` = `b3ee877fb6d4b072739adfabb072c029ca7865e85e66222669d3b02fe315f161`
+  (Round-3 rebuild from the committed Round-2 `unixlib.c`; Round-1 POST-state was `810e79f1…`)
 - native PE: `native_i386.exe` = `a0d72bfa5c7571ad92cedf02c1537bbd27597fe2988f09238cbef4b4550ded37`
 - native PE: `native_x64.exe` = `9adfc6a9b99a5c35a357a6b91d23f83a2aeaae1a4fb4367198cc1167145bd845`
 
@@ -352,18 +371,24 @@ in Round 1. All four changed hashes were re-verified against the working tree wi
 `wexhost.so` `a2beea8f…`→`24e7dfcf…`. In Review Round 1 (F1–F3) the same three were rebuilt again
 to the POST values above — i386 `978da0fa…`→`c1421b7a…`, x64 `ccd32f54…`→`f6f8edad…`,
 `wexhost.so` `24e7dfcf…`→`810e79f1…` — confirming the F1–F3 source changes were actually compiled
-in. The standalone native test PEs (`native_i386.exe`/`native_x64.exe`) are from the Q1–Q6 round
-and were not rebuilt in F1–F3; the bridge seam they exercise is re-covered fresh by
+in. In Round 3 (2026-10-24, fresh clone VM) `wexhost.so` was rebuilt again —
+`810e79f1…`→`b3ee877f…` — from the committed Round-2 `unixlib.c`, while both `oobe.exe` PEs stayed
+byte-identical to their Round-1 POST values (no PE-target source changed in Round 2; make confirmed
+nothing to do). The standalone native test PEs (`native_i386.exe`/`native_x64.exe`) are from the
+Q1–Q6 round and were not rebuilt in F1–F3; the bridge seam they exercise is re-covered fresh by
 `test_oobe_bridge.py`, which compiles the current `unixlib.c` directly (§3 row 8).)
 
-**Round 2 (recorded honestly):** the four Round-2 source changes above were **not** recompiled into
-new PEs this round — the VM was at 97% disk (1.9 G free) and a welcome-page re-execute needs an Xvfb
-display I did not take over. The binary hashes above therefore remain the **Round-1 POST-state**
-artifacts, which no longer byte-match the Round-2 `unixlib.c` / `wex-components.py` source. This is
-acceptable for the R2 delta because it is function-body-only (no ABI/struct/resource change) and is
-independently verified by compiling + executing the exact production seam under `-Werror` (§3 row 8;
-§4b "Round 2 native-PE position"). A fresh PE rebuild + welcome-page re-execute is a NOT-RUN
-verification limit (§6), not a pass.
+**Round 2 → Round 3 (recorded honestly):** the four Round-2 source changes were **not** recompiled
+in Round 2 itself — the VM was at 97% disk (1.9 G free) and a welcome-page re-execute needs an Xvfb
+display that was not taken over. The binary hashes then remained **Round-1 POST-state** artifacts,
+which did not byte-match the Round-2 `unixlib.c` / `wex-components.py` source. That interim state
+was acceptable for the R2 delta because it is function-body-only (no ABI/struct/resource change) and
+is independently verified by compiling + executing the exact production seam under `-Werror` (§3 row
+8; §4b "Round 2 native-PE position"). **On 2026-10-24 (R3) this limit was closed:** `wexhost.so`
+was rebuilt from the committed Round-2 source (hash now `b3ee877f…`, above) and both `oobe.exe` PEs
+were re-executed to their welcome pages against it (§4b; §6 cell PASS). The PE binaries are
+byte-identical to Round-1 POST-state by construction — the R2 delta compiles into `wexhost.so`, not
+into the PEs.
 
 **Pre-existing, non-blocking compiler warning (recorded, not introduced by Q1–Q6):**
 `unixlib.c:1171` (`nm_primary_path`) emits `-Wformat-truncation` on the x86_64 build
@@ -387,7 +412,7 @@ them; they remain outstanding acceptance evidence for a later milestone.
 | Cell | Category | Status | Prerequisites to run it |
 |------|----------|--------|-------------------------|
 | Isolated review-dialog render (synthetic transport, bounded, no network): readable production text / long-term terms scroll / full cancellation wording at 800x600 + 1280x800 | synthetic (driver PE) | **PASS** (§4b) | mingw cross-compiler + Wine loader; already executed this round. |
-| Round-2 native `oobe.exe` rebuild + welcome-page re-execute (both archs) | native-executed | **NOT RUN** (Round 2) — carried forward from the Round-1 PE evidence (§4b(b)); the R2 C delta is function-body-only and verified by the compiled production seam (§3 row 8). VM at 97% disk; welcome-page render needs an Xvfb display not taken over. | ≥ ~5 G free on the VM + authorized headless Xvfb; then rebuild `wexhost.so`/`oobe.exe` (both archs) and re-execute to the welcome page. |
+| Round-2 native `oobe.exe` rebuild + welcome-page re-execute (both archs) | native-executed | **PASS** (Round 3, 2026-10-24) — authorized fresh clone VM (`WEX-OOBE-Fresh-20261024`; other workstream data removed from the clone, disk 97%→34%): committed R2 sources re-deployed + hash-verified in place (16/16 OK); `wexhost.so` rebuilt both archs (`make_wexhost_rc=0`, new hash §5); both `oobe.exe` PEs — byte-identical to Round-1 POST, no PE-target source changed in R2 — executed under the combined loader against the new `wexhost.so` to fully rendered welcome pages on Xvfb :95/:96 (`r3_rebuild.log`, `r3_exec_oobe.log`, `oobe_{i386,x64}_r3_welcome.png`). | — (was: ≥ ~5 G free + authorized headless Xvfb; satisfied by the fresh clone). |
 | Before-state hashes/receipts/defaults + network trace; decline → zero requests | actual-live-UI | **NOT RUN** | Disposable cloned VM (authorized), private vendor packages, SourceForge reachability, interactive display (Xvfb or the VM's LightDM session), full OOBE launch. |
 | Explicit download with truthful source/size/progress/cancel/retry; eleven exact package/resource hashes + full rendered terms | actual-live-UI | **NOT RUN** | Same as above + real network fetch of all eleven packages (excluded from synthetic suites by design). |
 | No PE execution before acceptance; cached-terms reopen offline | actual-live-UI | **NOT RUN** | Prior download complete, then network cut; fresh prefix. |
@@ -434,13 +459,9 @@ items (none are functional failures among executed cells — all executed suites
 2. **Q5 rendered-text honesty** — now addressed by the isolated driver render (§4b): readable
    production text, long-term terms scrolling, and full cancellation wording captured at 800x600
    + 1280x800. Only the full vendor-network / live-OOBE flow remains outstanding (blocker #1).
-3. **Round-2 native-PE rebuild + welcome-page re-execute is NOT RUN** — the R2 C delta is
-   function-body-only and verified by the compiled production seam (§3 row 8) + the full 180-test
-   matrix, but fresh PEs were not built (VM at 97% disk; no display taken over). Carried forward
-   from Round-1 PE evidence; see §4b "Round 2 native-PE position" and §6.
-4. **Pre-existing `unixlib.c:1171` `-Wformat-truncation` warning** (not from Q1–Q6) — left to
+3. **Pre-existing `unixlib.c:1171` `-Wformat-truncation` warning** (not from Q1–Q6) — left to
    keep the diff scoped; reviewer may want it fixed separately.
-5. Independent review of the Round-2 diffs and this report is outstanding; **do not treat as
+4. Independent review of the Round-2 diffs and this report is outstanding; **do not treat as
    merge-ready.**
 
 ## Private evidence locations (not in public Git)
@@ -463,6 +484,16 @@ items (none are functional failures among executed cells — all executed suites
   2026-10-21T08:32Z.
 - `logs/vm_i386_fix.log` — i386 native PE re-run under fresh win64 prefix / WoW64 mode (9/148),
   2026-10-21T08:50Z.
+- `logs/r3_rebuild.log` — **Round-3 rebuild** on the fresh clone VM: R1+R2 marker checks all
+  present, PRE/POST hashes, `unixlib.c` recompile + relink (`make_wexhost_rc=0`, only warning is
+  the pre-existing `-Wformat-truncation`), oobe targets "Nothing to be done", 2026-10-24T16:13Z.
+- `logs/r3_exec_oobe.log` — **Round-3 execution**: both PEs run under the combined loader against
+  the new `wexhost.so`, wineboot rc=0, welcome pages captured on Xvfb :95/:96 (fresh prefix),
+  2026-10-24T16:15Z.
+- `logs/r3_pre_deploy_hashes.txt` — in-lab PRE-deploy hashes showing the `src/` tree moving
+  R1→R2 (e.g. `unixlib.c` `788e7a5b…`→`a6876abd…`).
+- `evidence-ui/oobe_i386_r3_welcome.png`, `evidence-ui/oobe_x64_r3_welcome.png` — Round-3
+  welcome-page screenshots (both archs, fully rendered).
 - `make_sync.sh`, `vm_rebuild.sh`, `vm_i386_fix.sh` — the reproducible scripts;
   `oobe-sync.tgz` + `local_manifest.txt` — the synced source set + sha256 manifest.
 
