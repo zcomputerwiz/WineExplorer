@@ -197,3 +197,84 @@ def probe_main(argv):
 PROBE = ('import errno,json,math,os,posixpath,re,stat,time,sys\n'+f'PF_KTHREAD={PF_KTHREAD}\n'+
          '\n'.join(inspect.getsource(value) for value in (ScanError,parse_stat,_read_at,scan,probe_main))+
          '\nraise SystemExit(probe_main(sys.argv))\n')
+
+
+def validate_response(raw,prefix,nonce,returncode,*,truncated=False):
+    """HOST ONLY: validate complete bounded evidence; never execute PROBE.
+
+    Busy and empty are distinct complete observations, not staging authority.
+    This function is deliberately excluded from the accepted PROBE assembly.
+    """
+    if (type(raw) is not bytes or len(raw)>65536 or not raw.endswith(b'\n') or type(truncated) is not bool or truncated
+            or type(returncode) is not int or returncode!=0):raise ValueError('Ownership transport/size/truncation/nonzero')
+    if (type(prefix) is not str or not prefix.startswith('/') or prefix.startswith('//') or
+            posixpath.normpath(prefix)!=prefix or any(ord(v)<32 or ord(v)==127 for v in prefix) or
+            len(prefix.encode('utf-8','strict'))>4096 or type(nonce) is not str or not re.fullmatch('[0-9a-f]{32}',nonce)):
+        raise ValueError('Ownership expected request invalid')
+    def pairs(items):
+        result={}
+        for key,value in items:
+            if key in result:raise ValueError('Duplicate ownership JSON key')
+            result[key]=value
+        return result
+    def constant(value):raise ValueError('Nonfinite ownership JSON')
+    value=json.loads(raw.decode('utf-8','strict'),object_pairs_hook=pairs,parse_constant=constant)
+    def keys(obj,expected):
+        if type(obj) is not dict or set(obj)!=set(expected):raise ValueError('Ownership response schema')
+    def integer(v,low,high):
+        if type(v) is not int or not low<=v<=high:raise ValueError('Ownership integer schema/range')
+    def number(v):
+        if type(v) not in (int,float) or not math.isfinite(v) or v<0:raise ValueError('Ownership time schema/range')
+    keys(value,('schema','version','requested_prefix','nonce','status','owners','busy','observations',
+        'counts','environment_bytes_read','started_monotonic','limits','finished_monotonic','elapsed_seconds'))
+    if (value['schema']!='wex.prefix_ownership' or type(value['version']) is not int or value['version']!=1
+            or type(value['requested_prefix']) is not str or value['requested_prefix']!=prefix
+            or type(value['nonce']) is not str or value['nonce']!=nonce or value['status']!='complete'):
+        raise ValueError('Ownership version/request/incomplete response')
+    limits=value['limits']
+    keys(limits,('maximum_seconds','max_processes','max_env_bytes','max_total_env_bytes','max_details','max_output_bytes'))
+    number(limits['maximum_seconds'])
+    if not 0<limits['maximum_seconds']<=8:raise ValueError('Ownership scanner deadline limit')
+    for name,low,high in (('max_processes',1,4096),('max_env_bytes',1,1024**2),
+            ('max_total_env_bytes',1,16*1024**2),('max_details',1,128),('max_output_bytes',8192,65536)):
+        integer(limits[name],low,high)
+    if len(raw)>limits['max_output_bytes']:raise ValueError('Ownership declared output quota')
+    for name in ('started_monotonic','finished_monotonic','elapsed_seconds'):number(value[name])
+    if (value['finished_monotonic']<value['started_monotonic'] or value['elapsed_seconds']>limits['maximum_seconds']
+            or abs(value['finished_monotonic']-value['started_monotonic']-value['elapsed_seconds'])>1e-6):
+        raise ValueError('Ownership timing inconsistency')
+    counts=value['counts'];keys(counts,('numeric_entries','scanned','kernel_threads','user_tasks','empty_environ'))
+    for n in counts:integer(counts[n],0,limits['max_processes'])
+    if (counts['numeric_entries']!=counts['scanned'] or counts['kernel_threads']+counts['user_tasks']!=counts['scanned']
+            or counts['empty_environ']>counts['user_tasks']):raise ValueError('Ownership complete counters inconsistent')
+    integer(value['environment_bytes_read'],0,limits['max_total_env_bytes'])
+    if value['environment_bytes_read']>counts['user_tasks']*limits['max_env_bytes']:
+        raise ValueError('Ownership environment byte counter inconsistent')
+    owners=value['owners'];observations=value['observations']
+    if type(owners) is not list or len(owners)>counts['user_tasks'] or type(observations) is not list or len(observations)>limits['max_details']:
+        raise ValueError('Ownership owner/observation quota or schema')
+    if (len(owners)>counts['user_tasks']-counts['empty_environ'] or
+            value['environment_bytes_read']<counts['user_tasks']-counts['empty_environ'] or
+            value['environment_bytes_read']<len(owners)*(len(b'WINEPREFIX='+prefix.encode())+1)):
+        raise ValueError('Ownership empty/read-byte/owner counters inconsistent')
+    if type(value['busy']) is not bool or value['busy']!=bool(owners):raise ValueError('Ownership busy inconsistent')
+    owner_ids={}
+    for owner in owners:
+        keys(owner,('pid','start_ticks'));integer(owner['pid'],1,2**31-1);integer(owner['start_ticks'],0,2**64-1)
+        if owner['pid'] in owner_ids:raise ValueError('Duplicate ownership PID')
+        owner_ids[owner['pid']]=owner['start_ticks']
+    matched={};seen=set();kernel=0
+    for row in observations:
+        keys(row,('pid','start_ticks','flags','flags_after','classification'))
+        integer(row['pid'],1,2**31-1);integer(row['start_ticks'],0,2**64-1)
+        integer(row['flags'],0,2**32-1);integer(row['flags_after'],0,2**32-1)
+        if row['pid'] in seen:raise ValueError('Duplicate ownership observation PID')
+        seen.add(row['pid'])
+        before=bool(row['flags']&PF_KTHREAD);after=bool(row['flags_after']&PF_KTHREAD)
+        if before!=after:raise ValueError('Ownership kernel flag changed')
+        if row['classification']=='kernel_thread_excluded' and before:kernel+=1
+        elif row['classification']=='matching_owner' and not before:matched[row['pid']]=row['start_ticks']
+        else:raise ValueError('Ownership classification/flags inconsistent')
+    if kernel!=counts['kernel_threads'] or matched!=owner_ids or len(observations)!=kernel+len(owners):
+        raise ValueError('Ownership counters/owner records inconsistent')
+    return value
