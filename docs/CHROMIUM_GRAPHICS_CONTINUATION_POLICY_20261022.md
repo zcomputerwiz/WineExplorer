@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST native refresh258b950e accepted:129 independent tests/no skips,49current
+hashes/16TARmembers/originalPEs/normal4chain/credential/idle/absentHOST verified.
+Read NATIVE_CALIBRATION_R2_AUTHORITY_20261024: ONE exact original-child native
+calibration authorized, freshHOSTr2/fixedGUESTR1 paths, liveabsenceguard first.
+No browser/retry/PE rebuild; parent reviews nativebits/status and shutdown.
+Currentusage80%five-hour44%weekly; at95%finishboundedcleanup/checkpoint only.
+
 LATEST realownership control5fc0cead accepted: parent31sealedhashes/full13374raw
 bytes/PID2PF_KTHREAD/completeempty134tasks/strictshutdownWindows0 reviewed.
 Current safety top47b82682...37879808bytes, frozen3 unchanged, allownedstopped.
