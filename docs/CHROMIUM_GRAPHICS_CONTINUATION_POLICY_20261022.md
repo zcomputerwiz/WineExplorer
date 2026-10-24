@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST credentialrepair fc97746f accepted:72 independent parenttests/no skips,
+3credentialevidencehashes/source reviewed. Durable native /var/tmp existingkey
+seedmatch observed; oldloss cause unproven. NEXT DURABLE_IDLE_PREP_PLAN_20261024
+OFFLINEONLY: fresh r2preparation using existingreviewedsafetytopSHA393308d2...,
+newcredentialpath/helperhash. No diskcreation/guest/SSH/run until parentreview.
+Alloldpreps remain immutable and unsuitable. ReadcurrentHEAD before dispatch.
+
 LATEST actual protectedboot a474a4f9 FAILED hostidentityfile missing in all4SSH
 attempts, noauthenticatedreply/idleprobe. Parent28sealedhashes/rawQMP/Windows0
 review passes: strictguestevent+ACKs/QEMU0/no fallback/childrenstopped observed;
