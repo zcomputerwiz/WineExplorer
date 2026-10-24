@@ -12,6 +12,7 @@ import subprocess
 import time
 
 import graphics_resources
+from g4_diagnostic_inventory import observe_file,observe_files,require_regular_canonical
 from graphics_wexcomp import OwnedWexcomp,verify_native_gl_driver
 from g4_edge_owned_threads import LinuxIdentityError,linux_identity,stat_record
 
@@ -96,7 +97,7 @@ def parse(raw,nonce,image):
             'classification':'Held-handle original-child calibration ONLY; not Chromium or graphics'}
 
 
-def guards(output,helpers):
+def guards(output,helpers,*,deadline=None,now=time.monotonic):
     stage=LAB/(NAME+'-stage')
     if output!=LAB/NAME or output.exists() or output.is_symlink():raise ValueError('Exact fresh calibration output required')
     for p in (output,stage,PREFIX,EDGE,stage/'native-exit-pins.json',*[stage/'original'/n for n in PES]):
@@ -106,23 +107,27 @@ def guards(output,helpers):
     lo=isolation.verify_private_loopback()
     if ((PREFIX/'dosdevices/c:').resolve(strict=True)!=(PREFIX/'drive_c').resolve(strict=True)
             or (PREFIX/'dosdevices/z:').resolve(strict=True)!=Path('/')):raise ValueError('Retained prefix drive mappings changed')
-    installed=install.installed_evidence(PREFIX)
-    if installed['executable']['path']!=str(EDGE) or installed['executable']['sha256']!=EDGE_SHA:raise ValueError('Installed prerequisite changed')
+    options=dict(deadline=deadline,now=now)
+    installed={'executable':observe_file(EDGE,{'sha256':EDGE_SHA},**options)}
     pins=json.loads((stage/'native-exit-pins.json').read_text())
     expected={str(BUILD/n) for n in CORE}|{str(EDGE),str(LAB/'labwc')}
     if (set(pins)!={'known_binary_sha256','original_pe_sha256','additional_loader_pin'}
-            or pins['additional_loader_pin']!={'path':str(APPROVED_LOADER),'sha256':LOADER_SHA}
-            or pins['original_pe_sha256']!=PES or len(expected)!=19 or set(pins['known_binary_sha256'])!=expected):
+            or pins['additional_loader_pin'].get('path')!=str(APPROVED_LOADER)
+            or set(pins['original_pe_sha256'])!=set(PES) or len(expected)!=19 or set(pins['known_binary_sha256'])!=expected):
         raise ValueError('Exact19 environment +2 original PE pins required')
-    if {p:install.digest(Path(p)) for p in expected}!=pins['known_binary_sha256']:raise ValueError('Environment binary hash mismatch')
-    if (APPROVED_LOADER.is_symlink() or APPROVED_LOADER.resolve(strict=True)!=APPROVED_LOADER
-            or not APPROVED_LOADER.is_file() or install.digest(APPROVED_LOADER)!=LOADER_SHA):
-        raise ValueError('Exact canonical internal loader hash mismatch')
+    for path in (BUILD/'wine',BUILD/'server/wineserver',LAB/'labwc'):
+        p=Path(path);resolved=p.resolve(strict=True)
+        if p.is_relative_to(BUILD) and not resolved.is_relative_to(BUILD.resolve(strict=True)):
+            raise ValueError('Selected build path resolves outside intended build')
+        require_regular_canonical(resolved) # known frontend alias resolves to tools/wine/wine
+    require_regular_canonical(APPROVED_LOADER)
+    environment_inventory=observe_files({p:{'sha256':v} for p,v in pins['known_binary_sha256'].items()},**options)
+    loader_inventory=observe_file(APPROVED_LOADER,{'sha256':pins['additional_loader_pin'].get('sha256')},**options)
     pe={n:install.pe_metadata(stage/'original'/n) for n in PES}
-    if {n:v['sha256'] for n,v in pe.items()}!=PES:raise ValueError('Original PE hash mismatch')
+    pe_inventory={n:observe_file(stage/'original'/n,{'sha256':pins['original_pe_sha256'][n]},**options) for n in PES}
     return pins,{'private_loopback':lo,'installed':installed,'original_pe':pe,
-        'additional_loader_pin':dict(path=str(APPROVED_LOADER),sha256=LOADER_SHA,bytes=APPROVED_LOADER.stat().st_size,
-            limitation='Prelaunch on-disk hash plus loader policy; not loaded-file/security/API attestation')}
+        'environment_inventory':environment_inventory,'original_pe_inventory':pe_inventory,
+        'additional_loader_pin':loader_inventory}
 
 
 def logs(output):
@@ -227,7 +232,7 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
 
 
 def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
-    start=now();pins,approved=guards(output,helpers) # no output/process/finally on failed guards
+    start=now();pins,approved=guards(output,helpers,deadline=start+TOTAL-CLEANUP,now=now) # no output/process/finally on failed guards
     if now()-start>=TOTAL-CLEANUP:raise TimeoutError('Preflight exhausted total budget')
     output.mkdir();result={'passed':False,'classification':'Original native API/tool calibration ONLY; never browser/G4 acceptance',
         'approved':approved,'helper_started':False,'helper_reaped':False};comp=None;env=None;deadline=start+TOTAL

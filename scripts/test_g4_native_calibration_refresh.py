@@ -94,7 +94,8 @@ class RefreshTests(unittest.TestCase):
                 elif c[0]=='sha256sum':
                     probe_pins={**pins,**({record['additional_loader_pin']['path']:record['additional_loader_pin']['sha256']} if p.NATIVE_R4 else {})}
                     expected=probe_pins if c[2:]==list(probe_pins) else {p.STAGE+'/'+n:v['sha256'] for n,v in record['source_manifest'].items()}
-                    out=''.join(('b'*64 if (problem=='binary' and expected==probe_pins) or (problem=='loaderhash' and k==record.get('additional_loader_pin',{}).get('path')) else v)+'  '+k+'\n' for k,v in expected.items())
+                    if problem=='hash-unavailable' and expected==probe_pins:return subprocess.CompletedProcess(argv,1,'',b'file observation unavailable')
+                    out=''.join(('b'*64 if (problem=='binary' and expected==probe_pins) or (problem=='transfer' and expected!=probe_pins) or (problem=='loaderhash' and k==record.get('additional_loader_pin',{}).get('path')) else v)+'  '+k+'\n' for k,v in expected.items())
                 elif c==record['ownership_probe_argv']:
                     self.assertEqual(kw['timeout'],10);self.assertNotIn('text',kw)
                     if code=='timeout':raise subprocess.TimeoutExpired(argv,10,raw,b'partial failure')

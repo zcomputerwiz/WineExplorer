@@ -25,8 +25,9 @@ overwrite and reused-PID protections remain. Read DIAGNOSTIC_INVENTORY_PLAN_2026
 before historical runbooks. Parent independently accepted R4 native calibration
 after54 sealed/12 archive files and actual native journal/cleanup/shutdown review;
 device71->58 remains recorded, no further device investigation gates app work.
-Luna next implements offline inventory policy, then parent plans actual Chromium
-native status observation. Older strict historical equality instructions below
+Offline diagnostic-inventory implementation now records historical changes as
+warnings; parent reviews source/tests before actual Chromium native status work.
+No repeat calibration or additional device investigation is selected. Older strict historical equality instructions below
 are superseded by this human direction. No repeat calibration or new boot yet.
 
 LATEST R3creationabad6efb accepted:13sealedfiles/56currentpins/newemptytophashID/

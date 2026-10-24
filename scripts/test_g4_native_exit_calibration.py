@@ -2,6 +2,7 @@
 """Synthetic native events + executable runner callbacks; NO Wine/VM execution."""
 import base64
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -86,6 +87,8 @@ class RunnerTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(prefix='native-exit-runner-test-',dir=HOST_LAB);self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name);self.output=self.root/cal.NAME;self.stage=self.root/(cal.NAME+'-stage')
         self.prefix=self.root/'retained/prefix';self.edge=self.prefix/'drive_c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+        self.build=self.root/'owned-build'
+        build_patch=patch.object(cal,'BUILD',self.build);build_patch.start();self.addCleanup(build_patch.stop)
         self.edge.parent.mkdir(parents=True);self.edge.write_bytes(b'pinned fake retained Edge')
         (self.prefix/'dosdevices').mkdir();(self.prefix/'dosdevices/c:').symlink_to('../drive_c');(self.prefix/'dosdevices/z:').symlink_to('/')
         (self.stage/'original').mkdir(parents=True)
@@ -94,6 +97,9 @@ class RunnerTests(unittest.TestCase):
         for name in cal.PES:
             p=self.stage/'original'/name;p.write_bytes(data);self.pes[name]=cal.install.digest(p)
         core={str(cal.BUILD/n):'a'*64 for n in cal.CORE};core[str(self.edge)]='a'*64;core[str(self.root/'labwc')]='a'*64
+        for name in core:
+            path=Path(name);path.parent.mkdir(parents=True,exist_ok=True)
+            if not path.exists():path.write_bytes(b'original environment fixture')
         self.loader=self.root/'owned-build/loader/wine';self.loader.parent.mkdir(parents=True);self.loader.write_bytes(b'original loader fixture')
         self.pins=dict(known_binary_sha256=core,original_pe_sha256=self.pes,additional_loader_pin=dict(path=str(self.loader),sha256='a'*64))
         cal.save(self.stage/'native-exit-pins.json',self.pins)
@@ -159,11 +165,10 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(r['environment']['WINEPREFIX'],str(self.prefix))
 
     def test_guards_space_idle_binary_pins_fail_before_any_process_or_finally(self):
-        for fault in ('space','idle','pins','pe'):
+        for fault in ('space','idle','pe'):
             with self.subTest(fault=fault):
                 if fault=='space':scope=patch.object(cal.shutil,'disk_usage',return_value=SimpleNamespace(free=0))
                 elif fault=='idle':scope=patch.object(cal.graphics_resources,'sample',return_value={'foreign':{}})
-                elif fault=='pins':scope=patch.object(cal.install,'digest',return_value='b'*64)
                 else:scope=patch.object(cal.install,'pe_metadata',side_effect=ValueError('bad original PE'))
                 with scope,self.assertRaises(ValueError):self.execute()
                 self.assertFalse(self.output.exists());self.popen.assert_not_called();self.comp.start.assert_not_called();self.assertEqual(self.calls,[])
@@ -304,13 +309,14 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):REAL_READ_OWNED_STAT(1234,deadline=0,now=lambda:0)
             opening.assert_not_called()
 
-    def test_internal_loader_hash_or_noncanonical_pin_fails_before_any_launch(self):
-        original=cal.install.digest.side_effect
-        with patch.object(cal.install,'digest',side_effect=lambda path:'0'*64 if path==self.loader else original(path)):
-            with self.assertRaisesRegex(ValueError,'loader hash'):self.execute()
-        self.popen.assert_not_called();self.comp.start.assert_not_called();self.assertFalse(self.output.exists())
+    def test_changed_loader_hash_is_diagnostic_but_noncanonical_path_still_fatal(self):
+        self.loader.write_bytes(b'changed legitimate loader bytes')
+        _,approved=cal.guards(self.output,self.helpers)
+        observed=approved['additional_loader_pin']
+        self.assertFalse(observed['previous_version_tested']);self.assertTrue(observed['warnings'])
+        self.assertEqual(observed['actual']['sha256'],hashlib.sha256(self.loader.read_bytes()).hexdigest())
         self.loader.unlink();self.loader.symlink_to(self.edge)
-        with self.assertRaisesRegex(ValueError,'loader hash'):self.execute()
+        with self.assertRaisesRegex(ValueError,'regular canonical'):self.execute()
         self.popen.assert_not_called();self.assertFalse(self.output.exists())
 
 

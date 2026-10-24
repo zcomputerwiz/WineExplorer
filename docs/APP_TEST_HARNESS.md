@@ -14,9 +14,11 @@ currently export those assumptions along with the useful parts.
 
 An app test should follow this sequence:
 
-1. Prepare a fresh run directory and immutable inventory of the executable,
+1. Prepare a fresh run directory and diagnostic inventory of the executable,
    fixture, helpers, build versions, configuration and exact commands. Record
    required disk space and time reserves. Refuse existing output paths.
+   Keep actual metadata/hashes separate from previous values: historical changes
+   are warnings, not approval gates or proof that an old version was tested.
 2. Start only an owned disposable environment. Preserve original disk layers;
    use a new writable overlay when retaining the prior guest state matters.
    Record process identity and the actual drive/socket arguments.
@@ -40,6 +42,7 @@ tests before reuse; signatures and current lab restrictions are not stable APIs.
 
 | Component | Useful responsibility | Limits the caller must handle |
 | --- | --- | --- |
+| `scripts/g4_diagnostic_inventory.py` | Records actual file metadata/SHA256, previous values, differences and observation errors | Historical differences never fail an app. Unknown hashes cannot identify an old tested version; no loaded-file/security attestation. Required operation paths and transfer integrity remain separate. |
 | `scripts/run-isolated-graphics.py` | Runs a nested command in private mount/network namespaces with a unique filesystem X socket directory; optional private loopback | Requires Linux namespace privileges and native Linux socket paths. The nested runner owns its children and cleanup. This is test isolation, not a malware sandbox. |
 | `scripts/graphics_wexcomp.py` | Owns a headless compositor process and private Wayland endpoint; selects pixman or GLES2 | Depends on our `wex_window_manager_v1` protocol. Renderer selection is distinct from verified acceleration. |
 | `scripts/graphics_resources.py` | Samples matching Wine-prefix processes, identity, CPU, RSS and threads | Best-effort sampling can miss processes/errors. Empty output is not proof of idle, absence, GPU use or low power. |
@@ -155,12 +158,27 @@ Never overwrite a failed manifest to change its credential path/helper hash:
 new paths or helper changes require fresh reviewed preparation and authority.
 
 Current orchestration assumes Windows + WSL Debian + QEMU/KVM, a particular SSH
-identity/port, cloud-init/systemd, our pinned guest binaries and a D:-backed lab.
+identity/port, cloud-init/systemd, recorded guest binaries and a D:-backed lab.
 Some reviewed orchestration files live in ignored `build/` paths; tracked reports
 retain hashes and changes for review. Those files are not a public bootstrap
 package. Do not copy credentials, disks, runtime caches or private captures into
 Git to make a run reproducible. Inventory their identities instead, and require
 the operator to supply lawful local inputs.
+
+Historical device/inode/timestamp/executable-hash equality is not a prerequisite
+for diagnostics. Capture current values/errors and warn on differences. Keep
+wrong writable disk/backing, noncanonical required paths, evidence overwrite,
+active-owner/PID reuse, namespace/budget/cleanup and functional assertions fatal.
+Current download/archive traversal and transfer-integrity errors remain fatal;
+these differ from a legitimate version change. Never rewrite consumed evidence.
+
+The ignored procedure's old preparation dispatcher and consumed non-R4 CLI
+controls are retired. Historical storage/hash refusal functions remain solely
+as old reference/test code; current CLI cannot select them. Its `inventory`
+entry point records selected-disk/sibling observations without historical gates.
+The next Chromium adapter must package `g4_diagnostic_inventory.py` with its
+imports and create a fresh current transfer manifest, rather than reuse a
+consumed 16-member native bundle. No new image or repeat calibration is implied.
 
 Keep vendor runtime license/consent handling separate from our original harness
 code. A source file's SPDX header does not grant redistribution rights to its
