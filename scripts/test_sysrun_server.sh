@@ -621,12 +621,35 @@ bp()   # name user arch mode args...: the probe must print "<mode>=PASS"
     grep -q "^$4=PASS" <<<"$out" || { echo "$out" >&2; fail "$name: no PASS line"; }
     ok "$name"
 }
-el_up() { probe "$1" 64 hold >/dev/null 2>&1 & EL_HOLD=$!; sleep 4; }
+# a user32 program keeps WinSta0 in existence, as the shell does in a session; the broker makes the secure desktop in it
+el_up() { probe "$1" 64 hold >/dev/null 2>&1 & EL_HOLD=$!; wine_as "$1" "$ROOT/probes/sdprobe64.exe" hold >/dev/null 2>&1 & sleep 4; }
 el_down() { prefix_server_env "$1" -k || true; prefix_server_env "$1" -w; wait "$EL_HOLD" 2>/dev/null || true; }
 el_wait_file() { local i; for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done; fail "no $1"; }
 el_proc() { local p; for p in $(pgrep -u "$1" -f "$2"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || { echo "$p"; return; }; done; }
 el_fact() { grep -m1 "^$2=" "$1" | cut -d= -f2- | tr -d '\r'; }
 SYS32="$M/drive_c/windows/system32"
+cat > "$ROOT/setval.py" <<'PYEOF'
+import sys
+path, section, name, value = sys.argv[1:5]   # value "none" removes the line
+lines = open(path, encoding='latin-1').read().split('\n')
+out, inside, done = [], False, False
+head = '[' + section + ']'
+for line in lines:
+    if line.startswith('['):
+        if inside and not done and value != 'none':
+            out.append('"%s"=dword:%08x' % (name, int(value))); done = True
+        inside = line.startswith(head + ' ')
+    if inside and line.startswith('"%s"=' % name):
+        continue
+    out.append(line)
+if inside and not done and value != 'none':
+    out.append('"%s"=dword:%08x' % (name, int(value))); done = True
+if not done and value != 'none':
+    out.append('\n%s 1700000000\n#time=1d9a0000000000\n"%s"=dword:%08x' % (head, name, int(value)))
+open(path, 'w', encoding='latin-1').write('\n'.join(out))
+PYEOF
+set_val() { python3 -I "$ROOT/setval.py" "$M/system.reg" "$1" "$2" "$3"; }   # section name dword|none
+POLSEC='Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System'
 
 # the stub is not in a shipping build: the macro is not defined by any Makefile, and the installed program and the
 # machine root do not contain the stub's name or the macro
@@ -644,7 +667,9 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scr
 for arch in 64 32; do
     cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
     $cc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32
+    $cc -O2 -Wall -o "$ROOT/probes/sdprobe$arch.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
 done
+gcc -O2 -Wall -o "$ROOT/bin/x11probe" "$SRC/scripts/x11_grab_probe.c" -lX11
 chmod 0755 "$ROOT/probes"/*.exe
 has_str "$ROOT/probes/wexelevate_test.exe" wexelevate_stub || fail "the test broker does not call the stub (control)"
 ! has_str "$ROOT/probes/wexelevate_ship.exe" wexelevate_stub || fail "a broker built without the macro contains the stub name"
@@ -666,7 +691,8 @@ for u in "$ADM" "$STD"; do
     done
 done
 
-# -- the shipping broker: no consent exists yet, so a request fails closed; a standard user is not served
+# -- the shipping broker with a policy that selects no prompt (0: elevate without asking) fails closed; a standard user is not served
+set_val "$POLSEC" ConsentPromptBehaviorAdmin 0
 el_clean
 el_up "$ADM"
 for arch in 64 32; do
@@ -679,6 +705,7 @@ bp c4_standard_user_not_supported_shipping "$STD" 64 run "$(winpath /home/$STD/w
 el_down "$STD"
 ok c4_nothing_started_without_consent
 
+set_val "$POLSEC" ConsentPromptBehaviorAdmin none
 # -- the test broker and its stub. Wine loads a program of system32 that has a builtin twin from the builtin
 # directory whatever the file is, so the test broker has another name and the service points to it.
 cat "$M/system.reg" > "$ROOT/system.reg.c4"
@@ -959,6 +986,10 @@ install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent
 reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"ConsentTimeoutMs"=dword:00004e20'
 set_policy 2 1 || fail "the policy value was not set"
 
+sdp() { local arch="$1"; shift; wine_as "$ADM" "$ROOT/probes/sdprobe$arch.exe" "$@" 2>&1 | tr -d '\r'; }
+input_now() { sdp 64 query; }   # the input desktop's name; "(OpenInputDesktop returned NULL, err 5)" while it is the secure one
+input_secure() { [[ "$(input_now)" == *"err 5"* ]]; }
+wait_input_default() { local i; for i in $(seq 1 30); do [ "$(input_now)" = Default ] && return 0; sleep 1; done; return 1; }
 consent_alive() { local p; for p in $(pgrep -f "$1"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || return 0; done; return 1; }   # a live (not zombie) process
 wait_shown()   # prints the path of the first consent.<id>.shown file
 {
@@ -982,9 +1013,14 @@ consent_case()   # name expect-error action(approve|cancel|none)
     grep -qF "Command line: \"$img\" child $(winpath $EL/out.c5)" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show the command line"; }
     grep -q '^publisher=Unknown publisher' "$shown" || { cat "$shown" >&2; fail "$name: no publisher line"; }
     grep -q '^program=cs.exe' "$shown" || { cat "$shown" >&2; fail "$name: no program name"; }
+    # the prompt is on the secure desktop (the input desktop cannot even be opened by the limited user) unless the policy says no
+    grep -qx "desktop=${WANT_DESKTOP:-Winlogon}" "$shown" || { cat "$shown" >&2; fail "$name: the window is not on ${WANT_DESKTOP:-Winlogon}"; }
+    if [ "${WANT_DESKTOP:-Winlogon}" = Winlogon ]; then input_secure || fail "$name: the input desktop is not the secure desktop"
+    else [ "$(input_now)" = Default ] || fail "$name: the input left Default"; fi
     [ "$action" = none ] || touch "${shown%.shown}.$action"
     wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "$name"; }
     grep -q '^run=PASS' "$ROOT/cs.log" || { cat "$ROOT/cs.log" >&2; fail "$name: no PASS"; }
+    wait_input_default || fail "$name: the input did not return to Default"
 }
 
 el_up "$ADM"
@@ -1085,11 +1121,161 @@ for _ in $(seq 1 30); do consent_alive 'system32.consent[.]exe' || break; sleep 
 [ ! -e "$EL/out.ship" ] || fail "a process ran without Continue"
 ok c5_caller_exit_destroys_the_request_and_closes_the_window
 el_down "$ADM"
-# no policy value: the shipping broker fails closed (21) before any window
-set_policy none 0 || fail "the policy value was not removed"
+# ---- 10. the secure desktop (plan step 5): docs/ELEVATION_SECURE_DESKTOP_WORKORDER.md ---------------------------------
+# The shipping broker and the real consent.exe on WinSta0\Winlogon (created by the broker, SYSTEM only). A limited process
+# of the user attacks the window; xdotool on Xvfb stands in for the real keyboard and mouse (it acts as the X server's
+# host, not as a Wine process); x11_grab_probe.c is a native X client. Every way out must return the input to Default.
+echo "--- secure desktop (step 5)"
+XP() { DISPLAY=":$DNUM" "$ROOT/bin/x11probe" "$@"; }
+XD() { DISPLAY=":$DNUM" xdotool "$@"; }
+real_consent() { consent_alive 'system32.consent[.]exe'; }
+wait_real_consent() { local i; for i in $(seq 1 60); do real_consent && { sleep 3; return 0; }; sleep 1; done; return 1; }
+wait_no_consent() { local i; for i in $(seq 1 30); do real_consent || return 0; sleep 1; done; return 1; }
+consent_unix_pid() { local p; for p in $(pgrep -f 'system32.consent[.]exe'); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || { echo "$p"; return; }; done; }
+x11_free() { local o; o="$(XP grab)"; grep -q '^keyboard=GrabSuccess' <<<"$o" && grep -q '^pointer=GrabSuccess' <<<"$o"; }   # nothing holds the display
+sd_request()   # expected-error: a request from the limited admin for p64.exe, in the background (CSP)
+{
+    rm -f "$EL/out.sd"
+    bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" "$1" "$(winpath $EL/out.sd)" - > "$ROOT/sd.log" 2>&1 & CSP=$!
+    wait_real_consent || { cat "$ROOT/sd.log" >&2; fail "no consent.exe"; }
+}
+sd_done()      # name: the request ended with the expected code, the window is gone and the input is back
+{
+    wait "$CSP" || { cat "$ROOT/sd.log" >&2; fail "$1: the request"; }
+    grep -q '^run=PASS' "$ROOT/sd.log" || { cat "$ROOT/sd.log" >&2; fail "$1: no PASS"; }
+    wait_no_consent || fail "$1: the consent window is still there"
+    wait_input_default || { echo "input now: [$(input_now)]" >&2; wine_as "$ADM" "$ROOT/probes/sdprobe64.exe" query >&2; echo "rc=$?" >&2; ps -u "$ADM" -o pid,stat,args >&2; fail "$1: the input did not return to Default"; }
+    x11_free || fail "$1: the display is still grabbed"
+}
+
+set_policy 2 1 || fail "the policy value was not set"
+set_val "$POLSEC" PromptOnSecureDesktop none
 el_up "$ADM"
-bp c5_shipping_broker_without_policy_still_fails_closed "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 21 "$(winpath $EL/out.ship)" -
+el_clean
+
+# -- a limited user cannot take the reserved names, and SwitchDesktop needs its access right
+sd_request 1223
+OUT="$(sdp 64 squat "$(winpath $EL)" || true)"; grep -q '^squat=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "a limited process could create a reserved desktop"; }
+ok sd_limited_process_cannot_create_reserved_desktops
+pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
+wait "$CSP" 2>/dev/null || true; wait_no_consent; wait_input_default || fail "the input did not return after the caller was killed"
+ok sd_caller_killed_returns_to_default
+OUT="$(sdp 64 switchrules "$(winpath $EL)" || true)"; grep -q '^switchrules=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "SwitchDesktop rights"; }
+ok sd_switchdesktop_needs_the_access_right
+
+# -- the attack battery from a process on Default, 64 and 32 bit, full and restricted token; then the host keyboard
+for variant in "64 full" "64 limited" "32 full32"; do
+    read -r arch tag <<<"$variant"
+    XP paint & PAINT=$!; sleep 1     # a white screen: the snapshot that the secure desktop takes of it must come out dimmed
+    sd_request 1223
+    input_secure || fail "$tag: the input desktop is not the secure desktop"
+    # presentation (phase 3): the display is held, covered by a full-screen override-redirect window with a dimmed snapshot
+    o="$(XP grab)"
+    grep -q '^keyboard=AlreadyGrabbed' <<<"$o" && grep -q '^pointer=AlreadyGrabbed' <<<"$o" || { echo "$o" >&2; fail "$tag: a native client can grab the display"; }
+    XP windows | grep -q '^1024x768 override-redirect=1 mapped=1' || { XP windows >&2; fail "$tag: no full-screen overlay"; }
+    read -r R G B <<<"$(XP pixel 4 4)"
+    [ "$R" -ge 100 ] && [ "$R" -le 150 ] || fail "$tag: the snapshot is not dimmed (pixel $R $G $B for a white screen)"
+    # not through sdp: Wine starts explorer.exe for the attacker's desktop, and it would keep the pipe of `tr` open
+    wine_as "$ADM" "$ROOT/probes/sdprobe$arch.exe" scan "$(winpath $EL)" 0 "$tag" > "$ROOT/sd.$tag.out" 2>&1 & AP=$!
+    el_wait_file "$EL/att.$tag.ready"
+    kill -0 "$CSP" 2>/dev/null && real_consent || { cat "$EL/attacker.$tag.log" >&2; fail "$tag: the attack ended the request"; }
+    [ ! -e "$EL/out.sd" ] || fail "$tag: the attack launched the program"
+    input_secure || fail "$tag: the attack moved the input off the secure desktop"
+    cp "$EL/attacker.$tag.log" "$ROOT/attacker.$tag.log"
+    XD key Escape     # the host keyboard reaches the dialog: Cancel
+    sd_done "$tag: host Escape cancels the dialog"
+    kill "$PAINT" 2>/dev/null || true; wait "$PAINT" 2>/dev/null || true
+    touch "$EL/att.$tag.hostdone"; wait "$AP" || true
+    cp "$EL/attacker.$tag.log" "$ROOT/attacker.$tag.log"
+    A="$ROOT/attacker.$tag.log"
+    # nothing of the battery had an effect (phase R's table: each of these worked on Default before)
+    for op in 'SendInput(kbd A)' 'SendInput(mouse move+ldown)' 'SendInput(mouse lup)'; do
+        grep -F "OP $op" "$A" | grep -q 'returned 0 err=5' || { grep -F "OP $op" "$A" >&2; fail "$tag: $op"; }
+    done
+    for op in 'PostMessage(BM_CLICK)' 'PostMessage(WM_COMMAND)' 'SendMessageTimeout(WM_COMMAND)' 'SendMessageTimeout(BM_CLICK)' \
+              'PostThreadMessage(WM_USER+2)' 'SetWindowsHookEx(GETMESSAGE,tid)' 'SetWindowsHookEx(CALLWNDPROC,tid)' \
+              'SetWindowsHookEx(KEYBOARD,tid)' 'AttachThreadInput(me,target)' 'SetForegroundWindow(target)' \
+              'SetWindowPos(target,TOPMOST)' 'BringWindowToTop(target)' 'OpenDesktop(Winlogon, ENUM|READ)' \
+              'OpenDesktop(Winlogon, SWITCHDESKTOP)' 'SwitchDesktop(Default) back' 'OpenDesktop(Winlogon, CREATEWINDOW'; do
+        grep -F "OP $op" "$A" | grep -q ' FAIL ' || { grep -F "$op" "$A" >&2; fail "$tag: $op was not refused"; }
+    done
+    grep -F 'OP SendMessageTimeout(WM_USER+1)' "$A" | grep -q 'FAIL' || fail "$tag: a cross-desktop SendMessage went through"
+    ok "sd_attack_battery_$tag"
+    rm -f "$EL/out.sd"
+done
+ok sd_host_keyboard_reaches_the_secure_dialog_and_the_display_is_exclusive
+
+# -- the host pointer: a real click on Continue approves
+sd_request 0
+sdp 64 rect "$(winpath $EL)" 0 click >/dev/null
+read -r hw tid bt L T Rr Bm < <(tr -d '\r' < "$EL/scan.click.info") || fail "no scan.click.info"
+[ -n "$Bm" ] || { cat "$EL/scan.click.info" >&2; fail "the Continue button was not found"; }
+XD mousemove $(((L + Rr) / 2)) $(((T + Bm) / 2)) click 1
+sd_done "the host pointer clicks Continue"
+[ -e "$EL/out.sd" ] || fail "Continue did not launch the program"
+ok sd_host_pointer_reaches_the_secure_dialog_and_continue_launches
+
+# -- the other exit paths: caller exit (above), consent crash, broker crash
+sd_request 1062
+kill -9 "$(consent_unix_pid)"
+sd_done "consent crash"
+[ ! -e "$EL/out.sd" ] || fail "a crashed consent window launched the program"
+ok sd_consent_crash_returns_to_default
+sd_request 1223
+BPID="$(pgrep -f 'system32.wexelevate[.]exe' | head -1)"
+[ -n "$BPID" ] || fail "no broker process"
+kill -9 "$BPID"
+wait_input_default || fail "broker crash: the server did not return the input"
+wait_no_consent || fail "broker crash: the consent window outlived the broker"
+x11_free || fail "broker crash: the display is still grabbed"
+kill "$CSP" 2>/dev/null || true; wait "$CSP" 2>/dev/null || true
+ok sd_broker_crash_returns_to_default_and_ends_the_window
 el_down "$ADM"
+
+# -- the policy: absent is 5 (click consent), 0 and unknown values are refused, PromptOnSecureDesktop 0 stays on Default
+set_val "$POLSEC" ConsentPromptBehaviorAdmin none
+el_up "$ADM"
+sd_request 1223            # no value: Windows' default 5
+input_secure || fail "default policy: the prompt is not on the secure desktop"
+pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
+wait "$CSP" 2>/dev/null || true; wait_no_consent; wait_input_default || fail "default policy: the input did not return"
+ok sd_default_policy_is_click_consent_on_the_secure_desktop
+el_down "$ADM"
+for v in 0 1 3 4; do
+    set_val "$POLSEC" ConsentPromptBehaviorAdmin "$v"
+    el_up "$ADM"
+    bp "sd_policy_${v}_is_refused" "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 21 "$(winpath $EL/out.sd)" -
+    ! real_consent || fail "policy $v: a window appeared"
+    el_down "$ADM"
+done
+set_policy 2 1 || fail "the policy value was not set"
+set_val "$POLSEC" PromptOnSecureDesktop 0
+el_up "$ADM"
+sd_request 1223
+[ "$(input_now)" = Default ] || fail "PromptOnSecureDesktop=0: the input left Default"
+x11_free || fail "PromptOnSecureDesktop=0: the display is grabbed"
+XD key Escape
+sd_done "PromptOnSecureDesktop 0"
+ok sd_prompt_on_secure_desktop_0_stays_on_default
+el_down "$ADM"
+set_val "$POLSEC" PromptOnSecureDesktop none
+
+# -- the test broker: a Winlogon that existed first (1), or one that reads back wider than SYSTEM only (2), is refused (21)
+install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
+install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
+install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
+reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
+BROKER_ORIG=1
+set_policy 2 1 || fail "the policy value was not set"
+for t in 1 2; do
+    set_val 'Software\\WineExplorer\\ElevationTest' SecureDesktopTest "$t"
+    el_up "$ADM"
+    bp "sd_broker_refuses_a_bad_secure_desktop_$t" "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 21 "$(winpath $EL/out.sd)" -
+    [ ! -e "$EL/out.sd" ] || fail "a program ran without a secure desktop"
+    ! consent_alive 'system32.consent[_]test' || fail "a prompt appeared although the secure desktop was refused"
+    el_down "$ADM"
+done
+set_val 'Software\\WineExplorer\\ElevationTest' SecureDesktopTest none
 el_restore_broker
 rm -rf "$EL"
 fi   # WEX_C4_SKIP

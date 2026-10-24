@@ -30,6 +30,8 @@ struct consent_data
     WCHAR image[MAX_PATH];     /* /image: the frozen image of the elevation broker, shown and checked instead of the first word of the command line */
     WCHAR details[32768 + 2 * MAX_PATH];
     BOOL broker;               /* /broker: started by the elevation broker, which waits for the exit code */
+    BOOL secure;               /* /secure: on the secure desktop, which the driver already covers and dims */
+    DWORD parent_pid;          /* /ppid: the broker; this process ends when the broker does */
 #ifdef WEXCONSENT_TEST_HOOK
     WCHAR testid[32];          /* /testid: the test hook (WEXCONSENT_TEST_HOOK builds only) */
 #endif
@@ -190,6 +192,17 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
         {
             p += 7;
             data->broker = TRUE;
+        }
+        else if (!wcsnicmp(p, L"/secure", 7))
+        {
+            p += 7;
+            data->secure = TRUE;
+        }
+        else if (!wcsnicmp(p, L"/ppid", 5))
+        {
+            p += 5;
+            while (*p == ' ' || *p == '\t') p++;
+            data->parent_pid = wcstoul(p, (WCHAR **)&p, 10);
         }
 #ifdef WEXCONSENT_TEST_HOOK
         else if (!wcsnicmp(p, L"/testid", 7))
@@ -412,6 +425,15 @@ static void test_hook_shown(const struct consent_data *data)
             CloseHandle(token);
         }
     }
+    {
+        /* the desktop this window is on: the harness checks that the prompt is on the secure desktop (or not) */
+        WCHAR name[64] = L"?";
+        char line[128];
+
+        GetUserObjectInformationW(GetThreadDesktop(GetCurrentThreadId()), UOI_NAME, name, sizeof(name), NULL);
+        n = snprintf(line, sizeof(line), "desktop=%ls\n", name);
+        WriteFile(file, line, n, &done, NULL);
+    }
     CloseHandle(file);
 }
 
@@ -519,6 +541,15 @@ static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 }
 
 
+/* The broker returns the input to the user's desktop on every exit path, but a consent window that outlived a
+ * broker that was killed would stay on the secure desktop (and hold the display on X11). It ends with its broker. */
+static DWORD WINAPI parent_watch(void *param)
+{
+    WaitForSingleObject((HANDLE)param, INFINITE);
+    ExitProcess(ERROR_CANCELLED);
+    return 0;
+}
+
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
 {
     struct consent_data data;
@@ -538,8 +569,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
         return ERROR_NOT_SUPPORTED;
     }
 
-    /* Cosmetic dimmer on the shared desktop, not a secure desktop. */
-    hdim = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+    if (data.broker && data.parent_pid)
+    {
+        HANDLE parent = OpenProcess(SYNCHRONIZE, FALSE, data.parent_pid), thread;
+
+        if (!parent) return ERROR_CANCELLED;   /* the broker is gone already */
+        if ((thread = CreateThread(NULL, 0, parent_watch, parent, 0, NULL))) CloseHandle(thread);
+    }
+
+    /* Cosmetic dimmer on the shared desktop. The secure desktop is covered and dimmed by the display driver. */
+    if (!data.secure) hdim = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
                            L"STATIC", L"", WS_POPUP | WS_VISIBLE,
                            GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
                            GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN),
