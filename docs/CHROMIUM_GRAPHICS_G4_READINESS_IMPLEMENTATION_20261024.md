@@ -59,3 +59,18 @@ readiness on failure. Caller must persist returned evidence, apply existing
 browser/graphics/security/G4 or clean-filesystem claim. Earlier idle exit1 remains
 unexplained. Parent reviews before integration/preparation or ANY live authority.
 STOP; other workers, D:master and existing private manifests remain unchanged.
+
+## Independent parent review
+
+Parent read committed9d485b42 helper, embedded guest probe and all tests.
+Independently36 tests PASS/no skips in2.767s:16 readiness +3 launcher +17 budget
+controls (overlapping sets, not extra36 readiness cases). Actual original host
+timeout/quota children and embedded-probe fixtures executed, no SSH/guest.
+Required cloud-init fields also match retained real maintenance guest JSON.
+Readiness is accepted as a building block, not integrated or live-proven.
+
+Caller must catch/persist any unexpected helper exception, enforce remaining
+650/435 rawUTC and900/90 budgets, persist returned attempts and NEVER infer
+ACPI success from boot readiness. No guest identity or error assertion relaxed.
+Next bounded offline work is the QMP helper specified in BOOT_SAFETY_REVIEW;
+no image creation/boot or consumer authority follows this acceptance.

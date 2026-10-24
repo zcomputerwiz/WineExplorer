@@ -69,3 +69,20 @@ Primary protocol/overlay references researched by parent:
 Parent-plan/Luna-implement/parent-review; all tracked work C:graphics branch,
 private VM/storage D:, M wine/main D:master/other workers untouched. No merge,
 security bypass, runtime download, production rebuild or OOBE/token imports.
+
+## QMP helper handoff after readiness9d485b42 acceptance
+
+Luna write scope ONLY scripts/g4_qmp_shutdown.py, its test module and concise
+report. Library, no CLI that starts/stops arbitrary VMs; no private launcher or
+procedure edits yet. Fixed qmp_capabilities/system_powerdown, no quit/reset.
+Total protocol observation <=50s INCLUDING connection/negotiation/ack/event,
+not50s per message; caller separately owns bounded QEMU wait/cleanup within90s.
+Retain bounded framed transcript/errors and distinguish protocol ACK from guest
+SHUTDOWN. Return protocol/event evidence, NOT an independent graceful verdict:
+only future caller can combine it with QEMU0 and no fallback. SHUTDOWN before
+the owned powerdown request cannot be attributed to it; event after request but
+before its matching ACK must be buffered, not lost. EOF/POWERDOWN/host-signal/
+guest-reset/timeout/invalid/wrong-ID replies cannot masquerade as guest shutdown.
+Injectable socket/clock for tests; include real local socketpair fragmentation/
+coalescing/event-order controls. No QEMU/VM/SSH in this stage. D: temp/log outputs.
+Commit AND push exact files, STOP parent review before integration/preparation.
