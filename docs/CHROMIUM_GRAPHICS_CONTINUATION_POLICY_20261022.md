@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST resumed11:30UTC Oct24 at0%five-hour/46%weekly. REJECTED_IDENTITY_PLAN_
+20261024 is next OFFLINE work order: preserve bounded actual rejected stat/
+cmdline/prefix status and timing from exact owned Popen before rejection/reap;
+keep strict matching and unknown failure. No guest/prep/PEbuild/VM or guessed
+argv acceptance. Existing Luna implements; parent reviews committed finalcode.
+R2guestpaths/failurelayer preserved. Latest actualusage governs stopping rules.
+
 LATEST CHECKPOINT near95%five-hour/46%weekly: read NATIVE_IDENTITY_CHECKPOINT_
 20261024 FIRST after source mapping. Ownership5fc0cead PASS134tasks/115kernel/
 completeempty/strictstop, parent31seal reviewed. Nativecalibrationb10d27ef/
