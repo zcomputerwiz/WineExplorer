@@ -183,9 +183,13 @@ class ReadyBootIntegration(unittest.TestCase):
             p=self.prep_module();real_sha=p.sha
             def identity(path):
                 if path==target and problem=='missing':raise FileNotFoundError('missing reviewed top')
-                value=real_id(path)
+                # Sealed r1 fixture, not the mutable top after later guest runs.
+                value=dict(retained['new_top_identity']) if path==target else real_id(path)
                 if path==target and problem=='identity':value={**value,'bytes':value['bytes']+1}
                 return value
+            def fixture_sha(path):
+                if path==target:return '0'*64 if problem=='content' else retained['new_top_sha256']
+                return real_sha(path)
             rows=json.loads(json.dumps(retained['chain']))
             rows[0]['backing-filename']='/wrong/backing'
             def dispatch(argv,**kwargs):
@@ -194,7 +198,7 @@ class ReadyBootIntegration(unittest.TestCase):
             with mock.patch.object(g4_capacity,'file_id',side_effect=identity), \
                  mock.patch.object(g4_capacity,'owners',return_value={'idle':True}), \
                  mock.patch.object(p.shutil,'disk_usage',return_value=mock.Mock(free=100*1024**3)), \
-                 mock.patch.object(p,'sha',side_effect=lambda path:'0'*64 if path==target and problem=='content' else real_sha(path)), \
+                 mock.patch.object(p,'sha',side_effect=fixture_sha), \
                  mock.patch.object(p.subprocess,'run',side_effect=dispatch) as calls:
                 with self.assertRaises((FileNotFoundError,RuntimeError)) as caught:p.prepare_ready_storage(capacity)
             self.assertIn({'missing':'missing reviewed top','identity':'identity changed','content':'content changed','backing':'backing metadata changed'}[problem],str(caught.exception))
