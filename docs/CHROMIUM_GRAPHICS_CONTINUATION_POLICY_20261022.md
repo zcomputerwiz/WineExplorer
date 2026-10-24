@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST: SID_VM_CHECKPOINT_20261024 supersedes older next steps. Wine e096ae4
+source/unit/normal-builtin proof accepted. Guest R3 ae8890a1 API45/45 reported,
+browser NOT launched: intermediate idle guard counted owned native labwc carrying
+WINEPREFIX. Parent next audits47seal/18archive, then plans opt-in compositor-child
+marker removal and fresh R4 prep; no arbitrary PID exclusions, no new SID rebuild/
+calibration/layer. No VM/run authority yet. Stop98%fivehour/92%weekly until reset.
+
 CURRENT: R2 b759008a independently46seal/16archive/actual same-thread warning+
 c06d007f/nativejournal/shutdown reviewed. Demonstrated missing userenv SID API.
 USERENV_SID_PLAN_20261024 authorizes isolated sparse Wine source/API+unit work,
