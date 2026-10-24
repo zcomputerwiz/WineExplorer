@@ -38,10 +38,10 @@ security are not attested. This is an owned host-build reference, not whole-buil
 source or guest loaded-file proof.
 
 Primary source context is exact Wine4315be83d75644f13500381dcec94dcdc5fa904e:
-[API-set lookup/target](https://github.com/wine-mirror/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/ntdll/loader.c#L685),
-[user32.spec](https://github.com/wine-mirror/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/user32/user32.spec#L628),
-[userenv.spec](https://github.com/wine-mirror/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/userenv/userenv.spec),
-[powrprof.spec](https://github.com/wine-mirror/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/powrprof/powrprof.spec#L25).
+[API-set lookup/target](https://github.com/zcomputerwiz/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/ntdll/loader.c#L685),
+[user32.spec](https://github.com/zcomputerwiz/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/user32/user32.spec#L628),
+[userenv.spec](https://github.com/zcomputerwiz/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/userenv/userenv.spec),
+[powrprof.spec](https://github.com/zcomputerwiz/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/powrprof/powrprof.spec#L25).
 Each of the three missing export names was independently checked with installed
 GNU objdump's `-p` data inspection, exit0. No target DLL was executed.
 
@@ -66,7 +66,7 @@ No vendor bytes committed. No unrelated unit reruns; static parser/objdump
 checks and `git diff --check` passed.
 
 Smallest next discriminator, for parent planning only: add `warn+module` to one
-future bounded diagnostic's Wine logging. Pinned [LdrGetProcedureAddress](https://github.com/wine-mirror/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/ntdll/loader.c#L2066)
+future bounded diagnostic's Wine logging. Pinned [LdrGetProcedureAddress](https://github.com/zcomputerwiz/wine/blob/4315be83d75644f13500381dcec94dcdc5fa904e/dlls/ntdll/loader.c#L2066)
 emits the failed name/ordinal/module at2090 on the module channel declared at40;
 this avoids full trace+module. Selective SEH may corroborate the exception.
 R1's fixed output/profile now exists: a separately reviewed output-only native
