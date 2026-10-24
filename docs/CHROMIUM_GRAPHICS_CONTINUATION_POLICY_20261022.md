@@ -19,6 +19,14 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST realownership control5fc0cead accepted: parent31sealedhashes/full13374raw
+bytes/PID2PF_KTHREAD/completeempty134tasks/strictshutdownWindows0 reviewed.
+Current safety top47b82682...37879808bytes, frozen3 unchanged, allownedstopped.
+NEXT NATIVE_CALIBRATION_REFRESH_PLAN_20261024 OFFLINEONLY: freshHOSTr2 preparation
+but retain ORIGINALfixed GUESTr1 stage/output required by original unrunPEs.
+Add authenticatedreadiness/newscanner beforestage, no oldenvironprobe. No VM/SSH/
+nativehelper/browser authority until parent reviews finalcode/tests/manifest.
+
 LATEST ownershipprep3300c263 accepted:102 independent tests/no skips,36current
 hashes/PROBE/normal4chain/durablecredential/idle/absentoutput checks pass.
 Read PREFIX_OWNERSHIP_RUN_AUTHORITY_20261024: ONE exact read-only guest control
