@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: the secure desktop for consent (plan step 5)
 
-Date: 2026-10-24. Status: phase R done (see "Results, phase R"); design calls next, then implementation. Part of
+Date: 2026-10-24. Status: phase R done; phases 1 to 4 done for X11 (see "Results, phases 1 to 4"); Wayland is a follow-up. Part of
 `ELEVATION_BOUNDARY_PLAN.md` (design D5, step 5). Builds on consent (`ELEVATION_CONSENT_WORKORDER.md`): the broker
 starts `consent.exe /broker` as a SYSTEM child on `WinSta0\Default`, where any same-user process can post Approve.
 
@@ -335,3 +335,91 @@ Each call says what the evidence supports and what the main session or the user 
     switcher, host flips, and real `xdotool` input. Phase 1 must run it against the broker's SYSTEM desktop in the
     `test_sysrun_server.sh` fixture (the SYSTEM-only descriptor admits the broker, a limited process gets 5), add
     the consent window as the target, and run both architectures (the 32-bit run could not be done here).
+
+### Results, phases 1 to 4 (2026-10-24, X11)
+
+Wine `afe4c1aeaa0` (`ccr-08223ee4-p830bf`), WineExplorer `0c881832` and this commit. Stock changes are in `STOCK_CHANGES.md`
+("Elevation boundary: the secure desktop").
+
+**What was built.**
+- Phase 1, desktop (`programs/wexelevate/main.c`): at the first prompt the broker opens `WinSta0`, makes `Winlogon` with
+  `D:(A;;GA;;;SY)`, non-inheritable handle, refuses (21, final) a desktop that existed or whose descriptor reads back as
+  anything but one SYSTEM ACE, starts `consent.exe /broker /secure /ppid <broker>` on it, switches before the start and
+  back on every way out (a count handles concurrent prompts), and again at service exit. `consent.exe` ends when the
+  broker does.
+- Phase 2, server (`winstation.c`, `queue.c`, `hook.c`, `window.c`, `sysrun.c`): see the gating table. The winstation
+  records the process that switched to the secure desktop and the desktop to return to; `process_killed()` switches back.
+- Phase 3, X11 (`dlls/winex11.drv/secure.c`): a process on the desktop named `Winlogon` takes a dimmed snapshot of the screen
+  when the driver loads, then covers the screen with a full-screen override-redirect window and grabs keyboard and pointer
+  (retrying 2 s); its windows are unmanaged. `explorer.exe` (the desktop manager Wine starts for the desktop) is exempt, or it
+  would take the grabs before the dialog's process.
+- Phase 4, policy: `PromptOnSecureDesktop` default 1 (0 keeps `WinSta0\Default`, no switch, no cover); `ConsentPromptBehaviorAdmin`
+  default 5, 2 and 5 are click consent (no auto-elevation, documented deviation), 0, 1, 3, 4 and other types fail with 21.
+
+**Gating (all rules are off unless the launcher-started server has the system role and elevation is enforced, except these).**
+
+| Rule | Gated | Why |
+|---|---|---|
+| hardware input needs sender, window and input desktop to be one; a host event never flips the input desktop | no | Windows behavior. Ungated run, helper unset, plain prefix, both archs, before and after: user32 winstation, input, msg, win, monitor, class, clipboard, sysparams and win32u: identical result lines (msg 190 and monitor 58 failures are the same in both: no window manager). `explorer /desktop=Default` and a plain window still take xdotool pointer and keys. A second `explorer /desktop=vd` desktop gets no host input before the change either |
+| `SwitchDesktop` needs `DESKTOP_SWITCHDESKTOP` and a desktop of the caller's window station | no | Windows behavior, same runs |
+| names `Winlogon` and `Screen-Saver`, `WINSTA_CREATEDESKTOP`, switching away from the secure desktop, cross-desktop messages and posts, thread hooks, window operations | yes | they need the notion of a system role |
+
+**Caller survey for cross-desktop window operations.** Static: callers of the desktop APIs outside user32 and win32u are
+`programs/explorer/desktop.c` (creates and enters its own desktop: same desktop), `programs/wineboot/shutdown.c` (opens each
+desktop and calls `SetThreadDesktop` before it enumerates: the thread is on the desktop; the process is system role anyway),
+`dlls/winex11.drv` and `wineandroid.drv` (driver desktop creation), `taskmgr` (a comment); WineExplorer's own code has none
+(`src/programs/wexelevate` is the only user). Dynamic: the server logged every window operation on a window of another
+desktop (temporary, not committed) during user32 winstation, input, msg, win, monitor, class, clipboard, sysparams, win32u
+(both archs) and an `explorer /desktop=Default /shell` session with notepad and winefile: **0 cases**. So no legitimate caller
+breaks; the checks are in `set_window_pos`, `set_window_info`, `set_parent`, `set_window_owner` and `get_window_text/set_window_text`.
+Native Windows' error codes were not found in the documentation; every refusal is `ERROR_ACCESS_DENIED` (5), **provisional**
+(UIPI uses 5 for blocked messages).
+
+**Probe after the change** (`scripts/secure_desktop_probe.c scan` against the real `consent.exe /broker` on the broker's own
+`Winlogon`; attacker on Default: full token and restricted token (LUA, one privilege) 64 bit, and 32 bit; same table each time):
+
+| Operation | After |
+|---|---|
+| `OpenDesktop(Winlogon)` (enumerate, read, switch, create window), thread of a new `CreateDesktop("Winlogon")`, `Screen-Saver` | denied 5 |
+| `SendInput` key, mouse move and down and up | 0 sent, 5 |
+| `NtUserCallHwndParam(SendHardwareInput)` to the window and with no window | `STATUS_ACCESS_DENIED` |
+| `PostMessage` (`BM_CLICK`, `WM_COMMAND`), `SendMessageTimeout`, `PostThreadMessage` | 5 |
+| thread hooks (GETMESSAGE, CALLWNDPROC, KEYBOARD) | 5 |
+| global hooks and LL hooks | install on the attacker's own desktop (like Windows), 0 callbacks for the secure desktop's input |
+| `WH_JOURNALRECORD` | 5 (as before) |
+| `AttachThreadInput`, `SetForegroundWindow`, `SetFocus`, `SetActiveWindow` | 87/5, 1400 |
+| `SetWindowPos(TOPMOST)`, `BringWindowToTop`, `ShowWindow(HIDE)`, `DestroyWindow` | 5 |
+| `SwitchDesktop(Default)` by a limited process while the secure desktop is the input | 5 |
+| `GetWindowRect` of the dialog | still readable (shared memory; the harness uses it to aim the click) |
+| `FindWindow`, `EnumWindows` | do not see it (as before); a scan of the small window handles finds it |
+
+The 32 bit run is the WoW64 prefix of the fixture (`sdprobe32.exe`, same table). Phase R's `wineboot` hang at "Failed to open
+RpcSs service" did not recur as a hang: a fresh default WoW64 prefix completes in 10 s (the very first one in this session took about 3
+minutes) with the full `syswow64` directory; the message appears once, early, before the services database is written, and
+wineboot goes on. I do not know what the scratch prefix of phase R did differently
+(probably an architecture other than the build's WoW64 default); nothing was needed to fix it.
+
+**Exit paths** (each: the input is `Default` again, the consent window is gone, a native client can grab the display):
+Continue by a real click (xdotool on Xvfb; launches exactly one program), Cancel by Escape, Cancel and timeout (test hook,
+20 s), caller killed, consent killed (1062), broker killed (the server gives the input back, `consent.exe` ends with its
+parent). Not tested separately: a writer on the image and a service stop (same code path as the caller going away).
+
+**Tests.** `test_sysrun_server.sh` complete on a fresh fixture: 222 checks, 0 failures (205 earlier and 17 new `sd_` checks;
+the `c5_` checks now also assert that the prompt is on `Winlogon` and that the input returns). `test_wex_sysrun.sh`: 60/0.
+Regression lines of the final run are in the plan status.
+
+**Design calls and findings.**
+1. Services run in `__wineservice_winstation`; `SwitchDesktop` acts on the process's own window station and only `WinSta0` takes host
+   input, so the broker puts its process in `WinSta0` at the first prompt. `WinSta0` exists once a user program has connected; without
+   one the prompt fails with 21 (a session always has the shell). `set_input_desktop` now refuses a desktop of another window station.
+2. Wine closes a desktop that has no user but its desktop manager after 1 s and removes its name. The secure desktop keeps its name
+   (`close_desktop_timeout`), otherwise the next prompt would create a second, unprotected `Winlogon` and the broker would switch
+   to the old object.
+3. The broker returns the input to `Default` looked up by name each time, because a closed and recreated desktop is another object.
+4. The 120 s timeout, the lease and the other consent behavior are unchanged. `PromptOnSecureDesktop=0` is not secure and not
+   exclusive; it is the documented opt-out.
+5. Limits: native X11 clients of the same user (`xdotool`, key loggers) and same-UID native code still reach the host surface (T5);
+   another X client can map a window above the overlay while the prompt is up (it gets no input); the dim is cosmetic (32 bit per pixel
+   visuals only). Wayland: not done, needs a `wexcomp` layer.
+6. Testing found two probe-side traps worth keeping: user handles carry a generation word (scan the 16 bit form), and a restricted
+   token crashes `win32u` display-cache setup unless the cache is filled before the impersonation.

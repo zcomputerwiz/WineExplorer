@@ -589,6 +589,33 @@ process. Active only inside the broker, which runs only with the system role.
 exists only in a copy that the test harness compiles). The existing server protection of system-role processes covers the consent
 window; nothing was added to it.
 
+## Elevation boundary: the secure desktop (plan step 5, 2026-10-24)
+
+`ELEVATION_SECURE_DESKTOP_WORKORDER.md`, phases 1 to 4. Stock Wine files changed:
+- `server/winstation.c`, `server/user.h`: `SwitchDesktop` (`set_input_desktop`) needs `DESKTOP_SWITCHDESKTOP` on the handle and
+  a desktop of the caller's own window station (**not gated**: Windows behavior; the user32 and win32u suites give the same
+  result before and after). While the secure desktop is the input desktop only a process of the system role may switch;
+  the winstation records the process that switched to it and the desktop to return to (`input_owner`, `return_desktop`), and
+  `winstation_process_killed()` gives the input back when that process dies. `create_desktop`: the names `Winlogon` and
+  `Screen-Saver` are reserved for the system role, a desktop named `Winlogon` made by the system role is marked secure,
+  and `WINSTA_CREATEDESKTOP` is checked on the window station handle (gated, see below). `cross_desktop_denied()`.
+- `server/queue.c`: hardware input (`send_hardware_message`, also `NtUserCallHwndParam(SendHardwareInput)`) is accepted only
+  when the sender's desktop, the target window's desktop and the input desktop are one, for every desktop; a host event no
+  longer flips the input desktop (**not gated**: Windows behavior, see the work order's "Decisions"). `send_message`
+  (which also posts) refuses a receiver on another desktop (gated).
+- `server/hook.c`: a thread hook on a thread of another desktop is refused (gated).
+- `server/window.c`: `set_window_pos`, `set_window_info`, `set_parent`, `set_window_owner`, `get_window_text` and
+  `set_window_text` refuse a window of another desktop (gated; the caller survey is in the work order).
+- `server/sysrun.c`, `server/sysrun.h`, `server/process.c`: `sysrun_process_is_system()`, `sysrun_desktops_enforced()` and the hook
+  in `process_killed()`.
+- `dlls/winex11.drv/secure.c` (new), `x11drv_main.c`, `x11drv.h`, `window.c`, `Makefile.in`: a process on the desktop named
+  `Winlogon` (other than `explorer.exe`, the desktop manager) takes a dimmed snapshot of the screen when the driver loads
+  and, before its first window, covers the screen with a full-screen override-redirect window and grabs the keyboard and
+  the pointer; its windows are not managed. Nothing else changes in the driver.
+"Gated" means: only while the launcher-started server has the system role and elevation is enforced (`sysrun_desktops_enforced()`);
+otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta0\Winlogon`, switches, policy values) and
+`programs/consent` (`/secure`, `/ppid`).
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|
