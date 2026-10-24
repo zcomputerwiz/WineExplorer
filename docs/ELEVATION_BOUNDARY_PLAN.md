@@ -171,6 +171,13 @@ before porting.
 
 ## Status (2026-10-22; updated 2026-10-23)
 
+- **Step 6 (consent): done for administrators (2026-10-24)**, see `ELEVATION_CONSENT_WORKORDER.md` "Results". The broker holds a read
+  lease on the frozen image until the elevated process exits (a write open fails a pending request or ends the running program), and
+  with `ConsentPromptBehaviorAdmin` 2 or 5 it starts `consent.exe` itself as its SYSTEM child and launches only on Continue (Cancel
+  1223, timeout 1460, window cannot start 1062); with no policy it still fails with 21. 205 `test_sysrun_server.sh` checks, the
+  usual harness unchanged. Open: the polkit credential path for a standard user who selects an administrator account (its own work
+  order, after this one), the default policy (after step 5), and the consent window on the secure desktop (step 5).
+
 - **Step 4 (broker): done (2026-10-23)**, see `ELEVATION_BROKER_WORKORDER.md` "Results". `wexelevate.exe` is a LocalSystem
   service; request protocol, freezing, single-use id, linked primary token, parent = the caller and handle return work,
   with the approval stub only in the test harness (shipping: `ERROR_NOT_READY`). The server protects elevated processes

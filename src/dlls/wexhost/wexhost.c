@@ -219,6 +219,76 @@ DWORD WINAPI WexTrayGetMenu(DWORD token, INT root, WEX_TRAY_MENU *menu)
     return err;
 }
 
+/* One Wine thread per lease sits in the Unix monitor (it cannot be a pthread there: it must set the event and a
+ * foreign thread cannot call the server) and sets the event when the lease broke. */
+struct lease_watch { UINT64 lease; HANDLE event, thread; };
+static struct lease_watch *lease_watches[64];
+
+static DWORD WINAPI lease_watch_thread( void *arg )
+{
+    struct lease_watch *w = arg;
+    struct lease_monitor_params params = { w->lease };
+
+    WEXHOST_CALL( lease_monitor, &params );
+    if (params.broken) SetEvent( w->event );
+    return 0;
+}
+
+DWORD WINAPI WexLeaseTake( HANDLE file, HANDLE event, UINT64 *lease )
+{
+    struct lease_take_params params = { (ULONG_PTR)file };
+    struct lease_watch *w;
+
+    if (!lease || !event) return ERROR_INVALID_PARAMETER;
+    *lease = 0;
+    if (!unix_ready) return ERROR_FILE_SYSTEM_LIMITATION;
+    WEXHOST_CALL( lease_take, &params );
+    if (params.err || !params.lease) return params.err;
+    if (!(w = calloc( 1, sizeof(*w) ))) goto fail;
+    w->lease = params.lease;
+    w->event = event;
+    if (!(w->thread = CreateThread( NULL, 0, lease_watch_thread, w, 0, NULL ))) { free( w ); goto fail; }
+    lease_watches[params.lease - 1] = w;
+    *lease = params.lease;
+    return ERROR_SUCCESS;
+
+fail:
+    {
+        struct lease_release_params rel = { params.lease };
+        WEXHOST_CALL( lease_stop, &rel );
+        WEXHOST_CALL( lease_release, &rel );
+    }
+    return ERROR_NOT_ENOUGH_MEMORY;
+}
+
+DWORD WINAPI WexLeaseArm( UINT64 lease, DWORD pid )
+{
+    struct lease_arm_params params = { lease, pid };
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( lease_arm, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexLeaseRelease( UINT64 lease, BOOL *broken )
+{
+    struct lease_release_params params = { lease };
+    struct lease_watch *w;
+
+    if (broken) *broken = FALSE;
+    if (!unix_ready || !lease || lease > ARRAY_SIZE(lease_watches)) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( lease_stop, &params );
+    if ((w = InterlockedExchangePointer( (void **)&lease_watches[lease - 1], NULL )))
+    {
+        WaitForSingleObject( w->thread, INFINITE );
+        CloseHandle( w->thread );
+        free( w );
+    }
+    WEXHOST_CALL( lease_release, &params );
+    if (broken) *broken = params.broken;
+    return params.err;
+}
+
 DWORD WINAPI WexPowerCan( DWORD action, DWORD *result )
 {
     struct power_can_params params = { action };

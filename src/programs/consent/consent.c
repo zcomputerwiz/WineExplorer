@@ -25,8 +25,14 @@ WINE_DEFAULT_DEBUG_CHANNEL(consent);
 struct consent_data
 {
     HWND hwnd_parent;
-    WCHAR cmdline[2048];
+    WCHAR cmdline[32768];
     WCHAR exepath[MAX_PATH];
+    WCHAR image[MAX_PATH];     /* /image: the frozen image of the elevation broker, shown and checked instead of the first word of the command line */
+    WCHAR details[32768 + 2 * MAX_PATH];
+    BOOL broker;               /* /broker: started by the elevation broker, which waits for the exit code */
+#ifdef WEXCONSENT_TEST_HOOK
+    WCHAR testid[32];          /* /testid: the test hook (WEXCONSENT_TEST_HOOK builds only) */
+#endif
     WCHAR progname[256];
     WCHAR publisher[256];
     WCHAR origin[128];
@@ -180,6 +186,33 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
             while (*p == ' ' || *p == '\t') p++;
             data->hwnd_parent = (HWND)(ULONG_PTR)wcstoul(p, (WCHAR **)&p, 16);
         }
+        else if (!wcsnicmp(p, L"/broker", 7))
+        {
+            p += 7;
+            data->broker = TRUE;
+        }
+#ifdef WEXCONSENT_TEST_HOOK
+        else if (!wcsnicmp(p, L"/testid", 7))
+        {
+            p += 7;
+            while (*p == ' ' || *p == '\t') p++;
+            for (dst = data->testid; *p && *p != ' ' && dst < data->testid + ARRAY_SIZE(data->testid) - 1;) *dst++ = *p++;
+            *dst = 0;
+        }
+#endif
+        else if (!wcsnicmp(p, L"/image", 6))
+        {
+            p += 6;
+            while (*p == ' ' || *p == '\t') p++;
+            dst = data->image;
+            if (*p == '"')
+            {
+                p++;
+                for (; *p && *p != '"' && dst < data->image + MAX_PATH - 1;) *dst++ = *p++;
+                if (*p == '"') p++;
+            }
+            *dst = 0;
+        }
         else if (!wcsnicmp(p, L"/cmd", 4) || !wcsnicmp(p, L"-cmd", 4))
         {
             p += 4;
@@ -201,7 +234,13 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
     while (*p == ' ' || *p == '\t') p++;
     dst = data->exepath;
 
-    if (*p == '"')
+    if (data->broker && data->image[0])
+    {
+        /* the broker says what it will run; the first word of the command line is only text */
+        lstrcpynW(data->exepath, data->image, MAX_PATH);
+        dst = data->exepath + lstrlenW(data->exepath);
+    }
+    else if (*p == '"')
     {
         p++;
         while (*p && *p != '"' && (dst - data->exepath) < (MAX_PATH - 1))
@@ -305,6 +344,89 @@ static BOOL is_credentials_mode_required(void)
     return (mode == 1 || mode == 3);
 }
 
+#ifdef WEXCONSENT_TEST_HOOK
+#include <sddl.h>
+/* Test harness only (never defined by a build file; the harness compiles a copy of this file as consent_test.exe).
+ * It writes what the window shows to Z:\tmp\wexelev\consent.<id>.shown and answers when the harness has created
+ * consent.<id>.approve or consent.<id>.cancel there. It posts the command to its own dialog; no input is injected. */
+#define HOOK_DIR L"Z:\\tmp\\wexelev\\"
+
+static void test_hook_path(const struct consent_data *data, const WCHAR *suffix, WCHAR *path)
+{
+    lstrcpyW(path, HOOK_DIR L"consent.");
+    lstrcatW(path, data->testid);
+    lstrcatW(path, suffix);
+}
+
+static void test_hook_shown(const struct consent_data *data)
+{
+    WCHAR path[MAX_PATH];
+    HANDLE file;
+    DWORD done;
+    char *utf8;
+    int n;
+
+    test_hook_path(data, L".shown", path);
+    file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return;
+    n = WideCharToMultiByte(CP_UTF8, 0, data->details, -1, NULL, 0, NULL, NULL);
+    if ((utf8 = malloc(n)))
+    {
+        WideCharToMultiByte(CP_UTF8, 0, data->details, -1, utf8, n, NULL, NULL);
+        WriteFile(file, utf8, n - 1, &done, NULL);
+        WriteFile(file, "\nprogram=", 9, &done, NULL);
+        free(utf8);
+        n = WideCharToMultiByte(CP_UTF8, 0, data->progname, -1, NULL, 0, NULL, NULL);
+        if ((utf8 = malloc(n)))
+        {
+            WideCharToMultiByte(CP_UTF8, 0, data->progname, -1, utf8, n, NULL, NULL);
+            WriteFile(file, utf8, n - 1, &done, NULL);
+            free(utf8);
+        }
+        WriteFile(file, "\npublisher=", 11, &done, NULL);
+        n = WideCharToMultiByte(CP_UTF8, 0, data->publisher, -1, NULL, 0, NULL, NULL);
+        if ((utf8 = malloc(n)))
+        {
+            WideCharToMultiByte(CP_UTF8, 0, data->publisher, -1, utf8, n, NULL, NULL);
+            WriteFile(file, utf8, n - 1, &done, NULL);
+            free(utf8);
+        }
+        WriteFile(file, "\n", 1, &done, NULL);
+    }
+    {
+        /* the token of this process: the broker's child must be SYSTEM, not the caller */
+        BYTE buf[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+        HANDLE token;
+        DWORD len;
+        WCHAR *sid;
+        char line[128];
+
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        {
+            if (GetTokenInformation(token, TokenUser, buf, sizeof(buf), &len) && ConvertSidToStringSidW(((TOKEN_USER *)buf)->User.Sid, &sid))
+            {
+                n = snprintf(line, sizeof(line), "user=%ls\n", sid);
+                WriteFile(file, line, n, &done, NULL);
+                LocalFree(sid);
+            }
+            CloseHandle(token);
+        }
+    }
+    CloseHandle(file);
+}
+
+static int test_hook_answer(const struct consent_data *data)
+{
+    WCHAR path[MAX_PATH];
+
+    test_hook_path(data, L".approve", path);
+    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) return 1;
+    test_hook_path(data, L".cancel", path);
+    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) return 2;
+    return 0;
+}
+#endif
+
 static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     struct consent_data *data = (struct consent_data *)GetWindowLongPtrW(hwnd, DWLP_USER);
@@ -322,7 +444,24 @@ static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         SetDlgItemTextW(hwnd, IDC_UAC_PROGRAM, data->progname);
         SetDlgItemTextW(hwnd, IDC_UAC_PUBLISHER, data->publisher);
         SetDlgItemTextW(hwnd, IDC_UAC_ORIGIN, data->origin);
-        SetDlgItemTextW(hwnd, IDC_UAC_DETAILS_TEXT, data->cmdline);
+        if (data->broker)
+        {
+            /* everything the broker will run, in full, shown from the start */
+            lstrcpyW(data->details, L"Program location: ");
+            lstrcatW(data->details, data->exepath);
+            lstrcatW(data->details, L"\r\nCommand line: ");
+            lstrcatW(data->details, data->cmdline);
+            SetDlgItemTextW(hwnd, IDC_UAC_DETAILS_TEXT, data->details);
+            SetDlgItemTextW(hwnd, IDC_UAC_ORIGIN, data->exepath);
+            data->details_visible = TRUE;
+            ShowWindow(GetDlgItem(hwnd, IDC_UAC_DETAILS_TEXT), SW_SHOW);
+            SetDlgItemTextW(hwnd, IDC_UAC_DETAILS_BTN, L"&Hide");
+        }
+        else SetDlgItemTextW(hwnd, IDC_UAC_DETAILS_TEXT, data->cmdline);
+#ifdef WEXCONSENT_TEST_HOOK
+        test_hook_shown(data);
+        SetTimer(hwnd, 1, 50, NULL);
+#endif
 
         memset(&lf, 0, sizeof(lf));
         lf.lfHeight = -12;
@@ -334,6 +473,15 @@ static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
         SetFocus(GetDlgItem(hwnd, IDNO));
         return FALSE;
     }
+
+#ifdef WEXCONSENT_TEST_HOOK
+    case WM_TIMER:
+    {
+        int answer = test_hook_answer(data);
+        if (answer) PostMessageW(hwnd, WM_COMMAND, answer == 1 ? IDYES : IDNO, 0);
+        return TRUE;
+    }
+#endif
 
     case WM_DRAWITEM:
         if (wparam == IDC_UAC_BANNER)
@@ -380,7 +528,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
 
     InitCommonControls();
     parse_command_line(cmdline, &data);
-    data.credentials_mode = is_credentials_mode_required();
+    data.credentials_mode = data.broker ? FALSE : is_credentials_mode_required();
     if (data.credentials_mode)
     {
         /* Checking a password is not authorization to become an administrator.

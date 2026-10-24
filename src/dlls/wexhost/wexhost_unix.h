@@ -159,6 +159,16 @@ extern NTSTATUS tray_next(void *args);
 extern NTSTATUS tray_stop(void *args);
 extern NTSTATUS tray_action(void *args);
 extern NTSTATUS tray_menu(void *args);
+
+struct lease_take_params { UINT64 file; UINT64 lease; DWORD err; };
+struct lease_monitor_params { UINT64 lease; DWORD broken; DWORD err; };
+struct lease_arm_params { UINT64 lease; DWORD pid; DWORD err; };
+struct lease_release_params { UINT64 lease; DWORD broken; DWORD err; };
+extern NTSTATUS lease_take(void *args);
+extern NTSTATUS lease_monitor(void *args);
+extern NTSTATUS lease_stop(void *args);
+extern NTSTATUS lease_arm(void *args);
+extern NTSTATUS lease_release(void *args);
 #ifdef WINE_UNIX_LIB
 extern void tray_x11_next(WEX_TRAY_ITEM *item);
 extern BOOL tray_x11_action(struct tray_action_params *params);
@@ -227,6 +237,11 @@ enum wexhost_funcs
     unix_tray_stop,
     unix_tray_action,
     unix_tray_menu,
+    unix_lease_take,
+    unix_lease_monitor,
+    unix_lease_stop,
+    unix_lease_arm,
+    unix_lease_release,
     unix_funcs_count
 };
 

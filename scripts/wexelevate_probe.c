@@ -30,6 +30,15 @@
  *   attack <image> <out> <tag>
  *                      start the child held, then try to open it and its threads; none of the dangerous rights
  *                      may be granted. Releases the child at the end.
+ *   leasekill <image> <out> <tag>
+ *                      start the held child, then wait: a writer that opens the image (the harness does it from
+ *                      Unix) must end the child before it is released, and the child must not exit with 42
+ *   spoofcmd <image> <fake> <out>
+ *                      like run, but the command line names <fake> as the program (the consent window must still
+ *                      show the real image)
+ *   consentattack      try to open the consent process (consent_test.exe) with the rights that would let a limited
+ *                      process approve or steer it; every one must be denied
+ *   winwrite <path>    open <path> for writing through Win32 and append a byte (a Wine program as the writer)
  *   child <out> [hold <tag>|args...]
  *                      what the elevated process does: write its facts to <out>, create a folder in
  *                      "C:\Program Files", exit with 42
@@ -559,6 +568,106 @@ static void attack_mode(const char *image, const char *out, const char *tag)
     free(wimage); free(cmd);
 }
 
+static void leasekill_mode(const char *image, const char *out, const char *tag)
+{
+    HANDLE process = NULL;
+    char path[MAX_PATH + 32], args[64];
+    DWORD err, code = 0, wait;
+
+    sprintf(args, "hold %s", tag);
+    err = ask(image, out, NULL, args, &process);
+    SetLastError(err);
+    check(err == 0, "the held elevated process started");
+    if (err) return;
+    wait = WaitForSingleObject(process, 60000);
+    check(wait == WAIT_OBJECT_0, "the elevated process was ended by the writer");
+    sprintf(path, POLICY_DIR "release.%s", tag);
+    check(GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES, "it ended before the harness released it");
+    check(GetExitCodeProcess(process, &code) && code != 42 && code != STILL_ACTIVE, "it did not exit by itself");
+    CloseHandle(process);
+}
+
+static void spoofcmd_mode(const char *image, const char *fake, const char *out)
+{
+    WCHAR *wimage = widen(image), *cmd;
+    char *narrow_cmd = malloc(2 * strlen(fake) + 2 * strlen(out) + 64);
+    HANDLE process = NULL;
+    DWORD err;
+
+    sprintf(narrow_cmd, "\"%s\" child %s", fake, out);
+    cmd = widen(narrow_cmd);
+    err = wexelevate_run(wimage, cmd, L"C:\\windows", NULL, 0, SW_SHOWNORMAL, WEXELEVATE_WANT_HANDLE, &process, NULL);
+    SetLastError(err);
+    check(err == 0, "the request with another program named in the command line is served");
+    if (!err) { check(wait_exit(process, 42), "the image ran"); CloseHandle(process); }
+    free(wimage); free(narrow_cmd); free(cmd);
+}
+
+static void consentattack_mode(void)
+{
+    static const struct { DWORD access; const char *name; } rights[] = {
+        { PROCESS_TERMINATE, "PROCESS_TERMINATE" }, { PROCESS_VM_WRITE, "PROCESS_VM_WRITE" },
+        { PROCESS_VM_OPERATION, "PROCESS_VM_OPERATION" }, { PROCESS_CREATE_THREAD, "PROCESS_CREATE_THREAD" },
+        { PROCESS_DUP_HANDLE, "PROCESS_DUP_HANDLE" }, { PROCESS_SET_INFORMATION, "PROCESS_SET_INFORMATION" },
+        { PROCESS_SUSPEND_RESUME, "PROCESS_SUSPEND_RESUME" }, { PROCESS_VM_READ, "PROCESS_VM_READ" },
+        { PROCESS_QUERY_INFORMATION, "PROCESS_QUERY_INFORMATION" }, { WRITE_DAC, "WRITE_DAC" },
+        { WRITE_OWNER, "WRITE_OWNER" }, { DELETE, "DELETE" } };
+    PROCESSENTRY32W pe = { sizeof(pe) };
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0), h, token;
+    DWORD pid = 0;
+    char what[96];
+    unsigned int i;
+
+    if (snap != INVALID_HANDLE_VALUE && Process32FirstW(snap, &pe))
+        do { if (!lstrcmpiW(pe.szExeFile, L"consent_test.exe")) pid = pe.th32ProcessID; } while (Process32NextW(snap, &pe));
+    if (snap != INVALID_HANDLE_VALUE) CloseHandle(snap);
+    check(pid != 0, "the consent process exists");
+    if (!pid) return;
+    {
+        /* its parent is the broker (not this process, not the caller's tree) */
+        DWORD parent = 0;
+        WCHAR pname[MAX_PATH] = L"";
+
+        snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap != INVALID_HANDLE_VALUE && Process32FirstW(snap, &pe))
+            do { if (pe.th32ProcessID == pid) parent = pe.th32ParentProcessID; } while (Process32NextW(snap, &pe));
+        if (snap != INVALID_HANDLE_VALUE && Process32FirstW(snap, &pe))
+            do { if (pe.th32ProcessID == parent) lstrcpyW(pname, pe.szExeFile); } while (Process32NextW(snap, &pe));
+        if (snap != INVALID_HANDLE_VALUE) CloseHandle(snap);
+        check(!lstrcmpiW(pname, L"wexelevate_test.exe") && parent != GetCurrentProcessId(), "the consent process is a child of the broker");
+    }
+    for (i = 0; i < sizeof(rights) / sizeof(rights[0]); i++)
+    {
+        SetLastError(0);
+        h = OpenProcess(rights[i].access, FALSE, pid);
+        sprintf(what, "a limited process cannot open the consent process with %s", rights[i].name);
+        check(!h && GetLastError() == ERROR_ACCESS_DENIED, what);
+        if (h) CloseHandle(h);
+    }
+    h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
+    check(h != NULL, "the limited query right is allowed");
+    if (h)
+    {
+        SetLastError(0);
+        check(!OpenProcessToken(h, TOKEN_DUPLICATE | TOKEN_QUERY, &token) && GetLastError() == ERROR_ACCESS_DENIED,
+              "the token of the consent process cannot be opened");
+        CloseHandle(h);
+    }
+}
+
+static void winwrite_mode(const char *path)
+{
+    HANDLE f = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    DWORD done;
+    LARGE_INTEGER zero = { 0 };
+
+    check(f != INVALID_HANDLE_VALUE, "the image opens for writing through Win32");
+    if (f == INVALID_HANDLE_VALUE) return;
+    SetFilePointerEx(f, zero, NULL, FILE_END);
+    check(WriteFile(f, "x", 1, &done, NULL) && done == 1, "the byte was written");
+    CloseHandle(f);
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
@@ -570,6 +679,10 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "concurrent") && argc > 5) concurrent_mode(argv[2], argv[3], argv[4], argv[5]);
     else if (!strcmp(mode, "forge") && argc > 3) forge_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "attack") && argc > 4) attack_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "leasekill") && argc > 4) leasekill_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "spoofcmd") && argc > 4) spoofcmd_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "consentattack")) consentattack_mode();
+    else if (!strcmp(mode, "winwrite") && argc > 2) winwrite_mode(argv[2]);
     else if (!strcmp(mode, "facts") && argc > 2)
     {
         FILE *out = fopen(argv[2], "w");

@@ -62,6 +62,7 @@ cleanup()
     set +e
     ! type standin_off >/dev/null 2>&1 || standin_off
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
+    [ -z "${LEASES_SAVED:-}" ] || echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
     kill_servers
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null   # includes winedevice.exe, which blocks userdel
     sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null
@@ -685,7 +686,7 @@ install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexe
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
 BROKER_ORIG=1
-el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe"; BROKER_ORIG=""; }; }
+el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe" "$SYS32/consent_test.exe"; BROKER_ORIG=""; }; }
 
 el_up "$ADM"
 IMG="$(winpath /home/$ADM/wexel/p64.exe)"
@@ -730,6 +731,31 @@ grep -q '^attack=PASS' "$ROOT/attack.log" || { cat "$ROOT/attack.log" >&2; fail 
 ok c4_limited_process_cannot_open_the_elevated_process_or_its_threads
 
 # -- 3. frozen requests
+# A writer from Unix (the broker holds a read lease on the frozen image): it blocks until the broker has reacted,
+# which is a few milliseconds, then goes on and changes the file.
+cat > "$ROOT/mmapw.py" <<'EOF'
+import mmap, sys
+with open(sys.argv[1], 'r+b') as f:
+    m = mmap.mmap(f.fileno(), 0)
+    m[0:1] = bytes([m[0] ^ 0xff])
+    m.flush()
+    m.close()
+EOF
+chmod 0644 "$ROOT/mmapw.py"
+has_lease() { grep -qE " LEASE .*:$(stat -c %i "$1") " /proc/locks; }
+wait_no_lease() { local i; for i in $(seq 1 40); do has_lease "$1" || return 0; sleep 0.25; done; return 1; }
+lease_writer()   # variant file: run the writer; the file must have changed afterwards
+{
+    local before after
+    before="$(md5sum < "$2")"
+    case "$1" in
+        append) run_as "$ADM" timeout 30 bash -c 'printf x >> "$1"' _ "$2" ;;
+        truncate) run_as "$ADM" timeout 30 bash -c ': > "$1"' _ "$2" ;;
+        mmap) run_as "$ADM" timeout 30 python3 "$ROOT/mmapw.py" "$2" ;;
+    esac || return 1
+    after="$(md5sum < "$2")"
+    [ "$before" != "$after" ]
+}
 frozen()   # name variant expected-error
 {
     el_clean; touch "$EL/wait-for-gate" "$EL/approve.victim.exe"
@@ -737,7 +763,7 @@ frozen()   # name variant expected-error
     bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/victim.exe)" "$3" "$(winpath $EL/out.frozen)" - > "$ROOT/frozen.log" 2>&1 & FP=$!
     el_wait_file "$EL/started.victim.exe"
     case "$2" in
-        append) run_as "$ADM" bash -c 'printf x >> "$1"' _ "/home/$ADM/wexel/victim.exe" ;;
+        append|truncate|mmap) lease_writer "$2" "/home/$ADM/wexel/victim.exe" || fail "$1: the writer did not complete" ;;
         replace) run_as "$ADM" bash -c 'cp "$1" "$1.new" && mv "$1.new" "$1"' _ "/home/$ADM/wexel/victim.exe" ;;
         none) ;;
     esac
@@ -751,6 +777,87 @@ frozen c4_image_changed_in_place_after_freezing_is_rejected append 1392
 [ ! -e "$EL/out.frozen" ] || fail "the changed image ran"
 frozen c4_image_replaced_after_freezing_is_rejected replace 1392
 [ ! -e "$EL/out.frozen" ] || fail "the replaced image ran"
+frozen c4_writer_truncating_the_frozen_image_fails_the_request truncate 1392
+[ ! -e "$EL/out.frozen" ] || fail "the truncated image ran"
+frozen c4_writer_with_a_shared_writable_mapping_fails_the_request mmap 1392
+[ ! -e "$EL/out.frozen" ] || fail "the modified image ran"
+wait_no_lease "/home/$ADM/wexel/victim.exe" || fail "the lease outlived a failed request"
+ok c4_lease_is_given_up_when_the_request_fails
+
+# -- 3b. the read lease on the image while the elevated program runs (consent work order, Part A)
+lease_running()   # name variant
+{
+    local img="/home/$ADM/wexel/lv.exe" i
+    el_clean; touch "$EL/approve.all"
+    run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "$img"
+    bprobe "$ADM" 64 leasekill "$(winpath $img)" "$(winpath $EL/out.lk)" lk > "$ROOT/lk.log" 2>&1 & LP=$!
+    for i in $(seq 1 60); do grep -q 'ready=1' "$EL/out.lk" 2>/dev/null && break; sleep 1; done
+    grep -q 'ready=1' "$EL/out.lk" 2>/dev/null || { cat "$ROOT/lk.log" >&2; fail "$1: no elevated process"; }
+    has_lease "$img" || fail "$1: no lease while the elevated process runs"
+    lease_writer "$2" "$img" || fail "$1: the writer did not complete or changed nothing"
+    wait "$LP" || { cat "$ROOT/lk.log" >&2; fail "$1"; }
+    grep -q '^leasekill=PASS' "$ROOT/lk.log" || { cat "$ROOT/lk.log" >&2; fail "$1: no PASS"; }
+    wait_no_lease "$img" || fail "$1: the lease outlived the process"
+    ok "$1"
+}
+lease_running c4_writer_appending_ends_the_running_elevated_program append
+lease_running c4_writer_truncating_ends_the_running_elevated_program truncate
+lease_running c4_writer_mapping_the_image_writable_ends_the_running_elevated_program mmap
+
+# a Wine program as the writer: the wineserver opens the file first (and blocks in open() until the broker lets go,
+# which it does without asking the wineserver) and only then refuses by share mode (sharing violation). The open is
+# enough to end the elevated program; nothing is written.
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+SUM="$(md5sum < /home/$ADM/wexel/lv.exe)"
+bprobe "$ADM" 64 leasekill "$(winpath /home/$ADM/wexel/lv.exe)" "$(winpath $EL/out.wk)" wk > "$ROOT/wk.log" 2>&1 & LP=$!
+for i in $(seq 1 60); do grep -q 'ready=1' "$EL/out.wk" 2>/dev/null && break; sleep 1; done
+grep -q 'ready=1' "$EL/out.wk" 2>/dev/null || { cat "$ROOT/wk.log" >&2; fail "no elevated process"; }
+WOUT="$(bprobe "$ADM" 64 winwrite "$(winpath /home/$ADM/wexel/lv.exe)" || true)"
+grep -q 'error 32' <<<"$WOUT" || { echo "$WOUT" >&2; fail "a Wine program could open the running image for writing"; }
+wait "$LP" || { cat "$ROOT/wk.log" >&2; fail "the elevated program was not ended by a Wine program's open for writing"; }
+grep -q '^leasekill=PASS' "$ROOT/wk.log" || { cat "$ROOT/wk.log" >&2; fail "wine writer: no PASS"; }
+[ "$SUM" = "$(md5sum < /home/$ADM/wexel/lv.exe)" ] || fail "the image changed"
+wait_no_lease "/home/$ADM/wexel/lv.exe" || fail "the lease outlived the process"
+ok c4_wine_program_opening_the_running_image_for_writing_ends_the_program_and_is_refused
+
+# a normal run: the lease goes with the process, and the file is writable at once afterwards
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+bp c4_normal_run_with_a_lease "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 0 "$(winpath $EL/out.lease)" -
+wait_no_lease "/home/$ADM/wexel/lv.exe" || fail "the lease outlived a normal run"
+lease_writer append "/home/$ADM/wexel/lv.exe" || fail "the writer after a normal run"
+ok c4_lease_is_given_up_when_the_program_exits
+
+# a root-owned image (the user cannot write it) needs no lease; a user-owned one has one
+for who in user root; do
+    el_clean; touch "$EL/approve.all"
+    if [ $who = root ]; then
+        install -m 755 -o root -g root "$ROOT/probes/wexelevate_probe64.exe" "$SYS32/leaseprobe.exe"; img="$SYS32/leaseprobe.exe"; wimg='C:\windows\system32\leaseprobe.exe'
+    else
+        run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"; img="/home/$ADM/wexel/lv.exe"; wimg="$(winpath $img)"
+    fi
+    bprobe "$ADM" 64 run "$wimg" 0 "$(winpath $EL/out.own)" "-" "hold h$who" > "$ROOT/lh.log" 2>&1 & LP=$!
+    for i in $(seq 1 60); do grep -q 'ready=1' "$EL/out.own" 2>/dev/null && break; sleep 1; done
+    grep -q 'ready=1' "$EL/out.own" 2>/dev/null || { cat "$ROOT/lh.log" >&2; fail "no elevated process ($who)"; }
+    if [ $who = root ]; then ! has_lease "$img" || fail "a lease on a root-owned image"; else has_lease "$img" || fail "no lease on a user-owned image"; fi
+    touch "$EL/release.h$who"
+    wait "$LP" || { cat "$ROOT/lh.log" >&2; fail "run of the $who-owned image"; }
+done
+rm -f "$SYS32/leaseprobe.exe"
+ok c4_root_owned_image_needs_no_lease_and_user_owned_has_one
+
+# no lease can be taken: a writer has the file open (32), a file the user can write but does not own (665)
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+run_as "$ADM" bash -c 'exec 3>>"$1"; sleep 25' _ "/home/$ADM/wexel/lv.exe" & WP=$!
+sleep 1
+bp c4_image_open_for_writing_by_someone_fails_with_sharing_violation "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 32 "$(winpath $EL/out.nolease)" -
+pkill -u "$ADM" -f 'sleep 25' || true; wait "$WP" 2>/dev/null || true
+install -m 666 -o root -g root "$ROOT/probes/wexelevate_probe64.exe" "/tmp/wexelev/rootw.exe"
+bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation "$ADM" 64 run "$(winpath $EL/rootw.exe)" 665 "$(winpath $EL/out.nolease)" -
+[ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
+ok c4_no_lease_no_process
 
 # -- 4. A/B concurrency: approving A does not approve B
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
@@ -785,6 +892,204 @@ done
 [ ! -e "$EL/out.std" ] || fail "a standard user's request started a process"
 ok c4_standard_user_started_nothing
 el_down "$STD"
+
+# -- 7. no lease support: with fs.leases-enable=0 the kernel refuses F_SETLEASE with EINVAL, as a file system without
+# lease support does; the request fails with the distinct error and nothing runs, no fallback copy
+el_clean; touch "$EL/approve.all"
+el_up "$ADM"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+LEASES_SAVED="$(cat /proc/sys/fs/leases-enable)"
+echo 0 > /proc/sys/fs/leases-enable
+bp c4_file_system_without_leases_fails_the_request_with_file_system_limitation "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 665 "$(winpath $EL/out.nolease)" -
+echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
+[ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
+bp c4_control_with_leases_enabled_again_runs "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 0 "$(winpath $EL/out.nolease)" -
+el_down "$ADM"
+
+# -- 8. click consent (plan step 6, Part B): the broker starts the consent window as its own SYSTEM child, with the
+# frozen image and command line; only Continue launches. consent_test.exe is consent.c compiled with the harness hook
+# (WEXCONSENT_TEST_HOOK, defined by no build file), installed under another name for the same reason as the test broker.
+echo "--- click consent (step 6, part B)"
+mkdir -p "$ROOT/shim/wine"
+cat > "$ROOT/shim/wine/debug.h" <<'EOF'
+#define WINE_DEFAULT_DEBUG_CHANNEL(x)
+#define TRACE(...) do {} while (0)
+#define WARN(...) do {} while (0)
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+EOF
+CS="$SRC/src/programs/consent"
+x86_64-w64-mingw32-windres -I"$CS" -o "$ROOT/consent_rc.o" "$CS/consent.rc"
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -DWEXCONSENT_TEST_HOOK -I"$ROOT/shim" -I"$CS" -o "$ROOT/probes/consent_test.exe" \
+    "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -luser32 -lgdi32 -ladvapi32
+chmod 0755 "$ROOT/probes/consent_test.exe"
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -I"$CS" -I"$ROOT/shim" -o "$ROOT/consent_ship.exe" \
+    "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -luser32 -lgdi32 -ladvapi32
+has_str "$ROOT/probes/consent_test.exe" 'consent.' || fail "the test consent program has no hook (control)"
+has_str "$ROOT/probes/consent_test.exe" '/testid' || fail "the test consent program has no /testid (control)"
+! has_str "$ROOT/consent_ship.exe" '/testid' || fail "a consent program built without the macro contains the hook"
+! has_str "$ROOT/consent_ship.exe" 'wexelev' || fail "a consent program built without the macro names the hook directory"
+for f in "$BUILD"/programs/consent/*-windows/consent.exe; do
+    ! has_str "$f" '/testid' && ! has_str "$f" 'wexelev' || fail "the installed program $f contains the hook"
+done
+! has_str "$ROOT/probes/wexelevate_ship.exe" consent_test || fail "a broker built without the macro names the test consent program"
+has_str "$ROOT/probes/wexelevate_test.exe" consent_test || fail "the test broker does not use the test consent program (control)"
+! grep -rn 'WEXCONSENT_TEST_HOOK' "$SRC/src" "$SRC/installer" "$SRC/tools" --include=Makefile.in --include='*.mk' --include='*.inf' \
+    --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a build file defines WEXCONSENT_TEST_HOOK"
+[ -z "$(find "$M" "$BUILD/programs" "$BUILD/dlls" -name 'consent_test*' -print -quit)" ] || fail "the test consent program is in the installed tree"
+ok c5_consent_hook_absent_from_shipping_build
+
+cat > "$ROOT/setpolicy.py" <<'EOF'
+import sys
+path, value = sys.argv[1], sys.argv[2]
+sec = r'[Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System]'
+lines = open(path, encoding='latin-1').read().split('\n')
+out, inside = [], False
+for line in lines:
+    if line.startswith('['):
+        inside = line.startswith(sec)
+    if inside and line.startswith('"ConsentPromptBehaviorAdmin"'):
+        continue
+    out.append(line)
+    if inside and line.startswith('"EnableLUA"') and value != 'none':
+        out.append('"ConsentPromptBehaviorAdmin"=dword:%08x' % int(value))
+open(path, 'w', encoding='latin-1').write('\n'.join(out))
+EOF
+set_policy() { python3 -I "$ROOT/setpolicy.py" "$M/system.reg" "$1"; [ "$(grep -c ConsentPromptBehaviorAdmin "$M/system.reg")" = "$2" ]; }
+install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
+reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"ConsentTimeoutMs"=dword:00004e20'
+set_policy 2 1 || fail "the policy value was not set"
+
+consent_alive() { local p; for p in $(pgrep -f "$1"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || return 0; done; return 1; }   # a live (not zombie) process
+wait_shown()   # prints the path of the first consent.<id>.shown file
+{
+    local i f
+    for i in $(seq 1 90); do
+        f="$(ls "$EL"/consent.*.shown 2>/dev/null | head -1)"
+        [ -z "$f" ] || { sleep 0.5; echo "$f"; return 0; }
+        sleep 1
+    done
+    return 1
+}
+consent_case()   # name expect-error action(approve|cancel|none)
+{
+    local name="$1" expect="$2" action="$3" img shown
+    el_clean
+    run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/cs.exe"
+    img="$(winpath /home/$ADM/wexel/cs.exe)"
+    bprobe "$ADM" 64 run "$img" "$expect" "$(winpath $EL/out.c5)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+    shown="$(wait_shown)" || { cat "$ROOT/cs.log" >&2; fail "$name: no consent window"; }
+    grep -qF "Program location: $img" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show the frozen image"; }
+    grep -qF "Command line: \"$img\" child $(winpath $EL/out.c5)" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show the command line"; }
+    grep -q '^publisher=Unknown publisher' "$shown" || { cat "$shown" >&2; fail "$name: no publisher line"; }
+    grep -q '^program=cs.exe' "$shown" || { cat "$shown" >&2; fail "$name: no program name"; }
+    [ "$action" = none ] || touch "${shown%.shown}.$action"
+    wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "$name"; }
+    grep -q '^run=PASS' "$ROOT/cs.log" || { cat "$ROOT/cs.log" >&2; fail "$name: no PASS"; }
+}
+
+el_up "$ADM"
+consent_case c5_continue_launches_exactly_one_target 0 approve
+[ "$(ls "$EL"/out.c5 2>/dev/null | wc -l)" = 1 ] && [ "$(grep -c '^pid=' "$EL/out.c5")" = 1 ] || fail "not exactly one target"
+for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep 0.5; done
+! consent_alive 'system32.consent[_]test' || fail "the consent window is still there"
+ok c5_continue_launches_exactly_one_target
+consent_case c5_cancel_is_error_cancelled_and_launches_nothing 1223 cancel
+[ ! -e "$EL/out.c5" ] || fail "a cancelled request started a process"
+ok c5_cancel_launches_nothing
+consent_case c5_timeout_is_error_timeout_and_launches_nothing 1460 none
+[ ! -e "$EL/out.c5" ] || fail "a request that timed out started a process"
+for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep 0.5; done
+! consent_alive 'system32.consent[_]test' || fail "the consent window outlived the timeout"
+ok c5_timeout_launches_nothing_and_closes_the_window
+
+# the window is the broker's own child, with the SYSTEM token, not the caller's
+el_clean
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/cs.exe"
+bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/cs.exe)" 1223 "$(winpath $EL/out.c5)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+shown="$(wait_shown)" || fail "no consent window"
+grep -qx 'user=S-1-5-18' "$shown" || { cat "$shown" >&2; fail "the consent window does not run as SYSTEM"; }
+ok c5_consent_window_runs_as_system
+# a limited process of the same user cannot open it with rights that would let it end it (exit code 0 would approve)
+OUT="$(bprobe "$ADM" 64 consentattack || true)"
+grep -q '^consentattack=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "a limited process could open the consent process, or its parent is not the broker"; }
+ok c5_consent_window_is_a_child_of_the_broker_and_a_limited_process_cannot_open_it
+touch "${shown%.shown}.cancel"
+wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "the cancelled request"; }
+
+# the window shows the frozen image, not the first word of the command line
+el_clean
+bprobe "$ADM" 64 spoofcmd "$(winpath /home/$ADM/wexel/cs.exe)" 'C:\Windows\System32\notepad.exe' "$(winpath $EL/out.spoof)" > "$ROOT/cs.log" 2>&1 & CSP=$!
+shown="$(wait_shown)" || fail "no consent window"
+grep -qF "Program location: $(winpath /home/$ADM/wexel/cs.exe)" "$shown" && grep -q '^program=cs.exe' "$shown" &&
+    grep -qF 'notepad.exe' "$shown" && ! grep -q '^program=notepad' "$shown" || { cat "$shown" >&2; fail "the window shows the command line's program instead of the image"; }
+touch "${shown%.shown}.approve"
+wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "spoofcmd"; }
+ok c5_window_shows_the_frozen_image_not_the_command_line
+
+# two requests: approving one does not approve the other
+el_clean
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/a.exe"
+bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \
+    > "$ROOT/conc.log" 2>&1 & CSP=$!
+for _ in $(seq 1 90); do [ "$(ls "$EL"/consent.*.shown 2>/dev/null | wc -l)" = 2 ] && break; sleep 1; done
+[ "$(ls "$EL"/consent.*.shown 2>/dev/null | wc -l)" = 2 ] || { cat "$ROOT/conc.log" >&2; fail "two consent windows expected"; }
+sleep 0.5
+for f in "$EL"/consent.*.shown; do
+    if grep -qF 'wexel\a.exe' "$f"; then touch "${f%.shown}.approve"; else touch "${f%.shown}.cancel"; fi
+done
+wait "$CSP" || { cat "$ROOT/conc.log" >&2; fail "concurrent consent"; }
+grep -q '^concurrent=PASS' "$ROOT/conc.log" || { cat "$ROOT/conc.log" >&2; fail "concurrent consent: no PASS"; }
+ok c5_approving_one_request_does_not_approve_the_other
+
+# a writer while the window waits: the request fails (1392) and the window goes
+el_clean
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/cs.exe"
+bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/cs.exe)" 1392 "$(winpath $EL/out.c5)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+shown="$(wait_shown)" || fail "no consent window"
+lease_writer append "/home/$ADM/wexel/cs.exe" || fail "the writer"
+wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "a writer during consent"; }
+for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep 0.5; done
+! consent_alive 'system32.consent[_]test' || fail "the consent window outlived the request"
+[ ! -e "$EL/out.c5" ] || fail "the changed image ran"
+ok c5_writer_during_consent_fails_the_request_and_closes_the_window
+
+# the consent program cannot start: 1062, nothing runs
+el_clean
+mv "$SYS32/consent_test.exe" "$ROOT/consent_test.hidden"
+bp c5_consent_program_missing_is_error_service_not_active "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 1062 "$(winpath $EL/out.c5)" -
+mv "$ROOT/consent_test.hidden" "$SYS32/consent_test.exe"
+[ ! -e "$EL/out.c5" ] || fail "a request without a consent window started a process"
+ok c5_no_consent_window_launches_nothing
+el_down "$ADM"
+
+# a standard user is still refused before any window
+el_clean
+el_up "$STD"
+bp c5_standard_user_gets_not_supported_with_click_consent "$STD" 64 run "$(winpath /home/$STD/wexel/p64.exe)" 50 "$(winpath $EL/out.std)" -
+! consent_alive 'system32.consent[_]test' && [ ! -e "$EL/out.std" ] || fail "a standard user got a window or a process"
+ok c5_standard_user_gets_no_window
+el_down "$STD"
+
+# the shipping broker and the shipping consent.exe, policy 2: the real window starts as the broker's child; the caller going away ends it
+el_restore_broker
+set_policy 2 1 || fail "the policy value was not set"
+el_up "$ADM"
+el_clean
+bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 1223 "$(winpath $EL/out.ship)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+for _ in $(seq 1 60); do consent_alive 'system32.consent[.]exe' && CW=1 || CW=""; [ -z "$CW" ] || break; sleep 1; done
+[ -n "$CW" ] || { cat "$ROOT/cs.log" >&2; fail "the shipping broker started no consent.exe"; }
+ok c5_shipping_broker_starts_the_real_consent_window
+kill "$CSP" 2>/dev/null; pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
+for _ in $(seq 1 30); do consent_alive 'system32.consent[.]exe' || break; sleep 1; done
+! consent_alive 'system32.consent[.]exe' || fail "the consent window outlived the caller"
+[ ! -e "$EL/out.ship" ] || fail "a process ran without Continue"
+ok c5_caller_exit_destroys_the_request_and_closes_the_window
+el_down "$ADM"
+# no policy value: the shipping broker fails closed (21) before any window
+set_policy none 0 || fail "the policy value was not removed"
+el_up "$ADM"
+bp c5_shipping_broker_without_policy_still_fails_closed "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 21 "$(winpath $EL/out.ship)" -
+el_down "$ADM"
 el_restore_broker
 rm -rf "$EL"
 fi   # WEX_C4_SKIP

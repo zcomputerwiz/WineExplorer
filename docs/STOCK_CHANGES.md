@@ -573,6 +573,22 @@ elevation is enforced; otherwise stock behavior (the build files and the service
   whose token has `TokenElevationTypeFull` (an elevated process), in addition to the SYSTEM token. The process stays
   non-dumpable (its effective group differs from its real group).
 
+## Elevation boundary: consent work order, Part A, the read lease (plan step 6, 2026-10-24)
+
+`ELEVATION_CONSENT_WORKORDER.md`, Part A. **No stock Wine file is changed.** Project modules only: `dlls/wexhost`
+(new `lease.c`, three new exports `WexLeaseTake`, `WexLeaseArm`, `WexLeaseRelease`; the Unix side uses the stock ntdll
+exports `wine_server_handle_to_fd` and the `list_processes` server request, both unchanged) and `programs/wexelevate`.
+The broker holds a Linux read lease on the frozen image until the elevated process exits; a write open ends that
+process. Active only inside the broker, which runs only with the system role.
+
+## Elevation boundary: consent work order, Part B, click consent (plan step 6, 2026-10-24)
+
+`ELEVATION_CONSENT_WORKORDER.md`, Part B. **No stock Wine file is changed.** Project programs only: `programs/wexelevate`
+(starts the consent window itself when `ConsentPromptBehaviorAdmin` is 2 or 5; otherwise unchanged, `ERROR_NOT_READY`) and
+`programs/consent` (new `/broker` and `/image` arguments, a 32768-character command line, details shown in full; the test hook
+exists only in a copy that the test harness compiles). The existing server protection of system-role processes covers the consent
+window; nothing was added to it.
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|
