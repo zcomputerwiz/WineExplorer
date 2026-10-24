@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: the secure desktop for consent (plan step 5)
 
-Date: 2026-10-24. Status: scoped; phase R (research) first, then design calls, then implementation. Part of
+Date: 2026-10-24. Status: phase R done (see "Results, phase R"); design calls next, then implementation. Part of
 `ELEVATION_BOUNDARY_PLAN.md` (design D5, step 5). Builds on consent (`ELEVATION_CONSENT_WORKORDER.md`): the broker
 starts `consent.exe /broker` as a SYSTEM child on `WinSta0\Default`, where any same-user process can post Approve.
 
@@ -73,4 +73,230 @@ main session, and to the user where they change behavior.
 
 ## Results
 
-(none yet)
+### Results, phase R (research, 2026-10-24)
+
+No product code was changed. Probe sources are `scripts/secure_desktop_probe.c` and its X11 runner
+`scripts/secure_desktop_probe.sh`; they are the seed for the acceptance probe of the later phases.
+
+**Method.**
+- Wine: `/home/user/wine-dev` (branch `ccr-work`, Wine `a88ed85eeb9`, uncommitted assembly changes kept), build
+  `/home/user/build/dev` (WoW64). File and line numbers below are from that working tree (`server/` and `dlls/`
+  are Wine paths).
+- X11 driver on Xvfb (`:77`, no window manager), plain; Wine virtual desktop (`explorer /desktop=Default,1024x768`,
+  as the session does); Wayland driver. The Wayland driver is not built in `/home/user/build/dev` (configure found no
+  `xkbregistry`), so a scratch copy `/home/user/build/dev-wl-scratch` was reconfigured with `libxkbregistry-dev` and
+  rebuilt (same source, removed afterwards). The compositor is `weston --backend=headless` (xdg-shell only). Headless
+  weston has no seat, so no host keyboard or pointer events exist there: host-input cases are "not testable" for
+  Wayland and rest on the code path, which is the same for all drivers (see the table).
+- Probe layout: `main` on `WinSta0\Default` creates `WinSta0\Winlogon`, starts `target` on it (a window with an
+  Approve button and an edit control, logging every message it receives), calls `SwitchDesktop`, then starts an
+  `attacker` on `Default` twice: once with the process token, once with a thread impersonating a restricted token
+  (`LUA_TOKEN | DISABLE_MAX_PRIVILEGE`, restricting SID Everyone: Administrators deny-only, one privilege). The
+  host side is `xdotool` (real X events) and `xwininfo`. The attacker prints the input desktop name before each
+  group of calls, so a flip back to `Default` cannot be mistaken for a pass. All three environments gave the same
+  result for every server-side operation (the two logs differ only in window handle values and in the number of
+  windows `EnumWindows` sees).
+- Not done: a 32-bit run (the scratch prefix could not be completed: `wineboot` hangs at "Failed to open RpcSs
+  service", so the WoW64 `syswow64` DLLs are missing; the server code is architecture independent); a probe with the
+  real SYSTEM token of the broker (needs the `test_sysrun_server.sh` fixture; phase 1 must do it); the probe under
+  a real window manager; the Wayland session's compositor `wexcomp`; any run on native Windows.
+
+#### 1. Operation x environment (attacker on `Default`, target window on `Winlogon`, `Winlogon` is the input desktop)
+
+Columns: **X11** = X11 driver on Xvfb, **VD** = Wine virtual desktop, **WL** = Wayland driver on headless weston.
+"works" means the effect reached the target; "blocked" names the error.
+
+| Operation | X11 | VD | WL | Checked (or would be) at |
+|---|---|---|---|---|
+| `SwitchDesktop`: host surface for the new desktop | none for the desktop itself; each of its windows is a plain top-level X window (parent = root) | same | each window is an `xdg_toplevel`, no desktop surface | `win32u/winstation.c:629-641` only sends `set_input_desktop`; `server/winstation.c:212-234`; neither `winex11.drv` nor `winewayland.drv` reacts to a desktop switch (no `SwitchDesktop`/input-desktop code in either) |
+| `SwitchDesktop`: first desktop hidden | no: the `Default` window stays mapped (`xwininfo`: IsViewable) | same | no: no unmap or `attach(nil)` request between the switch and the switch back | nothing hides it; ReactOS hides/shows the desktop window instead (section 4) |
+| `SwitchDesktop`: input goes to the new desktop | server: yes. Host events: a real click and keys at the target arrived (`WM_LBUTTONDOWN`, `WM_KEYDOWN z y q`); a real click on a `Default` window flipped the input desktop back to `Default` and was delivered to it | same | not testable (no seat); same server path: `wayland_pointer.c:171,276,325,407` and `wayland_keyboard.c:689,849,901,927` call `NtUserSendHardwareInput` | `win32u/input.c:745-754` -> `server/queue.c:3219-3234`: `get_hardware_input_desktop` (`queue.c:2992-3010`) takes the desktop of the host window and `set_input_desktop` (`queue.c:3230`) makes it the input desktop |
+| host pointer motion or click over empty host space | no flip | no flip | not testable | same path; no flip was seen |
+| `SendInput` keyboard and mouse | blocked, 5 (`ERROR_ACCESS_DENIED`) | blocked, 5 | blocked, 5 | `queue.c:3229-3234` (injected input only when the sender's desktop is the input desktop) |
+| `keybd_event`, `mouse_event` | blocked (nothing reached the target) | blocked | blocked | same |
+| **`win32u!NtUserCallHwndParam(SendHardwareInput)`** (the driver feed, an export any process can call) | **works**: key `W` and a click at the Approve button reached the secure target and produced `WM_COMMAND` (also from the restricted-token attacker); with `hwnd = NULL` a key reached the focus window of the input desktop | works | works | `win32u/window.c:6446-6449` -> `win32u/input.c:745-754`; `queue.c:3219-3234` has no sender check for hardware-origin input (`origin == IMO_HARDWARE`) and flips the input desktop to the window's desktop; found by this research, not in the work order |
+| `PostMessage` `BM_CLICK`, `WM_COMMAND`; `PostThreadMessage` | works (target logged `WM_COMMAND id=1001`) | works | works | `server/queue.c:3139` (`send_message` handler, also used for posts): no desktop and no process check |
+| `SendMessage`, `SendMessageTimeout` (`BM_CLICK`, `WM_COMMAND`, `WM_SETTEXT` on the edit, a private message with a result) | works (result 77 came back) | works | works | same |
+| `SetWindowsHookEx` thread hook (`WH_GETMESSAGE`, `WH_CALLWNDPROC`, `WH_KEYBOARD`) naming a thread of the target | works: installed, and the hook procedure ran inside the target process | works | works | `server/hook.c:389` checks only the caller's own desktop; `hook.c:402-406` refuses only `sysrun_protected` targets (`server/sysrun.c:336`); no `thread->desktop` test before `add_hook` (`hook.c:446`) |
+| `SetWindowsHookEx` global (`tid` 0) | installs; bound to the caller's desktop, no callback seen on the secure desktop | same | same | `hook.c:98-105,125-141`: per-desktop table `desktop->global_hooks` |
+| `WH_KEYBOARD_LL`, `WH_MOUSE_LL` | installs; got no callback for the keys and clicks the host sent to the secure desktop (0 of 1 key, 0 clicks); they fire only for input that reaches `Default` windows | same | not testable | `hook.c:362-370` (`get_first_global_hook(desktop, ...)`), hooks are per desktop |
+| `WH_JOURNALRECORD` | refused, 5 (also on `Default`, not desktop related) | refused | refused | `win32u/hook.c:104-108`: every global journal hook is refused with `ERROR_ACCESS_DENIED` before the server is asked |
+| `AttachThreadInput` | blocked, 87 | blocked | blocked | `queue.c:3698` (`desktop_from != desktop_to`) |
+| `SetForegroundWindow` | blocked, 1400 | blocked | blocked | `queue.c:3795-3806` -> `server/window.c:796` (`win->desktop != desktop`) |
+| `SetFocus`, `SetActiveWindow` | blocked, 1400 / 5 | blocked | blocked | `queue.c:1407` (`check_queue_input_window`), `queue.c:3834-3870` |
+| `BringWindowToTop`, `SetWindowPos(HWND_TOPMOST)`, `ShowWindow(SW_HIDE)` on the target | works (returned success; the caller can hide, move or restack the consent window) | works | works | `server/window.c` window handlers take any handle: no desktop check |
+| `DestroyWindow` on the target | blocked, 5 (not desktop specific: any other thread's window) | blocked | blocked | not checked here |
+| `FindWindow`, `EnumWindows` | scoped to the caller's desktop: target not found (9 or 12 windows seen, none the target) | same | same | `server/window.c:950` `get_window_list(desktop, ...)` uses the caller's desktop |
+| `EnumDesktopWindows` on a handle opened for `ENUMERATE`/`READOBJECTS` | lists the target window | works | works | needs the DACL to grant `DESKTOP_ENUMERATE`; see the DACL rows |
+| `IsWindow`, `GetWindowRect`, `GetWindowText`, `GetDlgItem` on a known target handle | work (text and geometry of the consent window are readable); handles are small and predictable (`0x10090`...) | work | work | `server/window.c`: no desktop check on handle-based reads |
+| `GetAsyncKeyState` / `GetCursorPos` from `Default` while the host types on the secure desktop | the key was not seen (keystate is per desktop); the cursor position matches the host pointer | same | not testable | `win32u/input.c:843-855,900-911` read the caller's `desktop_shm` |
+| `OpenDesktop("Winlogon")` with the default descriptor (no descriptor given at creation) | granted | granted | granted | `server/winstation.c:717-737` (`open_desktop`: `alloc_handle` at 735 does the DACL check; the FIXME at 724 is stale) |
+| `OpenDesktop` with a descriptor | **honored**: `D:(A;;GA;;;SY)` denies the user token (5) for every right, even `READ_CONTROL`; `D:(A;;GA;;;BA)` admits the full administrator token and denies the restricted one (Administrators deny-only); `D:(D;;GA;;;WD)` denies all | same | same | `server/handle.c:266-277` `alloc_handle` -> `check_object_access`; the descriptor given to `CreateDesktop` is stored (`GetUserObjectSecurity` returns it to the creator's handle) |
+| `CreateDesktop` of a name that already exists, with a different descriptor | **silently opens the existing desktop**: no error (the handler clears `STATUS_OBJECT_NAME_EXISTS` at `winstation.c:702`), the new descriptor is not applied, `OpenDesktop` stays granted | same | same | `server/winstation.c:695-703` (`STATUS_OBJECT_NAME_EXISTS` path); no check of `WINSTA_CREATEDESKTOP` anywhere in `create_desktop` (677-714) |
+| `SwitchDesktop` back to `Default` by the restricted-token attacker | **works**, and it works with a desktop handle that has only `DESKTOP_READOBJECTS` | works | works | `server/winstation.c:767-782`: `get_handle_obj( ..., 0, ...)`, the FIXME at 769 is real; no process or token test |
+| `CreateProcess` with `lpDesktop` naming a desktop the caller cannot open | succeeds; the child has no desktop at all (not `Default`) | same | same | `server/winstation.c:525-528` (`alloc_handle` fails, handle 0), `connect_process_winstation` carries on |
+
+#### 2. Exit paths and what returns the input desktop
+
+| Event | Result | Where |
+|---|---|---|
+| the process that called `SwitchDesktop` is killed | input desktop stays `Winlogon` | no code ties the input desktop to the process: `server/process.c:949` (`close_process_desktop`), `process.c:1827`, `server/thread.c:589` (`release_thread_desktop`) never touch `input_desktop` |
+| the target (consent) process exits | input desktop stays `Winlogon` | same |
+| the last handle to the input desktop is closed (the desktop object is destroyed) | falls back to the desktop with the newest `input_time`. With six desktops present it picked one the caller could not open (`OpenInputDesktop` returned 5); with only `Default` and `Winlogon` it picked `Default` | `server/winstation.c:355-370`; `input_time` is set only in `set_input_desktop` (218), which also runs for any hardware event routed to a window of that desktop (`queue.c:3230`), so it is not a reliable "previous desktop" |
+| `CloseDesktop` on the input desktop while other handles exist | succeeds, input stays | `winstation.c:342-352` |
+| host click on a `Default` window while `Winlogon` is the input desktop | input returns to `Default` | `queue.c:3228-3232` |
+
+#### 3. The security descriptor of a desktop (answer to "is it honored")
+
+Yes, for `OpenDesktop`, `OpenInputDesktop` and a named existing desktop opened by `CreateDesktop`
+(`alloc_handle` in `server/handle.c:266-277`), and for the desktop a new process asks for at start
+(`connect_process_winstation`, `server/winstation.c:525-528`; the client-side open in `win32u/winstation.c:1036-1046`
+uses `CreateDesktopEx` with `OBJ_OPENIF`, which takes the same checked path at `winstation.c:695-703`). Not enforced:
+the access right of the handle at the point of use (`SwitchDesktop` needs no `DESKTOP_SWITCHDESKTOP`, section 1), and
+creation of a desktop by name (`WINSTA_CREATEDESKTOP` is never checked). A descriptor is applied only by the call
+that creates the object: a limited process that creates `Winlogon` before the broker leaves the broker with a handle
+to a desktop whose descriptor it did not choose, and no error. `desktop_ops` has no `get_sd`/`set_sd`, so the default
+object handlers apply (`SetUserObjectSecurity` was not probed). The system role passes a `SYSTEM`-only descriptor in
+principle (`server/sysrun.c:322` gives the service a SYSTEM token and the check uses the token user), but that was
+not exercised here.
+
+#### 4. ReactOS findings (read as data from `master`: `base/system/winlogon/{security.c,wlx.c,winlogon.c}` and `NtUserSwitchDesktop` in `win32ss/user/ntuser/desktop.c`)
+
+- **Descriptor of the Winlogon desktop** (`security.c:542-647`, rights at `security.c:14-25`): two ACEs, no inheritance
+  flags. (1) `NT AUTHORITY\SYSTEM` (the Winlogon SID): `DESKTOP_ALL` = read/create-window/create-menu/hook-control/
+  journal-record/journal-playback/enumerate/write-objects/switch-desktop + `STANDARD_RIGHTS_REQUIRED`. (2)
+  `BUILTIN\Administrators`: `DESKTOP_WINLOGON_ADMINS_LIMITED` = `STANDARD_RIGHTS_REQUIRED | DESKTOP_ENUMERATE`. Nobody
+  else, no interactive user, no Network Service. The `Default` desktop (`security.c:360-490`) and the window station
+  (`security.c:114-330`) additionally carry Network Service ACEs marked HACK (ReactOS' LSASS builds wrong service
+  tokens; do not copy).
+- **Creation order** (`wlx.c:953-1090`, called once from `winlogon.c:484`, before any user process exists): build the
+  four descriptors; `CreateWindowStationW(L"WinSta0", MAXIMUM_ALLOWED)` with the window station descriptor; 
+  `SetProcessWindowStation`; `CreateDesktopW(L"Default")`; `CreateDesktopW(L"Winlogon")`; `CreateDesktopW(L"Screen-Saver")`;
+  `SetThreadDesktop(Winlogon)` and `SwitchDesktop(Winlogon)`; `SetWindowStationUser(LuidNone)`. The user is added only
+  after logon, to `Default` and the window station (`AllowAccessOnSession`, `security.c:1392-1470`,
+  `AllowDesktopAccessToUser` at `security.c:1166-1340`), never to `Winlogon`.
+- **Pitfalls to avoid**
+  1. `STANDARD_RIGHTS_REQUIRED` contains `WRITE_DAC`, `WRITE_OWNER` and `DELETE`, so ReactOS' "limited" administrator
+     ACE can rewrite the descriptor. Our descriptor should name SYSTEM only (as the work order says) or give
+     administrators `DESKTOP_ENUMERATE` alone.
+  2. Handle inheritance: ReactOS sets `bInheritHandle = TRUE` for window station, `Default` and `Screen-Saver` and `FALSE`
+     for `Winlogon` (`wlx.c:974,984,994,1004`). The broker must not let a Winlogon handle reach its child
+     (`CreateProcessW` is called with `bInheritHandles = FALSE` today, `src/programs/wexelevate/main.c:543`).
+  3. Creation order is the protection: Winlogon creates the desktops before anything else can. Wine has no such
+     process; section 1 shows a limited process can take the name first.
+  4. ReactOS does not enforce `DESKTOP_SWITCHDESKTOP` either: `NtUserSwitchDesktop` validates the handle with access 0
+     (`desktop.c:3076`). It refuses a switch only when the window station is locked and the caller is not the logon
+     process (`desktop.c:3102-3109`), and carries the open FIXME "Fail if the process is associated with a secured desktop
+     such as Winlogon or Screen-Saver" (`desktop.c:3117-3118`). The `security.c` FIXME mentioned in the plan's prior-art
+     table no longer exists in `master`; the 2009 and 2015 history entries could not be re-read (no access to the
+     repository history from this container).
+  5. Presentation in ReactOS is per desktop: `NtUserSwitchDesktop` hides the old desktop's window (`IntHideDesktop`, `desktop.c:3132`)
+     and shows the new one (`co_IntShowDesktop`, `3142`), and signals `EVENT_SYSTEM_DESKTOPSWITCH` (`3151`).
+     Wine has no equivalent step; see the design calls.
+  6. `WlxSwitchDesktopToWinlogon/User` (`wlx.c:410-441`) call `SwitchDesktop` and `SetThreadDesktop` together and only
+     the logon process does it: the model for "the broker switches and its own thread follows".
+- **Reuse.** ReactOS is GPL-2.0-or-later, so porting would be allowed, but the descriptor is two `AddAccessAllowedAce`
+  calls or one SDDL string (`D:(A;;GA;;;SY)`). Nothing needs to be copied. The Wine server is LGPL, so the server
+  changes below are written fresh.
+
+#### 5. How the WineExplorer session runs Wine, and what it means for a second desktop
+
+- **X11 session** (`scripts/wine-explorer-session.sh:21,68`): `wine explorer.exe /desktop=Default,<W>x<H> /shell`, with
+  W and H from `xrandr` or the saved display profile. The whole session is one Wine virtual desktop named `Default`:
+  one host X window (full screen; `winex11.drv/window.c:1028,2739` set the fullscreen state), every program's windows
+  are inside it. Virtual-desktop state is per desktop object: `server/winstation.c:259-265` copies
+  `DF_WINE_VIRTUAL_DESKTOP` from the creating thread's desktop to a new desktop, so a `Winlogon` created from the
+  session is "virtual" too (its threads reported the virtual desktop's 1024x768 or the host's 1280x800 in different
+  runs), but no process owns a desktop window for it. Only `explorer` builds one (`programs/explorer/desktop.c:1265-1300`,
+  `CreateDesktopW` with a mode and `DF_WINE_VIRTUAL_DESKTOP`, which makes the driver create the host window,
+  `win32u/winstation.c:476-512`, `winex11.drv/desktop.c:66-96`). In the probe the second desktop's windows were ordinary
+  X top-level windows over the Xvfb root, positioned in host coordinates, not inside the virtual desktop window. An
+  attempt to create a virtual-desktop window for the second desktop from an ordinary process got as far as
+  `CreateDesktop` succeeding; the desktop window class is private to explorer, so presentation by this route is
+  untested.
+- **Wayland session** (`scripts/wine-explorer-wayland-session.sh:18-49`): the labwc-based compositor `wexcomp` with the
+  shell socket `wex-shell-0`, `Graphics=x11,wayland`, `WEX_WAYLAND_NATIVE_WINDOWS=1`, `explorer.exe /shell` with no
+  `/desktop`. Every Win32 top-level window is its own `xdg_toplevel`; there is no desktop surface
+  (`nulldrv_CreateDesktop` returns TRUE, `win32u/driver.c:756-759`; the Wayland driver does not implement it). The
+  privileged protocol `wex-window-v1` (`dlls/winewayland.drv/wex-window-v1.xml:77-82`) has the layers normal, topmost,
+  desktop, shell. Wine cannot hide the user's windows from the compositor; a secure desktop on Wayland needs the
+  compositor to cooperate (a layer or request that makes the compositor show only that surface and send input only to
+  it). `wexcomp` is not in this container, so none of that was tested; plain weston offers only fullscreen
+  `xdg_toplevel`.
+- **What follows.** The server's input desktop is invisible to both drivers today. On X11 the secure window can be
+  made exclusive by the consent process itself (full-screen override-redirect window plus keyboard and pointer grabs,
+  released by X when the process dies), which also covers a consent crash. Wayland has no client-side equivalent.
+
+#### 6. How `consent.exe /broker` is started today
+
+`src/programs/wexelevate/main.c:516-570` (`approve_consent`): builds `"<system32>\consent.exe" /broker [/testid ...]
+/image "<frozen path>" /cmd <frozen command line>` and calls `CreateProcessW( NULL, cmd, NULL, NULL, FALSE, 0, NULL, dir,
+&si, &pi )` with `si.lpDesktop = L"WinSta0\\Default"` (line 542): a child of the SYSTEM service with its token, no parent
+attribute, no inherited handles. It then waits on `WaitForMultipleObjects( 4, { consent process, caller, stop event,
+lease event }, ..., consent_timeout() )` (554). Every way out passes through lines 555-570: any wait result other than the
+process terminates the consent process (557), then the exit code is mapped (0 approves, `ERROR_CANCELLED` cancels,
+anything else 1062). Switching would wrap the wait: switch before it, restore on both branches. The timeout is
+120 s (20 s in the test build).
+
+#### 7. Design calls the next phases need
+
+Each call says what the evidence supports and what the main session or the user must decide.
+
+1. **Close the hardware-input door first (new, from the probes).** Any process can feed hardware-origin input to any
+   window, and to the input desktop with no window at all, through `NtUserCallHwndParam(SendHardwareInput)`, and a
+   host event for a `Default` window flips the input desktop back. `SendInput`'s check at `queue.c:3229` does not
+   cover them. Proposed rule in `send_hardware_message` (`queue.c:3219-3234`): a hardware-origin message is accepted only
+   when the sending thread's desktop is the window's desktop and the winstation's input desktop (for `win == 0`: the
+   sender's desktop is the input desktop); otherwise drop it with `STATUS_ACCESS_DENIED`, and never flip the input
+   desktop on a host event. The real host events for the consent window come from the driver threads of the consent
+   process, which are on `Winlogon`, so they pass. Cost: with several ordinary desktops, a click no longer moves the
+   input to another desktop; only `SwitchDesktop` does. Decision needed: apply it to every desktop, or only while the
+   input desktop carries a "secure" mark (set by the system role).
+2. **Who may switch (`server/winstation.c:767-782`).** Require `DESKTOP_SWITCHDESKTOP` on the handle (today access 0),
+   and while the input desktop is the secure one, allow a switch away only from a system-role process (the broker's
+   token is SYSTEM, `sysrun.c:322`). Record the switching process and the desktop to return to in the winstation.
+3. **Return to `Default` when the switcher dies.** Not true today (section 2). Add `input_owner` (process) and
+   `return_desktop` to the winstation; on process exit, and when the secure desktop has no thread left (a consent
+   crash while the broker lives), call `set_input_desktop( return_desktop )`; hook it where the process drops its
+   desktop (`process.c:949`, `thread.c:589`). Do not rely on `desktop_destroy` (`winstation.c:362-368`): it picks by
+   `input_time`, which hardware events also bump. The broker still restores explicitly on every exit path (section 6);
+   the server is the backstop for broker crash, and the broker must also kill the consent process then (the service
+   stop path already does at 557).
+4. **Create `Winlogon` before anything else can, and verify it.** A limited process can create the name first and the
+   broker gets its desktop silently. The broker (or wineboot, at session start, before the user's shell) creates
+   `Winlogon` with `D:(A;;GA;;;SY)`, reads the descriptor back (`GetUserObjectSecurity`) and fails closed (21 or a new
+   error) if it differs or the desktop already existed. Server options, smaller than a fix of `CreateDesktop`: reserve
+   the names `Winlogon` and `Screen-Saver` for the system role, and check `WINSTA_CREATEDESKTOP` in `create_desktop`
+   (`winstation.c:677-714`). Descriptor content: SYSTEM only, not ReactOS' administrator ACE (pitfall 1), handle not
+   inheritable (pitfall 2).
+5. **Messages, window handlers, hooks across desktops.** Messages: in `send_message` (`queue.c:3139`) reject when the
+   sender thread's desktop differs from the receiver's (posts use the same handler), except for system-role senders.
+   Hooks: in `set_hook` (`hook.c:402`) reject a thread hook whose target thread is on another desktop. Window handlers
+   that read or change a window by handle (`set_window_pos`, show, text, rect, `IsWindow`) leak and allow hiding the
+   consent window; a cross-desktop test belongs in the common lookup used by those handlers, but a blanket test may
+   break explorer and the shell, so list the callers first. `AttachThreadInput` (`queue.c:3698`),
+   `SetForegroundWindow` (`window.c:796`), and `SendInput` already hold. Native Windows' exact error codes for these were
+   not checked (the XP VM cannot answer; a native run is needed if the codes matter).
+6. **Process start on a denied desktop** (`winstation.c:525-528`): a child with no desktop is not what Windows does
+   (it fails the create). Keep it: it fails closed. Decide only whether to turn it into a `CreateProcess` error.
+7. **Presentation, X11 session.** Nothing hides or covers the `Default` windows on a switch. Two candidate designs:
+   (a) the consent process makes itself exclusive (full-screen override-redirect window, `XGrabKeyboard` and
+   `XGrabPointer`, `XSetInputFocus`), the dimmed background is a root-window snapshot taken before mapping; X releases
+   the grabs if the process dies, so the failure mode is safe and no Wine driver change is needed;
+   (b) a driver notification (a per-winstation serial in shared memory, like `monitor_serial`, plus a driver hook) that
+   makes every process unmap the windows of non-input desktops, closer to ReactOS but a change in both drivers and in
+   every process. Recommendation: (a) for the first implementation. Decision for the main session.
+8. **Presentation, Wayland session.** Needs `wexcomp`: a new `wex-window-v1` layer or request (for example a "secure"
+   layer) under which the compositor shows only the secure surface and routes keyboard and pointer only to it. That
+   is a compositor change outside this tree. Decision for the user: is Wayland in the acceptance scope of step 5, or is it
+   documented as "click consent on `Default`, secure desktop not available" until `wexcomp` has the layer.
+   The acceptance probe cannot run on headless weston (no seat); it must run in the real Wayland session.
+9. **Policy flag.** `PromptOnSecureDesktop=0` keeps today's `WinSta0\Default` (line 542) with no switch; `1` switches.
+   A desktop that is not secure must never be the "return" target set by a limited process: the return desktop is fixed
+   by the broker (always `Default`).
+10. **Acceptance probe.** `scripts/secure_desktop_probe.c` already covers: `SendInput`/`keybd_event`/`mouse_event`,
+    the win32u hardware path, `PostMessage(BM_CLICK, WM_COMMAND)`, `SendMessage`, thread and global hooks,
+    `AttachThreadInput`, `SetForegroundWindow`, desktop enumeration, DACL honoring, the squatting case, the death of the
+    switcher, host flips, and real `xdotool` input. Phase 1 must run it against the broker's SYSTEM desktop in the
+    `test_sysrun_server.sh` fixture (the SYSTEM-only descriptor admits the broker, a limited process gets 5), add
+    the consent window as the target, and run both architectures (the 32-bit run could not be done here).
