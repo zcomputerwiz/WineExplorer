@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: consent for the elevation broker (plan step 6)
 
-Date: 2026-10-24. Status: scoped; decisions settled (see "Decisions"). Part of
+Date: 2026-10-24. Status: Part A built; Part B revised (see "Decisions"). Part of
 `ELEVATION_BOUNDARY_PLAN.md` (design D3.3, step 6). Builds on the broker (`ELEVATION_BROKER_WORKORDER.md`): the
 `wexelevate` service exists, freezes requests and fails closed (21) in shipping builds because nothing approves.
 
@@ -42,75 +42,57 @@ opens it while the elevated program runs ends that program and the write then su
 shared mapping behave the same; root-owned images need no lease; a file system without leases gives the distinct
 error.
 
-## Part B: approval
+## Part B: approval (revised 2026-10-24, see "Decisions")
 
-**Proposed (C2): credentials for administrators until the secure desktop exists.** Click consent can be faked by
-any same-user process sending synthetic input (plan Q4), so it waits for step 5. Until then the broker asks polkit
-for administrator credentials for every elevation:
-- polkit action `org.wineexplorer.elevation.runas`, default `auth_admin` for active, inactive and any sessions,
-  never `auth_admin_keep` (no reuse window). Policy file installed by `setup-machine-root.sh`.
-- The broker calls `CheckAuthorization` itself over the system bus, subject = the caller process (unix-process with
-  pid, start time and uid, taken from the server's record, not from the request), flag `AllowUserInteraction`,
-  details: the frozen image path, its SHA-256 and the command line, so the prompt shows what will run. polkit's own
-  admin identities (by default `sudo` members on Debian) decide whose password counts.
-- The password is typed into the existing wexhost polkit agent (`src/dlls/wexshell/uac_agent.c`,
-  `src/dlls/wexhost/unixlib.c`) and checked by PAM through `polkit-agent-helper-1`. The broker never sees it.
-- After step 5, policy 2 (click consent on the secure desktop) becomes the default for administrators and this
-  becomes policies 1 and 3, as the plan says.
+The Windows rule: an administrator who chooses "run as administrator" confirms; only a request that comes from another
+account (a standard user typing an administrator's password) asks for credentials. So:
 
-**Errors (C3):** approve: launches exactly one target; cancel or dismiss: 1223 (`ERROR_CANCELLED`); polkitd not
-reachable: 1062 (`ERROR_SERVICE_NOT_ACTIVE`); no agent registered (polkit returns not authorized without a
-challenge): 5 (`ERROR_ACCESS_DENIED`); timeout (proposed 120 s, the request dies with
-it): 1460 (`ERROR_TIMEOUT`); wrong password: polkit's not authorized, 5. Never success without polkit's
-`is_authorized`.
+**Administrators: click consent, no password, no polkit.** The broker starts the consent window itself as a
+system-role process (SYSTEM token, its own child, not the caller's), on the user's default desktop for now (step 5
+moves it to the secure desktop; synthetic input is the accepted gap until then). The window cannot be requested or
+steered through the request pipe: the broker passes it the frozen image path, the publisher (the signer of the image,
+if any) and the command line, all taken from the frozen request. It launches only on Approve. `src/programs/consent`
+is reused if it fits. Policy: `ConsentPromptBehaviorAdmin` (HKLM `Software\Microsoft\Windows\CurrentVersion\Policies\System`, writable by
+administrators only while elevation is enforced). The values 2 and 5 select click consent; absent or any other value
+keeps failing closed (`ERROR_NOT_READY`, 21), so nothing changes for a build whose policy is not set (the default policy
+is decided after step 5). 1 and 3 (credentials) also stay at 21 until the polkit work order.
 
-**Standard users (C4, user decision).** On Windows a standard user can elevate by typing an administrator's
-password ("over the shoulder"); the program then runs as that administrator. Here the elevated process would run
-under the standard user's Unix account with an administrator token and `wexsys`. Options:
-- (a) keep `ERROR_NOT_SUPPORTED` (50) for standard users in this step; decide later;
-- (b) allow it: after polkit accepts an administrator's credentials, the broker builds a full administrator token
-  for the standard user's session (new: the standard user has no linked token today) and launches with it.
-Recommendation: (a) now, (b) as its own small work order once (a) is validated, because it creates the first full
-token for a user who is not an administrator and needs its own review.
+**Errors:** Approve launches exactly one target; Cancel or close: 1223 (`ERROR_CANCELLED`); timeout (120 s, the request
+dies with it): 1460 (`ERROR_TIMEOUT`); the consent UI cannot start: 1062 (`ERROR_SERVICE_NOT_ACTIVE`). Never success
+without Approve.
 
-**Known limits to document (C5):** on X11 any client of the same user can read keystrokes, so an administrator's
-password typed into the agent can be captured by a same-user process; the same is true of `sudo` in a terminal. A
-secure desktop (step 5) under X11 does not change that; under Wayland the compositor isolates input. The agent runs
-in the user's session; a limited process that injects into the agent's process can read the password the same way.
-Recorded, not fixed here.
+**Test hook.** The test build (`-DWEXELEVATE_TEST_APPROVAL`) drives Approve and Cancel through a test-only hook (files
+in the harness directory read by the consent program), never by injecting input. The shipping build has no such hook
+(a grep check, as with the stub).
 
-**Where the approver lives (C6):** the shipping broker gets its approver behind the same function the test stub uses
-today; the test stub stays test-only, and the test build can also use a test polkit agent instead of the stub.
+**Standard users (C4):** `ERROR_NOT_SUPPORTED` (50), unchanged. Credential elevation with selection of the administrator
+account (polkit `CheckAuthorization`, the wexhost agent) is its own work order, after this one.
+
+**Known limits (C5):** until step 5, a limited process of the same user can send synthetic input to the consent
+window on the default desktop. Recorded, not fixed here.
 
 ## Part C: tests
 
-In this container, as the plan says: start a system `dbus-daemon` and `polkitd` in the test fixture, two accounts
-with known test passwords (one in `sudo`, one not), the polkit policy file installed, and a test authentication agent
-registered for the test process (polkit's `pkttyagent` driven by the test, or a small agent using
-`polkit-agent-helper-1`; no logind session is needed for a unix-process subject). Probes:
-- approve with the administrator's password launches exactly one target, through the broker, with the full token;
-- wrong, empty and arbitrary passwords, and a valid password of the non-administrator, launch nothing (5);
-- cancel (1223), no polkitd (1062), no agent (5), timeout (1460) launch nothing;
-- two concurrent requests: approving one does not approve the other;
-- the password never appears in any log, environment or argv (grep the logs and `/proc/*/cmdline` of the fixture
-  during the run);
-- Part A's probes;
-- regression: the usual full harness with the helper unset at baseline, focused with the helper set, B4 both modes,
-  the broker fixture section.
+Part A's probes (the broker fixture of `scripts/test_sysrun_server.sh`), and for Part B: Approve launches exactly one
+target through the broker with the full token; Cancel (1223), timeout (1460), consent UI missing (1062) launch nothing;
+two concurrent requests: approving one does not approve the other; the consent window shows the frozen image, publisher
+and command line of its own request; the hook is absent from the shipping build; regression: the usual full harness with
+the helper unset at baseline, focused with the helper set, B4 both modes. No dbus-daemon or polkitd is needed.
 
 ## Decisions (user, 2026-10-24)
 
 Nothing is deployed until the whole plan is complete, so no interim safety measures are needed. Applied as follows:
-- C2 as an interim default is dropped. The polkit credential path is still built here, because it is the final
-  design for policies 1 and 3; which policy is the default is set after the secure desktop (step 5), as the plan
-  says. Until then the test build selects the policy explicitly.
-- C1 is kept (main session): the image swap is not an interim gap but a hole in the finished design, since a
-  limited process could replace an approved program under any approval method. It is small and is built here.
+- C1 (read lease) is kept: the image swap is a hole in the finished design under any approval method. Built first.
 - C4: (a), standard users get `ERROR_NOT_SUPPORTED` (50) for now.
+- Scope change (user, later the same day): "only ask for a password when elevating from a different account, like
+  Windows; an administrator who chooses run as administrator just confirms; a standard user selects the administrator
+  account and types the password if one is set". Therefore Part B is click consent for administrators (above), the
+  polkit credential path (C2 as first drafted) is dropped from this work order and becomes its own work order
+  (over-the-shoulder elevation).
 
 ## How the work is split
 
-Planning and review: the main session; C1, C2 and C4 need the user's agreement first. Implementation: a Sonnet
+Planning and review: the main session. Implementation: a Sonnet
 agent, Part A first (it can be merged on its own), then Part B and C.
 
 ## Results
