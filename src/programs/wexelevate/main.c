@@ -11,8 +11,10 @@
  *    WexLease*): a writer who opens the file makes the pending request fail with ERROR_FILE_CORRUPT, or ends the
  *    running elevated process (only that process) and then goes on;
  *  - gives the request a random single-use id, which is destroyed when the request ends, fails or the caller exits;
- *  - asks for approval (the shipping broker has no way to ask yet and fails closed; a build with
- *    WEXELEVATE_TEST_APPROVAL calls a stub program, which exists in the test harness only);
+ *  - asks for approval: click consent (ConsentPromptBehaviorAdmin 2 or 5, 5 when absent) in the consent window,
+ *    which runs on the secure desktop WinSta0\Winlogon (PromptOnSecureDesktop, default 1) that this service makes
+ *    with a SYSTEM-only descriptor; any other policy fails closed. A build with WEXELEVATE_TEST_APPROVAL calls a
+ *    stub program for a request with no policy value, which exists in the test harness only;
  *  - gets the linked full token of the caller's token as a primary token (it can, as the system role), creates
  *    the process with the caller as its parent and duplicates the process handle into the caller.
  * A standard user, or a caller that is elevated already, gets ERROR_NOT_SUPPORTED. If the service does not run
@@ -93,6 +95,14 @@ static BOOL system_role;  /* running as SYSTEM with SeTcbPrivilege enabled */
 static CRITICAL_SECTION table_cs;
 static struct request *table[MAX_REQUESTS];
 static LONG active_threads;
+
+/* the secure desktop (docs/ELEVATION_SECURE_DESKTOP_WORKORDER.md): WinSta0\Winlogon, made by this service with a
+ * descriptor that admits SYSTEM only; the input returns to the user's Default desktop (looked up again each time: a
+ * desktop that Wine closed and made again is another object) */
+static HDESK secure_desktop, saved_input;
+static CRITICAL_SECTION secure_cs;
+static LONG secure_users;                      /* consent windows on the secure desktop now */
+static BOOL secure_failed;                     /* the desktop could not be made safely: no prompt on it, ever */
 
 /* ---- the read lease on the image (wexhost's Unix side) ---------------------------------------------------------- */
 
@@ -484,17 +494,176 @@ static DWORD verify_image( struct request *req )
 
 /* ---- approval ------------------------------------------------------------------------------------------------ */
 
-/* The consent policy is HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System ConsentPromptBehaviorAdmin
- * (writable by administrators only while elevation is enforced). 2 and 5 select click consent. Anything else,
- * including no value, selects nothing: the default policy is decided after the secure desktop (plan step 5), and a
- * broker without a policy fails closed. 1 and 3 (credentials) are the polkit work order and also select nothing. */
-static BOOL click_consent_selected(void)
+#define POLICY_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+
+/* The consent policy (writable by administrators only while elevation is enforced). ConsentPromptBehaviorAdmin: 5
+ * when absent, as in Windows; 2 and 5 select click consent. Windows' 5 also auto-elevates its own signed programs
+ * that ask for it; that is not implemented (a known source of UAC bypasses). 0 (elevate without asking) and any
+ * other value select nothing: the broker fails closed, 21. 1 and 3 (credentials) are the polkit work order.
+ * Returns 1 for click consent, 0 for none; *absent says whether the value was missing. */
+static BOOL click_consent_selected( BOOL *absent )
+{
+    DWORD value = 0, size = sizeof(value), err;
+
+    err = RegGetValueW( HKEY_LOCAL_MACHINE, POLICY_KEY, L"ConsentPromptBehaviorAdmin", RRF_RT_REG_DWORD, NULL, &value, &size );
+    *absent = err == ERROR_FILE_NOT_FOUND;
+    if (*absent) return TRUE;
+    if (err) return FALSE;   /* a value of another type: not a policy we know */
+    return value == 2 || value == 5;
+}
+
+/* PromptOnSecureDesktop: 1 when absent. Only a DWORD 0 puts the prompt on the user's desktop. */
+static BOOL prompt_on_secure_desktop(void)
+{
+    DWORD value = 1, size = sizeof(value);
+
+    if (RegGetValueW( HKEY_LOCAL_MACHINE, POLICY_KEY, L"PromptOnSecureDesktop", RRF_RT_REG_DWORD, NULL, &value, &size ))
+        return TRUE;
+    return value != 0;
+}
+
+/* ---- the secure desktop ---------------------------------------------------------------------------------- */
+
+/* Create WinSta0\Winlogon before anything that a user controls can, with a descriptor that names SYSTEM only (not
+ * ReactOS' Administrators ACE: its STANDARD_RIGHTS_REQUIRED lets administrators rewrite the descriptor), and a handle
+ * that no child inherits. The server reserves the name for the system role; this also fails closed when the desktop
+ * existed already or its descriptor reads back as anything else. */
+static DWORD check_secure_descriptor( HDESK desk )
+{
+    SECURITY_DESCRIPTOR *sd;
+    SECURITY_INFORMATION info = DACL_SECURITY_INFORMATION;
+    DWORD size = 0, err = ERROR_ACCESS_DENIED;
+    ACL *dacl;
+    BOOL present, defaulted;
+    ACCESS_ALLOWED_ACE *ace;
+
+    GetUserObjectSecurity( desk, &info, NULL, 0, &size );
+    if (!size || !(sd = malloc( size ))) return ERROR_NOT_ENOUGH_MEMORY;
+    if (GetUserObjectSecurity( desk, &info, sd, size, &size ) &&
+        GetSecurityDescriptorDacl( sd, &present, &dacl, &defaulted ) && present && dacl &&
+        dacl->AceCount == 1 && GetAce( dacl, 0, (void **)&ace ) && ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE &&
+        IsWellKnownSid( (SID *)&ace->SidStart, WinLocalSystemSid ) && (ace->Mask & (GENERIC_ALL | DESKTOP_SWITCHDESKTOP)))
+        err = ERROR_SUCCESS;
+    free( sd );
+    return err;
+}
+
+#ifdef WEXELEVATE_TEST_APPROVAL
+/* Test harness only: HKLM\Software\WineExplorer\ElevationTest "SecureDesktopTest" = 1 makes this broker create
+ * Winlogon with an open descriptor first (the broker must refuse a desktop that existed before it), 2 makes it use an
+ * open descriptor itself (it must refuse a descriptor that reads back wider than SYSTEM only). */
+static DWORD secure_desktop_test(void)
 {
     DWORD value = 0, size = sizeof(value);
 
-    if (RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-                      L"ConsentPromptBehaviorAdmin", RRF_RT_REG_DWORD, NULL, &value, &size )) return FALSE;
-    return value == 2 || value == 5;
+    RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\ElevationTest", L"SecureDesktopTest", RRF_RT_REG_DWORD, NULL,
+                  &value, &size );
+    return value;
+}
+#endif
+
+static DWORD create_secure_desktop(void)
+{
+    SECURITY_ATTRIBUTES sa = { sizeof(sa) };
+    HWINSTA station, saved = GetProcessWindowStation();
+    HDESK existing;
+    const WCHAR *sddl = L"D:(A;;GA;;;SY)";
+    DWORD err;
+
+    if (!(station = OpenWindowStationW( L"WinSta0", FALSE, WINSTA_CREATEDESKTOP | WINSTA_ENUMDESKTOPS )))
+        return GetLastError();
+    if (!SetProcessWindowStation( station ))
+    {
+        err = GetLastError();
+        CloseWindowStation( station );
+        return err;
+    }
+    err = ERROR_SUCCESS;
+#ifdef WEXELEVATE_TEST_APPROVAL
+    if (secure_desktop_test() == 1) CreateDesktopW( L"Winlogon", NULL, NULL, 0, DESKTOP_READOBJECTS, NULL );
+    if (secure_desktop_test() == 2) sddl = L"D:(A;;GA;;;SY)(A;;GA;;;WD)";
+#endif
+    /* an existing Winlogon, whoever made it, is not trusted */
+    if ((existing = OpenDesktopW( L"Winlogon", 0, FALSE, DESKTOP_READOBJECTS )))
+    {
+        CloseDesktop( existing );
+        err = ERROR_ALREADY_EXISTS;
+    }
+    else if (GetLastError() != ERROR_FILE_NOT_FOUND) err = ERROR_ALREADY_EXISTS;
+    if (!err && !ConvertStringSecurityDescriptorToSecurityDescriptorW( sddl, SDDL_REVISION_1,
+                                                                       &sa.lpSecurityDescriptor, NULL )) err = GetLastError();
+    if (!err)
+    {
+        sa.bInheritHandle = FALSE;
+        secure_desktop = CreateDesktopW( L"Winlogon", NULL, NULL, 0, DESKTOP_SWITCHDESKTOP | DESKTOP_READOBJECTS | READ_CONTROL, &sa );
+        if (!secure_desktop) err = GetLastError();
+        LocalFree( sa.lpSecurityDescriptor );
+    }
+    if (!err && (err = check_secure_descriptor( secure_desktop )))
+    {
+        CloseDesktop( secure_desktop );
+        secure_desktop = NULL;
+    }
+    if (err)
+    {
+        SetProcessWindowStation( saved );
+        CloseWindowStation( station );
+        if (secure_desktop) CloseDesktop( secure_desktop );
+        secure_desktop = NULL;
+    }
+    /* On success the process stays in WinSta0: SwitchDesktop acts on the process's window station, and only
+     * WinSta0 takes input from the host. The elevated programs do not depend on it (they take the caller's desktop). */
+    return err;
+}
+
+/* switch to the secure desktop for a consent window (the first one switches), and back when the last one is gone */
+static DWORD secure_enter(void)
+{
+    DWORD err = ERROR_SUCCESS;
+
+    EnterCriticalSection( &secure_cs );
+    /* The broker is a service, in a window station of its own; WinSta0 exists once a user's program has connected, so
+     * the desktop is made at the first prompt, not at the start of the service. A limited process cannot take the name
+     * meanwhile: the server reserves it for the system role. Any failure except a missing WinSta0 is final. */
+    if (!secure_desktop && !secure_failed)
+    {
+        DWORD created = create_secure_desktop();
+
+        if (created == ERROR_FILE_NOT_FOUND) err = ERROR_NOT_READY;
+        else if (created) secure_failed = TRUE;
+    }
+    if (!err && !secure_desktop) err = ERROR_NOT_READY;
+    if (!err && !secure_users)
+    {
+        saved_input = OpenInputDesktop( 0, FALSE, DESKTOP_SWITCHDESKTOP );   /* what the input returns to if Default is gone */
+        if (!SwitchDesktop( secure_desktop )) err = GetLastError();
+        if (err && saved_input) CloseDesktop( saved_input );
+    }
+    if (!err) secure_users++;
+    LeaveCriticalSection( &secure_cs );
+    return err;
+}
+
+/* the input goes back to Default, or to the desktop that had it if Default cannot be opened */
+static void return_input(void)
+{
+    HDESK desk = OpenDesktopW( L"Default", 0, FALSE, DESKTOP_SWITCHDESKTOP );
+
+    if (desk)
+    {
+        SwitchDesktop( desk );
+        CloseDesktop( desk );
+    }
+    else if (saved_input) SwitchDesktop( saved_input );
+    if (saved_input) CloseDesktop( saved_input );
+    saved_input = NULL;
+}
+
+static void secure_leave(void)
+{
+    EnterCriticalSection( &secure_cs );
+    if (secure_users && !--secure_users) return_input();
+    LeaveCriticalSection( &secure_cs );
 }
 
 static DWORD consent_timeout(void)
@@ -509,11 +678,11 @@ static DWORD consent_timeout(void)
 }
 
 /* Click consent. The broker starts the consent window itself, as its own child (the SYSTEM token of the service,
- * not the caller's), on the default desktop, and tells it what it was asked to run: the frozen image path and the
- * command line of the frozen request, never anything the consent program could take from the caller. It exits with
- * 0 only when the user chose Continue, with ERROR_CANCELLED when the user cancelled or closed it. Whatever else
+ * not the caller's), on the secure desktop (PromptOnSecureDesktop, default 1; 0: the user's desktop), and tells it
+ * what it was asked to run: the frozen image path and the command line of the frozen request, never anything the
+ * consent program could take from the caller. It exits with 0 only when the user chose Continue, with ERROR_CANCELLED when the user cancelled or closed it. Whatever else
  * happens (it cannot start, crashes, exits with another code) is no approval. */
-static DWORD approve_consent( struct request *req )
+static DWORD approve_consent( struct request *req, BOOL secure )
 {
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
@@ -534,15 +703,24 @@ static DWORD approve_consent( struct request *req )
 #ifdef WEXELEVATE_TEST_APPROVAL
     wsprintfW( cmd + lstrlenW( cmd ), L"/testid %08lx%08lx ", (DWORD)(req->id >> 32), (DWORD)req->id );
 #endif
+    if (secure) lstrcatW( cmd, L"/secure " );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/ppid %lu ", GetCurrentProcessId() );
     lstrcatW( cmd, L"/image \"" );
     lstrcatW( cmd, req->image );
     lstrcatW( cmd, L"\" /cmd " );
     lstrcatW( cmd, req->cmdline );
 
-    si.lpDesktop = (WCHAR *)L"WinSta0\\Default";
+    /* the input goes to the secure desktop first; every way out below returns it */
+    if (secure && secure_enter())
+    {
+        free( cmd );
+        return ERROR_NOT_READY;
+    }
+    si.lpDesktop = (WCHAR *)(secure ? L"WinSta0\\Winlogon" : L"WinSta0\\Default");
     if (!CreateProcessW( NULL, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi ))
     {
         free( cmd );
+        if (secure) secure_leave();
         return ERROR_SERVICE_NOT_ACTIVE;
     }
     free( cmd );
@@ -555,12 +733,15 @@ static DWORD approve_consent( struct request *req )
     if (ret != WAIT_OBJECT_0)
     {
         TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
         CloseHandle( pi.hProcess );
+        if (secure) secure_leave();
         return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ret == WAIT_OBJECT_0 + 3 ? ERROR_FILE_CORRUPT : ERROR_CANCELLED;
     }
     code = ERROR_GEN_FAILURE;
     GetExitCodeProcess( pi.hProcess, &code );
     CloseHandle( pi.hProcess );
+    if (secure) secure_leave();
     if (code == ERROR_SUCCESS) return ERROR_SUCCESS;
     return code == ERROR_CANCELLED ? ERROR_CANCELLED : ERROR_SERVICE_NOT_ACTIVE;
 }
@@ -600,13 +781,17 @@ static DWORD approve_stub( struct request *req )
 
 static DWORD approve( struct request *req )
 {
-    if (click_consent_selected()) return approve_consent( req );
+    BOOL absent;
+
+    if (click_consent_selected( &absent ))
+    {
 #ifdef WEXELEVATE_TEST_APPROVAL
-    return approve_stub( req );
-#else
-    /* no policy selected: fail closed (docs/ELEVATION_BOUNDARY_PLAN.md steps 5 and 6) */
-    return ERROR_NOT_READY;
+        if (absent) return approve_stub( req );   /* the test build keeps the step 4 stub for a request with no policy */
 #endif
+        return approve_consent( req, prompt_on_secure_desktop() );
+    }
+    /* a policy that selects no click consent (0, 1, 3, an unknown value): fail closed */
+    return ERROR_NOT_READY;
 }
 
 /* ---- the launch ---------------------------------------------------------------------------------------------- */
@@ -886,9 +1071,11 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
     report( SERVICE_START_PENDING, 0 );
     InitializeCriticalSection( &table_cs );
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
+    InitializeCriticalSection( &secure_cs );
     system_role = token_is_system_with_tcb();
     if (!load_wexhost()) pLeaseTake = NULL;   /* no lease possible: every request then fails closed */
     serve();
+    if (secure_desktop) return_input();   /* whatever happened: the input goes back */
     report( SERVICE_STOPPED, 0 );
 }
 

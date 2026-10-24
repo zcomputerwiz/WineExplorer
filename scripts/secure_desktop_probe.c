@@ -13,6 +13,13 @@
  *   tmpswitch <dir>    creates a private desktop, switches to it and sleeps
  *   where <dir> <name> writes the name of its own thread desktop
  *   query [<dir>]      prints the name of the input desktop
+ *   scan <dir> <pid> <tag>   acceptance: the window of process <pid> (the broker's consent.exe) is found by scanning
+ *                      window handles, as an attacker without access to the desktop would; writes scan.<tag>.info
+ *                      ("hwnd tid button left top right bottom"), then runs the attacker battery against it
+ *   rect <dir> <pid> <tag>   the same, writes scan.<tag>.info only
+ *   hold               a user32 program that keeps WinSta0 in existence (the real session has explorer)
+ *   squat <dir>        a limited process tries to create the reserved desktops, and an ordinary one
+ *   switchrules <dir>  SwitchDesktop needs DESKTOP_SWITCHDESKTOP on the handle
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  * Copyright 2026 WineExplorer Desktop Environment Project
@@ -251,6 +258,8 @@ static int run_attacker(HWND target, DWORD ttid, HWND btn, const char *tag)
         CloseHandle(tk);
     }
     orig = GetThreadDesktop(GetCurrentThreadId());
+    /* the display cache reads HKLM; a restricted token cannot, so fill it before the impersonation */
+    { RECT r; GetWindowRect(GetDesktopWindow(), &r); GetSystemMetrics(SM_CXVIRTUALSCREEN); MonitorFromPoint((POINT){0, 0}, MONITOR_DEFAULTTOPRIMARY); }
     if (!strcmp(tag, "limited"))
     {
         HANDLE tk, rt = NULL, it = NULL; BYTE sb[SECURITY_MAX_SID_SIZE]; DWORD sl = sizeof(sb); SID_AND_ATTRIBUTES rs = {0};
@@ -443,6 +452,91 @@ static int run_tmpswitch(void)
     char p[MAX_PATH]; HDESK d = CreateDesktopA("TmpSwitch", NULL, NULL, 0, GENERIC_ALL, NULL); BOOL ok = d ? SwitchDesktop(d) : FALSE; FILE *f;
     path(p, "tmpswitch.info"); f = fopen(p, "w"); fprintf(f, "%d %lu\n", ok, GetLastError()); fclose(f);
     Sleep(600000);
+    return 0;
+}
+
+/* ---------------- acceptance modes against the broker's real secure desktop ---------------- */
+static HWND scan_found;
+static DWORD scan_tid;
+static HWND mine[512];
+static int nmine, nseen, nforeign;
+
+static BOOL CALLBACK collect(HWND h, LPARAM l) { if (nmine < 512) mine[nmine++] = h; return TRUE; }
+
+/* An attacker has no access to the desktop, so it cannot enumerate its windows; user handles are small, so it
+ * scans them (the 16 bit form of a handle names a window of any generation). pid 0: any dialog with a Continue button (IDYES) that EnumWindows of the attacker's own desktop does not list. */
+static void scan_for_window(DWORD pid)
+{
+    UINT_PTR h;
+    int i;
+    nmine = nseen = nforeign = 0;
+    EnumWindows(collect, 0);
+    scan_found = NULL;
+    for (h = 0x20; h < 0x10000 && !scan_found; h++)   /* the handle without its generation word is accepted too */
+    {
+        DWORD p = 0, t;
+        if (!IsWindow((HWND)h)) continue;
+        nseen++;
+        for (i = 0; i < nmine; i++) if (mine[i] == (HWND)h) break;
+        if (i < nmine) continue;
+        t = GetWindowThreadProcessId((HWND)h, &p);
+        if (p != GetCurrentProcessId()) nforeign++;
+        if ((pid ? p == pid : p != GetCurrentProcessId()) && !GetParent((HWND)h) && !GetWindow((HWND)h, GW_OWNER) &&
+            GetDlgItem((HWND)h, IDYES))
+        {
+            scan_found = (HWND)h;
+            scan_tid = t;
+        }
+    }
+}
+
+static int run_scan(const char *tag, DWORD pid, int attack)
+{
+    char p[MAX_PATH]; FILE *f; HWND btn; RECT rc = {0};
+    int i;
+    for (i = 0; i < 300 && !scan_found; i++) { scan_for_window(pid); if (!scan_found) Sleep(200); }
+    snprintf(p, sizeof(p), "%s\\scan.%s.info", dir, tag);
+    f = fopen(p, "w");
+    if (!scan_found) { fprintf(f, "none: windows=%d foreign=%d listed-by-EnumWindows=%d\n", nseen, nforeign, nmine); fclose(f); return 1; }
+    btn = GetDlgItem(scan_found, IDYES);
+    GetWindowRect(btn, &rc);
+    fprintf(f, "%llu %lu %llu %ld %ld %ld %ld\n", (unsigned long long)(ULONG_PTR)scan_found, scan_tid,
+            (unsigned long long)(ULONG_PTR)btn, rc.left, rc.top, rc.right, rc.bottom);
+    fclose(f);
+    if (!attack) return 0;
+    _putenv("NOSEC=1");
+    return run_attacker(scan_found, scan_tid, btn, tag);
+}
+
+static void result(const char *name, BOOL pass) { printf("%s=%s\n", name, pass ? "PASS" : "FAIL"); fflush(stdout); }
+
+/* the reserved names belong to the system role; an ordinary name still works */
+static int run_squat(void)
+{
+    HDESK d1, d2, d3; DWORD e1, e2;
+    SetLastError(0); d1 = CreateDesktopA("Winlogon", NULL, NULL, 0, GENERIC_ALL, NULL); e1 = GetLastError();
+    SetLastError(0); d2 = CreateDesktopA("Screen-Saver", NULL, NULL, 0, GENERIC_ALL, NULL); e2 = GetLastError();
+    d3 = CreateDesktopA("SDOrdinary", NULL, NULL, 0, GENERIC_ALL, NULL);
+    printf("Winlogon -> %p err=%lu, Screen-Saver -> %p err=%lu, SDOrdinary -> %p\n", d1, e1, d2, e2, d3);
+    result("squat", !d1 && e1 == ERROR_ACCESS_DENIED && !d2 && e2 == ERROR_ACCESS_DENIED && d3);
+    return 0;
+}
+
+static int run_switchrules(void)
+{
+    HDESK ord = CreateDesktopA("SDSwitch", NULL, NULL, 0, GENERIC_ALL, NULL), weak, strong, dflt;
+    BOOL weak_ok, strong_ok, back_ok; DWORD weak_err;
+    char dn[64];
+    if (!ord) { result("switchrules", FALSE); return 0; }
+    dflt = OpenDesktopA("Default", 0, FALSE, DESKTOP_SWITCHDESKTOP);
+    weak = OpenDesktopA("SDSwitch", 0, FALSE, DESKTOP_READOBJECTS);
+    strong = OpenDesktopA("SDSwitch", 0, FALSE, DESKTOP_SWITCHDESKTOP);
+    SetLastError(0); weak_ok = SwitchDesktop(weak); weak_err = GetLastError();
+    strong_ok = SwitchDesktop(strong);
+    input_desktop_name(dn, sizeof(dn));
+    back_ok = SwitchDesktop(dflt);
+    printf("without the right: ok=%d err=%lu; with it: ok=%d (input %s); back: ok=%d\n", weak_ok, weak_err, strong_ok, dn, back_ok);
+    result("switchrules", !weak_ok && weak_err == ERROR_ACCESS_DENIED && strong_ok && !strcmp(dn, "SDSwitch") && back_ok);
     return 0;
 }
 
@@ -665,6 +759,7 @@ static int run_main(int sys)
 int main(int argc, char **argv)
 {
     if (argc < 2) return 2;
+    if (!strcmp(argv[1], "hold")) { GetProcessWindowStation(); GetThreadDesktop(GetCurrentThreadId()); Sleep(600000); return 0; }
     if (!strcmp(argv[1], "query")) { char dn[64], tn[64], p[MAX_PATH]; FILE *f; input_desktop_name(dn, sizeof(dn)); thread_desktop_name(tn, sizeof(tn));
         if (argc > 2) { snprintf(p, sizeof(p), "%s\\query.out", argv[2]); f = fopen(p, "a"); fprintf(f, "input=%s thread=%s\n", dn, tn); fclose(f); }
         else printf("%s\n", dn);
@@ -676,6 +771,10 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "where") && argc >= 4) return run_where(argv[3]);
     if (!strcmp(argv[1], "switcher")) return run_switcher();
     if (!strcmp(argv[1], "tmpswitch")) return run_tmpswitch();
+    if (!strcmp(argv[1], "scan") && argc >= 5) { out = stdout; return run_scan(argv[4], strtoul(argv[3], 0, 10), 1); }
+    if (!strcmp(argv[1], "rect") && argc >= 5) return run_scan(argv[4], strtoul(argv[3], 0, 10), 0);
+    if (!strcmp(argv[1], "squat")) return run_squat();
+    if (!strcmp(argv[1], "switchrules")) return run_switchrules();
     if (!strcmp(argv[1], "attacker") && argc >= 7)
         return run_attacker((HWND)(ULONG_PTR)strtoull(argv[3], 0, 10), strtoul(argv[4], 0, 10), (HWND)(ULONG_PTR)strtoull(argv[5], 0, 10), argv[6]);
     return 2;

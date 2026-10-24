@@ -171,6 +171,15 @@ before porting.
 
 ## Status (2026-10-22; updated 2026-10-23)
 
+- **Step 5 (secure desktop): done for X11 (2026-10-24)**, see `ELEVATION_SECURE_DESKTOP_WORKORDER.md` "Results, phases 1 to 4". The broker
+  makes `WinSta0\\Winlogon` (SYSTEM-only descriptor) and shows the consent window on it, switching back on every exit path (the server
+  is the backstop); with the system role the server refuses cross-desktop messages, thread hooks, window operations and switching
+  away by a limited process; hardware input follows Windows' rule (not gated); the X11 driver covers the screen with a dimmed
+  snapshot and grabs the keyboard and pointer. Policy defaults: `PromptOnSecureDesktop` 1, `ConsentPromptBehaviorAdmin` 5 (click
+  consent, no auto-elevation; 0 refused). 222 `test_sysrun_server.sh` checks, `test_wex_sysrun.sh` 60, `check-token-security.py --all`
+  (advapi32 security 0 failures, ntdll info 0, shlexec 1805/2 as before), `--focused` as administrator and standard user, B4 both modes
+  pass. Limits: native X11 clients of the same user still reach the display (T5); Wayland needs a `wexcomp` layer (follow-up).
+
 - **Step 6 (consent): done for administrators (2026-10-24)**, see `ELEVATION_CONSENT_WORKORDER.md` "Results". The broker holds a read
   lease on the frozen image until the elevated process exits (a write open fails a pending request or ends the running program), and
   with `ConsentPromptBehaviorAdmin` 2 or 5 it starts `consent.exe` itself as its SYSTEM child and launches only on Continue (Cancel
