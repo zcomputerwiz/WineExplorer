@@ -10,8 +10,12 @@ They now contain retained failed evidence: no overwrite/reuse/retry is authorize
 Actual consumer SSH exit1, archive0; host procedure exit0 only means orchestration
 completed. Calibration `passed=false`, primary error:
 `ValueError('Linux image/app URL/profile/argv mismatch')`.
-The observer started Linux Popen940/start3586, rejected independent Linux identity,
-then killed/reaped that exact helper before prefix cleanup. Recorded reap=-9,
+The observer started Linux Popen940/start3586. First and last saved VALID Linux
+snapshots matched the expected wine/native-exit.exe/calibration-path/nonce argv
+array. A later identity check failed, then the observer killed/reaped that exact
+helper before prefix cleanup. The rejected cmdline bytes were NOT retained by
+linux_identity(), so the generic error does not establish their format or cause.
+Execution beyond the loader is UNKNOWN. Recorded reap=-9,
 observer_killed=true; no natural Linux helper0 or accepted native binding/full
 child status. Archived helper stdout/stderr are empty and no native journal is
 present. Intentional native3221225599/0xc000007f was NOT demonstrated. This does
