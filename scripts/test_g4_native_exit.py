@@ -18,9 +18,10 @@ class NativeContractTests(unittest.TestCase):
         scripts=Path(__file__).resolve().parent
         with tempfile.TemporaryDirectory(prefix='native-exit-host-test-',dir=lab) as folder:
             self.compile_run(cc,scripts,Path(folder))
-            override=Path(folder)/'output-only.h'
-            override.write_text('#define WEX_EXIT_OUTPUT L"Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-native-module-r2-20261024"\n')
-            self.compile_run(cc,scripts,Path(folder),override)
+            for name in ('chromium-native-module-r2-20261024','chromium-userenv-r3-20261024'):
+                override=Path(folder)/'output-only.h'
+                override.write_text('#define WEX_EXIT_OUTPUT L"Z:\\\\home\\\\debian\\\\wex-g4\\\\'+name+'"\n')
+                self.compile_run(cc,scripts,Path(folder),override)
 
     def compile_run(self,cc,scripts,folder,override=None):
             output=Path(folder)/'contract-test'

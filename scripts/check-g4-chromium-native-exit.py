@@ -38,16 +38,16 @@ MODE='r1'
 HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 
 def configure(mode):
-    """Two fixed contracts only; no executable/flag/path passthrough."""
+    """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS
-    if mode not in ('r1','module-warn-r2'):raise ValueError('Unknown fixed Chromium mode')
+    if mode not in ('r1','module-warn-r2','userenv-r3'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
-    HOST='chromium-native-exit-r1-20261024' if mode=='r1' else 'chromium-native-module-r2-20261024'
+    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
     HELPER=STAGE/'original/native-exit.exe';MANIFEST=STAGE/'runtime-manifest.json'
     FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
-    DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode=='module-warn-r2' else '')
+    DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode!='r1' else '')
     HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']} if mode=='r1' else None
 
 def child_args(nonce,url):
@@ -185,6 +185,11 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
         if bound(55)<55:raise TimeoutError('Compositor budget')
         result['compositor']=comp.start();result['outer']=comp.verify_gpu_renderer('virgl')
         result['inner']=cal.verify_native_gl_driver(env,output,'virgl')
+        if MODE=='userenv-r3':
+            import g4_userenv_probe
+            if bound(129)<129:raise TimeoutError('Insufficient probe45 + browser82 + HTTP2 budget')
+            g4_userenv_probe.phase(output,env,result,STAGE/'original/userenv-probe.exe',BUILD,PREFIX,helpers,comp.verify,cal.graphics_resources.sample,
+                deadline-CLEANUP,now=now,sleep=sleep,popen=popen)
         nonce=secrets.token_hex(16);server=FixtureServer(FIXTURE,nonce);result['http_fixture']=server.record
         url=server.start(timeout=bound(2));result['url']=url
         def monitor():comp.verify();server.check();log_quota(output)
@@ -207,11 +212,11 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
                 comp.verify();result['front_exit']=helpers.run_logged(['grim','-o','HEADLESS-1',str(output/'terminal-front.png')],env,output,'terminal-front',bound(3)).returncode
             except Exception as error:result['front_error']=repr(error)
         cleanup('prefix_teardown')
-        if env is not None and (not result.get('helper_started') or result.get('helper_reaped') is True):
+        if env is not None and (not result.get('helper_started') or result.get('helper_reaped') is True) and (not result.get('probe_started') or result.get('probe_reaped') is True):
             for label,argv in [('kill',['-k']),('wait',['-w'])]:
                 try:result['cleanup_'+label]=helpers.run_logged([str(BUILD/'server/wineserver'),*argv],env,output,'cleanup-'+label,bound(10,True)).returncode
                 except Exception as error:result.setdefault('cleanup_errors',[]).append(repr(error))
-        elif result.get('helper_started'):result.setdefault('cleanup_errors',[]).append('Prefix teardown skipped: observer not reaped')
+        elif result.get('helper_started') or result.get('probe_started'):result.setdefault('cleanup_errors',[]).append('Prefix teardown skipped: observer not reaped')
         if server is not None:
             try:server.close(timeout=bound(2,True))
             except Exception as error:result.setdefault('cleanup_errors',[]).append(repr(error))
@@ -232,12 +237,14 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir',type=Path)
-    parser.add_argument('--module-warn-r2',action='store_true',help='Fixed fresh R2 paths and warn+module/trace+seh logging only')
+    selection=parser.add_mutually_exclusive_group()
+    selection.add_argument('--module-warn-r2',action='store_true',help='Fixed fresh R2 paths and warn+module/trace+seh logging only')
+    selection.add_argument('--userenv-r3',action='store_true',help='Fixed R3 normal-view API probe before browser')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
-    configure('module-warn-r2' if args.module_warn_r2 else 'r1')
+    configure('userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
     return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))

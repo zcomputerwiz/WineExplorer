@@ -1,0 +1,154 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+import json
+import contextlib
+import io
+from pathlib import Path
+import struct
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest import mock
+import g4_userenv_view as view
+import g4_userenv_probe as probe
+import test_g4_chromium_native_exit as native
+
+LAB=native.LAB
+def payload(nonce):return dict(v=1,nonce=nonce,pid=44,module_path=r'C:\WINDOWS\system32\userenv.dll',module_path_normal=True,export_found=True,checks=45,failures=0,passed=True)
+
+class ViewTests(unittest.TestCase):
+    def test_actual_validation_and_exact_readonly_commands_before_fixed_exec(self):
+        with tempfile.TemporaryDirectory(prefix='view-test-',dir=LAB) as folder:
+            root=Path(folder);build=root/'build';stage=root/'stage';build.mkdir();events=[]
+            with mock.patch.object(view,'BUILD',build),mock.patch.object(view,'STAGE',stage),mock.patch.object(view,'OUTPUT',root/'output'):
+                for s,t,machine in view.selected():
+                    s.parent.mkdir(parents=True);t.parent.mkdir(parents=True)
+                    data=bytearray(128);data[:2]=b'MZ';struct.pack_into('<I',data,60,64);data[64:68]=b'PE\0\0';struct.pack_into('<H',data,68,machine)
+                    s.write_bytes(data);t.write_bytes(b'original')
+                def validate(fault=None):
+                    link=lambda p:('same' if fault==p.split('/')[-1] else ('self' if '/self/' in p else 'init'))
+                    return view.validate(readlink=link,uid=lambda:0,loopback=lambda:{'private':True})
+                for fault in ('mnt','net'):
+                    with self.assertRaises(ValueError):view.execute(validate_context=lambda:validate(fault),run=lambda *a,**k:events.append('mount'),execv=lambda *a:events.append('exec'),emit=lambda *a,**k:None)
+                self.assertEqual(events,[])
+                source=view.selected()[0][0];saved=source.read_bytes();source.write_bytes(b'wrong')
+                with self.assertRaises(ValueError):view.execute(validate_context=validate,run=lambda *a,**k:events.append('mount'),emit=lambda *a,**k:None)
+                source.write_bytes(saved);self.assertEqual(events,[])
+                target=view.selected()[0][1];target.unlink();target.symlink_to(source)
+                with self.assertRaises(ValueError):view.execute(validate_context=validate,run=lambda *a,**k:events.append('mount'),emit=lambda *a,**k:None)
+                target.unlink();target.write_bytes(b'original');self.assertEqual(events,[])
+                with self.assertRaises(ValueError):view.validate(uid=lambda:1000)
+                with self.assertRaises(RuntimeError):
+                    view.execute(validate_context=lambda:view.validate(readlink=lambda p:'self' if '/self/' in p else 'init',uid=lambda:0,loopback=lambda:(_ for _ in ()).throw(RuntimeError('bad loopback proof'))),run=lambda *a,**k:events.append('mount'),emit=lambda *a,**k:None)
+                self.assertEqual(events,[])
+                def dispatch(command,**kwargs):events.append(command);self.assertTrue(kwargs['check']);self.assertEqual(kwargs['timeout'],2)
+                def emit(text,**kwargs):self.assertLess(len(text.encode()),32768);events.append('json');self.assertTrue(kwargs['flush'])
+                def execute(path,args):events.append('exec');self.assertEqual(path,'/usr/sbin/runuser');self.assertEqual(args[-3:],['--userenv-r3','--output-dir',str(root/'output')])
+                view.execute(validate_context=validate,run=dispatch,execv=execute,emit=emit)
+                commands=events[:-2];self.assertEqual(len(commands),6)
+                self.assertEqual(commands[:2],[['mount','--bind',str(build),str(build)],['mount','-o','remount,bind,ro',str(build)]])
+                for i,(s,t,_) in enumerate(view.selected()):
+                    self.assertEqual(commands[2+2*i],['mount','--bind',str(s),str(t)])
+                    self.assertEqual(commands[3+2*i],['mount','-o','remount,bind,ro',str(t)])
+                    self.assertEqual(t.read_bytes(),b'original')
+                self.assertEqual(events[-2:],['json','exec'])
+                emitted=[]
+                with self.assertRaises(RuntimeError):
+                    view.execute(validate_context=validate,run=lambda *a,**k:(_ for _ in ()).throw(RuntimeError('mount failed')),execv=lambda *a:self.fail('No exec after mount failure'),emit=lambda text,**kwargs:emitted.append(text))
+                self.assertIn('USERENV_MODULE_VIEW_ERROR ',emitted[0])
+
+class ProbeTests(unittest.TestCase):
+    def test_slow_start_keeps_reap_and_intermediate_cleanup_reserves(self):
+        with tempfile.TemporaryDirectory(prefix='probe-reserve-',dir=LAB) as folder:
+            root=Path(folder);clock=[0];child=SimpleNamespace(killed=False);result={}
+            child.poll=lambda:-9 if child.killed else None
+            child.kill=lambda:setattr(child,'killed',True)
+            def wait(**kwargs):clock[0]+=5;return -9
+            child.wait=wait
+            def popen(*args,**kwargs):clock[0]=8;return child
+            def logged(*args):
+                duration=5 if args[0][-1]=='-k' else 8
+                self.assertGreaterEqual(args[-1],duration);clock[0]+=duration
+                return SimpleNamespace(returncode=0)
+            helpers=SimpleNamespace(run_logged=logged,matching_servers=lambda *args:[])
+            with self.assertRaises(TimeoutError):probe.phase(root,{},result,root/'probe',root/'build',root/'prefix',helpers,lambda:None,lambda p:{},1000,popen=popen,now=lambda:clock[0],sleep=lambda s:clock.__setitem__(0,clock[0]+1))
+            self.assertTrue(result['probe_reaped']);self.assertNotIn('cleanup_error',result['api_probe'])
+            self.assertLessEqual(clock[0],45)
+
+    def test_actual_r3_cli_and_mutual_exclusion(self):
+        r=native.r
+        try:
+            with mock.patch.object(r.sys,'argv',['native','--userenv-r3']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as run:
+                self.assertEqual(r.main(),1);self.assertEqual(r.MODE,'userenv-r3')
+                self.assertEqual(run.call_args.args[0],r.LAB/'chromium-userenv-r3-20261024')
+            with mock.patch.object(r.sys,'argv',['native','--userenv-r3','--module-warn-r2']),contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:r.main()
+                self.assertEqual(error.exception.code,2)
+        finally:r.configure('r1')
+
+    def test_host_real_result_and_strict_json_negatives(self):
+        path=LAB/'userenv-browser-r3-20261024.build/host-probe.stdout.json'
+        self.assertTrue(path.is_file());raw=path.read_bytes();nonce='0123456789abcdef0123456789abcdef'
+        self.assertTrue(probe.decode(raw,nonce,0)['passed'])
+        for key,value in [('pid',True),('module_path',r'Z:\foreign\userenv.dll'),('checks',44),('checks',True),('failures',1),('passed',False),('nonce','b'*32),('export_found',False)]:
+            v=payload(nonce);v[key]=value
+            with self.subTest(key=key),self.assertRaises(ValueError):probe.decode(json.dumps(v).encode(),nonce,0)
+        for raw in (b'{}',b'{"v":1,"v":1}',b'NaN',b'x'*4097):
+            with self.assertRaises(ValueError):probe.decode(raw,nonce,0)
+        with self.assertRaises(ValueError):probe.decode(json.dumps(payload(nonce)).encode(),nonce,1)
+
+    def test_actual_probe_phase_failure_cleanup_and_separate_marker(self):
+        for fault in (None,'json','exit','timeout','quota','reap','cleanup','json-cleanup'):
+            with self.subTest(fault=fault),tempfile.TemporaryDirectory(prefix='probe-phase-',dir=LAB) as folder:
+                output=Path(folder);clock=[0];calls=[];result={}
+                child=SimpleNamespace(killed=False)
+                child.poll=lambda:None if fault in ('timeout','reap') and not child.killed else (1 if fault=='exit' else 0)
+                child.kill=lambda:setattr(child,'killed',True)
+                def wait(**kwargs):
+                    if fault=='reap':raise TimeoutError('reap PRIMARY retained')
+                    return -9 if child.killed else child.poll()
+                child.wait=wait
+                def popen(argv,**kwargs):
+                    v=payload(argv[-1]);v['passed']=fault not in ('json','json-cleanup')
+                    kwargs['stdout'].write(b'x'*4097 if fault=='quota' else json.dumps(v).encode());kwargs['stdout'].flush()
+                    return child
+                def logged(argv,*args):
+                    calls.append(argv[-1]);self.assertNotIn('cleanup_started',result)
+                    if fault in ('cleanup','json-cleanup'):raise RuntimeError('cleanup rejected')
+                    return SimpleNamespace(returncode=0)
+                helpers=SimpleNamespace(run_logged=logged,matching_servers=lambda *a:[])
+                kwargs=dict(popen=popen,now=lambda:clock[0],sleep=lambda s:clock.__setitem__(0,clock[0]+1))
+                args=(output,{},result,output/'probe.exe',output/'build',output/'prefix',helpers,lambda:None,lambda p:{},1000)
+                if fault:
+                    with self.assertRaises((ValueError,TimeoutError,RuntimeError)):probe.phase(*args,**kwargs)
+                else:probe.phase(*args,**kwargs);self.assertTrue(result['api_probe']['passed'])
+                self.assertNotIn('cleanup_started',result)
+                if fault=='reap':self.assertEqual(calls,[]);self.assertFalse(result['probe_reaped']);self.assertIn('timeout',result['api_probe']['error'])
+                else:self.assertTrue(result['probe_reaped'])
+                if fault=='json-cleanup':self.assertIn('malformed',result['api_probe']['error']);self.assertIn('cleanup rejected',result['api_probe']['cleanup_error'])
+
+    def test_actual_runner_probe_failure_prevents_browser_and_success_is_ordered(self):
+        r=native.r
+        try:
+            r.configure('userenv-r3')
+            for failed in (True,False):
+                with tempfile.TemporaryDirectory(prefix='probe-before-browser-',dir=LAB) as folder:
+                    out=Path(folder)/'output';calls=[]
+                    env={k:str(out/k.lower()) for k in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','TMPDIR')}
+                    comp=mock.Mock();comp.start.return_value={};comp.verify_gpu_renderer.return_value={}
+                    server=mock.Mock(record={});server.start.return_value=native.URL
+                    helpers=SimpleNamespace(configure_gl_driver=mock.Mock(),matching_servers=lambda *a:[],run_logged=lambda *a:SimpleNamespace(returncode=0))
+                    def phase(*args,**kwargs):
+                        value=args[2];self.assertNotIn('cleanup_started',value);calls.append('probe')
+                        if failed:raise ValueError('PRIMARY API mismatch')
+                        value['api_probe']={'passed':True};value['probe_reaped']=True;calls.append('probe-cleanup')
+                    def collect(*args,**kwargs):
+                        self.assertEqual(calls,['probe','probe-cleanup']);self.assertNotIn('cleanup_started',args[2]);calls.append('browser')
+                        args[2].update(helper_started=True,helper_reaped=True,native={'outcome':'native_exit'})
+                    with mock.patch.object(r,'guards',return_value={'private_loopback':{}}),mock.patch.object(r.cal.install,'environment',return_value=env),mock.patch.object(r.cal,'OwnedWexcomp',return_value=comp),mock.patch.object(r.cal,'verify_native_gl_driver',return_value={}),mock.patch.object(probe,'phase',side_effect=phase),mock.patch.object(r.cal,'collect',side_effect=collect),mock.patch.object(r,'FixtureServer',return_value=server),mock.patch.object(r.cal.graphics_resources,'sample',return_value={}),mock.patch.object(r.cal.isolation,'verify_private_loopback',return_value={}):
+                        self.assertEqual(r.run(out,helpers),1)
+                    value=json.loads((out/'results.json').read_text())
+                    if failed:self.assertEqual(calls,['probe']);self.assertIn('PRIMARY',value['error']);server.start.assert_not_called()
+                    else:self.assertEqual(calls,['probe','probe-cleanup','browser']);self.assertTrue(value['observation_complete'])
+        finally:r.configure('r1')
+
+if __name__=='__main__':unittest.main()
