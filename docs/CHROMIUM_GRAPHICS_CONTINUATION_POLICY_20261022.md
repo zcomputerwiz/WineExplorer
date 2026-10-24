@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST HUMAN DIRECTION: diagnostic historical file identities and executable
+hashes are LOGGED with differences as warnings, not blockers. Concrete wrong-disk,
+overwrite and reused-PID protections remain. Read DIAGNOSTIC_INVENTORY_PLAN_20261024
+before historical runbooks. Parent independently accepted R4 native calibration
+after54 sealed/12 archive files and actual native journal/cleanup/shutdown review;
+device71->58 remains recorded, no further device investigation gates app work.
+Luna next implements offline inventory policy, then parent plans actual Chromium
+native status observation. Older strict historical equality instructions below
+are superseded by this human direction. No repeat calibration or new boot yet.
+
 LATEST R3creationabad6efb accepted:13sealedfiles/56currentpins/newemptytophashID/
 normal4chain/preservedfailedhashID/originalIDs/idle/absentHOST reviewed. Read
 NATIVE_R3_RUN_AUTHORITY_20261024: ONE exact nativeR3 control authorized with
