@@ -573,6 +573,14 @@ elevation is enforced; otherwise stock behavior (the build files and the service
   whose token has `TokenElevationTypeFull` (an elevated process), in addition to the SYSTEM token. The process stays
   non-dumpable (its effective group differs from its real group).
 
+## Elevation boundary: consent work order, Part A, the read lease (plan step 6, 2026-10-24)
+
+`ELEVATION_CONSENT_WORKORDER.md`, Part A. **No stock Wine file is changed.** Project modules only: `dlls/wexhost`
+(new `lease.c`, three new exports `WexLeaseTake`, `WexLeaseArm`, `WexLeaseRelease`; the Unix side uses the stock ntdll
+exports `wine_server_handle_to_fd` and the `list_processes` server request, both unchanged) and `programs/wexelevate`.
+The broker holds a Linux read lease on the frozen image until the elevated process exits; a write open ends that
+process. Active only inside the broker, which runs only with the system role.
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|

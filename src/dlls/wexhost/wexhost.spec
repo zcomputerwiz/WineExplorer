@@ -54,3 +54,6 @@
 @ stdcall WexTrayStop()
 @ stdcall WexTrayAction(long long long long long)
 @ stdcall WexTrayGetMenu(long long ptr)
+@ stdcall WexLeaseTake(ptr ptr ptr)
+@ stdcall WexLeaseArm(int64 long)
+@ stdcall WexLeaseRelease(int64 ptr)

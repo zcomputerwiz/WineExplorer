@@ -10,6 +10,7 @@ SOURCES = \
 	compose.c \
 	display.c \
 	greeter.c \
+	lease.c \
 	hardware.c \
 	tray.c \
 	tray_x11.c \

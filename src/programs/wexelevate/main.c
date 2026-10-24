@@ -7,6 +7,9 @@
  *  - takes the caller's identity from the server (the process that opened the pipe), never from the request;
  *  - freezes the request: opens the image, records its volume, file index, size, time and SHA-256, and checks all of
  *    them again at the launch;
+ *  - holds a Linux read lease on the image from before the hash until the elevated process exits (wexhost's
+ *    WexLease*): a writer who opens the file makes the pending request fail with ERROR_FILE_CORRUPT, or ends the
+ *    running elevated process (only that process) and then goes on;
  *  - gives the request a random single-use id, which is destroyed when the request ends, fails or the caller exits;
  *  - asks for approval (the shipping broker has no way to ask yet and fails closed; a build with
  *    WEXELEVATE_TEST_APPROVAL calls a stub program, which exists in the test harness only);
@@ -71,6 +74,8 @@ struct request
     WCHAR *image, *cmdline, *cwd, *env;
     DWORD env_len;
     HANDLE image_file;    /* held open with FILE_SHARE_READ from the freeze to the launch */
+    UINT64 lease;         /* read lease on the image (0: none needed), see lease_* below */
+    HANDLE lease_event;   /* set when the lease broke */
     BY_HANDLE_FILE_INFORMATION info;
     BYTE hash[32];
     int live;             /* in the table: the id can be used once */
@@ -82,6 +87,63 @@ static BOOL system_role;  /* running as SYSTEM with SeTcbPrivilege enabled */
 static CRITICAL_SECTION table_cs;
 static struct request *table[MAX_REQUESTS];
 static LONG active_threads;
+
+/* ---- the read lease on the image (wexhost's Unix side) ---------------------------------------------------------- */
+
+static DWORD (WINAPI *pLeaseTake)( HANDLE, HANDLE, UINT64 * );
+static DWORD (WINAPI *pLeaseArm)( UINT64, DWORD );
+static DWORD (WINAPI *pLeaseRelease)( UINT64, BOOL * );
+
+static BOOL load_wexhost(void)
+{
+    WCHAR path[MAX_PATH + 16];
+    HMODULE mod;
+    UINT len = GetSystemDirectoryW( path, MAX_PATH );
+
+    if (!len || len >= MAX_PATH) return FALSE;
+    lstrcpyW( path + len, L"\\wexhost.dll" );
+    if (!(mod = LoadLibraryW( path ))) return FALSE;
+    pLeaseTake = (void *)GetProcAddress( mod, "WexLeaseTake" );
+    pLeaseArm = (void *)GetProcAddress( mod, "WexLeaseArm" );
+    pLeaseRelease = (void *)GetProcAddress( mod, "WexLeaseRelease" );
+    return pLeaseTake && pLeaseArm && pLeaseRelease;
+}
+
+/* the lease lives as long as the elevated process: this thread gives it up when the process has exited */
+struct guard { UINT64 lease; HANDLE event, process; };
+
+static DWORD WINAPI guard_thread( void *param )
+{
+    struct guard *g = param;
+
+    WaitForSingleObject( g->process, INFINITE );
+    pLeaseRelease( g->lease, NULL );
+    CloseHandle( g->event );
+    CloseHandle( g->process );
+    free( g );
+    return 0;
+}
+
+/* the guard takes over the lease and the process handle; on failure the caller still owns them */
+static BOOL start_guard( struct request *req, HANDLE process )
+{
+    struct guard *g = malloc( sizeof(*g) );
+    HANDLE thread;
+
+    if (!g) return FALSE;
+    g->lease = req->lease;
+    g->event = req->lease_event;
+    g->process = process;
+    if (!(thread = CreateThread( NULL, 0, guard_thread, g, 0, NULL )))
+    {
+        free( g );
+        return FALSE;
+    }
+    CloseHandle( thread );
+    req->lease = 0;
+    req->lease_event = NULL;
+    return TRUE;
+}
 
 /* ---- the table of requests ----------------------------------------------------------------------------------- */
 
@@ -153,6 +215,8 @@ static void table_remove( struct request *req )
 static void free_request( struct request *req )
 {
     table_remove( req );
+    if (req->lease) pLeaseRelease( req->lease, NULL );
+    if (req->lease_event) CloseHandle( req->lease_event );
     if (req->image_file != INVALID_HANDLE_VALUE) CloseHandle( req->image_file );
     if (req->caller_token) CloseHandle( req->caller_token );
     if (req->caller) CloseHandle( req->caller );
@@ -381,6 +445,10 @@ static DWORD freeze_image( struct request *req )
     if (req->image_file == INVALID_HANDLE_VALUE) return GetLastError();
     if (GetFileType( req->image_file ) != FILE_TYPE_DISK || !GetFileInformationByHandle( req->image_file, &req->info ) ||
         (req->info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return ERROR_FILE_NOT_FOUND;
+    /* the lease first, then the hash: from here on the bytes cannot change without the broker noticing */
+    if (!pLeaseTake) return ERROR_FILE_SYSTEM_LIMITATION;
+    if (!(req->lease_event = CreateEventW( NULL, TRUE, FALSE, NULL ))) return GetLastError();
+    if ((err = pLeaseTake( req->image_file, req->lease_event, &req->lease ))) return err;
     if ((err = hash_file( req->image_file, req->hash ))) return err;
     return ERROR_SUCCESS;
 }
@@ -416,7 +484,7 @@ static DWORD approve( struct request *req )
     WCHAR cmd[2 * MAX_PATH + 64];
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
-    HANDLE handles[3];
+    HANDLE handles[4];
     DWORD ret, code, n;
 
     if (wcschr( req->image, '"' )) return ERROR_INVALID_PARAMETER;
@@ -427,13 +495,14 @@ static DWORD approve( struct request *req )
     handles[0] = pi.hProcess;
     handles[1] = req->caller;   /* the request is destroyed when the caller exits */
     handles[2] = stop_event;
-    n = 3;
+    handles[3] = req->lease_event;   /* a writer opened the image */
+    n = 4;
     ret = WaitForMultipleObjects( n, handles, FALSE, APPROVAL_TIMEOUT );
     if (ret != WAIT_OBJECT_0)
     {
         TerminateProcess( pi.hProcess, 1 );
         CloseHandle( pi.hProcess );
-        return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ERROR_CANCELLED;
+        return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ret == WAIT_OBJECT_0 + 3 ? ERROR_FILE_CORRUPT : ERROR_CANCELLED;
     }
     code = 1;
     GetExitCodeProcess( pi.hProcess, &code );
@@ -528,8 +597,24 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
                               FALSE, 0 )) err = GetLastError();
         else *handle = (ULONGLONG)(ULONG_PTR)remote;
     }
+    if (req->lease)
+    {
+        /* name the process to the lease: if a writer has opened the image meanwhile, it ends here */
+        DWORD arm = pLeaseArm( req->lease, pi.dwProcessId );
+        if (arm || !start_guard( req, pi.hProcess ))
+        {
+            err = arm ? arm : ERROR_NOT_ENOUGH_MEMORY;
+            if (remote) DuplicateHandle( req->caller, remote, NULL, NULL, 0, FALSE, DUPLICATE_CLOSE_SOURCE );
+            *handle = 0;
+            TerminateProcess( pi.hProcess, 1 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( pi.hThread );
+            goto done;
+        }
+        pi.hProcess = NULL;   /* the guard owns it now */
+    }
     CloseHandle( pi.hThread );
-    CloseHandle( pi.hProcess );
+    if (pi.hProcess) CloseHandle( pi.hProcess );
 done:
     if (si.lpAttributeList)
     {
@@ -558,6 +643,8 @@ static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct 
     if (!table_consume( req )) return ERROR_CANCELLED;
     if (WaitForSingleObject( req->caller, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
     if ((err = verify_image( req ))) return err;
+    if (req->lease && ((err = pLeaseArm( req->lease, 0 )) || WaitForSingleObject( req->lease_event, 0 ) != WAIT_TIMEOUT))
+        return err ? err : ERROR_FILE_CORRUPT;
     return launch( req, &reply->pid, &reply->tid, &reply->handle );
 }
 
@@ -709,6 +796,7 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
     InitializeCriticalSection( &table_cs );
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
     system_role = token_is_system_with_tcb();
+    if (!load_wexhost()) pLeaseTake = NULL;   /* no lease possible: every request then fails closed */
     serve();
     report( SERVICE_STOPPED, 0 );
 }

@@ -62,6 +62,7 @@ cleanup()
     set +e
     ! type standin_off >/dev/null 2>&1 || standin_off
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
+    [ -z "${LEASES_SAVED:-}" ] || echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
     kill_servers
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null   # includes winedevice.exe, which blocks userdel
     sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null
@@ -730,6 +731,31 @@ grep -q '^attack=PASS' "$ROOT/attack.log" || { cat "$ROOT/attack.log" >&2; fail 
 ok c4_limited_process_cannot_open_the_elevated_process_or_its_threads
 
 # -- 3. frozen requests
+# A writer from Unix (the broker holds a read lease on the frozen image): it blocks until the broker has reacted,
+# which is a few milliseconds, then goes on and changes the file.
+cat > "$ROOT/mmapw.py" <<'EOF'
+import mmap, sys
+with open(sys.argv[1], 'r+b') as f:
+    m = mmap.mmap(f.fileno(), 0)
+    m[0:1] = bytes([m[0] ^ 0xff])
+    m.flush()
+    m.close()
+EOF
+chmod 0644 "$ROOT/mmapw.py"
+has_lease() { grep -qE " LEASE .*:$(stat -c %i "$1") " /proc/locks; }
+wait_no_lease() { local i; for i in $(seq 1 40); do has_lease "$1" || return 0; sleep 0.25; done; return 1; }
+lease_writer()   # variant file: run the writer; the file must have changed afterwards
+{
+    local before after
+    before="$(md5sum < "$2")"
+    case "$1" in
+        append) run_as "$ADM" timeout 30 bash -c 'printf x >> "$1"' _ "$2" ;;
+        truncate) run_as "$ADM" timeout 30 bash -c ': > "$1"' _ "$2" ;;
+        mmap) run_as "$ADM" timeout 30 python3 "$ROOT/mmapw.py" "$2" ;;
+    esac || return 1
+    after="$(md5sum < "$2")"
+    [ "$before" != "$after" ]
+}
 frozen()   # name variant expected-error
 {
     el_clean; touch "$EL/wait-for-gate" "$EL/approve.victim.exe"
@@ -737,7 +763,7 @@ frozen()   # name variant expected-error
     bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/victim.exe)" "$3" "$(winpath $EL/out.frozen)" - > "$ROOT/frozen.log" 2>&1 & FP=$!
     el_wait_file "$EL/started.victim.exe"
     case "$2" in
-        append) run_as "$ADM" bash -c 'printf x >> "$1"' _ "/home/$ADM/wexel/victim.exe" ;;
+        append|truncate|mmap) lease_writer "$2" "/home/$ADM/wexel/victim.exe" || fail "$1: the writer did not complete" ;;
         replace) run_as "$ADM" bash -c 'cp "$1" "$1.new" && mv "$1.new" "$1"' _ "/home/$ADM/wexel/victim.exe" ;;
         none) ;;
     esac
@@ -751,6 +777,87 @@ frozen c4_image_changed_in_place_after_freezing_is_rejected append 1392
 [ ! -e "$EL/out.frozen" ] || fail "the changed image ran"
 frozen c4_image_replaced_after_freezing_is_rejected replace 1392
 [ ! -e "$EL/out.frozen" ] || fail "the replaced image ran"
+frozen c4_writer_truncating_the_frozen_image_fails_the_request truncate 1392
+[ ! -e "$EL/out.frozen" ] || fail "the truncated image ran"
+frozen c4_writer_with_a_shared_writable_mapping_fails_the_request mmap 1392
+[ ! -e "$EL/out.frozen" ] || fail "the modified image ran"
+wait_no_lease "/home/$ADM/wexel/victim.exe" || fail "the lease outlived a failed request"
+ok c4_lease_is_given_up_when_the_request_fails
+
+# -- 3b. the read lease on the image while the elevated program runs (consent work order, Part A)
+lease_running()   # name variant
+{
+    local img="/home/$ADM/wexel/lv.exe" i
+    el_clean; touch "$EL/approve.all"
+    run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "$img"
+    bprobe "$ADM" 64 leasekill "$(winpath $img)" "$(winpath $EL/out.lk)" lk > "$ROOT/lk.log" 2>&1 & LP=$!
+    for i in $(seq 1 60); do grep -q 'ready=1' "$EL/out.lk" 2>/dev/null && break; sleep 1; done
+    grep -q 'ready=1' "$EL/out.lk" 2>/dev/null || { cat "$ROOT/lk.log" >&2; fail "$1: no elevated process"; }
+    has_lease "$img" || fail "$1: no lease while the elevated process runs"
+    lease_writer "$2" "$img" || fail "$1: the writer did not complete or changed nothing"
+    wait "$LP" || { cat "$ROOT/lk.log" >&2; fail "$1"; }
+    grep -q '^leasekill=PASS' "$ROOT/lk.log" || { cat "$ROOT/lk.log" >&2; fail "$1: no PASS"; }
+    wait_no_lease "$img" || fail "$1: the lease outlived the process"
+    ok "$1"
+}
+lease_running c4_writer_appending_ends_the_running_elevated_program append
+lease_running c4_writer_truncating_ends_the_running_elevated_program truncate
+lease_running c4_writer_mapping_the_image_writable_ends_the_running_elevated_program mmap
+
+# a Wine program as the writer: the wineserver opens the file first (and blocks in open() until the broker lets go,
+# which it does without asking the wineserver) and only then refuses by share mode (sharing violation). The open is
+# enough to end the elevated program; nothing is written.
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+SUM="$(md5sum < /home/$ADM/wexel/lv.exe)"
+bprobe "$ADM" 64 leasekill "$(winpath /home/$ADM/wexel/lv.exe)" "$(winpath $EL/out.wk)" wk > "$ROOT/wk.log" 2>&1 & LP=$!
+for i in $(seq 1 60); do grep -q 'ready=1' "$EL/out.wk" 2>/dev/null && break; sleep 1; done
+grep -q 'ready=1' "$EL/out.wk" 2>/dev/null || { cat "$ROOT/wk.log" >&2; fail "no elevated process"; }
+WOUT="$(bprobe "$ADM" 64 winwrite "$(winpath /home/$ADM/wexel/lv.exe)" || true)"
+grep -q 'error 32' <<<"$WOUT" || { echo "$WOUT" >&2; fail "a Wine program could open the running image for writing"; }
+wait "$LP" || { cat "$ROOT/wk.log" >&2; fail "the elevated program was not ended by a Wine program's open for writing"; }
+grep -q '^leasekill=PASS' "$ROOT/wk.log" || { cat "$ROOT/wk.log" >&2; fail "wine writer: no PASS"; }
+[ "$SUM" = "$(md5sum < /home/$ADM/wexel/lv.exe)" ] || fail "the image changed"
+wait_no_lease "/home/$ADM/wexel/lv.exe" || fail "the lease outlived the process"
+ok c4_wine_program_opening_the_running_image_for_writing_ends_the_program_and_is_refused
+
+# a normal run: the lease goes with the process, and the file is writable at once afterwards
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+bp c4_normal_run_with_a_lease "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 0 "$(winpath $EL/out.lease)" -
+wait_no_lease "/home/$ADM/wexel/lv.exe" || fail "the lease outlived a normal run"
+lease_writer append "/home/$ADM/wexel/lv.exe" || fail "the writer after a normal run"
+ok c4_lease_is_given_up_when_the_program_exits
+
+# a root-owned image (the user cannot write it) needs no lease; a user-owned one has one
+for who in user root; do
+    el_clean; touch "$EL/approve.all"
+    if [ $who = root ]; then
+        install -m 755 -o root -g root "$ROOT/probes/wexelevate_probe64.exe" "$SYS32/leaseprobe.exe"; img="$SYS32/leaseprobe.exe"; wimg='C:\windows\system32\leaseprobe.exe'
+    else
+        run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"; img="/home/$ADM/wexel/lv.exe"; wimg="$(winpath $img)"
+    fi
+    bprobe "$ADM" 64 run "$wimg" 0 "$(winpath $EL/out.own)" "-" "hold h$who" > "$ROOT/lh.log" 2>&1 & LP=$!
+    for i in $(seq 1 60); do grep -q 'ready=1' "$EL/out.own" 2>/dev/null && break; sleep 1; done
+    grep -q 'ready=1' "$EL/out.own" 2>/dev/null || { cat "$ROOT/lh.log" >&2; fail "no elevated process ($who)"; }
+    if [ $who = root ]; then ! has_lease "$img" || fail "a lease on a root-owned image"; else has_lease "$img" || fail "no lease on a user-owned image"; fi
+    touch "$EL/release.h$who"
+    wait "$LP" || { cat "$ROOT/lh.log" >&2; fail "run of the $who-owned image"; }
+done
+rm -f "$SYS32/leaseprobe.exe"
+ok c4_root_owned_image_needs_no_lease_and_user_owned_has_one
+
+# no lease can be taken: a writer has the file open (32), a file the user can write but does not own (665)
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+run_as "$ADM" bash -c 'exec 3>>"$1"; sleep 25' _ "/home/$ADM/wexel/lv.exe" & WP=$!
+sleep 1
+bp c4_image_open_for_writing_by_someone_fails_with_sharing_violation "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 32 "$(winpath $EL/out.nolease)" -
+pkill -u "$ADM" -f 'sleep 25' || true; wait "$WP" 2>/dev/null || true
+install -m 666 -o root -g root "$ROOT/probes/wexelevate_probe64.exe" "/tmp/wexelev/rootw.exe"
+bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation "$ADM" 64 run "$(winpath $EL/rootw.exe)" 665 "$(winpath $EL/out.nolease)" -
+[ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
+ok c4_no_lease_no_process
 
 # -- 4. A/B concurrency: approving A does not approve B
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
@@ -785,6 +892,19 @@ done
 [ ! -e "$EL/out.std" ] || fail "a standard user's request started a process"
 ok c4_standard_user_started_nothing
 el_down "$STD"
+
+# -- 7. no lease support: with fs.leases-enable=0 the kernel refuses F_SETLEASE with EINVAL, as a file system without
+# lease support does; the request fails with the distinct error and nothing runs, no fallback copy
+el_clean; touch "$EL/approve.all"
+el_up "$ADM"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
+LEASES_SAVED="$(cat /proc/sys/fs/leases-enable)"
+echo 0 > /proc/sys/fs/leases-enable
+bp c4_file_system_without_leases_fails_the_request_with_file_system_limitation "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 665 "$(winpath $EL/out.nolease)" -
+echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
+[ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
+bp c4_control_with_leases_enabled_again_runs "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 0 "$(winpath $EL/out.nolease)" -
+el_down "$ADM"
 el_restore_broker
 rm -rf "$EL"
 fi   # WEX_C4_SKIP
