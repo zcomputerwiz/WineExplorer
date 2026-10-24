@@ -75,3 +75,31 @@ Module SHA256 b62db974d23d8f8a1bf8f38a43f8457e200725469319619d8ce385e8d8de5d39;
 9825-byte PROBE SHA2562777b9d53af9ae10d7dc67f187fd65de6462838d4cae8782995ed472c8dfbf46.
 Earlier local control artifacts remain preserved. STOP parent review before
 integration/preparation or any live probe; no historical error is erased.
+
+## Parent output-cap correction — latest source/evidence
+
+Parent found that dropping observations alone could still emit8801bytes for a
+valid4096-byte backslash prefix with an8192-byte output cap. Final fallback now
+rechecks actual compact UTF-8 JSON+newline size, explicitly omits requested_prefix
+if needed (`requested_prefix_omitted=true`, reason output_quota), and retains
+UNKNOWN/owners=null/busy=null/nonzero. A final minimal UNKNOWN failsafe bounds
+any still-oversized metadata. No completion or empty-owner acceptance is inferred
+from an omitted request. Fitting requests and original error metadata are kept.
+
+Two additional methods discriminate maximum quotes/backslashes/pure UTF-8/mixed
+prefixes with success and read-error cases. They also execute the actual generated
+PROBE functions/main in original subprocesses, injecting only the controlled root
+and8KiB keyword limit before entrypoint dispatch; scanner/serialization unchanged.
+All old89 assertions remain. Same focused command above now ran91 tests in6.865s,
+OK/exit0/no skips. Parent reproducer replay returned687bytes, sealed equivalent
+control688bytes (monotonic float formatting varies), both <=8192.
+
+Latest module SHA256 `abcbcfc7d50c8c65d1822e360f56f32376096a9d480086a2a4399b6ac858aa30`;
+10652-byte PROBE SHA256 `ce5fcd5097173dd1b3651a0f6424f1c533f3d6c37d1cf8b868da8b252bcd737c`.
+Additive private `prefix-ownership-output-fix-r1-20261024/evidence.json` under the
+same D: lab pins current module/test, parent reproducer and actual native control
+`prefix-ownership-control-zvjavykf/control.json`; evidence SHA256
+`4d71d842ad0b0fcf3eb74953784eb81f24530a2d54367c17d19d690b0eb37f08`.
+Previous evidence/hashes above are historical and unchanged. This narrow fix
+does not alter metadata/clock policy or private procedures. No integration,
+preparation, VM/SSH/guest activity. STOP parent review.

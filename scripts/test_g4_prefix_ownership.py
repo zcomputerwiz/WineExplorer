@@ -163,6 +163,43 @@ class PrefixOwnershipTests(unittest.TestCase):
                         {'max_processes':True},{'max_env_bytes':0},{'max_output_bytes':'bad'}):
             self.assertEqual(self.scan(**options)['status'],'unknown')
 
+    def test_maximum_escaped_prefix_and_error_fallback_respects_wire_cap(self):
+        for prefix in ('/'+'\\'*4095,'/'+'"'*4095,'/'+'é'*2047,'/'+'\\'*4093+'é'):
+            for fault in (False,True):
+                root=str(self.root/'missing') if fault else str(self.root)
+                result=ownership.scan(prefix,NONCE,proc_root=root,max_output_bytes=8192)
+                wire=json.dumps(result,separators=(',',':'),allow_nan=False,ensure_ascii=False).encode()+b'\n'
+                self.assertLessEqual(len(wire),8192)
+                self.assertEqual(bool(result.get('output_quota_exceeded')),any(v in prefix for v in ('\\','"')))
+                if result.get('output_quota_exceeded'):
+                    self.assertEqual(result['status'],'unknown');self.assertIsNone(result['owners']);self.assertIsNone(result['busy'])
+                    self.assertIsNone(result['requested_prefix']);self.assertTrue(result['requested_prefix_omitted'])
+                    self.assertEqual(result['request_omission_reason'],'output_quota')
+                    self.assertEqual(result['nonce'],NONCE)
+                else:
+                    self.assertEqual(result['requested_prefix'],prefix)
+                    self.assertEqual(result['status'],'unknown' if fault else 'complete')
+                if fault:self.assertEqual(result['error']['errno'],errno.ENOENT)
+
+    def test_real_probe_main_serialization_maxprefix_cap_and_nonzero_unknown(self):
+        # Execute the SAME generated source/main in an original child. Only its
+        # entrypoint is deferred to inject the controlled root and8KiB test cap;
+        # scanner and output serialization are not copied or replaced.
+        source=ownership.PROBE.rsplit('\nraise SystemExit',1)[0]
+        for prefix in ('/'+'\\'*4095,'/'+'"'*4095,'/'+'é'*2047,'/'+'\\'*4093+'é'):
+            for fault in (False,True):
+                root=str(self.root/'missing') if fault else str(self.root)
+                code=source+'\n_original_scan=scan\ndef scan(prefix,nonce):\n return _original_scan(prefix,nonce,proc_root='+repr(root)+',max_output_bytes=8192)\nraise SystemExit(probe_main(sys.argv))\n'
+                done=subprocess.run([sys.executable,'-B','-c',code,prefix,NONCE],capture_output=True,timeout=10,cwd=self.root)
+                self.assertEqual(done.stderr,b'');self.assertLessEqual(len(done.stdout),8192)
+                result=json.loads(done.stdout)
+                self.assertEqual(bool(result.get('output_quota_exceeded')),any(v in prefix for v in ('\\','"')))
+                self.assertEqual(done.returncode,1 if result['status']=='unknown' else 0)
+                self.assertNotIn(SECRET,done.stdout)
+                if result.get('requested_prefix_omitted'):
+                    self.assertEqual(result['status'],'unknown');self.assertIsNone(result['owners']);self.assertIsNone(result['busy'])
+                else:self.assertEqual(result['requested_prefix'],prefix)
+
     def test_actual_selfcontained_source_in_subprocess_positive_and_fault(self):
         self.task(2,flags=ownership.PF_KTHREAD)
         self.task(42,b'WINEPREFIX='+PREFIX.encode()+b'\0SECRET='+SECRET+b'\0')

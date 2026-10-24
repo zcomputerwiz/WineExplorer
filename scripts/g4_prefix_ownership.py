@@ -173,6 +173,14 @@ def scan(prefix,nonce,*,proc_root='/proc',maximum_seconds=8,max_processes=4096,
     if len(json.dumps(result,separators=(',',':'),allow_nan=False,ensure_ascii=False).encode())+1>output_cap:
         result.update(status='unknown',owners=None,busy=None,observations=[],output_quota_exceeded=True)
         result.setdefault('error',dict(code='output_quota'))
+        # JSON escaping can double even a valid4096-byte requested prefix.
+        # Recheck the actual wire size after dropping details, not just inputs.
+        if len(json.dumps(result,separators=(',',':'),allow_nan=False,ensure_ascii=False).encode())+1>output_cap:
+            result.update(requested_prefix=None,requested_prefix_omitted=True,request_omission_reason='output_quota')
+        if len(json.dumps(result,separators=(',',':'),allow_nan=False,ensure_ascii=False).encode())+1>output_cap:
+            result=dict(schema='wex.prefix_ownership',version=1,status='unknown',owners=None,busy=None,
+                requested_prefix=None,requested_prefix_omitted=True,request_omission_reason='output_quota',
+                nonce=result['nonce'],observations=[],output_quota_exceeded=True,error=dict(code='output_quota'))
     return result
 
 
