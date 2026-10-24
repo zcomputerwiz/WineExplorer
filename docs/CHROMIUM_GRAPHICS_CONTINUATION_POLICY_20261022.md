@@ -19,6 +19,15 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST actual protectedboot a474a4f9 FAILED hostidentityfile missing in all4SSH
+attempts, noauthenticatedreply/idleprobe. Parent28sealedhashes/rawQMP/Windows0
+review passes: strictguestevent+ACKs/QEMU0/no fallback/childrenstopped observed;
+original3 frozen/fulltop retained, newtopSHA393308d2... . ONEboot CONSUMED.
+NEXT HOST_CREDENTIAL_PLAN_20261024 ONLY: existingD:labkey durable restrictive
+/var/tmp copy/publicseedmatch/twohostobservations and precise failfast missingkey
+tests. No guest/SSH/network/retry/newmanifest. Freshr2prep only after parentreview.
+73%fivehour27%weekly; all older next-step authority below superseded.
+
 LATEST creation880241cf accepted:10 sealed evidence+27inventory hashes,
 normal-lock4chain/newunusedtop/original3identities/full frozen-top hash/idle
 snapshots independently pass. Read PROTECTED_IDLE_RUN_PLAN_20261024. ONE protected
