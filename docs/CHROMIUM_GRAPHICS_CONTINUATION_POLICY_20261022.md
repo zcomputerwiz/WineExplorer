@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST ownershipprep3300c263 accepted:102 independent tests/no skips,36current
+hashes/PROBE/normal4chain/durablecredential/idle/absentoutput checks pass.
+Read PREFIX_OWNERSHIP_RUN_AUTHORITY_20261024: ONE exact read-only guest control
+authorized, no retry/staging/calibration/browser. Expected currenttopcb1aaaa9...
+and immutablepreflight6a013513...; parent reviews actualoutcome before nextwork.
+Originalprobe/failures preserved; no guestclassification/idle result yet.
+
 LATEST reset continuation:0%five-hour/31%weekly at06:26UTC Oct24. Offline plan
 PREFIX_OWNERSHIP_PLAN_20261024 (e49e1c66) dispatched to existing Luna Dirac.
 Matching upstream stable6.12.113 confirms environ can return ESRCH for a live
