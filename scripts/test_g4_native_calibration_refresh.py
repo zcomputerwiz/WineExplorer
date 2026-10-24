@@ -48,25 +48,28 @@ class RefreshTests(unittest.TestCase):
             stage=prep/'source-stage.tar';stage.write_bytes(b'bounded fake stage')
             seed=prep/'seed.iso';seed.write_bytes(b'seed')
             pins={'/binary/'+str(i):'a'*64 for i in range(19)}
-            overlay=str(root/'system-readiness-r1-20261024.qcow2')
+            overlay=str(root/('system-native-identity-r3-20261024.qcow2' if p.NATIVE_R3 else 'system-readiness-r1-20261024.qcow2'))
             ssh,consumer=p.commands(Path('/var/tmp/wex-g4-lab-credentials/vm_key'))
             record=dict(ssh_argv=ssh,ssh_key_path='/var/tmp/wex-g4-lab-credentials/vm_key',guest_test_argv=consumer,
-                host_run_name=NAME,guest_stage=p.STAGE,guest_output=p.OUTPUT,guest_absence_argv=p.native_absence_argv(),
+                host_run_name=p.NAME,guest_stage=p.STAGE,guest_output=p.OUTPUT,guest_absence_argv=p.native_absence_argv(),
                 guest_archive_argv=p.native_archive_argv(),host_helpers_sha256={},host_seed_files={},host_test_inventory={},
                 source_manifest={n:dict(sha256=v['sha256']) for n,v in inputs.items()},local_inputs=inputs,
                 stage_archive_sha256=p.sha(stage),seed_iso=dict(path=str(seed),sha256=p.sha(seed)),current_overlay=overlay,
                 known_binary_sha256=pins,minimum_guest_free_bytes=1024**3,probe_code=owners.ownership.PROBE,
                 probe_sha256=owners.PROBE_SHA,requested_prefix=owners.PREFIX,probe_nonce=owners.NONCE,
                 ownership_probe_argv=['sudo','-n','python3','-B','-c',owners.ownership.PROBE,owners.PREFIX,owners.NONCE])
+            if p.NATIVE_R3:record['native_python_approval']=p.native_source_approval()
             if problem=='helper':record['host_helpers_sha256']={'scripts/g4_prefix_ownership.py':'0'*64}
             if problem=='archive':record['stage_archive_sha256']='0'*64
             if problem=='input':next(iter(inputs.values()))['sha256']='0'*64
             if problem=='probe':record['probe_sha256']='0'*64
             if problem=='path':record['guest_output']+='/foreign'
             if problem=='key':record['ssh_argv'][2]='/tmp/stale-key'
+            if problem=='approval':record['native_python_approval']['commit']='obsolete'
+            if problem=='overlay':record['current_overlay']=str(root/'system-readiness-r1-20261024.qcow2')
             (prep/'preflight.json').write_text(json.dumps(record))
             (run/'launcher-identity.json').write_text(json.dumps(dict(qemu_pid=1,qemu_start_ticks=1,xvfb_pid=2,xvfb_start_ticks=2)))
-            (root/(NAME+'.wsl-session.json')).write_text('{}')
+            (root/(p.BOOT_NAME+'.wsl-session.json')).write_text('{}')
             if raw is None:raw=owners.wire(owners.complete(),12000)
             save=p.save
             def capture(path,value):snapshots.append(copy.deepcopy(value));save(path,value)
@@ -207,6 +210,7 @@ class RefreshTests(unittest.TestCase):
             # Synthetic prior approval for the current runner revision. The
             # real immutable R2 preparation is stale after a source change.
             old_text=Path.read_text
+            old_sha=p.sha
             def fixture_prior(path,*args,**kwargs):
                 text=old_text(path,*args,**kwargs)
                 if path==owners.LAB/'native-exit-calibration-r1-20261023.preflight/preflight.json':
@@ -218,6 +222,7 @@ class RefreshTests(unittest.TestCase):
                  mock.patch.object(p,'prepare_durable_credential',return_value={'public_matches_seed':True}), \
                  mock.patch.object(p,'source_head',return_value='offline-test'), \
                  mock.patch.object(p,'windows_path',return_value='C:\\owned\\controller.ps1'), \
+                 mock.patch.object(p,'sha',side_effect=lambda path: '895f37a6f60d1ea0a4cadf779fff406eef1ff75851bc95f88f257ede8dadc1c1' if Path(path)==REPO/'build/g4-virgl-20261022/launch.py' else old_sha(path)), \
                  mock.patch.object(Path,'read_text',autospec=True,side_effect=fixture_prior), \
                  mock.patch.object(p.subprocess,'run',side_effect=AssertionError('Forbidden network/create/native dispatch')) as calls, \
                  mock.patch('builtins.print'):
