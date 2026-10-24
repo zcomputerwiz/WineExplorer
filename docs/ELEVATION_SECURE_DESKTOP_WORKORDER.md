@@ -5,6 +5,41 @@ Date: 2026-10-24. Status: phase R done (see "Results, phase R"); design calls ne
 `ELEVATION_BOUNDARY_PLAN.md` (design D5, step 5). Builds on consent (`ELEVATION_CONSENT_WORKORDER.md`): the broker
 starts `consent.exe /broker` as a SYSTEM child on `WinSta0\Default`, where any same-user process can post Approve.
 
+## Decisions (2026-10-24)
+
+After phase R. They fix the design calls of "Results, phase R" section 7 and scope phases 1 to 4.
+
+- **User: behave like Windows for hardware input.** Hardware input is accepted only when the sender's desktop, the
+  target window's desktop and the input desktop are the same (for `win == 0`: the sender's desktop is the input
+  desktop), on every desktop, not only the secure one. A host event never flips the input desktop; only
+  `SwitchDesktop` does. This also closes the forged-input path through `NtUserCallHwndParam(SendHardwareInput)`
+  (the drivers' own input threads must still pass; verify).
+- **User: X11 first.** Wayland is a follow-up through a `wexcomp` protocol request and is out of scope here.
+- **Main session, adopting phase R design calls 2 to 7, 9 and 10:**
+  - `SwitchDesktop` needs `DESKTOP_SWITCHDESKTOP`; while the input desktop is the secure one, only a system-role
+    process may switch. The winstation records the switching process and the return desktop, and the server switches
+    back when that process dies (backstop; the broker also restores on every exit path).
+  - `WinSta0\Winlogon` is created by the broker with `D:(A;;GA;;;SY)` only (no ReactOS Administrators ACE: its
+    `STANDARD_RIGHTS_REQUIRED` lets administrators rewrite the DACL), non-inheritable handle, descriptor read back,
+    fail closed if it already existed or differs. The server reserves the names `Winlogon` and `Screen-Saver` for the
+    system role and checks `WINSTA_CREATEDESKTOP`.
+  - Cross-desktop `send_message`/post and thread hooks into another desktop are refused unless the sender has the
+    system role (native error codes from Microsoft documentation or Wine's tests; `ERROR_ACCESS_DENIED` and marked
+    provisional if unknown). Window operations across desktops (`SetWindowPos`, `ShowWindow`, `BringWindowToTop`,
+    text) are refused for non-system-role callers only after the in-tree callers that do cross-desktop window
+    operations are listed; if a legitimate one would break, stop and report.
+  - Process start on a denied desktop stays as today (child has no desktop, fails closed).
+  - Presentation on X11: the consent process makes itself exclusive (full-screen override-redirect window over a
+    dimmed snapshot of the root window taken before mapping, keyboard and pointer grabs, `XSetInputFocus`; X drops
+    the grabs when it dies), done in the X11 driver or a small helper only consent uses, gated to the secure desktop.
+  - Policy: `PromptOnSecureDesktop` 1 (default) switches, 0 keeps consent on `Default`;
+    `ConsentPromptBehaviorAdmin` defaults to 5 (= 2 = click consent, no auto-elevation), 0 refused (21).
+- **Gating.** All server changes are gated on the launcher's system role being active and elevation enforced, except
+  the hardware-input rule and the `DESKTOP_SWITCHDESKTOP` check, which are Windows behavior. Whether those two can be
+  ungated is decided by running the full harness with the helper unset and the user32/win32u suites that touch
+  desktops and input (`dlls/user32/tests` winstation, input, msg at least, both architectures, before and after); if
+  any regress, they are gated and the result is reported.
+
 ## Goal
 
 The consent dialog runs on a separate desktop, `WinSta0\Winlogon`, that only the broker's system role can open.
