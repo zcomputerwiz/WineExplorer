@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: consent for the elevation broker (plan step 6)
 
-Date: 2026-10-24. Status: scoped; decisions C1 to C6 below are proposals for the user, marked. Part of
+Date: 2026-10-24. Status: scoped; decisions settled (see "Decisions"). Part of
 `ELEVATION_BOUNDARY_PLAN.md` (design D3.3, step 6). Builds on the broker (`ELEVATION_BROKER_WORKORDER.md`): the
 `wexelevate` service exists, freezes requests and fails closed (21) in shipping builds because nothing approves.
 
@@ -97,6 +97,16 @@ registered for the test process (polkit's `pkttyagent` driven by the test, or a 
 - Part A's probes;
 - regression: the usual full harness with the helper unset at baseline, focused with the helper set, B4 both modes,
   the broker fixture section.
+
+## Decisions (user, 2026-10-24)
+
+Nothing is deployed until the whole plan is complete, so no interim safety measures are needed. Applied as follows:
+- C2 as an interim default is dropped. The polkit credential path is still built here, because it is the final
+  design for policies 1 and 3; which policy is the default is set after the secure desktop (step 5), as the plan
+  says. Until then the test build selects the policy explicitly.
+- C1 is kept (main session): the image swap is not an interim gap but a hole in the finished design, since a
+  limited process could replace an approved program under any approval method. It is small and is built here.
+- C4: (a), standard users get `ERROR_NOT_SUPPORTED` (50) for now.
 
 ## How the work is split
 
