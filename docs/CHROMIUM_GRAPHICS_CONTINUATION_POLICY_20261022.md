@@ -19,6 +19,17 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST STOP at96%five-hour/~31%weekly: read HARNESS_CHECKPOINT_20261024 FIRST
+after source mapping. Run7190431d authenticatedready/19actualpins passed; original
+idleprobe failed ProcessLookupError errno3 /proc/2/environ,615stderrbytes retained,
+ownerlistUNKNOWN. Parent31sealedhashes/actualready/pins/event/controller0 review
+passes. Strict shutdown/no fallback/allownedstopped; frozenbackings unchanged,
+newtopSHAcb1aaaa9... . No boot authority remains. NEXT AFTERRESET offline narrow
+/proc ESRCH research/probeplan+Luna tests, failclosed unknownowners, parentreview
+and freshprep before any laterguest. Nativecalibration stillunrun. Harnessguide
+APP_TEST_HARNESS.md published, no newrepo. Wake06:26UTC/reset06:22:14UTC Oct24.
+Alloldernext-stepauthoritiesbelowhistorical; no repetition of consumedruns.
+
 LATEST r2prep4c68238d accepted byparent75tests/no skips/31currenthashes/source+
 manifest/durablecredential/normal4chain/idlesnapshots. Read DURABLE_IDLE_RUN_AUTHORITY_
 20261024: ONE exactr2readonlyboot authorized, no retry/calibration/browser/staging.
