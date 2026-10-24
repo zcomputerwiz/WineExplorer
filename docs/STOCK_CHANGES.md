@@ -616,6 +616,31 @@ window; nothing was added to it.
 otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta0\Winlogon`, switches, policy values) and
 `programs/consent` (`/secure`, `/ppid`).
 
+## Elevation boundary: callers use the broker (plan step 7, 2026-10-24)
+
+`ELEVATION_CALLERS_WORKORDER.md`. Every change is active only while the elevation helper is configured (the "not unset" rule of
+`kernelbase` and `ntdll`); with it unset each caller behaves as before, byte for byte. Stock Wine files changed:
+- `dlls/shell32/shlexec.c`: `run_elevation_helper()` (run the helper program, trust its exit code) is gone. `SHELL_ExecuteW`, with
+  the helper configured, sends the `runas` verb (when the caller is not elevated already) and a `CreateProcess` that fails with
+  `ERROR_ELEVATION_REQUIRED` to the broker through `execute_with_broker()`: it loads `wexhost.dll` (system directory only), calls
+  its export `WexElevateRun` with the resolved image, the full command line, the working directory, the environment and the show
+  state, and returns the broker's process handle for `SEE_MASK_NOCLOSEPROCESS`. If `wexhost.dll` or the export is missing the
+  launch fails with `ERROR_NOT_SUPPORTED`; nothing falls back to a linked token. An invalid helper value still fails closed as before.
+  Error mapping (`ShellExecuteEx`): the broker's Win32 error is the last error; `hInstApp` is `SE_ERR_FNF`, `SE_ERR_PNF`,
+  `SE_ERR_SHARE`, `SE_ERR_OOM` for the matching file and memory errors and `SE_ERR_ACCESSDENIED` for everything else
+  (cancel 1223, standard user 50, no policy 21, timeout 1460, consent window 1062, changed image 1392).
+- `dlls/shell32/tests/shlexec.c` (`test_elevation`): the helper-exit-code cases (approving and declining helper programs) are
+  replaced by the new rule: with a helper configured and no broker that approves, `ShellExecuteEx` fails and returns no handle.
+- `dlls/msi/custom.c`, `dlls/msi/msipriv.h`: `msi_install_through_broker()` starts `msiexec.exe /i <package> <UI switch> <properties>` once
+  through the broker for a per-machine install by a limited administrator and returns the exit code of the elevated `msiexec`
+  (cancel becomes `ERROR_INSTALL_USEREXIT`); `msi_package_file_is_machine()` (reads ALLUSERS and the registered context from the package file, read-only) is in `package.c`. `get_admin_token()` (custom action
+  server) no longer returns a linked token while the helper is configured: a per-machine install runs wholly in the elevated
+  `msiexec`, a per-user install does not elevate.
+- `dlls/msi/msi.c` (`MsiInstallProductW`), `dlls/msi/action.c` (`MSI_InstallPackage`): the two call sites. The first runs before the
+  package is opened, because opening copies the package into `C:\Windows\Installer`, which a limited token cannot write.
+- `programs/msiexec`: not changed.
+Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `advapi32`), `include/wexhost.h`, `include/wexelevate.h` unchanged.
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|

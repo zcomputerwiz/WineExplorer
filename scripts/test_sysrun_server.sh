@@ -25,6 +25,7 @@ M="$ROOT/machine"
 GRP=wexsysc2
 ADM=wexadm
 STD=wexstd
+CAR=wexcar   # a second administrator, made by the callers section (step 7)
 CONF=/etc/wineexplorer/sysrun.conf
 LIBEXEC=/usr/local/libexec/wineexplorer
 SYSRUN="$LIBEXEC/wex-sysrun"
@@ -49,7 +50,7 @@ ok() { echo "$1=PASS"; PASS=$((PASS + 1)); }
 kill_servers()
 {
     local u
-    for u in "$ADM" "$STD"; do
+    for u in "$ADM" "$STD" "$CAR"; do
         id "$u" >/dev/null 2>&1 || continue
         pkill -u "$u" -x wineserver 2>/dev/null || true
     done
@@ -64,14 +65,14 @@ cleanup()
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
     [ -z "${LEASES_SAVED:-}" ] || echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
     kill_servers
-    pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null   # includes winedevice.exe, which blocks userdel
-    sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null
+    pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null   # includes winedevice.exe, which blocks userdel
+    sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
-        echo "fixture kept: $ROOT, users $ADM $STD, group $GRP, $CONF, $LIBEXEC" >&2
+        echo "fixture kept: $ROOT, users $ADM $STD $CAR, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
     fi
-    for u in "$ADM" "$STD"; do
+    for u in "$ADM" "$STD" "$CAR"; do
         uid="$(id -u "$u" 2>/dev/null)"
         userdel -r "$u" 2>/dev/null
         [ -z "$uid" ] || rm -rf "/tmp/.wine-$uid"
@@ -666,7 +667,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -I"$SRC/sr
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scripts/wexelevate_stub.c"
 for arch in 64 32; do
     cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
-    $cc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32
+    $cc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32 -lshell32 -lmsi
     $cc -O2 -Wall -o "$ROOT/probes/sdprobe$arch.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
 done
 gcc -O2 -Wall -o "$ROOT/bin/x11probe" "$SRC/scripts/x11_grab_probe.c" -lX11
@@ -1276,6 +1277,316 @@ for t in 1 2; do
     el_down "$ADM"
 done
 set_val 'Software\\WineExplorer\\ElevationTest' SecureDesktopTest none
+# ---- 11. callers use the broker (plan step 7): docs/ELEVATION_CALLERS_WORKORDER.md ---------------------------------
+# shell32 (runas, requireAdministrator, highestAvailable) and msi (a per-machine install by a limited administrator)
+# hand the launch to the broker through wexhost.dll, with the helper set. Consent is driven through the test hook of
+# consent_test.exe (Approve, Cancel); no input is injected. The test broker and the hook are installed as in section 10.
+echo "--- callers use the broker (step 7)"
+# programs with a manifest that asks for administrator rights, or for the highest available: the probe, twice more
+for lvl in admin highest; do
+    case $lvl in admin) LEVEL=requireAdministrator;; highest) LEVEL=highestAvailable;; esac
+    cat > "$ROOT/$lvl.manifest" <<EOF
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+<trustInfo xmlns="urn:schemas-microsoft-com:asm.v2"><security><requestedPrivileges>
+<requestedExecutionLevel level="$LEVEL" uiAccess="false"/>
+</requestedPrivileges></security></trustInfo>
+</assembly>
+EOF
+    echo "1 24 \"$ROOT/$lvl.manifest\"" > "$ROOT/$lvl.rc"
+    x86_64-w64-mingw32-windres -o "$ROOT/$lvl.o64" "$ROOT/$lvl.rc"
+    i686-w64-mingw32-windres -o "$ROOT/$lvl.o32" "$ROOT/$lvl.rc"
+    x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/${lvl}64.exe" "$SRC/scripts/wexelevate_probe.c" "$ROOT/$lvl.o64" -ladvapi32 -lshell32 -lmsi
+    i686-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/${lvl}32.exe" "$SRC/scripts/wexelevate_probe.c" "$ROOT/$lvl.o32" -ladvapi32 -lshell32 -lmsi
+done
+chmod 0755 "$ROOT/probes"/*.exe
+for u in "$ADM" "$STD"; do
+    for img in admin64 admin32 highest64 highest32; do run_as "$u" cp "$ROOT/probes/$img.exe" "/home/$u/wexel/$img.exe"; done
+done
+
+bprobe_f() { local out="$1" u="$2" arch="$3"; shift 3; wine_as "$u" "$ROOT/probes/wexelevate_probe$arch.exe" "$@" > "$out.raw" 2>&1; local rc=$?; tr -d '\r' < "$out.raw" > "$out"; return $rc; }   # to a file: a program the probe starts can keep explorer.exe, which inherits the descriptor, alive, and a pipe would never end
+cp_case()   # name user probe-arch verb image expect action(approve|cancel|none) elevation|- [extra]
+{
+    local name="$1" u="$2" arch="$3" verb="$4" img="$5" expect="$6" action="$7" elev="$8" extra="${9:-}" shown
+    el_clean
+    bprobe_f "$ROOT/cp.log" "$u" "$arch" shexec "$verb" "$(winpath $img)" "$expect" "$(winpath $EL/out.cp)" "$elev" ${extra:+"$extra"} & CPP=$!
+    if [ "$action" != none ]; then
+        shown="$(wait_shown)" || { cat "$ROOT/cp.log" >&2; fail "$name: no consent window"; }
+        grep -qF "Program location: $(winpath $img)" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show the image"; }
+        grep -qx 'desktop=Winlogon' "$shown" || { cat "$shown" >&2; fail "$name: the window is not on the secure desktop"; }
+        touch "${shown%.shown}.$action"
+    fi
+    wait "$CPP" || { cat "$ROOT/cp.log" >&2; fail "$name"; }
+    grep -q '^shexec=PASS' "$ROOT/cp.log" || { cat "$ROOT/cp.log" >&2; fail "$name: no PASS"; }
+    if [ "$action" = none ]; then
+        [ -z "$(ls "$EL"/consent.*.shown 2>/dev/null)" ] || fail "$name: a consent window appeared"
+    fi
+    ok "$name"
+}
+
+# -- the shipping broker with a policy that selects no prompt (0): 21 for ShellExecuteEx, nothing runs
+el_restore_broker
+set_policy 0 1 || fail "policy 0"
+el_up "$ADM"
+cp_case c7_policy_without_prompt_is_error_not_ready "$ADM" 64 runas "/home/$ADM/wexel/p64.exe" 21 none -
+[ ! -e "$EL/out.cp" ] || fail "a program ran with the no-prompt policy"
+el_down "$ADM"
+set_policy none 0 || fail "policy none"
+if [ -z "$BROKER_ORIG" ]; then
+    install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
+    install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
+    install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
+    BROKER_ORIG=1
+fi
+set_policy 2 1 || fail "the policy value was not set"
+
+cp_create()   # name user image expected-error: CreateProcess alone (E3, no ShellExecute)
+{
+    local name="$1" u="$2" img="$3" expect="$4"
+    el_clean
+    bprobe_f "$ROOT/e3.log" "$u" 64 createproc "$(winpath /home/$u/wexel/$img.exe)" "$expect" "$(winpath $EL/out.e3)" || { cat "$ROOT/e3.log" >&2; fail "$name"; }
+    grep -q '^createproc=PASS' "$ROOT/e3.log" || { cat "$ROOT/e3.log" >&2; fail "$name: no PASS"; }
+    [ -z "$(ls "$EL"/consent.*.shown 2>/dev/null)" ] || fail "$name: CreateProcess asked for consent"
+    ok "$name"
+}
+el_up "$ADM"
+# -- a filtered administrator: elevates after Approve, 32 and 64 bit callers and targets
+for pa in 64 32; do
+    for ta in 64 32; do
+        cp_case "c7_runas_${pa}bit_caller_${ta}bit_target_elevates" "$ADM" $pa runas "/home/$ADM/wexel/p$ta.exe" 0 approve 2
+        [ "$(el_fact "$EL/out.cp" integrity)" = 12288 ] && [ "$(el_fact "$EL/out.cp" program_files)" = writable ] || fail "runas: the process is not elevated"
+    done
+done
+for ta in 64 32; do
+    cp_case "c7_require_administrator_${ta}bit_target_elevates_after_approve" "$ADM" 64 - "/home/$ADM/wexel/admin$ta.exe" 0 approve 2
+    cp_case "c7_highest_available_${ta}bit_target_elevates_for_the_filtered_administrator" "$ADM" 64 - "/home/$ADM/wexel/highest$ta.exe" 0 approve 2
+done
+cp_case c7_require_administrator_from_a_32bit_caller "$ADM" 32 - "/home/$ADM/wexel/admin32.exe" 0 approve 2
+# -- cancel: 1223, hInstApp SE_ERR_ACCESSDENIED, no handle, no process
+for v in "runas p64" "- admin64"; do
+    cp_case "c7_cancel_${v// /_}_is_error_cancelled_and_starts_nothing" "$ADM" 64 "${v% *}" "/home/$ADM/wexel/${v#* }.exe" 1223 cancel -
+    [ ! -e "$EL/out.cp" ] || fail "a cancelled ShellExecuteEx started a process"
+done
+# -- E3: CreateProcess alone never elevates: a manifest that needs it fails with 740 for the filtered administrator
+for img in admin64 admin32 highest64 highest32; do
+    cp_create "c7_create_process_${img}_needs_elevation_740_for_the_filtered_administrator" "$ADM" $img 740
+done
+# -- a missing program: no prompt, the file error
+cp_case c7_missing_program_is_file_not_found_without_a_prompt "$ADM" 64 runas "/home/$ADM/wexel/nothere.exe" 2 none -
+# -- an elevated process starts runas and requireAdministrator programs directly, no second prompt
+cp_case c7_elevated_process_runs_runas_and_manifest_programs_without_a_prompt "$ADM" 64 runas "/home/$ADM/wexel/p64.exe" 0 approve 2 "chain $(winpath /home/$ADM/wexel/admin64.exe)"
+[ "$(ls "$EL"/consent.*.shown | wc -l)" = 1 ] || fail "the elevated process asked for consent again"
+grep -q '^chain_runas=0 exit=42' "$EL/out.cp" && grep -q '^chain_open=0 exit=42' "$EL/out.cp" || { cat "$EL/out.cp" >&2; fail "chain"; }
+[ "$(el_fact "$EL/out.cp.chain0" elevation)" = 2 ] && [ "$(el_fact "$EL/out.cp.chain1" elevation)" = 2 ] || fail "the programs of the elevated process are not elevated"
+ok c7_chain_runs_directly_with_the_elevated_token
+el_down "$ADM"
+
+# -- a standard user: 50 (over-the-shoulder elevation is a later work order); highestAvailable simply runs limited
+el_up "$STD"
+cp_case c7_standard_user_runas_is_not_supported "$STD" 64 runas "/home/$STD/wexel/p64.exe" 50 none -
+cp_case c7_standard_user_require_administrator_is_not_supported "$STD" 64 - "/home/$STD/wexel/admin64.exe" 50 none -
+cp_case c7_standard_user_highest_available_runs_limited "$STD" 64 - "/home/$STD/wexel/highest64.exe" 0 none 1
+cp_create c7_create_process_require_administrator_740_for_a_standard_user "$STD" admin64 740
+cp_create c7_create_process_highest_available_runs_for_a_standard_user "$STD" highest64 0
+el_down "$STD"
+
+# -- real, freely licensed installers that require administrator rights (WEX_INSTALLER_DIR: 7z-x64.exe, 7z-x86.exe,
+# npp-x64.exe, npp-x86.exe; downloaded by hand, never committed). They install into the machine root's Program Files
+# after Approve; another user sees the files and can run the program.
+if [ -n "${WEX_INSTALLER_DIR:-}" ]; then
+echo "--- installers"
+el_up "$ADM"
+inst_case()   # name installer expected-file-under-machine-root silent-parameters
+{
+    local name="$1" exe="$2" file="$3" args="$4"
+    run_as "$ADM" cp "$WEX_INSTALLER_DIR/$exe" "/home/$ADM/wexel/$exe"
+    cp_case "c7_installer_${name}_asks_once" "$ADM" 64 - "/home/$ADM/wexel/$exe" 0 approve - "raw:$args"
+    [ "$(ls "$EL"/consent.*.shown | wc -l)" = 1 ] || fail "$name: more than one consent window"
+    [ -f "$M/drive_c/$file" ] || { ls -R "$M/drive_c/Program Files" "$M/drive_c/Program Files (x86)" >&2; fail "$name: $file was not installed"; }
+    run_as "$STD" test -r "$M/drive_c/$file" || fail "$name: another user cannot read $file"
+    [ "$(stat -c %U "$M/drive_c/$file")" != "$STD" ] || fail "$name: the file belongs to the other user"
+    ok "c7_installer_${name}_installs_into_program_files_and_is_visible_to_another_user"
+}
+inst_case 7zip_64bit 7z-x64.exe 'Program Files/7-Zip/7z.exe' '/S /D="C:\Program Files\7-Zip"'
+inst_case 7zip_32bit 7z-x86.exe 'Program Files (x86)/7-Zip/7z.exe' '/S /D="C:\Program Files (x86)\7-Zip"'
+inst_case notepadpp_64bit npp-x64.exe 'Program Files/Notepad++/notepad++.exe' '/S'
+inst_case notepadpp_32bit npp-x86.exe 'Program Files (x86)/Notepad++/notepad++.exe' '/S'
+el_down "$ADM"
+el_up "$STD"
+OUT="$(wine_as "$STD" "$M/drive_c/Program Files/7-Zip/7z.exe" 2>&1 | head -3)"
+grep -q '7-Zip' <<<"$OUT" || { echo "$OUT" >&2; fail "another user cannot run the installed 7-Zip"; }
+ok c7_installed_program_runs_for_another_user
+el_down "$STD"
+fi
+
+# -- a per-machine MSI by a limited administrator is relaunched once through the broker (one consent) and its deferred
+# custom action runs with the full token; a per-user MSI does not elevate
+if command -v wixl >/dev/null && command -v msibuild >/dev/null; then
+echo "--- msi"
+MS="$ROOT/msi"; install -d -m 755 "$MS"
+echo hello > "$MS/hello.txt"; cp "$ROOT/probes/wexelevate_probe32.exe" "$MS/act.exe"
+mkmsi()   # name all-users(1|0) folder-id
+{
+    local name="$1" allusers="$2" dir="$3" prop=""
+    [ "$allusers" = 1 ] && prop='<Property Id="ALLUSERS" Value="1"/>'
+    cat > "$MS/$name.wxs" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" UpgradeCode="6d3a3f0e-5a49-4a41-9a3e-0c5d2b7b1a0$allusers" Name="WexCallers$name" Language="1033" Version="1.0.0" Manufacturer="WineExplorer test">
+    <Package Description="$name" InstallerVersion="200" Compressed="yes"/>
+    <Media Id="1" Cabinet="a.cab" EmbedCab="yes"/>
+    $prop
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="$dir">
+        <Directory Id="INSTALLDIR" Name="WexCallers$name">
+          <Component Id="C1" Guid="6d3a3f0e-5a49-4a41-9a3e-0c5d2b7b1a1$allusers"><File Id="F1" Source="$MS/hello.txt"/></Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Binary Id="ActBin" SourceFile="$MS/act.exe"/>
+    <Feature Id="Main" Level="1"><ComponentRef Id="C1"/></Feature>
+  </Product>
+</Wix>
+EOF
+    wixl -o "$MS/$name.msi" "$MS/$name.wxs" 2>/dev/null
+    # a deferred custom action without impersonation (type 2 | continue 0x40 | in-script 0x400 | no impersonation 0x800) that reports the token it runs with
+    msibuild "$MS/$name.msi" -q "INSERT INTO \`CustomAction\` (\`Action\`, \`Type\`, \`Source\`, \`Target\`) VALUES ('Act', 3138, 'ActBin', 'child $(winpath $EL/out.msi.act)')" \
+        -q "INSERT INTO \`InstallExecuteSequence\` (\`Action\`, \`Condition\`, \`Sequence\`) VALUES ('Act', 'NOT Installed', 4100)"
+    chmod 644 "$MS/$name.msi"
+}
+# TEMP of the machine root points into the setup user's profile, which a limited process cannot write: the probe sets its own
+run_as "$ADM" install -d "/home/$ADM/wextmp"
+mkmsi machine 1 ProgramFilesFolder
+mkmsi peruser 0 AppDataFolder
+msi_case()   # name msi action(approve|none) expected-result
+{
+    local name="$1" pkg="$2" action="$3" expect="$4" shown
+    el_clean
+    run_as "$ADM" cp "$MS/$pkg.msi" "/home/$ADM/wexel/$pkg.msi"
+    bprobe_f "$ROOT/msi.log" "$ADM" 64 msi "$(winpath /home/$ADM/wexel/$pkg.msi)" "" "$expect" "$(winpath /home/$ADM/wextmp)" & CPP=$!
+    if [ "$action" != none ]; then
+        shown="$(wait_shown)" || { cat "$ROOT/msi.log" >&2; fail "$name: no consent window"; }
+        grep -qF 'msiexec.exe' "$shown" && grep -qF "$pkg.msi" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show msiexec and the package"; }
+        touch "${shown%.shown}.$action"
+    fi
+    wait "$CPP" || { cat "$ROOT/msi.log" >&2; fail "$name"; }
+    grep -q '^msi=PASS' "$ROOT/msi.log" || { cat "$ROOT/msi.log" >&2; fail "$name: no PASS"; }
+}
+el_up "$ADM"
+msi_case c7_msi_per_machine_install_asks_once machine approve 0
+[ "$(ls "$EL"/consent.*.shown | wc -l)" = 1 ] || fail "the per-machine MSI asked more than once"
+[ -f "$M/drive_c/Program Files (x86)/WexCallersmachine/hello.txt" ] || { find "$M/drive_c" -name hello.txt >&2; fail "the per-machine MSI did not install into Program Files"; }
+[ "$(el_fact "$EL/out.msi.act" elevation)" = 2 ] && [ "$(el_fact "$EL/out.msi.act" program_files)" = writable ] || { cat "$EL/out.msi.act" >&2; fail "the deferred custom action did not run elevated"; }
+ok c7_msi_per_machine_install_one_consent_and_the_deferred_action_is_elevated
+msi_case c7_msi_per_machine_cancel_is_user_exit machine cancel 1602
+ok c7_msi_per_machine_cancel_returns_error_install_userexit
+# a per-user install does not elevate and asks nothing. It does not complete either while elevation is enforced: opening the
+# package copies it into the machine's Installer directory, which a limited token cannot write (1627). Recorded in the work order.
+rm -rf "$M/drive_c/windows/Installer"
+msi_case c7_msi_per_user_install_does_not_elevate peruser none 1627
+[ -z "$(ls "$EL"/consent.*.shown 2>/dev/null)" ] || fail "the per-user MSI asked for consent"
+ok c7_msi_per_user_install_does_not_elevate_and_asks_nothing
+el_down "$ADM"
+else
+echo "NOTE: wixl or msibuild missing, the MSI checks were not run"
+fi
+
+# -- the S2, S3 and S4 assertions that waited for the broker, as far as this fixture can run them: an administrator's own
+# (limited) session cannot write the machine root, so the install runs elevated through the broker after Approve
+# (cmd.exe /c, "runas"); another administrator does the same; a standard user runs the result and cannot write.
+# S2 Test 1 and 1b, S3 Case 1 and Case 3, S4 Case 5. Not run here (they need the installed layout of the guest or
+# the COW test programs): the COW break of msvcp140.dll, S3 Case 3b and Case 4.
+echo "--- S2/S3/S4 assertions that waited for the broker"
+id "$CAR" >/dev/null 2>&1 || { useradd -m -k "$ROOT/skel" -s /bin/bash "$CAR"; usermod -a -G sudo "$CAR"; }
+for u in "$ADM" "$CAR"; do
+    run_as "$u" install -d "/home/$u/wexel"
+done
+printf '@echo off\r\necho Shared Tool Running Successfully\r\n' > "$ROOT/tool.bat"
+printf 'Installed_By_Alice=1\r\n' > "$ROOT/alice_cfg.ini"
+printf 'Modified_By_Carol=2\r\n' > "$ROOT/carol_cfg.ini"
+chmod 644 "$ROOT/tool.bat" "$ROOT/alice_cfg.ini" "$ROOT/carol_cfg.ini"
+run_as "$ADM" cp "$ROOT/tool.bat" "$ROOT/alice_cfg.ini" "/home/$ADM/wexel/"
+run_as "$CAR" cp "$ROOT/carol_cfg.ini" "/home/$CAR/wexel/"
+PF="$M/drive_c/Program Files"
+el_cmd()   # name user arguments-of-cmd.exe: run "cmd.exe /c <arguments>" elevated through the broker, Approve once
+{
+    local name="$1" u="$2" args="$3" shown
+    el_clean
+    bprobe_f "$ROOT/ec.log" "$u" 64 shexec runas 'C:\windows\system32\cmd.exe' 0 "$(winpath $EL/out.ec)" - "raw:/c $args" & ECP=$!
+    shown="$(wait_shown)" || { cat "$ROOT/ec.log" >&2; fail "$name: no consent window"; }
+    touch "${shown%.shown}.approve"
+    wait "$ECP" || { cat "$ROOT/ec.log.raw" >&2; fail "$name"; }
+    grep -q '^shexec=PASS' "$ROOT/ec.log" || { cat "$ROOT/ec.log" >&2; fail "$name: no PASS"; }
+}
+as_wine()   # user args: a Wine program of a user's own (limited) session, output to stdout
+{
+    local u="$1"; shift
+    wine_as "$u" "$@" 2>/dev/null | tr -d '\r'
+}
+
+# S4 Case 5: the administrator's own session installs a shared tool; a standard user runs it and cannot write
+el_up "$ADM"
+as_wine "$ADM" cmd.exe /c 'mkdir "C:\Program Files\SharedToolDenied"' >/dev/null || true
+[ ! -d "$PF/SharedToolDenied" ] || fail "the administrator's own limited session wrote Program Files"
+el_cmd c7_s4_alice_installs_into_program_files "$ADM" 'mkdir "C:\Program Files\SharedTool" && copy /Y Z:\home\wexadm\wexel\tool.bat "C:\Program Files\SharedTool\tool.bat"'
+[ -f "$PF/SharedTool/tool.bat" ] || { ls -la "$PF" >&2; fail "S4: the elevated session did not install SharedTool"; }
+[ "$(stat -c %G "$PF/SharedTool/tool.bat")" = "$GRP" ] || [ "$(stat -c %U "$PF/SharedTool/tool.bat")" = "$ADM" ] || fail "S4: unexpected owner of tool.bat"
+ok c7_s4_alice_installs_into_program_files_through_the_broker
+el_down "$ADM"
+el_up "$STD"
+OUT="$(as_wine "$STD" cmd.exe /c 'C:\Program Files\SharedTool\tool.bat')"
+grep -q 'Shared Tool Running Successfully' <<<"$OUT" || { echo "$OUT" >&2; fail "S4: Bob cannot run the shared tool"; }
+as_wine "$STD" cmd.exe /c 'echo x > "C:\Program Files\SharedTool\bob.txt"' >/dev/null || true
+[ ! -e "$PF/SharedTool/bob.txt" ] || fail "S4: Bob wrote the machine root"
+ok c7_s4_bob_runs_the_shared_tool_and_cannot_write_the_machine_root
+el_down "$STD"
+
+# S2 Test 1 and 1b: Alice installs AliceApp, Carol (a second administrator) modifies Alice's settings
+el_up "$ADM"
+el_cmd c7_s2_alice_installs_aliceapp "$ADM" 'mkdir "C:\Program Files\AliceApp" && copy /Y Z:\var\lib\wexsys-c2\probes\wexelevate_probe64.exe "C:\Program Files\AliceApp\app64.exe" && copy /Y Z:\var\lib\wexsys-c2\probes\wexelevate_probe32.exe "C:\Program Files\AliceApp\app32.exe" && copy /Y Z:\home\wexadm\wexel\alice_cfg.ini "C:\Program Files\AliceApp\settings.ini"'
+for f in app64.exe app32.exe settings.ini; do [ -f "$PF/AliceApp/$f" ] || fail "S2: $f was not installed"; done
+tr -d '\r' < "$PF/AliceApp/settings.ini" | grep -qx 'Installed_By_Alice=1' || fail "S2: settings.ini content"
+ok c7_s2_alice_installed_app64_app32_and_settings_through_the_broker
+el_down "$ADM"
+el_up "$CAR"
+if wine_as "$CAR" cmd.exe /c 'copy /Y Z:\home\wexcar\wexel\carol_cfg.ini "C:\Program Files\AliceApp\settings.ini"' >/dev/null 2>&1; then :; fi
+tr -d '\r' < "$PF/AliceApp/settings.ini" | grep -qx 'Installed_By_Alice=1' || fail "S2: Carol's own limited session changed Alice's settings"
+el_cmd c7_s2_carol_modifies_alices_settings "$CAR" 'copy /Y Z:\home\wexcar\wexel\carol_cfg.ini "C:\Program Files\AliceApp\settings.ini"'
+tr -d '\r' < "$PF/AliceApp/settings.ini" | grep -qx 'Modified_By_Carol=2' || { cat "$PF/AliceApp/settings.ini" >&2; fail "S2: the second administrator could not modify settings.ini"; }
+ok c7_s2_second_administrator_modifies_the_installed_files_through_the_broker
+el_down "$CAR"
+el_up "$STD"
+OUT="$(as_wine "$STD" 'C:\Program Files\AliceApp\app64.exe' facts 'Z:\tmp\wexelev\bob.facts')"
+grep -q '^facts=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "S2: Bob cannot run AliceApp"; }
+OUT="$(as_wine "$STD" 'C:\Program Files\AliceApp\app32.exe' facts 'Z:\tmp\wexelev\bob32.facts')"
+grep -q '^facts=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "S2: Bob cannot run the 32-bit AliceApp"; }
+ok c7_s2_bob_runs_both_programs_alice_installed
+el_down "$STD"
+
+# S3 Case 1 and Case 3: administrator sessions register in HKLM through the broker, the keys persist in the machine hive
+# (two administrators, each with a server of their own), and a standard user sees both
+CLS='HKLM\Software\Classes\CLSID\{A11CE000-0000-0000-0000-000000000001}'
+UNI='HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+el_up "$ADM"
+el_cmd c7_s3_alice_registers_com_class_and_uninstall_entry "$ADM" "reg add \"$CLS\" /ve /d \"Alice COM Server\" /f && reg add \"$UNI\\AliceApp\" /v DisplayName /d \"Alice Application 1.0\" /f"
+el_down "$ADM"
+el_up "$CAR"
+el_cmd c7_s3_carol_registers_her_own_key "$CAR" "reg add \"$UNI\\CarolApp\" /v DisplayName /d \"Carol Application 1.0\" /f"
+el_down "$CAR"
+for k in 'Alice COM Server' 'Alice Application 1.0' 'Carol Application 1.0'; do
+    grep -qF "$k" "$M/system.reg" || { grep -c . "$M/system.reg" >&2; fail "S3: '$k' is not in the machine hive"; }
+done
+ok c7_s3_both_administrators_keys_persist_in_the_machine_hive
+el_up "$STD"
+OUT="$(as_wine "$STD" reg query "$UNI\\AliceApp" /v DisplayName) $(as_wine "$STD" reg query "$UNI\\CarolApp" /v DisplayName) $(as_wine "$STD" reg query "$CLS")"
+grep -q 'Alice Application 1.0' <<<"$OUT" && grep -q 'Carol Application 1.0' <<<"$OUT" && grep -q 'Alice COM Server' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "S3: a standard user does not see the registrations"; }
+as_wine "$STD" reg add "$UNI\\BobApp" /v DisplayName /d "Bob" /f >/dev/null || true
+el_down "$STD"
+! grep -q 'BobApp' "$M/system.reg" || fail "S3: a standard user wrote HKLM"
+ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
+
 el_restore_broker
 rm -rf "$EL"
 fi   # WEX_C4_SKIP

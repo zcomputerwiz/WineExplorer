@@ -356,6 +356,11 @@ DWORD WINAPI WexLeaseTake(HANDLE file, HANDLE event, UINT64 *lease);
 DWORD WINAPI WexLeaseArm(UINT64 lease, DWORD pid);
 DWORD WINAPI WexLeaseRelease(UINT64 lease, BOOL *broken);
 
+/* Ask the elevation broker to start image elevated (docs/ELEVATION_CALLERS_WORKORDER.md, E1). Same arguments and
+ * errors as wexelevate_run() in wexelevate.h. Stock shell32 and msi call it while elevation is enforced. */
+DWORD WINAPI WexElevateRun(const WCHAR *image, const WCHAR *cmdline, const WCHAR *cwd, const WCHAR *env,
+                           DWORD env_len, DWORD show, DWORD flags, HANDLE *process, DWORD *pid);
+
 #ifdef __cplusplus
 }
 #endif

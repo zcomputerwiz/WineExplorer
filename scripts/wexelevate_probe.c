@@ -39,10 +39,22 @@
  *   consentattack      try to open the consent process (consent_test.exe) with the rights that would let a limited
  *                      process approve or steer it; every one must be denied
  *   winwrite <path>    open <path> for writing through Win32 and append a byte (a Wine program as the writer)
- *   child <out> [hold <tag>|args...]
+ *   child <out> [hold <tag>|chain <admin image>|args...]
  *                      what the elevated process does: write its facts to <out>, create a folder in
- *                      "C:\Program Files", exit with 42
+ *                      "C:\Program Files", exit with 42. "chain": it is elevated already, so ShellExecuteEx "runas" of
+ *                      itself and a plain open of <admin image> (a requireAdministrator program) run directly without a
+ *                      prompt; the errors go to <out> as chain_runas= and chain_open=
  *   facts <out>        the same facts for this process (the control: a limited process)
+ *   createproc <image> <expect> <out>
+ *                      CreateProcess of <image> with "child <out>"; expect that error (740 for a manifest that needs
+ *                      elevation the caller's token cannot give, 0 = ran and exited with 42)
+ *   msi <package> <properties> <expect> [temp]
+ *                      MsiInstallProduct without UI (TEMP set to <temp> first); the result must be <expect>
+ *   shexec <verb|-> <image> <expect> <out> <elev|-> [extra|raw:<parameters>]
+ *                      ShellExecuteEx (docs/ELEVATION_CALLERS_WORKORDER.md) of <image> with the parameters "child <out>"
+ *                      and SEE_MASK_NOCLOSEPROCESS; expect that Win32 error (0 = success: wait for the handle, exit code 42,
+ *                      and the child's token elevation type must be <elev> unless "-"). A failure must leave hProcess NULL
+ *                      and hInstApp at an SE_ERR value (5 for cancel, 50 and 21)
  *   hold               sleep 120 seconds
  * Prints "ok ..." / "FAIL ..." lines and "<mode>=PASS" or "<mode>=FAIL"; exit status 0 only if everything passed.
  */
@@ -53,6 +65,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <shellapi.h>
+#include <msi.h>
 
 #include "wexelevate.h"
 
@@ -196,6 +210,35 @@ static int child_mode(int argc, char **argv)
         MultiByteToWideChar(CP_UTF8, 0, self, -1, wself, MAX_PATH);
         err = wexelevate_run(wself, L"x", NULL, NULL, 0, SW_SHOWNORMAL, 0, NULL, NULL);
         fprintf(out, "again=%lu\n", err);
+    }
+    if (argc > 4 && !strcmp(argv[3], "chain"))
+    {
+        WCHAR self[MAX_PATH], params[2 * MAX_PATH], *admin = widen(argv[4]), *wout = widen(argv[2]);
+        SHELLEXECUTEINFOW sei = { sizeof(sei) };
+        DWORD code;
+        int pass;
+
+        GetModuleFileNameW(NULL, self, MAX_PATH);
+        for (pass = 0; pass < 2; pass++)
+        {
+            swprintf(params, sizeof(params) / sizeof(WCHAR), L"child %ls.chain%d", wout, pass);
+            memset(&sei, 0, sizeof(sei));
+            sei.cbSize = sizeof(sei);
+            sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+            sei.lpVerb = pass ? NULL : L"runas";
+            sei.lpFile = pass ? admin : self;
+            sei.lpParameters = params;
+            sei.nShow = SW_SHOWNORMAL;
+            code = 0;
+            if (ShellExecuteExW(&sei))
+            {
+                WaitForSingleObject(sei.hProcess, 60000);
+                GetExitCodeProcess(sei.hProcess, &code);
+                CloseHandle(sei.hProcess);
+                fprintf(out, "chain_%s=0 exit=%lu\n", pass ? "open" : "runas", code);
+            }
+            else fprintf(out, "chain_%s=%lu\n", pass ? "open" : "runas", GetLastError());
+        }
     }
     if (argc > 3 && !strcmp(argv[3], "spawn"))
     {
@@ -568,6 +611,113 @@ static void attack_mode(const char *image, const char *out, const char *tag)
     free(wimage); free(cmd);
 }
 
+static void shexec_mode(const char *verb, const char *image, DWORD expect, const char *out, const char *elev, const char *extra)
+{
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    WCHAR *wimage = widen(image), params[2 * MAX_PATH], *wverb = strcmp(verb, "-") ? widen(verb) : NULL, *wout = widen(out);
+    BOOL ret;
+    DWORD err, code = 0, want_exit = 42;
+    char what[96], detail[64];
+    int waited;
+
+    /* "raw:<parameters>" runs a program that is not this probe (an installer); its exit code must be 0 */
+    if (extra && !strncmp(extra, "raw:", 4))
+    {
+        WCHAR *wextra = widen(extra + 4);
+
+        swprintf(params, sizeof(params) / sizeof(WCHAR), L"%ls", wextra);
+        free(wextra);
+        want_exit = 0;
+        elev = "-";
+    }
+    else if (extra)
+    {
+        WCHAR *wextra = widen(extra);
+
+        swprintf(params, sizeof(params) / sizeof(WCHAR), L"child %ls %ls", wout, wextra);
+        free(wextra);
+    }
+    else swprintf(params, sizeof(params) / sizeof(WCHAR), L"child %ls", wout);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+    sei.lpVerb = wverb;
+    sei.lpFile = wimage;
+    sei.lpParameters = params;
+    sei.nShow = SW_SHOWNORMAL;
+    SetLastError(0xdeadbeef);
+    ret = ShellExecuteExW(&sei);
+    err = ret ? 0 : GetLastError();
+    sprintf(what, "ShellExecuteEx error %lu (got %lu, hInstApp %lu)", expect, err, (unsigned long)(ULONG_PTR)sei.hInstApp);
+    check(err == expect, what);
+    if (expect)
+    {
+        check(!ret && sei.hProcess == NULL, "a failed ShellExecuteEx returns no process handle");
+        check((ULONG_PTR)sei.hInstApp <= 32, "hInstApp is an SE_ERR value");
+        if (expect == ERROR_CANCELLED || expect == ERROR_NOT_SUPPORTED || expect == ERROR_NOT_READY)
+            check((ULONG_PTR)sei.hInstApp == SE_ERR_ACCESSDENIED, "hInstApp is SE_ERR_ACCESSDENIED");
+    }
+    else
+    {
+        check(ret && (ULONG_PTR)sei.hInstApp > 32, "ShellExecuteEx succeeded, hInstApp above 32");
+        check(sei.hProcess != NULL, "SEE_MASK_NOCLOSEPROCESS returned a process handle");
+        if (sei.hProcess)
+        {
+            sprintf(what, "the process handle waits and returns the exit code %lu", want_exit);
+            detail[0] = 0;
+            waited = WaitForSingleObject(sei.hProcess, 600000) == WAIT_OBJECT_0 && GetExitCodeProcess(sei.hProcess, &code);
+            sprintf(detail, "wait %d exit code %lu", waited, code);
+            checkf(waited && code == want_exit, what, detail);
+            CloseHandle(sei.hProcess);
+        }
+        if (elev && strcmp(elev, "-"))
+        {
+            char *text = read_text(out);
+            checkf(text && fact_is(text, "elevation", elev), "the started process has the expected token elevation type",
+                   text && fact(text, "elevation") ? fact(text, "elevation") : "none");
+            free(text);
+        }
+    }
+    free(wimage); free(wout); free(wverb);
+}
+
+static void createproc_mode(const char *image, DWORD expect, const char *out)
+{
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    char cmd[2 * MAX_PATH + 32], what[96];
+    DWORD err, code = 0;
+    BOOL ret;
+
+    sprintf(cmd, "\"%s\" child %s", image, out);
+    SetLastError(0xdeadbeef);
+    ret = CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+    err = ret ? 0 : GetLastError();
+    sprintf(what, "CreateProcess error %lu (got %lu)", expect, err);
+    check(err == expect, what);
+    if (ret)
+    {
+        check(WaitForSingleObject(pi.hProcess, 60000) == WAIT_OBJECT_0 && GetExitCodeProcess(pi.hProcess, &code) && code == 42,
+              "the process ran and returned 42");
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+}
+
+static void msi_mode(const char *path, const char *props, DWORD expect, const char *temp)
+{
+    DWORD r;
+    char what[96];
+
+    if (temp)
+    {
+        SetEnvironmentVariableA("TEMP", temp);
+        SetEnvironmentVariableA("TMP", temp);
+    }
+    MsiSetInternalUI(INSTALLUILEVEL_NONE, NULL);
+    r = MsiInstallProductA(path, props);
+    sprintf(what, "MsiInstallProduct returns %lu (got %lu)", expect, r);
+    check(r == expect, what);
+}
+
 static void leasekill_mode(const char *image, const char *out, const char *tag)
 {
     HANDLE process = NULL;
@@ -681,6 +831,9 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "attack") && argc > 4) attack_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "leasekill") && argc > 4) leasekill_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "spoofcmd") && argc > 4) spoofcmd_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "shexec") && argc > 6) shexec_mode(argv[2], argv[3], atoi(argv[4]), argv[5], argv[6], argc > 7 ? argv[7] : NULL);
+    else if (!strcmp(mode, "createproc") && argc > 4) createproc_mode(argv[2], atoi(argv[3]), argv[4]);
+    else if (!strcmp(mode, "msi") && argc > 4) msi_mode(argv[2], argv[3], atoi(argv[4]), argc > 5 ? argv[5] : NULL);
     else if (!strcmp(mode, "consentattack")) consentattack_mode();
     else if (!strcmp(mode, "winwrite") && argc > 2) winwrite_mode(argv[2]);
     else if (!strcmp(mode, "facts") && argc > 2)
