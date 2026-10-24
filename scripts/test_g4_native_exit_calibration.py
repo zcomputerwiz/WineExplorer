@@ -94,7 +94,8 @@ class RunnerTests(unittest.TestCase):
         for name in cal.PES:
             p=self.stage/'original'/name;p.write_bytes(data);self.pes[name]=cal.install.digest(p)
         core={str(cal.BUILD/n):'a'*64 for n in cal.CORE};core[str(self.edge)]='a'*64;core[str(self.root/'labwc')]='a'*64
-        self.pins=dict(known_binary_sha256=core,original_pe_sha256=self.pes)
+        self.loader=self.root/'owned-build/loader/wine';self.loader.parent.mkdir(parents=True);self.loader.write_bytes(b'original loader fixture')
+        self.pins=dict(known_binary_sha256=core,original_pe_sha256=self.pes,additional_loader_pin=dict(path=str(self.loader),sha256='a'*64))
         cal.save(self.stage/'native-exit-pins.json',self.pins)
         self.clock=0;self.calls=[];self.fault=None;self.polls=0;self.killed=False;self.wait_failure=False;self.raw_edit=lambda v:v
         self.comp=Mock();self.comp.start.return_value={'owned':True};self.comp.verify_gpu_renderer.return_value={'passed':True}
@@ -106,7 +107,7 @@ class RunnerTests(unittest.TestCase):
         original_digest=cal.install.digest
         def digest(path):return original_digest(path) if path.is_relative_to(self.stage) else 'a'*64
         patches=[patch.object(cal,'LAB',self.root),patch.object(cal,'PREFIX',self.prefix),patch.object(cal,'EDGE',self.edge),
-            patch.object(cal,'EDGE_SHA','a'*64),patch.object(cal,'PES',self.pes),patch.object(cal.install,'digest',side_effect=digest),
+            patch.object(cal,'EDGE_SHA','a'*64),patch.object(cal,'PES',self.pes),patch.object(cal,'APPROVED_LOADER',self.loader),patch.object(cal,'LOADER_SHA','a'*64),patch.object(cal.install,'digest',side_effect=digest),
             patch.object(cal.install,'installed_evidence',return_value=installed),patch.object(cal.shutil,'disk_usage',return_value=SimpleNamespace(free=2*1024**3)),
             patch.object(cal.graphics_resources,'sample',return_value={}),patch.object(cal.isolation,'verify_private_loopback',self.lo),
             patch.object(cal,'OwnedWexcomp',return_value=self.comp),patch.object(cal,'verify_native_gl_driver',return_value={'passed':True}),
@@ -302,6 +303,15 @@ class RunnerTests(unittest.TestCase):
         with patch.object(cal.os,'open') as opening:
             with self.assertRaises(TimeoutError):REAL_READ_OWNED_STAT(1234,deadline=0,now=lambda:0)
             opening.assert_not_called()
+
+    def test_internal_loader_hash_or_noncanonical_pin_fails_before_any_launch(self):
+        original=cal.install.digest.side_effect
+        with patch.object(cal.install,'digest',side_effect=lambda path:'0'*64 if path==self.loader else original(path)):
+            with self.assertRaisesRegex(ValueError,'loader hash'):self.execute()
+        self.popen.assert_not_called();self.comp.start.assert_not_called();self.assertFalse(self.output.exists())
+        self.loader.unlink();self.loader.symlink_to(self.edge)
+        with self.assertRaisesRegex(ValueError,'loader hash'):self.execute()
+        self.popen.assert_not_called();self.assertFalse(self.output.exists())
 
 
 if __name__=='__main__':unittest.main()

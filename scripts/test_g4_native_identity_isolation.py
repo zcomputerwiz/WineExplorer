@@ -27,6 +27,13 @@ def procedure():
         p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p);return p
 
 
+def legacy_fixture():
+    p=procedure()
+    p.native_source_approval=lambda:dict(commit='SYNTHETIC_R3_TEST_ONLY',sha256={n:p.sha(REPO/n) for n in
+        ('scripts/check-g4-native-exit-calibration.py','scripts/g4_edge_owned_threads.py')})
+    return p
+
+
 @unittest.skipUnless(refresh.PRIVATE.is_file() and LAB.is_dir(),'owned private inputs unavailable')
 class IsolationTests(unittest.TestCase):
     def test_actual_launcher_missing_old_only_symlink_noncanonical_before_outputs(self):
@@ -35,6 +42,7 @@ class IsolationTests(unittest.TestCase):
         env={'Path':Path};exec(compile(ast.Module(body=[fn],type_ignores=[]),str(path),'exec'),env)
         with tempfile.TemporaryDirectory(prefix='r3-launch-test-',dir=LAB) as temp:
             root=Path(temp)
+            launcher_new='system-native-identity-r4-20261024.qcow2'
             for old in ('system-readiness-r1-20261024.qcow2','system-capacity-r1-20261023.qcow2'):(root/old).write_bytes(b'plain fixture, not image')
             # Execute actual module prefix up to the guarded disk assignment.
             prefix=[]
@@ -42,7 +50,7 @@ class IsolationTests(unittest.TestCase):
                 prefix.append(node)
                 if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='disk' for t in node.targets):break
             for missing in (True,False):
-                if not missing:(root/NEW).symlink_to(root/'system-readiness-r1-20261024.qcow2')
+                if not missing:(root/launcher_new).symlink_to(root/'system-readiness-r1-20261024.qcow2')
                 env2={};code=compile(ast.Module(body=prefix,type_ignores=[]),str(path),'exec')
                 # Replace only the fixed storage-root literal in this test AST.
                 for node in ast.walk(prefix[-2]):
@@ -52,27 +60,29 @@ class IsolationTests(unittest.TestCase):
                      mock.patch.object(Path,'mkdir',side_effect=AssertionError('No output')) as mkdir:
                     with self.assertRaises(RuntimeError):exec(code,env2)
                 child.assert_not_called();mkdir.assert_not_called()
-            (root/NEW).unlink();(root/NEW).write_bytes(b'plain fixture')
-            self.assertEqual(env['writable_overlay'](root),root/NEW)
+            (root/launcher_new).unlink();(root/launcher_new).write_bytes(b'plain fixture')
+            self.assertEqual(env['writable_overlay'](root),root/launcher_new)
             with self.assertRaises(RuntimeError):env['writable_overlay'](root/'..'/root.name)
 
     def test_explicit_source_approval_and_old_approval_remains_rejected(self):
-        p=procedure();approved=p.native_source_approval()
-        self.assertEqual(approved['commit'],'9f86add0');self.assertEqual(len(approved['sha256']),2)
+        p=procedure()
+        with self.assertRaisesRegex(RuntimeError,'Explicit9f86add0'):p.native_source_approval()
+        approved={'sha256':{'scripts/check-g4-native-exit-calibration.py':'477846d5e1c64b33690fd85e470f5887992c8816bb2aeb0162467c20f00d30e6',
+            'scripts/g4_edge_owned_threads.py':'ac97a7eadb1b692eb1d6bf88f062c1ffe4e76bb8da237d0c403d549bb5731f7e'}}
         for name in approved['sha256']:
             real=p.sha
-            with mock.patch.object(p,'sha',side_effect=lambda path:'0'*64 if Path(path)==REPO/name else real(path)):
+            with mock.patch.object(p,'sha',side_effect=lambda path:'0'*64 if Path(path)==REPO/name else approved['sha256'].get(Path(path).relative_to(REPO).as_posix(),real(path))):
                 with self.assertRaisesRegex(RuntimeError,'Explicit9f86add0'):p.native_source_approval()
 
     def test_actual_r3_branch_only_complete_empty_then_fixed_guest_stage(self):
-        with mock.patch.object(refresh,'procedure',side_effect=procedure):
+        with mock.patch.object(refresh,'procedure',side_effect=legacy_fixture):
             info,calls,guards,error,_,_=refresh.RefreshTests.exercise(self)
         self.assertIsNone(error);self.assertEqual(guards,[674,650,435,435]);self.assertEqual(info['consumer_ssh_exit'],0)
         self.assertIn(['mkdir','--',refresh.GUEST+'-stage'],calls)
         self.assertNotIn(NAME+'-stage',' '.join(' '.join(c) for c in calls))
 
     def test_actual_r3_pre_stage_failures_and_nonempty_never_write(self):
-        with mock.patch.object(refresh,'procedure',side_effect=procedure):
+        with mock.patch.object(refresh,'procedure',side_effect=legacy_fixture):
             for problem in ('ready','helper','archive','input','probe','path','key','space','binary','identity','exists','approval','overlay'):
                 with self.subTest(problem=problem):
                     info,calls,_,error,_,_=refresh.RefreshTests.exercise(self,problem=problem)
@@ -119,13 +129,15 @@ class IsolationTests(unittest.TestCase):
                 self.assertEqual(hashing.call_count,2 if problem=='failed-content' else 1 if problem=='parent-content' else 0)
 
     def test_actual_r3_preparation_synthetic_storage_no_create_network_native(self):
-        p=procedure()
+        p=legacy_fixture()
         with tempfile.TemporaryDirectory(prefix='r3-prep-test-',dir=LAB) as temp:
             p.PREP=Path(temp)/'prep';p.RUN=p.BOOT=Path(temp)/NAME
             storage=dict(new_target=str(LAB/NEW),new_target_absent=True,create_argv=['/usr/bin/qemu-img','create','-f','qcow2','-F','qcow2','-b',str(LAB/'system-capacity-r1-20261023.qcow2'),str(LAB/NEW)])
+            real_sha=p.sha
             with mock.patch.object(p,'prepare_native_isolation_storage',return_value=storage), \
                  mock.patch.object(p,'prepare_durable_credential',return_value={'public_matches_seed':True}), \
                  mock.patch.object(p,'source_head',return_value='synthetic source fixture'),mock.patch.object(p,'windows_path',return_value='C:\\owned\\controller.ps1'), \
+                 mock.patch.object(p,'sha',side_effect=lambda path:'7d88ba5d1efc84ec80819cfc595e8d5bc2f2045f19fbadca46155d59c8f939c9' if Path(path)==REPO/'build/g4-virgl-20261022/launch.py' else real_sha(path)), \
                  mock.patch.object(p.subprocess,'run',side_effect=AssertionError('No dispatch')) as calls,mock.patch('builtins.print'):
                 p.prepare()
             r=json.loads((p.PREP/'preflight.json').read_text())

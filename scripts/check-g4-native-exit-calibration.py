@@ -22,6 +22,8 @@ isolation=importlib.util.module_from_spec(spec);spec.loader.exec_module(isolatio
 LAB,BUILD=install.LAB,install.BUILD
 NAME='native-exit-calibration-r1-20261023'
 PREFIX=LAB/'edge-install-r1-v2-20261022/prefix'
+APPROVED_LOADER=BUILD/'loader/wine'
+LOADER_SHA='8f3ff89a331ee1305e7db7f18b69425572b96aeff34b274fe96f90db84fa835d'
 EDGE=PREFIX/'drive_c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
 EDGE_SHA='bb74db4c753133706f4ab0a483a87aa28a90ddd6eeb305fe001376ba73a40fc3'
 PES={'native-exit.exe':'366c69286a7eb6469e4bfd9921643202b746fc987de46e9f9ded2bf6713b8d60',
@@ -108,12 +110,19 @@ def guards(output,helpers):
     if installed['executable']['path']!=str(EDGE) or installed['executable']['sha256']!=EDGE_SHA:raise ValueError('Installed prerequisite changed')
     pins=json.loads((stage/'native-exit-pins.json').read_text())
     expected={str(BUILD/n) for n in CORE}|{str(EDGE),str(LAB/'labwc')}
-    if set(pins)!={'known_binary_sha256','original_pe_sha256'} or pins['original_pe_sha256']!=PES or len(expected)!=19 or set(pins['known_binary_sha256'])!=expected:
+    if (set(pins)!={'known_binary_sha256','original_pe_sha256','additional_loader_pin'}
+            or pins['additional_loader_pin']!={'path':str(APPROVED_LOADER),'sha256':LOADER_SHA}
+            or pins['original_pe_sha256']!=PES or len(expected)!=19 or set(pins['known_binary_sha256'])!=expected):
         raise ValueError('Exact19 environment +2 original PE pins required')
     if {p:install.digest(Path(p)) for p in expected}!=pins['known_binary_sha256']:raise ValueError('Environment binary hash mismatch')
+    if (APPROVED_LOADER.is_symlink() or APPROVED_LOADER.resolve(strict=True)!=APPROVED_LOADER
+            or not APPROVED_LOADER.is_file() or install.digest(APPROVED_LOADER)!=LOADER_SHA):
+        raise ValueError('Exact canonical internal loader hash mismatch')
     pe={n:install.pe_metadata(stage/'original'/n) for n in PES}
     if {n:v['sha256'] for n,v in pe.items()}!=PES:raise ValueError('Original PE hash mismatch')
-    return pins,{'private_loopback':lo,'installed':installed,'original_pe':pe}
+    return pins,{'private_loopback':lo,'installed':installed,'original_pe':pe,
+        'additional_loader_pin':dict(path=str(APPROVED_LOADER),sha256=LOADER_SHA,bytes=APPROVED_LOADER.stat().st_size,
+            limitation='Prelaunch on-disk hash plus loader policy; not loaded-file/security/API attestation')}
 
 
 def logs(output):
@@ -173,7 +182,7 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
                 if 'linux_helper_first_live' not in result:raise ValueError('Helper exited before independent Linux identity')
                 break
             try:
-                record=linux_identity(Path('/proc'),child.pid,stamp,PREFIX,argv,deadline=end-REAP,now=now)
+                record=linux_identity(Path('/proc'),child.pid,stamp,PREFIX,argv,approved_loader=str(APPROVED_LOADER),deadline=end-REAP,now=now)
             except LinuxIdentityError as error:
                 result['linux_helper_rejected_identity']=error.observation
                 result['error']=repr(error)

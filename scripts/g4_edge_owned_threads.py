@@ -117,7 +117,7 @@ class LinuxIdentityError(ValueError):
         self.observation=observation
 
 
-def linux_identity(proc,pid,start,prefix,argv,*,deadline=None,now=time.monotonic):
+def linux_identity(proc,pid,start,prefix,argv,*,approved_loader=None,deadline=None,now=time.monotonic):
     # FD-relative reads cannot retarget a reused numeric PID. This does not
     # freeze exec/title changes, and scheduling/syscalls are not hard real time.
     begun=now();valid_clock=type(begun) in (int,float) and math.isfinite(begun)
@@ -195,6 +195,7 @@ def linux_identity(proc,pid,start,prefix,argv,*,deadline=None,now=time.monotonic
         args=raw.rstrip(b'\0').decode().split('\0')
         if args:args[-1]=args[-1].rstrip(' ')
         if args==argv or args==argv[1:]:style='argv_array'
+        elif approved_loader is not None and type(approved_loader) is str and args==[approved_loader,*argv[1:]]:style='approved_loader_argv_array'
         elif len(args)==1 and args[0]==' '.join(argv[1:]):style='wine_flat_padded'
         else:raise ValueError('Linux image/app URL/profile/argv mismatch')
         if any(v.startswith('--type=') for v in argv):raise ValueError('Child process cannot be selected')

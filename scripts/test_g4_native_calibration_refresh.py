@@ -48,7 +48,7 @@ class RefreshTests(unittest.TestCase):
             stage=prep/'source-stage.tar';stage.write_bytes(b'bounded fake stage')
             seed=prep/'seed.iso';seed.write_bytes(b'seed')
             pins={'/binary/'+str(i):'a'*64 for i in range(19)}
-            overlay=str(root/('system-native-identity-r3-20261024.qcow2' if p.NATIVE_R3 else 'system-readiness-r1-20261024.qcow2'))
+            overlay=str(root/('system-native-identity-r4-20261024.qcow2' if p.NATIVE_R4 else 'system-native-identity-r3-20261024.qcow2' if p.NATIVE_R3 else 'system-readiness-r1-20261024.qcow2'))
             ssh,consumer=p.commands(Path('/var/tmp/wex-g4-lab-credentials/vm_key'))
             record=dict(ssh_argv=ssh,ssh_key_path='/var/tmp/wex-g4-lab-credentials/vm_key',guest_test_argv=consumer,
                 host_run_name=p.NAME,guest_stage=p.STAGE,guest_output=p.OUTPUT,guest_absence_argv=p.native_absence_argv(),
@@ -58,7 +58,9 @@ class RefreshTests(unittest.TestCase):
                 known_binary_sha256=pins,minimum_guest_free_bytes=1024**3,probe_code=owners.ownership.PROBE,
                 probe_sha256=owners.PROBE_SHA,requested_prefix=owners.PREFIX,probe_nonce=owners.NONCE,
                 ownership_probe_argv=['sudo','-n','python3','-B','-c',owners.ownership.PROBE,owners.PREFIX,owners.NONCE])
-            if p.NATIVE_R3:record['native_python_approval']=p.native_source_approval()
+            if p.NATIVE_ISOLATED:record['native_python_approval']=p.native_source_approval()
+            if p.NATIVE_R4:record['additional_loader_pin']={'path':p.BUILD+'/loader/wine','sha256':'8f3ff89a331ee1305e7db7f18b69425572b96aeff34b274fe96f90db84fa835d'}
+            if p.NATIVE_R4:record['host_loader_reference']={'path':str(owners.LAB/'native-loader-host-reference-20261024.json'),'sha256':p.sha(owners.LAB/'native-loader-host-reference-20261024.json')}
             if problem=='helper':record['host_helpers_sha256']={'scripts/g4_prefix_ownership.py':'0'*64}
             if problem=='archive':record['stage_archive_sha256']='0'*64
             if problem=='input':next(iter(inputs.values()))['sha256']='0'*64
@@ -67,6 +69,7 @@ class RefreshTests(unittest.TestCase):
             if problem=='key':record['ssh_argv'][2]='/tmp/stale-key'
             if problem=='approval':record['native_python_approval']['commit']='obsolete'
             if problem=='overlay':record['current_overlay']=str(root/'system-readiness-r1-20261024.qcow2')
+            if problem=='loaderpin':record['additional_loader_pin']['path']='/unapproved/file'
             (prep/'preflight.json').write_text(json.dumps(record))
             (run/'launcher-identity.json').write_text(json.dumps(dict(qemu_pid=1,qemu_start_ticks=1,xvfb_pid=2,xvfb_start_ticks=2)))
             (root/(p.BOOT_NAME+'.wsl-session.json')).write_text('{}')
@@ -89,8 +92,9 @@ class RefreshTests(unittest.TestCase):
                     out=b''
                 elif c[0]=='python3':out=str(0 if problem=='space' else 2*1024**3)
                 elif c[0]=='sha256sum':
-                    expected=pins if c[2:]==list(pins) else {p.STAGE+'/'+n:v['sha256'] for n,v in record['source_manifest'].items()}
-                    out=''.join(('b'*64 if problem=='binary' and expected==pins else v)+'  '+k+'\n' for k,v in expected.items())
+                    probe_pins={**pins,**({record['additional_loader_pin']['path']:record['additional_loader_pin']['sha256']} if p.NATIVE_R4 else {})}
+                    expected=probe_pins if c[2:]==list(probe_pins) else {p.STAGE+'/'+n:v['sha256'] for n,v in record['source_manifest'].items()}
+                    out=''.join(('b'*64 if (problem=='binary' and expected==probe_pins) or (problem=='loaderhash' and k==record.get('additional_loader_pin',{}).get('path')) else v)+'  '+k+'\n' for k,v in expected.items())
                 elif c==record['ownership_probe_argv']:
                     self.assertEqual(kw['timeout'],10);self.assertNotIn('text',kw)
                     if code=='timeout':raise subprocess.TimeoutExpired(argv,10,raw,b'partial failure')

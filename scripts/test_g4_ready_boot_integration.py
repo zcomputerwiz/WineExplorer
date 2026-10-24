@@ -89,7 +89,7 @@ class ReadyBootIntegration(unittest.TestCase):
             # Original plain fixture bytes, not a formatted disk/image operation.
             (root/'system-capacity-r1-20261023.qcow2').write_bytes(b'plain test fixture')
             with self.assertRaises(RuntimeError):fn(root)
-            new=root/'system-native-identity-r3-20261024.qcow2'
+            new=root/'system-native-identity-r4-20261024.qcow2'
             new.symlink_to(root/'system-capacity-r1-20261023.qcow2')
             with self.assertRaises(RuntimeError):fn(root)
             new.unlink();new.write_bytes(b'plain new fixture')

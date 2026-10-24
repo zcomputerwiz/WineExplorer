@@ -195,5 +195,26 @@ class ReaderTests(unittest.TestCase):
             opening.assert_not_called();self.assertEqual(value['read_stages'],[])
             json.dumps(value,allow_nan=False)
 
+    def test_optin_loader_exact_tail_default_unchanged_and_no_flat_extension(self):
+        loader='/build/loader/wine';good=[loader,*ARGV[1:]]
+        (self.task/'cmdline').write_bytes(b'\0'.join(v.encode() for v in good)+b'\0'*20)
+        _,value=self.rejected();self.assertEqual(base64.b64decode(value['fields']['cmdline']['base64']),b'\0'.join(v.encode() for v in good)+b'\0'*20)
+        self.assertEqual(self.observe(approved_loader=loader)['argv_style'],'approved_loader_argv_array')
+        cases=[['/foreign/loader/wine',*ARGV[1:]],[loader,*ARGV[1:],'--type=renderer'],
+            [loader,*ARGV[1:-1],'b'*32],[loader,*ARGV[1:],'--extra'],[loader,'wrong.exe',*ARGV[2:]]]
+        for args in cases:
+            raw=b'\0'.join(v.encode() for v in args)+b'\0';(self.task/'cmdline').write_bytes(raw)
+            _,value=self.rejected(approved_loader=loader)
+            self.assertEqual(base64.b64decode(value['fields']['cmdline']['base64']),raw)
+        (self.task/'cmdline').write_bytes((' '.join(good)+'\0').encode());self.rejected(approved_loader=loader)
+        (self.task/'cmdline').write_bytes(b'\0'.join(v.encode() for v in good)+b'\0')
+        self.rejected(approved_loader='/wrong/build/loader/wine')
+        child_argv=[*ARGV,'--type=renderer']
+        (self.task/'cmdline').write_bytes(b'\0'.join(v.encode() for v in [loader,*child_argv[1:]])+b'\0')
+        with self.assertRaisesRegex(owned.LinuxIdentityError,'Child process cannot'):
+            owned.linux_identity(self.proc,self.pid,self.start,Path('/owned/prefix'),child_argv,approved_loader=loader)
+        (self.task/'environ').write_bytes(b'WINEPREFIX=/foreign\0');self.rejected(approved_loader=loader)
+        write_stat(self.task/'stat',self.pid,100);self.rejected(approved_loader=loader)
+
 
 if __name__=='__main__':unittest.main()
