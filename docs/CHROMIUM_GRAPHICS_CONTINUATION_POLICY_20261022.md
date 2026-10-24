@@ -19,6 +19,15 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST reset continuation:0%five-hour/31%weekly at06:26UTC Oct24. Offline plan
+PREFIX_OWNERSHIP_PLAN_20261024 (e49e1c66) dispatched to existing Luna Dirac.
+Matching upstream stable6.12.113 confirms environ can return ESRCH for a live
+PF_KTHREAD task without mm; guestPID2 flags remain unobserved, so only inference.
+Implement tracked bounded ownership scanner/self-contained probe/tests ONLY.
+No private procedure integration/preparation/guest/SSH authority until parent
+reviews final code and tests. All original failures and helper snapshots retained.
+Nextwindow reset11:26:11UTC/wake11:30UTC; latest live usage governs.
+
 LATEST STOP at96%five-hour/~31%weekly: read HARNESS_CHECKPOINT_20261024 FIRST
 after source mapping. Run7190431d authenticatedready/19actualpins passed; original
 idleprobe failed ProcessLookupError errno3 /proc/2/environ,615stderrbytes retained,
