@@ -19,6 +19,12 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT native Chromium diagnostic77ed369d accepted: parent42seal/16archive/actual
+nativejournal3228369023/0xc06d007f/naturalhelper0/zeroHTTP/front/strictshutdown
+reviewed. Next OFFLINE DELAY_IMPORT_RESEARCH_PLAN_20261024: static import/export
+candidates, no guest/run/build/repair. Code is consistent with documented delay-
+procedure failure, exact API/cause unproven. No repeat calibration/new layer.
+
 CURRENT: inventory f516b8e2 accepted after parent source/diff review and176 tests
 in49.319s/no skips. Proceed OFFLINE CHROMIUM_NATIVE_RUNNER_PLAN_20261024: integrate
 the calibrated held-handle helper with actual Chromium, fresh paths/originalHTTP,
