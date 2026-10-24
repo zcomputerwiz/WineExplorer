@@ -93,7 +93,7 @@ Round-1 F1–F3 in §1b.
 
 | Finding | Area / file(s) | What was repaired | Verifying evidence (executed) | Status |
 |---------|----------------|-------------------|-------------------------------|--------|
-| **R2-F1 [P2]** — validate review operation IDs; reject zero-total progress | `src/dlls/wexhost/unixlib.c` | (a) The START_REVIEW ack parser now requires the returned id to match the coordinator's exact grammar for the *requested verb* — `review_<verb>_<32 lowercase hex>` and nothing else — via a new `oobe_valid_review_op_id()`; a wrong-verb, uppercase, short/long, non-hex, or trailing-token ack is rejected with `ERROR_GEN_FAILURE` and the accepted id left empty (cleared up front so no reject path seeds an id that later rides into QUERY/CANCEL). (b) The RUNNING progress parser now rejects a zero **total** (`STATUS RUNNING 0 0`) while retaining `done == 0` as a valid start-of-transfer state whenever total is positive. | source-controller: `test_oobe_bridge.py` now **17 tests** (was 16), rc=0 (§3 row 8). New discriminating case feeds seven malformed STARTED frames (wrong verb, uppercase hex, one byte short, one byte long, non-hex, missing prefix, trailing token) and asserts each returns `ERROR_GEN_FAILURE` with an **empty** accepted id; a positive control confirms the exact-grammar id is accepted and populated. The zero-total RUNNING frame is added to the reject set with a `done == 0 / total > 0` positive control. All exercised against compiled `unixlib.c`. | **PASS** (source-controller) |
+| **R2-F1 [P2]** — validate review operation IDs; reject zero-total progress | `src/dlls/wexhost/unixlib.c` | (a) The START_REVIEW ack parser now requires the returned id to match the coordinator's exact grammar for the *requested verb* — `op_<verb>_<32 lowercase hex>`, the format `wex-components.py` actually generates (`f"op_{verb}_{uuid.uuid4().hex}"`) — and nothing else, via a new `oobe_valid_review_op_id()`; *(Round-3 review correction: the R2 implementation initially used a `review_` prefix because the R2 review document misstated the coordinator's grammar; the validator was corrected to `op_` on 2026-10-24, all fixtures updated, and the bridge suite re-run 17/17 OK.)* a wrong-verb, uppercase, short/long, non-hex, or trailing-token ack is rejected with `ERROR_GEN_FAILURE` and the accepted id left empty (cleared up front so no reject path seeds an id that later rides into QUERY/CANCEL). (b) The RUNNING progress parser now rejects a zero **total** (`STATUS RUNNING 0 0`) while retaining `done == 0` as a valid start-of-transfer state whenever total is positive. | source-controller: `test_oobe_bridge.py` now **17 tests** (was 16), rc=0 (§3 row 8). New discriminating case feeds seven malformed STARTED frames (wrong verb, uppercase hex, one byte short, one byte long, non-hex, missing prefix, trailing token) and asserts each returns `ERROR_GEN_FAILURE` with an **empty** accepted id; a positive control confirms the exact-grammar id is accepted and populated. The zero-total RUNNING frame is added to the reject set with a `done == 0 / total > 0` positive control. All exercised against compiled `unixlib.c`. | **PASS** (source-controller) |
 | **R2-F2 [P2]** — escaped lone surrogate must not suppress the catalog | `scripts/wex-components.py` | `embedded_license_text` now treats cached text that cannot be re-encoded to UTF-8 (e.g. a JSON escaped lone surrogate `\ud800`, which `json.loads` decodes into a non-re-encodable `str`) as damaged → `StaleTermsError`, instead of letting the later fingerprint `text.encode('utf-8')` raise an uncaught `UnicodeEncodeError` out of `review_state` and abort GET_COMPONENTS. Path/owner/mode/size and the strict package-cache checks are untouched. | synthetic: `test_oobe_review.py::DamagedTermsDocumentTests` — **1 new discriminating test** (suite 18→19), rc=0 (§3 row 3). The fixture writes a valid-JSON terms doc whose `text` is `\ud800` and asserts the catalog stays nonempty, the affected row is NOT advertised as cached (`stale`), strict GET_TERMS fails closed, siblings remain available, and no implicit download/install/acceptance occurs. | **PASS** (synthetic) |
 
 ## §2 — Negative controls (before/after)
@@ -314,6 +314,18 @@ Round-1 POST-state values because the R2 delta touches no PE-target source (func
 `unixlib.c`, which compiles into `wexhost.so`, not into the PEs) — make confirmed "Nothing to be
 done" for both PE targets. See §5 (hashes) and §6 (cell now PASS).
 
+**Round-3 review correction (same day).** An independent re-review of the R2 diff found that the
+op-id validator's prefix (`review_`) did not match the production coordinator, which has generated
+`op_<verb>_<32 lowercase hex>` ids since before Q1–Q6 (`wex-components.py`,
+`f"op_{verb}_{uuid.uuid4().hex}"`); the R2 review document had misstated the grammar and the R2
+implementation followed it, so every legitimate START_REVIEW acknowledgement would have been
+rejected. The validator prefix was corrected to `op_` (function-body-only in `unixlib.c`), all
+test fixtures in `test_oobe_bridge.py` updated to the production grammar, `wexhost.so` rebuilt
+(`b3ee877f…`→`77ef90c2…`, §5) with the bridge suite re-run **17/17 OK** (compiled production seam,
+`-Werror`), and both PEs re-executed to their welcome pages against the corrected `.so`
+(`r3b_exec_oobe.log`, `oobe_{i386,x64}_r3b_welcome.png`). The PE binaries are again unchanged — no
+PE-target source was touched.
+
 ## §5 — Source & binary hashes (current code, VM-verified)
 
 **Source (sha256, repo-relative).** The first sixteen rows are the working-tree files packaged by
@@ -347,8 +359,9 @@ in Round 1. All four changed hashes were re-verified against the working tree wi
 | `scripts/oobe_review_layout_probe.c` (F3, new) | `18e50d0a90bf58deb60f8673ca1b35963d15caecd0947db28a795d9fa0765eed` |
 | `scripts/oobe_review_render.c` (F3, new) | `f70d0d38faf48274150fc6a477648174f18b2b9b6e0914d38241527f012aa0e1` |
 
-**Binaries (sha256) — current state after the Round-3 rebuild** (Round 1 per `vm_rebuild.log`;
-Round 3 per `r3_rebuild.log`, 2026-10-24):
+**Binaries (sha256) — current state after the Round-3 review correction** (Round 1 per
+`vm_rebuild.log`; Round 3 per `r3_rebuild.log`; correction rebuild + re-execute per
+`r3b_exec_oobe.log`, all 2026-10-24):
 - `wine/configure` args: `--enable-archs=i386,x86_64 --prefix=/home/wineuser/oobe-lab/install`
   (combined WoW64). wine submodule pin: `ed5fe967ed471ca524666631ad70dabbed6af076`.
 - Round 1: `make -C build/dlls/wexhost` → `make_wexhost_rc=0`; `make -C build/programs/oobe` →
@@ -357,12 +370,15 @@ Round 3 per `r3_rebuild.log`, 2026-10-24):
   relinked → `make_wexhost_rc=0` (only warning: pre-existing `-Wformat-truncation`, note below);
   `make -C build/programs/oobe` → "Nothing to be done" (`make_oobe_rc=0`) — correct, since the R2
   delta changes no PE-target source.
+- Round-3 review correction (op-id prefix): `make -C build/dlls/wexhost` recompiled the corrected
+  `unixlib.c` → `make_wexhost_rc=0`; oobe targets again "Nothing to be done".
 - `build/loader/wine` = `a8e56871b5c728c68699b79d5f6eba0c5e549a705c267d7e8f87052eeed4e4b9`
 - `build/loader/wine-preloader` = `6161143796133a42db09df2e3810b27dc3499caa48fd000d24a9e834f5636231`
 - `build/programs/oobe/i386-windows/oobe.exe` = `c1421b7a66be950759756f44a6ca7d943cbd1a70aa3be10afaae999078edebf4`
 - `build/programs/oobe/x86_64-windows/oobe.exe` = `f6f8edad494766da9f369aafe414e671b63da946fc86e9299ce4397b3affb328`
-- `build/dlls/wexhost/wexhost.so` = `b3ee877fb6d4b072739adfabb072c029ca7865e85e66222669d3b02fe315f161`
-  (Round-3 rebuild from the committed Round-2 `unixlib.c`; Round-1 POST-state was `810e79f1…`)
+- `build/dlls/wexhost/wexhost.so` = `77ef90c2a6b316cf436b857aed60fb035d0542f8ba09ea14d2505fdbe585a0be`
+  (Round-3 review correction: op-id grammar prefix `review_`→`op_`; prior R3 value `b3ee877f…`,
+  Round-1 POST-state `810e79f1…`)
 - native PE: `native_i386.exe` = `a0d72bfa5c7571ad92cedf02c1537bbd27597fe2988f09238cbef4b4550ded37`
 - native PE: `native_x64.exe` = `9adfc6a9b99a5c35a357a6b91d23f83a2aeaae1a4fb4367198cc1167145bd845`
 
@@ -372,9 +388,10 @@ Round 3 per `r3_rebuild.log`, 2026-10-24):
 to the POST values above — i386 `978da0fa…`→`c1421b7a…`, x64 `ccd32f54…`→`f6f8edad…`,
 `wexhost.so` `24e7dfcf…`→`810e79f1…` — confirming the F1–F3 source changes were actually compiled
 in. In Round 3 (2026-10-24, fresh clone VM) `wexhost.so` was rebuilt again —
-`810e79f1…`→`b3ee877f…` — from the committed Round-2 `unixlib.c`, while both `oobe.exe` PEs stayed
-byte-identical to their Round-1 POST values (no PE-target source changed in Round 2; make confirmed
-nothing to do). The standalone native test PEs (`native_i386.exe`/`native_x64.exe`) are from the
+`810e79f1…`→`b3ee877f…` — from the committed Round-2 `unixlib.c`, and a same-day review correction
+(op-id prefix) rebuilt it once more, `b3ee877f…`→`77ef90c2…`; both `oobe.exe` PEs stayed
+byte-identical to their Round-1 POST values throughout (no PE-target source changed in Round 2 or
+the correction; make confirmed nothing to do). The standalone native test PEs (`native_i386.exe`/`native_x64.exe`) are from the
 Q1–Q6 round and were not rebuilt in F1–F3; the bridge seam they exercise is re-covered fresh by
 `test_oobe_bridge.py`, which compiles the current `unixlib.c` directly (§3 row 8).)
 
@@ -494,6 +511,10 @@ items (none are functional failures among executed cells — all executed suites
   R1→R2 (e.g. `unixlib.c` `788e7a5b…`→`a6876abd…`).
 - `evidence-ui/oobe_i386_r3_welcome.png`, `evidence-ui/oobe_x64_r3_welcome.png` — Round-3
   welcome-page screenshots (both archs, fully rendered).
+- `logs/r3b_exec_oobe.log` — **Round-3 review-correction re-execution**: both PEs re-run to their
+  welcome pages against the op-id-corrected `wexhost.so` (`77ef90c2…`), 2026-10-24T16:50Z.
+- `evidence-ui/oobe_i386_r3b_welcome.png`, `evidence-ui/oobe_x64_r3b_welcome.png` — welcome-page
+  screenshots of the corrected binary set (both archs, fully rendered).
 - `make_sync.sh`, `vm_rebuild.sh`, `vm_i386_fix.sh` — the reproducible scripts;
   `oobe-sync.tgz` + `local_manifest.txt` — the synced source set + sha256 manifest.
 

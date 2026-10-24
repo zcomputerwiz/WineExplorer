@@ -2187,13 +2187,14 @@ static BOOL oobe_parse_review_running( const char *reply, unsigned long long *do
 }
 
 /* TRUE iff op_id is exactly the coordinator's own operation id for this verb:
- * "review_" <verb> "_" followed by precisely 32 lowercase hex digits and nothing
- * else. The value is echoed back in QUERY_REVIEW/CANCEL_REVIEW, so accepting an
+ * "op_" <verb> "_" followed by precisely 32 lowercase hex digits and nothing
+ * else — the format wex-components.py generates (f"op_{verb}_{uuid.uuid4().hex}").
+ * The value is echoed back in QUERY_REVIEW/CANCEL_REVIEW, so accepting an
  * arbitrary non-whitespace token here would let a damaged or hostile STARTED
  * acknowledgement seed an id the coordinator cannot match to a real operation. */
 static BOOL oobe_valid_review_op_id( const char *op_id, const char *verb )
 {
-    static const char prefix[] = "review_";
+    static const char prefix[] = "op_";
     size_t vlen = strlen( verb );
     size_t i;
 
