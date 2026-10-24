@@ -686,7 +686,7 @@ install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexe
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
 BROKER_ORIG=1
-el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe"; BROKER_ORIG=""; }; }
+el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe" "$SYS32/consent_test.exe"; BROKER_ORIG=""; }; }
 
 el_up "$ADM"
 IMG="$(winpath /home/$ADM/wexel/p64.exe)"
@@ -904,6 +904,191 @@ bp c4_file_system_without_leases_fails_the_request_with_file_system_limitation "
 echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 bp c4_control_with_leases_enabled_again_runs "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 0 "$(winpath $EL/out.nolease)" -
+el_down "$ADM"
+
+# -- 8. click consent (plan step 6, Part B): the broker starts the consent window as its own SYSTEM child, with the
+# frozen image and command line; only Continue launches. consent_test.exe is consent.c compiled with the harness hook
+# (WEXCONSENT_TEST_HOOK, defined by no build file), installed under another name for the same reason as the test broker.
+echo "--- click consent (step 6, part B)"
+mkdir -p "$ROOT/shim/wine"
+cat > "$ROOT/shim/wine/debug.h" <<'EOF'
+#define WINE_DEFAULT_DEBUG_CHANNEL(x)
+#define TRACE(...) do {} while (0)
+#define WARN(...) do {} while (0)
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+EOF
+CS="$SRC/src/programs/consent"
+x86_64-w64-mingw32-windres -I"$CS" -o "$ROOT/consent_rc.o" "$CS/consent.rc"
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -DWEXCONSENT_TEST_HOOK -I"$ROOT/shim" -I"$CS" -o "$ROOT/probes/consent_test.exe" \
+    "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -luser32 -lgdi32 -ladvapi32
+chmod 0755 "$ROOT/probes/consent_test.exe"
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -I"$CS" -I"$ROOT/shim" -o "$ROOT/consent_ship.exe" \
+    "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -luser32 -lgdi32 -ladvapi32
+has_str "$ROOT/probes/consent_test.exe" 'consent.' || fail "the test consent program has no hook (control)"
+has_str "$ROOT/probes/consent_test.exe" '/testid' || fail "the test consent program has no /testid (control)"
+! has_str "$ROOT/consent_ship.exe" '/testid' || fail "a consent program built without the macro contains the hook"
+! has_str "$ROOT/consent_ship.exe" 'wexelev' || fail "a consent program built without the macro names the hook directory"
+for f in "$BUILD"/programs/consent/*-windows/consent.exe; do
+    ! has_str "$f" '/testid' && ! has_str "$f" 'wexelev' || fail "the installed program $f contains the hook"
+done
+! has_str "$ROOT/probes/wexelevate_ship.exe" consent_test || fail "a broker built without the macro names the test consent program"
+has_str "$ROOT/probes/wexelevate_test.exe" consent_test || fail "the test broker does not use the test consent program (control)"
+! grep -rn 'WEXCONSENT_TEST_HOOK' "$SRC/src" "$SRC/installer" "$SRC/tools" --include=Makefile.in --include='*.mk' --include='*.inf' \
+    --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a build file defines WEXCONSENT_TEST_HOOK"
+[ -z "$(find "$M" "$BUILD/programs" "$BUILD/dlls" -name 'consent_test*' -print -quit)" ] || fail "the test consent program is in the installed tree"
+ok c5_consent_hook_absent_from_shipping_build
+
+cat > "$ROOT/setpolicy.py" <<'EOF'
+import sys
+path, value = sys.argv[1], sys.argv[2]
+sec = r'[Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System]'
+lines = open(path, encoding='latin-1').read().split('\n')
+out, inside = [], False
+for line in lines:
+    if line.startswith('['):
+        inside = line.startswith(sec)
+    if inside and line.startswith('"ConsentPromptBehaviorAdmin"'):
+        continue
+    out.append(line)
+    if inside and line.startswith('"EnableLUA"') and value != 'none':
+        out.append('"ConsentPromptBehaviorAdmin"=dword:%08x' % int(value))
+open(path, 'w', encoding='latin-1').write('\n'.join(out))
+EOF
+set_policy() { python3 -I "$ROOT/setpolicy.py" "$M/system.reg" "$1"; [ "$(grep -c ConsentPromptBehaviorAdmin "$M/system.reg")" = "$2" ]; }
+install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
+reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"ConsentTimeoutMs"=dword:00004e20'
+set_policy 2 1 || fail "the policy value was not set"
+
+consent_alive() { local p; for p in $(pgrep -f "$1"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || return 0; done; return 1; }   # a live (not zombie) process
+wait_shown()   # prints the path of the first consent.<id>.shown file
+{
+    local i f
+    for i in $(seq 1 90); do
+        f="$(ls "$EL"/consent.*.shown 2>/dev/null | head -1)"
+        [ -z "$f" ] || { sleep 0.5; echo "$f"; return 0; }
+        sleep 1
+    done
+    return 1
+}
+consent_case()   # name expect-error action(approve|cancel|none)
+{
+    local name="$1" expect="$2" action="$3" img shown
+    el_clean
+    run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/cs.exe"
+    img="$(winpath /home/$ADM/wexel/cs.exe)"
+    bprobe "$ADM" 64 run "$img" "$expect" "$(winpath $EL/out.c5)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+    shown="$(wait_shown)" || { cat "$ROOT/cs.log" >&2; fail "$name: no consent window"; }
+    grep -qF "Program location: $img" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show the frozen image"; }
+    grep -qF "Command line: \"$img\" child $(winpath $EL/out.c5)" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show the command line"; }
+    grep -q '^publisher=Unknown publisher' "$shown" || { cat "$shown" >&2; fail "$name: no publisher line"; }
+    grep -q '^program=cs.exe' "$shown" || { cat "$shown" >&2; fail "$name: no program name"; }
+    [ "$action" = none ] || touch "${shown%.shown}.$action"
+    wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "$name"; }
+    grep -q '^run=PASS' "$ROOT/cs.log" || { cat "$ROOT/cs.log" >&2; fail "$name: no PASS"; }
+}
+
+el_up "$ADM"
+consent_case c5_continue_launches_exactly_one_target 0 approve
+[ "$(ls "$EL"/out.c5 2>/dev/null | wc -l)" = 1 ] && [ "$(grep -c '^pid=' "$EL/out.c5")" = 1 ] || fail "not exactly one target"
+for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep 0.5; done
+! consent_alive 'system32.consent[_]test' || fail "the consent window is still there"
+ok c5_continue_launches_exactly_one_target
+consent_case c5_cancel_is_error_cancelled_and_launches_nothing 1223 cancel
+[ ! -e "$EL/out.c5" ] || fail "a cancelled request started a process"
+ok c5_cancel_launches_nothing
+consent_case c5_timeout_is_error_timeout_and_launches_nothing 1460 none
+[ ! -e "$EL/out.c5" ] || fail "a request that timed out started a process"
+for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep 0.5; done
+! consent_alive 'system32.consent[_]test' || fail "the consent window outlived the timeout"
+ok c5_timeout_launches_nothing_and_closes_the_window
+
+# the window is the broker's own child, with the SYSTEM token, not the caller's
+el_clean
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/cs.exe"
+bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/cs.exe)" 1223 "$(winpath $EL/out.c5)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+shown="$(wait_shown)" || fail "no consent window"
+grep -qx 'user=S-1-5-18' "$shown" || { cat "$shown" >&2; fail "the consent window does not run as SYSTEM"; }
+ok c5_consent_window_runs_as_system
+# a limited process of the same user cannot open it with rights that would let it end it (exit code 0 would approve)
+OUT="$(bprobe "$ADM" 64 consentattack || true)"
+grep -q '^consentattack=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "a limited process could open the consent process, or its parent is not the broker"; }
+ok c5_consent_window_is_a_child_of_the_broker_and_a_limited_process_cannot_open_it
+touch "${shown%.shown}.cancel"
+wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "the cancelled request"; }
+
+# the window shows the frozen image, not the first word of the command line
+el_clean
+bprobe "$ADM" 64 spoofcmd "$(winpath /home/$ADM/wexel/cs.exe)" 'C:\Windows\System32\notepad.exe' "$(winpath $EL/out.spoof)" > "$ROOT/cs.log" 2>&1 & CSP=$!
+shown="$(wait_shown)" || fail "no consent window"
+grep -qF "Program location: $(winpath /home/$ADM/wexel/cs.exe)" "$shown" && grep -q '^program=cs.exe' "$shown" &&
+    grep -qF 'notepad.exe' "$shown" && ! grep -q '^program=notepad' "$shown" || { cat "$shown" >&2; fail "the window shows the command line's program instead of the image"; }
+touch "${shown%.shown}.approve"
+wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "spoofcmd"; }
+ok c5_window_shows_the_frozen_image_not_the_command_line
+
+# two requests: approving one does not approve the other
+el_clean
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/a.exe"
+bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \
+    > "$ROOT/conc.log" 2>&1 & CSP=$!
+for _ in $(seq 1 90); do [ "$(ls "$EL"/consent.*.shown 2>/dev/null | wc -l)" = 2 ] && break; sleep 1; done
+[ "$(ls "$EL"/consent.*.shown 2>/dev/null | wc -l)" = 2 ] || { cat "$ROOT/conc.log" >&2; fail "two consent windows expected"; }
+sleep 0.5
+for f in "$EL"/consent.*.shown; do
+    if grep -qF 'wexel\a.exe' "$f"; then touch "${f%.shown}.approve"; else touch "${f%.shown}.cancel"; fi
+done
+wait "$CSP" || { cat "$ROOT/conc.log" >&2; fail "concurrent consent"; }
+grep -q '^concurrent=PASS' "$ROOT/conc.log" || { cat "$ROOT/conc.log" >&2; fail "concurrent consent: no PASS"; }
+ok c5_approving_one_request_does_not_approve_the_other
+
+# a writer while the window waits: the request fails (1392) and the window goes
+el_clean
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/cs.exe"
+bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/cs.exe)" 1392 "$(winpath $EL/out.c5)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+shown="$(wait_shown)" || fail "no consent window"
+lease_writer append "/home/$ADM/wexel/cs.exe" || fail "the writer"
+wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "a writer during consent"; }
+for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep 0.5; done
+! consent_alive 'system32.consent[_]test' || fail "the consent window outlived the request"
+[ ! -e "$EL/out.c5" ] || fail "the changed image ran"
+ok c5_writer_during_consent_fails_the_request_and_closes_the_window
+
+# the consent program cannot start: 1062, nothing runs
+el_clean
+mv "$SYS32/consent_test.exe" "$ROOT/consent_test.hidden"
+bp c5_consent_program_missing_is_error_service_not_active "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 1062 "$(winpath $EL/out.c5)" -
+mv "$ROOT/consent_test.hidden" "$SYS32/consent_test.exe"
+[ ! -e "$EL/out.c5" ] || fail "a request without a consent window started a process"
+ok c5_no_consent_window_launches_nothing
+el_down "$ADM"
+
+# a standard user is still refused before any window
+el_clean
+el_up "$STD"
+bp c5_standard_user_gets_not_supported_with_click_consent "$STD" 64 run "$(winpath /home/$STD/wexel/p64.exe)" 50 "$(winpath $EL/out.std)" -
+! consent_alive 'system32.consent[_]test' && [ ! -e "$EL/out.std" ] || fail "a standard user got a window or a process"
+ok c5_standard_user_gets_no_window
+el_down "$STD"
+
+# the shipping broker and the shipping consent.exe, policy 2: the real window starts as the broker's child; the caller going away ends it
+el_restore_broker
+set_policy 2 1 || fail "the policy value was not set"
+el_up "$ADM"
+el_clean
+bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 1223 "$(winpath $EL/out.ship)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
+for _ in $(seq 1 60); do consent_alive 'system32.consent[.]exe' && CW=1 || CW=""; [ -z "$CW" ] || break; sleep 1; done
+[ -n "$CW" ] || { cat "$ROOT/cs.log" >&2; fail "the shipping broker started no consent.exe"; }
+ok c5_shipping_broker_starts_the_real_consent_window
+kill "$CSP" 2>/dev/null; pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
+for _ in $(seq 1 30); do consent_alive 'system32.consent[.]exe' || break; sleep 1; done
+! consent_alive 'system32.consent[.]exe' || fail "the consent window outlived the caller"
+[ ! -e "$EL/out.ship" ] || fail "a process ran without Continue"
+ok c5_caller_exit_destroys_the_request_and_closes_the_window
+el_down "$ADM"
+# no policy value: the shipping broker fails closed (21) before any window
+set_policy none 0 || fail "the policy value was not removed"
+el_up "$ADM"
+bp c5_shipping_broker_without_policy_still_fails_closed "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 21 "$(winpath $EL/out.ship)" -
 el_down "$ADM"
 el_restore_broker
 rm -rf "$EL"

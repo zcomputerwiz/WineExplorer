@@ -61,6 +61,12 @@
 #ifdef WEXELEVATE_TEST_APPROVAL
 /* Test harness only. The stub gets the request id and the image path, and exits with 0 to approve. */
 #define TEST_STUB L"C:\\windows\\system32\\wexelevate_stub.exe"
+/* Test harness only: the consent program built with a hook that lets the harness answer without input events
+ * (a copy of consent.exe under another name, because Wine loads a system32 program that has a builtin twin from
+ * the builtin directory), and a shorter timeout for the timeout probe. */
+#define CONSENT_EXE L"consent_test.exe"
+#else
+#define CONSENT_EXE L"consent.exe"
 #endif
 
 struct request
@@ -478,8 +484,89 @@ static DWORD verify_image( struct request *req )
 
 /* ---- approval ------------------------------------------------------------------------------------------------ */
 
+/* The consent policy is HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System ConsentPromptBehaviorAdmin
+ * (writable by administrators only while elevation is enforced). 2 and 5 select click consent. Anything else,
+ * including no value, selects nothing: the default policy is decided after the secure desktop (plan step 5), and a
+ * broker without a policy fails closed. 1 and 3 (credentials) are the polkit work order and also select nothing. */
+static BOOL click_consent_selected(void)
+{
+    DWORD value = 0, size = sizeof(value);
+
+    if (RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+                      L"ConsentPromptBehaviorAdmin", RRF_RT_REG_DWORD, NULL, &value, &size )) return FALSE;
+    return value == 2 || value == 5;
+}
+
+static DWORD consent_timeout(void)
+{
 #ifdef WEXELEVATE_TEST_APPROVAL
-static DWORD approve( struct request *req )
+    DWORD value = 0, size = sizeof(value);
+
+    if (!RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\ElevationTest", L"ConsentTimeoutMs", RRF_RT_REG_DWORD,
+                       NULL, &value, &size ) && value) return value;
+#endif
+    return APPROVAL_TIMEOUT;
+}
+
+/* Click consent. The broker starts the consent window itself, as its own child (the SYSTEM token of the service,
+ * not the caller's), on the default desktop, and tells it what it was asked to run: the frozen image path and the
+ * command line of the frozen request, never anything the consent program could take from the caller. It exits with
+ * 0 only when the user chose Continue, with ERROR_CANCELLED when the user cancelled or closed it. Whatever else
+ * happens (it cannot start, crashes, exits with another code) is no approval. */
+static DWORD approve_consent( struct request *req )
+{
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    WCHAR dir[MAX_PATH], *cmd;
+    HANDLE handles[4];
+    DWORD ret, code, len;
+    size_t cmd_size;
+
+    if (wcschr( req->image, '"' )) return ERROR_INVALID_PARAMETER;
+    if (lstrlenW( req->image ) >= MAX_PATH) return ERROR_FILENAME_EXCED_RANGE;
+    if (!(len = GetSystemDirectoryW( dir, MAX_PATH )) || len >= MAX_PATH - 32) return ERROR_SERVICE_NOT_ACTIVE;
+    cmd_size = (len + lstrlenW( req->image ) + lstrlenW( req->cmdline ) + 160) * sizeof(WCHAR);
+    if (cmd_size > 32000 * sizeof(WCHAR)) return ERROR_FILENAME_EXCED_RANGE;
+    if (!(cmd = malloc( cmd_size ))) return ERROR_NOT_ENOUGH_MEMORY;
+    lstrcpyW( cmd, L"\"" );
+    lstrcatW( cmd, dir );
+    lstrcatW( cmd, L"\\" CONSENT_EXE L"\" /broker " );
+#ifdef WEXELEVATE_TEST_APPROVAL
+    wsprintfW( cmd + lstrlenW( cmd ), L"/testid %08lx%08lx ", (DWORD)(req->id >> 32), (DWORD)req->id );
+#endif
+    lstrcatW( cmd, L"/image \"" );
+    lstrcatW( cmd, req->image );
+    lstrcatW( cmd, L"\" /cmd " );
+    lstrcatW( cmd, req->cmdline );
+
+    si.lpDesktop = (WCHAR *)L"WinSta0\\Default";
+    if (!CreateProcessW( NULL, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi ))
+    {
+        free( cmd );
+        return ERROR_SERVICE_NOT_ACTIVE;
+    }
+    free( cmd );
+    CloseHandle( pi.hThread );
+    handles[0] = pi.hProcess;
+    handles[1] = req->caller;       /* the request is destroyed when the caller exits */
+    handles[2] = stop_event;
+    handles[3] = req->lease_event;  /* a writer opened the image */
+    ret = WaitForMultipleObjects( 4, handles, FALSE, consent_timeout() );
+    if (ret != WAIT_OBJECT_0)
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        CloseHandle( pi.hProcess );
+        return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ret == WAIT_OBJECT_0 + 3 ? ERROR_FILE_CORRUPT : ERROR_CANCELLED;
+    }
+    code = ERROR_GEN_FAILURE;
+    GetExitCodeProcess( pi.hProcess, &code );
+    CloseHandle( pi.hProcess );
+    if (code == ERROR_SUCCESS) return ERROR_SUCCESS;
+    return code == ERROR_CANCELLED ? ERROR_CANCELLED : ERROR_SERVICE_NOT_ACTIVE;
+}
+
+#ifdef WEXELEVATE_TEST_APPROVAL
+static DWORD approve_stub( struct request *req )
 {
     WCHAR cmd[2 * MAX_PATH + 64];
     STARTUPINFOW si = { sizeof(si) };
@@ -509,14 +596,18 @@ static DWORD approve( struct request *req )
     CloseHandle( pi.hProcess );
     return code == 0 ? ERROR_SUCCESS : ERROR_CANCELLED;
 }
-#else
-/* No consent exists yet (docs/ELEVATION_BOUNDARY_PLAN.md steps 5 and 6): fail closed. */
+#endif
+
 static DWORD approve( struct request *req )
 {
-    (void)req;
+    if (click_consent_selected()) return approve_consent( req );
+#ifdef WEXELEVATE_TEST_APPROVAL
+    return approve_stub( req );
+#else
+    /* no policy selected: fail closed (docs/ELEVATION_BOUNDARY_PLAN.md steps 5 and 6) */
     return ERROR_NOT_READY;
-}
 #endif
+}
 
 /* ---- the launch ---------------------------------------------------------------------------------------------- */
 
