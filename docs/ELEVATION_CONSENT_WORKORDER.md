@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Work order: consent for the elevation broker (plan step 6)
 
-Date: 2026-10-24. Status: Part A built; Part B revised (see "Decisions"). Part of
+Date: 2026-10-24. Status: Parts A, B and C done (see "Results"); polkit credentials are a separate work order. Part of
 `ELEVATION_BOUNDARY_PLAN.md` (design D3.3, step 6). Builds on the broker (`ELEVATION_BROKER_WORKORDER.md`): the
 `wexelevate` service exists, freezes requests and fails closed (21) in shipping builds because nothing approves.
 
@@ -148,3 +148,78 @@ request with `ERROR_FILE_CORRUPT`.
 **Tests** (`scripts/test_sysrun_server.sh` section 9, fixture kept, sections 1 to 8 skipped for speed): 48 checks, 0 failures,
 among them the 15 new `c4_` lease checks above, and every earlier broker check unchanged. New probe modes `leasekill` and
 `winwrite` in `scripts/wexelevate_probe.c`. The complete run is part of the final acceptance run (see below, Part B).
+
+### Part B: click consent for administrators (2026-10-24)
+
+**What was built.**
+- `src/programs/wexelevate/main.c`: `approve()` reads `HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System`
+  `ConsentPromptBehaviorAdmin`. 2 or 5: `approve_consent()`. Absent or any other value (1 and 3 included): `ERROR_NOT_READY`
+  (21) as before, so a shipping broker with no policy still fails closed. The test build (`-DWEXELEVATE_TEST_APPROVAL`) keeps
+  the old stub for a request with no policy (the broker tests of step 4 are unchanged) and starts `consent_test.exe` instead of
+  `consent.exe`; a timeout value for the timeout probe is read from `HKLM\Software\WineExplorer\ElevationTest` in the test build only.
+- `src/programs/consent/consent.c`, `consent.rc`: `/broker` (started by the broker, which reads the exit code; skips the
+  old "credentials needed" refusal), `/image "<path>"` (the frozen image; program name, publisher check and the displayed path
+  come from it, not from the first word of the command line), command line buffer 2048 -> 32768 characters (a long command
+  line can no longer push arguments out of the display), the details box is shown from the start with `Program location:`
+  and `Command line:` in full (dialog made 18 units taller so it no longer overlaps the buttons). The test hook is behind
+  `WEXCONSENT_TEST_HOOK`.
+
+**Spoofing.** The broker builds the consent command line itself from the frozen request and starts the process with
+`CreateProcessW`, no parent attribute: the window is a child of the SYSTEM service, with the service's SYSTEM token, on
+`WinSta0\Default`. The request pipe carries no field that reaches the window except the frozen image path and command line.
+Exit code 0 is the only approval; a consent process that cannot start is 1062, one that exits with another code is 1062,
+one that is terminated is never 0 (the broker itself terminates it with 1). A limited process of the same user cannot open the
+consent process with TERMINATE, VM_WRITE, VM_OPERATION, CREATE_THREAD, DUP_HANDLE, SET_INFORMATION, SUSPEND_RESUME, VM_READ,
+QUERY_INFORMATION, WRITE_DAC, WRITE_OWNER or DELETE, nor its token (the existing system-role process descriptor applies to the
+broker's child; no server change was needed). Window messages are not covered: until the secure desktop (step 5) a limited
+process can post `IDYES` to the dialog (known gap, C5).
+
+**Test hook.** `consent_test.exe` is `consent.c` compiled by the harness with `-DWEXCONSENT_TEST_HOOK` and installed under that
+name (a program of system32 with a builtin twin is always loaded from the builtin directory). It writes what the window shows
+and its token user to `consent.<request id>.shown` and posts `IDYES` or `IDNO` to its own dialog when the harness creates
+`.approve` or `.cancel`; no input event is injected. The macro is defined by no build file; the harness greps the build files,
+the installed `consent.exe` (no `/testid`, no `wexelev`), the machine root and the shipping broker (no `consent_test`), and checks
+by controls that the test builds do contain them.
+
+**Errors.** Approve launches exactly one target; Cancel or close 1223; timeout 1460 (the window is closed, 20 s in the test, 120 s
+shipping); caller exit or service stop 1223 and the window is closed; a write open of the image while the window waits 1392 and the
+window is closed; consent program missing 1062; standard user 50 before any window; no policy 21.
+
+**Tests** (16 `c5_` checks in `scripts/test_sysrun_server.sh` section 9): Continue launches exactly one target with the full token
+and parent = caller; Cancel; timeout; the window runs as SYSTEM; it is a child of the broker and a limited process cannot open
+it; the window shows the frozen image although the command line names another program (probe `spoofcmd`); two concurrent
+requests, approving one does not approve the other; a writer during consent; missing consent program; standard user; the real
+shipping broker starts the real `consent.exe` with policy 2 and closes it when the caller exits; the shipping broker with no
+policy fails with 21. New probe modes `spoofcmd` and `consentattack`.
+
+### Acceptance (Part C), 2026-10-24
+
+Wine `/home/user/build/dev` (WoW64), Debian container, fresh throw-away fixtures, removed afterwards (users, group, `/etc/wineexplorer`,
+`/usr/local/libexec/wineexplorer`, machine root; `/root` stays 700). No dbus-daemon or polkitd was needed.
+
+| Run | Result |
+|---|---|
+| `scripts/test_sysrun_server.sh`, complete, fresh fixture | **205 checks, 0 failures** (174 earlier + 15 `c4_` lease + 16 `c5_` consent) |
+| `scripts/test_wex_sysrun.sh` | 60 checks, 0 failures |
+| `check-token-security.py --all`, helper unset, as an unprivileged `sudo` member (run from a directory the user can write; the test executables owned by that user for the run) | exit 0; advapi32 security 3734 tests, 0 failures (both architectures); ntdll info 2801/0 (x86_64) and 2745/0 (i386); shell32 shlexec 1805 tests, 2 failures (the known baseline, both); every project check PASS |
+| `check-token-security.py --focused` (helper set by the runner), as the administrator and as a standard user | exit 0 / exit 0 |
+| `test_b4_explorer_fresh.sh` helper unset / `WEX_B4_HELPER=1` | PASS / PASS |
+
+Failures along the way (all fixed): `NtSetEvent` from a pthread of the unixlib crashed the broker (error 109); a Wine program's write
+open does reach the lease because the wineserver opens the file before it checks the share mode; the harness `pgrep` matched zombie
+processes and its own tool shell; an LD_PRELOAD shim cannot reach the broker through the setgid launcher (the kernel switch
+`fs.leases-enable=0` was used instead).
+
+### Design calls and decisions to review
+
+1. **Policy source:** `ConsentPromptBehaviorAdmin` 2 or 5 selects click consent; nothing else does. The plan's name for secure-desktop
+   consent is 2, Windows' default is 5, both are treated alike until step 5. The value is writable by administrators only while
+   elevation is enforced.
+2. **Unknown consent exit codes are 1062, not 1223.** A crashed or failing window is not the user saying no.
+3. **Large command lines:** the broker refuses a combined consent command line longer than 32000 characters (`ERROR_FILENAME_EXCED_RANGE`),
+   and an image path of MAX_PATH or longer or containing a quote, rather than show a truncated line.
+4. **`/broker` skips the credential-mode refusal of `consent.exe`** and any process can start `consent.exe /broker`; only the exit
+   code read by the broker that started it matters.
+5. **Lease:** any write open counts, even one the wineserver then refuses by share mode (a Wine program asking to write the image of a
+   running elevated program ends it). Recorded with Part A's limits.
+6. The standard-user path (50) and the polkit credential path are untouched; the over-the-shoulder work order follows.
