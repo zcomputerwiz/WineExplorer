@@ -19,6 +19,12 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST R3prep5dba08fc accepted:164 independenttests/no skips,56hashes/16TAR/
+currentapproval/credential/normalchains/fullparent+failedhashes verified.
+NATIVE_R3_CREATION_AUTHORITY_20261024 allows ONE exact siblingQCOW2creationONLY,
+new80backingfrozencapacity, preservefailedR2layer. No boot/SSH until parentreview
+of actualcreation. Last41%five-hour53%weekly; latestusage governs.
+
 LATEST rejected-observation9f86add0 accepted:158 independent tests/no skips,
 15source/snapshot/log/history hashes reviewed; exact matching/rejection intact.
 NEXT NATIVE_IDENTITY_ISOLATION_PLAN_20261024 OFFLINEONLY: freshHOSTr3 preparation,
