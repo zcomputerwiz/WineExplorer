@@ -53,3 +53,14 @@ greeting/event types, non-guest reasons, RESET, each quota, a shared deadline
 consumed by negotiation, connect/send/close failures and primary error retention.
 No unrelated test suites rerun. Live QMP/schema compatibility and actual guest
 powerdown remain untested; STOP for parent review before integration/preparation.
+
+## Independent parent acceptance
+
+Parent read committed9b729ff7 observer, framing/state machine and all tests.
+Independently49 tests PASS/no skips in2.798s:13 QMP +16 readiness +3 launcher +17
+budget. Real socketpair controls passed. ACK/event ordering, primary errors,
+limits and protocol-only classification satisfy this bounded building block.
+Raw stream ordering is not a causal or guest-filesystem proof; strict caller
+QEMU0/no-fallback and exact owned endpoint/process checks remain required.
+Both helpers accepted for OFFLINE integration under READY_BOOT_INTEGRATION_PLAN;
+no image creation, VM boot or SSH authority follows this review.
