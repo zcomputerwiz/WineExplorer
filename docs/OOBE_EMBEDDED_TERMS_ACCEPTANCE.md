@@ -93,7 +93,7 @@ Round-1 F1–F3 in §1b.
 
 | Finding | Area / file(s) | What was repaired | Verifying evidence (executed) | Status |
 |---------|----------------|-------------------|-------------------------------|--------|
-| **R2-F1 [P2]** — validate review operation IDs; reject zero-total progress | `src/dlls/wexhost/unixlib.c` | (a) The START_REVIEW ack parser now requires the returned id to match the coordinator's exact grammar for the *requested verb* — `op_<verb>_<32 lowercase hex>`, the format `wex-components.py` actually generates (`f"op_{verb}_{uuid.uuid4().hex}"`) — and nothing else, via a new `oobe_valid_review_op_id()`; *(Round-3 review correction: the R2 implementation initially used a `review_` prefix because the R2 review document misstated the coordinator's grammar; the validator was corrected to `op_` on 2026-10-24, all fixtures updated, and the bridge suite re-run 17/17 OK.)* a wrong-verb, uppercase, short/long, non-hex, or trailing-token ack is rejected with `ERROR_GEN_FAILURE` and the accepted id left empty (cleared up front so no reject path seeds an id that later rides into QUERY/CANCEL). (b) The RUNNING progress parser now rejects a zero **total** (`STATUS RUNNING 0 0`) while retaining `done == 0` as a valid start-of-transfer state whenever total is positive. | source-controller: `test_oobe_bridge.py` now **17 tests** (was 16), rc=0 (§3 row 8). New discriminating case feeds seven malformed STARTED frames (wrong verb, uppercase hex, one byte short, one byte long, non-hex, missing prefix, trailing token) and asserts each returns `ERROR_GEN_FAILURE` with an **empty** accepted id; a positive control confirms the exact-grammar id is accepted and populated. The zero-total RUNNING frame is added to the reject set with a `done == 0 / total > 0` positive control. All exercised against compiled `unixlib.c`. | **PASS** (source-controller) |
+| **R2-F1 [P2]** — validate review operation IDs; reject zero-total progress | `src/dlls/wexhost/unixlib.c` | (a) The START_REVIEW ack parser now requires the returned id to match the coordinator's exact grammar for the *requested verb* — `op_<verb>_<32 lowercase hex>`, the format `wex-components.py` actually generates (`f"op_{verb}_{uuid.uuid4().hex}"`) — and nothing else, via a new `oobe_valid_review_op_id()`; *(Round-3 review correction: the R2 implementation initially used a `review_` prefix because the R2 review document misstated the coordinator's grammar; the validator was corrected to `op_` on 2026-10-24, all fixtures updated, the bridge suite re-run 17/17 OK, and the full 180-test matrix re-run as root in WSL Debian per `r3_matrix.log`.)* a wrong-verb, uppercase, short/long, non-hex, or trailing-token ack is rejected with `ERROR_GEN_FAILURE` and the accepted id left empty (cleared up front so no reject path seeds an id that later rides into QUERY/CANCEL). (b) The RUNNING progress parser now rejects a zero **total** (`STATUS RUNNING 0 0`) while retaining `done == 0` as a valid start-of-transfer state whenever total is positive. | source-controller: `test_oobe_bridge.py` now **17 tests** (was 16), rc=0 (§3 row 8). New discriminating case feeds seven malformed STARTED frames (wrong verb, uppercase hex, one byte short, one byte long, non-hex, missing prefix, trailing token) and asserts each returns `ERROR_GEN_FAILURE` with an **empty** accepted id; a positive control confirms the exact-grammar id is accepted and populated. The zero-total RUNNING frame is added to the reject set with a `done == 0 / total > 0` positive control. All exercised against compiled `unixlib.c`. | **PASS** (source-controller) |
 | **R2-F2 [P2]** — escaped lone surrogate must not suppress the catalog | `scripts/wex-components.py` | `embedded_license_text` now treats cached text that cannot be re-encoded to UTF-8 (e.g. a JSON escaped lone surrogate `\ud800`, which `json.loads` decodes into a non-re-encodable `str`) as damaged → `StaleTermsError`, instead of letting the later fingerprint `text.encode('utf-8')` raise an uncaught `UnicodeEncodeError` out of `review_state` and abort GET_COMPONENTS. Path/owner/mode/size and the strict package-cache checks are untouched. | synthetic: `test_oobe_review.py::DamagedTermsDocumentTests` — **1 new discriminating test** (suite 18→19), rc=0 (§3 row 3). The fixture writes a valid-JSON terms doc whose `text` is `\ud800` and asserts the catalog stays nonempty, the affected row is NOT advertised as cached (`stale`), strict GET_TERMS fails closed, siblings remain available, and no implicit download/install/acceptance occurs. | **PASS** (synthetic) |
 
 ## §2 — Negative controls (before/after)
@@ -133,7 +133,7 @@ executed suites (rc=0); names shown for traceability.
   suppressed the whole catalog. `test_oobe_review.py::DamagedTermsDocumentTests` (5 cases)
   exercises this.
 - **R2-F1 [P2]** — operation-id / zero-total wire controls through the real seam: a STARTED ack
-  whose id is a wrong verb, uppercase hex, one byte short/long, non-hex, missing the `review_`
+  whose id is a wrong verb, uppercase hex, one byte short/long, non-hex, missing the `op_`
   prefix, or carries a trailing token is now **rejected** (`ERROR_GEN_FAILURE`) with the accepted
   id left **empty**; the exact-grammar id for the requested verb is **accepted** and populated
   (positive control). A RUNNING progress frame with a **zero total** is **rejected** while
@@ -154,9 +154,10 @@ Commands run from the repo root, WSL Debian as **root** per suite requirement, i
 fixtures, bounded timeouts. Counts below are the *actual* totals from the logged runs —
 the Q1–Q6 baseline (`matrix.log` 2026-10-21T07:21Z; `followup.log` 2026-10-21T07:45Z), for
 Review Round 1 the **full matrix re-run** after the F1–F3 repairs (`r1_matrix.log`,
-2026-10-21), and for Review Round 2 the **full matrix re-run** after the R2-F1/R2-F2 repairs
-(`r2_matrix.log`, 2026-10-22) — not draft claims. Every suite below was re-executed in that R2
-re-run; no assertion was lost and no old case weakened.
+2026-10-21), for Review Round 2 the **full matrix re-run** after the R2-F1/R2-F2 repairs
+(`r2_matrix.log`, 2026-10-22), and for Round 3 the **full matrix re-run** after the `op_`
+prefix review correction (`r3_matrix.log`, 2026-10-24) — not draft claims. Every suite below
+was re-executed in the R3 re-run; no assertion was lost and no old case weakened.
 
 | # | Suite (case IDs) | Command (working invocation) | Exit | Actual result | Skips |
 |---|------------------|------------------------------|------|---------------|-------|
@@ -322,7 +323,8 @@ implementation followed it, so every legitimate START_REVIEW acknowledgement wou
 rejected. The validator prefix was corrected to `op_` (function-body-only in `unixlib.c`), all
 test fixtures in `test_oobe_bridge.py` updated to the production grammar, `wexhost.so` rebuilt
 (`b3ee877f…`→`77ef90c2…`, §5) with the bridge suite re-run **17/17 OK** (compiled production seam,
-`-Werror`), and both PEs re-executed to their welcome pages against the corrected `.so`
+`-Werror`), the full 180-test matrix + Gate E re-executed in WSL Debian as root (`r3_matrix.log`,
+180 tests, rc=0), and both PEs re-executed to their welcome pages against the corrected `.so`
 (`r3b_exec_oobe.log`, `oobe_{i386,x64}_r3b_welcome.png`). The PE binaries are again unchanged — no
 PE-target source was touched.
 
@@ -332,20 +334,22 @@ PE-target source was touched.
 `make_sync.sh` into `oobe-sync.tgz`; the VM extracted them over `~/oobe-lab` and verified each
 against the manifest — **all 16 reported `OK`** (`vm_rebuild.log`). Four of those rows changed in
 Review Round 2 (R2-F1/R2-F2: `unixlib.c`, `wex-components.py`, `test_oobe_bridge.py`,
-`test_oobe_review.py`); their **Round-2** hashes are shown below (the six Round-1 changes to the
-other rows remain as recorded). The three final rows are the new F3 layout / render artifacts added
-in Round 1. All four changed hashes were re-verified against the working tree with
-`certutil -hashfile … SHA256` at commit time (2026-10-22).
+`test_oobe_review.py`), and two of those (`unixlib.c`, `test_oobe_bridge.py`) were updated in the
+Round-3 review correction (`765dd336`, op-id prefix `review_`→`op_`); their **current Round-3**
+hashes are shown below (prior Round-2 hashes were `bbe2d3f5…` for `test_oobe_bridge.py` and
+`a6876abd…` for `unixlib.c`). The three final rows are the new F3 layout / render artifacts added
+in Round 1. All nineteen hashes were re-verified against the working tree and synced VM lab tree on
+2026-10-24.
 
 | File | sha256 |
 |------|--------|
 | `scripts/test_component_review.py` | `dc9e43ef766b8c748f7cffc5f941a23d14d53f25fd017cb7f2c2954ac993e251` |
-| `scripts/test_oobe_bridge.py` | `bbe2d3f5328b4187a43688414de016a1eb99726f46e6553f1d7d4e40b501b3f4` |
+| `scripts/test_oobe_bridge.py` | `382cf07aca7ca079a9348f6c78e4206f8133a3d2895de0830f75f8a0af18b578` |
 | `scripts/test_oobe_native.c` | `4b278d0c4e51be768d77d31995e7a1ec3ac2fb63fa99c022b094966432537434` |
 | `scripts/test_oobe_review.py` | `225a4adfd2defa5d07aed6cb486da3c2f371b19bd217339ec519ecf059181bc3` |
 | `scripts/test_runtime_repairs.py` | `6aa8a5dfdade75ec49d10447999b3aae8473658b82151dfc64f751edde698064` |
 | `scripts/wex-components.py` | `561fa1d34aefe513061637829f2541bb4151661f0808e1b09725236584d6e545` |
-| `src/dlls/wexhost/unixlib.c` | `a6876abd6b10681987e347f46633e7278151a1302dd2c3c2ee7cd14857b8f1a4` |
+| `src/dlls/wexhost/unixlib.c` | `eadcd2db1a8e375a4060243d96d29aa4e6c86134d7a47567d8f233502cca8833` |
 | `src/dlls/wexhost/wexhost.c` | `8ca181b3201e012f48dbd0776b0ec91fa0ad0b82ccfcca2f6d2f53380748ca92` |
 | `src/dlls/wexhost/wexhost.spec` | `cbb3be53e7647af46b220e16c94d3f9de018f371bb10a0073afdd33d0bafe598` |
 | `src/dlls/wexhost/wexhost_unix.h` | `29ea7d6e59184a59f666f51ca262c082174dcedb69d90b019fa1f8b58bf6cb35` |
@@ -402,10 +406,11 @@ which did not byte-match the Round-2 `unixlib.c` / `wex-components.py` source. T
 was acceptable for the R2 delta because it is function-body-only (no ABI/struct/resource change) and
 is independently verified by compiling + executing the exact production seam under `-Werror` (§3 row
 8; §4b "Round 2 native-PE position"). **On 2026-10-24 (R3) this limit was closed:** `wexhost.so`
-was rebuilt from the committed Round-2 source (hash now `b3ee877f…`, above) and both `oobe.exe` PEs
-were re-executed to their welcome pages against it (§4b; §6 cell PASS). The PE binaries are
-byte-identical to Round-1 POST-state by construction — the R2 delta compiles into `wexhost.so`, not
-into the PEs.
+was rebuilt from the committed Round-2 source (`b3ee877f…`) and then rebuilt again after the same-day
+op-id prefix correction (`77ef90c2…`, above), and both `oobe.exe` PEs were re-executed to their
+welcome pages against both builds (§4b; §6 cell PASS; `r3_exec_oobe.log`, `r3b_exec_oobe.log`). The
+PE binaries are byte-identical to Round-1 POST-state by construction — the R2/R3 delta compiles into
+`wexhost.so`, not into the PEs.
 
 **Pre-existing, non-blocking compiler warning (recorded, not introduced by Q1–Q6):**
 `unixlib.c:1171` (`nm_primary_path`) emits `-Wformat-truncation` on the x86_64 build
@@ -450,11 +455,12 @@ them; they remain outstanding acceptance evidence for a later milestone.
     `oobe.rc` at 800x600 + 1280x800 (§4b) — readable production text, long-term terms scrolling,
     and full cancellation wording captured — in addition to the clean two-arch compile + full
     `oobe.exe` build. The **full** live-UI / vendor-network cell remains NOT RUN (§6).
-  - Round 2: the four source changes were verified by the full 180-test matrix (WSL) and by
-    compiling/executing the exact production C seam under `-Werror` (§3 row 8), but were **not**
-    recompiled into fresh native PEs — the VM was at 97% disk (1.9 G free) and a welcome-page
-    re-execute requires an Xvfb display I did not take over. This is recorded as a NOT-RUN
-    verification limit (§6), carried forward from the Round-1 PE evidence, not claimed as a pass.
+  - Round 2 → Round 3: the four Round-2 source changes were initially verified by the 180-test
+    matrix (`r2_matrix.log`) and `-Werror` bridge seam compile, then closed in Round 3 on the fresh
+    clone VM (`WEX-OOBE-Fresh-20261024`) by rebuilding `wexhost.so`, correcting the op-id validator
+    prefix from `review_` to `op_` (`77ef90c2…`), re-executing both `oobe.exe` PEs to their welcome
+    pages (`r3b_exec_oobe.log`), and re-running the full 180-test matrix + Gate E in WSL Debian as
+    root (`r3_matrix.log`).
   - One pre-existing `-Wformat-truncation` warning in `unixlib.c:1171` (`nm_primary_path`) —
     not introduced here, non-blocking (§5).
   - Initial matrix invocations for `test_oobe_review.py` (needs top-level module + `scripts/`
@@ -478,8 +484,8 @@ items (none are functional failures among executed cells — all executed suites
    + 1280x800. Only the full vendor-network / live-OOBE flow remains outstanding (blocker #1).
 3. **Pre-existing `unixlib.c:1171` `-Wformat-truncation` warning** (not from Q1–Q6) — left to
    keep the diff scoped; reviewer may want it fixed separately.
-4. Independent review of the Round-2 diffs and this report is outstanding; **do not treat as
-   merge-ready.**
+4. Independent review of the Round-2/Round-3 diffs and this report is outstanding; **do not treat
+   as merge-ready.**
 
 ## Private evidence locations (not in public Git)
 
@@ -496,6 +502,10 @@ items (none are functional failures among executed cells — all executed suites
   `GRAND TOTAL tests run: 180`, `PROBLEM FILES: (none)` (§3), 2026-10-22. *(The Round-2 re-run
   initially wrote to `r1_matrix.log` in place; it was copied here under the correct name so both
   rounds' evidence are preserved.)*
+- `logs/r3_matrix.log` — **Round-3 full matrix re-run** (WSL Debian, root) after the `op_` prefix
+  review correction (`765dd336`): all ten test entries (nine unittest suites + the standalone Gate E
+  script) plus `py_compile`, per-file `Ran N … rc=0`, `GRAND TOTAL tests run: 180`,
+  `PROBLEM FILES: (none)` (§3), 2026-10-24.
 - `logs/vm_rebuild.log` — VM incremental rebuild of wexhost.so + oobe.exe (both archs, rc=0),
   source-hash verification (all OK), native x64 PE under WoW64 loader (9/148), hashes/configure,
   2026-10-21T08:32Z.

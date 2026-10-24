@@ -44,8 +44,8 @@ the code in `wex-components.py` is the source of truth (`op_{verb}_{uuid.uuid4()
 - Both PEs executed to fully rendered welcome pages against the current `wexhost.so`
   (Xvfb :95/:96, fresh prefix): pre-fix run per `r3_exec_oobe.log`, post-fix run per
   `r3b_exec_oobe.log`.
-- Full test matrix last verified at 180 tests / all rc=0 in the **original** environment
-  (`logs/r2_matrix.log`); see §6 for why it must be re-run before merge.
+- Full test matrix re-verified at **180 tests / all rc=0** on the post-`765dd336` tree in WSL
+  Debian as root (`logs/r3_matrix.log`, 2026-10-24; see §6).
 
 ## 4. What Round 3 found (read this before touching the bridge code)
 
@@ -89,31 +89,30 @@ hex loop; exact full-verb match also handles the underscore-bearing verb `d3dcom
   deploys, and re-verifies in place (`sha256sum -c --strict`).
 
 **Host evidence — `D:\Projects\oobe-terms-lab\live\`** (private, NOT in public Git):
-- `logs/`: `matrix.log`, `followup.log`, `r1_matrix.log`, `r2_matrix.log`, `vm_rebuild.log`,
-  `vm_i386_fix.log`, `r3_pre_deploy_hashes.txt`, `r3_rebuild.log`, `r3_exec_oobe.log`,
-  `oobe_*_r3*.wine.log`, `r3b_exec_oobe.log`
+- `logs/`: `matrix.log`, `followup.log`, `r1_matrix.log`, `r2_matrix.log`, `r3_matrix.log`,
+  `vm_rebuild.log`, `vm_i386_fix.log`, `r3_pre_deploy_hashes.txt`, `r3_rebuild.log`,
+  `r3_exec_oobe.log`, `oobe_*_r3*.wine.log`, `r3b_exec_oobe.log`
 - `evidence-ui/`: rendered dialogs (R1 F3) + welcome-page screenshots
   (`oobe_{i386,x64}_welcome.png` R1, `_r3_` Round-3 pre-fix, `_r3b_` post-fix)
-- `r3-deployed/`: copies of the VM-deployed R2 sources (byte-identical to the repo at the
-  time; kept as sync evidence)
+- `r3-deployed/`: copies of the VM-deployed R3 sources (byte-identical to the repo at
+  `765dd336` / `7f3bfd01`; kept as sync evidence)
 
-**Gone / not reproducible here:** the WSL-root environment where the full Python matrix was
-originally run (`/root/WineExplorer` no longer exists in any WSL distro on this host). See §6.
+**WSL root environment — `wsl -d Debian -u root`:** available on this host (`/mnt/d/Projects/WineExplorer`),
+with `python3`, `gcc`, `i686-w64-mingw32-gcc`, `x86_64-w64-mingw32-gcc`, and `wine`/`wine64`. Used
+to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0`).
 
 ## 6. Re-running verifications
 
 - **Bridge suite (covers the C seam; self-contained):** needs only `gcc` + `python3`.
   `cd <repo> && python3 scripts/test_oobe_bridge.py` — compiles the current `unixlib.c`
   production functions under `-Wall -Wextra -Werror` and drives them over a live AF_UNIX
-  socket. Last run: **17/17 OK** (2026-10-24, both on the lab VM and post-fix).
+  socket. Last run: **17/17 OK** (2026-10-24, both on the lab VM and in WSL Debian root).
 - **Full matrix (180 tests, 10 entries):** several suites (`test_oobe_review.py`,
   `test_component_review.py`, `test_runtime_repairs.py`, `test_gate_e_synthetic.py`, the
   `test_fluent_*` pair) **require root** and/or repo-root paths — running them as a normal
-  user fails by design ("OOBE coordinator review tests require root"). The original run was
-  WSL + root against a full checkout. To re-verify: recreate that environment (any root Linux
-  with python3 + gcc, full repo checkout), then run each `scripts/test_*.py` plus the Gate E
-  entry and compare per-file `Ran N … OK` lines against `logs/r2_matrix.log`. **This is a
-  required gate before merge** — the 180-test claim currently rests on `r2_matrix.log` alone.
+  user fails by design ("OOBE coordinator review tests require root"). Re-verified on the
+  post-`765dd336` tree via `wsl -d Debian -u root -- bash /mnt/d/Projects/oobe-terms-lab/live/run_r3_matrix.sh`,
+  recording `logs/r3_matrix.log` (`GRAND TOTAL tests run: 180`, `PROBLEM FILES: (none)`).
 - **VM rebuild + welcome-page execution:** sync changed files (pattern in §5),
   `make -C ~/oobe-lab/build/dlls/wexhost`, then run an exec harness from
   `~/oobe-lab/LIVE/sync-r3/` (copy one and rename its log/png suffixes so evidence never
@@ -121,10 +120,12 @@ originally run (`/root/WineExplorer` no longer exists in any WSL distro on this 
 
 ## 7. Outstanding items (for the reviewer / next agent)
 
-1. **Round-3 review of `1df4688d` → `765dd336`** is requested; do not treat the branch as
-   merge-ready.
-2. **Re-run the full matrix** in a root environment (§6) and record it as `r3_matrix.log`
-   (or equivalent) before merge.
+1. **Round-3 review of `1df4688d` → `765dd336`** is requested; local Unsloth Qwen worker audit
+   completed on 2026-10-24 (verifying `unixlib.c` op-id & RUNNING bounds, `wex-components.py`
+   lone-surrogate handling, `r3_matrix.log` 180-test execution, and §2/§5 documentation & SHA-256
+   sync). Do not merge to `master` until external/Codex sign-off.
+2. **Full matrix re-run (`r3_matrix.log`) — DONE (2026-10-24):** executed as root in WSL Debian
+   across all 10 entries (`180` unittest cases + `3` Gate E checks + `py_compile`, all `rc=0`).
 3. **NOT-RUN cells in acceptance-report §6 remain prerequisite-gated**, not defects: the full
    vendor-network download flow (needs private vendor packages + SourceForge reachability),
    live-desktop / fresh-installed-image cells, and offline cached-terms reopen. The op-id fix
