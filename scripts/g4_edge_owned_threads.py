@@ -4,7 +4,10 @@
 Never attach/suspend/query contexts, read stacks/memory, or map Windows IDs to
 Linux IDs. Linux selection is ONLY the recorded Popen PID/start/prefix/argv.
 """
+import base64
 import json
+import math
+import os
 from pathlib import Path
 import re
 import time
@@ -107,23 +110,124 @@ def stat_record(raw,tid):
     return {'tid':tid,'start_ticks':int(fields[19]),'state':fields[0]}
 
 
-def linux_identity(proc,pid,start,prefix,argv):
-    identity=stat_record(read(proc/str(pid)/'stat',4096),pid)
-    if identity['start_ticks']!=start: raise ValueError('Linux PID reused')
-    env=read(proc/str(pid)/'environ',64*1024).split(b'\0')
-    prefixes=[v for v in env if v.startswith(b'WINEPREFIX=')]
-    if prefixes!=[('WINEPREFIX='+str(prefix)).encode()]: raise ValueError('Linux prefix mismatch')
-    raw=read(proc/str(pid)/'cmdline',16*1024)
-    # Wine replaces the command title with an unquoted, padded Linux-image
-    # string. Compare its ENTIRE known rendering, never shlex-split paths with
-    # spaces or accept an arbitrary basename/flag substring.
-    args=raw.rstrip(b'\0').decode().split('\0')
-    if args: args[-1]=args[-1].rstrip(' ')
-    if args==argv or args==argv[1:]: style='argv_array'
-    elif len(args)==1 and args[0]==' '.join(argv[1:]): style='wine_flat_padded'
-    else: raise ValueError('Linux image/app URL/profile/argv mismatch')
-    if any(v.startswith('--type=') for v in argv): raise ValueError('Child process cannot be selected')
-    return {'linux_pid':pid,'start_ticks':start,'prefix':str(prefix),'argv_style':style,'observed_cmdline':args}
+class LinuxIdentityError(ValueError):
+    """Rejected observation only; never a successful/incomplete owner record."""
+    def __init__(self,reason,observation):
+        super().__init__(reason)
+        self.observation=observation
+
+
+def linux_identity(proc,pid,start,prefix,argv,*,deadline=None,now=time.monotonic):
+    # FD-relative reads cannot retarget a reused numeric PID. This does not
+    # freeze exec/title changes, and scheduling/syscalls are not hard real time.
+    begun=now();valid_clock=type(begun) in (int,float) and math.isfinite(begun)
+    end=begun+1.0 if valid_clock else 0
+    evidence=dict(owned_popen_pid=pid,expected_start_ticks=start,started_monotonic=begun if valid_clock else None,
+        maximum_seconds=1.0,limits=dict(stat_bytes=4096,cmdline_bytes=16384,environ_bytes=65536),
+        fields={},read_stages=[],prefix_match=dict(matched=None),cleanup_errors=[])
+    root=task=None;matched=False;after_attempted=False;failure=None;result=None
+    def metadata(error):return dict(error_type=type(error).__name__,errno=getattr(error,'errno',None))
+    def remaining():
+        current=now()
+        if type(current) not in (int,float) or not math.isfinite(current):raise ValueError('Invalid Linux identity clock')
+        if current>=end:raise ValueError('Linux identity observation deadline')
+    def field(name,cap,label,raw=True):
+        evidence['read_stages'].append(label)
+        item=dict(cap_bytes=cap,bytes_read=0,complete=False,limit_reached=False)
+        evidence['fields'][label]=item;fd=None;data=bytearray()
+        try:
+            remaining()
+            fd=os.open(name,os.O_RDONLY|os.O_CLOEXEC|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=task)
+            remaining()
+            while len(data)<cap:
+                remaining();chunk=os.read(fd,min(4096,cap-len(data)))
+                if not chunk:item['complete']=True;break
+                data.extend(chunk)
+            remaining()
+            # Never read cap+1 bytes to discover overflow. A full cap with
+            # unproven EOF is conservatively incomplete, including exact-cap.
+            if not item['complete']:
+                item['limit_reached']=True
+                raise ValueError('Oversized or EOF-unproven proc field: '+name)
+            return bytes(data)
+        except Exception as error:
+            item['error']=metadata(error);raise
+        finally:
+            item['bytes_read']=len(data)
+            item['truncation_possible']=not item['complete']
+            if raw:item.update(encoding='base64',base64=base64.b64encode(data).decode('ascii'))
+            if fd is not None:
+                try:os.close(fd)
+                except OSError as error:evidence['cleanup_errors'].append(dict(stage=label,**metadata(error)))
+    def postcheck():
+        nonlocal after_attempted
+        after_attempted=True
+        after=stat_record(field('stat',4096,'stat_after'),pid);evidence['after']=after
+        if after['start_ticks']!=start:raise ValueError('Linux PID reused after observation')
+        remaining();current=os.stat(str(pid),dir_fd=root,follow_symlinks=False)
+        pinned=os.fstat(task)
+        evidence['directory_after']=dict(device=current.st_dev,inode=current.st_ino)
+        if ((current.st_dev,current.st_ino)!=(pinned.st_dev,pinned.st_ino)
+                or evidence['directory_before']!=dict(device=pinned.st_dev,inode=pinned.st_ino)):
+            raise ValueError('Linux PID directory changed during observation')
+        remaining()
+    try:
+        if not integer(pid,2**31-1) or not integer(start):raise ValueError('No recorded Popen Linux identity; no scan/fallback')
+        if not valid_clock:raise ValueError('Invalid Linux identity clock')
+        if deadline is not None:
+            if type(deadline) not in (int,float) or not math.isfinite(deadline):raise ValueError('Invalid Linux identity deadline')
+            end=min(end,deadline)
+        evidence['deadline_monotonic']=end
+        remaining();root=os.open(proc,os.O_RDONLY|os.O_DIRECTORY|os.O_CLOEXEC|os.O_NOFOLLOW)
+        remaining();task=os.open(str(pid),os.O_RDONLY|os.O_DIRECTORY|os.O_CLOEXEC|os.O_NOFOLLOW,dir_fd=root)
+        s=os.fstat(task);evidence['directory_before']=dict(device=s.st_dev,inode=s.st_ino)
+        identity=stat_record(field('stat',4096,'stat_before'),pid);evidence['before']=identity
+        if identity['start_ticks']!=start:raise ValueError('Linux PID reused')
+        matched=True
+        env=field('environ',65536,'environ',raw=False).split(b'\0')
+        prefixes=[v for v in env if v.startswith(b'WINEPREFIX=')]
+        prefix_ok=prefixes==[('WINEPREFIX='+str(prefix)).encode()]
+        evidence['prefix_match']=dict(matched=prefix_ok)
+        del env,prefixes
+        if not prefix_ok:raise ValueError('Linux prefix mismatch')
+        raw=field('cmdline',16384,'cmdline')
+        # The accepted forms/normalization are intentionally unchanged.
+        args=raw.rstrip(b'\0').decode().split('\0')
+        if args:args[-1]=args[-1].rstrip(' ')
+        if args==argv or args==argv[1:]:style='argv_array'
+        elif len(args)==1 and args[0]==' '.join(argv[1:]):style='wine_flat_padded'
+        else:raise ValueError('Linux image/app URL/profile/argv mismatch')
+        if any(v.startswith('--type=') for v in argv):raise ValueError('Child process cannot be selected')
+        result={'linux_pid':pid,'start_ticks':start,'prefix':str(prefix),'argv_style':style,'observed_cmdline':args}
+    except Exception as error:failure=error
+    finally:
+        # Do not read another task after initial start mismatch. Revalidation
+        # after any other failure is bounded and cannot replace its reason.
+        if matched and not after_attempted:
+            try:postcheck()
+            except Exception as error:
+                evidence['postcheck_error']=metadata(error)
+                if failure is None:failure=error
+        for label,fd in (('task',task),('root',root)):
+            if fd is not None:
+                try:os.close(fd)
+                except OSError as error:evidence['cleanup_errors'].append(dict(stage=label,**metadata(error)))
+        if evidence['cleanup_errors'] and failure is None:failure=ValueError('Linux identity FD cleanup failed')
+        try:
+            finished=now();evidence['finished_monotonic']=finished if math.isfinite(finished) else None
+            evidence['elapsed_seconds']=finished-begun if math.isfinite(finished-begun) else None
+            if (not math.isfinite(finished) or finished<begun or finished>end) and failure is None:
+                failure=ValueError('Linux identity observation deadline')
+        except Exception as error:
+            evidence['clock_error']=metadata(error)
+            if failure is None:failure=error
+    if failure is not None:
+        reason=(str(failure) if isinstance(failure,ValueError) else 'Linux identity read/query failed: '+type(failure).__name__)
+        evidence.update(rejection_reason=reason,rejection=metadata(failure))
+        if 'environ' in evidence['fields'] and 'error' in evidence['fields']['environ']:
+            evidence['prefix_match']['error']=evidence['fields']['environ']['error']
+        raise LinuxIdentityError(reason,evidence) from failure
+    return result
 
 
 def linux_record(pid,sample,prefix,argv,deadline,*,proc=Path('/proc'),now=time.monotonic):
@@ -131,7 +235,7 @@ def linux_record(pid,sample,prefix,argv,deadline,*,proc=Path('/proc'),now=time.m
         raise ValueError('No recorded Popen Linux identity; no scan/fallback')
     def remaining():
         if now()>=deadline: raise TimeoutError('Owned observation deadline')
-    remaining();before=linux_identity(proc,pid,sample['start_ticks'],prefix,argv)
+    remaining();before=linux_identity(proc,pid,sample['start_ticks'],prefix,argv,deadline=deadline,now=now)
     tasks=[]
     for path in (proc/str(pid)/'task').iterdir():
         remaining()
@@ -153,7 +257,7 @@ def linux_record(pid,sample,prefix,argv,deadline,*,proc=Path('/proc'),now=time.m
             row.update(before=a,after=b,identity_verified=True)
         except (OSError,ValueError) as error: row.update(identity_verified=False,error=repr(error)[:512])
         records.append(row)
-    remaining();after=linux_identity(proc,pid,sample['start_ticks'],prefix,argv);remaining()
+    remaining();after=linux_identity(proc,pid,sample['start_ticks'],prefix,argv,deadline=deadline,now=now);remaining()
     if before!=after: raise ValueError('Linux owner changed during observation')
     return {'classification':'LINUX ONLY; no Win32 ID mapping/stacks','before':before,'after':after,'tasks':records}
 

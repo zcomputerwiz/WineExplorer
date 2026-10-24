@@ -4,6 +4,7 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import secrets
 import shutil
@@ -12,7 +13,7 @@ import time
 
 import graphics_resources
 from graphics_wexcomp import OwnedWexcomp,verify_native_gl_driver
-from g4_edge_owned_threads import linux_identity,stat_record
+from g4_edge_owned_threads import LinuxIdentityError,linux_identity,stat_record
 
 spec=importlib.util.spec_from_file_location('native_exit_install',Path(__file__).with_name('check-g4-edge-install.py'))
 install=importlib.util.module_from_spec(spec);spec.loader.exec_module(install)
@@ -129,6 +130,24 @@ def journal(output):
     return value
 
 
+def read_owned_stat(pid,*,deadline,now=time.monotonic):
+    # Only the returned Popen PID; no scan/fallback or unbounded read_bytes.
+    end=min(deadline,now()+1)
+    if now()>=end:raise TimeoutError('Owned helper stat deadline')
+    fd=os.open(Path('/proc')/str(pid)/'stat',os.O_RDONLY|os.O_CLOEXEC|os.O_NOFOLLOW|os.O_NONBLOCK)
+    failure=None
+    try:raw=os.read(fd,4096)
+    except Exception as error:failure=error;raise
+    finally:
+        try:os.close(fd)
+        except OSError:
+            if failure is None:raise
+            failure.add_note('Secondary owned-stat FD close failure; original read error preserved')
+    if now()>end:raise TimeoutError('Owned helper stat deadline')
+    if len(raw)>=4096:raise ValueError('Owned helper stat quota/EOF unproven')
+    return raw
+
+
 def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
     start=now();end=min(deadline,start+OPERATION);child=None;stamp=None
     result.update(helper_started=False,helper_reaped=False)
@@ -143,7 +162,7 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
         with (output/'helper.stdout.log').open('wb') as out,(output/'helper.stderr.log').open('wb') as err:
             child=popen(argv,env=env,stdout=out,stderr=err,start_new_session=True)
             result['helper_started']=True
-        stamp=stat_record((Path('/proc')/str(child.pid)/'stat').read_bytes(),child.pid)['start_ticks']
+        remaining();stamp=stat_record(read_owned_stat(child.pid,deadline=end-REAP,now=now),child.pid)['start_ticks'];remaining()
         result['linux_helper_popen']={'pid':child.pid,'start_ticks':stamp,'not_native_child_pid':True}
         while True:
             code=child.poll()
@@ -153,7 +172,23 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
                 if type(code) is not int or code!=0 or type(result['linux_helper_wait_exit']) is not int or result['linux_helper_wait_exit']!=code:raise ValueError('Linux helper failed/exit mismatch')
                 if 'linux_helper_first_live' not in result:raise ValueError('Helper exited before independent Linux identity')
                 break
-            record=linux_identity(Path('/proc'),child.pid,stamp,PREFIX,argv)
+            try:
+                record=linux_identity(Path('/proc'),child.pid,stamp,PREFIX,argv,deadline=end-REAP,now=now)
+            except LinuxIdentityError as error:
+                result['linux_helper_rejected_identity']=error.observation
+                result['error']=repr(error)
+                try:
+                    path=output/'native-exit.jsonl'
+                    try:
+                        stat=path.lstat()
+                        result['native_journal_at_identity_rejection']={'present':True,'bytes':stat.st_size}
+                    except FileNotFoundError:result['native_journal_at_identity_rejection']={'present':False}
+                except Exception as secondary:
+                    result.setdefault('observation_errors',[]).append('Rejected identity journal metadata: '+repr(secondary))
+                try:save(output/'results.json',result) # BEFORE exact helper abort/reap/prefix teardown
+                except Exception as secondary:
+                    result.setdefault('observation_errors',[]).append('Rejected identity persistence: '+repr(secondary))
+                raise
             result.setdefault('linux_helper_first_live',record);result['linux_helper_last_live']=record
             monitor();logs(output)
             raw=journal(output)
@@ -171,7 +206,7 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
         if child is not None and not result['helper_reaped']:
             try:
                 if child.poll() is None:
-                    actual=stat_record((Path('/proc')/str(child.pid)/'stat').read_bytes(),child.pid)['start_ticks']
+                    remaining();actual=stat_record(read_owned_stat(child.pid,deadline=end,now=now),child.pid)['start_ticks'];remaining()
                     if actual!=stamp:raise ValueError('Owned helper PID reused; no signal')
                     begin_cleanup('owned_helper_abort');child.kill() # ONLY exact Popen, not child PID/whole group
                     result['observer_killed']=True

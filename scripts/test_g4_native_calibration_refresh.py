@@ -204,10 +204,21 @@ class RefreshTests(unittest.TestCase):
             p.PREP=Path(temp)/'prep';p.RUN=p.BOOT=Path(temp)/NAME
             state=dict(safety_top_identity={'path':str(owners.LAB/'system-readiness-r1-20261024.qcow2')},
                 safety_top_previously_booted=True,image_creation_authorized=False)
+            # Synthetic prior approval for the current runner revision. The
+            # real immutable R2 preparation is stale after a source change.
+            old_text=Path.read_text
+            def fixture_prior(path,*args,**kwargs):
+                text=old_text(path,*args,**kwargs)
+                if path==owners.LAB/'native-exit-calibration-r1-20261023.preflight/preflight.json':
+                    value=json.loads(text)
+                    value['source_manifest']['scripts/check-g4-native-exit-calibration.py']['sha256']=p.sha(REPO/'scripts/check-g4-native-exit-calibration.py')
+                    return json.dumps(value)
+                return text
             with mock.patch.object(p,'prepare_ready_storage',return_value=state), \
                  mock.patch.object(p,'prepare_durable_credential',return_value={'public_matches_seed':True}), \
                  mock.patch.object(p,'source_head',return_value='offline-test'), \
                  mock.patch.object(p,'windows_path',return_value='C:\\owned\\controller.ps1'), \
+                 mock.patch.object(Path,'read_text',autospec=True,side_effect=fixture_prior), \
                  mock.patch.object(p.subprocess,'run',side_effect=AssertionError('Forbidden network/create/native dispatch')) as calls, \
                  mock.patch('builtins.print'):
                 p.prepare()
@@ -228,6 +239,15 @@ class RefreshTests(unittest.TestCase):
                 self.assertEqual(len(archive.getmembers()),16)
                 self.assertTrue(all(v.isfile() and not v.name.startswith('vendor/') for v in archive.getmembers()))
             calls.assert_not_called()
+
+    def test_real_old_preparation_rejects_changed_runner_no_dispatch(self):
+        p=procedure()
+        with tempfile.TemporaryDirectory(prefix='native-stale-prep-test-',dir=owners.LAB) as temp:
+            p.PREP=Path(temp)/'prep';p.RUN=p.BOOT=Path(temp)/NAME
+            with mock.patch.object(p.subprocess,'run',side_effect=AssertionError('No dispatch')) as calls:
+                with self.assertRaisesRegex(RuntimeError,'Accepted native runner changed'):p.prepare()
+            calls.assert_not_called()
+            self.assertFalse((p.PREP/'PREPARED_NOT_RUN').exists())
 
 
 if __name__=='__main__':unittest.main()

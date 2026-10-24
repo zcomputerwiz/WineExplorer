@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Synthetic native events + executable runner callbacks; NO Wine/VM execution."""
+import base64
 import copy
 import importlib.util
 import json
@@ -9,9 +10,12 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
+import g4_edge_owned_threads as owned
+import test_g4_rejected_identity as identity_tests
 
 spec=importlib.util.spec_from_file_location('exit_cal',Path(__file__).with_name('check-g4-native-exit-calibration.py'))
 cal=importlib.util.module_from_spec(spec);spec.loader.exec_module(cal)
+REAL_READ_OWNED_STAT=cal.read_owned_stat
 HOST_LAB=Path('/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022')
 
 
@@ -106,7 +110,7 @@ class RunnerTests(unittest.TestCase):
             patch.object(cal.install,'installed_evidence',return_value=installed),patch.object(cal.shutil,'disk_usage',return_value=SimpleNamespace(free=2*1024**3)),
             patch.object(cal.graphics_resources,'sample',return_value={}),patch.object(cal.isolation,'verify_private_loopback',self.lo),
             patch.object(cal,'OwnedWexcomp',return_value=self.comp),patch.object(cal,'verify_native_gl_driver',return_value={'passed':True}),
-            patch.object(cal,'stat_record',return_value={'start_ticks':99}),patch.object(Path,'read_bytes',autospec=True,side_effect=self.read_bytes),
+            patch.object(cal,'stat_record',return_value={'start_ticks':99}),patch.object(cal,'read_owned_stat',return_value=b'synthetic stat, parser separately patched'),patch.object(Path,'read_bytes',autospec=True,side_effect=self.read_bytes),
             patch.object(cal,'linux_identity',return_value={'linux_pid':1234,'start_ticks':99,'prefix':str(self.prefix),'argv_style':'array'})]
         self.real_read_bytes=Path.read_bytes
         for p in patches:p.start();self.addCleanup(p.stop)
@@ -233,6 +237,71 @@ class RunnerTests(unittest.TestCase):
         self.comp.start.side_effect=RuntimeError('PRIMARY compositor')
         code,r=self.execute();self.assertEqual(code,1);self.assertIn('PRIMARY compositor',r['error'])
         self.popen.assert_not_called();self.assertFalse(r['helper_started']);self.assertFalse(r['helper_reaped'])
+
+    def identity_transition(self,*,write_failure=False,reap_failure=False,journal_failure=False):
+        proc=self.root/'proc';task=proc/str(self.child.pid);task.mkdir(parents=True)
+        identity_tests.write_stat(task/'stat',self.child.pid,99)
+        (task/'environ').write_bytes(('WINEPREFIX='+str(self.prefix)+'\0SECRET=hidden\0').encode())
+        self.fault='drift';self.wait_failure=reap_failure;self.raw_edit=lambda value:b''
+        initial_launch=self.popen.side_effect
+        def launch(*args,**kwargs):
+            child=initial_launch(*args,**kwargs);(self.output/'native-exit.jsonl').unlink();return child
+        self.popen.side_effect=launch;count=0;persisted=[];original_save=cal.save;original_kill=self.kill;original_lstat=Path.lstat
+        def identity(proc_ignored,pid,start,prefix,argv,**kwargs):
+            nonlocal count
+            count+=1
+            (task/'cmdline').write_bytes(b'\0'.join(v.encode() for v in argv)+b'\0' if count==1 else b'actual rejected\xff\0')
+            self.assertEqual(kwargs['deadline'],cal.OPERATION-cal.REAP)
+            return owned.linux_identity(proc,pid,start,prefix,argv,**kwargs)
+        def saving(path,value):
+            if 'linux_helper_rejected_identity' in value and 'cleanup_started' not in value:
+                persisted.append(json.loads(json.dumps(value)))
+                if write_failure:raise OSError('SECONDARY diagnostic write failure')
+            original_save(path,value)
+        def killing():
+            self.assertTrue(persisted,'Capture/persist attempted BEFORE helper kill')
+            self.assertNotIn('cleanup_started',persisted[0]);self.assertFalse(persisted[0]['helper_reaped'])
+            if not journal_failure:self.assertEqual(persisted[0]['native_journal_at_identity_rejection'],{'present':False})
+            original_kill()
+        def lstat(path,*args,**kwargs):
+            if journal_failure and count>=2 and path==self.output/'native-exit.jsonl':raise OSError('SECONDARY journal metadata failure')
+            return original_lstat(path,*args,**kwargs)
+        self.child.kill.side_effect=killing
+        with patch.object(cal,'linux_identity',side_effect=identity),patch.object(cal,'save',side_effect=saving),patch.object(Path,'lstat',autospec=True,side_effect=lstat):code,r=self.execute()
+        self.assertEqual(code,1);self.assertIn('LinuxIdentityError',r['error'])
+        self.assertNotIn('native',r);self.assertNotIn('calibration_observation_complete',r)
+        self.assertEqual(r['linux_helper_first_live'],r['linux_helper_last_live'])
+        self.assertEqual(r['linux_helper_rejected_identity']['owned_popen_pid'],self.child.pid)
+        self.assertEqual(r['linux_helper_rejected_identity']['fields']['cmdline']['bytes_read'],len(b'actual rejected\xff\0'))
+        self.assertEqual(base64.b64decode(r['linux_helper_rejected_identity']['fields']['cmdline']['base64']),b'actual rejected\xff\0')
+        return r
+
+    def test_actual_reader_valid_to_invalid_evidence_before_exact_kill_and_reap(self):
+        r=self.identity_transition();self.assertTrue(r['helper_reaped']);self.assertTrue(r['observer_killed'])
+        self.assertLess(self.calls.index('helper-wait'),self.calls.index('cleanup-kill'))
+
+    def test_rejected_identity_write_failure_cannot_replace_primary_or_skip_reap(self):
+        r=self.identity_transition(write_failure=True)
+        self.assertTrue(r['helper_reaped']);self.assertIn('SECONDARY diagnostic write failure',str(r['observation_errors']))
+
+    def test_rejected_identity_reap_failure_still_skips_prefix_teardown(self):
+        r=self.identity_transition(reap_failure=True)
+        self.assertFalse(r['helper_reaped']);self.assertNotIn('cleanup-kill',self.calls)
+        self.assertIn('helper reap failure',str(r['cleanup_errors']))
+
+    def test_rejected_identity_journal_metadata_failure_still_persists_primary(self):
+        r=self.identity_transition(journal_failure=True)
+        self.assertTrue(r['helper_reaped']);self.assertIn('SECONDARY journal metadata failure',str(r['observation_errors']))
+
+    def test_owned_stat_actual_read_cap_deadline_and_secondary_close_error(self):
+        with patch.object(cal.os,'open',return_value=999),patch.object(cal.os,'read',return_value=b'x'*4096) as reading,patch.object(cal.os,'close') as closing:
+            with self.assertRaisesRegex(ValueError,'stat quota'):REAL_READ_OWNED_STAT(1234,deadline=1,now=lambda:0)
+            reading.assert_called_once_with(999,4096);closing.assert_called_once_with(999)
+        with patch.object(cal.os,'open',return_value=999),patch.object(cal.os,'read',side_effect=OSError('PRIMARY stat read')),patch.object(cal.os,'close',side_effect=OSError('SECONDARY close')):
+            with self.assertRaisesRegex(OSError,'PRIMARY stat read'):REAL_READ_OWNED_STAT(1234,deadline=1,now=lambda:0)
+        with patch.object(cal.os,'open') as opening:
+            with self.assertRaises(TimeoutError):REAL_READ_OWNED_STAT(1234,deadline=0,now=lambda:0)
+            opening.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
