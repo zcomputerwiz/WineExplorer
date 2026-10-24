@@ -93,6 +93,33 @@ class ReadinessTests(unittest.TestCase):
             self.assertIn('authentication/host-key',result['error'])
             self.assertEqual(base64.b64decode(result['attempts'][0]['stderr']['base64']),text)
 
+    def test_missing_identity_plus_network_or_auth_is_fatal_host_failure(self):
+        missing=b'Warning: Identity file /tmp/vm_key not accessible: No such file or directory.\n'
+        for suffix,code in ((b'Connection timed out during banner exchange\r\n',255),
+                            (b'debian@127.0.0.1: Permission denied (publickey).\r\n',255),
+                            (b'',0)):
+            raw=missing+suffix
+            result,calls,_=self.gate([attempt_record(code=code,stderr=raw),attempt_record(),attempt_record()])
+            self.assertFalse(result['ready']);self.assertEqual(len(calls),1)
+            self.assertEqual(result['failure_class'],'host_credential_unavailable')
+            self.assertIn('Host credential',result['error']);self.assertNotIn('authentication/host-key',result['error'])
+            self.assertEqual(base64.b64decode(result['attempts'][0]['stderr']['base64']),raw)
+
+    def test_unsafe_private_key_permissions_fatal_not_generic_auth(self):
+        for text in (b'WARNING: UNPROTECTED PRIVATE KEY FILE!\nPermission denied (publickey).',
+                     b"Permissions 0644 for '/var/tmp/key' are too open.\nThis private key will be ignored.",
+                     b'Load key "/var/tmp/key": bad permissions'):
+            result,calls,_=self.gate([attempt_record(b'',255,text),attempt_record(),attempt_record()])
+            self.assertFalse(result['ready']);self.assertEqual(len(calls),1)
+            self.assertEqual(result['failure_class'],'host_credential_unsafe_permissions')
+            self.assertEqual(base64.b64decode(result['attempts'][0]['stderr']['base64']),text)
+
+    def test_network_only_failures_still_retry_to_two_healthy_replies(self):
+        for text in (b'Connection timed out during banner exchange',b'connect to host 127.0.0.1 port 2235: Connection refused'):
+            result,calls,_=self.gate([attempt_record(b'',255,text),attempt_record(),attempt_record()])
+            self.assertTrue(result['ready']);self.assertEqual(len(calls),3)
+            self.assertNotIn('failure_class',result)
+
     def test_identity_nonce_uuid_schema_failures_never_adopted(self):
         for key,values in dict(nonce=['b'*32,True],uid=[0,1001,True,1000.0],username=['root',None],
                                boot_id=['',BOOT.upper(),'0'*32,'00000000-0000-0000-0000-000000000000']).items():

@@ -191,9 +191,19 @@ def wait_ready(ssh_prefix, *, maximum_seconds=180, interval_seconds=2,
         try:
             if row.get('cleanup_error') or not row.get('reaped') or not row.get('within_deadline'):
                 raise ValueError('Attempt cleanup/deadline failure')
+            stderr=base64.b64decode(row['stderr']['base64']).lower()
+            # Explicit LOCAL credential failures outrank co-occurring transport
+            # timeouts/auth denial, even if another identity happened to log in.
+            if re.search(rb'identity file [^\r\n]+ not accessible:',stderr):
+                row['failure_class']=result['failure_class']='host_credential_unavailable'
+                raise ValueError('Host credential identity file unavailable')
+            if (b'unprotected private key file' in stderr or
+                    re.search(rb'permissions [0-7]{3,4} for [^\r\n]+ are too open',stderr) or
+                    re.search(rb'load key [^\r\n]+: bad permissions',stderr)):
+                row['failure_class']=result['failure_class']='host_credential_unsafe_permissions'
+                raise ValueError('Host credential unsafe private-key permissions')
             if row.get('error') or row.get('returncode') != 0:
                 consecutive=0
-                stderr=base64.b64decode(row['stderr']['base64']).lower()
                 if any(v in stderr for v in (b'permission denied',b'host key verification failed',b'remote host identification has changed')):
                     raise ValueError('SSH authentication/host-key failure')
             else:

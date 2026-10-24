@@ -134,6 +134,25 @@ for the scoped current handoff; later reports can supersede that checkpoint.
 
 ## Private lab configuration and possible extraction
 
+Credentials are operator-supplied private prerequisites, never repository
+payloads. Prefer an owned durable native Linux directory (0700) and key (0600),
+for example the reviewed lab's `/var/tmp/wex-g4-lab-credentials/vm_key`, rather
+than relying on a transient `/tmp` copy across separate WSL sessions. Verify
+canonical/non-symlink paths, ownership, permissions, readability and derived
+public-key match to the accepted seed before each execution. Never generate or
+rotate a key, edit guest authorization or relax host-key verification to repair
+a failed observation. Do not print private bytes; record public fingerprint and
+match only. Two successful host observations do not guarantee persistence across
+all future boots/namespaces. The observed `/tmp` disappearance cause is unknown.
+
+Readiness explicitly labels OpenSSH missing/unavailable identity and unsafe
+private-key permissions as fatal **host credential** errors, preserving stderr;
+these must not be confused with guest auth rejection or retried as ordinary
+network startup delays. Host-key/auth failures still fail closed. Network-only
+banner/refused-connection failures may retry within the original gate budget.
+Never overwrite a failed manifest to change its credential path/helper hash:
+new paths or helper changes require fresh reviewed preparation and authority.
+
 Current orchestration assumes Windows + WSL Debian + QEMU/KVM, a particular SSH
 identity/port, cloud-init/systemd, our pinned guest binaries and a D:-backed lab.
 Some reviewed orchestration files live in ignored `build/` paths; tracked reports
