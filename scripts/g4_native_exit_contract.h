@@ -8,7 +8,9 @@
 #include <wchar.h>
 
 #define WEX_EXIT_IMAGE L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe"
+#ifndef WEX_EXIT_OUTPUT
 #define WEX_EXIT_OUTPUT L"Z:\\home\\debian\\wex-g4\\chromium-headful-native-exit-r1-20261023"
+#endif
 #define WEX_EXIT_CHILD L"Z:\\home\\debian\\wex-g4\\native-exit-calibration-r1-20261023-stage\\original\\exit-child.exe"
 #define WEX_EXIT_CAL_OUTPUT L"Z:\\home\\debian\\wex-g4\\native-exit-calibration-r1-20261023"
 #define WEX_EXIT_MANIFEST "8fc037ca464bc22952c9f9d63447cf0feb7dcab07e20489cb2d3a4ef3e1a8ba7"

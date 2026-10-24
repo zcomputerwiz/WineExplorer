@@ -32,6 +32,23 @@ MANIFEST=STAGE/'runtime-manifest.json'
 FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
 MARKER='8fc037ca464bc22952c9f9d63447cf0feb7dcab07e20489cb2d3a4ef3e1a8ba7'
 TOTAL,CLEANUP,OPERATION=285,55,82 # startup30 + native wait45 + reap5 + margin2
+BASE_DEBUG='-all,+timestamp,+pid,+tid,+winediag,+process'
+DEBUG=BASE_DEBUG
+MODE='r1'
+HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
+
+def configure(mode):
+    """Two fixed contracts only; no executable/flag/path passthrough."""
+    global HOST,STAGE,OUTPUT,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS
+    if mode not in ('r1','module-warn-r2'):raise ValueError('Unknown fixed Chromium mode')
+    MODE=mode
+    HOST='chromium-native-exit-r1-20261024' if mode=='r1' else 'chromium-native-module-r2-20261024'
+    STAGE=LAB/(HOST+'-stage')
+    OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
+    HELPER=STAGE/'original/native-exit.exe';MANIFEST=STAGE/'runtime-manifest.json'
+    FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
+    DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode=='module-warn-r2' else '')
+    HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']} if mode=='r1' else None
 
 def child_args(nonce,url):
     if (not isinstance(nonce,str) or not re.fullmatch('[0-9a-f]{32}',nonce)
@@ -139,7 +156,7 @@ def guards(output,helpers,deadline,now):
     runtime=runtime_state(now=now,deadline=deadline)
     if runtime['state']!='complete':raise ValueError('Fixed runtime absent; stage separately before consumer')
     environment=[BUILD/p for p in cal.CORE]+[cal.EDGE,LAB/'labwc']
-    return dict(private_loopback=lo,runtime=runtime,helper=observe_file(HELPER,{'sha256':cal.PES['native-exit.exe']},deadline=deadline,now=now),
+    return dict(private_loopback=lo,runtime=runtime,helper=observe_file(HELPER,HELPER_PREVIOUS,deadline=deadline,now=now),
         environment={str(p):observe_file(p,deadline=deadline,now=now) for p in environment},
         additional_loader=observe_file(BUILD/'loader/wine',deadline=deadline,now=now))
 
@@ -151,7 +168,7 @@ def log_quota(output):
 def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen):
     start=now();deadline=start+TOTAL
     approved=guards(output,helpers,deadline-CLEANUP,now) # no output/listener/process on rejected guard
-    output.mkdir();result=dict(passed=False,diagnostic_exit=1,observation_complete=False,
+    output.mkdir();result=dict(passed=False,diagnostic_exit=1,observation_complete=False,mode=MODE,
         classification='Changed parentage: ordinary CreateProcess held-handle Chromium status ONLY; never rendering/security acceptance',approved=approved)
     env=None;comp=server=None
     def bound(cap,cleanup=False):
@@ -160,7 +177,7 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
         return min(cap,left)
     def cleanup(reason):result.setdefault('cleanup_started',dict(reason=reason,monotonic=now()))
     try:
-        env=cal.install.environment(output);env.update(WINEPREFIX=str(PREFIX),WINEDEBUG='-all,+timestamp,+pid,+tid,+winediag,+process')
+        env=cal.install.environment(output);env.update(WINEPREFIX=str(PREFIX),WINEDEBUG=DEBUG)
         for key in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','TMPDIR'):Path(env[key]).mkdir()
         result['environment']={k:v for k,v in env.items() if k.startswith(('WINE','WEX_','XDG_')) or k in ('HOME','TMPDIR')}
         helpers.configure_gl_driver(env,'virgl')
@@ -214,13 +231,15 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output-dir',type=Path,default=OUTPUT)
+    parser.add_argument('--output-dir',type=Path)
+    parser.add_argument('--module-warn-r2',action='store_true',help='Fixed fresh R2 paths and warn+module/trace+seh logging only')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
+    configure('module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
-    return run(args.output_dir,load('check-g3-correctness'))
+    return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))
 
 if __name__=='__main__':raise SystemExit(main())

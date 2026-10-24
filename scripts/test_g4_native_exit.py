@@ -17,8 +17,15 @@ class NativeContractTests(unittest.TestCase):
         self.assertTrue(lab.is_dir(),'All test output/temp must stay on D:')
         scripts=Path(__file__).resolve().parent
         with tempfile.TemporaryDirectory(prefix='native-exit-host-test-',dir=lab) as folder:
+            self.compile_run(cc,scripts,Path(folder))
+            override=Path(folder)/'output-only.h'
+            override.write_text('#define WEX_EXIT_OUTPUT L"Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-native-module-r2-20261024"\n')
+            self.compile_run(cc,scripts,Path(folder),override)
+
+    def compile_run(self,cc,scripts,folder,override=None):
             output=Path(folder)/'contract-test'
             built=subprocess.run([cc,'-std=c11','-O2','-Wall','-Wextra','-Werror',
+                *(['-include',str(override)] if override is not None else []),
                 str(scripts/'test_g4_native_exit_contract.c'),'-o',str(output)],
                 capture_output=True,text=True,timeout=20)
             self.assertEqual(built.returncode,0,built.stderr)

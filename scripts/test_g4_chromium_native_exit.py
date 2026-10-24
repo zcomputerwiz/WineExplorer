@@ -26,6 +26,33 @@ def rows(code=127):
 def raw(events):return b''.join((json.dumps(v)+'\n').encode() for v in events)
 
 class ParserTests(unittest.TestCase):
+    def test_cli_selects_only_explicit_r2_or_original_default(self):
+        try:
+            for flags,mode in (([], 'r1'),(['--module-warn-r2'],'module-warn-r2')):
+                with mock.patch.object(r.sys,'argv',['native',*flags]),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as dispatch:
+                    self.assertEqual(r.main(),1)
+                    self.assertEqual(r.MODE,mode)
+                    self.assertEqual(dispatch.call_args.args[0],r.OUTPUT)
+        finally:r.configure('r1')
+
+    def test_explicit_r2_paths_logging_parser_and_unchanged_default(self):
+        original=(r.OUTPUT,r.STAGE,r.RUNTIME,r.DEBUG,r.command(NONCE,URL))
+        try:
+            r.configure('module-warn-r2')
+            self.assertEqual(r.OUTPUT,r.LAB/'chromium-native-module-r2-20261024')
+            self.assertEqual(r.STAGE,r.LAB/'chromium-native-module-r2-20261024-stage')
+            self.assertEqual(r.HELPER,r.STAGE/'original/native-exit.exe')
+            self.assertEqual(r.RUNTIME,original[2])
+            self.assertEqual(r.DEBUG,original[3]+',warn+module,trace+seh')
+            self.assertNotIn('trace+module',r.DEBUG)
+            self.assertEqual(r.child_args(NONCE,URL)[3:],['--no-first-run','--no-default-browser-check','--enable-logging','--log-file='+r.cal.win(r.OUTPUT/'chromium.log'),'--v=1'])
+            for code in (259,0xc06d007f):
+                self.assertEqual(r.parse(raw(rows(code)),NONCE,r.cal.win(r.RUNTIME/'chrome.exe'),URL)['native_child_status'],code)
+            self.test_native_failure_race_and45timeout_are_not_child_codes()
+            with self.assertRaises(ValueError):r.configure('other')
+        finally:r.configure('r1')
+        self.assertEqual((r.OUTPUT,r.STAGE,r.RUNTIME,r.DEBUG,r.command(NONCE,URL)),original)
+
     def test_full_status_arbitrary_signaled259_and_exact_normal_contract(self):
         for code in (0,127,259,0xc000007f,2**32-1):
             value=r.parse(raw(rows(code)),NONCE,r.cal.win(r.RUNTIME/'chrome.exe'),URL)
@@ -55,6 +82,12 @@ class ParserTests(unittest.TestCase):
 
 @unittest.skipUnless(LAB.is_dir(),'D: private storage unavailable')
 class RuntimeTests(unittest.TestCase):
+    def test_r2_actual_callbacks_keep_cleanup_and_selected_logging(self):
+        try:
+            r.configure('module-warn-r2')
+            self.test_actual_run_callbacks_diagnostic1_even_complete_and_reap_before_prefix()
+        finally:r.configure('r1')
+
     def test_actual_log_quota_and_missing_journal(self):
         with tempfile.TemporaryDirectory(prefix='native-quota-',dir=LAB) as temp:
             output=Path(temp)
@@ -135,6 +168,8 @@ class RuntimeTests(unittest.TestCase):
                     return SimpleNamespace(returncode=0)
                 helpers=SimpleNamespace(configure_gl_driver=mock.Mock(),run_logged=logged,matching_servers=mock.Mock(return_value=[]))
                 def collect(output,environment,result,deadline,cleanup,monitor,**kw):
+                    self.assertEqual(environment['WINEDEBUG'],r.DEBUG)
+                    self.assertEqual(environment['WINEPREFIX'],str(prefix))
                     self.assertEqual(kw['contract']['operation_seconds'],82)
                     self.assertIn('--chromium',kw['contract']['command'](output,NONCE))
                     result.update(helper_started=True,helper_reaped=fault!='reap',nonce=NONCE)
