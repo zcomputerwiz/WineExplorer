@@ -19,6 +19,14 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST creation880241cf accepted:10 sealed evidence+27inventory hashes,
+normal-lock4chain/newunusedtop/original3identities/full frozen-top hash/idle
+snapshots independently pass. Read PROTECTED_IDLE_RUN_PLAN_20261024. ONE protected
+boot/read-only original idle diagnostic authorized with accepted manifest,
+authenticated readiness,650/435guards/19actualpins and reviewed QMP shutdown.
+No retry/calibration/browser; parent reviews actual outcome.59%fivehour25%weekly.
+All older creation-not-yet-authorized/next-step descriptions below historical.
+
 LATEST protected preparation48183f33 accepted by parent with69 independent
 tests/no skips,27 current-file hashes,19 expected pins, unchanged probe and
 normal-lock original3-layer identities/full frozen-top SHA c2acebb9... . Read
