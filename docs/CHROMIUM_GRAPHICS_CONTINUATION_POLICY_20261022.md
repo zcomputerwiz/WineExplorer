@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT CHECKPOINT: read MODULE_WARN_CHECKPOINT_20261024 first. d9c713f9 offline
+R2 code/build accepted parent36 tests/18artifacts/source reviewed. Next only fresh
+R2 offline adapter/preparation, then parent review before ONE warn+module/SEH
+browser diagnostic. ExistingR4 disk/no newlayer/no calibration. Actual native
+Chromium0xc06d007f accepted as observed; three static APIs are candidates only.
+Historical metadata/hashes remain diagnostic warnings per explicit human direction.
+
 CURRENT native Chromium diagnostic77ed369d accepted: parent42seal/16archive/actual
 nativejournal3228369023/0xc06d007f/naturalhelper0/zeroHTTP/front/strictshutdown
 reviewed. Next OFFLINE DELAY_IMPORT_RESEARCH_PLAN_20261024: static import/export
