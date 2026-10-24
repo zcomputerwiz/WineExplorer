@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT: inventory f516b8e2 accepted after parent source/diff review and176 tests
+in49.319s/no skips. Proceed OFFLINE CHROMIUM_NATIVE_RUNNER_PLAN_20261024: integrate
+the calibrated held-handle helper with actual Chromium, fresh paths/originalHTTP,
+logging historical metadata differences. No repeat calibration/new layer. Parent
+reviews runner/tests/preparation before ONE browser diagnostic. R4 calibration
+accepted; incidental historical device mismatch is a retained warning.
+
 LATEST HUMAN DIRECTION: diagnostic historical file identities and executable
 hashes are LOGGED with differences as warnings, not blockers. Concrete wrong-disk,
 overwrite and reused-PID protections remain. Read DIAGNOSTIC_INVENTORY_PLAN_20261024

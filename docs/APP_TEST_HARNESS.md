@@ -58,8 +58,9 @@ tests before reuse; signatures and current lab restrictions are not stable APIs.
 
 The original `g4_native_exit*` native helpers distinguish a Windows child's full
 32-bit exit status from the Linux launcher status. They still contain
-Chromium/calibration-specific paths. Their live calibration is pending; do not
-advertise them as a validated general-purpose Windows process launcher.
+Chromium/calibration-specific paths. The original-child R4 live calibration passed
+full32-bit status and natural helper exit, independently reviewed on2026-10-24.
+Chromium observation and general-purpose launcher compatibility remain unproven.
 
 ## Adding another application
 

@@ -1,6 +1,11 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Chromium native-exit diagnostic after accepted calibration
 
+Parent accepts inventory implementation f516b8e2 after source/private-diff review
+and independent176 focused Linux tests in49.319s, no skips. Historical differences
+warn; concrete operation and functional checks remain. Luna may now implement
+THIS OFFLINE runner/preparation task. No new boot is authorized until review.
+
 This is the next implementation plan AFTER diagnostic inventory policy review.
 It does not authorize a boot or browser execution. Goal: identify actual native
 Windows process status/failure, rather than guess from historical Linux127.
