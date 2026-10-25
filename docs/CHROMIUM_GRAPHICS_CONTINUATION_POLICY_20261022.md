@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
-# Chromium graphics continuation priorities — 2026-10-22
+# Chromium graphics continuation priorities â€” 2026-10-22
 
 User direction: the parent plans and reviews bounded work; a GPT-6 Luna agent
 implements it. Continue high-value Chromium/Edge graphics work until weekly
@@ -18,6 +18,8 @@ and push continuation notes, and arrange continuation after that reset while
 weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
+
+CURRENT20261025 R5 EXECUTED_ONCE: read CHROMIUM_R5_AND_SHADER_PARENT_REVIEW_20261025.md. API45/45 passed, native Chromium0x80000003, zero HTTP, no browser front. Parent53seal/22archive/image/log/QMP reviewed. Missing AppContainerRegisterSid plus exact upstream CHECK binding is next contract investigation, not proven graphics cause. R5 fixed paths consumed. Shader0d96719a accepted scoped offline after independent35negative/28mutation and legacy checks; remains separate/unimported. Next Luna original registration-family Windows oracle under CHROMIUM_APPCONTAINER_REGISTRATION_ORACLE_WORK_ORDER_20261025; no new VM or Wine patch yet. Older PREPARED_NOT_RUN descriptions below are historical.
 
 CURRENT20261025 parent R5 review COMPLETE: read
 CHROMIUM_R5_PARENT_REVIEW_20261025.md. Sourcecd1b90aa/report9b49ce70 ready for
