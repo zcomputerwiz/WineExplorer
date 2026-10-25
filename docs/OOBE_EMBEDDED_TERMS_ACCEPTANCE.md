@@ -349,13 +349,13 @@ in Round 1. All nineteen hashes were re-verified against the working tree and sy
 
 | File | sha256 |
 |------|--------|
-| `scripts/test_component_review.py` | `2d2b0a7e438aa129873d95dc82da39c98f0cc134c2fb4d7efb2473954bae0aa1` |
+| `scripts/test_component_review.py` | `d4a9d677e9b6f4da1ed18464a613e99360ac546b5581d2f9505d24acddbfea15` |
 | `scripts/test_oobe_bridge.py` | `d552d640f6dea7c3393a80f50e1a1f12a7ebf4a9991236ecdacfc29341227733` |
 | `scripts/test_oobe_native.c` | `4b278d0c4e51be768d77d31995e7a1ec3ac2fb63fa99c022b094966432537434` |
 | `scripts/test_oobe_review.py` | `225a4adfd2defa5d07aed6cb486da3c2f371b19bd217339ec519ecf059181bc3` |
 | `scripts/test_runtime_repairs.py` | `6aa8a5dfdade75ec49d10447999b3aae8473658b82151dfc64f751edde698064` |
 | `scripts/wex-components.py` | `561fa1d34aefe513061637829f2541bb4151661f0808e1b09725236584d6e545` |
-| `src/dlls/wexhost/unixlib.c` | `09952b700e501b1e118a247e5fc95c1f2b7df13eab84adedbe7393d1de0d5b3c` |
+| `src/dlls/wexhost/unixlib.c` | `32be22cda3a173954549b4c0ee5bbfe2b57ef1d6b91f4ebd1b1893ba505b655f` |
 | `src/dlls/wexhost/wexhost.c` | `8ca181b3201e012f48dbd0776b0ec91fa0ad0b82ccfcca2f6d2f53380748ca92` |
 | `src/dlls/wexhost/wexhost.spec` | `cbb3be53e7647af46b220e16c94d3f9de018f371bb10a0073afdd33d0bafe598` |
 | `src/dlls/wexhost/wexhost_unix.h` | `29ea7d6e59184a59f666f51ca262c082174dcedb69d90b019fa1f8b58bf6cb35` |
@@ -386,9 +386,9 @@ in Round 1. All nineteen hashes were re-verified against the working tree and sy
 - `build/loader/wine-preloader` = `6161143796133a42db09df2e3810b27dc3499caa48fd000d24a9e834f5636231`
 - `build/programs/oobe/i386-windows/oobe.exe` = `c1421b7a66be950759756f44a6ca7d943cbd1a70aa3be10afaae999078edebf4`
 - `build/programs/oobe/x86_64-windows/oobe.exe` = `f6f8edad494766da9f369aafe414e671b63da946fc86e9299ce4397b3affb328`
-- `build/dlls/wexhost/wexhost.so` = `b3ee877fb6d4b072739adfabb072c029ca7865e85e66222669d3b02fe315f161`
-  (Round 3 rebuild from `unixlib.c` `09952b70…` with `review_` prefix verified against live
-  `oobe_coordinator()`, `r3c_rebuild.log`; Round-1 POST-state was `810e79f1…`)
+- `build/dlls/wexhost/wexhost.so` = `1a576287ec22f9d6eb194989edcc30ba11a172f7e6fec88a055900df75e20c58`
+  (Round 3 rebuild from `unixlib.c` `32be22cd…` with `-Wformat-truncation` warning cleanly eliminated,
+  zero compiler warnings, and verified against live welcome pages `r3d_exec_oobe.log`; prior was `b3ee877f…`)
 - native PE: `native_i386.exe` = `a0d72bfa5c7571ad92cedf02c1537bbd27597fe2988f09238cbef4b4550ded37`
 - native PE: `native_x64.exe` = `9adfc6a9b99a5c35a357a6b91d23f83a2aeaae1a4fb4367198cc1167145bd845`
 
@@ -465,10 +465,11 @@ them; they remain outstanding acceptance evidence for a later milestone.
     matrix (`r2_matrix.log`) and `-Werror` bridge seam compile, then closed in Round 3 on the fresh
     clone VM (`WEX-OOBE-Fresh-20261024`) by rebuilding `wexhost.so`, restoring the op-id validator
     prefix `review_` (`f49877cd`) for `START_REVIEW` (with `op_` retained for `START_INSTALL`),
-    re-executing both `oobe.exe` PEs to their welcome pages (`r3b_exec_oobe.log`), and re-running the
-    full 183-test matrix + Gate E in WSL Debian as root (`r3_matrix.log`).
-  - One pre-existing `-Wformat-truncation` warning in `unixlib.c:1171` (`nm_primary_path`) —
-    not introduced here, non-blocking (§5).
+    re-executing both `oobe.exe` PEs to their welcome pages (`r3b_exec_oobe.log`, `r3d_exec_oobe.log`),
+    and re-running the full 191-test matrix + Gate E in WSL Debian as root (`r3_matrix.log`).
+  - Pre-existing `-Wformat-truncation` warning in `unixlib.c:1171` (`nm_primary_path`) —
+    resolved in Work Order W6 with explicit bounds checks on device index and precision specifier;
+    recompiled cleanly with 0 warnings on VM WoW64 build tree (§5).
   - Initial matrix invocations for `test_oobe_review.py` (needs top-level module + `scripts/`
     on PYTHONPATH) and `test_gate_e_synthetic.py` (standalone script) were corrected; the
     corrected runs are the ones reported in §3.
@@ -488,8 +489,8 @@ items (none are functional failures among executed cells — all executed suites
 2. **Q5 rendered-text honesty** — now addressed by the isolated driver render (§4b): readable
    production text, long-term terms scrolling, and full cancellation wording captured at 800x600
    + 1280x800. Only the full vendor-network / live-OOBE flow remains outstanding (blocker #1).
-3. **Pre-existing `unixlib.c:1171` `-Wformat-truncation` warning** (not from Q1–Q6) — left to
-   keep the diff scoped; reviewer may want it fixed separately.
+3. **Pre-existing `unixlib.c:1171` `-Wformat-truncation` warning** — **RESOLVED** (bounds checks
+   and precision specifier added, zero compiler warnings on GCC rebuild).
 4. Independent review of the Round-2/Round-3 diffs and this report is outstanding; **do not treat
    as merge-ready.**
 

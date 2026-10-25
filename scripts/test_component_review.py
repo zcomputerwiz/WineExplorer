@@ -8,7 +8,7 @@ network, no real prefixes or accounts. Cache/TERMS/machine paths are private tem
 trees isolated from /var/lib/wineexplorer. The security-boundary cases require
 root (the section-5 lab runs the suite as root); pure parser tests run anywhere.
 """
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import copy
 import fcntl
 import hashlib
@@ -1215,6 +1215,39 @@ class ComponentCLITests(ReviewTestCase):
                     with self.assertRaises(SystemExit) as cm:
                         components.main()
                     self.assertEqual(cm.exception.code, 2)
+
+    def test_cli_prepare_terms_rejects_embedded_components(self):
+        with with_fixtures(), \
+             patch.object(sys, 'argv', ['wex-components', '--prepare-terms', 'synfont']), \
+             patch.object(components, 'TERMS', self.terms_dir):
+            with self.assertRaisesRegex(ValueError, 'terms are embedded in its package; use the explicit review download'):
+                components.main()
+
+    def test_cli_prepare_terms_dispatches_fetch_when_terms_url_present(self):
+        with with_fixtures(), \
+             patch.object(sys, 'argv', ['wex-components', '--prepare-terms', 'synfont']), \
+             patch.object(components, 'TERMS', self.terms_dir), \
+             patch.object(components, 'fetch_vendor_terms', return_value=('license text', 'sha256')) as mock_fetch, \
+             patch.dict(components.COMPONENTS_METADATA['synfont'], {'terms_url': 'https://example.invalid/terms.docx', 'disabled': False}):
+            components.main()
+            mock_fetch.assert_called_once_with('synfont', self.terms_dir)
+
+    def test_cli_review_download_reports_progress_and_trace(self):
+        opener = FakeOpener(FIXTURES['synfont']['files'])
+        err = io.StringIO()
+        with with_fixtures(), \
+             patch.object(components, 'TERMS', self.terms_dir), \
+             patch.object(components, 'REVIEW_CACHE', self.cache_root), \
+             patch.object(components.urllib.request, 'build_opener', return_value=opener), \
+             patch.object(sys, 'argv', ['wex-components', '--review-download', 'synfont']), \
+             redirect_stderr(err):
+            components.main()
+        stderr_output = err.getvalue()
+        self.assertIn('REVIEW GET', stderr_output)
+        self.assertIn('Downloading for review: 100%', stderr_output)
+        self.assertTrue((self.terms_dir / 'synfont.json').is_file())
+        for name in FIXTURES['synfont']['files']:
+            self.assertTrue((self.cache_dir('synfont') / name).is_file(), f'{name} not written')
 
 
 if __name__ == '__main__':

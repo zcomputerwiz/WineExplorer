@@ -40,15 +40,15 @@ that doc's statement of the `START_REVIEW` id grammar (`review_<verb>_<32 hex>`)
 
 ## 3. Current binary state (VM-verified, 2026-10-24)
 
-- `build/dlls/wexhost/wexhost.so` = `b3ee877fb6d4b072739adfabb072c029ca7865e85e66222669d3b02fe315f161`
-  (rebuilt from `unixlib.c` `09952b70…` with `review_` prefix restored and verified against
-  live `oobe_coordinator()`, `r3c_rebuild.log`)
+- `build/dlls/wexhost/wexhost.so` = `1a576287ec22f9d6eb194989edcc30ba11a172f7e6fec88a055900df75e20c58`
+  (rebuilt from `unixlib.c` `32be22cd…` with `-Wformat-truncation` eliminated, 0 warnings, verified against
+  welcome pages, `r3d_exec_oobe.log`; prior was `b3ee877f…`)
 - `build/programs/oobe/i386-windows/oobe.exe` = `c1421b7a…`, `x86_64-windows/oobe.exe` =
   `f6f8edad…` — byte-identical to the Round-1 POST-state PEs; no PE-target source has changed
   since, so this is by construction, not an omission.
 - Both PEs executed to fully rendered welcome pages against `wexhost.so`
   (Xvfb :95/:96, fresh prefix): `r3_exec_oobe.log`, `r3b_exec_oobe.log`.
-- Full test matrix re-verified at **180 tests / all rc=0** on the final tree in WSL
+- Full test matrix re-verified at **191 tests / all rc=0** on the final tree in WSL
   Debian as root (`logs/r3_matrix.log`, 2026-10-24; see §6), plus live C-bridge-to-coordinator
   roundtrip (`logs/r3_live_coordinator_bridge.log`) and live acceptance suite
   (`logs/r3_live_acceptance.log`).
@@ -118,7 +118,7 @@ to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0
   `test_fluent_*` pair) **require root** and/or repo-root paths — running them as a normal
   user fails by design ("OOBE coordinator review tests require root"). Re-verified on the
   post-`765dd336` tree via `wsl -d Debian -u root -- bash /mnt/d/Projects/oobe-terms-lab/live/run_r3_matrix.sh`,
-  recording `logs/r3_matrix.log` (`GRAND TOTAL tests run: 188`, `PROBLEM FILES: (none)`).
+  recording `logs/r3_matrix.log` (`GRAND TOTAL tests run: 191`, `PROBLEM FILES: (none)`).
 - **VM rebuild + welcome-page execution:** sync changed files (pattern in §5),
   `make -C ~/oobe-lab/build/dlls/wexhost`, then run an exec harness from
   `~/oobe-lab/LIVE/sync-r3/` (copy one and rename its log/png suffixes so evidence never
@@ -131,14 +131,15 @@ to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0
    lone-surrogate handling, `r3_matrix.log` 180-test execution, and §2/§5 documentation & SHA-256
    sync). Do not merge to `master` until external/Codex sign-off.
 2. **Full matrix re-run (`r3_matrix.log`) — DONE (2026-10-24):** executed as root in WSL Debian
-   across all 10 entries (`188` unittest cases + `3` Gate E checks + `py_compile`, all `rc=0`).
+   across all 10 entries (`191` unittest cases + `3` Gate E checks + `py_compile`, all `rc=0`).
 3. **NOT-RUN cells in acceptance-report §6 remain prerequisite-gated**, not defects: the full
    vendor-network download flow (needs private vendor packages + SourceForge reachability),
    live-desktop / fresh-installed-image cells, and offline cached-terms reopen. The op-id fix
    makes the native START_REVIEW path *correct*, but it is still only exercised by the compiled
    seam test, not by a live end-to-end download.
 4. **Pre-existing `-Wformat-truncation` warning** at `unixlib.c:1171` (`nm_primary_path`) —
-   not from this milestone; left to keep diffs scoped. Reviewer may want it fixed separately.
+   **RESOLVED** in Work Order W6 with explicit bounds checks on device index and precision specifier;
+   recompiled cleanly with 0 warnings on VM WoW64 build tree.
 5. **Distinct Operation ID Prefixes (`review_` vs `op_`)**: The R2 review doc's statement of
    the `START_REVIEW` grammar was correct (`review_<verb>_<32 hex>` at line 2228 of `wex-components.py`).
    Commit `765dd336` had mistakenly looked at line 2139 (`START_INSTALL`, which uses `op_`) and changed

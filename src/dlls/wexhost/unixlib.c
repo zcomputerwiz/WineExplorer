@@ -1167,8 +1167,8 @@ static BOOL nm_primary_path( char *path, size_t size )
 
     for (i = 0; i < count; i++) if (devs[i].state == NM_DEVICE_STATE_ACTIVATED) { pick = i; break; }
     if (pick < 0 && count) pick = 0;
-    if (pick < 0) return FALSE;
-    snprintf( path, size, "%s", devs[pick].path );
+    if (pick < 0 || pick >= count || (size_t)pick >= MAX_DEVICES) return FALSE;
+    snprintf( path, size, "%.*s", (int)sizeof(devs[0].path) - 1, devs[pick].path );
     return TRUE;
 }
 
