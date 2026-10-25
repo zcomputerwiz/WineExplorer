@@ -18,9 +18,9 @@ MODE='userenv-r3'
 
 def configure(mode):
     global MODE,STAGE,OUTPUT
-    if mode not in ('userenv-r3','userenv-r4'):raise ValueError('Unknown fixed module view')
+    if mode not in ('userenv-r3','userenv-r4','userenv-r5'):raise ValueError('Unknown fixed module view')
     MODE=mode
-    name='chromium-userenv-r4-20261025' if mode=='userenv-r4' else 'chromium-userenv-r3-20261024'
+    name={'userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r5':'chromium-userenv-r5-20261025'}[mode]
     STAGE=LAB/(name+'-stage');OUTPUT=LAB/name
 
 def selected():
@@ -72,5 +72,6 @@ def execute(validate_context=validate,run=subprocess.run,execv=os.execv,emit=pri
 
 if __name__=='__main__':
     if sys.argv[1:]==['--userenv-r4']:configure('userenv-r4')
+    elif sys.argv[1:]==['--userenv-r5']:configure('userenv-r5')
     elif len(sys.argv)!=1:raise SystemExit('No command/path passthrough')
     execute()

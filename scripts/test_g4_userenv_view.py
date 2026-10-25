@@ -16,6 +16,15 @@ LAB=native.LAB
 def payload(nonce):return dict(v=1,nonce=nonce,pid=44,module_path=r'C:\WINDOWS\system32\userenv.dll',module_path_normal=True,export_found=True,checks=45,failures=0,passed=True)
 
 class ViewTests(unittest.TestCase):
+    def test_fixed_module_view_modes_and_paths(self):
+        saved=(view.MODE,view.STAGE,view.OUTPUT)
+        try:
+            for mode,name in (('userenv-r3','chromium-userenv-r3-20261024'),('userenv-r4','chromium-userenv-r4-20261025'),('userenv-r5','chromium-userenv-r5-20261025')):
+                with self.subTest(mode=mode):view.configure(mode)
+                self.assertEqual(view.MODE,mode);self.assertEqual(view.STAGE,view.LAB/(name+'-stage'));self.assertEqual(view.OUTPUT,view.LAB/name)
+            with self.assertRaises(ValueError):view.configure('userenv-r6')
+        finally:view.MODE,view.STAGE,view.OUTPUT=saved
+
     def test_actual_validation_and_exact_readonly_commands_before_fixed_exec(self):
         with tempfile.TemporaryDirectory(prefix='view-test-',dir=LAB) as folder:
             root=Path(folder);build=root/'build';stage=root/'stage';build.mkdir();events=[]
@@ -150,6 +159,18 @@ class ProbeTests(unittest.TestCase):
                 self.assertEqual(error.exception.code,2)
         finally:r.configure('r1')
 
+    def test_actual_r5_cli_fixed_mode_and_mutual_exclusion(self):
+        r=native.r
+        try:
+            with mock.patch.object(r.sys,'argv',['native','--userenv-r5']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as run:
+                self.assertEqual(r.main(),1);self.assertEqual(r.MODE,'userenv-r5')
+                self.assertEqual(run.call_args.args[0],r.LAB/'chromium-userenv-r5-20261025')
+            for other in ('--userenv-r4','--module-warn-r2'):
+                with self.subTest(other=other),mock.patch.object(r.sys,'argv',['native','--userenv-r5',other]),contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as error:r.main()
+                    self.assertEqual(error.exception.code,2)
+        finally:r.configure('r1')
+
     def test_host_real_result_and_strict_json_negatives(self):
         path=LAB/'userenv-browser-r3-20261024.build/host-probe.stdout.json'
         self.assertTrue(path.is_file());raw=path.read_bytes();nonce='0123456789abcdef0123456789abcdef'
@@ -194,6 +215,9 @@ class ProbeTests(unittest.TestCase):
     def test_actual_r4_probe_failure_prevents_browser_and_success_is_ordered(self):
         self.test_actual_runner_probe_failure_prevents_browser_and_success_is_ordered('userenv-r4')
 
+    def test_actual_r5_probe_failure_prevents_browser_and_success_is_ordered(self):
+        self.test_actual_runner_probe_failure_prevents_browser_and_success_is_ordered('userenv-r5')
+
     def test_actual_runner_probe_failure_prevents_browser_and_success_is_ordered(self,mode='userenv-r3'):
         r=native.r
         try:
@@ -212,8 +236,10 @@ class ProbeTests(unittest.TestCase):
                     def collect(*args,**kwargs):
                         self.assertEqual(calls,['probe','probe-cleanup']);self.assertNotIn('cleanup_started',args[2]);calls.append('browser')
                         args[2].update(helper_started=True,helper_reaped=True,native={'outcome':'native_exit'})
-                    with mock.patch.object(r,'guards',return_value={'private_loopback':{}}),mock.patch.object(r.cal.install,'environment',return_value=env),mock.patch.object(r.cal,'OwnedWexcomp',return_value=comp),mock.patch.object(r.cal,'verify_native_gl_driver',return_value={}),mock.patch.object(probe,'phase',side_effect=phase),mock.patch.object(r.cal,'collect',side_effect=collect),mock.patch.object(r,'FixtureServer',return_value=server),mock.patch.object(r.cal.graphics_resources,'sample',return_value={}),mock.patch.object(r.cal.isolation,'verify_private_loopback',return_value={}):
+                    with mock.patch.object(r,'guards',return_value={'private_loopback':{}}),mock.patch.object(r.cal.install,'environment',return_value=env),mock.patch.object(r.cal,'OwnedWexcomp',return_value=comp) as owned,mock.patch.object(r.cal,'verify_native_gl_driver',return_value={}),mock.patch.object(probe,'phase',side_effect=phase),mock.patch.object(r.cal,'collect',side_effect=collect),mock.patch.object(r,'FixtureServer',return_value=server),mock.patch.object(r.cal.graphics_resources,'sample',return_value={}),mock.patch.object(r.cal.isolation,'verify_private_loopback',return_value={}):
                         self.assertEqual(r.run(out,helpers),1)
+                    if mode in ('userenv-r4','userenv-r5'):owned.assert_called_once_with(r.LAB/'labwc',r.LAB/'wayland',out,env,'gles2',strip_wineprefix=True)
+                    else:owned.assert_called_once_with(r.LAB/'labwc',r.LAB/'wayland',out,env,'gles2')
                     value=json.loads((out/'results.json').read_text())
                     if failed:self.assertEqual(calls,['probe']);self.assertIn('PRIMARY',value['error']);server.start.assert_not_called()
                     else:self.assertEqual(calls,['probe','probe-cleanup','browser']);self.assertTrue(value['observation_complete'])
