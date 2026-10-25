@@ -113,12 +113,12 @@ to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0
   production functions under `-Wall -Wextra -Werror` and drives them over a live AF_UNIX
   socket against both scripted peers and the real Python `oobe_coordinator()` backed by synthetic PE fixtures.
   Last run: **20/20 OK** (2026-10-24, WSL Debian root).
-- **Full matrix (183 tests, 10 entries):** several suites (`test_oobe_review.py`,
+- **Full matrix (188 tests, 10 entries):** several suites (`test_oobe_review.py`,
   `test_component_review.py`, `test_runtime_repairs.py`, `test_gate_e_synthetic.py`, the
   `test_fluent_*` pair) **require root** and/or repo-root paths — running them as a normal
   user fails by design ("OOBE coordinator review tests require root"). Re-verified on the
   post-`765dd336` tree via `wsl -d Debian -u root -- bash /mnt/d/Projects/oobe-terms-lab/live/run_r3_matrix.sh`,
-  recording `logs/r3_matrix.log` (`GRAND TOTAL tests run: 183`, `PROBLEM FILES: (none)`).
+  recording `logs/r3_matrix.log` (`GRAND TOTAL tests run: 188`, `PROBLEM FILES: (none)`).
 - **VM rebuild + welcome-page execution:** sync changed files (pattern in §5),
   `make -C ~/oobe-lab/build/dlls/wexhost`, then run an exec harness from
   `~/oobe-lab/LIVE/sync-r3/` (copy one and rename its log/png suffixes so evidence never
@@ -131,7 +131,7 @@ to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0
    lone-surrogate handling, `r3_matrix.log` 180-test execution, and §2/§5 documentation & SHA-256
    sync). Do not merge to `master` until external/Codex sign-off.
 2. **Full matrix re-run (`r3_matrix.log`) — DONE (2026-10-24):** executed as root in WSL Debian
-   across all 10 entries (`180` unittest cases + `3` Gate E checks + `py_compile`, all `rc=0`).
+   across all 10 entries (`188` unittest cases + `3` Gate E checks + `py_compile`, all `rc=0`).
 3. **NOT-RUN cells in acceptance-report §6 remain prerequisite-gated**, not defects: the full
    vendor-network download flow (needs private vendor packages + SourceForge reachability),
    live-desktop / fresh-installed-image cells, and offline cached-terms reopen. The op-id fix
@@ -139,9 +139,11 @@ to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0
    seam test, not by a live end-to-end download.
 4. **Pre-existing `-Wformat-truncation` warning** at `unixlib.c:1171` (`nm_primary_path`) —
    not from this milestone; left to keep diffs scoped. Reviewer may want it fixed separately.
-5. **The R2 review doc's grammar statement is wrong** (`review_` vs the actual `op_`). Flag it
-   so future rounds quote coordinator code, not prose. (Commit history is not rewritten;
-   `765dd336`'s message documents the correction.)
+5. **Distinct Operation ID Prefixes (`review_` vs `op_`)**: The R2 review doc's statement of
+   the `START_REVIEW` grammar was correct (`review_<verb>_<32 hex>` at line 2228 of `wex-components.py`).
+   Commit `765dd336` had mistakenly looked at line 2139 (`START_INSTALL`, which uses `op_`) and changed
+   `oobe_valid_review_op_id()` to `op_`, which broke live review. Commit `f49877cd` restored `review_`,
+   and Work Order W4 (`87179f72`) added in-repo live bridge tests so any divergence is caught immediately.
 6. The original lab VM (`WEX-OOBE-Lab`) and its 97%-full disk are untouched; the clone
    (`WEX-OOBE-Fresh-20261024`) is the working environment and has ~38 G free.
 

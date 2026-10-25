@@ -164,7 +164,7 @@ was re-executed in the R3 re-run; no assertion was lost and no old case weakened
 | # | Suite (case IDs) | Command (working invocation) | Exit | Actual result | Skips |
 |---|------------------|------------------------------|------|---------------|-------|
 | 1 | — | `python3 -m py_compile scripts/wex-components.py` | 0 | OK | — |
-| 2 | component_review (P2, C1, A1/A2/U1, Q4, L1) | `python3 -m unittest discover -s scripts -p test_component_review.py -v` | 0 | **Ran 43**, OK | 0 |
+| 2 | component_review (P2, C1, A1/A2/U1, Q4, L1, W5 CLI) | `python3 -m unittest discover -s scripts -p test_component_review.py -v` | 0 | **Ran 48**, OK (+5 W5 ComponentCLITests) | 0 |
 | 3 | coordinator / review_backend (C1, protocol; F2 damaged-doc isolation) | `PYTHONPATH=scripts python3 -m unittest test_oobe_review` (top-level module) | 0 | **Ran 19**, OK (+5 R1-F2 + 1 R2-F2 lone-surrogate `DamagedTermsDocumentTests`) | 0 |
 | 4 | runtime repairs | `python3 scripts/test_runtime_repairs.py` | 0 | **Ran 57**, OK | 0 (Wine on PATH → native seam executed, not skipped) |
 | 5 | terms | `python3 scripts/test_component_terms.py` | 0 | **Ran 11**, OK | 0 |
@@ -349,7 +349,7 @@ in Round 1. All nineteen hashes were re-verified against the working tree and sy
 
 | File | sha256 |
 |------|--------|
-| `scripts/test_component_review.py` | `dc9e43ef766b8c748f7cffc5f941a23d14d53f25fd017cb7f2c2954ac993e251` |
+| `scripts/test_component_review.py` | `2d2b0a7e438aa129873d95dc82da39c98f0cc134c2fb4d7efb2473954bae0aa1` |
 | `scripts/test_oobe_bridge.py` | `d552d640f6dea7c3393a80f50e1a1f12a7ebf4a9991236ecdacfc29341227733` |
 | `scripts/test_oobe_native.c` | `4b278d0c4e51be768d77d31995e7a1ec3ac2fb63fa99c022b094966432537434` |
 | `scripts/test_oobe_review.py` | `225a4adfd2defa5d07aed6cb486da3c2f371b19bd217339ec519ecf059181bc3` |
@@ -463,10 +463,10 @@ them; they remain outstanding acceptance evidence for a later milestone.
     `oobe.exe` build. The **full** live-UI / vendor-network cell remains NOT RUN (§6).
   - Round 2 → Round 3: the four Round-2 source changes were initially verified by the 180-test
     matrix (`r2_matrix.log`) and `-Werror` bridge seam compile, then closed in Round 3 on the fresh
-    clone VM (`WEX-OOBE-Fresh-20261024`) by rebuilding `wexhost.so`, correcting the op-id validator
-    prefix from `review_` to `op_` (`77ef90c2…`), re-executing both `oobe.exe` PEs to their welcome
-    pages (`r3b_exec_oobe.log`), and re-running the full 180-test matrix + Gate E in WSL Debian as
-    root (`r3_matrix.log`).
+    clone VM (`WEX-OOBE-Fresh-20261024`) by rebuilding `wexhost.so`, restoring the op-id validator
+    prefix `review_` (`f49877cd`) for `START_REVIEW` (with `op_` retained for `START_INSTALL`),
+    re-executing both `oobe.exe` PEs to their welcome pages (`r3b_exec_oobe.log`), and re-running the
+    full 183-test matrix + Gate E in WSL Debian as root (`r3_matrix.log`).
   - One pre-existing `-Wformat-truncation` warning in `unixlib.c:1171` (`nm_primary_path`) —
     not introduced here, non-blocking (§5).
   - Initial matrix invocations for `test_oobe_review.py` (needs top-level module + `scripts/`
@@ -511,7 +511,7 @@ items (none are functional failures among executed cells — all executed suites
 - `logs/r3_matrix.log` — **Round-3 full matrix re-run** (WSL Debian, root) against the final Round-3
   `unixlib.c` (`09952b70…`) and `test_oobe_bridge.py` (`d552d640…`): all ten test entries (nine
   unittest suites + the standalone Gate E script) plus `py_compile`, per-file `Ran N … rc=0`,
-  `GRAND TOTAL tests run: 183` (including the 3 in-repo live C-bridge <-> coordinator integration tests),
+  `GRAND TOTAL tests run: 188` (including 3 W4 live C-bridge integration tests and 5 W5 ComponentCLITests),
   `PROBLEM FILES: (none)` (§3), 2026-10-24.
 - `logs/r3c_rebuild.log` — **Round-3 final `wexhost.so` rebuild** on `WEX-OOBE-Fresh-20261024` from
   `unixlib.c` (`09952b70…`, `review_` prefix restored): `make_wexhost_rc=0`, POST `wexhost.so`

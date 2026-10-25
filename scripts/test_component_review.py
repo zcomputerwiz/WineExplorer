@@ -19,6 +19,7 @@ import os
 import shutil
 import ssl
 import struct
+import sys
 import tempfile
 import threading
 import time
@@ -1145,6 +1146,75 @@ class LifecycleCancellationTests(ReviewTestCase):
         for name in FIXTURES[verb]['files']:
             self.assertFalse((self.cache_dir(verb) / name).exists(),
                              f'{name} written after cancellation')
+
+
+class ComponentCLITests(ReviewTestCase):
+    """CLI contract tests for wex-components main() entry point."""
+
+    def test_cli_list_outputs_all_components_and_disabled_reasons(self):
+        f = io.StringIO()
+        with patch.object(sys, 'argv', ['wex-components', 'list']), redirect_stdout(f):
+            components.main()
+        output = f.getvalue()
+        for verb, meta in components.COMPONENTS_METADATA.items():
+            self.assertIn(verb, output)
+            if meta.get('disabled'):
+                self.assertIn(f"(disabled: {meta['disabled_reason']})", output)
+            else:
+                self.assertIn(f"{verb}: {meta['title']}\n", output)
+
+    def test_cli_review_cached_terms_displays_terms_and_installed_nothing_note(self):
+        with with_fixtures():
+            text, _ = self.download('synfont')
+            f = io.StringIO()
+            with patch.object(sys, 'argv', ['wex-components', 'review', 'synfont']), \
+                 patch.object(components, 'TERMS', self.terms_dir), \
+                 patch.object(components, 'REVIEW_CACHE', self.cache_root), \
+                 redirect_stdout(f):
+                components.main()
+            output = f.getvalue()
+            self.assertIn(text.strip()[:60], output)
+            self.assertIn('Installation of Synthetic review-only fonts is not available yet. Reviewing these terms installed nothing.', output)
+            self.assertEqual(list(self.machine.iterdir()), [])
+
+    def test_cli_review_decline_download_prints_prompt_and_exits_cleanly(self):
+        with with_fixtures(), patch.object(components, 'TERMS', self.terms_dir), \
+             patch.object(components, 'REVIEW_CACHE', self.cache_root), \
+             patch.object(components, 'is_admin', return_value=True), \
+             patch('builtins.input', return_value='no'), \
+             patch.object(components.subprocess, 'run', side_effect=AssertionError('no subprocess allowed')) as run_spy:
+            f = io.StringIO()
+            with patch.object(sys, 'argv', ['wex-components', 'review', 'synfont']), redirect_stdout(f):
+                components.main()
+            output = f.getvalue()
+        run_spy.assert_not_called()
+        self.assertIn('Download ', output)
+        self.assertIn('No installer or package code will run and nothing will be installed.', output)
+        self.assertFalse((self.terms_dir / 'synfont.json').exists())
+        self.assertEqual(list(self.machine.iterdir()), [])
+
+    def test_cli_review_rejects_component_without_embedded_terms(self):
+        with patch.object(sys, 'argv', ['wex-components', 'review', 'vcrun2022']):
+            with self.assertRaises(ValueError) as cm:
+                components.main()
+        self.assertIn('has no embedded license terms to review', str(cm.exception))
+
+    def test_cli_mutual_exclusion_and_argument_validation(self):
+        invalid_combinations = [
+            ['wex-components', '--oobe-coordinator', 'list'],
+            ['wex-components', 'review'],
+            ['wex-components', 'review', 'synfont', 'synfont2'],
+            ['wex-components', 'install'],
+            ['wex-components', '--reconcile-operation', 'op_1'],
+            ['wex-components', '--reconcile-action', 'FAILED'],
+        ]
+        for argv in invalid_combinations:
+            with self.subTest(argv=argv):
+                f_err = io.StringIO()
+                with patch.object(sys, 'argv', argv), patch('sys.stderr', f_err):
+                    with self.assertRaises(SystemExit) as cm:
+                        components.main()
+                    self.assertEqual(cm.exception.code, 2)
 
 
 if __name__ == '__main__':
