@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261025 parent R5 review COMPLETE: read
+CHROMIUM_R5_PARENT_REVIEW_20261025.md. Sourcecd1b90aa/report9b49ce70 ready for
+one R5 diagnostic with existing D: worker-root immutable prep and helpers;
+parent independently84 tests/no skips,32 sealed/21current transfer/10helpers,
+AMD64 fixed paths and root-only helper adaptation checked. No trial yet.
+Do not redirect prep to C: parent root. Shader862e72f4 independently ran its
+33negative/24mutation and legacy suites successfully but one fake uniform setter
+current-program contract remains; narrow rework under
+CHROMIUM_SHADER_UNIFORM_REWORK_20261025. Shader is not an R5 blocker.
+
 CURRENT20261025 timer fix e3ec82e0 ACCEPTED/imported832da342: parent reviewed
 code/fractional-clock/short-allowance/cleanup regressions and passed95 focused
 tests with private adapters, no skips. No guest retry. Antigravity has shader
