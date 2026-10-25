@@ -55,3 +55,13 @@ Result: Ran 95 tests — OK, 0 errors, 0 failures, 16 skipped, ~30s. The 16 skip
 
 - Deterministic clock tests exercise the real `phase` admission/run/reap/cleanup control flow with synthetic children; they do not run a real Wine API probe and cannot prove wall-clock behavior against a live guest.
 - The fix changes only the admission comparison; any future code that reconstructs local durations from absolute clocks reintroduces the same bug class.
+
+## Independent parent acceptance
+
+Parent reviewed e3ec82e0 code and new clock assertions, passed14 focused probe/
+scope tests in2.507s, and imported the change as832da342 on the graphics branch.
+Then independently ran the full listed focused group with the parent's private
+adapter inputs: **95 tests in48.340s, all pass, no skips**. This supplements the
+worker's honestly reported16 private-fixture skips; it does not relabel that
+worker run. No guest was launched. Fresh R5 preparation is separately assigned
+under CHROMIUM_R5_OFFLINE_PREPARATION_WORK_ORDER_20261025; R4 remains consumed.

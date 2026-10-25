@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261025 timer fix e3ec82e0 ACCEPTED/imported832da342: parent reviewed
+code/fractional-clock/short-allowance/cleanup regressions and passed95 focused
+tests with private adapters, no skips. No guest retry. Antigravity has shader
+second-rework first, then queued fresh R5 prep under
+CHROMIUM_R5_OFFLINE_PREPARATION_WORK_ORDER_20261025 at684c4ce5, follow-up message
+msg_1792948711837_ad45ce1f. R5 on separate own D: worktree, existing disk/runtime,
+fresh fixed mode/helper/output/prep only; no VM/SSH/mount/browser authority.
+Inspect actual worker replies/commits before more implementation; parent reviews
+new prep before trial. Timer review/reproduction phase below is now complete.
+
 CURRENT20261025 R4 TRIAL CONSUMED: read CHROMIUM_GRAPHICS_G4_R4_TRIAL_20261025
 and CHROMIUM_API_PROBE_DEADLINE_REWORK_20261025 first. Reached actual inner/outer
 VirGL, then failed before API/browser/HTTP on local full45s float admission.
