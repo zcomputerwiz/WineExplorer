@@ -1,0 +1,21 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html><meta charset="utf-8"><title>WineExplorer Shader Probe</title>
+<style>
+html,body { margin:0; width:100%; height:100%; overflow:hidden; background:rgb(240,244,248); font-family:sans-serif }
+#marker { position:absolute; left:32px; top:32px; width:48px; height:48px; background:rgb(33,150,243) }
+.panel { position:absolute; top:100px; display:flex; gap:24px; left:32px }
+.card { display:flex; flex-direction:column; align-items:center; gap:8px }
+canvas { width:64px; height:64px; image-rendering:pixelated; border:1px solid #90a4ae; background:transparent }
+#reference { width:64px; height:64px; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; border:1px solid #90a4ae }
+#q-ul { background:rgb(0,0,255) }
+#q-ur { background:rgb(255,255,0) }
+#q-ll { background:rgb(255,0,0) }
+#q-lr { background:rgb(0,255,0) }
+</style>
+<div id="marker"></div>
+<div class="panel">
+  <div class="card"><span>WebGL1</span><canvas id="webgl" width="8" height="8"></canvas></div>
+  <div class="card"><span>WebGL2</span><canvas id="webgl2" width="8" height="8"></canvas></div>
+  <div class="card"><span>Expected</span><div id="reference"><div id="q-ul"></div><div id="q-ur"></div><div id="q-ll"></div><div id="q-lr"></div></div></div>
+</div>
+<script src="scene.js"></script>
