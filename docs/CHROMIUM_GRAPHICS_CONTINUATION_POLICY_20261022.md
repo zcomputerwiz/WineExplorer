@@ -19,6 +19,8 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261025 native registration oracle c0d8e2ae accepted scoped valid-input evidence after parent source/raw13seal review and17tests/no skips. Windows registration/lookup S_OK, duplicate0x800700b7, missing/second unregister0x80070002, separate-child reads and cleanup confirmed. Next assigned Antigravity: CHROMIUM_APPCONTAINER_REGISTRATION_IMPLEMENTATION_WORK_ORDER_20261025.md atb772a03b for genuine four kernelbase APIs, per-user persistence/concurrency/x64+i686 tests on isolated Wine branch based e096ae4. No new guest/browser trial before parent review.
+
 CURRENT20261025 R5 EXECUTED_ONCE: read CHROMIUM_R5_AND_SHADER_PARENT_REVIEW_20261025.md. API45/45 passed, native Chromium0x80000003, zero HTTP, no browser front. Parent53seal/22archive/image/log/QMP reviewed. Missing AppContainerRegisterSid plus exact upstream CHECK binding is next contract investigation, not proven graphics cause. R5 fixed paths consumed. Shader0d96719a accepted scoped offline after independent35negative/28mutation and legacy checks; remains separate/unimported. Next Luna original registration-family Windows oracle under CHROMIUM_APPCONTAINER_REGISTRATION_ORACLE_WORK_ORDER_20261025; no new VM or Wine patch yet. Older PREPARED_NOT_RUN descriptions below are historical.
 
 CURRENT20261025 parent R5 review COMPLETE: read
