@@ -24,11 +24,13 @@ def decode(raw,nonce,code):
     return v
 
 def phase(output,env,result,probe,build,prefix,helpers,monitor,sample,deadline,*,popen=subprocess.Popen,now=time.monotonic,sleep=time.sleep):
-    start=now();end=min(deadline,start+45);child=None;primary=None
-    if end-start<45:raise TimeoutError('Need full45s API probe/reap/intermediate cleanup allowance')
+    start=now();child=None;primary=None
+    result['probe_started']=False;result['probe_reaped']=False
+    if deadline<start+45:raise TimeoutError('Need full45s API probe/reap/intermediate cleanup allowance')
+    end=start+45
     nonce=secrets.token_hex(16)
     result['api_probe']={'nonce':nonce,'started_monotonic':start,'maximum_seconds':45}
-    meta=result['api_probe'];result['probe_started']=False;result['probe_reaped']=False
+    meta=result['api_probe']
     def left(cap):
         remaining=end-now()
         if remaining<=0:raise TimeoutError('API probe phase deadline')
