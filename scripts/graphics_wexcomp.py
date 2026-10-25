@@ -10,11 +10,12 @@ import time
 
 
 class OwnedWexcomp:
-    def __init__(self, binary, config, output, environment, renderer='pixman'):
+    def __init__(self, binary, config, output, environment, renderer='pixman', *, strip_wineprefix=False):
         if renderer not in ('pixman', 'gles2'):
             raise ValueError('Only explicit pixman/gles2 diagnostic renderers are supported')
         self.binary, self.config, self.output = binary, config, output
         self.environment = environment
+        self.strip_wineprefix = strip_wineprefix
         self.renderer = renderer
         self.process = None
         self.record = None
@@ -23,6 +24,10 @@ class OwnedWexcomp:
         runtime = self.output / 'wayland-runtime'
         runtime.mkdir(mode=0o700)
         env = dict(self.environment)
+        # Native compositor ownership is independent of the client's Wine prefix.
+        # Opt in explicitly; legacy resource metrics retain their old environment.
+        if self.strip_wineprefix:
+            env.pop('WINEPREFIX', None)
         for key in ('DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'WAYLAND_SOCKET',
                     'WLR_RENDER_DRM_DEVICE', 'WLR_DRM_DEVICES'):
             env.pop(key, None)
@@ -51,7 +56,8 @@ class OwnedWexcomp:
                            config=str(self.config), command=command, backend='headless',
                            compositor_renderer=('pixman (software)' if self.renderer == 'pixman'
                                                 else 'gles2 (requested; acceleration not yet verified)'), endpoint='wex-shell-0',
-                           private_protocol_verified=True, process_identity=self.identity())
+                           private_protocol_verified=True, process_identity=self.identity(),
+                           wineprefix_stripped=self.strip_wineprefix)
         return self.record
 
     def identity(self):

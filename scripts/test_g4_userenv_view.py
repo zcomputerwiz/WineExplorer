@@ -126,10 +126,13 @@ class ProbeTests(unittest.TestCase):
                 else:self.assertTrue(result['probe_reaped'])
                 if fault=='json-cleanup':self.assertIn('malformed',result['api_probe']['error']);self.assertIn('cleanup rejected',result['api_probe']['cleanup_error'])
 
-    def test_actual_runner_probe_failure_prevents_browser_and_success_is_ordered(self):
+    def test_actual_r4_probe_failure_prevents_browser_and_success_is_ordered(self):
+        self.test_actual_runner_probe_failure_prevents_browser_and_success_is_ordered('userenv-r4')
+
+    def test_actual_runner_probe_failure_prevents_browser_and_success_is_ordered(self,mode='userenv-r3'):
         r=native.r
         try:
-            r.configure('userenv-r3')
+            r.configure(mode)
             for failed in (True,False):
                 with tempfile.TemporaryDirectory(prefix='probe-before-browser-',dir=LAB) as folder:
                     out=Path(folder)/'output';calls=[]

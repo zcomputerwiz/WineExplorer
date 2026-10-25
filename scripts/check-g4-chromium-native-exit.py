@@ -40,9 +40,9 @@ HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 def configure(mode):
     """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS
-    if mode not in ('r1','module-warn-r2','userenv-r3'):raise ValueError('Unknown fixed Chromium mode')
+    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
-    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024'}[mode]
+    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
     HELPER=STAGE/'original/native-exit.exe';MANIFEST=STAGE/'runtime-manifest.json'
@@ -181,11 +181,12 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
         for key in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','TMPDIR'):Path(env[key]).mkdir()
         result['environment']={k:v for k,v in env.items() if k.startswith(('WINE','WEX_','XDG_')) or k in ('HOME','TMPDIR')}
         helpers.configure_gl_driver(env,'virgl')
-        comp=cal.OwnedWexcomp(LAB/'labwc',LAB/'wayland',output,env,'gles2')
+        compositor_options={'strip_wineprefix':True} if MODE=='userenv-r4' else {}
+        comp=cal.OwnedWexcomp(LAB/'labwc',LAB/'wayland',output,env,'gles2',**compositor_options)
         if bound(55)<55:raise TimeoutError('Compositor budget')
         result['compositor']=comp.start();result['outer']=comp.verify_gpu_renderer('virgl')
         result['inner']=cal.verify_native_gl_driver(env,output,'virgl')
-        if MODE=='userenv-r3':
+        if MODE in ('userenv-r3','userenv-r4'):
             import g4_userenv_probe
             if bound(129)<129:raise TimeoutError('Insufficient probe45 + browser82 + HTTP2 budget')
             g4_userenv_probe.phase(output,env,result,STAGE/'original/userenv-probe.exe',BUILD,PREFIX,helpers,comp.verify,cal.graphics_resources.sample,
@@ -240,11 +241,12 @@ def main():
     selection=parser.add_mutually_exclusive_group()
     selection.add_argument('--module-warn-r2',action='store_true',help='Fixed fresh R2 paths and warn+module/trace+seh logging only')
     selection.add_argument('--userenv-r3',action='store_true',help='Fixed R3 normal-view API probe before browser')
+    selection.add_argument('--userenv-r4',action='store_true',help='Fixed R4 normal view with native compositor prefix scope')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
-    configure('userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
+    configure('userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
     return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))

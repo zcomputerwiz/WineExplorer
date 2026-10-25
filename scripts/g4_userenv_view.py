@@ -14,6 +14,14 @@ LAB=Path('/home/debian/wex-g4')
 BUILD=Path('/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64')
 STAGE=LAB/'chromium-userenv-r3-20261024-stage'
 OUTPUT=LAB/'chromium-userenv-r3-20261024'
+MODE='userenv-r3'
+
+def configure(mode):
+    global MODE,STAGE,OUTPUT
+    if mode not in ('userenv-r3','userenv-r4'):raise ValueError('Unknown fixed module view')
+    MODE=mode
+    name='chromium-userenv-r4-20261025' if mode=='userenv-r4' else 'chromium-userenv-r3-20261024'
+    STAGE=LAB/(name+'-stage');OUTPUT=LAB/name
 
 def selected():
     return [(STAGE/'modules'/arch/'userenv.dll',BUILD/'dlls/userenv'/(arch+'-windows/userenv.dll'),machine)
@@ -57,11 +65,12 @@ def execute(validate_context=validate,run=subprocess.run,execv=os.execv,emit=pri
         encoded=json.dumps(record,allow_nan=False)
         if len(encoded.encode())>32768:raise ValueError('Module view evidence quota')
         emit('USERENV_MODULE_VIEW '+encoded,flush=True)
-        argv=['/usr/sbin/runuser','-u','debian','--','python3','-B',str(STAGE/'scripts/check-g4-chromium-native-exit.py'),'--userenv-r3','--output-dir',str(OUTPUT)]
+        argv=['/usr/sbin/runuser','-u','debian','--','python3','-B',str(STAGE/'scripts/check-g4-chromium-native-exit.py'),'--'+MODE,'--output-dir',str(OUTPUT)]
         execv(argv[0],argv)
     except Exception as error:
         record['error']=repr(error);emit('USERENV_MODULE_VIEW_ERROR '+json.dumps(record,allow_nan=False),flush=True);raise
 
 if __name__=='__main__':
-    if len(sys.argv)!=1:raise SystemExit('No command/path passthrough')
+    if sys.argv[1:]==['--userenv-r4']:configure('userenv-r4')
+    elif len(sys.argv)!=1:raise SystemExit('No command/path passthrough')
     execute()
