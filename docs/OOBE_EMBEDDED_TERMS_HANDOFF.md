@@ -108,16 +108,17 @@ to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0
 
 ## 6. Re-running verifications
 
-- **Bridge suite (covers the C seam; self-contained):** needs only `gcc` + `python3`.
+- **Bridge suite (covers the C seam and live coordinator; self-contained):** needs only `gcc` + `python3`.
   `cd <repo> && python3 scripts/test_oobe_bridge.py` — compiles the current `unixlib.c`
   production functions under `-Wall -Wextra -Werror` and drives them over a live AF_UNIX
-  socket. Last run: **17/17 OK** (2026-10-24, both on the lab VM and in WSL Debian root).
-- **Full matrix (180 tests, 10 entries):** several suites (`test_oobe_review.py`,
+  socket against both scripted peers and the real Python `oobe_coordinator()` backed by synthetic PE fixtures.
+  Last run: **20/20 OK** (2026-10-24, WSL Debian root).
+- **Full matrix (183 tests, 10 entries):** several suites (`test_oobe_review.py`,
   `test_component_review.py`, `test_runtime_repairs.py`, `test_gate_e_synthetic.py`, the
   `test_fluent_*` pair) **require root** and/or repo-root paths — running them as a normal
   user fails by design ("OOBE coordinator review tests require root"). Re-verified on the
   post-`765dd336` tree via `wsl -d Debian -u root -- bash /mnt/d/Projects/oobe-terms-lab/live/run_r3_matrix.sh`,
-  recording `logs/r3_matrix.log` (`GRAND TOTAL tests run: 180`, `PROBLEM FILES: (none)`).
+  recording `logs/r3_matrix.log` (`GRAND TOTAL tests run: 183`, `PROBLEM FILES: (none)`).
 - **VM rebuild + welcome-page execution:** sync changed files (pattern in §5),
   `make -C ~/oobe-lab/build/dlls/wexhost`, then run an exec harness from
   `~/oobe-lab/LIVE/sync-r3/` (copy one and rename its log/png suffixes so evidence never
@@ -153,6 +154,6 @@ to run `run_r3_matrix.sh` and produce `logs/r3_matrix.log` (180 tests, all `rc=0
 | R2 review doc (contains the grammar error) | branch `codex/oobe-embedded-terms-r2-review`, `docs/reviews/qwen-oobe-20261022-r2.md` |
 | Bridge C seam + validator | `src/dlls/wexhost/unixlib.c` (`oobe_valid_review_op_id`, `oobe_review_start`, `oobe_parse_review_running`) |
 | Coordinator (protocol source of truth) | `scripts/wex-components.py` (`oobe_coordinator()`, op-id at the `op_{verb}_{uuid…}` line) |
-| Bridge seam tests | `scripts/test_oobe_bridge.py` (17 tests) |
+| Bridge seam tests | `scripts/test_oobe_bridge.py` (20 tests) |
 | OOBE program + resources | `src/programs/oobe/` (`oobe.c`, `oobe.rc`, `oobe_catalog.h`) |
 | Private evidence | `D:\Projects\oobe-terms-lab\live\` (§5) |

@@ -170,7 +170,7 @@ was re-executed in the R3 re-run; no assertion was lost and no old case weakened
 | 5 | terms | `python3 scripts/test_component_terms.py` | 0 | **Ran 11**, OK | 0 |
 | 6 | runtime artifacts | `python3 scripts/test_component_runtime_artifacts.py` | 0 | **Ran 14**, OK | 0 |
 | 7 | recovery (Gate E protocol) | `python3 scripts/test_component_recovery.py` | 0 | **Ran 14**, OK | 0 |
-| 8 | bridge — ACTUAL parsing seam (B1; R1-F1 single-line/NUL; R2-F1 op-id/zero-total) | `python3 scripts/test_oobe_bridge.py` | 0 | **Ran 17**, OK (+1 R1-F1 extra-frame/NUL, +1 R2-F1 malformed-op-id case) | 0 |
+| 8 | bridge — ACTUAL parsing seam (B1; R1-F1 single-line/NUL; R2-F1 op-id/zero-total; W4 live coordinator) | `python3 scripts/test_oobe_bridge.py` | 0 | **Ran 20**, OK (+1 R1-F1 extra-frame/NUL, +1 R2-F1 malformed-op-id case, +3 W4 live coordinator bridge tests) | 0 |
 | 9 | capture audit | `python3 scripts/test_oobe_capture_audit.py` | 0 | **Ran 4**, OK | 0 |
 | 10 | Gate E synthetic (standalone script) | `python3 scripts/test_gate_e_synthetic.py` | 0 | ALL GATE E SYNTHETIC RECOVERY CHECKS PASSED (3 checks) | — |
 | 11 | review layout (F3) — asserts rendered *wrapped height fits* the control, not just that resources compile | `python3 scripts/test_oobe_review_layout.py -v` | 0 | **Ran 1**, OK (probe: INFO/STATUS both FIT at production strings) | 0 |
@@ -350,7 +350,7 @@ in Round 1. All nineteen hashes were re-verified against the working tree and sy
 | File | sha256 |
 |------|--------|
 | `scripts/test_component_review.py` | `dc9e43ef766b8c748f7cffc5f941a23d14d53f25fd017cb7f2c2954ac993e251` |
-| `scripts/test_oobe_bridge.py` | `f749b4d5c5c33a5e45243fd8244489bff4d903ccee388b5771157b45e5894890` |
+| `scripts/test_oobe_bridge.py` | `d552d640f6dea7c3393a80f50e1a1f12a7ebf4a9991236ecdacfc29341227733` |
 | `scripts/test_oobe_native.c` | `4b278d0c4e51be768d77d31995e7a1ec3ac2fb63fa99c022b094966432537434` |
 | `scripts/test_oobe_review.py` | `225a4adfd2defa5d07aed6cb486da3c2f371b19bd217339ec519ecf059181bc3` |
 | `scripts/test_runtime_repairs.py` | `6aa8a5dfdade75ec49d10447999b3aae8473658b82151dfc64f751edde698064` |
@@ -509,9 +509,10 @@ items (none are functional failures among executed cells — all executed suites
   initially wrote to `r1_matrix.log` in place; it was copied here under the correct name so both
   rounds' evidence are preserved.)*
 - `logs/r3_matrix.log` — **Round-3 full matrix re-run** (WSL Debian, root) against the final Round-3
-  `unixlib.c` (`09952b70…`) and `test_oobe_bridge.py` (`f749b4d5…`): all ten test entries (nine
+  `unixlib.c` (`09952b70…`) and `test_oobe_bridge.py` (`d552d640…`): all ten test entries (nine
   unittest suites + the standalone Gate E script) plus `py_compile`, per-file `Ran N … rc=0`,
-  `GRAND TOTAL tests run: 180`, `PROBLEM FILES: (none)` (§3), 2026-10-24.
+  `GRAND TOTAL tests run: 183` (including the 3 in-repo live C-bridge <-> coordinator integration tests),
+  `PROBLEM FILES: (none)` (§3), 2026-10-24.
 - `logs/r3c_rebuild.log` — **Round-3 final `wexhost.so` rebuild** on `WEX-OOBE-Fresh-20261024` from
   `unixlib.c` (`09952b70…`, `review_` prefix restored): `make_wexhost_rc=0`, POST `wexhost.so`
   `b3ee877fb6d4b072739adfabb072c029ca7865e85e66222669d3b02fe315f161`.

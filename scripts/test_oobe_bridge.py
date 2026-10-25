@@ -1,37 +1,42 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Compile the actual Unix transport functions against an isolated socket peer."""
+import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
+from unittest.mock import Mock, patch
+import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT / 'scripts') not in sys.path:
+    sys.path.insert(0, str(ROOT / 'scripts'))
+
+import test_component_review as tcr
 
 
-class BridgeTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        compiler = shutil.which('cc')
-        if not compiler:
-            raise unittest.SkipTest('C compiler unavailable')
-        cls.scratch = tempfile.TemporaryDirectory(prefix='wex-bridge-')
-        cls.addClassCleanup(cls.scratch.cleanup)
-        directory = Path(cls.scratch.name)
-        source = (ROOT / 'src/dlls/wexhost/unixlib.c').read_text()
-        helpers = source[source.index('static BOOL oobe_write_all('):
-                         source.index('static NTSTATUS oobe_get_components(')]
-        install = source[source.index('static NTSTATUS oobe_install('):
-                         source.index('static NTSTATUS oobe_get_receipts(')]
-        terms = source[source.index('static NTSTATUS oobe_get_terms('):
-                       source.index('static NTSTATUS oobe_install(')]
-        review = source[source.index('/* BEGIN review-wire strict parsing (Q6) */'):
-                            source.index('const unixlib_entry_t __wine_unix_call_funcs[] =')]
-        harness = r'''
+def _compile_bridge_binary(directory):
+    compiler = shutil.which('cc')
+    if not compiler:
+        raise unittest.SkipTest('C compiler unavailable')
+    source = (ROOT / 'src/dlls/wexhost/unixlib.c').read_text()
+    helpers = source[source.index('static BOOL oobe_write_all('):
+                     source.index('static NTSTATUS oobe_get_components(')]
+    install = source[source.index('static NTSTATUS oobe_install('):
+                     source.index('static NTSTATUS oobe_get_receipts(')]
+    terms = source[source.index('static NTSTATUS oobe_get_terms('):
+                   source.index('static NTSTATUS oobe_install(')]
+    review = source[source.index('/* BEGIN review-wire strict parsing (Q6) */'):
+                    source.index('const unixlib_entry_t __wine_unix_call_funcs[] =')]
+    harness = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,28 +75,31 @@ static inline int lstrcpynA( char *dest, const char *src, unsigned int max )
     return i;
 }
 '''
-        harness += helpers + terms + install + review + r'''
+    harness += helpers + terms + install + review + r'''
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "terms")) {
-        char body[4096];
+        char body[16384];
         struct oobe_terms_params t = {0};
-        strcpy(t.verb, "corefonts");
+        lstrcpynA(t.verb, (argc > 2) ? argv[2] : "corefonts", sizeof(t.verb));
         t.buffer = (ULONG_PTR)body;
         t.size = sizeof(body);
         oobe_get_terms(&t);
-        printf("%u %u\n", t.err, t.needed);
+        if (argc > 2)
+            printf("%u|%u|%s\n", t.err, t.needed, t.sha256);
+        else
+            printf("%u %u\n", t.err, t.needed);
         return 0;
     }
     if (argc > 1 && !strcmp(argv[1], "info")) {
         struct oobe_review_info_params p = {0};
-        strcpy(p.verb, "corefonts");
+        lstrcpynA(p.verb, (argc > 2) ? argv[2] : "corefonts", sizeof(p.verb));
         oobe_review_info(&p);
         printf("%u|%llu|%u|%u\n", p.err, p.total, p.packages, p.cached);
         return 0;
     }
     if (argc > 1 && !strcmp(argv[1], "start")) {
         struct oobe_review_start_params p = {0};
-        strcpy(p.verb, "corefonts");
+        lstrcpynA(p.verb, (argc > 2) ? argv[2] : "corefonts", sizeof(p.verb));
         oobe_review_start(&p);
         printf("%u|%s|%s\n", p.err, p.op_id, p.err_buf);
         return 0;
@@ -109,7 +117,7 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && !strcmp(argv[1], "query")) {
         struct oobe_review_query_params p = {0};
-        strcpy(p.op_id, "review_corefonts_deadbeef");
+        lstrcpynA(p.op_id, (argc > 2) ? argv[2] : "review_corefonts_deadbeef", sizeof(p.op_id));
         oobe_review_query(&p);
         printf("%u|%s|%llu|%llu|%s|%s\n", p.err, p.status, p.done, p.total, p.fingerprint, p.err_buf);
         return 0;
@@ -129,8 +137,19 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && !strcmp(argv[1], "cancel")) {
         struct oobe_review_cancel_params p = {0};
-        strcpy(p.op_id, "review_corefonts_deadbeef");
+        lstrcpynA(p.op_id, (argc > 2) ? argv[2] : "review_corefonts_deadbeef", sizeof(p.op_id));
         oobe_review_cancel(&p);
+        printf("%u|%s\n", p.err, p.err_buf);
+        return 0;
+    }
+    if (argc > 1 && !strcmp(argv[1], "install")) {
+        struct oobe_install_params p = {0};
+        lstrcpynA(p.verb, (argc > 2) ? argv[2] : "corefonts", sizeof(p.verb));
+        if (argc > 3)
+            lstrcpynA(p.sha256, argv[3], sizeof(p.sha256));
+        else
+            memset(p.sha256, 'a', 64);
+        oobe_install(&p);
         printf("%u|%s\n", p.err, p.err_buf);
         return 0;
     }
@@ -142,11 +161,20 @@ int main(int argc, char **argv) {
     return 0;
 }
 '''
-        path = directory / 'bridge.c'
-        path.write_text(harness)
-        cls.binary = directory / 'bridge'
-        subprocess.run([compiler, '-Wall', '-Wextra', '-Werror',
-                        '-Wno-sign-compare', str(path), '-o', str(cls.binary)], check=True)
+    path = directory / 'bridge.c'
+    path.write_text(harness)
+    binary = directory / 'bridge'
+    subprocess.run([compiler, '-Wall', '-Wextra', '-Werror',
+                    '-Wno-sign-compare', str(path), '-o', str(binary)], check=True)
+    return binary
+
+
+class BridgeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.scratch = tempfile.TemporaryDirectory(prefix='wex-bridge-')
+        cls.addClassCleanup(cls.scratch.cleanup)
+        cls.binary = _compile_bridge_binary(Path(cls.scratch.name))
 
     def exercise(self, frames, timeout=10, mode=None):
         endpoint = str(Path(self.scratch.name) / 'peer.sock')
@@ -437,6 +465,217 @@ int main(int argc, char **argv) {
                                         env=dict(os.environ, WEX_OOBE_SOCKET=endpoint), timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.split('|')[0], '50', result.stdout)
+
+
+class LiveCoordinatorBridgeTests(unittest.TestCase):
+    """End-to-end verification of compiled C unixlib.c functions against live oobe_coordinator()."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scratch = tempfile.TemporaryDirectory(prefix='wex-live-bridge-bin-')
+        cls.addClassCleanup(cls.scratch.cleanup)
+        cls.binary = _compile_bridge_binary(Path(cls.scratch.name))
+
+    def setUp(self):
+        self.base = tcr.private_base()
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        run_parent = '/run' if (os.geteuid() == 0 and os.access('/run', os.W_OK)) else None
+        self.run_dir = Path(tempfile.mkdtemp(prefix='wex-live-bridge-', dir=run_parent))
+        os.chmod(self.run_dir, 0o755)
+        self.addCleanup(shutil.rmtree, self.run_dir, ignore_errors=True)
+        self.sock_path = self.run_dir / 'coordinator.sock'
+        self.stage_file = self.run_dir / 'stage'
+        self.stage_file.write_text('oobe\n', encoding='ascii')
+        self.cache_root = self.base / 'review-cache'
+        self.terms_dir = self.base / 'terms'
+        self.ops_dir = self.base / 'operation-state'
+        self.receipts_dir = self.base / 'receipts'
+        self.machine = self.base / 'machine'
+        self.receipts_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.machine.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+        self.addCleanup(patch.stopall)
+        patch.object(tcr.components, 'COMPONENTS', tcr.COMPONENTS_MAP).start()
+        patch.object(tcr.components, 'COMPONENTS_METADATA', tcr.METADATA_MAP).start()
+        patch.object(tcr.components, 'OPERATION_STATE', self.ops_dir).start()
+        patch.object(tcr.components, 'REVIEW_CACHE', self.cache_root).start()
+        patch.object(tcr.components, 'TERMS', self.terms_dir).start()
+        patch.object(tcr.components, 'MACHINE', self.machine).start()
+        patch.dict(os.environ, {
+            'WEX_OOBE_SOCKET': str(self.sock_path),
+            'WEX_OOBE_STAGE_FILE': str(self.stage_file),
+            'WEX_COMPONENTS_DIR': str(self.receipts_dir),
+            'WEX_MACHINE_PREFIX': str(self.machine),
+        }).start()
+        patch.object(tcr.components.os, 'getuid', return_value=0).start()
+        patch.object(tcr.components.pwd, 'getpwnam',
+                     return_value=Mock(pw_uid=os.getuid())).start()
+        if os.geteuid() != 0:
+            orig_stat, orig_lstat = Path.stat, Path.lstat
+
+            class _RootStat:
+                def __init__(self, st):
+                    self._st = st
+
+                def __getattr__(self, name):
+                    if name == 'st_uid':
+                        return 0
+                    if name == 'st_mode':
+                        return self._st.st_mode & ~0o022
+                    return getattr(self._st, name)
+
+            patch.object(Path, 'stat', lambda p, *a, **kw: _RootStat(orig_stat(p, *a, **kw))).start()
+            patch.object(Path, 'lstat', lambda p, *a, **kw: _RootStat(orig_lstat(p, *a, **kw))).start()
+        self.coord_thread = None
+
+    def tearDown(self):
+        if self.stage_file.exists():
+            self.stage_file.write_text('done\n', encoding='ascii')
+        if self.sock_path.exists():
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(0.5)
+                    probe.connect(str(self.sock_path))
+            except OSError:
+                pass
+        if self.coord_thread and self.coord_thread.is_alive():
+            self.coord_thread.join(timeout=15)
+
+    def _start_coordinator(self, verb='synfont', on_read=None):
+        opener = tcr.FakeOpener(tcr.FIXTURES[verb]['files'], on_read=on_read)
+        patch.object(urllib.request, 'build_opener', return_value=opener).start()
+        self.coord_thread = threading.Thread(target=tcr.components.oobe_coordinator, daemon=True)
+        self.coord_thread.start()
+        for _ in range(100):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(0.1)
+                    probe.connect(str(self.sock_path))
+                return opener
+            except OSError:
+                time.sleep(0.01)
+        self.fail('Coordinator did not start listening')
+
+    def _run_bridge(self, *args, timeout=15):
+        result = subprocess.run([str(self.binary), *args], capture_output=True, text=True,
+                                env=dict(os.environ, WEX_OOBE_SOCKET=str(self.sock_path)),
+                                timeout=timeout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_live_coordinator_review_and_terms_roundtrip(self):
+        self._start_coordinator('synfont')
+        expected_total = sum(size for size, _l, _s in tcr.FIXTURES['synfont']['table'].values())
+
+        # 1. Pre-review REVIEW_INFO reports exact byte total, package count, and cached=0.
+        self.assertEqual(self._run_bridge('info', 'synfont'), f'0|{expected_total}|3|0')
+
+        # 2. Pre-review GET_TERMS is rejected (no implicit download).
+        self.assertEqual(self._run_bridge('terms', 'synfont').split('|')[0], '31')
+
+        # 3. START_REVIEW returns a valid review_synfont_<32hex> operation ID accepted by C validator.
+        start_parts = self._run_bridge('start', 'synfont').split('|')
+        self.assertEqual(start_parts[0], '0', start_parts)
+        op_id = start_parts[1]
+        self.assertRegex(op_id, r'^review_synfont_[0-9a-f]{32}$')
+
+        # 4. QUERY_REVIEW reaches SUCCESS and returns the 64-hex consent fingerprint.
+        fingerprint = None
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            q_parts = self._run_bridge('query', op_id).split('|')
+            self.assertEqual(q_parts[0], '0', q_parts)
+            if q_parts[1] == 'SUCCESS':
+                fingerprint = q_parts[4]
+                break
+            self.assertEqual(q_parts[1], 'RUNNING', q_parts)
+            time.sleep(0.02)
+        self.assertIsNotNone(fingerprint, 'Review did not reach SUCCESS')
+        self.assertRegex(fingerprint, r'^[0-9a-f]{64}$')
+
+        # 5. Post-review REVIEW_INFO reports cached=1 and GET_TERMS returns the exact fingerprint + body.
+        self.assertEqual(self._run_bridge('info', 'synfont'), f'0|{expected_total}|3|1')
+        terms_parts = self._run_bridge('terms', 'synfont').split('|')
+        self.assertEqual(terms_parts[0], '0', terms_parts)
+        self.assertGreater(int(terms_parts[1]), 200)
+        self.assertEqual(terms_parts[2], fingerprint)
+
+        # 6. Review-only component remains rejected on START_INSTALL with zero install state created.
+        inst_parts = self._run_bridge('install', 'synfont', fingerprint).split('|', 1)
+        self.assertEqual(inst_parts[0], '1603')
+        self.assertIn('disabled', inst_parts[1])
+        self.assertFalse((self.ops_dir / 'operations.json').exists())
+
+    def test_live_coordinator_idempotent_start_running_and_cancel(self):
+        gate = threading.Event()
+        entered_read = threading.Event()
+
+        def slow_read(_chunk):
+            entered_read.set()
+            gate.wait(timeout=5.0)
+
+        self._start_coordinator('synfont', on_read=slow_read)
+        expected_total = sum(size for size, _l, _s in tcr.FIXTURES['synfont']['table'].values())
+
+        # Duplicate START_REVIEW while in flight returns the exact same review_<verb>_<32hex> ID.
+        first = self._run_bridge('start', 'synfont').split('|')
+        self.assertEqual(first[0], '0', first)
+        op_id = first[1]
+        self.assertTrue(entered_read.wait(timeout=5.0))
+        second = self._run_bridge('start', 'synfont').split('|')
+        self.assertEqual(second, first)
+
+        # In-flight QUERY_REVIEW reports RUNNING with positive total.
+        q_running = self._run_bridge('query', op_id).split('|')
+        self.assertEqual(q_running[0], '0', q_running)
+        self.assertEqual(q_running[1], 'RUNNING', q_running)
+        self.assertEqual(int(q_running[3]), expected_total)
+
+        # CANCEL_REVIEW acknowledges OK CANCELLING and transitions to CANCELLED.
+        self.assertEqual(self._run_bridge('cancel', op_id), '0|')
+        gate.set()
+        status = None
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            q_parts = self._run_bridge('query', op_id).split('|')
+            self.assertEqual(q_parts[0], '0', q_parts)
+            if q_parts[1] == 'CANCELLED':
+                status = q_parts[1]
+                break
+            time.sleep(0.02)
+        self.assertEqual(status, 'CANCELLED')
+
+    def test_live_coordinator_eligible_install_and_already_installed(self):
+        self._start_coordinator('synfont2')
+        start_parts = self._run_bridge('start', 'synfont2').split('|')
+        self.assertEqual(start_parts[0], '0', start_parts)
+        op_id = start_parts[1]
+        self.assertRegex(op_id, r'^review_synfont2_[0-9a-f]{32}$')
+
+        fingerprint = None
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            q_parts = self._run_bridge('query', op_id).split('|')
+            if q_parts[1] == 'SUCCESS':
+                fingerprint = q_parts[4]
+                break
+            time.sleep(0.02)
+        self.assertIsNotNone(fingerprint)
+
+        installed_state = {'done': False}
+
+        def fake_install(v, s):
+            self.assertEqual((v, s), ('synfont2', fingerprint))
+            installed_state['done'] = True
+
+        with patch.object(tcr.components, 'install', side_effect=fake_install), \
+             patch.object(tcr.components, 'is_installed',
+                          side_effect=lambda v, s=None: installed_state['done']):
+            # First call drives START_INSTALL (op_synfont2_<32hex>) + QUERY_INSTALL (STATUS SUCCESS).
+            self.assertEqual(self._run_bridge('install', 'synfont2', fingerprint), '0|')
+            self.assertTrue(installed_state['done'])
+            # Second call hits OK ALREADY_INSTALLED directly.
+            self.assertEqual(self._run_bridge('install', 'synfont2', fingerprint), '0|')
 
 
 if __name__ == '__main__':
