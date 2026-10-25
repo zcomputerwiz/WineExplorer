@@ -74,6 +74,71 @@ class ProbeTests(unittest.TestCase):
             self.assertTrue(result['probe_reaped']);self.assertNotIn('cleanup_error',result['api_probe'])
             self.assertLessEqual(clock[0],45)
 
+    def _admission_phase_fakes(self,clock):
+        popen_calls=[];child=SimpleNamespace(killed=False)
+        child.poll=lambda:0
+        def wait(**kwargs):clock[0]+=1;return 0
+        child.wait=wait
+        def popen(argv,**kwargs):
+            popen_calls.append(1);kwargs['stdout'].write(json.dumps(payload(argv[-1])).encode());kwargs['stdout'].flush()
+            clock[0]+=2;return child
+        def logged(argv,*args):
+            self.assertGreaterEqual(args[-1],5 if argv[-1]=='-k' else 8);clock[0]+=4 if argv[-1]=='-k' else 5
+            return SimpleNamespace(returncode=0)
+        helpers=SimpleNamespace(run_logged=logged,matching_servers=lambda *a:[])
+        return popen,popen_calls,helpers
+
+    def test_fractional_clock_starts_admit_and_complete_full_phase(self):
+        for start in (31.1,15.9,16.1,31.9,32.1,63.9,64.1,127.9,128.1):
+            with self.subTest(start=start),tempfile.TemporaryDirectory(prefix='probe-admit-',dir=LAB) as folder:
+                output=Path(folder);clock=[start];result={};popen,popen_calls,helpers=self._admission_phase_fakes(clock)
+                probe.phase(output,{},result,output/'probe.exe',output/'build',output/'prefix',helpers,lambda:None,lambda p:{},start+100,popen=popen,now=lambda:clock[0],sleep=lambda s:clock.__setitem__(0,clock[0]+1))
+                self.assertEqual(popen_calls,[1]);self.assertTrue(result['probe_started']);self.assertTrue(result['probe_reaped'])
+                meta=result['api_probe'];self.assertTrue(meta['passed']);self.assertEqual(meta['linux_exit'],0)
+                self.assertEqual(meta['started_monotonic'],start);self.assertNotIn('cleanup_error',meta)
+                self.assertLessEqual(clock[0],start+45)
+
+    def test_exact_45s_allowance_admits_and_completes(self):
+        start=31.1
+        with tempfile.TemporaryDirectory(prefix='probe-exact-',dir=LAB) as folder:
+            output=Path(folder);clock=[start];result={};popen,popen_calls,helpers=self._admission_phase_fakes(clock)
+            probe.phase(output,{},result,output/'probe.exe',output/'build',output/'prefix',helpers,lambda:None,lambda p:{},start+45.0,popen=popen,now=lambda:clock[0],sleep=lambda s:clock.__setitem__(0,clock[0]+1))
+            self.assertTrue(result['api_probe']['passed']);self.assertLessEqual(clock[0],start+45)
+
+    def test_short_44p99s_allowance_rejects_before_child(self):
+        for start in (0.0,31.1,64.1):
+            with self.subTest(start=start),tempfile.TemporaryDirectory(prefix='probe-short-',dir=LAB) as folder:
+                output=Path(folder);clock=[start];result={};popen_calls=[]
+                def popen(*args,**kwargs):popen_calls.append(1);return SimpleNamespace(poll=lambda:0)
+                helpers=SimpleNamespace(run_logged=lambda *a:self.fail('No cleanup after admission rejection'),matching_servers=lambda *a:[])
+                with self.assertRaises(TimeoutError) as error:
+                    probe.phase(output,{},result,output/'probe.exe',output/'build',output/'prefix',helpers,lambda:None,lambda p:{},start+44.99,popen=popen,now=lambda:clock[0],sleep=lambda s:None)
+                self.assertEqual(str(error.exception),'Need full45s API probe/reap/intermediate cleanup allowance')
+                self.assertEqual(popen_calls,[]);self.assertIs(result.get('probe_started'),False);self.assertIs(result.get('probe_reaped'),False)
+
+    def test_deadline_exhaustion_during_run_kills_reaps_and_cleans(self):
+        start=31.1
+        with tempfile.TemporaryDirectory(prefix='probe-exhaust-',dir=LAB) as folder:
+            output=Path(folder);clock=[start];result={};calls=[]
+            child=SimpleNamespace(killed=False)
+            child.poll=lambda:None if not child.killed else 0
+            child.kill=lambda:setattr(child,'killed',True)
+            def wait(**kwargs):self.assertGreaterEqual(kwargs['timeout'],5);clock[0]+=3;return -9
+            child.wait=wait
+            def popen(argv,**kwargs):
+                kwargs['stdout'].write(json.dumps(payload(argv[-1])).encode());kwargs['stdout'].flush()
+                clock[0]=start+30;return child
+            def logged(argv,*args):
+                calls.append(argv[-1]);self.assertGreaterEqual(args[-1],5 if argv[-1]=='-k' else 8);clock[0]+=4 if argv[-1]=='-k' else 5
+                return SimpleNamespace(returncode=0)
+            helpers=SimpleNamespace(run_logged=logged,matching_servers=lambda *a:[])
+            with self.assertRaises(TimeoutError) as error:
+                probe.phase(output,{},result,output/'probe.exe',output/'build',output/'prefix',helpers,lambda:None,lambda p:{},start+100,popen=popen,now=lambda:clock[0],sleep=lambda s:clock.__setitem__(0,clock[0]+1))
+            self.assertEqual(str(error.exception),'API probe25s timeout')
+            meta=result['api_probe'];self.assertIn('API probe25s timeout',meta['error'])
+            self.assertTrue(child.killed);self.assertTrue(result['probe_reaped']);self.assertEqual(calls,['-k','-w'])
+            self.assertNotIn('cleanup_error',meta);self.assertLessEqual(clock[0],start+45)
+
     def test_actual_r3_cli_and_mutual_exclusion(self):
         r=native.r
         try:
