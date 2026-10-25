@@ -102,18 +102,6 @@
       const canvas = document.getElementById(api);
       if (!canvas) throw new Error('Missing canvas element ' + api);
 
-      canvas.addEventListener('webglcontextlost', (e) => {
-        lostEvent = true;
-        result.passed = false;
-        result.error = api + ' context lost';
-        if (e && e.preventDefault) e.preventDefault();
-        document.title = 'WEXSHADER ' + JSON.stringify(result);
-      });
-
-      const gl = canvas.getContext(api, { alpha: false, antialias: false, preserveDrawingBuffer: true });
-      if (!gl) throw new Error('Missing ' + api);
-      if (gl.isContextLost()) throw new Error(api + ' context already lost');
-
       const apiRecord = {
         compileVs: false,
         compileFsSolid: false,
@@ -124,11 +112,27 @@
         textureMatches: 0,
         corners: null,
         firstMismatch: null,
-        error: gl.NO_ERROR,
+        error: 0,
         lost: false,
         renderer: null
       };
       result.apis[api] = apiRecord;
+
+      canvas.addEventListener('webglcontextlost', (e) => {
+        lostEvent = true;
+        result.passed = false;
+        result.error = api + ' context lost';
+        if (result.apis[api]) result.apis[api].lost = true;
+        if (e && e.preventDefault) e.preventDefault();
+        document.title = 'WEXSHADER ' + JSON.stringify(result);
+      });
+
+      const gl = canvas.getContext(api, { alpha: false, antialias: false, preserveDrawingBuffer: true });
+      if (!gl) throw new Error('Missing ' + api);
+      if (gl.isContextLost()) {
+        apiRecord.lost = true;
+        throw new Error(api + ' context already lost');
+      }
 
       const createdShaders = [];
       const createdPrograms = [];
@@ -330,6 +334,10 @@
         if (ctxLost) throw new Error(api + ' context lost');
         if (!renderer || renderer === 'null' || renderer === 'undefined') throw new Error(api + ' missing renderer');
       } finally {
+        if (gl.isContextLost()) {
+          apiRecord.lost = true;
+        }
+        gl.useProgram(null);
         for (const p of createdPrograms) gl.deleteProgram(p);
         for (const s of createdShaders) gl.deleteShader(s);
         for (const b of createdBuffers) gl.deleteBuffer(b);

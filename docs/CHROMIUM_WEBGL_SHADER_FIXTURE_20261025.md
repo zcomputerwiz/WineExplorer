@@ -1,10 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Chromium WebGL1/WebGL2 Deterministic Shader and Texture Fixture
 
-**Date:** 2026-10-25  
-**Branch:** `codex/chromium-webgl-shader-fixture`  
-**Base Commit:** `a2d0b060b15aa2196b868fe9f9c4a3863fe38046`  
-**Repository:** `https://github.com/zcomputerwiz/WineExplorer`  
+**Date:** 2026-10-25
+**Branch:** `codex/chromium-webgl-shader-fixture`
+**Base Commit:** `a2d0b060b15aa2196b868fe9f9c4a3863fe38046`
+**Repository:** `https://github.com/zcomputerwiz/WineExplorer`
 
 ---
 
@@ -181,9 +181,9 @@ If an error or mismatch occurs, `passed` is `false`, `firstMismatch` contains `{
 
 1. **Clear Sentinel 2:** Framebuffer cleared to Cyan `[0, 255, 255, 255]`.
 2. **Texture Data:** 2×2 RGBA texture uploaded via `texImage2D`:
-   * Row 0 `(t=0)`: Texel `(0, 0)` = Red `[255, 0, 0, 255]`, Texel `(1, 0)` = Green `[0, 255, 0, 255]`.
-   * Row 1 `(t=1)`: Texel `(0, 1)` = Blue `[0, 0, 255, 255]`, Texel `(1, 1)` = Yellow `[255, 255, 0, 255]`.
-   * Filtering: `NEAREST` min/mag, `CLAMP_TO_EDGE` S/T wrap.
+    * Row 0 `(t=0)`: Texel `(0, 0)` = Red `[255, 0, 0, 255]`, Texel `(1, 0)` = Green `[0, 255, 0, 255]`.
+    * Row 1 `(t=1)`: Texel `(0, 1)` = Blue `[0, 0, 255, 255]`, Texel `(1, 1)` = Yellow `[255, 255, 0, 255]`.
+    * Filtering: `NEAREST` min/mag, `CLAMP_TO_EDGE` S/T wrap.
 3. **Draw:** Full-screen quad rendered with `progTex` sampling texture unit 0.
 4. **Expected Result:** Four distinct 4×4 quadrants in OpenGL lower-left orientation:
 
@@ -214,21 +214,27 @@ The fixture was independently validated using the exact command suite specified 
 ```powershell
 node --check scripts/g4-shader-probe/scene.js
 node scripts/test_g4_shader_scene.js
+node scripts/test_g4_shader_scene.js --record
 node scripts/test_g4_edge_scene.js
 node scripts/test_g4_presentation_timing_fixture.js
-git diff --check
+git diff a2d0b060..HEAD --check
 ```
 
 ### Execution Results
 
 1. **`node --check scripts/g4-shader-probe/scene.js`**:
    - Exit code: `0` (clean syntax verification).
+
 2. **`node scripts/test_g4_shader_scene.js`**:
    - Exit code: `0`
-   - Output: `PASS WebGL shader & texture fixture: WebGL1/WebGL2, GLSL ES 1.00 & 300 es, solid/texture draws, 64-pixel match, sentinels, cleanup, 28 negative tests`
+   - Output: `PASS WebGL shader & texture fixture: WebGL1/WebGL2, GLSL ES 1.00 & 300 es, solid/texture draws, 64-pixel match, sentinels, cleanup, 31 negative tests, 12 mutation regressions`
    - Validated:
      - Full successful execution across both WebGL1 and WebGL2.
-     - 28 negative test cases verifying fail-closed handling for:
+     - Per-API context loss isolation:
+       - Context loss after ready on WebGL1 sets `apis.webgl.lost: true` while `apis.webgl2.lost: false`.
+       - Context loss after ready on WebGL2 sets `apis.webgl2.lost: true` while `apis.webgl.lost: false`.
+       - Pre-ready context loss fails both WebGL1 and WebGL2 with `apis[api].lost: true`.
+     - 31 negative test cases verifying fail-closed handling for:
        - Missing WebGL1 / Missing WebGL2
        - Bad nonce / Missing nonce
        - Vertex, solid fragment, and textured fragment compile errors for both APIs
@@ -244,26 +250,45 @@ git diff --check
        - GL error presence (`getError() !== 0`)
        - Context already lost on acquisition
        - Context lost before readiness
-       - Context lost after readiness (dynamic title invalidation)
        - Missing renderer string
        - rAF presentation opportunity timer expiration
+     - 12 automated in-memory mutation regressions:
+       1. Remove `gl.uniform1i(uSampler, 0)`
+       2. Remove all `gl.vertexAttribPointer` calls
+       3. Supply `new Uint8Array(16)` instead of `textureBytes` in `texImage2D`
+       4. Change `MIN_FILTER` from `NEAREST` to `LINEAR` (9729)
+       5. Remove all `gl.bufferData` calls
+       6. Remove all `gl.useProgram` calls
+       7. Replace `gl_Position` with invalid shader identifier
+       8. Wrong sampler unit (1 instead of 0)
+       9. Wrong texture format / dimensions
+       10. Flipped texture rows in `textureBytes`
+       11. Wrong vertex count in `drawArrays` (3 instead of 6)
+       12. Omit `gl.useProgram(null)` before program deletion (deferred deletion retention)
      - Complete resource cleanup on both successful and failure paths (zero leaked shaders, programs, buffers, or textures).
-3. **`node scripts/test_g4_edge_scene.js`**:
+
+3. **`node scripts/test_g4_shader_scene.js --record`**:
+   - Exit code: `0`
+   - Emits clean single-line `WEXSHADER ` title record with `passed: true`.
+   - Automated sub-process test verifies status 0, exactly 1 line of stdout starting with `WEXSHADER `, and valid JSON payload.
+
+4. **`node scripts/test_g4_edge_scene.js`**:
    - Exit code: `0`
    - Output: `PASS actual Edge fixture: GL/FBO/final colors, two frames, timeout/API/error/loss negatives`
-4. **`node scripts/test_g4_presentation_timing_fixture.js`**:
+
+5. **`node scripts/test_g4_presentation_timing_fixture.js`**:
    - Exit code: `0`
    - Output: `actual fixture timing/recovery, RGB observation, visible GL palettes, pre-fault gate, bad-front pairs and incidental-readback suppression: PASS`
-5. **`git diff --check`**:
-   - Exit code: `0` (no whitespace errors or conflict markers).
+
+6. **`git diff a2d0b060..HEAD --check`**:
+   - Exit code: `0` (clean formatting, zero trailing whitespace throughout).
 
 ---
 
 ## 6. Implementation Limits & Scope Boundaries
 
 * **Synthetic Coverage Limitation:**
-  The Node test suite executes `scene.js` in an instrumented VM context with a mock GL implementation that verifies call sequences, shader source compliance, buffer bindings, texture parameterization, draw calls, and pixel expectations.
-  *It does not compile GLSL against a real GPU driver or perform hardware rasterization.*
+  The fake GL test suite enforces real draw-state contracts (program binding, VBO content verification, enabled vertex attributes, uniform state, texture format/params/image data, and sentinel clear sequencing). However, this remains synthetic Node.js VM coverage that does not execute hardware rasterization or driver GLSL compilation on a physical GPU.
 * **Real-Browser Validation Status:**
   **NOT RUN**. No VM boot, SSH session, live Chromium process, or browser execution was conducted as part of this offline fixture task.
 * **Scope Discipline:**
@@ -276,8 +301,8 @@ git diff --check
 | File Path | Description |
 | :--- | :--- |
 | `scripts/g4-shader-probe/index.html` | Original offline page containing WebGL1/WebGL2 canvases (8×8) and an expected quadrant visual reference. |
-| `scripts/g4-shader-probe/scene.js` | Main fixture implementation performing context setup, shader compile/link, VBO quad setup, texture upload, solid/textured draws, exact 64-pixel comparisons, and resource cleanup. |
-| `scripts/test_g4_shader_scene.js` | Dependency-free Node test suite with comprehensive instrumented mock GL, testing full pass and 28 table-driven failure modes. |
+| `scripts/g4-shader-probe/scene.js` | Main fixture implementation performing context setup, shader compile/link, VBO quad setup, texture upload, solid/textured draws, exact 64-pixel comparisons, and resource cleanup with deferred program release. |
+| `scripts/test_g4_shader_scene.js` | Dependency-free Node test suite with state-enforcing fake GL, testing full pass, 31 negative tests, 12 mutation regressions, `--record` subprocess execution, and per-API context loss tests. |
 | `docs/CHROMIUM_WEBGL_SHADER_FIXTURE_20261025.md` | This technical specification and test report. |
 
 ---
