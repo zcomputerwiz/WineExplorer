@@ -19,6 +19,20 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261025 R4 TRIAL CONSUMED: read CHROMIUM_GRAPHICS_G4_R4_TRIAL_20261025
+and CHROMIUM_API_PROBE_DEADLINE_REWORK_20261025 first. Reached actual inner/outer
+VirGL, then failed before API/browser/HTTP on local full45s float admission.
+Parent actual phase reproduction clock31.1/deadline200 confirms spurious reject.
+Consumer cleanup and strict QMP guest/ACK/QEMU/Xvfb/Windows0 pass;12 archive files
+independently verified,21 deployed, outside physical modules unchanged, guest
+free15,035,727,872 before staging. All fixed R4 paths now consumed/preserved.
+Antigravity assignment msg_1792947608488_851c1aca: priority timer code/tests/report
+on codex/chromium-api-probe-deadline, then remaining shader rework per
+CHROMIUM_SHADER_SECOND_REWORK_20261025. Parent reviews fix before fresh R5
+preparation; no R4 retry/new mode/VM action authorized by this checkpoint alone.
+Current worker reply watcher active. Previous ready-for-one R4 status below is
+historical. Core Wine/compositor, main master, M wine and other workers unchanged.
+
 CURRENT20261025 parent R4 review COMPLETE: read
 CHROMIUM_GRAPHICS_G4_R4_PARENT_REVIEW_20261025.md first. Target5cb366f9 accepted
 after independent143 focused tests/no skips,35 sealed files/21 current transfer

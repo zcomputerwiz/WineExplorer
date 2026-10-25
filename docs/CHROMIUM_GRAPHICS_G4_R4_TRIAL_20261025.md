@@ -7,6 +7,14 @@ readiness passed. Current21 transfer files were deployed with integrity checks;
 guest free space was checked before staging. Consumer1/diagnostic1 and archive0
 were returned and the diagnostic record was preserved.
 
+Parent independently verified12 archive files against the extracted evidence,
+all21 deployed source hashes, outside module contents unchanged, and strict QMP
+capabilities/powerdown ACKs and post-request guest shutdown evidence. Guest
+free space before staging was15,035,727,872 bytes. Archive SHA256:
+`c36c2ed06ed4d4796651d0d06b20696d2483cf99bb3e590a090d9160da7579e0`.
+Private audit summary is the lab's
+`chromium-userenv-r4-20261025.parent-review.json`.
+
 Actual inner Wayland GL and outer compositor both reported
 `virgl (D3D12 (Intel(R) UHD Graphics 750))` and passed explicit backend checks.
 The native compositor started. The run then stopped before creating an API
