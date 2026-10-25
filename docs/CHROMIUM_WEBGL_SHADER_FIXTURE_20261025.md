@@ -4,7 +4,7 @@
 **Date:** 2026-10-25
 **Branch:** `codex/chromium-webgl-shader-fixture`
 **Base Commit:** `a2d0b060b15aa2196b868fe9f9c4a3863fe38046`
-**Rework history:** first round R1–R5 (commit 38fb63bb); second round state contracts & surviving mutants (this revision, per `docs/CHROMIUM_SHADER_SECOND_REWORK_20261025.md`).
+**Rework history:** first round R1–R5 (commit 38fb63bb); second round state contracts & surviving mutants (per `docs/CHROMIUM_SHADER_SECOND_REWORK_20261025.md`); third round uniform program-state contract (this revision, per `docs/CHROMIUM_SHADER_UNIFORM_REWORK_20261025.md`).
 **Repository:** `https://github.com/zcomputerwiz/WineExplorer`
 
 ---
@@ -228,14 +228,14 @@ git diff a2d0b060..HEAD --check
 
 2. **`node scripts/test_g4_shader_scene.js`**:
    - Exit code: `0`
-   - Output: `PASS WebGL shader & texture fixture: WebGL1/WebGL2, GLSL ES 1.00 & 300 es, solid/texture draws, 64-pixel match, sentinels, cleanup, 33 negative tests, 24 mutation regressions`
+   - Output: `PASS WebGL shader & texture fixture: WebGL1/WebGL2, GLSL ES 1.00 & 300 es, solid/texture draws, 64-pixel match, sentinels, cleanup, 35 negative tests, 28 mutation regressions`
    - Validated:
      - Full successful execution across both WebGL1 and WebGL2.
      - Per-API context loss isolation:
        - Context loss after ready on WebGL1 sets `apis.webgl.lost: true` while `apis.webgl2.lost: false`.
        - Context loss after ready on WebGL2 sets `apis.webgl2.lost: true` while `apis.webgl.lost: false`.
        - Pre-ready context loss fails both WebGL1 and WebGL2 with `apis[api].lost: true`.
-     - 33 negative test cases, each asserting a **specific diagnostic** (expected API/stage/message; for pixel cases the exact first-mismatch coordinates and expected/actual colors) so an unrelated failure cannot satisfy a case:
+     - 35 negative test cases, each asserting a **specific diagnostic** (expected API/stage/message; for pixel cases the exact first-mismatch coordinates and expected/actual colors) so an unrelated failure cannot satisfy a case:
        - Missing WebGL1 / Missing WebGL2
        - Bad nonce / Missing nonce
        - Vertex, solid fragment, and textured fragment compile errors for both APIs (with bounded 256-char info-log assertions: simulated logs are 400+ chars and must be truncated)
@@ -243,6 +243,7 @@ git diff a2d0b060..HEAD --check
        - Resource creation failures (`createBuffer`, `createTexture`, `createProgram`, `createShader`), including **late shader-creation failures** after the solid program and earlier shaders already exist, on both APIs
        - Missing vertex attributes (`a_position`, `a_texCoord`)
        - Missing uniforms (`u_color`, `u_sampler`)
+       - Uniform program-state contract on WebGL2 (INVALID_OPERATION 0x0502 generated, no uniform state updated): `uniform4f` and `uniform1i` rejected without a matching current program, each failing at the exact sentinel first-mismatch
        - Solid draw left as sentinel
        - Textured draw left as sentinel
        - Wrong interior pixel (e.g. at (2, 2))
@@ -259,7 +260,7 @@ git diff a2d0b060..HEAD --check
        - `texImage2D` upload contract: target TEXTURE_2D, level 0, internalFormat RGBA, 2×2, border 0, format RGBA, type UNSIGNED_BYTE (5121); violations raise an immediate specific error.
        - Required state disables (`BLEND`, `DEPTH_TEST`, `DITHER`, `SCISSOR_TEST`, `CULL_FACE`) all in effect before each draw.
        - Program association: uniform locations belong to the specific linked program that declares them (values recorded under the owning program); the bound program's attached shader sources are checked per draw; `drawArrays` mode/first/count verified.
-     - 24 automated in-memory mutation regressions:
+     - 28 automated in-memory mutation regressions:
        1. Remove `gl.uniform1i(uSampler, 0)`
        2. Remove all `gl.vertexAttribPointer` calls
        3. Supply `new Uint8Array(16)` instead of `textureBytes` in `texImage2D`
@@ -284,7 +285,11 @@ git diff a2d0b060..HEAD --check
        22. Wrong `vertexAttribPointer` type (UNSIGNED_BYTE 5121 instead of FLOAT)
        23. Texture format RGB vs internalFormat RGBA mismatch
        24. Program association: solid draw bound to the textured program
-     - All five parent-identified surviving mutants are now rejected; canonical source is preserved and any transformation that fails to match is reported by name.
+       25. Insert `gl.uniform4f` before any `useProgram` (no current program) — uniform contract, INVALID_OPERATION
+       26. Insert `gl.uniform4f(uColor)` while the wrong program (`progTex`) is active — uniform contract
+       27. Insert `gl.uniform1i` before any `useProgram` (no current program) — uniform contract
+       28. Insert `gl.uniform1i(uSampler)` while the wrong program (`progSolid`) is active — uniform contract
+     - All five parent-identified surviving mutants are now rejected; canonical source is preserved and any transformation that fails to match is reported by name. The four uniform-contract mutations keep the canonical workload pixel-correct and fail specifically on `glError 1282` (INVALID_OPERATION generated, no state update) in the WebGL1 fake; the two targetApi-gated negative cases exercise the same contract in the WebGL2 fake.
      - Complete resource cleanup on both successful and failure paths (zero leaked shaders, programs, buffers, or textures).
 
 3. **`node scripts/test_g4_shader_scene.js --record`**:
@@ -308,7 +313,7 @@ git diff a2d0b060..HEAD --check
 ## 6. Implementation Limits & Scope Boundaries
 
 * **Synthetic Coverage Limitation:**
-  The fake GL test suite enforces real draw-state contracts (program binding, VBO content verification against the independently defined quad, vertex attribute pointer format, uniform state owned by the bound program, texture upload target/level/internal-format/format/type contract, required state disables, and sentinel clear sequencing). The deferred program-deletion check models **simulated attachment lifetime** inside the fake (a currently-bound program is retained until `gl.useProgram(null)`); it is a simulation of attachment lifetime, **not a real driver cleanup test**. This remains synthetic Node.js VM coverage that does not execute hardware rasterization or driver GLSL compilation on a physical GPU.
+  The fake GL test suite enforces real draw-state contracts (program binding, VBO content verification against the independently defined quad, vertex attribute pointer format, uniform setters requiring a current program matching the location's owning program — INVALID_OPERATION 0x0502 generated with no state update otherwise — uniform state owned by the bound program, texture upload target/level/internal-format/format/type contract, required state disables, and sentinel clear sequencing). The deferred program-deletion check models **simulated attachment lifetime** inside the fake (a currently-bound program is retained until `gl.useProgram(null)`); it is a simulation of attachment lifetime, **not a real driver cleanup test**. This remains synthetic Node.js VM coverage that does not execute hardware rasterization or driver GLSL compilation on a physical GPU.
 * **Real-Browser Validation Status:**
   **NOT RUN**. No VM boot, SSH session, live Chromium process, or browser execution was conducted as part of this offline fixture task.
 * **Scope Discipline:**
@@ -322,7 +327,7 @@ git diff a2d0b060..HEAD --check
 | :--- | :--- |
 | `scripts/g4-shader-probe/index.html` | Original offline page containing WebGL1/WebGL2 canvases (8×8) and an expected quadrant visual reference. |
 | `scripts/g4-shader-probe/scene.js` | Main fixture implementation performing context setup, shader compile/link, VBO quad setup, texture upload, solid/textured draws, exact 64-pixel comparisons, and resource cleanup with deferred program release. |
-| `scripts/test_g4_shader_scene.js` | Dependency-free Node test suite with state-enforcing fake GL (buffer content, pointer format, texture upload contract, state disables, program association), testing full pass, 33 negative tests with specific diagnostics, 24 mutation regressions, `--record` subprocess execution, and per-API context loss tests. |
+| `scripts/test_g4_shader_scene.js` | Dependency-free Node test suite with state-enforcing fake GL (buffer content, pointer format, texture upload contract, state disables, program association), testing full pass, 35 negative tests with specific diagnostics, 28 mutation regressions, `--record` subprocess execution, and per-API context loss tests. |
 | `docs/CHROMIUM_WEBGL_SHADER_FIXTURE_20261025.md` | This technical specification and test report. |
 
 ---

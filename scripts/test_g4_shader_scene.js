@@ -38,6 +38,7 @@ async function runFixture(options = {}) {
   };
 
   const canvases = {};
+  const generatedGlErrorsByApi = {};
 
   for (const api of ['webgl', 'webgl2']) {
     let currentClearColor = [0, 0, 0, 255];
@@ -46,6 +47,9 @@ async function runFixture(options = {}) {
 
     // R1 & R2: Active GL state tracking
     let currentProgram = null;
+    let lastError = 0; // Pending GL error, cleared by getError (WebGL semantics)
+    const generatedGlErrors = []; // Observation log of generated error codes (never cleared)
+    generatedGlErrorsByApi[api] = generatedGlErrors;
     let currentArrayBuffer = null;
     const vertexAttribs = {}; // loc -> { enabled, buffer, size, type, norm, stride, offset }
     const uniforms = new Map(); // program -> Map(name -> value)
@@ -83,6 +87,7 @@ async function runFixture(options = {}) {
       COLOR_BUFFER_BIT: 16384,
       TRIANGLES: 4,
       NO_ERROR: 0,
+      INVALID_OPERATION: 0x0502,
       RENDERER: 7937,
 
       createShader(type) {
@@ -216,19 +221,31 @@ async function runFixture(options = {}) {
       },
       uniform4f(loc, r, g, b, a) {
         apiCalls[api].push({ method: 'uniform4f', loc, val: [r, g, b, a] });
-        // Uniform values are recorded under the location's owning program, so a value set
-        // through one program's location can never satisfy another program's draw contract.
-        if (loc && loc.prog) {
-          if (!uniforms.has(loc.prog)) uniforms.set(loc.prog, new Map());
-          uniforms.get(loc.prog).set(loc.name, [r, g, b, a]);
+        // WebGL contract: a uniform setter requires a current program and a location that
+        // belongs to it. Otherwise INVALID_OPERATION is generated and no uniform state of
+        // any program is updated (a value set through one program's location can never
+        // satisfy another program's draw contract).
+        const contractFail = !currentProgram || !loc || loc.prog !== currentProgram ||
+          (options.invalidUniform4f && (options.targetApi === undefined || options.targetApi === api));
+        if (contractFail) {
+          lastError = gl.INVALID_OPERATION;
+          generatedGlErrors.push(gl.INVALID_OPERATION);
+          return;
         }
+        if (!uniforms.has(currentProgram)) uniforms.set(currentProgram, new Map());
+        uniforms.get(currentProgram).set(loc.name, [r, g, b, a]);
       },
       uniform1i(loc, v) {
         apiCalls[api].push({ method: 'uniform1i', loc, val: v });
-        if (loc && loc.prog) {
-          if (!uniforms.has(loc.prog)) uniforms.set(loc.prog, new Map());
-          uniforms.get(loc.prog).set(loc.name, v);
+        const contractFail = !currentProgram || !loc || loc.prog !== currentProgram ||
+          (options.invalidUniform1i && (options.targetApi === undefined || options.targetApi === api));
+        if (contractFail) {
+          lastError = gl.INVALID_OPERATION;
+          generatedGlErrors.push(gl.INVALID_OPERATION);
+          return;
         }
+        if (!uniforms.has(currentProgram)) uniforms.set(currentProgram, new Map());
+        uniforms.get(currentProgram).set(loc.name, v);
       },
 
       createBuffer() {
@@ -431,7 +448,9 @@ async function runFixture(options = {}) {
         out.set(framebufferPixels);
       },
       getError() {
-        return options.glError ? 1280 : gl.NO_ERROR;
+        const err = options.glError ? 1280 : lastError;
+        lastError = gl.NO_ERROR; // WebGL: reading the error clears it
+        return err;
       },
       isContextLost() {
         return !!options.contextLostAlready;
@@ -548,6 +567,7 @@ async function runFixture(options = {}) {
     events,
     apiCalls,
     trackedResources,
+    generatedGlErrors: generatedGlErrorsByApi,
     clearedTimers
   };
 }
@@ -594,6 +614,10 @@ const negativeCases = [
 
   // GL errors & context states
   { label: 'gl error present', options: { glError: true }, expectError: 'webgl glError 1280' },
+
+  // Uniform program-state contract (INVALID_OPERATION, no state update) — WebGL2 fake path
+  { label: 'uniform4f rejected without matching current program webgl2', options: { invalidUniform4f: true, targetApi: 'webgl2' }, expectError: 'webgl2 solid draw mismatch at (0,0)', expectInvalidOperationApis: ['webgl2'], expectMismatch: { draw: 'solid', x: 0, y: 0, expected: [255, 0, 255, 255], actual: [64, 64, 64, 255] }, api: 'webgl2' },
+  { label: 'uniform1i rejected without matching current program webgl2', options: { invalidUniform1i: true, targetApi: 'webgl2' }, expectError: 'webgl2 texture draw mismatch at (0,0)', expectInvalidOperationApis: ['webgl2'], expectMismatch: { draw: 'texture', x: 0, y: 0, expected: [255, 0, 0, 255], actual: [0, 255, 255, 255] }, api: 'webgl2' },
   { label: 'context already lost', options: { contextLostAlready: true }, expectError: 'webgl context already lost' },
   { label: 'missing renderer string', options: { renderer: '' }, expectError: 'webgl missing renderer' },
 
@@ -713,6 +737,39 @@ const mutationCases = [
   {
     name: 'Program association: solid draw bound to textured program',
     transform: (src) => src.replace('gl.useProgram(progSolid);', 'gl.useProgram(progTex);')
+  },
+  // Third-round uniform program-state contract regressions (INVALID_OPERATION 0x0502, no state update)
+  {
+    name: 'Insert gl.uniform4f before any useProgram (no current program) [uniform contract]',
+    transform: (src) => src.replace(
+      'gl.useProgram(progSolid);',
+      'gl.uniform4f(uColor, 1.0, 0.0, 1.0, 1.0);\n        gl.useProgram(progSolid);'),
+    expectError: 'glError 1282',
+    expectInvalidOperationApis: ['webgl']
+  },
+  {
+    name: 'Insert gl.uniform4f while wrong program (progTex) active [uniform contract]',
+    transform: (src) => src.replace(
+      'gl.useProgram(progTex);\n        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);',
+      'gl.useProgram(progTex);\n        gl.uniform4f(uColor, 1.0, 0.0, 1.0, 1.0);\n        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);'),
+    expectError: 'glError 1282',
+    expectInvalidOperationApis: ['webgl']
+  },
+  {
+    name: 'Insert gl.uniform1i before any useProgram (no current program) [uniform contract]',
+    transform: (src) => src.replace(
+      'gl.useProgram(progSolid);',
+      'gl.uniform1i(uSampler, 0);\n        gl.useProgram(progSolid);'),
+    expectError: 'glError 1282',
+    expectInvalidOperationApis: ['webgl']
+  },
+  {
+    name: 'Insert gl.uniform1i while wrong program (progSolid) active [uniform contract]',
+    transform: (src) => src.replace(
+      'gl.useProgram(progSolid);\n        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);',
+      'gl.useProgram(progSolid);\n        gl.uniform1i(uSampler, 0);\n        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);'),
+    expectError: 'glError 1282',
+    expectInvalidOperationApis: ['webgl']
   }
 ];
 
@@ -799,6 +856,11 @@ const mutationCases = [
     // Specific diagnostic: the expected API/stage/message must appear (an unrelated failure cannot satisfy this case)
     assert(bad.record.error && bad.record.error.includes(testCase.expectError),
       `Negative case '${testCase.label}' must report specific error (expected '${testCase.expectError}', got '${bad.record.error}')`);
+    if (testCase.expectInvalidOperationApis) {
+      for (const apiName of testCase.expectInvalidOperationApis) {
+        assert(bad.generatedGlErrors[apiName].includes(0x0502), `Negative case '${testCase.label}' must generate INVALID_OPERATION in ${apiName}`);
+      }
+    }
     if (testCase.expectBoundedLog) {
       // Simulated logs are 400+ chars; the scene bounds compile/link logs to 256
       assert(bad.record.error.length <= 350, `Negative case '${testCase.label}' compile/link log must be bounded to 256 chars`);
@@ -829,6 +891,14 @@ const mutationCases = [
                      (bad.trackedResources.webgl.programs.size > 0) ||
                      (bad.trackedResources.webgl2.programs.size > 0);
     assert.equal(rejected, true, `Mutation '${mc.name}' must be rejected by contract or resource leak`);
+    if (mc.expectError) {
+      assert(bad.record.error && bad.record.error.includes(mc.expectError), `Mutation '${mc.name}' must fail for the intended reason (expected '${mc.expectError}', got '${bad.record.error}')`);
+    }
+    if (mc.expectInvalidOperationApis) {
+      for (const apiName of mc.expectInvalidOperationApis) {
+        assert(bad.generatedGlErrors[apiName].includes(0x0502), `Mutation '${mc.name}' must generate INVALID_OPERATION in ${apiName}`);
+      }
+    }
   }
 
   // --- 6. R4: Automated sub-process test for --record ---
