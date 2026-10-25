@@ -109,19 +109,19 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && !strcmp(argv[1], "query")) {
         struct oobe_review_query_params p = {0};
-        strcpy(p.op_id, "op_corefonts_deadbeef");
+        strcpy(p.op_id, "review_corefonts_deadbeef");
         oobe_review_query(&p);
         printf("%u|%s|%llu|%llu|%s|%s\n", p.err, p.status, p.done, p.total, p.fingerprint, p.err_buf);
         return 0;
     }
     if (argc > 1 && !strcmp(argv[1], "query_retry")) {
         struct oobe_review_query_params p = {0};
-        strcpy(p.op_id, "op_corefonts_deadbeef");
+        strcpy(p.op_id, "review_corefonts_deadbeef");
         oobe_review_query(&p);
         printf("%u|%s|%llu|%llu|%s|%s\n", p.err, p.status, p.done, p.total, p.fingerprint, p.err_buf);
         if (p.err == ERROR_TIMEOUT) {
             memset(&p, 0, sizeof(p));
-            strcpy(p.op_id, "op_corefonts_deadbeef");
+            strcpy(p.op_id, "review_corefonts_deadbeef");
             oobe_review_query(&p);
             printf("%u|%s|%llu|%llu|%s|%s\n", p.err, p.status, p.done, p.total, p.fingerprint, p.err_buf);
         }
@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && !strcmp(argv[1], "cancel")) {
         struct oobe_review_cancel_params p = {0};
-        strcpy(p.op_id, "op_corefonts_deadbeef");
+        strcpy(p.op_id, "review_corefonts_deadbeef");
         oobe_review_cancel(&p);
         printf("%u|%s\n", p.err, p.err_buf);
         return 0;
@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
                 self.assertEqual(err, expected, output)
 
     def test_review_start_acknowledgement_and_idempotent_retry(self):
-        op = b'op_corefonts_0123456789abcdef0123456789abcdef'
+        op = b'review_corefonts_0123456789abcdef0123456789abcdef'
         ack = b'OK ' + op + b' STARTED\n'
         output, requests = self.exercise([ack], mode='start')
         self.assertEqual(output.strip().split('|'), ['0', op.decode(), ''], output)
@@ -280,7 +280,7 @@ int main(int argc, char **argv) {
     def test_review_start_reports_coordinator_errors(self):
         frames = [b'ERR Setup OOBE stage expired; review download rejected\n',
                   b'ERR Another review download is active\n',
-                  b'OK op_x\n',                        # missing STARTED keyword
+                  b'OK review_x\n',                     # missing STARTED keyword
                   b'OK ' + b'r' * 96 + b' STARTED\n']   # operation id over field limit
         for index, frame in enumerate(frames):
             with self.subTest(index=index):
@@ -295,20 +295,23 @@ int main(int argc, char **argv) {
                     self.assertEqual(message, 'Malformed coordinator acknowledgement')
 
     # F1 (Round 2): the STARTED acknowledgement's operation id must match the
-    # coordinator's exact grammar for the requested verb — "op_" <verb> "_" +
-    # exactly 32 lowercase hex digits. A framed-but-wrong token (wrong verb,
-    # uppercase, short/long, non-hex, or an extra trailing token) must neither
-    # succeed nor populate an accepted id that later rides into QUERY/CANCEL.
+    # coordinator's exact START_REVIEW grammar for the requested verb —
+    # "review_" <verb> "_" + exactly 32 lowercase hex digits (distinct from
+    # START_INSTALL's "op_" prefix). A framed-but-wrong token (wrong verb,
+    # install "op_" prefix, uppercase, short/long, non-hex, or an extra
+    # trailing token) must neither succeed nor populate an accepted id that
+    # later rides into QUERY/CANCEL.
     def test_review_start_rejects_malformed_operation_ids(self):
         hex32 = b'0123456789abcdef0123456789abcdef'
         bad_frames = [
-            b'OK op_synfont_' + hex32 + b' STARTED\n',                # wrong verb
-            b'OK op_corefonts_0123456789ABCDEF0123456789ABCDEF STARTED\n',    # uppercase hex
-            b'OK op_corefonts_' + hex32[:31] + b' STARTED\n',         # one byte short
-            b'OK op_corefonts_' + hex32 + b'0 STARTED\n',             # one byte long
-            b'OK op_corefonts_' + b'g' * 32 + b' STARTED\n',          # non-hex digits
-            b'OK corefonts_' + hex32 + b' STARTED\n',                 # missing "op_" prefix
-            b'OK op_corefonts_' + hex32 + b' extra STARTED\n',        # trailing token
+            b'OK review_synfont_' + hex32 + b' STARTED\n',            # wrong verb
+            b'OK op_corefonts_' + hex32 + b' STARTED\n',              # install op_ prefix rejected for review
+            b'OK review_corefonts_0123456789ABCDEF0123456789ABCDEF STARTED\n',  # uppercase hex
+            b'OK review_corefonts_' + hex32[:31] + b' STARTED\n',     # one byte short
+            b'OK review_corefonts_' + hex32 + b'0 STARTED\n',         # one byte long
+            b'OK review_corefonts_' + b'g' * 32 + b' STARTED\n',      # non-hex digits
+            b'OK corefonts_' + hex32 + b' STARTED\n',                 # missing "review_" prefix
+            b'OK review_corefonts_' + hex32 + b' extra STARTED\n',    # trailing token
         ]
         for index, frame in enumerate(bad_frames):
             with self.subTest(index=index):
@@ -319,7 +322,7 @@ int main(int argc, char **argv) {
                 self.assertEqual(parts[2], 'Malformed coordinator acknowledgement', output)
         # Positive control: the exact grammar for the requested verb is accepted and
         # populates the id that later rides into QUERY_REVIEW/CANCEL_REVIEW.
-        good = b'op_corefonts_' + hex32
+        good = b'review_corefonts_' + hex32
         output, _ = self.exercise([b'OK ' + good + b' STARTED\n'], mode='start')
         self.assertEqual(output.strip().split('|'), ['0', good.decode(), ''], output)
 
@@ -327,7 +330,7 @@ int main(int argc, char **argv) {
         digest = b'0123456789abcdef' * 4
         output, requests = self.exercise([b'STATUS RUNNING 1024 4096\n'], mode='query')
         self.assertEqual(output.strip(), '0|RUNNING|1024|4096||', output)
-        self.assertEqual(requests, [b'QUERY_REVIEW op_corefonts_deadbeef\n'])
+        self.assertEqual(requests, [b'QUERY_REVIEW review_corefonts_deadbeef\n'])
         output, _ = self.exercise([b'STATUS CANCELLED\n'], mode='query')
         self.assertEqual(output.strip(), '0|CANCELLED|0|0||', output)
         output, _ = self.exercise([b'STATUS SUCCESS ' + digest + b'\n'], mode='query')
@@ -386,12 +389,12 @@ int main(int argc, char **argv) {
         self.assertEqual(lines[1], '0|CANCELLED|0|0||', output)
         # A timed-out query is retried as the same read-only request; it can
         # never resubmit a start or an install.
-        self.assertEqual(requests, [b'QUERY_REVIEW op_corefonts_deadbeef\n'] * 2)
+        self.assertEqual(requests, [b'QUERY_REVIEW review_corefonts_deadbeef\n'] * 2)
 
     def test_review_cancel_ack_and_errors(self):
         output, requests = self.exercise([b'OK CANCELLING\n'], mode='cancel')
         self.assertEqual(output.strip(), '0|', output)
-        self.assertEqual(requests, [b'CANCEL_REVIEW op_corefonts_deadbeef\n'])
+        self.assertEqual(requests, [b'CANCEL_REVIEW review_corefonts_deadbeef\n'])
         frames = [b'ERR No running review operation\n', b'OK DONE\n', b'OK CANCELLING']
         for index, frame in enumerate(frames):
             with self.subTest(index=index):

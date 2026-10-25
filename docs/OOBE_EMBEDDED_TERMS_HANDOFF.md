@@ -11,10 +11,13 @@ The OOBE embedded-terms milestone (Q1–Q6 repairs, Review Rounds 1–2, and the
 verification round) is **complete on this branch and stopped before merge**, awaiting
 independent Round-3 review. All executed suites pass; the remaining NOT-RUN cells in §6 of
 the acceptance report are prerequisite-gated live-network / desktop evidence, not code
-defects. During Round 3, an independent re-review of the R2 diff found and fixed one
-substantive bug: the new op-id validator used the prefix `review_` while the production
-coordinator has generated `op_<verb>_<32 lowercase hex>` ids since before Q1–Q6 (the R2
-review document misstated the grammar; see §4 below).
+defects. During Round 3, live C-bridge-to-Python-coordinator testing (`r3_live_coordinator_bridge.py`)
+caught and fixed a regression introduced in commit `765dd336`: `765dd336` had changed
+`oobe_valid_review_op_id()` from `review_` to `op_` after looking at `START_INSTALL`
+(`op_{verb}_{uuid}`, line 2139 of `wex-components.py`) instead of `START_REVIEW`
+(`review_{verb}_{uuid}`, line 2228). The `review_` prefix is now restored in `unixlib.c`,
+an 8th negative control in `test_oobe_bridge.py` explicitly rejects `op_` on `START_REVIEW`,
+and the live C-bridge-to-coordinator roundtrip is verified end-to-end (see §4 below).
 
 ## 2. Branch & commit state
 
@@ -27,44 +30,46 @@ Working tree clean; HEAD pushed as of 2026-10-24.
 | `2bc4555b` | Review Round 1 repairs F1–F3 (bridge hardening, damaged-doc isolation, dialog reflow) |
 | `1df4688d` | **Round 2**: F1 review op-id validation + zero-total RUNNING reject (`unixlib.c`); F2 lone-surrogate catalog fix (`wex-components.py`); tests; report |
 | `06559739` | **Round 3 (docs)**: fresh-clone VM native rebuild + both-PE welcome-page execution, recorded in the acceptance report |
-| `765dd336` | **Round 3 correction**: op-id grammar prefix `review_`→`op_` to match the production coordinator; test fixtures; rebuilt `wexhost.so`; re-execution; report updates |
+| `765dd336` | *(Superseded by live-bridge fix)*: mistakenly changed `oobe_valid_review_op_id` prefix `review_`→`op_` after looking at `START_INSTALL` line 2139 instead of `START_REVIEW` line 2228 |
+| `e09ca0b9` | Recorded initial `r3_matrix.log` 180-test run |
 
 Related branch (reviewer artifacts, not merged): `codex/oobe-embedded-terms-r2-review`
-(`fbb7a315`) holds `docs/reviews/qwen-oobe-20261022-r2.md` — the R2 review doc. **Note: that
-doc's statement of the coordinator id grammar is wrong** (it says `review_<verb>_<hex>`);
-the code in `wex-components.py` is the source of truth (`op_{verb}_{uuid.uuid4().hex}`).
+(`fbb7a315`) holds `docs/reviews/qwen-oobe-20261022-r2.md` — the R2 review doc. **Note:**
+that doc's statement of the `START_REVIEW` id grammar (`review_<verb>_<32 hex>`) was
+**correct** (`wex-components.py` line 2228); `START_INSTALL` at line 2139 uses `op_<verb>_<32 hex>`.
 
 ## 3. Current binary state (VM-verified, 2026-10-24)
 
-- `build/dlls/wexhost/wexhost.so` = `77ef90c2a6b316cf436b857aed60fb035d0542f8ba09ea14d2505fdbe585a0be`
-  (contains the R2 delta **and** the Round-3 grammar correction)
+- `build/dlls/wexhost/wexhost.so` = `b3ee877fb6d4b072739adfabb072c029ca7865e85e66222669d3b02fe315f161`
+  (rebuilt from `unixlib.c` `09952b70…` with `review_` prefix restored and verified against
+  live `oobe_coordinator()`, `r3c_rebuild.log`)
 - `build/programs/oobe/i386-windows/oobe.exe` = `c1421b7a…`, `x86_64-windows/oobe.exe` =
   `f6f8edad…` — byte-identical to the Round-1 POST-state PEs; no PE-target source has changed
   since, so this is by construction, not an omission.
-- Both PEs executed to fully rendered welcome pages against the current `wexhost.so`
-  (Xvfb :95/:96, fresh prefix): pre-fix run per `r3_exec_oobe.log`, post-fix run per
-  `r3b_exec_oobe.log`.
-- Full test matrix re-verified at **180 tests / all rc=0** on the post-`765dd336` tree in WSL
-  Debian as root (`logs/r3_matrix.log`, 2026-10-24; see §6).
+- Both PEs executed to fully rendered welcome pages against `wexhost.so`
+  (Xvfb :95/:96, fresh prefix): `r3_exec_oobe.log`, `r3b_exec_oobe.log`.
+- Full test matrix re-verified at **180 tests / all rc=0** on the final tree in WSL
+  Debian as root (`logs/r3_matrix.log`, 2026-10-24; see §6), plus live C-bridge-to-coordinator
+  roundtrip (`logs/r3_live_coordinator_bridge.log`) and live acceptance suite
+  (`logs/r3_live_acceptance.log`).
 
 ## 4. What Round 3 found (read this before touching the bridge code)
 
-**The op-id grammar bug (fixed in `765dd336`).** R2 added `oobe_valid_review_op_id()` to
-`src/dlls/wexhost/unixlib.c`, requiring START_REVIEW ack ids to match `review_<verb>_<32 hex>`.
-The production coordinator (`scripts/wex-components.py`, `oobe_coordinator()`) generates
-`op_{verb}_{uuid.uuid4().hex}` — prefix **`op_`** — a format stable since before Q1–Q6
-(introduced `e954c78c`, uuid-ified in `3d70da25`). The R2 review doc misstated the grammar
-and the implementation followed it, so with R2's `wexhost.so` deployed **every legitimate
-START_REVIEW acknowledgement would have been rejected** ("Malformed coordinator
-acknowledgement") — the native review-download flow fails closed end-to-end. It went unseen
-because none of the executed evidence ever drives START_REVIEW: welcome-page executions stop
-before it, and the full vendor-network flow is a NOT-RUN cell.
+**Two distinct operation-id prefixes in `wex-components.py` (`START_REVIEW` vs `START_INSTALL`).**
+Per `docs/OOBE_EMBEDDED_TERMS_WORKORDER.md` ("Separate download authorization and install
+authorization in the protocol and backend; they cannot share an ambiguous boolean/operation
+type"), `oobe_coordinator()` in `scripts/wex-components.py` uses two distinct prefixes:
+- `START_INSTALL` (line 2139): `op_id = f"op_{verb}_{uuid.uuid4().hex}"`
+- `START_REVIEW` (line 2228): `review_id = f"review_{verb}_{uuid.uuid4().hex}"`
 
-Fix: prefix corrected to `op_` (function-body-only), all `test_oobe_bridge.py` fixtures moved
-to the production grammar, `.so` rebuilt, bridge suite 17/17 OK. Lesson for future rounds:
-**validate protocol assumptions against the actual coordinator code, not against review-doc
-prose.** The validator itself is otherwise sound (no over-reads; short strings hit `\0` in the
-hex loop; exact full-verb match also handles the underscore-bearing verb `d3dcompiler_47`).
+Commit `765dd336` looked at line 2139 (`START_INSTALL`) and mistakenly changed
+`oobe_valid_review_op_id()` in `src/dlls/wexhost/unixlib.c` from `review_` to `op_`. When we
+executed `r3_live_coordinator_bridge.py` — which drives the compiled `unixlib.c` bridge over
+an AF_UNIX socket against the real `wex-components.py` `oobe_coordinator()` — `START_REVIEW`
+immediately failed with `31||Malformed coordinator acknowledgement`. Restoring `review_` in
+`unixlib.c`, adding an 8th negative control in `test_oobe_bridge.py` that rejects
+`OK op_corefonts_<32 hex> STARTED\n` on `START_REVIEW`, and rebuilding `wexhost.so` resolved
+the bug and verified the full live C-to-Python roundtrip (`LIVE_BRIDGE_ROUNDTRIP_OK`).
 
 ## 5. Environment map
 
