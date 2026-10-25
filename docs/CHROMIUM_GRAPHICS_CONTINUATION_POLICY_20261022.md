@@ -19,6 +19,13 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261025: R3 independently47seal/18archive/API45/45/strictstop reviewed;
+browser not launched due exactly owned labwc marker. COMPOSITOR_SCOPE_R4_PLAN_
+20261025 authorizes offline opt-in native-child WINEPREFIX removal and fresh R4
+prep, preserving caller Wine env/default metrics/real owner checks. Reuse accepted
+SID/runtime/probe; no new layer/calibration/SID build. Parent reviews before live.
+Live budget reset1% five-hour/0% weekly supersedes old92% weekly checkpoint.
+
 LATEST: SID_VM_CHECKPOINT_20261024 supersedes older next steps. Wine e096ae4
 source/unit/normal-builtin proof accepted. Guest R3 ae8890a1 API45/45 reported,
 browser NOT launched: intermediate idle guard counted owned native labwc carrying
