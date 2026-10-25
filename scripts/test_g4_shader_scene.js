@@ -12,6 +12,19 @@ const scenePath = path.join(__dirname, 'g4-shader-probe/scene.js');
 const source = fs.readFileSync(scenePath, 'utf8');
 const validNonce = 'e'.repeat(32);
 
+// Independently defined intended quad and UVs (contract, not a copy of the scene's code)
+const EXPECTED_POSITIONS = new Float32Array([-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]);
+const EXPECTED_TEXCOORDS = new Float32Array([0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]);
+const LONG_LOG_TAIL = 'z'.repeat(400); // Simulated logs exceed the scene's 256-char bound
+
+function sameFloat32(actual, expected) {
+  if (!(actual instanceof Float32Array) || actual.length !== expected.length) return false;
+  for (let i = 0; i < expected.length; i++) {
+    if (!Object.is(actual[i], expected[i])) return false;
+  }
+  return true;
+}
+
 async function runFixture(options = {}) {
   let title = '';
   const frames = [];
@@ -41,6 +54,7 @@ async function runFixture(options = {}) {
     let currentViewport = null;
     let lastClear = null;
     const markedForDeletion = new Set();
+    const disabledStates = new Set(); // State-disable contract tracking
 
     const gl = {
       VERTEX_SHADER: 35633,
@@ -59,6 +73,7 @@ async function runFixture(options = {}) {
       NEAREST: 9728,
       CLAMP_TO_EDGE: 33071,
       RGBA: 6408,
+      RGB: 6407,
       UNSIGNED_BYTE: 5121,
       BLEND: 3042,
       DEPTH_TEST: 2929,
@@ -73,6 +88,7 @@ async function runFixture(options = {}) {
       createShader(type) {
         apiCalls[api].push({ method: 'createShader', type });
         if (options.failCreateShader && (options.targetApi === undefined || options.targetApi === api)) return null;
+        if (options.failCreateShaderAfter !== undefined && (options.targetApi === undefined || options.targetApi === api) && trackedResources[api].shaders.size >= options.failCreateShaderAfter) return null;
         const s = { id: Symbol('shader'), type, source: null, compiled: false };
         trackedResources[api].shaders.add(s);
         return s;
@@ -96,13 +112,13 @@ async function runFixture(options = {}) {
           shader.infoLog = 'Contract check: vertex shader missing gl_Position';
         } else if (options.failCompileVs && isVs && (options.targetApi === undefined || options.targetApi === api)) {
           shader.compiled = false;
-          shader.infoLog = 'Simulated vertex compile error';
+          shader.infoLog = 'Simulated vertex compile error' + LONG_LOG_TAIL;
         } else if (options.failCompileFsSolid && isFs && shader.source.includes('u_color') && (options.targetApi === undefined || options.targetApi === api)) {
           shader.compiled = false;
-          shader.infoLog = 'Simulated fragment solid compile error';
+          shader.infoLog = 'Simulated fragment solid compile error' + LONG_LOG_TAIL;
         } else if (options.failCompileFsTex && isFs && shader.source.includes('u_sampler') && (options.targetApi === undefined || options.targetApi === api)) {
           shader.compiled = false;
-          shader.infoLog = 'Simulated fragment tex compile error';
+          shader.infoLog = 'Simulated fragment tex compile error' + LONG_LOG_TAIL;
         } else {
           shader.compiled = true;
           shader.infoLog = '';
@@ -138,13 +154,13 @@ async function runFixture(options = {}) {
         const isTex = prog.fs && prog.fs.source && prog.fs.source.includes('u_sampler');
         if (options.failLinkSolid && isSolid && (options.targetApi === undefined || options.targetApi === api)) {
           prog.linked = false;
-          prog.infoLog = 'Simulated solid link error';
+          prog.infoLog = 'Simulated solid link error' + LONG_LOG_TAIL;
         } else if (options.failLinkTex && isTex && (options.targetApi === undefined || options.targetApi === api)) {
           prog.linked = false;
-          prog.infoLog = 'Simulated tex link error';
+          prog.infoLog = 'Simulated tex link error' + LONG_LOG_TAIL;
         } else if (options.failLink && (options.targetApi === undefined || options.targetApi === api)) {
           prog.linked = false;
-          prog.infoLog = 'Simulated general link error';
+          prog.infoLog = 'Simulated general link error' + LONG_LOG_TAIL;
         } else {
           prog.linked = true;
           prog.infoLog = '';
@@ -168,16 +184,20 @@ async function runFixture(options = {}) {
       },
 
       getAttribLocation(prog, name) {
-        apiCalls[api].push({ method: 'getAttribLocation', name });
+        apiCalls[api].push({ method: 'getAttribLocation', prog, name });
         if (options.missingAttrib === name) return -1;
+        if (!prog || !prog.linked) return -1; // Attributes belong to a linked program
         if (name === 'a_position') return 0;
         if (name === 'a_texCoord') return 1;
         return -1;
       },
       getUniformLocation(prog, name) {
-        apiCalls[api].push({ method: 'getUniformLocation', name });
+        apiCalls[api].push({ method: 'getUniformLocation', prog, name });
         if (options.missingUniform === name) return null;
-        return { name };
+        // Uniform locations belong to one specific linked program: the uniform must be
+        // declared in that program's own fragment source, not merely appear anywhere.
+        const declared = !!(prog && prog.linked && prog.fs && new RegExp('uniform\\s+\\w+\\s+' + name + '\\s*;').test(prog.fs.source));
+        return declared ? { name, prog } : null;
       },
       enableVertexAttribArray(loc) {
         apiCalls[api].push({ method: 'enableVertexAttribArray', loc });
@@ -196,16 +216,18 @@ async function runFixture(options = {}) {
       },
       uniform4f(loc, r, g, b, a) {
         apiCalls[api].push({ method: 'uniform4f', loc, val: [r, g, b, a] });
-        if (currentProgram && loc && loc.name) {
-          if (!uniforms.has(currentProgram)) uniforms.set(currentProgram, new Map());
-          uniforms.get(currentProgram).set(loc.name, [r, g, b, a]);
+        // Uniform values are recorded under the location's owning program, so a value set
+        // through one program's location can never satisfy another program's draw contract.
+        if (loc && loc.prog) {
+          if (!uniforms.has(loc.prog)) uniforms.set(loc.prog, new Map());
+          uniforms.get(loc.prog).set(loc.name, [r, g, b, a]);
         }
       },
       uniform1i(loc, v) {
         apiCalls[api].push({ method: 'uniform1i', loc, val: v });
-        if (currentProgram && loc && loc.name) {
-          if (!uniforms.has(currentProgram)) uniforms.set(currentProgram, new Map());
-          uniforms.get(currentProgram).set(loc.name, v);
+        if (loc && loc.prog) {
+          if (!uniforms.has(loc.prog)) uniforms.set(loc.prog, new Map());
+          uniforms.get(loc.prog).set(loc.name, v);
         }
       },
 
@@ -258,12 +280,25 @@ async function runFixture(options = {}) {
         }
       },
       texImage2D(target, level, ifmt, w, h, border, fmt, type, pixels) {
-        apiCalls[api].push({ method: 'texImage2D', w, h, length: pixels ? pixels.length : 0 });
-        if (target === gl.TEXTURE_2D && boundTexture) {
-          boundTexture.image = pixels ? new Uint8Array(pixels) : null;
+        apiCalls[api].push({ method: 'texImage2D', target, level, ifmt, w, h, border, fmt, type });
+        // Upload contract: exact target/level/internal format/size/border/format/type
+        if (target !== gl.TEXTURE_2D) throw new Error('texture upload contract: target must be TEXTURE_2D');
+        if (level !== 0) throw new Error('texture upload contract: level must be 0');
+        if (ifmt !== gl.RGBA) throw new Error('texture upload contract: internalFormat must be RGBA');
+        if (w !== 2 || h !== 2) throw new Error('texture upload contract: size must be 2x2');
+        if (border !== 0) throw new Error('texture upload contract: border must be 0');
+        if (fmt !== gl.RGBA) throw new Error('texture upload contract: format must be RGBA');
+        if (type !== gl.UNSIGNED_BYTE) throw new Error('texture upload contract: type must be UNSIGNED_BYTE');
+        if (!(pixels instanceof Uint8Array) || pixels.length !== 16) throw new Error('texture upload contract: pixels must be a 16-byte Uint8Array');
+        if (boundTexture) {
+          boundTexture.image = new Uint8Array(pixels);
           boundTexture.width = w;
           boundTexture.height = h;
           boundTexture.format = fmt;
+          boundTexture.ifmt = ifmt;
+          boundTexture.level = level;
+          boundTexture.border = border;
+          boundTexture.type = type;
         }
       },
       deleteTexture(tex) {
@@ -273,6 +308,7 @@ async function runFixture(options = {}) {
 
       disable(cap) {
         apiCalls[api].push({ method: 'disable', cap });
+        disabledStates.add(cap);
       },
       viewport(x, y, w, h) {
         apiCalls[api].push({ method: 'viewport', x, y, w, h });
@@ -311,10 +347,13 @@ async function runFixture(options = {}) {
         if (drawCount === 1) {
           // --- Draw 1: Solid Color Draw ---
           let valid = true;
-          if (count !== 6) valid = false;
-          if (!currentProgram || !currentProgram.fs || !currentProgram.fs.source || !currentProgram.fs.source.includes('u_color')) valid = false;
+          if (first !== 0 || count !== 6) valid = false;
+          if (!currentProgram || !currentProgram.linked || !currentProgram.vs || !currentProgram.fs) valid = false;
+          else if (!/uniform\s+vec4\s+u_color\s*;/.test(currentProgram.fs.source)) valid = false; // u_color must be declared by the bound program
           const posAttrib = vertexAttribs[0];
-          if (!posAttrib || !posAttrib.enabled || !posAttrib.buffer || !posAttrib.buffer.data || posAttrib.buffer.data.length < 12) valid = false;
+          if (!posAttrib || !posAttrib.enabled || posAttrib.size !== 2 || posAttrib.type !== gl.FLOAT || posAttrib.norm !== false || posAttrib.stride !== 0 || posAttrib.offset !== 0) valid = false;
+          else if (!sameFloat32(posAttrib.buffer && posAttrib.buffer.data, EXPECTED_POSITIONS)) valid = false; // Buffer content must be the intended quad
+          if (!REQUIRED_DISABLED.every((cap) => disabledStates.has(cap))) valid = false; // Required state disables before draw
           const progUniforms = uniforms.get(currentProgram);
           const col = progUniforms ? progUniforms.get('u_color') : null;
           if (!col || col[0] !== 1 || col[1] !== 0 || col[2] !== 1 || col[3] !== 1) valid = false;
@@ -332,12 +371,15 @@ async function runFixture(options = {}) {
         } else if (drawCount === 2) {
           // --- Draw 2: Textured Quad Draw ---
           let valid = true;
-          if (count !== 6) valid = false;
-          if (!currentProgram || !currentProgram.fs || !currentProgram.fs.source || !currentProgram.fs.source.includes('u_sampler')) valid = false;
+          if (first !== 0 || count !== 6) valid = false;
+          if (!currentProgram || !currentProgram.linked || !currentProgram.vs || !currentProgram.fs) valid = false;
+          else if (!/uniform\s+sampler2D\s+u_sampler\s*;/.test(currentProgram.fs.source)) valid = false; // u_sampler must be declared by the bound program
           const posAttrib = vertexAttribs[0];
           const texAttrib = vertexAttribs[1];
-          if (!posAttrib || !posAttrib.enabled || !posAttrib.buffer || !posAttrib.buffer.data || posAttrib.buffer.data.length < 12) valid = false;
-          if (!texAttrib || !texAttrib.enabled || !texAttrib.buffer || !texAttrib.buffer.data || texAttrib.buffer.data.length < 12) valid = false;
+          if (!posAttrib || !posAttrib.enabled || posAttrib.size !== 2 || posAttrib.type !== gl.FLOAT || posAttrib.norm !== false || posAttrib.stride !== 0 || posAttrib.offset !== 0) valid = false;
+          else if (!sameFloat32(posAttrib.buffer && posAttrib.buffer.data, EXPECTED_POSITIONS)) valid = false;
+          if (!texAttrib || !texAttrib.enabled || texAttrib.size !== 2 || texAttrib.type !== gl.FLOAT || texAttrib.norm !== false || texAttrib.stride !== 0 || texAttrib.offset !== 0) valid = false;
+          else if (!sameFloat32(texAttrib.buffer && texAttrib.buffer.data, EXPECTED_TEXCOORDS)) valid = false; // UV buffer content must be the intended quad
           const progUniforms = uniforms.get(currentProgram);
           const sampler = progUniforms ? progUniforms.get('u_sampler') : null;
           if (sampler !== 0) valid = false;
@@ -403,6 +445,9 @@ async function runFixture(options = {}) {
         return 'Mock ANGLE (VirGL test fixture)';
       }
     };
+
+    // Required state disables that must all be in effect before any draw
+    const REQUIRED_DISABLED = [gl.BLEND, gl.DEPTH_TEST, gl.DITHER, gl.SCISSOR_TEST, gl.CULL_FACE];
 
     canvases[api] = {
       addEventListener(name, callback) {
@@ -507,48 +552,53 @@ async function runFixture(options = {}) {
   };
 }
 
+// Each negative case asserts a SPECIFIC diagnostic (expected API/stage/message, and for
+// pixel cases the exact first-mismatch coordinates/expected/actual) so an unrelated
+// failure cannot satisfy the case.
 const negativeCases = [
-  { label: 'missing webgl1', options: { missing: 'webgl' } },
-  { label: 'missing webgl2', options: { missing: 'webgl2' } },
-  { label: 'bad nonce', options: { badNonce: true } },
-  { label: 'missing nonce', options: { missingNonce: true } },
+  { label: 'missing webgl1', options: { missing: 'webgl' }, expectError: 'Missing webgl' },
+  { label: 'missing webgl2', options: { missing: 'webgl2' }, expectError: 'Missing webgl2' },
+  { label: 'bad nonce', options: { badNonce: true }, expectError: 'Invalid nonce' },
+  { label: 'missing nonce', options: { missingNonce: true }, expectError: 'Invalid nonce' },
 
-  // Shader compilation & linking
-  { label: 'fail compile vertex webgl1', options: { failCompileVs: true, targetApi: 'webgl' } },
-  { label: 'fail compile vertex webgl2', options: { failCompileVs: true, targetApi: 'webgl2' } },
-  { label: 'fail compile fs solid webgl1', options: { failCompileFsSolid: true, targetApi: 'webgl' } },
-  { label: 'fail compile fs solid webgl2', options: { failCompileFsSolid: true, targetApi: 'webgl2' } },
-  { label: 'fail compile fs tex webgl1', options: { failCompileFsTex: true, targetApi: 'webgl' } },
-  { label: 'fail compile fs tex webgl2', options: { failCompileFsTex: true, targetApi: 'webgl2' } },
-  { label: 'fail link solid webgl1', options: { failLinkSolid: true, targetApi: 'webgl' } },
-  { label: 'fail link solid webgl2', options: { failLinkSolid: true, targetApi: 'webgl2' } },
-  { label: 'fail link tex webgl1', options: { failLinkTex: true, targetApi: 'webgl' } },
-  { label: 'fail link tex webgl2', options: { failLinkTex: true, targetApi: 'webgl2' } },
+  // Shader compilation & linking (specific stage + bounded info log)
+  { label: 'fail compile vertex webgl1', options: { failCompileVs: true, targetApi: 'webgl' }, expectError: 'webgl vertex-solid compile failed: Simulated vertex compile error', expectBoundedLog: true },
+  { label: 'fail compile vertex webgl2', options: { failCompileVs: true, targetApi: 'webgl2' }, expectError: 'webgl2 vertex-solid compile failed: Simulated vertex compile error', expectBoundedLog: true },
+  { label: 'fail compile fs solid webgl1', options: { failCompileFsSolid: true, targetApi: 'webgl' }, expectError: 'webgl fragment-solid compile failed: Simulated fragment solid compile error', expectBoundedLog: true },
+  { label: 'fail compile fs solid webgl2', options: { failCompileFsSolid: true, targetApi: 'webgl2' }, expectError: 'webgl2 fragment-solid compile failed: Simulated fragment solid compile error', expectBoundedLog: true },
+  { label: 'fail compile fs tex webgl1', options: { failCompileFsTex: true, targetApi: 'webgl' }, expectError: 'webgl fragment-tex compile failed: Simulated fragment tex compile error', expectBoundedLog: true },
+  { label: 'fail compile fs tex webgl2', options: { failCompileFsTex: true, targetApi: 'webgl2' }, expectError: 'webgl2 fragment-tex compile failed: Simulated fragment tex compile error', expectBoundedLog: true },
+  { label: 'fail link solid webgl1', options: { failLinkSolid: true, targetApi: 'webgl' }, expectError: 'webgl solid-program link failed: Simulated solid link error', expectBoundedLog: true },
+  { label: 'fail link solid webgl2', options: { failLinkSolid: true, targetApi: 'webgl2' }, expectError: 'webgl2 solid-program link failed: Simulated solid link error', expectBoundedLog: true },
+  { label: 'fail link tex webgl1', options: { failLinkTex: true, targetApi: 'webgl' }, expectError: 'webgl tex-program link failed: Simulated tex link error', expectBoundedLog: true },
+  { label: 'fail link tex webgl2', options: { failLinkTex: true, targetApi: 'webgl2' }, expectError: 'webgl2 tex-program link failed: Simulated tex link error', expectBoundedLog: true },
 
-  // Resource creation & layout
-  { label: 'fail create buffer', options: { failCreateBuffer: true } },
-  { label: 'fail create texture', options: { failCreateTexture: true } },
-  { label: 'fail create program', options: { failCreateProgram: true } },
-  { label: 'fail create shader', options: { failCreateShader: true } },
-  { label: 'missing attrib a_position', options: { missingAttrib: 'a_position' } },
-  { label: 'missing attrib a_texCoord', options: { missingAttrib: 'a_texCoord' } },
-  { label: 'missing uniform u_color', options: { missingUniform: 'u_color' } },
-  { label: 'missing uniform u_sampler', options: { missingUniform: 'u_sampler' } },
+  // Resource creation & layout (incl. late failures after earlier resources exist)
+  { label: 'fail create buffer', options: { failCreateBuffer: true }, expectError: 'failed to create posBuffer' },
+  { label: 'fail create texture', options: { failCreateTexture: true }, expectError: 'failed to create texture' },
+  { label: 'fail create program', options: { failCreateProgram: true }, expectError: 'failed to create program: solid-program' },
+  { label: 'fail create shader', options: { failCreateShader: true }, expectError: 'failed to create shader: vertex-solid' },
+  { label: 'late shader create failure after solid program webgl1', options: { failCreateShaderAfter: 2, targetApi: 'webgl' }, expectError: 'webgl failed to create shader: vertex-tex' },
+  { label: 'late shader create failure after solid program webgl2', options: { failCreateShaderAfter: 2, targetApi: 'webgl2' }, expectError: 'webgl2 failed to create shader: vertex-tex' },
+  { label: 'missing attrib a_position', options: { missingAttrib: 'a_position' }, expectError: 'missing attribute a_position in solid' },
+  { label: 'missing attrib a_texCoord', options: { missingAttrib: 'a_texCoord' }, expectError: 'missing attribute a_texCoord in tex' },
+  { label: 'missing uniform u_color', options: { missingUniform: 'u_color' }, expectError: 'missing uniform u_color' },
+  { label: 'missing uniform u_sampler', options: { missingUniform: 'u_sampler' }, expectError: 'missing uniform u_sampler' },
 
-  // Pixel comparisons & sentinels
-  { label: 'solid draw left as sentinel', options: { solidLeftAsSentinel: true } },
-  { label: 'texture draw left as sentinel', options: { textureLeftAsSentinel: true } },
-  { label: 'wrong interior pixel', options: { wrongInteriorPixel: true } },
-  { label: 'wrong alpha', options: { wrongAlpha: true } },
-  { label: 'swapped texture quadrants', options: { swappedQuadrants: true } },
+  // Pixel comparisons & sentinels (exact first-mismatch coordinates and colors)
+  { label: 'solid draw left as sentinel', options: { solidLeftAsSentinel: true }, expectError: 'webgl solid draw mismatch at (0,0)', expectMismatch: { draw: 'solid', x: 0, y: 0, expected: [255, 0, 255, 255], actual: [64, 64, 64, 255] } },
+  { label: 'texture draw left as sentinel', options: { textureLeftAsSentinel: true }, expectError: 'webgl texture draw mismatch at (0,0)', expectMismatch: { draw: 'texture', x: 0, y: 0, expected: [255, 0, 0, 255], actual: [0, 255, 255, 255] } },
+  { label: 'wrong interior pixel', options: { wrongInteriorPixel: true }, expectError: 'webgl texture draw mismatch at (2,2)', expectMismatch: { draw: 'texture', x: 2, y: 2, expected: [255, 0, 0, 255], actual: [0, 0, 0, 255] } },
+  { label: 'wrong alpha', options: { wrongAlpha: true }, expectError: 'webgl texture draw mismatch at (0,0)', expectMismatch: { draw: 'texture', x: 0, y: 0, expected: [255, 0, 0, 255], actual: [255, 0, 0, 128] } },
+  { label: 'swapped texture quadrants', options: { swappedQuadrants: true }, expectError: 'webgl texture draw mismatch at (0,0)', expectMismatch: { draw: 'texture', x: 0, y: 0, expected: [255, 0, 0, 255], actual: [0, 255, 0, 255] } },
 
   // GL errors & context states
-  { label: 'gl error present', options: { glError: true } },
-  { label: 'context already lost', options: { contextLostAlready: true } },
-  { label: 'missing renderer string', options: { renderer: '' } },
+  { label: 'gl error present', options: { glError: true }, expectError: 'webgl glError 1280' },
+  { label: 'context already lost', options: { contextLostAlready: true }, expectError: 'webgl context already lost' },
+  { label: 'missing renderer string', options: { renderer: '' }, expectError: 'webgl missing renderer' },
 
   // Timing
-  { label: 'rAF timer timeout', options: { timeout: true } }
+  { label: 'rAF timer timeout', options: { timeout: true }, expectError: 'rAF timeout' }
 ];
 
 const mutationCases = [
@@ -613,6 +663,56 @@ const mutationCases = [
   {
     name: 'Omit gl.useProgram(null) before program deletion',
     transform: (src) => src.replace('gl.useProgram(null);', '// gl.useProgram(null);')
+  },
+  // Second-round surviving mutants (parent re-review, all previously exited 0)
+  {
+    name: 'Replace quadPositions with new Float32Array(12) [surviving mutant 1]',
+    transform: (src) => src.replace(/const quadPositions = new Float32Array\(\[[\s\S]*?\]\);/, 'const quadPositions = new Float32Array(12);')
+  },
+  {
+    name: 'Replace quadTexCoords with new Float32Array(12) [surviving mutant 2]',
+    transform: (src) => src.replace(/const quadTexCoords = new Float32Array\(\[[\s\S]*?\]\);/, 'const quadTexCoords = new Float32Array(12);')
+  },
+  {
+    name: 'Change textured position vertexAttribPointer size from 2 to 1 [surviving mutant 3]',
+    transform: (src) => src.replace('gl.vertexAttribPointer(aPosTex, 2,', 'gl.vertexAttribPointer(aPosTex, 1,')
+  },
+  {
+    name: 'Change texture upload type UNSIGNED_BYTE to FLOAT 5126 [surviving mutant 4]',
+    transform: (src) => src.replace('0, gl.RGBA, gl.UNSIGNED_BYTE, textureBytes);', '0, gl.RGBA, 5126, textureBytes);')
+  },
+  {
+    name: 'Remove all state-disabling calls [surviving mutant 5]',
+    transform: (src) => src.replaceAll('gl.disable(', '// gl.disable(')
+  },
+  // Second-round added contract regressions
+  {
+    name: 'Wrong position value (second vertex x 1.0 -> 2.0)',
+    transform: (src) => src.replace('-1.0, -1.0,\n       1.0, -1.0,', '-1.0, -1.0,\n       2.0, -1.0,')
+  },
+  {
+    name: 'Wrong UV value (second vertex s 1.0 -> 2.0)',
+    transform: (src) => src.replace('      0.0, 0.0,\n      1.0, 0.0,', '      0.0, 0.0,\n      2.0, 0.0,')
+  },
+  {
+    name: 'Wrong vertexAttribPointer stride (8 instead of 0)',
+    transform: (src) => src.replace('gl.vertexAttribPointer(aPosSolid, 2, gl.FLOAT, false, 0, 0);', 'gl.vertexAttribPointer(aPosSolid, 2, gl.FLOAT, false, 8, 0);')
+  },
+  {
+    name: 'Wrong vertexAttribPointer offset (4 instead of 0)',
+    transform: (src) => src.replace('gl.vertexAttribPointer(aTexCoord, 2, gl.FLOAT, false, 0, 0);', 'gl.vertexAttribPointer(aTexCoord, 2, gl.FLOAT, false, 0, 4);')
+  },
+  {
+    name: 'Wrong vertexAttribPointer type (UNSIGNED_BYTE 5121 instead of FLOAT)',
+    transform: (src) => src.replace('gl.vertexAttribPointer(aPosTex, 2, gl.FLOAT,', 'gl.vertexAttribPointer(aPosTex, 2, 5121,')
+  },
+  {
+    name: 'Texture format RGB vs internalFormat RGBA mismatch',
+    transform: (src) => src.replace('gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA,', 'gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGB,')
+  },
+  {
+    name: 'Program association: solid draw bound to textured program',
+    transform: (src) => src.replace('gl.useProgram(progSolid);', 'gl.useProgram(progTex);')
   }
 ];
 
@@ -696,7 +796,19 @@ const mutationCases = [
     const bad = await runFixture(testCase.options);
     assert(bad.record !== null, `Negative case '${testCase.label}' must produce record`);
     assert.equal(bad.record.passed, false, `Negative case '${testCase.label}' must yield passed=false`);
-    assert(bad.record.error && bad.record.error.length > 0, `Negative case '${testCase.label}' must report error message`);
+    // Specific diagnostic: the expected API/stage/message must appear (an unrelated failure cannot satisfy this case)
+    assert(bad.record.error && bad.record.error.includes(testCase.expectError),
+      `Negative case '${testCase.label}' must report specific error (expected '${testCase.expectError}', got '${bad.record.error}')`);
+    if (testCase.expectBoundedLog) {
+      // Simulated logs are 400+ chars; the scene bounds compile/link logs to 256
+      assert(bad.record.error.length <= 350, `Negative case '${testCase.label}' compile/link log must be bounded to 256 chars`);
+    }
+    if (testCase.expectMismatch) {
+      const apiName = testCase.api || 'webgl';
+      const rec = bad.record.apis[apiName];
+      assert(rec, `Negative case '${testCase.label}' must have ${apiName} record`);
+      assert.deepEqual(rec.firstMismatch, testCase.expectMismatch, `Negative case '${testCase.label}' must fail at the expected first mismatch coordinates/count`);
+    }
 
     // Verify cleanup: created resources must still be cleaned up on failure
     for (const api of ['webgl', 'webgl2']) {
