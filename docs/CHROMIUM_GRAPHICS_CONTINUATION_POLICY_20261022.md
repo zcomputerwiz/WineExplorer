@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261025 parent R4 review COMPLETE: read
+CHROMIUM_GRAPHICS_G4_R4_PARENT_REVIEW_20261025.md first. Target5cb366f9 accepted
+after independent143 focused tests/no skips,35 sealed files/21 current transfer
+members/10 host helpers, compiled paths and read-only selected backing-chain
+review. No blockers/rework; no VM launched. Next one existing prepared R4 startup
+diagnostic, retaining live readiness/guest-space/fresh-path/ownership/backend and
+budget/cleanup guards. Guest state is not proven offline. Shader fixture/rework
+38fb63bb remains separate/unimported and awaiting independent re-review; not an
+R4 blocker. Prior offline implementation/preparation milestones below are done.
+
 CURRENT20261025: R3 independently47seal/18archive/API45/45/strictstop reviewed;
 browser not launched due exactly owned labwc marker. COMPOSITOR_SCOPE_R4_PLAN_
 20261025 authorizes offline opt-in native-child WINEPREFIX removal and fresh R4
