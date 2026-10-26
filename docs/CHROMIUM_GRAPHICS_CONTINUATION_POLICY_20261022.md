@@ -19,6 +19,8 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261026 source review cb1d117/root7d258606 repairs prior publication blockers; independent clean-build/builtin x64+i686/SID validation assigned Luna Dirac. No independent pass yet. R6 offline plan CHROMIUM_R6_REGISTRATION_PLAN_20261026.md for Antigravity next, parallel/disjoint, final modules pending Luna. Existing fault-injection/full-hardening gaps are scoped TODOs under humanhighvaluepriority, not endless rework. Next real browser comparison after focusedvalidation and prep review, then integrate existingtokenwork if actual consumer reaches it.
+
 LATEST HUMAN DIRECTION20261026: prioritize high-value work toward actual Chromium
 functionality in our Wine environment. User explicitly authorizes merging the
 Chromium graphics and existing Token Security work when needed, and assigning
