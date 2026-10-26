@@ -19,6 +19,8 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261026 root7043dee7/Wine44c8989 re-reviewed; substantial first fixes retained but remaining REWORK under CHROMIUM_APPCONTAINER_REGISTRATION_SECOND_REVIEW_20261026.md: rollback leaf lacks DELETE (nativec0000022 and Wineserverproof), existing-key read errors may overwrite mapping, nondiscriminating blockedreader/cleanup/runner and misdiagnosed committed-header prerequisite.49workerpasses not independent acceptance. No import/browser; sameAntigravityownership.
+
 CURRENT20261026 parent reviewed actual root35c07fc0/Wine74cb1f3 (worker completion was sent claude->antigravity, not relayed codex). REWORK REQUIRED under CHROMIUM_APPCONTAINER_REGISTRATION_REVIEW_REWORK_20261026.md: invalid/fail-open NT lock proven native0xc000003b plus Wine source, broad pkill dirty-source harness, incomplete child/publication/corrupt-data/error tests. Old34assertion passes are not acceptance. No production import/newbrowser; Antigravity retains implementation ownership.
 
 CURRENT20261025 native registration oracle c0d8e2ae accepted scoped valid-input evidence after parent source/raw13seal review and17tests/no skips. Windows registration/lookup S_OK, duplicate0x800700b7, missing/second unregister0x80070002, separate-child reads and cleanup confirmed. Next assigned Antigravity: CHROMIUM_APPCONTAINER_REGISTRATION_IMPLEMENTATION_WORK_ORDER_20261025.md atb772a03b for genuine four kernelbase APIs, per-user persistence/concurrency/x64+i686 tests on isolated Wine branch based e096ae4. No new guest/browser trial before parent review.
