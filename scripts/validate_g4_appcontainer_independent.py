@@ -22,7 +22,8 @@ from graphics_resources import sample
 
 ROOT=Path('/var/tmp/wex-g4-ac-parent-20261026')
 BUILD=ROOT/'build'
-EVIDENCE=Path('/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/appcontainer-independent-r1-20261026')
+PREFIX_ROOT=ROOT/'r2'
+EVIDENCE=Path('/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/appcontainer-independent-r2-20261026')
 
 def sha(p):
     with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
@@ -39,8 +40,53 @@ def pe_machine(p):
 
 def save(p,v):p.write_text(json.dumps(v,indent=2,allow_nan=False)+'\n')
 
+def initialize(env,label,record,*,popen=None,run_command=None):
+    """Optional installer suppression is LOCAL to initialization, never the unit."""
+    popen=subprocess.Popen if popen is None else popen
+    run_command=subprocess.run if run_command is None else run_command
+    if 'WINEDLLOVERRIDES' in env:raise ValueError('Actual unit environment must have no DLL override')
+    init_env=dict(env,WINEDLLOVERRIDES='mscoree,mshtml=')
+    value={'argv':[str(BUILD/'wine'),'wineboot','--init'],'maximum_seconds':90,
+           'environment_override':init_env['WINEDLLOVERRIDES'],'observer_reaped':False}
+    record['initialization']=value;child=None;primary=None;start=time.monotonic()
+    try:
+        with (EVIDENCE/(label+'.init.stdout.log')).open('wb') as out,(EVIDENCE/(label+'.init.stderr.log')).open('wb') as err:
+            child=popen(value['argv'],env=init_env,stdout=out,stderr=err,start_new_session=True)
+            value['observer_pid']=child.pid;value['exit']=child.wait(timeout=90);value['observer_reaped']=True
+        if value['exit']!=0:raise RuntimeError('Fresh-prefix initialization failed')
+    except Exception as error:primary=error;value['error']=repr(error);raise
+    finally:
+        errors=[]
+        for flag in ('-k','-w'):
+            try:
+                with (EVIDENCE/(label+'.init.cleanup'+flag+'.log')).open('wb') as log:
+                    p=run_command([str(BUILD/'server/wineserver'),flag],env=init_env,stdout=log,stderr=log,timeout=15)
+                value.setdefault('cleanup',{})[flag]=p.returncode
+                if p.returncode not in ((0,1) if flag=='-k' else (0,)):raise RuntimeError('Init wineserver cleanup exit')
+            except Exception as error:errors.append(repr(error))
+        if child is not None and not value['observer_reaped']:
+            try:
+                if child.poll() is None:os.killpg(child.pid,signal.SIGKILL);value['observer_killed']=True
+                value['exit_after_cleanup']=child.wait(timeout=5);value['observer_reaped']=True
+            except Exception as error:errors.append(repr(error))
+        try:
+            value['ownership_after']=scan(env['WINEPREFIX'],secrets.token_hex(16))
+            if value['ownership_after']['status']!='complete' or value['ownership_after']['busy']:raise RuntimeError('Init prefix not idle')
+        except Exception as error:errors.append(repr(error))
+        value['elapsed']=time.monotonic()-start;value['cleanup_errors']=errors
+        value['passed']=primary is None and not errors and value['observer_reaped']
+        if errors and primary is None:raise RuntimeError('Init cleanup failed: '+';'.join(errors))
+
+def matrix(display,summary,run_cell=None):
+    run_cell=cell if run_cell is None else run_cell
+    for arch in ('x86_64','i386'):
+        for dll in ('kernelbase','userenv'):
+            record=run_cell(arch,dll,display);summary['cells'].append(record)
+            print(json.dumps({'arch':arch,'dll':dll,'passed':record['passed'],'summaries':record.get('summaries'),'error':record.get('error')}),flush=True)
+            if not record['passed']:raise RuntimeError('Stop at first init/test/cleanup failure: '+arch+' '+dll)
+
 def cell(arch,dll,display):
-    label=arch+'-'+dll;folder=ROOT/label;folder.mkdir();prefix=folder/'prefix'
+    label=arch+'-'+dll;folder=PREFIX_ROOT/label;folder.mkdir();prefix=folder/'prefix'
     record={'arch':arch,'dll':dll,'prefix':str(prefix),'limits':{'test':240,'server_cleanup_each':15,'observer_reap':5}}
     executable=BUILD/f'dlls/{dll}/tests/{arch}-windows/{dll}_test.exe'
     env={k:v for k,v in os.environ.items() if not k.startswith(('WINE','WINETEST','WEX_')) and k not in ('WAYLAND_DISPLAY','WAYLAND_SOCKET','DBUS_SESSION_BUS_ADDRESS','LD_LIBRARY_PATH','DISPLAY')}
@@ -55,6 +101,10 @@ def cell(arch,dll,display):
     try:
         record['ownership_before']=scan(str(prefix),secrets.token_hex(16))
         if record['ownership_before']['status']!='complete' or record['ownership_before']['busy']:raise RuntimeError('Prefix ownership not proven empty')
+        initialize(env,label,record)
+        if 'WINEDLLOVERRIDES' in env:raise RuntimeError('Initialization override leaked to actual unit')
+        record['unit_environment_has_override']=False
+        test_start=time.monotonic()
         with (EVIDENCE/(label+'.stdout.log')).open('wb') as out,(EVIDENCE/(label+'.stderr.log')).open('wb') as err:
             child=subprocess.Popen(argv,env=env,stdout=out,stderr=err,start_new_session=True)
             record['observer_pid']=child.pid
@@ -64,7 +114,7 @@ def cell(arch,dll,display):
                         for line in Path('/proc',pid,'maps').read_text().splitlines():
                             if any('/'+n+'.dll' in line.lower() for n in ('kernelbase','userenv','ntdll')):maps.add(line)
                     except OSError:pass # diagnostic sampling only; final ownership scan is strict
-                if time.monotonic()-start>240:raise TimeoutError('Owned unit240s deadline')
+                if time.monotonic()-test_start>240:raise TimeoutError('Owned unit240s deadline')
                 time.sleep(.1)
             record['exit']=child.wait(timeout=5);record['observer_reaped']=True
         text=(EVIDENCE/(label+'.stdout.log')).read_text(errors='replace')+(EVIDENCE/(label+'.stderr.log')).read_text(errors='replace')
@@ -105,6 +155,7 @@ def run():
     summary={'private_loopback':isolation.verify_private_loopback(),'cells':[]}
     target=EVIDENCE/'units.json'
     if target.exists():raise RuntimeError('Never overwrite previous matrix')
+    PREFIX_ROOT.mkdir() # new r2 parent only; never consume r1 paths
     display=None;read_fd,write_fd=os.pipe();start=time.monotonic()
     try:
         with (EVIDENCE/'xvfb.log').open('xb') as log:
@@ -115,11 +166,7 @@ def run():
         value=os.read(read_fd,64).decode().strip()
         if not value.isdigit() or display.poll() is not None:raise RuntimeError('Invalid owned display')
         summary['display']=':'+value
-        for arch in ('x86_64','i386'):
-            for dll in ('kernelbase','userenv'):
-                record=cell(arch,dll,summary['display']);summary['cells'].append(record)
-                print(json.dumps({'arch':arch,'dll':dll,'passed':record['passed'],'summaries':record.get('summaries'),'error':record.get('error')}),flush=True)
-                if not record['cleanup_complete']:raise RuntimeError('Stop: owned prefix cleanup incomplete')
+        matrix(summary['display'],summary)
     except Exception as error:summary['error']=repr(error)
     finally:
         os.close(read_fd)
