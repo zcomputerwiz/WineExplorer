@@ -1,200 +1,196 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
-# AppContainer registration APIs — implementation & rework report (R1–R5)
+# AppContainer registration APIs — implementation & rework report
 
-Status: rework complete, pushed for independent parent review. This is the
+Status: **second parent-review rework complete, pushed for independent parent review.** This is the
 implementation companion to `CHROMIUM_APPCONTAINER_REGISTRATION_IMPLEMENTATION_WORK_ORDER_20261025.md`
-and addresses the parent-review rework in
-`docs/CHROMIUM_APPCONTAINER_REGISTRATION_REVIEW_REWORK_20261026.md`.
+and addresses two successive rounds of parent-review rework:
 
-Scope reminder: these kernelbase exports register **metadata only** (a
-current-user, SID-keyed UTF-16 moniker/display mapping). They create **no**
-lowbox token, directory profile, or security boundary. No test in this change
-makes a token/sandbox success claim from the mapping APIs.
+- First round (R1–R5), recorded in `docs/CHROMIUM_APPCONTAINER_REGISTRATION_REVIEW_REWORK_20261026.md`,
+  delivered as wine commit `44c8989` — **retained unchanged** as the foundation.
+- Second round (the four defects below), delivered as wine commit `cb1d117` on top of `44c8989`.
+
+Scope reminder: these kernelbase exports register **metadata only** (a current-user, SID-keyed UTF-16
+moniker/display mapping). They create **no** lowbox token, directory profile, or security boundary. No
+test in this change makes a token/sandbox success claim from the mapping APIs.
 
 ## Branches and commits
 
 | Repo | Branch | Base | Commit pushed |
 |------|--------|------|---------------|
-| wine (owned worktree) | `codex/g4-appcontainer-registration` | `e096ae4` (accepted SID derivation) | `44c8989453c2b9ff20773c5669cf220fdc6bc2b7` (parent `74cb1f3`) |
-| root (owned worktree) | `codex/chromium-appcontainer-registration-implementation` | `e405e33` | this report + wine gitlink bump `74cb1f3 → 44c8989` |
+| wine (owned worktree) | `codex/g4-appcontainer-registration` | `e096ae4` (accepted SID derivation) | `cb1d117d02fef13af18772104b942c4aded50d00` (parent `44c8989`) |
+| root (owned worktree) | `codex/chromium-appcontainer-registration-implementation` | `e405e33` | this report + wine gitlink bump `44c8989 → cb1d117` |
 
-Files changed in the wine commit (`44c8989`), exactly two:
-- `dlls/kernelbase/security.c` (implementation)
-- `dlls/kernelbase/tests/security.c` (conformance tests)
+Files changed in the second-rework wine commit (`cb1d117`), exactly three:
+- `dlls/kernelbase/security.c` (defects 1 & 2 — implementation)
+- `dlls/kernelbase/tests/security.c` (defect 3 — conformance tests / harness)
+- `include/Makefile.in` (defect 4 — one line: add `wine/dcomp_underlay.h`)
 
-No other production, test, spec, or build file was modified. The accepted
-`userenv` SID derivation and the normal userenv route are untouched.
+No other production, test, spec, or build file was modified. The accepted `userenv` SID derivation and
+the normal userenv route are untouched. The untracked `wex*.h` graphics headers were **not** committed
+(see defect 4).
 
-## R1 — NT mutant object path & locking (no fail-open)
+## Second parent-review rework — the four defects
 
-The session lock is a named **mutant** in the fully-qualified base namespace:
+### Defect 1 (P1) — rollback needs the DELETE right; evaluate NtDeleteKey's status
 
-```
-\BaseNamedObjects\WineAppContainerRegistrationLock
-```
+In `AppContainerRegisterSid`, the new leaf was opened with `KEY_READ | KEY_WRITE`; when
+`ac_publish_values` failed, the rollback `NtDeleteKey(key)` returned `STATUS_ACCESS_DENIED`
+(`0xC0000022`) because `DELETE` (`0x00010000`) was omitted from the desired-access mask — leaving an
+unowned, incomplete leaf behind.
 
-Acquisition (`ac_lock_acquire`):
-1. `NtCreateMutant(&lock, SYNCHRONIZE, &attr, FALSE)` with
-   `OBJ_CASE_INSENSITIVE | OBJ_OPENIF`. A create error other than
-   `STATUS_OBJECT_NAME_EXISTS` (e.g. the name is occupied by a different object
-   type) returns an error HRESULT and **does not proceed unlocked** — there is no
-   fail-open path.
-2. `NtWaitForSingleObject(lock, FALSE, NULL)`; the returned status is evaluated:
-   only `WAIT_OBJECT_0` or `WAIT_ABANDONED` are treated as success. Any other
-   status closes the handle, nulls it out, and returns an error.
+Fix: the leaf is now opened with `KEY_READ | KEY_WRITE | DELETE`. The rollback evaluates
+`NtDeleteKey`'s return: `STATUS_PENDING` is accepted (deletion queued) and any other failure is logged
+via `WARN("rollback NtDeleteKey failed: %08x")` **without masking** the real publish error returned to
+the caller.
 
-Both **writers and readers** take the lock, so a mapping is never observed
-half-published. Release (`ac_lock_release`) does `NtReleaseMutant` + `NtClose`.
+Coverage / honesty note: a deterministic in-test trigger of a *mid-publish* failure (first value written,
+second `NtSetValueKey` failing) requires fault injection between two writes on an owned key, which the
+conformance harness cannot deterministically induce; that branch is therefore exercised defensively and is
+verified by code inspection plus the fact that `DELETE` is granted for our own HKCU keys. The surrounding
+key-management paths (fresh create, abandoned-leaf repair, duplicate) are directly tested (see defect 2).
 
-Deterministic abandoned-writer policy: if a writer dies after creating its leaf
-key but before both values are present, the next registrant (under the lock) sees
-an **incomplete** leaf and deterministically **repairs** it by publishing both
-values — it does not treat an incomplete leaf as an existing registration and it
-does not invent existence from partial data. A complete, valid mapping on a
-duplicate register returns `ERROR_ALREADY_EXISTS` and is left intact.
+### Defect 2 (P1) — strictly check read errors on REG_OPENED_EXISTING_KEY; never clobber on a transient failure
 
-Tests proving the required properties:
-- `test_AppContainerBlockedReader`: parent registers, then **holds** the real
-  mutant; a lookup child is launched and observed to block (`WAIT_TIMEOUT`) while
-  the lock is held, then completes after release — proves a second process blocks
-  while a writer holds the lock.
-- `test_AppContainerLockFailure`: the lock name is pre-occupied by a different
-  object type (an event), so `NtCreateMutant` fails; register and unregister both
-  return an error (not success, not `ALREADY_EXISTS`) and a direct registry probe
-  confirms **no leaf was created** — proves a lock-acquisition failure leaves the
-  registry untouched.
+Previously, when `disposition == REG_OPENED_EXISTING_KEY`, any failure in `ac_read_moniker_value`
+(`E_OUTOFMEMORY` / access error) fell through to `ac_publish_values`, overwriting a valid existing mapping.
 
-## R2 — test-runner isolation & reproducibility (zero broad pkill)
+Fix: the existing-key branch now distinguishes three cases and never clobbers on a transient failure:
+1. **Complete, valid mapping** (Moniker present *and* DisplayName present) → `ERROR_ALREADY_EXISTS`,
+   original left intact.
+2. **Positively incomplete leaf** → repair by publishing both values (we hold the lock): Moniker absent
+   (`STATUS_OBJECT_NAME_NOT_FOUND`), or Moniker present but DisplayName absent.
+3. **A read/allocation/access error while inspecting it** → propagate the real failure and touch nothing.
 
-Isolation: the owned runner (`ac_run.sh`) shuts down Wine **only** for its own
-prefix via `WINEPREFIX=$PREFIX wineserver -k0`. It never issues a name/pattern
-`pkill` of `wineserver`/`explorer`/`services`, so no other worker's prefix or
-process can be touched. The old broad-`pkill` runner (`p26.sh`) is **not** run.
+DisplayName presence is checked with a tri-state value-status probe (`ac_value_status`) that returns
+`STATUS_SUCCESS` / `STATUS_OBJECT_NAME_NOT_FOUND` / (real error), so a genuine read error is never
+conflated with mere absence.
 
-Foreign-sentinel isolation regression: a throwaway foreign prefix
-(`/root/wine-ac-foreign-sentinel`) was initialized and given a long-lived client;
-the foreign wineserver was identified by reading `/proc/<pid>/environ` for that
-exact `WINEPREFIX`. Our scoped cleanup (`WINEPREFIX=$OURS wineserver -k0`) left the
-foreign wineserver **alive** → **PASS** (isolation holds). The throwaway prefix and
-its processes were then torn down with a scoped, prefix-matched kill (no broad
-pkill) and removed.
+Directly tested:
+- **Duplicate registration** of the same SID returns `ERROR_ALREADY_EXISTS` and leaves the original
+  mapping intact (`test_AppContainerRegistration`) — proves an existing complete mapping survives a second
+  writer.
+- **Abandoned-writer repair**: a pre-created empty leaf (Moniker positively absent) is repaired to a
+  complete mapping on the next register (`test_AppContainerAbandonedWriter`).
 
-Reproducibility of the delivered source:
-- **Byte-identity.** `git diff 44c8989 -- dlls/kernelbase/security.c
-  dlls/kernelbase/tests/security.c` is empty and `git status --short --
-  dlls/kernelbase/` is clean, so the kernelbase source compiled in the owned build
-  tree is byte-identical to the committed source. The passing binaries were built
-  from the committed source, not from uncommitted edits.
-- **Exact build inputs** (owned out-of-tree tree `/root/wine-ac-build2`,
-  srcdir = the wine worktree):
-  - configure: `./configure --enable-archs=i386,x86_64 --prefix=/root/wine-ac-build2/install`
-    (Wine 11.19)
-  - toolchain: gcc (Debian 14.2.0-19) 14.2.0, GNU Make 4.4.1; cross compilers
-    `i686-w64-mingw32-gcc` and `x86_64-w64-mingw32-gcc`.
-  - build: `make -j16` (incremental recompile of `security.o` for impl+test, both arches).
-- **Loaded module paths + input hashes** (this run):
+Honesty note: the transient-read-failure branch (case 3) is defensive; forcing an `E_OUTOFMEMORY`/access
+failure inside `ac_read_moniker_value` deterministically requires fault injection and is not exercised by a
+dedicated test. Its correctness rests on the code path (propagate, do not write) plus cases 1–2 being
+directly tested.
 
-  | artifact | path | sha256 |
-  |----------|------|--------|
-  | x86_64 kernelbase.dll | `/root/wine-ac-build2/install/lib/wine/x86_64-windows/kernelbase.dll` | `2ea8862e0247e8232f39433a711ecb3dac7ca24e028f5cefeca6a3690b07a472` |
-  | i386 kernelbase.dll | `/root/wine-ac-build2/install/lib/wine/i386-windows/kernelbase.dll` | `01cfa57ba50e570db2d7cdd8286b916debc8f8d0768c74abeb89d6b014d77888e` |
-  | x86_64 test exe | `/root/wine-ac-build2/dlls/kernelbase/tests/x86_64-windows/kernelbase_test.exe` | `de095cc995085a3b37e40be58f0c7ddb686e599786a4aa1a6078726dada2f644` |
-  | i386 test exe | `/root/wine-ac-build2/dlls/kernelbase/tests/i386-windows/kernelbase_test.exe` | `76e3f62075fcc5181cd16b12e9e5bf43e030be351157bb73e287a245fc61733a` |
+### Defect 3 (P2) — evidence & test-harness corrections
 
-  (Hashes identify this build's inputs; Wine embeds build metadata, so they are
-  not a cross-build constant. The reproducibility claim rests on byte-identical
-  source + the recorded configure/toolchain/make args above.)
+- **Blocked-reader handshake.** `test_AppContainerBlockedReader` no longer relies on an arbitrary sleep to
+  assume the child reached the blocking read. The child now signals a named event
+  (`WineACBlockReadEntered_<ppid>`) the instant before it calls the lookup; the parent waits on that event,
+  then asserts the child is still blocked (bounded wait → `WAIT_TIMEOUT`), releases the lock, and verifies
+  the child completes with the correct moniker. Reader locking is thus *demonstrably* required.
+- **`ac_reap` return-value evaluation.** The bounded/idempotent child-reaper now evaluates the returns of
+  `WaitForSingleObject` (initial and post-terminate) and `TerminateProcess`; a child that will not die is
+  surfaced on stderr rather than silently ignored, and handles are closed exactly once.
+- **LockFailure double-close removed.** The duplicate `NtClose` of the event handle in
+  `test_AppContainerLockFailure` is gone (single close).
+- **Required failures are failures, not skips.** Required setup cases that cannot run now fail (`ok(FALSE)`)
+  instead of `win_skip`. Only genuine platform-conditional guards ("AppContainer registration APIs are not
+  available", i.e. `GetProcAddress` returned NULL) remain `win_skip`.
 
-**Pristine-archive finding (honest limitation, pre-existing, not from this change).**
-A fully isolated build from `git archive 44c8989` **cannot complete `configure`**:
-`tools/makedep` fails during `config.status` because the committed tree references
-local graphics headers that were never committed to this branch — e.g.
-`wine/dcomp_underlay.h` (included by the pre-existing `dlls/dcomp/device.c`) and,
-via the committed `include/Makefile.in`, public `wex*.h` headers whose files are
-only present as untracked local files in the fork's graphics baseline. This is a
-pre-existing property of the fork's graphics work and is **unrelated to and not
-required by** the kernelbase AppContainer change: neither `security.c` nor
-`tests/security.c` includes any such header (they use only standard Wine/NT
-headers). Fixing it would mean committing graphics files or altering the fork's
-build system, which is out of scope for this work order. Per R2's option (b), the
-minimal prerequisite is therefore **clearly separated and documented** here rather
-than quietly used: the build environment carries the fork's local graphics headers;
-the AppContainer change itself has no dependency on them. The kernelbase source was
-built and tested in the owned tree that contains those documented prerequisites,
-with byte-identity to the committed source verified above.
+### Defect 4 (P2) — build reproducibility & headers
 
-## R3 — legitimate derived SIDs, robust child lifecycles & race tests
+- `include/wine/dcomp_underlay.h` is **tracked** in the wine tree but was missing from
+  `include/Makefile.in`; it is now listed in `SOURCES`, so `makedep` and the install list are consistent.
+  This is a one-line, in-scope change (the header file itself was already committed).
+- The untracked public `wex*.h` graphics headers (`wextimezone.h`, `wexbrowse.h`, `wexhost.h`, etc.) are
+  **deliberately not committed** to the wine tree. They remain build-environment prerequisites sourced from
+  the fork's committed `WineExplorer/src/include` baseline; an out-of-scope `wextimezone.h` line that was
+  present as a local dirty edit in `include/Makefile.in` was removed so this commit adds only the
+  `dcomp_underlay.h` entry.
 
-Test identities are **package SIDs derived at runtime** via
-`DeriveAppContainerSidFromAppContainerName` from unique per-run container names
-(`"<tag>-<tickcount>-<pid>"`). No hardcoded `S-1-5-21-...` test SIDs remain and no
-foreign/derived identity is ever unregistered.
+## First parent-review rework (R1–R5) — retained foundation
 
-Child processes are launched with `CreateProcessW`, tracked by handle, awaited with
-**bounded** timeouts, and reaped by an **idempotent** helper (wait → terminate on
-timeout → reap → close both handles exactly once). There are no sleep-based
-readiness barriers: the concurrent test uses a manual-reset named event so two real
-children are released together deterministically. Required cases that fail to
-execute count as **failures**, not skips.
+These were delivered as wine commit `44c8989` and are unchanged by the second round:
 
-Coverage (all under `START_TEST(security)`):
-- lifecycle: fresh register → exact Unicode round-trip; independent-allocation check
-  (two lookups return distinct pointers, both freed); duplicate → `ALREADY_EXISTS`
-  with original intact; second SID isolation; unregister leaves the other mapping;
-  double-unregister / missing lookup → `FILE_NOT_FOUND` with output set to NULL.
-- corrupt stored value: REG_DWORD, unterminated (explicit 4-byte `{ 'A',0,'B',0 }`),
-  and odd-length REG_SZ each rejected as `ERROR_INVALID_DATA` with NULL output.
-- abandoned-writer repair: pre-created empty leaf is repaired to a complete mapping.
-- cross-process persistence: child process looks up a parent-registered moniker via
-  normal builtin loading.
-- deterministic concurrent same-SID publication: exactly one child `S_OK`, the other
-  `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)` (`0x800700b7`); post-race lookup is valid.
-- blocked-reader serialization and lock-acquisition-failure (see R1).
-- invalid/NULL inputs handled safely.
+- **R1 — NT mutant object path & locking (no fail-open).** The session lock is a named mutant in
+  `\BaseNamedObjects\WineAppContainerRegistrationLock`, created with `OBJ_CASE_INSENSITIVE | OBJ_OPENIF`;
+  a create error other than `STATUS_OBJECT_NAME_EXISTS` returns an error and does **not** proceed unlocked.
+  Both writers and readers take the lock, so a mapping is never observed half-published. A complete, valid
+  duplicate register returns `ERROR_ALREADY_EXISTS`; an incomplete leaf is deterministically repaired under
+  the lock. Proven by `test_AppContainerBlockedReader` and `test_AppContainerLockFailure` (a pre-occupied
+  lock name of a different object type leaves the registry untouched).
+- **R2 — test-runner isolation & reproducibility.** The owned runner (`ac_run.sh`) shuts down Wine only for
+  its own prefix via `WINEPREFIX=$PREFIX wineserver -k`/`-w`, verified by a read-only `/proc/<pid>/environ`
+  scan keyed on the exact prefix; it never issues a name/pattern `pkill`. It exits nonzero on build failure,
+  an unconfirmed prefix teardown before a DLL copy, or any architecture's test failures (aggregated status).
+- **R3 — legitimate derived SIDs, robust child lifecycles & race tests.** Test identities are package SIDs
+  derived at runtime via `DeriveAppContainerSidFromAppContainerName` from unique per-run names. Children are
+  launched with `CreateProcessW`, awaited with bounded timeouts, and reaped idempotently; the concurrent test
+  uses a manual-reset named event so two real children release together deterministically.
+- **R4 — storage error propagation & value validation.** `AppContainerRegisterSid` returns
+  `ERROR_ALREADY_EXISTS` only for a complete valid existing mapping; `ac_read_moniker_value` validates type
+  (REG_SZ), even byte length, bounds, and a final NUL WCHAR before allocating; `AppContainerLookupMoniker`
+  opens HKCU with `KEY_READ` only. HKCU access uses `RtlOpenCurrentUser`; all registry I/O uses the Nt* set
+  (kernelbase is below advapi32).
 
-**Results — both architectures, fresh build from committed source:**
+## Results — both architectures, fresh build from committed source `cb1d117`
 
 | arch | tests executed | todo | flaky | failures | skipped | exit |
 |------|----------------|------|-------|----------|---------|------|
 | x86_64-windows | 49 | 0 | 0 | **0** | **0** | 0 |
 | i386-windows | 49 | 0 | 0 | **0** | **0** | 0 |
 
-Observed child traces (both arches): persistence lookup `hr=0 moniker="PersistMoniker"`;
-concurrent race winner `hr=0` / loser `hr=0x800700b7`; blocked-reader publication
+Observed child traces (both arches): persistence lookup `hr=0 moniker="PersistMoniker"`; concurrent race —
+exactly one winner `hr=0`, the other `hr=0x800700b7` (`ERROR_ALREADY_EXISTS`); blocked-reader publication
 `hr=0 moniker="PubMoniker"`.
 
-## R4 — storage error propagation & value validation
+### Reproducibility of the delivered source
 
-- `AppContainerRegisterSid` returns `ERROR_ALREADY_EXISTS` **only** when the key
-  disposition was `REG_OPENED_EXISTING_KEY` and the existing mapping is complete and
-  valid; real `NtCreateKey` failures are propagated faithfully (not conflated with
-  already-exists). A failed second value publish rolls back only the newly owned
-  incomplete leaf (`NtDeleteKey`) and returns the actual error.
-- `ac_read_moniker_value` sets `*moniker=NULL` up front, queries with a real buffer
-  (two-pass grow on `STATUS_BUFFER_OVERFLOW`), and validates before allocating:
-  type must be REG_SZ; byte length even, ≥ `sizeof(WCHAR)`, ≤ bound; and the final
-  WCHAR must be NUL. Malformed/unterminated values return `ERROR_INVALID_DATA` with
-  `*moniker=NULL`.
-- `AppContainerLookupMoniker` opens HKCU with **KEY_READ** only (write/create rights
-  are requested only by mutating paths); the real NTSTATUS is preserved rather than
-  collapsed to `ACCESS_DENIED`. Missing key → `FILE_NOT_FOUND`, output NULL.
+- **Byte-identity.** `git diff cb1d117 -- dlls/kernelbase/security.c dlls/kernelbase/tests/security.c
+  include/Makefile.in` is empty and `git status --short` for those paths is clean, so the kernelbase source
+  compiled in the owned build tree is byte-identical to the committed source. The passing binaries were built
+  from the committed source, not from uncommitted edits.
+- **Exact build inputs** (owned out-of-tree tree `/root/wine-ac-build2`, srcdir = the wine worktree):
+  - configure: `./configure --enable-archs=i386,x86_64 --prefix=/root/wine-ac-build2/install` (Wine 11.19)
+  - toolchain: gcc (Debian 14.2.0-19) 14.2.0, GNU Make 4.4.1; cross compilers `i686-w64-mingw32-gcc` and
+    `x86_64-w64-mingw32-gcc`.
+  - build: `make -j16` (incremental recompile of `security.o` for impl+test, both arches).
+- **Loaded module paths + input hashes** (this run):
 
-HKCU access uses `RtlOpenCurrentUser` (this fork's ntdll rejects the raw HKCU
-pseudo-handle for Nt key APIs), and all registry I/O uses the Nt* API set (kernelbase
-is below advapi32).
+  | artifact | path | sha256 |
+  |----------|------|--------|
+  | x86_64 kernelbase.dll | `/root/wine-ac-build2/install/lib/wine/x86_64-windows/kernelbase.dll` | `a46c9773c16838906fdc610de2885ad0a60097309efcf89762d3c8ae31aa79d7` |
+  | i386 kernelbase.dll | `/root/wine-ac-build2/install/lib/wine/i386-windows/kernelbase.dll` | `1b363d8b2a338d665615ec79ea440a69db5c8908d029864d1f1e4753334865ff` |
+  | x86_64 test exe | `/root/wine-ac-build2/dlls/kernelbase/tests/x86_64-windows/kernelbase_test.exe` | `1ea887fcbd3c998fa9462e5bf5d2cd481657bd8d828f4145a64d7ae630587f50` |
+  | i386 test exe | `/root/wine-ac-build2/dlls/kernelbase/tests/i386-windows/kernelbase_test.exe` | `2fb9a9c9adfbc6034029f4d3a2f089c1939754372cbae56204cfe7a741061c92` |
+
+  (Hashes identify this build's inputs; Wine embeds build metadata, so they are not a cross-build constant.
+  The reproducibility claim rests on byte-identical source + the recorded configure/toolchain/make args above.)
+
+**Pristine-archive finding (honest limitation, pre-existing, not from this change).** A fully isolated build
+from `git archive cb1d117` still cannot complete `configure`: `tools/makedep` fails during `config.status`
+because the committed tree references public `wex*.h` headers whose files are only present as untracked local
+files in the fork's graphics baseline. The specific `wine/dcomp_underlay.h` inconsistency is now resolved by
+defect 4 (the tracked header is in the install list), but the broader `wex*.h` condition is a pre-existing
+property of the fork's graphics work and is **unrelated to and not required by** the kernelbase AppContainer
+change: neither `security.c` nor `tests/security.c` includes any such header (they use only standard Wine/NT
+headers). Fixing it would mean committing graphics files or altering the fork's build system, which is out of
+scope. Per R2's option (b), the minimal prerequisite is clearly separated and documented here rather than
+quietly used: the build environment carries the fork's local `wex*.h` headers; the AppContainer change itself
+has no dependency on them.
 
 ## Limitations
 
 - The registration is metadata only; it enforces no token/capability/ACL boundary.
-- A pristine-archive full-tree `configure` is blocked by pre-existing uncommitted
-  fork graphics headers (see R2); the AppContainer change is independent of them and
-  was built/tested in the owned tree with those documented prerequisites present.
-- Test SIDs are derived per-run and cleaned up; no persistent identities beyond the
-  test's own mappings remain, and no arbitrary host registry keys are touched.
+- Two defensive branches are not covered by a dedicated deterministic test because they require fault
+  injection that the conformance harness cannot induce: (a) the mid-publish rollback in defect 1 (a failing
+  second `NtSetValueKey` on an owned key), and (b) the transient-read-failure branch of defect 2 (an
+  `E_OUTOFMEMORY`/access error inside `ac_read_moniker_value`). Both are verified by code inspection and by the
+  directly-tested adjacent cases; they are surfaced (WARN / stderr) rather than silently ignored.
+- A pristine-archive full-tree `configure` is blocked by pre-existing uncommitted fork `wex*.h` graphics
+  headers (see above); the AppContainer change is independent of them and was built/tested in the owned tree
+  with those documented prerequisites present.
+- Test SIDs are derived per-run and cleaned up; no persistent identities beyond the test's own mappings remain,
+  and no arbitrary host registry keys are touched.
 
 ## Raw logs (private, D: only — not committed)
 
-- `D:\DeepThought\Projects\OpenClaude\ac_build\ac_x64_stdout.log`, `ac_i386_stdout.log`
-  (this run's per-arch test output; each ends "49 tests executed … 0 failures), 0 skipped").
-- `ac_run.sh` reproducibility manifest, `ac_evidence.log` (sentinel + build facts),
-  `ac_clean_configure.log` / `ac_diag.sh` output (pristine-archive makedep finding).
+- `D:\DeepThought\Projects\OpenClaude\ac_build\ac_x64_stdout.log`, `ac_i386_stdout.log` (this run's per-arch
+  test output; each ends "49 tests executed … 0 failures), 0 skipped").
+- `ac_run.sh` reproducibility manifest, `ac_evidence.log` (sentinel + build facts).
