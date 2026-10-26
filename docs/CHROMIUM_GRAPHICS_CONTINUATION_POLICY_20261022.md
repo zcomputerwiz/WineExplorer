@@ -19,6 +19,26 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST HUMAN DIRECTION20261026: prioritize high-value work toward actual Chromium
+functionality in our Wine environment. User explicitly authorizes merging the
+Chromium graphics and existing Token Security work when needed, and assigning
+workers integration tasks. This supersedes earlier blanket no-token-import
+instructions for that scoped integration; it does NOT authorize a master merge
+or touching other workers' live checkouts/builds/prefixes. Preserve both histories
+on a dedicated integration branch. Review actual current token commits and reuse
+existing lowbox/restricted-token/capability work; do not reinvent it.
+
+Keep the in-flight registration correction bounded: fix demonstrated mapping
+loss/rollback/build/required-test defects, then pursue the next actual Chromium
+startup boundary. Use a combined build and focused x64/i686 token-query,
+SECURITY_CAPABILITIES/child-launch and real Chromium checks when integration is
+needed. Do not require completion of unrelated UAC callers, full hardening,
+adversarial research or an exhaustive API conformance project before functional
+browser progress. Do not bypass the browser sandbox, spoof capabilities or claim
+isolation from metadata APIs. Record nonblocking gaps as TODOs. The current
+Antigravity implementation owner stays in place; parent coordinates integration
+without concurrent edits or a duplicate token stack.
+
 CURRENT20261026 root7043dee7/Wine44c8989 re-reviewed; substantial first fixes retained but remaining REWORK under CHROMIUM_APPCONTAINER_REGISTRATION_SECOND_REVIEW_20261026.md: rollback leaf lacks DELETE (nativec0000022 and Wineserverproof), existing-key read errors may overwrite mapping, nondiscriminating blockedreader/cleanup/runner and misdiagnosed committed-header prerequisite.49workerpasses not independent acceptance. No import/browser; sameAntigravityownership.
 
 CURRENT20261026 parent reviewed actual root35c07fc0/Wine74cb1f3 (worker completion was sent claude->antigravity, not relayed codex). REWORK REQUIRED under CHROMIUM_APPCONTAINER_REGISTRATION_REVIEW_REWORK_20261026.md: invalid/fail-open NT lock proven native0xc000003b plus Wine source, broad pkill dirty-source harness, incomplete child/publication/corrupt-data/error tests. Old34assertion passes are not acceptance. No production import/newbrowser; Antigravity retains implementation ownership.
