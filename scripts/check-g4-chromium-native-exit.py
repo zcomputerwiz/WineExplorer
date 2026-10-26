@@ -46,7 +46,7 @@ def configure(mode):
     HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
-    PROFILE=LAB/(HOST+'-profile') if mode=='userenv-r6' else OUTPUT/'profile'
+    PROFILE=OUTPUT/'profile' # nested under the fresh OUTPUT; aligns with native WEX_EXIT_OUTPUT+"\profile"
     HELPER=STAGE/'original/native-exit.exe';MANIFEST=STAGE/'runtime-manifest.json'
     FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
     DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode!='r1' else '')

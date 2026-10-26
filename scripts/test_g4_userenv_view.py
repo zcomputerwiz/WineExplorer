@@ -15,7 +15,12 @@ import test_g4_chromium_native_exit as native
 
 LAB=native.LAB
 def payload(nonce):return dict(v=1,nonce=nonce,pid=44,module_path=r'C:\WINDOWS\system32\userenv.dll',module_path_normal=True,export_found=True,checks=45,failures=0,passed=True)
-def payload6(nonce):return dict(v=1,nonce=nonce,pid=44,userenv_path=r'C:\WINDOWS\system32\userenv.dll',kernelbase_path=r'C:\WINDOWS\system32\kernelbase.dll',paths_normal=True,exports_found=True,checks=21,failures=0,passed=True)
+def _hr(code):
+    v=(0x80070000|code)&0xFFFFFFFF
+    return v-0x100000000 if v>=0x80000000 else v
+# Canonical R6 success record (v=2): genuine per-step HRESULTs, fresh ownership acquired on a
+# single S_OK registration and released by the planned teardown, so no emergency cleanup ran.
+def payload6(nonce):return dict(v=2,nonce=nonce,pid=44,userenv_path=r'C:\WINDOWS\system32\userenv.dll',kernelbase_path=r'C:\WINDOWS\system32\kernelbase.dll',paths_normal=True,exports_found=True,checks=21,failures=0,derive_hr=0,initial_lookup_hr=_hr(0x2),register_attempted=True,register_hr=0,owned=True,post_register_lookup_hr=0,duplicate_register_hr=_hr(0xb7),verify_lookup_hr=0,unregister_attempted=True,unregister_hr=0,final_lookup_hr=_hr(0x2),cleanup_attempted=False,cleanup_succeeded=False,passed=True)
 
 class ViewTests(unittest.TestCase):
     def test_actual_validation_and_exact_readonly_commands_before_fixed_exec(self):
@@ -259,7 +264,8 @@ class ProbeTests(unittest.TestCase):
                 self.assertEqual(r.HOST,'chromium-registration-r6-20261026')
                 self.assertEqual(r.STAGE,r.LAB/'chromium-registration-r6-20261026-stage')
                 self.assertEqual(r.OUTPUT,r.LAB/'chromium-registration-r6-20261026')
-                self.assertEqual(r.PROFILE,r.LAB/'chromium-registration-r6-20261026-profile')
+                self.assertEqual(r.PROFILE,r.OUTPUT/'profile')
+                self.assertEqual(r.PROFILE,r.LAB/'chromium-registration-r6-20261026/profile')
                 self.assertEqual(run.call_args.args[0],r.LAB/'chromium-registration-r6-20261026')
             with mock.patch.object(r.sys,'argv',['native','--userenv-r6','--userenv-r4']),contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as error:r.main()
