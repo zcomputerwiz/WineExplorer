@@ -23,7 +23,8 @@ def decode(raw,nonce,code):
         raise ValueError('Failed/malformed normal-module API probe')
     return v
 
-def phase(output,env,result,probe,build,prefix,helpers,monitor,sample,deadline,*,popen=subprocess.Popen,now=time.monotonic,sleep=time.sleep):
+def phase(output,env,result,probe,build,prefix,helpers,monitor,sample,deadline,*,popen=subprocess.Popen,now=time.monotonic,sleep=time.sleep,decoder=None):
+    _dec=decode if decoder is None else decoder
     start=now();child=None;primary=None
     result['probe_started']=False;result['probe_reaped']=False
     if deadline<start+45:raise TimeoutError('Need full45s API probe/reap/intermediate cleanup allowance')
@@ -49,7 +50,7 @@ def phase(output,env,result,probe,build,prefix,helpers,monitor,sample,deadline,*
             if now()>=run_end:raise TimeoutError('API probe25s timeout')
             sleep(.02)
         meta['linux_exit']=child.wait(timeout=left(1));result['probe_reaped']=True
-        quota();meta['result']=decode((output/'api-probe.stdout.log').read_bytes(),nonce,meta['linux_exit'])
+        quota();meta['result']=_dec((output/'api-probe.stdout.log').read_bytes(),nonce,meta['linux_exit'])
     except Exception as error:primary=error;meta['error']=repr(error);raise
     finally:
         if child is not None and not result['probe_reaped']:

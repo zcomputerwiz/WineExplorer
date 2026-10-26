@@ -18,14 +18,15 @@ MODE='userenv-r3'
 
 def configure(mode):
     global MODE,STAGE,OUTPUT
-    if mode not in ('userenv-r3','userenv-r4'):raise ValueError('Unknown fixed module view')
+    if mode not in ('userenv-r3','userenv-r4','userenv-r6'):raise ValueError('Unknown fixed module view')
     MODE=mode
-    name='chromium-userenv-r4-20261025' if mode=='userenv-r4' else 'chromium-userenv-r3-20261024'
+    name={'userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026'}[mode]
     STAGE=LAB/(name+'-stage');OUTPUT=LAB/name
 
 def selected():
-    return [(STAGE/'modules'/arch/'userenv.dll',BUILD/'dlls/userenv'/(arch+'-windows/userenv.dll'),machine)
-            for arch,machine in (('x86_64',0x8664),('i386',0x14c))]
+    modules=('userenv','kernelbase') if MODE=='userenv-r6' else ('userenv',)
+    return [(STAGE/'modules'/arch/(dll+'.dll'),BUILD/('dlls/'+dll)/(arch+'-windows/'+dll+'.dll'),machine)
+            for dll in modules for arch,machine in (('x86_64',0x8664),('i386',0x14c))]
 
 def validate(readlink=os.readlink,uid=os.geteuid,loopback=None):
     if uid()!=0:raise ValueError('Root module view required')
@@ -72,5 +73,6 @@ def execute(validate_context=validate,run=subprocess.run,execv=os.execv,emit=pri
 
 if __name__=='__main__':
     if sys.argv[1:]==['--userenv-r4']:configure('userenv-r4')
+    elif sys.argv[1:]==['--userenv-r6']:configure('userenv-r6')
     elif len(sys.argv)!=1:raise SystemExit('No command/path passthrough')
     execute()
