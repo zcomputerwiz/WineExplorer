@@ -35,6 +35,12 @@ _BOOL_FLAGS = ('compileVs', 'compileFsSolid', 'compileFsTex', 'linkSolid', 'link
 _EXPECTED_CORNERS = {'ll': [255, 0, 0, 255], 'lr': [0, 255, 0, 255],
                      'ul': [0, 0, 255, 255], 'ur': [255, 255, 0, 255]}
 
+# Bounded inputs: reject absurdly large strings / deep nesting up front so a hostile or
+# corrupt record cannot exhaust memory or the C stack before schema checks run.
+_MAX_TITLE_LEN = 65536        # captured title string (WEXSHADER <json>)
+_MAX_RENDERER_LEN = 2048      # per-API renderer diagnostic string
+_MAX_DEPTH = 64               # maximum JSON nesting depth
+
 
 def _strict_pairs(items):
     value = {}
@@ -56,13 +62,15 @@ def _strict_json(text):
     return value
 
 
-def _assert_finite(value):
+def _assert_finite(value, depth=0):
+    if depth > _MAX_DEPTH:
+        raise ValueError('WEXSHADER record exceeds maximum nesting depth')
     if isinstance(value, dict):
         for item in value.values():
-            _assert_finite(item)
+            _assert_finite(item, depth + 1)
     elif isinstance(value, list):
         for item in value:
-            _assert_finite(item)
+            _assert_finite(item, depth + 1)
     elif isinstance(value, float) and not math.isfinite(value):
         raise ValueError('Nonfinite WEXSHADER number')
 
@@ -97,6 +105,8 @@ def _check_api_record(rec):
     renderer = rec['renderer']
     if type(renderer) is not str or not renderer or renderer in ('null', 'undefined'):
         return 'renderer must be a non-empty string (diagnostic only)'
+    if len(renderer) > _MAX_RENDERER_LEN:
+        return 'renderer exceeds %d-char quota' % _MAX_RENDERER_LEN
     corners = rec['corners']
     if type(corners) is not dict or set(corners) != {'ll', 'lr', 'ul', 'ur'}:
         return 'corners must have exactly ll/lr/ul/ur'
@@ -148,8 +158,12 @@ def validate_shader_record(record_or_title, expected_nonce):
             _assert_finite(record)
         else:
             title = record_or_title
+            if type(title) is not str:
+                raise ValueError('title must be a string')
+            if len(title) > _MAX_TITLE_LEN:
+                raise ValueError('title exceeds %d-char quota' % _MAX_TITLE_LEN)
             record = _strict_json(_split_title(title))
-    except ValueError as error:
+    except (ValueError, RecursionError) as error:
         return {'status': 'fail', 'reason': str(error), 'record': None, 'title': title}
     reason = _check_record_schema(record, expected_nonce)
     if reason is None:
@@ -223,33 +237,115 @@ def _solid_interior(x0, y0, w, h, inset=2):
     return (x0 + inset, y0 + inset, x0 + w - inset, y0 + h - inset)
 
 
+def _check_solid(px, label, x0, y0, x1, y1, rgb):
+    """Return a fail reason if the solid sample block is empty or any pixel mismatches.
+
+    An empty block (count 0) is a hard fail, never a silent pass: ``_first_mismatch``
+    returns None for an empty range, which would otherwise read as 'no mismatch'."""
+    if not (x0 < x1 and y0 < y1):
+        return '%s sample block is empty' % label
+    hit = _first_mismatch(px, x0, y0, x1, y1, rgb)
+    if hit is not None:
+        hx, hy, actual = hit
+        return '%s interior pixel (%d,%d) is %r, expected %r' % (label, hx, hy, actual, rgb)
+    return None
+
+
+def _check_quadrants(px, label, x0, y0, x1, y1):
+    """Return a fail reason if any quadrant sample block is empty or mismatches."""
+    interiors = _quadrant_interiors(x0, y0, x1 - x0, y1 - y0)
+    for quad in ('ul', 'ur', 'll', 'lr'):
+        expected = _QUAD_RGB[quad]
+        bx0, by0, bx1, by1 = interiors[quad]
+        if not (bx0 < bx1 and by0 < by1):
+            return '%s %s quadrant sample block is empty' % (label, quad)
+        hit = _first_mismatch(px, bx0, by0, bx1, by1, expected)
+        if hit is not None:
+            hx, hy, actual = hit
+            return ('%s %s quadrant interior pixel (%d,%d) is %r, expected %r'
+                    % (label, quad, hx, hy, actual, expected))
+    return None
+
+
+def _is_number(value):
+    return type(value) is not bool and type(value) in (int, float)
+
+
 def _resolve_rects(geometry, img_w, img_h):
-    """Map geometry to image-pixel rects. Returns (rects, error). Only scale 1 is supported."""
+    """Map geometry to image-pixel rects. Returns ``(rects, None)`` on success or
+    ``(None, (status, reason))`` on failure. Only scale 1 is proven: unprovable geometry
+    (nonfinite coords, unsupported scale, incomplete explicit bounds) is ``inconclusive``,
+    while a caller-supplied layout that is out of bounds, the wrong size, or aliased/
+    overlapping is a concrete ``fail``."""
     client = geometry.get('client') if isinstance(geometry, dict) else None
     scale = geometry.get('scale') if isinstance(geometry, dict) else None
-    bounds = geometry.get('bounds') if isinstance(geometry, dict) and isinstance(geometry.get('bounds'), dict) else {}
-    if (type(client) is not list or len(client) != 2
-            or any(type(c) is bool or type(c) not in (int, float) for c in client)):
-        return None, 'geometry.client must be a [x, y] pair of numbers'
-    if type(scale) is bool or type(scale) not in (int, float):
-        return None, 'geometry.scale must be a number'
+    bounds = (geometry.get('bounds')
+              if isinstance(geometry, dict) and isinstance(geometry.get('bounds'), dict)
+              else {})
+
+    # client / scale must be present, numeric, and finite BEFORE any arithmetic or int()
+    # conversion (a NaN/Infinity coordinate must yield a verdict, never an exception).
+    if type(client) is not list or len(client) != 2 or any(not _is_number(c) for c in client):
+        return None, ('inconclusive', 'geometry.client must be a [x, y] pair of numbers')
+    if not _is_number(scale):
+        return None, ('inconclusive', 'geometry.scale must be a number')
+    if any(not math.isfinite(v) for v in (client[0], client[1], scale)):
+        return None, ('inconclusive', 'nonfinite geometry coordinate (NaN/Infinity)')
     if scale != 1:
-        return None, ('unsupported scale %r; only the lab default 96DPI/scale 1 is proven '
+        return None, ('inconclusive',
+                      'unsupported scale %r; only the lab default 96DPI/scale 1 is proven '
                       '(other scales are TODO)' % (scale,))
+
+    # Explicit bounds must be a COMPLETE mapping of all five regions: never silently fall
+    # back to defaults for a subset. An empty/absent bounds dict uses the lab-default rects.
+    if bounds and set(bounds) != set(_PIXEL_REGIONS):
+        missing = sorted(set(_PIXEL_REGIONS) - set(bounds))
+        return None, ('inconclusive',
+                      'incomplete explicit bounds; missing %r (all five regions required)'
+                      % (missing,))
+
     rects = {}
     for name in _PIXEL_REGIONS:
         css = bounds.get(name) if name in bounds else _LAB_DEFAULT_RECTS[name]
-        if type(css) is not list or len(css) != 4 or any(type(v) is bool or type(v) not in (int, float) for v in css):
-            return None, 'geometry rect %r must be a [l, t, w, h] of numbers' % (name,)
+        if type(css) is not list or len(css) != 4 or any(not _is_number(v) for v in css):
+            return None, ('inconclusive', 'geometry rect %r must be a [l, t, w, h] of numbers' % (name,))
+        if any(not math.isfinite(v) for v in css):
+            return None, ('inconclusive', 'nonfinite geometry coordinate in rect %r' % (name,))
         l, t, w, h = css
         x0, y0 = client[0] + l * scale, client[1] + t * scale
         x1, y1 = client[0] + (l + w) * scale, client[1] + (t + h) * scale
         if any(v != int(v) for v in (x0, y0, x1, y1)):
-            return None, 'geometry rect %r is not integral at the supported scale' % (name,)
+            return None, ('inconclusive', 'geometry rect %r is not integral at the supported scale' % (name,))
         x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
         if not (0 <= x0 < x1 <= img_w and 0 <= y0 < y1 <= img_h):
-            return None, 'crop out of bounds for %r: (%d,%d)-(%d,%d) vs image %dx%d' % (name, x0, y0, x1, y1, img_w, img_h)
+            return None, ('fail', 'crop out of bounds for %r: (%d,%d)-(%d,%d) vs image %dx%d'
+                          % (name, x0, y0, x1, y1, img_w, img_h))
         rects[name] = (x0, y0, x1, y1)
+
+    # Supported canvas geometry: the texture regions must be exactly 64x64 and the solid
+    # regions large enough to sample; arbitrary caller dimensions are not valid layout.
+    for name in ('webgl', 'webgl2', 'reference'):
+        x0, y0, x1, y1 = rects[name]
+        if (x1 - x0) != 64 or (y1 - y0) != 64:
+            return None, ('fail', '%s must be exactly 64x64 at scale 1, got %dx%d'
+                          % (name, x1 - x0, y1 - y0))
+    x0, y0, x1, y1 = rects['marker']
+    if (x1 - x0) < 16 or (y1 - y0) < 16:
+        return None, ('fail', 'marker must be at least 16x16, got %dx%d' % (x1 - x0, y1 - y0))
+    x0, y0, x1, y1 = rects['background']
+    if (x1 - x0) < 8 or (y1 - y0) < 8:
+        return None, ('fail', 'background must be at least 8x8, got %dx%d' % (x1 - x0, y1 - y0))
+
+    # Regions must be strictly pairwise disjoint: aliased/overlapping bounds would let one
+    # region's pixels stand in for another's and produce a false pass.
+    names = list(_PIXEL_REGIONS)
+    for i in range(len(names)):
+        ax0, ay0, ax1, ay1 = rects[names[i]]
+        for j in range(i + 1, len(names)):
+            bx0, by0, bx1, by1 = rects[names[j]]
+            if ax0 < bx1 and bx0 < ax1 and ay0 < by1 and by0 < ay1:
+                return None, ('fail', 'overlapping/aliased regions %r and %r' % (names[i], names[j]))
+
     return rects, None
 
 
@@ -262,36 +358,26 @@ def validate_presented_pixels(image, geometry):
     if rgb_image is None:
         return {'status': 'inconclusive', 'reason': open_error}
     img_w, img_h = rgb_image.size
-    rects, geo_error = _resolve_rects(geometry, img_w, img_h)
+    rects, err = _resolve_rects(geometry, img_w, img_h)
     if rects is None:
-        # An unprovable scale/geometry is inconclusive; a concrete out-of-bounds crop is a fail.
-        status = 'fail' if geo_error.startswith('crop out of bounds') else 'inconclusive'
-        return {'status': status, 'reason': geo_error}
+        status, reason = err
+        return {'status': status, 'reason': reason}
 
     px = rgb_image.load()
-    # Marker and background: solid interior must be exactly the expected color.
+    # Marker and background: solid interior must be exactly the expected color (non-empty).
     for name, expected in (('marker', MARKER_RGB), ('background', BACKGROUND_RGB)):
         x0, y0, x1, y1 = rects[name]
         sx0, sy0, sx1, sy1 = _solid_interior(x0, y0, x1 - x0, y1 - y0)
-        hit = _first_mismatch(px, sx0, sy0, sx1, sy1, expected)
-        if hit is not None:
-            hx, hy, actual = hit
-            return {'status': 'fail',
-                    'reason': '%s interior pixel (%d,%d) is %r, expected %r' % (name, hx, hy, actual, expected)}
+        reason = _check_solid(px, name, sx0, sy0, sx1, sy1, expected)
+        if reason is not None:
+            return {'status': 'fail', 'reason': reason}
 
     # Both WebGL canvases and the DOM reference must show the correct quadrant texture.
     for name in ('webgl', 'webgl2', 'reference'):
         x0, y0, x1, y1 = rects[name]
-        interiors = _quadrant_interiors(x0, y0, x1 - x0, y1 - y0)
-        for quad in ('ul', 'ur', 'll', 'lr'):
-            expected = _QUAD_RGB[quad]
-            bx0, by0, bx1, by1 = interiors[quad]
-            hit = _first_mismatch(px, bx0, by0, bx1, by1, expected)
-            if hit is not None:
-                hx, hy, actual = hit
-                return {'status': 'fail',
-                        'reason': '%s %s quadrant interior pixel (%d,%d) is %r, expected %r'
-                                  % (name, quad, hx, hy, actual, expected)}
+        reason = _check_quadrants(px, name, x0, y0, x1, y1)
+        if reason is not None:
+            return {'status': 'fail', 'reason': reason}
     return {'status': 'pass', 'reason': None}
 
 

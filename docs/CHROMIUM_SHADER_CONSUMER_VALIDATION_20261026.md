@@ -7,6 +7,11 @@
 **Base commit:** `fbbbe032` (parent work order) · **clean HEAD at start:** `fe5952fb`
 **Accepted fixture reference:** `docs/CHROMIUM_WEBGL_SHADER_FIXTURE_20261025.md` (`0d96719a`)
 
+**Rework (R1):** targeted source-only corrections for the parent-review false-pass /
+robustness defects found on `e92a8a48`, plus regression tests: bounded input strings,
+JSON nesting depth, nonfinite geometry coordinates, supported canvas dimensions, strictly
+pairwise-disjoint regions, non-empty sample blocks, and complete explicit bounds (§3, §4.2, §5).
+
 **Status: `PREPARED_OFFLINE` — validation logic complete and tested offline. No live run.**
 This is complementary, *consumer-evidence* work: it proves that a real browser's
 captured title record **and** presented front-window pixels agree with the original
@@ -47,7 +52,8 @@ workloads are preserved.
 
 The captured browser title is `WEXSHADER <json>` (optionally suffixed ` - Chromium`).
 `validate_shader_record` enforces, with a strict decoder (no duplicate keys, no
-NaN/Infinity, bounded finite sweep):
+NaN/Infinity, bounded finite sweep, and hard input quotas — title ≤ 65536 chars, per-API
+renderer ≤ 2048 chars, JSON nesting depth ≤ 64):
 
 - Top-level exact key set `{ v, nonce, kind, passed, apis, frozenAtMs }` — a ready
   record has **no** `error` key. `v == 1`, `nonce == expected_nonce` (32 lowercase
@@ -63,7 +69,9 @@ NaN/Infinity, bounded finite sweep):
     `ur [255,255,0,255]` (OpenGL lower-left orientation).
 
 Any non-success / incomplete / malformed record fails with its specific reason and the
-source record preserved. A stale or wrong-owner nonce is rejected.
+source record preserved. A stale or wrong-owner nonce is rejected. An over-quota title, an
+over-length renderer, or a record nested deeper than the limit also fails with a structured
+reason — it never raises an unhandled `ValueError`/`RecursionError`.
 
 ## 4. Presented-pixel geometry and coordinates
 
@@ -74,9 +82,9 @@ The checker inspects a front-window snapshot (PIL image or path) at an explicit
   the page's client area). Bounds are client-relative CSS pixels.
 - `scale` — device scale factor. **Only the lab default 96 DPI / `scale == 1` is
   proven**; any other scale returns `inconclusive` (never success) and is a TODO.
-- `bounds` — optional per-element rects `[l,t,w,h]`. When present they are authoritative
-  (the real adapter should supply real per-canvas capture bounds). When absent, the
-  documented lab-default rects (§4.1) are used at scale 1.
+- `bounds` — optional per-element rects `[l,t,w,h]`. When present they must be a **complete**
+  mapping of all five regions (an explicit subset is `inconclusive`, never silently back-filled
+  with defaults); when absent, the documented lab-default rects (§4.1) are used at scale 1.
 
 Elements checked and expected colors:
 
@@ -123,6 +131,24 @@ These are a documented fallback so a no-bounds scale-1 capture is checkable. The
 adapter should prefer explicit per-canvas `bounds`; do not rely on guessed desktop
 coordinates for anything but this known lab default.
 
+### 4.2 Geometry validation rules (R1)
+
+Beyond the in-bounds crop check, the checker enforces *supported canvas geometry* before
+any pixel sampling:
+
+- **Nonfinite coordinates** — every `client`, `scale`, and per-region number is checked with
+  `math.isfinite()` *before* any arithmetic or `int()` conversion; a NaN/Infinity coordinate
+  returns a structured `inconclusive` verdict (never an unhandled exception).
+- **Supported dimensions** — `webgl`, `webgl2`, and `reference` must be exactly **64×64** at
+  scale 1; `marker` ≥ 16×16; `background` ≥ 8×8. Arbitrary caller dimensions are a concrete
+  `fail`, not valid layout — e.g. a blank image with all bounds `[0,0,1,1]` fails.
+- **Pairwise disjoint regions** — all five regions must be strictly non-overlapping. Aliased or
+  overlapping bounds (e.g. `webgl`/`webgl2` copied onto the `reference` rect) are a concrete
+  `fail`, because one region's pixels would otherwise stand in for another's and pass.
+
+Every solid and quadrant sample block is additionally required to be **non-empty** (count > 0);
+an empty block is a `fail`, never a silent pass.
+
 ## 5. Public reusable entry point
 
 Module: `scripts/g4_shader_consumer_evidence.py`. Three functions, distinct verdicts:
@@ -144,9 +170,12 @@ combined      = ev.validate_shader_consumer_evidence(record_or_title, expected_n
   'pixel_verdict', 'error' }`. `passed` is True only when **both** verdicts pass; the
   primary failure (record first) is surfaced in `error` with its specific reason preserved.
 
-Verdict semantics: a record that fails to parse or mismatches the schema is `fail`; a
-presented-pixel check that finds a concrete mismatch or an out-of-bounds crop is `fail`;
-an **unprovable scale or unopenable image** is `inconclusive` — never reported as success.
+Verdict semantics: a record that fails to parse, mismatches the schema, or exceeds an input
+quota (title length / renderer length / nesting depth) is `fail`. A presented-pixel check that
+finds a concrete pixel mismatch, an out-of-bounds crop, unsupported dimensions, overlapping/
+aliased regions, or an empty sample block is `fail`; an **unprovable scale, nonfinite
+coordinate, incomplete explicit bounds, or unopenable image** is `inconclusive` — never
+reported as success.
 Neither verdict alone certifies GPU-process isolation, the sandbox, or a hardware backend;
 combined acceptance additionally requires external actual backend/ownership proof.
 
@@ -187,16 +216,20 @@ node scripts/test_g4_shader_scene.js
 
 Results:
 
-- `test_g4_shader_consumer_evidence` — **Ran 39 tests … OK** (0 failures / 0 errors /
+- `test_g4_shader_consumer_evidence` — **Ran 46 tests … OK** (0 failures / 0 errors /
   0 skips). Coverage: canonical two-canvas success; marker-only; DOM-reference-only
   (never passes); blank canvas; one canvas missing; flipped quadrants; wrong/invalid
   nonce; truncated/malformed/duplicate-key/nonfinite record; context loss / glError /
   failed compile; corner & count mismatches; empty/null renderer; missing API; extra top
   key; unsupported scale (inconclusive); crop out of bounds (fail); unopenable image
   (inconclusive); lab-default geometry values + derived no-bounds path; combined verdict
-  with primary-failure evidence retained. Synthetic images are generated in-memory from
-  **independent** literal constants (their own rects/colors), so the checker's geometry
-  is not its own oracle.
+  with primary-failure evidence retained. **R1 regressions:** overlapping/aliased bounds
+  (fail); all-`[0,0,1,1]` tiny bounds on a blank image (fail); renderer over the 2048-char
+  quota (fail); title over the 65536-char quota (fail); nonfinite `client` coordinate
+  (structured verdict, no exception); partial explicit bounds missing a region
+  (inconclusive); empty solid sample block (not a pass). Synthetic images are generated
+  in-memory from **independent** literal constants (their own rects/colors), so the
+  checker's geometry is not its own oracle.
 - `node scripts/test_g4_shader_scene.js` — **PASS … 35 negative tests, 28 mutation
   regressions** (unchanged; confirms the CSS polish preserved the fixture).
 

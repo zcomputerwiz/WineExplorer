@@ -349,5 +349,66 @@ class CombinedVerdictTests(unittest.TestCase):
         self.assertEqual(result['pixel_verdict']['status'], 'fail')
 
 
+class ReworkRegressionTests(unittest.TestCase):
+    """Regressions for the parent-review false-pass / robustness defects (R1 rework)."""
+
+    def test_overlapping_aliased_bounds_fail(self):
+        # webgl/webgl2 bounds copied onto the reference rect: without a disjointness check,
+        # sampling the (correct) reference pixels would stand in for both canvases and pass.
+        geo = _geometry(bounds={
+            'marker': list(RECTS['marker']),
+            'webgl': list(RECTS['reference']),
+            'webgl2': list(RECTS['reference']),
+            'reference': list(RECTS['reference']),
+            'background': list(RECTS['background']),
+        })
+        verdict = ev.validate_presented_pixels(_front(include=('marker', 'reference')), geo)
+        self.assertEqual(verdict['status'], 'fail', verdict.get('reason'))
+        self.assertIn('overlapping', verdict['reason'])
+
+    def test_blank_image_tiny_bounds_fail(self):
+        # All five regions collapsed to 1x1: the texture regions are not 64x64, so this is a
+        # supported-geometry fail (not a pass, and not an unprovable-scale inconclusive).
+        geo = _geometry(bounds={name: [0, 0, 1, 1] for name in
+                                ('marker', 'webgl', 'webgl2', 'reference', 'background')})
+        blank = Image.new('RGB', (IMG_W, IMG_H), BG)
+        verdict = ev.validate_presented_pixels(blank, geo)
+        self.assertEqual(verdict['status'], 'fail', verdict.get('reason'))
+        self.assertIn('64x64', verdict['reason'])
+
+    def test_renderer_over_quota_fails(self):
+        rec = _record()
+        rec['apis']['webgl']['renderer'] = 'x' * 2000000
+        verdict = ev.validate_shader_record(rec, NONCE)  # dict path isolates the renderer bound
+        self.assertEqual(verdict['status'], 'fail')
+        self.assertIn('quota', verdict['reason'])
+
+    def test_title_over_quota_fails(self):
+        rec = _record()
+        rec['apis']['webgl']['renderer'] = 'x' * 70000  # serialized title exceeds 65536 chars
+        verdict = ev.validate_shader_record(_title(rec), NONCE)
+        self.assertEqual(verdict['status'], 'fail')
+        self.assertIn('quota', verdict['reason'])
+
+    def test_nonfinite_client_returns_verdict(self):
+        geo = _geometry(client=[float('nan'), 0])
+        verdict = ev.validate_presented_pixels(_front(), geo)  # must not raise
+        self.assertIn(verdict['status'], ('fail', 'inconclusive'))
+        self.assertIsInstance(verdict['reason'], str)
+
+    def test_partial_explicit_bounds_inconclusive(self):
+        partial = {name: list(RECTS[name]) for name in ('marker', 'webgl', 'webgl2', 'reference')}
+        geo = _geometry(bounds=partial)  # omits 'background'
+        verdict = ev.validate_presented_pixels(_front(), geo)
+        self.assertEqual(verdict['status'], 'inconclusive')
+        self.assertIn('incomplete explicit bounds', verdict['reason'])
+
+    def test_empty_sample_block_is_not_a_pass(self):
+        img = Image.new('RGB', (IMG_W, IMG_H), BG)
+        px = img.load()
+        # A zero-width solid block must be reported empty, not silently pass.
+        self.assertIsNotNone(ev._check_solid(px, 'marker', 5, 5, 5, 9, MARKER))
+
+
 if __name__ == '__main__':
     unittest.main()
