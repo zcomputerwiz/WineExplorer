@@ -9,6 +9,7 @@ check count stays consistent with the Python decoder. Live VM orchestration is
 deferred to the post-Luna preparation (OFFLINE_CODE_READY_ARTIFACTS_PENDING).
 """
 from pathlib import Path
+import json
 import unittest
 from unittest import mock
 
@@ -27,10 +28,10 @@ class R6PreparationTests(unittest.TestCase):
             r.configure('userenv-r6')
             self.assertEqual(r.MODE,'userenv-r6')
             self.assertEqual(r.HOST,HOST)
-            stage=r.LAB/(HOST+'-stage');output=r.LAB/HOST;profile=r.LAB/(HOST+'-profile')
+            stage=r.LAB/(HOST+'-stage');output=r.LAB/HOST;profile=output/'profile'
             self.assertEqual((r.STAGE,r.OUTPUT,r.PROFILE),(stage,output,profile))
-            # Output is the base host dir; profile is a fresh sibling (not nested).
-            self.assertNotEqual(r.PROFILE,r.OUTPUT/'profile')
+            # Profile is nested under the fresh OUTPUT, aligning with the native helper's WEX_EXIT_OUTPUT+"\profile".
+            self.assertEqual(r.PROFILE,r.OUTPUT/'profile')
             prior=set()
             for mode in ('r1','module-warn-r2','userenv-r3','userenv-r4'):
                 r.configure(mode);prior|={r.STAGE,r.OUTPUT,r.PROFILE}
@@ -62,6 +63,50 @@ class R6PreparationTests(unittest.TestCase):
         self.assertEqual(probe6.CHECKS,21)
         hdr=(SCRIPTS/'g4_native_exit_contract.h').read_text()
         self.assertIn('#ifndef WEX_EXIT_OUTPUT',hdr) # output-only override hook reused by the R4/R5 recipe
+
+    def test_r6_probe_lifecycle_sequence_and_ownership_invariants(self):
+        nonce='0'*32
+        def _hr(c):
+            v=(0x80070000|c)&0xFFFFFFFF
+            return v-0x100000000 if v>=0x80000000 else v
+        ABSENT=_hr(0x2);EXISTS=_hr(0xb7)
+        def base():  # canonical success record (v=2), matching the native PE's output contract
+            return dict(v=2,nonce=nonce,pid=44,userenv_path=r'C:\WINDOWS\system32\userenv.dll',
+                        kernelbase_path=r'C:\WINDOWS\system32\kernelbase.dll',paths_normal=True,exports_found=True,
+                        checks=21,failures=0,derive_hr=0,initial_lookup_hr=ABSENT,register_attempted=True,
+                        register_hr=0,owned=True,post_register_lookup_hr=0,duplicate_register_hr=EXISTS,
+                        verify_lookup_hr=0,unregister_attempted=True,unregister_hr=0,final_lookup_hr=ABSENT,
+                        cleanup_attempted=False,cleanup_succeeded=False,passed=True)
+        # Canonical lifecycle -> accepted (proves the decoder is not over-rejecting).
+        self.assertTrue(probe6.decode(json.dumps(base()).encode(),nonce,0)['passed'])
+
+        # Sequence scenarios: each models a genuine failure record; we assert its own ownership/mutation
+        # facts and that the decoder gates it (rejects), so no browser launch follows.
+        col=base();col.update(initial_lookup_hr=0,register_attempted=False,owned=False,unregister_attempted=False,cleanup_attempted=False,failures=1,checks=14,passed=False)
+        self.assertFalse(col['register_attempted']);self.assertFalse(col['unregister_attempted'])  # no mutation, no unregister
+        with self.assertRaises(ValueError):probe6.decode(json.dumps(col).encode(),nonce,0)
+
+        fr=base();fr.update(register_hr=EXISTS,owned=False,unregister_attempted=False,cleanup_attempted=False,failures=1,checks=15,passed=False)
+        self.assertFalse(fr['owned']);self.assertFalse(fr['unregister_attempted'])  # failed fresh registration -> nothing owned -> no unregister
+        with self.assertRaises(ValueError):probe6.decode(json.dumps(fr).encode(),nonce,0)
+
+        pl=base();pl.update(post_register_lookup_hr=EXISTS,unregister_attempted=False,cleanup_attempted=True,cleanup_succeeded=True,failures=1,checks=16,passed=False)
+        self.assertTrue(pl['owned']);self.assertTrue(pl['cleanup_attempted'])  # post-register failure -> owned cleanup runs
+        with self.assertRaises(ValueError):probe6.decode(json.dumps(pl).encode(),nonce,0)
+
+        cf=base();cf.update(unregister_hr=EXISTS,cleanup_attempted=True,cleanup_succeeded=False,failures=1,checks=20,passed=False)
+        self.assertTrue(cf['cleanup_attempted']);self.assertFalse(cf['cleanup_succeeded'])  # cleanup failure -> fail (nonzero exit upstream)
+        with self.assertRaises(ValueError):probe6.decode(json.dumps(cf).encode(),nonce,0)
+
+        # Invariant negatives: each keeps passed=True so it clears the pass-gate and is rejected by a
+        # specific safety invariant, isolating that invariant's enforcement in the decoder.
+        def reject(**mut):
+            v=base();v.update(mut)
+            with self.assertRaises(ValueError):probe6.decode(json.dumps(v).encode(),nonce,0)
+        reject(owned=True,register_hr=EXISTS)                                    # owned without a fresh S_OK registration
+        reject(unregister_attempted=True,owned=False,register_attempted=False)   # released without owning
+        reject(cleanup_attempted=True,owned=False,unregister_attempted=False)    # finally-cleanup without ownership
+        reject(initial_lookup_hr=0,register_attempted=True)                      # mutated despite a non-absent identity
 
 import tempfile
 
