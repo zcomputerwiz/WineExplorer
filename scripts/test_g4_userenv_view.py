@@ -10,10 +10,12 @@ import unittest
 from unittest import mock
 import g4_userenv_view as view
 import g4_userenv_probe as probe
+import g4_userenv_r6_probe as probe6
 import test_g4_chromium_native_exit as native
 
 LAB=native.LAB
 def payload(nonce):return dict(v=1,nonce=nonce,pid=44,module_path=r'C:\WINDOWS\system32\userenv.dll',module_path_normal=True,export_found=True,checks=45,failures=0,passed=True)
+def payload6(nonce):return dict(v=1,nonce=nonce,pid=44,userenv_path=r'C:\WINDOWS\system32\userenv.dll',kernelbase_path=r'C:\WINDOWS\system32\kernelbase.dll',paths_normal=True,exports_found=True,checks=21,failures=0,passed=True)
 
 class ViewTests(unittest.TestCase):
     def test_actual_validation_and_exact_readonly_commands_before_fixed_exec(self):
@@ -55,6 +57,36 @@ class ViewTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     view.execute(validate_context=validate,run=lambda *a,**k:(_ for _ in ()).throw(RuntimeError('mount failed')),execv=lambda *a:self.fail('No exec after mount failure'),emit=lambda text,**kwargs:emitted.append(text))
                 self.assertIn('USERENV_MODULE_VIEW_ERROR ',emitted[0])
+
+    def test_r6_readonly_view_covers_userenv_and_kernelbase_both_arches(self):
+        with tempfile.TemporaryDirectory(prefix='view-r6-',dir=LAB) as folder:
+            root=Path(folder);build=root/'build';stage=root/'stage';build.mkdir();events=[]
+            with mock.patch.object(view,'BUILD',build),mock.patch.object(view,'STAGE',stage),mock.patch.object(view,'OUTPUT',root/'output'),mock.patch.object(view,'MODE','userenv-r6'):
+                sel=view.selected()
+                self.assertEqual(len(sel),4)
+                self.assertEqual(sorted(Path(t).name for _,t,_ in sel),['kernelbase.dll','kernelbase.dll','userenv.dll','userenv.dll'])
+                # Target staging dirs carry the bare arch; builtin source dirs are <arch>-windows.
+                self.assertEqual(sorted(Path(s).parent.name for s,_,_ in sel),['i386','i386','x86_64','x86_64'])
+                self.assertEqual(sorted(Path(t).parent.name for _,t,_ in sel),['i386-windows','i386-windows','x86_64-windows','x86_64-windows'])
+                self.assertEqual(sorted(m for _,_,m in sel),[0x14c,0x14c,0x8664,0x8664])
+                for s,t,machine in sel:
+                    s.parent.mkdir(parents=True,exist_ok=True);t.parent.mkdir(parents=True,exist_ok=True)
+                    data=bytearray(128);data[:2]=b'MZ';struct.pack_into('<I',data,60,64);data[64:68]=b'PE\0\0';struct.pack_into('<H',data,68,machine)
+                    s.write_bytes(data);t.write_bytes(b'original')
+                def validate():
+                    link=lambda p:('self' if '/self/' in p else 'init')
+                    return view.validate(readlink=link,uid=lambda:0,loopback=lambda:{'private':True})
+                def dispatch(command,**kwargs):events.append(command);self.assertTrue(kwargs['check']);self.assertEqual(kwargs['timeout'],2)
+                def emit(text,**kwargs):self.assertLess(len(text.encode()),32768);events.append('json');self.assertTrue(kwargs['flush'])
+                def execute(path,args):events.append('exec');self.assertEqual(path,'/usr/sbin/runuser');self.assertEqual(args[-3:],['--userenv-r6','--output-dir',str(root/'output')])
+                view.execute(validate_context=validate,run=dispatch,execv=execute,emit=emit)
+                commands=events[:-2];self.assertEqual(len(commands),10)
+                self.assertEqual(commands[:2],[['mount','--bind',str(build),str(build)],['mount','-o','remount,bind,ro',str(build)]])
+                for i,(s,t,_) in enumerate(sel):
+                    self.assertEqual(commands[2+2*i],['mount','--bind',str(s),str(t)])
+                    self.assertEqual(commands[3+2*i],['mount','-o','remount,bind,ro',str(t)])
+                    self.assertEqual(t.read_bytes(),b'original')
+                self.assertEqual(events[-2:],['json','exec'])
 
 class ProbeTests(unittest.TestCase):
     def test_slow_start_keeps_reap_and_intermediate_cleanup_reserves(self):
@@ -213,6 +245,56 @@ class ProbeTests(unittest.TestCase):
                         self.assertEqual(calls,['probe','probe-cleanup']);self.assertNotIn('cleanup_started',args[2]);calls.append('browser')
                         args[2].update(helper_started=True,helper_reaped=True,native={'outcome':'native_exit'})
                     with mock.patch.object(r,'guards',return_value={'private_loopback':{}}),mock.patch.object(r.cal.install,'environment',return_value=env),mock.patch.object(r.cal,'OwnedWexcomp',return_value=comp),mock.patch.object(r.cal,'verify_native_gl_driver',return_value={}),mock.patch.object(probe,'phase',side_effect=phase),mock.patch.object(r.cal,'collect',side_effect=collect),mock.patch.object(r,'FixtureServer',return_value=server),mock.patch.object(r.cal.graphics_resources,'sample',return_value={}),mock.patch.object(r.cal.isolation,'verify_private_loopback',return_value={}):
+                        self.assertEqual(r.run(out,helpers),1)
+                    value=json.loads((out/'results.json').read_text())
+                    if failed:self.assertEqual(calls,['probe']);self.assertIn('PRIMARY',value['error']);server.start.assert_not_called()
+                    else:self.assertEqual(calls,['probe','probe-cleanup','browser']);self.assertTrue(value['observation_complete'])
+        finally:r.configure('r1')
+
+    def test_actual_r6_cli_and_paths(self):
+        r=native.r
+        try:
+            with mock.patch.object(r.sys,'argv',['native','--userenv-r6']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as run:
+                self.assertEqual(r.main(),1);self.assertEqual(r.MODE,'userenv-r6')
+                self.assertEqual(r.HOST,'chromium-registration-r6-20261026')
+                self.assertEqual(r.STAGE,r.LAB/'chromium-registration-r6-20261026-stage')
+                self.assertEqual(r.OUTPUT,r.LAB/'chromium-registration-r6-20261026')
+                self.assertEqual(r.PROFILE,r.LAB/'chromium-registration-r6-20261026-profile')
+                self.assertEqual(run.call_args.args[0],r.LAB/'chromium-registration-r6-20261026')
+            with mock.patch.object(r.sys,'argv',['native','--userenv-r6','--userenv-r4']),contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:r.main()
+                self.assertEqual(error.exception.code,2)
+        finally:r.configure('r1')
+
+    def test_r6_probe_decode_strict_negatives(self):
+        nonce='0123456789abcdef0123456789abcdef'
+        self.assertTrue(probe6.decode(json.dumps(payload6(nonce)).encode(),nonce,0)['passed'])
+        for key,value in [('pid',True),('userenv_path',r'Z:\foreign\userenv.dll'),('kernelbase_path',r'Z:\foreign\kernelbase.dll'),('paths_normal',False),('exports_found',False),('checks',20),('checks',45),('failures',1),('passed',False),('nonce','b'*32)]:
+            v=payload6(nonce);v[key]=value
+            with self.subTest(key=key),self.assertRaises(ValueError):probe6.decode(json.dumps(v).encode(),nonce,0)
+        for raw in (b'{}',b'{"v":1,"v":1}',b'NaN',b'x'*4097):
+            with self.assertRaises(ValueError):probe6.decode(raw,nonce,0)
+        with self.assertRaises(ValueError):probe6.decode(json.dumps(payload6(nonce)).encode(),nonce,1)
+
+    def test_actual_r6_probe_failure_prevents_browser_and_success_is_ordered(self):
+        r=native.r
+        try:
+            r.configure('userenv-r6')
+            for failed in (True,False):
+                with tempfile.TemporaryDirectory(prefix='r6-probe-before-browser-',dir=LAB) as folder:
+                    out=Path(folder)/'output';calls=[]
+                    env={k:str(out/k.lower()) for k in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','TMPDIR')}
+                    comp=mock.Mock();comp.start.return_value={};comp.verify_gpu_renderer.return_value={}
+                    server=mock.Mock(record={});server.start.return_value=native.URL
+                    helpers=SimpleNamespace(configure_gl_driver=mock.Mock(),matching_servers=lambda *a:[],run_logged=lambda *a:SimpleNamespace(returncode=0))
+                    def phase(*args,**kwargs):
+                        value=args[2];self.assertNotIn('cleanup_started',value);calls.append('probe')
+                        if failed:raise ValueError('PRIMARY R6 metadata mismatch')
+                        value['api_probe']={'passed':True};value['probe_reaped']=True;calls.append('probe-cleanup')
+                    def collect(*args,**kwargs):
+                        self.assertEqual(calls,['probe','probe-cleanup']);self.assertNotIn('cleanup_started',args[2]);calls.append('browser')
+                        args[2].update(helper_started=True,helper_reaped=True,native={'outcome':'native_exit'})
+                    with mock.patch.object(r,'guards',return_value={'private_loopback':{}}),mock.patch.object(r.cal.install,'environment',return_value=env),mock.patch.object(r.cal,'OwnedWexcomp',return_value=comp),mock.patch.object(r.cal,'verify_native_gl_driver',return_value={}),mock.patch.object(probe6,'phase',side_effect=phase),mock.patch.object(r.cal,'collect',side_effect=collect),mock.patch.object(r,'FixtureServer',return_value=server),mock.patch.object(r.cal.graphics_resources,'sample',return_value={}),mock.patch.object(r.cal.isolation,'verify_private_loopback',return_value={}):
                         self.assertEqual(r.run(out,helpers),1)
                     value=json.loads((out/'results.json').read_text())
                     if failed:self.assertEqual(calls,['probe']);self.assertIn('PRIMARY',value['error']);server.start.assert_not_called()
