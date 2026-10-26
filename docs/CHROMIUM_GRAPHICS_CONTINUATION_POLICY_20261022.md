@@ -19,6 +19,8 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+CURRENT20261026 R6 source3569ba7e ACCEPTED/imported09153ac4+c2da7ea7 after parent32tests/no skips and ACTUAL compiled nativeWindows metadataPE21/21. CHROMIUM_R6_PARENT_CODE_REVIEW_20261026.md. HistoricalPREPARED_NOT_RUN lackedactualVMadapter; Luna assigned CHROMIUM_R6_FINAL_HOST_PREPARATION_WORK_ORDER_20261026.md usingR5pattern/freshprivateR6prep, noVM/SSH/browserexecutionyet. Acceptedmetadata4DLLs remainunchanged.
+
 CURRENT20261026 independent registration/SID metadata units ACCEPTED after Luna63099038: x64+i68649security/260userenv each0fail0skip,1inheriteduserenvtodo; parent47seal/module/cleanup audits+5runner tests. Read CHROMIUM_APPCONTAINER_INDEPENDENT_ACCEPTANCE_20261026.md. R6d4daff2c rework bounded to profilecontract + probeownedmapping cleanup/matchingmoniker, then actualfinalprep using accepted4DLLs under CHROMIUM_R6_PREPARATION_REVIEW_REWORK_20261026.md. No browsertrialyet.
 
 CURRENT20261026 clean independent FULL BUILD accepted from Luna8809827b,45seal/provenance/build/cleanup parentreview. Actualunits pending: optionalMono install during freshprefix init caused240s timeout/noassertions. CHROMIUM_APPCONTAINER_BUILD_REVIEW_20261026.md authorizes boundedr2 newprefix init-only ENV mscoree/mshtml suppression removed for actualtests, sameownedbuild/no rebuild. Luna continues; R6 offlineworker remainsdisjoint.

@@ -1,3 +1,11 @@
+<!-- Parent review override: 2026-10-26 -->
+> Parent accepted source after32 independent tests and actual native PE21/21.
+> The historical PREPARED_NOT_RUN caption below describes an artifact inventory,
+> not a complete host/guest execution preparation. Current status is
+> SOURCE_ACCEPTED_HOST_ADAPTER_PENDING. See CHROMIUM_R6_PARENT_CODE_REVIEW_20261026.md.
+> Do not run the direct guest command on host WSL. Luna is completing the actual
+> R5-pattern launcher/transfer/readonly-view/archive/QMP-stop adapter offline.
+
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Chromium R6 offline preparation — registration metadata sanity probe
 
