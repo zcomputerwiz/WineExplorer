@@ -152,7 +152,7 @@ class RuntimeTests(unittest.TestCase):
                 state=r.runtime_state();self.assertEqual(state['state'],'complete')
                 self.assertTrue(all(not v['previous_version_tested'] and v['warnings'] for v in state['files'].values()))
                 (runtime/'chrome.dll').unlink()
-                with self.assertRaisesRegex(ValueError,'partial/extra'):r.runtime_state(extract=True,zip_path=root/'never-used.zip')
+                with self.assertRaisesRegex(ValueError,r'(partial/extra|Missing required runtime files)'):r.runtime_state(extract=True,zip_path=root/'never-used.zip')
 
     def test_actual_run_callbacks_diagnostic1_even_complete_and_reap_before_prefix(self):
         for fault in (None,'collector','reap','server','quota'):

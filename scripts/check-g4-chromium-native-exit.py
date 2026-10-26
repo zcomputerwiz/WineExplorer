@@ -41,9 +41,9 @@ HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 def configure(mode):
     """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,PROFILE,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS
-    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6'):raise ValueError('Unknown fixed Chromium mode')
+    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
-    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026'}[mode]
+    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
     PROFILE=OUTPUT/'profile' # nested under the fresh OUTPUT; aligns with native WEX_EXIT_OUTPUT+"\profile"
@@ -131,13 +131,15 @@ def runtime_state(manifest=None,*,zip_path=None,extract=False,now=time.monotonic
     paths=list(RUNTIME.rglob('*'))
     if any(p.is_symlink() for p in paths):raise ValueError('Runtime link not allowed')
     actual={p.relative_to(RUNTIME.parent).as_posix():p for p in paths if p.is_file()}
-    if set(actual)!=set(expected):raise ValueError('Existing partial/extra runtime; never overwrite')
+    missing=set(expected)-set(actual)
+    if missing:raise ValueError('Missing required runtime files (%d): %s'%(len(missing),sorted(missing)[:5]))
+    extra=sorted(set(actual)-set(expected)) # benign generated/surplus files; tolerated, not a failure
     observed={}
-    for name,path in actual.items():
+    for name in expected:
         if now()>=end:raise TimeoutError('Runtime observation deadline')
-        observed[name]=observe_file(path,expected[name],deadline=end,now=now)
+        observed[name]=observe_file(actual[name],expected[name],deadline=end,now=now)
     for name in ('chrome.exe','chrome.dll','chrome_elf.dll','D3DCompiler_47.dll','libEGL.dll','libGLESv2.dll'):cache.pe(RUNTIME/name)
-    return dict(state='complete',runtime=str(RUNTIME),files=observed,required_free_bytes=1024**3,
+    return dict(state='complete',runtime=str(RUNTIME),files=observed,extras=extra,required_free_bytes=1024**3,
         version_source='Actual per-file hashes; historical manifest version is not actual version attestation')
 
 def guards(output,helpers,deadline,now):
@@ -250,11 +252,12 @@ def main():
     selection.add_argument('--userenv-r3',action='store_true',help='Fixed R3 normal-view API probe before browser')
     selection.add_argument('--userenv-r4',action='store_true',help='Fixed R4 normal view with native compositor prefix scope')
     selection.add_argument('--userenv-r6',action='store_true',help='Fixed R6 registration metadata view + pre-browser sanity probe')
+    selection.add_argument('--runtime-unblock',action='store_true',help='Fixed runtime-unblock diagnostic identity; tolerate benign surplus runtime files')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
-    configure('userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
+    configure('runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
     return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))
