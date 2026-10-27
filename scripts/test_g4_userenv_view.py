@@ -274,6 +274,7 @@ class ProbeTests(unittest.TestCase):
 
     def test_actual_token_integration_cli_and_paths(self):
         r=native.r
+        saved_build,saved_loader=r.cal.BUILD,r.cal.APPROVED_LOADER
         try:
             with mock.patch.object(r.sys,'argv',['native','--token-integration']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as run:
                 self.assertEqual(r.main(),1);self.assertEqual(r.MODE,'token-integration')
@@ -282,6 +283,8 @@ class ProbeTests(unittest.TestCase):
                 self.assertEqual(r.OUTPUT,r.LAB/'chromium-token-integration-20261027')
                 self.assertEqual(r.PROFILE,r.OUTPUT/'profile')
                 self.assertEqual(r.BUILD,r.LAB/'wine-token-integration-20261027/build/wow64')
+                self.assertEqual(r.cal.BUILD,r.LAB/'wine-token-integration-20261027/build/wow64')
+                self.assertEqual(r.cal.APPROVED_LOADER,r.LAB/'wine-token-integration-20261027/build/wow64/loader/wine')
                 self.assertEqual(run.call_args.args[0],r.LAB/'chromium-token-integration-20261027')
             with mock.patch.object(r.sys,'argv',['native','--token-integration','--userenv-r6']),contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as error:r.main()
@@ -295,6 +298,7 @@ class ProbeTests(unittest.TestCase):
         finally:
             r.configure('r1')
             view.configure('userenv-r3')
+            r.cal.BUILD,r.cal.APPROVED_LOADER=saved_build,saved_loader
 
     def test_r6_probe_decode_strict_negatives(self):
         nonce='0123456789abcdef0123456789abcdef'

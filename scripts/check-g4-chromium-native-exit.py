@@ -51,7 +51,10 @@ def configure(mode):
     FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
     DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode!='r1' else '')
     HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']} if mode=='r1' else None
-    if mode=='token-integration':BUILD=LAB/'wine-token-integration-20261027/build/wow64'
+    if mode=='token-integration':
+        BUILD=LAB/'wine-token-integration-20261027/build/wow64'
+        cal.BUILD=BUILD
+        cal.APPROVED_LOADER=BUILD/'loader/wine' # identity attestation must name the candidate loader, not the import-time build
 
 def child_args(nonce,url):
     if (not isinstance(nonce,str) or not re.fullmatch('[0-9a-f]{32}',nonce)
