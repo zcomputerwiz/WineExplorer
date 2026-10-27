@@ -6,6 +6,10 @@ Worker execution of work order `docs/CHROMIUM_TOKEN_INTEGRATION_WORK_ORDER_20261
 against a combined token+graphics Wine candidate. The outcome is a comparison, not blanket
 sandbox/G4 acceptance.
 
+This revision records the **re-run after the identity-attestation fix** (commit `4628119b`), per
+the parent's root-cause directive: point the strict `linux_identity` attestation at the candidate
+build's own loader rather than a stale import-time path, then re-run the live trial.
+
 ## Summary
 
 - **NLS / wineserver issue: FIXED and proven in-guest.** The candidate build now finds
@@ -15,12 +19,17 @@ sandbox/G4 acceptance.
   in-guest token-integration API probe passes **21/21** checks across `userenv.dll` and
   `kernelbase.dll` (derive → register → owned → verify → unregister; the success transitions are
   all S_OK).
-- **Focused host tests: 33 unit tests pass** (`Ran 33 tests in 6.854s — OK`), including the new
-  `test_actual_token_integration_cli_and_paths`.
-- **Actual browser result: the Chromium comparison did NOT load the page.** The diagnostic's strict
-  `linux_identity` attestation rejected the helper on an argv[0] path mismatch before Chromium
-  emitted any events; no HTTP request reached the fixture. Retained and stopped per work order (not
-  chased).
+- **Focused host tests: 33 unit tests pass**, including `test_actual_token_integration_cli_and_paths`,
+  which now also asserts the identity fix.
+- **Identity attestation fix (commit `4628119b`): APPLIED and PROVEN effective.** The re-run's strict
+  `linux_identity` check now **passes** — `argv_style` resolves across both live observations, no
+  `LinuxIdentityError`, the helper reaches `natural_exit`. This removes the prior hard blocker that
+  had rejected the helper on an argv[0] path mismatch before Chromium ever launched.
+- **Actual browser result (re-run): the page still did NOT load — but for a different, downstream
+  reason.** With the identity gate now passed, Chromium actually launches and begins navigation to
+  the fixture URL, but its network service crashes/restarts early and the tab for the fixture URL is
+  killed (`sad_tab` "Tab Killed"); the helper then times out after 45 s waiting for a native-exit
+  that never arrives. Retained and stopped per work order (not chased).
 
 ## Actual refs / merge decisions
 
@@ -35,7 +44,11 @@ Root branch `codex/chromium-token-integration` (from parent work-order commit `e
   - `scripts/test_g4_userenv_view.py`: `test_actual_token_integration_cli_and_paths` pins the
     HOST/STAGE/OUTPUT/PROFILE/BUILD paths, the run() output dir, a strict-negative mutual-exclusion
     case (SystemExit 2), and that the view selects 4 module/arch entries.
-- Bumps the wine gitlink to the combined candidate (below).
+- **Commit `4628119b`** "Point token-integration identity attestation at the candidate loader": in
+  `configure('token-integration')` set `cal.BUILD=BUILD` and `cal.APPROVED_LOADER=BUILD/'loader/wine'`
+  so the strict `linux_identity` check names the candidate's own loader (the wine build tree re-execs
+  top-level `wine` → `loader/wine`). Extends `test_actual_token_integration_cli_and_paths` to assert
+  both are set on configure and restore them in `finally` for test isolation.
 
 Wine branch `codex/g4-token-integration` @ **`fffa7de`** (already pushed to origin):
 - HEAD is a merge commit: **"Merge token security history (`ae5fec1`) into accepted
@@ -84,8 +97,9 @@ In-guest deploy verification (`execution.json`): `guest_wine_deploy = "True 5654
 
 - Host unit tests (run from `scripts/` under WSL Debian):
   `python3 -m unittest test_g4_chromium_native_exit.py test_g4_userenv_view.py test_g4_chromium_observation_tolerance.py`
-  → **`Ran 33 tests in 6.854s — OK`** (0 failures, 0 errors). Includes the new
-  `test_actual_token_integration_cli_and_paths`.
+  → **33 tests, OK** (0 failures, 0 errors), both before and after the identity fix. The fix added
+  assertions to the existing `test_actual_token_integration_cli_and_paths`, not a new test, so the
+  count stays 33.
 - In-guest token-integration API probe (`api-probe.stdout.log`): **21/21 checks pass**,
   `failures: 0`, `passed: true`. `userenv.dll` and `kernelbase.dll` both resolved
   (`paths_normal: true`, `exports_found: true`). The success transitions are all S_OK (hr=0):
@@ -94,55 +108,77 @@ In-guest deploy verification (`execution.json`): `guest_wine_deploy = "True 5654
   result (0x80070002) on the initial and post-unregister lookups — exactly the outcome of a correct
   register→unregister cycle.
 
-## Actual browser result
+## Identity attestation fix and re-run
+
+- **Root cause** (parent's analysis, verified against source): `check-g4-native-exit-calibration.py`
+  computes `APPROVED_LOADER=BUILD/'loader/wine'` at import time from the calibration build
+  (`install.BUILD`, a stale g3-repair tree), and `collect()` passes it to
+  `linux_identity(..., approved_loader=str(APPROVED_LOADER))` (line 207). The identity logic accepts
+  style `approved_loader_argv_array` when the observed `/proc/<pid>/cmdline` satisfies
+  `args == [approved_loader, *argv[1:]]`. In token-integration mode the wine build tree re-execs
+  top-level `wine` → `<candidate>/loader/wine`, so a /proc read landing post-re-exec sees
+  argv[0]=`<candidate>/loader/wine`; with the stale g3 approved_loader that matched no accepted form
+  and raised `LinuxIdentityError('Linux image/app URL/profile/argv mismatch')` (the pre-fix trial,
+  attempt5).
+- **Fix:** in the token-integration branch of `configure()`, set `cal.BUILD=BUILD` and
+  `cal.APPROVED_LOADER=BUILD/'loader/wine'`. Safe: `cal.guards()` (which contains the loader sha256-pin)
+  is called only from test files, not the Chromium run path, so changing `cal.APPROVED_LOADER` affects
+  only the line-207 identity check — no sha256-pin side effect.
+- **Re-run mechanics:** re-ran `prepare()` to bake the fixed scripts into `source-stage.tar` (the guest
+  executes the staged source, not the working tree); cleared the persisted guest STAGE/OUTPUT; fresh
+  launch; fired `run()` immediately so the readiness budget passes at low elapsed. `orchestration_complete
+  = true`; all budgets passed (readiness elapsed ~21.5 s).
+
+## Actual browser result (re-run)
 
 The one fresh Chromium comparison executed end-to-end (`execution.json`: `orchestration_complete =
-true`; budgets all passed — readiness elapsed 1.07 s, preflight 41.5 s, ownership 41.6 s, consumer
-91.5 s).
+true`).
 
-- Wine boots a full Windows environment cleanly: `api-probe.stderr.log` is a complete, clean wineboot
-  (wineboot.exe → services.exe → explorer.exe) with **no ntdll/NLS load errors**.
-- The Chromium helper (`native-exit.exe --chromium --image .../chrome.exe ...`) launched under the
-  combined build, but the diagnostic's strict `linux_identity` attestation **rejected it** before
-  Chromium emitted any events:
-  - `error = LinuxIdentityError('Linux image/app URL/profile/argv mismatch')` (ValueError),
-    `helper_phase = linux_identity`.
-  - The launched cmdline was recorded with argv[0] = `.../build/wow64/wine`
-    (`linux_helper_last_live.observed_cmdline[0]`; `prefix_match.matched = true`). By the attestation
-    read, `/proc/<pid>/cmdline` argv[0] had become `.../build/wow64/loader/wine` (base64-decoded from
-    `linux_helper_rejected_identity.fields.cmdline`); all other argv components (native-exit.exe,
-    --chromium, --image, --profile, --log, --events, --nonce, --url) are identical.
-  - Consequence: `native_journal_at_identity_rejection.present = false` (no `native-exit.jsonl`),
-    HTTP fixture `requests = []` (the page was never fetched; classification "HTTP writes only;
-    browser consumption NOT_PROVEN"), helper reaped with exit `-9`, `front_exit = 0`.
-- Top-level: `passed = false`, `diagnostic_exit = 1`, `observation_complete = false`;
-  classification "Changed parentage: ordinary CreateProcess held-handle Chromium status ONLY; never
-  rendering/security acceptance".
+- **Identity attestation PASSES** — the prior hard blocker is gone:
+  - `linux_helper_first_live.argv_style` and `linux_helper_last_live.argv_style` are both
+    `"argv_array"`; there is no `linux_helper_rejected_identity`, no `LinuxIdentityError`;
+    `helper_phase = "natural_exit"`.
+- **Chromium launched under the combined build:** the helper bound to `chrome.exe` (child_pid 220) at
+  tick ~45.7 s; navigation to `http://127.0.0.1:41879/<nonce>/index.html` began (the data-protection
+  observer logged the fixture URL in `chromium.log`).
+- **The page did NOT complete:**
+  - `chromium.log` line 132 (~0.9 s in): "Network service crashed or was terminated, restarting
+    service."
+  - `chromium.log` line 364 (~12 s in): `sad_tab.cc Tab Killed: http://127.0.0.1:41879/` — the tab for
+    the fixture URL was killed.
+  - The many `connect failed: 10051` lines are Chromium's **background** attempts to reach
+    `accounts.google.com` / `update.googleapis.com`, refused because the VM is air-gapped — NOT the
+    fixture; the co-occurring GAIA/update `ERR_ADDRESS_UNREACHABLE` failures are expected offline.
+- **Helper outcome:** `journal_outcome = "native_timeout"` (`native-exit.jsonl`: a single `bound`
+  event then a `timeout` terminal event; `wait_result = 258` = WAIT_TIMEOUT after `wait_ms = 45000`).
+  Helper exit code 1 → `error = ValueError('Linux helper failed/exit mismatch')`. No load /
+  navigation-completion event; `manifest_marker_verified = false`, `accepted_observation = false`.
+- **Top-level:** `passed = false`, `diagnostic_exit = 1`, `observation_complete = false`;
+  `front_exit = 0`, `cleanup_complete = true`, `remaining_servers = []`, `remaining_prefix_processes = {}`;
+  `outside_modules_unchanged = true` (the readonly userenv/kernelbase view was intact across the run).
 
 ## Remaining blocker (retained, not chased)
 
-The strict `linux_identity` attestation rejects the helper on **argv[0] only**: the invoked path
-`.../build/wow64/wine` transitions to `.../build/wow64/loader/wine` between launch and the
-attestation read. This is because the candidate is deployed as a raw Wine **build tree**, where the
-top-level `wine` (the preserved relative symlink → `tools/wine/wine`) re-execs itself as
-`loader/wine`; `/proc/<pid>/cmdline` then reflects the post-re-exec loader path rather than the
-invoked path. This is a property of deploying the raw combined build tree and is orthogonal to the
-NLS/ntdll fixes (which are proven working in-guest).
-
-Per the work order ("If still no page, retain exact new outcome and STOP; don't chase arbitrary
-warning lines"), this exact outcome is retained as the remaining blocker. No second browser retry,
-no-sandbox/workaround flag, debugger/attach, or unrelated production patch was applied. A likely
-follow-up (for parent decision, not executed here) is a deployment form in which the invoked wine
-path is stable across the process lifetime (e.g., top-level `wine` resolving directly to the loader
-without an intermediate wrapper re-exec), which would present argv[0] = `.../wow64/wine` to the
-attestation.
+- The prior **argv[0] identity-attestation** blocker is **RESOLVED** by commit `4628119b`: the re-run
+  passes the attestation and launches Chromium.
+- The **NEW remaining blocker is a Chromium runtime page-load failure**, downstream of the identity
+  gate: the browser's network service crashes/restarts early and the fixture tab is killed, so no page
+  load/render occurs and the helper times out after 45 s. This is orthogonal to the NLS/ntdll fixes
+  (proven working in-guest) and to the token registration APIs (21/21 probe).
+- Per the work order ("If still no page, retain exact new outcome and STOP; don't chase arbitrary
+  warning lines"), this exact outcome is retained as the remaining blocker. No second browser retry,
+  no-sandbox/workaround flag, debugger/attach, or unrelated production patch was applied.
 
 ## Evidence
 
 - `D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-token-integration-20261027\execution.json`
-- `...\chromium-native-evidence\results.json` (identity rejection: lines ~7796–7879)
-- `...\chromium-native-evidence\api-probe.stdout.log` (21/21 probe JSON)
-- `...\chromium-native-evidence\api-probe.stderr.log` (clean wineboot)
+  (`orchestration_complete = true`)
+- `...\chromium-native-evidence\results.json` (identity pass: first/last live `argv_style`;
+  `journal_outcome = native_timeout`; helper exit 1)
+- `...\chromium-native-evidence\native-exit.jsonl` (`bound` → `timeout`)
+- `...\chromium-native-evidence\chromium.log` (network service crash line 132; tab killed line 364)
+- Prior pre-fix trial preserved at
+  `D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-token-integration-20261027.attempt5-argv0-mismatch\`
 
 Private payload/art/profile/screenshots remain on D: / D-backed WSL; nothing secret or vendor is
 committed.
