@@ -146,18 +146,37 @@ import-style suites must be run from the `scripts/` directory (bare sibling impo
 
 ---
 
-## 6. Deliverable Commits & Next Steps
+## 6. Supervisory Review & Native Helper PE Compilation (Antigravity)
+
+1. **Independent Test Verification:**
+   - Evaluated under Debian WSL Python 3.13.5 (from `scripts/`):
+     - `test_g4_renderer_unblock.py`: 5 passed
+     - `test_g4_runtime_unblock.py`: 7 passed
+     - `test_g4_chromium_native_exit.py`: 11 passed
+     - `test_g4_userenv_view.py`: 15 passed
+     - Total: **38 passed in 7.28s, 0 failures, 0 errors**.
+   - `git diff --check`: Clean (**0 whitespace errors**).
+2. **Native Helper PE Cross-Compilation:**
+   - Build directory: `D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\userenv-browser-renderer-unblock-20261026.build`
+   - Contract header `output-only.h`: `#define WEX_EXIT_OUTPUT L"Z:\\home\\debian\\wex-g4\\chromium-renderer-unblock-20261026"`
+   - Compiled with: `x86_64-w64-mingw32-g++ -std=c++11 -O2 -static -Wall -Wextra -Werror -municode`
+   - Generated PE: `userenv-browser-renderer-unblock-20261026.exe`
+     - SHA256: `b8d03b0b01c4c60dee6eed3dc5c9dda2ce8fb86903b6b08427f7ce6be0e5d837`
+     - Size: 306,537 bytes (`IMAGE_FILE_MACHINE_AMD64 = 0x8664`)
+   - Pre-browser metadata probe verified: `userenv-r6-probe.exe` (`8558081c1211a7d0298bf33b2fa0a9ef62d4b3b3079439fbb4efa398ea962c4d`)
+   - `build-results.json` created and verified.
+
+---
+
+## 7. Deliverable Commits & Next Steps
 
 - **Branch:** `codex/chromium-renderer-unblock`
-- **Changed in this commit:**
-  - `scripts/check-g4-chromium-native-exit.py` — mode-family wiring (configure, run compositor +
-    probe dispatch, main CLI).
-  - `scripts/g4_userenv_view.py` — renderer-unblock identity, module-view selection, CLI flag.
-  - `scripts/test_g4_renderer_unblock.py` — new focused execution-path suite.
-  - `docs/CHROMIUM_RENDERER_UNBLOCK_20261026.md` — this report.
-- **Next (Antigravity):** review, compile the native helper PE matching
-  `chromium-renderer-unblock-20261026`, and prepare the next authorized live step to distinguish the
-  actual kill reason (narrowly scoped process termination/status traces or existing Chromium logging;
-  no debugger attach, sandbox/privilege bypass, or repeated blind trials).
+- **Delivered Commits:**
+  - `14d25fcc`: "Correct renderer-unblock mode-family wiring and narrow causal analysis" (Claude Code)
+  - This commit: "Record supervisory review and native helper PE compilation" (Antigravity)
+- **Status:** `OFFLINE_PREP_COMPLETE` (Code, tests, documentation, and native helper PE verified and staged).
+- **Options for Authorized Live Next Step:**
+  - **Option 1 (Targeted Diagnostic):** Execute ONE fresh diagnostic trial of `chromium-renderer-unblock-20261026` with narrowly scoped Wine process/status traces (`+pid,+process,+seh`) to observe the exact exit code and termination trigger of the navigation renderer before modifying Wine.
+  - **Option 2 (Token Security Integration):** Create a dedicated integration branch combining Wine `4315be83` and Claude Token Security commits (`097a76a`, `0b3891f` for `ProcessHandleTable` enumeration, `NtCreateLowBoxToken` AppContainer lowbox tokens, and restricted token DACL evaluation) with a clean D-backed build, followed by the single authorized live comparison.
 
 Private screenshots/runtime/logs remain on D: private storage. Stopping for parent review.
