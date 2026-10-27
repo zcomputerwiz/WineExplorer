@@ -15,6 +15,7 @@ import time
 
 from g4_diagnostic_inventory import observe_file,require_regular_canonical
 from g4_edge_http_fixture import FixtureServer
+from g4_child_observer import ChildObserver
 import g4_chromium_cache as cache
 
 def load(name):
@@ -174,7 +175,7 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
     approved=guards(output,helpers,deadline-CLEANUP,now) # no output/listener/process on rejected guard
     output.mkdir();result=dict(passed=False,diagnostic_exit=1,observation_complete=False,mode=MODE,
         classification='Changed parentage: ordinary CreateProcess held-handle Chromium status ONLY; never rendering/security acceptance',approved=approved)
-    env=None;comp=server=None
+    env=None;comp=server=observer=None
     def bound(cap,cleanup=False):
         left=deadline-now()-(0 if cleanup else CLEANUP)
         if left<=0:raise TimeoutError('Whole Chromium native diagnostic deadline')
@@ -202,13 +203,18 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
                 deadline-CLEANUP,now=now,sleep=sleep,popen=popen)
         nonce=secrets.token_hex(16);server=FixtureServer(FIXTURE,nonce);result['http_fixture']=server.record
         url=server.start(timeout=bound(2));result['url']=url
-        def monitor():comp.verify();server.check();log_quota(output)
+        observer=ChildObserver(output,now=now)
+        def monitor():comp.verify();server.check();observer.sample();log_quota(output)
         contract=dict(operation_seconds=OPERATION,nonce=nonce,image=cal.win(RUNTIME/'chrome.exe'),
             command=lambda out,n:command(n,url),binding=lambda v,n,i:binding(v,n,i,url),parse=lambda raw,n,i:parse(raw,n,i,url))
         cal.collect(output,env,result,deadline-CLEANUP,cleanup,monitor,now=now,sleep=sleep,popen=popen,contract=contract)
+        result['child_exit_diagnostic']=observer.finish()
         result['observation_complete']=result['native'].get('outcome')=='native_exit'
     except Exception as error:result['error']=repr(error);result['observation_complete']=False
     finally:
+        if observer is not None and 'child_exit_diagnostic' not in result:
+            try:result['child_exit_diagnostic']=observer.finish()
+            except Exception as error:result['child_exit_diagnostic_error']=repr(error)
         # Preserve and interpret flushed failure/timeout journal even helper1/early race.
         try:
             raw=cal.journal(output)
