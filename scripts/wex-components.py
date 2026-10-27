@@ -93,8 +93,8 @@ COMPONENTS_METADATA = {
         'description': 'Installs original Microsoft TrueType core fonts (Arial, Times New Roman, Courier New, Georgia, Verdana, Comic Sans, Trebuchet, Impact, Andale Mono, Webdings).',
         'size': '~4 MB',
         'reboot': False,
-        'disabled': True,
-        'disabled_reason': 'Package-matched Core Fonts terms acquisition and shared-font validation pending',
+        'disabled': False,
+        'disabled_reason': '',
         'terms_url': None,
         'recipe_files': [
             ('andale32.exe', '0524fe42951adc3a7eb870e32f0920313c71f170c859b5f770d82b4ee111e970'),
@@ -109,9 +109,9 @@ COMPONENTS_METADATA = {
             ('verdan32.exe', 'c1cb61255e363166794e47664e2f21af8e3a26cb6346eb8d2ae2fa85dd5aad96'),
             ('webdin32.exe', '64595b5abc1080fba8610c5c34fab5863408e806aafe84653ca8575bed17d75a'),
         ],
-        # Review-only route: the complete applicable agreements are embedded in the
-        # packages themselves (PE resource RCDATA/LICENSE/1033, CP1252). Reviewing
-        # does not enable installation (see 'disabled' above).
+        # Embedded terms route: applicable agreements are embedded in the
+        # packages themselves (PE resource RCDATA/LICENSE/1033, CP1252).
+        # Reviewing and accepting these terms enables verified offline installation.
         'review': {
             'mode': 'embedded-package-terms',
             'policy': 'embedded-review-v1',
@@ -310,6 +310,69 @@ def verify_runtime_artifacts(machine):
             raise ValueError('Approved runtime artifact missing or changed: ' + str(path))
 
 
+COREFONTS_ARTIFACTS = {
+    'andalemo.ttf': (105468, '48d9bc613917709d3b0e0f4a6d4fe33a5c544c5035dffe9e90bc11e50e822071'),
+    'arial.ttf': (275572, '35c0f3559d8db569e36c31095b8a60d441643d95f59139de40e23fada819b833'),
+    'arialbd.ttf': (286620, '4044aa6b5bebbc36980206b45b0aaaaa5681552a48bcadb41746d5d1d71fd7b4'),
+    'arialbi.ttf': (224692, '2f371cd9d96b3ac544519d85c16dc43ceacdfcea35090ee8ddf3ec5857c50328'),
+    'ariali.ttf': (206132, '70ade233175a6a6675e4501461af9326e6f78b1ffdf787ca0da5ab0fc8c9cfd6'),
+    'ariblk.ttf': (117028, 'dad7c04acb26e23dfe4780e79375ca193ddaf68409317e81577a30674668830e'),
+    'comic.ttf': (126364, 'b82c53776058f291382ff7e008d4675839d2dc21eb295c66391f6fb0655d8fc0'),
+    'comicbd.ttf': (111476, '873361465d994994762d0b9845c99fc7baa2a600442ea8db713a7dd19f8b0172'),
+    'cour.ttf': (302688, '6715838c52f813f3821549d3f645db9a768bd6f3a43d8f85a89cb6875a546c61'),
+    'courbd.ttf': (311508, 'edf8a7c5bfcac2e1fe507faab417137cbddc9071637ef4648238d0768c921e02'),
+    'courbi.ttf': (234788, '66dbfa20b534fba0e203da140fec7276a45a1069e424b1b9c35547538128bbe8'),
+    'couri.ttf': (244156, 'f3f6b09855b6700977e214aab5eb9e5be6813976a24f894bd7766e92c732fbe1'),
+    'georgia.ttf': (142964, '7d0bb20c632bb59e81a0885f573bd2173f71f73204de9058feb68ce032227072'),
+    'georgiab.ttf': (139584, '82d2fbadb88a8632d7f2e8ad50420c9fd2e7d3cbc0e90b04890213a711b34b93'),
+    'georgiai.ttf': (156668, '1523f19bda6acca42c47c50da719a12dd34f85cc2606e6a5af15a7728b377b60'),
+    'georgiaz.ttf': (158796, 'c983e037d8e4e694dd0fb0ba2e625bca317d67a41da2dc81e46a374e53d0ec8a'),
+    'impact.ttf': (136076, '00f1fc230ac99f9b97ba1a7c214eb5b909a78660cb3826fca7d64c3af5a14848'),
+    'times.ttf': (330412, '4e98adeff8ccc8ef4e3ece8d4547e288ff85fdc9c7ca711a4599c234874bbe86'),
+    'timesbd.ttf': (333900, '4357b63cef20c01661a53c5dae70ffd20cb4765503aaed6d38b17a57c5a90bff'),
+    'timesbi.ttf': (238612, '192e1b0d18e90334e999a99f8c32808d6a2e74b3698b8cd90c943c2249a46549'),
+    'timesi.ttf': (247092, 'c25ae529b4cecdbca148b6ccb862ee0abad770af8b1fd29c8dba619d1b8da78a'),
+    'trebuc.ttf': (126796, 'ec3ffb302488251e1b67fb09dd578b364c5339e27c1cfb26eb627666236453d0'),
+    'trebucbd.ttf': (123828, 'f65941f9487c0a0a3b7445996ecbbd24466d7ae76ea2a597ced55f438fa63838'),
+    'trebucbi.ttf': (131188, 'c0a6bdf31f9f2953b2f08a0c1734c892bc825f0fb17c604d420f7acf203a213b'),
+    'trebucit.ttf': (139288, 'db56fdac7d3ba20b7aededcb6ee86c46687489d17b759e1708ea4e2d21e38410'),
+    'verdana.ttf': (139640, '96ed14949ca4b7392cff235b9c41d55c125382abbe0c0d3c2b9dd66897cae0cb'),
+    'verdanab.ttf': (136032, 'c8f5065ba91680f596af3b0378e2c3e713b95a523be3d56ae185ca2b8f5f0b23'),
+    'verdanai.ttf': (154264, '91b59186656f52972531a11433c866fd56e62ec4e61e2621a2dba70c8f19a828'),
+    'verdanaz.ttf': (153324, '698e220f48f4a40e77af7eb34958c8fd02f1e18c3ba3f365d93bfa2ed4474c80'),
+    'webdings.ttf': (118752, '10d099c88521b1b9e380b7690cbe47b54bb19396ca515358cfdc15ac249e2f5d'),
+}
+
+
+def corefonts_artifact_paths(machine):
+    fonts_dir = machine / 'drive_c/windows/Fonts'
+    for name, (size, digest) in COREFONTS_ARTIFACTS.items():
+        yield fonts_dir / name, size, digest
+
+
+def verify_corefonts_artifacts(machine):
+    fonts_dir = machine / 'drive_c/windows/Fonts'
+    if fonts_dir.is_symlink() or not fonts_dir.is_dir():
+        raise ValueError('Invalid fonts directory: ' + str(fonts_dir))
+    for path, expected_size, digest in corefonts_artifact_paths(machine):
+        actual_path = path
+        if not actual_path.is_file() and not actual_path.is_symlink():
+            candidates = [p for p in fonts_dir.iterdir() if p.name.casefold() == path.name.casefold()]
+            if candidates:
+                actual_path = candidates[0]
+        if actual_path.is_symlink():
+            raise ValueError('Core fonts artifact is a symlink: ' + str(actual_path))
+        if not actual_path.is_file():
+            raise ValueError('Core fonts artifact missing: ' + str(actual_path))
+        stat_info = actual_path.stat()
+        if stat_info.st_size != expected_size:
+            raise ValueError(f'Core fonts artifact size mismatch for {actual_path.name}: expected {expected_size}, got {stat_info.st_size}')
+        if hashlib.sha256(actual_path.read_bytes()).hexdigest() != digest:
+            raise ValueError('Approved core fonts artifact changed: ' + str(actual_path))
+        if stat_info.st_mode & 0o444 != 0o444:
+            raise ValueError('Core fonts artifact not readable by all users: ' + str(actual_path))
+
+
 def repair_runtime_artifacts(machine, cache):
     """Publish only verified minimum-runtime DLLs, never through prefix links.
 
@@ -434,6 +497,50 @@ def cache_runtime_payloads(cache):
                 temporary.unlink(missing_ok=True)
 
 
+def cache_corefonts_payloads(cache, review_cache=None):
+    """Stage verified Core Fonts packages from the review cache into winetricks cache.
+
+    Called only after install() has rechecked explicit terms acceptance.
+    """
+    review_dir = (review_cache or REVIEW_CACHE) / 'corefonts'
+    destination = cache / 'corefonts'
+    if destination.is_symlink():
+        raise ValueError('Refusing symlinked corefonts payload cache')
+    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if destination.stat().st_uid != 0 or destination.stat().st_mode & 0o022:
+        raise ValueError('Core fonts cache must be root-owned and private')
+
+    packages = review_packages('corefonts')
+    for package in packages:
+        name = package['name']
+        size = package['size']
+        sha256 = package['sha256']
+        target = destination / name
+        if target.exists() or target.is_symlink():
+            if target.is_symlink() or not target.is_file() or target.stat().st_uid != 0 or target.stat().st_mode & 0o022:
+                raise ValueError('Untrusted cached corefonts payload: ' + name)
+            if target.stat().st_size == size and hashlib.sha256(target.read_bytes()).hexdigest() == sha256:
+                continue
+            raise ValueError('Corrupt corefonts cache; no installer started')
+        source = review_dir / name
+        if source.is_symlink() or not source.is_file() or source.stat().st_size != size:
+            raise ReviewRequired(f'Core fonts payload {name} missing or changed in review cache')
+        if hashlib.sha256(source.read_bytes()).hexdigest() != sha256:
+            raise ValueError(f'Core fonts payload {name} integrity mismatch in review cache')
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=destination, prefix='.corefonts-', delete=False) as out:
+                temporary = Path(out.name)
+                os.fchmod(out.fileno(), 0o600)
+                shutil.copyfile(source, temporary)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary, target)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+
 def is_admin():
     return os.getuid() == 0 or grp.getgrnam('sudo').gr_gid in (*os.getgroups(), os.getgid())
 
@@ -453,6 +560,8 @@ def component_identity(verb):
               'architecture': 'wow64'}
     if verb == 'vcrun2022':
         record['runtime_artifacts'] = RUNTIME_ARTIFACTS
+    elif verb == 'corefonts':
+        record['corefonts_artifacts'] = COREFONTS_ARTIFACTS
     return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -1405,6 +1514,10 @@ def is_installed(verb, accepted_digest=None, machine=None):
                     if data.get('execution_recipe_sha256') != hashlib.sha256(approved_runtime_recipe()).hexdigest():
                         return False
                     verify_runtime_artifacts(machine)
+                elif verb == 'corefonts':
+                    if data.get('component_identity') != component_identity(verb):
+                        return False
+                    verify_corefonts_artifacts(machine)
                 return True
         except Exception:
             pass
@@ -1602,6 +1715,15 @@ def install(verb, accepted_digest):
             os.replace(script, approved_script)
             command = ['/usr/bin/unshare', '--net', *command]
             command[command.index('/usr/bin/winetricks')] = str(approved_script)
+        elif verb == 'corefonts':
+            cache_corefonts_payloads(cache)
+            command = ['/usr/bin/unshare', '--net', *command]
+            fonts_dir = MACHINE / 'drive_c/windows/Fonts'
+            if fonts_dir.is_dir() and not fonts_dir.is_symlink():
+                for font_name in COREFONTS_ARTIFACTS:
+                    for entry in fonts_dir.glob('*'):
+                        if entry.name.casefold() == font_name.casefold() and entry.is_symlink():
+                            entry.unlink()
         regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
         if regedit_src.is_file():
             ensure_installer_regedit(MACHINE)
@@ -1630,12 +1752,27 @@ def install(verb, accepted_digest):
                 raise ValueError('Installer did not finish; machine-prefix Wine stopped; installation may be partial')
             if recovery is not None:
                 recovery['safe_to_restore'] = True
-            if result.returncode == 0 and verb == 'vcrun2022':
-                repair_runtime_artifacts(MACHINE, cache)
+            if result.returncode == 0:
+                if verb == 'vcrun2022':
+                    repair_runtime_artifacts(MACHINE, cache)
+                elif verb == 'corefonts':
+                    fonts_dir = MACHINE / 'drive_c/windows/Fonts'
+                    if fonts_dir.is_dir() and not fonts_dir.is_symlink():
+                        parent_stat = fonts_dir.stat()
+                        for font_name in COREFONTS_ARTIFACTS:
+                            for entry in fonts_dir.glob('*'):
+                                if entry.name.casefold() == font_name.casefold() and entry.is_file() and not entry.is_symlink():
+                                    try:
+                                        os.chown(entry, -1, parent_stat.st_gid)
+                                        entry.chmod(0o644)
+                                    except OSError:
+                                        pass
         if result.returncode:
             raise ValueError(f'{verb} failed (exit {result.returncode}); installation may be partial; see console output')
         if verb == 'vcrun2022':
             verify_runtime_artifacts(MACHINE)
+        elif verb == 'corefonts':
+            verify_corefonts_artifacts(MACHINE)
         receipt = MACHINE.parent / 'component-receipts'
         receipt.mkdir(mode=0o755, exist_ok=True)
         if receipt.is_symlink() or receipt.stat().st_uid != 0 or receipt.stat().st_mode & 0o022:

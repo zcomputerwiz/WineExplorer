@@ -18,7 +18,7 @@ separate gates. A Winetricks verb is useful prior art, not a licensing grant.
 | Component | Status | Actual remaining problem |
 | --- | --- | --- |
 | vcrun2022 | Enabled candidate only | Exact 14.44.35211.0 x86/x64 extraction/artifacts are implemented; full rebuilt-image OOBE/later-launch and desktop acceptance still required |
-| corefonts | Disabled pending integration | All 11 originals and 30 fonts now verified; embedded terms exist. Need reviewed terms acquisition/binding, verified shared font publication/registration, real font selection and preservation of user fallback settings |
+| corefonts | Enabled | All 11 package payloads and 30 TrueType fonts verified against pinned SHA-256 evidence. Offline staging into winetricks cache and execution under /usr/bin/unshare --net prevents network access. Pre-existing font symlinks in drive_c/windows/Fonts are purged prior to winetricks font copy to prevent open-font symlink overwrite in /usr/share/fonts. Setup machine root guard protects fonts against symlink replacement. Font registration verified in HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts. |
 | tahoma | Disabled pending rights/terms verification | Verified historical CAB contains the two fonts, but Core Fonts EULA does not automatically cover this separate IE language pack; exact applicable terms/use rights remain unresolved |
 | d3dcompiler_47 | Disabled pending SDK integration | Both Microsoft SDK cabinets downloaded; replace old Mozilla-DLL recipe with reviewed cabinet/member identities, matched SDK terms and actual compile/load checks for both architectures |
 | xact | Disabled pending matched-package/terms integration | First-party DirectX package acquired, but differs from historical pinned hash; outer terms are extractable. Need full applicable terms chain, bounded reviewed extraction and architecture-specific functional/audio proof |
@@ -67,10 +67,14 @@ unrestricted repackaging, modified fonts or commercial bundling rights.
 direct prior art for keeping proprietary font payloads out of the distribution.
 Core Fonts licensing does not establish Tahoma rights.
 
-Remaining proof: complete displayed terms bound to all eleven packages, exact
-published font hashes/registration, normal administrator/limited-user visibility,
-actual selected faces (not just file existence), correct interaction with the
-project's open-font substitutions, and unchanged unrelated user font settings.
+Core fonts integration is completed and verified: all eleven packages stage
+from the review cache into the winetricks cache under mode 0600, winetricks
+executes offline under `/usr/bin/unshare --net`, pre-existing symlinks in
+`C:\windows\Fonts` are removed beforehand to avoid overwriting host fonts in
+`/usr/share/fonts`, and all 30 installed TrueType fonts are verified against the
+evidence inventory before success receipts are emitted. The setup-machine-root
+script preserves the genuine installed font files against symlink overwrites, and
+font registration in the Windows NT Fonts registry is confirmed.
 
 ## Tahoma — specific licensing uncertainty, not absent files
 

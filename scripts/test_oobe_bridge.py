@@ -507,9 +507,10 @@ class LiveCoordinatorBridgeTests(unittest.TestCase):
             'WEX_COMPONENTS_DIR': str(self.receipts_dir),
             'WEX_MACHINE_PREFIX': str(self.machine),
         }).start()
+        real_uid = os.getuid()
         patch.object(tcr.components.os, 'getuid', return_value=0).start()
         patch.object(tcr.components.pwd, 'getpwnam',
-                     return_value=Mock(pw_uid=os.getuid())).start()
+                     return_value=Mock(pw_uid=real_uid)).start()
         if os.geteuid() != 0:
             orig_stat, orig_lstat = Path.stat, Path.lstat
 

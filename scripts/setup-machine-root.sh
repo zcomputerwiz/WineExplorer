@@ -116,7 +116,9 @@ while read -r font_name font_target; do
     [[ -n "$font_name" && "$font_name" != \#* ]] || continue
     [[ "$font_name" != */* && "$font_target" == /* ]] || { echo "Invalid font mapping" >&2; exit 1; }
     if [ -f "$font_target" ]; then
-        ln -sfn "$font_target" "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name"
+        if [ ! -f "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name" ] || [ -L "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name" ]; then
+            ln -sfn "$font_target" "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name"
+        fi
     else
         echo "Missing open font target (skipped): $font_target" >&2
     fi

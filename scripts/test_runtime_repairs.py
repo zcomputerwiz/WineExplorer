@@ -349,6 +349,7 @@ class ComponentsTests(unittest.TestCase):
             with with_enabled_component('corefonts'), \
                     patch.object(components, 'validate_winetricks_integrity'), \
                     patch.object(components, 'validate_recipe_files'), \
+                    patch.object(components, 'cache_corefonts_payloads'), \
                     patch.object(components, 'MACHINE', machine), patch.object(components, 'CACHE', cache), \
                     patch.object(components.os, 'getuid', return_value=0), \
                     patch.object(components, 'license_text', return_value=('vendor terms', 'sha')), \
@@ -358,7 +359,8 @@ class ComponentsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'exit 42'):
                     components.install('corefonts', 'sha')
             install = next(call for call in calls if 'winetricks' in ' '.join(call[0]))
-            self.assertEqual(install[0], ['/usr/bin/timeout', '--signal=TERM',
+            self.assertEqual(install[0], ['/usr/bin/unshare', '--net',
+                                         '/usr/bin/timeout', '--signal=TERM',
                                          '--kill-after=10s', '1800s', '/usr/bin/xvfb-run',
                                          '-a', '/usr/bin/winetricks', '-q', 'corefonts'])
             self.assertEqual(install[1]['env']['WINEPREFIX'], str(machine))
@@ -385,6 +387,7 @@ class ComponentsTests(unittest.TestCase):
             with with_enabled_component('corefonts'), \
                     patch.object(components, 'validate_winetricks_integrity'), \
                     patch.object(components, 'validate_recipe_files'), \
+                    patch.object(components, 'cache_corefonts_payloads'), \
                     patch.object(components, 'MACHINE', machine), \
                     patch.object(components, 'CACHE', Path(scratch) / 'cache'), \
                     patch.object(components.os, 'getuid', return_value=0), \
@@ -406,6 +409,8 @@ class ComponentsTests(unittest.TestCase):
             with with_enabled_component('corefonts'), \
                     patch.object(components, 'validate_winetricks_integrity'), \
                     patch.object(components, 'validate_recipe_files'), \
+                    patch.object(components, 'cache_corefonts_payloads'), \
+                    patch.object(components, 'verify_corefonts_artifacts'), \
                     patch.object(components, 'MACHINE', machine), patch.object(components, 'CACHE', cache), \
                     patch.object(components.os, 'getuid', return_value=0), \
                     patch.object(components, 'license_text', return_value=('vendor terms', 'test-sha')), \
@@ -437,11 +442,13 @@ class ComponentsTests(unittest.TestCase):
                 'winetricks_version': components.APPROVED_WINETRICKS_VERSION,
                 'architecture': 'wow64',
                 'recipe_files': components.COMPONENTS_METADATA['corefonts']['recipe_files'],
+                'component_identity': components.component_identity('corefonts'),
             }))
 
             with with_enabled_component('corefonts'), \
                     patch.object(components, 'validate_winetricks_integrity'), \
                     patch.object(components, 'validate_recipe_files'), \
+                    patch.object(components, 'verify_corefonts_artifacts'), \
                     patch.object(components, 'MACHINE', machine), \
                     patch.object(components.os, 'getuid', return_value=0), \
                     patch.object(components, 'license_text', return_value=('vendor terms', 'test-sha')), \
@@ -470,14 +477,16 @@ class ReceiptIdentityTests(unittest.TestCase):
                 'winetricks_version': components.APPROVED_WINETRICKS_VERSION,
                 'architecture': 'wow64',
                 'recipe_files': components.COMPONENTS_METADATA['corefonts']['recipe_files'],
+                'component_identity': components.component_identity('corefonts'),
             }
             target = receipts / 'corefonts.json'
             target.write_text(json.dumps(record))
-            self.assertTrue(components.is_installed('corefonts', 'a' * 64, machine))
-            for key, value in (('recipe_files', []), ('architecture', 'win32'),
-                               ('winetricks_version', 'changed')):
-                target.write_text(json.dumps(dict(record, **{key: value})))
-                self.assertFalse(components.is_installed('corefonts', 'a' * 64, machine), key)
+            with patch.object(components, 'verify_corefonts_artifacts'):
+                self.assertTrue(components.is_installed('corefonts', 'a' * 64, machine))
+                for key, value in (('recipe_files', []), ('architecture', 'win32'),
+                                   ('winetricks_version', 'changed')):
+                    target.write_text(json.dumps(dict(record, **{key: value})))
+                    self.assertFalse(components.is_installed('corefonts', 'a' * 64, machine), key)
 
 
 class PackagingTests(unittest.TestCase):
@@ -709,7 +718,7 @@ class OobeCoordinatorTests(unittest.TestCase):
 
     def test_install_rejects_disabled_component(self):
         self.start_coordinator()
-        resp = self.send_request('START_INSTALL corefonts aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+        resp = self.send_request('START_INSTALL physx aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
         self.assertTrue(resp.startswith('ERR'))
         self.assertIn('disabled', resp)
 
@@ -871,6 +880,8 @@ class OobeCoordinatorTests(unittest.TestCase):
             with with_enabled_component('corefonts'), \
                  patch.object(components, 'validate_winetricks_integrity'), \
                  patch.object(components, 'validate_recipe_files'), \
+                 patch.object(components, 'cache_corefonts_payloads'), \
+                 patch.object(components, 'verify_corefonts_artifacts'), \
                  patch.object(components, 'MACHINE', machine_dir), \
                  patch.object(components, 'CACHE', cache_dir), \
                  patch.object(components, 'license_text', return_value=('dummy terms', fake_sha)), \
@@ -902,7 +913,7 @@ class CatalogParserTests(unittest.TestCase):
 
     def test_all_components_have_explicit_reasons(self):
         for verb, meta in components.COMPONENTS_METADATA.items():
-            if verb == 'vcrun2022':
+            if verb in ('vcrun2022', 'corefonts'):
                 self.assertFalse(meta.get('disabled'), f"{verb} must be enabled for release candidate")
                 self.assertEqual(meta.get('disabled_reason', ''), '')
             else:

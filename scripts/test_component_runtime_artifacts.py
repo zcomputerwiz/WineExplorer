@@ -178,5 +178,146 @@ class RuntimeDefaultsTests(unittest.TestCase):
                 c.runtime_defaults_text(text)
 
 
+class CorefontsArtifactTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.machine = self.root / 'machine'
+        self.fonts_dir = self.machine / 'drive_c/windows/Fonts'
+        self.fonts_dir.mkdir(parents=True)
+        self.cache = self.root / 'cache'
+        self.review_cache = self.root / 'review'
+        (self.review_cache / 'corefonts').mkdir(parents=True)
+        self.addCleanup(patch.stopall)
+
+    def test_real_artifact_table_matches_inventory(self):
+        inventory_file = Path(__file__).resolve().parents[1] / 'docs/evidence/oobe-corefonts-inventory-20261018.json'
+        if not inventory_file.is_file():
+            self.skipTest('Font inventory evidence missing')
+        inventory = json.loads(inventory_file.read_text(encoding='utf-8'))
+        expected_fonts = {}
+        for pkg in inventory['corefonts']:
+            for fname, info in pkg['fonts'].items():
+                expected_fonts[fname.lower()] = (info['size'], info['sha256'])
+        self.assertEqual(len(c.COREFONTS_ARTIFACTS), 30)
+        self.assertEqual(c.COREFONTS_ARTIFACTS, expected_fonts)
+
+    def test_verification_positive_and_tampering(self):
+        test_manifest = {}
+        for name in ('arial.ttf', 'times.ttf', 'cour.ttf'):
+            content = f'font-content-for-{name}'.encode('ascii')
+            target = self.fonts_dir / name
+            target.write_bytes(content)
+            target.chmod(0o644)
+            test_manifest[name] = (len(content), hashlib.sha256(content).hexdigest())
+        with patch.object(c, 'COREFONTS_ARTIFACTS', test_manifest):
+            # 1. Positive: all fonts match
+            c.verify_corefonts_artifacts(self.machine)
+
+            # 2. Tampered content fails
+            (self.fonts_dir / 'arial.ttf').write_bytes(b'font-content-for-arial.xyz')
+            with self.assertRaisesRegex(ValueError, 'Approved core fonts artifact changed'):
+                c.verify_corefonts_artifacts(self.machine)
+            (self.fonts_dir / 'arial.ttf').write_bytes(b'font-content-for-arial.ttf')
+            c.verify_corefonts_artifacts(self.machine)
+
+            # 3. Wrong size fails
+            (self.fonts_dir / 'times.ttf').write_bytes(b'short')
+            with self.assertRaisesRegex(ValueError, 'size mismatch'):
+                c.verify_corefonts_artifacts(self.machine)
+            (self.fonts_dir / 'times.ttf').write_bytes(b'font-content-for-times.ttf')
+            c.verify_corefonts_artifacts(self.machine)
+
+            # 4. Missing font fails
+            (self.fonts_dir / 'cour.ttf').unlink()
+            with self.assertRaisesRegex(ValueError, 'missing'):
+                c.verify_corefonts_artifacts(self.machine)
+            (self.fonts_dir / 'cour.ttf').write_bytes(b'font-content-for-cour.ttf')
+            c.verify_corefonts_artifacts(self.machine)
+
+            # 5. Symlinked font fails
+            ext = self.root / 'external.ttf'
+            ext.write_bytes(b'font-content-for-arial.ttf')
+            (self.fonts_dir / 'arial.ttf').unlink()
+            (self.fonts_dir / 'arial.ttf').symlink_to(ext)
+            with self.assertRaisesRegex(ValueError, 'symlink'):
+                c.verify_corefonts_artifacts(self.machine)
+            (self.fonts_dir / 'arial.ttf').unlink()
+            (self.fonts_dir / 'arial.ttf').write_bytes(b'font-content-for-arial.ttf')
+            c.verify_corefonts_artifacts(self.machine)
+
+            # 6. Unreadable font fails
+            (self.fonts_dir / 'cour.ttf').chmod(0o000)
+            with self.assertRaisesRegex(ValueError, 'not readable'):
+                c.verify_corefonts_artifacts(self.machine)
+            (self.fonts_dir / 'cour.ttf').chmod(0o644)
+            c.verify_corefonts_artifacts(self.machine)
+
+    def test_cache_corefonts_payloads_staging(self):
+        packages = c.review_packages('corefonts')
+        rev_core = self.review_cache / 'corefonts'
+        for pkg in packages:
+            dummy = b'P' * pkg['size']
+            (rev_core / pkg['name']).write_bytes(dummy)
+
+        # Hash mismatch in review cache
+        with patch.object(c.os, 'getuid', return_value=0):
+            with self.assertRaisesRegex(ValueError, 'integrity mismatch'):
+                c.cache_corefonts_payloads(self.cache, self.review_cache)
+
+        # Mock matching hashes
+        mock_packages = []
+        for pkg in packages:
+            content = f"dummy-pkg-{pkg['name']}".encode()
+            (rev_core / pkg['name']).write_bytes(content)
+            mock_packages.append({'name': pkg['name'], 'size': len(content),
+                                  'sha256': hashlib.sha256(content).hexdigest()})
+        with patch.object(c, 'review_packages', return_value=mock_packages), \
+             patch.object(c.os, 'getuid', return_value=0):
+            c.cache_corefonts_payloads(self.cache, self.review_cache)
+            for pkg in mock_packages:
+                staged = self.cache / 'corefonts' / pkg['name']
+                self.assertTrue(staged.is_file())
+                self.assertFalse(staged.is_symlink())
+                self.assertEqual(hashlib.sha256(staged.read_bytes()).hexdigest(), pkg['sha256'])
+                self.assertEqual(staged.stat().st_mode & 0o777, 0o600)
+
+            # Missing package in review cache raises ReviewRequired
+            (rev_core / mock_packages[0]['name']).unlink()
+            (self.cache / 'corefonts' / mock_packages[0]['name']).unlink()
+            with self.assertRaises(c.ReviewRequired):
+                c.cache_corefonts_payloads(self.cache, self.review_cache)
+
+    def test_corefonts_identity_bound_to_manifest_and_receipt(self):
+        before = c.component_identity('corefonts')
+        test_manifest = dict(c.COREFONTS_ARTIFACTS)
+        test_manifest['arial.ttf'] = (1234, '0' * 64)
+        with patch.object(c, 'COREFONTS_ARTIFACTS', test_manifest):
+            self.assertNotEqual(before, c.component_identity('corefonts'))
+
+        # Receipt verification requires component_identity and artifacts
+        receipts = self.machine.parent / 'component-receipts'
+        receipts.mkdir()
+        record = {
+            'verb': 'corefonts',
+            'winetricks_sha256': c.APPROVED_WINETRICKS_SHA256,
+            'winetricks_version': c.APPROVED_WINETRICKS_VERSION,
+            'architecture': 'wow64',
+            'recipe_files': [list(item) for item in c.COMPONENTS_METADATA['corefonts']['recipe_files']],
+            'component_identity': c.component_identity('corefonts'),
+        }
+        receipt = receipts / 'corefonts.json'
+        receipt.write_text(json.dumps(record))
+
+        with patch.object(c, 'verify_corefonts_artifacts') as mock_verify:
+            self.assertTrue(c.is_installed('corefonts', machine=self.machine))
+            mock_verify.assert_called_once_with(self.machine)
+
+            record['component_identity'] = 'tampered_identity'
+            receipt.write_text(json.dumps(record))
+            self.assertFalse(c.is_installed('corefonts', machine=self.machine))
+
+
 if __name__ == '__main__':
     unittest.main()
