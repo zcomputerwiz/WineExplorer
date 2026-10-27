@@ -162,11 +162,20 @@ def read_owned_stat(pid,*,deadline,now=time.monotonic):
     return raw
 
 
+def transient_identity_reason(error):
+    # Whitelist of tolerable periodic-identity rejections (observation timeout or read/query
+    # unavailability). Concrete PID reuse, wrong owner/prefix/argv mismatch and every other
+    # rejection stay strict: unknown reasons are never treated as transient.
+    reason=str(error)
+    return reason=='Linux identity observation deadline' or reason.startswith('Linux identity read/query failed:')
+
+
 def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Popen,contract=None):
     operation=OPERATION if contract is None else contract['operation_seconds']
     image=win(LAB/(NAME+'-stage')/'original/exit-child.exe') if contract is None else contract['image']
     bind=binding if contract is None else contract['binding']
     parse_journal=parse if contract is None else contract['parse']
+    tolerant=contract is not None and bool(contract.get('tolerant_periodic_identity'))
     start=now();end=min(deadline,start+operation);child=None;stamp=None
     result.update(helper_started=False,helper_reaped=False)
     result.update(nonce=secrets.token_hex(16) if contract is None else contract['nonce'],helper_operation_maximum_seconds=operation,helper_phase='before_popen')
@@ -192,25 +201,37 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
                 if type(code) is not int or code!=0 or type(result['linux_helper_wait_exit']) is not int or result['linux_helper_wait_exit']!=code:raise ValueError('Linux helper failed/exit mismatch')
                 if 'linux_helper_first_live' not in result:raise ValueError('Helper exited before independent Linux identity')
                 break
+            record=None
             try:
                 result['helper_phase']='linux_identity'
                 record=linux_identity(Path('/proc'),child.pid,stamp,PREFIX,argv,approved_loader=str(APPROVED_LOADER),deadline=end-REAP,now=now)
             except LinuxIdentityError as error:
-                result['linux_helper_rejected_identity']=error.observation
-                result['error']=repr(error)
-                try:
-                    path=output/'native-exit.jsonl'
+                established='linux_helper_first_live' in result and 'binding_received_monotonic' in result
+                if tolerant and established and transient_identity_reason(error):
+                    # Transient observation timeout / read-unavailability AFTER owned Popen identity +
+                    # native held-handle binding are established. Record partial/unknown evidence and
+                    # continue so the browser's full native wait proceeds; never label an unread
+                    # observation as successful. Concrete reuse/wrong-owner/prefix/argv still aborts.
+                    warn=result.setdefault('linux_helper_observation_warnings',{'count':0,'reasons':{}})
+                    reason=str(error);warn['count']+=1;warn['reasons'][reason]=warn['reasons'].get(reason,0)+1
+                    warn.setdefault('first_monotonic',now());warn['last_monotonic']=now()
+                else:
+                    result['linux_helper_rejected_identity']=error.observation
+                    result['error']=repr(error)
                     try:
-                        stat=path.lstat()
-                        result['native_journal_at_identity_rejection']={'present':True,'bytes':stat.st_size}
-                    except FileNotFoundError:result['native_journal_at_identity_rejection']={'present':False}
-                except Exception as secondary:
-                    result.setdefault('observation_errors',[]).append('Rejected identity journal metadata: '+repr(secondary))
-                try:save(output/'results.json',result) # BEFORE exact helper abort/reap/prefix teardown
-                except Exception as secondary:
-                    result.setdefault('observation_errors',[]).append('Rejected identity persistence: '+repr(secondary))
-                raise
-            result.setdefault('linux_helper_first_live',record);result['linux_helper_last_live']=record
+                        path=output/'native-exit.jsonl'
+                        try:
+                            stat=path.lstat()
+                            result['native_journal_at_identity_rejection']={'present':True,'bytes':stat.st_size}
+                        except FileNotFoundError:result['native_journal_at_identity_rejection']={'present':False}
+                    except Exception as secondary:
+                        result.setdefault('observation_errors',[]).append('Rejected identity journal metadata: '+repr(secondary))
+                    try:save(output/'results.json',result) # BEFORE exact helper abort/reap/prefix teardown
+                    except Exception as secondary:
+                        result.setdefault('observation_errors',[]).append('Rejected identity persistence: '+repr(secondary))
+                    raise
+            if record is not None:
+                result.setdefault('linux_helper_first_live',record);result['linux_helper_last_live']=record
             monitor();logs(output)
             raw=journal(output)
             if b'\n' in raw:

@@ -203,7 +203,7 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
         nonce=secrets.token_hex(16);server=FixtureServer(FIXTURE,nonce);result['http_fixture']=server.record
         url=server.start(timeout=bound(2));result['url']=url
         def monitor():comp.verify();server.check();log_quota(output)
-        contract=dict(operation_seconds=OPERATION,nonce=nonce,image=cal.win(RUNTIME/'chrome.exe'),
+        contract=dict(operation_seconds=OPERATION,nonce=nonce,image=cal.win(RUNTIME/'chrome.exe'),tolerant_periodic_identity=True,
             command=lambda out,n:command(n,url),binding=lambda v,n,i:binding(v,n,i,url),parse=lambda raw,n,i:parse(raw,n,i,url))
         cal.collect(output,env,result,deadline-CLEANUP,cleanup,monitor,now=now,sleep=sleep,popen=popen,contract=contract)
         result['observation_complete']=result['native'].get('outcome')=='native_exit'
