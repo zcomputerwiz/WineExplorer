@@ -19,6 +19,8 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261026 actual92bab165/e2e31b83 diagnostic NOTaccepted as exit/causeproof: primary LinuxIdentityError observationdeadline aborted18.7s, nativebound-only, blankfront/HTTPempty, cleanupmayexplainvanish. Live metadata21checks0fail ACCEPTED. CHROMIUM_RENDERER_DIAGNOSTIC_ABORT_REVIEW_20261026.md assigns smallestChromium-only observation-timeoutWARN policy + removeglobalChildObserver + ONEfreshnormalfullnativewaitcontrol. PreservePIDreuse/signalingownership/deadlines. No observerperfection/newframework/speculativetokenpatch, actualbrowserfirst.
+
 LATEST20261026 renderer14d25fcc/98e50300 ACCEPTED/importc7f5fac0/e9893d9a;38parenttests pass, helperSHA/headerverified. CHROMIUM_RENDERER_EXIT_DIAGNOSTIC_20261026.md assigns ONE genuinelynewchild-exit/terminationdiagnostic sameowner/branch, notidenticalprocess+seh rerun. ParentreadWineNtTerminateProcess lacksTRACE: oldnoTerminateProcessline cannotexcludeexit. Mojo/in-process-network/nevercrashed claimsunproven. No speculativetokenintegrationyet; actualfailurefirst.
 
 LATEST20261026 runtime-unblock0206d03c/report4b1c31fc reviewed/imported95f26352+bced4ab6;33parenttests pass, actual viewed AwSnap RESULT_CODE_KILLED front, HTTPempty/helper45stimeout. Main/GPU/renderers appear; cause NOTproven by mitigationwarnings/page-discardlog. CHROMIUM_RENDERER_TERMINATION_WORK_ORDER_20261026.md selects actualrenderer-unblock; fix two smallmode omissions (stripcompositorprefix and metadata probe skipped) then retainedlog/source diagnosis, smallest supportedWinefix/ONEfreshcontrol or narrowlytargeted diagnostic. Reuse existingtokenstack ifactualpathneeds, no harnessperfection/duplicateAPI stack.
