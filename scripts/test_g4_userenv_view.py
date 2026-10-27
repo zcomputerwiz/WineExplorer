@@ -272,6 +272,30 @@ class ProbeTests(unittest.TestCase):
                 self.assertEqual(error.exception.code,2)
         finally:r.configure('r1')
 
+    def test_actual_token_integration_cli_and_paths(self):
+        r=native.r
+        try:
+            with mock.patch.object(r.sys,'argv',['native','--token-integration']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as run:
+                self.assertEqual(r.main(),1);self.assertEqual(r.MODE,'token-integration')
+                self.assertEqual(r.HOST,'chromium-token-integration-20261027')
+                self.assertEqual(r.STAGE,r.LAB/'chromium-token-integration-20261027-stage')
+                self.assertEqual(r.OUTPUT,r.LAB/'chromium-token-integration-20261027')
+                self.assertEqual(r.PROFILE,r.OUTPUT/'profile')
+                self.assertEqual(r.BUILD,r.LAB/'wine-token-integration-20261027/build/wow64')
+                self.assertEqual(run.call_args.args[0],r.LAB/'chromium-token-integration-20261027')
+            with mock.patch.object(r.sys,'argv',['native','--token-integration','--userenv-r6']),contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:r.main()
+                self.assertEqual(error.exception.code,2)
+            view.configure('token-integration')
+            self.assertEqual(view.MODE,'token-integration')
+            self.assertEqual(view.STAGE,view.LAB/'chromium-token-integration-20261027-stage')
+            self.assertEqual(view.OUTPUT,view.LAB/'chromium-token-integration-20261027')
+            self.assertEqual(view.BUILD,view.LAB/'wine-token-integration-20261027/build/wow64')
+            self.assertEqual(len(view.selected()),4)
+        finally:
+            r.configure('r1')
+            view.configure('userenv-r3')
+
     def test_r6_probe_decode_strict_negatives(self):
         nonce='0123456789abcdef0123456789abcdef'
         self.assertTrue(probe6.decode(json.dumps(payload6(nonce)).encode(),nonce,0)['passed'])
