@@ -19,6 +19,17 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+PARALLEL USER REQUEST20261027: GPT-6.1 Terra Meitner
+01a17fa5-b248-7d32-8e0e-479ea198264b owns a documentation-only source audit under
+CHROMIUM_API_REQUIREMENTS_AUDIT_WORK_ORDER_20261027.md at e838ad91. Reuses the
+stopped old Luna D:/DeepThought/Worktrees/chromium-r5-preparation/WineExplorer
+on NEW codex/chromium-api-requirements. Deliverables are a pinned active-API
+requirements matrix and draft Antigravity Wine assessment order. Parent reviews
+before dispatching that order. No VM/code/build/submodule or cross-agent changes.
+Keep this disjoint from active Antigravity control-channel work; do not duplicate
+the upstream audit or stop the current Chromium investigation. Model explicitly
+requested by the user: gpt-6.1-terra, high reasoning.
+
 LATEST20261027 termination002e5b49/Winea91ceea source+rawtracereview/33parenttests6.508spass. Serverkill_process(violent1) beforebrowserNTterminate isNEWusefulevidence, NOTproofunhandledcrash: process_poll_eventPOLLHUP/POLLERR calls kill_process(!is_terminating), request.cFDprotocolerrorsalso1. CHROMIUM_CONTROL_CHANNEL_WORK_ORDER_20261027.md assigns tinyWEXtraceactualpollevent/FDsendrecverrno/clientclosecorrelation + ONEfreshcontrol, supportedrealfix+ONEpostfixverificationifidentified; no genericobserver/fakeAPI/crashRIPassumption. ExcluderejectedECNstub.
 
 LATEST20261027 e8d91c06/Wined629841 reviewed: REJECTaccept-ignoreECNstub(no real receive/query/validation), noimport/build/deploy. PinnedChromiumcallerUDPSocketWin::SetRecvTos notTCP; TCPprobeunrelatedtocmsg, ECNcompatTODOwithoutpagecausality. CHROMIUM_ECN_REVIEW_AND_TERMINATION_WORK_ORDER_20261027.md assigns minimalopt-inactualNtTerminateProcess/serverjob/naturalexittrace onOWNrootcodex/chromium-termination-trace/Winecodex/g4-termination-trace FROMfffa7de, existingownconfiguredWSLbuildavailable;incrementalmatchedclientserver/privatefreshcandidate+ONEfreshnormalbrowsercontrol,noall-syscall/winsock/globalobserver/harnessredesign. Actualkillcallerstatusbeforecleanupgoal.
