@@ -185,7 +185,7 @@ def collect(output,env,result,deadline,begin_cleanup,monitor,*,now=time.monotoni
         if left<=0:raise TimeoutError('Owned helper reap deadline exhausted')
         return left
     try:
-        if end-start<operation:raise TimeoutError('Insufficient complete helper operation/reap budget')
+        if end-start<operation-1e-6:raise TimeoutError('Insufficient complete helper operation/reap budget')
         with (output/'helper.stdout.log').open('wb') as out,(output/'helper.stderr.log').open('wb') as err:
             child=popen(argv,env=env,stdout=out,stderr=err,start_new_session=True)
             result['helper_started']=True
