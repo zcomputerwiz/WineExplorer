@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261028 real guest OOM independently verified in retained serial.log:
+global_oom killed Linux1183 CrRendererMain,4GiBRAM/no swap. e477a0b4 exact0268
+mapping remains circumstantial/reportbrowserLinux220 wrong(actual1082), but OOM
+is concrete. CHROMIUM_OOM_REVIEW_AND_8G_CONTROL_20261028.md assigns SAMEAGowner
+ONEfreshRAM-only8GiB normalChromium comparison/sameactual02d4ef2matchedcandidate,
+no tracebuild/swap/browserflags/newimage/harnessround. Preserveallpaths/evidence.
+APIc29b77d0 delivered/sourceonly; parentconfirmedhandlecountzerostub, callerfatal
+effectunverified/staticIPCcoverageNOTexclusionproof. Defer APIpatch/EGL work
+until actual8GiB page result. Prior idle-memory result did not rule out loadOOM.
+
 LATEST20261028 control15558e62/Wine02d4ef2 reviewed against raw trace/journal/
 native results/QMP and viewed PNG. Confirm0268 POLLIN|POLLHUP before forced1 and
 laterbrowsertermination; NOT Unixdeath/causeproof. Missing cleanclose trace does
