@@ -41,9 +41,9 @@ HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 def configure(mode):
     """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,PROFILE,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS,BUILD
-    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g'):raise ValueError('Unknown fixed Chromium mode')
+    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g','navigation-unblock'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
-    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','memory-8g':'chromium-memory-8g-20261028'}[mode]
+    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','memory-8g':'chromium-memory-8g-20261028','navigation-unblock':'chromium-navigation-unblock-20261028'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
     PROFILE=OUTPUT/'profile' # nested under the fresh OUTPUT; aligns with native WEX_EXIT_OUTPUT+"\profile"
@@ -51,10 +51,11 @@ def configure(mode):
     FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
     DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode!='r1' else '')
     HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']} if mode=='r1' else None
-    if mode=='memory-8g':
-        # RAM-only control: reuse the last deployed matched combined candidate from the
-        # control-channel run (02d4ef2 tracepoints over fffa7de); do NOT rebuild Wine or
-        # redeploy traces. Point launch + CORE/loader observation + identity loader at it.
+    if mode in ('memory-8g','navigation-unblock'):
+        # Reuse the last deployed matched combined candidate from the control-channel run
+        # (02d4ef2 tracepoints over fffa7de); do NOT rebuild Wine or redeploy traces. Point
+        # launch + CORE/loader observation + identity loader at it. (memory-8g: RAM-only;
+        # navigation-unblock: bounded NetLog boundary diagnostic on the same candidate.)
         BUILD=LAB/'wine-control-channel-20261027/build/wow64'
         cal.BUILD=BUILD
         cal.APPROVED_LOADER=BUILD/'loader/wine' # identity attestation must name the candidate loader, not the import-time build
@@ -63,8 +64,13 @@ def child_args(nonce,url):
     if (not isinstance(nonce,str) or not re.fullmatch('[0-9a-f]{32}',nonce)
             or not isinstance(url,str) or not re.fullmatch(r'http://127\.0\.0\.1:([1-9][0-9]{0,4})/'+nonce+'/index.html#nonce='+nonce,url)
             or not 1<=int(url.split(':')[2].split('/')[0])<=65535):raise ValueError('Exact nonce/private loopback URL required')
-    return [cal.win(RUNTIME/'chrome.exe'),'--app='+url,'--user-data-dir='+cal.win(PROFILE),
+    args=[cal.win(RUNTIME/'chrome.exe'),'--app='+url,'--user-data-dir='+cal.win(PROFILE),
         '--no-first-run','--no-default-browser-check','--enable-logging','--log-file='+cal.win(OUTPUT/'chromium.log'),'--v=1']
+    if MODE=='navigation-unblock':
+        # Bounded logging-only NetLog (Default capture, 8MiB) that flushes before the 45s cutoff;
+        # must exactly mirror the WEX_NETLOG helper contract so the held-handle binding matches.
+        args+=['--log-net-log='+cal.win(OUTPUT/'netlog.json'),'--net-log-max-size-mb=8','--net-log-duration=40s']
+    return args
 
 def command(nonce,url):
     child_args(nonce,url)
@@ -192,7 +198,7 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
         for key in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','TMPDIR'):Path(env[key]).mkdir()
         result['environment']={k:v for k,v in env.items() if k.startswith(('WINE','WEX_','XDG_')) or k in ('HOME','TMPDIR')}
         helpers.configure_gl_driver(env,'virgl')
-        compositor_options={'strip_wineprefix':True} if MODE in ('userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g') else {}
+        compositor_options={'strip_wineprefix':True} if MODE in ('userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g','navigation-unblock') else {}
         comp=cal.OwnedWexcomp(LAB/'labwc',LAB/'wayland',output,env,'gles2',**compositor_options)
         if bound(55)<55:raise TimeoutError('Compositor budget')
         result['compositor']=comp.start();result['outer']=comp.verify_gpu_renderer('virgl')
@@ -264,11 +270,12 @@ def main():
     selection.add_argument('--observation-control',action='store_true',help='Fixed observation-control diagnostic identity')
     selection.add_argument('--observation-control-r2',action='store_true',help='Fixed observation-control R2 diagnostic identity')
     selection.add_argument('--memory-8g',action='store_true',help='RAM-only control at 8GiB reusing the deployed control-channel candidate; no Wine rebuild or trace redeploy')
+    selection.add_argument('--navigation-unblock',action='store_true',help='Bounded NetLog boundary diagnostic for the loopback navigation, reusing the deployed control-channel candidate; no Wine rebuild or trace redeploy')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
-    configure('memory-8g' if args.memory_8g else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
+    configure('navigation-unblock' if args.navigation_unblock else 'memory-8g' if args.memory_8g else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
     return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))

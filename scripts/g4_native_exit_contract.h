@@ -17,7 +17,7 @@
 
 struct wex_launch {
     const wchar_t *image, *events, *nonce;
-    const wchar_t *child_args[9];
+    const wchar_t *child_args[12]; /* widened for optional bounded NetLog args */
     size_t count;
     uint32_t wait_ms;
     int calibration;
@@ -64,6 +64,13 @@ static inline int wex_validate(int argc,wchar_t **argv,struct wex_launch *out) {
         v.child_args[5]=L"--enable-logging";
         v.child_args[6]=L"--log-file=" WEX_EXIT_OUTPUT L"\\chromium.log";
         v.child_args[7]=L"--v=1";v.count=8;
+#ifdef WEX_NETLOG
+        /* Bounded logging-only NetLog (Default capture, 8MiB) that flushes before the 45s
+         * observation cutoff. No IncludeSensitive/Everything/TLS-key capture/debug port. */
+        v.child_args[8]=L"--log-net-log=" WEX_EXIT_OUTPUT L"\\netlog.json";
+        v.child_args[9]=L"--net-log-max-size-mb=8";
+        v.child_args[10]=L"--net-log-duration=40s";v.count=11;
+#endif
     } else if (argc==8 && !wcscmp(argv[1],L"--calibration") &&
         !wcscmp(argv[2],L"--image") && !wcscmp(argv[3],WEX_EXIT_CHILD) &&
         !wcscmp(argv[4],L"--events") && !wcscmp(argv[5],WEX_EXIT_CAL_OUTPUT L"\\native-exit.jsonl") &&
