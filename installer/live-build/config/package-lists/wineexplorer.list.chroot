@@ -69,6 +69,8 @@ libblkid1
 e2fsprogs
 dosfstools
 fdisk
+mdadm
+nvme-cli
 grub-pc
 grub-pc-bin
 grub-efi-amd64-bin
