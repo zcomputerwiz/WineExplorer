@@ -19,6 +19,17 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261028 parent reviewed0dd0e07f/raw8GiB results/logs/PNG: actual8192RAM,
+no serialOOM, BLANKfront/HTTPrequests[]/noJSreadiness, heldbrowser45stimeout.
+ReportreadinesspresentWRONG; WEX_TERM_TRACEabsent so zerokilltraceNOTnodeathproof
+and diagnosticenvironmentnotidentical. NoRAMrepeat. Read
+CHROMIUM_8G_REVIEW_AND_NAVIGATION_WORK_ORDER_20261028.md: SAMEAGowner nexttarget
+navigation->URLRequest boundary usingexistingboundedDefaultNetLog/source-backed
+logging/ONEnewdiagnostic, supportedrealWinefix+focusedregression+ONEpostfixpage
+verificationauthorized. Keep8GiB/actualmatched02d4ef2/privateLO/sandbox/features;
+no speculativehandlecount/EGLpatch/globalobserver/harnessround. Handlecount0
+isreachedbutChromiumadds1000entries; fatalitynotestablished. No globalpinimport.
+
 LATEST20261028 real guest OOM independently verified in retained serial.log:
 global_oom killed Linux1183 CrRendererMain,4GiBRAM/no swap. e477a0b4 exact0268
 mapping remains circumstantial/reportbrowserLinux220 wrong(actual1082), but OOM
