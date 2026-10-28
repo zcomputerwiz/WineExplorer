@@ -41,9 +41,9 @@ HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 def configure(mode):
     """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,PROFILE,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS,BUILD
-    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','token-integration','termination-trace'):raise ValueError('Unknown fixed Chromium mode')
+    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','token-integration','termination-trace','control-channel'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
-    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','token-integration':'chromium-token-integration-20261027','termination-trace':'chromium-termination-trace-20261027'}[mode]
+    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','token-integration':'chromium-token-integration-20261027','termination-trace':'chromium-termination-trace-20261027','control-channel':'chromium-control-channel-20261027'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
     PROFILE=OUTPUT/'profile' # nested under the fresh OUTPUT; aligns with native WEX_EXIT_OUTPUT+"\profile"
@@ -51,8 +51,8 @@ def configure(mode):
     FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
     DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode!='r1' else '')
     HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']} if mode=='r1' else None
-    if mode in ('token-integration','termination-trace'):
-        BUILD=LAB/({'token-integration':'wine-token-integration-20261027','termination-trace':'wine-termination-trace-20261027'}[mode]+'/build/wow64')
+    if mode in ('token-integration','termination-trace','control-channel'):
+        BUILD=LAB/({'token-integration':'wine-token-integration-20261027','termination-trace':'wine-termination-trace-20261027','control-channel':'wine-control-channel-20261027'}[mode]+'/build/wow64')
         cal.BUILD=BUILD
         cal.APPROVED_LOADER=BUILD/'loader/wine' # identity attestation must name the candidate loader, not the import-time build
 
@@ -186,11 +186,11 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
     def cleanup(reason):result.setdefault('cleanup_started',dict(reason=reason,monotonic=now()))
     try:
         env=cal.install.environment(output);env.update(WINEPREFIX=str(PREFIX),WINEDEBUG=DEBUG)
-        if MODE=='termination-trace':env['WEX_TERM_TRACE']='1' # opt-in WEXTERM process-termination tracepoints (ntdll.so + wineserver stderr -> helper.stderr.log); off by default in every other mode
+        if MODE in ('termination-trace','control-channel'):env['WEX_TERM_TRACE']='1' # opt-in WEXTERM/wex_term_trace control-channel tracepoints (ntdll.so + wineserver stderr -> helper.stderr.log); off by default in every other mode
         for key in ('HOME','XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','TMPDIR'):Path(env[key]).mkdir()
         result['environment']={k:v for k,v in env.items() if k.startswith(('WINE','WEX_','XDG_')) or k in ('HOME','TMPDIR')}
         helpers.configure_gl_driver(env,'virgl')
-        compositor_options={'strip_wineprefix':True} if MODE in ('userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','token-integration','termination-trace') else {}
+        compositor_options={'strip_wineprefix':True} if MODE in ('userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','token-integration','termination-trace','control-channel') else {}
         comp=cal.OwnedWexcomp(LAB/'labwc',LAB/'wayland',output,env,'gles2',**compositor_options)
         if bound(55)<55:raise TimeoutError('Compositor budget')
         result['compositor']=comp.start();result['outer']=comp.verify_gpu_renderer('virgl')
@@ -263,11 +263,12 @@ def main():
     selection.add_argument('--observation-control-r2',action='store_true',help='Fixed observation-control R2 diagnostic identity')
     selection.add_argument('--token-integration',action='store_true',help='Fixed token-integration diagnostic identity')
     selection.add_argument('--termination-trace',action='store_true',help='Fixed termination-trace diagnostic identity (WEX_TERM_TRACE on; captures page-renderer termination)')
+    selection.add_argument('--control-channel',action='store_true',help='Fixed control-channel diagnostic identity (WEX_TERM_TRACE on; isolates the causal control-socket event that sets violent_death=1)')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
-    configure('termination-trace' if args.termination_trace else 'token-integration' if args.token_integration else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
+    configure('control-channel' if args.control_channel else 'termination-trace' if args.termination_trace else 'token-integration' if args.token_integration else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
     return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))
