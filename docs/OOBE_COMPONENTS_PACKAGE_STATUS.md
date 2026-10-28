@@ -20,7 +20,7 @@ separate gates. A Winetricks verb is useful prior art, not a licensing grant.
 | vcrun2022 | Enabled candidate only | Exact 14.44.35211.0 x86/x64 extraction/artifacts are implemented; full rebuilt-image OOBE/later-launch and desktop acceptance still required |
 | corefonts | Enabled | All 11 package payloads and 30 TrueType fonts verified against pinned SHA-256 evidence. Offline staging into winetricks cache and execution under /usr/bin/unshare --net prevents network access. Pre-existing font symlinks in drive_c/windows/Fonts are purged prior to winetricks font copy to prevent open-font symlink overwrite in /usr/share/fonts. Setup machine root guard protects fonts against symlink replacement. Font registration verified in HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts. |
 | tahoma | Disabled pending rights/terms verification | Verified historical CAB contains the two fonts, but Core Fonts EULA does not automatically cover this separate IE language pack; exact applicable terms/use rights remain unresolved |
-| d3dcompiler_47 | Disabled pending SDK integration | Both Microsoft SDK cabinets downloaded; replace old Mozilla-DLL recipe with reviewed cabinet/member identities, matched SDK terms and actual compile/load checks for both architectures |
+| d3dcompiler_47 | Enabled | First-party Microsoft Windows 8.1 Standalone SDK cabinet distribution integrated. License RTF extracted statically from sdksetup.exe Burn manifest (u1, 64,354 bytes -> 18,295-byte plain text, SHA-256 5b575dc8...); offline staging and unshared net execution extracts 32-bit (syswow64) and 64-bit (system32) d3dcompiler_47.dll PEs with exact SHA-256 verification. Machine root DLL overrides protected to retain Wine builtin default globally while enabling native compiler fallback. Verified in live OOBE UI dual-acceptance flow. |
 | xact | Disabled pending matched-package/terms integration | First-party DirectX package acquired, but differs from historical pinned hash; outer terms are extractable. Need full applicable terms chain, bounded reviewed extraction and architecture-specific functional/audio proof |
 | physx | Disabled pending modern recipe/testing | 9.23.1019 package downloaded/hashed; old Winetricks bug cutoff is stale. Need matched terms extraction, reviewed recipe change and actual CPU/runtime/application compatibility tests; GPU acceleration is not implied |
 
@@ -90,23 +90,30 @@ does not offer it as an independent free font download. Do not use Windows-owned
 font files or the Core Fonts EULA as substitutes for package-specific evidence.
 Keep Wine's builtin/open-font fallback working in the meantime.
 
-## Compiler 47 — Microsoft cabinet route exists
+## Compiler 47 — Enabled with Microsoft SDK cabinet distribution
 
-Current upstream Winetricks uses the Windows 8.1 SDK's Microsoft-hosted cabinets,
-unlike our old pinned verb's Mozilla-hosted DLLs. Both cabinets were acquired from
-download.microsoft.com under the documented B0C80BA3-8AD6-4958-810B-6882485230B5
-standalonesdk/Installers path. Observed SHA256:
+DirectX Shader Compiler `d3dcompiler_47` is enabled and integrated using first-party
+Microsoft Windows 8.1 Standalone SDK endpoints on `download.microsoft.com`:
+- `sdksetup.exe` (1,281,424 bytes, SHA256: `5107822a5a99bcdef4c7b7c7eea218425692f0185750b0d4fafd441034a7486b`)
+- `2630bae9681db6a9f6722366f47d055c.cab` (3,467,294 bytes, SHA256: `d0440eb81c532dc23639c0c63f2fcde9deddb23bb4cce01c19ac6b96cc3e269d`)
+- `61d57a7a82309cd161a854a6f4619e52.cab` (4,174,380 bytes, SHA256: `f736e161547095bb8d98c636b85fdfeb4070fefeee3c3745db3ce88f6eb1d9de`)
 
-- 2630bae9681db6a9f6722366f47d055c.cab:
-  d0440eb81c532dc23639c0c63f2fcde9deddb23bb4cce01c19ac6b96cc3e269d
-- 61d57a7a82309cd161a854a6f4619e52.cab:
-  f736e161547095bb8d98c636b85fdfeb4070fefeee3c3745db3ce88f6eb1d9de
+Terms extraction statically unpacks the Burn engine payload manifest from `sdksetup.exe`
+to extract the official license RTF resource `u1` (64,354 bytes). The terms parser strips RTF
+control tags, yielding an 18,295-byte plain-text agreement (SHA256:
+`5b575dc86b5e04198a8915dabe81b987daae47be007ad42897bc57a5d92a5f43`) encompassing the
+complete Windows Software Development Kit agreement.
 
-This establishes an acquisition path, not an approved manifest/terms package.
-Need exact member/PE identities, corresponding SDK license/redist conditions and
-functional shader compilation tests. Do not substitute newer unrelated SDK terms.
-[SDK downloads/archive entry point](https://learn.microsoft.com/en-us/windows/apps/windows-sdk/downloads).
-Retain the builtin compiler as default until explicit optional installation is proven.
+Execution replaces the old unverified Mozilla GitHub recipe with an approved, offline
+recipe:
+1. `sdksetup.exe` and both cabinets are verified in review cache and staged to Winetricks cache mode 0600.
+2. Binary cabinet members are extracted offline without network access (`/usr/bin/unshare --net`):
+   - 32-bit PE member `fila319f706acfa16d6707473ebf29bdc7f` -> staged as `d3dcompiler_47_32.dll` (3,466,856 bytes, SHA256: `efbdbbcd0d954f8fdc53467de5d89ad525e4e4a9cfff8a15d07c6fdb350c407f`)
+   - 64-bit PE member `fil3585cb2ea5db13cc0838f8d06b5c9679` -> staged as `d3dcompiler_47.dll` (4,173,928 bytes, SHA256: `e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4`)
+3. The recipe copies the 32-bit PE to `C:\windows\syswow64\d3dcompiler_47.dll` and the 64-bit PE to `C:\windows\system32\d3dcompiler_47.dll`.
+4. Artifact hashes are strictly verified fail-closed after installation.
+5. `protect_builtins` purges installer registry overrides (`HKCU\Software\Wine\DllOverrides`) so Wine's builtin DirectX compiler remains default globally while native compiler DLLs are placed in the system directories for applications requesting native overrides.
+6. Verified live end-to-end in OOBE wizard flow alongside `corefonts` (receipt `d3dcompiler_47.json`).
 
 ## XACT — terms are extractable without executing the package
 

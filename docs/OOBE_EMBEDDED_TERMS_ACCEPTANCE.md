@@ -424,44 +424,53 @@ PE binaries are byte-identical to Round-1 POST-state by construction — the R2/
 milestone and does not fail the build (`make_wexhost_rc=0`). Left as-is to keep the diff
 scoped; flagged here for the reviewer.
 
-## §6 — Live acceptance (actual-live-UI / desktop / fresh-installed-image): PASS (Live OOBE UI Flow)
+## §6 — Live acceptance (actual-live-UI / desktop / fresh-installed-image): PASS (Dual Component Live OOBE UI Flow)
 
 **What is now RUN and PASS:**
 On 2026-10-28, the complete end-to-end live OOBE wizard flow was executed on the WoW64 VM (`WineExplorer-VM`, Debian GNU/Linux 12 bookworm x86_64, port 2222) using `scripts/test_live_oobe.sh`. The test ran inside an Xvfb virtual frame buffer (`:99`, 1024x768x24) within Wine's internal desktop manager (`wine explorer /desktop=OOBE,1024x768 oobe.exe`) as the dedicated `wexsetup` service account, communicating over `/run/wex-oobe/coordinator.sock` with `wex-components --oobe-coordinator` running as root.
 
-The wizard successfully traversed every screen from the initial Luna Blue Welcome screen through component selection, embedded license review, offline font installation, user provisioning, and final setup completion. The coordinator executed the CoreFonts recipe offline under `/usr/bin/unshare --net`, verified all 30 font artifacts against hardcoded SHA-256 digests, and created `/var/lib/wineexplorer/component-receipts/corefonts.json` with an accompanying `.sha256` sidecar. Upon completion, `oobe.exe` signaled setup completion via `/etc/wineexplorer/setup/stage-oobe-done` and terminated with exit code 0.
+The wizard successfully traversed every screen from the initial Luna Blue Welcome screen through component selection, embedded license review, offline dual-component installation (`corefonts` + `d3dcompiler_47`), user provisioning, and final setup completion. The coordinator executed both recipes offline under `/usr/bin/unshare --net`:
+1. **CoreFonts**: Verified all 11 cabinet packages, extracted and verified all 30 font artifacts against hardcoded SHA-256 digests, and created `/var/lib/wineexplorer/component-receipts/corefonts.json` with an accompanying `.sha256` sidecar.
+2. **DirectX Shader Compiler (`d3dcompiler_47`)**: Verified `sdksetup.exe` and both Windows 8.1 Standalone SDK cabinet packages, extracted license RTF `u1` (64,354 bytes -> 18,295-byte plain text, SHA-256 `5b575dc8...`), extracted and verified 32-bit `syswow64/d3dcompiler_47.dll` (`efbdbbcd...`, 3,466,856 bytes) and 64-bit `system32/d3dcompiler_47.dll` (`e994847e...`, 4,173,928 bytes), protected machine template registry DLL overrides, and created `/var/lib/wineexplorer/component-receipts/d3dcompiler_47.json` with an accompanying `.sha256` sidecar.
+
+Upon completion, `oobe.exe` signaled setup completion via `/etc/wineexplorer/setup/stage-oobe-done` and terminated with exit code 0.
 
 | Cell | Category | Status | Execution Evidence |
 |------|----------|--------|-------------------|
 | Isolated review-dialog render (synthetic transport, bounded, no network): readable production text / long-term terms scroll / full cancellation wording at 800x600 + 1280x800 | synthetic (driver PE) | **PASS** (§4b) | mingw cross-compiler + Wine loader; verified at 800x600 and 1280x800 resolutions. |
 | Round-2 native `oobe.exe` rebuild + welcome-page re-execute (both archs) | native-executed | **PASS** (Round 3, 2026-10-24) | `wexhost.so` rebuilt both archs (`make_wexhost_rc=0`); both `oobe.exe` PEs executed to rendered welcome pages on Xvfb :95/:96 (`r3_exec_oobe.log`, `oobe_{i386,x64}_r3_welcome.png`). |
-| Live OOBE End-to-End Wizard Flow (`oobe.exe` in Wine desktop under Xvfb) | actual-live-UI | **PASS** (2026-10-28) | Driven via `scripts/test_live_oobe.sh` on `WineExplorer-VM`. Navigated Welcome → Updates → Connectivity → Components → Review Dialog → Accept → Install → Users → Password → Finish. |
+| Live OOBE End-to-End Wizard Flow (`oobe.exe` in Wine desktop under Xvfb) | actual-live-UI | **PASS** (2026-10-28) | Driven via `scripts/test_live_oobe.sh` on `WineExplorer-VM`. Navigated Welcome → Updates → Connectivity → Components → CoreFonts Review → Accept → d3dcompiler_47 Review → Accept → Install → Users → Password → Finish. |
 | CoreFonts truthful source / size / terms verification | actual-live-UI | **PASS** (2026-10-28) | Review dialog displays pinned SourceForge archive attribution, 11 packages, 3.8 MB combined, 67.8 MB working space, and rendered EULA (`step5_review_dialog.png`). |
 | CoreFonts review acceptance control separation | actual-live-UI | **PASS** (2026-10-28) | `IDC_REV_AGREE` checkbox initialized unchecked and enabled; "Accept" button disabled until explicitly checked via `Alt+A` (`step6_review_accepted.png`). |
-| CoreFonts offline unshared installation & artifact guards | actual-live-UI + root coordinator | **PASS** (2026-10-28) | Executed under `/usr/bin/unshare --net`; all 30 font artifacts verified; receipt `/var/lib/wineexplorer/component-receipts/corefonts.json` and SHA-256 sidecar written; `operations.json` records SUCCESS. |
-| User provisioning & Setup completion signal | actual-live-UI | **PASS** (2026-10-28) | `IDC_USER1` focused and populated with "TestUser" (`step10_users.png`); summary on Finish page records 1 installed, 5 skipped (`step12_finish.png`); `/etc/wineexplorer/setup/stage-oobe-done` written. |
+| d3dcompiler_47 truthful source / size / terms verification | actual-live-UI | **PASS** (2026-10-28) | Review dialog displays `Microsoft Corporation (download.microsoft.com)`, 3 packages, ~4.2 MB download size, and rendered Windows 8.1 Standalone SDK license agreement (`step6b_d3dcompiler_review.png`). |
+| d3dcompiler_47 review acceptance control separation | actual-live-UI | **PASS** (2026-10-28) | `IDC_REV_AGREE` checkbox initialized unchecked and enabled; "Accept" button disabled until explicitly checked via `Alt+A` (`step6c_d3dcompiler_accepted.png`). |
+| Dual-component selection and focus restoration | actual-live-UI | **PASS** (2026-10-28) | `SetFocus(hList)` in `ReviewComponentTerms` restores list view navigation on dialog exit; both `corefonts` and `d3dcompiler_47` checked in list view (`step7_components_checked.png`). |
+| Offline unshared dual installation & artifact guards | actual-live-UI + root coordinator | **PASS** (2026-10-28) | Executed under `/usr/bin/unshare --net`; all font and DirectX compiler DLL artifacts verified; receipts `/var/lib/wineexplorer/component-receipts/{corefonts,d3dcompiler_47}.json` and SHA-256 sidecars written; `operations.json` records SUCCESS. |
+| User provisioning & Setup completion signal | actual-live-UI | **PASS** (2026-10-28) | `IDC_USER1` focused and populated with "TestUser" (`step10_users.png`); summary on Finish page records 2 installed, 4 skipped (`step12_finish.png`); `/etc/wineexplorer/setup/stage-oobe-done` written. |
 | Before-state hashes/receipts/defaults + network trace; decline → zero requests | actual-live-UI | **PASS** (§4b, §6) | Verified by synthetic Gate E and live decline paths (no network sockets opened without user authorization). |
 | Limited later user cannot gain admin powers; Setup Skip finishes | desktop | **NOT RUN** | Fresh installed image + multi-user desktop session (requires post-install LightDM reboot). |
 | Theme/resolution and desktop-regression cells | desktop / fresh-installed-image | **NOT RUN** | Fresh installed image on physical display. |
 
 ### Step-by-Step UI Flow Screenshot Evidence (`evidence-ui/`)
 
-All 12 wizard steps were captured to `evidence-ui/step*.png`. Each screenshot captures a distinct, fully rendered state with unique content and SHA-256 hash:
+All 14 wizard steps were captured to `evidence-ui/step*.png`. Each screenshot captures a distinct, fully rendered state with unique content and SHA-256 hash:
 
 | Step | File Name | Size (Bytes) | SHA-256 Checksum | Description |
 |------|-----------|--------------|------------------|-------------|
 | 1 | `step1_welcome.png` | 5,926 | `5e72c5be2fe01651de68216ee67d18d378632362ab1101f6fc1018bafeaa8e24` | XP Luna Blue Welcome page with "Welcome to Debian GNU/Linux with WineExplorer" |
 | 2 | `step2_updates.png` | 7,273 | `ace562877be8a09a491b4a4d6694d889b1a701cb416b6408314fdcd0d646f4cb` | Help protect your PC (automatic updates configuration) |
 | 3 | `step3_connectivity.png` | 5,650 | `f9d944b52665541696a3eb86f1d5ce540710fbbbe56892bda960a6e6ec4bfac7` | Checking your Internet connectivity |
-| 4 | `step4_components.png` | 9,220 | `7883eede3eec59d9204840ea2c94a2ef412aeb37cbeaab93b24dc0a2d810182c` | Components catalog with `vcrun2022` and `corefonts` enabled; 4 others disabled |
-| 5 | `step5_review_dialog.png` | 12,304 | `5068ac95118f3c990c817a08db70d633fac2a545047d614520add41cc7b370dd` | Embedded Terms review dialog: SourceForge download info, 3.8 MB size, EULA text |
-| 6 | `step6_review_accepted.png` | 12,274 | `76db41f42a34a0faf7d26b9daa6cd5cf2e250a521fc29f0968525038de2e1cbf` | Review dialog with "I accept" checkbox checked and "Accept" button enabled |
-| 7 | `step7_components_checked.png` | 9,351 | `32948a34b5b0e7dd9a6a52991042a59706752f1f49a6cbe6b02a796a3853b7ca` | Components catalog with Microsoft TrueType Core Fonts checked for installation |
-| 8 | `step8_installing.png` | 9,947 | `b3ef867a374ec7f7098c06254c99b7fdfdc051b4ab81775053abe00459975803` | Installation progress screen ("Installing Microsoft TrueType Core Fonts... Please wait.") |
+| 4 | `step4_components.png` | 9,195 | `8bf3c4c244ebcc05b6c6a33cff325bb4273aca60272cc6040089bccb8d69e8a1` | Components catalog with `vcrun2022`, `corefonts`, and `d3dcompiler_47` offered; 3 others disabled |
+| 5 | `step5_review_dialog.png` | 12,290 | `eb89cf17f8ab26ae637f633e5c5537236addff0907bca2a77ed662600262c009` | CoreFonts Embedded Terms review dialog: SourceForge download info, 3.8 MB size, EULA text |
+| 6 | `step6_review_accepted.png` | 12,274 | `76db41f42a34a0faf7d26b9daa6cd5cf2e250a521fc29f0968525038de2e1cbf` | CoreFonts Review dialog with "I accept" checkbox checked and "Accept" button enabled |
+| 6b | `step6b_d3dcompiler_review.png` | 11,606 | `7b2974c778c051679e7b8da9448eef747ddb1ed60f419f2df87092f5b6aad446` | DirectX Shader Compiler review dialog: Microsoft Corporation (download.microsoft.com), ~4.2 MB size, Windows 8.1 SDK EULA text |
+| 6c | `step6c_d3dcompiler_accepted.png` | 11,593 | `4524f733172be83a812dfd0cdefa0ebaa791bc1b6f771fb6460752fcb68c064e` | DirectX Shader Compiler review dialog with "I accept" checkbox checked and "Accept" button enabled |
+| 7 | `step7_components_checked.png` | 9,265 | `9f294f46e49a67644f89844f1b0accf7fdd354a0410107f56abb5bdaa1927c0c` | Components catalog with both `corefonts` and `d3dcompiler_47` checked for installation |
+| 8 | `step8_installing.png` | 9,834 | `797f9873a7b8060507a0fb5e28b9c556dcd7afe722577fe7157201d5207fd325` | Installation progress screen ("Installing selected components... Please wait.") |
 | 9 | `step9_installed.png` | 6,175 | `4d553ad0f0ffb9a95f504136196f285e99bbed94a6c8a3c0941a4a1df4030b64` | Post-installation transition to User Account setup page |
 | 10 | `step10_users.png` | 6,279 | `bfd006634776f950ab47b65a067f58165c0237145fb1313845fd5533ac0e5e23` | "Who will use this computer?" page with "TestUser" entered in primary user slot |
 | 11 | `step11_password.png` | 5,834 | `4b21b29e422c2eb5270d57eb380c8522073d09479fd1596609c24007ed977f04` | "Set a password" page for user TestUser |
-| 12 | `step12_finish.png` | 7,089 | `b5689f7394900edc69bab85e47ad8916781f9fd31e037aaffb6a7ccd687791f6` | "Thank you!" finish page with summary: Installed: 1, Skipped: 5 |
+| 12 | `step12_finish.png` | 7,100 | `3d87f6817d9dadcf8a59fae3d1b8d4d328db34acccaaa92a57606fe793514db2` | "Thank you!" finish page with summary: Installed: 2, Skipped: 4 |
 
 ## §7 — Handoff
 

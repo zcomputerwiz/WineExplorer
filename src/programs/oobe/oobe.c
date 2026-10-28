@@ -653,20 +653,27 @@ static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
              * show the free space the user actually needs, not just the package size. */
             FormatReviewBytes(ctx->total_bytes + (64ULL * 1024 * 1024), need_str, sizeof(need_str));
             if (ctx->err == ERROR_SUCCESS) {
-                /* Q5: name the ACTUAL download provider and host, distinct from the
-                 * publisher. The Core Fonts review route is pinned to the SourceForge
-                 * distribution archive in the coordinator (wex-components.py
-                 * 'review.url_prefix'); it is not a Microsoft-hosted download. The size
-                 * shown is all eleven font packages combined, not a single package. */
+                const char *dl_source;
+                const char *pkg_noun;
+                char status_msg[192];
+                if (!strcmp(ctx->comp->verb, "d3dcompiler_47")) {
+                    dl_source = "Microsoft Corporation (download.microsoft.com)\r\n"
+                                "  Windows 8.1 Standalone SDK installer cabinets.";
+                    pkg_noun = "installer";
+                } else {
+                    dl_source = "SourceForge (downloads.sourceforge.net/corefonts/)\r\n"
+                                "  the pinned Core Fonts distribution archive; not a Microsoft-hosted download.";
+                    pkg_noun = "font";
+                }
                 snprintf(info, sizeof(info),
                          "Publisher: %s\r\n"
-                         "Downloaded from: SourceForge (downloads.sourceforge.net/corefonts/)\r\n"
-                         "  the pinned Core Fonts distribution archive; not a Microsoft-hosted download.\r\n"
-                         "%lu font packages, %s combined. Local cache: %s.\r\n"
+                         "Downloaded from: %s\r\n"
+                         "%lu %s packages, %s combined. Local cache: %s.\r\n"
                          "Free space needed: %s (packages plus 64 MB of working headroom).\r\n"
                          "Nothing will be executed or installed.",
                          ctx->comp->publisher[0] ? ctx->comp->publisher : "unknown",
-                         ctx->package_count, size_str,
+                         dl_source,
+                         ctx->package_count, pkg_noun, size_str,
                          ctx->cached ? "available (no network needed)" : "not present (download required)",
                          need_str);
                 SetDlgItemTextA(hwnd, IDC_REV_INFO, info);
@@ -675,8 +682,10 @@ static INT_PTR CALLBACK OobeReviewProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
                     ReviewDialogStartTermsFetch(hwnd, ctx);
                 } else {
                     EnableWindow(GetDlgItem(hwnd, IDC_BTN_REV_DOWNLOAD), TRUE);
-                    SetDlgItemTextA(hwnd, IDC_REV_STATUS,
-                        "Click \"Download packages to review\" to authorize downloading the font packages for review. Nothing downloads before you do.");
+                    snprintf(status_msg, sizeof(status_msg),
+                        "Click \"Download packages to review\" to authorize downloading the %s packages for review. Nothing downloads before you do.",
+                        pkg_noun);
+                    SetDlgItemTextA(hwnd, IDC_REV_STATUS, status_msg);
                 }
             } else {
                 snprintf(info, sizeof(info),
@@ -864,6 +873,7 @@ static void ReviewComponentTerms(HWND hwnd, int idx)
                 SetListCheckState(hList, idx, FALSE);
             }
         }
+        SetFocus(hList);
         return;
     }
     if (comp->disabled) {
@@ -872,6 +882,7 @@ static void ReviewComponentTerms(HWND hwnd, int idx)
         MessageBoxA(hwnd, msg, "Component Unavailable", MB_OK | MB_ICONINFORMATION);
         SetListCheckState(hList, idx, FALSE);
         comp->checked = false;
+        SetFocus(hList);
         return;
     }
     res = DialogBoxParamA(g_hInstance, MAKEINTRESOURCEA(IDD_OOBE_TERMS), hwnd, OobeTermsProc, (LPARAM)comp);
@@ -882,6 +893,7 @@ static void ReviewComponentTerms(HWND hwnd, int idx)
         comp->checked = false;
         SetListCheckState(hList, idx, FALSE);
     }
+    SetFocus(hList);
 }
 
 static void PopulateComponentsList(HWND hwnd)

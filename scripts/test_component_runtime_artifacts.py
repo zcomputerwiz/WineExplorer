@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 """Synthetic extraction tests; no vendor binaries, downloads, or Wine needed."""
+import copy
 import hashlib
 import importlib.util
 import json
@@ -317,6 +318,218 @@ class CorefontsArtifactTests(unittest.TestCase):
             record['component_identity'] = 'tampered_identity'
             receipt.write_text(json.dumps(record))
             self.assertFalse(c.is_installed('corefonts', machine=self.machine))
+
+
+class D3DCompiler47ArtifactTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.machine = self.root / 'machine'
+        (self.machine / 'drive_c/windows/syswow64').mkdir(parents=True)
+        (self.machine / 'drive_c/windows/system32').mkdir(parents=True)
+        self.cache = self.root / 'cache'
+        self.review_cache = self.root / 'review'
+        (self.cache / 'd3dcompiler_47').mkdir(parents=True)
+        (self.review_cache / 'd3dcompiler_47').mkdir(parents=True)
+        self.addCleanup(patch.stopall)
+
+    def test_artifact_table_identities(self):
+        self.assertEqual(len(c.D3DCOMPILER_47_ARTIFACTS), 2)
+        x86 = c.D3DCOMPILER_47_ARTIFACTS['x86']
+        x64 = c.D3DCOMPILER_47_ARTIFACTS['x64']
+        self.assertEqual(x86['path'], 'syswow64/d3dcompiler_47.dll')
+        self.assertEqual(x86['member'], 'fila319f706acfa16d6707473ebf29bdc7f')
+        self.assertEqual(x86['machine'], 0x14c)
+        self.assertEqual(x86['size'], 3466856)
+        self.assertEqual(x86['sha256'], 'efbdbbcd0d954f8fdc53467de5d89ad525e4e4a9cfff8a15d07c6fdb350c407f')
+
+        self.assertEqual(x64['path'], 'system32/d3dcompiler_47.dll')
+        self.assertEqual(x64['member'], 'fil3585cb2ea5db13cc0838f8d06b5c9679')
+        self.assertEqual(x64['machine'], 0x8664)
+        self.assertEqual(x64['size'], 4173928)
+        self.assertEqual(x64['sha256'], 'e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4')
+
+    def test_verification_positive_and_tampering(self):
+        test_manifest = {
+            'x86': {
+                'path': 'syswow64/d3dcompiler_47.dll',
+                'member': 'test_x86',
+                'cab': 'test_x86.cab',
+                'size': 256,
+                'sha256': hashlib.sha256(pe(0x14c)).hexdigest(),
+                'machine': 0x14c,
+            },
+            'x64': {
+                'path': 'system32/d3dcompiler_47.dll',
+                'member': 'test_x64',
+                'cab': 'test_x64.cab',
+                'size': 256,
+                'sha256': hashlib.sha256(pe(0x8664)).hexdigest(),
+                'machine': 0x8664,
+            },
+        }
+        with patch.object(c, 'D3DCOMPILER_47_ARTIFACTS', test_manifest):
+            p32 = self.machine / 'drive_c/windows/syswow64/d3dcompiler_47.dll'
+            p64 = self.machine / 'drive_c/windows/system32/d3dcompiler_47.dll'
+            p32.write_bytes(pe(0x14c))
+            p64.write_bytes(pe(0x8664))
+            p32.chmod(0o644)
+            p64.chmod(0o644)
+
+            # Positive
+            c.verify_d3dcompiler_artifacts(self.machine)
+
+            # Tampered hash
+            p32.write_bytes(b'x' * 256)
+            with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+                c.verify_d3dcompiler_artifacts(self.machine)
+            p32.write_bytes(pe(0x14c))
+
+            # Wrong size
+            p64.write_bytes(pe(0x8664) + b'more')
+            with self.assertRaisesRegex(ValueError, 'size mismatch'):
+                c.verify_d3dcompiler_artifacts(self.machine)
+            p64.write_bytes(pe(0x8664))
+
+            # Missing member
+            p32.unlink()
+            with self.assertRaisesRegex(ValueError, 'missing'):
+                c.verify_d3dcompiler_artifacts(self.machine)
+            p32.write_bytes(pe(0x14c))
+
+            # Symlink rejected
+            ext = self.root / 'external.dll'
+            ext.write_bytes(pe(0x14c))
+            p32.unlink()
+            p32.symlink_to(ext)
+            with self.assertRaisesRegex(ValueError, 'symlink'):
+                c.verify_d3dcompiler_artifacts(self.machine)
+            p32.unlink()
+            p32.write_bytes(pe(0x14c))
+
+            # Wrong architecture
+            p32.write_bytes(pe(0x8664))
+            test_manifest['x86']['sha256'] = hashlib.sha256(pe(0x8664)).hexdigest()
+            with self.assertRaisesRegex(ValueError, 'architecture'):
+                c.verify_d3dcompiler_artifacts(self.machine)
+            p32.write_bytes(pe(0x14c))
+            test_manifest['x86']['sha256'] = hashlib.sha256(pe(0x14c)).hexdigest()
+
+            # Unreadable
+            p32.chmod(0o000)
+            with self.assertRaisesRegex(ValueError, 'not readable'):
+                c.verify_d3dcompiler_artifacts(self.machine)
+            p32.chmod(0o644)
+            c.verify_d3dcompiler_artifacts(self.machine)
+
+    def test_repair_d3dcompiler_artifacts_positive_and_isolation(self):
+        test_manifest = {
+            'x86': {
+                'path': 'syswow64/d3dcompiler_47.dll',
+                'member': 'fila319f706acfa16d6707473ebf29bdc7f',
+                'cab': '2630bae9681db6a9f6722366f47d055c.cab',
+                'size': 256,
+                'sha256': hashlib.sha256(pe(0x14c)).hexdigest(),
+                'machine': 0x14c,
+            },
+            'x64': {
+                'path': 'system32/d3dcompiler_47.dll',
+                'member': 'fil3585cb2ea5db13cc0838f8d06b5c9679',
+                'cab': '61d57a7a82309cd161a854a6f4619e52.cab',
+                'size': 256,
+                'sha256': hashlib.sha256(pe(0x8664)).hexdigest(),
+                'machine': 0x8664,
+            },
+        }
+        cab32 = self.cache / 'd3dcompiler_47/2630bae9681db6a9f6722366f47d055c.cab'
+        cab64 = self.cache / 'd3dcompiler_47/61d57a7a82309cd161a854a6f4619e52.cab'
+        cab32.write_bytes(b'cab32')
+        cab64.write_bytes(b'cab64')
+
+        def fake_extract(command, stdout, **kwargs):
+            member = command[command.index('-F') + 1]
+            if member == test_manifest['x86']['member']:
+                stdout.write(pe(0x14c))
+            elif member == test_manifest['x64']['member']:
+                stdout.write(pe(0x8664))
+            return subprocess.CompletedProcess(command, 0)
+
+        meta = copy.deepcopy(c.COMPONENTS_METADATA)
+        meta['d3dcompiler_47']['recipe_files'] = [
+            (cab32.name, hashlib.sha256(b'cab32').hexdigest()),
+            (cab64.name, hashlib.sha256(b'cab64').hexdigest()),
+        ]
+
+        with patch.object(c, 'COMPONENTS_METADATA', meta), \
+             patch.object(c, 'D3DCOMPILER_47_ARTIFACTS', test_manifest), \
+             patch.object(c.subprocess, 'run', side_effect=fake_extract):
+            c.repair_d3dcompiler_artifacts(self.machine, self.cache)
+            c.verify_d3dcompiler_artifacts(self.machine)
+
+            p32 = self.machine / 'drive_c/windows/syswow64/d3dcompiler_47.dll'
+            p64 = self.machine / 'drive_c/windows/system32/d3dcompiler_47.dll'
+            self.assertTrue(p32.is_file())
+            self.assertTrue(p64.is_file())
+            self.assertEqual(p32.read_bytes(), pe(0x14c))
+            self.assertEqual(p64.read_bytes(), pe(0x8664))
+
+    def test_identity_and_receipt_verification(self):
+        before = c.component_identity('d3dcompiler_47')
+        test_manifest = dict(c.D3DCOMPILER_47_ARTIFACTS)
+        test_manifest['x86'] = dict(test_manifest['x86'], size=999)
+        with patch.object(c, 'D3DCOMPILER_47_ARTIFACTS', test_manifest):
+            self.assertNotEqual(before, c.component_identity('d3dcompiler_47'))
+
+        receipts = self.machine.parent / 'component-receipts'
+        receipts.mkdir()
+        record = {
+            'verb': 'd3dcompiler_47',
+            'winetricks_sha256': c.APPROVED_WINETRICKS_SHA256,
+            'winetricks_version': c.APPROVED_WINETRICKS_VERSION,
+            'architecture': 'wow64',
+            'recipe_files': [list(item) for item in c.COMPONENTS_METADATA['d3dcompiler_47']['recipe_files']],
+            'component_identity': c.component_identity('d3dcompiler_47'),
+            'execution_recipe_sha256': hashlib.sha256(b'd3d-recipe').hexdigest(),
+        }
+        receipt = receipts / 'd3dcompiler_47.json'
+        receipt.write_text(json.dumps(record))
+
+        with patch.object(c, 'approved_d3dcompiler_recipe', return_value=b'd3d-recipe'), \
+             patch.object(c, 'verify_d3dcompiler_artifacts') as mock_verify:
+            self.assertTrue(c.is_installed('d3dcompiler_47', machine=self.machine))
+            mock_verify.assert_called_once_with(self.machine)
+
+            record['execution_recipe_sha256'] = 'wrong'
+            receipt.write_text(json.dumps(record))
+            self.assertFalse(c.is_installed('d3dcompiler_47', machine=self.machine))
+
+            record['execution_recipe_sha256'] = hashlib.sha256(b'd3d-recipe').hexdigest()
+            record['component_identity'] = 'wrong'
+            receipt.write_text(json.dumps(record))
+            self.assertFalse(c.is_installed('d3dcompiler_47', machine=self.machine))
+
+    def test_approved_d3dcompiler_recipe_patching(self):
+        fake_winetricks = self.root / 'winetricks'
+        sample = (
+            'load_d3dcompiler_47()\n{\n'
+            '    w_download https://raw.githubusercontent.com/mozilla/fxc2/master/dll/d3dcompiler_47_32.dll 2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851\n'
+            '    w_try_cp_dll "${W_CACHE}/d3dcompiler_47/d3dcompiler_47_32.dll" "${W_SYSTEM32_DLLS}/d3dcompiler_47.dll"\n'
+            '    if [ "${W_ARCH}" = "win64" ]; then\n'
+            '        w_download https://raw.githubusercontent.com/mozilla/fxc2/master/dll/d3dcompiler_47.dll 4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3\n'
+            '        w_try_cp_dll "${W_CACHE}/d3dcompiler_47/d3dcompiler_47.dll" "${W_SYSTEM64_DLLS}/d3dcompiler_47.dll"\n'
+            '    fi\n'
+            '    w_override_dlls native d3dcompiler_47\n}\n'
+        )
+        fake_winetricks.write_text(sample, encoding='utf-8')
+        with patch.object(c, 'validate_winetricks_integrity'):
+            patched = c.approved_d3dcompiler_recipe(fake_winetricks).decode('utf-8')
+            self.assertNotIn('raw.githubusercontent.com/mozilla/fxc2', patched)
+            self.assertIn('download.microsoft.com', patched)
+            self.assertIn('2630bae9681db6a9f6722366f47d055c.cab', patched)
+            self.assertIn('61d57a7a82309cd161a854a6f4619e52.cab', patched)
+            self.assertIn('efbdbbcd0d954f8fdc53467de5d89ad525e4e4a9cfff8a15d07c6fdb350c407f d3dcompiler_47_32.dll', patched)
+            self.assertIn('e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4 d3dcompiler_47.dll', patched)
 
 
 if __name__ == '__main__':

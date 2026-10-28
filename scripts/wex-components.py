@@ -154,15 +154,33 @@ COMPONENTS_METADATA = {
         'title': 'DirectX Shader Compiler (d3dcompiler_47)',
         'publisher': 'Microsoft Corporation',
         'description': 'DirectX HLSL shader compiler library required by DirectX 11, DirectX 12, and Vulkan translation layers (DXVK/VKD3D). Wine builtin compiler remains default.',
-        'size': '~4.5 MB',
+        'size': '~4.2 MB',
         'reboot': False,
-        'disabled': True,
-        'disabled_reason': 'Microsoft SDK cabinet identities, applicable terms and x86/x64 loading validation pending',
+        'disabled': False,
+        'disabled_reason': '',
         'terms_url': None,
         'recipe_files': [
-            ('d3dcompiler_47_32.dll', '2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851'),
-            ('d3dcompiler_47.dll', '4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3'),
+            ('sdksetup.exe', '5107822a5a99bcdef4c7b7c7eea218425692f0185750b0d4fafd441034a7486b'),
+            ('2630bae9681db6a9f6722366f47d055c.cab', 'd0440eb81c532dc23639c0c63f2fcde9deddb23bb4cce01c19ac6b96cc3e269d'),
+            ('61d57a7a82309cd161a854a6f4619e52.cab', 'f736e161547095bb8d98c636b85fdfeb4070fefeee3c3745db3ce88f6eb1d9de'),
         ],
+        'review': {
+            'mode': 'embedded-package-terms',
+            'policy': 'embedded-review-v1',
+            'url_prefix': 'https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/',
+            'urls': {
+                'sdksetup.exe': 'https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/sdksetup.exe',
+                '2630bae9681db6a9f6722366f47d055c.cab': 'https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/Installers/2630bae9681db6a9f6722366f47d055c.cab',
+                '61d57a7a82309cd161a854a6f4619e52.cab': 'https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/Installers/61d57a7a82309cd161a854a6f4619e52.cab',
+            },
+            'host_suffixes': ('microsoft.com',),
+            'packages': {
+                'sdksetup.exe': (998056, 64354, '7606715231cab510135bb271836677797189c64cfacc59b8b444e427fecace78'),
+                '2630bae9681db6a9f6722366f47d055c.cab': (1488323, 0, ''),
+                '61d57a7a82309cd161a854a6f4619e52.cab': (1776364, 0, ''),
+            },
+            'rendered_sha256': '5b575dc86b5e04198a8915dabe81b987daae47be007ad42897bc57a5d92a5f43',
+        },
     },
     'xact': {
         'title': 'Microsoft XACT audio engine',
@@ -233,6 +251,9 @@ def validate_winetricks_integrity(path=None):
 def validate_recipe_files(verb, path=None):
     if verb == 'vcrun2022':
         approved_runtime_recipe(path)
+        return
+    if verb == 'd3dcompiler_47':
+        approved_d3dcompiler_recipe(path)
         return
     winetricks = path or WINETRICKS_PATH
     meta = COMPONENTS_METADATA.get(verb, {})
@@ -541,6 +562,184 @@ def cache_corefonts_payloads(cache, review_cache=None):
                 temporary.unlink(missing_ok=True)
 
 
+D3DCOMPILER_47_ARTIFACTS = {
+    'x86': {
+        'path': 'syswow64/d3dcompiler_47.dll',
+        'member': 'fila319f706acfa16d6707473ebf29bdc7f',
+        'cab': '2630bae9681db6a9f6722366f47d055c.cab',
+        'size': 3466856,
+        'sha256': 'efbdbbcd0d954f8fdc53467de5d89ad525e4e4a9cfff8a15d07c6fdb350c407f',
+        'machine': 0x14c,
+    },
+    'x64': {
+        'path': 'system32/d3dcompiler_47.dll',
+        'member': 'fil3585cb2ea5db13cc0838f8d06b5c9679',
+        'cab': '61d57a7a82309cd161a854a6f4619e52.cab',
+        'size': 4173928,
+        'sha256': 'e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4',
+        'machine': 0x8664,
+    },
+}
+
+
+def d3dcompiler_artifact_paths(machine):
+    for arch in ('x86', 'x64'):
+        entry = D3DCOMPILER_47_ARTIFACTS[arch]
+        yield machine / 'drive_c/windows' / entry['path'], entry
+
+
+def verify_d3dcompiler_artifacts(machine):
+    for target, entry in d3dcompiler_artifact_paths(machine):
+        if target.is_symlink():
+            raise ValueError('d3dcompiler_47 artifact is a symlink: ' + str(target))
+        if not target.is_file():
+            raise ValueError('d3dcompiler_47 artifact missing: ' + str(target))
+        stat_info = target.stat()
+        if stat_info.st_size != entry['size']:
+            raise ValueError(f'd3dcompiler_47 artifact size mismatch for {target.name}: expected {entry["size"]}, got {stat_info.st_size}')
+        data = target.read_bytes()
+        if hashlib.sha256(data).hexdigest() != entry['sha256']:
+            raise ValueError('d3dcompiler_47 artifact hash mismatch: ' + str(target))
+        pe = struct.unpack_from('<I', data, 0x3c)[0] if len(data) >= 64 else len(data)
+        if (data[:2] != b'MZ' or pe + 6 > len(data) or data[pe:pe + 4] != b'PE\0\0' or
+                struct.unpack_from('<H', data, pe + 4)[0] != entry['machine']):
+            raise ValueError('Wrong d3dcompiler_47 artifact architecture: ' + str(target))
+        if stat_info.st_mode & 0o444 != 0o444:
+            raise ValueError('d3dcompiler_47 artifact not readable by all users: ' + str(target))
+
+
+def repair_d3dcompiler_artifacts(machine, cache):
+    """Publish only verified d3dcompiler_47 DLLs, never through prefix links."""
+    with tempfile.TemporaryDirectory(prefix='d3dcompiler-members-', dir=cache) as scratch:
+        staged = []
+        for arch in ('x86', 'x64'):
+            entry = D3DCOMPILER_47_ARTIFACTS[arch]
+            cabinet = cache / 'd3dcompiler_47' / entry['cab']
+            if cabinet.is_symlink() or not cabinet.is_file():
+                raise ValueError('d3dcompiler_47 cabinet missing before extraction: ' + entry['cab'])
+            expected_cab_hash = next(sha for name, sha in COMPONENTS_METADATA['d3dcompiler_47']['recipe_files'] if name == entry['cab'])
+            if hashlib.sha256(cabinet.read_bytes()).hexdigest() != expected_cab_hash:
+                raise ValueError('d3dcompiler_47 cabinet changed before extraction: ' + entry['cab'])
+            source = Path(scratch) / (arch + '-d3dcompiler_47.dll')
+            with source.open('wb') as out:
+                subprocess.run(['/usr/bin/cabextract', '-p', '-F', entry['member'], str(cabinet)],
+                               stdout=out, check=True, timeout=30)
+            data = source.read_bytes()
+            if len(data) != entry['size'] or hashlib.sha256(data).hexdigest() != entry['sha256']:
+                raise ValueError('d3dcompiler_47 member hash mismatch or missing member: ' + entry['member'])
+            pe = struct.unpack_from('<I', data, 0x3c)[0] if len(data) >= 64 else len(data)
+            if (data[:2] != b'MZ' or pe + 6 > len(data) or data[pe:pe + 4] != b'PE\0\0' or
+                    struct.unpack_from('<H', data, pe + 4)[0] != entry['machine']):
+                raise ValueError('Wrong d3dcompiler_47 member architecture: ' + entry['member'])
+            target = machine / 'drive_c/windows' / entry['path']
+            staged.append((source, target))
+        for source, target in staged:
+            if target.parent.is_symlink() or not target.parent.is_dir():
+                raise ValueError('Unexpected d3dcompiler destination directory')
+        for source, target in staged:
+            with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.d3dcompiler-', delete=False) as out:
+                temporary = Path(out.name)
+            try:
+                shutil.copyfile(source, temporary)
+                parent = target.parent.stat()
+                os.chown(temporary, -1, parent.st_gid)
+                temporary.chmod(stat.S_IMODE(parent.st_mode) & 0o777)
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
+        verify_d3dcompiler_artifacts(machine)
+
+
+def approved_d3dcompiler_recipe(path=None):
+    """Replace mozilla GitHub downloads in load_d3dcompiler_47 with first-party Microsoft SDK payloads."""
+    winetricks = path or WINETRICKS_PATH
+    validate_winetricks_integrity(winetricks)
+    content = winetricks.read_text(encoding='utf-8')
+    orig_32 = ('w_download https://raw.githubusercontent.com/mozilla/fxc2/master/dll/d3dcompiler_47_32.dll '
+               '2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851')
+    repl_32 = ('w_download https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/Installers/2630bae9681db6a9f6722366f47d055c.cab '
+               'efbdbbcd0d954f8fdc53467de5d89ad525e4e4a9cfff8a15d07c6fdb350c407f d3dcompiler_47_32.dll')
+    orig_64 = ('w_download https://raw.githubusercontent.com/mozilla/fxc2/master/dll/d3dcompiler_47.dll '
+               '4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3')
+    repl_64 = ('w_download https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/Installers/61d57a7a82309cd161a854a6f4619e52.cab '
+               'e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4 d3dcompiler_47.dll')
+    if content.count(orig_32) != 1 or content.count(orig_64) != 1:
+        raise ValueError('Reviewed d3dcompiler_47 recipe changed')
+    content = content.replace(orig_32, repl_32).replace(orig_64, repl_64)
+    return content.encode('utf-8')
+
+
+def cache_d3dcompiler_payloads(cache, review_cache=None):
+    """Stage verified d3dcompiler_47 packages and pre-extracted DLLs into winetricks cache.
+
+    Called only after install() has rechecked explicit terms acceptance.
+    """
+    review_dir = (review_cache or REVIEW_CACHE) / 'd3dcompiler_47'
+    destination = cache / 'd3dcompiler_47'
+    if destination.is_symlink():
+        raise ValueError('Refusing symlinked d3dcompiler payload cache')
+    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if destination.stat().st_uid != 0 or destination.stat().st_mode & 0o022:
+        raise ValueError('d3dcompiler cache must be root-owned and private')
+
+    packages = review_packages('d3dcompiler_47')
+    for package in packages:
+        name = package['name']
+        size = package['size']
+        sha256 = package['sha256']
+        target = destination / name
+        if target.exists() or target.is_symlink():
+            if target.is_symlink() or not target.is_file() or target.stat().st_uid != 0 or target.stat().st_mode & 0o022:
+                raise ValueError('Untrusted cached d3dcompiler payload: ' + name)
+            if target.stat().st_size == size and hashlib.sha256(target.read_bytes()).hexdigest() == sha256:
+                continue
+            raise ValueError('Corrupt d3dcompiler cache; no installer started')
+        source = review_dir / name
+        if source.is_symlink() or not source.is_file() or source.stat().st_size != size:
+            raise ReviewRequired(f'd3dcompiler payload {name} missing or changed in review cache')
+        if hashlib.sha256(source.read_bytes()).hexdigest() != sha256:
+            raise ValueError(f'd3dcompiler payload {name} integrity mismatch in review cache')
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=destination, prefix='.d3dcompiler-', delete=False) as out:
+                temporary = Path(out.name)
+                os.fchmod(out.fileno(), 0o600)
+                shutil.copyfile(source, temporary)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary, target)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    dll_targets = [
+        ('d3dcompiler_47_32.dll', D3DCOMPILER_47_ARTIFACTS['x86']),
+        ('d3dcompiler_47.dll', D3DCOMPILER_47_ARTIFACTS['x64']),
+    ]
+    for dll_name, entry in dll_targets:
+        dll_path = destination / dll_name
+        if dll_path.is_file() and not dll_path.is_symlink():
+            if dll_path.stat().st_size == entry['size'] and hashlib.sha256(dll_path.read_bytes()).hexdigest() == entry['sha256']:
+                continue
+        cabinet = destination / entry['cab']
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=destination, prefix='.extracted-', delete=False) as out:
+                temporary = Path(out.name)
+                subprocess.run(['/usr/bin/cabextract', '-p', '-F', entry['member'], str(cabinet)],
+                               stdout=out, check=True, timeout=30)
+                out.flush()
+                os.fsync(out.fileno())
+            data = temporary.read_bytes()
+            if len(data) != entry['size'] or hashlib.sha256(data).hexdigest() != entry['sha256']:
+                raise ValueError(f'Extracted {dll_name} failed verification')
+            os.replace(temporary, dll_path)
+            os.chmod(dll_path, 0o600)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+
 def is_admin():
     return os.getuid() == 0 or grp.getgrnam('sudo').gr_gid in (*os.getgroups(), os.getgid())
 
@@ -562,6 +761,8 @@ def component_identity(verb):
         record['runtime_artifacts'] = RUNTIME_ARTIFACTS
     elif verb == 'corefonts':
         record['corefonts_artifacts'] = COREFONTS_ARTIFACTS
+    elif verb == 'd3dcompiler_47':
+        record['d3dcompiler_artifacts'] = D3DCOMPILER_47_ARTIFACTS
     return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -897,9 +1098,10 @@ def review_packages(verb):
         if name not in review['packages'] or not re.fullmatch(r'[A-Za-z0-9_.-]+', name):
             raise ValueError('Review package table differs from the pinned recipe manifest')
         size, license_bytes, license_sha256 = review['packages'][name]
+        url = review.get('urls', {}).get(name) or (review['url_prefix'] + name)
         result.append({'name': name, 'size': size, 'sha256': sha256,
                        'license_bytes': license_bytes, 'license_sha256': license_sha256,
-                       'url': review['url_prefix'] + name})
+                       'url': url})
     if len(result) != len(review['packages']):
         raise ValueError('Review package table differs from the pinned recipe manifest')
     return result
@@ -1093,6 +1295,67 @@ def embedded_fingerprint(verb, text):
     return hashlib.sha256('\n'.join((component_identity(verb), review['policy'], raw, text)).encode('utf-8')).hexdigest()
 
 
+def rtf_to_text(text):
+    for _ in range(5):
+        text = re.sub(r'\{\\\*(?:[^{}]|\{[^{}]*\})*\}', '', text)
+        text = re.sub(r'\{\\(?:fonttbl|colortbl|stylesheet)(?:[^{}]|\{[^{}]*\})*\}', '', text)
+        text = re.sub(r'\{\\\*?[a-zA-Z]+[^{}]*\}', '', text)
+    text = re.sub(r'\{\\field\{\\\*\\fldinst\{HYPERLINK "([^"]+)"\}\}\{\\fldrslt\{([^}]+)\}\}\}', r'\2 (\1)', text)
+    text = re.sub(r'\\par[d]?\b', '\n', text)
+    text = re.sub(r'\\line\b', '\n', text)
+    text = re.sub(r'\\tab\b', '  ', text)
+    text = text.replace(r'\~', ' ')
+    text = text.replace(r'\ldblquote', '"').replace(r'\rdblquote', '"')
+    text = text.replace(r'\lquote', "'").replace(r'\rquote', "'")
+    text = text.replace(r'\bullet', '\u2022')
+    def replace_hex(m):
+        val = int(m.group(1), 16)
+        if val == 0xb7:
+            return '\u2022'
+        return bytes([val]).decode('cp1252', errors='replace')
+    text = re.sub(r"\\'([0-9a-fA-F]{2})", replace_hex, text)
+    text = re.sub(r'\\[a-zA-Z]+-?[0-9]*[ ]?', '', text)
+    text = text.replace('{', '').replace('}', '')
+    text = re.sub(r'\n[ \t]*\n[ \t]*\n+', '\n\n', text)
+    return text.strip()
+
+
+def render_d3dcompiler_terms(raw_rtf, enforce_pin=True):
+    if isinstance(raw_rtf, bytes):
+        raw_rtf = raw_rtf.decode('cp1252', errors='replace')
+    intro_start = raw_rtf.find('MICROSOFT SOFTWARE LICENSE TERMS')
+    adk_start = raw_rtf.find('MICROSOFT WINDOWS ASSESSMENT AND DEPLOYMENT KIT')
+    sdk_start = raw_rtf.find('MICROSOFT WINDOWS SOFTWARE DEVELOPMENT KIT (SDK)')
+    if intro_start == -1 or adk_start == -1 or sdk_start == -1:
+        raise ValueError('Could not locate required sections in d3dcompiler license RTF')
+    intro_txt = rtf_to_text(raw_rtf[intro_start:adk_start])
+    sdk_txt = rtf_to_text(raw_rtf[sdk_start:])
+    combined = intro_txt + '\n\n' + ('=' * 70) + '\n\n' + sdk_txt + '\n'
+    if len(combined.encode('utf-8')) > MAX_TERMS_BYTES or '\x00' in combined:
+        raise ValueError('Rendered d3dcompiler terms are oversized or malformed')
+    pinned = COMPONENTS_METADATA['d3dcompiler_47']['review']['rendered_sha256']
+    if enforce_pin and (not pinned or hashlib.sha256(combined.encode('utf-8')).hexdigest() != pinned):
+        raise ValueError('Rendered d3dcompiler terms differ from the reviewed text')
+    return combined
+
+
+def d3dcompiler_terms_from_cache(verb, cache_dir=None):
+    review = review_meta(verb)
+    cache_dir = cache_dir or REVIEW_CACHE / verb
+    _review_directory_ok(cache_dir)
+    for package in review_packages(verb):
+        path = cache_dir / package['name']
+        if not _package_valid(path, package):
+            raise ReviewRequired(f'{package["name"]} is missing or changed; download it again for review')
+    sdksetup = cache_dir / 'sdksetup.exe'
+    raw_rtf = subprocess.check_output(['/usr/bin/cabextract', '-p', '-F', 'u1', str(sdksetup)])
+    expected_bytes, expected_hash = review['packages']['sdksetup.exe'][1], review['packages']['sdksetup.exe'][2]
+    if len(raw_rtf) != expected_bytes or hashlib.sha256(raw_rtf).hexdigest() != expected_hash:
+        raise ValueError('sdksetup.exe embedded license RTF differs from the reviewed identity')
+    text = render_d3dcompiler_terms(raw_rtf)
+    return text, embedded_fingerprint(verb, text)
+
+
 def _review_directory_ok(path, create=False):
     privileged = os.getuid() == 0
     if create:
@@ -1124,6 +1387,8 @@ def _package_valid(path, package):
 
 def embedded_terms_from_cache(verb, cache_dir=None):
     """Re-verify every cached package and statically re-extract the terms."""
+    if verb == 'd3dcompiler_47':
+        return d3dcompiler_terms_from_cache(verb, cache_dir)
     review = review_meta(verb)
     cache_dir = cache_dir or REVIEW_CACHE / verb
     _review_directory_ok(cache_dir)
@@ -1518,6 +1783,12 @@ def is_installed(verb, accepted_digest=None, machine=None):
                     if data.get('component_identity') != component_identity(verb):
                         return False
                     verify_corefonts_artifacts(machine)
+                elif verb == 'd3dcompiler_47':
+                    if data.get('component_identity') != component_identity(verb):
+                        return False
+                    if data.get('execution_recipe_sha256') != hashlib.sha256(approved_d3dcompiler_recipe()).hexdigest():
+                        return False
+                    verify_d3dcompiler_artifacts(machine)
                 return True
         except Exception:
             pass
@@ -1724,6 +1995,20 @@ def install(verb, accepted_digest):
                     for entry in fonts_dir.glob('*'):
                         if entry.name.casefold() == font_name.casefold() and entry.is_symlink():
                             entry.unlink()
+        elif verb == 'd3dcompiler_47':
+            recipe = approved_d3dcompiler_recipe()
+            cache_d3dcompiler_payloads(cache)
+            execution_digest = hashlib.sha256(recipe).hexdigest()
+            with tempfile.NamedTemporaryFile(dir=cache, prefix='.approved-d3dcompiler-', delete=False) as out:
+                script = Path(out.name)
+                os.fchmod(out.fileno(), 0o700)
+                out.write(recipe)
+                out.flush()
+                os.fsync(out.fileno())
+            approved_script = cache / 'approved-d3dcompiler_47.sh'
+            os.replace(script, approved_script)
+            command = ['/usr/bin/unshare', '--net', *command]
+            command[command.index('/usr/bin/winetricks')] = str(approved_script)
         regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
         if regedit_src.is_file():
             ensure_installer_regedit(MACHINE)
@@ -1767,12 +2052,16 @@ def install(verb, accepted_digest):
                                         entry.chmod(0o644)
                                     except OSError:
                                         pass
+                elif verb == 'd3dcompiler_47':
+                    repair_d3dcompiler_artifacts(MACHINE, cache)
         if result.returncode:
             raise ValueError(f'{verb} failed (exit {result.returncode}); installation may be partial; see console output')
         if verb == 'vcrun2022':
             verify_runtime_artifacts(MACHINE)
         elif verb == 'corefonts':
             verify_corefonts_artifacts(MACHINE)
+        elif verb == 'd3dcompiler_47':
+            verify_d3dcompiler_artifacts(MACHINE)
         receipt = MACHINE.parent / 'component-receipts'
         receipt.mkdir(mode=0o755, exist_ok=True)
         if receipt.is_symlink() or receipt.stat().st_uid != 0 or receipt.stat().st_mode & 0o022:

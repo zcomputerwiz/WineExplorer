@@ -2,8 +2,9 @@
 set -euo pipefail
 
 DISP=":99"
-EVIDENCE="/media/sf_WineExplorer/evidence-ui"
+EVIDENCE="/tmp/evidence-ui"
 mkdir -p "$EVIDENCE"
+rm -f "$EVIDENCE"/step*.png
 
 echo "[1] Starting Xvfb on $DISP..."
 pkill -9 -f "Xvfb $DISP" || true
@@ -16,7 +17,8 @@ echo "[2] Preparing prefix, stage, and clean receipt state..."
 sudo rm -rf /tmp/wexsetup-wine
 sudo cp -a /etc/skel/.wine /tmp/wexsetup-wine
 sudo chown -R wexsetup:wexsetup /tmp/wexsetup-wine
-sudo rm -f /var/lib/wineexplorer/component-receipts/corefonts.json
+sudo rm -f /var/lib/wineexplorer/component-receipts/corefonts.json /var/lib/wineexplorer/component-receipts/d3dcompiler_47.json
+sudo rm -f /etc/wineexplorer/setup/stage-oobe-done
 
 sudo pkill -f 'wex-components --oobe-coordinator' || true
 sudo rm -rf /run/wex-oobe
@@ -61,23 +63,37 @@ DISPLAY="$DISP" import -window root "$EVIDENCE/step4_components.png"
 echo "[9] Step 5: Open Review Terms for CoreFonts..."
 send_key "Down"
 send_key "alt+r"
-sleep 1
+sleep 2
 DISPLAY="$DISP" import -window root "$EVIDENCE/step5_review_dialog.png"
 
-echo "[10] Step 6: Accept Terms..."
+echo "[10] Step 6: Accept CoreFonts Terms..."
 send_key "alt+a"
 DISPLAY="$DISP" import -window root "$EVIDENCE/step6_review_accepted.png"
 send_key "Return"
+sleep 1
+
+echo "[11] Step 6b: Open Review Terms for d3dcompiler_47..."
+send_key "Down"
+send_key "Down"
+send_key "alt+r"
+sleep 2
+DISPLAY="$DISP" import -window root "$EVIDENCE/step6b_d3dcompiler_review.png"
+
+echo "[12] Step 6c: Accept d3dcompiler_47 Terms..."
+send_key "alt+a"
+DISPLAY="$DISP" import -window root "$EVIDENCE/step6c_d3dcompiler_accepted.png"
+send_key "Return"
+sleep 1
 DISPLAY="$DISP" import -window root "$EVIDENCE/step7_components_checked.png"
 
-echo "[11] Step 7: Trigger Install..."
+echo "[13] Step 7: Trigger Install..."
 send_key "alt+n"
 DISPLAY="$DISP" import -window root "$EVIDENCE/step8_installing.png"
 
-echo "     Waiting for installation receipt and worker completion..."
-for i in $(seq 1 90); do
-    if [ -f /var/lib/wineexplorer/component-receipts/corefonts.json ]; then
-        echo "     Receipt detected after ${i}x2 seconds!"
+echo "     Waiting for installation receipts and worker completion..."
+for i in $(seq 1 150); do
+    if [ -f /var/lib/wineexplorer/component-receipts/corefonts.json ] && [ -f /var/lib/wineexplorer/component-receipts/d3dcompiler_47.json ]; then
+        echo "     Both receipts detected after ${i}x2 seconds!"
         break
     fi
     sleep 2
@@ -118,4 +134,6 @@ sudo pkill -f 'wex-components --oobe-coordinator' || true
 kill "$XPID" 2>/dev/null || true
 
 echo "=== All screenshots captured ==="
+mkdir -p /media/sf_WineExplorer/evidence-ui
+cp -f "$EVIDENCE"/step*.png /media/sf_WineExplorer/evidence-ui/ || true
 sha256sum "$EVIDENCE"/step*.png
