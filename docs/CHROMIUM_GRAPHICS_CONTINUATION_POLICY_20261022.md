@@ -19,6 +19,9 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261028 parentreviewc4f62c73 REWORK: repros stockWine not actualcandidate; native restrictedtoken setup fails87/5 also, no child either; CreatePipe/stdhandles test does not model Chromium named overlapped pipe/HANDLE_LIST/IOCP and can hang/false-pass. Actual Wine network utility logs service-sandbox-type=none; PID1036 noslices not deathproof. Existing D-backed build config.status+loader/wine+server/wineserver ELFs exist, source HEADaa79f010/main.c exists; verify actualrunnability/own copy, not shared writes. CHROMIUM_HANDOFF_REVIEW_REWORK_20261028.md assigns sameAGowner corrected actual Chromium launch contract, bounded native-vs-ACTUALproject PE tests, supportedfix/matched build+normal8GiB page verification. No speculative AppContainer fix/elevation.
+
+
 LATEST20261028 parentreview54d259c6: rawWineNetLog3219events/time171667..208156
 are36.489SECONDS (pinnednet_log.cc InMilliseconds), not36ms. HTTP[]/blankfront;
 service652notprocesscrashproof. WinePerfetto target/phasebindings need proper
