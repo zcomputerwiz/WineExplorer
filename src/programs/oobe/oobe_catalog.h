@@ -53,6 +53,7 @@ typedef struct {
     int skipped_count;
     int declined_count;
     int failed_count;
+    bool provisioned;
 } OobeContext;
 
 static inline void Utf8ToAnsi(const char *utf8_in, char *ansi_out, size_t out_max)

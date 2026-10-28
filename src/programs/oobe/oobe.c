@@ -200,6 +200,7 @@ static void ProvisionUsers(void)
     remove("Z:\\etc\\polkit-1\\rules.d\\49-wexsetup.rules");
     remove("/etc/polkit-1/rules.d/49-wexsetup.rules");
 
+    g_ctx.provisioned = true;
     LogOobe("OOBE user provisioning and cleanup completed.");
 }
 
@@ -1422,6 +1423,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ShowOobeWizard(g_hBackground);
 
     DestroyWindow(g_hBackground);
+
+    if (!g_ctx.provisioned) {
+        LogOobe("OOBE wizard exited without completing user provisioning; preserving setup for retry.");
+        return 1;
+    }
 
     /* Signal completion to runner script */
     {

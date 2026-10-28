@@ -708,8 +708,9 @@ class OobeCoordinatorTests(unittest.TestCase):
         # Disabled but review-capable components are no longer rejected outright:
         # GET_TERMS serves verified cached terms only, and an empty cache reports
         # NOT_DOWNLOADED without any network access or install side effect.
-        resp2 = self.send_request('GET_TERMS corefonts')
-        self.assertTrue(resp2.startswith('ERR NOT_DOWNLOADED'))
+        with patch.object(components, 'license_text', side_effect=components.ReviewRequired('ReviewRequired')):
+            resp2 = self.send_request('GET_TERMS corefonts')
+            self.assertTrue(resp2.startswith('ERR NOT_DOWNLOADED'))
         fake_sha = "abcdef0123456789" * 4
         with patch.object(components, 'license_text', return_value=('cached terms', fake_sha)):
             resp3 = self.send_request('GET_TERMS corefonts')
@@ -913,7 +914,7 @@ class CatalogParserTests(unittest.TestCase):
 
     def test_all_components_have_explicit_reasons(self):
         for verb, meta in components.COMPONENTS_METADATA.items():
-            if verb in ('vcrun2022', 'corefonts'):
+            if verb in ('vcrun2022', 'corefonts', 'd3dcompiler_47'):
                 self.assertFalse(meta.get('disabled'), f"{verb} must be enabled for release candidate")
                 self.assertEqual(meta.get('disabled_reason', ''), '')
             else:

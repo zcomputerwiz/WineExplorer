@@ -66,6 +66,10 @@ su -s /bin/bash wexsetup -c '
     /usr/local/bin/wine explorer /desktop=Setup,$RES setup.exe -newsetup &
     WINE_PID=$!
     while [ ! -f /etc/wineexplorer/setup/stage-gui-done ]; do
+        if ! kill -0 "$WINE_PID" 2>/dev/null; then
+            echo "GUI-mode Setup exited without completion; preserving setup for retry." >&2
+            exit 1
+        fi
         sleep 1
     done
     sleep 1

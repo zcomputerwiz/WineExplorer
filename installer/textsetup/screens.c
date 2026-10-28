@@ -1278,9 +1278,11 @@ SetupStage screen_copy(SetupState *state)
             snprintf(src_path, sizeof(src_path), "/%s", files[i].rel_path);
             snprintf(dst_path, sizeof(dst_path), "/target/%s", files[i].rel_path);
 
-            char *dname = dirname(strdup(dst_path));
-            safe_mkdir_p(dname);
-            free(dname);
+            char *tmp_dname = strdup(dst_path);
+            if (tmp_dname) {
+                safe_mkdir_p(dirname(tmp_dname));
+                free(tmp_dname);
+            }
 
             /* In-process copy with retry prompt on error */
             while (!copy_file_in_process(src_path, dst_path)) {
@@ -1365,9 +1367,11 @@ SetupStage screen_copy(SetupState *state)
 
                             char dst_link[512];
                             snprintf(dst_link, sizeof(dst_link), "/target/%s", pk);
-                            char *dname = dirname(strdup(dst_link));
-                            safe_mkdir_p(dname);
-                            free(dname);
+                            char *tmp_dname = strdup(dst_link);
+                            if (tmp_dname) {
+                                safe_mkdir_p(dirname(tmp_dname));
+                                free(tmp_dname);
+                            }
                             unlink(dst_link);
                             symlink(pt, dst_link);
                         }
