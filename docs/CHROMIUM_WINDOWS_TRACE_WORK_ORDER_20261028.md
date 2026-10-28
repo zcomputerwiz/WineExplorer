@@ -8,8 +8,9 @@ Antigravity's active navigation-phase task.
 
 ## Owner and isolated scope
 
-Reuse Terra Meitner01a17fa5-b248-7d32-8e0e-479ea198264b (gpt-6.1-terra) and its
-clean D:/DeepThought/Worktrees/chromium-r5-preparation/WineExplorer checkout.
+Original Terra Meitner was not_found when resumed. Assigned Terra Lovelace
+01a182d2-8a8c-7540-a62c-12b790dcb438 (gpt-6.1-terra, high), reusing the clean
+D:/DeepThought/Worktrees/chromium-r5-preparation/WineExplorer checkout.
 Create own codex/chromium-windows-navigation-baseline from current published
 parent after fetching. Preserve the completed API-audit branch and ignored
 R5/R6 assets; do not reset, clean, edit submodules or touch other worktrees.
