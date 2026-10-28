@@ -78,6 +78,7 @@ grub-common
 grub2-common
 
 # Terminal & Text UI
+xterm
 ncurses-bin
 ncurses-term
 libncursesw6

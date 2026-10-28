@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Safe Mode with Command Prompt
+Comment=Administrative recovery console for WineExplorer
+Exec=/usr/local/bin/wex-safe-terminal.sh
+TryExec=/usr/local/bin/wex-safe-terminal.sh
+Icon=utilities-terminal
+Type=Application
+DesktopNames=WineExplorer-SafeMode
