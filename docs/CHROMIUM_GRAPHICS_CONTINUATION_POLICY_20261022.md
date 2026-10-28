@@ -19,6 +19,25 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261028 parentreview54d259c6: rawWineNetLog3219events/time171667..208156
+are36.489SECONDS (pinnednet_log.cc InMilliseconds), not36ms. HTTP[]/blankfront;
+service652notprocesscrashproof. WinePerfetto target/phasebindings need proper
+decode, notmereinternedstrings. NativeWindows03213352 ownprivateRX sandboxACL
+fix givesindex+sceneHTTP200/targetcommit net_error0, but fixturepassed=false/rAF
+timeout; usefulnavigationcomparator, NOTfullgraphicsorproofWineACLsameissue.
+CHROMIUM_NAVIGATION_HANDOFF_REVIEW_WORK_ORDER_20261028.md assigns AG complex
+target-correlatedtracecomparison, actualMojo/loader/pipe/async/networkboundary,
+focusednative-vs-WinePEsemantics, realfix(es)/matchingbuild/focusedregressions/
+up to2materiallydifferentnormal8GiBverificationiterations; no assumedcause,
+fakeAPI/sandboxbypass/unrelatedmatrix or mastermerge. PreserveallD:evidence.
+
+PARALLEL USER REQUEST20261028: Terra nativeWindows trace comparator assigned
+under CHROMIUM_WINDOWS_TRACE_WORK_ORDER_20261028.md; reuse Meitner ownD:worktree
+codex/chromium-windows-navigation-baseline/exactcachedChromium+samefixture,
+boundedstartupnavigationtrace/DefaultNetLog/normalWindows sandbox. No VM/build/
+AGscope overlap. Parent reviews nativephasegraph thenforwardsusefulcomparison;
+do notinterruptAGnavigationphase or claim hostGPU/network equivalence.
+
 LATEST20261028 parentreview0b93ea48: independentlyparsed3187rawNetLogevents/one
 speculative targetresolution/HTTP[]; no documentfetch. Service652 NOT crashproof;
 actualonecreatednetwork720thenbackgroundlogs, nodeadpredecessorproven. duration
