@@ -17,7 +17,7 @@
 
 struct wex_launch {
     const wchar_t *image, *events, *nonce;
-    const wchar_t *child_args[12]; /* widened for optional bounded NetLog args */
+    const wchar_t *child_args[16]; /* widened for combined navigation-phase diagnostic args */
     size_t count;
     uint32_t wait_ms;
     int calibration;
@@ -64,12 +64,20 @@ static inline int wex_validate(int argc,wchar_t **argv,struct wex_launch *out) {
         v.child_args[5]=L"--enable-logging";
         v.child_args[6]=L"--log-file=" WEX_EXIT_OUTPUT L"\\chromium.log";
         v.child_args[7]=L"--v=1";v.count=8;
-#ifdef WEX_NETLOG
-        /* Bounded logging-only NetLog (Default capture, 8MiB) that flushes before the 45s
-         * observation cutoff. No IncludeSensitive/Everything/TLS-key capture/debug port. */
-        v.child_args[8]=L"--log-net-log=" WEX_EXIT_OUTPUT L"\\netlog.json";
-        v.child_args[9]=L"--net-log-max-size-mb=8";
-        v.child_args[10]=L"--net-log-duration=40s";v.count=11;
+#ifdef WEX_NAVPHASE
+        /* WO-20261028-CHROMIUM-NAVIGATION-PHASE: combined bounded diagnostic on the SAME run, so we
+         * get evidence either way. (a) release-safe scoped VLOG for browser navigation/network phases;
+         * (b) fixed INTEGER NetLog duration 40s, Default capture only, 8MiB cap (no sensitive/TLS);
+         * (c) best-effort startup tracing 35s that flushes to file on expiry (Windows has no streaming).
+         * No remote debug port / global sampler. Order MUST mirror child_args() in
+         * check-g4-chromium-native-exit.py exactly, or the binding() command-line check rejects it. */
+        v.child_args[8]=L"--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2";
+        v.child_args[9]=L"--log-net-log=" WEX_EXIT_OUTPUT L"\\netlog.json";
+        v.child_args[10]=L"--net-log-max-size-mb=8";
+        v.child_args[11]=L"--net-log-duration=40";
+        v.child_args[12]=L"--trace-startup";
+        v.child_args[13]=L"--trace-startup-duration=35";
+        v.child_args[14]=L"--trace-startup-file=" WEX_EXIT_OUTPUT L"\\trace.json";v.count=15;
 #endif
     } else if (argc==8 && !wcscmp(argv[1],L"--calibration") &&
         !wcscmp(argv[2],L"--image") && !wcscmp(argv[3],WEX_EXIT_CHILD) &&
