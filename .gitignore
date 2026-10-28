@@ -46,6 +46,7 @@ Thumbs.db
 .vm_synced_commit
 vm_shot.png
 xp_shot.png
+evidence-ui/
 installer/*.iso
 installer/*.vdi
 installer/*.deb
