@@ -19,6 +19,36 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261028 control15558e62/Wine02d4ef2 reviewed against raw trace/journal/
+native results/QMP and viewed PNG. Confirm0268 POLLIN|POLLHUP before forced1 and
+laterbrowsertermination; NOT Unixdeath/causeproof. Missing cleanclose trace does
+not cover abort_process _exit path. DXIL warnings are0200, not0268. HTTPempty,
+native45stimeout, AwSnap RESULT_CODE_KILLED persist; collection0 is not pass.
+CHROMIUM_CONTROL_CHANNEL_PARENT_REVIEW_20261028.md assigns sameAntigravity owner
+retainednativeexit/fault evidence first, then tiny opt-in abort-path observation
+if needed/ONE fresh normal diagnostic/supported realfix+ONEpostfixverification.
+No globalobserver/harnessredesign/speculativeDXIL or sandboxchange; keep parallel
+APIassessment disjoint. Candidate remains separate/no parentWinegitlink import.
+
+PARALLEL20261027 Terra7f157436 audit ACCEPTED/importbd1bdcb6 after parent source
+sampling of six critical pinned files.27 conditional requirements, not execution
+or Wine sufficiency proof. CHROMIUM_API_AUDIT_PARENT_REVIEW_20261027.md now
+dispatches Antigravity read-only assessment on OWNcodex/chromium-wine-api-assessment:
+actual combinedfffa7de implementations/existing test scope/statuses, at most1–3
+real fix candidates. Current control-channel trace stays critical path; separate
+source-only delegate or queue, no competing implementation/VM/build/framework.
+
+PARALLEL USER REQUEST20261027: GPT-6.1 Terra Meitner
+01a17fa5-b248-7d32-8e0e-479ea198264b owns a documentation-only source audit under
+CHROMIUM_API_REQUIREMENTS_AUDIT_WORK_ORDER_20261027.md at e838ad91. Reuses the
+stopped old Luna D:/DeepThought/Worktrees/chromium-r5-preparation/WineExplorer
+on NEW codex/chromium-api-requirements. Deliverables are a pinned active-API
+requirements matrix and draft Antigravity Wine assessment order. Parent reviews
+before dispatching that order. No VM/code/build/submodule or cross-agent changes.
+Keep this disjoint from active Antigravity control-channel work; do not duplicate
+the upstream audit or stop the current Chromium investigation. Model explicitly
+requested by the user: gpt-6.1-terra, high reasoning.
+
 LATEST20261027 termination002e5b49/Winea91ceea source+rawtracereview/33parenttests6.508spass. Serverkill_process(violent1) beforebrowserNTterminate isNEWusefulevidence, NOTproofunhandledcrash: process_poll_eventPOLLHUP/POLLERR calls kill_process(!is_terminating), request.cFDprotocolerrorsalso1. CHROMIUM_CONTROL_CHANNEL_WORK_ORDER_20261027.md assigns tinyWEXtraceactualpollevent/FDsendrecverrno/clientclosecorrelation + ONEfreshcontrol, supportedrealfix+ONEpostfixverificationifidentified; no genericobserver/fakeAPI/crashRIPassumption. ExcluderejectedECNstub.
 
 LATEST20261027 e8d91c06/Wined629841 reviewed: REJECTaccept-ignoreECNstub(no real receive/query/validation), noimport/build/deploy. PinnedChromiumcallerUDPSocketWin::SetRecvTos notTCP; TCPprobeunrelatedtocmsg, ECNcompatTODOwithoutpagecausality. CHROMIUM_ECN_REVIEW_AND_TERMINATION_WORK_ORDER_20261027.md assigns minimalopt-inactualNtTerminateProcess/serverjob/naturalexittrace onOWNrootcodex/chromium-termination-trace/Winecodex/g4-termination-trace FROMfffa7de, existingownconfiguredWSLbuildavailable;incrementalmatchedclientserver/privatefreshcandidate+ONEfreshnormalbrowsercontrol,noall-syscall/winsock/globalobserver/harnessredesign. Actualkillcallerstatusbeforecleanupgoal.
