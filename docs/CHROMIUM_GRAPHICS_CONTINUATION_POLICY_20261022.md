@@ -19,6 +19,17 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261028 control15558e62/Wine02d4ef2 reviewed against raw trace/journal/
+native results/QMP and viewed PNG. Confirm0268 POLLIN|POLLHUP before forced1 and
+laterbrowsertermination; NOT Unixdeath/causeproof. Missing cleanclose trace does
+not cover abort_process _exit path. DXIL warnings are0200, not0268. HTTPempty,
+native45stimeout, AwSnap RESULT_CODE_KILLED persist; collection0 is not pass.
+CHROMIUM_CONTROL_CHANNEL_PARENT_REVIEW_20261028.md assigns sameAntigravity owner
+retainednativeexit/fault evidence first, then tiny opt-in abort-path observation
+if needed/ONE fresh normal diagnostic/supported realfix+ONEpostfixverification.
+No globalobserver/harnessredesign/speculativeDXIL or sandboxchange; keep parallel
+APIassessment disjoint. Candidate remains separate/no parentWinegitlink import.
+
 PARALLEL20261027 Terra7f157436 audit ACCEPTED/importbd1bdcb6 after parent source
 sampling of six critical pinned files.27 conditional requirements, not execution
 or Wine sufficiency proof. CHROMIUM_API_AUDIT_PARENT_REVIEW_20261027.md now
