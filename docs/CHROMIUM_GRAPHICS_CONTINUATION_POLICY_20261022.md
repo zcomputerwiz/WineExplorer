@@ -19,6 +19,16 @@ weekly usage remains below the stop threshold. Never consume the reset credit.
 
 ## Current selected work
 
+LATEST20261028 parentreview0b93ea48: independentlyparsed3187rawNetLogevents/one
+speculative targetresolution/HTTP[]; no documentfetch. Service652 NOT crashproof;
+actualonecreatednetwork720thenbackgroundlogs, nodeadpredecessorproven. duration
+40s invalidStringToInt; use40. CHROMIUM_NAVIGATION_PHASE_WORK_ORDER_20261028.md
+assigns SAMEAGowner existingboundedstartupnavigationtraces/ONEfresh8GiBcontrol
+toactualunfinishedNavigationRequestphase/callback, supportedsmallrealfix+
+focusedregression+ONEpostfixpageverification. No blindnetworkcrashrun/global
+observer/harnessframework/APIcompletenesspatch. Sameactual02d4ef2fullcandidate,
+preservepaths/sandbox/features/HTTP/privateLO/VirGL/ownedcleanup. No parentpin.
+
 LATEST20261028 parent reviewed0dd0e07f/raw8GiB results/logs/PNG: actual8192RAM,
 no serialOOM, BLANKfront/HTTPrequests[]/noJSreadiness, heldbrowser45stimeout.
 ReportreadinesspresentWRONG; WEX_TERM_TRACEabsent so zerokilltraceNOTnodeathproof
