@@ -1286,6 +1286,7 @@ static INT_PTR CALLBACK OobeFinishProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
                 char summary[512];
+                WCHAR summaryW[512];
                 int offset = 0;
                 offset += snprintf(summary + offset, sizeof(summary) - offset,
                     "Optional components summary:\r\n  • Installed: %d\r\n  • Skipped / Not selected: %d\r\n",
@@ -1298,7 +1299,8 @@ static INT_PTR CALLBACK OobeFinishProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
                     offset += snprintf(summary + offset, sizeof(summary) - offset,
                         "  • Failed: %d\r\n", g_ctx.failed_count);
                 }
-                SetDlgItemTextA(hwnd, IDC_FINISH_SUMMARY, summary);
+                MultiByteToWideChar(CP_UTF8, 0, summary, -1, summaryW, sizeof(summaryW) / sizeof(summaryW[0]));
+                SetDlgItemTextW(hwnd, IDC_FINISH_SUMMARY, summaryW);
                 SendMessageA(GetParent(hwnd), PSM_SETWIZBUTTONS, 0, (LPARAM)PSWIZB_FINISH);
                 return TRUE;
             } else if (pnmh->code == PSN_WIZFINISH) {

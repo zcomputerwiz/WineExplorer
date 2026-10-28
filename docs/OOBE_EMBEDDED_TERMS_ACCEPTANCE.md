@@ -463,14 +463,14 @@ All 14 wizard steps were captured to `evidence-ui/step*.png`. Each screenshot ca
 | 4 | `step4_components.png` | 9,195 | `8bf3c4c244ebcc05b6c6a33cff325bb4273aca60272cc6040089bccb8d69e8a1` | Components catalog with `vcrun2022`, `corefonts`, and `d3dcompiler_47` offered; 3 others disabled |
 | 5 | `step5_review_dialog.png` | 12,290 | `eb89cf17f8ab26ae637f633e5c5537236addff0907bca2a77ed662600262c009` | CoreFonts Embedded Terms review dialog: SourceForge download info, 3.8 MB size, EULA text |
 | 6 | `step6_review_accepted.png` | 12,274 | `76db41f42a34a0faf7d26b9daa6cd5cf2e250a521fc29f0968525038de2e1cbf` | CoreFonts Review dialog with "I accept" checkbox checked and "Accept" button enabled |
-| 6b | `step6b_d3dcompiler_review.png` | 11,606 | `7b2974c778c051679e7b8da9448eef747ddb1ed60f419f2df87092f5b6aad446` | DirectX Shader Compiler review dialog: Microsoft Corporation (download.microsoft.com), ~4.2 MB size, Windows 8.1 SDK EULA text |
+| 6b | `step6b_d3dcompiler_review.png` | 11,617 | `abab64d16a1cde80695686eea432b9b6ac48838b01ef2850ccd004171b244386` | DirectX Shader Compiler review dialog: Microsoft Corporation (download.microsoft.com), ~4.2 MB size, Windows 8.1 SDK EULA text |
 | 6c | `step6c_d3dcompiler_accepted.png` | 11,593 | `4524f733172be83a812dfd0cdefa0ebaa791bc1b6f771fb6460752fcb68c064e` | DirectX Shader Compiler review dialog with "I accept" checkbox checked and "Accept" button enabled |
 | 7 | `step7_components_checked.png` | 9,265 | `9f294f46e49a67644f89844f1b0accf7fdd354a0410107f56abb5bdaa1927c0c` | Components catalog with both `corefonts` and `d3dcompiler_47` checked for installation |
 | 8 | `step8_installing.png` | 9,834 | `797f9873a7b8060507a0fb5e28b9c556dcd7afe722577fe7157201d5207fd325` | Installation progress screen ("Installing selected components... Please wait.") |
-| 9 | `step9_installed.png` | 6,175 | `4d553ad0f0ffb9a95f504136196f285e99bbed94a6c8a3c0941a4a1df4030b64` | Post-installation transition to User Account setup page |
+| 9 | `step9_installed.png` | 6,182 | `e83a9dbec64912167ce5404a629de111990d4c88a7fd4dc6acca0019ce0d689b` | Post-installation transition to User Account setup page |
 | 10 | `step10_users.png` | 6,279 | `bfd006634776f950ab47b65a067f58165c0237145fb1313845fd5533ac0e5e23` | "Who will use this computer?" page with "TestUser" entered in primary user slot |
 | 11 | `step11_password.png` | 5,834 | `4b21b29e422c2eb5270d57eb380c8522073d09479fd1596609c24007ed977f04` | "Set a password" page for user TestUser |
-| 12 | `step12_finish.png` | 7,100 | `3d87f6817d9dadcf8a59fae3d1b8d4d328db34acccaaa92a57606fe793514db2` | "Thank you!" finish page with summary: Installed: 2, Skipped: 4 |
+| 12 | `step12_finish.png` | 7,038 | `9d933c9b53969135a80ec776c1edf787d77760f3098d59d19d9b0ebfecff8b99` | "Thank you!" finish page with summary: Installed: 2, Skipped: 4 (Unicode bullet rendering verified) |
 
 ## §7 — Handoff
 

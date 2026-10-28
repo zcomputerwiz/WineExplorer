@@ -68,26 +68,31 @@ DISPLAY="$DISP" import -window root "$EVIDENCE/step5_review_dialog.png"
 
 echo "[10] Step 6: Accept CoreFonts Terms..."
 send_key "alt+a"
+sleep 1
 DISPLAY="$DISP" import -window root "$EVIDENCE/step6_review_accepted.png"
 send_key "Return"
-sleep 1
+sleep 3
 
 echo "[11] Step 6b: Open Review Terms for d3dcompiler_47..."
 send_key "Down"
+sleep 1
 send_key "Down"
+sleep 1
 send_key "alt+r"
-sleep 2
+sleep 3
 DISPLAY="$DISP" import -window root "$EVIDENCE/step6b_d3dcompiler_review.png"
 
 echo "[12] Step 6c: Accept d3dcompiler_47 Terms..."
 send_key "alt+a"
+sleep 1
 DISPLAY="$DISP" import -window root "$EVIDENCE/step6c_d3dcompiler_accepted.png"
 send_key "Return"
-sleep 1
+sleep 3
 DISPLAY="$DISP" import -window root "$EVIDENCE/step7_components_checked.png"
 
 echo "[13] Step 7: Trigger Install..."
 send_key "alt+n"
+sleep 2
 DISPLAY="$DISP" import -window root "$EVIDENCE/step8_installing.png"
 
 echo "     Waiting for installation receipts and worker completion..."
