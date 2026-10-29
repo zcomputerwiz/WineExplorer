@@ -134,3 +134,22 @@ If wineserver were modified immediately to enforce the Lowbox dual-check filteri
 - **Superproject Branch**: `codex/chromium-boundary-diagnostic`
 - **Wine Submodule Commit**: `b222f7f2977663ca9c680fb15363bc0e17b3053f`
 - **Whitespace Check**: `git diff --check` passes with 0 warnings.
+
+---
+
+## 6. Worker Unit Test Verification Results
+
+In accordance with `WO-20261029-CHROMIUM-TEST-HARDENING-VERIFICATION`, Claude Code compiled and executed the test suites from Wine commit `b222f7f2977663ca9c680fb15363bc0e17b3053f`:
+
+| Test Binary | Architecture | Tests Executed | Failures | Todo | Flaky | Skipped | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `userenv_test.exe` | `x86_64` | 296 | **0** | 1 | 0 | 0 | **PASS** |
+| `userenv_test.exe` | `i386` | 296 | **0** | 1 | 0 | 0 | **PASS** |
+| `kernelbase_test.exe security` | `x86_64` | 74 | **0** | 0 | 0 | 1 | **PASS** |
+| `kernelbase_test.exe security` | `i386` | 74 | **0** | 0 | 0 | 1 | **PASS** |
+| **Total** | | **740** | **0** | **2** | **0** | **2** | **100% PASS** |
+
+### Execution Notes:
+- Dynamic test profile names (`WexUnreg_%lu_%lu`, `WexColl_%lu_%lu`) and collision test paths were successfully generated, executed, and cleaned up without leaving orphaned artifacts.
+- The single skip in `security_test.exe` corresponds to `TokenCapabilities` (`security.c:1095: Tests skipped: TokenCapabilities class not implemented by Wine ntdll`), matching the known security limitation.
+- Zero browser trials were executed; existing r5 candidate evidence (`chromium-browser-verify-r5-20261029`) remains authoritative and unmodified.
