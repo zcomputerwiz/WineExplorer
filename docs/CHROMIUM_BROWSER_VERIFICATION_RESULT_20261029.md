@@ -19,8 +19,18 @@
 > query succeeding, `CreateAppContainerToken` completing, and the network service spawning under
 > `--service-sandbox-type=network` with no rollback and no ERROR_INSUFFICIENT_BUFFER anywhere. The
 > fixture loads HTTP 200 (index.html 637 B, scene.js 3750 B), and both wine unit suites return to
-> **0 failures** on both architectures. See the "Iteration 4" section at the end; the
-> iteration-1/2/3 narratives are retained as the historical baseline.
+> **0 failures** on both architectures. **Iteration 5 (wine `f01bba45`, this run) is POSITIVE on
+> both criteria — it confirms Antigravity's r5 correctness fix holds with no regression against
+> iteration 4.** The r5 commit (`userenv: preserve unowned folders on missing profile delete and
+> prevent file collisions`) resolves parent review Findings 1 & 2 from the iteration-4 candidate
+> review: `DeleteAppContainerProfile` now preserves pre-existing unowned folders (cleanup gated on a
+> positively-successful unregister), and `CreateAppContainerProfile` validates that an already-existing
+> path is actually a directory, rolling back the registration and preserving a colliding regular file.
+> The kNetwork service again spawns and remains under `--service-sandbox-type=network` with no `=none`
+> fallback, no ERROR_INSUFFICIENT_BUFFER/0x7A, and no rollback; the loopback fixture returns HTTP 200
+> (index.html 637 B, scene.js 3750 B); both wine unit suites return to **0 failures** on both
+> architectures. See the "Iteration 5" section at the end; the iteration-1/2/3/4 narratives are
+> retained as the historical baseline.
 
 ## Iteration 1 (wine `3a47f7c`) — NEGATIVE
 
@@ -928,3 +938,252 @@ All primary evidence is archived under
 The launcher-level shutdown record (`graceful_powerdown`, `qemu_exit_status = 0`) is in the run-root
 `results.json`. Candidate coherence, the differing set, fix-DLL SHA verification, and the control-channel
 `wineserver` before/after witness are in `execution.json`.
+
+## Iteration 5 (wine `f01bba45`) — POSITIVE (r5 correctness fix holds; no regression)
+
+WO `WO-20261029-CHROMIUM-VERIFICATION-ITERATION-5`, Verification Run 5. Target identity
+`chromium-browser-verify-r5-20261029`. This run re-tests the same two acceptance criteria against
+Antigravity's r5 fix, produced in response to parent reviewer Codex's review of the iteration-4
+candidate (`docs/CHROMIUM_R4_CANDIDATE_PARENT_REVIEW_20261029.md`):
+
+- **Q1** — does `utility!kNetwork` initialize and *remain* under
+  `--service-sandbox-type=network` (no `=none` fallback, no pre-spawn buffer failure)?
+- **Q2** — does the exact-nonce loopback fixture load `index.html` (637 B) and `scene.js` (3750 B)
+  with HTTP 200?
+
+### What changed since iteration 4
+
+Wine commit `f01bba45e8a53d508672cb087ac021033f99f8aa` on the appcontainer-correctness line (parent
+= iteration-4 base `4afbb4cd04b90c3061df8c041fdbf05a3034b489`) — *"userenv: preserve unowned folders
+on missing profile delete and prevent file collisions"* — is confined to `dlls/userenv`:
+
+    $ git -C wine show --stat f01bba45e8a5
+     dlls/userenv/tests/userenv.c | 93 ++++++++++++++++++++++++++++++++++++++++++++
+     dlls/userenv/userenv_main.c  | 28 +++++++++++--
+     2 files changed, 117 insertions(+), 4 deletions(-)
+
+It resolves two of the three parent-review findings (the third is documentation-only):
+
+1. **Finding 1 (P1) — `DeleteAppContainerProfile` unowned-folder preservation.** Previously the
+   function mapped `ERROR_FILE_NOT_FOUND` from unregister to `S_OK` *before* checking
+   `SUCCEEDED(hr)`, so directory cleanup ran and `RemoveDirectoryW` could delete a pre-existing,
+   unowned `%LOCALAPPDATA%\Packages\<name>\AC` (and `...\Packages\<name>`) tree. The fix computes
+   `BOOL unregister_succeeded = (hr == S_OK);` *before* the mapping and guards all file-system
+   cleanup with `if (unregister_succeeded)`, so removal happens only when this call positively
+   established ownership of a registered profile. Pre-existing unowned directories, empty `AC`
+   subdirectories, and sentinel files are preserved intact.
+2. **Finding 2 (P2) — `CreateAppContainerProfile` directory-kind validation & collision rollback.**
+   Previously the function accepted `ERROR_ALREADY_EXISTS` from `CreateDirectoryW` without checking
+   that the existing path is actually a directory, so a *regular file* at `Packages\<name>\AC` would
+   falsely report success while leaving no usable profile. The fix adds an `ensure_directory(path)`
+   helper that checks `attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)` when
+   `CreateDirectoryW` returns `ERROR_ALREADY_EXISTS`/`ERROR_FILE_EXISTS`. On a regular-file collision
+   it sets `ERROR_ALREADY_EXISTS`, branches to `err_fs`, rolls the registration back via
+   `pAppContainerUnregisterSid(sid)`, frees the SID, preserves the colliding file, and returns
+   `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)`.
+3. **Finding 3 (P3) — security-semantics documentation (no code change).** Documents that Wine sets
+   `token->integrity_rid = SECURITY_MANDATORY_LOW_RID` and records capability SIDs in
+   `token->capabilities`, but that `NtQueryInformationToken(TokenCapabilities)` (class 30) is not
+   implemented (`STATUS_NOT_IMPLEMENTED`) and the wine server does **not** implement Windows NT lowbox
+   DACL filtering — i.e. Wine provides structural lowbox token metadata and Low-integrity labeling only,
+   with no native capability isolation and no false-isolation claims.
+
+Both new behaviors are covered by +93 lines of tests in `dlls/userenv/tests/userenv.c` (an
+unregistered profile hierarchy with an empty `AC` dir + sentinel file survives `DeleteAppContainerProfile`;
+a regular-file collision makes `CreateAppContainerProfile` fail, roll the mapping back from the registry,
+and leave the colliding file intact).
+
+Superproject commit `d70f318450eefe40d54c52591b985925b885f8a2` (branch
+`codex/chromium-boundary-diagnostic`) pinned the wine gitlink to the r5 tip, added a `--verify-r5` mode
+to `scripts/check-g4-chromium-native-exit.py`, and published the Work Order.
+
+> **Note on the fix revision.** The WO named wine commit `f01bba4564c78351fb3e753b844ca83842c6c39f`,
+> which is a **bad object** in the local wine mirror (verified: `git cat-file -t` → missing). The actual
+> tip of the appcontainer-correctness line is `f01bba45e8a53d508672cb087ac021033f99f8aa` (same 8-char
+> prefix `f01bba45`); its parent is `4afbb4cd04b90c3061df8c041fdbf05a3034b489` (the iteration-4 base) and
+> its subject is *"userenv: preserve unowned folders on missing profile delete and prevent file
+> collisions"*. The verification candidate was built from this true tip; the result applies to it.
+
+### Verdict (up front)
+
+**POSITIVE on both criteria — the r5 correctness fix holds with no regression against iteration 4.** The
+WINEDEBUG trace shows the kNetwork service spawned under `--service-sandbox-type=network` (twice), with
+**no `=none` fallback, no ERROR_INSUFFICIENT_BUFFER/0x7A, and no `AppContainerUnregisterSid` anywhere**;
+the loopback fixture returns HTTP 200 for both `index.html` (637 B) and `scene.js` (3750 B). Both wine
+unit suites pass with **0 failures** on both architectures.
+
+| Criterion | Result | Decisive evidence |
+| --- | --- | --- |
+| Q1 kNetwork stays `=network` | **PASS** | `network.mojom.NetworkService` spawned with `--service-sandbox-type=network` (×2); whole-trace grep: `INSUFFICIENT_BUFFER`=0, `Insufficient buffer`=0, `AppContainerUnregisterSid`=0; no "Network service crashed" line in chromium.log |
+| Q2 fixture loads HTTP 200 | **PASS** | netlog RECEIVED_RESPONSE_HEADERS: `index.html` → HTTP/1.0 200 OK, text/html, Content-Length **637**; `scene.js` → HTTP/1.0 200 OK, application/javascript, Content-Length **3750**; consumer `http_fixture` req[2]/req[3] status 200, response_completed, SHA-matched |
+
+### Build and unit tests — 0 failures on both architectures
+
+`userenv.dll` and `kernelbase.dll` were rebuilt from the r5 tip for both x86_64 and i386 in the project
+wine build tree, and the corresponding unit-test suites were rebuilt and run. Both return **0 failures**:
+
+| Suite | x86_64 | i386 |
+| --- | --- | --- |
+| kernelbase `security` | 74 tests, **0 failures** | 74 tests, **0 failures** |
+| userenv (full) | 298 tests, **0 failures** | 298 tests, **0 failures** |
+
+The userenv suite grew from 289 (iteration 4) to **298** — the two new Finding-1/Finding-2 tests above;
+kernelbase is unchanged at 74. The kernelbase `security` suite continues to pass its
+`CreateAppContainerToken` assertion (the iteration-3 failure was `CreateAppContainerToken failed: 122`,
+resolved by iteration 4's 272-byte buffer, retained here).
+
+### Candidate provenance and completeness
+
+As in iterations 1–4, the guest candidate was assembled as a hardlink copy (`cp -al`) of the
+control-channel candidate overlaid with exactly the components that differ from the fix base, measured
+live by SHA-256 (each differing hardlink removed before re-extracting fresh inodes, so shared inodes were
+not mutated). `execution.json` records `candidate_coherent = true`, `orchestration_complete = true`, and a
+differing set of **6 DLLs** — `{kernelbase, ntdll, userenv} × {x86_64, i386}`. The functional r5 change is
+in **userenv**; kernelbase carries the cumulative fix base (including iteration 4's 272-byte `TokenUser`
+buffer); ntdll bytes are identical to the fix base (the r5 commit does not change ntdll). All six were
+re-verified by SHA-256 after deploy (`fix_dll_sha256_verified` all match); `outside_modules_unchanged = true`;
+overlay archive SHA-256 `be03f23fe9ed12e29259fd9ead1102dcc56f307b433e754a198767c9b1bc0db6`. The
+control-channel source `wineserver` was witnessed unchanged (same SHA-256 `6c063646…` before and after).
+
+| Component | x86_64 | i386 |
+| --- | --- | --- |
+| `dlls/userenv` (r5 fix) | `404b1a4282af85215c789b10df47df8f12e4eb43ce7622028893dfa517567d0c` | `50ddb39837eb2a7843dc948441da72d47377130424d88fb2963aed4c83477198` |
+| `dlls/kernelbase` (fix base) | `9f95157c3f51067d14845192ccad20b5fef01d1e4e05ca5e8cd85010c4fb1510` | `a575b5c2aff5f6d70a17d9aadfa9f9ade31c23f9dceb8aea9d622fda4cc7b64a` |
+| `dlls/ntdll` (fix-base bytes) | `b86d89551e1013819e6866c516833cbf80f42915de04e88773d92ecf38b9d2e6` | `9e6fdbad05651d51ed1b9d39e3a7853299cc875a0b8c56b70015bf41b16c7f75` |
+| `server/wineserver` (unchanged) | `6c063646076bb199e82ee70d594b98783c64871fcb413dfa9e437e590c5cc969` (single, host binary) | — |
+
+The positive result is therefore not a build/deploy artifact: the deployed candidate is a byte-faithful
+representation of the r5 tip.
+
+### Verification environment
+
+- Isolated paths (fresh, not reused): stage
+  `/home/debian/wex-g4/chromium-browser-verify-r5-20261029-stage`, output
+  `/home/debian/wex-g4/chromium-browser-verify-r5-20261029`, profile under the output dir. Guest candidate
+  wine at `/home/debian/wex-g4/wine-verify-r5-20261029/build/wow64`. Prior trial dirs
+  (`chromium-browser-verify-r1/r2/r3/r4-20261029`) were preserved and untouched.
+- Normal 8 GiB boot (`launch.py -m 8192`) from `system-native-identity-r4-20261024.qcow2`; SSH hostfwd
+  `127.0.0.1:2235→22`.
+- Path-locked helper PE for the identity (`WEX_EXIT_OUTPUT = Z:\home\debian\wex-g4\chromium-browser-verify-r5-20261029`);
+  child args byte-identical to the consumer's `--verify-r5` contract.
+- Wine debug channels: `-all,+timestamp,+pid,+tid,+winediag,+process,+userenv,+security`.
+- Scoped Chromium VLOG at **level 3** on the same six categories as iterations 2–4, plus
+  `--net-log-duration=40` (8 MiB) and `--trace-startup-duration=35`.
+- Fixture nonce `f428b81024729567eff81b83bd05c64b`; ephemeral loopback port **42291**.
+- Consumer mode: `scripts/check-g4-chromium-native-exit.py --verify-r5`. Per-run orchestrator:
+  `build/g4-virgl-20261022/chromium-browser-verify-r5-trial.py` (local harness; `build/` is gitignored, so it
+  is not tracked in this repository).
+
+### Q1 evidence — kNetwork stays `=network` (PASS)
+
+From `chromium-native-evidence/helper.stderr.log` (the WINEDEBUG trace), the per-utility spawn lines are:
+
+    utility  sub=network.mojom.NetworkService       sandbox=network   <== NETWORK
+    utility  sub=network.mojom.NetworkService       sandbox=network   <== NETWORK
+    utility  sub=storage.mojom.StorageService       sandbox=service
+    utility  sub=storage.mojom.StorageService       sandbox=service
+    utility  sub=tracing.mojom.TracingService       sandbox=service
+    utility  sub=tracing.mojom.TracingService       sandbox=service
+    utility  sub=chrome.mojom.ProcessorMetrics      sandbox=none
+    utility  sub=chrome.mojom.ProcessorMetrics      sandbox=none
+
+sandbox-type distribution: `network` ×2, `service` ×4, `none` ×2. The kNetwork process is spawned with
+`--service-sandbox-type=network` (twice — initial spawn + a re-spawn), **not** `=none`. This is the opposite
+of iteration 3's regression, where a whole-trace grep found only `=service` and `=none` and no `=network` at
+all. A grep over the full trace confirms the regression/rollback signatures are absent:
+
+- `INSUFFICIENT_BUFFER` = **0**, `Insufficient buffer` = **0** (the iteration-3 ERROR_INSUFFICIENT_BUFFER /
+  0x7A signature is gone — retained from iteration 4's fix), and no returned error code 122/0x7a.
+- `AppContainerUnregisterSid` = **0** (the iteration-1 rollback signature is absent).
+- `chromium.log` contains **no** "Network service crashed or was terminated, restarting service" line.
+
+The other utility processes keep their expected types — `storage.mojom.StorageService` and
+`tracing.mojom.TracingService` spawn with `--service-sandbox-type=service`, and the
+`chrome.mojom.ProcessorMetrics` utility with `--service-sandbox-type=none` (a metrics helper, not the network
+service). The kNetwork process specifically holds `=network`.
+
+### Q2 evidence — fixture loads HTTP 200 (PASS)
+
+From `chromium-native-evidence/netlog.json` (4953 events; this Chromium build emits
+RECEIVED_RESPONSE_HEADERS as event type **245**), the two fixture responses are:
+
+    ["HTTP/1.0 200 OK", "Server: BaseHTTP/0.6 Python/3.13.5", "Date: Thu, 29 Oct 2026 19:19:36 GMT",
+     "Content-Type: text/html; charset=utf-8", "Content-Length: 637", "Connection: close"]
+
+    ["HTTP/1.0 200 OK", ..., "Content-Type: application/javascript; charset=utf-8", "Content-Length: 3750",
+     "Connection: close"]
+
+The consumer's own `results.json` → `http_fixture.requests` corroborates this on the server side:
+
+    req[1]: status=None  client=127.0.0.1:59996  response_completed=False  "Request timed out: TimeoutError('timed out')"
+    req[2]: status=200   written_bytes=637   response_completed=True  /f428…/index.html  text/html                 sha f0a47b1a…
+    req[3]: status=200   written_bytes=3750  response_completed=True  /f428…/scene.js     application/javascript   sha fe9b1801…
+    req[4]: status=404   /favicon.ico                                              (expected — the fixture serves no favicon)
+
+Both fixture files return HTTP 200 with byte counts and SHA-256 matching the deployed fixture sources — the
+same `f0a47b1a…`/`fe9b1801…` digests recorded in iteration 4. The single early request (client port 59996)
+timed out at the server's short probe window *before* the real document requests — the same benign pattern
+noted in iteration 2. Q1 and Q2 mutually corroborate: a fixture HTTP 200 over loopback is only possible if the
+`=network` service is genuinely up and serving.
+
+> **Honest limitation on "consumption".** The consumer classifies this fixture evidence as
+> `"HTTP writes only; browser consumption NOT_PROVEN"`. That classification is accurate for what this probe
+> can assert: the loopback server provably served both fixture files with HTTP 200 and the exact expected
+> bytes, which independently requires a live, functioning `=network` service (Q1) — but this held-handle
+> status probe does **not** assert that the *browser* rendered/consumed them. See the visual note below.
+
+### Visual acceptance note (honest limitation)
+
+The WO also asked to confirm `terminal-front.png` shows a green background, blue marker, magenta/cyan
+canvases, and a nonce-matched ready-window title. A screenshot was captured during the run (`front_exit = 0`),
+**but this verification environment cannot render or inspect images**, so pixel-level visual acceptance was
+**not** independently confirmed here. The indirect evidence supports it: the navigation URL carried
+`#nonce=f428b81024729567eff81b83bd05c64b`, and both fixture files — including `scene.js`, the script that draws
+the marker/canvases — were fetched with HTTP 200. Visual confirmation is therefore left to a reviewer with
+image access; the two formal acceptance criteria (Q1, Q2) are met by direct log evidence above.
+
+### Consumer bookkeeping note (helper wait-for-exit timeout — by design)
+
+The consumer's own `results.json` records `passed = false`, `diagnostic_exit = 1`,
+`observation_complete = false`, `mode = verify-r5`, `helper_phase = natural_exit`,
+`journal_outcome = native_timeout`, `front_exit = 0`, `elapsed_seconds ≈ 48.9`, `cleanup_complete = true`,
+`remaining_servers = []`, `remaining_prefix_processes = {}`. This is the **harness's designed exit-detection
+behavior for the `--verify-r5` "held-handle Chromium status" probe, not a sandbox or fixture failure**: the
+path-locked helper bound to `chrome.exe` (`native-exit.jsonl` `bound` event carries the exact level-3 command
+line; `helper_pid 32 → child_pid 224`) and then waited for the child to *self-exit* within 45 s; an app-mode
+browser never does, so the wait expired with `wait_result = 258` (`WAIT_TIMEOUT`), `wait_ms = 45000`, journal
+outcome `native_timeout`. The binding succeeded, `chrome.exe` ran for the full window, built the kNetwork
+sandbox under `=network`, and served the fixture — all captured within that window. This is consistent with
+iterations 2 & 4's positive runs, where the same `passed = false` coexisted with both criteria passing.
+
+### Graceful shutdown (WO requirement met)
+
+The run was stopped via the separate SIGTERM stop command; the launcher root `results.json` records
+`stop_reason = "signal"`, **`graceful_powerdown = true`**, `fallback_used = false`, QMP
+`capabilities_ack`/`powerdown_ack`/`guest_shutdown_observed`/`protocol_complete` all true, and
+**`qemu_exit_status = 0`** (shutdown elapsed ≈ 7.37 s); host GL passed (D3D12 Intel UHD Graphics 750, GL 4.1).
+No stray qemu/launcher process remains.
+
+### Conclusion
+
+Iteration 5 is **POSITIVE on both acceptance criteria — Antigravity's r5 fix holds with no regression against
+iteration 4.** The r5 userenv changes (Finding 1: unowned-folder preservation on profile delete; Finding 2:
+directory-kind validation + collision rollback on profile create) are correctness hardening that does not
+disturb the live kNetwork path, as confirmed by this positive browser trial. Under wine the kNetwork
+LPAC/AppContainer service initializes and remains under `--service-sandbox-type=network` with no `=none`
+fallback, no ERROR_INSUFFICIENT_BUFFER/0x7A, and no rollback; the loopback fixture returns HTTP 200 for
+`index.html` (637 B) and `scene.js` (3750 B); both wine unit suites pass with **0 failures** on both
+architectures. Two honest caveats: (a) this held-handle probe does not assert browser-side rendering/consumption
+(consumer classification `"browser consumption NOT_PROVEN"`), and (b) pixel-level visual acceptance was not
+independently confirmed here because image inspection is unavailable in this environment. The two formal
+criteria Q1/Q2 are met by direct log evidence.
+
+### Evidence archive
+
+All primary evidence is archived under
+`chromium-browser-verify-r5-20261029/chromium-native-evidence/`: `chromium.log`,
+`helper.stderr.log` (the WINEDEBUG trace — the Q1 instrument), `netlog.json`, `results.json`, `trace.json`,
+`terminal-front.png`, `native-exit.jsonl`, and the run's `execution.json` / `serial.log`. The launcher-level
+shutdown record (`graceful_powerdown`, `qemu_exit_status = 0`) is in the run-root `results.json`. Candidate
+coherence, the differing set, fix-DLL SHA verification, and the control-channel `wineserver` before/after
+witness are in `execution.json`.
