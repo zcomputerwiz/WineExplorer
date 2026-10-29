@@ -41,18 +41,19 @@ HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 def configure(mode):
     """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,PROFILE,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS,BUILD
-    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g','navigation-unblock','navigation-phase','browser-boundary','diagnostic'):raise ValueError('Unknown fixed Chromium mode')
+    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g','navigation-unblock','navigation-phase','browser-boundary','diagnostic','verify-r1'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
-    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','memory-8g':'chromium-memory-8g-20261028','navigation-unblock':'chromium-navigation-unblock-20261028','navigation-phase':'chromium-navigation-phase-20261028','browser-boundary':'chromium-browser-boundary-20261028','diagnostic':'chromium-browser-diagnostic-20261028'}[mode]
+    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','memory-8g':'chromium-memory-8g-20261028','navigation-unblock':'chromium-navigation-unblock-20261028','navigation-phase':'chromium-navigation-phase-20261028','browser-boundary':'chromium-browser-boundary-20261028','diagnostic':'chromium-browser-diagnostic-20261028','verify-r1':'chromium-browser-verify-r1-20261029'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
     PROFILE=OUTPUT/'profile' # nested under the fresh OUTPUT; aligns with native WEX_EXIT_OUTPUT+"\profile"
     HELPER=STAGE/'original/native-exit.exe';MANIFEST=STAGE/'runtime-manifest.json'
     FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
     DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode!='r1' else '')
-    if mode=='diagnostic':
-        # WO-20261028-CHROMIUM-TARGETED-DIAGNOSTIC: enriched channels to localize the FIRST failing
-        # gate in the Chromium kNetwork sandbox launch pipeline (userenv profile + security/token calls).
+    if mode in ('diagnostic','verify-r1'):
+        # WO-20261028-CHROMIUM-TARGETED-DIAGNOSTIC / WO-20261029-CHROMIUM-VERIFICATION-ITERATION-1:
+        # enriched channels to localize the FIRST failing gate in the Chromium kNetwork sandbox launch
+        # pipeline (userenv profile + security/token calls). verify-r1 reuses this exact WINEDEBUG.
         DEBUG='-all,+timestamp,+pid,+tid,+winediag,+process,+userenv,+security'
     HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']} if mode=='r1' else None
     if mode in ('memory-8g','navigation-unblock','navigation-phase','browser-boundary','diagnostic'):
@@ -62,6 +63,15 @@ def configure(mode):
         # navigation-unblock: bounded NetLog boundary diagnostic on the same candidate;
         # navigation-phase: combined scoped-VLOG + fixed-NetLog + startup-trace phase probe.)
         BUILD=LAB/'wine-control-channel-20261027/build/wow64'
+        cal.BUILD=BUILD
+        cal.APPROVED_LOADER=BUILD/'loader/wine' # identity attestation must name the candidate loader, not the import-time build
+    elif mode=='verify-r1':
+        # WO-20261029-CHROMIUM-VERIFICATION-ITERATION-1: ISOLATED coherent candidate at my AppContainer
+        # fix base (002153a + userenv/kernelbase rebuilt from 3a47f7c). The verify-r1 trial deploys it to a
+        # FRESH private path via hardlink-copy of the control-channel candidate + overlay of exactly the
+        # components that differ between the bases (userenv/kernelbase/ntdll x2, wineserver), verified by
+        # SHA-256. NOT the reused control-channel path -- this run must test the fix in isolation.
+        BUILD=LAB/'wine-verify-r1-20261029/build/wow64'
         cal.BUILD=BUILD
         cal.APPROVED_LOADER=BUILD/'loader/wine' # identity attestation must name the candidate loader, not the import-time build
 
@@ -82,11 +92,12 @@ def child_args(nonce,url):
         args+=['--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2',
                '--log-net-log='+cal.win(OUTPUT/'netlog.json'),'--net-log-max-size-mb=8','--net-log-duration=40',
                '--trace-startup','--trace-startup-duration=35','--trace-startup-file='+cal.win(OUTPUT/'trace.json')]
-    elif MODE=='diagnostic':
-        # WO-20261028-CHROMIUM-TARGETED-DIAGNOSTIC: same combined bounded diagnostic as navigation-phase,
-        # plus */sandbox/* and */base/process/* in the scoped VLOG to expose the kNetwork launch pipeline's
-        # policy/token/CreateProcess gates. Must EXACTLY mirror the WEX_DIAGNOSTIC helper contract (same
-        # flags, same order) or binding() rejects the held-handle command line.
+    elif MODE in ('diagnostic','verify-r1'):
+        # WO-20261028-CHROMIUM-TARGETED-DIAGNOSTIC / WO-20261029-CHROMIUM-VERIFICATION-ITERATION-1: same
+        # combined bounded diagnostic as navigation-phase, plus */sandbox/* and */base/process/* in the
+        # scoped VLOG to expose the kNetwork launch pipeline's policy/token/CreateProcess gates. verify-r1
+        # reuses this exact child-arg set (identical WO-required VLOG). Must EXACTLY mirror the WEX_DIAGNOSTIC
+        # helper contract (same flags, same order) or binding() rejects the held-handle command line.
         args+=['--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2,*/sandbox/*=2,*/base/process/*=2',
                '--log-net-log='+cal.win(OUTPUT/'netlog.json'),'--net-log-max-size-mb=8','--net-log-duration=40',
                '--trace-startup','--trace-startup-duration=35','--trace-startup-file='+cal.win(OUTPUT/'trace.json')]
@@ -294,11 +305,12 @@ def main():
     selection.add_argument('--navigation-phase',action='store_true',help='Combined bounded phase probe (scoped VLOG + fixed integer NetLog 40s + best-effort startup trace 35s) to isolate the unfinished NavigationRequest phase, reusing the deployed control-channel candidate; no Wine rebuild or trace redeploy')
     selection.add_argument('--browser-boundary',action='store_true',help='WO-20261028-CHROMIUM-BROWSER-BOUNDARY normal 8GiB verification: combined bounded diagnostic (scoped VLOG + fixed integer NetLog 40s + startup trace 35s) reusing the deployed candidate now carrying the CreateAppContainerProfile fix; no Wine rebuild or trace redeploy')
     selection.add_argument('--diagnostic',action='store_true',help='WO-20261028-CHROMIUM-TARGETED-DIAGNOSTIC normal 8GiB diagnostic: enriched WINEDEBUG (userenv+security) + scoped VLOG with */sandbox/* and */base/process/* to localize the first failing kNetwork sandbox launch gate; reuses the deployed control-channel candidate; no Wine rebuild or trace redeploy')
+    selection.add_argument('--verify-r1',action='store_true',help='WO-20261029-CHROMIUM-VERIFICATION-ITERATION-1 normal 8GiB verification: enriched WINEDEBUG (userenv+security) + scoped VLOG with */sandbox/* and */base/process/* against the ISOLATED coherent candidate at the AppContainer fix base; verifies kNetwork stays sandboxed (--service-sandbox-type=network) and the fixture loads HTTP 200')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
-    configure('diagnostic' if args.diagnostic else 'browser-boundary' if args.browser_boundary else 'navigation-phase' if args.navigation_phase else 'navigation-unblock' if args.navigation_unblock else 'memory-8g' if args.memory_8g else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
+    configure('verify-r1' if args.verify_r1 else 'diagnostic' if args.diagnostic else 'browser-boundary' if args.browser_boundary else 'navigation-phase' if args.navigation_phase else 'navigation-unblock' if args.navigation_unblock else 'memory-8g' if args.memory_8g else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
     return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))
