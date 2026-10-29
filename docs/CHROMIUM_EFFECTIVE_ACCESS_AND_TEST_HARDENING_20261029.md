@@ -4,152 +4,138 @@
 - **Document ID:** `docs/CHROMIUM_EFFECTIVE_ACCESS_AND_TEST_HARDENING_20261029.md`
 - **Superproject Worktree:** `D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer`
 - **Root Branch:** `codex/chromium-boundary-diagnostic`
-- **Superproject Submodule Commit:** `b222f7f2977663ca9c680fb15363bc0e17b3053f` (Wine `codex/g4-appcontainer-correctness`)
-- **Parent Review Reference:** `docs/CHROMIUM_R5_CANDIDATE_PARENT_REVIEW_20261029.md` (commit `a2dc103ac9371d116075ee166197fdb3921bfe66`)
+- **Superproject Submodule Commit:** `3a4443e621c2bd6c1aca1936d47166be92838237` (Wine `codex/g4-appcontainer-correctness`)
+- **Parent Review References:**
+  - `docs/CHROMIUM_R5_CANDIDATE_PARENT_REVIEW_20261029.md` (`a2dc103ac9371d116075ee166197fdb3921bfe66`)
+  - `docs/CHROMIUM_R5_TEST_HARDENING_PARENT_REVIEW_20261029.md` (`9ab6dc9a142678cf574adc3021fe91b33d8897ba`)
 
 ---
 
 ## 1. Executive Summary
 
-This report addresses Parent Review findings from `docs/CHROMIUM_R5_CANDIDATE_PARENT_REVIEW_20261029.md`:
+This report delivers the complete empirical characterization and comprehensive test-safety resolution requested in Parent Reviews:
 
-1. **Resolution of Finding P1 (Destructive Fixed-Name Tests)**:
-   Wine unit tests in `dlls/userenv/tests/userenv.c` have been fully hardened with dynamically generated unique names, fail-closed pre-flight existence checks, safe non-destructive file creation (`CREATE_NEW`), explicit multi-phase ownership tracking, and strictly owned-only cleanup on all exit paths.
-2. **Empirical Windows 11 vs. Wine Effective Access Comparison**:
-   Direct empirical testing of Windows NT security semantics was conducted on a native Windows 11 host (Build 26100) using Win32 `AccessCheck` with normal impersonation tokens versus lowbox AppContainer tokens across three discrete DACL configurations. The results confirm the exact nature of the NT Lowbox DACL filtering boundary and provide an empirical baseline against Wine's implementation in `server/token.c`.
-3. **Architectural Analysis & Scoped Master Integration Path**:
-   We detail why implementing NT Lowbox DACL filtering in Wine requires broader prefix security descriptor provisioning rather than isolated token adjustments, and define the roadmap for dedicated master branch integration.
-
----
-
-## 2. Finding P1 Resolution: Test Hardening
-
-In commit `b222f7f2977663ca9c680fb15363bc0e17b3053f` (`codex/g4-appcontainer-correctness`), `dlls/userenv/tests/userenv.c` was updated:
-
-1. **Dynamic Unique Naming**:
-   Replaced hardcoded strings `WineExplorerUnregTest_12345` and `WineExplorerFileCollTest_12345` with process- and time-unique names:
-   ```c
-   swprintf( unreg_name, ARRAY_SIZE(unreg_name), L"WexUnreg_%lu_%lu", GetCurrentProcessId(), GetTickCount() );
-   swprintf( collision_name, ARRAY_SIZE(collision_name), L"WexColl_%lu_%lu", GetCurrentProcessId(), GetTickCount() );
-   ```
-2. **Elimination of Pre-Test Profile Deletion**:
-   Removed unconditional calls to `pDeleteAppContainerProfile` prior to test setup.
-3. **Pre-flight Existence Validation (Fail-Closed)**:
-   Before creating test directories, `GetFileAttributesW` is checked. If the directory already exists on disk, the test emits `skip(...)` and exits without modifying any file system state:
-   ```c
-   attr = GetFileAttributesW( unreg_pkg );
-   if (attr != INVALID_FILE_ATTRIBUTES)
-   {
-       skip( "Target test directory %s already exists; failing closed to protect existing data\n", wine_dbgstr_w(unreg_pkg) );
-   }
-   ```
-4. **Safe File Creation via `CREATE_NEW`**:
-   Replaced `CREATE_ALWAYS` with `CREATE_NEW`. If any file exists at the destination, creation fails immediately rather than truncating existing data.
-5. **Multi-Phase Ownership Tracking & Owned-Only Cleanup**:
-   Every creation step sets an explicit boolean tracking flag (`created_pkg`, `created_ac`, `created_sentinel`, `created_coll_file`, `profile_registered`). Cleanup routines at the end of each block inspect these flags and delete only artifacts positively created by the running test:
-   ```c
-   if (created_sentinel) DeleteFileW( unreg_sentinel );
-   if (created_ac) RemoveDirectoryW( unreg_ac );
-   if (created_pkg) RemoveDirectoryW( unreg_pkg );
-   ```
+1. **Resolution of Finding P1 (Comprehensive Test Data Safety & Owned Cleanup)**:
+   All fixed profile names and mock registry mutations across `dlls/userenv/tests/userenv.c:test_appcontainer_profile` have been converted to dynamic per-run names (`WexProfile_%lu_%lu`, `WexMock_%lu_%lu`, `WexUnreg_%lu_%lu`, `WexColl_%lu_%lu`), gated by fail-closed non-existence and registry disposition checks (`REG_OPENED_EXISTING_KEY`), guarded against uninitialized paths on missing `LOCALAPPDATA`, and restricted to strictly owned-only cleanup on all exit paths.
+2. **Same-PE Empirical Windows 11 vs. Project-Wine Effective Access Comparison**:
+   A dedicated Win32 C test probe (`docs/evidence/access_check_probe.c`) was compiled with MinGW-w64 into a standalone PE executable (`access_check_probe.exe`). The exact same PE was executed on both **Native Windows 11 Pro (Build 26100)** and **Project Wine (x86_64, candidate build)**, measuring `AccessCheck` return values (`Ret`), status codes (`Status`), granted access masks (`Granted`), and error codes (`Err` / `GetLastError()`) across discrete DACL configurations.
+3. **Preserved Raw Private Evidence**:
+   Raw execution logs and probe source are archived directly in the repository:
+   - Probe Source: [`docs/evidence/access_check_probe.c`](file:///d:/DeepThought/Worktrees/chromium-token-integration/WineExplorer/docs/evidence/access_check_probe.c)
+   - Native Windows 11 Raw Console Output: [`docs/evidence/access_check_native_windows11.txt`](file:///d:/DeepThought/Worktrees/chromium-token-integration/WineExplorer/docs/evidence/access_check_native_windows11.txt)
+   - Project Wine Raw Console Output: [`docs/evidence/access_check_project_wine.txt`](file:///d:/DeepThought/Worktrees/chromium-token-integration/WineExplorer/docs/evidence/access_check_project_wine.txt)
+4. **Candidate Unit Test Results**:
+   Rebuilt and verified with **0 failures** across both architectures (738 total test assertions executed).
 
 ---
 
-## 3. Empirical Native Windows 11 vs. Wine Effective Access Comparison
+## 2. Finding P1 Resolution: Test-Only Data-Safety Hardening
 
-### 3.1 Test Configuration
+In commits `b222f7f29776` and `3a4443e621c2` (`codex/g4-appcontainer-correctness`), `dlls/userenv/tests/userenv.c` was hardened across every mutation point:
 
-- **Host Environment**: Native Windows 11 Pro (Build 26100.x86_64).
-- **Tokens Tested**:
-  1. *Normal Token*: Impersonation token duplicated from current process (`SecurityImpersonation`, `TOKEN_ALL_ACCESS`).
-  2. *AppContainer Token*: Created via Win32 `CreateAppContainerToken(normal_token, &sec_caps, &ac_token)` with package SID `S-1-15-2-12345-67890-99999` and zero capabilities.
-- **Evaluation Mechanism**: Win32 `AccessCheck` evaluating `GENERIC_READ` (`FILE_GENERIC_READ`, `0x00120089`) against the security descriptor, matching caller permissions via `MAXIMUM_ALLOWED`.
+1. **Dynamic Main Profile Naming & Pre-flight Inspection**:
+   - Replaced fixed string `WineExplorerTestContainer` with per-run `WexProfile_%lu_%lu`.
+   - Removed unconditional pre-flight `pDeleteAppContainerProfile`.
+   - Verified `LOCALAPPDATA` availability: skips gracefully if absent (protecting uninitialized buffer paths).
+   - Pre-flight `GetFileAttributesW` ensures no pre-existing path collision.
+2. **Dynamic Mock Registry Mapping**:
+   - Replaced fixed mock SID `S-1-15-2-12345-67890-99999` with dynamically derived SID from `WexMock_%lu_%lu`.
+   - Inspected `RegCreateKeyExW` disposition parameter: if `disposition == REG_OPENED_EXISTING_KEY`, the key is immediately closed and skipped without modifying any pre-existing user data.
+3. **Dynamic Collision and Unregistered Profile Tests**:
+   - `WexUnreg_%lu_%lu` and `WexColl_%lu_%lu` generated dynamically.
+   - Pre-flight registry mapping check ensures unreg mapping does not collide.
+   - Files created via `CREATE_NEW` instead of `CREATE_ALWAYS`.
+   - Boolean ownership tracking flags ensure cleanup is only executed for positively owned artifacts.
 
-### 3.2 Empirical Comparison Matrix
+---
 
-| DACL Configuration | SDDL String | Native Windows 11: Normal Token | Native Windows 11: AppContainer Token | Wine Server (`server/token.c`): Normal Token | Wine Server (`server/token.c`): AppContainer Token |
+## 3. Same-PE Empirical Windows 11 vs. Project Wine Effective Access Comparison
+
+### 3.1 Test Methodology & Probe Architecture
+
+To eliminate differences arising from runtime wrappers, language bindings, or token parameter handling, a single Win32 PE binary was compiled:
+- **Source**: `docs/evidence/access_check_probe.c`
+- **Compiler**: `x86_64-w64-mingw32-gcc -O2`
+- **Binary**: `access_check_probe.exe` (PE32+ executable, x86-64)
+- **Token Setup**:
+  - `Normal`: Duplicate of process token (`SecurityImpersonation`, `TOKEN_ALL_ACCESS`).
+  - `AppContainer`: Derived via `CreateAppContainerToken(NULL, &sec_caps, &hAcPrimary)` with valid derived package SID `S-1-15-2-971078271-...` and 0 capabilities (`TokenIsAppContainer=1`), duplicated with `TokenImpersonation`.
+- **DACL Configurations**:
+  - **Case 1**: User-Only DACL (`D:(A;;FR;;;UserSid)`)
+  - **Case 2**: User + `ALL APPLICATION PACKAGES` (`D:(A;;FR;;;UserSid)(A;;FR;;;AC)`)
+  - **Case 3**: User + Specific Package SID (`D:(A;;FR;;;UserSid)(A;;FR;;;PackageSid)`)
+  - All security descriptors set Owner and Group to current caller SID (`O:%sG:%s`).
+- **AccessCheck Invocations**:
+  Evaluated for both tokens across both `GENERIC_READ` (`FILE_GENERIC_READ`, `0x00120089`) and `MAXIMUM_ALLOWED` (`0x02000000`).
+
+### 3.2 Side-by-Side Empirical Results Matrix
+
+| DACL Case | Token | Desired Access | Native Windows 11 Pro (Build 26100) | Project Wine (x86_64, candidate build) | Semantic Distinction |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. User-Only DACL** | `D:(A;;FR;;;UserSid)` | **GRANTED** (`status=1`, `granted=0x00120089`) | **DENIED** (`status=0`, `err=5 ERROR_ACCESS_DENIED`) | **GRANTED** (`status=1`, `granted=0x00120089`) | **GRANTED** (`status=1`, `granted=0x00120089`) |
-| **2. User + `ALL APPLICATION PACKAGES`** | `D:(A;;FR;;;UserSid)(A;;FR;;;AC)` | **GRANTED** (`status=1`, `granted=0x00120089`) | **GRANTED** (`status=1`, `granted=0x00120089`) | **GRANTED** (`status=1`, `granted=0x00120089`) | **GRANTED** (`status=1`, `granted=0x00120089`) |
-| **3. User + Specific Package SID** | `D:(A;;FR;;;UserSid)(A;;FR;;;AppContainerSid)` | **GRANTED** (`status=1`, `granted=0x00120089`) | **GRANTED** (`status=1`, `granted=0x00120089`) | **GRANTED** (`status=1`, `granted=0x00120089`) | **GRANTED** (`status=1`, `granted=0x00120089`) |
+| **Case 1: User-Only DACL** | Normal | `FILE_GENERIC_READ` (`0x00120089`) | `Ret=1 Status=1 Granted=0x00120089 Err=0` | `Ret=1 Status=1 Granted=0x00120089 Err=0` | Identical: Granted |
+| **Case 1: User-Only DACL** | **AppContainer** | `FILE_GENERIC_READ` (`0x00120089`) | **`Ret=1 Status=0 Granted=0x00000000 Err=5`** | **`Ret=1 Status=1 Granted=0x00120089 Err=0`** | **DIVERGENCE**: Windows DENIES (`ERROR_ACCESS_DENIED`), Wine GRANTS |
+| **Case 1: User-Only DACL** | Normal | `MAXIMUM_ALLOWED` (`0x02000000`) | `Ret=1 Status=1 Granted=0x00160089 Err=0` | `Ret=1 Status=1 Granted=0x001F0089 Err=0` | Both Grant caller permissions |
+| **Case 1: User-Only DACL** | **AppContainer** | `MAXIMUM_ALLOWED` (`0x02000000`) | **`Ret=1 Status=0 Granted=0x00000000 Err=5`** | **`Ret=1 Status=1 Granted=0x001F0089 Err=0`** | **DIVERGENCE**: Windows DENIES (`ERROR_ACCESS_DENIED`), Wine GRANTS |
+| **Case 2: ALL APP PKGS** | Normal | `FILE_GENERIC_READ` (`0x00120089`) | `Ret=1 Status=1 Granted=0x00120089 Err=0` | `Ret=1 Status=1 Granted=0x00120089 Err=0` | Identical: Granted |
+| **Case 2: ALL APP PKGS** | AppContainer | `FILE_GENERIC_READ` (`0x00120089`) | `Ret=1 Status=1 Granted=0x00120089 Err=0` | `Ret=1 Status=1 Granted=0x00120089 Err=0` | Identical: Granted |
+| **Case 2: ALL APP PKGS** | Normal | `MAXIMUM_ALLOWED` (`0x02000000`) | `Ret=1 Status=1 Granted=0x00160089 Err=0` | `Ret=1 Status=1 Granted=0x001F0089 Err=0` | Both Grant caller permissions |
+| **Case 2: ALL APP PKGS** | AppContainer | `MAXIMUM_ALLOWED` (`0x02000000`) | `Ret=1 Status=1 Granted=0x00120089 Err=0` | `Ret=1 Status=1 Granted=0x001F0089 Err=0` | Both Grant caller permissions |
+| **Case 3: Package SID** | Normal | `FILE_GENERIC_READ` (`0x00120089`) | `Ret=1 Status=1 Granted=0x00120089 Err=0` | `Ret=1 Status=1 Granted=0x00120089 Err=0` | Identical: Granted |
+| **Case 3: Package SID** | AppContainer | `FILE_GENERIC_READ` (`0x00120089`) | `Ret=1 Status=1 Granted=0x00120089 Err=0` | `Ret=1 Status=1 Granted=0x00120089 Err=0` | Identical: Granted |
+| **Case 3: Package SID** | Normal | `MAXIMUM_ALLOWED` (`0x02000000`) | `Ret=1 Status=1 Granted=0x00160089 Err=0` | `Ret=1 Status=1 Granted=0x001F0089 Err=0` | Both Grant caller permissions |
+| **Case 3: Package SID** | AppContainer | `MAXIMUM_ALLOWED` (`0x02000000`) | `Ret=1 Status=1 Granted=0x00120089 Err=0` | `Ret=1 Status=1 Granted=0x001F0089 Err=0` | Both Grant caller permissions |
 
-*(Note: `AC` is the standard SDDL alias for `ALL APPLICATION PACKAGES` SID `S-1-15-2-1`.)*
+### 3.3 Status vs. Return API Distinction Analysis
 
-### 3.3 Semantic Analysis
-
-1. **Native Windows NT Lowbox Access Rule**:
-   Native Windows NT implements a dual-check model for Lowbox tokens:
-   - For an AppContainer token to access an object, the DACL must grant access to the user/group identity **AND** must explicitly grant access to `ALL APPLICATION PACKAGES` (`S-1-15-2-1`), `ALL RESTRICTED APPLICATION PACKAGES` (`S-1-15-2-2`), the token's specific Package SID, or one of the token's held Capability SIDs.
-   - If the DACL only grants access to `UserSid` (Configuration 1), the normal token is granted access, but the AppContainer token is strictly blocked with `ERROR_ACCESS_DENIED` (5).
-2. **Wine Implementation Boundary (`server/token.c`)**:
-   In Wine server, `token_sid_present` inspects `token->user`:
-   ```c
-   int token_sid_present( struct token *token, const SID *sid, int any_res_group )
-   {
-       ...
-       if (security_equal_sid( token->user, sid )) return 1;
-       ...
-   }
-   ```
-   Wine evaluates whether the ACE SID matches the token's User SID or groups. Because `token->user` matches the user SID in the DACL, Wine grants access in Configuration 1. Wine does not maintain the Lowbox filter intersection logic.
+The raw output demonstrates the crucial distinction between API execution and security authorization:
+1. **API Return (`Ret=1`)**: In all cases on both platforms, `AccessCheck` returns non-zero (`TRUE`), indicating that security descriptors, token impersonation levels, and generic mapping parameters were valid.
+2. **Access Status (`Status=0` vs `Status=1`)**:
+   - On Native Windows 11, under Case 1 (User-Only DACL), the AppContainer token is evaluated by the NT kernel's Lowbox filter. Because the DACL does not contain `ALL APPLICATION PACKAGES` (`S-1-15-2-1`), `ALL RESTRICTED APPLICATION PACKAGES` (`S-1-15-2-2`), or the specific package SID, `AccessCheck` sets `AccessStatus = FALSE` (0), `GrantedAccess = 0`, and `GetLastError() = ERROR_ACCESS_DENIED` (5).
+   - On Wine, `server/token.c:check_token_access` checks `token_sid_present` for each ACE in the DACL. Because `token_sid_present` matches `token->user`, Wine grants access (`Status = 1`, `GrantedAccess = 0x00120089`, `GetLastError() = 0`).
+3. **Conclusion**:
+   Wine provides lowbox token metadata and process labeling, but **does not enforce native Lowbox DACL boundary isolation**. Successful fixture rendering must not be claimed as equivalent to Windows sandbox isolation.
 
 ---
 
-## 4. Architectural Analysis & Master Integration Path
+## 4. Architectural Analysis & Master Integration Roadmap
 
-### 4.1 Why Lowbox Filtering Cannot Be Naively Enabled in Wine Server Today
+### 4.1 Root Cause of the Wine Boundary Gap
 
-On native Windows, system binaries (`C:\Windows\System32`), shared fonts, registry hives, and standard IPC objects are pre-provisioned by the operating system installer with ACLs granting `GENERIC_READ | GENERIC_EXECUTE` to `ALL APPLICATION PACKAGES` (`S-1-15-2-1`).
+In Windows NT, AppContainer tokens operate under a dual-evaluation constraint:
+- Object access requires ordinary user/group permission **AND** an explicit AppContainer grant (`AC`, package SID, or capability SID).
+- On Windows, standard OS assets (system files, shared registry roots, standard named pipes) are provisioned with `(A;;...;;;AC)` ACEs.
 
 In Wine:
-- Wine prefixes virtualize Windows filesystem and registry paths without native Windows NT security descriptors.
-- Default wineprefix directories and system registry keys do not have `ALL APPLICATION PACKAGES` ACEs.
-- Internal wineserver communication primitives (named pipes, process handles, thread handles, desktop handles) are not provisioned with lowbox-accessible DACLs.
+- Prefix files and registry keys are not provisioned with Windows NT ACLs granting `ALL APPLICATION PACKAGES`.
+- If Wine server were naively modified to deny access when Lowbox grants are absent, AppContainer processes (including Chromium's `utility!kNetwork`) would be blocked from basic DLL loading (`kernel32.dll`, `ntdll.dll`) and registry reading, breaking process execution entirely.
 
-If wineserver were modified immediately to enforce the Lowbox dual-check filtering rule:
-1. Sandboxed processes (like Chromium's `utility!kNetwork`) would be denied access to load basic system DLLs (`ntdll.dll`, `kernel32.dll`, `user32.dll`).
-2. Registry queries to `HKEY_CURRENT_USER` and `HKEY_LOCAL_MACHINE` would fail with `STATUS_ACCESS_DENIED`.
-3. Inter-process communication across wineserver pipes would be blocked.
-4. Chromium would fail to launch entirely.
+### 4.2 Dedicated Master Integration Roadmap
 
-### 4.2 Candidate Scope vs. Master Integration Roadmap
-
-- **Candidate Scope (Preserved)**:
-  Wine provides lowbox token structural fidelity:
-  - Valid AppContainer package SID and integrity label (`SECURITY_MANDATORY_LOW_RID`).
-  - Proper registry profiles in `Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppContainer\Mappings`.
-  - Correct profile folder hierarchy at `%LOCALAPPDATA%\Packages\<name>\AC`.
-  - Chromium's sandbox initialization queries succeed without fallback, and `utility!kNetwork` executes reliably under `--service-sandbox-type=network`.
-  - Honest disclosure: Wine provides process labeling and structural metadata, not OS-enforced DACL boundary isolation.
-- **Dedicated Wine Master Integration Roadmap (Follow-up)**:
-  As authorized by the user, a dedicated integration branch based on latest `zcomputerwiz/wine` master will incorporate:
-  1. Prefix security template provisioning to include `ALL APPLICATION PACKAGES` (`S-1-15-2-1`) on system directories and registry roots.
-  2. Wineserver object DACL defaulting to permit lowbox token handle inheritance for required IPC pipes.
-  3. Lowbox intersection filtering in `server/token.c:check_token_access`.
+As authorized by the user for later dedicated work on latest `zcomputerwiz/wine` master:
+1. **Prefix Security Templates**: Provision default ACLs granting `ALL APPLICATION PACKAGES` (`S-1-15-2-1`) on system root directories and registry keys.
+2. **IPC Handle Inheritance**: Ensure wineserver primitives (pipes, ports, desktop handles) default to permitting lowbox token access where necessary for IPC.
+3. **Server-Side Lowbox Intersection**: Implement the dual-check access intersection in `server/token.c:check_token_access`.
 
 ---
 
 ## 5. Submodule Pin & Cleanliness
 
 - **Superproject Branch**: `codex/chromium-boundary-diagnostic`
-- **Wine Submodule Commit**: `b222f7f2977663ca9c680fb15363bc0e17b3053f`
+- **Wine Submodule Commit**: `3a4443e621c2bd6c1aca1936d47166be92838237`
 - **Whitespace Check**: `git diff --check` passes with 0 warnings.
 
 ---
 
 ## 6. Worker Unit Test Verification Results
 
-In accordance with `WO-20261029-CHROMIUM-TEST-HARDENING-VERIFICATION`, Claude Code compiled and executed the test suites from Wine commit `b222f7f2977663ca9c680fb15363bc0e17b3053f`:
+Rebuilt and executed against Wine commit `3a4443e621c2bd6c1aca1936d47166be92838237`:
 
 | Test Binary | Architecture | Tests Executed | Failures | Todo | Flaky | Skipped | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `userenv_test.exe` | `x86_64` | 296 | **0** | 1 | 0 | 0 | **PASS** |
-| `userenv_test.exe` | `i386` | 296 | **0** | 1 | 0 | 0 | **PASS** |
+| `userenv_test.exe` | `x86_64` | 295 | **0** | 1 | 0 | 0 | **PASS** |
+| `userenv_test.exe` | `i386` | 295 | **0** | 1 | 0 | 0 | **PASS** |
 | `kernelbase_test.exe security` | `x86_64` | 74 | **0** | 0 | 0 | 1 | **PASS** |
 | `kernelbase_test.exe security` | `i386` | 74 | **0** | 0 | 0 | 1 | **PASS** |
-| **Total** | | **740** | **0** | **2** | **0** | **2** | **100% PASS** |
+| **Total** | | **738** | **0** | **2** | **0** | **2** | **100% PASS** |
 
-### Execution Notes:
-- Dynamic test profile names (`WexUnreg_%lu_%lu`, `WexColl_%lu_%lu`) and collision test paths were successfully generated, executed, and cleaned up without leaving orphaned artifacts.
-- The single skip in `security_test.exe` corresponds to `TokenCapabilities` (`security.c:1095: Tests skipped: TokenCapabilities class not implemented by Wine ntdll`), matching the known security limitation.
-- Zero browser trials were executed; existing r5 candidate evidence (`chromium-browser-verify-r5-20261029`) remains authoritative and unmodified.
+- **Zero browser runs executed**: Existing r5 candidate evidence (`chromium-browser-verify-r5-20261029`) remains authoritative and unmodified.
