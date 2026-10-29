@@ -1,13 +1,20 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
-# Chromium browser verification (AppContainer kNetwork fix) — iterations 1 & 2
+# Chromium browser verification (AppContainer kNetwork fix) — iterations 1, 2 & 3
 
 > **Status across iterations.** Iteration 1 (wine `3a47f7c`) was **NEGATIVE**: the
-> kNetwork app-container SID was registered and rolled back ~7 ms later, and the
-> network service crashed and restarted. **Iteration 2 (wine `871f6183`, this run) is
-> POSITIVE on both acceptance criteria** — `utility!kNetwork` initializes and remains
-> under `--service-sandbox-type=network` with no rollback, and the loopback fixture
-> loads HTTP 200. See the "Iteration 2" section at the end of this document; the
-> iteration-1 narrative below is retained as the historical baseline.
+> kNetwork app-container SID was registered and rolled back ~7 ms later, and the network
+> service crashed and restarted. **Iteration 2 (wine `871f6183`) was POSITIVE on both
+> acceptance criteria** — `utility!kNetwork` initializes and remains under
+> `--service-sandbox-type=network` with no rollback, and the loopback fixture loads HTTP
+> 200. **Iteration 3 (wine `3c60ba90`, this run) is NEGATIVE — a regression against
+> iteration 2.** Antigravity's follow-up "harden AppContainer validation, path traversal,
+> and lowbox tokens" commit added a caller-token-rights check to `CreateAppContainerToken`
+> that fails with ERROR_INSUFFICIENT_BUFFER (0x7A / 122) under wine for *any* valid token,
+> so the kNetwork sandbox can no longer be built: the network service is spawned with
+> `--service-sandbox-type=none` and crashes/restarts before the fixture loads, and the wine
+> unit tests regressed from 0 to 6 failures per architecture. See the "Iteration 3" section
+> at the end; the iteration-1 and iteration-2 narratives are retained as the historical
+> baseline.
 
 ## Iteration 1 (wine `3a47f7c`) — NEGATIVE
 
@@ -453,3 +460,250 @@ All primary evidence is archived under
 `results.json`, `trace.json`, `native-exit.jsonl`, and the run's `execution.json` /
 `serial.log`. Candidate coherence, the differing set, fix-DLL SHA verification, and
 the control-channel `wineserver` before/after witness are in `execution.json`.
+
+## Iteration 3 (wine `3c60ba90`) — NEGATIVE (regression against iteration 2)
+
+WO `WO-20261029-CHROMIUM-VERIFICATION-ITERATION-3`, Verification Run 3 (final authorized
+trial). Target identity `chromium-browser-verify-r3-20261029`. This run re-tests the same
+two acceptance criteria against Antigravity's follow-up hardening commit, produced in
+response to parent review of iteration 2's evidence:
+
+- **Q1** — does `utility!kNetwork` initialize and *remain* under
+  `--service-sandbox-type=network` (no `=none` fallback, no crash-restart)?
+- **Q2** — does the fixture `index.html` load with HTTP 200?
+
+### Verdict (up front)
+
+**NEGATIVE — a regression against iteration 2. Both criteria FAIL.** The follow-up commit's
+new caller-token-rights check in `CreateAppContainerToken` fails with
+ERROR_INSUFFICIENT_BUFFER (0x7A / 122) under wine for *any* valid token, so the kNetwork
+sandbox can no longer be built: the network service is spawned with
+`--service-sandbox-type=none` (not `=network`) and crashes/restarts before the loopback
+fixture can load. The wine unit tests regressed from **0** failures (iteration 2) to **6 per
+architecture** (both x86_64 and i386).
+
+| Criterion | Result | Decisive evidence |
+| --- | --- | --- |
+| Q1 kNetwork stays `=network` | **FAIL** | WINEDEBUG trace has **no** `--service-sandbox-type=network` spawn anywhere; the network service is spawned with `--service-sandbox-type=none` (×2, initial + restart); `CreateAppContainerToken` invoked then abandoned; chromium.log `sandbox_win.cc:805 … Insufficient buffer. (0x7A)` |
+| Q2 fixture loads HTTP 200 | **FAIL** | navigation began (`URL to scan: http://127.0.0.1:43377/bcd8a8…/index.html`); `Network service crashed or was terminated, restarting service.`; netlog holds **no** `httpStatusCode:200` (only ERR_ADDRESS_UNREACHABLE / REFUSED / NAME_NOT_RESOLVED) |
+
+### What changed since iteration 2
+
+Wine commit `3c60ba9056da1894eecc96767e1b04bb810468db` (branch
+`codex/g4-appcontainer-correctness`, zcomputerwiz) — *"userenv, kernelbase: harden
+AppContainer validation, path traversal, and lowbox tokens"* — addresses parent review
+`b9ca0dd2` of iteration 2's evidence with five functional changes plus expanded tests:
+
+    $ git -C wine show --stat 3c60ba90
+     dlls/kernelbase/security.c       |  40 ++++++++++++------------------
+     dlls/kernelbase/tests/security.c |  73 ++++++++++++++++++++++++++++++++++++++-----
+     dlls/userenv/tests/userenv.c     |  61 ++++++++++++++++++++++++++++++++++++++
+     dlls/userenv/userenv_main.c      | 106 ++++++++++++++++++++++++++++++++++++++---------------
+     4 files changed, 225 insertions(+), 55 deletions(-)
+
+1. **`GetAppContainerFolderPath`** — strict REG_SZ validation (min length, even alignment,
+   bounded size, NUL-termination, traversal rejection); returns ERROR_INVALID_DATA on
+   malformed buffers and ERROR_INVALID_NAME on traversal.
+2. **`CreateAppContainerProfile`** — container_name traversal/length/separator validation;
+   LOCALAPPDATA bounds; directory rollback if creation fails.
+3. **`AppContainerRegisterSid`** — now strictly metadata-only (no filesystem folder
+   creation); validates SID/moniker/display_name, E_INVALIDARG on NULL/empty.
+4. **`DeleteAppContainerProfile`** — traversal validation; removes the package tree only
+   after a successful unregister; S_OK on ERROR_FILE_NOT_FOUND.
+5. **`CreateAppContainerToken`** — *new* caller-token-rights check:
+   `GetTokenInformation(token, TokenUser)`, intended to return ERROR_ACCESS_DENIED if the
+   caller lacks TOKEN_QUERY. **This is the change that regressed the browser trial** (see
+   "Root cause" below).
+
+Superproject commit `35c8ae0c` (branch `codex/chromium-boundary-diagnostic`) pinned the wine
+gitlink to `3c60ba90`, added a `--verify-r3` mode to
+`scripts/check-g4-chromium-native-exit.py` (sharing iteration 2's level-3 six-category VLOG
+scope), and published the Work Order.
+
+### Build and unit tests — REGRESSION (6 failures per architecture)
+
+`userenv.dll` and `kernelbase.dll` were rebuilt from `3c60ba90` for both x86_64 and i386 in
+the project wine build tree, and the corresponding unit-test suites were rebuilt and run.
+Unlike iteration 2 (0 failures), **both architectures now fail 6 assertions**, all in the new
+`3c60ba90` code paths:
+
+| Suite | x86_64 | i386 |
+| --- | --- | --- |
+| userenv (full) | 289 tests, **4 failures** | 289 tests, **4 failures** |
+| kernelbase `security` | 67 tests, **2 failures** | 67 tests, **2 failures** |
+
+- **kernelbase `security` (2/arch):**
+  - `security.c:1069: Test failed: CreateAppContainerToken failed: 122` — 122 =
+    ERROR_INSUFFICIENT_BUFFER. The new one-shot token-rights check (below) is too small to
+    hold the variable-length user SID, so it fails for a *valid* caller token.
+  - `security.c:1070: Test failed: AppContainer token handle is NULL` — consequence of the
+    above (the lowbox token is never created).
+- **userenv (4/arch):** all in the new `GetAppContainerFolderPath` corrupt-data path:
+  - `userenv.c:699/705/711: Test failed: expected ERROR_INVALID_DATA … got 0x80070539`
+    (odd bytes / REG_BINARY / unterminated) — the function returns ERROR_NOT_APPCONTAINER
+    (`0x80070539`) *before* reaching the new validation, because the test's moniker is not a
+    registered AppContainer.
+  - `userenv.c:717: Test failed: expected ERROR_INVALID_NAME for traversal moniker, got
+    0x80070539` — same ordering issue.
+
+The kernelbase pair is the load-bearing regression (it is on Chromium's live kNetwork path);
+the four userenv failures are a test-ordering artifact of the new validation being
+unreachable for unregistered monikers, but they still count as suite failures and mask the
+intended behavior.
+
+### Candidate provenance and completeness
+
+As in iterations 1 & 2, the guest candidate was assembled as a hardlink copy (`cp -al`) of
+the control-channel candidate overlaid with exactly the components that differ from the fix
+base, measured live by SHA-256. `execution.json` records `candidate_coherent = true`,
+`orchestration_complete = true`, and a differing set of **6 DLLs** — `{kernelbase, ntdll,
+userenv} × {x86_64, i386}` — with `candidate_extra_in_fresh = []`. The four functional fix
+DLLs were recompiled from `3c60ba90` and re-verified by SHA-256 after deploy:
+
+| Component | x86_64 | i386 |
+| --- | --- | --- |
+| `dlls/userenv` | `104b4a8066d76ddcca7354dbfac8284f5154a51afc6f1c6daa50c510a0ef87d4` | `b553c8a1c57ee2fb6b33e4f1454cfb00ed2eee8093f1d9e24c1b1af1e561ee88` |
+| `dlls/kernelbase` | `80ecfad056759076e449543c589e56489e5cb20030203aa50ca6e7de25d48337` | `f3927e075eea55b726d42e0619a02410138db61edb9561acdaf915f21318afed` |
+
+The control-channel source `wineserver` was witnessed unchanged by the deploy (same SHA-256
+`6c063646…` before and after). The negative result is therefore not a build/deploy artifact:
+the deployed candidate is a byte-faithful representation of `3c60ba90`.
+
+### Verification environment
+
+- Isolated paths (fresh, not reused): stage
+  `/home/debian/wex-g4/chromium-browser-verify-r3-20261029-stage`, output
+  `/home/debian/wex-g4/chromium-browser-verify-r3-20261029`, profile under the output dir.
+  Guest candidate wine at `/home/debian/wex-g4/wine-verify-r3-20261029/build/wow64`.
+- Normal 8 GiB boot (`launch.py -m 8192`) from `system-native-identity-r4-20261024.qcow2`;
+  SSH hostfwd `127.0.0.1:2235→22`.
+- Path-locked helper PE for the identity; child args byte-identical to the consumer's
+  `--verify-r3` contract (`WEX_DIAGNOSTIC=1`, level-3 VLOG).
+- Wine debug channels: `-all,+timestamp,+pid,+tid,+winediag,+process,+userenv,+security`.
+- Scoped Chromium VLOG at **level 3** on the same six categories as iteration 2.
+- Fixture nonce `bcd8a807a89c3ef7de59b49d41b428d1`; ephemeral loopback port **43377**.
+- Consumer mode: `scripts/check-g4-chromium-native-exit.py --verify-r3`. Per-run orchestrator:
+  `build/g4-virgl-20261022/chromium-browser-verify-r3-trial.py` (local harness; `build/` is
+  gitignored, so it is not tracked in this repository).
+
+### Q1 evidence — kNetwork falls back to `=none` (FAIL)
+
+From `chromium-native-evidence/helper.stderr.log` (the WINEDEBUG trace), thread `01fc`
+performs the registration and token build for the network app-container:
+
+    46.942:00e4:01fc:trace:security:AppContainerRegisterSid (00005F800004C3F0, L"cr.sb.netED86A9060BF9087DCF4C7462DCD014893457BF94", L"Chrome Sandbox")
+    46.945:00e4:01fc:trace:security:AppContainerRegisterSid returning hr=0x800700b7, path=L"Software\Classes\Local Settings\...\AppContainer\Mappings\S-1-15-2-…"
+    46.947:00e4:01fc:trace:security:CreateAppContainerToken (00000000000005C8, …)
+
+Contrast with iteration 2, where the same `AppContainerRegisterSid` returned
+`hr = 0x00000000`, `CreateAppContainerToken` succeeded, and the service was then spawned
+with `--service-sandbox-type=network`. Here:
+
+- The registration returns **`hr = 0x800700b7` (ERROR_ALREADY_EXISTS)** — the moniker was
+  already mapped in this profile from a prior run; Chromium proceeds to
+  `CreateAppContainerToken` regardless (the next trace line), so this alone is not the
+  blocker.
+- **`CreateAppContainerToken` is invoked and then abandoned** — there is no subsequent
+  successful token build or spawn under `=network`. The corresponding browser-side error is in
+  `chromium.log`:
+
+      [228:508:1029/145745.734:ERROR:sandbox\policy\win\sandbox_win.cc:805] Sandbox cannot access executable Z:\…\chrome.exe. Check filesystem permissions are valid. …: Insufficient buffer. (0x7A)
+
+- **The network service is spawned with `--service-sandbox-type=none`, not `=network`.** A
+  grep over the whole trace for `--service-sandbox-type=` returns only `service` (×4) and
+  `none` (×4) — **no `=network` at all**. The network service appears twice (initial spawn +
+  restart), both as `=none`:
+
+      47.410:00e4:01fc:trace:process:CreateProcessInternalW app (null) cmdline L"…chrome.exe" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none …
+
+So Q1 fails on the strongest possible signal: the kNetwork sandbox was never established —
+the service runs **unsandboxed** (`=none`), the opposite of the fix's intent.
+
+### Q2 evidence — fixture never loads (FAIL)
+
+From `chromium.log`, navigation to the fixture began and the network service then crashed
+and restarted:
+
+    [228:232:1029/145746.023:VERBOSE1:…data_protection_navigation_observer.cc:261] enterprise.data_protection: URL to scan: http://127.0.0.1:43377/bcd8a807a89c3ef7de59b49d41b428d1/index.html#nonce=bcd8a807a89c3ef7de59b49d41b428d1
+    [228:232:1029/145746.185:ERROR:content\browser\network_service_instance_impl.cc:652] Network service crashed or was terminated, restarting service.
+
+From `netlog.json`, **no event carries an HTTP response status** — the only error strings
+present are `ERR_ADDRESS_UNREACHABLE`, `ERR_CONNECTION_REFUSED`, and
+`ERR_NAME_NOT_RESOLVED`; there is no `httpStatusCode:200` for the fixture (or anything else).
+The consumer's `results.json` records `passed = false`, `observation_complete = false`,
+`diagnostic_exit = 1`.
+
+### Root cause — `CreateAppContainerToken`'s new token-rights check
+
+The regression is in change #5 above. In `dlls/kernelbase/security.c`, the new
+caller-token-rights check reads:
+
+    if (token) {
+        TOKEN_USER user; DWORD len;
+        if (!GetTokenInformation(token, TokenUser, &user, sizeof(user), &len))
+            return FALSE;
+    }
+
+`TOKEN_USER` is a fixed 16-byte header (`SID_AND_ATTRIBUTES`); the actual token-user data is
+that header **plus the variable-length user SID** inlined after it. Passing a buffer of
+exactly `sizeof(TOKEN_USER)` (16 bytes) is therefore always too small, and
+`GetTokenInformation` fails with **ERROR_INSUFFICIENT_BUFFER (122 / 0x7A)** for *any* valid,
+queryable token — regardless of whether the caller has TOKEN_QUERY. The function then returns
+FALSE before reaching `NtCreateLowBoxToken`, so no lowbox/network-sandbox token is ever
+created. This is exactly what the kernelbase unit test observes (`CreateAppContainerToken
+failed: 122`) and what Chromium surfaces as `Sandbox cannot access executable … Insufficient
+buffer. (0x7A)`.
+
+The commit message states the intent was to "return ERROR_ACCESS_DENIED if caller lacks
+TOKEN_QUERY," but the implementation cannot distinguish "no TOKEN_QUERY" from "buffer too
+small": both fall into the same `GetTokenInformation` failure and are treated as a hard
+FALSE. The check should use the standard two-call pattern — first query the required size
+with a NULL buffer (a failure *there* means the caller lacks TOKEN_QUERY →
+ERROR_ACCESS_DENIED), then allocate that size and re-query — or otherwise verify TOKEN_QUERY
+without undersizing the data buffer. (For reference, the WINEDEBUG trace shows other
+components correctly using the two-call pattern with a 44-byte buffer = `sizeof(TOKEN_USER)` +
+a 28-byte SID.)
+
+### Consumer bookkeeping note (helper wait-for-exit timeout)
+
+As in iteration 2, the consumer's own `results.json` records `passed = false` and
+`observation_complete = false`. This is partly the harness's bounded wait-for-exit (the
+path-locked helper bound to `chrome.exe` and waited for the child to self-exit within its
+window; a live browser does not, so the wait expired), but — unlike iteration 2 — it is *also*
+a genuine negative: the direct page evidence above (network service falling back to `=none`,
+crashing/restarting, and the fixture never returning HTTP 200) independently confirms both
+acceptance criteria fail. The run remains a diagnostic status observation (`classification: …
+held-handle Chromium status ONLY; never rendering/security acceptance`), not a
+rendering-acceptance gate.
+
+### Graceful shutdown (WO requirement met)
+
+The run was stopped via the SIGTERM stop command; the launcher's `results.json` records
+`stop_reason = "signal"`, **`graceful_powerdown = true`**, `fallback_used = false`,
+`guest_shutdown_observed = true`, `protocol_complete = true`, and **`qemu_exit_status = 0`**.
+No stray qemu/launcher process remains.
+
+### Conclusion
+
+Iteration 3 is **NEGATIVE — a regression against iteration 2's positive result.** The
+follow-up hardening commit `3c60ba90` introduced a caller-token-rights check in
+`CreateAppContainerToken` whose one-shot `GetTokenInformation(token, TokenUser, &user,
+sizeof(user), &len)` call is undersized and fails with ERROR_INSUFFICIENT_BUFFER (122/0x7A)
+for every valid token. Under wine this breaks the kNetwork LPAC/AppContainer setup: the
+network service falls back to `--service-sandbox-type=none` and crashes/restarts before the
+loopback fixture can load. Both acceptance criteria FAIL, and the wine unit tests regressed
+from 0 to 6 failures per architecture.
+
+Recommended fix for the next iteration: replace the one-shot token query in
+`CreateAppContainerToken` with the two-call `GetTokenInformation` pattern (query required
+size first; on failure set ERROR_ACCESS_DENIED; otherwise allocate and re-query), and re-run
+the kernelbase `security` + userenv suites to 0 failures before another browser trial.
+
+### Evidence archive
+
+All primary evidence is archived under
+`chromium-browser-verify-r3-20261029/chromium-native-evidence/`: `chromium.log`,
+`helper.stderr.log` (the WINEDEBUG trace — the Q1 instrument), `netlog.json`, `results.json`,
+`trace.json`, `terminal-front.png`, `native-exit.jsonl`, and the run's `execution.json` /
+`serial.log`. Candidate coherence, the differing set, fix-DLL SHA verification, and the
+control-channel `wineserver` before/after witness are in `execution.json`.
