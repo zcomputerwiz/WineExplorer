@@ -110,32 +110,28 @@ int main(void)
         return 1;
     }
 
-    /* 5. Create AppContainer Token */
+    /* 5. Derive AppContainer SID and Create AppContainer Token
+     * Note: Pure SID derivation with a dynamic unique name is used to avoid
+     * creating, touching, or deleting profile directories or registry keys,
+     * guaranteeing complete data safety.
+     */
     {
         typedef HRESULT (WINAPI *pfnDeriveAppContainerSid)(PCWSTR, PSID *);
-        typedef HRESULT (WINAPI *pfnCreateProfile)(PCWSTR, PCWSTR, PCWSTR, SID_AND_ATTRIBUTES *, DWORD, PSID *);
-        typedef HRESULT (WINAPI *pfnDeleteProfile)(PCWSTR);
         HMODULE hUserEnv = LoadLibraryW(L"userenv.dll");
         pfnDeriveAppContainerSid pDerive = NULL;
-        pfnCreateProfile pCreateProfile = NULL;
-        pfnDeleteProfile pDeleteProfile = NULL;
+        WCHAR app_name[64];
         WCHAR *pkg_sid_str = NULL;
+
+        swprintf(app_name, ARRAY_SIZE(app_name), L"WexProbe_%lu_%lu", GetCurrentProcessId(), GetTickCount());
 
         if (hUserEnv)
         {
             pDerive = (pfnDeriveAppContainerSid)GetProcAddress(hUserEnv, "DeriveAppContainerSidFromAppContainerName");
-            pCreateProfile = (pfnCreateProfile)GetProcAddress(hUserEnv, "CreateAppContainerProfile");
-            pDeleteProfile = (pfnDeleteProfile)GetProcAddress(hUserEnv, "DeleteAppContainerProfile");
         }
 
-        if (pCreateProfile)
+        if (pDerive)
         {
-            if (pDeleteProfile) pDeleteProfile(L"WexAccessProbeTest");
-            hr = pCreateProfile(L"WexAccessProbeTest", L"Probe", L"Desc", NULL, 0, &package_sid);
-        }
-        if (!package_sid && pDerive)
-        {
-            hr = pDerive(L"WexAccessProbeTest", &package_sid);
+            hr = pDerive(app_name, &package_sid);
         }
         if (!package_sid)
         {

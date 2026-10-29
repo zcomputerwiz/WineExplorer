@@ -1,0 +1,6 @@
+  [acchild] lookup: hr=0 moniker=L"PersistMoniker"
+  [acchild] conc[0]: hr=0
+  [acchild] conc[1]: hr=0x800700b7
+  [acchild] blockread: hr=0 moniker=L"PubMoniker"
+security.c:1095: Tests skipped: TokenCapabilities class not implemented by Wine ntdll
+0020:security: 74 tests executed (0 marked as todo, 0 as flaky, 0 failures), 1 skipped.

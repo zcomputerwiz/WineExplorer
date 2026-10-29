@@ -1,0 +1,4 @@
+userenv.c:395: C:\users\root
+userenv.c:406: Test marked todo: expected ERROR_INVALID_HANDLE, got 87
+userenv.c:493: Testing userenv from L"C:\\windows\\system32\\userenv.dll"
+00e0:userenv: 295 tests executed (1 marked as todo, 0 as flaky, 0 failures), 0 skipped.
