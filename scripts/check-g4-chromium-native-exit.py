@@ -41,9 +41,9 @@ HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 def configure(mode):
     """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,PROFILE,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS,BUILD
-    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g','navigation-unblock','navigation-phase'):raise ValueError('Unknown fixed Chromium mode')
+    if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g','navigation-unblock','navigation-phase','browser-boundary'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
-    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','memory-8g':'chromium-memory-8g-20261028','navigation-unblock':'chromium-navigation-unblock-20261028','navigation-phase':'chromium-navigation-phase-20261028'}[mode]
+    HOST={'r1':'chromium-native-exit-r1-20261024','module-warn-r2':'chromium-native-module-r2-20261024','userenv-r3':'chromium-userenv-r3-20261024','userenv-r4':'chromium-userenv-r4-20261025','userenv-r6':'chromium-registration-r6-20261026','runtime-unblock':'chromium-runtime-unblock-20261026','renderer-unblock':'chromium-renderer-unblock-20261026','observation-control':'chromium-observation-control-20261026','observation-control-r2':'chromium-observation-control-r2-20261026','memory-8g':'chromium-memory-8g-20261028','navigation-unblock':'chromium-navigation-unblock-20261028','navigation-phase':'chromium-navigation-phase-20261028','browser-boundary':'chromium-browser-boundary-20261028'}[mode]
     STAGE=LAB/(HOST+'-stage')
     OUTPUT=LAB/('chromium-headful-native-exit-r1-20261023' if mode=='r1' else HOST)
     PROFILE=OUTPUT/'profile' # nested under the fresh OUTPUT; aligns with native WEX_EXIT_OUTPUT+"\profile"
@@ -51,7 +51,7 @@ def configure(mode):
     FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
     DEBUG=BASE_DEBUG+(',warn+module,trace+seh' if mode!='r1' else '')
     HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']} if mode=='r1' else None
-    if mode in ('memory-8g','navigation-unblock','navigation-phase'):
+    if mode in ('memory-8g','navigation-unblock','navigation-phase','browser-boundary'):
         # Reuse the last deployed matched combined candidate from the control-channel run
         # (02d4ef2 tracepoints over fffa7de); do NOT rebuild Wine or redeploy traces. Point
         # launch + CORE/loader observation + identity loader at it. (memory-8g: RAM-only;
@@ -71,7 +71,7 @@ def child_args(nonce,url):
         # Bounded logging-only NetLog (Default capture, 8MiB) that flushes before the 45s cutoff;
         # must exactly mirror the WEX_NETLOG helper contract so the held-handle binding matches.
         args+=['--log-net-log='+cal.win(OUTPUT/'netlog.json'),'--net-log-max-size-mb=8','--net-log-duration=40s']
-    elif MODE=='navigation-phase':
+    elif MODE in ('navigation-phase','browser-boundary'):
         # WO-20261028-CHROMIUM-NAVIGATION-PHASE: combined bounded diagnostic (scoped VLOG + fixed
         # integer NetLog 40s + best-effort startup trace 35s). Must EXACTLY mirror the WEX_NAVPHASE
         # helper contract (same flags, same order) or binding() rejects the held-handle command line.
@@ -280,11 +280,12 @@ def main():
     selection.add_argument('--memory-8g',action='store_true',help='RAM-only control at 8GiB reusing the deployed control-channel candidate; no Wine rebuild or trace redeploy')
     selection.add_argument('--navigation-unblock',action='store_true',help='Bounded NetLog boundary diagnostic for the loopback navigation, reusing the deployed control-channel candidate; no Wine rebuild or trace redeploy')
     selection.add_argument('--navigation-phase',action='store_true',help='Combined bounded phase probe (scoped VLOG + fixed integer NetLog 40s + best-effort startup trace 35s) to isolate the unfinished NavigationRequest phase, reusing the deployed control-channel candidate; no Wine rebuild or trace redeploy')
+    selection.add_argument('--browser-boundary',action='store_true',help='WO-20261028-CHROMIUM-BROWSER-BOUNDARY normal 8GiB verification: combined bounded diagnostic (scoped VLOG + fixed integer NetLog 40s + startup trace 35s) reusing the deployed candidate now carrying the CreateAppContainerProfile fix; no Wine rebuild or trace redeploy')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
-    configure('navigation-phase' if args.navigation_phase else 'navigation-unblock' if args.navigation_unblock else 'memory-8g' if args.memory_8g else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
+    configure('browser-boundary' if args.browser_boundary else 'navigation-phase' if args.navigation_phase else 'navigation-unblock' if args.navigation_unblock else 'memory-8g' if args.memory_8g else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
     return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))
