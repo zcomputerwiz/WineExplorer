@@ -53,6 +53,26 @@ class ParserTests(unittest.TestCase):
         finally:r.configure('r1')
         self.assertEqual((r.OUTPUT,r.STAGE,r.RUNTIME,r.DEBUG,r.command(NONCE,URL)),original)
 
+    def test_diagnostic_mode_paths_enriched_debug_and_sandbox_vmodule(self):
+        # WO-20261028-CHROMIUM-TARGETED-DIAGNOSTIC: fresh identity paths, the enriched WINEDEBUG, and a
+        # scoped VLOG that adds */sandbox/* + */base/process/* (15 args total) to expose the kNetwork
+        # launch-pipeline gates; reuses the deployed control-channel candidate (no Wine rebuild).
+        original=(r.OUTPUT,r.STAGE,r.DEBUG,r.BUILD)
+        try:
+            r.configure('diagnostic')
+            self.assertEqual(r.HOST,'chromium-browser-diagnostic-20261028')
+            self.assertEqual(r.OUTPUT,r.LAB/'chromium-browser-diagnostic-20261028')
+            self.assertEqual(r.STAGE,r.LAB/'chromium-browser-diagnostic-20261028-stage')
+            self.assertEqual(r.DEBUG,'-all,+timestamp,+pid,+tid,+winediag,+process,+userenv,+security')
+            args=r.child_args(NONCE,URL)
+            self.assertEqual(len(args),15)
+            self.assertIn('--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2,*/sandbox/*=2,*/base/process/*=2',args)
+            self.assertIn('--trace-startup-file='+r.cal.win(r.OUTPUT/'trace.json'),args)
+            self.assertEqual(str(r.BUILD),str(r.LAB/'wine-control-channel-20261027/build/wow64'))
+        finally:
+            r.configure('r1')
+            r.BUILD=original[3] # configure('diagnostic') repoints the shared candidate; leave no side effect
+
     def test_full_status_arbitrary_signaled259_and_exact_normal_contract(self):
         for code in (0,127,259,0xc000007f,2**32-1):
             value=r.parse(raw(rows(code)),NONCE,r.cal.win(r.RUNTIME/'chrome.exe'),URL)

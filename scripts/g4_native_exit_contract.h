@@ -77,6 +77,19 @@ static inline int wex_validate(int argc,wchar_t **argv,struct wex_launch *out) {
         v.child_args[11]=L"--net-log-duration=40";
         v.child_args[12]=L"--trace-startup";
         v.child_args[13]=L"--trace-startup-duration=35";
+        v.child_args[14]=L="--trace-startup-file=" WEX_EXIT_OUTPUT L"\\trace.json";v.count=15;
+#elif defined(WEX_DIAGNOSTIC)
+        /* WO-20261028-CHROMIUM-TARGETED-DIAGNOSTIC: same combined bounded diagnostic as WEX_NAVPHASE,
+         * but the scoped VLOG additionally enables the sandbox and base/process module categories so the
+         * launch pipeline's policy/token/CreateProcess gates are visible in chromium.log. Same fixed integer
+         * NetLog (40s, Default capture, 8MiB) + best-effort startup trace (35s). Order MUST mirror
+         * child_args() in check-g4-chromium-native-exit.py exactly, or binding() rejects it. */
+        v.child_args[8]=L"--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2,*/sandbox/*=2,*/base/process/*=2";
+        v.child_args[9]=L"--log-net-log=" WEX_EXIT_OUTPUT L"\\netlog.json";
+        v.child_args[10]=L"--net-log-max-size-mb=8";
+        v.child_args[11]=L"--net-log-duration=40";
+        v.child_args[12]=L"--trace-startup";
+        v.child_args[13]=L"--trace-startup-duration=35";
         v.child_args[14]=L"--trace-startup-file=" WEX_EXIT_OUTPUT L"\\trace.json";v.count=15;
 #endif
     } else if (argc==8 && !wcscmp(argv[1],L"--calibration") &&
