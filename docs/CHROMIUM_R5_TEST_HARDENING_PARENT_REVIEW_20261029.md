@@ -1,0 +1,18 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+# Chromium r5 test hardening review — 2026-10-29
+
+Reviewed root eb41d817ae82c27016b9be91ee3ec421e8d977bb / Wine b222f7f2977663ca9c680fb15363bc0e17b3053f actual diff and the entire surrounding userenv profile test. No unit or access checks independently rerun.
+
+R5 real browser fixture previously independently observed HTTP 200 and nonce-ready expected front. Profile implementation fixes from f01bba45 are present; b222f7f changes only tests, and its new collision/unregistered blocks use unique PID/tick names, CREATE_NEW and tracked cleanup. Worker reports 296 userenv and 74 security assertions per arch, with 1 todo per userenv run and 1 TokenCapabilities skip per security run; these are worker-reported counts, not independent acceptance.
+
+## P1: fixed-name destructive test operations remain in the same function
+
+dlls/userenv/tests/userenv.c:552 and 581-582 still unconditionally delete the real profile named WineExplorerTestContainer before testing. Lines 608-609 delete another fixed profile NonExistentProfile_12345. Lines 682-720 RegCreateKeyExW a fixed mock SID key with no disposition or ownership check, repeatedly overwrite Moniker, then RegDeleteKeyW it; if that key existed, the test changes/deletes somebody else's mapping. The new two blocks are not sufficient to satisfy the original own-only requirement. Existing native or other prefixes must not run these tests until repaired.
+
+Generate genuinely per-run names/SIDs for ALL profile and registry mutations in test_appcontainer_profile, use exclusive creation/disposition checks, never delete/overwrite pre-existing profile/key, track ownership for cleanup on every failure path, and ensure GetEnvironmentVariable failures do not use uninitialized path buffers. Exercise collision/sentinel preservation including pre-existing profile and registry key, both architectures in private prefixes. No new browser needed for test-only changes. Preserve current candidate/evidence.
+
+## Access evidence
+
+The worker document reports native Windows AccessCheck measurements but identifies the Wine column as server/token.c source analysis, not an executed Wine AccessCheck comparison; no native-vs-Wine empirical parity is established by that document. A user-only ACE match in token_sid_present and a separate restricted_sids branch support concern, but full effective lowbox semantics require an actual same-PE, both-platform comparison and preserved raw outputs. TokenCapabilities remains skipped. The roadmap's claims that a particular prefix ACL rollout is necessary and sufficient, and enforcing a check necessarily breaks Chromium, are design hypotheses, not established runtime results. Treat sandbox isolation as unproven and materially important; do not label actual rendering as a security guarantee.
+
+Same Antigravity/Claude ownership on existing candidate branches: repair ALL unsafe tests, run focused x64/i686 isolated tests, and provide reproducible native and actual-project-Wine effective-access comparison with owned probe source and raw private evidence (user-only, package/capability grants; valid token types, status vs return API distinction). A small supported Wine fix is authorized if demonstrated; otherwise report exact observed behavior and bounded follow-up. If production changes require a browser control, use one fresh normal authorized 8GiB run; no rerun for test-only changes. No generic harness expansion, bypass, false-success stubs, shared build changes, or evidence deletion. Commit and push correct GitHub branches and report exact commits, tests including skips, and raw evidence paths. Parent reviews before separate integration on latest Wine master; leave master unchanged.
