@@ -1,14 +1,15 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Chromium and Elevation Security Reconciliation — Final Completion Report
 
-**Status:** `RECONCILIATION_COMPLETE` (Clean build, verified zero regressions against upstream clean master across all 6 core security test suites, 0 failures across 1,816 tests on shell32 shlexec, hardened elevation broker mock harness with sentinel preservation and registry restoration, and empirical AccessCheck lowbox boundary characterization).<br>
+**Status:** `RECONCILIATION_COMPLETE` (Clean build, verified zero regressions against upstream clean master across all 6 core security test suites, 0 failures across 1,828 tests on shell32 shlexec, hardened elevation broker mock harness with sentinel preservation, binary content identity verification, dynamic registry restoration, dedicated safety unit tests, and empirical AccessCheck lowbox boundary characterization).<br>
 **Parent Work Order:** `docs/CHROMIUM_TOKEN_BROKER_RECONCILIATION_WORK_ORDER_20261029.md` (commit `fffef1e9`)<br>
 **Review Rework Orders:**
 - Codex Review Rework Order 1: `msg_1793328395093_3bc8cfa5` (WO-20261029-TOKEN-BROKER-REWORK-1)
 - Codex Review Rework Order 2: `msg_1793339555594_3e217429` (WO-20261029-TOKEN-BROKER-REWORK-2)
+- Codex Review Rework Order 3: `msg_1793346998661_1e35b18b` (WO-20261029-TOKEN-BROKER-REWORK-3)
 **Dedicated Branches:**
-- **Wine Repository:** `codex/chromium-token-broker-reconciliation` (HEAD `e44ec18c`)
-- **WineExplorer Superproject:** `codex/chromium-token-broker-reconciliation` (updating submodule `wine` to `e44ec18c`)
+- **Wine Repository:** `codex/chromium-token-broker-reconciliation` (HEAD `dda43f92`)
+- **WineExplorer Superproject:** `codex/chromium-token-broker-reconciliation` (updating submodule `wine` to `dda43f92`)
 **Origin Clean Upstream Master Baseline:** `66caeb46aea4aa8fe6f87b7a209e7867651c09dd`<br>
 **Chromium Master Integration Input:** `c92bf4b408c2b32ec5f3093dabe1aa14ca12478a`<br>
 **Wine Elevation Broker Input:** `72f70cba200698b2080c9f0800c88d8cd6a153dd` (ccr-08223ee4-p830bf)<br>
@@ -32,13 +33,13 @@ Key achievements:
 3. **Review Rework 1 — `shell32_test shlexec` Root Cause & 0 Failures (Task 2):**
    - Root-caused the two `class=".exe"` failures at lines 2303-2305 to a missing registry association in bare wineprefixes. A bare wineprefix lacks `HKCR\.exe -> exefile`, causing `ShellExecuteEx` with `SEE_MASK_CLASSNAME` to fail.
    - Confirmed environmental: the sibling control at line 2307 (`.qqqq`) passes because it dynamically registers its association key, and clean master identically fails lines 2303/2305 in a bare prefix.
-   - Applying standard `wine reg add "HKEY_CLASSES_ROOT\.exe" /ve /t REG_SZ /d exefile /f` resolves lines 2303/2305, achieving **1,816 tests executed, 0 failures, 1 skipped** on both x86_64 and i386.
-4. **Review Rework 2 — Safe Mock Elevation Broker Harness, Sentinel Checks & Registry Restoration (Commit `e44ec18c`):**
-   - **No DLL Overwrite:** Refuses to install mock if `system32\wexhost.dll` already exists (`GetFileAttributesA(dst) != INVALID_FILE_ATTRIBUTES` -> `win_skip`). Uses `CopyFileA(src, dst, TRUE)` (`bFailIfExists=TRUE`) to guarantee fail-closed exclusive creation.
-   - **Sentinel Preservation Checks:** Measures `src` size before copy. Cleanup re-reads the installed file's size and only calls `DeleteFileA(dst)` if size still matches; otherwise flags failure with `ok(0, ...)` and preserves the modified file in place.
-   - **Exact Registry Preservation:** Reads existing `Helper` value type and data on `HKLM\Software\Wine\Elevation`. Funnels all exits through a single `cleanup:` label that restores the original `Helper` or deletes the value/key only if created by this test.
-   - **Process-Owned Unique Temp Paths:** Updated `wexhost.c record_request()` to honor `WEXHOST_BINDING_PATH`. The test constructs a unique path `<tmpdir>\wexhost_binding_<PID>.txt` inside private `tmpdir`, and cleanup unsets the environment variable and removes only that file.
-   - **Scoping Comments:** Explicitly noted that this is a mock `WexElevateRun` unit test verifying `execute_with_broker` parameter propagation and error translation, not proof of real out-of-process broker authorization or secure-desktop isolation.
+   - Applying standard `wine reg add "HKEY_CLASSES_ROOT\.exe" /ve /t REG_SZ /d exefile /f` resolves lines 2303/2305, achieving **1,828 tests executed, 0 failures, 1 skipped** on both x86_64 and i386.
+4. **Review Rework 2 & 3 — Safe Mock Elevation Broker Harness, Binary Content Identity Sentinel & Unit Tests (Commit `dda43f92`):**
+   - **Dynamic Registry Buffer & Fail-Closed Query:** In `test_elevation_broker()`, replaced the fixed `MAX_PATH` buffer with a two-phase `RegQueryValueExA`: first a size-only query, then an exact-size allocation (`malloc`) and full read. `ERROR_FILE_NOT_FOUND` represents absent value, `ERROR_SUCCESS` captures for restoration, and any other return code fails closed (`win_skip` + `goto cleanup`), leaving the key untouched. All exits restore original bytes and free heap memory.
+   - **Exclusive Creation in Dedicated Process-Owned Directory:** Dedicated directory `<tmpdir>\wexhost_dir_<PID>` created with `CreateDirectoryA` (fail-closed). The binding file lives inside it (`wexhost_binding.txt`). In `wexhost.c`, `record_request()` opens with `CREATE_NEW` (refusing to overwrite foreign files) with fallback to `TRUNCATE_EXISTING` solely for re-opening within the same owned run. Cleanup removes the binding file and directory.
+   - **Binary Content Identity Sentinel:** Implemented `verify_file_identity(src, dst)` comparing 100% of binary content in 4KB blocks. Cleanup only issues `DeleteFileA(dst)` if identity matches completely; otherwise it reports mismatch with `ok(0, ...)` and preserves the modified file in place.
+   - **Dedicated Safety Unit Tests (`test_elevation_broker_safety`):** Directly verifies hardening invariants: (a) oversized `Helper` (>MAX_PATH, 512 bytes) is preserved and restored byte-for-byte; (b) pre-existing `wexhost.dll` collision is refused without overwrite via `bFailIfExists=TRUE`; (c) sentinel content mismatch refuses deletion of same-size foreign replacement.
+   - **Test Suite Results:** Achieves **1,828 tests executed, 0 failures, 1 skipped** on both x86_64 and i386.
 5. **AppContainer Lowbox Boundary Empirically Characterized:**
    - A native Win32 C probe (`docs/evidence/access_check_probe.c`) was compiled with MinGW-w64 and evaluated under native Windows 11, clean master Wine, and reconciled Wine.
    - The probe proves that while Windows 11 enforces kernel-level lowbox isolation against User-Only DACLs (`ERROR_ACCESS_DENIED`), Wine satisfies token metadata labeling (`TokenIsAppContainer=1`, AppContainer SID attribution) while granting access under ordinary User DACLs. This distinction is explicitly scoped and preserved without speculative broad ACL alterations.
@@ -71,13 +72,15 @@ Chromium Master Integration (c92bf4b4)    Broker Branch (72f70cba)
                             │
                Harden Mock Broker Harness & Preservation (e44ec18c)
                             │
+               Dynamic Registry, Identity Sentinel & Safety Tests (dda43f92)
+                            │
                HEAD: codex/chromium-token-broker-reconciliation
 ```
 
 ### Repositories & Commits
 - **Wine Reconciliation Worktree:** `/mnt/d/DeepThought/Worktrees/wine-reconciliation`
   - Branch: `codex/chromium-token-broker-reconciliation`
-  - HEAD Commit: `e44ec18c` ("shell32 tests: harden elevation broker test against shared state")
+  - HEAD Commit: `dda43f92` ("shell32 tests: harden elevation broker test per REWORK-3 review")
   - Preceding Commits:
     * `da2efed5`: `shell32/advapi32: add elevation broker tests and fix i386 mock export`
     * `803a9809`: `server: fail closed for empty restricted token SIDs` (Codex repair from `2b9aa09a`)
@@ -283,8 +286,8 @@ All 17 evidence log files are genuine, non-empty text files recorded in `docs/ev
 |---|---|---|
 | `docs/evidence/reconciled_advapi32_security_x86_64.txt` | 32,908 | 3,777 tests, 7 failures (clean master baseline parity) |
 | `docs/evidence/reconciled_advapi32_security_i386.txt` | 31,438 | 3,777 tests, 16 failures (clean master baseline parity) |
-| `docs/evidence/reconciled_shell32_shlexec_x86_64.txt` | 12,776 | 1,816 tests, **0 failures**, 1 skipped |
-| `docs/evidence/reconciled_shell32_shlexec_i386.txt` | 12,741 | 1,816 tests, **0 failures**, 1 skipped |
+| `docs/evidence/reconciled_shell32_shlexec_x86_64.txt` | 12,904 | 1,828 tests, **0 failures**, 1 skipped |
+| `docs/evidence/reconciled_shell32_shlexec_i386.txt` | 12,894 | 1,828 tests, **0 failures**, 1 skipped |
 | `docs/evidence/reconciled_kernelbase_security_x86_64.txt` | 427 | 74 tests, 0 failures |
 | `docs/evidence/reconciled_kernelbase_security_i386.txt` | 402 | 74 tests, 0 failures |
 | `docs/evidence/reconciled_userenv_test_x86_64.txt` | 262 | 295 tests, 0 failures (1 todo) |

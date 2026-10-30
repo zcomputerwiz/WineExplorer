@@ -30,24 +30,24 @@ shlexec.c:1786: Test marked todo: ShellExecute(file=""C:\users\root\AppData\Loca
 shlexec.c:1788: Test marked todo: ShellExecute(file=""C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha"") argvA3 expected 'averb', but key not found or empty
 shlexec.c:1790: Test marked todo: ShellExecute(file=""C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha"") argvA4 expected 'C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha', but key not found or empty
 shlexec.c:1905: Test marked todo: ShellExecute(file="%urlprefix%C|/users/root/AppData/Local/Temp/wtShlexecDir/test file.shlexec") failed: bad rc=31
-0108:err:exec:shellex_load_object_and_run failed to get data object
-0108:err:exec:shellex_load_object_and_run failed to get data object
+0024:err:exec:shellex_load_object_and_run failed to get data object
+0024:err:exec:shellex_load_object_and_run failed to get data object
 shlexec.c:1945: Test marked todo: ShellExecute(file="fakeproto://foo/bar") returned 33
 shlexec.c:1957: Test marked todo: ShellExecute(file="shlpaverb://foo/bar") failed: rc=31
-0108:err:exec:shellex_load_object_and_run failed to get data object
-0108:err:exec:shellex_load_object_and_run failed to get data object
+0024:err:exec:shellex_load_object_and_run failed to get data object
+0024:err:exec:shellex_load_object_and_run failed to get data object
 shlexec.c:2011: Test marked todo: ShellExecute(file="%urlprefix%foo") returned 33
 shlexec.c:2147: Test marked todo: FindExecutable(C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec) failed: rc=33
 shlexec.c:2147: Test marked todo: FindExecutable(C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha) failed: rc=31
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
-0108:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
+0024:fixme:exec:SHELL_execute flags ignored: 0x00004000
 shlexec.c:2326: Test marked todo: ShellExecuteEx(mask="0x808441", file="Z:\mnt\d\DeepThought\Builds\wine-reconciliation\build\dlls\shell32\tests\i386-windows\shell32_test.exe", params="shlexec "C:\users\root\AppData\Local\Temp\wtShlexecDir\wtShlexecFile" Exec", class="qqqq") returned 0
 shlexec.c:2344: Tests skipped: No admin privileges, skipping runas test.
 Usage: Z:\mnt\d\DeepThought\Builds\wine-reconciliation\build\dlls\shell32\tests\i386-windows\shell32_test.exe test_name
@@ -75,35 +75,37 @@ Valid test names:
 shlexec.c:2371: Test marked todo: ShellExecuteEx(mask="0x8440", verb="notaverb", file="Z:\mnt\d\DeepThought\Builds\wine-reconciliation\build\dlls\shell32\tests\i386-windows\shell32_test.exe") child returned 1
 shlexec.c:2371: Test marked todo: ShellExecuteEx(mask="0x8440", verb="notaverb", file="Z:\mnt\d\DeepThought\Builds\wine-reconciliation\build\dlls\shell32\tests\i386-windows\shell32_test.exe") WaitForSingleObject returned 258
 shlexec.c:2373: Test marked todo: ShellExecuteEx(mask="0x8440", verb="notaverb", file="Z:\mnt\d\DeepThought\Builds\wine-reconciliation\build\dlls\shell32\tests\i386-windows\shell32_test.exe") returned 33
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0108:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0778:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0774:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0780:fixme:exec:SHELL_execute flags ignored: 0x00000100
-077c:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0788:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0784:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0790:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0790:err:exec:dde_connect Unable to find application path for command L"\"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\test2 file.exe\""
-078c:fixme:exec:SHELL_execute flags ignored: 0x00000100
-078c:err:exec:dde_connect Unable to find application path for command L"\"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\test2 file.exe\" param"
-0798:fixme:exec:SHELL_execute flags ignored: 0x00000100
-0794:fixme:exec:SHELL_execute flags ignored: 0x00000100
-07a0:fixme:exec:SHELL_execute flags ignored: 0x00000100
-07a0:err:exec:dde_connect Unable to find application path for command L"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\notexist.exe"
-079c:fixme:exec:SHELL_execute flags ignored: 0x00000100
-079c:err:exec:dde_connect Unable to find application path for command L"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\notexist.exe param"
-07a8:fixme:exec:SHELL_execute flags ignored: 0x00000100
-07a4:fixme:exec:SHELL_execute flags ignored: 0x00000100
-07b0:fixme:exec:SHELL_execute flags ignored: 0x00000100
-07b0:err:exec:dde_connect Unable to find application path for command L"xyzwxyzwxyz"
-07ac:fixme:exec:SHELL_execute flags ignored: 0x00000100
-07ac:err:exec:dde_connect Unable to find application path for command L"xyzwxyzwxyz param"
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0024:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0724:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0728:fixme:exec:SHELL_execute flags ignored: 0x00000100
+072c:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0730:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0734:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0738:fixme:exec:SHELL_execute flags ignored: 0x00000100
+073c:fixme:exec:SHELL_execute flags ignored: 0x00000100
+073c:err:exec:dde_connect Unable to find application path for command L"\"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\test2 file.exe\""
+0740:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0740:err:exec:dde_connect Unable to find application path for command L"\"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\test2 file.exe\" param"
+0744:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0748:fixme:exec:SHELL_execute flags ignored: 0x00000100
+074c:fixme:exec:SHELL_execute flags ignored: 0x00000100
+074c:err:exec:dde_connect Unable to find application path for command L"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\notexist.exe"
+0750:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0750:err:exec:dde_connect Unable to find application path for command L"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\notexist.exe param"
+0754:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0758:fixme:exec:SHELL_execute flags ignored: 0x00000100
+075c:fixme:exec:SHELL_execute flags ignored: 0x00000100
+075c:err:exec:dde_connect Unable to find application path for command L"xyzwxyzwxyz"
+0760:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0760:err:exec:dde_connect Unable to find application path for command L"xyzwxyzwxyz param"
 shlexec.c:2997: Test marked todo: ShellExecuteEx(mask="0x808440", file="test2.exe", params="shlexec "C:\users\root\AppData\Local\Temp\wtShlexecDir\wtShlexecFile" Exec", dir="%TMPDIR%") returned 33
-0104:shlexec: 1816 tests executed (39 marked as todo, 0 as flaky, 0 failures), 1 skipped.
+0020:shlexec: 1828 tests executed (39 marked as todo, 0 as flaky, 0 failures), 1 skipped.
+X connection to :102 broken (explicit kill or server shutdown).
+X connection to :102 broken (explicit kill or server shutdown).
