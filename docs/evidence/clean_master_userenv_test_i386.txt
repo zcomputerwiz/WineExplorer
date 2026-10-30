@@ -1,1 +1,3 @@
-
+userenv.c:393: C:\users\root
+userenv.c:404: Test marked todo: expected ERROR_INVALID_HANDLE, got 87
+00dc:userenv: 190 tests executed (1 marked as todo, 0 as flaky, 0 failures), 0 skipped.
