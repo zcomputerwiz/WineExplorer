@@ -344,6 +344,23 @@ DWORD WINAPI WexTrayStop(void);
 DWORD WINAPI WexTrayAction(DWORD token, DWORD action, INT x, INT y, INT value);
 DWORD WINAPI WexTrayGetMenu(DWORD token, INT root, WEX_TRAY_MENU *menu);
 
+/* Read lease on the image of an elevated program (the elevation broker, docs/ELEVATION_CONSENT_WORKORDER.md Part A).
+ * WexLeaseTake takes a Linux read lease on the open file and starts watching it; *lease is 0 if none is needed (the
+ * user cannot write the file anyway). ERROR_SHARING_VIOLATION: someone has the file open for writing;
+ * ERROR_FILE_SYSTEM_LIMITATION: no lease can be taken (no lease support, or a file the user can write but does not
+ * own). When a writer opens the file the lease breaks: the process given to WexLeaseArm is ended, the lease is
+ * given up and 'event' is set. WexLeaseArm( lease, 0 ) says a launch starts (the lease is kept until the process is
+ * known), WexLeaseArm( lease, pid ) names the process; both return ERROR_FILE_CORRUPT if the lease has broken
+ * already (the caller then ends the process itself). WexLeaseRelease stops the watching and gives the lease up. */
+DWORD WINAPI WexLeaseTake(HANDLE file, HANDLE event, UINT64 *lease);
+DWORD WINAPI WexLeaseArm(UINT64 lease, DWORD pid);
+DWORD WINAPI WexLeaseRelease(UINT64 lease, BOOL *broken);
+
+/* Ask the elevation broker to start image elevated (docs/ELEVATION_CALLERS_WORKORDER.md, E1). Same arguments and
+ * errors as wexelevate_run() in wexelevate.h. Stock shell32 and msi call it while elevation is enforced. */
+DWORD WINAPI WexElevateRun(const WCHAR *image, const WCHAR *cmdline, const WCHAR *cwd, const WCHAR *env,
+                           DWORD env_len, DWORD show, DWORD flags, HANDLE *process, DWORD *pid);
+
 #ifdef __cplusplus
 }
 #endif

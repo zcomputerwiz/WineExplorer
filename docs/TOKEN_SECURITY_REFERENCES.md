@@ -153,3 +153,118 @@ GitHub file view succeeded. Some Gitiles Chromium source views failed; the
 Chromium project's GitHub source mirror succeeded. A guessed ReactOS
 `modules/rostests/apitests/ntdll/NtFilterToken.c` URL could not be retrieved and is
 not a verified test reference. Use the inspected Wine and Chromium tests above.
+
+## Native UAC linked-token contract (2026-10-22)
+
+Probe: `scripts/native_token_contract_probe.cpp` (x64 SHA-256 `07a76e4534f0fff6a87d23209bfab4eca71243bdf57325156faa26639ae0805a`,
+x86 `bd5846e4ed807f66f7724e243fdca1ebb0a298c425def10787f5e472d27afe4b`). Windows 10.0.26300, x64 and x86 builds
+gave identical results. Run by the project owner's worker as a filtered administrator. The raw output files
+are kept outside the repository.
+
+| Case | Result |
+| :--- | :--- |
+| own token | primary, `TokenElevationTypeLimited` |
+| `TokenLinkedToken` | impersonation, `SecurityIdentification`, `TokenElevationTypeFull` |
+| `CreateProcessAsUserW(linked)` | 1346 `ERROR_BAD_IMPERSONATION_LEVEL` |
+| `CreateProcessWithTokenW(linked)` | 1314 `ERROR_PRIVILEGE_NOT_HELD` |
+| `DuplicateTokenEx(linked)` to primary and to impersonation | 1346 |
+| `NtSetInformationProcess(ProcessAccessToken, linked)` | `0xC00000A5` `STATUS_BAD_IMPERSONATION_LEVEL` |
+| `SetThreadToken(linked)`, then open file / process token / registry key | succeeds; 1346 / 1346 / 5 |
+| `CreateProcessAsUserW` with own token duplicated as impersonation token | succeeds |
+| `ProcessAccessToken` with own primary copy and own restricted copy | both succeed |
+
+SYSTEM with `--tcb` (scheduled task, x64; the first SYSTEM run took the non-TCB path and printed
+`user.linked_error=1312`):
+
+| Case | Result |
+| :--- | :--- |
+| `WTSQueryUserToken` | primary, `TokenElevationTypeLimited` |
+| `TokenLinkedToken` | **primary**, `TokenElevationTypeFull` |
+| `CreateProcessAsUserW(linked)` | succeeds, full-token child |
+| `CreateProcessWithTokenW(linked)` | succeeds; child exit `0xC0000142` (desktop access from a SYSTEM task, not a token result) |
+| `DuplicateTokenEx(linked)` to primary / impersonation | both succeed (impersonation copy at `SecurityImpersonation`) |
+| `ProcessAccessToken(linked)` | `0xC0000061` `STATUS_PRIVILEGE_NOT_HELD` (probe does not enable `SeAssignPrimaryTokenPrivilege`) |
+| `SetThreadToken(linked)` | 1349 `ERROR_BAD_TOKEN_TYPE` (primary token) |
+
+## Native filtered and elevated token, registry ACLs (D1, 2026-10-22)
+
+Measured on Windows 10.0.26300 (26H2) with `whoami /all`, `reg` and the registry security descriptors, for an
+administrator account.
+
+Filtered (non-elevated) token:
+
+| Item | Value |
+| :--- | :--- |
+| Privileges | SeShutdownPrivilege (Disabled), SeChangeNotifyPrivilege (Enabled), SeUndockPrivilege (Disabled), SeIncreaseWorkingSetPrivilege (Disabled), SeTimeZonePrivilege (Disabled) |
+| Groups | Administrators and S-1-5-114 deny-only; Everyone, Users and Authenticated Users enabled |
+| Integrity label | Medium, S-1-16-8192 |
+
+Elevated token: 24 privileges, of which SeDebugPrivilege, SeChangeNotifyPrivilege, SeImpersonatePrivilege and
+SeCreateGlobalPrivilege are enabled (SeDebug may be enabled only because of how the window was launched).
+Administrators and S-1-5-114 are enabled, and Administrators is the "Group owner". Integrity label High,
+S-1-16-12288.
+
+Registry security descriptors (SDDL; `…` marks a truncated capability SID):
+
+| Key | SDDL |
+| :--- | :--- |
+| `HKLM\SOFTWARE` | `O:BAG:SYD:PAI(A;CI;KA;;;CO)(A;CI;KA;;;SY)(A;CI;KA;;;BA)(A;CI;KR;;;BU)(A;CI;KR;;;AC)(A;CI;KR;;;S-1-15-3-1024-…)` |
+| `HKLM\SOFTWARE\Microsoft`, `HKLM\SYSTEM\CurrentControlSet` | `O:BAG:SYD:(A;;KA;;;BA)(A;CIID;KR;;;BU)(A;CIID;KA;;;BA)(A;CIID;KA;;;SY)(A;CIIOID;KA;;;CO)(A;CIID;KR;;;AC)(A;CIID;KR;;;S-1-15-3-…)` |
+| `HKCU\` | `O:BAG:SYD:P(A;OICI;KR;;;RC)(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KA;;;<user SID>)(A;;KR;;;AC)(A;;KR;;;S-1-15-3-…)` |
+| `HKCU\Software` | as `HKCU\`, with owner SY |
+| `HKU\.DEFAULT` | like `HKLM\SOFTWARE`, with the AC and capability entries non-inheriting |
+
+Write tests with the filtered token:
+
+| Test | Result |
+| :--- | :--- |
+| Create a key under `HKCU` | succeeds |
+| Create a key under `HKLM` | denied |
+| `reg add HKLM\SOFTWARE\Microsoft` | `ERROR: Access is denied.`, exit 1 |
+
+Wine today: the default descriptors in `server/registry.c` (`key_alloc_default_sd`) already grant Users read and
+SYSTEM and Administrators full control, and the user tree goes to the user. They lack the CREATOR OWNER,
+RESTRICTED and AppContainer entries. Wine does not access-check keys that have no explicit descriptor, so the
+write tests above do not hold in Wine yet; that is the job of the registry enforcement work order. The
+descriptors are unchanged here. The Wine filtered token has the native privilege list: SeChangeNotify (enabled) and
+SeShutdown, SeUndock, SeIncreaseWorkingSet and SeTimeZone (disabled).
+
+## SYSTEM, LocalService and NetworkService tokens (C3): measured 2026-10-22
+
+Measured on Windows 10.0.26300 with `whoami /all` in one-shot Task Scheduler tasks (`schtasks /ru`); the full tables
+and the Wine differences are in "Results" of `docs/ELEVATION_LOCAL_VALIDATION_WORKORDER.md`. `token_create_service`
+(`server/token.c`) now follows them. Integrity is System (S-1-16-16384) for all three.
+
+| Account | Wine now |
+| :--- | :--- |
+| LocalSystem | user S-1-5-18; groups Everyone, Users, SERVICE, CONSOLE LOGON, Authenticated Users, This Organization, LOCAL (all mandatory) and Administrators (enabled, owner, not mandatory; also the primary group); enabled: LockMemory, Tcb, SystemProfile, ProfileSingleProcess, IncreaseBasePriority, CreatePagefile, CreatePermanent, Debug, Audit, ChangeNotify, Impersonate, CreateGlobal, IncreaseWorkingSet, TimeZone, CreateSymbolicLink, DelegateSessionUserImpersonate; disabled: AssignPrimaryToken, IncreaseQuota, Security, TakeOwnership, LoadDriver, Systemtime, Backup, Restore, Shutdown, SystemEnvironment, Undock, ManageVolume |
+| LocalService | user S-1-5-19; the same groups without Administrators (primary group Users, owner the account); enabled: ChangeNotify, CreateGlobal, Impersonate; disabled: AssignPrimaryToken, Systemtime, Shutdown, Audit, Undock, IncreaseWorkingSet, TimeZone |
+| NetworkService | user S-1-5-20; groups as LocalService; enabled: ChangeNotify, CreateGlobal, Impersonate; disabled: AssignPrimaryToken, IncreaseQuota, Shutdown, Audit, Undock, IncreaseWorkingSet, TimeZone |
+
+Decisions and caveats:
+
+- **SeImpersonate** is kept enabled on LocalService and NetworkService although the measured Task Scheduler tokens lack
+  it: Microsoft documents that service accounts (Local Service, Network Service, Local System) hold
+  SeImpersonatePrivilege by default
+  (learn.microsoft.com/dotnet/framework/wcf/feature-details/using-impersonation-with-transport-security). The
+  measurement came from tasks, not from SCM services.
+- **CONSOLE LOGON** (S-1-2-1) is in all three tokens, but it may be an artifact of running as a task: provisional.
+- Not copied: the per-task and per-service SIDs (`NT SERVICE\Schedule`, `NT TASK\...`) and the eight unknown
+  `S-1-5-32-*` SIDs of the LocalService task token.
+- The measured LocalService token has no SeIncreaseQuota (the table; the "Differences" list says otherwise), so Wine
+  has none. The primary group and the default DACL were not printed by `whoami`; Wine keeps Administrators (SYSTEM) and
+  Users (the others) as primary group.
+- The filtered administrator token also gets SeIncreaseWorkingSet and SeTimeZone (disabled), as measured in D1.
+
+Raising the integrity level, measured on Windows 10.0.26300 from a non-elevated PowerShell with
+`SetTokenInformation(TokenIntegrityLevel)`:
+
+| Case | Result |
+| :--- | :--- |
+| raise a primary duplicate of the process token to High (S-1-16-12288) | 1314 `ERROR_PRIVILEGE_NOT_HELD` |
+| raise it to System (S-1-16-16384) | 1314 |
+| lower the duplicate to Low (S-1-16-4096) | succeeds |
+| raise the process's own token to High | 1314 |
+
+This matches Wine's `set_token_integrity_level` (raising needs an enabled SeTcbPrivilege, else
+`STATUS_PRIVILEGE_NOT_HELD`; lowering is allowed).

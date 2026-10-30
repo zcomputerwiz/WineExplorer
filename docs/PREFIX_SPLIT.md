@@ -6,6 +6,19 @@ Assignee: Gemini
 Branch: `gemini/prefix-split`  
 Target: Deliverable for [docs/PREFIX_SPLIT_WORKORDER.md](PREFIX_SPLIT_WORKORDER.md)
 
+> **Ownership change (2026-10-22, supersedes every `root:sudo` and `g:sudo` below).** The machine root is now
+> `root:wexsys` (decisions S1 and S4 of [ELEVATION_SYSTEM_ROLE_WORKORDER.md](ELEVATION_SYSTEM_ROLE_WORKORDER.md)).
+> `scripts/setup-machine-root.sh` creates the `wexsys` system group (`groupadd --system`) and never adds a desktop
+> user to it, `sudo` members included. Directory modes (`2775`), file modes (`664`, `775` for `.exe`/`.dll`,
+> `system.reg` and `userdef.reg` `664`) and the default ACL are unchanged, with `g:wexsys:rwX` instead of
+> `g:sudo:rwX`. Only a process whose effective group is `wexsys` (started by the setgid `wex-sysrun` launcher, phase
+> B) can write the machine root; an administrator in `sudo` can no longer install into the shared `Program Files`
+> or persist `HKLM` directly until the broker (step 4) and the system-role `wineserver` (phases C and D) exist.
+> `setup-machine-root.sh --update` migrates an existing `root:sudo` install: everything below the root, files owned
+> by a desktop administrator included, becomes `root:wexsys`, the extended ACLs are dropped and set again, and a
+> second run changes nothing. S2/S3/S4 acceptance runs below were made under the old ownership; the tests now
+> install through a root step and assert the denial (see the work order's "Results, phases A and B").
+
 ---
 
 ## 1. Executive Summary

@@ -1,0 +1,7 @@
+MODULE    = wexelevate.exe
+IMPORTS   = advapi32 userenv bcrypt user32
+
+EXTRADLLFLAGS = -mconsole -municode
+
+SOURCES = \
+	main.c

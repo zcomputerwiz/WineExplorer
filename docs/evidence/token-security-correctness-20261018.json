@@ -1,0 +1,359 @@
+{
+  "license": "GPL-2.0-or-later",
+  "date": "2026-10-18",
+  "branch": "codex/token-security-correctness",
+  "parent_base": "e35732a8495aede942b036797467cc861af7d73c",
+  "wine_base": "69c1d6b55e00a92c98cb0142837c15ee549f3383",
+  "wine_repaired": "ae5fec1e11c6ae42e2ba73a6e9b6368d40a34d92",
+  "scope": "Focused functional repair evidence, NOT full upstream, real authorization, installed desktop or browser acceptance",
+  "native_windows_control": {
+    "mode": "default token-only; no shell or consent/HKLM fixtures",
+    "x86_64": {
+      "exit": 0,
+      "marker": "deny_only_acl_and_object_open=PASS"
+    },
+    "i386": {
+      "exit": 0,
+      "marker": "deny_only_acl_and_object_open=PASS"
+    },
+    "executables": "Exact PE hashes in evidence/fixed-final/results.json"
+  },
+  "source_sha256": {
+    "wine/server/token.c": "8e89511ae4dd2474fc61d6a1373f855a24d12f5d7df45075072f5728ece25431",
+    "wine/dlls/shell32/shlexec.c": "3ec8a9668ab25961b378f7b9fe91d0c3451e9315bc3f3b6b08cf16083f108c76",
+    "src/programs/consent/consent.c": "0c03cb3c38ea1b25d0d9e4ec1634ad8ca78d91c428ea3484ce687f3cdcee85c7",
+    "src/programs/consent/consent.rc": "af05cab12ec933a1c0aecb390617f2b3a9ba1d508567f525c372a889560474cb",
+    "scripts/check-token-security.py": "00f69d347a19fc4e54126918f7a3e8835d333100c9e2dfcabf1fe7617c0e0cf8",
+    "scripts/test-token-runner-isolation.py": "6251c9a5cc5bb20f30c5d801736d2522d081114c36055682eeb09f4d53e18c8d",
+    "scripts/test_token_security_regressions.cpp": "d83e0741af789dffdb4c7f0a3cbc133e8e442b0e44a7484e5024b3f496ee9b1d"
+  },
+  "build_sha256": {
+    "wineserver": "cd52799d498cda3089672917ee68d9aa883792f90051730ca6c6a22408bd4806",
+    "shell32_x86_64": "4284b6c29d46394f8827bb3ce549271962970954e185e809190ca12b5e9fc46e",
+    "shell32_i386": "eebb750c55f6e780bc94966688e92f02e0d2f5e85032c493498f2cd65292c85f"
+  },
+  "results": {
+    "evidence/before-token-detail/results.json": {
+      "wine_build": "/var/tmp/wex-token-repair-20261018/source/build/wow64",
+      "uid": 65534,
+      "cases": {
+        "x86_64": {
+          "command": [
+            "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+            "/var/tmp/wex-token-repair-20261018/evidence/before-token-detail/token-regression-x86_64.exe"
+          ],
+          "exit_code": 1,
+          "passed": false,
+          "sha256": "21f3be22227c4c28af5a3150443f6abd6713ea28c28a8cb734162a7d06975ec9"
+        }
+      },
+      "scope": "focused regressions only",
+      "containment_claim": false,
+      "host_network_namespace": "net:[4026531833]",
+      "network_namespace": "net:[4026532225]",
+      "display": ":0",
+      "prefix_root": "/tmp/wex-token-check-197vdo7q",
+      "environment": {
+        "DISPLAY": ":0",
+        "WINE": "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+        "WINESERVER": "/var/tmp/wex-token-repair-20261018/source/build/wow64/server/wineserver",
+        "WINEDLLOVERRIDES": "mscoree,mshtml=;winemenubuilder.exe=d",
+        "WINEDEBUG": "-all"
+      },
+      "failure": "RuntimeError('Token regression failed: x86_64')",
+      "cleanup": [
+        {
+          "prefix": "/tmp/wex-token-check-197vdo7q/x86_64",
+          "kill_exit": 0,
+          "wait_exit": 0,
+          "remaining_servers": []
+        }
+      ]
+    },
+    "evidence/before-consent/results.json": {
+      "wine_build": "/var/tmp/wex-token-repair-20261018/source/build/wow64",
+      "uid": 65534,
+      "cases": {
+        "x86_64": {
+          "command": [
+            "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+            "/var/tmp/wex-token-repair-20261018/evidence/before-consent/token-regression-x86_64.exe",
+            "--shell-tests"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "5f4fc2b4db7ba3d044078dd09157adba8208068fd30123090de3945a0a98191d"
+        },
+        "x86_64.consent": {
+          "command": [
+            "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+            "C:\\token-consent-probe.exe",
+            "--consent",
+            "C:\\consent-under-test.exe"
+          ],
+          "exit_code": 1,
+          "passed": false,
+          "fixture_mode": "0666",
+          "shipping_binary_sha256": "a60825bd0667cc74448750460c99d7430ffe3e9f60964477d55522ddab8fe3b5"
+        }
+      },
+      "scope": "focused regressions only",
+      "containment_claim": false,
+      "host_network_namespace": "net:[4026531833]",
+      "network_namespace": "net:[4026532225]",
+      "display": ":0",
+      "prefix_root": "/tmp/wex-token-check-i6vzcqw0",
+      "environment": {
+        "DISPLAY": ":0",
+        "WINE": "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+        "WINESERVER": "/var/tmp/wex-token-repair-20261018/source/build/wow64/server/wineserver",
+        "WINEDLLOVERRIDES": "mscoree,mshtml=;winemenubuilder.exe=d",
+        "WINEDEBUG": "-all"
+      },
+      "failure": "RuntimeError('Shipping consent regression failed: x86_64')",
+      "cleanup": [
+        {
+          "prefix": "/tmp/wex-token-check-i6vzcqw0/x86_64",
+          "kill_exit": 0,
+          "wait_exit": 0,
+          "remaining_servers": []
+        }
+      ]
+    },
+    "evidence/fixed-final/results.json": {
+      "wine_build": "/var/tmp/wex-token-repair-20261018/source/build/wow64",
+      "uid": 65534,
+      "cases": {
+        "x86_64": {
+          "command": [
+            "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+            "/var/tmp/wex-token-repair-20261018/evidence/fixed-final/token-regression-x86_64.exe",
+            "--shell-tests"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "1c542b51e48b056aeea21709251f4186ed4594bb9d6a4134d9a56f502b9169c9"
+        },
+        "x86_64.consent": {
+          "command": [
+            "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+            "C:\\token-consent-probe.exe",
+            "--consent",
+            "C:\\consent-under-test.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "fixture_mode": "0666",
+          "shipping_binary_sha256": "59e8fd82e2db3a216bf1bee2126377ec7411c513ddfcade3a44022728040e747"
+        },
+        "i386": {
+          "command": [
+            "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+            "/var/tmp/wex-token-repair-20261018/evidence/fixed-final/token-regression-i386.exe",
+            "--shell-tests"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "sha256": "9272b9e5bbf11037d1cb8082febaba8779007c2383011b46a4cce1464c6299bb"
+        },
+        "i386.consent": {
+          "command": [
+            "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+            "C:\\token-consent-probe.exe",
+            "--consent",
+            "C:\\consent-under-test.exe"
+          ],
+          "exit_code": 0,
+          "passed": true,
+          "fixture_mode": "0666",
+          "shipping_binary_sha256": "99994432470cdd9d1d71328e261997fc61ad40a700a678b847f972756e3f9240"
+        }
+      },
+      "scope": "focused regressions only",
+      "containment_claim": false,
+      "host_network_namespace": "net:[4026531833]",
+      "network_namespace": "net:[4026532226]",
+      "display": ":0",
+      "prefix_root": "/tmp/wex-token-check-4_76wrjm",
+      "environment": {
+        "DISPLAY": ":0",
+        "WINE": "/var/tmp/wex-token-repair-20261018/source/build/wow64/wine",
+        "WINESERVER": "/var/tmp/wex-token-repair-20261018/source/build/wow64/server/wineserver",
+        "WINEDLLOVERRIDES": "mscoree,mshtml=;winemenubuilder.exe=d",
+        "WINEDEBUG": "-all"
+      },
+      "cleanup": [
+        {
+          "prefix": "/tmp/wex-token-check-4_76wrjm/x86_64",
+          "kill_exit": 0,
+          "wait_exit": 0,
+          "remaining_servers": []
+        },
+        {
+          "prefix": "/tmp/wex-token-check-4_76wrjm/i386",
+          "kill_exit": 0,
+          "wait_exit": 0,
+          "remaining_servers": []
+        }
+      ]
+    },
+    "evidence/isolation/results.json": {
+      "scope": "actual runner resource isolation, not security feature acceptance",
+      "cases": {
+        "success": {
+          "runner_exit": 0,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-_zlioh1d/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        },
+        "failure": {
+          "runner_exit": 1,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-925pvls4/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        },
+        "timeout": {
+          "runner_exit": 1,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-jnlj7shu/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        },
+        "signal": {
+          "runner_exit": 1,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-qg4azlfl/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        }
+      },
+      "sentinel_identities": {
+        "681690": "2490216",
+        "681691": "2490218",
+        "681701": "2490363"
+      }
+    },
+    "runner-preflight-before-after.json": {
+      "before": {
+        "scope": "extracted unchanged production test-dispatch functions; no display/prefix setup executed",
+        "exit": 0,
+        "stdout": "--- Running advapi32 security tests (64-bit) ---\n--- Running advapi32 security tests (32-bit WOW64) ---\n--- Running ntdll info tests (64-bit) ---\n--- Running ntdll info tests (32-bit WOW64) ---\n--- Running shell32 shlexec tests (64-bit) ---\n--- Running shell32 shlexec tests (32-bit WOW64) ---\nAll executed test sets PASSED\n",
+        "stderr": ""
+      },
+      "after": {
+        "scope": "actual new runner preflight; no resources allocated",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "usage: check-token-security.py [-h] [--wine-build WINE_BUILD]\n                               [--output-dir OUTPUT_DIR] [--checkpoint-a |\n                               --checkpoint-b | --all] [--focused]\n                               [--runner-fixture {success,failure,timeout,signal}]\ncheck-token-security.py: error: Required test executables missing (no tests passed): /tmp/token-preflight-comparison-vijalb3m/dlls/advapi32/tests/x86_64-windows/advapi32_test.exe, /tmp/token-preflight-comparison-vijalb3m/dlls/ntdll/tests/x86_64-windows/ntdll_test.exe, /tmp/token-preflight-comparison-vijalb3m/dlls/shell32/tests/x86_64-windows/shell32_test.exe, /tmp/token-preflight-comparison-vijalb3m/dlls/advapi32/tests/i386-windows/advapi32_test.exe, /tmp/token-preflight-comparison-vijalb3m/dlls/ntdll/tests/i386-windows/ntdll_test.exe, /tmp/token-preflight-comparison-vijalb3m/dlls/shell32/tests/i386-windows/shell32_test.exe\n"
+      }
+    },
+    "evidence/isolation-final/results.json": {
+      "scope": "actual runner resource isolation, not security feature acceptance",
+      "cases": {
+        "success": {
+          "runner_exit": 0,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-py5591_w/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        },
+        "failure": {
+          "runner_exit": 1,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-u_pfmse6/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        },
+        "timeout": {
+          "runner_exit": 1,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-iz5gmgdb/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        },
+        "signal": {
+          "runner_exit": 1,
+          "sentinel_unchanged": true,
+          "cleanup": [
+            {
+              "prefix": "/tmp/wex-token-check-3yt4dyc_/x86_64",
+              "kill_exit": 0,
+              "wait_exit": 0,
+              "remaining_servers": []
+            }
+          ],
+          "passed": true
+        }
+      },
+      "sentinel_identities": {
+        "685326": "2513554",
+        "685327": "2513557",
+        "685337": "2513688"
+      },
+      "sentinel_cleanup": [
+        {
+          "prefix": "/tmp/wex-token-check-imh2rf6_/x86_64",
+          "kill_exit": 0,
+          "wait_exit": 0,
+          "remaining_servers": []
+        }
+      ]
+    }
+  },
+  "retained_logs": {
+    "before-token-detail/x86_64.stdout.log": "acl_case=0 api_success=1 allowed=1 expected=0 granted=0x2\r\nFAIL: ordered deny / deny-only allow / user allow AccessCheck (error 122)\r\nevent_case=0 opened=1 expected=0 error=0\r\nFAIL: actual event open honors deny-only group (error 0)\r\nacl_case=1 api_success=1 allowed=0 expected=0 granted=0\r\nevent_case=1 opened=0 expected=0 error=5\r\nacl_case=2 api_success=1 allowed=1 expected=1 granted=0x2\r\nevent_case=2 opened=1 expected=1 error=0\r\ndeny_only_acl_and_object_open=FAIL\r\n",
+    "before-consent/x86_64.consent.stdout.log": "FAIL: fixture and former environment switches cannot auto-approve or auto-deny (error 0)\r\nFAIL: actual shipping consent exit; unsupported credentials fail closed (error 0)\r\nFAIL: fixture and former environment switches cannot auto-approve or auto-deny (error 0)\r\nFAIL: actual shipping consent exit; unsupported credentials fail closed (error 0)\r\nFAIL: fixture and former environment switches cannot auto-approve or auto-deny (error 0)\r\nFAIL: actual shipping consent exit; unsupported credentials fail closed (error 0)\r\nFAIL: actual shipping consent exit; unsupported credentials fail closed (error 0)\r\nFAIL: fixture and former environment switches cannot auto-approve or auto-deny (error 0)\r\nshipping_consent_has_no_approval_bypass=FAIL\r\n",
+    "before-consent/x86_64.stderr.log": "wine: created the configuration directory '/tmp/wex-token-check-i6vzcqw0/x86_64'\nwine: Unhandled division by zero at address 000000014000CA88 (thread 0154), starting debugger...\n",
+    "fixed-final/x86_64.stdout.log": "acl_case=0 api_success=1 allowed=0 expected=0 granted=0\r\nevent_case=0 opened=0 expected=0 error=5\r\nacl_case=1 api_success=1 allowed=0 expected=0 granted=0\r\nevent_case=1 opened=0 expected=0 error=5\r\nacl_case=2 api_success=1 allowed=1 expected=1 granted=0x2\r\nevent_case=2 opened=1 expected=1 error=0\r\ndeny_only_acl_and_object_open=PASS\r\nelevation_helper_errors_and_child_handle=PASS\r\n",
+    "fixed-final/x86_64.consent.stdout.log": "consent_case=0 policy=2 exit=1223 expected=1223\r\nconsent_case=1 policy=2 exit=1223 expected=1223\r\nconsent_case=2 policy=2 exit=1223 expected=1223\r\nconsent_case=3 policy=1 exit=50 expected=50\r\nconsent_case=4 policy=2 exit=0 expected=0\r\nconsent_case=5 policy=3 exit=50 expected=50\r\nconsent_case=6 policy=99 exit=50 expected=50\r\nconsent_case=7 policy=2 exit=50 expected=50\r\nshipping_consent_has_no_approval_bypass=PASS\r\n",
+    "fixed-final/i386.stdout.log": "acl_case=0 api_success=1 allowed=0 expected=0 granted=0\r\nevent_case=0 opened=0 expected=0 error=5\r\nacl_case=1 api_success=1 allowed=0 expected=0 granted=0\r\nevent_case=1 opened=0 expected=0 error=5\r\nacl_case=2 api_success=1 allowed=1 expected=1 granted=0x2\r\nevent_case=2 opened=1 expected=1 error=0\r\ndeny_only_acl_and_object_open=PASS\r\nelevation_helper_errors_and_child_handle=PASS\r\n",
+    "fixed-final/i386.consent.stdout.log": "consent_case=0 policy=2 exit=1223 expected=1223\r\nconsent_case=1 policy=2 exit=1223 expected=1223\r\nconsent_case=2 policy=2 exit=1223 expected=1223\r\nconsent_case=3 policy=1 exit=50 expected=50\r\nconsent_case=4 policy=2 exit=0 expected=0\r\nconsent_case=5 policy=3 exit=50 expected=50\r\nconsent_case=6 policy=99 exit=50 expected=50\r\nconsent_case=7 policy=2 exit=50 expected=50\r\nshipping_consent_has_no_approval_bypass=PASS\r\n",
+    "fixed-final/x86_64.stderr.log": "wine: created the configuration directory '/tmp/wex-token-check-4_76wrjm/x86_64'\nwine: Unhandled division by zero at address 000000014000CA88 (thread 0154), starting debugger...\n",
+    "fixed-final/i386.stderr.log": "wine: created the configuration directory '/tmp/wex-token-check-4_76wrjm/i386'\nwine: Unhandled division by zero at address 000000014000CA88 (thread 0154), starting debugger...\n"
+  },
+  "known_background_fault": "Fresh-prefix explorer startup division-by-zero appears before and after; not a token probe crash and not a clean installed-desktop pass. See repair report and next work order."
+}

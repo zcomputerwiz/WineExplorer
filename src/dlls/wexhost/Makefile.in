@@ -1,6 +1,6 @@
 MODULE    = wexhost.dll
 IMPORTLIB = wexhost
-IMPORTS   = user32 gdi32 comctl32
+IMPORTS   = user32 gdi32 comctl32 advapi32
 UNIXLIB   = wexhost.so
 UNIX_CFLAGS = $(DBUS_CFLAGS) $(X_CFLAGS) $(WAYLAND_CLIENT_CFLAGS)
 UNIX_LIBS   = $(PTHREAD_LIBS) $(WAYLAND_CLIENT_LIBS)
@@ -9,7 +9,9 @@ SOURCES = \
 	apps.c \
 	compose.c \
 	display.c \
+	elevate.c \
 	greeter.c \
+	lease.c \
 	hardware.c \
 	tray.c \
 	tray_x11.c \
