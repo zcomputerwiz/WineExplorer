@@ -435,16 +435,14 @@ security.c:7961: Test marked todo: got error 0
 01cc:security: 1 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
 01d4:security: 1 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
 01dc:security: 1 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
-security.c:8003: Test failed: wait failed
+01e4:security: 2 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
 security.c:8066: Test marked todo: key 80000006: got error 0
 security.c:8128: Test marked todo: Got attributes 0
 security.c:8141: Test marked todo: Got attributes 0
 security.c:8164: Test marked todo: Got attributes 0
 security.c:8177: Test marked todo: Got attributes 0
-security.c:01a0:fixme:ntdll:NtDuplicateToken ignoring effective-only flag
-8025: Test failed: got error 2
+01a0:fixme:ntdll:NtDuplicateToken ignoring effective-only flag
 security.c:8186: Test marked todo: Privilege shouldn't exist
-01e4:security: 2 tests executed (0 marked as todo, 0 as flaky, 1 failure), 0 skipped.
 security.c:8271: Test marked todo: got control 0x8004
 security.c:8286: Test marked todo: expected no DACL present
 01a0:fixme:wow:wow64_NtSetInformationToken unsupported class 18
@@ -471,4 +469,4 @@ security.c:8823: Test failed: GetTokenInformation failed, error 6.
 security.c:8824: Test failed: Got unexpected primary group.
 0204:security: 23 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
 019c:security: Silenced 0 todos, 0 skips and 2 traces.
-019c:security: 3772 tests executed (179 marked as todo, 0 as flaky, 16 failures), 29 skipped.
+019c:security: 3772 tests executed (179 marked as todo, 0 as flaky, 15 failures), 29 skipped.

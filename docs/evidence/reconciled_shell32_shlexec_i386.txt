@@ -106,4 +106,4 @@ shlexec.c:2373: Test marked todo: ShellExecuteEx(mask="0x8440", verb="notaverb",
 07ac:fixme:exec:SHELL_execute flags ignored: 0x00000100
 07ac:err:exec:dde_connect Unable to find application path for command L"xyzwxyzwxyz param"
 shlexec.c:2997: Test marked todo: ShellExecuteEx(mask="0x808440", file="test2.exe", params="shlexec "C:\users\root\AppData\Local\Temp\wtShlexecDir\wtShlexecFile" Exec", dir="%TMPDIR%") returned 33
-0104:shlexec: 1815 tests executed (39 marked as todo, 0 as flaky, 0 failures), 1 skipped.
+0104:shlexec: 1816 tests executed (39 marked as todo, 0 as flaky, 0 failures), 1 skipped.
