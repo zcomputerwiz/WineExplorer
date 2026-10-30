@@ -1,0 +1,17 @@
+# Chromium combined-build validation and Edge follow-through — 2026-10-30
+
+## Goal
+Get a useful, normal Chromium browser running on the reconciled WineExplorer stack; then move to Microsoft Edge. Focus on actual browser behavior rather than perfecting a test harness or unrelated edge-case conformance.
+
+## Current state and coordination
+The earlier Chromium r5 run showed HTTP 200, nonce readiness, and visible expected fixture, although its diagnostic reported a helper timeout. That run used the older candidate; the master-based token/broker reconciliation has not yet been validated with Chromium. Existing Wine reconciliation branch codex/chromium-token-broker-reconciliation was at dda43f92; check current remote tip before work. Parent removed unsafe shared-prefix shell elevation test cases on Wine codex/broker-test-safety commit 6edd51f57ca7232a7829c38580d8fde2e490e03a; review/incorporate if not already done, without restoring destructive tests. This supplements existing Antigravity work, not a second assignment or competing run. Preserve all branches and evidence, and leave both masters unchanged.
+
+## Chromium validation
+1. Identify and record exact committed Wine and WineExplorer source revisions, assembly overlays, matching wineserver/client build and actual executable/runtime paths. Build or use the worker's own verified matching build; don't modify shared loaded builds. Verify security test issues that affect actual operation, but do not gate a browser run on unrelated test perfection. Record the existing restricted-token fix and the remaining lowbox DACL enforcement and real-broker validation limitations accurately.
+2. Execute one fresh normal 8 GiB Chromium comparison using the existing owned private lab, original runtime, normal sandbox and features, private loopback, actual VirGL, fresh stage/profile/output paths and the established ownership, space, deadline and exact shutdown safeguards. Preserve all prior attempts; no cache deletion, new image, reinstall, security bypass or identical retry.
+3. Record actual HTTP requests and response status, JS readiness/fixture output, rendered front, browser process outcome and clean shutdown. Separate observed page load from fixture pass, full browser validation, and sandbox isolation. Investigate a concrete failure and implement small evidence-backed fixes with focused regression tests; use at most one materially different follow-up verification when justified. No harness redesign.
+
+## Edge follow-through
+If Chromium genuinely loads and renders the fixture on the reconciled build, proceed to the previously installed private Edge runtime in the same owned environment and run one fresh normal Edge control, preserving its normal sandbox and features. Use a fresh profile/output and the same ownership, space, lifetime and shutdown safeguards; no download, reinstall or bypass. Record navigation, network, JS readiness and actual visible outcome. If it fails, identify the earliest demonstrated divergence and implement an evidence-backed bounded fix with focused checks; do not assume Chromium success proves Edge works. If Chromium has not validated, report the next actionable Chromium blocker rather than starting a duplicate Edge effort.
+
+Commit and push actual Wine and WineExplorer branches, source fixes and a concise report with raw private evidence locations, exact revisions and tests/skips. Parent independently reviews results. Maintain lowbox security limitations as explicit open work; do not claim Windows-equivalent isolation.
