@@ -534,8 +534,8 @@ static int run_child(const char *mode, uintptr_t raw_pipe_h)
     /* 5. TargetServicesBase::LowerToken sequence (sandbox/win/src/target_services.cc:127-155) */
     if (strcmp(mode, "service_restricted") == 0 || strcmp(mode, "network_appcontainer") == 0) {
         HANDLE hTokAdj = NULL;
-        /* AccessToken::FromCurrentProcess(false, TOKEN_ADJUST_DEFAULT) per target_services.cc:93-99 */
-        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_DEFAULT, &hTokAdj)) {
+        /* FromCurrentProcess(false, TOKEN_ADJUST_DEFAULT) calls FromProcess, which adds TOKEN_QUERY. */
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_DEFAULT, &hTokAdj)) {
             /* StorageService lowers to Untrusted (S-1-16-0), NetworkService lowers to Low (S-1-16-4096) */
             const wchar_t *target_il = (strcmp(mode, "service_restricted") == 0) ? L"S-1-16-0" : L"S-1-16-4096";
             BOOL il_ok = set_token_il_str(hTokAdj, target_il);
@@ -547,7 +547,7 @@ static int run_child(const char *mode, uintptr_t raw_pipe_h)
                 return 1; /* SBOX_FATAL_INTEGRITY */
             }
         } else {
-            log_line("CHILD", mode, "FAIL: OpenProcessToken(TOKEN_ADJUST_DEFAULT) failed err=%lu -> SBOX_FATAL_INTEGRITY(1)", GetLastError());
+            log_line("CHILD", mode, "FAIL: OpenProcessToken(TOKEN_QUERY | TOKEN_ADJUST_DEFAULT) failed err=%lu -> SBOX_FATAL_INTEGRITY(1)", GetLastError());
             return 1; /* SBOX_FATAL_INTEGRITY */
         }
     }
