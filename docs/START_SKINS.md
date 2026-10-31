@@ -13,7 +13,7 @@ WineExplorer provides two built-in Start menu presentations:
 
 By default, when no skin is selected (**"None"**), both menus render using their native built-in theme-aware draw routines, remaining pixel-identical to baseline.
 
-To support user customization and leverage the rich community skin ecosystem, WineExplorer natively loads and renders **Open-Shell Start menu skins** without conversion. Open-Shell is MIT-licensed; parser and slice algorithms are ported under MIT licensing with original copyright notices preserved in [`LICENSE.md`](file:///root/WineExplorer/LICENSE.md) and [`CREDITS.md`](file:///root/WineExplorer/CREDITS.md).
+To support user customization and leverage the rich community skin ecosystem, WineExplorer natively loads and renders **Open-Shell Start menu skins** without conversion. Open-Shell is MIT-licensed; parser and slice algorithms are ported under MIT licensing with original copyright notices preserved in [`LICENSE.md`](../LICENSE.md) and [`CREDITS.md`](../CREDITS.md).
 
 ---
 
@@ -121,7 +121,7 @@ Skins expose configurable features shown in the properties GUI:
 
 ## 4. Property to Layout Mapping in WineExplorer
 
-WineExplorer's Start menu is rendered in [`src/dlls/wexshell/startmenu_view.c`](file:///root/WineExplorer/src/dlls/wexshell/startmenu_view.c). The new skin subsystem (`startskin.c` / `startskin.h`) parses and caches these properties in a `struct start_skin`:
+WineExplorer's Start menu is rendered in [`src/dlls/wexshell/startmenu_view.c`](../src/dlls/wexshell/startmenu_view.c). The new skin subsystem (`startskin.c` / `startskin.h`) parses and caches these properties in a `struct start_skin`:
 
 | Open-Shell Property | Type | WineExplorer Target / Layout Usage | Status |
 |---|---|---|---|
