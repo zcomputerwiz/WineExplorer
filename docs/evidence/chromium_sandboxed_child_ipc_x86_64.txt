@@ -1,0 +1,347 @@
+================================================================================
+SANDBOXED-CHILD IPC ISOLATION (WO-20261030-SANDBOXED-CHILD-IPC) - STEP 1
+Date:        2026-10-31
+Host:        Windows 11 Pro 10.0.26300, WSL distro "Debian" (cross-compiled PE tests)
+Subject:     Why SANDBOXED Chromium utility children never receive the browser's
+             mojo invitation ("Terminating current process after 15 seconds with no
+             connection") under reconciled build ce87bac0.
+Scope:       STEP 1 isolation WITHOUT Chromium (standalone mingw PE matrix).
+             Q1 is CLOSED/validated; do NOT start Edge. No commit/push (coordinator owns git).
+--------------------------------------------------------------------------------
+
+PURPOSE
+-------
+Antigravity's r6 correlation (helper.stderr.log): the two FAILING launches both
+set an integrity level AND pass 8 inherited handles; the WORKING GPU launch does
+neither (7 handles, no IL). Goal: determine whether the inherited mojo handle is
+actually USABLE in the child across token/security modes, and whether a case fails
+on ce87bac0's wine but passes on system wine (=> reconciled regression) or fails on
+both (=> general Wine limitation / harness artifact).
+
+HARNESS (all built with x86_64-w64-mingw32-gcc -O2, run under wine)
+--------------------------------------------------------------------
+pipeinherit.exe  (superseded by the two below; kept for reference)
+mininherit.exe   Minimal: one pipe, plain CreateProcessW + bInheritHandles=TRUE
+                 (NO handle list). Child writes "CHILDPONG" through the inherited
+                 handle value (argv[2]); parent reads. -> tests whether wine
+                 preserves INHERITED HANDLE VALUES at all.
+listinherit.exe  The Chromium-relevant test: one pipe; CreateProcessAsUserW +
+                 PROC_THREAD_ATTRIBUTE_HANDLE_LIST (+ SECURITY_CAPABILITIES for AC,
+                 + JOB_LIST for AC_job). bInheritHandles is controlled by env
+                 WEX_INHERIT (default 1=TRUE = Chromium's pattern; 0=FALSE).
+                 Child: tries the expected value first (exit 42=PRESERVED), else
+                 scans its handle table for pipe write-ends and probes them
+                 (exit 44=RENUMBERED, exit 43=DROPPED/not delivered). Parent reads
+                 the other end and prints LIST_VERDICT.
+initattr.exe     Ultra-minimal: isolates InitializeProcThreadAttributeList /
+                 UpdateProcThreadAttribute call patterns (P1 two-phase, P2/P3 single).
+
+HARNESS VALIDATION (proven correct before trusting results)
+-----------------------------------------------------------
+mininherit under system wine:
+    PARENT hW=0x3c child-exit=42 read-ready=1 gotdata=1 data="CHILDPONG"
+    MIN_VERDICT PRESERVED
+    => wine DOES preserve inherited handle VALUES for plain bInheritHandles=TRUE.
+
+initattr under system wine (attribute-list API correctness):
+    P1 two-phase (query NULL -> HeapAlloc -> init in place): init r=1, update r=1  [WORKS]
+    P2 single-phase &pList + size(0):        init r=0 (treated as query)           [fails]
+    P3 single-phase &pList + NULL size:      EXC code=0xc0000005 at 0x6fffff42386e [CRASH]
+    => The correct wine pattern is two-phase. A real (minor) wine robustness bug:
+       InitializeProcThreadAttributeList CRASHES if the Size arg is NULL (no NULL
+       check). Correct usage passes a valid &size, so this does not affect Chromium.
+
+================================================================================
+KEY RESULT #1  --  bInheritHandles TRUE vs FALSE (system wine, host)
+================================================================================
+This is the decisive comparison. System wine = /usr/bin/wine (Debian package),
+prefix /root/wex-ipc-test/prefixes/base (private, pre-initialized).
+
+    bInheritHandles   plain token        low-integrity (il_low)
+    ----------------  -----------------  --------------------------
+    TRUE  (Chromium)  PRESERVED          PRESERVED
+    FALSE             DROPPED            DROPPED
+
+Raw:
+[inherit=1/plain] exit=0 | LIST_VERDICT PRESERVED
+     PARENT mode=plain hW=0x3c child-exit=42 read-ready=1 gotdata=1 data="CHILDPONG"
+[inherit=1/il_low] exit=0 | LIST_VERDICT PRESERVED
+     PARENT mode=il_low hW=0x3c child-exit=42 read-ready=1 gotdata=1 data="CHILDPONG"
+[inherit=0/plain] exit=0 | LIST_VERDICT DROPPED(not delivered)
+     PARENT mode=plain hW=0x3c child-exit=43 read-ready=0 gotdata=0 data=""
+[inherit=0/il_low] exit=0 | LIST_VERDICT DROPPED(not delivered)
+     PARENT mode=il_low hW=0x3c child-exit=43 read-ready=0 gotdata=0 data=""
+
+CONSEQUENCES:
+  (a) With the pattern Chromium actually uses (bInheritHandles=TRUE + explicit
+      handle list), wine DELIVERS the inherited mojo handle at the parent's value
+      AND it is USABLE in the child -- even under a LOW integrity-level token.
+      => "handles simply don't inherit" is NOT the cause of the r6 failure.
+  (b) Low integrity level ALONE does not break inherited-handle usability.
+  (c) With bInheritHandles=FALSE, wine silently DROPS every handle in the list.
+
+WHY Chromium uses TRUE: r6 helper.stderr.log shows ALL children pass
+PROC_THREAD_ATTRIBUTE_HANDLE_LIST (GPU count 7; network count 8 + capabilities;
+storage count 8). The GPU child CONNECTED in r6. If Chromium used bInheritHandles=
+FALSE, wine would drop the GPU's handles too and it could not connect. Therefore
+Chromium uses bInheritHandles=TRUE, so basic inheritance works for every child and
+the network/storage failures must have a DIFFERENT cause (token-specific).
+
+================================================================================
+KEY RESULT #2  --  full system-wine 6-mode control matrix (bInheritHandles=TRUE)
+================================================================================
+System wine is an INCOMPLETE baseline: it cannot launch restricted or AppContainer
+tokens at all, so it fails everything. This means "fails on both wines" is trivially
+true here and NOT informative as a regression discriminator -- the reconciled build
+(which r6 showed DOES create AC/restricted tokens) must be tested separately.
+
+    mode                result                 reason (from logs)
+    ------------------  ---------------------  --------------------------------------
+    plain               DROPPED*               *only when WEX_INHERIT=0; TRUE=PRESERVED
+    il_low              DROPPED*               *only when WEX_INHERIT=0; TRUE=PRESERVED
+    restricted          LAUNCH_FAIL            CreateProcessAsUserW err=5 (ACCESS_DENIED)
+                                                stderr: fixme ntdll:NtFilterToken "support for
+                                                restricting sids not yet implemented"
+    restricted_il       LAUNCH_FAIL            same NtFilterToken stub + IL
+    appcontainer        setup-fail             CreateAppContainerToken FAILED err=127
+                                                pfn=0x0 (not exported by kernel32/kernelbase/
+                                                advapi32/ntdll in system wine)
+    appcontainer_job    setup-fail             same as appcontainer
+
+Raw (WEX_INHERIT default TRUE):
+[sys/plain] exit=0 | LIST_VERDICT DROPPED   <-- NOTE: this run used the pre-fix build
+                                               where plain defaulted to bInheritHandles=FALSE;
+                                               with WEX_INHERIT=1 it is PRESERVED (see #1)
+[sys/restricted] exit=1 | LIST_VERDICT LAUNCH_FAIL
+    PARENT CreateProcessAsUserW FAILED err=5
+[sys/il_low] exit=0 | LIST_VERDICT DROPPED  (same caveat as plain)
+[sys/restricted_il] exit=1 | LIST_VERDICT LAUNCH_FAIL
+[sys/appcontainer] exit=1 | PARENT CreateAppContainerToken FAILED err=127 pfn=0x0
+[sys/appcontainer_job] exit=1 | PARENT CreateAppContainerToken FAILED err=127 pfn=0x0
+
+================================================================================
+KEY RESULT #3  --  reconciled build (ce87bac0) does NOT run on the WSL host
+================================================================================
+The reconciled in-tree build at /root/wex-ipc-test/reconciled/wow64/ (wine ->
+tools/wine/wine, server/wineserver, 737 dlls dirs, ntdll.so 4.15MB) hangs during
+prefix auto-initialization on the WSL host regardless of prefix state:
+    $ reconciled/wine listinherit.exe parent plain   => exit=124 (timeout)
+      stderr tail: err:setupapi:SetupDefaultQueueCallbackW copy error 1812
+                   L"@C:\windows\system32\mmc.exe,-1" -> L"C:\windows\system32\devmgmt.msc"
+Tried with a fresh prefix AND with a copy of the system-wine-initialized prefix --
+both hang in COM/RpcSs/setupapi init. It only runs in the QEMU guest (as r6 used it).
+=> The reconciled half of the matrix REQUIRES the guest.
+
+================================================================================
+SOURCE ANALYSIS (reconciled tree: D:\DeepThought\Worktrees\wine-reconciliation)
+================================================================================
+A. Handle-list inheritance is GATED on bInheritHandles in TWO places:
+
+   dlls/kernelbase/process.c:679  (parse -- always runs, prints the count antigravity saw)
+       case PROC_THREAD_ATTRIBUTE_HANDLE_LIST:
+           handle_list = &attrs->attrs[i];
+           TRACE("PROC_THREAD_ATTRIBUTE_HANDLE_LIST handle count %Iu.\n", ...);
+
+   dlls/kernelbase/process.c:304  (forward to NtCreateUserProcess -- GATED)
+       if ((process_flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && handle_list) {
+           attr->Attributes[pos].Attribute = PS_ATTRIBUTE_HANDLE_LIST; ... }
+
+   dlls/ntdll/unix/process.c:739  (server-side apply -- GATED again)
+       case PS_ATTRIBUTE_HANDLE_LIST:
+           if (process_flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES)
+               handles_attr = &ps_attr->Attributes[i];
+
+   `inherit` is a direct pass-through of bInheritHandles (kernelbase/process.c:471,497,
+   730); there is NO override that sets it when a handle list is present. On real
+   Windows PROC_THREAD_ATTRIBUTE_HANDLE_LIST is authoritative independent of
+   bInheritHandles, so wine's double-gate is a divergence -- but it only matters if a
+   caller uses bInheritHandles=FALSE with a list (Chromium does not; see #1).
+
+B. Server-side inherited handles KEEP the parent's full access (no token re-check):
+
+   server/handle.c:343 inherit_handle():
+       src = get_handle( parent, handle );
+       if (!src || !(src->access & RESERVED_INHERIT)) return;
+       ...
+       dst[index] = *src;              // same value, same access mask, same object
+   => An AppContainer/restricted child inherits the pipe with the PARENT's access
+      rights. Using an already-inherited handle is not re-vetted against the child's
+      token, so a low-IL/AC child can still write to the inherited mojo pipe. This is
+      consistent with KEY RESULT #1 (il_low PRESERVED).
+
+C. Restricted-token / integrity ARE fully implemented in the reconciled build
+   (unlike system wine's stubs): server/token.c has filter_group/filter_privilege,
+   restricted_sids list + is_restricted, set_token_integrity_level handler, and a
+   restricted-SID access check (token.c:1408-1473) applied when OPENING objects.
+
+================================================================================
+ROOT CAUSE / NARROWEST HYPOTHESIS
+================================================================================
+RULED OUT by host evidence + source:
+  - "mojo handles don't inherit at all"  -> FALSE: they inherit & are usable with
+    bInheritHandles=TRUE (Chromium's pattern), even under low IL.
+  - "low integrity level alone breaks it" -> FALSE: il_low PRESERVED.
+  - "inherited handle loses access in an AC/restricted child" -> unlikely: server
+    copies the parent's full access onto inherited handles (no token re-check).
+
+REMAINING (needs guest, cannot be reproduced on host):
+  The two failing children are exactly the ones system wine cannot launch:
+    network = AppContainer (PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES)
+    storage = restricted token + integrity level
+  Narrowest hypothesis: under an AppContainer or restricted+IL token, the child
+  fails at the ChildThread channel connect NOT because the inherited pipe handle is
+  missing/inaccessible, but because a step in the mojo connect path that OPENS or
+  re-validates an object (or creates a child-side resource) is DENIED by the
+  reconciled build's token access checks (server/token.c restricted-SID / mandatory-
+  label logic) where real Windows would allow it. The GPU child (restricted, NO IL,
+  no capabilities) succeeds because its connect path does not trip that check.
+
+CONCRETE WINE BUGS FOUND (reproducible on host, system wine):
+  1. bInheritHandles=FALSE + PROC_THREAD_ATTRIBUTE_HANDLE_LIST => wine silently drops
+     ALL listed handles (kernelbase/process.c:304 + ntdll/unix/process.c:740 gate).
+     Diverges from Windows where the list is authoritative. Not Chromium's path, but a
+     real latent bug that would break any app using FALSE+list.
+  2. InitializeProcThreadAttributeList crashes (0xc0000005) if the Size arg is NULL.
+
+================================================================================
+NEXT STEP (recommended): run listinherit.exe matrix IN THE GUEST against the
+reconciled build (+ system wine for a same-VM control), modes:
+    plain, il_low, restricted, restricted_il, appcontainer, appcontainer_job
+with WEX_INHERIT=1 (Chromium's pattern). This is the ONLY way to reproduce the
+AppContainer/restricted+IL cases. Expected outcome that would confirm the hypothesis:
+plain/il_low/restricted = PRESERVED; appcontainer and/or restricted_il = DROPPED or
+child ACCESS_DENIED on the inherited handle. That result (or its negation) decides
+between "AC/restricted access-check bug in wine" vs "not reproducible -> STEP 2 full
+Chromium server trace."
+
+The guest is a managed QEMU+VirGL lab with an elaborate multi-stage launcher and strict
+clean-shutdown requirements (identity-verified QMP; no stray qemu/launcher/wineserver;
+leave the two orphaned Xvfb :104/:100 alone). Booting it was deliberately NOT attempted
+from this isolated session to avoid leaving the lab in a bad state; it is recommended
+the coordinator authorize/perform (or explicitly green-light) that step.
+
+================================================================================
+RAW LOG INDEX (host, WSL /root/wex-ipc-test/logs/)
+================================================================================
+min_sys.out/.err, child_min.log                 mininherit (PRESERVED)
+initattr_sys.out/.err                            initattr P1/P2/P3
+inh1_plain.out, inh1_il_low.out + child_inh1_*.log   bInheritHandles=TRUE (PRESERVED)
+inh0_plain.out, inh0_il_low.out + child_inh0_*.log   bInheritHandles=FALSE (DROPPED)
+sys_<mode>.out/.err, child_sys_<mode>.log        system-wine 6-mode matrix
+rec_plain.out/.err, recpp_plain.out/.err         reconciled-on-host hang (exit=124)
+
+TEST SOURCES (host D:\DeepThought\Projects\OpenClaude\):
+_wex_ipc_mininherit.c  _wex_ipc_listinherit.c  _wex_ipc_initattr.c
+_run scripts: _wex_ipc_run_inh.sh, _wex_ipc_run_list.sh, _wex_ipc_build_list.sh
+================================================================================
+
+================================================================================
+STEP 2 - GUEST (QEMU guest, reconciled build ce87bac0)   [appended 2026-10-31]
+================================================================================
+Environment
+-----------
+* Guest: WEX-G4-VirGL-20261022 qcow2 (overlay), KVM, headless -display none.
+  boot_id 83bfb3f4-7779-4558-9515-e69946234ac3. Fresh private prefixes only; no
+  shared prefixes; no cache deletion/reinstall; no Edge / full Chromium run.
+* Reconciled build under test: /tmp/wex-build (guest). wine binary md5
+  f6f1717e5c85a9e377dd28fdbf25406a is IDENTICAL to the r6-staged build at
+  /home/debian/wex-g4/wine-verify-r6-20261030/build. Source worktree HEAD =
+  ce87bac00b8867abb600a2bb1f87c1409653d7c2 ("shell32/tests: remove unsafe
+  shared-prefix elevation tests"). wine --version => wine-11.20. CONFIRMED to be
+  the exact ce87bac0 reconciled build r6 used.
+* Control (same VM): /home/debian/wex-g4/wine-control-channel-20261027/build
+  (wine-11.19). Prefixes: prefix-rec (reconciled), prefix-sys (control).
+* Harness: listinherit.exe, WEX_INHERIT=1 (bInheritHandles=TRUE +
+  PROC_THREAD_ATTRIBUTE_HANDLE_LIST = [hW]) - Chromium's pattern. Child writes
+  "CHILDPONG" through the inherited pipe handle; child exit 42 = PRESERVED.
+
+CRITICAL HARNESS CORRECTION (why the first in-guest matrix run was misleading)
+------------------------------------------------------------------------------
+The first in-guest matrix run opened the base token with
+TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY (NO TOKEN_QUERY). That made "restricted" show
+as LAUNCH_FAIL err=5. This was a HARNESS ARTIFACT, not the reconciled build:
+Chromium opens its base token with TOKEN_ALL_ACCESS (chromium
+sandbox/win/src/restricted_token.cc:30) and passes TOKEN_ALL_ACCESS to
+CreateRestricted (restricted_token.cc:167). Re-running listinherit.exe with the
+Chromium-faithful base-token access (TOKEN_ALL_ACCESS) changes the result.
+
+Also fixed: wine's CreateAppContainerToken is 3-arg
+(HANDLE, PSECURITY_CAPABILITIES, PHANDLE) [dlls/kernelbase/security.c:2030], not the
+stock 6-arg form; the harness now builds a SECURITY_CAPABILITIES with an S-1-15-2-...
+package SID and calls it correctly (the earlier appcontainer err=87 was this mismatch).
+
+Per-mode verdict (WEX_INHERIT=1, Chromium-faithful base token)
+--------------------------------------------------------------
+RECONCILED ce87bac0  (/tmp/wex-build):
+    plain             PRESERVED   child-exit=42  data="CHILDPONG"
+    il_low            PRESERVED   child-exit=42  data="CHILDPONG"
+    restricted        PRESERVED   child-exit=42  data="CHILDPONG"
+    restricted_il     PRESERVED   child-exit=42  data="CHILDPONG"
+    appcontainer      PRESERVED   child-exit=42  data="CHILDPONG"
+    appcontainer_job  PRESERVED   child-exit=42  data="CHILDPONG"
+
+CONTROL system wine-11.19 (same VM, prefix-sys):
+    plain             PRESERVED   child-exit=42  data="CHILDPONG"
+    il_low            PRESERVED   child-exit=42  data="CHILDPONG"
+
+All six sandboxed-child token modes LAUNCH and DELIVER the inherited handle on the
+reconciled build; the child uses it successfully. Matches both the system-wine control
+and real Windows behavior.
+
+VERDICT: REFUTED
+----------------
+The hypothesis "an AppContainer/restricted+IL child loses access to the inherited mojo
+handle at a token.c check that real Windows would allow" is REFUTED by direct in-guest
+testing on the exact ce87bac0 binary. Under Chromium's actual launch pattern, restricted,
+restricted+IL and AppContainer children all start and inherit the handle correctly on the
+reconciled build. The r6 "Terminating current process after 15 seconds with no connection"
+for the network/storage children is therefore NOT explained by the reconciled wine build
+breaking restricted/AC child handle inheritance; look elsewhere (see NEXT STEP).
+
+Side finding - a real wine access-mask behavior (NOT Chromium's path)
+---------------------------------------------------------------------
+A token whose HANDLE was opened without TOKEN_QUERY cannot be used to launch a process in
+wine. Reproduced in isolation with nohandle.exe (NO handle list, NO attribute list):
+base opened TOKEN_DUPLICATE|TOKEN_ASSIGN_PRIMARY => CreateProcessAsUserW FAILED err=5;
+base opened TOKEN_ALL_ACCESS => OK child-exit=0. Mechanism:
+  * server/token.c:2036  filter_token (CreateRestrictedToken) stamps the NEW token handle
+    with the SOURCE handle's access mask:
+        access = get_handle_access(current->process, req->handle);
+        reply->new_handle = alloc_handle_no_access_check(..., access, 0);
+    (real Windows does not constrain a freshly created token by how the source handle was
+    opened)
+  * server/process.c:1280 NtCreateUserProcess requires TOKEN_QUERY|TOKEN_ASSIGN_PRIMARY on
+    the launch token via get_token_obj.
+  * server/handle.c:473   (entry->access & access) != access => STATUS_ACCESS_DENIED;
+    process.c:1280-1284 then close(socket_fd); goto done; with NO log -> silent abort.
+WINEDEBUG -all,+process,+token,+handle trace of the failing nohandle/restr case shows the
+client (pid 0024) emitting a single NtCreateUserProcess for noop.exe with NO follow-up
+"pid/tid/handles" success line, whereas every other launch in the same trace has both lines
+- i.e. the server rejected and closed the socket silently.
+Corroboration: wine's OWN test asserts this access-denied outcome for a token lacking
+TOKEN_QUERY (dlls/kernelbase/tests/security.c:1052-1062, "should fail without TOKEN_QUERY"
+=> ERROR_ACCESS_DENIED).
+This is a genuine divergence from Windows but does NOT apply to Chromium (which uses
+TOKEN_ALL_ACCESS), so it is not the cause of r6's symptom. Reported for awareness; no wine
+source modified and nothing committed.
+
+NEXT STEP (for coordinator / antigravity)
+-----------------------------------------
+Since the reconciled build correctly delivers inherited handles to restricted/AC children,
+r6's no-connection failure must originate elsewhere. Suggested: capture a full Chromium
+server-side trace on r6 for ONE failing network/storage child and check (a) whether
+CreateProcessAsUserW actually succeeds (child pid present), (b) whether the mojo invitation
+handle is in the child's handle table, (c) where the 15s timer fires. Do NOT start Edge from
+this session per the work order.
+
+GUEST RAW LOGS (/home/debian/wex-ipc-step2/logs/, guest):
+rec_<mode>.out/.err + child_rec_<mode>.log   reconciled 6-mode (all PRESERVED)
+sys_plain / sys_il_low                        control (verdicts captured on stdout; the
+                                              file redirects hit ENOSPC - guest disk full)
+nh_restr_trace.out/.err                       nohandle/restr WINEDEBUG trace
+li_restr_trace.out/.err                       listinherit/restricted WINEDEBUG trace
+
+GUEST TEST SOURCES (host D:\DeepThought\Projects\OpenClaude\):
+_wex_ipc_listinherit.c  _wex_ipc_nohandle.c  _wex_ipc_noop.c
+_run scripts: _wex_ipc_guest_run_matrix.sh, _wex_ipc_guest_run_trace.sh
+================================================================================
