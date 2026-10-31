@@ -1,0 +1,184 @@
+{
+  "version": "156.0.4314.50",
+  "fixture": "original g4-edge-probe v1, 637-byte HTML/3750-byte scene.js",
+  "medium_integrity_required": true,
+  "root_exit_code": 0,
+  "fixture_passed": true,
+  "nonce_matched": true,
+  "webgl": {
+    "error": 0,
+    "lost": false,
+    "fboComplete": true,
+    "finalPixel": [
+      255,
+      0,
+      255,
+      255
+    ]
+  },
+  "webgl2": {
+    "error": 0,
+    "lost": false,
+    "fboComplete": true,
+    "finalPixel": [
+      0,
+      255,
+      255,
+      255
+    ]
+  },
+  "phase_graph": [
+    {
+      "name": "NavigationRequest::NavigationRequest",
+      "pid": 32704,
+      "tid": 27024,
+      "relative_ms": 0
+    },
+    {
+      "name": "CorsURLLoader::CorsURLLoader",
+      "pid": 29220,
+      "tid": 9376,
+      "relative_ms": 109.839
+    },
+    {
+      "name": "network::URLLoader::SendResponseToClient",
+      "pid": 29220,
+      "tid": 9376,
+      "relative_ms": 223.738
+    },
+    {
+      "name": "CorsURLLoader::CorsURLLoader",
+      "pid": 29220,
+      "tid": 9376,
+      "relative_ms": 236.327
+    },
+    {
+      "name": "network::URLLoader::SendResponseToClient",
+      "pid": 29220,
+      "tid": 9376,
+      "relative_ms": 243.732
+    },
+    {
+      "name": "MojoURLLoaderClient::OnReceiveResponse",
+      "pid": 17556,
+      "tid": 12180,
+      "relative_ms": 244.14
+    },
+    {
+      "name": "WebContentsImpl::DidFinishNavigation",
+      "pid": 32704,
+      "tid": 27024,
+      "relative_ms": 271.145,
+      "committed": true,
+      "net_error": 0
+    }
+  ],
+  "process_roles": [
+    {
+      "pid": 32704,
+      "name": "process_name",
+      "args": {
+        "name": "Browser"
+      }
+    },
+    {
+      "pid": 29220,
+      "name": "process_name",
+      "args": {
+        "name": "Service: network.mojom.NetworkService"
+      }
+    },
+    {
+      "pid": 17556,
+      "name": "process_name",
+      "args": {
+        "name": "Renderer"
+      }
+    },
+    {
+      "pid": 2000,
+      "name": "process_name",
+      "args": {
+        "name": "Extension Renderer"
+      }
+    },
+    {
+      "pid": 10544,
+      "name": "process_name",
+      "args": {
+        "name": "Extension Renderer"
+      }
+    },
+    {
+      "pid": 22244,
+      "name": "process_name",
+      "args": {
+        "name": "Extension Renderer"
+      }
+    },
+    {
+      "pid": 22000,
+      "name": "process_name",
+      "args": {
+        "name": "Extension Renderer"
+      }
+    },
+    {
+      "pid": 33280,
+      "name": "process_name",
+      "args": {
+        "name": "Extension Renderer"
+      }
+    },
+    {
+      "pid": 24536,
+      "name": "process_name",
+      "args": {
+        "name": "GPU Process"
+      }
+    },
+    {
+      "pid": 15776,
+      "name": "process_name",
+      "args": {
+        "name": "Service: tracing.mojom.TracingService"
+      }
+    },
+    {
+      "pid": 38744,
+      "name": "process_name",
+      "args": {
+        "name": "Renderer"
+      }
+    },
+    {
+      "pid": 22676,
+      "name": "process_name",
+      "args": {
+        "name": "Extension Renderer"
+      }
+    }
+  ],
+  "cleanup": {
+    "owned": 26,
+    "forced": [],
+    "nonzero": [
+      {
+        "pid": 27932,
+        "ppid": 32704,
+        "image": "identity_helper.exe",
+        "creation_filetime_100ns": 134379584918927740,
+        "first_seen_monotonic": 266920.5623477,
+        "wait_result": 0,
+        "exit_code": 3221226029
+      }
+    ],
+    "all_waits_signaled": true
+  },
+  "limitations": [
+    "No kernel ETW/API-call stream collected",
+    "Trace callbacks do not prove a complete Windows API inventory",
+    "Native Edge .50 result is not a Wine .42 validation",
+    "One identity_helper.exe exited nonzero; successful target page and root exit0 still observed"
+  ]
+}

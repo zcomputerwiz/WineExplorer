@@ -1,0 +1,6538 @@
+{
+  "edge42": [
+    {
+      "file": "msedge.exe",
+      "bytes": 5452616,
+      "sha256": "bb74db4c753133706f4ab0a483a87aa28a90ddd6eeb305fe001376ba73a40fc3",
+      "normal_imports": 271,
+      "delay_imports": 160,
+      "debug": [
+        {
+          "guid": "e933e18b-673a-be6e-4c4c-44205044422e",
+          "age": 1,
+          "pdb": "msedge.exe.pdb"
+        }
+      ]
+    },
+    {
+      "file": "msedge.dll",
+      "bytes": 355157320,
+      "sha256": "e30fdd5b7778300b363d9f4fa994a7970a5929a1eadf40c576f0cf3861b1a06b",
+      "normal_imports": 607,
+      "delay_imports": 981,
+      "debug": [
+        {
+          "guid": "8a3fea51-4cf2-d6de-4c4c-44205044422e",
+          "age": 1,
+          "pdb": "msedge.dll.pdb"
+        }
+      ]
+    },
+    {
+      "file": "msedge_elf.dll",
+      "bytes": 4054344,
+      "sha256": "5db8ccdc59df37c8b5687fb64df18e1374696b2f4d5c36b71d25c3f8f6a542a8",
+      "normal_imports": 239,
+      "delay_imports": 109,
+      "debug": [
+        {
+          "guid": "947e1ef6-df90-9520-4c4c-44205044422e",
+          "age": 1,
+          "pdb": "msedge_elf.dll.pdb"
+        }
+      ]
+    }
+  ],
+  "sameVersionEdgeWebview": {
+    "version": "156.0.4314.50",
+    "msedge_dll_identical": true,
+    "msedge_elf_dll_identical": true,
+    "launcher_import_sets_identical": true,
+    "identical_core_import_union": 1613
+  },
+  "edge42vs50ImportSetsIdentical": true,
+  "googleChromeComparison": {
+    "edge_union": 1613,
+    "chrome_union": 1347,
+    "raw_edge_additional_imports": 302,
+    "additional_windows_import_entries": [
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetProcessIdOfThread",
+        "iat_rva": "0x433708"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CreateWellKnownSid",
+        "iat_rva": "0x143bf490"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "EnumServicesStatusExW",
+        "iat_rva": "0x143bf500"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "StackWalk64",
+        "iat_rva": "0x461038"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymFunctionTableAccess64",
+        "iat_rva": "0x461050"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymGetModuleBase64",
+        "iat_rva": "0x461060"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymGetModuleInfoW64",
+        "iat_rva": "0x461070"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportAddFile",
+        "iat_rva": "0x143c0378"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportCloseHandle",
+        "iat_rva": "0x143c0380"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportCreate",
+        "iat_rva": "0x143c0388"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportSetParameter",
+        "iat_rva": "0x143c0390"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportSubmit",
+        "iat_rva": "0x143c0398"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "IsHungAppWindow",
+        "iat_rva": "0x143bfc30"
+      },
+      {
+        "kind": "delay",
+        "dll": "userenv.dll",
+        "name": "CreateAppContainerProfile",
+        "iat_rva": "0x143c0a20"
+      },
+      {
+        "kind": "delay",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoSizeW",
+        "iat_rva": "0x3b0dc0"
+      },
+      {
+        "kind": "delay",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoW",
+        "iat_rva": "0x3b0dc8"
+      },
+      {
+        "kind": "delay",
+        "dll": "version.dll",
+        "name": "VerQueryValueW",
+        "iat_rva": "0x3b0dd0"
+      },
+      {
+        "kind": "delay",
+        "dll": "winhttp.dll",
+        "name": "WinHttpQueryOption",
+        "iat_rva": "0x143c1018"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CloseThreadpoolWait",
+        "iat_rva": "0x13e702f8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CloseThreadpoolWork",
+        "iat_rva": "0x13e70300"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CompareFileTime",
+        "iat_rva": "0x13e70308"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateMemoryResourceNotification",
+        "iat_rva": "0x13e70380"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreatePipe",
+        "iat_rva": "0x13e703a0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateThreadpoolWait",
+        "iat_rva": "0x13e703d0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateThreadpoolWork",
+        "iat_rva": "0x13e703d8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "DecodePointer",
+        "iat_rva": "0x13e703f8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "FindPackagesByPackageFamily",
+        "iat_rva": "0x13e704d8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetComputerNameExA",
+        "iat_rva": "0x13e70590"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetCurrentPackageFullName",
+        "iat_rva": "0x3834d0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetDllDirectoryW",
+        "iat_rva": "0x13e70638"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetErrorMode",
+        "iat_rva": "0x13e70668"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetLogicalDriveStringsW",
+        "iat_rva": "0x13e70708"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPackageApplicationIds",
+        "iat_rva": "0x13e70798"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPackageFamilyName",
+        "iat_rva": "0x13e707a0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPhysicallyInstalledSystemMemory",
+        "iat_rva": "0x13e707b8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetSystemPreferredUILanguages",
+        "iat_rva": "0x13e70868"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetSystemTimes",
+        "iat_rva": "0x13e70888"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetTickCount64",
+        "iat_rva": "0x13e708e8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetVersionExA",
+        "iat_rva": "0x13e70938"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalAddAtomA",
+        "iat_rva": "0x13e70978"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalDeleteAtom",
+        "iat_rva": "0x13e70988"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalFindAtomA",
+        "iat_rva": "0x13e70990"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EmptyWorkingSet",
+        "iat_rva": "0x13e70aa8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EnumProcessModulesEx",
+        "iat_rva": "0x13e70ab8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EnumProcesses",
+        "iat_rva": "0x13e70ac0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetModuleBaseNameW",
+        "iat_rva": "0x13e70ac8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetProcessImageFileNameA",
+        "iat_rva": "0x13e70ae8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetProcessImageFileNameW",
+        "iat_rva": "0x13e70af0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "OpenEventW",
+        "iat_rva": "0x13e70bc0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "OpenPackageInfoByFullName",
+        "iat_rva": "0x13e70bc8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "QueryDepthSList",
+        "iat_rva": "0x13e70c40"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "QueryMemoryResourceNotification",
+        "iat_rva": "0x13e70c68"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "RaiseFailFastException",
+        "iat_rva": "0x13e70c98"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "RegisterApplicationRestart",
+        "iat_rva": "0x13e70cc0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "SetThreadpoolWait",
+        "iat_rva": "0x13e70e68"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "SubmitThreadpoolWork",
+        "iat_rva": "0x13e70ea0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "UnregisterApplicationRestart",
+        "iat_rva": "0x13e70f30"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "WaitForThreadpoolWaitCallbacks",
+        "iat_rva": "0x13e70fd0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "lstrcmpA",
+        "iat_rva": "0x13e71010"
+      },
+      {
+        "kind": "normal",
+        "dll": "winmm.dll",
+        "name": "PlaySoundW",
+        "iat_rva": "0x13e71040"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertDuplicateCertificateContext",
+        "iat_rva": "0x13e71320"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertSetCertificateContextProperty",
+        "iat_rva": "0x13e71378"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertVerifyCertificateChainPolicy",
+        "iat_rva": "0x13e71380"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CryptDecodeObject",
+        "iat_rva": "0x13e71398"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CryptFindOIDInfo",
+        "iat_rva": "0x13e713a0"
+      },
+      {
+        "kind": "normal",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoExW",
+        "iat_rva": "0x13e713f0"
+      },
+      {
+        "kind": "normal",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoSizeExW",
+        "iat_rva": "0x13e713f8"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "NtReadFile",
+        "iat_rva": "0x13e71460"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlAnsiStringToUnicodeString",
+        "iat_rva": "0x13e71478"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlInitAnsiString",
+        "iat_rva": "0x13e71498"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlIpv4StringToAddressExA",
+        "iat_rva": "0x13e714a8"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlIpv6StringToAddressExA",
+        "iat_rva": "0x13e714b0"
+      },
+      {
+        "kind": "normal",
+        "dll": "api-ms-win-core-winrt-error-l1-1-1.dll",
+        "name": "RoOriginateLanguageException",
+        "iat_rva": "0x383aa8"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CredFree",
+        "iat_rva": "0x143bf498"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CredReadW",
+        "iat_rva": "0x143bf4a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "EnumerateTraceGuids",
+        "iat_rva": "0x143bf508"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "ImpersonateLoggedOnUser",
+        "iat_rva": "0x143bf5d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "LookupAccountSidW",
+        "iat_rva": "0x143bf610"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfCreateInstance",
+        "iat_rva": "0x143bf668"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfDeleteInstance",
+        "iat_rva": "0x143bf670"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfSetCounterRefValue",
+        "iat_rva": "0x143bf678"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfSetCounterSetInfo",
+        "iat_rva": "0x143bf680"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfStartProviderEx",
+        "iat_rva": "0x143bf688"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfStopProvider",
+        "iat_rva": "0x143bf690"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "QueryServiceStatusEx",
+        "iat_rva": "0x143bf6a8"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "RegOpenCurrentUser",
+        "iat_rva": "0x143bf6f8"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "RegSetKeyValueW",
+        "iat_rva": "0x143bf720"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "SystemFunction036",
+        "iat_rva": "0x143bf788"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "AttachThreadInput",
+        "iat_rva": "0x143bf7c0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "CallWindowProcW",
+        "iat_rva": "0x143bf7e0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChangeWindowMessageFilterEx",
+        "iat_rva": "0x143bf7e8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChildWindowFromPoint",
+        "iat_rva": "0x143bf800"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChildWindowFromPointEx",
+        "iat_rva": "0x143bf808"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "CopyIcon",
+        "iat_rva": "0x143bf840"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "DdeAbandonTransaction",
+        "iat_rva": "0x143bf870"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "DeregisterShellHookWindow",
+        "iat_rva": "0x143bf8c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "FindWindowExA",
+        "iat_rva": "0x143bf988"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetGUIThreadInfo",
+        "iat_rva": "0x143bfa58"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetLastActivePopup",
+        "iat_rva": "0x143bfa98"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetPointerInfo",
+        "iat_rva": "0x143bfb10"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InSendMessage",
+        "iat_rva": "0x143bfbe8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InSendMessageEx",
+        "iat_rva": "0x143bfbf0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InsertMenuW",
+        "iat_rva": "0x143bfc08"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "OpenIcon",
+        "iat_rva": "0x143bfd10"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "PhysicalToLogicalPointForPerMonitorDPI",
+        "iat_rva": "0x143bfd28"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "PrivateExtractIconsW",
+        "iat_rva": "0x143bfd50"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "RegisterShellHookWindow",
+        "iat_rva": "0x143bfdb0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "RemoveMenu",
+        "iat_rva": "0x143bfdd8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetActiveWindow",
+        "iat_rva": "0x143bfe08"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetClassLongPtrW",
+        "iat_rva": "0x143bfe18"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetLayeredWindowAttributes",
+        "iat_rva": "0x143bfe50"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "TrackPopupMenuEx",
+        "iat_rva": "0x143bff20"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "keybd_event",
+        "iat_rva": "0x143bff80"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoFreeUnusedLibrariesEx",
+        "iat_rva": "0x143bffb8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoMarshalInterface",
+        "iat_rva": "0x143bfff0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoWaitForMultipleHandles",
+        "iat_rva": "0x3b0db0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CreateBindCtx",
+        "iat_rva": "0x143c0040"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "IIDFromString",
+        "iat_rva": "0x143c0070"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "OleGetClipboard",
+        "iat_rva": "0x143c0080"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "StgOpenStorageOnILockBytes",
+        "iat_rva": "0x143c00d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "#644",
+        "iat_rva": "0x143c0120"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "#645",
+        "iat_rva": "0x143c0128"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHCreateDirectoryExW",
+        "iat_rva": "0x143c0150"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetFolderPathA",
+        "iat_rva": "0x143c0170"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetIDListFromObject",
+        "iat_rva": "0x143c0180"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetKnownFolderItem",
+        "iat_rva": "0x143c0188"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetNameFromIDList",
+        "iat_rva": "0x143c01a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "AssocCreate",
+        "iat_rva": "0x143c0218"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "AssocQueryKeyW",
+        "iat_rva": "0x143c0220"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#168",
+        "iat_rva": "0x143c0230"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#14",
+        "iat_rva": "0x143c0238"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#172",
+        "iat_rva": "0x143c0240"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathFileExistsW",
+        "iat_rva": "0x143c0250"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathRemoveBackslashW",
+        "iat_rva": "0x143c0270"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathRemoveFileSpecW",
+        "iat_rva": "0x143c0280"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "SHCreateStreamOnFileEx",
+        "iat_rva": "0x143c0298"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "StrTrimW",
+        "iat_rva": "0x143c02a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptCreateHash",
+        "iat_rva": "0x143c0310"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptDestroyHash",
+        "iat_rva": "0x143c0318"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptDestroyKey",
+        "iat_rva": "0x143c0320"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptFinishHash",
+        "iat_rva": "0x143c0328"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptGetProperty",
+        "iat_rva": "0x143c0338"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptHash",
+        "iat_rva": "0x143c0340"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptHashData",
+        "iat_rva": "0x143c0348"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptImportKeyPair",
+        "iat_rva": "0x143c0350"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptVerifySignature",
+        "iat_rva": "0x143c0360"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportAddDump",
+        "iat_rva": "0x143c0370"
+      },
+      {
+        "kind": "delay",
+        "dll": "iphlpapi.dll",
+        "name": "GetBestInterfaceEx",
+        "iat_rva": "0x143c03c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "GetActiveObject",
+        "iat_rva": "0x143c0408"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "GetErrorInfo",
+        "iat_rva": "0x3b0f48"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "SetErrorInfo",
+        "iat_rva": "0x3b0f50"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "VariantTimeToSystemTime",
+        "iat_rva": "0x143c04c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "propsys.dll",
+        "name": "InitPropVariantFromStringVector",
+        "iat_rva": "0x143c0610"
+      },
+      {
+        "kind": "delay",
+        "dll": "propsys.dll",
+        "name": "PSGetPropertyDescriptionListFromString",
+        "iat_rva": "0x143c0620"
+      },
+      {
+        "kind": "delay",
+        "dll": "gdi32.dll",
+        "name": "GetBitmapBits",
+        "iat_rva": "0x143c0750"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtCreateBookmark",
+        "iat_rva": "0x143c0928"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtFormatMessage",
+        "iat_rva": "0x143c0938"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetChannelConfigProperty",
+        "iat_rva": "0x143c0940"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetEventMetadataProperty",
+        "iat_rva": "0x143c0948"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetLogInfo",
+        "iat_rva": "0x143c0950"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetObjectArrayProperty",
+        "iat_rva": "0x143c0958"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetObjectArraySize",
+        "iat_rva": "0x143c0960"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetPublisherMetadataProperty",
+        "iat_rva": "0x143c0968"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextChannelPath",
+        "iat_rva": "0x143c0978"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextEventMetadata",
+        "iat_rva": "0x143c0980"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextPublisherId",
+        "iat_rva": "0x143c0988"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenChannelConfig",
+        "iat_rva": "0x143c0990"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenChannelEnum",
+        "iat_rva": "0x143c0998"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenEventMetadataEnum",
+        "iat_rva": "0x143c09a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenLog",
+        "iat_rva": "0x143c09a8"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenPublisherEnum",
+        "iat_rva": "0x143c09b0"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenPublisherMetadata",
+        "iat_rva": "0x143c09b8"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtSubscribe",
+        "iat_rva": "0x143c09d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtUpdateBookmark",
+        "iat_rva": "0x143c09d8"
+      },
+      {
+        "kind": "delay",
+        "dll": "mfsensorgroup.dll",
+        "name": "MFCreateSensorGroup",
+        "iat_rva": "0x143c0a10"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "GetUserNameExA",
+        "iat_rva": "0x143c0ad0"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiEncodeAuthIdentityAsStrings",
+        "iat_rva": "0x143c0b18"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiFreeAuthIdentity",
+        "iat_rva": "0x143c0b20"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiLocalFree",
+        "iat_rva": "0x143c0b28"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#413",
+        "iat_rva": "0x143c0b38"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#411",
+        "iat_rva": "0x143c0b40"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Add",
+        "iat_rva": "0x143c0b48"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Create",
+        "iat_rva": "0x143c0b50"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Destroy",
+        "iat_rva": "0x143c0b58"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_ReplaceIcon",
+        "iat_rva": "0x143c0b60"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#412",
+        "iat_rva": "0x143c0b70"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#410",
+        "iat_rva": "0x143c0b78"
+      },
+      {
+        "kind": "delay",
+        "dll": "wtsapi32.dll",
+        "name": "WTSEnumerateSessionsW",
+        "iat_rva": "0x143c0c00"
+      },
+      {
+        "kind": "delay",
+        "dll": "wtsapi32.dll",
+        "name": "WTSQueryUserToken",
+        "iat_rva": "0x143c0c18"
+      },
+      {
+        "kind": "delay",
+        "dll": "urlmon.dll",
+        "name": "CreateUri",
+        "iat_rva": "0x143c0c40"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsCompareStringOrdinal",
+        "iat_rva": "0x3b0de0"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsGetStringLen",
+        "iat_rva": "0x143c0d80"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsIsStringEmpty",
+        "iat_rva": "0x143c0d90"
+      },
+      {
+        "kind": "delay",
+        "dll": "credui.dll",
+        "name": "SspiPromptForCredentialsW",
+        "iat_rva": "0x143c0da8"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-0.dll",
+        "name": "PowerSettingRegisterNotification",
+        "iat_rva": "0x143c0dd0"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-0.dll",
+        "name": "PowerSettingUnregisterNotification",
+        "iat_rva": "0x143c0dd8"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-1.dll",
+        "name": "PowerRegisterForEffectivePowerModeNotifications",
+        "iat_rva": "0x143c0de8"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-1.dll",
+        "name": "PowerUnregisterFromEffectivePowerModeNotifications",
+        "iat_rva": "0x143c0df0"
+      },
+      {
+        "kind": "delay",
+        "dll": "dwmapi.dll",
+        "name": "DwmInvalidateIconicBitmaps",
+        "iat_rva": "0x143c0e20"
+      },
+      {
+        "kind": "delay",
+        "dll": "dwmapi.dll",
+        "name": "DwmSetIconicThumbnail",
+        "iat_rva": "0x143c0e28"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-error-l1-1-0.dll",
+        "name": "RoOriginateError",
+        "iat_rva": "0x143c0e68"
+      },
+      {
+        "kind": "delay",
+        "dll": "tbs.dll",
+        "name": "Tbsi_Get_TCG_Log_Ex",
+        "iat_rva": "0x143c0f28"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "DeleteUrlCacheContainerW",
+        "iat_rva": "0x143c0f40"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindCloseUrlCache",
+        "iat_rva": "0x143c0f48"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindFirstUrlCacheEntryA",
+        "iat_rva": "0x143c0f50"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindNextUrlCacheEntryA",
+        "iat_rva": "0x143c0f58"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetCombineUrlW",
+        "iat_rva": "0x143c0f68"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetFreeCookies",
+        "iat_rva": "0x143c0f70"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetGetCookieEx2",
+        "iat_rva": "0x143c0f78"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetSetCookieExW",
+        "iat_rva": "0x143c0f80"
+      },
+      {
+        "kind": "delay",
+        "dll": "dcomp.dll",
+        "name": "DCompositionCreateDevice3",
+        "iat_rva": "0x143c0f98"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-psm-appnotify-l1-1-0.dll",
+        "name": "RegisterAppStateChangeNotification",
+        "iat_rva": "0x143c1058"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-psm-appnotify-l1-1-0.dll",
+        "name": "UnregisterAppStateChangeNotification",
+        "iat_rva": "0x143c1060"
+      },
+      {
+        "kind": "delay",
+        "dll": "d2d1.dll",
+        "name": "#1",
+        "iat_rva": "0x143c1098"
+      },
+      {
+        "kind": "delay",
+        "dll": "dnsapi.dll",
+        "name": "DnsFree",
+        "iat_rva": "0x143c1390"
+      },
+      {
+        "kind": "delay",
+        "dll": "dnsapi.dll",
+        "name": "DnsQuery_A",
+        "iat_rva": "0x143c1398"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetCloseDatabase",
+        "iat_rva": "0x143c1440"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetDetachDatabase2W",
+        "iat_rva": "0x143c1458"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetEndSession",
+        "iat_rva": "0x143c1460"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetGetSystemParameterW",
+        "iat_rva": "0x143c1468"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "FlushInstructionCache",
+        "iat_rva": "0x383460"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "NtDeleteValueKey",
+        "iat_rva": "0x383a58"
+      }
+    ],
+    "extra_bundled_entries": [
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "EdgeElfBeaconDetect",
+        "iat_rva": "0x4333b8"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "EdgeGetElfCommandLine",
+        "iat_rva": "0x4333c0"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "GetInstallDetailsPayload",
+        "iat_rva": "0x13e71538"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "IsBrowserProcess",
+        "iat_rva": "0x13e71560"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "IsExtensionPointDisableSet",
+        "iat_rva": "0x13e71568"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SignalChromeElf",
+        "iat_rva": "0x4333e0"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SignalInitializeCrashReporting",
+        "iat_rva": "0x13e715b8"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "ClearMetricsClientId_ExportThunk",
+        "iat_rva": "0x13e714d8"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "ClearReportsBetween_ExportThunk",
+        "iat_rva": "0x13e714e0"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "CrashForException_ExportThunk",
+        "iat_rva": "0x13e714e8"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "DumpHungProcessWithPtype_ExportThunk",
+        "iat_rva": "0x13e714f0"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "DumpProcessWithoutCrash",
+        "iat_rva": "0x13e714f8"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "EdgeGetElfLoadThreadId",
+        "iat_rva": "0x13e71500"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "EdgeGetInjectionMitigationStatus",
+        "iat_rva": "0x13e71508"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "EdgeGetMitigationHistogramData",
+        "iat_rva": "0x13e71510"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "EdgeModuleIsEnumerated",
+        "iat_rva": "0x13e71518"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "EdgeModuleIsLoaded",
+        "iat_rva": "0x13e71520"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "GetCrashReports_ExportThunk",
+        "iat_rva": "0x13e71528"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "GetCrashpadDatabasePath_ExportThunk",
+        "iat_rva": "0x13e71530"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "GetProductInfo_ExportThunk",
+        "iat_rva": "0x13e71540"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "GetUploadConsent_ExportThunk",
+        "iat_rva": "0x13e71548"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "GetUserDataDirectoryThunk",
+        "iat_rva": "0x13e71550"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "InjectDumpForHungInput_ExportThunk",
+        "iat_rva": "0x13e71558"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "IsTemporaryUserDataDirectoryCreatedForHeadless",
+        "iat_rva": "0x13e71570"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "IsThirdPartyInitialized",
+        "iat_rva": "0x13e71578"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "RequestSingleCrashUpload_ExportThunk",
+        "iat_rva": "0x13e71580"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SetMetricsIds_ExportThunk",
+        "iat_rva": "0x13e71588"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SetRuntimeVariationsSeedEtag_ExportThunk",
+        "iat_rva": "0x13e71590"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SetTelemetryLevel_ExportThunk",
+        "iat_rva": "0x13e71598"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SetUXConfigCorrelationId_ExportThunk",
+        "iat_rva": "0x13e715a0"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SetUploadConsent_ExportThunk",
+        "iat_rva": "0x13e715a8"
+      },
+      {
+        "kind": "normal",
+        "dll": "msedge_elf.dll",
+        "name": "SetVariationsSeedEtag_ExportThunk",
+        "iat_rva": "0x13e715b0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_buffer_create",
+        "iat_rva": "0x143c10a8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_buffer_get_opaque",
+        "iat_rva": "0x143c10b0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_dict_free",
+        "iat_rva": "0x143c10b8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_dict_get",
+        "iat_rva": "0x143c10c0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_dict_set",
+        "iat_rva": "0x143c10c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_dynamic_hdr_smpte2094_app5_to_t35",
+        "iat_rva": "0x143c10d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_force_cpu_flags",
+        "iat_rva": "0x143c10d8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_frame_alloc",
+        "iat_rva": "0x143c10e0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_frame_free",
+        "iat_rva": "0x143c10e8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_frame_unref",
+        "iat_rva": "0x143c10f0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_free",
+        "iat_rva": "0x143c10f8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_get_bytes_per_sample",
+        "iat_rva": "0x143c1100"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_get_cpu_flags",
+        "iat_rva": "0x143c1108"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_image_check_size",
+        "iat_rva": "0x143c1110"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_log_set_level",
+        "iat_rva": "0x143c1118"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_malloc",
+        "iat_rva": "0x143c1120"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_max_alloc",
+        "iat_rva": "0x143c1128"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_new_packet",
+        "iat_rva": "0x143c1130"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_packet_alloc",
+        "iat_rva": "0x143c1138"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_packet_copy_props",
+        "iat_rva": "0x143c1140"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_packet_free",
+        "iat_rva": "0x143c1148"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_packet_get_side_data",
+        "iat_rva": "0x143c1150"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_packet_unref",
+        "iat_rva": "0x143c1158"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_read_frame",
+        "iat_rva": "0x143c1160"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_rescale_q",
+        "iat_rva": "0x143c1168"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_samples_get_buffer_size",
+        "iat_rva": "0x143c1170"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_seek_frame",
+        "iat_rva": "0x143c1178"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_strdup",
+        "iat_rva": "0x143c1180"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_stream_get_first_dts",
+        "iat_rva": "0x143c1188"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "av_strerror",
+        "iat_rva": "0x143c1190"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_align_dimensions",
+        "iat_rva": "0x143c1198"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_align_dimensions2",
+        "iat_rva": "0x143c11a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_alloc_context3",
+        "iat_rva": "0x143c11a8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_descriptor_get",
+        "iat_rva": "0x143c11b0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_find_decoder",
+        "iat_rva": "0x143c11b8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_flush_buffers",
+        "iat_rva": "0x143c11c0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_free_context",
+        "iat_rva": "0x143c11c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_get_name",
+        "iat_rva": "0x143c11d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_open2",
+        "iat_rva": "0x143c11d8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_parameters_to_context",
+        "iat_rva": "0x143c11e0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_receive_frame",
+        "iat_rva": "0x143c11e8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avcodec_send_packet",
+        "iat_rva": "0x143c11f0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avformat_alloc_context",
+        "iat_rva": "0x143c11f8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avformat_close_input",
+        "iat_rva": "0x143c1200"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avformat_find_stream_info",
+        "iat_rva": "0x143c1208"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avformat_free_context",
+        "iat_rva": "0x143c1210"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avformat_open_input",
+        "iat_rva": "0x143c1218"
+      },
+      {
+        "kind": "delay",
+        "dll": "ffmpeg.dll",
+        "name": "avio_alloc_context",
+        "iat_rva": "0x143c1220"
+      }
+    ],
+    "already_present_under_other_binding": [
+      {
+        "kind": "delay",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoSizeW",
+        "iat_rva": "0x3b0dc0"
+      },
+      {
+        "kind": "delay",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoW",
+        "iat_rva": "0x3b0dc8"
+      },
+      {
+        "kind": "delay",
+        "dll": "version.dll",
+        "name": "VerQueryValueW",
+        "iat_rva": "0x3b0dd0"
+      }
+    ],
+    "remaining_static_names": [
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetProcessIdOfThread",
+        "iat_rva": "0x433708"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CreateWellKnownSid",
+        "iat_rva": "0x143bf490"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "EnumServicesStatusExW",
+        "iat_rva": "0x143bf500"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "StackWalk64",
+        "iat_rva": "0x461038"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymFunctionTableAccess64",
+        "iat_rva": "0x461050"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymGetModuleBase64",
+        "iat_rva": "0x461060"
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymGetModuleInfoW64",
+        "iat_rva": "0x461070"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportAddFile",
+        "iat_rva": "0x143c0378"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportCloseHandle",
+        "iat_rva": "0x143c0380"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportCreate",
+        "iat_rva": "0x143c0388"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportSetParameter",
+        "iat_rva": "0x143c0390"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportSubmit",
+        "iat_rva": "0x143c0398"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "IsHungAppWindow",
+        "iat_rva": "0x143bfc30"
+      },
+      {
+        "kind": "delay",
+        "dll": "userenv.dll",
+        "name": "CreateAppContainerProfile",
+        "iat_rva": "0x143c0a20"
+      },
+      {
+        "kind": "delay",
+        "dll": "winhttp.dll",
+        "name": "WinHttpQueryOption",
+        "iat_rva": "0x143c1018"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CloseThreadpoolWait",
+        "iat_rva": "0x13e702f8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CloseThreadpoolWork",
+        "iat_rva": "0x13e70300"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CompareFileTime",
+        "iat_rva": "0x13e70308"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateMemoryResourceNotification",
+        "iat_rva": "0x13e70380"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreatePipe",
+        "iat_rva": "0x13e703a0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateThreadpoolWait",
+        "iat_rva": "0x13e703d0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateThreadpoolWork",
+        "iat_rva": "0x13e703d8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "DecodePointer",
+        "iat_rva": "0x13e703f8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "FindPackagesByPackageFamily",
+        "iat_rva": "0x13e704d8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetComputerNameExA",
+        "iat_rva": "0x13e70590"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetCurrentPackageFullName",
+        "iat_rva": "0x3834d0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetDllDirectoryW",
+        "iat_rva": "0x13e70638"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetErrorMode",
+        "iat_rva": "0x13e70668"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetLogicalDriveStringsW",
+        "iat_rva": "0x13e70708"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPackageApplicationIds",
+        "iat_rva": "0x13e70798"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPackageFamilyName",
+        "iat_rva": "0x13e707a0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPhysicallyInstalledSystemMemory",
+        "iat_rva": "0x13e707b8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetSystemPreferredUILanguages",
+        "iat_rva": "0x13e70868"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetSystemTimes",
+        "iat_rva": "0x13e70888"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetTickCount64",
+        "iat_rva": "0x13e708e8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetVersionExA",
+        "iat_rva": "0x13e70938"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalAddAtomA",
+        "iat_rva": "0x13e70978"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalDeleteAtom",
+        "iat_rva": "0x13e70988"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalFindAtomA",
+        "iat_rva": "0x13e70990"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EmptyWorkingSet",
+        "iat_rva": "0x13e70aa8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EnumProcessModulesEx",
+        "iat_rva": "0x13e70ab8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EnumProcesses",
+        "iat_rva": "0x13e70ac0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetModuleBaseNameW",
+        "iat_rva": "0x13e70ac8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetProcessImageFileNameA",
+        "iat_rva": "0x13e70ae8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetProcessImageFileNameW",
+        "iat_rva": "0x13e70af0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "OpenEventW",
+        "iat_rva": "0x13e70bc0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "OpenPackageInfoByFullName",
+        "iat_rva": "0x13e70bc8"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "QueryDepthSList",
+        "iat_rva": "0x13e70c40"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "QueryMemoryResourceNotification",
+        "iat_rva": "0x13e70c68"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "RaiseFailFastException",
+        "iat_rva": "0x13e70c98"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "RegisterApplicationRestart",
+        "iat_rva": "0x13e70cc0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "SetThreadpoolWait",
+        "iat_rva": "0x13e70e68"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "SubmitThreadpoolWork",
+        "iat_rva": "0x13e70ea0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "UnregisterApplicationRestart",
+        "iat_rva": "0x13e70f30"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "WaitForThreadpoolWaitCallbacks",
+        "iat_rva": "0x13e70fd0"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "lstrcmpA",
+        "iat_rva": "0x13e71010"
+      },
+      {
+        "kind": "normal",
+        "dll": "winmm.dll",
+        "name": "PlaySoundW",
+        "iat_rva": "0x13e71040"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertDuplicateCertificateContext",
+        "iat_rva": "0x13e71320"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertSetCertificateContextProperty",
+        "iat_rva": "0x13e71378"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertVerifyCertificateChainPolicy",
+        "iat_rva": "0x13e71380"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CryptDecodeObject",
+        "iat_rva": "0x13e71398"
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CryptFindOIDInfo",
+        "iat_rva": "0x13e713a0"
+      },
+      {
+        "kind": "normal",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoExW",
+        "iat_rva": "0x13e713f0"
+      },
+      {
+        "kind": "normal",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoSizeExW",
+        "iat_rva": "0x13e713f8"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "NtReadFile",
+        "iat_rva": "0x13e71460"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlAnsiStringToUnicodeString",
+        "iat_rva": "0x13e71478"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlInitAnsiString",
+        "iat_rva": "0x13e71498"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlIpv4StringToAddressExA",
+        "iat_rva": "0x13e714a8"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlIpv6StringToAddressExA",
+        "iat_rva": "0x13e714b0"
+      },
+      {
+        "kind": "normal",
+        "dll": "api-ms-win-core-winrt-error-l1-1-1.dll",
+        "name": "RoOriginateLanguageException",
+        "iat_rva": "0x383aa8"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CredFree",
+        "iat_rva": "0x143bf498"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CredReadW",
+        "iat_rva": "0x143bf4a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "EnumerateTraceGuids",
+        "iat_rva": "0x143bf508"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "ImpersonateLoggedOnUser",
+        "iat_rva": "0x143bf5d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "LookupAccountSidW",
+        "iat_rva": "0x143bf610"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfCreateInstance",
+        "iat_rva": "0x143bf668"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfDeleteInstance",
+        "iat_rva": "0x143bf670"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfSetCounterRefValue",
+        "iat_rva": "0x143bf678"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfSetCounterSetInfo",
+        "iat_rva": "0x143bf680"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfStartProviderEx",
+        "iat_rva": "0x143bf688"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfStopProvider",
+        "iat_rva": "0x143bf690"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "QueryServiceStatusEx",
+        "iat_rva": "0x143bf6a8"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "RegOpenCurrentUser",
+        "iat_rva": "0x143bf6f8"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "RegSetKeyValueW",
+        "iat_rva": "0x143bf720"
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "SystemFunction036",
+        "iat_rva": "0x143bf788"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "AttachThreadInput",
+        "iat_rva": "0x143bf7c0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "CallWindowProcW",
+        "iat_rva": "0x143bf7e0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChangeWindowMessageFilterEx",
+        "iat_rva": "0x143bf7e8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChildWindowFromPoint",
+        "iat_rva": "0x143bf800"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChildWindowFromPointEx",
+        "iat_rva": "0x143bf808"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "CopyIcon",
+        "iat_rva": "0x143bf840"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "DdeAbandonTransaction",
+        "iat_rva": "0x143bf870"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "DeregisterShellHookWindow",
+        "iat_rva": "0x143bf8c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "FindWindowExA",
+        "iat_rva": "0x143bf988"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetGUIThreadInfo",
+        "iat_rva": "0x143bfa58"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetLastActivePopup",
+        "iat_rva": "0x143bfa98"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetPointerInfo",
+        "iat_rva": "0x143bfb10"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InSendMessage",
+        "iat_rva": "0x143bfbe8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InSendMessageEx",
+        "iat_rva": "0x143bfbf0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InsertMenuW",
+        "iat_rva": "0x143bfc08"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "OpenIcon",
+        "iat_rva": "0x143bfd10"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "PhysicalToLogicalPointForPerMonitorDPI",
+        "iat_rva": "0x143bfd28"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "PrivateExtractIconsW",
+        "iat_rva": "0x143bfd50"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "RegisterShellHookWindow",
+        "iat_rva": "0x143bfdb0"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "RemoveMenu",
+        "iat_rva": "0x143bfdd8"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetActiveWindow",
+        "iat_rva": "0x143bfe08"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetClassLongPtrW",
+        "iat_rva": "0x143bfe18"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetLayeredWindowAttributes",
+        "iat_rva": "0x143bfe50"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "TrackPopupMenuEx",
+        "iat_rva": "0x143bff20"
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "keybd_event",
+        "iat_rva": "0x143bff80"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoFreeUnusedLibrariesEx",
+        "iat_rva": "0x143bffb8"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoMarshalInterface",
+        "iat_rva": "0x143bfff0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoWaitForMultipleHandles",
+        "iat_rva": "0x3b0db0"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CreateBindCtx",
+        "iat_rva": "0x143c0040"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "IIDFromString",
+        "iat_rva": "0x143c0070"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "OleGetClipboard",
+        "iat_rva": "0x143c0080"
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "StgOpenStorageOnILockBytes",
+        "iat_rva": "0x143c00d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "#644",
+        "iat_rva": "0x143c0120"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "#645",
+        "iat_rva": "0x143c0128"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHCreateDirectoryExW",
+        "iat_rva": "0x143c0150"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetFolderPathA",
+        "iat_rva": "0x143c0170"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetIDListFromObject",
+        "iat_rva": "0x143c0180"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetKnownFolderItem",
+        "iat_rva": "0x143c0188"
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetNameFromIDList",
+        "iat_rva": "0x143c01a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "AssocCreate",
+        "iat_rva": "0x143c0218"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "AssocQueryKeyW",
+        "iat_rva": "0x143c0220"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#168",
+        "iat_rva": "0x143c0230"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#14",
+        "iat_rva": "0x143c0238"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#172",
+        "iat_rva": "0x143c0240"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathFileExistsW",
+        "iat_rva": "0x143c0250"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathRemoveBackslashW",
+        "iat_rva": "0x143c0270"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathRemoveFileSpecW",
+        "iat_rva": "0x143c0280"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "SHCreateStreamOnFileEx",
+        "iat_rva": "0x143c0298"
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "StrTrimW",
+        "iat_rva": "0x143c02a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptCreateHash",
+        "iat_rva": "0x143c0310"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptDestroyHash",
+        "iat_rva": "0x143c0318"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptDestroyKey",
+        "iat_rva": "0x143c0320"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptFinishHash",
+        "iat_rva": "0x143c0328"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptGetProperty",
+        "iat_rva": "0x143c0338"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptHash",
+        "iat_rva": "0x143c0340"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptHashData",
+        "iat_rva": "0x143c0348"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptImportKeyPair",
+        "iat_rva": "0x143c0350"
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptVerifySignature",
+        "iat_rva": "0x143c0360"
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportAddDump",
+        "iat_rva": "0x143c0370"
+      },
+      {
+        "kind": "delay",
+        "dll": "iphlpapi.dll",
+        "name": "GetBestInterfaceEx",
+        "iat_rva": "0x143c03c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "GetActiveObject",
+        "iat_rva": "0x143c0408"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "GetErrorInfo",
+        "iat_rva": "0x3b0f48"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "SetErrorInfo",
+        "iat_rva": "0x3b0f50"
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "VariantTimeToSystemTime",
+        "iat_rva": "0x143c04c8"
+      },
+      {
+        "kind": "delay",
+        "dll": "propsys.dll",
+        "name": "InitPropVariantFromStringVector",
+        "iat_rva": "0x143c0610"
+      },
+      {
+        "kind": "delay",
+        "dll": "propsys.dll",
+        "name": "PSGetPropertyDescriptionListFromString",
+        "iat_rva": "0x143c0620"
+      },
+      {
+        "kind": "delay",
+        "dll": "gdi32.dll",
+        "name": "GetBitmapBits",
+        "iat_rva": "0x143c0750"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtCreateBookmark",
+        "iat_rva": "0x143c0928"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtFormatMessage",
+        "iat_rva": "0x143c0938"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetChannelConfigProperty",
+        "iat_rva": "0x143c0940"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetEventMetadataProperty",
+        "iat_rva": "0x143c0948"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetLogInfo",
+        "iat_rva": "0x143c0950"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetObjectArrayProperty",
+        "iat_rva": "0x143c0958"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetObjectArraySize",
+        "iat_rva": "0x143c0960"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetPublisherMetadataProperty",
+        "iat_rva": "0x143c0968"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextChannelPath",
+        "iat_rva": "0x143c0978"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextEventMetadata",
+        "iat_rva": "0x143c0980"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextPublisherId",
+        "iat_rva": "0x143c0988"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenChannelConfig",
+        "iat_rva": "0x143c0990"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenChannelEnum",
+        "iat_rva": "0x143c0998"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenEventMetadataEnum",
+        "iat_rva": "0x143c09a0"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenLog",
+        "iat_rva": "0x143c09a8"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenPublisherEnum",
+        "iat_rva": "0x143c09b0"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenPublisherMetadata",
+        "iat_rva": "0x143c09b8"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtSubscribe",
+        "iat_rva": "0x143c09d0"
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtUpdateBookmark",
+        "iat_rva": "0x143c09d8"
+      },
+      {
+        "kind": "delay",
+        "dll": "mfsensorgroup.dll",
+        "name": "MFCreateSensorGroup",
+        "iat_rva": "0x143c0a10"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "GetUserNameExA",
+        "iat_rva": "0x143c0ad0"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiEncodeAuthIdentityAsStrings",
+        "iat_rva": "0x143c0b18"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiFreeAuthIdentity",
+        "iat_rva": "0x143c0b20"
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiLocalFree",
+        "iat_rva": "0x143c0b28"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#413",
+        "iat_rva": "0x143c0b38"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#411",
+        "iat_rva": "0x143c0b40"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Add",
+        "iat_rva": "0x143c0b48"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Create",
+        "iat_rva": "0x143c0b50"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Destroy",
+        "iat_rva": "0x143c0b58"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_ReplaceIcon",
+        "iat_rva": "0x143c0b60"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#412",
+        "iat_rva": "0x143c0b70"
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#410",
+        "iat_rva": "0x143c0b78"
+      },
+      {
+        "kind": "delay",
+        "dll": "wtsapi32.dll",
+        "name": "WTSEnumerateSessionsW",
+        "iat_rva": "0x143c0c00"
+      },
+      {
+        "kind": "delay",
+        "dll": "wtsapi32.dll",
+        "name": "WTSQueryUserToken",
+        "iat_rva": "0x143c0c18"
+      },
+      {
+        "kind": "delay",
+        "dll": "urlmon.dll",
+        "name": "CreateUri",
+        "iat_rva": "0x143c0c40"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsCompareStringOrdinal",
+        "iat_rva": "0x3b0de0"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsGetStringLen",
+        "iat_rva": "0x143c0d80"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsIsStringEmpty",
+        "iat_rva": "0x143c0d90"
+      },
+      {
+        "kind": "delay",
+        "dll": "credui.dll",
+        "name": "SspiPromptForCredentialsW",
+        "iat_rva": "0x143c0da8"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-0.dll",
+        "name": "PowerSettingRegisterNotification",
+        "iat_rva": "0x143c0dd0"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-0.dll",
+        "name": "PowerSettingUnregisterNotification",
+        "iat_rva": "0x143c0dd8"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-1.dll",
+        "name": "PowerRegisterForEffectivePowerModeNotifications",
+        "iat_rva": "0x143c0de8"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-1.dll",
+        "name": "PowerUnregisterFromEffectivePowerModeNotifications",
+        "iat_rva": "0x143c0df0"
+      },
+      {
+        "kind": "delay",
+        "dll": "dwmapi.dll",
+        "name": "DwmInvalidateIconicBitmaps",
+        "iat_rva": "0x143c0e20"
+      },
+      {
+        "kind": "delay",
+        "dll": "dwmapi.dll",
+        "name": "DwmSetIconicThumbnail",
+        "iat_rva": "0x143c0e28"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-error-l1-1-0.dll",
+        "name": "RoOriginateError",
+        "iat_rva": "0x143c0e68"
+      },
+      {
+        "kind": "delay",
+        "dll": "tbs.dll",
+        "name": "Tbsi_Get_TCG_Log_Ex",
+        "iat_rva": "0x143c0f28"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "DeleteUrlCacheContainerW",
+        "iat_rva": "0x143c0f40"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindCloseUrlCache",
+        "iat_rva": "0x143c0f48"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindFirstUrlCacheEntryA",
+        "iat_rva": "0x143c0f50"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindNextUrlCacheEntryA",
+        "iat_rva": "0x143c0f58"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetCombineUrlW",
+        "iat_rva": "0x143c0f68"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetFreeCookies",
+        "iat_rva": "0x143c0f70"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetGetCookieEx2",
+        "iat_rva": "0x143c0f78"
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetSetCookieExW",
+        "iat_rva": "0x143c0f80"
+      },
+      {
+        "kind": "delay",
+        "dll": "dcomp.dll",
+        "name": "DCompositionCreateDevice3",
+        "iat_rva": "0x143c0f98"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-psm-appnotify-l1-1-0.dll",
+        "name": "RegisterAppStateChangeNotification",
+        "iat_rva": "0x143c1058"
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-psm-appnotify-l1-1-0.dll",
+        "name": "UnregisterAppStateChangeNotification",
+        "iat_rva": "0x143c1060"
+      },
+      {
+        "kind": "delay",
+        "dll": "d2d1.dll",
+        "name": "#1",
+        "iat_rva": "0x143c1098"
+      },
+      {
+        "kind": "delay",
+        "dll": "dnsapi.dll",
+        "name": "DnsFree",
+        "iat_rva": "0x143c1390"
+      },
+      {
+        "kind": "delay",
+        "dll": "dnsapi.dll",
+        "name": "DnsQuery_A",
+        "iat_rva": "0x143c1398"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetCloseDatabase",
+        "iat_rva": "0x143c1440"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetDetachDatabase2W",
+        "iat_rva": "0x143c1458"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetEndSession",
+        "iat_rva": "0x143c1460"
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetGetSystemParameterW",
+        "iat_rva": "0x143c1468"
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "FlushInstructionCache",
+        "iat_rva": "0x383460"
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "NtDeleteValueKey",
+        "iat_rva": "0x383a58"
+      }
+    ]
+  },
+  "wineAudit": {
+    "wine_commit": "e1a90b9430bc664a9ba21549cff6b13c1510d2ad",
+    "limitation": "Export declarations only. API-set contracts need host mapping; exports do not establish behavior or reachability.",
+    "counts": {
+      "exported_semantics_unverified": 184,
+      "direct_export_not_found": 6,
+      "api_set_contract_needs_target_resolution": 11,
+      "exported_stub": 17,
+      "ordinal_binding_not_resolved": 1
+    },
+    "rows": [
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetProcessIdOfThread",
+        "iat_rva": "0x433708",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 809,
+            "text": "@ stdcall -import GetProcessIdOfThread(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CreateWellKnownSid",
+        "iat_rva": "0x143bf490",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 149,
+            "text": "@ stdcall -import CreateWellKnownSid(long ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "EnumServicesStatusExW",
+        "iat_rva": "0x143bf500",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 280,
+            "text": "@ stdcall -import EnumServicesStatusExW(long long long long ptr long ptr ptr ptr wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "StackWalk64",
+        "iat_rva": "0x461038",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 35,
+            "text": "@ stdcall -arch=win64 StackWalk(long long long ptr ptr ptr ptr ptr ptr) StackWalk64",
+            "stub": false
+          },
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 36,
+            "text": "@ stdcall StackWalk64(long long long ptr ptr ptr ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymFunctionTableAccess64",
+        "iat_rva": "0x461050",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 91,
+            "text": "@ stdcall -arch=win64 SymFunctionTableAccess(long int64) SymFunctionTableAccess64",
+            "stub": false
+          },
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 92,
+            "text": "@ stdcall SymFunctionTableAccess64(long int64)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymGetModuleBase64",
+        "iat_rva": "0x461060",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 117,
+            "text": "@ stdcall -arch=win64 SymGetModuleBase(long int64) SymGetModuleBase64",
+            "stub": false
+          },
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 118,
+            "text": "@ stdcall SymGetModuleBase64(long int64)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "dbghelp.dll",
+        "name": "SymGetModuleInfoW64",
+        "iat_rva": "0x461070",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 123,
+            "text": "@ stdcall -arch=win64 SymGetModuleInfoW(long int64 ptr) SymGetModuleInfoW64",
+            "stub": false
+          },
+          {
+            "file": "dlls/dbghelp/dbghelp.spec",
+            "line": 124,
+            "text": "@ stdcall SymGetModuleInfoW64(long int64 ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportAddFile",
+        "iat_rva": "0x143c0378",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wer/wer.spec",
+            "line": 67,
+            "text": "@ stdcall WerReportAddFile(ptr wstr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportCloseHandle",
+        "iat_rva": "0x143c0380",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wer/wer.spec",
+            "line": 68,
+            "text": "@ stdcall WerReportCloseHandle(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportCreate",
+        "iat_rva": "0x143c0388",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wer/wer.spec",
+            "line": 69,
+            "text": "@ stdcall WerReportCreate(wstr long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportSetParameter",
+        "iat_rva": "0x143c0390",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wer/wer.spec",
+            "line": 70,
+            "text": "@ stdcall WerReportSetParameter(ptr long wstr wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportSubmit",
+        "iat_rva": "0x143c0398",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wer/wer.spec",
+            "line": 72,
+            "text": "@ stdcall WerReportSubmit(ptr long long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "IsHungAppWindow",
+        "iat_rva": "0x143bfc30",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 786,
+            "text": "@ stdcall IsHungAppWindow(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "userenv.dll",
+        "name": "CreateAppContainerProfile",
+        "iat_rva": "0x143c0a20",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/userenv/userenv.spec",
+            "line": 3,
+            "text": "@ stdcall CreateAppContainerProfile(wstr wstr wstr ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "winhttp.dll",
+        "name": "WinHttpQueryOption",
+        "iat_rva": "0x143c1018",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/winhttp/winhttp.spec",
+            "line": 29,
+            "text": "@ stdcall WinHttpQueryOption(ptr long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CloseThreadpoolWait",
+        "iat_rva": "0x13e702f8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 237,
+            "text": "@ stdcall CloseThreadpoolWait(ptr) NTDLL.TpReleaseWait",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CloseThreadpoolWork",
+        "iat_rva": "0x13e70300",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 238,
+            "text": "@ stdcall CloseThreadpoolWork(ptr) NTDLL.TpReleaseWork",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CompareFileTime",
+        "iat_rva": "0x13e70308",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 243,
+            "text": "@ stdcall -import CompareFileTime(ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateMemoryResourceNotification",
+        "iat_rva": "0x13e70380",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 307,
+            "text": "@ stdcall -import CreateMemoryResourceNotification(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreatePipe",
+        "iat_rva": "0x13e703a0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 315,
+            "text": "@ stdcall -import CreatePipe(ptr ptr ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateThreadpoolWait",
+        "iat_rva": "0x13e703d0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 343,
+            "text": "@ stdcall -import CreateThreadpoolWait(ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "CreateThreadpoolWork",
+        "iat_rva": "0x13e703d8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 344,
+            "text": "@ stdcall -import CreateThreadpoolWork(ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "DecodePointer",
+        "iat_rva": "0x13e703f8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 362,
+            "text": "@ stdcall DecodePointer(ptr) NTDLL.RtlDecodePointer",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "FindPackagesByPackageFamily",
+        "iat_rva": "0x13e704d8",
+        "status": "direct_export_not_found",
+        "source": []
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetComputerNameExA",
+        "iat_rva": "0x13e70590",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 588,
+            "text": "@ stdcall GetComputerNameExA(long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetCurrentPackageFullName",
+        "iat_rva": "0x3834d0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 641,
+            "text": "@ stdcall GetCurrentPackageFullName(ptr ptr) kernelbase.GetCurrentPackageFullName",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetDllDirectoryW",
+        "iat_rva": "0x13e70638",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 668,
+            "text": "@ stdcall GetDllDirectoryW(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetErrorMode",
+        "iat_rva": "0x13e70668",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 682,
+            "text": "@ stdcall -import GetErrorMode()",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetLogicalDriveStringsW",
+        "iat_rva": "0x13e70708",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 727,
+            "text": "@ stdcall -import GetLogicalDriveStringsW(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPackageApplicationIds",
+        "iat_rva": "0x13e70798",
+        "status": "direct_export_not_found",
+        "source": []
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPackageFamilyName",
+        "iat_rva": "0x13e707a0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 784,
+            "text": "@ stdcall GetPackageFamilyName(long ptr ptr) kernelbase.GetPackageFamilyName",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetPhysicallyInstalledSystemMemory",
+        "iat_rva": "0x13e707b8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 788,
+            "text": "@ stdcall -import GetPhysicallyInstalledSystemMemory(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetSystemPreferredUILanguages",
+        "iat_rva": "0x13e70868",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 856,
+            "text": "@ stdcall -import GetSystemPreferredUILanguages(long ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetSystemTimes",
+        "iat_rva": "0x13e70888",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 862,
+            "text": "@ stdcall -import GetSystemTimes(ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetTickCount64",
+        "iat_rva": "0x13e708e8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 891,
+            "text": "@ stdcall -ret64 GetTickCount64()",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GetVersionExA",
+        "iat_rva": "0x13e70938",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 907,
+            "text": "@ stdcall -import GetVersionExA(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalAddAtomA",
+        "iat_rva": "0x13e70978",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 923,
+            "text": "@ stdcall GlobalAddAtomA(str)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalDeleteAtom",
+        "iat_rva": "0x13e70988",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 927,
+            "text": "@ stdcall GlobalDeleteAtom(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "GlobalFindAtomA",
+        "iat_rva": "0x13e70990",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 928,
+            "text": "@ stdcall GlobalFindAtomA(str)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EmptyWorkingSet",
+        "iat_rva": "0x13e70aa8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1031,
+            "text": "@ stdcall -import K32EmptyWorkingSet(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EnumProcessModulesEx",
+        "iat_rva": "0x13e70ab8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1036,
+            "text": "@ stdcall -import K32EnumProcessModulesEx(long ptr long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32EnumProcesses",
+        "iat_rva": "0x13e70ac0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1037,
+            "text": "@ stdcall -import K32EnumProcesses(ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetModuleBaseNameW",
+        "iat_rva": "0x13e70ac8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1045,
+            "text": "@ stdcall -import K32GetModuleBaseNameW(long long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetProcessImageFileNameA",
+        "iat_rva": "0x13e70ae8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1050,
+            "text": "@ stdcall -import K32GetProcessImageFileNameA(long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "K32GetProcessImageFileNameW",
+        "iat_rva": "0x13e70af0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1051,
+            "text": "@ stdcall -import K32GetProcessImageFileNameW(long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "OpenEventW",
+        "iat_rva": "0x13e70bc0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1151,
+            "text": "@ stdcall -import OpenEventW(long long wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "OpenPackageInfoByFullName",
+        "iat_rva": "0x13e70bc8",
+        "status": "direct_export_not_found",
+        "source": []
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "QueryDepthSList",
+        "iat_rva": "0x13e70c40",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1202,
+            "text": "@ stdcall QueryDepthSList(ptr) NTDLL.RtlQueryDepthSList",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "QueryMemoryResourceNotification",
+        "iat_rva": "0x13e70c68",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1210,
+            "text": "@ stdcall -import QueryMemoryResourceNotification(ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "RaiseFailFastException",
+        "iat_rva": "0x13e70c98",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1227,
+            "text": "@ stdcall -import RaiseFailFastException(ptr ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "RegisterApplicationRestart",
+        "iat_rva": "0x13e70cc0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1288,
+            "text": "@ stdcall RegisterApplicationRestart(wstr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "SetThreadpoolWait",
+        "iat_rva": "0x13e70e68",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1517,
+            "text": "@ stdcall SetThreadpoolWait(ptr long ptr) NTDLL.TpSetWait",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "SubmitThreadpoolWork",
+        "iat_rva": "0x13e70ea0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1543,
+            "text": "@ stdcall SubmitThreadpoolWork(ptr) NTDLL.TpPostWork",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "UnregisterApplicationRestart",
+        "iat_rva": "0x13e70f30",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1594,
+            "text": "@ stdcall UnregisterApplicationRestart()",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "WaitForThreadpoolWaitCallbacks",
+        "iat_rva": "0x13e70fd0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1635,
+            "text": "@ stdcall WaitForThreadpoolWaitCallbacks(ptr long) NTDLL.TpWaitForWait",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "lstrcmpA",
+        "iat_rva": "0x13e71010",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 1712,
+            "text": "@ stdcall -import lstrcmpA(str str)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "winmm.dll",
+        "name": "PlaySoundW",
+        "iat_rva": "0x13e71040",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/winmm/winmm.spec",
+            "line": 21,
+            "text": "@ stdcall PlaySoundW(ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertDuplicateCertificateContext",
+        "iat_rva": "0x13e71320",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/crypt32/crypt32.spec",
+            "line": 32,
+            "text": "@ stdcall CertDuplicateCertificateContext(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertSetCertificateContextProperty",
+        "iat_rva": "0x13e71378",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/crypt32/crypt32.spec",
+            "line": 90,
+            "text": "@ stdcall CertSetCertificateContextProperty(ptr long long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CertVerifyCertificateChainPolicy",
+        "iat_rva": "0x13e71380",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/crypt32/crypt32.spec",
+            "line": 100,
+            "text": "@ stdcall CertVerifyCertificateChainPolicy(str ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CryptDecodeObject",
+        "iat_rva": "0x13e71398",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/crypt32/crypt32.spec",
+            "line": 113,
+            "text": "@ stdcall CryptDecodeObject(long str ptr long long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "crypt32.dll",
+        "name": "CryptFindOIDInfo",
+        "iat_rva": "0x13e713a0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/crypt32/crypt32.spec",
+            "line": 128,
+            "text": "@ stdcall CryptFindOIDInfo(long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoExW",
+        "iat_rva": "0x13e713f0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/version/version.spec",
+            "line": 3,
+            "text": "@ stdcall -import GetFileVersionInfoExW(long wstr long long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "version.dll",
+        "name": "GetFileVersionInfoSizeExW",
+        "iat_rva": "0x13e713f8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/version/version.spec",
+            "line": 6,
+            "text": "@ stdcall -import GetFileVersionInfoSizeExW(long wstr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "NtReadFile",
+        "iat_rva": "0x13e71460",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 363,
+            "text": "@ stdcall -syscall=0x0006 NtReadFile(long long ptr ptr ptr ptr long ptr ptr)",
+            "stub": false
+          },
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 1445,
+            "text": "@ stdcall -private ZwReadFile(long long ptr ptr ptr ptr long ptr ptr) NtReadFile",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlAnsiStringToUnicodeString",
+        "iat_rva": "0x13e71478",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 524,
+            "text": "@ stdcall RtlAnsiStringToUnicodeString(ptr ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlInitAnsiString",
+        "iat_rva": "0x13e71498",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 806,
+            "text": "@ stdcall RtlInitAnsiString(ptr str)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlIpv4StringToAddressExA",
+        "iat_rva": "0x13e714a8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 854,
+            "text": "@ stdcall RtlIpv4StringToAddressExA(str long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "RtlIpv6StringToAddressExA",
+        "iat_rva": "0x13e714b0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 862,
+            "text": "@ stdcall RtlIpv6StringToAddressExA(str ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "api-ms-win-core-winrt-error-l1-1-1.dll",
+        "name": "RoOriginateLanguageException",
+        "iat_rva": "0x383aa8",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CredFree",
+        "iat_rva": "0x143bf498",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 158,
+            "text": "@ stdcall CredFree(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "CredReadW",
+        "iat_rva": "0x143bf4a0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 177,
+            "text": "@ stdcall CredReadW(wstr long long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "EnumerateTraceGuids",
+        "iat_rva": "0x143bf508",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 282,
+            "text": "@ stdcall EnumerateTraceGuids(ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "ImpersonateLoggedOnUser",
+        "iat_rva": "0x143bf5d0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 402,
+            "text": "@ stdcall -import ImpersonateLoggedOnUser(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "LookupAccountSidW",
+        "iat_rva": "0x143bf610",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 435,
+            "text": "@ stdcall LookupAccountSidW(wstr ptr ptr ptr ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfCreateInstance",
+        "iat_rva": "0x143bf668",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 558,
+            "text": "@ stdcall -import PerfCreateInstance(long ptr wstr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfDeleteInstance",
+        "iat_rva": "0x143bf670",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 562,
+            "text": "@ stdcall -import PerfDeleteInstance(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfSetCounterRefValue",
+        "iat_rva": "0x143bf678",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 578,
+            "text": "@ stdcall -import PerfSetCounterRefValue(long ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfSetCounterSetInfo",
+        "iat_rva": "0x143bf680",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 579,
+            "text": "@ stdcall -import PerfSetCounterSetInfo(long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfStartProviderEx",
+        "iat_rva": "0x143bf688",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 583,
+            "text": "@ stdcall -import PerfStartProviderEx(ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "PerfStopProvider",
+        "iat_rva": "0x143bf690",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 584,
+            "text": "@ stdcall -import PerfStopProvider(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "QueryServiceStatusEx",
+        "iat_rva": "0x143bf6a8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 605,
+            "text": "@ stdcall -import QueryServiceStatusEx (long long ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "RegOpenCurrentUser",
+        "iat_rva": "0x143bf6f8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 660,
+            "text": "@ stdcall -import RegOpenCurrentUser(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "RegSetKeyValueW",
+        "iat_rva": "0x143bf720",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 690,
+            "text": "@ stdcall -import RegSetKeyValueW(long wstr wstr long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "advapi32.dll",
+        "name": "SystemFunction036",
+        "iat_rva": "0x143bf788",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/advapi32/advapi32.spec",
+            "line": 815,
+            "text": "@ stdcall SystemFunction036(ptr long) cryptbase.SystemFunction036",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "AttachThreadInput",
+        "iat_rva": "0x143bf7c0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 234,
+            "text": "@ stdcall AttachThreadInput(long long long) NtUserAttachThreadInput",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "CallWindowProcW",
+        "iat_rva": "0x143bf7e0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 253,
+            "text": "@ stdcall CallWindowProcW(ptr long long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChangeWindowMessageFilterEx",
+        "iat_rva": "0x143bf7e8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 265,
+            "text": "@ stdcall ChangeWindowMessageFilterEx(long long long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChildWindowFromPoint",
+        "iat_rva": "0x143bf800",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 295,
+            "text": "@ stdcall ChildWindowFromPoint(long int64)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "ChildWindowFromPointEx",
+        "iat_rva": "0x143bf808",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 296,
+            "text": "@ stdcall ChildWindowFromPointEx(long int64 long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "CopyIcon",
+        "iat_rva": "0x143bf840",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 312,
+            "text": "@ stdcall CopyIcon(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "DdeAbandonTransaction",
+        "iat_rva": "0x143bf870",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 349,
+            "text": "@ stdcall DdeAbandonTransaction(long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "DeregisterShellHookWindow",
+        "iat_rva": "0x143bf8c8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 394,
+            "text": "@ stdcall DeregisterShellHookWindow(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "FindWindowExA",
+        "iat_rva": "0x143bf988",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 497,
+            "text": "@ stdcall FindWindowExA(long long str str)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetGUIThreadInfo",
+        "iat_rva": "0x143bfa58",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 569,
+            "text": "@ stdcall GetGUIThreadInfo(long ptr) NtUserGetGUIThreadInfo",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetLastActivePopup",
+        "iat_rva": "0x143bfa98",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 591,
+            "text": "@ stdcall GetLastActivePopup(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "GetPointerInfo",
+        "iat_rva": "0x143bfb10",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 642,
+            "text": "@ stdcall GetPointerInfo(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InSendMessage",
+        "iat_rva": "0x143bfbe8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 742,
+            "text": "@ stdcall InSendMessage()",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InSendMessageEx",
+        "iat_rva": "0x143bfbf0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 743,
+            "text": "@ stdcall InSendMessageEx(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "InsertMenuW",
+        "iat_rva": "0x143bfc08",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 764,
+            "text": "@ stdcall InsertMenuW(long long long long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "OpenIcon",
+        "iat_rva": "0x143bfd10",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 892,
+            "text": "@ stdcall OpenIcon(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "PhysicalToLogicalPointForPerMonitorDPI",
+        "iat_rva": "0x143bfd28",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 905,
+            "text": "@ stdcall PhysicalToLogicalPointForPerMonitorDPI(long ptr) NtUserPerMonitorDPIPhysicalToLogicalPoint",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "PrivateExtractIconsW",
+        "iat_rva": "0x143bfd50",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 916,
+            "text": "@ stdcall PrivateExtractIconsW(wstr long long long ptr ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "RegisterShellHookWindow",
+        "iat_rva": "0x143bfdb0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 976,
+            "text": "@ stdcall RegisterShellHookWindow(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "RemoveMenu",
+        "iat_rva": "0x143bfdd8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 990,
+            "text": "@ stdcall RemoveMenu(long long long) NtUserRemoveMenu",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetActiveWindow",
+        "iat_rva": "0x143bfe08",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 1018,
+            "text": "@ stdcall SetActiveWindow(long) NtUserSetActiveWindow",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetClassLongPtrW",
+        "iat_rva": "0x143bfe18",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 1024,
+            "text": "@ stdcall -arch=win64 SetClassLongPtrW(long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "SetLayeredWindowAttributes",
+        "iat_rva": "0x143bfe50",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 1053,
+            "text": "@ stdcall SetLayeredWindowAttributes(ptr long long long) NtUserSetLayeredWindowAttributes",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "TrackPopupMenuEx",
+        "iat_rva": "0x143bff20",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 1163,
+            "text": "@ stdcall TrackPopupMenuEx(long long long long long ptr) NtUserTrackPopupMenuEx",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "user32.dll",
+        "name": "keybd_event",
+        "iat_rva": "0x143bff80",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/user32/user32.spec",
+            "line": 1227,
+            "text": "@ stdcall keybd_event(long long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoFreeUnusedLibrariesEx",
+        "iat_rva": "0x143bffb8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ole32/ole32.spec",
+            "line": 28,
+            "text": "@ stdcall CoFreeUnusedLibrariesEx(long long) combase.CoFreeUnusedLibrariesEx",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoMarshalInterface",
+        "iat_rva": "0x143bfff0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ole32/ole32.spec",
+            "line": 63,
+            "text": "@ stdcall CoMarshalInterface(ptr ptr ptr long ptr long) combase.CoMarshalInterface",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CoWaitForMultipleHandles",
+        "iat_rva": "0x3b0db0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ole32/ole32.spec",
+            "line": 96,
+            "text": "@ stdcall CoWaitForMultipleHandles(long long long ptr ptr) combase.CoWaitForMultipleHandles",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "CreateBindCtx",
+        "iat_rva": "0x143c0040",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ole32/ole32.spec",
+            "line": 98,
+            "text": "@ stdcall CreateBindCtx(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "IIDFromString",
+        "iat_rva": "0x143c0070",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ole32/ole32.spec",
+            "line": 177,
+            "text": "@ stdcall IIDFromString(wstr ptr) combase.IIDFromString",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "OleGetClipboard",
+        "iat_rva": "0x143c0080",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ole32/ole32.spec",
+            "line": 216,
+            "text": "@ stdcall OleGetClipboard(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "ole32.dll",
+        "name": "StgOpenStorageOnILockBytes",
+        "iat_rva": "0x143c00d0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ole32/ole32.spec",
+            "line": 285,
+            "text": "@ stdcall StgOpenStorageOnILockBytes(ptr ptr long ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "#644",
+        "iat_rva": "0x143c0120",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shell32/shell32.spec",
+            "line": 240,
+            "text": "644 stdcall -ordinal SHChangeNotification_Lock(long long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "#645",
+        "iat_rva": "0x143c0128",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shell32/shell32.spec",
+            "line": 241,
+            "text": "645 stdcall -ordinal SHChangeNotification_Unlock(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHCreateDirectoryExW",
+        "iat_rva": "0x143c0150",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shell32/shell32.spec",
+            "line": 349,
+            "text": "@ stdcall SHCreateDirectoryExW(long wstr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetFolderPathA",
+        "iat_rva": "0x143c0170",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shell32/shell32.spec",
+            "line": 382,
+            "text": "@ stdcall SHGetFolderPathA(long long long long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetIDListFromObject",
+        "iat_rva": "0x143c0180",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shell32/shell32.spec",
+            "line": 390,
+            "text": "@ stdcall SHGetIDListFromObject(ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetKnownFolderItem",
+        "iat_rva": "0x143c0188",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shell32/shell32.spec",
+            "line": 395,
+            "text": "@ stdcall SHGetKnownFolderItem(ptr long long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shell32.dll",
+        "name": "SHGetNameFromIDList",
+        "iat_rva": "0x143c01a0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shell32/shell32.spec",
+            "line": 399,
+            "text": "@ stdcall SHGetNameFromIDList(ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "AssocCreate",
+        "iat_rva": "0x143c0218",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 549,
+            "text": "@ stdcall AssocCreate(int128 ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "AssocQueryKeyW",
+        "iat_rva": "0x143c0220",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 553,
+            "text": "@ stdcall AssocQueryKeyW(long long wstr wstr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#168",
+        "iat_rva": "0x143c0230",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 168,
+            "text": "168 stdcall -ordinal ConnectToConnectionPoint(ptr ptr long ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#14",
+        "iat_rva": "0x143c0238",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 14,
+            "text": "14  stdcall -ordinal -import GetAcceptLanguagesA(ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "#172",
+        "iat_rva": "0x143c0240",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 172,
+            "text": "172 stdcall -ordinal IUnknown_GetWindow(ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathFileExistsW",
+        "iat_rva": "0x143c0250",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 593,
+            "text": "@ stdcall -import PathFileExistsW(wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathRemoveBackslashW",
+        "iat_rva": "0x143c0270",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 657,
+            "text": "@ stdcall -import PathRemoveBackslashW(wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "PathRemoveFileSpecW",
+        "iat_rva": "0x143c0280",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 663,
+            "text": "@ stdcall -import PathRemoveFileSpecW(wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "SHCreateStreamOnFileEx",
+        "iat_rva": "0x143c0298",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 689,
+            "text": "@ stdcall SHCreateStreamOnFileEx(wstr long long long ptr ptr) shcore.SHCreateStreamOnFileEx",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "shlwapi.dll",
+        "name": "StrTrimW",
+        "iat_rva": "0x143c02a0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/shlwapi/shlwapi.spec",
+            "line": 823,
+            "text": "@ stdcall -import StrTrimW(wstr wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptCreateHash",
+        "iat_rva": "0x143c0310",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 7,
+            "text": "@ stdcall BCryptCreateHash(ptr ptr ptr long ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptDestroyHash",
+        "iat_rva": "0x143c0318",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 13,
+            "text": "@ stdcall BCryptDestroyHash(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptDestroyKey",
+        "iat_rva": "0x143c0320",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 14,
+            "text": "@ stdcall BCryptDestroyKey(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptFinishHash",
+        "iat_rva": "0x143c0328",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 27,
+            "text": "@ stdcall BCryptFinishHash(ptr ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptGetProperty",
+        "iat_rva": "0x143c0338",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 33,
+            "text": "@ stdcall BCryptGetProperty(ptr wstr ptr long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptHash",
+        "iat_rva": "0x143c0340",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 34,
+            "text": "@ stdcall BCryptHash(ptr ptr long ptr long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptHashData",
+        "iat_rva": "0x143c0348",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 35,
+            "text": "@ stdcall BCryptHashData(ptr ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptImportKeyPair",
+        "iat_rva": "0x143c0350",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 37,
+            "text": "@ stdcall BCryptImportKeyPair(ptr ptr wstr ptr ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "bcrypt.dll",
+        "name": "BCryptVerifySignature",
+        "iat_rva": "0x143c0360",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/bcrypt/bcrypt.spec",
+            "line": 56,
+            "text": "@ stdcall BCryptVerifySignature(ptr ptr ptr long ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wer.dll",
+        "name": "WerReportAddDump",
+        "iat_rva": "0x143c0370",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wer/wer.spec",
+            "line": 66,
+            "text": "@ stdcall WerReportAddDump(ptr ptr ptr long ptr ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "iphlpapi.dll",
+        "name": "GetBestInterfaceEx",
+        "iat_rva": "0x143c03c8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/iphlpapi/iphlpapi.spec",
+            "line": 78,
+            "text": "@ stdcall GetBestInterfaceEx( ptr ptr )",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "GetActiveObject",
+        "iat_rva": "0x143c0408",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/oleaut32/oleaut32.spec",
+            "line": 34,
+            "text": "35 stdcall GetActiveObject(ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "GetErrorInfo",
+        "iat_rva": "0x3b0f48",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/oleaut32/oleaut32.spec",
+            "line": 197,
+            "text": "200 stdcall -import GetErrorInfo(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "SetErrorInfo",
+        "iat_rva": "0x3b0f50",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/oleaut32/oleaut32.spec",
+            "line": 198,
+            "text": "201 stdcall -import SetErrorInfo(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "oleaut32.dll",
+        "name": "VariantTimeToSystemTime",
+        "iat_rva": "0x143c04c8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/oleaut32/oleaut32.spec",
+            "line": 182,
+            "text": "185 stdcall VariantTimeToSystemTime(double ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "propsys.dll",
+        "name": "InitPropVariantFromStringVector",
+        "iat_rva": "0x143c0610",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/propsys/propsys.spec",
+            "line": 44,
+            "text": "@ stdcall InitPropVariantFromStringVector(ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "propsys.dll",
+        "name": "PSGetPropertyDescriptionListFromString",
+        "iat_rva": "0x143c0620",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/propsys/propsys.spec",
+            "line": 84,
+            "text": "@ stdcall PSGetPropertyDescriptionListFromString(wstr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "gdi32.dll",
+        "name": "GetBitmapBits",
+        "iat_rva": "0x143c0750",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/gdi32/gdi32.spec",
+            "line": 330,
+            "text": "@ stdcall GetBitmapBits(long long ptr) NtGdiGetBitmapBits",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtCreateBookmark",
+        "iat_rva": "0x143c0928",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 5,
+            "text": "@ stdcall EvtCreateBookmark(wstr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtFormatMessage",
+        "iat_rva": "0x143c0938",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 8,
+            "text": "@ stub EvtFormatMessage",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetChannelConfigProperty",
+        "iat_rva": "0x143c0940",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 9,
+            "text": "@ stdcall EvtGetChannelConfigProperty(ptr long long long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetEventMetadataProperty",
+        "iat_rva": "0x143c0948",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 11,
+            "text": "@ stub EvtGetEventMetadataProperty",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetLogInfo",
+        "iat_rva": "0x143c0950",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 13,
+            "text": "@ stub EvtGetLogInfo",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetObjectArrayProperty",
+        "iat_rva": "0x143c0958",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 14,
+            "text": "@ stub EvtGetObjectArrayProperty",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetObjectArraySize",
+        "iat_rva": "0x143c0960",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 15,
+            "text": "@ stub EvtGetObjectArraySize",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtGetPublisherMetadataProperty",
+        "iat_rva": "0x143c0968",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 16,
+            "text": "@ stub EvtGetPublisherMetadataProperty",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextChannelPath",
+        "iat_rva": "0x143c0978",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 29,
+            "text": "@ stdcall EvtNextChannelPath(ptr long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextEventMetadata",
+        "iat_rva": "0x143c0980",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 30,
+            "text": "@ stub EvtNextEventMetadata",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtNextPublisherId",
+        "iat_rva": "0x143c0988",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 31,
+            "text": "@ stub EvtNextPublisherId",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenChannelConfig",
+        "iat_rva": "0x143c0990",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 32,
+            "text": "@ stdcall EvtOpenChannelConfig(ptr wstr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenChannelEnum",
+        "iat_rva": "0x143c0998",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 33,
+            "text": "@ stdcall EvtOpenChannelEnum(ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenEventMetadataEnum",
+        "iat_rva": "0x143c09a0",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 34,
+            "text": "@ stub EvtOpenEventMetadataEnum",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenLog",
+        "iat_rva": "0x143c09a8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 35,
+            "text": "@ stdcall EvtOpenLog(ptr wstr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenPublisherEnum",
+        "iat_rva": "0x143c09b0",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 36,
+            "text": "@ stub EvtOpenPublisherEnum",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtOpenPublisherMetadata",
+        "iat_rva": "0x143c09b8",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 37,
+            "text": "@ stub EvtOpenPublisherMetadata",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtSubscribe",
+        "iat_rva": "0x143c09d0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 45,
+            "text": "@ stdcall EvtSubscribe(ptr ptr wstr wstr ptr ptr ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wevtapi.dll",
+        "name": "EvtUpdateBookmark",
+        "iat_rva": "0x143c09d8",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/wevtapi/wevtapi.spec",
+            "line": 46,
+            "text": "@ stub EvtUpdateBookmark",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "mfsensorgroup.dll",
+        "name": "MFCreateSensorGroup",
+        "iat_rva": "0x143c0a10",
+        "status": "direct_export_not_found",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "GetUserNameExA",
+        "iat_rva": "0x143c0ad0",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/secur32/secur32.spec",
+            "line": 26,
+            "text": "@ stdcall GetUserNameExA(long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiEncodeAuthIdentityAsStrings",
+        "iat_rva": "0x143c0b18",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/secur32/secur32.spec",
+            "line": 72,
+            "text": "@ stdcall SspiEncodeAuthIdentityAsStrings(ptr ptr ptr ptr) sspicli.SspiEncodeAuthIdentityAsStrings",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiFreeAuthIdentity",
+        "iat_rva": "0x143c0b20",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/secur32/secur32.spec",
+            "line": 74,
+            "text": "@ stdcall SspiFreeAuthIdentity(ptr) sspicli.SspiFreeAuthIdentity",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "secur32.dll",
+        "name": "SspiLocalFree",
+        "iat_rva": "0x143c0b28",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/secur32/secur32.spec",
+            "line": 75,
+            "text": "@ stdcall SspiLocalFree(ptr) sspicli.SspiLocalFree",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#413",
+        "iat_rva": "0x143c0b38",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 107,
+            "text": "413 stdcall -ordinal DefSubclassProc(long long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#411",
+        "iat_rva": "0x143c0b40",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 105,
+            "text": "411 stdcall -noname GetWindowSubclass(long ptr long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Add",
+        "iat_rva": "0x143c0b48",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 141,
+            "text": "@ stdcall ImageList_Add(ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Create",
+        "iat_rva": "0x143c0b50",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 146,
+            "text": "@ stdcall ImageList_Create(long long long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_Destroy",
+        "iat_rva": "0x143c0b58",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 147,
+            "text": "@ stdcall ImageList_Destroy(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "ImageList_ReplaceIcon",
+        "iat_rva": "0x143c0b60",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 172,
+            "text": "@ stdcall ImageList_ReplaceIcon(ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#412",
+        "iat_rva": "0x143c0b70",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 106,
+            "text": "412 stdcall -ordinal RemoveWindowSubclass(long ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "comctl32.dll",
+        "name": "#410",
+        "iat_rva": "0x143c0b78",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/comctl32/comctl32.spec",
+            "line": 104,
+            "text": "410 stdcall -ordinal SetWindowSubclass(long ptr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wtsapi32.dll",
+        "name": "WTSEnumerateSessionsW",
+        "iat_rva": "0x143c0c00",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wtsapi32/wtsapi32.spec",
+            "line": 15,
+            "text": "@ stdcall WTSEnumerateSessionsW(long long long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wtsapi32.dll",
+        "name": "WTSQueryUserToken",
+        "iat_rva": "0x143c0c18",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wtsapi32/wtsapi32.spec",
+            "line": 28,
+            "text": "@ stdcall WTSQueryUserToken(long ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "urlmon.dll",
+        "name": "CreateUri",
+        "iat_rva": "0x143c0c40",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/urlmon/urlmon.spec",
+            "line": 37,
+            "text": "@ stdcall CreateUri(wstr long long ptr) iertutil.CreateUri",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsCompareStringOrdinal",
+        "iat_rva": "0x3b0de0",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsGetStringLen",
+        "iat_rva": "0x143c0d80",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "name": "WindowsIsStringEmpty",
+        "iat_rva": "0x143c0d90",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "credui.dll",
+        "name": "SspiPromptForCredentialsW",
+        "iat_rva": "0x143c0da8",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/credui/credui.spec",
+            "line": 21,
+            "text": "@ stdcall SspiPromptForCredentialsW(wstr ptr long wstr ptr ptr ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-0.dll",
+        "name": "PowerSettingRegisterNotification",
+        "iat_rva": "0x143c0dd0",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-0.dll",
+        "name": "PowerSettingUnregisterNotification",
+        "iat_rva": "0x143c0dd8",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-1.dll",
+        "name": "PowerRegisterForEffectivePowerModeNotifications",
+        "iat_rva": "0x143c0de8",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-power-setting-l1-1-1.dll",
+        "name": "PowerUnregisterFromEffectivePowerModeNotifications",
+        "iat_rva": "0x143c0df0",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "dwmapi.dll",
+        "name": "DwmInvalidateIconicBitmaps",
+        "iat_rva": "0x143c0e20",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dwmapi/dwmapi.spec",
+            "line": 76,
+            "text": "@ stdcall DwmInvalidateIconicBitmaps(ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "dwmapi.dll",
+        "name": "DwmSetIconicThumbnail",
+        "iat_rva": "0x143c0e28",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dwmapi/dwmapi.spec",
+            "line": 84,
+            "text": "@ stdcall DwmSetIconicThumbnail(long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-winrt-error-l1-1-0.dll",
+        "name": "RoOriginateError",
+        "iat_rva": "0x143c0e68",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "tbs.dll",
+        "name": "Tbsi_Get_TCG_Log_Ex",
+        "iat_rva": "0x143c0f28",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/tbs/tbs.spec",
+            "line": 12,
+            "text": "@ stub Tbsi_Get_TCG_Log_Ex",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "DeleteUrlCacheContainerW",
+        "iat_rva": "0x143c0f40",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wininet/wininet.spec",
+            "line": 29,
+            "text": "@ stdcall DeleteUrlCacheContainerW(long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindCloseUrlCache",
+        "iat_rva": "0x143c0f48",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wininet/wininet.spec",
+            "line": 37,
+            "text": "@ stdcall FindCloseUrlCache(long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindFirstUrlCacheEntryA",
+        "iat_rva": "0x143c0f50",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wininet/wininet.spec",
+            "line": 40,
+            "text": "@ stdcall FindFirstUrlCacheEntryA(str ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "FindNextUrlCacheEntryA",
+        "iat_rva": "0x143c0f58",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wininet/wininet.spec",
+            "line": 47,
+            "text": "@ stdcall FindNextUrlCacheEntryA(long ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetCombineUrlW",
+        "iat_rva": "0x143c0f68",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wininet/wininet.spec",
+            "line": 127,
+            "text": "@ stdcall InternetCombineUrlW(wstr wstr wstr ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetFreeCookies",
+        "iat_rva": "0x143c0f70",
+        "status": "direct_export_not_found",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetGetCookieEx2",
+        "iat_rva": "0x143c0f78",
+        "status": "direct_export_not_found",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "wininet.dll",
+        "name": "InternetSetCookieExW",
+        "iat_rva": "0x143c0f80",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/wininet/wininet.spec",
+            "line": 187,
+            "text": "@ stdcall InternetSetCookieExW(wstr wstr wstr long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "dcomp.dll",
+        "name": "DCompositionCreateDevice3",
+        "iat_rva": "0x143c0f98",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dcomp/dcomp.spec",
+            "line": 17,
+            "text": "@ stdcall DCompositionCreateDevice3(ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-psm-appnotify-l1-1-0.dll",
+        "name": "RegisterAppStateChangeNotification",
+        "iat_rva": "0x143c1058",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "api-ms-win-core-psm-appnotify-l1-1-0.dll",
+        "name": "UnregisterAppStateChangeNotification",
+        "iat_rva": "0x143c1060",
+        "status": "api_set_contract_needs_target_resolution",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "d2d1.dll",
+        "name": "#1",
+        "iat_rva": "0x143c1098",
+        "status": "ordinal_binding_not_resolved",
+        "source": []
+      },
+      {
+        "kind": "delay",
+        "dll": "dnsapi.dll",
+        "name": "DnsFree",
+        "iat_rva": "0x143c1390",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dnsapi/dnsapi.spec",
+            "line": 38,
+            "text": "@ stdcall DnsFree(ptr long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "dnsapi.dll",
+        "name": "DnsQuery_A",
+        "iat_rva": "0x143c1398",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/dnsapi/dnsapi.spec",
+            "line": 80,
+            "text": "@ stdcall DnsQuery_A(str long long ptr ptr ptr)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetCloseDatabase",
+        "iat_rva": "0x143c1440",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/esent/esent.spec",
+            "line": 33,
+            "text": "@ stub JetCloseDatabase",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetDetachDatabase2W",
+        "iat_rva": "0x143c1458",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/esent/esent.spec",
+            "line": 108,
+            "text": "@ stub JetDetachDatabase2W",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetEndSession",
+        "iat_rva": "0x143c1460",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/esent/esent.spec",
+            "line": 124,
+            "text": "@ stub JetEndSession",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "delay",
+        "dll": "esent.dll",
+        "name": "JetGetSystemParameterW",
+        "iat_rva": "0x143c1468",
+        "status": "exported_stub",
+        "source": [
+          {
+            "file": "dlls/esent/esent.spec",
+            "line": 192,
+            "text": "@ stub JetGetSystemParameterW",
+            "stub": true
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "kernel32.dll",
+        "name": "FlushInstructionCache",
+        "iat_rva": "0x383460",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/kernel32/kernel32.spec",
+            "line": 530,
+            "text": "@ stdcall -import FlushInstructionCache(long long long)",
+            "stub": false
+          }
+        ]
+      },
+      {
+        "kind": "normal",
+        "dll": "ntdll.dll",
+        "name": "NtDeleteValueKey",
+        "iat_rva": "0x383a58",
+        "status": "exported_semantics_unverified",
+        "source": [
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 225,
+            "text": "@ stdcall -syscall NtDeleteValueKey(long ptr)",
+            "stub": false
+          },
+          {
+            "file": "dlls/ntdll/ntdll.spec",
+            "line": 1308,
+            "text": "@ stdcall -private ZwDeleteValueKey(long ptr) NtDeleteValueKey",
+            "stub": false
+          }
+        ]
+      }
+    ]
+  },
+  "staticCallWitnesses": [
+    {
+      "name": "CreateMemoryResourceNotification",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e70380",
+      "instruction_rva": "0x1495ccb",
+      "function_begin": "0x1495c78",
+      "function_end": "0x1495d6f"
+    },
+    {
+      "name": "QueryMemoryResourceNotification",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e70c68",
+      "instruction_rva": "0x2bc31f6",
+      "function_begin": "0x2bc31c0",
+      "function_end": "0x2bc3229"
+    },
+    {
+      "name": "CreateAppContainerProfile",
+      "dll": "USERENV.dll",
+      "kind": "delay",
+      "iat_rva": "0x143c0a20",
+      "instruction_rva": "0x4448392",
+      "function_begin": "0x4448314",
+      "function_end": "0x44486c1"
+    },
+    {
+      "name": "FindPackagesByPackageFamily",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e704d8",
+      "instruction_rva": "0x983c31f",
+      "function_begin": "0x983c170",
+      "function_end": "0x983c3d4"
+    },
+    {
+      "name": "OpenPackageInfoByFullName",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e70bc8",
+      "instruction_rva": "0xb43af66",
+      "function_begin": "0xb43adde",
+      "function_end": "0xb43b020"
+    },
+    {
+      "name": "GetPackageApplicationIds",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e70798",
+      "instruction_rva": "0xb43afa8",
+      "function_begin": "0xb43adde",
+      "function_end": "0xb43b020"
+    },
+    {
+      "name": "GetPackageApplicationIds",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e70798",
+      "instruction_rva": "0xb43afdd",
+      "function_begin": "0xb43adde",
+      "function_end": "0xb43b020"
+    },
+    {
+      "name": "GetCurrentPackageFullName",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e705d8",
+      "instruction_rva": "0xcc140b3",
+      "function_begin": "0xcc14084",
+      "function_end": "0xcc14205"
+    },
+    {
+      "name": "GetCurrentPackageFullName",
+      "dll": "KERNEL32.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e705d8",
+      "instruction_rva": "0xcc1411a",
+      "function_begin": "0xcc14084",
+      "function_end": "0xcc14205"
+    },
+    {
+      "name": "NtReadFile",
+      "dll": "ntdll.dll",
+      "kind": "normal",
+      "iat_rva": "0x13e71460",
+      "instruction_rva": "0xe044021",
+      "function_begin": "0xe043840",
+      "function_end": "0xe0443d1"
+    }
+  ],
+  "packageQueryArgument": [
+    {
+      "call": "0x983c31f",
+      "argument_rva": "0x12766ec0",
+      "package_family": "Microsoft.GetHelp_8wekyb3d8bbwe"
+    }
+  ],
+  "nativeReadonlyHelper": {
+    "context": "unpackaged original Python helper, not an Edge in-process observation",
+    "GetCurrentPackageFullName": {
+      "return": 15700,
+      "length": 0
+    },
+    "FindPackagesByPackageFamily": {
+      "family": "fresh nonexistent synthetic family",
+      "flags": "0x20010",
+      "return": 0,
+      "count": 0,
+      "characters": 0
+    },
+    "mutations": false
+  },
+  "limitations": [
+    "Import bindings and static call witnesses do not establish runtime call execution or minimum startup necessity",
+    "Wine exported_semantics_unverified includes possible partial C implementations",
+    "API-set and unresolved ordinal classifications are not missing-API claims"
+  ]
+}
