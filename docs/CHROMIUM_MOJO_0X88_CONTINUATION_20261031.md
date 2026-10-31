@@ -281,3 +281,27 @@ required resources, totaling 111104 bytes. A real launcher-symlink case runs
 on WSL; Windows skips only that case when symlink privilege is unavailable.
 The actual deployed recipe remains authoritative, not
 the fixture's ten-name sample.
+
+## Fresh actual-Chromium validation mode
+
+`check-g4-chromium-native-exit.py --token-fixed-r7` binds an independent
+`chromium-token-fixed-r7-20261031` output/profile/stage and candidate runtime
+`chromium-token-fixed-r7-20261031-wine/build/wow64`. Its prefix is the dedicated
+`chromium-token-fixed-r7-20261031-prefix` clone; the preserved browser prefix
+is never used for execution or modified. The native helper must be rebuilt
+with that exact `WEX_EXIT_OUTPUT` and `WEX_DIAGNOSTIC=1`. Runtime/image/manifest,
+native held-handle exit and prefix ownership checks remain unchanged.
+
+The mode retains verify-r6's scoped security/network diagnostics, production
+sandbox settings, private loopback fixture and actual VirGL verification.
+The owned full host runtime staging copy unlinks its server before overlaying
+the validated `59f4bc31` server, packages the ten required metadata resources,
+and hashes every deployed runtime file against the host manifest. Existing
+consumed verify-r6 paths are not reused.
+
+Run the mode and related contract fixtures under WSL:
+`python3 -B -m unittest test_g4_chromium_native_exit
+test_g4_chromium_observation_tolerance test_g4_userenv_view`, from `scripts/`.
+These Unix-dependent fixtures require `os.geteuid`; they are not Windows-native
+tests. The fresh-mode wiring passes all 34 fixtures. Actual browser outcomes
+must still be measured; the earlier standalone probe success is not acceptance.

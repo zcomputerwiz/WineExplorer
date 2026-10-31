@@ -73,6 +73,32 @@ class ParserTests(unittest.TestCase):
             r.configure('r1')
             r.BUILD=original[3] # configure('diagnostic') repoints the shared candidate; leave no side effect
 
+    def test_token_fixed_r7_mode_paths_dedicated_prefix_and_sandbox_vmodule(self):
+        # WO-20261031-CHROMIUM-TOKEN-FIXED-R7: fresh identity paths, the same enriched WINEDEBUG and
+        # level 3 scoped VLOG as verify-r6, a candidate BUILD carrying the accepted server/token.c fix,
+        # and a DEDICATED prefix clone (never the shared edge-install prefix used by every other mode).
+        original=(r.OUTPUT,r.STAGE,r.DEBUG,r.BUILD,r.PREFIX)
+        try:
+            r.configure('token-fixed-r7')
+            self.assertEqual(r.HOST,'chromium-token-fixed-r7-20261031')
+            self.assertEqual(r.OUTPUT,r.LAB/'chromium-token-fixed-r7-20261031')
+            self.assertEqual(r.STAGE,r.LAB/'chromium-token-fixed-r7-20261031-stage')
+            self.assertEqual(r.DEBUG,'-all,+timestamp,+pid,+tid,+winediag,+process,+userenv,+security')
+            self.assertEqual(str(r.BUILD),str(r.LAB/'chromium-token-fixed-r7-20261031-wine/build/wow64'))
+            self.assertEqual(r.cal.BUILD,r.BUILD);self.assertEqual(r.cal.APPROVED_LOADER,r.BUILD/'loader/wine')
+            self.assertEqual(str(r.PREFIX),str(r.LAB/'chromium-token-fixed-r7-20261031-prefix'))
+            self.assertNotEqual(r.PREFIX,original[4])
+            self.assertEqual(r.cal.PREFIX,r.PREFIX)
+            args=r.child_args(NONCE,URL)
+            self.assertEqual(len(args),15)
+            self.assertIn('--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3',args)
+            self.assertIn('--trace-startup-file='+r.cal.win(r.OUTPUT/'trace.json'),args)
+        finally:
+            r.configure('r1')
+            r.BUILD=original[3];r.cal.BUILD=original[3] # configure('token-fixed-r7') repoints the shared cal module; leave no side effect
+            r.PREFIX=original[4];r.cal.PREFIX=original[4]
+        self.assertEqual((r.OUTPUT,r.STAGE,r.DEBUG,r.BUILD,r.PREFIX),original)
+
     def test_full_status_arbitrary_signaled259_and_exact_normal_contract(self):
         for code in (0,127,259,0xc000007f,2**32-1):
             value=r.parse(raw(rows(code)),NONCE,r.cal.win(r.RUNTIME/'chrome.exe'),URL)
