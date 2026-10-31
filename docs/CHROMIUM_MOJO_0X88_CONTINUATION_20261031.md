@@ -112,3 +112,26 @@ by this finding, but still need their own regressions. Any descriptor
 preservation required by lowbox creation or process assignment must be
 established at that exact boundary, not granted by generic duplication or a
 self-token exemption.
+
+### Candidate correction
+
+Wine `e1a90b94` restores the entire `token_duplicate` function exactly to
+`ce87bac0`, not just the blanket-copy branch. The original independent
+mandatory-label propagation also runs for NULL descriptors; simply deleting
+the new else branch would have left this behavior incorrectly conditional
+on an explicit descriptor. The AllApplicationPackages/default-DACL-user
+changes elsewhere in `server/token.c` remain untouched.
+
+The function was compared directly with the baseline source and the existing
+WoW64-configured build's `server/wineserver` target was rebuilt.
+New server SHA-256:
+`72d6a692200c94d530e3c51f74c90086e8dfd116bede7b2e8c72968942e86644`.
+The compiler reports the pre-existing `req_filter_token` variable-sized
+`struct group` allocation warning, outside the changed function. No unrelated
+allocation changes were made.
+
+This corrected server has not been staged or run in the guest. Old host/guest
+artifacts with the `853c9f0c...` hash still represent the rejected descriptor
+candidate and must not be mislabeled as this correction. Guest startup and
+the separate restricted/cross-process regressions remain prerequisites for
+acceptance.

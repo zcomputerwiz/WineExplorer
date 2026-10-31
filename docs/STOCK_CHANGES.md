@@ -1213,8 +1213,9 @@ Wine topic `f2e67abe` changes only `server/token.c`, above `ce87bac0`:
 - The NULL-descriptor `token_duplicate` branch copies the source object's
   whole owner/group/DACL/SACL. This part conflicts with upstream
   `test_token_security_descriptor` and the native default-descriptor contract;
-  it is withheld from acceptance. Source integrity propagation must be
-  preserved independently, not inferred from whole-descriptor inheritance.
+  Wine `e1a90b94` removes this candidate behavior, restoring `token_duplicate`
+  exactly to `ce87bac0`, including independent source integrity-label
+  propagation whether or not an explicit descriptor is supplied.
 
 These are topic candidates, not a production Wine pin or a confirmed Chromium
 fix. The corrected native Mojo probe passes at mask `0x88`, but the guest
