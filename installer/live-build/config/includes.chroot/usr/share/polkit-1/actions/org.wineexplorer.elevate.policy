@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- Elevation of Windows programs to the shared machine root. See docs/ELEVATION_WORKORDER.md. -->
+<policyconfig>
+  <vendor>WineExplorer</vendor>
+  <action id="org.wineexplorer.elevate">
+    <description>Run a Windows program with administrator rights</description>
+    <message>A Windows program wants to change the shared Windows installation.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/lib/wineexplorer/wex-elevate-run</annotate>
+  </action>
+</policyconfig>
