@@ -1221,3 +1221,7 @@ These are topic candidates, not a production Wine pin or a confirmed Chromium
 fix. The corrected native Mojo probe passes at mask `0x88`, but the guest
 startup prerequisite fails before any valid A/B mode verdict. See
 [the continuation and raw evidence](CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md).
+The native descriptor oracle further distinguishes the token's integrity
+state from an explicitly supplied object label; the baseline rollback is not
+full descriptor conformance. Public creator defaults and internal assignment
+boundaries remain unaccepted pending matched guest comparisons.
