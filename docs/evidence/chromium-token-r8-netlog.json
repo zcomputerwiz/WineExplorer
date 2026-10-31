@@ -1,0 +1,10 @@
+Logging is in progress writing data to:
+    C:\users\debian\AppData\Local\Temp\scoped_dir620_312694491
+
+That data will be stitched into a single file (this one) once logging
+has stopped.
+
+If logging was interrupted, you can stitch a NetLog file out of the
+.inprogress directory manually using:
+
+https://chromium.googlesource.com/chromium/src/+/main/net/tools/stitch_net_log_files.py

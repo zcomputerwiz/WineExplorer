@@ -322,3 +322,26 @@ original command. A real compiled C contract test compares the entire command
 against the Python adapter, and fixtures verify stale installer runtime values
 are overridden and mismatched VLOG is still rejected. All 36 related WSL
 fixtures pass. The helper's image/flags/held-handle checks are not weakened.
+
+Independent review using the user-selected GPT-6.1 Sol found no blocking
+correctness/regression issue in Wine `59f4bc31`, accepting the measured public
+descriptor contract and synthetic Mojo results narrowly. Broader effective
+creator/internal assignment contexts and allocation-failure execution remain
+unproved, not demonstrated blockers. This review does not accept the browser.
+
+The r8 actual browser run verified all 1778 deployed runtime files
+(1883823875 bytes), correct candidate runtime environment, exact level-3 native
+command binding, and actual outer/inner VirGL. Chromium created the network
+service with `--service-sandbox-type=network` and the storage service with
+`--service-sandbox-type=service`. However, the held browser process remained
+alive at the 45000 ms native wait, and the private fixture recorded **zero
+requests**. The helper reported native timeout; the collector surfaced
+`Linux helper failed/exit mismatch`. No successful native exit, page load,
+or full browser acceptance is claimed.
+
+Raw journal/log/NetLog and the outcome summary are
+`docs/evidence/chromium-token-r8-*`. Prefix processes and compositors stopped,
+the owned prefix/runtime clones were removed, and the guest shut down
+gracefully with exit 0 and the preserved baseline server hash unchanged.
+Post-token startup diagnosis is the remaining Chromium prerequisite; Edge
+execution remains gated on actual Chromium validation.
