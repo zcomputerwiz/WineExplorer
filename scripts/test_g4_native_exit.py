@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Compile/run shared pure native logic on Linux; NEVER execute Win32 PE/Wine."""
 import os
+import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
@@ -22,6 +23,14 @@ class NativeContractTests(unittest.TestCase):
                 override=Path(folder)/'output-only.h'
                 override.write_text('#define WEX_EXIT_OUTPUT L"Z:\\\\home\\\\debian\\\\wex-g4\\\\'+name+'"\n')
                 self.compile_run(cc,scripts,Path(folder),override)
+            override.write_text('#define WEX_EXIT_OUTPUT L"Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-token-fixed-r8-20261031"\n#define WEX_DIAGNOSTIC 3\n')
+            actual=self.compile_run(cc,scripts,Path(folder),override)
+            spec=importlib.util.spec_from_file_location('native_chromium_contract',scripts/'check-g4-chromium-native-exit.py')
+            adapter=importlib.util.module_from_spec(spec);spec.loader.exec_module(adapter)
+            adapter.configure('token-fixed-r8')
+            nonce='0123456789abcdef0123456789abcdef'
+            expected=' '.join('"'+arg+'"' for arg in adapter.child_args(nonce,'http://127.0.0.1:43210/'+nonce+'/index.html#nonce='+nonce))
+            self.assertIn('COMMAND '+expected+'\n',actual)
 
     def compile_run(self,cc,scripts,folder,override=None):
             output=Path(folder)/'contract-test'
@@ -34,6 +43,7 @@ class NativeContractTests(unittest.TestCase):
             result=subprocess.run([str(output)],capture_output=True,text=True,timeout=5)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertIn('PASS shared native schema/quoting/decision sequence',result.stdout)
+            return result.stdout
 
 
 if __name__=='__main__':unittest.main()

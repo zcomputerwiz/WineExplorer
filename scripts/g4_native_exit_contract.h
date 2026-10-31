@@ -84,7 +84,11 @@ static inline int wex_validate(int argc,wchar_t **argv,struct wex_launch *out) {
          * launch pipeline's policy/token/CreateProcess gates are visible in chromium.log. Same fixed integer
          * NetLog (40s, Default capture, 8MiB) + best-effort startup trace (35s). Order MUST mirror
          * child_args() in check-g4-chromium-native-exit.py exactly, or binding() rejects it. */
+#if WEX_DIAGNOSTIC == 3
+        v.child_args[8]=L"--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3";
+#else
         v.child_args[8]=L"--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2,*/sandbox/*=2,*/base/process/*=2";
+#endif
         v.child_args[9]=L"--log-net-log=" WEX_EXIT_OUTPUT L"\\netlog.json";
         v.child_args[10]=L"--net-log-max-size-mb=8";
         v.child_args[11]=L"--net-log-duration=40";

@@ -26,6 +26,24 @@ def rows(code=127):
 def raw(events):return b''.join((json.dumps(v)+'\n').encode() for v in events)
 
 class ParserTests(unittest.TestCase):
+    def test_token_modes_override_stale_installer_runtime_environment(self):
+        old_build,old_prefix,old_loader=r.BUILD,r.PREFIX,r.cal.APPROVED_LOADER
+        try:
+            for mode in ('token-fixed-r7','token-fixed-r8'):
+                r.configure(mode)
+                with mock.patch.object(r.cal.install,'environment',return_value={'WINE':'stale','WINESERVER':'stale'}):
+                    env=r.environment(r.OUTPUT)
+                self.assertEqual(env['WINE'],str(r.BUILD/'wine'))
+                self.assertEqual(env['WINESERVER'],str(r.BUILD/'server/wineserver'))
+                self.assertEqual(env['WINEPREFIX'],str(r.PREFIX))
+                self.assertEqual(r.HOST,'chromium-'+mode+'-20261031')
+                bound,_=rows()
+                stale=dict(bound,command_line=bound['command_line'].replace('/*=3','/*=2'))
+                with self.assertRaisesRegex(ValueError,'Invalid Chromium held-handle binding'):
+                    r.binding(stale,NONCE,r.cal.win(r.RUNTIME/'chrome.exe'),URL)
+        finally:
+            r.configure('r1')
+            r.BUILD=r.cal.BUILD=old_build;r.PREFIX=r.cal.PREFIX=old_prefix;r.cal.APPROVED_LOADER=old_loader
     def test_cli_selects_only_explicit_r2_or_original_default(self):
         try:
             for flags,mode in (([], 'r1'),(['--module-warn-r2'],'module-warn-r2')):

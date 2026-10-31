@@ -12,7 +12,17 @@ static wchar_t *args[]={L"native-exit.exe",L"--chromium",L"--image",WEX_EXIT_IMA
 
 static void schema(void) {
     struct wex_launch v;int i;
-    assert(wex_validate(14,args,&v));assert(!v.calibration && v.wait_ms==45000 && v.count==8);
+    assert(wex_validate(14,args,&v));assert(!v.calibration && v.wait_ms==45000);
+#ifdef WEX_DIAGNOSTIC
+    assert(v.count==15);
+#if WEX_DIAGNOSTIC == 3
+    assert(!wcscmp(v.child_args[8],L"--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3"));
+#else
+    assert(!wcscmp(v.child_args[8],L"--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2,*/sandbox/*=2,*/base/process/*=2"));
+#endif
+#else
+    assert(v.count==8);
+#endif
     assert(!wcscmp(v.child_args[0],WEX_EXIT_IMAGE));
     assert(!wcscmp(v.child_args[1],L"--app=http://127.0.0.1:43210/0123456789abcdef0123456789abcdef/index.html#nonce=0123456789abcdef0123456789abcdef"));
     assert(!wcscmp(v.child_args[2],L"--user-data-dir=" WEX_EXIT_OUTPUT L"\\profile"));
@@ -61,6 +71,9 @@ static void quoting(void) {
         wchar_t command[4096];struct wex_launch v;
         assert(wex_validate(14,args,&v));assert(wex_command(command,4096,&v));
         assert(wcsstr(command,L"\"--no-first-run\" \"--no-default-browser-check\" \"--enable-logging\""));
+#ifdef WEX_DIAGNOSTIC
+        printf("COMMAND %ls\n",command);
+#endif
         assert(!wcsstr(command,L"--no-sandbox"));assert(!wcsstr(command,L"--disable-"));
         assert(!wex_command(command,20,&v));assert(!wex_command(command,0,&v));
     }

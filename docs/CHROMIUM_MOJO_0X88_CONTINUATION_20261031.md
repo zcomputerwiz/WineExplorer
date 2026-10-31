@@ -305,3 +305,20 @@ test_g4_chromium_observation_tolerance test_g4_userenv_view`, from `scripts/`.
 These Unix-dependent fixtures require `os.geteuid`; they are not Windows-native
 tests. The fresh-mode wiring passes all 34 fixtures. Actual browser outcomes
 must still be measured; the earlier standalone probe success is not acceptance.
+
+The first r7 browser attempt was rejected before acceptance by
+`Invalid Chromium held-handle binding`: the tracked helper compiled
+`WEX_DIAGNOSTIC=1` to level-2 scoped VLOG, while the adapter required level 3.
+The recorded environment also retained the installer's older `WINESERVER`,
+despite selecting the candidate loader. Neither successful orchestration nor
+the standalone token probes makes this a valid candidate browser verdict.
+The original journal and logs remain preserved; owned prefix/runtime clones
+were removed and the VM shut down gracefully.
+
+The fresh `--token-fixed-r8` retry explicitly sets candidate `WINE` and
+`WINESERVER` in the execution environment. `WEX_DIAGNOSTIC=3` now emits the exact
+level-3 command expected by the adapter; existing level-2 builds retain their
+original command. A real compiled C contract test compares the entire command
+against the Python adapter, and fixtures verify stale installer runtime values
+are overridden and mismatched VLOG is still rejected. All 36 related WSL
+fixtures pass. The helper's image/flags/held-handle checks are not weakened.
