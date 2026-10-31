@@ -48,3 +48,60 @@ the current Wine candidate remains unaccepted.
 
 Preserve old logs/builds and use only fresh, exclusively owned paths and
 exact-owned cleanup. Do not enable automatic inbox checks.
+
+## r4 startup diagnosis: blocked before the matrix
+
+The fresh `mojo-token-recon-r4` guest inspection established that the preserved
+build has only `build/wow64`, not a top-level `build/loader`. The real loader
+and server are ELF x86-64, and the loader's `--version` immediately reports
+`wine-11.20`. This refutes the static i386-sub-build hypothesis; changing to an
+absent top-level loader is not a solution.
+
+The guest's Unix `ntdll.so` and both i386/x86_64 `ntdll.dll` hashes match the
+reconciliation host build exactly. The evidence also records loader/server,
+core Unix/PE modules, program hashes and ELF dependencies. This is targeted
+runtime provenance, not a claim that every guest module is verified.
+
+With an exclusively owned fresh prefix, `WINEARCH=win64`, `DISPLAY=` and
+`XDG_RUNTIME_DIR=/run/user/1000`, bounded `wineboot.exe -u` timed out at 90
+seconds (exit 124). The logs show missing display-driver/window creation,
+COM/RpcSs marshaling errors and setupapi copy error 1812. A subsequent x64
+minimal console executable also timed out at 25 seconds (exit 124), with no
+stdout or stderr. The x86 startup case and corrected Mojo A/B matrix were
+not run because initialization did not complete.
+
+The setupapi error is not an established root cause: the source
+`SetupDefaultQueueCallbackW` COPYERROR handler returns `FILEOP_SKIP`.
+The guest had neither a running display server nor installed `Xvfb`/`strace`.
+No packages, images or replacement runtimes were installed. Further execution
+must first establish a working guest session and successful prefix startup;
+the results do not justify attributing the timeout to token access.
+
+The preserved server remained
+`0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab`.
+After fetching logs, the owned prefix server was stopped and its processes
+verified absent; only the owned prefix was removed, restoring 2.5 GiB free.
+The exact launcher PID received TERM. Its result was `stop_reason=signal`,
+`graceful_powerdown=true`, `qemu_exit_status=0`. No QEMU, Xvfb or wineserver
+remained on the WSL host. Preserved trees and old r2/r3 evidence were untouched.
+
+Raw startup/native logs and targeted closure evidence are under
+`docs/evidence/mojo-token-recon-r4-*`. The full local process archive is
+`mojo-r4-logs.tar.gz` in the coordinating session's private artifacts.
+
+## Descriptor candidate review
+
+Codex's `TOKEN_DUPLICATION_SD_PARENT_REVIEW_20261031.md` on
+`codex/g4-r1-completion` (`cabe66a7`) identifies a conformance conflict:
+upstream `test_token_security_descriptor` explicitly expects a custom source
+object-DACL marker not to be inherited by `DuplicateTokenEx` with NULL
+security attributes. NULL attributes create a default object descriptor.
+Source integrity propagation is independently covered by `test_token_label`;
+it does not imply whole owner/group/DACL/SACL inheritance.
+
+Therefore the blanket NULL-descriptor copy in `f2e67abe` is withheld from
+acceptance. The separate SID-matching/default-DACL changes are not rejected
+by this finding, but still need their own regressions. Any descriptor
+preservation required by lowbox creation or process assignment must be
+established at that exact boundary, not granted by generic duplication or a
+self-token exemption.
