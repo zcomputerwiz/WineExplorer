@@ -183,3 +183,46 @@ The delegated Qwen oracle job exceeded its 600-second deadline after reading
 references; it produced no source file or execution results. The coordinating
 agent implemented and executed this bounded oracle directly. This was not
 reported as a successful helper run.
+
+## Recovered runtime A/B execution
+
+Parent recovery `42e727eb` provides an independent R6 runtime with the ten
+required WinMD resources, resolved Unix dependencies, a stopped initialized
+prefix and the existing private Wayland/VirGL recipe. The coordinator reused
+that environment and cloned the stopped prefix independently for each run.
+No preserved runtime or prefix was overwritten.
+
+| Probe, on both x64 and x86 | Recovered baseline `0323c006...` | Candidate `72d6a692...` (`e1a90b94`) |
+| --- | --- | --- |
+| Minimal startup | PASS, exit 0 | PASS, exit 0 |
+| Mojo plain | PASS | PASS |
+| Mojo service_restricted | Child exits early with code 1 | PASS |
+| Mojo network_appcontainer | Child exits early with code 1 | PASS |
+| Mojo overall | Exit 1, two failing modes | Exit 0, all three modes PASS |
+| Native-backed descriptor oracle | Exit 1, eight named failures | Exit 1, same eight named failures |
+
+Every invocation records the actual live wineserver `/proc` executable and
+hash. Both runs verified actual outer VirGL before starting the probes.
+The unchanged descriptor failures are six `.default_marker_not_object`
+assertions for primary/impersonation NULL attributes, NULL descriptor, and
+NULL-after-explicit-low cases, plus the two `.explicit_low_label.object_integrity`
+assertions. Source custom object-DACL marker absence and token integrity
+assertions do not fail. These results support fixing public creation defaults
+and object-label handling without reinstating blanket source-SD copying.
+
+This is an actual probe mode flip, not actual Chromium/browser validation.
+The candidate still fails the focused descriptor contract. Chromium and Edge
+have not been executed in this continuation.
+
+Raw stdout/stderr and per-run identities are in
+`docs/evidence/mojo-recovered-*`, including `mojo-recovered-comparison.json`.
+All owned prefix servers and compositors stopped before log collection.
+Only the owned cloned prefixes and scratch hardlinked runtime were removed;
+the scratch server was unlinked before replacement, leaving the recovered
+baseline hash unchanged.
+
+The initial runner accidentally used `candidate` for both scratch runtime and
+result directory, raising `FileExistsError` after baseline completion. No
+candidate probe ran on that attempt. The retry used `candidate-run`, loaded
+the retained baseline JSON, and explicitly ran candidate-only. All baseline
+evidence was preserved rather than repeated or overwritten.
