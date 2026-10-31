@@ -1,39 +1,51 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""One bounded Wine thread snapshot, isolated to the current private prefix."""
+"""One bounded read-only Linux thread snapshot of the current private prefix."""
 import hashlib
+import json
 from pathlib import Path
-import subprocess
+import time
 
 
-def observe(output, env, build, prefix, *, maximum_seconds=8):
+def observe(output, env, build, prefix, *, maximum_seconds=8, proc_root=Path('/proc'), now=time.monotonic):
     output, build, prefix = Path(output), Path(build), Path(prefix)
     if env.get('WINEPREFIX') != str(prefix) or env.get('WINESERVER') != str(build/'server/wineserver'):
         raise ValueError('Wait snapshot requires exact candidate prefix/server environment')
-    if prefix.name != 'chromium-token-wait-r9-20261031-prefix':
+    if prefix.name not in ('chromium-token-wait-r9-20261031-prefix','chromium-token-wait-r10-20261031-prefix'):
         raise ValueError('Wait snapshot requires dedicated fixed diagnostic prefix')
     if not 0 < maximum_seconds <= 8:
         raise ValueError('Wait snapshot exceeds bounded diagnostic budget')
-    debugger = build/'programs/winedbg/x86_64-windows/winedbg.exe'
-    if not debugger.is_file():
-        raise FileNotFoundError(debugger)
-    snapshot_env = dict(env, WINEDEBUG='-all')
-    command = [str(build/'wine'), str(debugger), '--command', 'bt all']
-    record = {'command': command, 'maximum_seconds': maximum_seconds,
-              'classification': 'One debugger thread snapshot; not uninstrumented browser acceptance',
-              'candidate_server_sha256': hashlib.sha256((build/'server/wineserver').read_bytes()).hexdigest()}
-    with (output/'wait-snapshot.stdout.log').open('wb') as out, (output/'wait-snapshot.stderr.log').open('wb') as err:
-        process = subprocess.Popen(command, env=snapshot_env, stdout=out, stderr=err)
+    deadline=now()+maximum_seconds
+    record={'maximum_seconds':maximum_seconds,'processes':[],'errors':[],
+            'classification':'Read-only private-prefix thread waits; not browser acceptance',
+            'candidate_server_sha256':hashlib.sha256((build/'server/wineserver').read_bytes()).hexdigest()}
+    def bounded():
+        if now()>=deadline:raise TimeoutError('Wait snapshot deadline')
+    def read(path):
+        bounded()
         try:
-            record['exit'] = process.wait(timeout=maximum_seconds)
-            record['timed_out'] = False
-        except subprocess.TimeoutExpired:
-            process.kill()
-            record['exit'] = process.wait(timeout=2)
-            record['timed_out'] = True
-    record['reaped'] = True
-    for stream in ('stdout','stderr'):
-        size=(output/('wait-snapshot.'+stream+'.log')).stat().st_size
-        record[stream+'_bytes']=size
-        if size>8*1024**2:
-            raise ValueError('Wait snapshot output quota exceeded')
+            with path.open('rb') as stream:data=stream.read(65537)
+            if len(data)>65536:raise ValueError('Wait snapshot field quota')
+            return data.decode(errors='replace')
+        except (FileNotFoundError,ProcessLookupError,PermissionError) as error:
+            return {'error':type(error).__name__}
+    marker='WINEPREFIX='+str(prefix)
+    for process in proc_root.iterdir():
+        if not process.name.isdecimal():continue
+        bounded()
+        try:data=(process/'environ').read_bytes()
+        except (FileNotFoundError,ProcessLookupError,PermissionError) as error:
+            record['errors'].append({'pid':process.name,'field':'prefix_identity','error':type(error).__name__})
+            continue
+        if marker.encode() not in data.split(b'\0'):continue
+        if len(record['processes'])>=64:raise ValueError('Wait snapshot process quota')
+        item={'pid':int(process.name),'cmdline':read(process/'cmdline'),'threads':[]}
+        try:tasks=list((process/'task').iterdir())
+        except (FileNotFoundError,ProcessLookupError,PermissionError) as error:
+            item['thread_error']=type(error).__name__;tasks=[]
+        if len(tasks)>512:raise ValueError('Wait snapshot thread quota')
+        for thread in tasks:
+            if not thread.name.isdecimal():continue
+            item['threads'].append({'tid':int(thread.name),**{field:read(thread/field) for field in ('comm','wchan','syscall')}})
+        record['processes'].append(item)
+    (output/'wait-snapshot.json').write_text(json.dumps(record,indent=2)+'\n')
     return record

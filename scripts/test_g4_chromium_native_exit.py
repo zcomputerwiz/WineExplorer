@@ -29,7 +29,7 @@ class ParserTests(unittest.TestCase):
     def test_token_modes_override_stale_installer_runtime_environment(self):
         old_build,old_prefix,old_loader=r.BUILD,r.PREFIX,r.cal.APPROVED_LOADER
         try:
-            for mode in ('token-fixed-r7','token-fixed-r8','token-wait-r9'):
+            for mode in ('token-fixed-r7','token-fixed-r8','token-wait-r9','token-wait-r10','token-pipe-r11'):
                 r.configure(mode)
                 with mock.patch.object(r.cal.install,'environment',return_value={'WINE':'stale','WINESERVER':'stale'}):
                     env=r.environment(r.OUTPUT)
@@ -114,6 +114,39 @@ class ParserTests(unittest.TestCase):
         finally:
             r.configure('r1')
             r.BUILD=original[3];r.cal.BUILD=original[3] # configure('token-fixed-r7') repoints the shared cal module; leave no side effect
+            r.PREFIX=original[4];r.cal.PREFIX=original[4]
+        self.assertEqual((r.OUTPUT,r.STAGE,r.DEBUG,r.BUILD,r.PREFIX),original)
+
+    def test_token_pipe_r11_mode_fresh_paths_pipe_debug_and_r8_shaped_args(self):
+        # WO-20261031-CHROMIUM-TOKEN-PIPE-R11: fresh dedicated identity paths, the r8 enriched
+        # WINEDEBUG mask plus the named-pipe transport channels (+file,+sync) only, the candidate
+        # WINE/WINESERVER environment, and child args identical in shape to token-fixed-r8.
+        original=(r.OUTPUT,r.STAGE,r.DEBUG,r.BUILD,r.PREFIX)
+        try:
+            r.configure('token-fixed-r8');r8_debug=r.DEBUG
+            r.configure('token-pipe-r11')
+            self.assertEqual(r.HOST,'chromium-token-pipe-r11-20261031')
+            self.assertEqual(r.OUTPUT,r.LAB/'chromium-token-pipe-r11-20261031')
+            self.assertEqual(r.STAGE,r.LAB/'chromium-token-pipe-r11-20261031-stage')
+            self.assertEqual(r.PROFILE,r.OUTPUT/'profile')
+            self.assertEqual(str(r.BUILD),str(r.LAB/'chromium-token-pipe-r11-20261031-wine/build/wow64'))
+            self.assertEqual(r.cal.BUILD,r.BUILD);self.assertEqual(r.cal.APPROVED_LOADER,r.BUILD/'loader/wine')
+            self.assertEqual(str(r.PREFIX),str(r.LAB/'chromium-token-pipe-r11-20261031-prefix'))
+            self.assertEqual(r.cal.PREFIX,r.PREFIX)
+            self.assertEqual(r.DEBUG,r8_debug+',+file,+sync')
+            with mock.patch.object(r.cal.install,'environment',return_value={'WINE':'stale','WINESERVER':'stale'}):
+                env=r.environment(r.OUTPUT)
+            self.assertEqual(env['WINE'],str(r.BUILD/'wine'));self.assertEqual(env['WINESERVER'],str(r.BUILD/'server/wineserver'))
+            self.assertEqual(env['WINEPREFIX'],str(r.PREFIX))
+            # Same shape as token-fixed-r8 (15 args, identical level-3 vmodule string);
+            # the netlog/trace/user-data-dir paths legitimately differ (fresh per-mode OUTPUT).
+            args=r.child_args(NONCE,URL)
+            self.assertEqual(len(args),15)
+            self.assertIn('--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3',args)
+            self.assertIn('--trace-startup-file='+r.cal.win(r.OUTPUT/'trace.json'),args)
+        finally:
+            r.configure('r1')
+            r.BUILD=original[3];r.cal.BUILD=original[3]
             r.PREFIX=original[4];r.cal.PREFIX=original[4]
         self.assertEqual((r.OUTPUT,r.STAGE,r.DEBUG,r.BUILD,r.PREFIX),original)
 

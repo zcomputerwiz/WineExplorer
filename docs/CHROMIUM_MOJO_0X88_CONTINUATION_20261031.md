@@ -353,10 +353,38 @@ starting their utility loops. No renderer is created. This proves the browser
 connection did not complete; it does not identify why or prove complete service
 initialization. The WSALookupService error alone is not a proven cause.
 
-The fixed `--token-wait-r9` diagnostic takes one bounded `winedbg --command
-"bt all"` snapshot after five seconds, using only the dedicated prefix and
-exact candidate runtime environment. It does not attach a debugger to an
-unrelated process, alter security settings, or change the browser command.
-The snapshot subprocess is reaped on success or timeout; output and lifetime
-are bounded. This is instrumented diagnostic evidence, not an uninstrumented
-browser acceptance run. All 38 related WSL contract/observer fixtures pass.
+The initial fixed `--token-wait-r9` diagnostic attempted a bounded
+`winedbg --command "bt all"` snapshot after five seconds. It timed out after
+eight seconds with empty output. The browser observer exited with Linux code
+84 and no terminal native journal event; this run is inconclusive and must
+not be interpreted as a browser exit code or root-cause evidence. Its owned
+runtime/prefix were cleaned and the guest shut down gracefully.
+
+The fresh `--token-wait-r10` observer replaces the debugger with read-only
+`/proc` observations scoped by the exact private `WINEPREFIX`: process command
+lines and thread names, wait channels and current syscalls. Missing/denied
+fields are recorded explicitly. It launches no process, attaches no debugger,
+captures no memory dump or environment secrets, and preserves the normal
+browser command. Runtime, field, process and thread quotas remain bounded.
+
+The r10 read-only snapshot completed with 17 prefix processes, including the
+candidate server's exact hash. Utility main/IO threads were waiting in Linux
+`pipe_read`; this by itself does not distinguish ordinary Wine server waits
+from the invitation failure. The browser process's prefix-identity read was
+denied (`PermissionError`), so its omission is **not** evidence that the
+browser was absent. The exact native journal again records a 45-second
+timeout and the fixture records zero requests. Cleanup and shutdown succeeded.
+
+The next fixed transport diagnostic adds only `+file,+sync` to the Wine debug
+channels, retaining the same level-3 Chromium command and all sandbox/identity
+checks. The synthetic Mojo probe does exercise named pipes and IOCP; it is
+not a complete Chromium broker/child invitation implementation. Diagnostics
+must discriminate the actual pipe/create/open/read/write path rather than
+assuming the probe contains no transport.
+
+The r11 full `+file,+sync` trace exceeded the unchanged 1-MiB calibration
+stderr quota after about one second during loader startup. That run has no
+terminal native record and cannot decide the browser failure. Its trace must
+not be presented as a browser crash or as a connection verdict. The follow-up
+will use pipe-only diagnostic instrumentation rather than raise the evidence
+quota or drop unrecorded trace output.

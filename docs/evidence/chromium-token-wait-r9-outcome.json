@@ -1,0 +1,236 @@
+{
+  "classification": "Inconclusive wait diagnostic; not browser acceptance",
+  "result": {
+    "error": "ValueError('Linux helper failed/exit mismatch')",
+    "wait_snapshot": {
+      "command": [
+        "/home/debian/wex-g4/chromium-token-wait-r9-20261031-wine/build/wow64/wine",
+        "/home/debian/wex-g4/chromium-token-wait-r9-20261031-wine/build/wow64/programs/winedbg/x86_64-windows/winedbg.exe",
+        "--command",
+        "bt all"
+      ],
+      "maximum_seconds": 8,
+      "classification": "One debugger thread snapshot; not uninstrumented browser acceptance",
+      "candidate_server_sha256": "196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800",
+      "exit": -9,
+      "timed_out": true,
+      "reaped": true,
+      "stdout_bytes": 0,
+      "stderr_bytes": 0
+    },
+    "journal_outcome": null,
+    "journal_parse_error": "ValueError('Exactly one terminal native event required')",
+    "http_fixture": {
+      "classification": "HTTP writes only; browser consumption NOT_PROVEN",
+      "requests": [],
+      "errors": [],
+      "sources": {
+        "index.html": {
+          "path": "/home/debian/wex-g4/chromium-token-wait-r9-20261031-stage/scripts/g4-edge-probe/index.html",
+          "bytes": 637,
+          "sha256": "f0a47b1a6013c015228c3e6c76a0a73b5d3eb6c218ec031a34dd8da7e0c0edc3"
+        },
+        "scene.js": {
+          "path": "/home/debian/wex-g4/chromium-token-wait-r9-20261031-stage/scripts/g4-edge-probe/scene.js",
+          "bytes": 3750,
+          "sha256": "fe9b1801a7d4baa3512fb4e103330e317d17c9f2e2763abf8f14a275c686ee51"
+        }
+      },
+      "connection_timeout_seconds": 0.5,
+      "maximum_requests": 64,
+      "listener": {
+        "host": "127.0.0.1",
+        "port": 42591
+      },
+      "started_monotonic": 95.506425458,
+      "url": "http://127.0.0.1:42591/781e8762c0b1bd43e37500914856eff4/index.html#nonce=781e8762c0b1bd43e37500914856eff4",
+      "stopped_monotonic": 108.847075433,
+      "thread_stopped": true
+    },
+    "linux_helper_exit_observed": {
+      "code": 84,
+      "monotonic": 108.54760007,
+      "before_cleanup": true
+    },
+    "cleanup_complete": true,
+    "remaining_prefix_processes": {}
+  },
+  "shutdown": {
+    "classification": "Guest bootstrap only, not Chromium rendering acceptance",
+    "host_gl": {
+      "passed": true,
+      "stdout": "name of display: :0\ndisplay: :0  screen: 0\ndirect rendering: Yes\nExtended renderer info (GLX_MESA_query_renderer):\n    Vendor: Microsoft Corporation (0xffffffff)\n    Device: D3D12 (Intel(R) UHD Graphics 750) (0xffffffff)\n    Version: 25.0.7\n    Accelerated: yes\n    Video memory: 104819MB\n    Unified memory: yes\n    Preferred profile: core (0x1)\n    Max core profile version: 4.1\n    Max compat profile version: 4.1\n    Max GLES1 profile version: 1.1\n    Max GLES[23] profile version: 3.0\nMemory info (GL_ATI_meminfo):\n    VBO free memory - total: 103915 MB, largest block: 103915 MB\n    VBO free aux. memory - total: 0 MB, largest block: 0 MB\n    Texture free memory - total: 103915 MB, largest block: 103915 MB\n    Texture free aux. memory - total: 0 MB, largest block: 0 MB\n    Renderbuffer free memory - total: 103915 MB, largest block: 103915 MB\n    Renderbuffer free aux. memory - total: 0 MB, largest block: 0 MB\nMemory info (GL_NVX_gpu_memory_info):\n    Dedicated video memory: 104819 MB\n    Total available memory: 104819 MB\n    Currently available dedicated video memory: 103915 MB\nOpenGL vendor string: Microsoft Corporation\nOpenGL renderer string: D3D12 (Intel(R) UHD Graphics 750)\nOpenGL core profile version string: 4.1 (Core Profile) Mesa 25.0.7-2+deb13u1\nOpenGL core profile shading language version string: 4.10\nOpenGL core profile context flags: (none)\nOpenGL core profile profile mask: core profile\n\nOpenGL version string: 4.1 (Compatibility Profile) Mesa 25.0.7-2+deb13u1\nOpenGL shading language version string: 4.10\nOpenGL context flags: (none)\nOpenGL profile mask: compatibility profile\n\nOpenGL ES profile version string: OpenGL ES 3.0 Mesa 25.0.7-2+deb13u1\nOpenGL ES profile shading language version string: OpenGL ES GLSL ES 3.00\n\n",
+      "exit_code": 0
+    },
+    "command": [
+      "qemu-system-x86_64",
+      "-accel",
+      "kvm",
+      "-machine",
+      "q35",
+      "-cpu",
+      "host",
+      "-smp",
+      "4",
+      "-m",
+      "8192",
+      "-device",
+      "virtio-vga-gl",
+      "-display",
+      "gtk,gl=on",
+      "-drive",
+      "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/system-native-identity-r4-20261024.qcow2,format=qcow2,if=virtio",
+      "-drive",
+      "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/seed.iso,format=raw,media=cdrom,readonly=on",
+      "-nic",
+      "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2235-:22",
+      "-serial",
+      "file:/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r9-20261031/serial.log",
+      "-qmp",
+      "unix:/var/tmp/wex-g4-tree-20261020/isolated-sockets/virgl-runtime-p3wc9tsc/qmp.sock,server=on,wait=off",
+      "-no-reboot"
+    ],
+    "pid": 6876,
+    "exit_before_shutdown": null,
+    "stop_reason": "signal",
+    "graceful_powerdown": true,
+    "fallback_used": false,
+    "shutdown_started_monotonic": 15898.128391427,
+    "qmp": {
+      "started_monotonic": 15898.177552453,
+      "maximum_seconds": 50,
+      "request_ids": {
+        "capabilities": "8952b54a8cbafd7b35ee748c837323c3-capabilities",
+        "powerdown": "8952b54a8cbafd7b35ee748c837323c3-powerdown"
+      },
+      "capabilities_ack": true,
+      "powerdown_requested": true,
+      "powerdown_ack": true,
+      "guest_shutdown_observed": true,
+      "protocol_complete": true,
+      "events": [
+        {
+          "message": {
+            "timestamp": {
+              "seconds": 1793488240,
+              "microseconds": 991825
+            },
+            "event": "POWERDOWN"
+          },
+          "before_powerdown_request": false,
+          "observed_monotonic": 15898.178843972
+        },
+        {
+          "message": {
+            "timestamp": {
+              "seconds": 1793488249,
+              "microseconds": 218634
+            },
+            "event": "SHUTDOWN",
+            "data": {
+              "guest": true,
+              "reason": "guest-shutdown"
+            }
+          },
+          "before_powerdown_request": false,
+          "observed_monotonic": 15906.405727354
+        }
+      ],
+      "transcript": [
+        {
+          "direction": "rx",
+          "monotonic": 15898.177857107,
+          "bytes": 141,
+          "base64": "eyJRTVAiOiB7InZlcnNpb24iOiB7InFlbXUiOiB7Im1pY3JvIjogMTMsICJtaW5vciI6IDAsICJtYWpvciI6IDEwfSwgInBhY2thZ2UiOiAiRGViaWFuIDE6MTAuMC4xMytkcy0wK2RlYjEzdTEifSwgImNhcGFiaWxpdGllcyI6IFsib29iIl19fQ0K",
+          "before_powerdown_request": true
+        },
+        {
+          "direction": "tx",
+          "monotonic": 15898.178007958,
+          "bytes": 85,
+          "base64": "eyJleGVjdXRlIjoicW1wX2NhcGFiaWxpdGllcyIsImlkIjoiODk1MmI1NGE4Y2JhZmQ3YjM1ZWU3NDhjODM3MzIzYzMtY2FwYWJpbGl0aWVzIn0NCg==",
+          "completed": true
+        },
+        {
+          "direction": "rx",
+          "monotonic": 15898.17838065,
+          "bytes": 71,
+          "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjg5NTJiNTRhOGNiYWZkN2IzNWVlNzQ4YzgzNzMyM2MzLWNhcGFiaWxpdGllcyJ9DQo=",
+          "before_powerdown_request": true
+        },
+        {
+          "direction": "tx",
+          "monotonic": 15898.178468607,
+          "bytes": 82,
+          "base64": "eyJleGVjdXRlIjoic3lzdGVtX3Bvd2VyZG93biIsImlkIjoiODk1MmI1NGE4Y2JhZmQ3YjM1ZWU3NDhjODM3MzIzYzMtcG93ZXJkb3duIn0NCg==",
+          "completed": true
+        },
+        {
+          "direction": "rx",
+          "monotonic": 15898.178804075,
+          "bytes": 86,
+          "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDg4MjQwLCAibWljcm9zZWNvbmRzIjogOTkxODI1fSwgImV2ZW50IjogIlBPV0VSRE9XTiJ9DQo=",
+          "before_powerdown_request": false
+        },
+        {
+          "direction": "rx",
+          "monotonic": 15898.178852567,
+          "bytes": 68,
+          "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjg5NTJiNTRhOGNiYWZkN2IzNWVlNzQ4YzgzNzMyM2MzLXBvd2VyZG93biJ9DQo=",
+          "before_powerdown_request": false
+        },
+        {
+          "direction": "rx",
+          "monotonic": 15906.405648859,
+          "bytes": 138,
+          "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDg4MjQ5LCAibWljcm9zZWNvbmRzIjogMjE4NjM0fSwgImV2ZW50IjogIlNIVVRET1dOIiwgImRhdGEiOiB7Imd1ZXN0IjogdHJ1ZSwgInJlYXNvbiI6ICJndWVzdC1zaHV0ZG93biJ9fQ0K",
+          "before_powerdown_request": false
+        }
+      ],
+      "greeting": {
+        "QMP": {
+          "version": {
+            "qemu": {
+              "micro": 13,
+              "minor": 0,
+              "major": 10
+            },
+            "package": "Debian 1:10.0.13+ds-0+deb13u1"
+          },
+          "capabilities": [
+            "oob"
+          ]
+        }
+      },
+      "powerdown_request_monotonic": 15898.178498447,
+      "finished_monotonic": 15906.405769627,
+      "elapsed_seconds": 8.228217173998928
+    },
+    "qemu_exit_status": 0,
+    "cleanup": {
+      "qemu_stopped": true,
+      "xvfb_stopped": true
+    },
+    "shutdown_elapsed_seconds": 8.499240923998514,
+    "launcher_identity": {
+      "pid": 6861,
+      "start_ticks": 1567980,
+      "cmdline": [
+        "python3",
+        "-B",
+        "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py"
+      ],
+      "run_name": "chromium-token-wait-r9-20261031",
+      "run_dir": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r9-20261031",
+      "launcher_path": "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py",
+      "identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r9-20261031/launcher-identity.json",
+      "qemu_pid": 6876,
+      "qemu_start_ticks": 1568109,
+      "qemu_cmdline": [],
+      "xvfb_pid": 6863,
+      "xvfb_start_ticks": 1568020,
+      "xvfb_cmdline": []
+    },
+    "launcher_identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r9-20261031/launcher-identity.json"
+  }
+}
