@@ -150,6 +150,118 @@ static BOOL copy_kernel_object_dacl(HANDLE src, HANDLE dst)
     return SetKernelObjectSecurity(dst, DACL_SECURITY_INFORMATION, (PSECURITY_DESCRIPTOR)sd_buf);
 }
 
+/* Matches sandbox::RestrictedToken::SetDefaultDacl (restricted_token.cc:184-249) */
+static BOOL set_restricted_token_default_dacl(HANDLE hToken, HANDLE hBase)
+{
+    BYTE ubuf[256];
+    DWORD ulen = 0;
+    if (!GetTokenInformation(hBase, TokenUser, ubuf, sizeof(ubuf), &ulen)) return FALSE;
+    TOKEN_USER *tu = (TOKEN_USER *)ubuf;
+
+    PSID pRestricted = NULL;
+    if (!ConvertStringSidToSidW(L"S-1-5-12", &pRestricted)) return FALSE;
+
+    DWORD aclSize = sizeof(ACL) + 2 * sizeof(ACCESS_ALLOWED_ACE) +
+                    GetLengthSid(tu->User.Sid) + GetLengthSid(pRestricted) + 32;
+    PACL pAcl = (PACL)LocalAlloc(LPTR, aclSize);
+    if (!pAcl || !InitializeAcl(pAcl, aclSize, ACL_REVISION)) {
+        LocalFree(pRestricted);
+        if (pAcl) LocalFree(pAcl);
+        return FALSE;
+    }
+
+    AddAccessAllowedAce(pAcl, ACL_REVISION, GENERIC_ALL, tu->User.Sid);
+    AddAccessAllowedAce(pAcl, ACL_REVISION, GENERIC_ALL, pRestricted);
+    LocalFree(pRestricted);
+
+    TOKEN_DEFAULT_DACL tdd;
+    tdd.DefaultDacl = pAcl;
+    BOOL ok = SetTokenInformation(hToken, TokenDefaultDacl, &tdd, sizeof(tdd));
+    DWORD err = ok ? 0 : GetLastError();
+    LocalFree(pAcl);
+    SetLastError(err);
+    return ok;
+}
+
+/* Matches sandbox::ReplacePackageSidInDacl (sandbox_policy_base.cc:89-108) */
+static BOOL replace_package_sid_in_token_dacl(HANDLE hToken, PSID package_sid, ACCESS_MASK access)
+{
+    DWORD needed = 0;
+    GetKernelObjectSecurity(hToken, DACL_SECURITY_INFORMATION, NULL, 0, &needed);
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed == 0) return FALSE;
+
+    PSECURITY_DESCRIPTOR pOldSd = (PSECURITY_DESCRIPTOR)LocalAlloc(LPTR, needed);
+    if (!pOldSd || !GetKernelObjectSecurity(hToken, DACL_SECURITY_INFORMATION, pOldSd, needed, &needed)) {
+        if (pOldSd) LocalFree(pOldSd);
+        return FALSE;
+    }
+
+    PACL pOldDacl = NULL;
+    BOOL daclPresent = FALSE, daclDefaulted = FALSE;
+    if (!GetSecurityDescriptorDacl(pOldSd, &daclPresent, &pOldDacl, &daclDefaulted) || !daclPresent) {
+        LocalFree(pOldSd);
+        return FALSE;
+    }
+
+    PSID pAllAppPackages = NULL;
+    if (!ConvertStringSidToSidW(L"S-1-15-2-1", &pAllAppPackages)) {
+        LocalFree(pOldSd);
+        return FALSE;
+    }
+
+    DWORD newAclSize = (pOldDacl ? pOldDacl->AclSize : sizeof(ACL)) +
+                       sizeof(ACCESS_ALLOWED_ACE) + GetLengthSid(pAllAppPackages) + 64;
+    PACL pNewDacl = (PACL)LocalAlloc(LPTR, newAclSize);
+    if (!pNewDacl || !InitializeAcl(pNewDacl, newAclSize, ACL_REVISION)) {
+        LocalFree(pAllAppPackages);
+        LocalFree(pOldSd);
+        if (pNewDacl) LocalFree(pNewDacl);
+        return FALSE;
+    }
+
+    if (!AddAccessAllowedAce(pNewDacl, ACL_REVISION, access, pAllAppPackages)) {
+        LocalFree(pAllAppPackages);
+        LocalFree(pOldSd);
+        LocalFree(pNewDacl);
+        return FALSE;
+    }
+    LocalFree(pAllAppPackages);
+
+    if (pOldDacl) {
+        for (USHORT i = 0; i < pOldDacl->AceCount; i++) {
+            LPVOID pAce = NULL;
+            if (GetAce(pOldDacl, i, &pAce)) {
+                ACE_HEADER *hdr = (ACE_HEADER *)pAce;
+                PSID aceSid = NULL;
+                if (hdr->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+                    aceSid = (PSID)&((ACCESS_ALLOWED_ACE *)pAce)->SidStart;
+                } else if (hdr->AceType == ACCESS_DENIED_ACE_TYPE) {
+                    aceSid = (PSID)&((ACCESS_DENIED_ACE *)pAce)->SidStart;
+                }
+                if (aceSid && package_sid && EqualSid(aceSid, package_sid)) {
+                    continue;
+                }
+                AddAce(pNewDacl, ACL_REVISION, MAXDWORD, pAce, hdr->AceSize);
+            }
+        }
+    }
+
+    SECURITY_DESCRIPTOR newSd;
+    if (!InitializeSecurityDescriptor(&newSd, SECURITY_DESCRIPTOR_REVISION) ||
+        !SetSecurityDescriptorDacl(&newSd, TRUE, pNewDacl, FALSE)) {
+        LocalFree(pOldSd);
+        LocalFree(pNewDacl);
+        return FALSE;
+    }
+
+    BOOL ok = SetKernelObjectSecurity(hToken, DACL_SECURITY_INFORMATION, &newSd);
+    DWORD err = ok ? 0 : GetLastError();
+    LocalFree(pOldSd);
+    LocalFree(pNewDacl);
+    SetLastError(err);
+    return ok;
+}
+
 static DWORD query_token_il(HANDLE hTok)
 {
     BYTE buf[256];
@@ -295,6 +407,11 @@ static BOOL create_chromium_restricted_token(
         return FALSE;
     }
 
+    /* Set TokenDefaultDacl per sandbox/win/src/restricted_token.cc:184-249 */
+    if (!lockdown_mode) {
+        set_restricted_token_default_dacl(hFinal, hBase);
+    }
+
     *out_tok = hFinal;
     return TRUE;
 }
@@ -400,26 +517,44 @@ static int run_child(const char *mode, uintptr_t raw_pipe_h)
         return 18;
     }
 
-    /* 4. TargetServicesBase::LowerToken sequence (sandbox/win/src/target_services.cc:127-155) */
+    /* 4. Dequeue Read #1 from IOCP and validate Mojo invitation payload BEFORE LowerToken */
+    DWORD r1_bytes = 0;
+    if (!wait_iocp_packet(child_iocp, CHILD_IOCP_KEY, &child_read_ovl1, &r1_bytes, "CHILD", mode, "STAGE4_READ1_IOCP")) {
+        log_line("CHILD", mode, "FAIL: wait_iocp_packet(Read #1) failed");
+        return 19;
+    }
+    if (r1_bytes != sizeof(rx1) || rx1.magic != PROBE_MAGIC_P2C_1 || strcmp(rx1.payload, "MOJO_INVITATION_CONNECT_NODE") != 0) {
+        log_line("CHILD", mode, "FAIL: ReadFile #1 bad payload bytes=%lu magic=0x%08x payload=\"%s\"",
+                 r1_bytes, rx1.magic, rx1.payload);
+        return 20;
+    }
+    log_line("CHILD", mode, "STAGE4_READ1_VERIFIED bytes=%lu magic=0x%08x payload=\"%s\"",
+             r1_bytes, rx1.magic, rx1.payload);
+
+    /* 5. TargetServicesBase::LowerToken sequence (sandbox/win/src/target_services.cc:127-155) */
     if (strcmp(mode, "service_restricted") == 0 || strcmp(mode, "network_appcontainer") == 0) {
         HANDLE hTokAdj = NULL;
-        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_DEFAULT | TOKEN_QUERY, &hTokAdj)) {
+        /* AccessToken::FromCurrentProcess(false, TOKEN_ADJUST_DEFAULT) per target_services.cc:93-99 */
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_DEFAULT, &hTokAdj)) {
             /* StorageService lowers to Untrusted (S-1-16-0), NetworkService lowers to Low (S-1-16-4096) */
             const wchar_t *target_il = (strcmp(mode, "service_restricted") == 0) ? L"S-1-16-0" : L"S-1-16-4096";
             BOOL il_ok = set_token_il_str(hTokAdj, target_il);
             log_line("CHILD", mode, "STAGE3_SET_DELAYED_IL target=%ls ok=%d err=%lu",
                      target_il, (int)il_ok, il_ok ? 0 : GetLastError());
             CloseHandle(hTokAdj);
-            if (!il_ok) return 13;
+            if (!il_ok) {
+                log_line("CHILD", mode, "FAIL: SetProcessIntegrityLevel failed err=%lu -> SBOX_FATAL_INTEGRITY(1)", GetLastError());
+                return 1; /* SBOX_FATAL_INTEGRITY */
+            }
         } else {
-            log_line("CHILD", mode, "STAGE3_SET_DELAYED_IL OpenProcessToken(TOKEN_ADJUST_DEFAULT) failed err=%lu", GetLastError());
-            return 13;
+            log_line("CHILD", mode, "FAIL: OpenProcessToken(TOKEN_ADJUST_DEFAULT) failed err=%lu -> SBOX_FATAL_INTEGRITY(1)", GetLastError());
+            return 1; /* SBOX_FATAL_INTEGRITY */
         }
     }
 
     if (!RevertToSelf()) {
-        log_line("CHILD", mode, "FAIL: RevertToSelf failed err=%lu", GetLastError());
-        return 14;
+        log_line("CHILD", mode, "FAIL: RevertToSelf failed err=%lu -> SBOX_FATAL_DROPTOKEN(2)", GetLastError());
+        return 2; /* SBOX_FATAL_DROPTOKEN */
     }
 
     HANDLE hAfterThreadTok = NULL;
@@ -462,16 +597,6 @@ static int run_child(const char *mode, uintptr_t raw_pipe_h)
     if (still_imp || after_imp_err != ERROR_NO_TOKEN) {
         log_line("CHILD", mode, "FAIL: thread still impersonating after RevertToSelf");
         return 15;
-    }
-
-    /* 5. Dequeue Read #1 from IOCP after LowerToken */
-    DWORD r1_bytes = 0;
-    if (!wait_iocp_packet(child_iocp, CHILD_IOCP_KEY, &child_read_ovl1, &r1_bytes, "CHILD", mode, "STAGE4_READ1_IOCP")) {
-        return 19;
-    }
-    if (r1_bytes != sizeof(rx1) || rx1.magic != PROBE_MAGIC_P2C_1 || strcmp(rx1.payload, "MOJO_INVITATION_CONNECT_NODE") != 0) {
-        log_line("CHILD", mode, "FAIL: ReadFile #1 bad payload bytes=%lu magic=0x%08x", r1_bytes, rx1.magic);
-        return 20;
     }
 
     /* Validate pre-resume shared policy section & in-band transferred handles under lowered lockdown token */
@@ -684,6 +809,11 @@ static int run_parent_mode(const char *mode)
             log_line("PARENT", mode, "FAIL: create_chromium_restricted_token(network primary) failed err=%lu", GetLastError());
             return 1;
         }
+
+        /* Rewrite primary token object DACL per sandbox_policy_base.cc:615-618 */
+        BOOL rep_ok = replace_package_sid_in_token_dacl(hLockdown, ac_sid, TOKEN_ALL_ACCESS);
+        log_line("PARENT", mode, "STAGE2_REPLACE_PACKAGE_SID_DACL ok=%d err=%lu",
+                 (int)rep_ok, rep_ok ? 0 : GetLastError());
 
         /* Impersonation initial token built with CreateAppContainerToken from restricted token (sandbox_policy_base.cc:624-633) */
         pfn_CreateAppContainerToken pCreateAC = hKbase ? (pfn_CreateAppContainerToken)(void *)GetProcAddress(hKbase, "CreateAppContainerToken") : NULL;
@@ -938,8 +1068,11 @@ static int run_parent_mode(const char *mode)
         fwrite(shared_view->child_log, 1, shared_view->log_len, stdout);
         fflush(stdout);
     }
-    log_line("PARENT", mode, "STAGE4_CHILD_EXIT wait=%lu exit_code=%lu shared_section_child_pid=%u",
-             wres, child_exit, child_wrote_pid);
+    const char *exit_desc = (child_exit == 0) ? "PASS" :
+                            (child_exit == 1) ? "SBOX_FATAL_INTEGRITY" :
+                            (child_exit == 2) ? "SBOX_FATAL_DROPTOKEN" : "ERROR";
+    log_line("PARENT", mode, "STAGE4_CHILD_EXIT wait=%lu exit_code=%lu (%s) shared_section_child_pid=%u",
+             wres, child_exit, exit_desc, child_wrote_pid);
 
     if (shared_view) UnmapViewOfFile(shared_view);
     CloseHandle(hSharedMap);
