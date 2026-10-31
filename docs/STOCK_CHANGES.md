@@ -1218,10 +1218,26 @@ Wine topic `f2e67abe` changes only `server/token.c`, above `ce87bac0`:
   propagation whether or not an explicit descriptor is supplied.
 
 These are topic candidates, not a production Wine pin or a confirmed Chromium
-fix. The corrected native Mojo probe passes at mask `0x88`, but the guest
-startup prerequisite fails before any valid A/B mode verdict. See
+fix. After guest recovery, the corrected Mojo probe passes all three modes
+at mask `0x88` on x64 and x86 with the candidate; the baseline still fails
+both sandboxed modes. See
 [the continuation and raw evidence](CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md).
 The native descriptor oracle further distinguishes the token's integrity
 state from an explicitly supplied object label; the baseline rollback is not
-full descriptor conformance. Public creator defaults and internal assignment
-boundaries remain unaccepted pending matched guest comparisons.
+full descriptor conformance.
+
+The subsequent public-duplication correction changes
+`server/{token.c,security.h,process.c,named_pipe.c}`: an explicit public/internal
+flag limits creator-default descriptor initialization to public token
+duplication. An explicit object mandatory label is preserved; an omitted
+label derives from source token integrity state rather than the source object
+label. Omitted object defaults no longer leak the source token default DACL.
+Allocation and descriptor-setting failures release the duplicate and propagate
+failure. Internal filter, lowbox, process and named-pipe callers retain the
+prior label behavior; no access-check exemptions or restrictions are removed.
+
+Matched guest x64/x86 each pass all 114 named native-backed descriptor
+assertions and all three Mojo modes with server SHA-256
+`196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800`.
+This establishes the focused public contract, not every effective-creator
+context or internal assignment contract, nor actual Chromium/Edge acceptance.

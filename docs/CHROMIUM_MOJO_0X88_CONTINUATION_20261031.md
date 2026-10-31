@@ -226,3 +226,58 @@ result directory, raising `FileExistsError` after baseline completion. No
 candidate probe ran on that attempt. The retry used `candidate-run`, loaded
 the retained baseline JSON, and explicitly ran candidate-only. All baseline
 evidence was preserved rather than repeated or overwritten.
+
+## Public descriptor correction: matched guest evidence
+
+The narrow public/internal duplication boundary preserves explicit mandatory
+object labels and initializes omitted public object defaults without inheriting
+the source TokenDefaultDacl. Omitted labels follow source token integrity
+state, not an explicitly lowered source object label. Wine topic `59f4bc31`
+contains the correction. Internal callers retain
+their prior source-label behavior. Descriptor-setting/allocation failures now
+propagate rather than returning a partially initialized token.
+
+In fresh VM run `mojo-recovered-fixed-r7`, baseline and corrected server used
+independent clones of the stopped recovery prefix and private Wayland/VirGL.
+Both architectures passed minimal startup. The baseline repeated its two
+sandboxed Mojo failures and eight named descriptor failures. The correction
+passed all three Mojo modes (exit 0) and all **114 unique named descriptor
+assertions** (exit 0) on both x64 and x86, with no skips. Each invocation verified
+one live server with its exact expected hash. Candidate SHA-256:
+`196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800`.
+Raw output and identities: `docs/evidence/mojo-fixed-*`.
+
+The Wine build succeeded with the existing, unrelated `req_filter_token`
+variable-sized-group array-bounds warning. No broader effective-creator
+owner/group equivalence or internal assignment conformance is claimed.
+All owned cloned prefixes and the scratch runtime were removed after process
+absence checks; the preserved baseline hash is unchanged. Launcher shutdown
+was graceful (`fallback_used=false`, `qemu_exit_status=0`), with no host
+QEMU/Xvfb/wineserver processes remaining. Actual Chromium and Edge validation
+remains outstanding.
+
+## Durable runtime packaging prerequisite
+
+`scripts/g4_combined_r6_deploy.py` is the tracked archive implementation used
+by the local R6 trial. It parses the actual staged `wow64/loader/wine.inf`
+`[WinmdFiles]` section, validates nonempty regular nonsymlink source resources
+under the explicitly supplied original build `include/` before writing any
+archive, and places them under
+`wow64/include/` in the consumer's in-tree runtime. Resource content hashes
+are included in the same runtime manifest; the launcher symlink remains a
+symlink rather than being dereferenced into an incompatible runtime layout.
+
+The fixture suite `python -m unittest discover -s scripts -p
+test_g4_combined_r6_deploy.py` is independent of ignored private trial files
+and a populated Wine submodule. Ten cases cover exact resource placement,
+hashes, launcher-link preservation, metadata authority, missing/empty files,
+and rejecting path escapes. Recovery identified ten missing WinMD resources
+as the setupapi initialization hang; this guards against redeploying that
+incomplete runtime. The staged runtime's own `include/` was measured to be
+missing all ten resources, so the local trial explicitly supplies
+`/mnt/d/DeepThought/Builds/wine-reconciliation/build/include`, without modifying
+the read-only staging tree. That explicit production preflight passes all ten
+required resources, totaling 111104 bytes. A real launcher-symlink case runs
+on WSL; Windows skips only that case when symlink privilege is unavailable.
+The actual deployed recipe remains authoritative, not
+the fixture's ten-name sample.

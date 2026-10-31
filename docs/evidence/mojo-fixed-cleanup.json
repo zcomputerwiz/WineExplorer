@@ -1,0 +1,8 @@
+{
+  "removed_owned_paths": [
+    "/home/debian/mojo-recovered-r6-20261031-fixed/baseline-run/prefix",
+    "/home/debian/mojo-recovered-r6-20261031-fixed/candidate-run/prefix",
+    "/home/debian/mojo-recovered-r6-20261031-fixed/candidate"
+  ],
+  "preserved_baseline_server_sha256": "0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab"
+}

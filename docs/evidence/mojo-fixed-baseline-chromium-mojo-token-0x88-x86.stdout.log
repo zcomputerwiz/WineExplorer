@@ -1,0 +1,52 @@
+[PARENT:plain] === BEGIN MODE plain ===
+[PARENT:plain] STAGE1_CHANNEL server=0x3c client=0x40 ConnectNamedPipe=0(err=535,exp=535) ClientPid=264(ok=1)
+[PARENT:plain] STAGE2_LAUNCHED child_pid=272 child_tid=276 mojo_client_h=0x40
+[PARENT:plain] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2
+[PARENT:plain] STAGE2_SHARED_SECTION duplicated into child as 0x14
+[PARENT:plain] STAGE4_PARENT_READ1_PREPOST ok=0 err=997
+[PARENT:plain] STAGE2_RESUMED prev_suspend=1
+[PARENT:plain] STAGE4_PARENT_WRITE1_POST ok=1 err=0
+[PARENT:plain] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5b4 (exp=0036f5b4)
+[PARENT:plain] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5a0 (exp=0036f5a0)
+[PARENT:plain] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5c8 (exp=0036f5c8)
+[CHILD:plain] STAGE3_START pid=272 tid=276 mojo_handle=0x40
+[CHILD:plain] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=264(ok=1,err=0)
+[CHILD:plain] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x3000,ac=0) proc_tok=1(il=0x3000,ac=0)
+[CHILD:plain] STAGE4_READ1_POST ok=1 err=0
+[CHILD:plain] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea78 (exp=0036ea78)
+[CHILD:plain] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload="MOJO_INVITATION_CONNECT_NODE"
+[CHILD:plain] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x3000 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0
+[CHILD:plain] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853
+[CHILD:plain] STAGE4_INBAND_HANDLES event=0x20(info=1,wait=0) shmem=0x24(info=1,data="MOJO_SHMEM_PORTAL_OK")
+[CHILD:plain] STAGE4_READ2_PREPOST ok=0 err=997
+[CHILD:plain] STAGE4_WRITE1_POST ok=1 err=0
+[CHILD:plain] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036eaa0 (exp=0036eaa0)
+[CHILD:plain] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea8c (exp=0036ea8c)
+[CHILD:plain] CHILD_PASS all stages succeeded
+[PARENT:plain] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=272
+[PARENT:plain] === MODE plain VERDICT: PASS ===
+[PARENT:service_restricted] === BEGIN MODE service_restricted ===
+[PARENT:service_restricted] STAGE1_CHANNEL server=0x3c client=0x40 ConnectNamedPipe=0(err=535,exp=535) ClientPid=264(ok=1)
+[PARENT:service_restricted] STAGE2_LAUNCHED child_pid=280 child_tid=284 mojo_client_h=0x40
+[PARENT:service_restricted] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2
+[PARENT:service_restricted] STAGE2_SHARED_SECTION duplicated into child as 0x14
+[PARENT:service_restricted] STAGE4_PARENT_READ1_PREPOST ok=0 err=997
+[PARENT:service_restricted] STAGE2_RESUMED prev_suspend=1
+[PARENT:service_restricted] STAGE4_PARENT_WRITE1_POST ok=1 err=0
+[PARENT:service_restricted] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5b4 (exp=0036f5b4)
+[PARENT:service_restricted] STAGE4_PARENT_READ1_IOCP: GQCS ok=0 err=109 bytes=0 key=0x11110001 (exp=0x11110001) ovl=0036f5a0 (exp=0036f5a0)
+[PARENT:service_restricted] FAIL: child exited early with code=0x1 (1)
+[PARENT:network_appcontainer] === BEGIN MODE network_appcontainer ===
+[PARENT:network_appcontainer] STAGE1_CHANNEL server=0x4c client=0x50 ConnectNamedPipe=0(err=535,exp=535) ClientPid=264(ok=1)
+[PARENT:network_appcontainer] STAGE2_AC_REGISTER hr=0x800700b7
+[PARENT:network_appcontainer] STAGE2_REPLACE_PACKAGE_SID_DACL ok=1 err=0
+[PARENT:network_appcontainer] STAGE2_LAUNCHED child_pid=288 child_tid=292 mojo_client_h=0x50
+[PARENT:network_appcontainer] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2
+[PARENT:network_appcontainer] STAGE2_SHARED_SECTION duplicated into child as 0x14
+[PARENT:network_appcontainer] STAGE4_PARENT_READ1_PREPOST ok=0 err=997
+[PARENT:network_appcontainer] STAGE2_RESUMED prev_suspend=1
+[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_POST ok=1 err=0
+[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5b4 (exp=0036f5b4)
+[PARENT:network_appcontainer] STAGE4_PARENT_READ1_IOCP: GQCS ok=0 err=109 bytes=0 key=0x11110001 (exp=0x11110001) ovl=0036f5a0 (exp=0036f5a0)
+[PARENT:network_appcontainer] FAIL: child exited early with code=0x1 (1)
+[SUMMARY] failures=2 overall=FAIL
