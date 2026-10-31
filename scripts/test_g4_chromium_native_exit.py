@@ -29,7 +29,7 @@ class ParserTests(unittest.TestCase):
     def test_token_modes_override_stale_installer_runtime_environment(self):
         old_build,old_prefix,old_loader=r.BUILD,r.PREFIX,r.cal.APPROVED_LOADER
         try:
-            for mode in ('token-fixed-r7','token-fixed-r8'):
+            for mode in ('token-fixed-r7','token-fixed-r8','token-wait-r9'):
                 r.configure(mode)
                 with mock.patch.object(r.cal.install,'environment',return_value={'WINE':'stale','WINESERVER':'stale'}):
                     env=r.environment(r.OUTPUT)

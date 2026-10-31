@@ -345,3 +345,18 @@ the owned prefix/runtime clones were removed, and the guest shut down
 gracefully with exit 0 and the preserved baseline server hash unchanged.
 Post-token startup diagnosis is the remaining Chromium prerequisite; Edge
 execution remains gated on actual Chromium validation.
+
+Local Qwen's bounded log diagnosis identifies the next concrete failure:
+network PID 620 and storage PID 636 each log
+`Terminating current process after 15 seconds with no connection` after
+starting their utility loops. No renderer is created. This proves the browser
+connection did not complete; it does not identify why or prove complete service
+initialization. The WSALookupService error alone is not a proven cause.
+
+The fixed `--token-wait-r9` diagnostic takes one bounded `winedbg --command
+"bt all"` snapshot after five seconds, using only the dedicated prefix and
+exact candidate runtime environment. It does not attach a debugger to an
+unrelated process, alter security settings, or change the browser command.
+The snapshot subprocess is reaped on success or timeout; output and lifetime
+are bounded. This is instrumented diagnostic evidence, not an uninstrumented
+browser acceptance run. All 38 related WSL contract/observer fixtures pass.
