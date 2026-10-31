@@ -1,0 +1,195 @@
+================================================================================
+CHROMIUM COMBINED BUILD r6 — x86_64 (normal 8 GiB) VERIFICATION ATTEMPT 3 (FINAL)
+Run name: chromium-combined-r6-20261030
+Date:     2026-10-30
+Supersedes: attempt 1 (chromium_combined_r6_x86_64_attempt1_blocked.txt)
+            attempt 2 (chromium_combined_r6_x86_64_attempt2_verifybug.txt)
+================================================================================
+
+OUTCOME: BLOCKED-at-consumer-internal-disk-guard  (consumer RAN, then aborted)
+--------------------------------------------------------------------------------
+This is the coordinator's FINAL sanctioned follow-up. The one-line trial fix from
+attempt 2 (deploy SHA-verify: stdin=<bytes> -> input=<bytes>) WORKED, and the run
+reached further than any prior attempt:
+
+  * The full reconciled build deployed AND passed byte-for-byte in-guest SHA-256
+    verification  (candidate_coherent = True).
+  * The Chromium consumer was LAUNCHED and began executing.
+
+The run then stopped because the CONSUMER SCRIPT has its own internal disk guard
+that fired after the deploy consumed most of the guest's free space. The consumer
+aborted BEFORE creating its profile/output directory, so no netlog/trace/WINEDEBUG
+was produced and the two goal questions were NOT observed:
+
+  Q1  Does Chromium's utility!kNetwork service stay under
+      --service-sandbox-type=network (no =none fallback)?
+        -> NOT OBSERVED. Consumer aborted before launching chrome / writing trace.
+  Q2  Do fixture index.html + scene.js load HTTP 200?
+        -> NOT OBSERVED. No netlog.json was produced.
+
+No `passed` value is reported or relied upon (false by design — 45 s helper wait).
+
+
+POSITIVE RESULT: BUILD DEPLOYS COHERENTLY (byte-for-byte verified)
+--------------------------------------------------------------------------------
+The one-line fix completed the in-guest SHA-256 re-verification that attempt 2
+crashed on. execution.json deploy_verify:
+    files_expected = 11340   files_found = 11340
+    bytes_total    = 3,317,447,547
+    missing_count = 0   extra_count = 0   mismatch_count = 0
+    candidate_coherent = True
+=> The reconciled combined build (wine ce87bac0) transfers and re-hashes to an
+   EXACT byte-for-byte match against the host manifest. Build-integrity is
+   confirmed; the remaining block is a guest capacity guard, not a build defect.
+
+
+THE EARLIEST CONCRETE BLOCKER (verbatim from consumer.stderr.log traceback)
+--------------------------------------------------------------------------------
+  File ".../scripts/check-g4-chromium-native-exit.py", line 209, in guards
+    if shutil.disk_usage(LAB).free<1024**3:raise ValueError('Need1GiB before profile/output creation')
+ValueError: Need1GiB before profile/output creation
+
+This is a hardcoded 1 GiB pre-output disk guard INSIDE THE CONSUMER SCRIPT
+(check-g4-chromium-native-exit.py, line 209) — NOT the trial script, NOT the Wine
+build, NOT the transfer. It fired because after the 3.0896 GiB deploy, the guest's
+free space fell just under 1 GiB.
+
+Authoritative live measurement (SSH, post-deploy, before shutdown):
+    LAB (/home/debian/wex-g4) free = 1,010,016,256 B  (0.9407 GiB)
+    consumer guard threshold       = 1,073,741,824 B  (1 GiB)
+    shortfall                      =     63,725,568 B  (~60.8 MiB)
+    deployed build consuming space = 3,317,447,547 B   (wine-verify-r6-.../build/wow64)
+
+So: deploy (3.0896 GiB) + consumer's 1 GiB requirement ~= 4.09 GiB exceeds the
+guest's ~4.06 GiB free by ~60.8 MiB. The consumer refused to create profile/output
+until >=1 GiB was free, and it was not.
+
+This is a guest-DISK-CAPACITY constraint in code I am not authorized to modify
+(the only sanctioned consumer change was adding --verify-r6). Working around it
+would require either editing that consumer guard or freeing ~61+ MiB more guest
+disk — both beyond the "one-line bug fix" scope and thus out of bounds for this
+final follow-up.
+
+
+PROOF THE CONSUMER ABORTED BEFORE PRODUCING EVIDENCE
+--------------------------------------------------------------------------------
+- Guest OUTPUT + profile absent (measured live):
+    /home/debian/wex-g4/chromium-combined-r6-20261030            -> absent
+    /home/debian/wex-g4/chromium-combined-r6-20261030/profile    -> absent
+- consumer.stdout.log = 0 bytes (no verdict/summary printed).
+- Host archive step failed because OUTPUT does not exist:
+    tar: /home/debian/wex-g4/chromium-combined-r6-20261030: Cannot open: No such file or directory
+    -> chromium-native-evidence/ (host) is empty; no netlog.json / trace.json / WINEDEBUG.
+- consumer_ssh_exit = 1, but this is the guard-abort above, NOT the expected
+  by-design 45 s diagnostic non-acceptance (that path requires OUTPUT to exist).
+
+What DID run before the abort: the consumer's PRIVATE_LOOPBACK_SETUP completed
+(successful, per consumer.stderr.log) — then the disk guard at line 209 raised.
+
+
+ATTEMPT PROGRESSION (each attempt reached further)
+--------------------------------------------------------------------------------
+  Attempt 1: trial pre-stage disk gate (1 GiB margin) -> blocked; nothing deployed.
+  Attempt 2: trial deploy SHA-verify crash (stdin=<bytes> bug) -> deploy extracted,
+             verify crashed; consumer never ran.
+  Attempt 3: trial fix applied -> deploy + byte-for-byte SHA verify PASSED;
+             consumer launched but hit its OWN internal 1 GiB pre-output guard.
+
+
+REVISIONS / IDENTITY
+--------------------------------------------------------------------------------
+Wine build under test (reconciled combined build):  commit ce87bac0
+  Deployed-from (read-only host source):  D:\DeepThought\Builds\wine-reconciliation\build
+  Guest target path (fresh, cleaned before this run): /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64
+
+WineExplorer tip at run time (source_commit in preflight.json):
+  2195e4dc21895f8aae6d4dbe5ca0fdfc29f8bf71
+
+Path-locked exit helper PE (fresh; source pair byte-identical to r5 level-3 pair):
+  SHA-256:  9c9f0d828757e5f91f24a4b7f92a140b0663f0056aeaaf9b0bd58a0a20daaf90
+  Bytes:    308,073   Machine: 0x8664 (PE32+ x86-64)
+  Contract: WEX_EXIT_OUTPUT = Z:\home\debian\wex-g4\chromium-combined-r6-20261030
+            WEX_DIAGNOSTIC = 1   vlog_level = 3
+
+Deploy archive REUSED (not rebuilt): /tmp/wex-g4-r6-deploy/wine-build.tar.gz
+  SHA-256 of gzip: a3d799802f6492b79dd864e51316705bc59258ee50b23093092d5fbfe7f61071
+    (verified before transfer; matched preflight record)
+
+Environment confirmed: guest MemTotal = 8,333,336,576 B (8 GiB); QEMU argv has -m 8192;
+outside physical ntdll/userenv/kernelbase unchanged across the read-only view.
+
+
+CLEAN-SHUTDOWN RECORD
+--------------------------------------------------------------------------------
+Identity-verified stop was run after the consumer aborted. results.json:
+  graceful_powerdown      true
+  qemu_exit_status        0
+  stop_reason             "signal"
+  cleanup.qemu_stopped    true
+  cleanup.xvfb_stopped    true
+  QMP: capabilities_ack / powerdown_requested / powerdown_ack /
+       guest_shutdown_observed / protocol_complete  all true
+
+Post-shutdown process verification (host WSL side, after the stop):
+  ps -eo pid,args | grep -E "qemu|launch.py"  ->  (none)
+  wineserver on host                           ->  (none)
+  My launcher tree (launcher 859858 / qemu 859873 / xvfb 859860): all GONE.
+
+Two Xvfb processes remain but are FOREIGN and were left untouched:
+  pid 852889  Xvfb :104  (reparented to /init, elapsed ~6.7 h)
+  pid 853610  Xvfb :100  (reparented to /init, elapsed ~6.3 h)
+  Both predate this run by hours; not children of the launcher. No stray qemu,
+  launcher, wineserver, or Xvfb owned by this run was left running.
+
+
+GUEST-STATE FLAG FOR THE COORDINATOR (NOT cleaned up unilaterally)
+--------------------------------------------------------------------------------
+The guest qcow2 again holds a COMPLETE deploy at
+    /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64
+  (11,340 files / 3,317,447,547 bytes — byte-for-byte coherent vs the manifest).
+It persists across powerdown. Before ANY future r6 run it must be removed, because
+the trial's pre-deploy guard asserts that path does not already exist:
+    assert all(not os.path.lexists(p) ... for p in [STAGE, OUTPUT, GUEST_WINE_BUILD])
+I did NOT remove it (cleanup was outside the authorized "stop + confirm ps" scope for
+this final run; consistent with how attempt 2's stale deploy was handled — flagged,
+then cleaned only on your explicit instruction). Host deploy archive + SHA retained.
+
+
+FILES CREATED / EDITED FOR THIS ATTEMPT
+--------------------------------------------------------------------------------
+Edited:
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\build\g4-virgl-20261022\chromium-combined-r6-20261030-trial.py
+    -> (a) WINE_DEPLOY_MARGIN 1GiB -> 512MiB [attempt 2];
+       (b) deploy SHA-verify stdin=<bytes> -> input=<bytes> [this attempt, the sanctioned one-line fix].
+       Syntax-checked clean after each edit.
+
+Evidence:
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\docs\evidence\chromium_combined_r6_x86_64.txt
+    (this file — attempt 3 record)
+  ..._attempt1_blocked.txt , ..._attempt2_verifybug.txt   (preserved intact)
+
+Attempt host run dirs renamed aside (reversible, preserved):
+  D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030.attempt1-blocked\
+  ...chromium-combined-r6-20261030.attempt2-verifybug\   (+ .wsl-session/.stdout/.stderr per attempt)
+
+Attempt-3 host run dir: D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030\
+  execution.json (consumer ran; candidate_coherent=True), readiness.json, results.json,
+  serial.log, consumer.stderr.log (guard traceback), archive.stderr.log, chromium-native-evidence/ (empty)
+
+
+NOT COMMITTED / NOT PUSHED
+--------------------------------------------------------------------------------
+Per the coordinator's instruction, no git commit or push was performed.
+
+RESOLUTIONS FOR THE COORDINATOR (none applied — this was the final follow-up):
+  The block is a ~60.8 MiB guest-disk-capacity shortfall against the consumer
+  script's internal 1 GiB pre-output guard (check-g4-chromium-native-exit.py:209).
+  Two possible paths, both outside my authorized scope for this run:
+    (a) Lower/remove that consumer-side 1 GiB guard (modifies the consumer beyond
+        the sanctioned --verify-r6 change), or
+    (b) Free ~61+ MiB more guest disk so post-deploy free >= 1 GiB (e.g., trim the
+        deploy set further, or clean other guest space) — a capacity change.
+  Either would let the SAME r6 verification proceed to chrome launch + netlog/trace,
+  at which point Q1/Q2 can finally be judged. Stopped cleanly per the final-follow-up
+  limit; no further variant started.
+================================================================================

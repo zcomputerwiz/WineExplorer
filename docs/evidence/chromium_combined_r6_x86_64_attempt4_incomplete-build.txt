@@ -1,0 +1,227 @@
+================================================================================
+CHROMIUM COMBINED BUILD r6 — x86_64 (normal 8 GiB) VERIFICATION ATTEMPT 4 (FINAL)
+Run name: chromium-combined-r6-20261030
+Date:     2026-10-30
+Supersedes: attempt 1 (..._attempt1_blocked.txt)
+            attempt 2 (..._attempt2_verifybug.txt)
+            attempt 3 (..._attempt3_consumer_guard.txt)
+================================================================================
+
+OUTCOME: BLOCKED-at-helper-launch — reconciled build tree is INCOMPLETE (Q1/Q2 not observed)
+--------------------------------------------------------------------------------
+This final attempt RESOLVED the disk-capacity problem that blocked attempts 1-3
+(coordinator + USER sanctioned option (b): free guest disk by deleting old/superseded
+builds & prefixes; the consumer's 1 GiB guard was left INTACT). Both disk gates now pass:
+
+  * Trial pre-stage gate (needs >= deploy_bytes + 512 MiB margin = 3,854,318,459 B):
+      free_before_stage = 4,548,730,880 B   -> PASSED (margin ~661 MiB).
+  * Consumer internal guard (check-g4-chromium-native-exit.py:209, needs >= 1 GiB
+      post-deploy): the consumer LAUNCHED and started the helper (helper_started=True),
+      i.e. it got PAST line 209 — attempt 3's failure mode did NOT recur.
+
+The run then stopped at a NEW, downstream blocker: the wine HELPER could not start
+because the deployed reconciled build is missing its Unix-side builtin libraries.
+chrome.exe never launched, so the two goal questions were NOT observed:
+
+  Q1  Does Chromium's utility!kNetwork service stay under
+      --service-sandbox-type=network (no =none fallback)?
+        -> NOT OBSERVED. Helper died before chrome.exe started; no WINEDEBUG/VLOG trace.
+  Q2  Do fixture index.html + scene.js load HTTP 200?
+        -> NOT OBSERVED. Fixture server was up (127.0.0.1:39561) but ZERO requests were
+           made (http_fixture.requests = []). No netlog.json produced.
+
+No `passed` value is reported or relied upon (false by design — 45 s helper wait).
+
+
+THE NEW BLOCKER (verbatim from chromium-native-evidence/helper.stderr.log)
+--------------------------------------------------------------------------------
+  wine: could not load ntdll.so:
+    /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/../lib/wine/x86_64-unix/ntdll.so:
+    cannot open shared object file: No such file or directory
+
+The deployed wine launcher (build/wine -> tools/wine/wine, ELF) probes for builtins at the
+installed-prefix layout  <build>/lib/wine/<arch>/<name>.so. That path does not exist in the
+deployed tree, so wine aborts on the very first builtin (ntdll) and the helper exits 1 within
+~3.8 s (elapsed_seconds = 3.814; linux_helper_exit_observed.code = 1).
+
+ROOT CAUSE — the reconciled build tree the trial deploys from is INCOMPLETE:
+  Deploy source (read-only host):  D:\DeepThought\Builds\wine-reconciliation\build
+    * It has NO lib/ directory at all. Built .so files live in IN-TREE layout
+      dlls/<name>/<name>.so (WoW64 PE sides under <name>/i386-windows and
+      <name>/x86_64-windows), NOT the lib/wine/<arch>/ prefix layout the launcher probes.
+    * Only 36 builtins were compiled in total. The CORE Windows API DLLs are ABSENT:
+        dlls/kernel32/kernel32.so   ABSENT
+        dlls/user32/user32.so       ABSENT
+        dlls/gdi32/gdi32.so         ABSENT
+        dlls/advapi32/advapi32.so   ABSENT
+        dlls/rpcrt4/rpcrt4.so       ABSENT
+      and the display drivers are ABSENT (winex11.drv / winewayland.drv). Present: only
+      ntdll.so (4,154,816 B), ws2_32.so (120,336 B), and a handful of utilities/drivers.
+    * The sibling dirs prefix-x86_64 / prefix-i386-test are WINEPREFIXES (user-data:
+      dosdevices/drive_c/*.reg), not program-install prefixes — so there is no complete
+      installed runtime to deploy either.
+
+Consequence: even if the layout were corrected to point at dlls/<name>/<name>.so, wine would
+fail on the next missing builtin (kernel32.so). The build tree is a partial reconciliation
+workspace (only the changed components + ntdll/ws2_32 rebuilt), not the complete
+self-contained runtime closure the trial's docstring assumes.
+
+This is a BUILD-COMPLETENESS defect in the reconciled combined build (commit ce87bac0) as
+deployed from .../build — NOT a disk issue, NOT a deploy-margin issue, and NOT something
+fixable by the authorized disk cleanup. It was masked in attempts 1-3 because each of those
+aborted at an earlier disk gate BEFORE the helper was ever launched.
+
+
+PROOF THE BROWSER NEVER RAN (chromium-native-evidence/results.json)
+--------------------------------------------------------------------------------
+  observation_complete      False
+  error                     ValueError('Linux helper failed/exit mismatch')
+  native                    null   (no held-handle binding captured)
+  journal_outcome           null
+  http_fixture.requests     []    (fixture up on 127.0.0.1:39561; no request made)
+  url                       http://127.0.0.1:39561/a1d69ba1.../index.html#nonce=...
+  elapsed_seconds           3.814
+  helper_started            True   / helper_reaped True
+  front_exit                0      (grim screenshot of the headless shell was taken)
+  cleanup_complete          True   (clean prefix teardown; no stray servers/processes left)
+- No chromium.log / netlog.json / trace.json in guest OUTPUT or in the host archive
+  (chromium-native-evidence/ holds only results.json + compositor/GPU logs).
+- GPU/VirGL was healthy and NOT the cause: outer gl driver passed=True (virgl / D3D12 Intel
+  UHD 750), inner eglinfo exit 0, compositor gles2 virgl.
+
+Note on orchestration_complete=True (execution.json): this only means the trial's
+deploy -> consume -> archive -> extract pipeline finished end-to-end; it is NOT an
+acceptance signal. The consumer itself recorded error = helper-failure and returned 1.
+
+
+POSITIVE ADVANCE OVER ATTEMPTS 1-3 (the disk problem is SOLVED)
+--------------------------------------------------------------------------------
+execution.json:
+    free_before_stage      = 4,548,730,880 B (4.2364 GiB)
+    candidate_coherent     = True   (deploy byte-for-byte vs host SHA-256 manifest;
+                                     11,340 files / 3,317,447,547 B; 0 missing/extra/mismatch)
+    consumer_started       = True
+    consumer_ssh_exit      = 1   (the consumer's run() returned 1 after catching the
+                                  helper-failure ValueError — an ABORT, not a clean 45 s
+                                  observation timeout)
+    orchestration_complete = True  (pipeline finished; see note above — not acceptance)
+The reconciled build transfers and re-hashes byte-for-byte exactly as in attempt 3; the guest
+now has enough capacity for BOTH disk gates. The only thing standing between us and Q1/Q2 is
+that the deployed build is not a complete runtime.
+
+
+DISK DELETIONS MADE THIS ATTEMPT (option (b); coordinator + USER authorized)
+--------------------------------------------------------------------------------
+Deleted (old/superseded, owner=debian, sanity-checked before each deletion):
+  /home/debian/wex-g4/wine-verify-r1-20261029   3,364,034,867 B
+  /home/debian/wex-g4/wine-verify-r2-20261029   3,364,039,143 B
+  /home/debian/wex-g4/wine-verify-r3-20261029   3,364,040,664 B
+  /home/debian/wex-g4/wine-verify-r4-20261029   3,364,040,664 B
+  /home/debian/wex-g4/wine-verify-r5-20261029   3,364,041,715 B
+      (total apparent 16,820,197,053 B; guest-visible reclamation was small because this
+       data lived in the qcow2 base image / hardlink-shared with the control-channel base)
+  /home/debian/wex-g4/wine-verify-r6-20261030   ~3.2 GiB (stale attempt-3 partial deploy;
+      freshly-written overlay data -> reclaimed fully, +~3.1 GiB guest-visible free)
+  /home/debian/wex-g4/chromium-combined-r6-20261030-stage  626,688 B (stale attempt-3 stage;
+      removed so the trial's line-275 fresh-path guard passes)
+
+Net guest-visible free: 0.9328 GiB (start of disk work) -> 4.2364 GiB (free_before_stage).
+
+KEPT / NOT TOUCHED (per authorization):
+  wine-control-channel-20261027   (3.2G, protected control source / shared base)
+  chromium-headful-r1-20261023-stage (1.2G, Chromium runtime install)
+  edge-install-r1-v2-20261022/prefix (2.8G, Edge private runtime)
+  All evidence files + all *.wsl-* session logs.
+  The 2026-10-22 recovery/virgl/post-recovery/frozen-control dirs (~1.8-2.0G each) were
+  SKIPPED: they hold browser profile/prefix data from prior runs (KEEP per "browser caches/
+  profiles from prior runs") and, on inspection, contain NO build tree (no build/wow64 files),
+  so deleting them would not have helped capacity anyway.
+
+
+REVISIONS / IDENTITY
+--------------------------------------------------------------------------------
+Wine build under test (reconciled combined build):  commit ce87bac0
+  Deployed-from (read-only host source):  D:\DeepThought\Builds\wine-reconciliation\build
+  Guest target path (fresh, cleaned before this run): /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64
+
+Path-locked exit helper PE (fresh; source pair byte-identical to r5 level-3 pair):
+  SHA-256:  9c9f0d828757e5f91f24a4b7f92a140b0663f0056aeaaf9b0bd58a0a20daaf90
+  Bytes:    308,073   Machine: 0x8664 (PE32+ x86-64)
+  Contract: WEX_EXIT_OUTPUT = Z:\home\debian\wex-g4\chromium-combined-r6-20261030
+            WEX_DIAGNOSTIC = 1   vlog_level = 3
+
+Deploy archive REUSED (not rebuilt): /tmp/wex-g4-r6-deploy/wine-build.tar.gz
+  SHA-256 of gzip: a3d799802f6492b79dd864e51316705bc59258ee50b23093092d5fbfe7f61071
+    (verified before transfer; matched)
+
+Environment: guest MemTotal = 8 GiB; QEMU argv has -m 8192, virtio-vga-gl + gtk gl=on
+(real VirGL), KVM, hostfwd tcp:127.0.0.1:2235->22; fresh private loopback (new netns);
+outside physical ntdll/userenv/kernelbase unchanged across the read-only view.
+
+
+CLEAN-SHUTDOWN RECORD
+--------------------------------------------------------------------------------
+Identity-verified stop was run after the helper failed. Stop output / results.json:
+  graceful_powerdown      true
+  qemu_exit_status        0
+  stop_reason             "signal"
+  cleanup.qemu_stopped    true
+  cleanup.xvfb_stopped    true
+
+Post-shutdown process verification (host WSL side):
+  ps -eo pid,args | grep -E "qemu-system|launch.py|wineserver"  ->  (CLEAN — none running)
+  My launcher tree (launcher 860657 / qemu 860672 / xvfb 860659): all GONE.
+
+
+GUEST-STATE FLAG FOR THE COORDINATOR (NOT cleaned up unilaterally)
+--------------------------------------------------------------------------------
+The guest qcow2 again holds the (incomplete) deploy at
+    /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64
+  (byte-for-byte coherent vs the manifest, but missing core builtins as noted above).
+It persists across powerdown. Before ANY future r6 run it must be removed (the trial's
+pre-deploy guard asserts that path does not already exist). I did NOT remove it (outside the
+authorized "stop + confirm ps" scope for this final run). Host deploy archive + SHA retained.
+
+
+FILES / HOST ARTIFACTS FOR THIS ATTEMPT
+--------------------------------------------------------------------------------
+No source edits this attempt: the trial script was already fixed in attempts 2-3, and no
+further change was made or needed to reach (and expose) the helper-launch blocker.
+
+Evidence:
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\docs\evidence\chromium_combined_r6_x86_64.txt   (this file — attempt 4 record)
+  ..._attempt1_blocked.txt, ..._attempt2_verifybug.txt, ..._attempt3_consumer_guard.txt   (preserved intact)
+
+Attempt host run dir: D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030\
+  execution.json (free_before_stage, candidate_coherent=True, orchestration_complete=True),
+  readiness.json, results.json, serial.log, consumer.stderr.log (loopback setup OK),
+  archive.stderr.log, chromium-native-evidence/ (results.json + GPU/compositor logs; no browser log)
+
+Host run dirs renamed aside (reversible, preserved):
+  ...chromium-combined-r6-20261030.attempt1-blocked\ / .attempt2-verifybug\ / .attempt3-consumer-guard\
+  plus this session's disk-prep boot: .attempt4-diskprep\  (+ per-attempt .wsl-session/.stdout/.stderr)
+
+
+NOT COMMITTED / NOT PUSHED
+--------------------------------------------------------------------------------
+Per the coordinator's instruction, no git commit or push was performed.
+
+
+RESOLUTION FOR THE COORDINATOR (none applied — this was the final attempt)
+--------------------------------------------------------------------------------
+The disk-capacity blocker from attempts 1-3 is RESOLVED (option (b) worked; both gates pass).
+The remaining blocker is BUILD COMPLETENESS: the reconciled combined build at
+D:\DeepThought\Builds\wine-reconciliation\build is a partial workspace (36 builtins;
+kernel32/user32/gdi32/advapi32/rpcrt4 + display drivers absent; in-tree not prefix layout),
+so the self-contained deploy cannot load ntdll.so and wine aborts before chrome launches.
+
+To reach Q1/Q2, one of (both outside my authorized "stop + report" scope for this final run):
+  (a) The worker produces a COMPLETE self-contained runtime closure at the deploy source
+      (all builtins compiled + installed into the lib/wine/<arch>/ prefix layout), then
+      re-deploy + re-run the SAME r6 verification; or
+  (b) Point the trial's MY_BUILD / DEPLOY_TOPDIRS at a complete installed wine prefix.
+Either would let the run proceed to chrome launch, at which point Q1 (kNetwork =network vs
+=none) and Q2 (fixture HTTP 200) can finally be judged from chromium.log + netlog.json.
+
+Stopped cleanly per the final-attempt limit; no further variant started.
+================================================================================

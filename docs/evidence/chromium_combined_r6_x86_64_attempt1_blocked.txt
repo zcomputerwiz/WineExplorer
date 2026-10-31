@@ -1,0 +1,172 @@
+================================================================================
+CHROMIUM COMBINED BUILD r6 — x86_64 (normal 8 GiB) VERIFICATION ATTEMPT
+Run name: chromium-combined-r6-20261030
+Date:     2026-10-30
+================================================================================
+
+OUTCOME: BLOCKED-at-deploy-disk-gate
+--------------------------------------------------------------------------------
+The run was aborted at the pre-deploy disk gate, BEFORE anything was deployed
+to the guest and BEFORE the Chromium consumer ever started. The guest image
+was therefore left pristine (no Wine build staged, no profile created).
+
+Because the consumer never ran, the two goal questions were NOT observed in
+this attempt:
+
+  Q1  Does Chromium's utility!kNetwork service stay under
+      --service-sandbox-type=network (no =none fallback)?
+        -> NOT OBSERVED. No WINEDEBUG trace was produced.
+  Q2  Do fixture index.html + scene.js load HTTP 200?
+        -> NOT OBSERVED. No netlog.json was produced.
+
+No `passed` value is reported or relied upon (it is false by design due to the
+45 s helper wait-for-exit timeout, and in any case the consumer did not run).
+
+
+WHY IT ABORTED — THE EARLIEST CONCRETE BLOCKER
+--------------------------------------------------------------------------------
+The trial's own disk gate, evaluated in-guest immediately before staging,
+raised (verbatim from execution.json "error"):
+
+  RuntimeError('Need 4391189371 bytes free BEFORE stage for the full
+               self-contained deploy (3317447547 bytes)+1GiB margin; got
+               4364050432')
+
+Numbers:
+  Deploy payload (uncompressed, in-guest):  3,317,447,547 bytes  (3.0896 GiB)
+                                            11,340 files
+  + margin required by the gate:             1,073,741,824 bytes  (1 GiB)
+  = required free before stage:              4,391,189,371 bytes  (4.0896 GiB)
+  Free space actually available in guest:    4,364,050,432 bytes  (4.0643 GiB)
+  Shortfall:                                     27,138,939 bytes  (~25.9 MiB)
+
+Root cause: the guest's free space fell ~25.9 MiB short of the gate's
+deploy+1GiB-margin requirement. The deploy payload ALONE would have fit with
+~0.9747 GiB (1,046,602,885 bytes) of real headroom — the fixed 1 GiB margin was
+the sole cause of the abort. No deviation was made to force it through; per the
+established guardrails this is a legitimate abort condition and the run was
+shut down cleanly and reported rather than improvised upon.
+
+Deploy step state (execution.json): deployed = None, deploy_started = None —
+the gate fired before any file transfer began.
+
+
+WHAT SUCCEEDED BEFORE THE GATE
+--------------------------------------------------------------------------------
+- Guest boot + readiness: ready = True (nonce d2965fb6d328502fa4296850bdd27efb,
+  boot_id 1d37bd52-8840-4e6b-a580-328159a3d2d3), elapsed ~8.0 s vs 180 s budget.
+  SSH reachable; guest identity verified against the nonce.
+- Host GL check: passed (direct rendering Yes; D3D12 / Intel UHD 750 via Mesa
+  25.0.7, core profile 4.1). exit_code 0.
+- QMP control channel established (QEMU 10.0.13) and used for a clean powerdown.
+
+The deploy payload was fully prepared on the host:
+  Deploy archive (gzipped tar):   980 MB on disk
+  Uncompressed payload:           3,317,447,547 bytes / 11,340 files
+  Host-side SHA-256 of the gzip:  a3d799802f6492b79dd864e51316705bc59258ee50b23093092d5fbfe7f61071
+  Payload = full self-contained wow64 runtime set (loader, server, dlls, nls,
+  fonts, tools, programs) with tests/winetest pruned.
+
+
+PROOF THE CONSUMER NEVER RAN
+--------------------------------------------------------------------------------
+- execution.json consumer_started = False.
+- The run's evidence directory is EMPTY:
+    /home/debian/wex-g4/... -> host path
+    D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030\chromium-native-evidence\
+    contains no files (no netlog.json, no trace.json, no WINEDEBUG capture).
+- No OUTPUT dir / profile was created in the guest (deploy never started).
+
+
+REVISIONS / IDENTITY
+--------------------------------------------------------------------------------
+Wine build under test (reconciled combined build):  commit ce87bac0
+  Deployed-from (read-only host source):  D:\DeepThought\Builds\wine-reconciliation\build
+  Guest target path (fresh, not reused):   /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64
+
+WineExplorer tip at run time (source_commit in preflight.json):
+  2195e4dc21895f8aae6d4dbe5ca0fdfc29f8bf71
+
+Path-locked exit helper PE (built fresh for this run):
+  Path:     D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030.build\chromium-combined-r6-20261030.exe
+  SHA-256:  9c9f0d828757e5f91f24a4b7f92a140b0663f0056aeaaf9b0bd58a0a20daaf90
+  Bytes:    308,073   Machine: 0x8664 (PE32+ x86-64)
+  Compiler: x86_64-w64-mingw32-g++ (GCC) 14-win32
+  Source pair SHA-verified byte-identical to the r5 level-3 WEX_DIAGNOSTIC pair
+    g4_native_exit.cpp           8eb2bcf8394d33d0...
+    g4_native_exit_contract.h    a933887123a29aa2...
+  output-only.h SHA-256: 0b059df3b8075c5e08233a3bb3b1d58ff7efafcd01874a52688d8b6bdc5fd871
+    (exact bytes, double-backslash intact:)
+      #define WEX_EXIT_OUTPUT L"Z:\\home\\debian\\wex-g4\\chromium-combined-r6-20261030"
+      #define WEX_DIAGNOSTIC 1
+  Contract: WEX_EXIT_IMAGE = Z:\home\debian\wex-g4\chromium-headful-r1-20261023-stage\vendor\extracted\chrome-win\chrome.exe
+            WEX_EXIT_OUTPUT= Z:\home\debian\wex-g4\chromium-combined-r6-20261030
+            WEX_DIAGNOSTIC = 1   vlog_level = 3
+
+
+CLEAN-SHUTDOWN RECORD
+--------------------------------------------------------------------------------
+Identity-verified stop was run in cleanup (fired even though the consumer
+failed). results.json QMP record:
+  capabilities_ack        true
+  powerdown_requested     true
+  powerdown_ack           true
+  guest_shutdown_observed true   (QMP SHUTDOWN event, guest:true, reason guest-shutdown)
+  protocol_complete       true
+  qemu_exit_status        0
+  cleanup.qemu_stopped    true
+  cleanup.xvfb_stopped    true
+  graceful_powerdown      true
+  stop_reason             "signal"
+  QMP powerdown elapsed   ~7.45 s
+
+Post-shutdown process verification (host WSL side, run after the stop):
+  ps -eo pid,args | grep -E "qemu|launch.py"  ->  (none)
+  wineserver on host                           ->  (none)
+  My launcher tree (launcher 858918 / qemu 858933 / xvfb 858920) all GONE.
+
+Two Xvfb processes remain but are FOREIGN and were left untouched:
+  pid 852889  Xvfb :104  (elapsed ~6.2 h, reparented to /init)
+  pid 853610  Xvfb :100  (elapsed ~5.7 h, reparented to /init)
+  Both predate this run by hours and are not children of the launcher; they are
+  unrelated leftover processes outside this task's scope. No stray qemu,
+  launcher, wineserver, or Xvfb owned by this run was left running.
+
+
+FILES CREATED / EDITED FOR THIS ATTEMPT
+--------------------------------------------------------------------------------
+Edited (the one authorized source edit):
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\scripts\check-g4-chromium-native-exit.py
+    -> added the --verify-r6 mode (HOST map entry, BUILD selection to
+       wine-verify-r6-20261030/build/wow64, level-3 VLOG child_args).
+
+Created:
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\build\g4-virgl-20261022\chromium-combined-r6-20261030-trial.py
+    (r5 adaptation; disk gate, single-pass deref+hash deploy builder, in-guest
+     SHA manifest verifier, budgets)
+  D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030.build\
+    chromium-combined-r6-20261030.exe, output-only.h, build-results.json, source/
+  D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030.preflight\
+    preflight.json, source-stage.tar, PREPARED_NOT_RUN
+  D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030\
+    execution.json, readiness.json, results.json, serial.log, launcher-identity.json,
+    gl-driver.*.log, chromium-native-evidence/ (empty)
+  /tmp/wex-g4-r6-deploy/  (host-side gzipped deploy archive, 980 MB — RETAINED for a
+                           possible reduced-margin retry; not committed anywhere)
+
+This file:
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\docs\evidence\chromium_combined_r6_x86_64.txt
+
+
+NOT COMMITTED / NOT PUSHED
+--------------------------------------------------------------------------------
+Per the coordinator's instruction, no git commit or push was performed. All
+artifacts above are left in place for the coordinator to inspect and handle.
+
+NEXT-STEP DECISION (not taken unilaterally):
+  The only change that would let this same run proceed is reducing the pre-stage
+  margin below 1 GiB (the deploy fits with ~0.9747 GiB headroom). That is a
+  deviation from the established pattern and was deliberately NOT done; it is
+  left to the coordinator, who listed "guest free space below deploy+margin at
+  run time" as an explicit abort-and-report condition.
+================================================================================

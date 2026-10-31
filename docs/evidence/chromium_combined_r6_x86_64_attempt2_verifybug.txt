@@ -1,0 +1,177 @@
+================================================================================
+CHROMIUM COMBINED BUILD r6 — x86_64 (normal 8 GiB) VERIFICATION ATTEMPT 2
+Run name: chromium-combined-r6-20261030
+Date:     2026-10-30
+Supersedes: attempt 1 (disk-gate block), preserved as
+            chromium_combined_r6_x86_64_attempt1_blocked.txt
+================================================================================
+
+OUTCOME: BLOCKED-at-in-guest-deploy-sha-verify (harness bug, NOT the Wine build)
+--------------------------------------------------------------------------------
+This is the single sanctioned follow-up to attempt 1. The pre-stage disk margin
+was right-sized 1 GiB -> 512 MiB in the trial script; that fix WORKED — the disk
+gate PASSED this time and the full deploy transferred + extracted into the guest.
+
+The run then stopped at the NEXT step: the in-guest SHA-256 re-verification of the
+deployed files crashed with a Python error in the TRIAL HARNESS (not the Wine
+build, not the transfer). The Chromium consumer therefore NEVER ran.
+
+Because the consumer never ran, the two goal questions were NOT observed here:
+
+  Q1  Does Chromium's utility!kNetwork service stay under
+      --service-sandbox-type=network (no =none fallback)?
+        -> NOT OBSERVED. No WINEDEBUG trace was produced.
+  Q2  Do fixture index.html + scene.js load HTTP 200?
+        -> NOT OBSERVED. No netlog.json was produced.
+
+No `passed` value is reported or relied upon (false by design — 45 s helper
+wait; and the consumer did not run in any case).
+
+
+PROGRESS BEYOND ATTEMPT 1
+--------------------------------------------------------------------------------
+- Disk gate: PASSED. free_before_stage = 4,363,956,224 B; required (deploy
+  3,317,447,547 + 512 MiB margin) = 3,854,318,459 B. Passes with ~0.97 GiB
+  post-deploy headroom. (Attempt 1 failed this gate at the 1 GiB margin.)
+- Deploy transfer + extraction: SUCCEEDED. The full self-contained reconciled
+  build was streamed over loopback SSH and extracted to the fresh guest path.
+  In-guest extent captured read-only before shutdown:
+      FILES = 11,340   (== host manifest deploy_files)
+      BYTES = 3,317,447,547   (== host manifest deploy_bytes, exact)
+      Top-level structure present: dlls fonts loader nls programs server tools
+- In-guest SHA re-verification: DID NOT COMPLETE (crashed — see blocker below).
+  So the deployed files are present and count/byte-exact vs the manifest, but the
+  byte-for-byte in-guest hash comparison never ran.
+
+
+THE EARLIEST CONCRETE BLOCKER (verbatim from execution.json "error")
+--------------------------------------------------------------------------------
+  AttributeError("'bytes' object has no attribute 'fileno'")
+
+Location: chromium-combined-r6-20261030-trial.py, the deploy SHA-verify step:
+    verdict=json.loads(remote(['python3','-B','-c',guest_verify_code(),GUEST_WINE_BUILD],
+                              stdin=json.dumps(record['deploy_manifest']).encode(),
+                              timeout=240).stdout)
+
+Root cause: the trial's remote() helper forwards its kwargs straight to
+subprocess.run(). Here stdin was passed as a raw BYTES object (the JSON manifest
+encoded to bytes). subprocess.run/Popen requires stdin to be a file object or fd,
+not raw bytes, so it called .fileno() on the bytes and raised AttributeError.
+
+This is a bug in the r6 trial adaptation I wrote for the full-transfer deploy.
+The r5 template had NO in-guest SHA-verify step; its only tar calls used
+stdin=archive (a file object from .open('rb')), which is correct. The one-line fix
+is to feed the manifest via subprocess.run's input=<bytes> parameter (or a temp
+file / argv) instead of stdin=<bytes>. Per the coordinator's hard limit this fix
+was NOT applied and no second variant was started — reported for their decision.
+
+This blocker is NOT: a disk issue, a deploy-transfer failure, a Wine-build defect,
+a consumer/PE contract mismatch, or a guest-resource problem. The transfer itself
+completed cleanly (tar exit 0; file count + byte total match the host manifest).
+
+
+PROOF THE CONSUMER NEVER RAN
+--------------------------------------------------------------------------------
+- execution.json: consumer_started = False; orchestration_complete = False;
+  archive_skipped = "No consumer; no further SSH".
+- The run's evidence directory is EMPTY:
+    D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030\chromium-native-evidence\
+    (no netlog.json, no trace.json, no WINEDEBUG capture).
+- No OUTPUT dir / profile was created in the guest (flow stopped before staging).
+
+
+REVISIONS / IDENTITY
+--------------------------------------------------------------------------------
+Wine build under test (reconciled combined build):  commit ce87bac0
+  Deployed-from (read-only host source):  D:\DeepThought\Builds\wine-reconciliation\build
+  Guest target path (fresh, not reused):   /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64
+
+WineExplorer tip at run time (source_commit in preflight.json):
+  2195e4dc21895f8aae6d4dbe5ca0fdfc29f8bf71
+
+Path-locked exit helper PE (built fresh for this run; source pair byte-identical
+to the r5 level-3 WEX_DIAGNOSTIC pair):
+  Path:     D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030.build\chromium-combined-r6-20261030.exe
+  SHA-256:  9c9f0d828757e5f91f24a4b7f92a140b0663f0056aeaaf9b0bd58a0a20daaf90
+  Bytes:    308,073   Machine: 0x8664 (PE32+ x86-64)
+  output-only.h SHA-256: 0b059df3b8075c5e08233a3bb3b1d58ff7efafcd01874a52688d8b6bdc5fd871
+  Contract: WEX_EXIT_IMAGE = Z:\home\debian\wex-g4\chromium-headful-r1-20261023-stage\vendor\extracted\chrome-win\chrome.exe
+            WEX_EXIT_OUTPUT= Z:\home\debian\wex-g4\chromium-combined-r6-20261030
+            WEX_DIAGNOSTIC = 1   vlog_level = 3
+
+Deploy archive REUSED from attempt 1 (not rebuilt):
+  Host gzip: /tmp/wex-g4-r6-deploy/wine-build.tar.gz (980 MB)
+  SHA-256 of gzip: a3d799802f6492b79dd864e51316705bc59258ee50b23093092d5fbfe7f61071
+    (matched the preflight record; verified on the wire before transfer)
+
+
+CLEAN-SHUTDOWN RECORD
+--------------------------------------------------------------------------------
+Identity-verified stop was run after the harness failure. results.json:
+  graceful_powerdown      true
+  qemu_exit_status        0
+  stop_reason             "signal"
+  cleanup.qemu_stopped    true
+  cleanup.xvfb_stopped    true
+  QMP: capabilities_ack=true powerdown_requested=true powerdown_ack=true
+       guest_shutdown_observed=true protocol_complete=true   (elapsed ~6.81 s)
+
+Post-shutdown process verification (host WSL side, after the stop):
+  ps -eo pid,args | grep -E "qemu|launch.py"  ->  (none)
+  wineserver on host                           ->  (none)
+  My launcher tree (launcher 859415 / qemu 859430 / xvfb 859417): all GONE.
+
+Two Xvfb processes remain but are FOREIGN and were left untouched:
+  pid 852889  Xvfb :104  (reparented to /init, elapsed ~6.5 h)
+  pid 853610  Xvfb :100  (reparented to /init, elapsed ~6.0 h)
+  Both predate this run by hours; not children of the launcher. No stray qemu,
+  launcher, wineserver, or Xvfb owned by this run was left running.
+
+
+GUEST-STATE FLAG FOR THE COORDINATOR (NOT cleaned up unilaterally)
+--------------------------------------------------------------------------------
+The guest qcow2 now contains a COMPLETE partial deploy at
+    /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64
+  (11,340 files / 3,317,447,547 bytes — count/byte-exact vs the host manifest).
+This persists in the disk image across powerdown. Before ANY retry, that path must
+be removed, because the trial's pre-deploy guard asserts it does not already exist:
+    assert all(not os.path.lexists(p) ... for p in [STAGE, OUTPUT, GUEST_WINE_BUILD])
+I did NOT remove it (cleanup was outside the authorized "stop + confirm ps" scope);
+flagging so a retry can start from a clean guest. The host deploy archive and its
+SHA are retained, so nothing essential is lost by cleaning the guest copy.
+
+
+FILES CREATED / EDITED FOR THIS ATTEMPT
+--------------------------------------------------------------------------------
+Edited (the sanctioned margin right-sizing):
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\build\g4-virgl-20261022\chromium-combined-r6-20261030-trial.py
+    -> WINE_DEPLOY_MARGIN 1GiB -> 512MiB; error message now reports the actual margin.
+       (This is the ONLY change made; the deploy SHA-verify bug was found, NOT fixed.)
+
+Evidence:
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\docs\evidence\chromium_combined_r6_x86_64_attempt1_blocked.txt
+    (attempt 1 disk-gate record — preserved intact)
+  D:\DeepThought\Worktrees\chromium-token-integration\WineExplorer\docs\evidence\chromium_combined_r6_x86_64.txt
+    (this file — attempt 2 record)
+
+Attempt-1 host run artifacts renamed aside (reversible, preserved):
+  D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030.attempt1-blocked\
+  ...chromium-combined-r6-20261030.wsl-session.json.attempt1-blocked  (+ .stdout/.stderr)
+
+Attempt-2 host run dir (this run):
+  D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030\
+    execution.json, readiness.json, results.json, serial.log, launcher-identity.json,
+    gl-driver.*.log, chromium-native-evidence/ (empty)
+
+
+NOT COMMITTED / NOT PUSHED
+--------------------------------------------------------------------------------
+Per the coordinator's instruction, no git commit or push was performed.
+
+NEXT-STEP DECISION (not taken unilaterally):
+  The run is blocked by a one-line harness bug (stdin=<bytes> -> use input=<bytes>
+  or a temp file) in chromium-combined-r6-20261030-trial.py's deploy SHA-verify step.
+  Fixing it and re-running would be a second variant, which the coordinator's hard
+  limit forbids me from starting on my own. Left for their decision; the guest
+  partial deploy must be removed first (see flag above).
+================================================================================

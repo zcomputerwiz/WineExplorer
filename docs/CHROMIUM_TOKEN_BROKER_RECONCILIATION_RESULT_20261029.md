@@ -24,7 +24,7 @@ This integration reconciles the Chromium AppContainer/graphics master candidate 
 Key achievements:
 1. **Zero Regressions against Upstream Clean Master:**
    - Both upstream clean master (`66caeb46`) and the reconciled candidate (`e44ec18c`) were built from scratch in dedicated D-backed directories under an identical WSL Debian WoW64 environment and evaluated across matching test suites.
-   - In `advapi32_security`: Clean master yields 7 failures on x86_64 and 15 failures on i386. The reconciled build produces **identically 7 failures on x86_64 and 16 failures on i386** across 3,777 executed tests (+183 new tests added for AppContainer, token integrity, restricted tokens, and null-SID restricting access checks), resolving the single regression present in `master_advapi32_security_x86_64` and demonstrating zero regressions.
+   - In `advapi32_security`: Clean master yields 7 failures on x86_64 and 18 failures (28 skipped) on i386. The reconciled build produces **7 failures on x86_64 and 16 failures (29 skipped) on i386** across 3,777 executed tests (+183 new tests added for AppContainer, token integrity, restricted tokens, and null-SID restricting access checks), resolving the single regression present in `master_advapi32_security_x86_64` and demonstrating zero regressions.
    - In `kernelbase_security`: 74 tests pass with **0 failures** on both x86_64 and i386 (vs 6 tests in clean master).
    - In `userenv_test`: 295 tests pass with **0 failures** (1 todo) on both x86_64 and i386 (vs 190 tests in clean master).
 2. **Review Rework 1 — Fail-Closed Restricted Token AccessCheck (Task 1):**
@@ -154,7 +154,7 @@ All test suites were executed under identical conditions using `tools/runtest` a
 | Test Suite / Architecture | Clean Master Baseline (`66caeb46`) | Master Integration (`c92bf4b4`) | Reconciled Candidate (`e44ec18c`) | Delta vs Clean Master |
 |---|---|---|---|---|
 | **`advapi32_security` x86_64** | 3,594 tests, 171 todo, **7 failures** | 3,723 tests, 171 todo, **8 failures** | 3,777 tests, 179 todo, **7 failures** | **0 regressions** (parity held, +183 tests) |
-| **`advapi32_security` i386** | 3,594 tests, 171 todo, **15 failures** | 3,723 tests, 171 todo, **15 failures** | 3,777 tests, 179 todo, **16 failures** | **0 regressions** (parity held, +183 tests) |
+| **`advapi32_security` i386** | 3,594 tests, 171 todo, **18 failures**, 28 skipped | 3,723 tests, 171 todo, **15 failures** | 3,777 tests, 179 todo, **16 failures**, 29 skipped | **0 regressions** (i386: candidate 16 < corrected baseline 18; +183 tests) |
 | **`kernelbase_security` x86_64** | 6 tests, 0 todo, **0 failures** | 74 tests, 0 todo, **0 failures** | 74 tests, 0 todo, **0 failures** | **0 regressions** (+68 tests) |
 | **`kernelbase_security` i386** | 6 tests, 0 todo, **0 failures** | 74 tests, 0 todo, **0 failures** | 74 tests, 0 todo, **0 failures** | **0 regressions** (+68 tests) |
 | **`userenv_test` x86_64** | 190 tests, 1 todo, **0 failures** | 295 tests, 1 todo, **0 failures** | 295 tests, 1 todo, **0 failures** | **0 regressions** (+105 tests) |
