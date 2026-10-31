@@ -345,3 +345,55 @@ GUEST TEST SOURCES (host D:\DeepThought\Projects\OpenClaude\):
 _wex_ipc_listinherit.c  _wex_ipc_nohandle.c  _wex_ipc_noop.c
 _run scripts: _wex_ipc_guest_run_matrix.sh, _wex_ipc_guest_run_trace.sh
 ================================================================================
+
+GUEST CLEANUP (post-STEP 2; cleanup only, no new runs)
+================================================================================
+Per coordinator/antigravity approved follow-up. No server-side trace run and no browser/Edge
+started. All prior content above is unchanged.
+
+Guest free space (df -h /):
+  BEFORE: /dev/vda1  Size 79G  Used 76G  Avail 0     Use% 100%  on /   (+ /tmp tmpfs 3.9G, 0 used)
+  AFTER : /dev/vda1  Size 79G  Used 73G  Avail 2.5G  Use% 97%   on /
+
+Guest deletions (du -sh before each rm):
+  /home/debian/wex-ipc-step2        2.5G   DELETED  (prefix-rec, prefix-sys, logs [copied off first],
+                                                 listinherit.exe, run scripts)
+  /tmp/wex-build                    n/a    already absent at cleanup start (was on guest tmpfs,
+                                           cleared by the reboot preceding this cleanup); nothing to rm
+
+Host deletions under /root/wex-ipc-test (du -sh before each rm):
+  /root/wex-ipc-test/prefixes       4.8G   DELETED
+  /root/wex-ipc-test/reconciled     1.8G   DELETED
+  /root/wex-ipc-test/seed*          4K     DELETED
+  /root/wex-ipc-test/*.exe          1.5M   DELETED  (mingw test binaries; .c sources kept)
+  Kept on host: guest-logs/ (see below), logs/ (136K), *.c sources, *.sh run scripts, small
+  top-level .err/.out log files.
+
+Referenced guest raw logs copied off to HOST before their source dir was deleted:
+  /root/wex-ipc-test/guest-logs/    36 files, 124K   (source: guest /home/debian/wex-ipc-step2/logs/)
+  Includes rec_<mode>.out/.err + child_rec_<mode>.log, sys_plain/sys_il_low,
+  nh_restr_trace.out/.err, li_restr_trace.out/.err.
+
+Kept (uncertain) - NOT deleted; listed for coordinator to direct:
+  Guest /home/debian/wex-g4/ dirs not created this session and not confirmable as unambiguously
+  stale builds vs evidence/profiles/install (per guardrail, kept):
+    wine-verify-r6-20261030        1.8G   wine build tree (r6 reconciled build, in-guest)
+    wine-control-channel-20261027  3.2G   wine control build tree
+    prior-round WEX-G4 dirs (~1.8G each): repro-pfx, frozen-control-01, healthy-recovery-control,
+      post-recovery-*, presentation-timing-r1..r3, recovery-phase4-*, recovery-virgl-run-01..04,
+      virgl-boundary-*, virgl-electron-lifecycle*, visible-webgl-*
+  Named installs KEPT (per instruction): chromium-headful-r1-20261023-stage (1.2G),
+    edge-install-r1-v2-20261022 (2.8G) + its -stage (206M).
+  Host /root/wex-ipc-step2/        3.4G   this session's QEMU runtime: run/overlay.qcow2 (2.99GB,
+                                           post-cleanup guest disk snapshot), serial.log, qemu.stdout,
+                                           plus deploy/ and logs/. Outside the named /root/wex-ipc-test
+                                           scope and possibly reusable for a follow-up trace run -> kept.
+
+Host staging (KEPT per instruction; size only):
+  /root/wex-g4-r6-staging          2.7G   KEPT
+
+Safety:
+  Orphaned Xvfb left untouched: :104 PID 852889, :100 PID 853610.
+  Guest powered down via identity-verified QMP (qemu 10.0.13; status running -> POWERDOWN ->
+  SHUTDOWN guest:true reason:guest-shutdown). Post-shutdown check: no stray qemu-system / launcher
+  / wineserver remain.
