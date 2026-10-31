@@ -54,6 +54,26 @@ Clean identity-verified QMP powerdown (graceful_powerdown=true, qemu_exit_status
 Evidence: D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-combined-r6-20261030\
   chromium-native-evidence/{chromium.log, netlog.json, helper.stderr.log, native-exit.jsonl}
 
+R5 vs R6 DEPLOYMENT AND PROCESS COMPARISON (ADDED 2026-10-31):
+  * Retraction of false R5 =none inference: Retained R5 evidence
+    (D:\VirtualBox_VMs\WEX-G4-VirGL-20261022\chromium-browser-verify-r5-20261029\
+    chromium-native-evidence\helper.stderr.log) proves that R5 ALSO launched
+    network.mojom.NetworkService (PID 024c / 588 at line 87.501) with
+    --service-sandbox-type=network and storage.mojom.StorageService (PID 025c / 604 at
+    line 87.552) with --service-sandbox-type=service. The --service-sandbox-type=none
+    launch in R5 at 97.485 was chrome.mojom.ProcessorMetrics (PID 0394 / 916), which
+    launched AFTER NetworkService had already connected and served HTTP 200 for the
+    fixture at 19:19:35.460.
+  * Architectural difference between R5 and R6:
+    - R5 overlaid ONLY 6 PE DLLs (kernelbase.dll, ntdll.dll, userenv.dll for
+      x86_64-windows and i386-windows from commit 3a4443e6) onto the older control-channel
+      runtime (/home/debian/wex-g4/wine-control-channel-20261027/build, wineserver
+      SHA-256 6c063646fc4040dc6cb98dd129e7469f2d74417a9131587d99600a3f904c2665).
+    - R6 deployed the full 1,768-file runtime closure from reconciled commit ce87bac0
+      (/home/debian/wex-g4/wine-verify-r6-20261030/build, wineserver SHA-256
+      f35852f8ac57d4b37541c8acfb4d43be64f95aa53277a0df14bfab7527f7510f), making R6 the
+      first Chromium run using ce87bac0's wineserver and ntdll.so.
+
 (Original attempt-4 record retained below for the historical disk-capacity work.)
 
 OUTCOME: BLOCKED-at-helper-launch — reconciled build tree is INCOMPLETE (Q1/Q2 not observed)

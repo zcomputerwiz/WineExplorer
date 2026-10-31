@@ -152,10 +152,12 @@ A. Handle-list inheritance is GATED on bInheritHandles in TWO places:
                handles_attr = &ps_attr->Attributes[i];
 
    `inherit` is a direct pass-through of bInheritHandles (kernelbase/process.c:471,497,
-   730); there is NO override that sets it when a handle list is present. On real
-   Windows PROC_THREAD_ATTRIBUTE_HANDLE_LIST is authoritative independent of
-   bInheritHandles, so wine's double-gate is a divergence -- but it only matters if a
-   caller uses bInheritHandles=FALSE with a list (Chromium does not; see #1).
+   730); there is NO override that sets it when a handle list is present.
+   [CORRECTION 2026-10-31: Per Microsoft documentation for UpdateProcThreadAttribute
+   (PROC_THREAD_ATTRIBUTE_HANDLE_LIST), bInheritHandles MUST be TRUE when passing an
+   explicit handle list to CreateProcess / CreateProcessAsUser. Passing bInheritHandles=FALSE
+   with PROC_THREAD_ATTRIBUTE_HANDLE_LIST is not a valid Win32 handle-inheritance request,
+   and Wine's gate on PROCESS_CREATE_FLAGS_INHERIT_HANDLES is NOT a Wine bug.]
 
 B. Server-side inherited handles KEEP the parent's full access (no token re-check):
 
@@ -196,12 +198,30 @@ REMAINING (needs guest, cannot be reproduced on host):
   label logic) where real Windows would allow it. The GPU child (restricted, NO IL,
   no capabilities) succeeds because its connect path does not trip that check.
 
-CONCRETE WINE BUGS FOUND (reproducible on host, system wine):
-  1. bInheritHandles=FALSE + PROC_THREAD_ATTRIBUTE_HANDLE_LIST => wine silently drops
-     ALL listed handles (kernelbase/process.c:304 + ntdll/unix/process.c:740 gate).
-     Diverges from Windows where the list is authoritative. Not Chromium's path, but a
-     real latent bug that would break any app using FALSE+list.
+CONCRETE WINE BUGS / OBSERVATIONS FOUND (reproducible on host, system wine):
+  1. [RETRACTED 2026-10-31]: The earlier claim that bInheritHandles=FALSE +
+     PROC_THREAD_ATTRIBUTE_HANDLE_LIST is a Wine bug is RETRACTED. Microsoft's
+     UpdateProcThreadAttribute documentation explicitly requires bInheritHandles=TRUE
+     when using PROC_THREAD_ATTRIBUTE_HANDLE_LIST. Do NOT patch kernelbase/ntdll to
+     bypass bInheritHandles.
   2. InitializeProcThreadAttributeList crashes (0xc0000005) if the Size arg is NULL.
+
+SCOPE CLARIFICATION ON listinherit.exe (2026-10-31):
+  listinherit.exe (tests/probes/_wex_ipc_listinherit.c) ONLY tests a synchronous
+  WriteFile/ReadFile over an anonymous pipe (CreatePipe) using a single inherited
+  handle. While it proves that PROC_THREAD_ATTRIBUTE_HANDLE_LIST with bInheritHandles=TRUE
+  delivers the handle value across all 6 token modes, it does NOT test or exonerate:
+    - Chromium's named duplex overlapped Mojo PlatformChannel (\\.\pipe\mojo.* with
+      PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE and
+      SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS | FILE_FLAG_OVERLAPPED),
+    - ConnectNamedPipe returning FALSE with ERROR_PIPE_CONNECTED (535),
+    - SetThreadToken(initial) on the suspended child followed by TargetServices::LowerToken
+      (SetTokenInformation(TokenIntegrityLevel) + RevertToSelf()),
+    - IOCP association (CreateIoCompletionPort) and overlapped ReadFile/WriteFile
+      completion packets dequeued via GetQueuedCompletionStatus, or
+    - In-band DuplicateHandle(..., DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE)
+      handle transfer and child validation via GetHandleInformation.
+  Those stages are tested in tests/probes/chromium_mojo_bootstrap_probe.c.
 
 ================================================================================
 NEXT STEP (recommended): run listinherit.exe matrix IN THE GUEST against the
@@ -230,9 +250,13 @@ inh0_plain.out, inh0_il_low.out + child_inh0_*.log   bInheritHandles=FALSE (DROP
 sys_<mode>.out/.err, child_sys_<mode>.log        system-wine 6-mode matrix
 rec_plain.out/.err, recpp_plain.out/.err         reconciled-on-host hang (exit=124)
 
-TEST SOURCES (host D:\DeepThought\Projects\OpenClaude\):
-_wex_ipc_mininherit.c  _wex_ipc_listinherit.c  _wex_ipc_initattr.c
-_run scripts: _wex_ipc_run_inh.sh, _wex_ipc_run_list.sh, _wex_ipc_build_list.sh
+TEST SOURCES (tracked in WineExplorer tests/probes/):
+tests/probes/_wex_ipc_mininherit.c
+tests/probes/_wex_ipc_listinherit.c
+tests/probes/_wex_ipc_initattr.c
+tests/probes/_wex_ipc_nohandle.c
+tests/probes/_wex_ipc_noop.c
+tests/probes/chromium_mojo_bootstrap_probe.c
 ================================================================================
 
 ================================================================================
@@ -341,9 +365,11 @@ sys_plain / sys_il_low                        control (verdicts captured on stdo
 nh_restr_trace.out/.err                       nohandle/restr WINEDEBUG trace
 li_restr_trace.out/.err                       listinherit/restricted WINEDEBUG trace
 
-GUEST TEST SOURCES (host D:\DeepThought\Projects\OpenClaude\):
-_wex_ipc_listinherit.c  _wex_ipc_nohandle.c  _wex_ipc_noop.c
-_run scripts: _wex_ipc_guest_run_matrix.sh, _wex_ipc_guest_run_trace.sh
+GUEST TEST SOURCES (tracked in WineExplorer tests/probes/):
+tests/probes/_wex_ipc_listinherit.c
+tests/probes/_wex_ipc_nohandle.c
+tests/probes/_wex_ipc_noop.c
+tests/probes/chromium_mojo_bootstrap_probe.c
 ================================================================================
 
 GUEST CLEANUP (post-STEP 2; cleanup only, no new runs)
