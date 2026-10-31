@@ -1,0 +1,52 @@
+[
+  {
+    "path": "include/windows.applicationmodel.winmd",
+    "bytes": 11776,
+    "sha256": "cbb62c076e4f813778c66f7558e75167d0e791875cc103279acca61f863afdb2"
+  },
+  {
+    "path": "include/windows.globalization.winmd",
+    "bytes": 18944,
+    "sha256": "e20ca8e935907b71b7fb70cc49d3f38ea7cc9889320c0c29bbcbb3071b5a8c3a"
+  },
+  {
+    "path": "include/windows.graphics.winmd",
+    "bytes": 2048,
+    "sha256": "97b746961bab5324b2c350642ffb4adc1a5f6480bab646d1153468fa5f669bc9"
+  },
+  {
+    "path": "include/windows.media.winmd",
+    "bytes": 16896,
+    "sha256": "96ba7d0608a3a392887e56d51fa71bb9cf441ed2ea1441259315367434f29409"
+  },
+  {
+    "path": "include/windows.networking.winmd",
+    "bytes": 5120,
+    "sha256": "220e0393b6cd855de738579f3253c9295fe75139a1d688d6ea91533ee56b7715"
+  },
+  {
+    "path": "include/windows.perception.winmd",
+    "bytes": 2048,
+    "sha256": "ff3d47b1e402c74eb07234267cd5fc400d60a0df9283b61367ec3823447b93ae"
+  },
+  {
+    "path": "include/windows.storage.winmd",
+    "bytes": 16896,
+    "sha256": "7497730f1040b1bfb1a828e649aa3ec938c75b060248b519e632700d9e122784"
+  },
+  {
+    "path": "include/windows.system.winmd",
+    "bytes": 12288,
+    "sha256": "22c9987a6cb0fffe7404fd96bec352672d7944cc4b22e2cce84f77be901df4a8"
+  },
+  {
+    "path": "include/windows.ui.winmd",
+    "bytes": 17408,
+    "sha256": "53a092b485814f8b48edea69c8aa1a14f838b450ea387949637788d3fe4c384b"
+  },
+  {
+    "path": "include/windows.ui.xaml.winmd",
+    "bytes": 7680,
+    "sha256": "04e4c7f29dba1a703df14850d31c91ea694549278d080cea7d0f561455643d0a"
+  }
+]
