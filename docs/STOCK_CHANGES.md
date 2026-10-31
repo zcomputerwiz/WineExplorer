@@ -1203,3 +1203,20 @@ Modified Wine files keep their original header. ReactOS-derived programs keep th
   picture (the classic Start menu).
 
 | `dlls/wexhost` (`unixlib.c`), `include/wexhost.h` | WEX_POWER_LOGOFF (login1 TerminateSession of our session) and WEX_POWER_SWITCHUSER (GDM CreateTransientDisplay) | always |
+
+## Chromium token reconciliation candidate (2026-10-31, unaccepted)
+
+Wine topic `f2e67abe` changes only `server/token.c`, above `ce87bac0`:
+
+- AppContainer SID matching recognizes AllApplicationPackages.
+- The generated token default DACL uses the actual user SID, not Domain Users.
+- The NULL-descriptor `token_duplicate` branch copies the source object's
+  whole owner/group/DACL/SACL. This part conflicts with upstream
+  `test_token_security_descriptor` and the native default-descriptor contract;
+  it is withheld from acceptance. Source integrity propagation must be
+  preserved independently, not inferred from whole-descriptor inheritance.
+
+These are topic candidates, not a production Wine pin or a confirmed Chromium
+fix. The corrected native Mojo probe passes at mask `0x88`, but the guest
+startup prerequisite fails before any valid A/B mode verdict. See
+[the continuation and raw evidence](CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md).

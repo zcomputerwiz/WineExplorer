@@ -1,5 +1,14 @@
 # HANDOFF — WO-20261031-CHROMIUM-MOJO-TOKEN-RECONCILIATION (in-guest A/B)
 
+> Historical handoff: superseded for execution by
+> [the corrected 0x88 continuation](CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md).
+> The old probe requested the wrong access mask; guest startup is currently
+> blocked before any valid A/B verdict, and the blanket descriptor-copy
+> candidate is unaccepted. Use verified runtime paths and exact live server
+> identity, not the old override assumption. The later continuation authorizes
+> candidate commits/pushes; the historical ownership restriction below no
+> longer governs this work.
+
 **Prepared by:** claude (agent-bridge identity), 2026-10-31 ~14:05 local
 **Status:** PAUSED — recon complete, in-guest execution NOT yet done. Guest powered off cleanly.
 **Owner of git this run:** antigravity (do **not** commit/push).

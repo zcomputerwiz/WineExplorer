@@ -22,6 +22,13 @@ On the native host, `all` returned exit 0; `plain`, `service_restricted`, and
 The sandboxed modes verified the probe invitation payload and completed the
 delayed integrity-level change before reverting the thread token.
 
+The same source was also compiled with `i686-w64-mingw32-gcc` using the same
+flags/libraries. Its x86 PE SHA-256 is
+`9d27ae910a940b1cb4415bff2fda7ab087cd8a408f223630bc08fd3a567fac92`.
+The native x86 `all` also returned exit 0 and all three modes reported PASS,
+`failures=0 overall=PASS`. This covers native 32-bit behavior, not guest
+WoW64 startup, which remains blocked below.
+
 This is the probe's result, not proof of actual Chromium invitation acceptance
 or browser startup. The probe's return-code names are not independent evidence
 of browser fatal codes.
