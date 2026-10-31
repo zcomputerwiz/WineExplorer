@@ -29,7 +29,7 @@ class ParserTests(unittest.TestCase):
     def test_token_modes_override_stale_installer_runtime_environment(self):
         old_build,old_prefix,old_loader=r.BUILD,r.PREFIX,r.cal.APPROVED_LOADER
         try:
-            for mode in ('token-fixed-r7','token-fixed-r8','token-wait-r9','token-wait-r10','token-pipe-r11'):
+            for mode in ('token-fixed-r7','token-fixed-r8','token-wait-r9','token-wait-r10','token-pipe-r11','token-pipe-r12'):
                 r.configure(mode)
                 with mock.patch.object(r.cal.install,'environment',return_value={'WINE':'stale','WINESERVER':'stale'}):
                     env=r.environment(r.OUTPUT)
@@ -149,6 +149,25 @@ class ParserTests(unittest.TestCase):
             r.BUILD=original[3];r.cal.BUILD=original[3]
             r.PREFIX=original[4];r.cal.PREFIX=original[4]
         self.assertEqual((r.OUTPUT,r.STAGE,r.DEBUG,r.BUILD,r.PREFIX),original)
+
+    def test_pipe_only_r12_keeps_complete_r8_command_and_candidate_environment(self):
+        original=(r.MODE,r.BUILD,r.PREFIX,r.cal.APPROVED_LOADER)
+        try:
+            r.configure('token-fixed-r8')
+            old_output=r.cal.win(r.OUTPUT);args=r.child_args(NONCE,URL);debug=r.DEBUG
+            r.configure('token-pipe-r12')
+            self.assertEqual(r.HOST,'chromium-token-pipe-r12-20261031')
+            self.assertEqual(r.DEBUG,debug+',+wex_mojo')
+            self.assertEqual(r.child_args(NONCE,URL),[arg.replace(old_output,r.cal.win(r.OUTPUT)) for arg in args])
+            with mock.patch.object(r.cal.install,'environment',return_value={'WINE':'stale','WINESERVER':'stale'}):
+                env=r.environment(r.OUTPUT)
+            self.assertEqual(env['WINESERVER'],str(r.BUILD/'server/wineserver'))
+            self.assertEqual(env['WINE'],str(r.BUILD/'wine'))
+            self.assertEqual(env['WINEPREFIX'],str(r.PREFIX))
+        finally:
+            r.configure(original[0])
+            r.BUILD=original[1];r.cal.BUILD=original[1]
+            r.PREFIX=original[2];r.cal.PREFIX=original[2];r.cal.APPROVED_LOADER=original[3]
 
     def test_full_status_arbitrary_signaled259_and_exact_normal_contract(self):
         for code in (0,127,259,0xc000007f,2**32-1):

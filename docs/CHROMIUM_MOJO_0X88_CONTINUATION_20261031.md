@@ -388,3 +388,21 @@ terminal native record and cannot decide the browser failure. Its trace must
 not be presented as a browser crash or as a connection verdict. The follow-up
 will use pipe-only diagnostic instrumentation rather than raise the evidence
 quota or drop unrecorded trace output.
+
+The r12 `wex_mojo` diagnostic rebuilt only kernelbase for both architectures.
+The isolated archive still has 1778 files (1883848566 bytes); only those two
+DLLs differ and the server remains `196f24db...`. Original staging hardlinks
+were verified unchanged. The bounded trace is 76189 bytes, with 106 pipe
+creation/open records. It reaches successful crashpad pipe creation/open and
+COM/RPC pipe startup, but no Chromium log or broker Mojo pipe was produced.
+The bound child was still alive at 45 seconds with zero fixture requests.
+This **earlier stall differs from r8/r10's utility connection failure**; it
+does not establish the cause of that failure.
+
+After that observation, the same owned runtime passed x64/x86 startup,
+all three synthetic Mojo modes on each architecture, and both descriptor
+oracles (six programs, all exit zero). These regressions also exercise the
+instrumented APIs, including failed pipe opens; they are not browser
+acceptance. The diagnostic changes logging only, with exact failed NT status
+and no read of undefined output handles/information. Cleanup, preserved
+baseline hash, and graceful QMP shutdown were independently verified.

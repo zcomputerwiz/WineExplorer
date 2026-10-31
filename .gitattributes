@@ -23,6 +23,7 @@
 
 # Preserve diagnostic logs byte-for-byte, including original trailing spaces.
 docs/evidence/chromium-token-wait-r*-chromium.log -text whitespace=-blank-at-eol
+docs/evidence/chromium-token-pipe-r*-helper.stderr.log -text whitespace=-blank-at-eol
 
 # macro used by wine/.gitattributes (macros are only valid in the top-level file)
 [attr]generated gitlab-generated linguist-generated=true

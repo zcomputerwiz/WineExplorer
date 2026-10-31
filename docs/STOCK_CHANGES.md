@@ -1241,3 +1241,16 @@ assertions and all three Mojo modes with server SHA-256
 `196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800`.
 This establishes the focused public contract, not every effective-creator
 context or internal assignment contract, nor actual Chromium/Edge acceptance.
+
+## Temporary opt-in pipe diagnostics (2026-10-31)
+
+Wine `2ab3949a` adds the `wex_mojo` channel in
+`dlls/kernelbase/{file.c,sync.c}`. It records named-pipe creation and pipe-only
+file opens, parameters, returned NT status and defined output handles. It
+changes no API result, descriptor, access mask or policy; the prefix test is
+disabled unless the channel is enabled. This avoids the full file/sync
+trace's measured startup log-quota overrun. Both kernelbase architectures
+build without new warnings and the instrumented guest passes the six
+x64/x86 startup, Mojo and descriptor programs. This is diagnostic code, not
+a browser connection fix; the r12 observation stopped at an earlier
+pre-logging boundary and does not establish Chromium or Edge acceptance.

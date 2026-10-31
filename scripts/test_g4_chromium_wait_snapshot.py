@@ -78,6 +78,14 @@ class SnapshotTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'process quota'):
                 observe(root,env,build,prefix,proc_root=proc)
 
+    def test_oversized_identity_field_rejected_without_recording_contents(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root,env,build,prefix,proc=self.fixture(folder)
+            (proc/'1'/'environ').write_bytes(b'x'*65537)
+            with self.assertRaisesRegex(ValueError,'field quota'):
+                observe(root,env,build,prefix,proc_root=proc)
+            self.assertFalse((root/'wait-snapshot.json').exists())
+
     def test_more_than_512_thread_entries_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             root,env,build,prefix,proc=self.fixture(folder,threads=513)

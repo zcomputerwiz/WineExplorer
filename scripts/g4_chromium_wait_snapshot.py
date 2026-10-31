@@ -32,10 +32,12 @@ def observe(output, env, build, prefix, *, maximum_seconds=8, proc_root=Path('/p
     for process in proc_root.iterdir():
         if not process.name.isdecimal():continue
         bounded()
-        try:data=(process/'environ').read_bytes()
+        try:
+            with (process/'environ').open('rb') as stream:data=stream.read(65537)
         except (FileNotFoundError,ProcessLookupError,PermissionError) as error:
             record['errors'].append({'pid':process.name,'field':'prefix_identity','error':type(error).__name__})
             continue
+        if len(data)>65536:raise ValueError('Wait snapshot field quota')
         if marker.encode() not in data.split(b'\0'):continue
         if len(record['processes'])>=64:raise ValueError('Wait snapshot process quota')
         item={'pid':int(process.name),'cmdline':read(process/'cmdline'),'threads':[]}
