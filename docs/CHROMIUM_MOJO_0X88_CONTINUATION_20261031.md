@@ -306,6 +306,23 @@ and guests shut down gracefully with QEMU exit zero. Curated
 distinctions; raw debugger memory, process maps and images remain private.
 No additional Wine semantic change has been made.
 
+The r29 minimal-command control adds only bounded `+seh` tracing to the same
+original runtime. Its 12,177-byte stderr records handled debug-print exceptions
+on the main thread, runtime-exception-module registration and then signal 22.
+It does **not** reproduce the overflow or reveal an initiating exception chain.
+The fixture still receives no requests and no browser window appears; owned
+clones were removed and the guest shut down gracefully with QEMU exit zero.
+
+Source review identifies the guaranteed-stack reservation and exception-frame
+allocation as relevant measurement points, but does not establish that r28
+started with `STATUS_STACK_OVERFLOW`, that a handler recursively raised further
+exceptions, or what `GuaranteedStackBytes` actually contained. The reported
+4,672-byte deficit includes the attempted exception-frame allocation; it is
+not a direct measurement of the faulting instruction's original stack pointer.
+Increasing the guarantee or changing exception dispatch remains unjustified
+without these measurements. Low-noise, opt-in boundary diagnostics are the next
+step, rather than a speculative semantic patch.
+
 ## Durable runtime packaging prerequisite
 
 `scripts/g4_combined_r6_deploy.py` is the tracked archive implementation used
