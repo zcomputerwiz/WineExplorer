@@ -149,6 +149,11 @@ if [ -d "$ROOT_DIR/src/resources/startskins" ]; then
     fi
 fi
 
+# Offline payloads and their full upstream notices. Build dependencies are
+# explicit: python3, tar, zstd, unzip and msitools; never apt-install mid-build.
+python3 "$SCRIPT_DIR/stage-runtime-assets.py" --stage "$STAGE_WINE" \
+    --cache "${WEX_DOWNLOAD_CACHE:-/var/cache/wineexplorer/downloads}"
+
 # Remove development include headers to save ISO squashfs space
 rm -rf "$STAGE_WINE/usr/local/include"
 
@@ -158,9 +163,14 @@ rm -f "$STAGE_WINE/usr/local/bin/wex-"*.sh
 
 WINE_DEPS="libc6, libasound2t64, libavcodec61, libavformat61, libcapi20-3t64, libcups2t64, libdbus-1-3, libfontconfig1, libfreetype6, libgdk-pixbuf-2.0-0, libgettextpo0, libgl1, libglu1-mesa, libgnutls30t64, libgphoto2-6t64, libgstreamer-plugins-base1.0-0, libkrb5-3, libldap2, libncursesw6, libopenal1, libosmesa6, libpcap0.8t64, libpcsclite1, libpulse0, librsvg2-common, libsdl2-2.0-0, libssl3t64, libudev1, libunwind8, libusb-1.0-0, libv4l-0t64, libvulkan1, libwayland-client0, libx11-6, libxcomposite1, libxcursor1, libxdamage1, libxext6, libxfixes3, libxi6, libxinerama1, libxkbfile1, libxkbregistry0, libxml2, libxmu6, libxrandr2, libxrender1, libxslt1.1, libxt6t64, libxtst6, libxxf86dga1, libxxf86vm1, zlib1g"
 
+WINE_DEPS="$WINE_DEPS, fontconfig, fonts-dejavu-core, fonts-liberation, fonts-liberation-sans-narrow, fonts-crosextra-carlito, fonts-crosextra-caladea, fonts-noto-core, fonts-noto-cjk, fonts-ipafont-gothic, fonts-ipafont-mincho, fonts-unfonts-core"
+
 cat > "$STAGE_WINE/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
+if [ "$1" = "configure" ] && command -v fc-cache >/dev/null 2>&1; then
+    fc-cache -f /usr/local/share/fonts
+fi
 if [ "$1" = "configure" ] && [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     /usr/local/bin/wex-setup-machine.sh --update
 fi
@@ -188,12 +198,14 @@ echo "Built $OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
 echo "=== 2. Packaging wineexplorer-session ==="
 mkdir -p "$STAGE_SESSION/DEBIAN"
 mkdir -p "$STAGE_SESSION/usr/local/bin"
+mkdir -p "$STAGE_SESSION/usr/local/sbin"
 mkdir -p "$STAGE_SESSION/usr/share/xsessions"
 mkdir -p "$STAGE_SESSION/usr/share/wayland-sessions"
 mkdir -p "$STAGE_SESSION/etc/xdg/wineexplorer/wayland"
 mkdir -p "$STAGE_SESSION/usr/share/xgreeters"
 mkdir -p "$STAGE_SESSION/etc/lightdm/lightdm.conf.d"
 mkdir -p "$STAGE_SESSION/etc/X11/xorg.conf.d"
+mkdir -p "$STAGE_SESSION/etc/grub.d"
 mkdir -p "$STAGE_SESSION/lib/systemd/system"
 mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 
@@ -201,6 +213,9 @@ mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 cp "$ROOT_DIR/scripts/wine-explorer-session.sh" "$STAGE_SESSION/usr/local/bin/wine-explorer-session.sh"
 cp "$ROOT_DIR/scripts/wine-explorer-session-common.sh" "$STAGE_SESSION/usr/local/bin/"
 cp "$ROOT_DIR/scripts/wine-explorer-wayland-session.sh" "$STAGE_SESSION/usr/local/bin/"
+cp "$ROOT_DIR/scripts/wex-safe-terminal.sh" "$STAGE_SESSION/usr/local/bin/wex-safe-terminal.sh"
+cp "$ROOT_DIR/scripts/wex-safemode-setup.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-setup.sh"
+cp "$ROOT_DIR/scripts/wex-safemode-pam-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-pam-check.sh"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
@@ -209,11 +224,18 @@ cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex
 # The setup script installs this setgid launcher (wex-sysrun, on by default); build it here, next to the script.
 cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
     -o "$STAGE_SESSION/usr/local/bin/wex-sysrun.bin" "$ROOT_DIR/tools/wex-sysrun/wex-sysrun.c"
+install -m755 "$ROOT_DIR/scripts/wex-graphics.py" "$STAGE_SESSION/usr/local/bin/wex-graphics"
+install -m755 "$ROOT_DIR/scripts/wex-components.py" "$STAGE_SESSION/usr/local/bin/wex-components"
+install -m755 "$ROOT_DIR/scripts/check-font-targets.py" "$STAGE_SESSION/usr/local/bin/wex-check-font-targets"
+install -Dm644 "$SCRIPT_DIR/wex-components.desktop" "$STAGE_SESSION/usr/share/applications/wex-components.desktop"
+mkdir -p "$STAGE_SESSION/etc/wineexplorer/component-licenses"
 chmod 755 "$STAGE_SESSION/usr/local/bin/"*
+chmod 755 "$STAGE_SESSION/usr/local/sbin/"*
 
 # Desktop session definition
 cp "$ROOT_DIR/scripts/wine-explorer.desktop" "$STAGE_SESSION/usr/share/xsessions/wine-explorer.desktop"
-chmod 644 "$STAGE_SESSION/usr/share/xsessions/wine-explorer.desktop"
+cp "$ROOT_DIR/scripts/wex-safe-terminal.desktop" "$STAGE_SESSION/usr/share/xsessions/wex-safe-terminal.desktop"
+chmod 644 "$STAGE_SESSION/usr/share/xsessions/"*.desktop
 install -m644 "$ROOT_DIR/scripts/wine-explorer-wayland.desktop" "$STAGE_SESSION/usr/share/wayland-sessions/"
 install -m644 "$ROOT_DIR/scripts/wayland/"*.xml "$STAGE_SESSION/etc/xdg/wineexplorer/wayland/"
 install -m644 "$ROOT_DIR/scripts/wineexplorer-greeter.desktop" "$STAGE_SESSION/usr/share/xgreeters/"
@@ -223,10 +245,15 @@ install -m644 "$SCRIPT_DIR/live-build/config/includes.chroot/etc/lightdm/lightdm
 cp "$ROOT_DIR/scripts/20-wineexplorer-modesetting.conf" "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 chmod 644 "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 
+# GRUB Safe Mode boot entry
+cp "$SCRIPT_DIR/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_safemode" "$STAGE_SESSION/etc/grub.d/"
+chmod 755 "$STAGE_SESSION/etc/grub.d/"*
+
 # Setup systemd units and polkit rule
 cp "$SCRIPT_DIR/systemd/wex-textsetup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
+cp "$SCRIPT_DIR/systemd/wex-safemode.service" "$STAGE_SESSION/lib/systemd/system/"
 chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"
 chmod 644 "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexsetup.rules"
@@ -236,7 +263,7 @@ cat > "$STAGE_SESSION/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
 systemctl daemon-reload || true
-systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true
+systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service wex-safemode.service || true
 if [ "$1" = "configure" ] && [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     /usr/local/bin/wex-setup-machine.sh --update
 fi
@@ -251,7 +278,7 @@ Section: x11
 Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
-Depends: wineexplorer, wexcomp, acl, lightdm, lightdm-gtk-greeter, accountsservice, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base
+Depends: wineexplorer, wexcomp, acl, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
  Session scripts, Xorg configurations, LightDM greeter and systemd setup units

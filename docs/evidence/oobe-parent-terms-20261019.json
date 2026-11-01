@@ -1,0 +1,41 @@
+{
+  "license": "SPDX-License-Identifier: GPL-2.0-or-later",
+  "scope": "Static exact-package provenance, not license clearance or installation acceptance",
+  "sdk": {
+    "url": "https://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/sdksetup.exe",
+    "sha256": "5107822a5a99bcdef4c7b7c7eea218425692f0185750b0d4fafd441034a7486b",
+    "manifest_sha256": "95a8c735c0720d14954226c81512c69af0cc0086d61b05b81a70fd9c91f4d054",
+    "license_member": "u1",
+    "manifest_filename": "license.rtf",
+    "license_bytes": 64354,
+    "license_sha256": "7606715231cab510135bb271836677797189c64cfacc59b8b444e427fecace78",
+    "eula_version": "6.3.0.0",
+    "compiler_cabinets": [
+      {
+        "name": "2630bae9681db6a9f6722366f47d055c.cab",
+        "sha256": "d0440eb81c532dc23639c0c63f2fcde9deddb23bb4cce01c19ac6b96cc3e269d",
+        "manifest_sha1_matches": true
+      },
+      {
+        "name": "61d57a7a82309cd161a854a6f4619e52.cab",
+        "sha256": "f736e161547095bb8d98c636b85fdfeb4070fefeee3c3745db3ce88f6eb1d9de",
+        "manifest_sha1_matches": true
+      }
+    ]
+  },
+  "directx": {
+    "package_sha256": "053f76dcbb28802e23341b6a787e3b0791c0fa5c8d4d011b1044172dbf89c73b",
+    "carrier": "dsetup32.dll",
+    "carrier_sha256": "fb0e534f9b0926e518f1c2980640dfd29f14217cdfa37cf3a0c13349127ed9a8",
+    "resource": {
+      "type": "DATA",
+      "name": "SETUP_AGREEMENT_ENG",
+      "language": 1033
+    },
+    "resource_bytes": 4849,
+    "resource_sha256": "55eaf19bbbbcc80e36e22e3bac1842413376874505b4927abd7eb0c203987771",
+    "decoding": "cp1252 strict; raw bytes unchanged",
+    "title": "Microsoft DirectX End User Runtime"
+  },
+  "vendor_executables_run": false
+}

@@ -262,6 +262,37 @@ if [ -n "${WEX_LOCAL_LUNA:-}" ] && [ -f "$WEX_LOCAL_LUNA" ]; then
     cp -f "$WEX_LOCAL_LUNA" "$MACHINE_ROOT/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" 2>/dev/null || true
 fi
 
+# Reapply our own font mappings on every update, without changing Wine's Tahoma.
+FONT_RES_DIR="${WEX_FONT_RES_DIR:-/usr/local/share/wineexplorer/fonts}"
+if [ ! -d "$FONT_RES_DIR" ]; then
+    FONT_RES_DIR="$(dirname "${BASH_SOURCE[0]}")/../src/resources/fonts"
+fi
+[ -f "$FONT_RES_DIR/font-substitutes.reg" ] && [ -f "$FONT_RES_DIR/font-links.txt" ] || {
+    echo "Required open font resources missing: $FONT_RES_DIR" >&2
+    exit 1
+}
+if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
+    WINEPREFIX="$MACHINE_ROOT" WINEDLLOVERRIDES=winemenubuilder.exe=d \
+        "$WINE_BIN" regedit.exe /S "$FONT_RES_DIR/font-substitutes.reg"
+    WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+fi
+mkdir -p "$MACHINE_ROOT/drive_c/windows/Fonts"
+while read -r font_name font_target; do
+    [[ -n "$font_name" && "$font_name" != \#* ]] || continue
+    [[ "$font_name" != */* && "$font_target" == /* ]] || { echo "Invalid font mapping" >&2; exit 1; }
+    if [ -f "$font_target" ]; then
+        if [ ! -f "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name" ] || [ -L "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name" ]; then
+            ln -sfn "$font_target" "$MACHINE_ROOT/drive_c/windows/Fonts/$font_name"
+        fi
+    else
+        echo "Missing open font target (skipped): $font_target" >&2
+    fi
+done < "$FONT_RES_DIR/font-links.txt"
+if [ -f /usr/share/applications/wex-components.desktop ]; then
+    install -m644 /usr/share/applications/wex-components.desktop \
+        "$MACHINE_ROOT/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/Administrative Tools/Windows Components.desktop"
+fi
+
 # 2. Ensure ownership, permissions and POSIX default ACLs on machine root. This also migrates an existing
 # root:sudo machine root (setup --update): everything below the root is made root:$MACHINE_GROUP, files that a
 # desktop administrator created or owns included, and every extended ACL entry (g:sudo:rwX, user entries) is

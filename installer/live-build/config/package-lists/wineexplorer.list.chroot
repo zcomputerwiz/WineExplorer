@@ -20,14 +20,47 @@ dbus
 polkitd
 accountsservice
 network-manager
+wpasupplicant
+wireless-regdb
+rfkill
+ethtool
 systemd-timesyncd
 unattended-upgrades
 sudo
 eject
 pciutils
+usbutils
+htop
 curl
 wget
 nano
+
+# Virtualization Guest Drivers & Daemons
+spice-vdagent
+qemu-guest-agent
+open-vm-tools
+open-vm-tools-desktop
+hyperv-daemons
+
+# Hardware Drivers & Firmware (non-free-firmware)
+firmware-linux
+firmware-realtek
+firmware-iwlwifi
+firmware-atheros
+firmware-brcm80211
+firmware-libertas
+firmware-mediatek
+firmware-amd-graphics
+firmware-intel-graphics
+firmware-nvidia-graphics
+firmware-nvidia-gsp
+firmware-sof-signed
+intel-microcode
+amd64-microcode
+nvidia-detect
+
+# Fallback Web Browser
+firefox-esr
 
 # Disk Partitioning & Filesystem Tools
 acl
@@ -36,6 +69,8 @@ libblkid1
 e2fsprogs
 dosfstools
 fdisk
+mdadm
+nvme-cli
 grub-pc
 grub-pc-bin
 grub-efi-amd64-bin
@@ -43,6 +78,7 @@ grub-common
 grub2-common
 
 # Terminal & Text UI
+xterm
 ncurses-bin
 ncurses-term
 libncursesw6
@@ -60,3 +96,13 @@ fonts-noto-cjk
 fonts-ipafont-gothic
 fonts-ipafont-mincho
 fonts-unfonts-core
+
+# Optional component UI and opt-in graphics detection (no proprietary payloads)
+vulkan-tools
+winetricks
+cabextract
+zenity
+pkexec
+xvfb
+xauth
+python3

@@ -154,6 +154,8 @@ static int scan_disks(DiskDevice *disks, int max_disks)
             snprintf(disk->bus, sizeof(disk->bus), "nvme");
         } else if (strstr(name, "vd")) {
             snprintf(disk->bus, sizeof(disk->bus), "virtio");
+        } else if (strstr(name, "md")) {
+            snprintf(disk->bus, sizeof(disk->bus), "raid");
         } else {
             snprintf(disk->bus, sizeof(disk->bus), "scsi");
         }
@@ -173,6 +175,18 @@ static int scan_disks(DiskDevice *disks, int max_disks)
     }
     closedir(d);
     return count;
+}
+
+static void format_partition_device(char *out, size_t outlen, const char *disk_dev, size_t partno)
+{
+    if (disk_dev && disk_dev[0]) {
+        char last = disk_dev[strlen(disk_dev) - 1];
+        if (isdigit((unsigned char)last)) {
+            snprintf(out, outlen, "%sp%zu", disk_dev, partno);
+            return;
+        }
+    }
+    snprintf(out, outlen, "%s%zu", disk_dev, partno);
 }
 
 static int scan_partitions(DiskDevice *disk, int disk_idx, PartitionEntry *entries, int max_entries)
@@ -205,11 +219,7 @@ static int scan_partitions(DiskDevice *disk, int disk_idx, PartitionEntry *entri
             pe->size_mb = (pe->num_sectors * disk->sector_size) / (1024ULL * 1024ULL);
             pe->is_free_space = false;
 
-            if (strstr(disk->device, "nvme")) {
-                snprintf(pe->device, sizeof(pe->device), "%sp%zu", disk->device, pe->partno);
-            } else {
-                snprintf(pe->device, sizeof(pe->device), "%s%zu", disk->device, pe->partno);
-            }
+            format_partition_device(pe->device, sizeof(pe->device), disk->device, pe->partno);
 
             /* Probe filesystem */
             blkid_probe pr = blkid_new_probe_from_filename(pe->device);
@@ -663,23 +673,14 @@ SetupStage screen_partition(SetupState *state)
             size_t pno_root = 1;
             add_partition_to_disk(disk, root_start, root_sec, &pno_root);
 
-            if (strstr(disk->device, "nvme")) {
-                snprintf(state->efi_part, sizeof(state->efi_part), "%sp%zu", disk->device, pno_esp + 1);
-                snprintf(state->target_part, sizeof(state->target_part), "%sp%zu", disk->device, pno_root + 1);
-            } else {
-                snprintf(state->efi_part, sizeof(state->efi_part), "%s%zu", disk->device, pno_esp + 1);
-                snprintf(state->target_part, sizeof(state->target_part), "%s%zu", disk->device, pno_root + 1);
-            }
+            format_partition_device(state->efi_part, sizeof(state->efi_part), disk->device, pno_esp + 1);
+            format_partition_device(state->target_part, sizeof(state->target_part), disk->device, pno_root + 1);
         } else {
             size_t pno_root = 0;
             add_partition_to_disk(disk, first_lba, total_sec, &pno_root);
             fdisk_toggle_partition_flag(disk->cxt, pno_root, DOS_FLAG_ACTIVE);
 
-            if (strstr(disk->device, "nvme")) {
-                snprintf(state->target_part, sizeof(state->target_part), "%sp%zu", disk->device, pno_root + 1);
-            } else {
-                snprintf(state->target_part, sizeof(state->target_part), "%s%zu", disk->device, pno_root + 1);
-            }
+            format_partition_device(state->target_part, sizeof(state->target_part), disk->device, pno_root + 1);
             state->efi_part[0] = '\0';
         }
 
@@ -864,11 +865,7 @@ SetupStage screen_partition(SetupState *state)
                         continue;
                     }
 
-                    if (strstr(disk->device, "nvme")) {
-                        snprintf(state->target_part, sizeof(state->target_part), "%sp%zu", disk->device, new_pno + 1);
-                    } else {
-                        snprintf(state->target_part, sizeof(state->target_part), "%s%zu", disk->device, new_pno + 1);
-                    }
+                    format_partition_device(state->target_part, sizeof(state->target_part), disk->device, new_pno + 1);
                     snprintf(state->target_fstype, sizeof(state->target_fstype), "Unformatted");
                 } else {
                     snprintf(state->target_part, sizeof(state->target_part), "%s", pe->device);
@@ -1278,9 +1275,11 @@ SetupStage screen_copy(SetupState *state)
             snprintf(src_path, sizeof(src_path), "/%s", files[i].rel_path);
             snprintf(dst_path, sizeof(dst_path), "/target/%s", files[i].rel_path);
 
-            char *dname = dirname(strdup(dst_path));
-            safe_mkdir_p(dname);
-            free(dname);
+            char *tmp_dname = strdup(dst_path);
+            if (tmp_dname) {
+                safe_mkdir_p(dirname(tmp_dname));
+                free(tmp_dname);
+            }
 
             /* In-process copy with retry prompt on error */
             while (!copy_file_in_process(src_path, dst_path)) {
@@ -1365,9 +1364,11 @@ SetupStage screen_copy(SetupState *state)
 
                             char dst_link[512];
                             snprintf(dst_link, sizeof(dst_link), "/target/%s", pk);
-                            char *dname = dirname(strdup(dst_link));
-                            safe_mkdir_p(dname);
-                            free(dname);
+                            char *tmp_dname = strdup(dst_link);
+                            if (tmp_dname) {
+                                safe_mkdir_p(dirname(tmp_dname));
+                                free(tmp_dname);
+                            }
                             unlink(dst_link);
                             symlink(pt, dst_link);
                         }
@@ -1574,21 +1575,22 @@ SetupStage screen_init(SetupState *state)
         FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
         if (f_grub) {
             fprintf(f_grub,
-                    "# Silent instant boot for single-OS WineExplorer installation\n"
+                    "# Silent instant boot for single-OS WineExplorer installation (hold Shift / Esc for Safe Mode menu)\n"
                     "GRUB_TIMEOUT_STYLE=hidden\n"
-                    "GRUB_TIMEOUT=0\n"
+                    "GRUB_TIMEOUT=1\n"
                     "GRUB_TERMINAL=console\n"
                     "GRUB_THEME=\"\"\n"
                     "GRUB_BACKGROUND=\"\"\n");
             fclose(f_grub);
         }
+        chmod("/target/etc/grub.d/11_wineexplorer_safemode", 0755);
     }
     if (!state->target_disk[0]) {
         if (state->target_part[0]) {
             snprintf(state->target_disk, sizeof(state->target_disk), "%s", state->target_part);
             char *p = state->target_disk + strlen(state->target_disk) - 1;
             while (p > state->target_disk && isdigit((unsigned char)*p)) *p-- = '\0';
-            if (p > state->target_disk && *p == 'p' && strstr(state->target_disk, "nvme")) *p = '\0';
+            if (p > state->target_disk && *p == 'p' && isdigit((unsigned char)*(p - 1))) *p = '\0';
         } else {
             snprintf(state->target_disk, sizeof(state->target_disk), "/dev/sda");
         }

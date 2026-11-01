@@ -50,6 +50,7 @@ typedef struct {
     char layout[64];
     bool typical_net;
     bool unattended;
+    bool completed;
     char unattend_path[MAX_PATH];
     int current_page;
     int panel_index;
@@ -386,6 +387,14 @@ static INT_PTR CALLBACK RegionalPageProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
     switch (uMsg) {
         case WM_INITDIALOG:
             return TRUE;
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDC_CUSTOMLOCALE || LOWORD(wParam) == IDC_CUSTOMLAYOUT) {
+                MessageBoxA(hwnd,
+                            "Custom regional and keyboard settings can be configured from Regional and Language Options in Control Panel after installation completes.",
+                            "Regional and Language Options", MB_OK | MB_ICONINFORMATION);
+                return TRUE;
+            }
+            break;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
@@ -612,6 +621,15 @@ static INT_PTR CALLBACK WorkgrpPageProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             CheckRadioButton(hwnd, IDC_RADIO_WORKGROUP, IDC_RADIO_DOMAIN, IDC_RADIO_WORKGROUP);
             SetDlgItemTextA(hwnd, IDC_WORKGROUP, g_ctx.workgroup[0] ? g_ctx.workgroup : "WORKGROUP");
             return TRUE;
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDC_RADIO_DOMAIN) {
+                MessageBoxA(hwnd,
+                            "Domain membership is not supported during setup. Your computer will be configured as a member of a workgroup.",
+                            "Workgroup or Domain", MB_OK | MB_ICONINFORMATION);
+                CheckRadioButton(hwnd, IDC_RADIO_WORKGROUP, IDC_RADIO_DOMAIN, IDC_RADIO_WORKGROUP);
+                return TRUE;
+            }
+            break;
         case WM_NOTIFY: {
             LPNMHDR pnmh = (LPNMHDR)lParam;
             if (pnmh->code == PSN_SETACTIVE) {
@@ -619,6 +637,7 @@ static INT_PTR CALLBACK WorkgrpPageProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 return TRUE;
             } else if (pnmh->code == PSN_WIZFINISH) {
                 GetDlgItemTextA(hwnd, IDC_WORKGROUP, g_ctx.workgroup, sizeof(g_ctx.workgroup));
+                g_ctx.completed = true;
             }
             break;
         }
@@ -659,6 +678,7 @@ static void ShowSetupWizard(HWND hParent)
 
     if (g_ctx.unattended) {
         LogSetup("Unattended installation: skipping interactive wizard pages.");
+        g_ctx.completed = true;
         return;
     }
 

@@ -101,7 +101,7 @@ BEGIN
     LTEXT "Make this computer a member of the following workgroup:", IDC_STATIC, 27, 42, 275, 10
     LTEXT "WORK&GROUP:", IDC_STATIC, 27, 56, 60, 8
     EDITTEXT IDC_WORKGROUP, 95, 54, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_UPPERCASE
-    AUTORADIOBUTTON "&Yes, make this computer a member of this domain:", IDC_RADIO_DOMAIN, 15, 78, 287, 10
+    AUTORADIOBUTTON "&Yes, make this computer a member of this domain:", IDC_RADIO_DOMAIN, 15, 78, 287, 10, WS_DISABLED
     EDITTEXT IDC_DOMAIN, 95, 92, 140, 14, WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_UPPERCASE | WS_DISABLED
 END
 

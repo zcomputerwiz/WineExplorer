@@ -1,0 +1,235 @@
+{
+  "scope": "offline package inventory only, not install/permission acceptance",
+  "corefonts": [
+    {
+      "name": "andale32.exe",
+      "size": 198384,
+      "sha256": "0524fe42951adc3a7eb870e32f0920313c71f170c859b5f770d82b4ee111e970",
+      "license_resource_sha256": "e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57",
+      "license_resource_bytes": 4920,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "AndaleMo.TTF": {
+          "size": 105468,
+          "sha256": "48d9bc613917709d3b0e0f4a6d4fe33a5c544c5035dffe9e90bc11e50e822071"
+        }
+      }
+    },
+    {
+      "name": "arial32.exe",
+      "size": 554208,
+      "sha256": "85297a4d146e9c87ac6f74822734bdee5f4b2a722d7eaa584b7f2cbf76f478f6",
+      "license_resource_sha256": "877a177fe9b15afdf4aac68ec9d6c8366c8b0ca2d2dfe104f5df388ed1cf026b",
+      "license_resource_bytes": 4925,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "Ariali.TTF": {
+          "size": 206132,
+          "sha256": "70ade233175a6a6675e4501461af9326e6f78b1ffdf787ca0da5ab0fc8c9cfd6"
+        },
+        "Arialbd.TTF": {
+          "size": 286620,
+          "sha256": "4044aa6b5bebbc36980206b45b0aaaaa5681552a48bcadb41746d5d1d71fd7b4"
+        },
+        "Arialbi.TTF": {
+          "size": 224692,
+          "sha256": "2f371cd9d96b3ac544519d85c16dc43ceacdfcea35090ee8ddf3ec5857c50328"
+        },
+        "Arial.TTF": {
+          "size": 275572,
+          "sha256": "35c0f3559d8db569e36c31095b8a60d441643d95f59139de40e23fada819b833"
+        }
+      }
+    },
+    {
+      "name": "arialb32.exe",
+      "size": 168176,
+      "sha256": "a425f0ffb6a1a5ede5b979ed6177f4f4f4fdef6ae7c302a7b7720ef332fec0a8",
+      "license_resource_sha256": "e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57",
+      "license_resource_bytes": 4920,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "AriBlk.TTF": {
+          "size": 117028,
+          "sha256": "dad7c04acb26e23dfe4780e79375ca193ddaf68409317e81577a30674668830e"
+        }
+      }
+    },
+    {
+      "name": "comic32.exe",
+      "size": 246008,
+      "sha256": "9c6df3feefde26d4e41d4a4fe5db2a89f9123a772594d7f59afd062625cd204e",
+      "license_resource_sha256": "e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57",
+      "license_resource_bytes": 4920,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "Comicbd.TTF": {
+          "size": 111476,
+          "sha256": "873361465d994994762d0b9845c99fc7baa2a600442ea8db713a7dd19f8b0172"
+        },
+        "Comic.TTF": {
+          "size": 126364,
+          "sha256": "b82c53776058f291382ff7e008d4675839d2dc21eb295c66391f6fb0655d8fc0"
+        }
+      }
+    },
+    {
+      "name": "courie32.exe",
+      "size": 646368,
+      "sha256": "bb511d861655dde879ae552eb86b134d6fae67cb58502e6ff73ec5d9151f3384",
+      "license_resource_sha256": "877a177fe9b15afdf4aac68ec9d6c8366c8b0ca2d2dfe104f5df388ed1cf026b",
+      "license_resource_bytes": 4925,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "cour.ttf": {
+          "size": 302688,
+          "sha256": "6715838c52f813f3821549d3f645db9a768bd6f3a43d8f85a89cb6875a546c61"
+        },
+        "courbd.ttf": {
+          "size": 311508,
+          "sha256": "edf8a7c5bfcac2e1fe507faab417137cbddc9071637ef4648238d0768c921e02"
+        },
+        "courbi.ttf": {
+          "size": 234788,
+          "sha256": "66dbfa20b534fba0e203da140fec7276a45a1069e424b1b9c35547538128bbe8"
+        },
+        "couri.ttf": {
+          "size": 244156,
+          "sha256": "f3f6b09855b6700977e214aab5eb9e5be6813976a24f894bd7766e92c732fbe1"
+        }
+      }
+    },
+    {
+      "name": "georgi32.exe",
+      "size": 392440,
+      "sha256": "2c2c7dcda6606ea5cf08918fb7cd3f3359e9e84338dc690013f20cd42e930301",
+      "license_resource_sha256": "e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57",
+      "license_resource_bytes": 4920,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "Georgiaz.TTF": {
+          "size": 158796,
+          "sha256": "c983e037d8e4e694dd0fb0ba2e625bca317d67a41da2dc81e46a374e53d0ec8a"
+        },
+        "Georgiab.TTF": {
+          "size": 139584,
+          "sha256": "82d2fbadb88a8632d7f2e8ad50420c9fd2e7d3cbc0e90b04890213a711b34b93"
+        },
+        "Georgiai.TTF": {
+          "size": 156668,
+          "sha256": "1523f19bda6acca42c47c50da719a12dd34f85cc2606e6a5af15a7728b377b60"
+        },
+        "Georgia.TTF": {
+          "size": 142964,
+          "sha256": "7d0bb20c632bb59e81a0885f573bd2173f71f73204de9058feb68ce032227072"
+        }
+      }
+    },
+    {
+      "name": "impact32.exe",
+      "size": 173288,
+      "sha256": "6061ef3b7401d9642f5dfdb5f2b376aa14663f6275e60a51207ad4facf2fccfb",
+      "license_resource_sha256": "e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57",
+      "license_resource_bytes": 4920,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "Impact.TTF": {
+          "size": 136076,
+          "sha256": "00f1fc230ac99f9b97ba1a7c214eb5b909a78660cb3826fca7d64c3af5a14848"
+        }
+      }
+    },
+    {
+      "name": "times32.exe",
+      "size": 661728,
+      "sha256": "db56595ec6ef5d3de5c24994f001f03b2a13e37cee27bc25c58f6f43e8f807ab",
+      "license_resource_sha256": "877a177fe9b15afdf4aac68ec9d6c8366c8b0ca2d2dfe104f5df388ed1cf026b",
+      "license_resource_bytes": 4925,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "Times.TTF": {
+          "size": 330412,
+          "sha256": "4e98adeff8ccc8ef4e3ece8d4547e288ff85fdc9c7ca711a4599c234874bbe86"
+        },
+        "Timesbd.TTF": {
+          "size": 333900,
+          "sha256": "4357b63cef20c01661a53c5dae70ffd20cb4765503aaed6d38b17a57c5a90bff"
+        },
+        "Timesbi.TTF": {
+          "size": 238612,
+          "sha256": "192e1b0d18e90334e999a99f8c32808d6a2e74b3698b8cd90c943c2249a46549"
+        },
+        "Timesi.TTF": {
+          "size": 247092,
+          "sha256": "c25ae529b4cecdbca148b6ccb862ee0abad770af8b1fd29c8dba619d1b8da78a"
+        }
+      }
+    },
+    {
+      "name": "trebuc32.exe",
+      "size": 357200,
+      "sha256": "5a690d9bb8510be1b8b4fe49f1f2319651fe51bbe54775ddddd8ef0bd07fdac9",
+      "license_resource_sha256": "6c265edc5dd8be4a0ac1dfa7bf474e7b68c331fbad5a441b8099d3f78d071d3f",
+      "license_resource_bytes": 4921,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "trebuc.ttf": {
+          "size": 126796,
+          "sha256": "ec3ffb302488251e1b67fb09dd578b364c5339e27c1cfb26eb627666236453d0"
+        },
+        "Trebucbd.ttf": {
+          "size": 123828,
+          "sha256": "f65941f9487c0a0a3b7445996ecbbd24466d7ae76ea2a597ced55f438fa63838"
+        },
+        "trebucbi.ttf": {
+          "size": 131188,
+          "sha256": "c0a6bdf31f9f2953b2f08a0c1734c892bc825f0fb17c604d420f7acf203a213b"
+        },
+        "trebucit.ttf": {
+          "size": 139288,
+          "sha256": "db56fdac7d3ba20b7aededcb6ee86c46687489d17b759e1708ea4e2d21e38410"
+        }
+      }
+    },
+    {
+      "name": "verdan32.exe",
+      "size": 351992,
+      "sha256": "c1cb61255e363166794e47664e2f21af8e3a26cb6346eb8d2ae2fa85dd5aad96",
+      "license_resource_sha256": "e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57",
+      "license_resource_bytes": 4920,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "Verdanab.TTF": {
+          "size": 136032,
+          "sha256": "c8f5065ba91680f596af3b0378e2c3e713b95a523be3d56ae185ca2b8f5f0b23"
+        },
+        "Verdanai.TTF": {
+          "size": 154264,
+          "sha256": "91b59186656f52972531a11433c866fd56e62ec4e61e2621a2dba70c8f19a828"
+        },
+        "Verdanaz.TTF": {
+          "size": 153324,
+          "sha256": "698e220f48f4a40e77af7eb34958c8fd02f1e18c3ba3f365d93bfa2ed4474c80"
+        },
+        "Verdana.TTF": {
+          "size": 139640,
+          "sha256": "96ed14949ca4b7392cff235b9c41d55c125382abbe0c0d3c2b9dd66897cae0cb"
+        }
+      }
+    },
+    {
+      "name": "webdin32.exe",
+      "size": 185072,
+      "sha256": "64595b5abc1080fba8610c5c34fab5863408e806aafe84653ca8575bed17d75a",
+      "license_resource_sha256": "e025f4a7933977c1d98665616fdded6130b7a130f8eca18d72d18d8b71fd8d57",
+      "license_resource_bytes": 4920,
+      "license_decoding": "cp1252; terminal NUL removed, no other transformations",
+      "fonts": {
+        "Webdings.TTF": {
+          "size": 118752,
+          "sha256": "10d099c88521b1b9e380b7690cbe47b54bb19396ca515358cfdc15ac249e2f5d"
+        }
+      }
+    }
+  ]
+}

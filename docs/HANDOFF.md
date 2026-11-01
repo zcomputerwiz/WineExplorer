@@ -1,10 +1,29 @@
 # WineExplorer handoff — current entry point
 
-The current operational handoff is [CODEX_HANDOFF.md](CODEX_HANDOFF.md), updated
+## Unified development baseline (2026-11-01)
+
+Use `development` in both `zcomputerwiz/WineExplorer` and `zcomputerwiz/wine` for
+ongoing integration. WineExplorer combines the completed OOBE/recovery work,
+Chromium token/broker reconciliation through r37, and the subsequent Chromium
+diagnostics. Its Wine gitlink is `67317644f3bef172ed036b435989a2c6a7b3b06f`;
+`.gitmodules` also tracks Wine's `development` branch. Default/release branches
+are unchanged. The older branch names in dated reports identify historical work,
+not the current integration target.
+
+The integration keeps the `wexsys` machine-root ownership model and elevation
+lease APIs alongside the OOBE APIs. Native and WoW64 bridge call tables must stay
+in the same order as their shared enum; rebuild both PE architectures and the
+Unix bridge together. Font setup uses the selected Wine/server pair and preserves
+the isolated bootstrap skip mode. The Wine repairs are now published, but the
+full Chromium chain still needs a fresh-prefix VM run and the R6 runtime-font
+packaging correction described below.
+
+The earlier operational handoff is [CODEX_HANDOFF.md](CODEX_HANDOFF.md), updated
 2026-10-13 after the completed refactor and fresh installer acceptance. Start there for branches, VM
 state, clean builds, test commands and remaining work. Current acceptance
-evidence is in [refactor/P4.md](refactor/P4.md) and [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md), and the
-logon/composition plan is in [WINLOGON_AND_DWM.md](WINLOGON_AND_DWM.md).
+evidence is in [refactor/P4.md](refactor/P4.md) and [INSTALLER_TEST_REPORT.md](INSTALLER_TEST_REPORT.md), the
+logon/composition plan is in [WINLOGON_AND_DWM.md](WINLOGON_AND_DWM.md), and OOBE optional
+components acceptance is in [OOBE_COMPONENTS_ACCEPTANCE.md](OOBE_COMPONENTS_ACCEPTANCE.md).
 
 The October 9 notes below are historical. Their VM state, resource configuration
 and commit IDs predate the licensing/history rewrite and later LightDM/compositor
@@ -99,7 +118,7 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 4. Multi-monitor work areas/struts, foreign-window grouping and shell-crash recovery. Native Wayland window management and a session-wide Gamescope bridge are not implemented.
 5. Accelerated/per-hypervisor graphics and physical-output tests need suitable hardware. The VM currently reports CPU Vulkan; nested Gamescope output resizing is not evidence of changing physical scanout.
 6. WebView2 remains a separate lab. A positive baseline-Wine test on ProtonExplorer-VM used a per-app Windows 7 override for `msedgewebview2.exe` plus SwiftShader. Do not infer accelerated rendering or shell integration from it; see WEBVIEW2.md for exact provenance and remaining tests.
-7. Chromium (pinned build, sandbox on) stopped working after the Wine rebase and the token work. Three separate failures are diagnosed: the new Wine base left the first thread's data block unaligned, which stalls Chromium's stack sampler (repaired in `2ebf5f72`); the R6 runtime package lacks Wine's six TrueType fonts, so Chromium's font initialization recurses until the main thread's stack is gone (packaging fix recommended; the `tfont` candidate was validated in the VM); and `SetNamedSecurityInfoW()` refused mandatory labels, which broke the sandboxed network service on a prefix without the AppContainer registration (repaired in `1cc71ccd`, validated in local runs only). The Wine commits are on `copilot/first-thread-data-alignment` and not pushed. The lab harness has to ship the six fonts, run `scripts/check-runtime-fonts.py` and use a new user data directory per run. The whole chain has not been run in the VM on a prefix without the registration. See the three `CHROMIUM_*_20261101.md` documents.
+7. Chromium (pinned build, sandbox on) stopped working after the Wine rebase and the token work. Three separate failures are diagnosed: the new Wine base left the first thread's data block unaligned, which stalls Chromium's stack sampler (repaired in `2ebf5f72`); the R6 runtime package lacks Wine's six TrueType fonts, so Chromium's font initialization recurses until the main thread's stack is gone (packaging fix recommended; the `tfont` candidate was validated in the VM); and `SetNamedSecurityInfoW()` refused mandatory labels, which broke the sandboxed network service on a prefix without the AppContainer registration (repaired in `1cc71ccd`, validated in local runs only). The Wine commits are published on `development`. The lab harness has to ship the six fonts, run `scripts/check-runtime-fonts.py` and use a new user data directory per run. The whole chain has not been run in the VM on a prefix without the registration. See the three `CHROMIUM_*_20261101.md` documents.
 
 ## Documentation map
 
@@ -114,3 +133,13 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 - [HANDOFF_2026-10-07.md](HANDOFF_2026-10-07.md): archived earlier handoff; contains superseded statements. Current code and topical docs take precedence.
 
 Commit work regularly at coherent boundaries. The desktop runtime decision above supersedes the old full-Proton migration plan.
+
+## Fonts/runtimes repair branch (2026-10-17)
+
+`codex/fonts-runtimes` rebuilds the useful parts of Gemini's proposal from
+reviewed master. See [FONTS_RUNTIMES.md](FONTS_RUNTIMES.md) for exact evidence,
+operational constraints and remaining merge gates. `wex-graphics vulkan
+on|off|status` is per-user and applies at next login; it never rewrites the
+shared DLLs. Windows Components authenticates through pkexec and requires the
+selected vendor's actual terms; missing terms disable installation. Do not
+confuse passing source-build smoke tests with fresh-ISO acceptance.

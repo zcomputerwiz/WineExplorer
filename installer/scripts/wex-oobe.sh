@@ -9,6 +9,25 @@ STAGE=$(cat "$STAGE_FILE" 2>/dev/null | tr -d ' \r\n')
 
 echo "=== Starting WineExplorer Out-of-Box Experience (OOBE) ==="
 
+COORDINATOR_PID=""
+X_PID=""
+
+cleanup() {
+    echo "Cleaning up OOBE session..."
+    rm -f /run/wex-oobe/stage
+    if [ -n "$COORDINATOR_PID" ] && kill -0 "$COORDINATOR_PID" 2>/dev/null; then
+        kill "$COORDINATOR_PID" 2>/dev/null || true
+        wait "$COORDINATOR_PID" 2>/dev/null || true
+    fi
+    rm -rf /run/wex-oobe
+    if [ -n "$X_PID" ] && kill -0 "$X_PID" 2>/dev/null; then
+        kill "$X_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
 # Dismiss plymouth immediately so boot doesn't hang
 plymouth --quit 2>/dev/null || true
 
@@ -22,7 +41,8 @@ if ! id "wexsetup" >/dev/null 2>&1; then
 else
     usermod -a -G adm wexsetup 2>/dev/null || true
 fi
-chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer /etc/skel/.wine 2>/dev/null || true
+chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer/setup /etc/skel/.wine 2>/dev/null || true
+chown root:root /etc/wineexplorer 2>/dev/null || true
 chmod 755 /etc/wineexplorer /etc/wineexplorer/setup
 chmod 644 /etc/wineexplorer/setup/* 2>/dev/null || true
 chown wexsetup:adm /var/log/wineexplorer-oobe.log
@@ -49,17 +69,36 @@ RES=$(DISPLAY=:0 xdpyinfo 2>/dev/null | grep 'dimensions:' | awk '{print $2}' ||
 [ -z "$RES" ] && RES="1024x768"
 echo "Detected display resolution: $RES"
 
+# Ensure root-owned component licenses directory
+mkdir -p /etc/wineexplorer/component-licenses
+chown root:root /etc/wineexplorer/component-licenses
+chmod 755 /etc/wineexplorer/component-licenses
+
+# Launch OOBE setup coordinator as root
+mkdir -p /run/wex-oobe
+chown root:root /run/wex-oobe
+chmod 755 /run/wex-oobe
+echo "oobe" > /run/wex-oobe/stage
+chown root:root /run/wex-oobe/stage
+chmod 644 /run/wex-oobe/stage
+/usr/local/bin/wex-components --oobe-coordinator &
+COORDINATOR_PID=$!
+
 # Run oobe.exe inside dedicated wine prefix as wexsetup
 rm -f /etc/wineexplorer/setup/stage-oobe-done
 su -s /bin/bash wexsetup -c '
     RES="${1:-1024x768}"
     export DISPLAY=:0
     export WINEPREFIX=/etc/skel/.wine
-    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+    export WINEDLLOVERRIDES="winemenubuilder.exe=d"
     export WINEDEBUG=-all
     /usr/local/bin/wine explorer /desktop=OOBE,$RES oobe.exe &
     WINE_PID=$!
     while [ ! -f /etc/wineexplorer/setup/stage-oobe-done ]; do
+        if ! kill -0 "$WINE_PID" 2>/dev/null; then
+            echo "OOBE exited without completion; preserving setup for retry." >&2
+            exit 1
+        fi
         sleep 1
     done
     sleep 1
@@ -67,8 +106,18 @@ su -s /bin/bash wexsetup -c '
     wait $WINE_PID 2>/dev/null || true
 ' bash "$RES"
 
+# Terminate coordinator and revoke authority
+rm -f /run/wex-oobe/stage
+if [ -n "$COORDINATOR_PID" ]; then
+    kill "$COORDINATOR_PID" 2>/dev/null || true
+    wait "$COORDINATOR_PID" 2>/dev/null || true
+    COORDINATOR_PID=""
+fi
+rm -rf /run/wex-oobe
+
 if [ -n "$X_PID" ]; then
     kill "$X_PID" 2>/dev/null || true
+    X_PID=""
 fi
 
 # Apply automatic updates choice
