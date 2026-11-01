@@ -491,3 +491,67 @@ hash remains `0323c006...`; QMP powerdown was graceful with QEMU exit zero and
 QEMU/Xvfb stopped. Public outcomes and r15 diagnostic traces are retained in
 `docs/evidence/`; screenshots and full r17 browser artifacts remain private.
 Chromium functionality and the subsequent Edge comparison are still unaccepted.
+
+## Direct controls r18-r26: working display, captured context wait
+
+The r18 direct control removes optional Chromium VLOG, NetLog and startup
+tracing, retaining the normal sandbox, app URL, fresh profile and basic log
+file. The original corrected 1778-file WoW64 runtime passes the complete
+manifest comparison. It still produces no window or fixture traffic at
+ten/fifty-five seconds. Warm r19 with bounded SEH logging and warm r20 with
+the original Chromium diagnostic flags restored have the same outcome.
+Neither reproduces r17's stack overflow or produces a Chromium log. Their
+bounded SEH logs show handled debug-print exceptions and startup RPC errors,
+not a demonstrated exception-recursion loop.
+
+**The exact same display/runtime does render a Wine GUI:** builtin Notepad
+in r21 presents its window at ten seconds on the owned VirGL compositor.
+Thus these black browser captures are not explained by a wholesale broken
+display backend or a screenshot of the wrong output. This is a display
+control, not browser acceptance.
+
+The first debugger controls r22/r23 fail their root process-identity
+assertions before attaching. Their exact argv-guard failure cause remains
+unknown; accepting a second image spelling did not resolve it. The r24
+control instead binds the initial exact image/profile to the PID's start
+ticks, then rechecks that same process instance and its exact owned module
+mappings before attaching. It successfully captures and detaches from the
+two real browser LWPs, but does not load the ELF `syscall_frame` type.
+The r25 fixed-layout capture and r26 explicit ELF-symbol capture resolve
+this evidence gap. Debugger attachment briefly stops threads, so these
+are perturbed diagnostic observations, not unmodified browser acceptance.
+
+In r26, Unix browser PID981/main thread981 and sampler thread1067 are both
+waiting for Wine replies. The symbol-backed stacks distinguish them:
+
+```text
+main:    read -> wait_select_reply -> server_select -> <signal handler called>
+sampler: read -> wait_select_reply -> server_select -> server_wait
+         -> NtWaitForSingleObject(context_handle=0xcc)
+         -> get_thread_context(target=0xa0) -> NtGetContextThread
+```
+
+The main select has null operation/context at observation, size zero,
+flags two and absolute timeout zero. Its saved syscall frame contains
+`NtQueryVirtualMemory`'s return RIP, and the saved user stack resolves to
+kernelbase `VirtualQuery`. **That saved frame is not proof that the current
+wait is inside `NtQueryVirtualMemory`:** the native stack shows a signal
+handler interrupting PE execution. Suspend count, context-sync object state
+and the root cause remain unmeasured. This is materially more precise than
+attributing a hang to the last logged token call or to a 16-byte read alone.
+
+Exact Chromium sampling sources place native module-cache/unwind work
+after the stack-copy scope resumes the target. They do not establish the
+proposed suspended-target/module-lock deadlock. The local Qwen investigation
+returned that useful source ordering but failed overall because its
+outside-workspace Wine reads were denied; no permission bypass was used.
+
+All controls stopped their owned servers/compositors; exact owned r18 and
+r23-r26 prefix/build clones were removed with the baseline hash unchanged.
+Each guest shutdown was graceful, QEMU exit zero, with QEMU/Xvfb stopped.
+The missing debugger was installed for this specific capture: guest
+`gdb 16.3-1` and eight dependency packages remain on the lab disk.
+The completed outcomes and bounded r19/r20 SEH logs are public evidence;
+debugger memory, full process maps and screenshots remain private.
+No new Wine semantic change has been made and Chromium/Edge acceptance
+remains outstanding.

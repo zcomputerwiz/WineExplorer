@@ -1,0 +1,419 @@
+{
+  "classification": "Direct browser, display and debugger controls; Chromium/Edge acceptance still unproven",
+  "outcomes": [
+    {
+      "run": "chromium-simple-visual-r18-20261101",
+      "classification": "Direct ordinary Wine launch, no optional Chromium trace/netlog/VLOG flags; normal sandbox",
+      "command": [
+        "/home/debian/wex-g4/chromium-simple-visual-r18-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:37537/34421391b90438d2e850789899db6e71/index.html#nonce=34421391b90438d2e850789899db6e71",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-simple-visual-r18-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-simple-visual-r18-20261101\\chromium.log"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 0,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": null,
+      "stderr_bytes": 530,
+      "chromium_log_bytes": 0
+    },
+    {
+      "run": "chromium-warm-seh-r19-20261101",
+      "classification": "Direct ordinary Wine launch, no optional Chromium trace/netlog/VLOG flags; normal sandbox",
+      "command": [
+        "/home/debian/wex-g4/chromium-simple-visual-r18-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:45409/77a7936ab4f71f9cea7488a8259bf148/index.html#nonce=77a7936ab4f71f9cea7488a8259bf148",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-warm-seh-r19-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-warm-seh-r19-20261101\\chromium.log"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 0,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": null,
+      "stderr_bytes": 9652,
+      "chromium_log_bytes": 0
+    },
+    {
+      "run": "chromium-full-seh-r20-20261101",
+      "classification": "Original diagnostic Chromium command with bounded SEH tracing on initialized owned prefix",
+      "command": [
+        "/home/debian/wex-g4/chromium-simple-visual-r18-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:32849/8149d0270b5f2d962a17a9d8449e0b8d/index.html#nonce=8149d0270b5f2d962a17a9d8449e0b8d",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-full-seh-r20-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-full-seh-r20-20261101\\chromium.log",
+        "--v=1",
+        "--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3",
+        "--log-net-log=Z:\\home\\debian\\wex-g4\\chromium-full-seh-r20-20261101\\netlog.json",
+        "--net-log-max-size-mb=8",
+        "--net-log-duration=40",
+        "--trace-startup",
+        "--trace-startup-duration=35",
+        "--trace-startup-file=Z:\\home\\debian\\wex-g4\\chromium-full-seh-r20-20261101\\trace.json"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 1,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": null,
+      "stderr_bytes": 9397,
+      "chromium_log_bytes": 0
+    },
+    {
+      "run": "wine-notepad-visual-r21-20261101",
+      "classification": "Builtin Wine Notepad visual backend control; not Chromium acceptance",
+      "command": [
+        "/home/debian/wex-g4/chromium-simple-visual-r18-20261101-wine/build/wow64/loader/wine",
+        "notepad.exe"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 1,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ed056ef234168e90b24db73ecfa048fa82727266855471e96a6f4fb2c06d82af",
+          "observation": "Wine Notepad window visible"
+        }
+      ],
+      "debugger": null,
+      "stderr_bytes": 530,
+      "chromium_log_bytes": 0
+    },
+    {
+      "run": "chromium-gdb-r22-20261101",
+      "classification": "Owned Chromium debugger snapshot: temporarily stops target threads; not unperturbed browser acceptance",
+      "command": [
+        "/home/debian/wex-g4/chromium-simple-visual-r18-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:37767/1e572bf3c99ab478f10d7c2ff2f94449/index.html#nonce=1e572bf3c99ab478f10d7c2ff2f94449",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-gdb-r22-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-gdb-r22-20261101\\chromium.log"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 1,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": {
+        "exit": 1,
+        "error": "Root process-identity assertion failed before debugger attach"
+      },
+      "stderr_bytes": 2652,
+      "chromium_log_bytes": 696
+    },
+    {
+      "run": "chromium-gdb-r23-20261101",
+      "classification": "Owned Chromium debugger snapshot: temporarily stops target threads; not unperturbed browser acceptance",
+      "command": [
+        "/home/debian/wex-g4/chromium-gdb-r23-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:44199/d34f18c940b45d56f5ae9c983c43df72/index.html#nonce=d34f18c940b45d56f5ae9c983c43df72",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-gdb-r23-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-gdb-r23-20261101\\chromium.log"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 1,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": {
+        "exit": 1,
+        "error": "Root process-identity assertion failed before debugger attach"
+      },
+      "stderr_bytes": 2510,
+      "chromium_log_bytes": 696
+    },
+    {
+      "run": "chromium-gdb-r24-20261101",
+      "classification": "Owned Chromium debugger snapshot: temporarily stops target threads; not unperturbed browser acceptance",
+      "command": [
+        "/home/debian/wex-g4/chromium-gdb-r24-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:42677/42f5a98e0c8c0479e08d4fee5973df43/index.html#nonce=42f5a98e0c8c0479e08d4fee5973df43",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-gdb-r24-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-gdb-r24-20261101\\chromium.log"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 0,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": {
+        "pid": 971,
+        "exit": 0
+      },
+      "stderr_bytes": 530,
+      "chromium_log_bytes": 0
+    },
+    {
+      "run": "chromium-gdb-r25-20261101",
+      "classification": "Owned Chromium debugger snapshot: temporarily stops target threads; not unperturbed browser acceptance",
+      "command": [
+        "/home/debian/wex-g4/chromium-gdb-r25-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:40095/8b48359c4b7710f6a0e7b90a21d41598/index.html#nonce=8b48359c4b7710f6a0e7b90a21d41598",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-gdb-r25-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-gdb-r25-20261101\\chromium.log"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 0,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": {
+        "pid": 968,
+        "exit": 0
+      },
+      "stderr_bytes": 530,
+      "chromium_log_bytes": 0
+    },
+    {
+      "run": "chromium-gdb-r26-20261101",
+      "classification": "Owned Chromium debugger snapshot: temporarily stops target threads; not unperturbed browser acceptance",
+      "command": [
+        "/home/debian/wex-g4/chromium-gdb-r26-20261101-wine/build/wow64/loader/wine",
+        "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+        "--app=http://127.0.0.1:34715/ebd3ffbc73605ff38e0014ed3aa3b31e/index.html#nonce=ebd3ffbc73605ff38e0014ed3aa3b31e",
+        "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-gdb-r26-20261101\\profile",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-logging",
+        "--log-file=Z:\\home\\debian\\wex-g4\\chromium-gdb-r26-20261101\\chromium.log"
+      ],
+      "fixture_requests": [],
+      "launch_exit_before_cleanup": null,
+      "reaped_exit_after_owned_server_stop": 0,
+      "captures": [
+        {
+          "seconds": 10,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        },
+        {
+          "seconds": 55,
+          "exit": 0,
+          "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+          "observation": "Black background with cursor; no Chromium window"
+        }
+      ],
+      "debugger": {
+        "pid": 981,
+        "exit": 0
+      },
+      "stderr_bytes": 530,
+      "chromium_log_bytes": 0
+    }
+  ],
+  "runtime": {
+    "manifest_files": 1778,
+    "manifest_bytes": 1883823875,
+    "original_corrected_runtime": true,
+    "diagnostic_overlay": false,
+    "server_sha256": "196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800"
+  },
+  "r26_bound_debugger": {
+    "unix_browser_pid": 981,
+    "unix_sampler_tid": 1067,
+    "main_native_stack": [
+      "read",
+      "wait_select_reply",
+      "server_select",
+      "<signal handler called>"
+    ],
+    "sampler_native_stack": [
+      "read",
+      "wait_select_reply",
+      "server_select",
+      "server_wait",
+      "NtWaitForSingleObject(context_handle=0xcc)",
+      "get_thread_context(target=0xa0)",
+      "NtGetContextThread"
+    ],
+    "main_current_select": {
+      "select_op": null,
+      "size": 0,
+      "flags": 2,
+      "abs_timeout": 0,
+      "context_at_observation": null
+    },
+    "saved_main_syscall_frame": {
+      "rip": "0x6fffffbcf074",
+      "syscall_id": "0x23",
+      "last_saved_api": "NtQueryVirtualMemory"
+    },
+    "limits": "The main syscall frame is saved state, not proof that the current wait is inside NtQueryVirtualMemory. The native signal-handler stack supplies that distinction. No suspend-count/context-sync state or root cause is established by this snapshot.",
+    "debugger_detached": true,
+    "raw_memory_kept_private": true
+  },
+  "cleanup": "All direct controls stopped owned servers/compositors. Exact r18/r23/r24/r25/r26 prefix/build clones removed after ownership checks; baseline server hash unchanged.",
+  "shutdown": {
+    "chromium-simple-visual-r18-20261101": {
+      "graceful_powerdown": true,
+      "qemu_exit_status": 0,
+      "stop_reason": "signal",
+      "cleanup": {
+        "qemu_stopped": true,
+        "xvfb_stopped": true
+      }
+    },
+    "chromium-gdb-r23-20261101": {
+      "graceful_powerdown": true,
+      "qemu_exit_status": 0,
+      "stop_reason": "signal",
+      "cleanup": {
+        "qemu_stopped": true,
+        "xvfb_stopped": true
+      }
+    },
+    "chromium-gdb-r24-20261101": {
+      "graceful_powerdown": true,
+      "qemu_exit_status": 0,
+      "stop_reason": "signal",
+      "cleanup": {
+        "qemu_stopped": true,
+        "xvfb_stopped": true
+      }
+    },
+    "chromium-gdb-r25-20261101": {
+      "graceful_powerdown": true,
+      "qemu_exit_status": 0,
+      "stop_reason": "signal",
+      "cleanup": {
+        "qemu_stopped": true,
+        "xvfb_stopped": true
+      }
+    },
+    "chromium-gdb-r26-20261101": {
+      "graceful_powerdown": true,
+      "qemu_exit_status": 0,
+      "stop_reason": "signal",
+      "cleanup": {
+        "qemu_stopped": true,
+        "xvfb_stopped": true
+      }
+    }
+  },
+  "guest_tool_change": "gdb 16.3-1 and eight dependency packages installed after debugger availability check failed; packages remain on the lab guest disk.",
+  "failure_boundaries": [
+    "r18 host cleanup failed on redundant wineserver -k after the guest control had already stopped its server; original retrieval error was masked and is unknown. Artifact recovery and separate exact cleanup succeeded.",
+    "r22/r23 identity guards failed before GDB attached; adding a second spelling of the image did not resolve r23. Exact cause of the earlier argv guard failures remains unknown.",
+    "r24 debugger attached/detached, but no syscall_frame type was loaded. r25 used fixed measured layout offsets; r26 explicitly loaded the exact ELF symbols.",
+    "r26 libc symbol loading reported a libthread_db mismatch; the two actual LWPs were still enumerated and Wine frames resolved. Raw native memory and screenshots remain private.",
+    "Qwen source investigation returned useful Chromium ordering but failed overall because Wine reads outside its workspace were denied. No permission bypass or duplicate retry performed."
+  ]
+}
