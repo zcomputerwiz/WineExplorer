@@ -114,3 +114,30 @@ The guest root was 97 % full (70 of 79 GB). Removed disposable, stopped prefix c
 `prefix.*replay*-20261101` backups of the Edge prefix, `repro-pfx`, `parent-maintenance-*/startup4/prefix`, and the
 validation run's `baseline/prefix` and `bridge/prefix`, after checking that no process or mount used them. 28 GB freed
 (42 GB used). Kept: the canonical Edge `prefix`, `~/.wine`, runtimes, builds, logs, evidence.
+
+## Wine memory patches on the 11.21 base: verified (Wine `bed5c5ea`)
+
+Wine `development` is now upstream 11.21 (`310c8d0d`, the AppContainer, token and native-render work retained) plus three
+memory commits: the page-aligned PE section cache and its hardening (nanosecond keys, `flock`, 4 GiB cap) and a real
+`EmptyWorkingSet` (see `STOCK_CHANGES.md`). Tested in a private lab build (`/var/tmp/wex-memory-20261101`, full WoW64
+build from the project assembly) deployed as a complete hash-verified 1710-file runtime into the 16 GiB guest, fresh
+prefix and profile each run. 11.21 had no earlier Chromium validation; these runs are it.
+
+| Check | Result |
+|---|---|
+| Edge normal window, original unaligned `msedge.dll` | `chromium_functional=true`, WebGL1/2 pixels correct, UI renders |
+| Chromium normal window | `chromium_functional=true`, network service `--service-sandbox-type=network`, WebGL pixels correct |
+| Desktop, Start menu, Notepad, Explorer; 64- and 32-bit process startup | all pass |
+| Cache directory after Edge | `msedge.dll` entry 305 MB, no leftover `.lock` or `.tmp` files |
+| 8 renderers, PSS at t=4 s | 5.9 GB originally, 3.5 GB with the cache |
+| Same runs with KSM (`systemd-run -p MemoryKSM=yes`, `advisor_mode=scan-time`) | 3.5 GB at t=4 s to 2.2 GB at t=9 s; guest used 4.8 GB to 3.6 GB; 523,817 pages shared at t=9 s. Without KSM: flat 3.57 GB and 4.9 GB |
+| `EmptyWorkingSet` with zram swap (zstd, 8 GB) | 64-bit 270 MB to 8 MB resident (262 MB swapped); 32-bit 141 MB to 10 MB; content intact on re-touch |
+
+Guest setup used: `systemd-zram-generator 1.2.1` with `/etc/systemd/zram-generator.conf` (`zram-size = ram / 2`,
+`compression-algorithm = zstd`, `swap-priority = 100`), `vm.swappiness=100`, `vm.page-cluster=0`, KSM `run=1`. The guest
+had no swap before this, which is why 8 GiB thrashed with Edge.
+
+Limits: one run each (an A/B pair for KSM), a disposable Wayland desktop at 100 % scale, no soak test and no mixed-DPI or login
+acceptance. Edge's intermittent 30 s browser crash (Blocker 1) was not seen in these runs but is not explained.
+The per-renderer anonymous region of about 440 MB is still unexplained. System-wide sharing and traces are designed in
+`PREFETCH_SERVICE.md` and not implemented.

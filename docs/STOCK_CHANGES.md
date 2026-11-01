@@ -1312,3 +1312,28 @@ overlays only Unix `ntdll.so`; all six x64/x86 regressions pass, and the
 captured no-TEB signal is from a different Wine process than the later
 stack-overflow/AV trace. No semantic fix or Chromium acceptance is claimed.
 See `CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md`.
+
+## Per-image page-aligned PE section cache for FileAlignment 0x200 DLLs (2026-11-01)
+
+`dlls/ntdll/unix/virtual.c`: when `map_image_into_view` maps a non-shared PE section whose sector-rounded
+raw file offset is not host-page aligned (Chromium, Edge and Electron DLLs linked with `FileAlignment` 0x200),
+copy the section once into a per-image cache file under `<config_dir>/pe_section_cache` and `mmap` that file
+`MAP_PRIVATE` instead of falling back in `map_file_into_view` to `mprotect` plus `pread` into private anonymous
+memory. Untouched code and read-only pages are then shared through the page cache across processes, while
+relocations and writable-copy sections stay copy-on-write. Cache files are keyed by `st_dev`, `st_ino`,
+`st_size`, `st_mtim` and `st_ctim` (nanoseconds) plus a 64-bit digest of the unaligned section layout, written to
+a temporary file and published with `rename()`, created under an advisory `flock` so concurrent first loads do
+not each write the file, and pruned oldest-first to a 4 GiB cap (`WINE_PE_CACHE_MAX_MB` overrides). Aligned
+sections, removable media and any cache or `mmap` failure fall back unchanged to `pread`. `TRACE_(module)` logs
+cache hits and misses. Measured with Edge 156 (8 renderers): 5.9 GB to 3.9 GB PSS without touching the DLL. See
+`EDGE_DEVELOPMENT_RUN_20261101.md` and the planned system service in `PREFETCH_SERVICE.md`.
+
+## EmptyWorkingSet pages out the process's private memory (2026-11-01)
+
+`dlls/kernelbase/process.c`: `SetProcessWorkingSetSizeEx` was a stub returning `TRUE`; it now passes the sizes to
+`NtSetInformationProcess( ProcessQuotaLimits )`. `dlls/ntdll/unix/process.c`: that class is implemented for set:
+`(SIZE_T)-1, (SIZE_T)-1` on the current process (`EmptyWorkingSet`) calls the new `virtual_trim_working_set()`
+(`dlls/ntdll/unix/virtual.c`), which applies `MADV_PAGEOUT` to committed private anonymous views; any other limits
+are accepted and ignored, as before. `dlls/wow64/process.c` thunks the 32-bit `QUOTA_LIMITS`. Without swap the
+call changes nothing; with swap or zram the pages are compressed or written out and fault back intact. Measured
+with zram swap: 270 MB resident to 8 MB (64-bit) and 141 MB to 10 MB (32-bit), content intact after re-touch.

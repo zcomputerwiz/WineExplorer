@@ -2,6 +2,12 @@
 
 ## Unified development baseline (2026-11-01)
 
+**Update (2026-11-01, later):** Wine `development` is now upstream 11.21 plus the PE section cache, its hardening and a
+real `EmptyWorkingSet` (`bed5c5ea`); Edge and Chromium both run on it. See
+[EDGE_DEVELOPMENT_RUN_20261101.md](EDGE_DEVELOPMENT_RUN_20261101.md) for measurements and
+[PREFETCH_SERVICE.md](PREFETCH_SERVICE.md) for the planned image-cache and prefetch service. The paragraph below describes
+the earlier 11.20 pin.
+
 Use `development` in both `zcomputerwiz/WineExplorer` and `zcomputerwiz/wine` for
 ongoing integration. WineExplorer combines the completed OOBE/recovery work,
 Chromium token/broker reconciliation through r37, and the subsequent Chromium
