@@ -65,6 +65,25 @@ copy, where native Windows and Linux would share file-backed pages. Open questio
 mapping the file (relocation at a non-preferred base, or an unaligned or non-mmappable section), and what the 350 MB region
 is (a pre-committed and touched reservation).
 
+Cause of the duplicated image (verified in `dlls/ntdll/unix/virtual.c:2007-2042`): `msedge.dll` has FileAlignment 0x200 and
+section raw offsets such as `.text` 0x600, `.data` 0x141f1800 that are not multiples of 4096. `mmap` needs a page-aligned
+file offset, so `map_file_into_view` falls back to `mprotect` plus `pread` into private anonymous memory for every such
+section. Only the aligned `.rdata` is file-backed. This is stock Wine behaviour.
+
+Test of the cheapest fix: `ChromiumLab/tools/pe_realign.py` writes a copy of the DLL with FileAlignment 0x1000, 4 KiB-aligned
+section offsets and no Authenticode signature (all RVAs and SizeOfImage unchanged). Edge then runs from a copied
+Application tree with that DLL (`validate-edge6.py`). Same fixture, still `chromium_functional=true`, 16 GiB guest:
+
+| t=10 s | original | realigned DLL |
+|---|---|---|
+| 8 renderers (PSS) | 5926 MB (about 740 MB each) | 4007 MB (462 MB typical) |
+| browser / GPU (PSS) | 480 / 482 MB | 233 / 201 MB |
+| guest used / page cache | 9.1 / 4.4 GB | 5.4 / 5.6 GB |
+
+About 280 MB per process moved to shared file-backed pages. Each renderer still has about 450 MB anonymous, including the
+350 MB read-write region noted above, which is the next thing to explain. A durable fix belongs in Wine (a page-aligned
+image cache for unaligned PE files, so no binary has to be rewritten); a draft is in progress.
+
 ## Window styles seen by the probe
 
 `DwmGetWindowAttribute` returns `E_NOTIMPL` (0x80004001) for attributes 1-4, 14, 17, 20, 23, 33-38 (Wine's `dwmapi` stub);
