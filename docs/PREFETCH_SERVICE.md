@@ -67,10 +67,17 @@ Codex review (adversarial review of the daemon, standard review of the Wine comm
 
 Modules written and unit-tested but **not yet wired into the daemon** (`make -C src/wexprefetchd check` runs all four test
 programs): `pf_v17.c` (XP-style version 17 `.pf` writer plus the XP prefetch hash, checked against the documented test vector
-`\DEVICE\HARDDISKVOLUME1\WINDOWS\NOTEPAD.EXE` = `0x189578DA` and an independent Python reader; seven ambiguities in the format document
-and the choices made are recorded in the commit message), `readahead.c` (replay of recorded ranges with merging, caps and
-rotational-disk handling, verified with `mincore`), and `ksm_tuner.c` (`ksmtuned`-style adaptive control as a pure function,
-plus sysfs read and apply helpers and the kernel advisor option).
+`\DEVICE\HARDDISKVOLUME1\WINDOWS\NOTEPAD.EXE` = `0x189578DA` and an independent Python reader), `readahead.c` (replay of recorded ranges with merging,
+caps and rotational-disk handling, verified with `mincore`), and `ksm_tuner.c` (`ksmtuned`-style adaptive control as a pure
+function, plus sysfs read and apply helpers and the kernel advisor option).
+
+Where the format document of `pf_v17.c` is ambiguous, the writer chose (these files are for tools and parity, not read back by
+Windows): file header offset 8 is `0x0000000f` (the value seen on XP/2003 files); unused bytes of the 60-byte executable name
+and the unknown fields at file information offsets 44 and 64 are zero; each file gets one trace chain entry (one block, or the
+caller's `chain_blocks` count; flags 0x02 for executables, else 0x08); the filename strings array is not padded; the volume
+device path is stored with a trailing NUL and its character count excludes the NUL; each volume carries an 8-byte version 1
+file references header with no entries and no directory strings; the hash is computed over the unsigned bytes of the UTF-16LE
+uppercase path with the documented folding step (`CcPfHashValue`'s signed-char variant is not used).
 
 Open items: traces and readahead (sections 3.6 and 4), the registry value and folder, KSM/zram tuning in the daemon, and
 whether the tier-2 cache should move to `$XDG_CACHE_HOME`.
