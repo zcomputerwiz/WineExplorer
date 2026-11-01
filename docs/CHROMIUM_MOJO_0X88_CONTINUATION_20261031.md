@@ -256,6 +256,56 @@ was graceful (`fallback_used=false`, `qemu_exit_status=0`), with no host
 QEMU/Xvfb/wineserver processes remaining. Actual Chromium and Edge validation
 remains outstanding.
 
+## Paired server-state control and reproduced overflow (r27-r28)
+
+The r27 server-state measurement fails before attachment with `Owned module
+provenance changed`. Its debugger output is empty. The failed guard did not
+retain the later process maps, so its exact cause remains unknown; r27 supplies
+no context-sync or suspend-state evidence.
+
+In r28, the initial exact browser/profile/PID-start binding is retained, but
+the process no longer maps the browser or owned Wine module at five seconds,
+and its command line is empty. Browser attachment is explicitly skipped and
+recorded as invalid, not reported as a successful debugger capture. A separate
+unique exact owned wineserver executable/PID-start binding permits two bounded,
+read-only server attachments one second apart. Both captures detach successfully.
+
+Both server samples contain 44 threads belonging to the bound browser process:
+the main thread is `TERMINATED`, with thread/process suspend counts zero, no
+context object and no queued wait. The other 43 threads are `RUNNING`; none
+has a context object or nonzero suspend count. This is **main-thread death
+while the browser process remains**, not a persistent context-sync stall.
+It explains the missing browser module maps in r28, but does not retroactively
+establish the unrecorded r27 guard failure's cause.
+
+The same run reproduces r17's main-thread stack overflow:
+
+```text
+0024:err:virtual:virtual_setup_exception stack overflow 4672 bytes
+addr 0x6fffffc12156 stack 0x1fdc0 (0x20000-0x21000-0x820000)
+```
+
+The r28 initial mapping places the exact original PE ntdll at
+`0x6fffffbc0000`; the fault address is RVA `0x52156`, previously resolved in
+that original PE to `call_seh_handlers`' context copy. This is no longer just
+a cross-run base-address inference. The initiating exception and reason for
+stack exhaustion are still unknown; neither the context-copy fault nor the
+terminated main thread establishes a semantic fix.
+
+Chromium reaches network/GPU utility startup; three utility processes later
+report termination after 15 seconds without a connection. The actual compositor
+captures at ten and 55 seconds remain black with a cursor and the fixture
+receives no requests. These results do not invalidate r26's different,
+earlier signal-handler/context-wait snapshot or demonstrate browser acceptance.
+
+Both r27/r28 used the original fully verified WoW64 runtime, without logging
+module overlays or sandbox bypasses. Owned browser/server/compositor activity
+was stopped, exact prefix/build clones removed with the baseline hash unchanged,
+and guests shut down gracefully with QEMU exit zero. Curated
+`docs/evidence/chromium-server-state-r27-r28-outcome.json` preserves these
+distinctions; raw debugger memory, process maps and images remain private.
+No additional Wine semantic change has been made.
+
 ## Durable runtime packaging prerequisite
 
 `scripts/g4_combined_r6_deploy.py` is the tracked archive implementation used
