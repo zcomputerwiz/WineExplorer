@@ -41,6 +41,37 @@ Reviewed in Wine (stock upstream code, `dlls/ntdll/unix/process.c`): `ProcessIma
 No overrun found statically. A gdb watchpoint run (`edge-gdb.py`: hardware watch on the frame's cookie slot) attached
 to the browser but never reached the function in the one run it covered, so the cause is open.
 
+## Normal browser window (tabs, toolbar, menus) and guest memory
+
+The runs above use `--app=<url>`, Edge's tabless app window. With the URL as a plain argument (normal window), in the
+original 8 GiB guest Edge produced a blank white window and the harness's `wine ...probe scan` calls timed out. Cause: the
+guest was thrashing. During the stall `free` showed 7.35 of 7.95 GB used, 114 MB page cache, `kswapd` busy, the probe in
+`folio_wait_bit_common` and the wineserver in `jbd2_log_wait_commit`. The main thread was idle in `MsgWaitForMultipleObjectsEx`,
+so the UI thread was not hung.
+
+With the same VM at 16 GiB (`ChromiumLab/launch-16g.py`, a copy of the validated launcher with `-m 16384`) the normal Edge
+window renders fully: tab strip with new-tab button, back/forward/reload, address bar, favorites, profile, the "..." menu and
+the Copilot Chat button, plus the WebGL fixture with correct pixels (`chromium_functional=true`). Portable Chromium in normal
+mode also renders its tabs and omnibox. Used memory climbs from 1 GB to about 9 GB within 40 s.
+
+Memory by role, PSS at t=8-10 s, Edge (`ChromiumLab/edge-dev-r3-20261101/who.txt`): 8 renderers 5.9 GB (about 740 MB
+each, anonymous), browser 0.48 GB, GPU 0.48 GB, utilities 0.4 GB each (Extractor, NetworkService, StorageService), explorer 66
+MB, labwc 61 MB, wineserver 17 MB. Plain Chromium in normal mode has 7 renderers at 740-1080 MB each, so this is not Edge-specific.
+
+What a renderer holds (Chromium, `smaps.txt`): the browser DLL image about 330 MB as a **private anonymous copy**
+(`r-xp` 278 MB fully resident with no pathname, plus 37 MB `r--p`; it is the PE image at 0x6fffe69f1000, not its preferred
+base), a 350 MB resident read-write region, and smaller heaps. Every Wine process that loads the DLL therefore holds its own
+copy, where native Windows and Linux would share file-backed pages. Open questions: why Wine copies the image instead of
+mapping the file (relocation at a non-preferred base, or an unaligned or non-mmappable section), and what the 350 MB region
+is (a pre-committed and touched reservation).
+
+## Window styles seen by the probe
+
+`DwmGetWindowAttribute` returns `E_NOTIMPL` (0x80004001) for attributes 1-4, 14, 17, 20, 23, 33-38 (Wine's `dwmapi` stub);
+Chromium does not need them. Chromium's top window: style 0x16cf0000, ex 0x100, children `Chrome_RenderWidgetHostHWND` and one
+`Intermediate D3D Window` (style 0x58000000, ex 0x280024, `WS_EX_LAYERED` set but `GetLayeredWindowAttributes` fails). Full DWM
+work (the project goal) will need real attribute storage and composition state; see `WINLOGON_AND_DWM.md` (D4).
+
 ## Notes
 
 - `Discarding multiple pages with target (kb): 0` appears in passing runs too: normal Edge startup, not a cause.
