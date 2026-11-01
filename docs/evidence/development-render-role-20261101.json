@@ -1,0 +1,294 @@
+{
+  "cases": {
+    "attached": {
+      "expected": 4096,
+      "actual": 4096,
+      "bounds": [
+        540,
+        260,
+        604,
+        324
+      ],
+      "expected_bounds": [
+        540,
+        260,
+        604,
+        324
+      ],
+      "passed": true
+    },
+    "moved": {
+      "expected": 4096,
+      "actual": 4096,
+      "bounds": [
+        580,
+        290,
+        644,
+        354
+      ],
+      "expected_bounds": [
+        580,
+        290,
+        644,
+        354
+      ],
+      "passed": true
+    },
+    "negative_clip": {
+      "expected": 2288,
+      "actual": 2288,
+      "bounds": [
+        540,
+        260,
+        584,
+        312
+      ],
+      "expected_bounds": [
+        540,
+        260,
+        584,
+        312
+      ],
+      "passed": true
+    },
+    "outside_parent": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "explicit_bounds": {
+      "expected": 600,
+      "actual": 600,
+      "bounds": [
+        540,
+        260,
+        560,
+        290
+      ],
+      "expected_bounds": [
+        540,
+        260,
+        560,
+        290
+      ],
+      "passed": true
+    },
+    "empty_parent": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "buffer_scale_two": {
+      "expected": 1024,
+      "actual": 1024,
+      "bounds": [
+        540,
+        260,
+        572,
+        292
+      ],
+      "expected_bounds": [
+        540,
+        260,
+        572,
+        292
+      ],
+      "passed": true
+    },
+    "wrong_parent": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "clipped": {
+      "expected": 400,
+      "actual": 400,
+      "bounds": [
+        720,
+        440,
+        740,
+        460
+      ],
+      "expected_bounds": [
+        720,
+        440,
+        740,
+        460
+      ],
+      "passed": true
+    },
+    "parent_shrunk": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "parent_grown": {
+      "expected": 400,
+      "actual": 400,
+      "bounds": [
+        720,
+        440,
+        740,
+        460
+      ],
+      "expected_bounds": [
+        720,
+        440,
+        740,
+        460
+      ],
+      "passed": true
+    },
+    "invalid_size": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "reattached": {
+      "expected": 4096,
+      "actual": 4096,
+      "bounds": [
+        540,
+        260,
+        604,
+        324
+      ],
+      "expected_bounds": null,
+      "passed": true
+    },
+    "parent_revoked": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "stale_parent": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "new_parent": {
+      "expected": 4096,
+      "actual": 4096,
+      "bounds": [
+        540,
+        260,
+        604,
+        324
+      ],
+      "expected_bounds": null,
+      "passed": true
+    },
+    "producer_destroyed": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "producer_recreated": {
+      "expected": 4096,
+      "actual": 4096,
+      "bounds": [
+        540,
+        260,
+        604,
+        324
+      ],
+      "expected_bounds": null,
+      "passed": true
+    },
+    "invalid_surface_order_rejected": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "before_disconnect": {
+      "expected": 4096,
+      "actual": 4096,
+      "bounds": [
+        540,
+        260,
+        604,
+        324
+      ],
+      "expected_bounds": null,
+      "passed": true
+    },
+    "producer_disconnected": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "producer_reconnected": {
+      "expected": 4096,
+      "actual": 4096,
+      "bounds": [
+        540,
+        260,
+        604,
+        324
+      ],
+      "expected_bounds": null,
+      "passed": true
+    },
+    "parent_surface_destroyed": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    },
+    "destroyed_surface_handle": {
+      "expected": 0,
+      "actual": 0,
+      "bounds": null,
+      "expected_bounds": null,
+      "passed": true
+    }
+  },
+  "classification": "Private render-role functional contract; not security certification",
+  "wexcomp": {
+    "binary": "/var/tmp/wex-development-validation-20261101/compositor-build/labwc",
+    "sha256": "6b36cf6839072d082fa0d613bbbf07e51543e839d2995404a454d9e6eaba1d1b",
+    "config": "/var/tmp/wex-development-validation-20261101/contract-config",
+    "command": [
+      "/var/tmp/wex-development-validation-20261101/compositor-build/labwc",
+      "-V",
+      "-C",
+      "/var/tmp/wex-development-validation-20261101/contract-config"
+    ],
+    "backend": "headless",
+    "compositor_renderer": "pixman (software)",
+    "endpoint": "wex-shell-0",
+    "private_protocol_verified": true,
+    "process_identity": {
+      "pid": 548366,
+      "start_ticks": 8045635
+    },
+    "wineprefix_stripped": false,
+    "alive_at_end": true
+  },
+  "probe_exit": 0,
+  "cleanup": {
+    "probe_stopped": true,
+    "owned_compositor_stopped": true
+  }
+}
