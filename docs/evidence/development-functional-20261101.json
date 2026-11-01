@@ -1,0 +1,290 @@
+{
+  "date": "2026-11-01",
+  "wineexplorer_base": "4a722b72c851f32d60d3e9a5e37958e61e0e37dd",
+  "wine_baseline": "67317644f3bef172ed036b435989a2c6a7b3b06f",
+  "wine_feature": "b5e05301c4a52bff777a6b9fd6bfe03c3428d035",
+  "compositor": "94faa651f9e267fd03157348b26ffb3c66082484",
+  "baseline": {
+    "fixture": {
+      "v": 1,
+      "nonce": "202eb0b8ba89a60eb5e889903abb8f4d",
+      "kind": "ready",
+      "passed": true,
+      "apis": {
+        "webgl": {
+          "defaultPixel": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "fboPixel": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "finalPixel": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "fboComplete": true,
+          "error": 0,
+          "lost": false,
+          "renderer": "ANGLE (Intel, Intel(R) G45/G43 (0x00002E22) Direct3D11 vs_4_1 ps_4_1, D3D11)",
+          "rect": {
+            "x": 32,
+            "y": 112,
+            "width": 96,
+            "height": 96
+          }
+        },
+        "webgl2": {
+          "defaultPixel": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "fboPixel": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "finalPixel": [
+            0,
+            255,
+            255,
+            255
+          ],
+          "fboComplete": true,
+          "error": 0,
+          "lost": false,
+          "renderer": "ANGLE (Intel, Intel(R) G45/G43 (0x00002E22) Direct3D11 vs_4_1 ps_4_1, D3D11)",
+          "rect": {
+            "x": 160,
+            "y": 112,
+            "width": 96,
+            "height": 96
+          }
+        }
+      },
+      "viewport": {
+        "width": 1042,
+        "height": 645,
+        "dpr": 1
+      },
+      "marker": {
+        "x": 32,
+        "y": 32,
+        "width": 48,
+        "height": 48
+      },
+      "background": "rgb(232, 245, 233)",
+      "frozenAtMs": 6588
+    },
+    "http": [
+      {
+        "at": 1793553365.804874,
+        "message": "\"GET /index.html HTTP/1.1\" 200 -"
+      },
+      {
+        "at": 1793553365.846061,
+        "message": "\"GET /scene.js HTTP/1.1\" 200 -"
+      },
+      {
+        "at": 1793553370.7591264,
+        "message": "code 404, message File not found"
+      },
+      {
+        "at": 1793553370.759134,
+        "message": "\"GET /favicon.ico HTTP/1.1\" 404 -"
+      }
+    ],
+    "front_observation": "White Chromium content despite fixture passed=true",
+    "probe_limitation": "Progman expectation incorrect: shell desktop is SHELLDLL_DefView; other desktop interaction checks passed"
+  },
+  "bridge": {
+    "fixture": {
+      "v": 1,
+      "nonce": "1ed74e1b8de5911959dd42492db7429b",
+      "kind": "ready",
+      "passed": true,
+      "apis": {
+        "webgl": {
+          "defaultPixel": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "fboPixel": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "finalPixel": [
+            255,
+            0,
+            255,
+            255
+          ],
+          "fboComplete": true,
+          "error": 0,
+          "lost": false,
+          "renderer": "ANGLE (Intel, Intel(R) G45/G43 (0x00002E22) Direct3D11 vs_4_1 ps_4_1, D3D11)",
+          "rect": {
+            "x": 32,
+            "y": 112,
+            "width": 96,
+            "height": 96
+          }
+        },
+        "webgl2": {
+          "defaultPixel": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "fboPixel": [
+            0,
+            255,
+            0,
+            255
+          ],
+          "finalPixel": [
+            0,
+            255,
+            255,
+            255
+          ],
+          "fboComplete": true,
+          "error": 0,
+          "lost": false,
+          "renderer": "ANGLE (Intel, Intel(R) G45/G43 (0x00002E22) Direct3D11 vs_4_1 ps_4_1, D3D11)",
+          "rect": {
+            "x": 160,
+            "y": 112,
+            "width": 96,
+            "height": 96
+          }
+        }
+      },
+      "viewport": {
+        "width": 1042,
+        "height": 645,
+        "dpr": 1
+      },
+      "marker": {
+        "x": 32,
+        "y": 32,
+        "width": 48,
+        "height": 48
+      },
+      "background": "rgb(232, 245, 233)",
+      "frozenAtMs": 5622
+    },
+    "http": [
+      {
+        "at": 1793553659.9647663,
+        "message": "\"GET /index.html HTTP/1.1\" 200 -"
+      },
+      {
+        "at": 1793553660.0424597,
+        "message": "\"GET /scene.js HTTP/1.1\" 200 -"
+      },
+      {
+        "at": 1793553664.5464017,
+        "message": "code 404, message File not found"
+      },
+      {
+        "at": 1793553664.5464084,
+        "message": "\"GET /favicon.ico HTTP/1.1\" 404 -"
+      }
+    ],
+    "desktop_passed": true,
+    "desktop_stdout": "TRAY found=1 visible=1 rect=0,692,1280,720\nDESKTOP found=1\nSTARTMENU button=1 opened=1\nNOTEPAD text_roundtrip=1 pid=304\nNOTEPAD maximize=1 restore=1\nWINDOW pid=200 class=Shell_TrayWnd title=\nWINDOW pid=200 class=SHELLDLL_DefView title=\nRESULT failures=0\n",
+    "folder_passed": true,
+    "folder_stdout": "FOLDER visible=1 list=1 items=5 passed=1\n",
+    "startup64": 0,
+    "startup32": 0,
+    "fresh_init": 0,
+    "network_service_creation_lines": [
+      "609.799:017c:01e8:trace:process:CreateProcessInternalW app L\"Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-headful-r1-20261023-stage\\\\vendor\\\\extracted\\\\chrome-win\\\\chrome.exe\" cmdline L\"\\\"Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-headful-r1-20261023-stage\\\\vendor\\\\extracted\\\\chrome-win\\\\chrome.exe\\\" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --user-data-dir=\\\"Z:\\\\home\\\\debian\\\\development-validation-20261101\\\\bridg\"...",
+      "609.802:017c:01e8:trace:process:NtCreateUserProcess L\"\\\\??\\\\Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-headful-r1-20261023-stage\\\\vendor\\\\extracted\\\\chrome-win\\\\chrome.exe\" image L\"Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-headful-r1-20261023-stage\\\\vendor\\\\extracted\\\\chrome-win\\\\chrome.exe\" cmdline L\"\\\"Z:\\\\home\\\\debian\\\\wex-g4\\\\chromium-headful-r1-20261023-stage\\\\vendor\\\\extracted\\\\chrome-win\\\\chrome.exe\\\" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --user-data-dir=\\\"Z:\\\\home\\\\debian\\\\development-validation-20261101\\\\bridg\"... parent (nil) machine 0"
+    ],
+    "failed_launch_marker": null,
+    "outer_renderer": {
+      "driver": "virgl",
+      "renderer": "virgl (D3D12 (Intel(R) UHD Graphics 750))",
+      "passed": true,
+      "startup_log_sha256": "2e814eeebd1a9d6393b736d2a38df80ff1268bcda54e0117c3993b74b56c63fb"
+    },
+    "front_observation": "Parent inspected light-green background, blue marker, magenta and cyan canvases",
+    "shell_survived": true,
+    "server_stop": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "server_wait": {
+      "exit": 0,
+      "stderr": ""
+    }
+  },
+  "runtime_verification": {
+    "files": 1710,
+    "mismatches": []
+  },
+  "feature_verification": {
+    "started": 1793553553.8439817,
+    "wine_commit": "b5e05301c4a52bff777a6b9fd6bfe03c3428d035",
+    "updated_files": [
+      "wow64/dlls/winewayland.drv/winewayland.so"
+    ],
+    "verification": {
+      "files": 1710,
+      "mismatches": []
+    },
+    "passed": true,
+    "finished": 1793553569.4790606
+  },
+  "screenshots_sha256": {
+    "baseline": {
+      "desktop.png": "2d5d4c74c72ac1729e0fddf35614309794baca51039c6f7a713a63118135b0f7",
+      "chromium.png": "2ef1b0c7691f6f439e224b83aa66589021c6fd69c5e77e99ced0573bb473409a"
+    },
+    "bridge": {
+      "desktop.png": "d71c5d991c719ba99908ff3c1f93a7dbb908bcb89d2030c8492cd416e277c01d",
+      "chromium.png": "4e4932ba8ce54360cf2769bc95b080057cf458b7fc886fa8edce0a3ddd4b622e"
+    }
+  },
+  "shutdown": {
+    "graceful": true,
+    "fallback": false,
+    "qemu_exit": 0,
+    "cleanup": {
+      "qemu_stopped": true,
+      "xvfb_stopped": true
+    }
+  },
+  "limitations": [
+    "Functional validation at 100% scale in isolated headless Wayland/VirGL desktop, not installer/login acceptance.",
+    "Normal browser sandbox flags and network-service mode observed; no claim of complete lowbox/MIC/broker enforcement.",
+    "General OpenGL surface reparenting from an established local subsurface role to a cross-process role needs separate surface-lifetime handling; not exercised by this Chromium path."
+  ],
+  "front_pixel_counts": {
+    "baseline": {
+      "magenta": 0,
+      "cyan": 0
+    },
+    "bridge": {
+      "magenta": 9216,
+      "cyan": 9216
+    }
+  }
+}

@@ -5,7 +5,7 @@
 Use `development` in both `zcomputerwiz/WineExplorer` and `zcomputerwiz/wine` for
 ongoing integration. WineExplorer combines the completed OOBE/recovery work,
 Chromium token/broker reconciliation through r37, and the subsequent Chromium
-diagnostics. Its Wine gitlink is `67317644f3bef172ed036b435989a2c6a7b3b06f`;
+diagnostics. Its Wine gitlink is `b5e05301c4a52bff777a6b9fd6bfe03c3428d035`;
 `.gitmodules` also tracks Wine's `development` branch. Default/release branches
 are unchanged. The older branch names in dated reports identify historical work,
 not the current integration target.
@@ -14,9 +14,11 @@ The integration keeps the `wexsys` machine-root ownership model and elevation
 lease APIs alongside the OOBE APIs. Native and WoW64 bridge call tables must stay
 in the same order as their shared enum; rebuild both PE architectures and the
 Unix bridge together. Font setup uses the selected Wine/server pair and preserves
-the isolated bootstrap skip mode. The Wine repairs are now published, but the
-full Chromium chain still needs a fresh-prefix VM run and the R6 runtime-font
-packaging correction described below.
+the isolated bootstrap skip mode. Fresh-prefix Chromium and basic desktop functionality are now independently
+validated, including actual front pixels with the retained v11 bridge. Assembly
+and runtime-font packaging are repaired. See
+[DEVELOPMENT_VALIDATION_20261101.md](DEVELOPMENT_VALIDATION_20261101.md) for measured
+results and limits; older unvalidated statements below are historical.
 
 The earlier operational handoff is [CODEX_HANDOFF.md](CODEX_HANDOFF.md), updated
 2026-10-13 after the completed refactor and fresh installer acceptance. Start there for branches, VM
@@ -118,7 +120,7 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 4. Multi-monitor work areas/struts, foreign-window grouping and shell-crash recovery. Native Wayland window management and a session-wide Gamescope bridge are not implemented.
 5. Accelerated/per-hypervisor graphics and physical-output tests need suitable hardware. The VM currently reports CPU Vulkan; nested Gamescope output resizing is not evidence of changing physical scanout.
 6. WebView2 remains a separate lab. A positive baseline-Wine test on ProtonExplorer-VM used a per-app Windows 7 override for `msedgewebview2.exe` plus SwiftShader. Do not infer accelerated rendering or shell integration from it; see WEBVIEW2.md for exact provenance and remaining tests.
-7. Chromium (pinned build, sandbox on) stopped working after the Wine rebase and the token work. Three separate failures are diagnosed: the new Wine base left the first thread's data block unaligned, which stalls Chromium's stack sampler (repaired in `2ebf5f72`); the R6 runtime package lacks Wine's six TrueType fonts, so Chromium's font initialization recurses until the main thread's stack is gone (packaging fix recommended; the `tfont` candidate was validated in the VM); and `SetNamedSecurityInfoW()` refused mandatory labels, which broke the sandboxed network service on a prefix without the AppContainer registration (repaired in `1cc71ccd`, validated in local runs only). The Wine commits are published on `development`. The lab harness has to ship the six fonts, run `scripts/check-runtime-fonts.py` and use a new user data directory per run. The whole chain has not been run in the VM on a prefix without the registration. See the three `CHROMIUM_*_20261101.md` documents.
+7. Chromium fresh-prefix navigation, WebGL1/2 fixture and front presentation now pass on the combined development build, alongside the desktop/Start menu/Notepad/File Explorer smoke checks. The retained v11 Wine driver bridge fixes the otherwise white browser surface. See DEVELOPMENT_VALIDATION_20261101.md. Lowbox/MIC/broker enforcement and full installer/login acceptance remain separate from this functional result.
 
 ## Documentation map
 
