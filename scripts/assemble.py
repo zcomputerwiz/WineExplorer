@@ -19,7 +19,8 @@ def register_project_sources(root, wine):
                      for kind in ('dlls', 'programs')
                      for source in (root / 'src' / kind).iterdir()
                      if (source / 'Makefile.in').is_file())
-    declared = set(re.findall(r'WINE_CONFIG_MAKEFILE\(([^)]+)\)', text))
+    declared = {value.split(',', 1)[0].strip()
+                for value in re.findall(r'WINE_CONFIG_MAKEFILE\(([^)]+)\)', text)}
     missing = [name for name in modules if name not in declared]
     if missing:
         marker = re.search(r'^WINE_CONFIG_MAKEFILE\(', text, re.M)
