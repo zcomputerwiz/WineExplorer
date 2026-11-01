@@ -68,3 +68,5 @@ __pycache__/
 /src/wexprefetchd/wexprefetchd
 /src/wexprefetchd/wexpf-client
 /src/wexprefetchd/test_sha256
+/src/wexprefetchd/test_readahead
+/src/wexprefetchd/test_ksm_tuner

@@ -65,6 +65,13 @@ Codex review (adversarial review of the daemon, standard review of the Wine comm
   first instruction (reproduced and fixed); `EmptyWorkingSet` walks per-page commitment so reserve-then-commit memory is trimmed
   too (534 MB resident to 10 MB in the test, from 270 MB untouched by the first version).
 
+Modules written and unit-tested but **not yet wired into the daemon** (`make -C src/wexprefetchd check` runs all four test
+programs): `pf_v17.c` (XP-style version 17 `.pf` writer plus the XP prefetch hash, checked against the documented test vector
+`\DEVICE\HARDDISKVOLUME1\WINDOWS\NOTEPAD.EXE` = `0x189578DA` and an independent Python reader; seven ambiguities in the format document
+and the choices made are recorded in the commit message), `readahead.c` (replay of recorded ranges with merging, caps and
+rotational-disk handling, verified with `mincore`), and `ksm_tuner.c` (`ksmtuned`-style adaptive control as a pure function,
+plus sysfs read and apply helpers and the kernel advisor option).
+
 Open items: traces and readahead (sections 3.6 and 4), the registry value and folder, KSM/zram tuning in the daemon, and
 whether the tier-2 cache should move to `$XDG_CACHE_HOME`.
 

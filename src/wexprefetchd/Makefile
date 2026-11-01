@@ -18,8 +18,18 @@ wexpf-client: wexpf-client.c protocol.h
 test_sha256: test_sha256.c sha256.c sha256.h
 	$(CC) $(CFLAGS) test_sha256.c sha256.c -o $@
 
-check: test_sha256
+test_readahead: test_readahead.c readahead.c readahead.h
+	$(CC) $(CFLAGS) test_readahead.c readahead.c -o $@
+
+test_ksm_tuner: test_ksm_tuner.c ksm_tuner.c ksm_tuner.h
+	$(CC) $(CFLAGS) test_ksm_tuner.c ksm_tuner.c -o $@
+
+# Unit tests for the modules; the daemon suite needs a test PE: python3 test_wexprefetchd.py ./wexprefetchd FILE.exe
+check: test_sha256 test_readahead test_ksm_tuner
 	./test_sha256
+	TMPDIR=/var/tmp ./test_readahead
+	./test_ksm_tuner
+	python3 -I test_pf_v17.py
 
 install: all
 	install -d $(DESTDIR)$(PREFIX)/sbin
@@ -28,6 +38,6 @@ install: all
 	install -m 0755 wexpf-client $(DESTDIR)$(PREFIX)/bin/wexpf-client
 
 clean:
-	rm -f wexprefetchd wexpf-client test_sha256
+	rm -f wexprefetchd wexpf-client test_sha256 test_readahead test_ksm_tuner
 
 .PHONY: all check install clean
