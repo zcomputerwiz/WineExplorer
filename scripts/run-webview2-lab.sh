@@ -21,6 +21,7 @@ case "$CASE" in
 baseline) ;;
 software) WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS+=" --disable-gpu" ;;
 swiftshader) WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS+=" --disable-gpu --enable-unsafe-swiftshader --use-angle=swiftshader" ;;
+nodcomp) WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS+=" --disable-direct-composition --use-angle=d3d11" ;;
 *) ;;
 esac
 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS+=" ${WEX_WEBVIEW2_BROWSER_ARGS:-}"

@@ -1,0 +1,178 @@
+{
+  "classification": "Guest bootstrap only, not Chromium rendering acceptance",
+  "host_gl": {
+    "passed": true,
+    "stdout": "name of display: :0\ndisplay: :0  screen: 0\ndirect rendering: Yes\nExtended renderer info (GLX_MESA_query_renderer):\n    Vendor: Microsoft Corporation (0xffffffff)\n    Device: D3D12 (Intel(R) UHD Graphics 750) (0xffffffff)\n    Version: 25.0.7\n    Accelerated: yes\n    Video memory: 104819MB\n    Unified memory: yes\n    Preferred profile: core (0x1)\n    Max core profile version: 4.1\n    Max compat profile version: 4.1\n    Max GLES1 profile version: 1.1\n    Max GLES[23] profile version: 3.0\nMemory info (GL_ATI_meminfo):\n    VBO free memory - total: 103915 MB, largest block: 103915 MB\n    VBO free aux. memory - total: 0 MB, largest block: 0 MB\n    Texture free memory - total: 103915 MB, largest block: 103915 MB\n    Texture free aux. memory - total: 0 MB, largest block: 0 MB\n    Renderbuffer free memory - total: 103915 MB, largest block: 103915 MB\n    Renderbuffer free aux. memory - total: 0 MB, largest block: 0 MB\nMemory info (GL_NVX_gpu_memory_info):\n    Dedicated video memory: 104819 MB\n    Total available memory: 104819 MB\n    Currently available dedicated video memory: 103915 MB\nOpenGL vendor string: Microsoft Corporation\nOpenGL renderer string: D3D12 (Intel(R) UHD Graphics 750)\nOpenGL core profile version string: 4.1 (Core Profile) Mesa 25.0.7-2+deb13u1\nOpenGL core profile shading language version string: 4.10\nOpenGL core profile context flags: (none)\nOpenGL core profile profile mask: core profile\n\nOpenGL version string: 4.1 (Compatibility Profile) Mesa 25.0.7-2+deb13u1\nOpenGL shading language version string: 4.10\nOpenGL context flags: (none)\nOpenGL profile mask: compatibility profile\n\nOpenGL ES profile version string: OpenGL ES 3.0 Mesa 25.0.7-2+deb13u1\nOpenGL ES profile shading language version string: OpenGL ES GLSL ES 3.00\n\n",
+    "exit_code": 0
+  },
+  "command": [
+    "qemu-system-x86_64",
+    "-accel",
+    "kvm",
+    "-machine",
+    "q35",
+    "-cpu",
+    "host",
+    "-smp",
+    "4",
+    "-m",
+    "8192",
+    "-device",
+    "virtio-vga-gl",
+    "-display",
+    "gtk,gl=on",
+    "-drive",
+    "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/system-native-identity-r4-20261024.qcow2,format=qcow2,if=virtio",
+    "-drive",
+    "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/seed.iso,format=raw,media=cdrom,readonly=on",
+    "-nic",
+    "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2235-:22",
+    "-serial",
+    "file:/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/mojo-recovered-fixed-r7/serial.log",
+    "-qmp",
+    "unix:/var/tmp/wex-g4-tree-20261020/isolated-sockets/virgl-runtime-24822yhq/qmp.sock,server=on,wait=off",
+    "-no-reboot"
+  ],
+  "pid": 5812,
+  "exit_before_shutdown": null,
+  "stop_reason": "signal",
+  "graceful_powerdown": true,
+  "fallback_used": false,
+  "shutdown_started_monotonic": 13313.273375623,
+  "qmp": {
+    "started_monotonic": 13313.322393841,
+    "maximum_seconds": 50,
+    "request_ids": {
+      "capabilities": "8b814ba5f5543a23a4205c010bbf0dcb-capabilities",
+      "powerdown": "8b814ba5f5543a23a4205c010bbf0dcb-powerdown"
+    },
+    "capabilities_ack": true,
+    "powerdown_requested": true,
+    "powerdown_ack": true,
+    "guest_shutdown_observed": true,
+    "protocol_complete": true,
+    "events": [
+      {
+        "message": {
+          "timestamp": {
+            "seconds": 1793485656,
+            "microseconds": 136925
+          },
+          "event": "POWERDOWN"
+        },
+        "before_powerdown_request": false,
+        "observed_monotonic": 13313.323958915
+      },
+      {
+        "message": {
+          "timestamp": {
+            "seconds": 1793485662,
+            "microseconds": 676297
+          },
+          "event": "SHUTDOWN",
+          "data": {
+            "guest": true,
+            "reason": "guest-shutdown"
+          }
+        },
+        "before_powerdown_request": false,
+        "observed_monotonic": 13319.863375419
+      }
+    ],
+    "transcript": [
+      {
+        "direction": "rx",
+        "monotonic": 13313.322765902,
+        "bytes": 141,
+        "base64": "eyJRTVAiOiB7InZlcnNpb24iOiB7InFlbXUiOiB7Im1pY3JvIjogMTMsICJtaW5vciI6IDAsICJtYWpvciI6IDEwfSwgInBhY2thZ2UiOiAiRGViaWFuIDE6MTAuMC4xMytkcy0wK2RlYjEzdTEifSwgImNhcGFiaWxpdGllcyI6IFsib29iIl19fQ0K",
+        "before_powerdown_request": true
+      },
+      {
+        "direction": "tx",
+        "monotonic": 13313.322861376,
+        "bytes": 85,
+        "base64": "eyJleGVjdXRlIjoicW1wX2NhcGFiaWxpdGllcyIsImlkIjoiOGI4MTRiYTVmNTU0M2EyM2E0MjA1YzAxMGJiZjBkY2ItY2FwYWJpbGl0aWVzIn0NCg==",
+        "completed": true
+      },
+      {
+        "direction": "rx",
+        "monotonic": 13313.323426134,
+        "bytes": 71,
+        "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjhiODE0YmE1ZjU1NDNhMjNhNDIwNWMwMTBiYmYwZGNiLWNhcGFiaWxpdGllcyJ9DQo=",
+        "before_powerdown_request": true
+      },
+      {
+        "direction": "tx",
+        "monotonic": 13313.323538135,
+        "bytes": 82,
+        "base64": "eyJleGVjdXRlIjoic3lzdGVtX3Bvd2VyZG93biIsImlkIjoiOGI4MTRiYTVmNTU0M2EyM2E0MjA1YzAxMGJiZjBkY2ItcG93ZXJkb3duIn0NCg==",
+        "completed": true
+      },
+      {
+        "direction": "rx",
+        "monotonic": 13313.323908394,
+        "bytes": 86,
+        "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDg1NjU2LCAibWljcm9zZWNvbmRzIjogMTM2OTI1fSwgImV2ZW50IjogIlBPV0VSRE9XTiJ9DQo=",
+        "before_powerdown_request": false
+      },
+      {
+        "direction": "rx",
+        "monotonic": 13313.323970632,
+        "bytes": 68,
+        "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjhiODE0YmE1ZjU1NDNhMjNhNDIwNWMwMTBiYmYwZGNiLXBvd2VyZG93biJ9DQo=",
+        "before_powerdown_request": false
+      },
+      {
+        "direction": "rx",
+        "monotonic": 13319.863306868,
+        "bytes": 138,
+        "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDg1NjYyLCAibWljcm9zZWNvbmRzIjogNjc2Mjk3fSwgImV2ZW50IjogIlNIVVRET1dOIiwgImRhdGEiOiB7Imd1ZXN0IjogdHJ1ZSwgInJlYXNvbiI6ICJndWVzdC1zaHV0ZG93biJ9fQ0K",
+        "before_powerdown_request": false
+      }
+    ],
+    "greeting": {
+      "QMP": {
+        "version": {
+          "qemu": {
+            "micro": 13,
+            "minor": 0,
+            "major": 10
+          },
+          "package": "Debian 1:10.0.13+ds-0+deb13u1"
+        },
+        "capabilities": [
+          "oob"
+        ]
+      }
+    },
+    "powerdown_request_monotonic": 13313.323574964,
+    "finished_monotonic": 13319.863415006,
+    "elapsed_seconds": 6.541021165001439
+  },
+  "qemu_exit_status": 0,
+  "cleanup": {
+    "qemu_stopped": true,
+    "xvfb_stopped": true
+  },
+  "shutdown_elapsed_seconds": 6.761613122998824,
+  "launcher_identity": {
+    "pid": 5797,
+    "start_ticks": 1307699,
+    "cmdline": [
+      "python3",
+      "-B",
+      "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py"
+    ],
+    "run_name": "mojo-recovered-fixed-r7",
+    "run_dir": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/mojo-recovered-fixed-r7",
+    "launcher_path": "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py",
+    "identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/mojo-recovered-fixed-r7/launcher-identity.json",
+    "qemu_pid": 5812,
+    "qemu_start_ticks": 1307823,
+    "qemu_cmdline": [],
+    "xvfb_pid": 5799,
+    "xvfb_start_ticks": 1307737,
+    "xvfb_cmdline": []
+  },
+  "launcher_identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/mojo-recovered-fixed-r7/launcher-identity.json"
+}

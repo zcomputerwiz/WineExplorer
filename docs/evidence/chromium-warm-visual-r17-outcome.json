@@ -1,0 +1,70 @@
+{
+  "classification": "Ordinary warm-prefix Wine launch, no native-held helper; still no visible browser or fixture traffic",
+  "command": [
+    "/home/debian/wex-g4/chromium-token-visual-r16-20261101-wine/build/wow64/loader/wine",
+    "/home/debian/wex-g4/chromium-headful-r1-20261023-stage/vendor/extracted/chrome-win/chrome.exe",
+    "--app=http://127.0.0.1:33179/af3c30ecf5d8f95fd83558a66badbdfb/index.html#nonce=af3c30ecf5d8f95fd83558a66badbdfb",
+    "--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-warm-visual-r17-20261101\\profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--enable-logging",
+    "--log-file=Z:\\home\\debian\\wex-g4\\chromium-warm-visual-r17-20261101\\chromium.log",
+    "--v=1",
+    "--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3",
+    "--log-net-log=Z:\\home\\debian\\wex-g4\\chromium-warm-visual-r17-20261101\\netlog.json",
+    "--net-log-max-size-mb=8",
+    "--net-log-duration=40",
+    "--trace-startup",
+    "--trace-startup-duration=35",
+    "--trace-startup-file=Z:\\home\\debian\\wex-g4\\chromium-warm-visual-r17-20261101\\trace.json"
+  ],
+  "linux_launch_exit_at_55_seconds": null,
+  "linux_reaped_exit_after_owned_server_stop": 1,
+  "http_fixture": {
+    "classification": "HTTP writes only; browser consumption NOT_PROVEN",
+    "requests": [],
+    "errors": [],
+    "sources": {
+      "index.html": {
+        "path": "/home/debian/wex-g4/chromium-token-visual-r16-20261101-stage/scripts/g4-edge-probe/index.html",
+        "bytes": 637,
+        "sha256": "f0a47b1a6013c015228c3e6c76a0a73b5d3eb6c218ec031a34dd8da7e0c0edc3"
+      },
+      "scene.js": {
+        "path": "/home/debian/wex-g4/chromium-token-visual-r16-20261101-stage/scripts/g4-edge-probe/scene.js",
+        "bytes": 3750,
+        "sha256": "fe9b1801a7d4baa3512fb4e103330e317d17c9f2e2763abf8f14a275c686ee51"
+      }
+    },
+    "connection_timeout_seconds": 0.5,
+    "maximum_requests": 64,
+    "listener": {
+      "host": "127.0.0.1",
+      "port": 33179
+    },
+    "started_monotonic": 511.502393858,
+    "url": "http://127.0.0.1:33179/af3c30ecf5d8f95fd83558a66badbdfb/index.html#nonce=af3c30ecf5d8f95fd83558a66badbdfb",
+    "stopped_monotonic": 567.168459534,
+    "thread_stopped": true
+  },
+  "captures": [
+    {
+      "seconds": 10,
+      "capture_exit": 0,
+      "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+      "visual_observation": "Black background with cursor; no Chromium window"
+    },
+    {
+      "seconds": 55,
+      "capture_exit": 0,
+      "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+      "visual_observation": "Black background with cursor; no Chromium window"
+    }
+  ],
+  "chromium_log_bytes": 19868,
+  "main_thread_stack_overflow": [
+    "0024:err:virtual:virtual_setup_exception stack overflow 4736 bytes addr 0x6fffffc12156 stack 0x1fd80 (0x20000-0x21000-0x820000)"
+  ],
+  "cleanup": "Owned wineserver and compositor stopped by finally; r16 owned prefix/build removed before graceful VM shutdown",
+  "limits": "Startup reaches network/GPU code and reports a main-thread stack overflow. Its cause and whether it explains the prior utility connection failure are not proven. No sandbox-disable flags or token semantic changes."
+}

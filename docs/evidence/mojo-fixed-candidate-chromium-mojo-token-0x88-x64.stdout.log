@@ -1,0 +1,86 @@
+[PARENT:plain] === BEGIN MODE plain ===
+[PARENT:plain] STAGE1_CHANNEL server=0x34 client=0x38 ConnectNamedPipe=0(err=535,exp=535) ClientPid=232(ok=1)
+[PARENT:plain] STAGE2_LAUNCHED child_pid=240 child_tid=244 mojo_client_h=0x38
+[PARENT:plain] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2
+[PARENT:plain] STAGE2_SHARED_SECTION duplicated into child as 0x14
+[PARENT:plain] STAGE4_PARENT_READ1_PREPOST ok=0 err=997
+[PARENT:plain] STAGE2_RESUMED prev_suspend=1
+[PARENT:plain] STAGE4_PARENT_WRITE1_POST ok=1 err=0
+[PARENT:plain] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f480 (exp=000000000021f480)
+[PARENT:plain] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f460 (exp=000000000021f460)
+[PARENT:plain] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f4a0 (exp=000000000021f4a0)
+[CHILD:plain] STAGE3_START pid=240 tid=244 mojo_handle=0x38
+[CHILD:plain] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=232(ok=1,err=0)
+[CHILD:plain] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x3000,ac=0) proc_tok=1(il=0x3000,ac=0)
+[CHILD:plain] STAGE4_READ1_POST ok=1 err=0
+[CHILD:plain] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021ea60 (exp=000000000021ea60)
+[CHILD:plain] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload="MOJO_INVITATION_CONNECT_NODE"
+[CHILD:plain] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x3000 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0
+[CHILD:plain] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853
+[CHILD:plain] STAGE4_INBAND_HANDLES event=0x20(info=1,wait=0) shmem=0x24(info=1,data="MOJO_SHMEM_PORTAL_OK")
+[CHILD:plain] STAGE4_READ2_PREPOST ok=0 err=997
+[CHILD:plain] STAGE4_WRITE1_POST ok=1 err=0
+[CHILD:plain] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eac0 (exp=000000000021eac0)
+[CHILD:plain] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eaa0 (exp=000000000021eaa0)
+[CHILD:plain] CHILD_PASS all stages succeeded
+[PARENT:plain] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=240
+[PARENT:plain] === MODE plain VERDICT: PASS ===
+[PARENT:service_restricted] === BEGIN MODE service_restricted ===
+[PARENT:service_restricted] STAGE1_CHANNEL server=0x34 client=0x38 ConnectNamedPipe=0(err=535,exp=535) ClientPid=232(ok=1)
+[PARENT:service_restricted] STAGE2_LAUNCHED child_pid=248 child_tid=252 mojo_client_h=0x38
+[PARENT:service_restricted] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2
+[PARENT:service_restricted] STAGE2_SHARED_SECTION duplicated into child as 0x14
+[PARENT:service_restricted] STAGE4_PARENT_READ1_PREPOST ok=0 err=997
+[PARENT:service_restricted] STAGE2_RESUMED prev_suspend=1
+[PARENT:service_restricted] STAGE4_PARENT_WRITE1_POST ok=1 err=0
+[PARENT:service_restricted] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f480 (exp=000000000021f480)
+[PARENT:service_restricted] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f460 (exp=000000000021f460)
+[PARENT:service_restricted] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f4a0 (exp=000000000021f4a0)
+[CHILD:service_restricted] STAGE3_START pid=248 tid=252 mojo_handle=0x38
+[CHILD:service_restricted] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=232(ok=1,err=0)
+[CHILD:service_restricted] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x1000,ac=0) proc_tok=1(il=0x1000,ac=0)
+[CHILD:service_restricted] STAGE4_READ1_POST ok=1 err=0
+[CHILD:service_restricted] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021ea60 (exp=000000000021ea60)
+[CHILD:service_restricted] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload="MOJO_INVITATION_CONNECT_NODE"
+[CHILD:service_restricted] STAGE3_SET_DELAYED_IL target=S-1-16-0 ok=1 err=0
+[CHILD:service_restricted] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x0 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0
+[CHILD:service_restricted] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853
+[CHILD:service_restricted] STAGE4_INBAND_HANDLES event=0x1c(info=1,wait=0) shmem=0x20(info=1,data="MOJO_SHMEM_PORTAL_OK")
+[CHILD:service_restricted] STAGE4_READ2_PREPOST ok=0 err=997
+[CHILD:service_restricted] STAGE4_WRITE1_POST ok=1 err=0
+[CHILD:service_restricted] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eac0 (exp=000000000021eac0)
+[CHILD:service_restricted] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eaa0 (exp=000000000021eaa0)
+[CHILD:service_restricted] CHILD_PASS all stages succeeded
+[PARENT:service_restricted] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=248
+[PARENT:service_restricted] === MODE service_restricted VERDICT: PASS ===
+[PARENT:network_appcontainer] === BEGIN MODE network_appcontainer ===
+[PARENT:network_appcontainer] STAGE1_CHANNEL server=0x34 client=0x38 ConnectNamedPipe=0(err=535,exp=535) ClientPid=232(ok=1)
+[PARENT:network_appcontainer] STAGE2_AC_REGISTER hr=0x00000000
+[PARENT:network_appcontainer] STAGE2_REPLACE_PACKAGE_SID_DACL ok=1 err=0
+[PARENT:network_appcontainer] STAGE2_LAUNCHED child_pid=256 child_tid=260 mojo_client_h=0x38
+[PARENT:network_appcontainer] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2
+[PARENT:network_appcontainer] STAGE2_SHARED_SECTION duplicated into child as 0x14
+[PARENT:network_appcontainer] STAGE4_PARENT_READ1_PREPOST ok=0 err=997
+[PARENT:network_appcontainer] STAGE2_RESUMED prev_suspend=1
+[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_POST ok=1 err=0
+[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f480 (exp=000000000021f480)
+[PARENT:network_appcontainer] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f460 (exp=000000000021f460)
+[PARENT:network_appcontainer] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f4a0 (exp=000000000021f4a0)
+[CHILD:network_appcontainer] STAGE3_START pid=256 tid=260 mojo_handle=0x38
+[CHILD:network_appcontainer] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=232(ok=1,err=0)
+[CHILD:network_appcontainer] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x1000,ac=1) proc_tok=1(il=0x1000,ac=1)
+[CHILD:network_appcontainer] STAGE4_READ1_POST ok=1 err=0
+[CHILD:network_appcontainer] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021ea60 (exp=000000000021ea60)
+[CHILD:network_appcontainer] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload="MOJO_INVITATION_CONNECT_NODE"
+[CHILD:network_appcontainer] STAGE3_SET_DELAYED_IL target=S-1-16-4096 ok=1 err=0
+[CHILD:network_appcontainer] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x1000 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0
+[CHILD:network_appcontainer] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853
+[CHILD:network_appcontainer] STAGE4_INBAND_HANDLES event=0x1c(info=1,wait=0) shmem=0x24(info=1,data="MOJO_SHMEM_PORTAL_OK")
+[CHILD:network_appcontainer] STAGE4_READ2_PREPOST ok=0 err=997
+[CHILD:network_appcontainer] STAGE4_WRITE1_POST ok=1 err=0
+[CHILD:network_appcontainer] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eac0 (exp=000000000021eac0)
+[CHILD:network_appcontainer] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eaa0 (exp=000000000021eaa0)
+[CHILD:network_appcontainer] CHILD_PASS all stages succeeded
+[PARENT:network_appcontainer] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=256
+[PARENT:network_appcontainer] === MODE network_appcontainer VERDICT: PASS ===
+[SUMMARY] failures=0 overall=PASS

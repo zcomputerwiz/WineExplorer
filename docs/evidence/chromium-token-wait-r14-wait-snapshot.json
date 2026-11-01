@@ -1,0 +1,24 @@
+{
+  "classification": "Exact bound Wine/Unix mapping and live thread identity; not browser acceptance",
+  "candidate_server_sha256": "196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800",
+  "browser": {
+    "wine_pid": 248,
+    "unix_pid": 1118,
+    "threads": [
+      {
+        "tid": 1118,
+        "identity_verified": true,
+        "comm": "chrome.exe\n",
+        "wchan": "pipe_read",
+        "syscall": "0 0x8 0x7f15b569d3b0 0x10 0x0 0x0 0x0 0x7f15b569d348 0x7f15b63cc72e\n"
+      },
+      {
+        "tid": 1162,
+        "identity_verified": true,
+        "comm": "StackSamplingPr\n",
+        "wchan": "pipe_read",
+        "syscall": "0 0xd 0x10013c2c0 0x10 0x0 0x0 0x0 0x10013c258 0x7f15b63cc72e\n"
+      }
+    ]
+  }
+}

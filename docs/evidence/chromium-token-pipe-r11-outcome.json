@@ -1,0 +1,258 @@
+{
+  "classification": "Full trace exceeded unchanged stderr quota before browser observation; not a browser verdict",
+  "result": {
+    "error": "ValueError('Calibration log quota/path: helper.stderr.log')",
+    "wait_snapshot": null,
+    "journal_outcome": null,
+    "journal_parse_error": "ValueError('Exactly one terminal native event required')",
+    "http_fixture": {
+      "classification": "HTTP writes only; browser consumption NOT_PROVEN",
+      "requests": [],
+      "errors": [],
+      "sources": {
+        "index.html": {
+          "path": "/home/debian/wex-g4/chromium-token-pipe-r11-20261031-stage/scripts/g4-edge-probe/index.html",
+          "bytes": 637,
+          "sha256": "f0a47b1a6013c015228c3e6c76a0a73b5d3eb6c218ec031a34dd8da7e0c0edc3"
+        },
+        "scene.js": {
+          "path": "/home/debian/wex-g4/chromium-token-pipe-r11-20261031-stage/scripts/g4-edge-probe/scene.js",
+          "bytes": 3750,
+          "sha256": "fe9b1801a7d4baa3512fb4e103330e317d17c9f2e2763abf8f14a275c686ee51"
+        }
+      },
+      "connection_timeout_seconds": 0.5,
+      "maximum_requests": 64,
+      "listener": {
+        "host": "127.0.0.1",
+        "port": 38575
+      },
+      "started_monotonic": 101.74658545,
+      "url": "http://127.0.0.1:38575/23bd2bbac907cbfe05aa1df4985cbf39/index.html#nonce=23bd2bbac907cbfe05aa1df4985cbf39",
+      "stopped_monotonic": 102.8515194,
+      "thread_stopped": true
+    },
+    "linux_helper_exit_observed": null,
+    "cleanup_complete": false,
+    "remaining_prefix_processes": {}
+  },
+  "shutdown": {
+    "classification": "Guest bootstrap only, not Chromium rendering acceptance",
+    "host_gl": {
+      "passed": true,
+      "stdout": "name of display: :0\ndisplay: :0  screen: 0\ndirect rendering: Yes\nExtended renderer info (GLX_MESA_query_renderer):\n    Vendor: Microsoft Corporation (0xffffffff)\n    Device: D3D12 (Intel(R) UHD Graphics 750) (0xffffffff)\n    Version: 25.0.7\n    Accelerated: yes\n    Video memory: 104819MB\n    Unified memory: yes\n    Preferred profile: core (0x1)\n    Max core profile version: 4.1\n    Max compat profile version: 4.1\n    Max GLES1 profile version: 1.1\n    Max GLES[23] profile version: 3.0\nMemory info (GL_ATI_meminfo):\n    VBO free memory - total: 103915 MB, largest block: 103915 MB\n    VBO free aux. memory - total: 0 MB, largest block: 0 MB\n    Texture free memory - total: 103915 MB, largest block: 103915 MB\n    Texture free aux. memory - total: 0 MB, largest block: 0 MB\n    Renderbuffer free memory - total: 103915 MB, largest block: 103915 MB\n    Renderbuffer free aux. memory - total: 0 MB, largest block: 0 MB\nMemory info (GL_NVX_gpu_memory_info):\n    Dedicated video memory: 104819 MB\n    Total available memory: 104819 MB\n    Currently available dedicated video memory: 103915 MB\nOpenGL vendor string: Microsoft Corporation\nOpenGL renderer string: D3D12 (Intel(R) UHD Graphics 750)\nOpenGL core profile version string: 4.1 (Core Profile) Mesa 25.0.7-2+deb13u1\nOpenGL core profile shading language version string: 4.10\nOpenGL core profile context flags: (none)\nOpenGL core profile profile mask: core profile\n\nOpenGL version string: 4.1 (Compatibility Profile) Mesa 25.0.7-2+deb13u1\nOpenGL shading language version string: 4.10\nOpenGL context flags: (none)\nOpenGL profile mask: compatibility profile\n\nOpenGL ES profile version string: OpenGL ES 3.0 Mesa 25.0.7-2+deb13u1\nOpenGL ES profile shading language version string: OpenGL ES GLSL ES 3.00\n\n",
+      "exit_code": 0
+    },
+    "command": [
+      "qemu-system-x86_64",
+      "-accel",
+      "kvm",
+      "-machine",
+      "q35",
+      "-cpu",
+      "host",
+      "-smp",
+      "4",
+      "-m",
+      "8192",
+      "-device",
+      "virtio-vga-gl",
+      "-display",
+      "gtk,gl=on",
+      "-drive",
+      "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/system-native-identity-r4-20261024.qcow2,format=qcow2,if=virtio",
+      "-drive",
+      "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/seed.iso,format=raw,media=cdrom,readonly=on",
+      "-nic",
+      "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2235-:22",
+      "-serial",
+      "file:/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-pipe-r11-20261031/serial.log",
+      "-qmp",
+      "unix:/var/tmp/wex-g4-tree-20261020/isolated-sockets/virgl-runtime-hkwp3hx1/qmp.sock,server=on,wait=off",
+      "-no-reboot"
+    ],
+    "pid": 7580,
+    "exit_before_shutdown": null,
+    "stop_reason": "signal",
+    "graceful_powerdown": true,
+    "fallback_used": false,
+    "shutdown_started_monotonic": 17133.796357137,
+    "qmp": {
+      "started_monotonic": 17133.842816393,
+      "maximum_seconds": 50,
+      "request_ids": {
+        "capabilities": "17a5d44ed874e3e364ab890b13e5b7fc-capabilities",
+        "powerdown": "17a5d44ed874e3e364ab890b13e5b7fc-powerdown"
+      },
+      "capabilities_ack": true,
+      "powerdown_requested": true,
+      "powerdown_ack": true,
+      "guest_shutdown_observed": true,
+      "protocol_complete": true,
+      "events": [
+        {
+          "message": {
+            "timestamp": {
+              "seconds": 1793489476,
+              "microseconds": 657247
+            },
+            "event": "POWERDOWN"
+          },
+          "before_powerdown_request": false,
+          "observed_monotonic": 17133.844282024
+        },
+        {
+          "message": {
+            "timestamp": {
+              "seconds": 1793489485,
+              "microseconds": 499977
+            },
+            "event": "SHUTDOWN",
+            "data": {
+              "guest": true,
+              "reason": "guest-shutdown"
+            }
+          },
+          "before_powerdown_request": false,
+          "observed_monotonic": 17142.687113799
+        }
+      ],
+      "transcript": [
+        {
+          "direction": "rx",
+          "monotonic": 17133.843161113,
+          "bytes": 141,
+          "base64": "eyJRTVAiOiB7InZlcnNpb24iOiB7InFlbXUiOiB7Im1pY3JvIjogMTMsICJtaW5vciI6IDAsICJtYWpvciI6IDEwfSwgInBhY2thZ2UiOiAiRGViaWFuIDE6MTAuMC4xMytkcy0wK2RlYjEzdTEifSwgImNhcGFiaWxpdGllcyI6IFsib29iIl19fQ0K",
+          "before_powerdown_request": true
+        },
+        {
+          "direction": "tx",
+          "monotonic": 17133.843277805,
+          "bytes": 85,
+          "base64": "eyJleGVjdXRlIjoicW1wX2NhcGFiaWxpdGllcyIsImlkIjoiMTdhNWQ0NGVkODc0ZTNlMzY0YWI4OTBiMTNlNWI3ZmMtY2FwYWJpbGl0aWVzIn0NCg==",
+          "completed": true
+        },
+        {
+          "direction": "rx",
+          "monotonic": 17133.843712087,
+          "bytes": 71,
+          "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjE3YTVkNDRlZDg3NGUzZTM2NGFiODkwYjEzZTViN2ZjLWNhcGFiaWxpdGllcyJ9DQo=",
+          "before_powerdown_request": true
+        },
+        {
+          "direction": "tx",
+          "monotonic": 17133.843794395,
+          "bytes": 82,
+          "base64": "eyJleGVjdXRlIjoic3lzdGVtX3Bvd2VyZG93biIsImlkIjoiMTdhNWQ0NGVkODc0ZTNlMzY0YWI4OTBiMTNlNWI3ZmMtcG93ZXJkb3duIn0NCg==",
+          "completed": true
+        },
+        {
+          "direction": "rx",
+          "monotonic": 17133.844227468,
+          "bytes": 86,
+          "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDg5NDc2LCAibWljcm9zZWNvbmRzIjogNjU3MjQ3fSwgImV2ZW50IjogIlBPV0VSRE9XTiJ9DQo=",
+          "before_powerdown_request": false
+        },
+        {
+          "direction": "rx",
+          "monotonic": 17133.844295209,
+          "bytes": 68,
+          "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjE3YTVkNDRlZDg3NGUzZTM2NGFiODkwYjEzZTViN2ZjLXBvd2VyZG93biJ9DQo=",
+          "before_powerdown_request": false
+        },
+        {
+          "direction": "rx",
+          "monotonic": 17142.687012473,
+          "bytes": 138,
+          "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDg5NDg1LCAibWljcm9zZWNvbmRzIjogNDk5OTc3fSwgImV2ZW50IjogIlNIVVRET1dOIiwgImRhdGEiOiB7Imd1ZXN0IjogdHJ1ZSwgInJlYXNvbiI6ICJndWVzdC1zaHV0ZG93biJ9fQ0K",
+          "before_powerdown_request": false
+        }
+      ],
+      "greeting": {
+        "QMP": {
+          "version": {
+            "qemu": {
+              "micro": 13,
+              "minor": 0,
+              "major": 10
+            },
+            "package": "Debian 1:10.0.13+ds-0+deb13u1"
+          },
+          "capabilities": [
+            "oob"
+          ]
+        }
+      },
+      "powerdown_request_monotonic": 17133.843831656,
+      "finished_monotonic": 17142.687159284,
+      "elapsed_seconds": 8.844342890999542
+    },
+    "qemu_exit_status": 0,
+    "cleanup": {
+      "qemu_stopped": true,
+      "xvfb_stopped": true
+    },
+    "shutdown_elapsed_seconds": 9.13695395600007,
+    "launcher_identity": {
+      "pid": 7565,
+      "start_ticks": 1685883,
+      "cmdline": [
+        "python3",
+        "-B",
+        "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py"
+      ],
+      "run_name": "chromium-token-pipe-r11-20261031",
+      "run_dir": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-pipe-r11-20261031",
+      "launcher_path": "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py",
+      "identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-pipe-r11-20261031/launcher-identity.json",
+      "qemu_pid": 7580,
+      "qemu_start_ticks": 1685975,
+      "qemu_cmdline": [
+        "qemu-system-x86_64",
+        "-accel",
+        "kvm",
+        "-machine",
+        "q35",
+        "-cpu",
+        "host",
+        "-smp",
+        "4",
+        "-m",
+        "8192",
+        "-device",
+        "virtio-vga-gl",
+        "-display",
+        "gtk,gl=on",
+        "-drive",
+        "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/system-native-identity-r4-20261024.qcow2,format=qcow2,if=virtio",
+        "-drive",
+        "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/seed.iso,format=raw,media=cdrom,readonly=on",
+        "-nic",
+        "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2235-:22",
+        "-serial",
+        "file:/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-pipe-r11-20261031/serial.log",
+        "-qmp",
+        "unix:/var/tmp/wex-g4-tree-20261020/isolated-sockets/virgl-runtime-hkwp3hx1/qmp.sock,server=on,wait=off",
+        "-no-reboot"
+      ],
+      "xvfb_pid": 7567,
+      "xvfb_start_ticks": 1685913,
+      "xvfb_cmdline": [
+        "Xvfb",
+        "-displayfd",
+        "4",
+        "-screen",
+        "0",
+        "1024x768x24",
+        "-nolisten",
+        "tcp"
+      ]
+    },
+    "launcher_identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-pipe-r11-20261031/launcher-identity.json"
+  },
+  "private_original_stderr": {
+    "bytes": 1360338,
+    "sha256": "1e4be5cd19ab39693a7c0927b9efd99f9df77eabdd416afb697f7948cb83d22f"
+  },
+  "post_collection_cleanup": "Owned prefix/build removal independently verified after collection; preserved baseline hash unchanged"
+}

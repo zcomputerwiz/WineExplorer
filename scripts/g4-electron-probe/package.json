@@ -1,0 +1,7 @@
+{
+  "name": "wineexplorer-g4-diagnostic",
+  "version": "1.0.0",
+  "private": true,
+  "license": "GPL-2.0-or-later",
+  "main": "main.js"
+}

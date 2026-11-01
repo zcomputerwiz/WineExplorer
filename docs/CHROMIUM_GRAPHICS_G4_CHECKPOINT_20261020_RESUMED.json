@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "status": "IN_PROGRESS_NOT_MERGE_READY",
+  "branch": "codex/g4-r1-completion",
+  "wine_commit": "273cacd9affa680dbbb4ba79593da685c09e8bec",
+  "parent_revision": "The commit containing this checkpoint; git log -1 -- this file",
+  "historical_checkpoint": "CHROMIUM_GRAPHICS_G4_CHECKPOINT_20261020.json at Wine f5f4312; do not relabel its evidence",
+  "status_report": "CHROMIUM_GRAPHICS_G4_STATUS_20261020.md",
+  "evidence_root": "/var/tmp/wex-g4-tree-20261020",
+  "build": "/var/tmp/wex-g3-repair-20261018/clean-source/build/wow64",
+  "configure_archs": "i386,x86_64",
+  "classification": "Isolated Xvfb software-driver functional controls; not physical GPU, shell/theme or security acceptance",
+  "private_binding_iid": "bc193c8b-df4f-4c75-8a59-0ab8ffccdc0b",
+  "new_run_launcher": "scripts/run-isolated-graphics.py --socket-root /var/tmp/wex-g4-tree-20261020/isolated-sockets -- COMMAND",
+  "dll_sha256": {
+    "x86_64/dxgi.dll": "89db6d518553f4657206528be6c194dca1de8a1794e2406c12825ef61aa0afa5",
+    "i386/dxgi.dll": "7c2999dcebc455d119b9176517432d9ac414d6142a33fa289cb632bc8d496533",
+    "x86_64/dcomp.dll": "8df2709ff2fcd5c6cea37929627c0d419640d3744edb9e30a711ec23e64f9f81",
+    "i386/dcomp.dll": "c07271250001d86a529633fb267c5cebf36cc22160dad358be7d06886b3a45c4",
+    "x86_64/d3d11.dll": "53aead68b3c0784a6321ab8d6aeb08c7ebfa5ec4d6077d5046fcf07afb077a4b",
+    "i386/d3d11.dll": "3653a857f90aa74de33936045fa736bf0e4f70c31e7824e2f54421afcad450ea",
+    "x86_64/wined3d.dll": "fc4f30d91d5fe29cc4760f8b235d47b88d5be8091c275ebadc3369ce23e96123",
+    "i386/wined3d.dll": "88a0a9c0333ade6dd5019160937cbb04021cff2bbf9bd0c972ed05df349a6b83"
+  },
+  "controls": {
+    "isolated-final-full-gl": {
+      "status": "PASS_BOTH_ARCHS", "groups_per_arch": 19,
+      "x86_64_probe_sha256": "975b00b2f52ba8ed550b2a343f063d184d81753136f925503b2acbd4a64dd101",
+      "i686_probe_sha256": "a145cb452c297e4adce16a6fb7b6cb5787a0caf1cbf0f967fbe3b88d19488915"
+    },
+    "isolated-final-full-vk": {
+      "status": "PASS_BOTH_ARCHS", "groups_per_arch": 19,
+      "icd": "/usr/share/vulkan/icd.d/lvp_icd.json",
+      "x86_64_probe_sha256": "c64ae3caa39069e8d12c71d55bcc0893551158c35382e9f0b05d45b2b9e2d5c0",
+      "i686_probe_sha256": "b635ba68956d390b3a2cb14f335a505d6b80b6fff2c0c2936e98d85abd32c712"
+    },
+    "isolated-final-g0-g3": {"status": "PASS_BOTH_ARCHS", "scope": "G0-G3 plus eleven ordering cases"},
+    "isolated-final-pacing": {"status": "PASS_BOTH_ARCHS", "groups_per_arch": 5},
+    "isolated-final-frozen": {"status": "PASS_DIAGNOSTIC_ONLY", "frames": 1100, "front_window_inspected": true, "actual": "One blue square at x=160, correct frozen text, uniform background"},
+    "isolated-final-webgl": {"status": "PASS_DIAGNOSTIC_ONLY", "webgl1_and_webgl2_pixels": true, "sandbox_enforcement_proven": false},
+    "isolated-final-electron": {"status": "PASS_DIAGNOSTIC_ONLY", "lifecycle_checks": 7, "samples": 34, "post_reload_frames": 519},
+    "resume-dirty-linear-electron-lifecycle-gl": {"status": "PASS_DIAGNOSTIC_ONLY", "seconds": 60, "lifecycle_checks": 7, "samples": 59, "post_reload_frames": 944, "note": "Earlier shared-socket launcher, retained separately"},
+    "resume-final-pacing": {"status": "PASS_BOTH_ARCHS", "groups_per_arch": 5, "note": "Earlier launcher; separately repeated with per-run sockets"},
+    "resume-final-upstream": {"status": "FAIL_BOTH_ARCHS", "dxgi_failures": 67, "dxgi_assertions": 14468, "dxgi_skips": 46, "d3d11_exit": 5, "scope": "Inherited failures retained; no full-suite acceptance"},
+    "resume-final-g0-g3": {"status": "FAIL", "reason": "i686 G1 parent HWND creation failed before D3D11; original Win32 error not recorded"},
+    "resume-final-g0-g3-serial": {"status": "PASS_BOTH_ARCHS", "note": "Error-only setup diagnostics added; initial failure retained, precise cause not traced"},
+    "xsocket-shared-negative": {"status": "EXPECTED_FAIL", "reason": "First namespace filesystem connection reaches second Xvfb PID"},
+    "xsocket-private-positive": {"status": "PASS", "reason": "Both namespace filesystem connections retain their own Xvfb peer PID"},
+    "negative_controls": {"status": "EXPECTED_FAIL_BOTH_ARCHS", "runs": ["resume-msaa-negative-gl-rerun", "resume-dirty-negative-gl", "resume-interpolation-negative-gl", "resume-dirty-many-negative-gl"]},
+    "analyzer_unit_tests": {"status": "PASS", "tests": 7},
+    "harness_unit_tests": {"status": "PASS", "tests": 4}
+  },
+  "private_consumers": {
+    "webview2_version": "155.0.4283.45",
+    "webview2_exe_sha256": "46b3c6ac9169416cc2ee76b23ee3d9db0eb8daefb914b1d9cc0f5d2387b033ac",
+    "graphics_host_sha256": "f6e0a9ac92497e1c9a5660c8f90ced427d3576e761b50d5e568199e6e1774768",
+    "electron_version": "44.9.2",
+    "electron_chromium_version": "152.0.7977.167",
+    "electron_archive_sha256": "1a9ed7f4e70291c95ed9479d7fcd384a2d9cf062e5fb7ce846b119c7c63036c3",
+    "electron_exe_sha256": "448da7f0a402b7299f87dc7dc896d48fd58a726ccbcf65b69820745f1bd38bf2",
+    "payloads_sdk_art_screenshots_in_git_or_iso": false,
+    "sandbox_bypass_requested": false,
+    "sandbox_enforcement_proven": false
+  },
+  "remaining": {
+    "R1": "Soft-border/AA, underlying application HWND/GDI content/expose, full fanout/publication-failure/device-loss behavior",
+    "R2": "Deterministic registration/rearming, allocation faults, creator death, exhaustive lifetime/leak/order proof",
+    "R3": "Efficient cross-process GPU sharing/completion fences, coherent private DXVK interop, broader consumer/profile/restart/security evidence",
+    "R4": "NOT RUN: installed Classic/Open Luna, X11 compositor OFF/ON, Wayland/wexcomp, physical older Intel/AMD/Nvidia and resolution/taskbar/toolbar/tray matrix",
+    "physical_lab_constraint": "No /dev/dri in the WSL lab; software results and synthetic GTX470 adapter are not hardware proof"
+  },
+  "cleanup": {"owned_wine_wineserver_xvfb_left_running": false, "isolated_socket_directories_remaining": 0, "private_prefixes_and_runtime_caches_retained": true, "global_sockets_live_prefixes_and_vms_modified": false}
+}

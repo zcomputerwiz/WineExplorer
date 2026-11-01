@@ -1,0 +1,25 @@
+ 71.270:0028:002c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+ 71.521:0048:004c:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+ 71.527:0050:0054:fixme:actctx:parse_depend_manifests Could not find dependent assembly L"Microsoft.Windows.Common-Controls" (6.0.0.0)
+ 72.354:0050:0054:err:winediag:nodrv_CreateWindow Application tried to create a window, but no driver could be loaded.
+ 72.354:0050:0054:err:winediag:nodrv_CreateWindow L"The explorer process failed to start."
+ 72.355:0050:0054:err:systray:initialize_systray Could not create tray window
+ 72.380:0050:0054:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x80004002
+ 72.380:0050:0054:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x80004002
+ 72.380:0050:0054:err:ole:apartment_get_local_server_stream Failed: 0x80004002
+ 72.388:0040:0044:err:winediag:nodrv_CreateWindow Application tried to create a window, but no driver could be loaded.
+ 72.388:0040:0044:err:winediag:nodrv_CreateWindow L"Make sure that your display server is running and that its variables are set."
+ 72.391:0048:004c:err:winediag:nodrv_CreateWindow Application tried to create a window, but no driver could be loaded.
+ 72.391:0048:004c:err:winediag:nodrv_CreateWindow L"Make sure that your display server is running and that its variables are set."
+ 72.391:0048:004c:err:ole:apartment_createwindowifneeded CreateWindow failed with error 3
+ 72.391:0048:004c:err:ole:apartment_createwindowifneeded CreateWindow failed with error 0
+ 72.392:0048:004c:err:ole:apartment_createwindowifneeded CreateWindow failed with error 14007
+ 72.392:0048:004c:err:ole:StdMarshalImpl_MarshalInterface Failed to create ifstub, hr 0x800736b7
+ 72.392:0048:004c:err:ole:CoMarshalInterface Failed to marshal the interface {6d5140c1-7436-11ce-8034-00aa006009fa}, hr 0x800736b7
+ 72.392:0048:004c:err:ole:apartment_get_local_server_stream Failed: 0x800736b7
+ 72.396:0048:004c:err:ole:start_rpcss Failed to open RpcSs service
+ 72.405:0028:002c:err:winediag:nodrv_CreateWindow Application tried to create a window, but no driver could be loaded.
+ 72.405:0028:002c:err:winediag:nodrv_CreateWindow L"Make sure that your display server is running and that its variables are set."
+ 72.489:0090:0094:err:winediag:nodrv_CreateWindow Application tried to create a window, but no driver could be loaded.
+ 72.489:0090:0094:err:winediag:nodrv_CreateWindow L"Make sure that your display server is running and that its variables are set."
+ 77.700:0090:0094:err:setupapi:SetupDefaultQueueCallbackW copy error 1812 L"@C:\\windows\\system32\\mmc.exe,-1" -> L"C:\\windows\\system32\\devmgmt.msc"

@@ -1,0 +1,1305 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Offline first-failure diagnostic, NOT a Chromium/G4 acceptance certificate.
+
+Supply a lawfully acquired private fixed-version runtime and existing diagnostic
+host/loader. No downloading, installation, sandbox bypass or system prefix use.
+Run inside a private mount/network namespace if WSLg owns the X socket directory.
+"""
+import argparse
+import fcntl
+import hashlib
+import importlib.util
+import json
+import os
+import re
+import secrets
+from pathlib import Path
+import select
+import shutil
+import signal
+import subprocess
+import threading
+import time
+import graphics_resources
+
+VISUAL_STAGES = ('ready', 'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back')
+RECOVERY_VISUAL_STAGES = ('pre_fault', 'recovered', 'settled_2s', 'settled_4s')
+TIMING_FRONTS = (('front_0', 0), ('front_250', 250), ('front_1000', 1000), ('front_3000', 3000))
+TIMING_OVERALL_MS = 30000
+TIMING_ERROR_COUNTERS = frozenset(('gl_allowlist', 'warp_initialization', 'd3d11_output',
+                                 'directcomposition_output', 'gpu_process_crash', 'fatal_log',
+                                 'skia_surface', 'shared_context'))
+
+
+def presentation_experiment_health(text, analysis):
+    """No-fault interpretation requires healthy processes/logs, not animation.
+
+    Keep this independent from collection validity: even an unhealthy experiment
+    should preserve every valid image and its decoded pixel verdict.
+    """
+    children, renderers, malformed = [], [], []
+    for line in text.splitlines():
+        match = re.match(r'^\d+ ms (child process gone|renderer gone)(?:\s|$)', line)
+        if match is None:
+            continue
+        try:
+            value = json.loads(line[match.end():].strip())
+            if (not isinstance(value, dict) or not isinstance(value.get('reason'), str)
+                    or not value['reason'].strip() or type(value.get('exitCode')) is not int
+                    or (match[1] == 'child process gone'
+                        and (not isinstance(value.get('type'), str) or not value['type'].strip()))):
+                raise ValueError('Invalid process event shape')
+            (children if match[1] == 'child process gone' else renderers).append(value)
+        except (ValueError, TypeError) as error:
+            malformed.append({'line': line, 'error': str(error)})
+    errors = analysis.get('errors') if isinstance(analysis, dict) else None
+    valid_counters = (isinstance(errors, dict) and TIMING_ERROR_COUNTERS <= errors.keys()
+                      and all(type(value) is int and value >= 0 for value in errors.values()))
+    checks = {'valid_process_events': not malformed,
+              'no_gpu_exit': not any(item['type'].strip().lower() == 'gpu' for item in children),
+              'no_renderer_exit': not renderers,
+              'valid_analyzer_error_counters': valid_counters,
+              'no_classified_chromium_errors': valid_counters and not any(errors.values()),
+              'chromium_log_present': isinstance(analysis, dict) and analysis.get('chromium_log_present') is True,
+              'navigation_succeeded': isinstance(analysis, dict) and analysis.get('navigation_succeeded') is True}
+    return {'passed': all(checks.values()), 'checks': checks, 'child_exits': children,
+            'renderer_exits': renderers, 'malformed_process_events': malformed,
+            'analyzer_errors': errors}
+
+
+def presentation_timing_result(collector, text, analysis, observer_error=None):
+    diagnostic = collector.result(text, observer_error)
+    health = presentation_experiment_health(text, analysis)
+    diagnostic['experiment_health'] = health
+    diagnostic['experiment_valid'] = diagnostic['collection_valid'] and health['passed']
+    if not health['passed']:
+        diagnostic['classification'] = 'invalid/inconclusive'
+    return diagnostic
+
+
+def screenshot_schedule(presentation_timing=False, gpu_recovery=False, freeze_scene=False):
+    if presentation_timing or gpu_recovery:
+        return []
+    return ([4, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
+            if freeze_scene else [8, 18])
+
+
+def timing_events(text, event):
+    values = []
+    for raw in re.findall(r'^\d+ ms presentation timing ' + re.escape(event) + r' (.*)$', text, re.MULTILINE):
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError('Invalid presentation timing event: ' + event)
+        values.append(value)
+    return values
+
+
+def write_timing_ack(output, run_id, stage, details):
+    """Publish complete JSON atomically, without replacing an existing ACK."""
+    ack = output / ('presentation-%s-%s.ack' % (run_id, stage))
+    temporary = ack.with_suffix('.tmp')
+    with temporary.open('x') as stream:
+        json.dump({'runId': run_id, 'stage': stage, 'captured': True, **details}, stream)
+    try:
+        os.link(temporary, ack)
+    finally:
+        temporary.unlink()
+
+
+class PresentationTimingCollector:
+    """Fixed front schedule; pixel failures never drive scheduling or completion ACKs.
+
+    Callback bounds include geometry/identity observation, PNG capture and decoding.
+    The fixture owns the 30-second overall deadline; the observer also bounds its
+    work by the remaining budget published in the nonce-bound request.
+    """
+    def __init__(self, run_id, capture_front, capture_page, acknowledge,
+                 now=time.monotonic, sleep=time.sleep, visible_webgl=False):
+        self.run_id, self.front, self.page, self.ack = run_id, capture_front, capture_page, acknowledge
+        self.now, self.sleep = now, sleep
+        self.request = None
+        self.deadline = None
+        self.samples = []
+        self.page_record = None
+        self.error = None
+        self.visible_webgl = visible_webgl
+
+    def remaining(self):
+        remaining = self.deadline - self.now()
+        if remaining <= 0:
+            raise TimeoutError('Presentation timing overall deadline expired')
+        return remaining
+
+    def sample(self, stage, offset_ms, origin):
+        target = origin + offset_ms / 1000
+        self.sleep(min(max(0, target - self.now()), self.remaining()))
+        timeout = min(5, self.remaining())
+        started = self.now()
+        record = {'stage': stage, 'target_offset_ms': offset_ms,
+                  'origin_monotonic': origin, 'target_monotonic': target,
+                  'started_monotonic': started,
+                  'actual_offset_ms': (started - origin) * 1000,
+                  'lateness_ms': max(0, (started - target) * 1000)}
+        # Retain the attempted sample even if observation/capture throws.
+        self.samples.append(record)
+        try:
+            record.update(self.front(stage, self.request, timeout, record))
+        finally:
+            record['ended_monotonic'] = self.now()
+            record['duration_ms'] = (record['ended_monotonic'] - started) * 1000
+        capture_started = record.get('capture_started_monotonic', started)
+        record['capture_actual_offset_ms'] = (capture_started - origin) * 1000
+        record['capture_lateness_ms'] = max(0, (capture_started - target) * 1000)
+        if record['duration_ms'] > timeout * 1000:
+            raise TimeoutError('Presentation timing front callback exceeded its bound')
+        self.remaining()
+
+    def poll(self, text):
+        if self.error:
+            raise RuntimeError(self.error)
+        try:
+            requests = timing_events(text, 'requested')
+            pages = timing_events(text, 'page capture')
+            if len(requests) > 1 or len(pages) > 1:
+                raise ValueError('Duplicate presentation timing event')
+            if self.request is not None and requests != [self.request]:
+                raise ValueError('Presentation timing request changed/disappeared')
+            if pages and self.request is None:
+                raise ValueError('Page readback arrived before front completion acknowledgement')
+            if requests and self.request is None:
+                received = self.now()
+                request = requests[0]
+                budget = request.get('remainingMs')
+                if (request.get('runId') != self.run_id or type(budget) not in (int, float)
+                        or not 0 < budget <= TIMING_OVERALL_MS):
+                    raise ValueError('Stale/invalid presentation timing request')
+                if (request.get('background') != [232, 245, 233]
+                        or not all(isinstance(request.get(key), dict) for key in
+                                   ('windowBounds', 'clientBounds', 'viewport', 'marker'))
+                        or any(request['viewport'].get(k) != request['clientBounds'].get(k)
+                               for k in ('width', 'height'))):
+                    raise ValueError('Invalid presentation timing fixed scene/geometry')
+                self.request = request
+                if self.visible_webgl:
+                    from graphics_frame_pixels import visible_canvas_geometry
+                    visible_canvas_geometry(request, 'pre_fault')
+                self.deadline = received + budget / 1000
+                for stage, offset in TIMING_FRONTS:
+                    self.sample(stage, offset, received)
+                self.ack('fronts_complete', {'samples': [s for s, _ in TIMING_FRONTS]})
+            if pages and self.page_record is None:
+                received = self.now()
+                if self.request is None or len(self.samples) != 4:
+                    raise ValueError('Page readback arrived before the four fronts')
+                page = pages[0]
+                if (page.get('runId') != self.run_id or any(page.get(key) != self.request.get(key)
+                        for key in ('windowBounds', 'clientBounds', 'viewport', 'marker', 'background')
+                        + (('visibleCanvases', 'canvasExclusions') if self.visible_webgl else ()))):
+                    raise ValueError('Presentation timing page identity/geometry changed')
+                started = self.now()
+                timeout = min(5, self.remaining())
+                self.page_record = {'received_monotonic': received, 'fixture_capture': page}
+                try:
+                    self.page_record.update(self.page(page, self.request, timeout))
+                finally:
+                    self.page_record['observed_end_monotonic'] = self.now()
+                if self.now() - started > timeout:
+                    raise TimeoutError('Presentation timing page callback exceeded its bound')
+                self.remaining()
+                self.sample('front_after_page_250', 250, received)
+                self.ack('page_and_post_complete', {'pixelPassed': self.page_record['pixels']['passed']})
+            if self.deadline and len(self.samples) < 5:
+                self.remaining()
+        except Exception as error:
+            self.error = '%s: %s' % (type(error).__name__, error)
+            raise
+
+    def result(self, text, observer_error=None):
+        valid = False
+        error = self.error or observer_error
+        completed = []
+        try:
+            completed = timing_events(text, 'result')
+            acks = timing_events(text, 'acknowledged')
+            valid = (not error and self.page_record is not None and len(self.samples) == 5
+                     and len(completed) == 1 and completed[0].get('collectionValid') is True
+                     and completed[0].get('runId') == self.run_id
+                     and [a.get('stage') for a in acks] == ['fronts_complete', 'page_and_post_complete']
+                     and all(a.get('runId') == self.run_id and a.get('captured') is True for a in acks)
+                     and acks[0].get('samples') == [s for s, _ in TIMING_FRONTS]
+                     and type(acks[1].get('pixelPassed')) is bool
+                     and acks[1]['pixelPassed'] == self.page_record['pixels']['passed']
+                     and ' gpu recovery fault ' not in text)
+        except (ValueError, TypeError) as exc:
+            error = str(exc)
+        classification = 'invalid/inconclusive'
+        if valid and self.page_record['pixels']['passed']:
+            before = [s['pixels']['passed'] for s in self.samples[:4]]
+            after = self.samples[4]['pixels']['passed']
+            on_timeline = all(s['ended_monotonic'] <= self.samples[i + 1]['target_monotonic']
+                              for i, s in enumerate(self.samples[:3]))
+            if on_timeline:
+                if all(before) and after:
+                    classification = 'correct before page readback'
+                elif not before[0] and before[-1] and after and before == sorted(before):
+                    classification = 'stale then correct before page readback'
+                elif not any(before):
+                    classification = 'stale until after page readback' if after else 'still stale'
+        return {'collection_valid': bool(valid), 'classification': classification,
+                'acceptance': 'NOT_PROVEN', 'overall_timeout_ms': TIMING_OVERALL_MS,
+                'generic_front_and_page_captures_suppressed': True,
+                'request': self.request, 'front_samples': self.samples,
+                'page': self.page_record, 'fixture_results': completed,
+                'error': error or (None if valid else 'Incomplete/failed timing protocol; inspect fixture results and ACKs'),
+                'note': 'Readback correlation does not establish a production cause; lateness is retained.'}
+
+
+def native_scale_state(text, expected):
+    rows = re.findall(r'^NATIVE_WINDOW fixed=(\d+) visible=(\d+) x=(-?\d+) y=(-?\d+) width=(\d+) height=(\d+)\s*$', text, re.MULTILINE)
+    if (len(rows) != 1 or int(rows[0][0]) != round(expected * 65536)
+            or int(rows[0][1]) != 1 or int(rows[0][4]) <= 0 or int(rows[0][5]) <= 0):
+        raise RuntimeError('Fixture did not publish the observed native output scale: ' + text)
+    return dict(zip(('fixed', 'visible', 'x', 'y', 'width', 'height'), map(int, rows[0])))
+
+
+def visual_requests(text, captured=False):
+    event = 'visual checkpoint captured' if captured else 'visual checkpoint'
+    stages = re.findall(r'^\d+ ms ' + event + r' \{"stage":"([a-z_]+)"\}\s*$', text, re.MULTILINE)
+    return [stage for stage in stages if stage in VISUAL_STAGES]
+
+
+def visual_capture_complete(text, captures, error=None):
+    return (error is None and set(captures) == set(VISUAL_STAGES)
+            and visual_requests(text) == list(VISUAL_STAGES)
+            and visual_requests(text, captured=True) == list(VISUAL_STAGES))
+
+
+def recovery_front_requests(text, acknowledged=False):
+    event = 'gpu recovery front capture acknowledged' if acknowledged else 'gpu recovery front capture requested'
+    values = []
+    for raw in re.findall(r'^\d+ ms ' + re.escape(event) + r' (.+)$', text, re.MULTILINE):
+        try:
+            values.append(json.loads(raw))
+        except (ValueError, TypeError):
+            return None
+    return values
+
+
+def recovery_page_events(text):
+    """Parse only exact page-capture and page-ack events from the shared log."""
+    captures, acknowledgements = [], []
+    event = re.compile(r'^\d+ ms gpu recovery page capture(?P<ack> acknowledged)? (?P<json>.*)$')
+    for line in text.splitlines():
+        match = event.fullmatch(line)
+        if match is None:
+            continue
+        try:
+            value = json.loads(match.group('json'))
+        except (ValueError, TypeError) as error:
+            kind = 'acknowledgement' if match.group('ack') else 'record'
+            raise RuntimeError('Malformed GPU recovery page-capture ' + kind) from error
+        (acknowledgements if match.group('ack') else captures).append(value)
+    return captures, acknowledgements
+
+
+def recovery_front_capture_result(text, captures, run_id, error=None,
+                                  compositor_before=None, compositor_after=None,
+                                  pixel_verdicts=None, visible_webgl=False):
+    requested = recovery_front_requests(text)
+    acknowledged = recovery_front_requests(text, acknowledged=True)
+    try:
+        page, page_acknowledged = recovery_page_events(text)
+    except RuntimeError as error:
+        return {'passed': False, 'error': str(error)}
+    stages = list(RECOVERY_VISUAL_STAGES)
+    valid_requests = (requested is not None and all(isinstance(item, dict) for item in requested)
+                      and [item.get('stage') for item in requested] == stages
+                      and all(item.get('runId') == run_id for item in requested))
+    valid_acks = (acknowledged is not None and all(isinstance(item, dict) for item in acknowledged)
+                  and [item.get('stage') for item in acknowledged] == stages
+                  and all(item.get('runId') == run_id and item.get('captured') is True
+                          and type(item.get('pixelPassed')) is bool
+                          and isinstance(pixel_verdicts, dict)
+                          and isinstance(pixel_verdicts.get(item.get('stage')), dict)
+                          and item['pixelPassed'] == pixel_verdicts[item['stage']].get('front', {}).get('passed')
+                          for item in acknowledged))
+    valid_page_acks = (len(page_acknowledged) == len(stages)
+                       and all(isinstance(item, dict) for item in page_acknowledged)
+                       and [item.get('stage') for item in page_acknowledged] == stages
+                       and all(item.get('runId') == run_id and item.get('captured') is True
+                               and type(item.get('pixelPassed')) is bool
+                               and isinstance(pixel_verdicts, dict)
+                               and isinstance(pixel_verdicts.get(item.get('stage')), dict)
+                               and item['pixelPassed'] == pixel_verdicts[item['stage']].get('page', {}).get('passed')
+                               for item in page_acknowledged))
+    observations_match = (requested is not None and len(requested) == len(page) == len(stages)
+                          and all(isinstance(item, dict) for item in requested + page)
+                          and all(request.get(key) == capture.get(key)
+                                  for request, capture in zip(requested, page)
+                                  for key in ('clientBounds', 'viewport', 'marker', 'background')
+                                  + (('visibleCanvases', 'canvasExclusions') if visible_webgl else ())))
+    if visible_webgl:
+        try:
+            from graphics_frame_pixels import visible_canvas_geometry
+            for item in (requested or []) + page:
+                visible_canvas_geometry(item, item['stage'])
+        except (ValueError, TypeError, KeyError):
+            observations_match = False
+    valid_page = (len(page) == len(stages) and all(isinstance(item, dict) for item in page)
+                  and [item.get('stage') for item in page] == stages
+                  and all(item.get('empty') is False and type(item.get('bytes')) is int
+                          and item.get('bytes', 0) >= 64 and isinstance(item.get('size'), dict)
+                          and all(type(item['size'].get(key)) is int
+                                  and item['size'][key] > 0 for key in ('width', 'height'))
+                          and isinstance(item.get('viewport'), dict)
+                          and isinstance(captures, dict)
+                          and isinstance(captures.get(item.get('stage')), dict)
+                          and item.get('clientBounds') == captures[item.get('stage')].get('client_bounds')
+                          and isinstance(item.get('marker'), dict)
+                          and isinstance(item.get('background'), list)
+                          for item in page))
+    valid_front = (isinstance(captures, dict) and set(captures) == set(stages)
+                   and all(isinstance(captures[s], dict)
+                           and isinstance(captures[s].get('sha256'), str)
+                           and re.fullmatch(r'[0-9a-f]{64}', captures[s]['sha256'])
+                           and type(captures[s].get('bytes')) is int and captures[s]['bytes'] >= 64
+                           and type(captures[s].get('width')) is int and captures[s]['width'] > 0
+                           and type(captures[s].get('height')) is int and captures[s]['height'] > 0
+                           and isinstance(captures[s].get('geometry'), dict)
+                           and isinstance(captures[s].get('client_bounds'), dict)
+                           and captures[s].get('compositor_identity') == compositor_before
+                           for s in stages))
+    valid_pixels = (isinstance(pixel_verdicts, dict) and set(pixel_verdicts) == set(stages)
+                    and all(isinstance(pixel_verdicts[s], dict)
+                            and isinstance(pixel_verdicts[s].get('front'), dict)
+                            and pixel_verdicts[s]['front'].get('passed') is True
+                            and isinstance(pixel_verdicts[s].get('page'), dict)
+                            and pixel_verdicts[s]['page'].get('passed') is True
+                            for s in stages))
+    identity_stable = (isinstance(compositor_before, dict) and compositor_before
+                       and compositor_after == compositor_before)
+    fault_at = text.find(' gpu recovery fault ')
+    pre_front_ack = next((item for item in acknowledged or []
+                          if isinstance(item, dict) and item.get('stage') == 'pre_fault'), {})
+    pre_page_ack = next((item for item in page_acknowledged
+                         if isinstance(item, dict) and item.get('stage') == 'pre_fault'), {})
+    pre_fault_gate = (fault_at < 0 or
+                      (pre_front_ack.get('captured') is True and pre_front_ack.get('pixelPassed') is True
+                       and pre_page_ack.get('captured') is True and pre_page_ack.get('pixelPassed') is True
+                       and text.find(' gpu recovery front capture acknowledged ', 0, fault_at) >= 0
+                       and text.find(' gpu recovery page capture acknowledged ', 0, fault_at) >= 0))
+    checks = {'ordered_requests': valid_requests, 'ordered_acknowledgements': valid_acks,
+              'ordered_page_acknowledgements': valid_page_acks,
+              'healthy_pre_fault_before_injection': pre_fault_gate,
+              'stage_geometry_stable': observations_match,
+              'nonempty_page_captures': valid_page, 'nonempty_front_captures': valid_front,
+              'actual_front_and_page_pixels': valid_pixels,
+              'stable_compositor_identity': identity_stable, 'no_capture_error': error is None}
+    return {'passed': all(checks.values()), 'checks': checks, 'requested': requested,
+            'acknowledged': acknowledged, 'page_captures': page,
+            'front_captures': captures, 'error': error}
+
+
+def observe_fail_closed(observer, result):
+    """Keep background observer failures in the acceptance result."""
+    try:
+        observer()
+    except Exception as error:
+        result['observer_error'] = '%s: %s' % (type(error).__name__, error)
+
+
+def digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def electron_payloads(browser, host, electron_app, gpu_recovery=False, presentation_timing=False):
+    if electron_app is None:
+        return browser, host
+    app = electron_app.resolve(strict=True)
+    paths = (browser, host, app / 'main.js', app / 'package.json')
+    if gpu_recovery or presentation_timing:
+        paths += (app / 'recovery-frame-wait.js',)
+    if presentation_timing:
+        paths += (app / 'presentation-timing.js',)
+        paths += tuple(Path(__file__).with_name(name) for name in (
+            'check-g4-webview2.py', 'check-g3-correctness.py', 'graphics_resources.py',
+            'graphics_frame_pixels.py', 'graphics_wexcomp.py', 'analyze-webview2-run.py',
+            'run-isolated-graphics.py', 'test_g4_native_window_state.cpp'))
+    return paths
+
+
+def lifecycle_result(log):
+    """Require every named check, not just a fixture's summary boolean."""
+    matches = re.findall(r'^\d+ ms lifecycle result (.+)$', log, re.MULTILINE)
+    required = {'input', 'scroll', 'resize', 'minimized', 'restored', 'reload', 'resize_back'}
+    if len(matches) != 1:
+        return {'passed': False, 'error': 'Expected exactly one lifecycle result'}
+    try:
+        result = json.loads(matches[0])
+        checks = result.get('checks', {})
+        result['passed'] = (result.get('passed') is True and set(checks) == required
+                            and all(value is True for value in checks.values()))
+        return result
+    except (ValueError, AttributeError, TypeError):
+        return {'passed': False, 'error': 'Invalid lifecycle result'}
+
+
+def graphics_result(log):
+    matches = re.findall(r'^\d+ ms graphics capabilities hr=(0x[\da-fA-F]+) (.+)$', log, re.MULTILINE)
+    if len(matches) != 1 or matches[0][0].lower() != '0x00000000':
+        return {'passed': False, 'error': 'Expected one successful graphics callback'}
+    try:
+        capabilities = json.loads(matches[0][1])
+        contexts = {}
+        for name in ('webgl', 'webgl2'):
+            item = capabilities[name]
+            contexts[name] = {key: item.get(key) for key in
+                              ('available', 'lost', 'defaultError', 'defaultPixel', 'framebufferStatus',
+                               'textureError', 'readError', 'texturePixel', 'version', 'unmasked')}
+            contexts[name]['passed'] = (item.get('available') is True and item.get('lost') is False
+                                        and all(item.get(key) == 0 for key in
+                                                ('defaultError', 'textureError', 'readError'))
+                                        and item.get('framebufferStatus') == 36053
+                                        and item.get('defaultPixel') == [255, 0, 0, 255]
+                                        and item.get('texturePixel') == [255, 0, 0, 255])
+        return {'passed': all(item['passed'] for item in contexts.values()), 'contexts': contexts}
+    except (ValueError, KeyError, AttributeError, TypeError):
+        return {'passed': False, 'error': 'Invalid graphics capabilities'}
+
+
+def profile_result(log, expected, token):
+    """A caller-supplied fresh nonce must survive a complete process restart."""
+    matches = re.findall(r'^\d+ ms profile persistence (.+)$', log, re.MULTILINE)
+    if len(matches) != 1:
+        return {'passed': False, 'error': 'Expected exactly one profile persistence result'}
+    try:
+        result = json.loads(matches[0])
+        result['passed'] = (result.get('passed') is True and result.get('expected') == expected
+                            and result.get('previous') == expected and result.get('written') == token
+                            and result.get('flushed') is True)
+        return result
+    except (ValueError, AttributeError, TypeError):
+        return {'passed': False, 'error': 'Invalid profile persistence result'}
+
+
+def recovery_result(log):
+    matches = re.findall(r'^\d+ ms gpu recovery result (.+)$', log, re.MULTILINE)
+    if len(matches) != 1:
+        return {'passed': False, 'error': 'Expected one GPU recovery result'}
+    try:
+        result = json.loads(matches[0])
+        before, after, fault = (result[key] for key in ('before', 'after', 'fault'))
+        # Cross-check the whole run, including exits AFTER the result snapshot.
+        child_records = [json.loads(value) for value in re.findall(r'^\d+ ms child process gone (.+)$', log, re.MULTILINE)]
+        gpu_exits = [item for item in child_records if item.get('type') == 'GPU']
+        faults = [json.loads(value) for value in re.findall(r'^\d+ ms gpu recovery fault (.+)$', log, re.MULTILINE)]
+        def pixels(item):
+            return (item.get('available') is True and item.get('lost') is False
+                    and item.get('defaultError') == 0 and item.get('textureError') == 0
+                    and item.get('framebufferStatus') == 36053
+                    and item.get('defaultPixel') == [255, 0, 0, 255]
+                    and item.get('texturePixel') == [0, 255, 0, 255]
+                    and isinstance(item.get('renderer'), str) and bool(item['renderer'])
+                    and not re.search('swiftshader|software rasterizer', item['renderer'], re.I))
+        checks = {
+            'pixels': all(pixels(phase['contexts'][name]) for phase in (before, after) for name in ('webgl', 'webgl2')),
+            'same_backend': all(before['contexts'][name]['renderer'] == after['contexts'][name]['renderer']
+                                for name in ('webgl', 'webgl2')),
+            'features': (before['features'].get('gpu_compositing') == 'enabled'
+                         and before['features'] == after['features']),
+            'owned_fault': (fault.get('requested') is True and fault['pid'] == before['gpu']['pid']
+                            and fault['creationTime'] == before['gpu']['creationTime']
+                            and type(fault['pid']) is int and fault['pid'] > 0),
+            'new_gpu': (type(after['gpu']['pid']) is int and after['gpu']['pid'] > 0
+                        and after['gpu']['pid'] != before['gpu']['pid']
+                        and after['gpu']['creationTime'] >= before['gpu']['creationTime']),
+            'same_browser_main': (before['browserMain'] == after['browserMain']
+                                  and type(before['browserMain']['pid']) is int
+                                  and before['browserMain']['pid'] > 0
+                                  and type(before['browserMain']['creationTime']) in (int, float)),
+            'same_renderer': (before['renderer'] == after['renderer']
+                              and type(before['renderer']['pid']) is int
+                              and before['renderer']['pid'] > 0
+                              and type(before['renderer']['creationTime']) in (int, float)
+                              and result['rendererExits'] == []),
+            'context_loss': all(after['oldLost'][name]['events'] >= 1 for name in ('webgl', 'webgl2')),
+            'frames': (type(after['frames']) is int and type(after['laterFrames']) is int
+                       and after['laterFrames'] > after['frames']),
+            'visible_animation_resumed': (isinstance(after.get('scene'), dict)
+                                          and isinstance(after.get('laterTransform'), str)
+                                          and after['laterTransform'] != after['scene'].get('transform')),
+            'one_expected_exit': (len(result['exits']) == 1 and result['exits'][0]['type'] == 'GPU'
+                                  and result['exits'][0]['reason'] in ('killed', 'crashed')
+                                  and type(result['exits'][0]['exitCode']) is int and result['exits'][0]['exitCode'] != 0),
+            'whole_run_exits': (gpu_exits == result['exits'] and faults == [fault]
+                                and not re.search(r'^\d+ ms renderer gone ', log, re.MULTILINE)),
+        }
+        result['checks'] = checks
+        result['passed'] = result.get('passed') is True and all(checks.values())
+        return result
+    except (ValueError, AttributeError, TypeError, KeyError):
+        return {'passed': False, 'error': 'Invalid/incomplete GPU recovery result'}
+
+
+def recovery_acceptance(animation, recovery):
+    """Allow exactly the injected fault signature, never a blanket crash ignore."""
+    errors = animation.get('errors', {})
+    return (recovery.get('passed') is True and animation.get('state') == 'animation_progressing'
+            and animation.get('navigation_succeeded') is True and animation.get('chromium_log_present') is True
+            and errors.get('gpu_process_crash') == 1
+            and set(errors) == {'gl_allowlist', 'warp_initialization', 'd3d11_output',
+                                'directcomposition_output', 'gpu_process_crash', 'fatal_log',
+                                'skia_surface', 'shared_context'}
+            and all(value == 0 for name, value in errors.items() if name != 'gpu_process_crash'))
+
+
+def restart_state(previous, build, renderer, payload_hashes, stack_hashes, icd_hash=None, gl_driver='software'):
+    """Only reuse a successful, stopped fresh run's exact private state."""
+    previous = previous.resolve(strict=True)
+    prior = json.loads((previous / 'results.json').read_text())
+    if (prior.get('diagnostic_exit') != 0 or 'cleanup_error' in prior
+            or prior.get('cleanup', {}).get('remaining_servers') != []
+            or prior.get('consumer') != 'Electron original fixture'
+            or prior.get('wine_build') != str(build) or prior.get('renderer') != renderer
+            or prior.get('gl_driver', 'software') != gl_driver
+            or (prior.get('desktop') or {}).get('mode', 'none') != 'none'
+            or prior.get('sha256') != payload_hashes or prior.get('stack_sha256') != stack_hashes
+            or prior.get('vulkan_icd_sha256') != icd_hash
+            or prior.get('state_root') != str(previous) or prior.get('restart_from') is not None
+            or prior.get('profile_diagnostic', {}).get('passed') is not True
+            or not re.fullmatch('[0-9a-f]{32}', prior.get('profile_token', ''))):
+        raise ValueError('Restart requires a successful cleaned fresh proof run with identical binaries/backend')
+    for name in ('prefix', 'profile'):
+        path = previous / name
+        if not path.is_dir() or path.resolve(strict=True) != path:
+            raise ValueError('Restart state must be the original private nonsymlink directory')
+    return previous, prior['profile_token']
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--wine-build', type=Path, required=True)
+    parser.add_argument('--runtime', type=Path, required=True)
+    parser.add_argument('--host', type=Path, required=True)
+    parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--trace-exceptions', action='store_true',
+                        help='Trace exception addresses; does not change browser/security flags')
+    parser.add_argument('--graphics-diagnostic', action='store_true',
+                        help='Opt-in WebGL capability/pixel readback script in the original host')
+    parser.add_argument('--trace-graphics', action='store_true',
+                        help='Trace builtin D3D11/DXGI calls; retained logs may be large')
+    parser.add_argument('--seconds', type=int, default=25, choices=range(5, 301), metavar='5..300')
+    parser.add_argument('--electron-app', type=Path,
+                        help='Separate original Electron fixture directory; use electron.exe as --host')
+    parser.add_argument('--freeze-scene', action='store_true',
+                        help='Electron fixture only: stop DOM changes at x=160 after eight seconds')
+    parser.add_argument('--lifecycle', action='store_true',
+                        help='Electron fixture only: injected input, wheel scroll, resize, minimize/restore and reload')
+    parser.add_argument('--lifecycle-visuals', action='store_true',
+                        help='Hold eight lifecycle stages until actual owned-display capture is acknowledged')
+    parser.add_argument('--resize-border', action='store_true',
+                        help='Native scale1 only: freeze DOM before final growth and inspect held frame rims over four seconds')
+    parser.add_argument('--trace-native', action='store_true',
+                        help='Owned native control only: retain Wayland wire and Wine driver lifecycle logs')
+    parser.add_argument('--profile-proof', action='store_true',
+                        help='Electron only: store/flush a fresh persistent Chromium cookie')
+    parser.add_argument('--restart-from', type=Path,
+                        help='Restart a successful fresh --profile-proof run using its owned prefix/profile')
+    parser.add_argument('--gpu-recovery', action='store_true',
+                        help='Separate Electron owned-GPU termination/context-recreation diagnostic')
+    parser.add_argument('--presentation-timing', action='store_true',
+                        help='No-fault fixed front/page presentation timeline; collection is not graphics acceptance')
+    parser.add_argument('--visible-webgl', action='store_true',
+                        help='Opt-in separate stage-colored visible WebGL1/2 surfaces in timing/recovery only')
+    parser.add_argument('--renderer', choices=('gl', 'vulkan'), default='gl')
+    parser.add_argument('--resource-profile', action='store_true',
+                        help='Read-only one-second owned-process CPU/RSS samples; not GPU telemetry')
+    parser.add_argument('--gl-driver', choices=('software', 'd3d12', 'svga', 'virgl'), default='software',
+                        help='Explicit software/WSL D3D12/VM SVGA driver, independently verified')
+    parser.add_argument('--desktop', choices=('none', 'openbox', 'composited'), default='none')
+    parser.add_argument('--wexcomp-bin', type=Path, help='Explicit pinned compositor: owned headless native Wayland control')
+    parser.add_argument('--wexcomp-config', type=Path, help='Project Wayland config directory for --wexcomp-bin')
+    parser.add_argument('--compositor-renderer', choices=('pixman', 'gles2'), default='pixman')
+    parser.add_argument('--output-scale', type=float, choices=(1.0, 1.25, 1.5, 2.0),
+                        help='Explicit initial scale of the owned native headless output (requires wlr-randr)')
+    parser.add_argument('--transition-scale', type=float, choices=(1.0, 1.25, 1.5, 2.0),
+                        help='Change the owned output at the held input stage; require matching published HWND scale')
+    parser.add_argument('--vulkan-icd', type=Path,
+                        help='Required explicit software/hardware ICD for a Vulkan control')
+    args = parser.parse_args()
+    if args.visible_webgl and (not args.electron_app or not (args.gpu_recovery or args.presentation_timing)):
+        parser.error('--visible-webgl requires Electron timing or GPU recovery')
+    if args.presentation_timing and (not args.electron_app or args.gpu_recovery or args.lifecycle
+            or args.lifecycle_visuals or args.freeze_scene or args.restart_from or args.profile_proof
+            or args.resize_border or args.transition_scale is not None or args.seconds < 45):
+        parser.error('--presentation-timing requires Electron, >=45 seconds and no recovery/lifecycle/freeze/restart/profile/transition modes')
+    if args.presentation_timing and (not args.wexcomp_bin or args.compositor_renderer != 'gles2'
+            or args.gl_driver != 'virgl' or args.renderer != 'gl' or not shutil.which('grim')):
+        parser.error('--presentation-timing requires owned GLES2 VirGL and grim')
+    if args.resize_border:
+        # Fail before launching Wine rather than killing the observer halfway
+        # through the fixture's frozen-frame acknowledgement handshake.
+        from graphics_frame_pixels import frame_pixels
+    if args.gpu_recovery or args.presentation_timing:
+        recovery_wait = (args.electron_app / 'recovery-frame-wait.js'
+                         if args.electron_app else None)
+        if recovery_wait is None or not recovery_wait.is_file():
+            parser.error(('Presentation timing' if args.presentation_timing else 'GPU recovery')
+                         + ' fixture dependency missing: ' + str(recovery_wait))
+        # PNG decoding and pixel-oracle availability are mandatory preconditions,
+        # checked before any private Wine process or GPU fault can start.
+        from PIL import Image  # noqa: F401
+        from graphics_frame_pixels import recovery_page_pixels, recovery_pixels  # noqa: F401
+    if bool(args.wexcomp_bin) != bool(args.wexcomp_config):
+        parser.error('--wexcomp-bin and --wexcomp-config must be specified together')
+    if args.compositor_renderer == 'gles2' and (not args.wexcomp_bin or args.gl_driver == 'software'):
+        parser.error('GLES2 outer control requires owned wexcomp and an explicit accelerated driver')
+    if args.output_scale is not None and (not args.wexcomp_bin or not shutil.which('wlr-randr')):
+        parser.error('--output-scale requires owned wexcomp and wlr-randr')
+    if args.transition_scale is not None and (args.output_scale is None or not args.lifecycle_visuals):
+        parser.error('--transition-scale requires --output-scale and --lifecycle-visuals')
+    if args.resize_border and (not args.wexcomp_bin or not args.lifecycle_visuals
+                               or args.output_scale not in (None, 1.0) or args.transition_scale is not None):
+        parser.error('--resize-border requires native held lifecycle visuals at fixed scale1')
+    if args.trace_native and not args.wexcomp_bin:
+        parser.error('--trace-native requires owned native wexcomp')
+    if args.wexcomp_bin and (args.desktop != 'none' or args.restart_from):
+        parser.error('Native Wayland control cannot use an X11 desktop or restart reuse')
+    capture_tool = 'grim' if args.wexcomp_bin else 'import'
+    if args.lifecycle_visuals and (not args.lifecycle or args.seconds < 45 or not shutil.which(capture_tool)):
+        parser.error('--lifecycle-visuals requires --lifecycle, >=45 seconds and the selected display capture tool')
+    if args.restart_from and args.desktop != 'none':
+        parser.error('Desktop-mode restart controls are not yet supported')
+    if args.gl_driver != 'software' and args.renderer != 'gl':
+        parser.error('Accelerated GL driver controls require --renderer gl')
+    if args.freeze_scene and not args.electron_app:
+        parser.error('--freeze-scene requires --electron-app')
+    if args.lifecycle and (not args.electron_app or args.freeze_scene or args.seconds < 25):
+        parser.error('--lifecycle requires --electron-app, no --freeze-scene, and at least 25 seconds')
+    if args.graphics_diagnostic and args.electron_app:
+        parser.error('--graphics-diagnostic is supported only by the original WebView2 host')
+    if (args.profile_proof or args.restart_from) and not args.electron_app:
+        parser.error('--profile-proof/--restart-from require --electron-app')
+    if args.gpu_recovery and (not args.electron_app or args.lifecycle or args.freeze_scene
+                              or args.restart_from or args.seconds < 30):
+        parser.error('--gpu-recovery requires Electron, >=30 seconds, and no lifecycle/freeze/restart')
+    if args.gpu_recovery and (not args.wexcomp_bin or args.compositor_renderer != 'gles2'
+                              or args.gl_driver != 'virgl' or not shutil.which('grim')):
+        parser.error('--gpu-recovery requires the owned GLES2 VirGL compositor and grim front captures')
+    if args.renderer == 'vulkan' and not args.vulkan_icd:
+        parser.error('--renderer vulkan requires --vulkan-icd')
+    icd = args.vulkan_icd.resolve(strict=True) if args.vulkan_icd else None
+    build = args.wine_build.resolve(strict=True)
+    wexcomp_binary = args.wexcomp_bin.resolve(strict=True) if args.wexcomp_bin else None
+    wexcomp_config = args.wexcomp_config.resolve(strict=True) if args.wexcomp_config else None
+    runtime = args.runtime.resolve(strict=True)
+    host = args.host.resolve(strict=True)
+    loader = host.parent / 'WebView2Loader.dll'
+    browser = runtime / ('electron.exe' if args.electron_app else 'msedgewebview2.exe')
+    wine, server = build / 'wine', build / 'server/wineserver'
+    payloads = (electron_payloads(browser, host, args.electron_app, args.gpu_recovery, args.presentation_timing)
+                if args.electron_app else (browser, host, loader))
+    for path in (wine, server) + payloads:
+        if not path.is_file():
+            parser.error('Required file missing: ' + str(path))
+    sockets = Path('/tmp/.X11-unix')
+    if sockets.exists() and os.statvfs(sockets).f_flag & os.ST_RDONLY:
+        parser.error('Use an owned X socket directory in a private mount namespace')
+    output = args.output_dir.resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    recovery_capture_run_id = secrets.token_hex(16) if args.gpu_recovery else None
+    timing_run_id = secrets.token_hex(16) if args.presentation_timing else None
+    payload_hashes = {str(path): digest(path) for path in payloads}
+    stack_files = [wine, server, build / 'dlls/win32u/win32u.so',
+                   build / 'dlls/winex11.drv/winex11.so']
+    if wexcomp_binary:
+        stack_files.append(build / 'dlls/winewayland.drv/winewayland.so')
+    stack_files += [build / 'dlls' / module / (arch + '-windows') / (module + '.dll')
+                    for module in ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'win32u')
+                    for arch in ('x86_64', 'i386')]
+    stack_hashes = {str(path.relative_to(build)): digest(path) for path in stack_files}
+    state_root, expected = (restart_state(args.restart_from, build, args.renderer,
+                                         payload_hashes, stack_hashes, digest(icd) if icd else None, args.gl_driver)
+                            if args.restart_from else (output, None))
+    # Refuse concurrent reuse; never kill a test running on someone else's state.
+    state_lock = (state_root / '.consumer.lock').open('a')
+    fcntl.flock(state_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    prefix = state_root / 'prefix'
+    profile = state_root / 'profile'
+    if not args.restart_from:
+        profile.mkdir()
+    proof = args.profile_proof or bool(args.restart_from)
+    token = secrets.token_hex(16) if proof else None
+    spec = importlib.util.spec_from_file_location('g4_runner', Path(__file__).with_name('check-g3-correctness.py'))
+    helpers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helpers)
+    if helpers.matching_servers(server, prefix):
+        raise RuntimeError('Owned state still has a running server; refusing reuse')
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(('WINE', 'VK_', 'WEBVIEW2_', 'WEX_WEBVIEW2_', 'CHROME_'))
+                   and key not in ('LD_PRELOAD', 'LD_LIBRARY_PATH', 'DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY')}
+    environment.update(WINE=str(wine), WINESERVER=str(server), WINEPREFIX=str(prefix),
+                       WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi,wined3d,dcomp=b',
+                       WINEDEBUG='+timestamp,+pid,+tid,err+all,warn+all,fixme+all',
+                       LIBGL_ALWAYS_SOFTWARE='1', WINE_D3D_CONFIG='renderer=' + args.renderer)
+    if args.trace_native:
+        environment.update(WINEDEBUG=environment['WINEDEBUG'] + ',+waylanddrv', WAYLAND_DEBUG='client')
+    helpers.configure_gl_driver(environment, args.gl_driver)
+    if icd:
+        environment.update(VK_DRIVER_FILES=str(icd), VK_ICD_FILENAMES=str(icd))
+    winpath = lambda path: 'Z:' + str(path).replace('/', '\\')
+    environment.update(WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=winpath(runtime),
+                       WEX_WEBVIEW2_PROFILE=winpath(profile), WEX_WEBVIEW2_LOG=winpath(output / 'host.log'),
+                       WEX_WEBVIEW2_SECONDS=str(args.seconds), CHROME_LOG_FILE=winpath(output / 'chromium.log'))
+    environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--enable-logging --v=1'
+    if args.graphics_diagnostic:
+        environment['WEX_WEBVIEW2_GRAPHICS_DIAGNOSTIC'] = '1'
+    if args.freeze_scene:
+        environment['WEX_WEBVIEW2_FREEZE'] = '1'
+    if args.lifecycle:
+        environment['WEX_WEBVIEW2_LIFECYCLE'] = '1'
+    if args.resize_border:
+        environment['WEX_WEBVIEW2_RESIZE_BORDER'] = '1'
+    if args.lifecycle_visuals:
+        environment['WEX_WEBVIEW2_VISUAL_CHECKPOINTS'] = '1'
+    if args.gpu_recovery:
+        environment['WEX_WEBVIEW2_GPU_RECOVERY'] = '1'
+        environment['WEX_WEBVIEW2_RECOVERY_CAPTURE_DIR'] = winpath(output)
+        environment['WEX_WEBVIEW2_RECOVERY_CAPTURE_RUN_ID'] = recovery_capture_run_id
+    if args.presentation_timing:
+        environment['WEX_WEBVIEW2_PRESENTATION_TIMING'] = '1'
+        environment['WEX_WEBVIEW2_TIMING_RUN_ID'] = timing_run_id
+    if args.visible_webgl:
+        environment['WEX_WEBVIEW2_VISIBLE_WEBGL'] = '1'
+    if proof:
+        environment['WEX_WEBVIEW2_PROFILE_EXPECT'] = expected or ''
+        environment['WEX_WEBVIEW2_PROFILE_WRITE'] = token
+    if args.trace_exceptions:
+        environment['WINEDEBUG'] += ',+seh'
+    if args.trace_graphics:
+        environment['WINEDEBUG'] += ',+d3d11,+dxgi'
+    result = {'classification': 'Xvfb offline first-failure diagnostic; not G4 acceptance',
+              'renderer': args.renderer,
+              'gl_driver': args.gl_driver,
+              'consumer': 'Electron original fixture' if args.electron_app else 'WebView2',
+              'fixture_variant': 'visible-webgl' if args.visible_webgl else 'original',
+              'wine_build': str(build),
+              'environment': {key: value for key, value in environment.items()
+                              if key.startswith(('WINE', 'WEBVIEW2_', 'WEX_WEBVIEW2_', 'CHROME_'))
+                              or key in ('LIBGL_ALWAYS_SOFTWARE', 'GALLIUM_DRIVER', 'LD_LIBRARY_PATH')},
+              'sha256': payload_hashes, 'stack_sha256': stack_hashes,
+              'state_root': str(state_root), 'profile_token': token,
+              'restart_from': str(args.restart_from.resolve()) if args.restart_from else None,
+              'sandbox_bypass_requested': False, 'acceptance': 'NOT_PROVEN'}
+    if icd:
+        result.update(vulkan_icd=str(icd), vulkan_icd_sha256=digest(icd))
+    if args.gpu_recovery:
+        result['classification'] = 'Fault-injected owned GPU-process recovery; not normal/G4 acceptance'
+    display = None
+    desktop = []
+    wexcomp = None
+    recovery_front_captures = {}
+    recovery_front_pixel_verdicts = {}
+    recovery_page_pixel_verdicts = {}
+    timing_collector = None
+    read_fd, write_fd = os.pipe()
+    monitor = None
+    stop = threading.Event()
+    capture_command = lambda path: (['grim', str(path)] if wexcomp_binary
+                                    else ['import', '-window', 'root', str(path)])
+    scale_probe = None
+    if args.gpu_recovery or args.presentation_timing or ((args.output_scale is not None or args.resize_border) and args.lifecycle_visuals):
+        scale_probe = output / 'native-window-state.exe'
+        subprocess.run(['x86_64-w64-mingw32-g++', '-O2', '-Wall', '-Wextra', '-Werror',
+                        '-static-libgcc', '-static-libstdc++',
+                        str(Path(__file__).with_name('test_g4_native_window_state.cpp')),
+                        '-o', str(scale_probe), '-luser32'], check=True, timeout=30)
+        if args.presentation_timing:
+            result['presentation_native_probe_sha256'] = digest(scale_probe)
+
+    def timing_front(stage, request, timeout, record):
+        from PIL import Image
+        from graphics_frame_pixels import recovery_pixels
+        deadline = time.monotonic() + timeout
+
+        def bound(maximum):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Presentation timing front capture deadline')
+            return min(maximum, remaining)
+
+        identity = wexcomp.verify_identity(result['wexcomp']['process_identity'])
+
+        def geometry_query(suffix):
+            state = helpers.run_logged([str(wine), str(scale_probe)], environment, output,
+                                       'presentation-' + stage + suffix + '-native-window', bound(1.5))
+            if state.returncode:
+                raise RuntimeError('Presentation timing native HWND observation failed')
+            geometry = native_scale_state(state.stdout, args.output_scale or 1.0)
+            if any(request['windowBounds'].get(k) != geometry[k] for k in ('x', 'y', 'width', 'height')):
+                raise ValueError('Presentation timing native HWND geometry changed')
+            return geometry
+
+        geometry = geometry_query('-before')
+        capture = output / ('presentation-' + stage + '.png')
+        capture_started = time.monotonic()
+        record.update(path=str(capture), geometry=geometry, client_bounds=request['clientBounds'],
+                      observed_scale=geometry['fixed'] / 65536, compositor_identity=identity,
+                      capture_started_monotonic=capture_started)
+        with (output / 'capture.log').open('ab') as capture_log:
+            subprocess.run(capture_command(capture), env=environment, stdout=capture_log,
+                           stderr=capture_log, timeout=bound(3), check=True)
+        capture_ended = time.monotonic()
+        record.update(sha256=digest(capture), bytes=capture.stat().st_size,
+                      capture_ended_monotonic=capture_ended,
+                      capture_duration_ms=(capture_ended - capture_started) * 1000)
+        # Decode the whole PNG: corruption/geometry errors are collection failures,
+        # while a successfully decoded stale marker/rim is evidence to retain.
+        with Image.open(capture) as image:
+            image.load()
+            pixels = recovery_pixels(image, {**geometry, 'client_bounds': request['clientBounds']},
+                                     geometry['fixed'] / 65536, request['marker'], request['background'],
+                                     visible=request if args.visible_webgl else None)
+            width, height = image.size
+        record.update(width=width, height=height, pixels=pixels)
+        if geometry_query('-after') != geometry:
+            raise ValueError('Presentation timing HWND changed during capture')
+        wexcomp.verify_identity(identity)
+        return {}
+
+    def timing_page(page, request, timeout):
+        from PIL import Image
+        from graphics_frame_pixels import recovery_page_pixels
+        capture = output / 'presentation-page.png'
+        if page.get('empty') is not False or page.get('bytes') != capture.stat().st_size:
+            raise ValueError('Presentation timing invalid page capture metadata')
+        with Image.open(capture) as image:
+            image.load()
+            if page.get('size') != dict(zip(('width', 'height'), image.size)):
+                raise ValueError('Presentation timing page dimensions changed')
+            pixels = recovery_page_pixels(image, request['viewport'],
+                                           timing_collector.samples[0]['observed_scale'],
+                                           request['marker'], request['background'],
+                                           visible=page if args.visible_webgl else None)
+        return {'path': str(capture), 'sha256': digest(capture), 'bytes': capture.stat().st_size,
+                'pixels': pixels}
+
+    def timing_ack(stage, details):
+        write_timing_ack(output, timing_run_id, stage, details)
+
+    if args.presentation_timing:
+        timing_collector = PresentationTimingCollector(timing_run_id, timing_front, timing_page, timing_ack,
+                                                      visible_webgl=args.visible_webgl)
+
+    def observe():
+        seen = set()
+        started = time.monotonic()
+        next_resources = started
+        screenshots = screenshot_schedule(args.presentation_timing, args.gpu_recovery, args.freeze_scene)
+        with (output / 'processes.jsonl').open('w') as log:
+            while not stop.wait(.25):
+                now = time.monotonic()
+                if timing_collector and (output / 'host.log').exists():
+                    timing_collector.poll((output / 'host.log').read_text(errors='replace'))
+                if args.resource_profile and now >= next_resources:
+                    next_resources = now + 1
+                    settled = result.get('resize_border_diagnostic', {}).get('passed') is True
+                    point = {'seconds': now - started, 'phase': 'frozen-settled' if settled else 'active-lifecycle',
+                             'processes': graphics_resources.sample(prefix)}
+                    with (output / 'resources.jsonl').open('a') as resources:
+                        resources.write(json.dumps(point) + '\n')
+                if args.gpu_recovery and (output / 'host.log').exists():
+                    host_text = (output / 'host.log').read_text(errors='replace')
+                    for request in recovery_front_requests(host_text) or []:
+                        stage, run_id = request.get('stage'), request.get('runId')
+                        if stage in recovery_front_captures:
+                            continue
+                        try:
+                            next_stage = RECOVERY_VISUAL_STAGES[len(recovery_front_captures)]
+                            if stage != next_stage or run_id != recovery_capture_run_id:
+                                raise RuntimeError('Unexpected/stale GPU recovery capture request')
+                            if wexcomp is None:
+                                raise RuntimeError('Owned compositor unavailable for recovery front capture')
+                            identity = wexcomp.verify_identity(result['wexcomp']['process_identity'])
+                            state = helpers.run_logged([str(wine), str(scale_probe)], environment, output,
+                                                       'recovery-' + stage + '-native-window', 10)
+                            if state.returncode:
+                                raise RuntimeError('GPU recovery HWND state query failed')
+                            wanted = args.output_scale or 1.0
+                            geometry = native_scale_state(state.stdout, wanted)
+                            window_bounds = request.get('windowBounds')
+                            if (not isinstance(window_bounds, dict)
+                                    or any(window_bounds.get(key) != geometry[key]
+                                           for key in ('x', 'y', 'width', 'height'))):
+                                raise RuntimeError('Electron bounds disagree with observed native HWND geometry')
+                            client_bounds = request.get('clientBounds')
+                            if (not isinstance(client_bounds, dict)
+                                    or any(type(client_bounds.get(key)) is not int
+                                           or client_bounds[key] <= 0 for key in ('width', 'height'))
+                                    or any(type(client_bounds.get(key)) is not int for key in ('x', 'y'))):
+                                raise RuntimeError('Missing/invalid observed Electron client bounds')
+                            if args.visible_webgl:
+                                from graphics_frame_pixels import visible_canvas_geometry
+                                visible_canvas_geometry(request, stage)
+                            capture = output / ('recovery-front-' + stage + '.png')
+                            with (output / 'capture.log').open('ab') as capture_log:
+                                subprocess.run(capture_command(capture), env=environment,
+                                               stdout=capture_log, stderr=capture_log, timeout=5, check=True)
+                            data = capture.read_bytes()
+                            if (not capture.is_file() or len(data) < 64
+                                    or data[:8] != b'\x89PNG\r\n\x1a\n'
+                                    or data[12:16] != b'IHDR'
+                                    or int.from_bytes(data[16:20], 'big') <= 0
+                                    or int.from_bytes(data[20:24], 'big') <= 0):
+                                raise RuntimeError('Invalid/empty recovered front PNG: ' + stage)
+                            capture_record = {'path': str(capture), 'bytes': len(data),
+                                              'sha256': hashlib.sha256(data).hexdigest(),
+                                              'width': int.from_bytes(data[16:20], 'big'),
+                                              'height': int.from_bytes(data[20:24], 'big'),
+                                              'geometry': geometry,
+                                              'client_bounds': client_bounds,
+                                              'window_bounds': window_bounds,
+                                              'observed_scale': geometry['fixed'] / 65536,
+                                              'time': time.time(),
+                                              'compositor_identity': identity}
+                            if args.visible_webgl:
+                                capture_record['visibleCanvases'] = request['visibleCanvases']
+                                capture_record['canvasExclusions'] = request['canvasExclusions']
+                            recovery_front_captures[stage] = capture_record
+                            result['recovery_front_captures'] = dict(recovery_front_captures)
+                            from PIL import Image
+                            from graphics_frame_pixels import recovery_pixels
+                            try:
+                                with Image.open(capture) as front_image:
+                                    if front_image.size != (capture_record['width'], capture_record['height']):
+                                        raise RuntimeError('Front PNG dimensions disagree with its capture record')
+                                    front_verdict = recovery_pixels(
+                                        front_image, {**geometry, 'client_bounds': client_bounds},
+                                        capture_record['observed_scale'], request['marker'], request['background'],
+                                        recovery_front_pixel_verdicts.get('pre_fault', {}).get('rim'),
+                                        visible=request if args.visible_webgl else None, stage=stage)
+                            except ValueError as error:
+                                front_verdict = {'passed': False, 'error': '%s: %s' % (type(error).__name__, error)}
+                            recovery_front_pixel_verdicts[stage] = front_verdict
+                            result['recovery_front_pixel_verdicts'] = dict(recovery_front_pixel_verdicts)
+                            ack = output / ('gpu-recovery-%s-%s.ack' % (run_id, stage))
+                            with ack.open('x', encoding='utf-8') as stream:
+                                json.dump({'runId': run_id, 'stage': stage, 'captured': True,
+                                           'pixelPassed': front_verdict['passed'],
+                                           'sha256': capture_record['sha256']}, stream)
+                        except Exception as error:
+                            result['recovery_front_capture_error'] = '%s: %s' % (type(error).__name__, error)
+                            raise
+                    page_records, _ = recovery_page_events(host_text)
+                    for page in page_records:
+                        stage = page.get('stage') if isinstance(page, dict) else None
+                        if stage not in RECOVERY_VISUAL_STAGES or stage in recovery_page_pixel_verdicts:
+                            continue
+                        try:
+                            from PIL import Image
+                            from graphics_frame_pixels import recovery_page_pixels
+                            if stage not in recovery_front_captures:
+                                raise RuntimeError('Page capture arrived without its front checkpoint')
+                            if args.visible_webgl:
+                                from graphics_frame_pixels import visible_canvas_geometry
+                                visible_canvas_geometry(page, stage)
+                                if any(page[key] != recovery_front_captures[stage][key]
+                                       for key in ('visibleCanvases', 'canvasExclusions')):
+                                    raise ValueError('Visible canvas front/page observations disagree')
+                            page_file = output / ('recovery-page-' + stage + '.png')
+                            with Image.open(page_file) as page_image:
+                                if page_image.size != (page['size']['width'], page['size']['height']):
+                                    raise RuntimeError('Page PNG dimensions disagree with its capture record')
+                                try:
+                                    page_verdict = recovery_page_pixels(
+                                        page_image, page['viewport'],
+                                        recovery_front_captures[stage]['observed_scale'],
+                                        page['marker'], page['background'],
+                                        visible=page if args.visible_webgl else None, stage=stage)
+                                except ValueError as error:
+                                    page_verdict = {'passed': False,
+                                                    'error': '%s: %s' % (type(error).__name__, error)}
+                            recovery_page_pixel_verdicts[stage] = page_verdict
+                            result['recovery_page_pixel_verdicts'] = dict(recovery_page_pixel_verdicts)
+                            page_ack = output / ('gpu-recovery-%s-%s.page.ack' %
+                                                 (recovery_capture_run_id, stage))
+                            with page_ack.open('x', encoding='utf-8') as stream:
+                                json.dump({'runId': recovery_capture_run_id, 'stage': stage,
+                                           'captured': True, 'pixelPassed': page_verdict['passed']}, stream)
+                        except Exception as error:
+                            result['recovery_page_capture_error'] = '%s: %s' % (type(error).__name__, error)
+                            raise
+                if args.lifecycle_visuals and (output / 'host.log').exists():
+                    host_text = (output / 'host.log').read_text(errors='replace')
+                    for stage in visual_requests(host_text):
+                        if stage in result.setdefault('visual_captures', {}):
+                            continue
+                        try:
+                            if (args.transition_scale is not None and stage == 'input'
+                                    and 'output_scale_transition' not in result):
+                                wexcomp.set_output_scale(args.transition_scale)
+                                result['output_scale_transition'] = {'stage': stage, 'scale': args.transition_scale}
+                                stop.wait(1)  # hold the fixture while native scale/repaint messages are delivered
+                            if scale_probe is not None and stage != 'minimized':
+                                state = helpers.run_logged([str(wine), str(scale_probe)], environment, output,
+                                                           'stage-' + stage + '-native-window', 10)
+                                if state.returncode:
+                                    raise RuntimeError('Fixture HWND state query failed')
+                                wanted = (args.transition_scale if result.get('output_scale_transition') else (args.output_scale or 1.0))
+                                result.setdefault('native_window_states', {})[stage] = native_scale_state(state.stdout, wanted)
+                            capture = output / ('stage-' + stage + '.png')
+                            with (output / 'capture.log').open('ab') as capture_log:
+                                subprocess.run(capture_command(capture), env=environment,
+                                               stdout=capture_log, stderr=capture_log, timeout=5, check=True)
+                            if not capture.is_file() or not capture.stat().st_size:
+                                raise RuntimeError('Empty lifecycle capture')
+                            inspect = (['wayland-info'] if wexcomp_binary else
+                                       ['python3', '-B', str(Path(__file__).with_name('snapshot-graphics-x11.py'))])
+                            tree = helpers.run_logged(inspect, environment, output, 'stage-' + stage + '-display', 10)
+                            if tree.returncode:
+                                raise RuntimeError('Lifecycle X11 snapshot failed')
+                            result['visual_captures'][stage] = {'path': str(capture), 'time': time.time()}
+                            if args.resize_border and stage == 'resize_back':
+                                from PIL import Image
+                                samples = []
+                                begin = time.monotonic()
+                                for offset in (0, .25, 1, 2, 4):
+                                    stop.wait(max(0, begin + offset - time.monotonic()))
+                                    path = output / ('resize-border-%s.png' % str(offset))
+                                    subprocess.run(capture_command(path), env=environment, check=True, timeout=5)
+                                    with Image.open(path) as pixels:
+                                        sample = frame_pixels(pixels, result['native_window_states'][stage])
+                                    sample.update(offset=offset, elapsed=time.monotonic() - begin)
+                                    samples.append(sample)
+                                result['resize_border_diagnostic'] = {'samples': samples,
+                                    'passed': all(item['passed'] for item in samples[-2:]),
+                                    'note': 'Bounded settled-frame proof; early mismatches retained, not atomic-resize certification'}
+                            (output / 'visual-checkpoint.ack').write_text(stage)
+                        except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+                            result['visual_capture_error'] = str(error)
+                if screenshots and time.monotonic() - started >= screenshots[0]:
+                    moment = screenshots.pop(0)
+                    if shutil.which(capture_tool):
+                        try:
+                            with (output / 'capture.log').open('ab') as capture_log:
+                                subprocess.run(capture_command(output / ('screen-%d.png' % moment)),
+                                               env=environment, stdout=capture_log, stderr=capture_log,
+                                               timeout=5, check=True)
+                        except (OSError, subprocess.SubprocessError) as error:
+                            log.write(json.dumps({'capture_error': str(error)}) + '\n')
+                for process in Path('/proc').glob('[0-9]*'):
+                    try:
+                        if b'WINEPREFIX=' + os.fsencode(prefix) not in (process / 'environ').read_bytes().split(b'\0'):
+                            continue
+                        argv = (process / 'cmdline').read_bytes().replace(b'\0', b' ').decode(errors='replace')
+                        maps = [line for line in (process / 'maps').read_text().splitlines()
+                                if any(name in line.lower() for name in
+                                       ('d3d11', 'dxgi', 'dcomp', 'wined3d', 'd3d12', 'dxcore', 'libgallium',
+                                        'winewayland', 'winex11'))]
+                        identity = (process.name, argv, tuple(maps))
+                        if identity in seen:
+                            continue
+                        seen.add(identity)
+                        log.write(json.dumps({'time': time.time(), 'pid': int(process.name),
+                                              'argv': argv, 'graphics_maps': maps}) + '\n')
+                        log.flush()
+                    except (OSError, ProcessLookupError):
+                        continue
+    try:
+        if wexcomp_binary:
+            spec = importlib.util.spec_from_file_location('graphics_wexcomp', Path(__file__).with_name('graphics_wexcomp.py'))
+            compositor = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(compositor)
+            wexcomp = compositor.OwnedWexcomp(wexcomp_binary, wexcomp_config, output, environment, args.compositor_renderer)
+            result['wexcomp'] = wexcomp.start()
+            if args.compositor_renderer == 'gles2':
+                result['outer_gl_driver_verification'] = wexcomp.verify_gpu_renderer(args.gl_driver)
+            result['gl_driver_verification'] = compositor.verify_native_gl_driver(environment, output, args.gl_driver)
+            if args.output_scale is not None:
+                wexcomp.set_output_scale(args.output_scale)
+            result['classification'] = 'Owned pinned wexcomp native Wayland/private endpoint functional control; not installed-shell acceptance'
+            result['display'] = environment['WAYLAND_DISPLAY']
+            result['desktop'] = None
+            environment['WINEDLLOVERRIDES'] += ';winex11.drv=d;winewayland.drv=b'
+            result['environment'].update({key: environment[key] for key in
+                                         ('XDG_RUNTIME_DIR', 'WAYLAND_DISPLAY', 'WINEDLLOVERRIDES')})
+        else:
+            with (output / 'xvfb.log').open('wb') as log:
+                display = subprocess.Popen(['Xvfb', '-displayfd', str(write_fd), '-screen', '0',
+                                            '1024x768x24', '-nolisten', 'tcp'], pass_fds=(write_fd,),
+                                           stdout=log, stderr=log, start_new_session=True)
+        os.close(write_fd)
+        write_fd = None
+        if not wexcomp_binary:
+            if not select.select([read_fd], [], [], 10)[0]:
+                raise TimeoutError('Owned Xvfb did not allocate a display')
+            number = os.read(read_fd, 64).strip().decode('ascii')
+            if not number.isdigit() or display.poll() is not None:
+                raise RuntimeError('Owned Xvfb failed')
+            environment['DISPLAY'] = ':' + number
+            result['display'] = environment['DISPLAY']
+            result['gl_driver_verification'] = helpers.verify_gl_driver(environment, output, args.gl_driver)
+            desktop, result['desktop'] = helpers.start_desktop(environment, output, args.desktop)
+        if not args.restart_from:
+            boot = helpers.run_logged([str(wine), 'wineboot', '-u'], environment, output, 'wineboot', 90)
+            result['wineboot_exit'] = boot.returncode
+            if boot.returncode:
+                raise RuntimeError('Fresh prefix initialization failed')
+        else:
+            result['wineboot_exit'] = None  # preserve existing state; no wineboot -u rewrite
+        monitor = threading.Thread(target=observe_fail_closed, args=(observe, result), daemon=True)
+        monitor.start()
+        command = [str(wine), str(host)]
+        if args.electron_app:
+            command.extend([winpath(args.electron_app.resolve(strict=True)), '--enable-logging', '--v=1',
+                            '--log-file=' + winpath(output / 'chromium.log')])
+        result['command'] = command
+        run = helpers.run_logged(command, environment, output, 'wine', args.seconds + 45)
+        result['host_exit'] = run.returncode
+        stop.set()
+        monitor.join(timeout=5)
+        if monitor.is_alive():
+            result['observer_error'] = 'Observer did not stop within 5 seconds'
+        if args.gpu_recovery:
+            result['recovery_front_captures'] = dict(recovery_front_captures)
+            try:
+                result['recovery_compositor_identity_after'] = wexcomp.verify_identity(
+                    result['wexcomp']['process_identity'])
+            except Exception as error:
+                result['recovery_front_capture_error'] = '%s: %s' % (type(error).__name__, error)
+        hostlog = output / 'host.log'
+        if hostlog.exists():
+            analyzer_spec = importlib.util.spec_from_file_location('analyzer', Path(__file__).with_name('analyze-webview2-run.py'))
+            analyzer = importlib.util.module_from_spec(analyzer_spec)
+            analyzer_spec.loader.exec_module(analyzer)
+            result['animation_diagnostic'] = analyzer.analyze(output)
+        else:
+            result['first_failure'] = 'Host did not create its diagnostic log'
+        passed = result.get('animation_diagnostic', {}).get('diagnostic_passed', False)
+        if args.gpu_recovery:
+            recovery_log = hostlog.read_text(errors='replace') if hostlog.exists() else ''
+            result['gpu_recovery_diagnostic'] = recovery_result(recovery_log)
+            passed = recovery_acceptance(result.get('animation_diagnostic', {}), result['gpu_recovery_diagnostic'])
+            passed = passed and 'observer_error' not in result
+            from PIL import Image
+            from graphics_frame_pixels import recovery_page_pixels, recovery_pixels
+            page_records, _ = recovery_page_events(recovery_log)
+            pixel_verdicts = {}
+            baseline_rim = None
+            for stage in RECOVERY_VISUAL_STAGES:
+                try:
+                    capture_record = result['recovery_front_captures'][stage]
+                    metadata = next(item for item in page_records if item.get('stage') == stage)
+                    scale = capture_record['observed_scale']
+                    with Image.open(capture_record['path']) as front_image:
+                        if front_image.size != (capture_record['width'], capture_record['height']):
+                            raise ValueError('Front PNG dimensions disagree with capture record')
+                        front_verdict = recovery_pixels(
+                            front_image, {**capture_record['geometry'],
+                                          'client_bounds': capture_record['client_bounds']},
+                            scale, metadata['marker'], metadata['background'], baseline_rim,
+                            visible=metadata if args.visible_webgl else None, stage=stage)
+                    if stage == 'pre_fault':
+                        baseline_rim = front_verdict['rim']
+                    with Image.open(output / ('recovery-page-' + stage + '.png')) as page_image:
+                        page_verdict = recovery_page_pixels(page_image, metadata['viewport'], scale,
+                                                            metadata['marker'], metadata['background'],
+                                                            visible=metadata if args.visible_webgl else None, stage=stage)
+                    pixel_verdicts[stage] = {'front': front_verdict, 'page': page_verdict,
+                                             'captured_at': capture_record.get('time')}
+                except Exception as error:
+                    pixel_verdicts[stage] = {'front': {'passed': False}, 'page': {'passed': False},
+                                             'error': '%s: %s' % (type(error).__name__, error)}
+            result['recovery_pixel_verdicts'] = pixel_verdicts
+            result['recovery_front_capture_diagnostic'] = recovery_front_capture_result(
+                recovery_log, result['recovery_front_captures'], recovery_capture_run_id,
+                result.get('recovery_front_capture_error'), result['wexcomp']['process_identity'],
+                result.get('recovery_compositor_identity_after'), pixel_verdicts, args.visible_webgl)
+            passed = passed and result['recovery_front_capture_diagnostic']['passed']
+            result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; inspect actual front/page captures'
+        if args.presentation_timing:
+            timing_log = hostlog.read_text(errors='replace') if hostlog.exists() else ''
+            result['presentation_timing_diagnostic'] = presentation_timing_result(
+                timing_collector, timing_log, result.get('animation_diagnostic'), result.get('observer_error'))
+            result['classification'] = 'No-fault presentation timing collection; graphics acceptance NOT_PROVEN'
+            passed = result['presentation_timing_diagnostic']['experiment_valid']
+            passed = passed and result['outer_gl_driver_verification']['passed'] and result['gl_driver_verification']['passed']
+        if args.lifecycle:
+            result['lifecycle_diagnostic'] = lifecycle_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
+            passed = passed and result['lifecycle_diagnostic']['passed']
+        if args.lifecycle_visuals:
+            passed = passed and visual_capture_complete(hostlog.read_text(errors='replace') if hostlog.exists() else '',
+                                                       result.get('visual_captures', {}), result.get('visual_capture_error'))
+            result['visual_inspection'] = 'MANUAL_REVIEW_REQUIRED; capture completion is not a pixel verdict'
+        if args.resize_border:
+            frozen = hostlog.exists() and 'resize border frozen ' in hostlog.read_text(errors='replace')
+            passed = passed and frozen and result.get('resize_border_diagnostic', {}).get('passed') is True
+        if args.graphics_diagnostic:
+            result['graphics_diagnostic'] = graphics_result(hostlog.read_text(errors='replace') if hostlog.exists() else '')
+            passed = passed and result['graphics_diagnostic']['passed']
+        if proof:
+            result['profile_diagnostic'] = profile_result(hostlog.read_text(errors='replace') if hostlog.exists() else '',
+                                                         expected, token)
+            passed = passed and result['profile_diagnostic']['passed']
+        helpers.verify_desktop(environment, desktop, result['desktop'])
+        if wexcomp:
+            wexcomp.verify()
+            maps = (output / 'processes.jsonl').read_text(errors='replace')
+            result['native_wayland_driver_observed'] = 'winewayland.so' in maps and 'winex11.so' not in maps
+            passed = passed and result['native_wayland_driver_observed']
+        print(json.dumps(result, indent=2), flush=True)
+        result['diagnostic_exit'] = 0 if run.returncode == 0 and passed else 4
+        return result['diagnostic_exit']
+    except Exception as error:
+        result['failure'] = repr(error)
+        raise
+    finally:
+        stop.set()
+        if monitor:
+            monitor.join(timeout=5)
+        if timing_collector:
+            logpath = output / 'host.log'
+            result['presentation_timing_diagnostic'] = presentation_timing_result(
+                timing_collector, logpath.read_text(errors='replace') if logpath.exists() else '',
+                result.get('animation_diagnostic'),
+                result.get('observer_error') or result.get('failure'))
+        if args.resource_profile and (output / 'resources.jsonl').exists():
+            try:
+                samples = [json.loads(line) for line in (output / 'resources.jsonl').read_text().splitlines()]
+                result['resource_profile'] = graphics_resources.summarize(samples, os.sysconf('SC_CLK_TCK'))
+            except (OSError, ValueError, KeyError) as error:
+                result['resource_profile_error'] = str(error)  # never skip owned-process cleanup
+        os.close(read_fd)
+        if write_fd is not None:
+            os.close(write_fd)
+        try:
+            killed = subprocess.run([str(server), '-k'], env=environment, timeout=15)
+            if killed.returncode not in (0, 1):
+                raise RuntimeError('Unexpected owned-server kill result')
+            subprocess.run([str(server), '-w'], env=environment, check=True, timeout=15)
+            remaining = helpers.matching_servers(server, prefix)
+            if remaining:
+                raise RuntimeError('Owned servers remain: ' + str(remaining))
+            result['cleanup'] = {'remaining_servers': [], 'prefix_retained_for_diagnosis': str(prefix)}
+        except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+            result['cleanup_error'] = str(error)
+        helpers.stop_desktop(desktop)
+        if wexcomp:
+            wexcomp.stop()
+        if display and display.poll() is None:
+            os.killpg(display.pid, signal.SIGTERM)
+            try:
+                display.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(display.pid, signal.SIGKILL)
+                display.wait(timeout=5)
+        (output / 'results.json').write_text(json.dumps(result, indent=2) + '\n')
+        state_lock.close()
+        if 'cleanup_error' in result:
+            raise RuntimeError(result['cleanup_error'])
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

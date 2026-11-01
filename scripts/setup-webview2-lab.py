@@ -37,7 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.home() / "webview2-lab")
     parser.add_argument("--sdk-version", default="1.0.4258.31")
-    parser.add_argument("--runtime-version", default="155.0.4283.45")
+    parser.add_argument("--runtime-version", default="155.0.4283.62")
     args = parser.parse_args()
     for tool in ("cabextract", "x86_64-w64-mingw32-gcc"):
         if not shutil.which(tool):

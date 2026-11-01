@@ -1,0 +1,78 @@
+{
+  "classification": "Failed r27 measurement followed by r28 main-thread termination and reproduced overflow; Chromium/Edge acceptance unresolved",
+  "runtime": {
+    "original_r7_manifest_files": 1778,
+    "original_r7_manifest_bytes": 1883823875,
+    "wineserver_sha256": "196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800",
+    "unix_ntdll_sha256": "639af4cd083163f54840666bd17361f0969d7bd9371c5ccf80a4d451adc9f8c0",
+    "logging_overlay": false,
+    "sandbox_bypass": false
+  },
+  "r27": {
+    "run": "chromium-gdb-r27-20261101",
+    "measurement_error": "Owned module provenance changed",
+    "attachment_started": false,
+    "debugger_output_bytes": 0,
+    "server_states_captured": false,
+    "exact_guard_failure_cause": "Unknown; later maps not retained"
+  },
+  "r28": {
+    "run": "chromium-gdb-r28-20261101",
+    "browser_attachment": {
+      "performed": false,
+      "error": "Initial process no longer maps both exact browser and owned Wine module; browser attach skipped",
+      "observed_command_line_empty": true,
+      "binding": "Initial exact image/profile and unchanged PID start ticks"
+    },
+    "server_attachment": {
+      "binding": "Unique exact owned executable and unchanged PID start ticks",
+      "sample_interval_seconds": 1,
+      "exit_codes": [0, 0],
+      "detached": true,
+      "each_sample": {
+        "browser_thread_count": 44,
+        "main_thread_state": "TERMINATED",
+        "main_thread_suspend_count": 0,
+        "process_suspend_count": 0,
+        "main_context_object": null,
+        "main_wait_count": 0,
+        "other_running_threads": 43,
+        "threads_with_context_or_nonzero_suspend": 0
+      }
+    },
+    "overflow": {
+      "thread": "Main Wine thread 0024",
+      "reported_bytes": 4672,
+      "fault_rva_in_original_pe_ntdll": "0x52156",
+      "resolved_instruction": "call_seh_handlers context copy",
+      "rva_binding": "Same-run initial exact PE module mapping",
+      "initiating_exception": "Unknown",
+      "semantic_fix": "Not established"
+    },
+    "chromium_log_bytes": 960,
+    "utility_connection_timeouts": 3,
+    "fixture_requests": [],
+    "captures": {
+      "seconds": [10, 55],
+      "sha256": "ac1026b75415f141637184f89ed2b790f8447a7d5059207b302e8fbe4425aa59",
+      "observation": "Black background with cursor; no Chromium window"
+    },
+    "conclusion": "Main thread died while other threads persisted; no context-sync stall demonstrated in this run"
+  },
+  "both_runs_cleanup": {
+    "owned_prefix_and_build_clones_removed": true,
+    "preserved_baseline_server_sha256": "0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab",
+    "owned_browser_server_and_compositor_stopped": true,
+    "graceful_powerdown": true,
+    "qemu_exit_status": 0,
+    "qemu_and_xvfb_stopped": true,
+    "guest_gdb_16_3_1_and_eight_dependencies_remain_installed": true
+  },
+  "limitations": [
+    "r28 main termination does not prove the unrecorded r27 guard failure cause",
+    "r26 earlier signal-handler/context-wait snapshot is a different run",
+    "Debugger attachment perturbs server timing",
+    "Raw maps, memory and screenshots remain private",
+    "Normally sandboxed Chromium fixture/window/utility acceptance and Edge remain outstanding"
+  ]
+}

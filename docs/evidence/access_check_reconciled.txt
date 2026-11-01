@@ -1,0 +1,24 @@
+================================================================================
+AccessCheck Lowbox Boundary Empirical Probe (Native Win32 PE)
+================================================================================
+[INFO] Current User SID: S-1-5-21-0-0-0-1000
+[INFO] Target AppContainer Package SID: S-1-15-2-307025875-318926800-3859343324-1721513316-127281395-2811897559-1066773952
+[INFO] AppContainer Primary Token: TokenIsAppContainer=1
+[INFO] Security descriptors constructed successfully.
+--------------------------------------------------------------------------------
+Evaluating AccessCheck across both tokens and 3 DACL configurations
+--------------------------------------------------------------------------------
+[PROBE] Case=1 Desc="User-Only DACL (GENERIC_READ)" Token="Normal" Desired=0x00120089 Ret=1 Status=1 Granted=0x00120089 Err=0
+[PROBE] Case=1 Desc="User-Only DACL (GENERIC_READ)" Token="AppContainer" Desired=0x00120089 Ret=1 Status=1 Granted=0x00120089 Err=0
+[PROBE] Case=1 Desc="User-Only DACL (MAXIMUM_ALLOWED)" Token="Normal" Desired=0x02000000 Ret=1 Status=1 Granted=0x001F0089 Err=0
+[PROBE] Case=1 Desc="User-Only DACL (MAXIMUM_ALLOWED)" Token="AppContainer" Desired=0x02000000 Ret=1 Status=1 Granted=0x001F0089 Err=0
+[PROBE] Case=2 Desc="ALL APPLICATION PACKAGES (GENERIC_READ)" Token="Normal" Desired=0x00120089 Ret=1 Status=1 Granted=0x00120089 Err=0
+[PROBE] Case=2 Desc="ALL APPLICATION PACKAGES (GENERIC_READ)" Token="AppContainer" Desired=0x00120089 Ret=1 Status=1 Granted=0x00120089 Err=0
+[PROBE] Case=2 Desc="ALL APPLICATION PACKAGES (MAXIMUM_ALLOWED)" Token="Normal" Desired=0x02000000 Ret=1 Status=1 Granted=0x001F0089 Err=0
+[PROBE] Case=2 Desc="ALL APPLICATION PACKAGES (MAXALLOWED)" Token="AppContainer" Desired=0x02000000 Ret=1 Status=1 Granted=0x001F0089 Err=0
+[PROBE] Case=3 Desc="Specific Package SID (GENERIC_READ)" Token="Normal" Desired=0x00120089 Ret=1 Status=1 Granted=0x00120089 Err=0
+[PROBE] Case=3 Desc="Specific Package SID (GENERIC_READ)" Token="AppContainer" Desired=0x00120089 Ret=1 Status=1 Granted=0x00120089 Err=0
+[PROBE] Case=3 Desc="Specific Package SID (MAXIMUM_ALLOWED)" Token="Normal" Desired=0x02000000 Ret=1 Status=1 Granted=0x001F0089 Err=0
+[PROBE] Case=3 Desc="Specific Package SID (MAXIMUM_ALLOWED)" Token="AppContainer" Desired=0x02000000 Ret=1 Status=1 Granted=0x001F0089 Err=0
+================================================================================
+PROBE_COMPLETE

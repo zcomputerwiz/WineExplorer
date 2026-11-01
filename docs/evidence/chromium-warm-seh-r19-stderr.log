@@ -1,0 +1,83 @@
+247.136:0028:002c:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.157:0028:002c:err:wineboot:process_run_key Error running cmd L"C:\\windows\\system32\\winemenubuilder.exe -a -r" (126).
+247.161:0038:003c:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.205:0044:0048:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.217:0044:0054:err:ntoskrnl:ZwLoadDriver failed to create driver L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\MountMgr": c0000142
+247.223:0068:006c:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.237:007c:0080:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.267:0094:0098:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.309:00b0:00b4:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.410:0020:0024:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.440:0020:0024:warn:seh:OutputDebugStringW L"RecursiveDirectoryCreate( Z:\\home\\debian\\wex-g4\\chromium-warm-seh-r19-20261101 directory exists )\n"
+247.440:0020:0024:warn:seh:dispatch_exception L"RecursiveDirectoryCreate( Z:\\home\\debian\\wex-g4\\chromium-warm-seh-r19-20261101 directory exists )\n"
+247.440:0020:0024:trace:seh:dispatch_exception code=4001000a (DBG_PRINTEXCEPTION_WIDE_C) flags=0 addr=00006FFFFF39FA8E
+247.440:0020:0024:trace:seh:dispatch_exception  info[0]=0000000000000063
+247.440:0020:0024:trace:seh:dispatch_exception  info[1]=00006FFFFCB8AC60
+247.440:0020:0024:trace:seh:dispatch_exception  info[2]=0000000000000063
+247.440:0020:0024:trace:seh:dispatch_exception  info[3]=000000000084CF10
+247.440:0020:0024:trace:seh:dispatch_exception rip=00006fffff39fa8e rsp=000000000081f230 rbp=aaaaaaaaaaaaaaaa eflags=00000206
+247.440:0020:0024:trace:seh:dispatch_exception rax=0000000000000063 rbx=00006ffffcb8ac60 rcx=000000000081f280 rdx=00006fffff3ada90
+247.440:0020:0024:trace:seh:dispatch_exception rsi=000000010002a000 rdi=000000000084cf10  r8=000000000000000a  r9=00006ffffcb8ac60
+247.440:0020:0024:trace:seh:dispatch_exception r10=0000000000930222 r11=0000000000000062 r12=000000000081f6a0 r13=00004d9800064240
+247.440:0020:0024:trace:seh:dispatch_exception r14=00004d9800040460 r15=000000000081f960 mxcsr=00001fa0 cs=0033 ss=002b
+247.440:0020:0024:trace:seh:call_seh_handlers calling TEB handler 00006FFFFF3D7400 (rec=000000000081F280 frame=000000000081F320 context=000000000081ED50 dispatch=000000000081E620) sp=81f470
+247.440:0020:0024:trace:seh:RtlUnwindEx code=4001000a flags=2 end_frame=000000000081F320 target_ip=00006FFFFF36F67A
+247.440:0020:0024:trace:seh:RtlUnwindEx  info[0]=0000000000000063
+247.440:0020:0024:trace:seh:RtlUnwindEx  info[1]=00006ffffcb8ac60
+247.440:0020:0024:trace:seh:RtlUnwindEx  info[2]=0000000000000063
+247.440:0020:0024:trace:seh:RtlUnwindEx  info[3]=000000000084cf10
+247.440:0020:0024:trace:seh:RtlUnwindEx rip=00006fffffbfa875 rsp=000000000081d910 rbp=000000000081dfe0 eflags=00000202
+247.440:0020:0024:trace:seh:RtlUnwindEx rax=000000010002a000 rbx=000000000081f280 rcx=000000000081dfe0 rdx=00006fffff36f67a
+247.440:0020:0024:trace:seh:RtlUnwindEx rsi=000000000081dfe0 rdi=000000000081f320  r8=000000000081f280  r9=00006fffff3e9b60
+247.440:0020:0024:trace:seh:RtlUnwindEx r10=0000000000000000 r11=0000000000000202 r12=000000000081da80 r13=000000010002a000
+247.440:0020:0024:trace:seh:RtlUnwindEx r14=000000000081f320 r15=000000000081f320 mxcsr=00001fa0 cs=0033 ss=002b
+247.440:0020:0024:trace:seh:RtlRestoreContext returning to 00006FFFFF36F67A stack 000000000081F230
+247.440:0020:0024:warn:seh:OutputDebugStringA "RecursiveDirectoryCreate( Z:\\home\\debian\\wex-g4\\chromium-warm-seh-r19-20261101 directory exists )\n"
+247.440:0020:0024:warn:seh:dispatch_exception "RecursiveDirectoryCreate( Z:\\home\\debian\\wex-g4\\chromium-warm-seh-r19-20261101 directory exists )\n"
+247.440:0020:0024:trace:seh:dispatch_exception code=40010006 (DBG_PRINTEXCEPTION_C) flags=0 addr=00006FFFFF39F8A4
+247.440:0020:0024:trace:seh:dispatch_exception  info[0]=0000000000000063
+247.440:0020:0024:trace:seh:dispatch_exception  info[1]=000000000084CF10
+247.440:0020:0024:trace:seh:dispatch_exception rip=00006fffff39f8a4 rsp=000000000081eff0 rbp=aaaaaaaaaaaaaaaa eflags=00000206
+247.440:0020:0024:trace:seh:dispatch_exception rax=0000000000000063 rbx=000000010002a000 rcx=000000000081f030 rdx=000000000081f0d0
+247.440:0020:0024:trace:seh:dispatch_exception rsi=000000000084cf10 rdi=00006ffffcb8ac60  r8=0000000000000000  r9=0000000000000000
+247.440:0020:0024:trace:seh:dispatch_exception r10=0000000000000000 r11=0000000000000202 r12=000000000081f6a0 r13=00004d9800064240
+247.440:0020:0024:trace:seh:dispatch_exception r14=00004d9800040460 r15=000000000081f960 mxcsr=00001fa0 cs=0033 ss=002b
+247.440:0020:0024:trace:seh:call_seh_handlers calling TEB handler 00006FFFFF3D7400 (rec=000000000081F030 frame=000000000081F0D0 context=000000000081EB10 dispatch=000000000081E3E0) sp=81f230
+247.440:0020:0024:trace:seh:RtlUnwindEx code=40010006 flags=2 end_frame=000000000081F0D0 target_ip=00006FFFFF36F67A
+247.440:0020:0024:trace:seh:RtlUnwindEx  info[0]=0000000000000063
+247.440:0020:0024:trace:seh:RtlUnwindEx  info[1]=000000000084cf10
+247.440:0020:0024:trace:seh:RtlUnwindEx rip=00006fffffbfa875 rsp=000000000081d6d0 rbp=000000000081dda0 eflags=00000202
+247.440:0020:0024:trace:seh:RtlUnwindEx rax=000000010002a000 rbx=000000000081f030 rcx=000000000081dda0 rdx=00006fffff36f67a
+247.440:0020:0024:trace:seh:RtlUnwindEx rsi=000000000081dda0 rdi=000000000081f0d0  r8=000000000081f030  r9=00006fffff3e9b60
+247.440:0020:0024:trace:seh:RtlUnwindEx r10=0000000000000000 r11=0000000000000202 r12=000000000081d840 r13=000000010002a000
+247.440:0020:0024:trace:seh:RtlUnwindEx r14=000000000081f0d0 r15=000000000081f0d0 mxcsr=00001fa0 cs=0033 ss=002b
+247.440:0020:0024:trace:seh:RtlRestoreContext returning to 00006FFFFF36F67A stack 000000000081EFF0
+247.440:0020:0024:trace:seh:RtlCaptureStackBackTrace (0, 250, 00001A18000F0008, 0000000000000000)
+247.447:00f8:00fc:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.462:00f8:00fc:trace:seh:RtlCaptureStackBackTrace (0, 250, 00006EC000138008, 0000000000000000)
+247.476:0108:010c:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.478:0110:0114:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.508:0108:010c:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+247.512:0020:0024:fixme:seh:WerRegisterRuntimeExceptionModule (L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome_wer.dll", 00006FFFFCB7BA60) stub
+247.686:0020:0024:trace:seh:signal (22, 00006FFFF027C170)
+247.695:0108:010c:trace:seh:dispatch_exception code=6ba (RPC_S_SERVER_UNAVAILABLE) flags=0 addr=00006FFFFF3ADADE
+247.695:0108:010c:trace:seh:dispatch_exception rip=00006fffff3adade rsp=000000000021d670 rbp=0000000000000000 eflags=00000202
+247.695:0108:010c:trace:seh:dispatch_exception rax=00006fffff3ada90 rbx=000000000021e520 rcx=000000000021d690 rdx=0000000000000000
+247.695:0108:010c:trace:seh:dispatch_exception rsi=0000000000000064 rdi=0000000000adaf30  r8=0000000000000000  r9=0000000000000000
+247.695:0108:010c:trace:seh:dispatch_exception r10=0000000000adb070 r11=0000000000000019 r12=000000000021d828 r13=0000000000000005
+247.695:0108:010c:trace:seh:dispatch_exception r14=0000000000000000 r15=000000000021d830 mxcsr=00001f80 cs=0033 ss=002b
+247.695:0108:010c:trace:seh:call_seh_handlers calling TEB handler 00006FFFFE6F7F50 (rec=000000000021D690 frame=000000000021D8B0 context=000000000021D190 dispatch=000000000021CA60) sp=21e230
+247.695:0108:010c:trace:seh:call_seh_handlers TEB handler at 00006FFFFE6F7F50 returned 1
+247.695:0108:010c:trace:seh:call_seh_handlers calling TEB handler 00006FFFFDE46C50 (rec=000000000021D690 frame=000000000021EDA0 context=000000000021D190 dispatch=000000000021CA60) sp=21eef0
+247.695:0108:010c:trace:seh:RtlUnwindEx code=6ba flags=2 end_frame=000000000021EDA0 target_ip=00006FFFFDE34E1A
+247.695:0108:010c:trace:seh:RtlUnwindEx rip=00006fffffbfa875 rsp=000000000021bd50 rbp=000000000021c420 eflags=00000206
+247.695:0108:010c:trace:seh:RtlUnwindEx rax=000000010002a000 rbx=000000000021d690 rcx=000000000021c420 rdx=00006ffffde34e1a
+247.695:0108:010c:trace:seh:RtlUnwindEx rsi=000000000021c420 rdi=000000000021eda0  r8=000000000021d690  r9=00006ffffde57010
+247.695:0108:010c:trace:seh:RtlUnwindEx r10=0000000000000000 r11=0000000000000246 r12=000000000021bec0 r13=000000010002a000
+247.695:0108:010c:trace:seh:RtlUnwindEx r14=000000000021eda0 r15=000000000021d8b0 mxcsr=00001f80 cs=0033 ss=002b
+247.695:0108:010c:trace:seh:RtlUnwindEx calling TEB handler 00006FFFFE6F7F50 (rec=000000000021D690, frame=000000000021D8B0 context=000000000021C420, dispatch=000000000021BDD0)
+247.695:0108:010c:trace:seh:RtlUnwindEx handler at 00006FFFFE6F7F50 returned 1
+247.695:0108:010c:trace:seh:RtlRestoreContext returning to 00006FFFFDE34E1A stack 000000000021ED50
+247.702:0158:015c:trace:seh:libc_addr_cb found signal trampoline in /lib/x86_64-linux-gnu/libc.so.6
+247.721:0110:0118:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)
+247.725:00f8:0104:err:waylanddrv:wayland_process_init Wayland compositor doesn't support xdg_toplevel_icon_manager_v1 (window icons will not be supported)

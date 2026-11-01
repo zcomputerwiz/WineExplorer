@@ -1,0 +1,44 @@
+Sat Oct 31 21:14:38 UTC 2026
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        79G   73G  2.5G  97% /
+tmpfs           3.9G     0  3.9G   0% /tmp
+=== SESSION ===
+DISPLAY= XDG_RUNTIME_DIR=/run/user/1000
+=== BUILD ROOT ===
+total 12
+drwxrwxr-x 3 debian debian 4096 Oct 31 00:57 .
+drwxrwxr-x 3 debian debian 4096 Oct 31 00:57 ..
+drwxrwxr-x 9 debian debian 4096 Oct 31 00:57 wow64
+=== WOW64 ROOT ===
+total 52
+drwxrwxr-x   9 debian debian  4096 Oct 31 00:57 .
+drwxrwxr-x   3 debian debian  4096 Oct 31 00:57 ..
+drwxrwxr-x 739 debian debian 20480 Oct 31 00:57 dlls
+drwxrwxr-x   2 debian debian  4096 Oct 31 00:57 fonts
+drwxrwxr-x   2 debian debian  4096 Oct 31 00:57 loader
+drwxrwxr-x   2 debian debian  4096 Oct 31 00:57 nls
+drwxrwxr-x 118 debian debian  4096 Oct 31 00:57 programs
+drwxrwxr-x   2 debian debian  4096 Oct 31 00:57 server
+drwxrwxr-x   3 debian debian  4096 Oct 31 00:57 tools
+lrwxrwxrwx   1 debian debian    15 Oct 30 23:31 wine -> tools/wine/wine
+=== WINE/SERVER ELF ===
+lrwxrwxrwx 1 debian debian 15 Oct 30 23:31 /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/wine -> tools/wine/wine
+/home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/wine: symbolic link to tools/wine/wine
+efcbf311405e00009c6e1cd0e3b7a760b6eadb603f778da50af307379acd49f6  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/wine
+-rwxrwxr-x 1 debian debian 24424 Oct 30 01:29 /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/loader/wine
+/home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/loader/wine: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=67f47c4440da99f83de7cec33d4057e7b32b2195, for GNU/Linux 3.2.0, with debug_info, not stripped
+405410f5d5c427464dca80a24e081d2e9fb84d839b6cd531faf376203551e2d1  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/loader/wine
+-rwxrwxr-x 1 debian debian 5324424 Oct 30 03:03 /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/server/wineserver
+/home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/server/wineserver: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=f76bac5d38f4653d1398b22fda62c709fcd8b600, for GNU/Linux 3.2.0, with debug_info, not stripped
+0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/server/wineserver
+=== RUNTIME MODULES ===
+8f8199672d279cb5cb3e2b42de405ac9aaee4c90e48a009e07b30650e87fb9fa  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/dlls/kernel32/i386-windows/kernel32.dll
+e59602f049727416baec3cabe6589ebf9b354f82dcf07ecc702169e6447c14de  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/dlls/kernel32/x86_64-windows/kernel32.dll
+76f77868262be1f5c5b7aba9c33a84332bb50c0b66cfaaf1aec5ec8865d4e956  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/dlls/ntdll/i386-windows/ntdll.dll
+b8dcbeb273ea00a435553cb5c3faf384981305043345a0119685feed3ff45e21  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/dlls/ntdll/x86_64-windows/ntdll.dll
+639af4cd083163f54840666bd17361f0969d7bd9371c5ccf80a4d451adc9f8c0  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/dlls/ntdll/ntdll.so
+f9e69a3a453536a134952223b437875dca435b284dd0c17deb00a6533845b9e9  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/programs/winemenubuilder/x86_64-windows/winemenubuilder.exe
+141e42ed19e9ba6ebb67e8d915e3ca5da4cd341574f8ddec715ffa1f91b88cbb  /home/debian/wex-g4/wine-verify-r6-20261030/build/wow64/programs/wineboot/x86_64-windows/wineboot.exe
+=== ACTIVE GUEST PROCESSES ===
+=== PROGRAM VERSION ===
+wine-11.20

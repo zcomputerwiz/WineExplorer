@@ -1,0 +1,111 @@
+shlexec.c:2803: major=6 minor=0 build=2900 platform=2
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params232S", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p2 p3 p4 ") expected ' p2 p3 "p2" "p2 p3 p4 "', got ' p2 p3 "p4" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params232S", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params=""p two" p3 p4  ") expected ' p two p3 "p two" ""p two" p3 p4  "', got ' "p two" "p3" "p4  "'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p=2 p-3 p4	p4p4
+p4") expected ' "p=2" "p-3" "p4	p4p4
+p4" "" ""', got ' "p=2" "p-3" "p4" "p4" "p4"'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="one"quote "p four" one"quote p7") expected ' "one" "quote" "p four" "one" "quote" "p7" "" ""', got ' "one"quote" ""p" "four"" "one"quote" "p7" "" "" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="two""quotes "p three" two""quotes p5") expected ' "two"quotes" "p three" "two"quotes" "p5" "" "" "" ""', got ' "two""quotes" ""p" "three"" "two""quotes" "p5" "" "" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="three"""quotes "p four" three"""quotes p6") expected ' "three"" "quotes" "p four" "three"" "quotes" "p6" "" ""', got ' "three"""quotes" ""p" "four"" "three"""quotes" "p6" "" "" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="four""""quotes "p three" four""""quotes p5") expected ' "four""quotes" "p three" "four""quotes" "p5" "" "" "" ""', got ' "four""""quotes" ""p" "three"" "four""""quotes" "p5" "" "" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params=""p two"p3 "p four"p5 p6") expected ' "p two" "p3" "p four" "p5" "p6"', got ' ""p" "two"p3" ""p" "four"p5" "p6"'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params=""one q"uote "p four" "one q"uote p7") expected ' "one q" "uote" "p four" "one q" "uote" "p7" "" ""', got ' ""one" "q"uote" ""p" "four"" ""one" "q"uote" "p7" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params=""two "" quotes" "p three" "two "" quotes" p5") expected ' "two " quotes" "p three" "two " quotes" "p5" "" "" "" ""', got ' ""two" """" "quotes"" ""p" "three"" ""two" """" "quotes""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params=""three q"""uotes "p four" "three q"""uotes p7") expected ' "three q"" "uotes" "p four" "three q"" "uotes" "p7" "" ""', got ' ""three" "q"""uotes" ""p" "four"" ""three" "q"""uotes" "p7" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params=""four """" quotes" "p three" "four """" quotes" p5") expected ' "four "" quotes" "p three" "four "" quotes" "p5" "" "" "" ""', got ' ""four" """""" "quotes"" ""p" "three"" ""four" """""" "quotes""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="""twoquotes "p four" ""twoquotes p7") expected ' "" "twoquotes" "p four" "" "twoquotes" "p7" "" ""', got ' """twoquotes" ""p" "four"" """twoquotes" "p7" "" "" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params=""""three quotes" "p three" """three quotes" p5") expected ' ""three quotes" "p three" ""three quotes" "p5" "" "" "" ""', got ' """"three" "quotes"" ""p" "three"" """"three" "quotes"" "p5" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456789", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="""""fourquotes "p four" """"fourquotes p7") expected ' """ "fourquotes" "p four" """ "fourquotes" "p7" "" ""', got ' """""fourquotes" ""p" "four"" """""fourquotes" "p7" "" "" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p2 "p3" "p4 is lost") expected ' "p2" "p3" "" "" ""', got ' "p2" ""p3"" ""p4" "is" "lost"'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params23456", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="\"p\three "pfour\" pfive") expected ' "\" "p\three" "pfour\" "pfive" ""', got ' "\"p\three" ""pfour\"" "pfive" "" ""'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params2345Etc", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p2  p3 "p4"  p5 p6 ") expected ' ~2="p2  p3 "p4"  p5 p6 " ~3="  p3 "p4"  p5 p6 " ~4=" "p4"  p5 p6 " ~5=  p5 p6 ', got ' ~2="~2" ~3="~3" ~4="~4" ~5=~5'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params9Etc", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p2 p3 p4 p5 p6 p7 p8   ") expected ' ~9="   "', got ' ~9="9"'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params9Etc", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p2 p3 p4 p5 p6 p7   ") expected ' ~9=""', got ' ~9="9"'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="Params9Etc", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p2 p3 p4 p5 p6 p7 p8 p9 p10 p11 and beyond!") expected ' ~9=" p9 p10 p11 and beyond!"', got ' ~9="9"'
+shlexec.c:1627: Test marked todo: ShellExecuteEx(mask="0x8240", verb="ParamsBad", file="C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec", params="p2 p3 p4 p5") expected ' "% - %~ %~0 %~1 %~a %~* a b c TMPDIR"', got ' "% - ~ ~0 ~1 ~a ~* a b c TMPDIR'
+shlexec.c:1143: Test marked todo: ShellExecute(file="""C:\users\root\AppData\Local\Temp\wtShlexecDir\simple.shlexec""") failed: rc=2
+shlexec.c:1153: Test marked todo: ShellExecute(file="%TMPDIR%\simple.shlexec") returned 33
+shlexec.c:1157: Test marked todo: ShellExecute(file=""%TMPDIR%\simple.shlexec"") returned 33
+shlexec.c:1786: Test marked todo: ShellExecute(file=""C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha"") failed: rc=31 err=2
+shlexec.c:1788: Test marked todo: ShellExecute(file=""C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha"") argvA3 expected 'averb', but key not found or empty
+shlexec.c:1790: Test marked todo: ShellExecute(file=""C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha"") argvA4 expected 'C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha', but key not found or empty
+shlexec.c:1905: Test marked todo: ShellExecute(file="%urlprefix%C|/users/root/AppData/Local/Temp/wtShlexecDir/test file.shlexec") failed: bad rc=31
+01ec:err:exec:shellex_load_object_and_run failed to get data object
+01ec:err:exec:shellex_load_object_and_run failed to get data object
+shlexec.c:1945: Test marked todo: ShellExecute(file="fakeproto://foo/bar") returned 33
+shlexec.c:1957: Test marked todo: ShellExecute(file="shlpaverb://foo/bar") failed: rc=31
+01ec:err:exec:shellex_load_object_and_run failed to get data object
+01ec:err:exec:shellex_load_object_and_run failed to get data object
+shlexec.c:2011: Test marked todo: ShellExecute(file="%urlprefix%foo") returned 33
+shlexec.c:2147: Test marked todo: FindExecutable(C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.shlexec) failed: rc=33
+shlexec.c:2147: Test marked todo: FindExecutable(C:\users\root\AppData\Local\Temp\wtShlexecDir\test file.sha) failed: rc=31
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00004000
+shlexec.c:2303: Test failed: ShellExecuteEx(mask="0x808441", file="Z:\mnt\d\DeepThought\Builds\wine-clean-master\build\dlls\shell32\tests\x86_64-windows\shell32_test.exe", params="shlexec "C:\users\root\AppData\Local\Temp\wtShlexecDir\wtShlexecFile" Exec", class=".exe") returned 0
+shlexec.c:2305: Test failed: ShellExecuteEx(mask="0x808441", file="Z:\mnt\d\DeepThought\Builds\wine-clean-master\build\dlls\shell32\tests\x86_64-windows\shell32_test.exe", params="shlexec "C:\users\root\AppData\Local\Temp\wtShlexecDir\wtShlexecFile" Exec", class=".exe") argvA3 expected 'Exec', but key not found or empty
+shlexec.c:2326: Test marked todo: ShellExecuteEx(mask="0x808441", file="Z:\mnt\d\DeepThought\Builds\wine-clean-master\build\dlls\shell32\tests\x86_64-windows\shell32_test.exe", params="shlexec "C:\users\root\AppData\Local\Temp\wtShlexecDir\wtShlexecFile" Exec", class="qqqq") returned 0
+shlexec.c:2344: Tests skipped: No admin privileges, skipping runas test.
+Usage: Z:\mnt\d\DeepThought\Builds\wine-clean-master\build\dlls\shell32\tests\x86_64-windows\shell32_test.exe test_name
+
+Valid test names:
+    appbar
+    assoc
+    autocomplete
+    brsfolder
+    ebrowser
+    generated
+    progman_dde
+    recyclebin
+    shelldispatch
+    shelllink
+    shellole
+    shellpath
+    shfldr_special
+    shlexec
+    shlfileop
+    shlfolder
+    shlview
+    string
+    systray
+shlexec.c:2371: Test marked todo: ShellExecuteEx(mask="0x8440", verb="notaverb", file="Z:\mnt\d\DeepThought\Builds\wine-clean-master\build\dlls\shell32\tests\x86_64-windows\shell32_test.exe") child returned 1
+shlexec.c:2371: Test marked todo: ShellExecuteEx(mask="0x8440", verb="notaverb", file="Z:\mnt\d\DeepThought\Builds\wine-clean-master\build\dlls\shell32\tests\x86_64-windows\shell32_test.exe") WaitForSingleObject returned 258
+shlexec.c:2373: Test marked todo: ShellExecuteEx(mask="0x8440", verb="notaverb", file="Z:\mnt\d\DeepThought\Builds\wine-clean-master\build\dlls\shell32\tests\x86_64-windows\shell32_test.exe") returned 33
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+01ec:fixme:exec:SHELL_execute flags ignored: 0x00000100
+07f0:fixme:exec:SHELL_execute flags ignored: 0x00000100
+07f4:fixme:exec:SHELL_execute flags ignored: 0x00000100
+07f8:fixme:exec:SHELL_execute flags ignored: 0x00000100
+07fc:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0800:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0804:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0808:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0808:err:exec:dde_connect Unable to find application path for command L"\"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\test2 file.exe\""
+080c:fixme:exec:SHELL_execute flags ignored: 0x00000100
+080c:err:exec:dde_connect Unable to find application path for command L"\"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\test2 file.exe\" param"
+0810:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0814:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0818:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0818:err:exec:dde_connect Unable to find application path for command L"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\notexist.exe"
+081c:fixme:exec:SHELL_execute flags ignored: 0x00000100
+081c:err:exec:dde_connect Unable to find application path for command L"C:\\users\\root\\AppData\\Local\\Temp\\wtShlexecDir\\notexist.exe param"
+0034:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0030:fixme:exec:SHELL_execute flags ignored: 0x00000100
+002c:fixme:exec:SHELL_execute flags ignored: 0x00000100
+002c:err:exec:dde_connect Unable to find application path for command L"xyzwxyzwxyz"
+0028:fixme:exec:SHELL_execute flags ignored: 0x00000100
+0028:err:exec:dde_connect Unable to find application path for command L"xyzwxyzwxyz param"
+shlexec.c:2997: Test marked todo: ShellExecuteEx(mask="0x808440", file="test2.exe", params="shlexec "C:\users\root\AppData\Local\Temp\wtShlexecDir\wtShlexecFile" Exec", dir="%TMPDIR%") returned 33
+01e8:shlexec: 1788 tests executed (39 marked as todo, 0 as flaky, 2 failures), 1 skipped.

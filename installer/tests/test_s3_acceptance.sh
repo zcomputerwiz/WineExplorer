@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 # Phase S3 Acceptance Test:
+# Phase A (ELEVATION_SYSTEM_ROLE_WORKORDER.md, decision S4): the machine root is root:wexsys and no desktop user
+# is in wexsys, so a desktop session cannot persist HKLM until the system-role wineserver is wired in (phases
+# C/D) and administrators install through the broker (step 4). The cases that need an administrator's own
+# session to write system.reg run when WEX_BROKER_AVAILABLE=1 and otherwise print WAITING; Case 1 and the root
+# part of Case 4 seed the machine root in a root-run step instead.
 # Case 1: Alice (administrator) installs program, registers COM class and Uninstall entry;
 #         Bob (limited user) sees both after logon and can run the program.
 # Case 2: Bob's HKLM writes succeed in memory during session, are gone after logoff,
@@ -15,8 +20,18 @@
 #         /home/alice/.wine, /home/carol/.wine, /home/bob/.wine.
 set -euo pipefail
 
+# The test programs the machine-root installs use; built here when missing (i686 and x86_64 MinGW)
+for arch in 32 64; do
+    [ -f "/usr/local/bin/check_s1_$arch.exe" ] && continue
+    cc=i686-w64-mingw32-gcc; [ "$arch" = 64 ] && cc=x86_64-w64-mingw32-gcc
+    "$cc" -O2 -o "/usr/local/bin/check_s1_$arch.exe" "$(dirname "${BASH_SOURCE[0]}")/test_s1.c" -lversion ||
+        { echo "cannot build /usr/local/bin/check_s1_$arch.exe from installer/tests/test_s1.c" >&2; exit 2; }
+done
+
 MACHINE_ROOT="/var/lib/wineexplorer/machine"
 SKEL_PFX="/etc/skel/.wine"
+SYS_GRP="${WEX_MACHINE_GROUP:-wexsys}"
+BROKER="${WEX_BROKER_AVAILABLE:-0}"   # 1 once administrator sessions can persist HKLM (phases C/D, step 4)
 
 echo "=== WineExplorer Phase S3 Acceptance Test ==="
 
@@ -49,8 +64,8 @@ verify_symlinks() {
     local sys_mode sys_grp
     sys_mode=$(stat -c "%a" "$MACHINE_ROOT/system.reg")
     sys_grp=$(stat -c "%G" "$MACHINE_ROOT/system.reg")
-    if [ "$sys_mode" != "664" ] || [ "$sys_grp" != "sudo" ]; then
-        echo "FAIL [$stage]: $MACHINE_ROOT/system.reg has mode $sys_mode group $sys_grp, expected 664 sudo"
+    if [ "$sys_mode" != "664" ] || [ "$sys_grp" != "$SYS_GRP" ]; then
+        echo "FAIL [$stage]: $MACHINE_ROOT/system.reg has mode $sys_mode group $sys_grp, expected 664 $SYS_GRP"
         exit 1
     fi
 
@@ -60,7 +75,7 @@ verify_symlinks() {
         echo "FAIL [$stage]: Found $tmp_count leftover reg*.tmp files in $MACHINE_ROOT!"
         exit 1
     fi
-    echo "PASS [$stage]: All symlinks intact, 0664 sudo permissions verified, 0 temp files."
+    echo "PASS [$stage]: All symlinks intact, 0664 $SYS_GRP permissions verified, 0 temp files."
 }
 
 # Helper: reset user prefixes from /etc/skel/.wine
@@ -70,7 +85,9 @@ reset_all_users() {
         rm -rf "/home/$u/.wine"
         cp -a "$SKEL_PFX" "/home/$u/.wine"
         mkdir -p "/home/$u/.wine/drive_c/users/$u"
-        sed -i -e "s/users\\\\wexsetup/users\\\\$u/g" "/home/$u/.wine/user.reg"
+        # The registry text has two backslashes between path parts, so sed needs four in the double-quoted script.
+        sed -i -e "s/\\\\\\\\users\\\\\\\\wexsetup\\\\\\\\/\\\\\\\\users\\\\\\\\$u\\\\\\\\/g" \
+               -e "s/\\\\\\\\users\\\\\\\\wexsetup\"/\\\\\\\\users\\\\\\\\$u\"/g" "/home/$u/.wine/user.reg"
         chown -R -h "$u:$u" "/home/$u/.wine"
     done
     verify_symlinks "initial reset"
@@ -87,6 +104,19 @@ id bob >/dev/null 2>&1 || useradd -m -s /bin/bash bob
 usermod -a -G sudo alice
 usermod -a -G sudo carol
 
+# Phase A: no desktop user is in the system group, and none can write system.reg directly.
+for u in alice carol bob; do
+    if id -nG "$u" | tr ' ' '\n' | grep -qx "$SYS_GRP"; then
+        echo "FAIL: $u is a member of $SYS_GRP; desktop users must not be!"
+        exit 1
+    fi
+    if su - "$u" -c "echo x >> \"$MACHINE_ROOT/system.reg\"" 2>/dev/null; then
+        echo "FAIL: $u appended to the machine system.reg directly!"
+        exit 1
+    fi
+done
+echo "PASS: alice, carol and bob are not in $SYS_GRP and cannot write the machine system.reg."
+
 reset_all_users
 
 # ==============================================================================
@@ -94,7 +124,22 @@ reset_all_users
 #         Uninstall entry; Bob (limited user) sees both after logon and runs app
 # ==============================================================================
 echo "=== Case 1: Alice registers COM class & Uninstall entry; Bob sees and runs app ==="
-su - alice -c '
+if [ "$BROKER" != 1 ]; then
+    # Changed for S4: the same install and registrations run as root on the machine root (stands for the
+    # installer step); Alice's own session writing HKLM waits for step 4.
+    install -d -m 2775 -o root -g "$SYS_GRP" "$MACHINE_ROOT/drive_c/Program Files/AliceApp"
+    install -m 775 -o root -g "$SYS_GRP" /usr/local/bin/check_s1_64.exe "$MACHINE_ROOT/drive_c/Program Files/AliceApp/app64.exe"
+    export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEPREFIX="$MACHINE_ROOT"
+    wine reg add "HKLM\\Software\\Classes\\CLSID\\{A11CE000-0000-0000-0000-000000000001}" /ve /d "Alice COM Server" /f
+    wine reg add "HKLM\\Software\\Classes\\CLSID\\{A11CE000-0000-0000-0000-000000000001}\\LocalServer32" /ve /d "C:\\Program Files\\AliceApp\\app64.exe" /f
+    wine reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\AliceApp" /v "DisplayName" /d "Alice Application 1.0" /f
+    wine reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\AliceApp" /v "UninstallString" /d "C:\\Program Files\\AliceApp\\app64.exe --uninstall" /f
+    wineserver -k || true
+    wineserver -w
+    unset WINEDLLOVERRIDES WINEPREFIX
+    echo "WAITING (step 4, broker): Alice's own session registering the COM class and Uninstall entry."
+fi
+[ "$BROKER" != 1 ] || su - alice -c '
     set -euo pipefail
     export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
     export WINEPREFIX="/home/alice/.wine"
@@ -249,6 +294,9 @@ verify_symlinks "Case 2"
 # ==============================================================================
 echo "=== Case 3: Concurrent admin sessions, merge-on-save, and tombstone deletion ==="
 
+if [ "$BROKER" != 1 ]; then
+echo "WAITING (step 4, broker): Case 3 needs two administrator sessions to persist HKLM (merge-on-save, tombstones)."
+else
 # Set up initial base key and subkey to be deleted
 su - alice -c '
     set -euo pipefail
@@ -356,6 +404,7 @@ su - bob -c '
     wineserver -w
 '
 
+fi
 verify_symlinks "Case 3"
 
 # ==============================================================================
@@ -363,6 +412,9 @@ verify_symlinks "Case 3"
 # ==============================================================================
 echo "=== Case 3b: Alice-Carol-Alice save sequence (mod_seq reset & tombstone freeing) ==="
 
+if [ "$BROKER" != 1 ]; then
+echo "WAITING (step 4, broker): Case 3b needs administrator sessions to persist HKLM (mod_seq reset, tombstone freeing)."
+else
 # Step 1: Alice sets up initial key DelKey and value X=1 in a long-running session
 su - alice -c '
     set -euo pipefail
@@ -476,6 +528,7 @@ if ! grep -q "CarolRecreated" "$MACHINE_ROOT/system.reg"; then
 fi
 echo "PASS [Case 3b]: Carol re-created DelKey survived Alice Save 2."
 
+fi
 verify_symlinks "Case 3b"
 
 # ==============================================================================
@@ -484,6 +537,7 @@ verify_symlinks "Case 3b"
 echo "=== Case 4: Machine upgrade while Alice is logged in ==="
 
 # Alice logs in and keeps session active
+if [ "$BROKER" = 1 ]; then
 su - alice -c '
     export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
     export WINEPREFIX="/home/alice/.wine"
@@ -493,6 +547,7 @@ ALICE_BG4=$!
 
 sleep 3
 echo "Alice session active (BG=$ALICE_BG4)."
+fi
 
 # Root performs machine upgrade: updates machine root and adds machine upgrade key
 echo "Root performing machine update..."
@@ -510,6 +565,7 @@ if ! grep -q "MachineUpgrade" "$MACHINE_ROOT/system.reg"; then
 fi
 echo "Machine upgrade keys written to disk by root."
 
+if [ "$BROKER" = 1 ]; then
 # Alice in her still-running session writes a post-upgrade key
 echo "Alice writing post-upgrade key in her active session..."
 su - alice -c '
@@ -524,6 +580,7 @@ echo "Alice logging off and saving..."
 kill -9 $ALICE_BG4 || true
 su - alice -c 'wineserver -k || true; wineserver -w'
 wait $ALICE_BG4 2>/dev/null || true
+fi
 
 # Verify disk contents
 echo "Verifying upgrade keys and Alice keys survived:"
@@ -533,11 +590,14 @@ if ! grep -q "MachineUpgrade" "$MACHINE_ROOT/system.reg" || ! grep -q '"Version"
 fi
 echo "PASS [Case 4]: Machine upgrade keys survived Alice logoff."
 
-if ! grep -q "AlicePostUpgrade" "$MACHINE_ROOT/system.reg"; then
+if [ "$BROKER" != 1 ]; then
+    echo "WAITING (step 4, broker): Case 4 Alice's post-upgrade key (AlicePostUpgrade) saved on logoff."
+elif ! grep -q "AlicePostUpgrade" "$MACHINE_ROOT/system.reg"; then
     echo "FAIL [Case 4]: AlicePostUpgrade was not saved!"
     exit 1
+else
+    echo "PASS [Case 4]: AlicePostUpgrade was saved."
 fi
-echo "PASS [Case 4]: AlicePostUpgrade was saved."
 
 # Query both in a fresh session as Bob
 su - bob -c '
@@ -545,9 +605,17 @@ su - bob -c '
     export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
     export WINEPREFIX="/home/bob/.wine"
     wine reg query "HKLM\\Software\\MachineUpgrade" /v "Version"
-    wine reg query "HKLM\\Software\\AlicePostUpgrade" /v "Installed"
     wineserver -w
 '
+if [ "$BROKER" = 1 ]; then
+    su - bob -c '
+        set -euo pipefail
+        export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
+        export WINEPREFIX="/home/bob/.wine"
+        wine reg query "HKLM\\Software\\AlicePostUpgrade" /v "Installed"
+        wineserver -w
+    '
+fi
 
 verify_symlinks "Case 4"
 

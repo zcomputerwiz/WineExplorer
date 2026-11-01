@@ -206,6 +206,9 @@ cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
 cp "$ROOT_DIR/scripts/setup-machine-root.sh" "$STAGE_SESSION/usr/local/bin/wex-setup-machine.sh"
 cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex-migrate-prefix.sh"
+# The setup script installs this setgid launcher (wex-sysrun, on by default); build it here, next to the script.
+cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+    -o "$STAGE_SESSION/usr/local/bin/wex-sysrun.bin" "$ROOT_DIR/tools/wex-sysrun/wex-sysrun.c"
 chmod 755 "$STAGE_SESSION/usr/local/bin/"*
 
 # Desktop session definition

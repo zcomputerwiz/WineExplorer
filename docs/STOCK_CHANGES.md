@@ -1,5 +1,481 @@
 # Changes to stock Wine / third-party code
 
+## G4 unbound composition frame retention (2026-10-21)
+
+Wine `4315be8`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c` and
+`include/wine/wined3d.h`: capture-only internal Present retains a composition
+producer frame submitted before DComp target binding, without drawing it.
+Normal command-stream ordering/latency/rotation and retained ownership remain;
+later Commit cannot accidentally substitute an unpresented backbuffer. GL/Vulkan
+only, same bounded formats/sizes. All29 correctness groups both PEs/backends,
+G0-G3, pacing and two real frozen Electron lifecycle runs per backend pass.
+Actual settled frames inspected; early resize transients remain negative and
+no installed-shell/native-acceleration or G4 merge-ready claim is made. See
+CHROMIUM_GRAPHICS_G4_FROZEN_RESIZE_FIXED_20261021.md. Compositor unchanged.
+
+## G4 native empty parent clip (2026-10-21)
+
+Compositor `94faa651`, `src/protocols/wex-window.c`: explicitly disable a render
+subtree when its intersection with the parent is empty; wlroots interprets an
+empty clip as no clipping. Re-enable on nonempty intersection. Independent
+outside-child and parent-shrink leaks reproduced before repair;24 exact native
+pixel/geometry/lifetime controls pass after it. WoW64 own/foreign pixels and
+real Electron GL/Vulkan live125%→150% lifecycle pass scoped controls. Wine571e907
+unchanged. See CHROMIUM_GRAPHICS_G4_NATIVE_GEOMETRY_20261021.md for remaining
+installed-theme/native-accelerated/frame-timing gates; no master merge.
+
+## G4 native Chromium cross-process rendering (2026-10-21)
+
+Wine `571e907`, `dlls/winewayland.drv/{wayland.c,wayland_surface.c,wayland_wex.c,
+waylanddrv.h,wex-window-v1.xml}` and `dlls/wined3d/swapchain.c`: private v11
+cross-connection rendering role for a producer child beneath a foreign UI root,
+published parent identity/logical scale, cached attachment geometry and narrow
+opaque-cover background-capture elision. Partial/translucent backgrounds are
+not substituted. Matching compositor `1b9df94e` on its dedicated
+`codex/g4-native-render-bridge` branch adds clipped input-passive render roles
+and parent/producer revocation. Source is original, no proprietary payloads.
+Both PEs/GL/Vulkan exact own/foreign full-target pixels;16 native lifecycle
+controls,28 regression groups both backends/both PEs, G0–G3, pacing and real
+Electron/WebView2 controls pass scoped checks. Fractional scale, attachment-role
+migration, native accelerated/installed-shell and transient resize-border
+checks remain; generic foreign GDI/partial underlay remain unsupported.
+Evidence: CHROMIUM_GRAPHICS_G4_NATIVE_BRIDGE_20261021.md. No master merge.
+
+## G4 X11 startup caption clipping (2026-10-21)
+
+Wine `54bc44a`, `dlls/winex11.drv/window.c`: apply legacy window-region origin
+adjustment only without client-side graphics. Surface shapes are already in
+drawable coordinates; shifting them again clipped real Chromium startup frames.
+Both PEs pass default/open Luna and explicit unmanaged Classic caption checks;
+all28 correctness groups pass GL/lavapipe. Evidence and remaining desktop gates:
+CHROMIUM_GRAPHICS_G4_CAPTION_FIXED_20261021.md.
+
+## G4 R2 event and WoW64 Vulkan allocation ownership (2026-10-21)
+
+Wine `2c1e3ef`, `dlls/d3d11/{device.c,d3d11_private.h}`: pending fence waiters
+retain event objects through duplicated handles, close them on all notification/
+teardown/rollback paths, and use distinct CS command identity for cancellation.
+Native Windows x64/x86 comparison reproduces the lost-event bug in old Wine.
+Wine `1dcd479`, `dlls/win32u/vulkan.c`: retain/release Wine-synthesized low-address
+host imports on normal/failure paths, without freeing caller-owned host pointers.
+Repairs an observed64MiB/device WoW64 Vulkan leak and full-suite address-space
+exhaustion. Evidence, limits and open gates: CHROMIUM_GRAPHICS_G4_R2_LIFETIME_20261021.md.
+
+## G4 inherited border modes and coverage (2026-10-21)
+
+Wine `61929ac`, `dlls/{dcomp/device.c,dxgi/swapchain.c,wined3d/swapchain.c}` and
+`include/wine/{dcomp_layer.h,wined3d.h}`: validate/retain/inherit border mode,
+transactional publication, independent soft-edge reference coverage with hard
+default and preserved bitmap interpolation. Scoped evidence and limitations:
+CHROMIUM_GRAPHICS_G4_BORDER_VERIFIED_20261021.md. Not exact native-AA certification.
+
+## G4 dirty-flush repaint notifications (scoped verification completed)
+
+Wine `bc7011f`, dlls/win32u/dce.c, dlls/dxgi/{factory.c,swapchain.c,
+dxgi_private.h}, include/wine/dcomp_underlay.h: experimental asynchronous
+backing-flush notification and retained redraw, with guarded notification-window
+lookup/Release and bounded message coalescing. No production timer/poller.
+Historical repeated-paint/GetMessage failures are preserved in the resume note;
+the timeout was a zero HWND timer-ID/success-value mismatch in the probe. An
+explicit identifier and separate watchdog repair the test without changing Wine
+or relaxing assertions. All 22 groups now pass both PEs/GL/lavapipe, including
+pending-state preservation, real WM_PAINT/observed obscure-expose, idle unchanged
+path counters and queued teardown. G0-G3, pacing and real consumer controls pass
+scoped checks. No merge: full R1-R4 remain incomplete. Current identities and next
+steps: CHROMIUM_GRAPHICS_G4_REPAINT_VERIFIED_20261020.md.
+
+## G4 ordinary GDI underlay retention (2026-10-20, second continuation)
+
+Wine `48000ca`, `dlls/{dcomp/device.c,dxgi/swapchain.c,wined3d/swapchain.c,
+wined3d/wined3d_private.h,win32u/dce.c,win32u/window.c,winex11.drv/bitblt.c}` and
+private `include/wine/dcomp_underlay.h`: retain the ordinary HWND GDI background
+below composition content. Cache a reference-counted DIB with prepared/active
+target surfaces, sample the separate GDI backing (never the previous screen
+output), and restore it when the last visual detaches without consuming an
+already prepared scene or rotating an unpublished producer buffer. Explicitly
+deliver that restoration to the application HWND, not the hidden producer.
+
+X11's direct-drawing optimization formerly discarded the GDI backing when a GL
+client drawable existed, causing resize feedback. A private HWND-lifetime policy
+keeps its normal backing alive and win32u keeps GDI DCs on it; live registrations
+remain separately owned/released per top/bottom target layer. Duplicate live
+layers return WINDOW_ALREADY_COMPOSED; foreign-process HWNDs are denied. These
+properties are coordination, not a security mechanism. No polling is added.
+
+Cost: cached target DIB plus ordinary HWND backing, capture/copy and underlay
+upload where needed. A fully covering eligible opaque GL leaf skips the underlay
+work; the four old producer counters do not count GDI traffic. Not zero-copy or
+a power/performance result. All 21 groups pass both PEs on software GL/lavapipe;
+G0-G3, pacing, real WebGL1/2, Electron lifecycle and inspected frozen front-window
+controls pass scoped checks. Automatic expose, general DirectX/layered/child
+ordering, soft AA, R2/R3 and actual Classic/Luna/Wayland/physical hardware remain
+open. See CHROMIUM_GRAPHICS_G4_BACKGROUND_20261020.md for negative controls and
+failed intermediate approaches; no master merge approval.
+
+## G4 unrestricted dirty-list assembly (2026-10-20, resumed)
+
+Wine `273cacd`, `dlls/dxgi/swapchain.c`: supersedes the initial 64-rectangle
+complement-slicing implementation below. Assemble pending history in order:
+copy the coherent previous frame, apply clipped scroll, overlay every dirty
+rectangle from the producer, then copy the completed image to the producer's
+presentation buffer. Dirty writes therefore win without interval sorting,
+quadratic complement fragmentation, fixed arrays or an arbitrary count cap.
+All metadata is validated before enqueueing blits. No caller pointer survives
+the call. Full Presents still require only the history snapshot copy.
+
+Partial-frame cost is two full-frame GPU copies plus the scroll and dirty
+regions; two history allocations remain. This is not zero-copy or a measured
+performance win. The real 65-rectangle negative control fails on both PEs
+before this change; all 19 required correctness groups then pass on software
+GL/lavapipe for both PEs. Real WebView2 WebGL1/2 pixels and Electron input/window
+lifecycle remain passing. Baseline startup flakiness and inherited upstream
+failures remain recorded in the continuation report; no merge approval.
+
+## G4 transactional bitmap interpolation (2026-10-20, resumed)
+
+`dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c`,
+`include/wine/{dcomp_layer.h,wined3d.h,winedxgi.idl}`: validate NEAREST/LINEAR/
+INHERIT, retain pending/active interpolation and resolve inheritance at Commit.
+Keep the documented root default nearest-neighbor. Reference composition now
+supports texel-center bilinear interpolation with clamped taps and premultiplied
+channels; integer-aligned unit-scale opaque GL scenes retain their existing
+GPU route because both filters sample identical texel centers there. Scaling,
+fractional transforms and alpha still use the labeled CPU reference fallback.
+
+The private scene layout changes, so its builtin binding IID is now
+`bc193c8b-df4f-4c75-8a59-0ab8ffccdc0b`; matched builtin DLLs required. No DXVK
+interop, linear-light blending, soft-border antialiasing or acceleration claim.
+Both PEs fail the new exact quarter-texel pixel test before the fix; afterward
+all 18 correctness groups pass on software GL/lavapipe, including inheritance,
+override/reset, pending edits, retained property-only Commit, both-axis sampling,
+edge clamping and premultiplied alpha. Real Electron lifecycle remains passing.
+
+## G4 coherent Present1 damage preservation (2026-10-20, resumed)
+
+`dlls/dxgi/{swapchain.c,dxgi_private.h}`: retain two private GPU history
+textures for single-sampled sequential / flip-sequential D3D11 swapchains.
+Reconstruct pixels outside the caller's dirty rectangles from the last
+successfully presented coherent frame, then apply scroll from that immutable
+history, excluding dirty pixels. Record full Presents too. Serialize Present
+and ResizeBuffers per swapchain; successful resize invalidates history and
+final release frees it before the owning device/swapchain. Invalid metadata,
+TEST, minimized/unbound presentation and failed Presents do not advance history.
+Scroll is flip-sequential only, destination-bounded, clipped using 64-bit math.
+
+This uses existing ordered GPU blits, not CPU image readback or a new per-frame
+completion wait. Cost is two additional full-size GPU images and a snapshot
+copy per eligible Present, plus reconstruction blits on partial updates; it is
+not a zero-copy or power/performance claim. More than 64 dirty rectangles is
+explicitly E_NOTIMPL, not silently ignored. Unsupported multisampled / discard
+dirty presentation is rejected. D3D12/native DXVK are not changed.
+
+The original two-architecture negative control presents BLUE, RED, then only a
+GREEN dirty patch: pixels outside it incorrectly return to BLUE. The repair
+preserves RED and survives retained visual movement, subsequent damage,
+overlapping dirty rectangles, scroll overlap/priority, invalid metadata, TEST
+and extreme offsets. Real WebView2 and Electron front-window controls no longer
+show the observed stale trails/background patches. These are isolated Xvfb
+software-driver controls, not full G4 or shell/theme acceptance.
+
+## G4 available multisample render targets (2026-10-20, resumed)
+
+`dlls/d3d11/device.c`: report MULTISAMPLE_RENDERTARGET when a renderable format
+has an actually supported sample count, independently of the previous combined
+4x-and-8x resolve/load check. Keep exact per-count quality queries unchanged and
+do not expand resolve/load flags just because a render target exists. Add a
+TRACE of returned format flags for reproducible capability diagnosis.
+
+The owned Mesa software drivers support 4x RGBA/BGRA but not 2x/8x. Previously
+the bit was absent; ANGLE's checked multisample table became empty and Skia
+rejected ordinary framebuffer formats. Both architectures' negative controls
+fail before the fix; all 16 custom groups pass afterward on GL and lavapipe,
+including real 4x RTV clear/resolve/staging pixels and unsupported-count checks.
+The unchanged WebView2 host now progresses without its prior GPU/Skia fatal
+errors, and an opt-in WebGL1/2 diagnostic reads correct red default/FBO pixels.
+Actual front-window output still shows moving-content trails; no G4 acceptance,
+performance, physical GPU or feature-level-conformance claim is made.
+
+## G4 honest newer video-interface exposure (2026-10-20)
+
+`dlls/d3d11/device.c`: do not advertise ID3D11VideoDevice1 while the matching
+VideoContext1 is absent and VideoDevice1-only entry points are unimplemented.
+The base ID3D11VideoDevice remains available. This repairs a real Chromium
+startup invariant, not video decoding/HDR support. A before/after regression
+fails on both architectures before the change and passes afterward; all 15
+custom correctness groups pass on both software GL/Vulkan architectures.
+The default WebView2 run gets past its initial video-interface CHECK and
+reaches a different Skia backend-format fatal error. G4 is still incomplete;
+no consumer acceptance or security/sandbox enforcement is inferred.
+
+## G4 opaque retained OpenGL delivery (2026-10-20)
+
+`dlls/wined3d/{swapchain.c,wined3d_private.h,wined3d.spec}`,
+`include/wine/wined3d.h`, `dlls/dxgi/swapchain.c`: retain the last presented
+opaque BGRA/RGBA image in an independently owned GPU texture. Ordinary frames
+copy in the ordered command stream; only allocation/resize drains it. Eligible
+non-layered HWND scenes (unit opacity, no clips, integer translation, unit scale)
+blit retained producers back-to-front into the real window drawable. Capability
+gates require an FBO-attachable source and glBlitFramebuffer. No Vulkan dependency
+or new per-frame CPU readback/completion loop is introduced for this route.
+
+Other scenes still use the explicit CPU reference renderer. Entering that path
+lazily reads the last PRESENTED GPU snapshot, never an unpresented producer
+buffer; returning from a newly presented CPU frame preserves it until the next
+GPU capture. A private diagnostic GetPrivateData GUID exposes capture/readback/
+composition counts, not public frame/scanout statistics. Both architectures pass
+14 correctness groups on llvmpipe GL and lavapipe fallback, G0-G3 regressions and
+five pacing controls. This is not zero-copy, accelerated cross-process sharing,
+physical GPU proof, full alpha/clip GPU rendering or browser certification.
+
+## G4 multi-target preparation and safe reparenting (2026-10-20)
+
+`dlls/dcomp/device.c`: prepare independent target snapshots before changing any
+active visual; deduplicate producers within a target and reject unsupported
+cross-target producer routing, duplicate-HWND targets and repeated rooted visual
+identity before publication. Scenes may use distinct D3D devices, but a single
+scene still cannot mix devices. Bounds remain 128 visuals / 32 content entries
+and at most 32 rooted targets per device. Old active nodes are retained while
+ALL old child edges are removed, then the new graph is built. This prevents a
+reparented child's new sibling links from corrupting its old parent's traversal.
+Eleven groups PASS for both software-GL architectures: multi-target pending vs
+active pixels, second-target allocation failure rollback, unsupported routing
+failure isolation, target detach, reparented pixels and final COM edge release.
+This does not claim simultaneous physical scanout or recovery from a backend/
+window/device failure during final publication.
+
+## G4 device lifetime and pending-state synchronization (2026-10-20)
+
+`dlls/dcomp/device.c`: visuals, targets, clips and effect groups retain their
+creating device. Target/visual teardown and pending setters share the device's
+recursive critical section with Commit; live clip/opacity setters use that same
+lock. Cross-device clips/effects reject before changing pending state. NULL
+transform-object assignment now resets an earlier matrix; non-NULL unsupported
+transform objects/parents no longer return a successful no-op. Nine regression
+groups pass on both software-GL PE architectures, including concurrent setters,
+Commit and Present, followed by releasing the caller's device before children.
+This bounded stress test is not exhaustive fault-injection/lifetime proof.
+
+## G4 hierarchical reference composition (2026-10-20)
+
+`dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c`,
+and `include/wine/{dcomp_layer.h,wined3d.h,winedxgi.idl}` now retain contentless
+visuals as bounded preorder scene nodes (128 visuals, still 32 content entries).
+Each node carries its own transformed clip and opacity mode. The CPU reference
+renderer isolates LAYER subtrees per pixel and propagates MULTIPLY opacity,
+instead of flattening both into leaf opacity. Ancestor clips mask descendants
+in the ancestor's coordinates. Scene intervals are validated before publication;
+the builtin private binding IID is versioned for the changed scene layout.
+New rectangle clips start unbounded, as required by the public API contract.
+
+Both architectures pass eight target-pixel/observer groups on software OpenGL,
+including rotated nested clips, all four independent rounded corners, live
+clip/effect mutation at Commit, and LAYER-versus-MULTIPLY overlap colors.
+This extends the earlier reference slice; it does not establish efficient GPU
+delivery, arbitrary HWND background preservation, multi-target routing, real
+consumers, hardware or desktop/theme acceptance. G4 remains in progress.
+
+## G4 R1 retained-reference repair (2026-10-20)
+
+`dlls/dcomp/device.c`, `dlls/dxgi/{factory.c,swapchain.c,dxgi_private.h}`,
+`dlls/wined3d/{swapchain.c,wined3d_private.h,wined3d.spec}`, and
+`include/wine/{dcomp_layer.h,wined3d.h,winedxgi.idl}`: preserve Gemini's unfinished
+retained renderer, then repair frame ownership and real delivery. Each producer
+retains a reference-counted copy of its last PRESENTED frame, not another
+producer's mutable rotating back buffer or an unowned swapchain pointer. Scene
+preparation allocates before active-state application; shared content is bound
+once. Commit repaints retained frames without consuming a producer back buffer.
+Target release revokes bindings; resize reallocates bounded reference surfaces.
+
+Composition preserves BGRA/RGBA and premultiplied-versus-ignored alpha metadata.
+CPU reference blending feeds Wine's real GL back drawable or Vulkan presentation
+image; scratch textures never impersonate a window drawable. Vulkan recreates a
+resized target before blitting instead of scaling into its stale extent. Leaf
+fractional/rounded masks and bounded affine transforms are retained at Commit.
+Preflight rejects ancestor clips, isolated non-unity LAYER groups, cross-device
+scenes and multiple rooted targets rather than accepting incorrect rendering.
+The extended private COM binding has a new IID; matched builtin DLLs are required.
+
+This is CPU readback/reference composition, NOT zero-copy/GPU composition,
+arbitrary application-background transparency, full R1/G4 acceptance, native DXVK
+interop or Chromium certification. Nearest/binary sampling and remaining gates
+are documented in CHROMIUM_GRAPHICS_G4_R1_REPAIR_REVIEW.md. Classic/Open Luna and
+real X11/Wayland/hardware regressions are not inferred from unchanged theme code.
+
+## G4 independent correctness boundary (2026-10-19)
+
+Wine f3ecadd3 on codex/g4-correctness repairs shared fence notifications in
+d3d11/device.c and d3d11_private.h; direct builtin composition binding in
+wine/winedxgi.idl, dxgi/{swapchain.c,factory.c,dxgi_private.h} and dcomp/device.c;
+and composition-only opaque drawable clears in wined3d/swapchain.c and
+wine/wined3d.h. Unsupported properties/multiple content leaves reject honestly.
+This is not a complete retained compositor, browser, hardware or desktop pass.
+See CHROMIUM_GRAPHICS_G4_REPAIR_REVIEW.md and the G4 completion work order.
+
+## G3 independent correctness repair (2026-10-18)
+
+On `codex/g3-correctness`, D3D11 CopyResource checks resource dimensions before
+the inherited shared-Texture2D hook; ordinary buffer/1D/3D copies retain the
+normal WineD3D path.
+DXGI initialization likewise queries only the matching resource type while its
+outer D3D object is under construction, avoiding NULL-inner forwarding crashes.
+Fence Wait/Signal use a new ordered WineD3D CS packet, with an event-based CS
+wait and backend completion before publishing a signal.
+OpenGL finishes all device contexts; Vulkan submits and waits its graphics
+queue; no-3D has no GPU work. Public/private fence refs retain queued objects
+without destroying the device on its own CS thread. This conservative barrier
+is not a zero-copy or performance claim. No-CS-thread mode returns E_NOTIMPL
+rather than pretending to implement nonblocking queued waits. See
+`CHROMIUM_GRAPHICS_G3_REPAIR_REVIEW.md` for verification and remaining gates.
+
+## G4 DirectComposition, Retained Visual Tree, and Pacing (2026-10-18)
+
+On `gemini/chromium-graphics-g4`:
+- `dlls/dcomp/device.c`: Implemented retained visual tree operations (`AddVisual`, `RemoveVisual`, `RemoveAllVisuals`, reparenting with cycle rejection and pre-detach reference visual validation), visual properties (`SetOffsetX`, `SetOffsetY`, `SetTransform` with affine 2D scale/translation, `SetClip`, `SetContent`, `SetEffect`, `SetOpacityMode`), `IDCompositionEffectGroup` (`SetOpacity`), and `IDCompositionRectangleClip` (radii and bounds). Evaluates clip and effect objects dynamically on `Commit()`, unbinds detached visuals from their target HWNDs, and utilizes cross-thread safe parameter posting (`WINE_DCOMP_SET_TARGET_PARAMS_OWNED`).
+- `include/wine/dcomp_layer.h` & `dlls/dxgi/factory.c`: Defined explicit `WM_WINE_DCOMP_SET_TARGET` modes (`LEGACY`, `PARAMS`, `PARAMS_OWNED`). `dcomp_layer_compute_placement` proportionally calculates source and destination rectangles for clipped composition visuals, preventing squashing while tracking `fully_clipped`. Frees thread-posted parameter blocks safely.
+- `dlls/dxgi/swapchain.c` & `dlls/dxgi/dxgi_private.h`: Synchronized composition placement parameters (`target_hwnd`, `dst_rect`, `src_rect`, `fully_clipped`) under `wined3d_mutex` and passed to `wined3d_swapchain_present`. Removed artificial backbuffer index rotation so `IDXGISwapChain3::GetCurrentBackBufferIndex()` consistently returns 0 matching the actual presented buffer in WineD3D flip model. Mapped `WINED3DERR_INVALIDCALL` to `DXGI_ERROR_INVALID_CALL` in `SetMaximumFrameLatency` and `GetMaximumFrameLatency`. Implemented window occlusion detection checking `swapchain->target_hwnd` for minimized state (`IsIconic`), returning `DXGI_STATUS_OCCLUDED` for proper application frame pacing. Added `IDXGISwapChain3::ResizeBuffers1` forwarding.
+- Verified on Debian WoW64 under isolated Xvfb + llvmpipe: 11/11 G3 entry gate tests PASS, 6/6 G4A composition probe tests PASS, 5/5 G4B presentation and pacing tests PASS on both `x86_64` and `i686`. See `docs/CHROMIUM_GRAPHICS_G4_ACCEPTANCE.md`.
+
+## Independent token-security correctness repair (2026-10-18)
+
+`codex/token-security-correctness` retains deny-only groups in the deny-ACE
+matching path even when ENABLED is clear, while excluding them from allow ACEs.
+Shell elevation preserves helper cancellation versus actual startup/unsupported/
+timeout errors and never returns a target handle on helper rejection. Duplicate
+fork `programs/consent` sources were removed (recoverable in Git); the owned
+`src/programs/consent` module is the single assembly source. It has no shipping
+fixture/direct-password-helper bypass and fails unsupported credential requests
+closed. This is functional repair, not complete host authorization/containment.
+See TOKEN_SECURITY_REPAIR_REVIEW.md and the checkpoint-B work order.
+
+## Checkpoint B: elevation helper audit and token restriction (2026-10-22, corrected)
+
+- `server/token.c`:
+  - Added an explicit `is_restricted` flag in `struct token`.
+  - Replaced the synthetic Null SID (`S-1-0-0`) inserted for a disjoint restriction with an empty restricting
+    set that stays restricted, so every access check is denied.
+  - `filter_token` fails with `STATUS_NO_MEMORY` when allocating a restricting SID fails, without publishing
+    a partial token.
+- `dlls/shell32/shlexec.c`:
+  - Three-state helper status: unset (key or value absent, or an empty string), configured, invalid (wrong
+    type, odd or oversized data, whitespace, control characters, read error). Invalid fails closed with the
+    exact error and no process handle.
+  - With the helper unset, `ERROR_ELEVATION_REQUIRED` from `CreateProcess` returns `ERROR_BAD_FORMAT` as before.
+- `dlls/kernelbase/process.c`: `is_elevation_required` reads the helper first. Unset returns before the
+  manifest is parsed; anything else falls through to the manifest check.
+- `dlls/ntdll/loader.c`: `is_elevation_helper_unset` replaces the boolean check; only an unset helper lets the
+  loader elevate silently.
+- `programs/conhost/window.c`: `update_window` skips the maximum window size computation when the console
+  font cell size is zero (no usable console font), which raised an unhandled division by zero.
+- `programs/explorer/systray.c`: no change. The checkpoint B edits were reverted.
+- `dlls/advapi32/tests/security.c`: `test_restricted_sid_intersection` expects 0 restricting SIDs for a
+  disjoint intersection.
+
+
+## Elevation boundary, plan steps 2 and 3 (2026-10-22)
+
+Everything below applies only while `HKLM\Software\Wine\Elevation\Helper` (64-bit view) is configured, using
+the same unset rule as the ntdll loader. With the helper unset nothing changes. Native values come from
+`TOKEN_SECURITY_REFERENCES.md`.
+
+- `server/registry.c`: `elevation_helper_unset()` reads the helper from the in-memory registry;
+  `object_is_registry_key()`.
+- `server/security.h`: `elevation_enforced()` and the declarations below.
+- `server/token.c`:
+  - tokens carry a `lineage_id` shared by a token and its duplicates and filtered copies;
+  - `token_check_assign_primary()`: a non-primary token below `SecurityImpersonation` is refused
+    (`STATUS_BAD_IMPERSONATION_LEVEL`); a token outside the caller's lineage needs an enabled
+    `SeAssignPrimaryTokenPrivilege` or `SeTcbPrivilege` (`STATUS_PRIVILEGE_NOT_HELD`), re-implementing ReactOS's
+    child/sibling rule;
+  - `token_duplicate` will not raise an identification-level token to a primary token;
+  - `check_object_access` fails every open made while impersonating an identification-level token
+    (`STATUS_BAD_IMPERSONATION_LEVEL`, a registry key `STATUS_ACCESS_DENIED`).
+- `server/process.c`: `new_process` and `set_process_info(SET_PROCESS_INFO_TOKEN)` call
+  `token_check_assign_primary()`; `grant_process_admin_token` needs an enabled `SeTcbPrivilege`.
+- `dlls/advapi32/security.c`: `CreateProcessWithTokenW` needs `SeImpersonatePrivilege`
+  (`ERROR_PRIVILEGE_NOT_HELD`).
+- `dlls/shell32/shlexec.c`, `dlls/kernelbase/process.c`, `dlls/ntdll/loader.c`: read the helper from the 64-bit
+  registry view, as the server does. 32-bit processes previously read `Wow6432Node`.
+- `dlls/advapi32/tests/security.c`, `dlls/shell32/tests/shlexec.c`: conformance tests for the above, and the
+  approved-helper cases now expect `ERROR_BAD_IMPERSONATION_LEVEL` until the elevation broker exists.
+
+## Elevation boundary, plan step 2b: the limited token (2026-10-22)
+
+Wine commits `4fced06b`, `839c0f31`, `4fa6f4ac` (hashes of the working branch; the pushed ones differ).
+
+- `server/token.c`, `server/security.h`: the `LUA_TOKEN` and `DISABLE_MAX_PRIVILEGE` bodies of
+  `DECL_HANDLER(filter_token)` moved into `token_apply_filter()`; `filter_token` behaves as before.
+  `token_make_filtered()` applies the filtering to the root token. No behaviour change on its own.
+- `server/process.c`: while a helper is configured, the root token (the one every process inherits) goes through
+  `token_make_filtered()`: Administrators deny-only, `SeChangeNotifyPrivilege` only, Medium integrity, elevation
+  Limited. Helper unset: unchanged. The registry is loaded in `init_registry()` before the first client can
+  connect, so the setting is known when the first process is created.
+- `server/token.c` (`token_make_filtered`): the filtered root token keeps the native filtered-admin privilege set that
+  Wine defines (D1): `SeChangeNotifyPrivilege` enabled, `SeShutdownPrivilege` and `SeUndockPrivilege` disabled.
+  `filter_token` with `DISABLE_MAX_PRIVILEGE` still keeps only `SeChangeNotifyPrivilege`, as on Windows.
+- `server/token.c` (`create_linked_token`): the linked (full) token is the same token, but its handle is now granted
+  with the access the caller's integrity level allows (`check_object_access` with `MAXIMUM_ALLOWED`) instead of an
+  unconditional `TOKEN_ALL_ACCESS`. A Medium caller otherwise cannot get a handle to a High-labelled token (error 5).
+  For a High caller the granted mask is the same as before.
+- `server/registry.c` (`key_get_sd`): the default key descriptor now has two variants. Keys under `\Registry\User`
+  grant the user, SYSTEM and Administrators full control; other keys grant Users read on the key itself, SYSTEM and
+  Administrators full control, and keep the old inherit-only Users ACE last (`advapi32` test `test_GetNamedSecurityInfoA`
+  inspects the last Users ACE). Unconditional. **Note:** `check_object_access` treats a key with no explicit
+  descriptor as unprotected, and `key_get_sd` is only used when a descriptor is queried, so this change alters
+  what `GetSecurityInfo` returns, not what a limited process may do. See the step 2b work order, "Results".
+
+## Elevation boundary: registry and service manager access checks (2026-10-22)
+
+Applies only while `HKLM\Software\Wine\Elevation\Helper` is configured (`elevation_enforced()`), except where
+marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`. Wine commits (working branch
+`ccr-work`): `91b53ca8`, `c28aafba`, `437525d3`, `2487739e`, `9bb835d1`, `a252e52b`, `d668329f`.
+
+- `dlls/win32u/sysparams.c` (`reg_empty_key`): stops at the first failed delete instead of enumerating index 0
+  forever. **Unconditional**, upstreamable.
+- `server/token.c` (`check_object_access`): a registry key without an explicit descriptor is checked against its
+  default one (`key_get_sd`) instead of being granted.
+- `server/registry.c`:
+  - `create_key` checks `KEY_CREATE_SUB_KEY` on the parent before it creates a new key (a lookup of the parent
+    first, so a denied create leaves no key behind). The handle of a new key is still granted without a check;
+    opening an existing key already checked the requested access.
+  - **Deviation, accepted by the user (work order item 2):** the keys of the display device cache default to
+    Users full control (`display_cache_paths`, `key_in_display_cache`): `Enum\DISPLAY`, `Enum\PCI`, the display
+    and monitor `Control\Class` GUID keys, `Control\Video`, `Control\DeviceClasses`, `Hardware Profiles\Current`,
+    `HARDWARE\DEVICEMAP`, `Software\Microsoft\DirectX`, with their subkeys. win32u's `prepare_devices` rewrites
+    them in every GUI process, where Windows has SYSTEM components do it. A new key above one of them (for example
+    `HARDWARE\DEVICEMAP`) may be created too. Effect: a limited process can change the cached display configuration.
+  - **Deviation, accepted by the user, temporary:** `Control\ServiceCurrent` (the control pipe number services.exe
+    writes for each service process it starts) and `Control\ComputerName\ActiveComputerName` (written by
+    `wineboot --init`) are in the same table. Both writers run on the limited token until they get the system
+    role; that step removes the two entries (`shortcut:` comment in `server/registry.c`).
+- `server/named_pipe.c`: the client end of a named pipe records the token of the thread that opened it, and
+  `FSCTL_PIPE_IMPERSONATE` impersonates a copy of that token (stock Wine impersonates the caller itself, with a
+  FIXME). Needed so a service can check the access its client really has.
+- `programs/services/rpc.c`: `OpenSCManager`, `OpenService` and `CreateService` check the requested access against
+  the documented default descriptors of the service control manager and of a service, with the RPC client's token
+  (`check_client_access`). The checks are skipped while no helper is configured.
+  The default service descriptor gives LocalSystem Wine's `SERVICE_SET_STATUS` (0x8000) too: plugplay in
+  `winedevice.exe` (SYSTEM) opens the driver service of `ZwLoadDriver` (for example `winehid`) with it, and no process
+  record of `services.exe` names that process for a driver, so the own-process rule did not apply and the load failed.
+- `server/named_pipe.c`, `server/token.c` (`token_impersonation_level`): the level a pipe server gets is capped like
+  Windows' SeTokenCanImpersonate. Without `SeImpersonatePrivilege` in the server's process token it is
+  identification, unless the client has the server's user, is not more trusted (integrity) and is not elevated
+  while the server is not. The client's requested SQOS level is not sent to the server (`shortcut:` comment), so
+  the cap is the client token's own level. `open_token` with `OPEN_TOKEN_AS_SELF` checks access against the
+  process token, so an identification-level caller can still read its client's identity.
+- `programs/services/rpc.c`, `dlls/rpcrt4/rpc_transport.c`, `dlls/sechost/service.c`: `OpenService` also grants
+  the process the SCM started for a service the rights it uses to report status
+  (`SERVICE_SET_STATUS`, query, `READ_CONTROL`), found by comparing `I_RpcBindingInqLocalClientPID` with the
+  recorded process id. rpcrt4 implements that call for `ncacn_np` (stock has it for `ncalrpc` only). sechost opens
+  the second handle of its own service with `SERVICE_QUERY_STATUS|SERVICE_QUERY_CONFIG` instead of
+  `GENERIC_READ|GENERIC_WRITE`. `RpcSs` is openable for start and status by anyone, because Wine starts it on demand
+  (`shortcut:` comment).
+- Callers that asked for `KEY_ALL_ACCESS` on `HKLM` only to read: `dlls/ntdll/version.c` (Windows version values,
+  `KEY_READ`), `dlls/kernelbase/locale.c` (NLS and time zone keys, `KEY_READ`). Upstreamable.
+- `dlls/shell32/shellpath.c` (`_SHOpenProfilesKey`): when the create with `KEY_ALL_ACCESS` is denied, opens
+  `ProfileList` for `KEY_READ`, so shell folders resolve for a limited token.
+- `programs/explorer/desktop.c`: the display driver key is created with `MAXIMUM_ALLOWED`; creating a missing
+  parent chain opens the existing parents with the requested access, which `KEY_SET_VALUE` is not on `System`.
+
 Anything under `wine/` that is not new project code, and what we changed. Keep this list short: every entry makes
 rebasing on upstream Wine harder. Refactor baseline = the real `wine-11.19` tag
 (`455e3509b98a6919fd4ad1def4803e08c41c03b2`); see `REFACTOR_MAP.md` for the audit.
@@ -245,6 +721,261 @@ is in refactor/P4.md; P5 assessment keeps unsupported extension replacements
 as X commits. The separately pushed P6 candidate passes full build/runtime
 smoke without changing the production pin (REBASE.md).
 
+## Elevation boundary: administrator identity (C1, 2026-10-22)
+
+Decision S3 of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Applies only while `HKLM\Software\Wine\Elevation\Helper` is
+configured (`elevation_enforced()`); with the helper unset nothing changes. Wine commit (working branch
+`ccr-work`): `f180417289b`.
+
+- `server/registry.c` (`user_is_administrator`, `admin_group_name`): the server's user is an administrator when the
+  group database says so (`getpwuid(getuid())`, `getgrouplist`) for the group `sudo`, or the group named by
+  `admin_group=` in `/etc/wineexplorer/sysrun.conf`. That file is read only if it is a regular, root-owned file that
+  is not group- or other-writable (checked on the open descriptor, `O_NOFOLLOW`); otherwise `sudo`. The environment
+  is never consulted: the user controls it and could name a group they are in. Cached for the server's lifetime, so a
+  membership change applies at the next logon.
+- `server/process.c` (`create_process`), `server/token.c` (`token_make_standard`): the first token of a session
+  made while enforced is filtered as before; for a user outside the group it also loses the Administrators group
+  and becomes `TokenElevationTypeDefault` (Medium integrity and the filtered privileges are the filtered token's).
+  `standard_user_session` is then set for the server's life.
+- `server/token.c` (`create_linked_token`): fails with `STATUS_NO_SUCH_LOGON_SESSION` once `standard_user_session`
+  is set (provisional: the native error of `GetTokenInformation(TokenLinkedToken)` on a token without a split is not
+  documented; Microsoft only says `TokenElevationTypeDefault` means no linked token).
+- `server/process.c` (`grant_process_admin_token`): `STATUS_ACCESS_DENIED` once `standard_user_session` is set.
+- The `wex-sysrun` launcher (`tools/wex-sysrun`) ignores the `admin_group` key instead of refusing the file.
+- Not done here: the local Administrators group view of netapi32 (`NetLocalGroupGetMembers`, a stub that reports the
+  current user), see the work order's "Results, C1".
+
+## Elevation boundary: system role server and launcher wiring (C2, 2026-10-22)
+
+Constraints a to d and f of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Active only when the root-owned, not
+group/other-writable `/etc/wineexplorer/sysrun.conf` (regular file, checked on the open descriptor, `O_NOFOLLOW`)
+names the machine root, and, for the server, only in a process that the setgid launcher started (real gid differs
+from the saved gid, effective gid equals the saved gid, and the saved gid is the configured group). Otherwise nothing
+changes. The launcher is installed by default (since 2026-10-23; `WEX_SYSRUN_ENABLE=0` opts out). Wine commits (branch `ccr-work`): `0e98e935c36`,
+`71fe07ea021`.
+
+- `server/sysrun.c`, `server/sysrun.h` (new), `server/Makefile.in`, `server/main.c` (`sysrun_init`): the server drops
+  its effective gid to the real one at once and keeps the system group as saved gid, and sets the process
+  non-dumpable (`PR_SET_DUMPABLE 0`) after every `setegid`, so that `fs.suid_dumpable` cannot make it dumpable.
+  `sysrun_raise` and `sysrun_drop` raise and drop the effective group.
+- `server/process.c`, `server/process.h` (`create_process`): `SO_PEERCRED` of the connection (pid, uid, gid) is
+  recorded per process when the system role is active. The `unix_pid` the client sends is not used for this.
+- `server/fd.c`: every open, create, mkdir, rename, link and unlink that the server does for a client goes through
+  `sysrun_open`, `sysrun_mkdir`, `sysrun_rename`, `sysrun_link` and `sysrun_unlink`, which raise the effective group
+  only when the requesting client has the system group (its connection credentials: uid equal to the server's and
+  gid equal to the system group). The unlink or rmdir of delete-on-close and disposition runs raised only for a file
+  that such a client opened (`closed_fd::sysrun`, inherited by `dup_fd_object`). Everything else, including `ftruncate`
+  and `fchmod` on an already opened descriptor, runs with the user's group.
+- `server/registry.c`: the machine hives (`system.reg`, `userdef.reg`) come from the fixed machine root of the
+  configuration, not from the prefix: `O_NOFOLLOW` on the open, `fstat` must show a regular file of root and the
+  system group that others cannot write, else the server refuses to start. They are saved with the raised group
+  (`faccessat(AT_EACCESS)` only there) into the existing file, in place (`save_hive_in_place`; a new file would belong
+  to the user's uid); a symlink at the hive is never followed on save; a missing file is not created.
+  The group is raised for the save only if elevation was enforced by the machine hive loaded at start
+  (`machine_hive_saved`, not the live helper value, which a user could set in memory); otherwise the hive keeps the
+  stock rule (saved only if the real user can write it), so with the launcher but no helper nothing persists.
+- `dlls/ntdll/unix/virtual.c` (`kernel_writewatch_init`): a failed open of `/proc/self/pagemap` with `EACCES` or
+  `EPERM` in a non-dumpable process (`PR_GET_DUMPABLE` is 0: the system group of the launcher) logs at WARN, not ERR;
+  the fallback is unchanged. `/proc/self/*` of a non-dumpable process belongs to root.
+- `server/registry.c` (`key_in_user_tree`): while elevation is enforced and the system role is active, only the
+  subtree of the token user's own SID and its `_Classes` count as the user's tree. `HKU\S-1-5-18`, `-19`, `-20` are
+  created at start and, like `.DEFAULT`, get the machine default descriptor.
+- `dlls/ntdll/unix/sysrun.c` (new), `dlls/ntdll/Makefile.in`, `unix_private.h`: reads the configuration, spawns the
+  launcher, and checks a server for a client whose own effective gid is the system group
+  (`sysrun_client_is_system`, `sysrun_server_ok`). Such a client refuses a server whose saved gid (from
+  `/proc/<pid>/status`) is not the system group, whose ids are not the user's, or whose connection uid differs.
+  The image path (`/proc/<pid>/exe`) cannot be compared: it is not readable for the non-dumpable server.
+- `dlls/ntdll/unix/server.c` (`server_connect`): the check above; `dlls/ntdll/unix/loader.c` (`start_server`): with the
+  configuration and the launcher the server starts through `wex-sysrun wineserver`; if the launcher refuses (exit
+  77) a warning is printed and the stock start follows.
+- `dlls/ntdll/unix/env.c` (`run_wineboot`): with the launcher a `wex-sysrun wineboot-init` runs first (machine root
+  prefix, system group, connected to the user's server by the launcher), then the normal wineboot still does the
+  user's part; a refusal prints a warning and only the normal one runs. A client with the system group does not start
+  wineboot itself. `programs/wineboot/wineboot.c` (`start_services_process`): does not start `services.exe` again when
+  the `SVCCTL_STARTED_EVENT` is already signaled.
+
+## Elevation boundary: the system role, SYSTEM and service tokens (C3, 2026-10-22)
+
+Phases C and D and constraint g of `ELEVATION_SYSTEM_ROLE_WORKORDER.md`. Everything below is active only while the
+system role is active (the server was started by the setgid launcher, `sysrun_active`) **and** elevation is enforced
+(`HKLM\Software\Wine\Elevation\Helper` set); otherwise stock behavior. Exception: `programs/services` also checks
+whether its own token is SYSTEM, which only the system role gives it.
+Wine commits (branch `ccr-work`): `edf575a2260`, `9ab7dee645e`, `bd22d5ee0d9`.
+
+- `server/token.c`, `server/security.h` (`token_create_service`, `token_service_account`): primary tokens of
+  LocalSystem (S-1-5-18: groups Everyone, Users, SERVICE, CONSOLE LOGON S-1-2-1, Authenticated Users, This
+  Organization S-1-5-15, LOCAL S-1-2-0, Administrators (enabled, owner and primary group, not mandatory)),
+  LocalService (S-1-5-19) and NetworkService (S-1-5-20: the same without Administrators; the account owns what it
+  creates), System integrity (S-1-16-16384), `TokenElevationTypeDefault`, no
+  linked token. Default DACL: SYSTEM and Administrators for LocalSystem, SYSTEM and the account for the others. The
+  privilege and group lists are the native ones measured in docs/ELEVATION_LOCAL_VALIDATION_WORKORDER.md; SeImpersonate
+  stays enabled on the service accounts (documented default) and CONSOLE LOGON is provisional (possible task
+  artifact); per-task SIDs and the unknown S-1-5-32-* SIDs are not copied (docs/TOKEN_SECURITY_REFERENCES.md).
+- `include/winternl.h`, `dlls/advapi32/security.c`, `server/token.c`: privileges 31 to 36 are known (names and LUIDs
+  of SeIncreaseWorkingSet 33, SeTimeZone 34, SeCreateSymbolicLink 35, SeDelegateSessionUserImpersonate 36;
+  `SE_MAX_WELL_KNOWN_PRIVILEGE` is 36; 31 and 32 have no name), so LookupPrivilegeNameW and LookupPrivilegeValueW
+  resolve them. `token_make_filtered` adds SeIncreaseWorkingSet and SeTimeZone (disabled), as the native filtered
+  token has. `LookupPrivilegeNameW` fails with ERROR_NO_SUCH_PRIVILEGE for the unnamed LUIDs 31 and 32 instead of
+  dereferencing a NULL name. `token_create_admin` is unchanged.
+- `server/token.c` (`token_duplicate`): a token whose owner is its user keeps that owner in a copy.
+- `server/protocol.def`, `server/token.c` (`create_service_token`), `include/winternl.h`,
+  `dlls/ntdll/unix/process.c` (`ProcessWineCreateServiceToken` = 1003, input account number 0 to 2, output the
+  token handle): creates such a primary token. Refused with `STATUS_PRIVILEGE_NOT_HELD` without an enabled
+  SeTcbPrivilege, with `STATUS_ACCESS_DENIED` for a caller that is not the SYSTEM process of the system role (Wine's
+  administrator token holds SeTcbPrivilege too), `STATUS_NOT_SUPPORTED` without the system role.
+- `server/token.c` (`create_token`): while elevation is enforced, `NtCreateToken` needs an enabled
+  SeCreateTokenPrivilege, which no Wine token has (native: the same privilege, held only by the LSA). Without this
+  check a limited process could make an administrator token, impersonate it, and pass every access check.
+- `server/sysrun.c`, `server/process.c`, `server/process.h`, `server/thread.c`, `server/mapping.c`
+  (`sysrun_process_created`, `sysrun_thread_created`, `sysrun_main_image`): a root process whose connection has the
+  system group is protected from the start (process and thread descriptor as below, so a limited
+  or standard token cannot open it with any dangerous right) and gets the SYSTEM token when its main image is verified: the
+  mapped file's device and inode (`fstat` of the server's descriptor) must equal `services.exe`, `wineboot.exe` or
+  `winedevice.exe` of the machine root's `system32` (or `wineboot.exe` and `winedevice.exe` of `syswow64`). The NT
+  path is never used, it goes through the user's prefix links. Any other image: its raised file access ends at once and
+  the process is killed from the main loop (a timer, 10 ms later: killing it inside its own request crashed the server). A child gets its parent's token or the one it is given and a
+  descriptor from it when that token is SYSTEM, LocalService or NetworkService. The connection credentials of a
+  child are those of the process that made the socket pair, so the server clears `peer_gid` for a child with a
+  service-account token: it never gets the system group's file access.
+- `server/token.c` (`set_token_integrity_level`): while elevation is enforced, raising a token's integrity level
+  needs an enabled SeTcbPrivilege in the caller's process token (`STATUS_PRIVILEGE_NOT_HELD`), lowering does not (as
+  on Windows; measured natively, docs/TOKEN_SECURITY_REFERENCES.md).
+- `server/sysrun.c` (`protect_object`): the descriptor of a system role process or thread is SYSTEM (and the service
+  account) full control, Administrators query + read the descriptor, Users and Authenticated Users the limited query +
+  SYNCHRONIZE (thread: `THREAD_QUERY_LIMITED_INFORMATION`), as Windows does for service processes. Full access needs
+  an enabled SeDebugPrivilege.
+- `server/token.c` (`check_object_access`): an enabled SeDebugPrivilege opens any process or thread whatever its
+  descriptor says (Windows does the same), while the system role is active. A filtered or standard token has no
+  SeDebugPrivilege; an elevated administrator token has it disabled until the program enables it.
+- `server/sysrun.c` (`sysrun_check_process_access`), `server/hook.c` (`set_hook` with a thread or process),
+  `server/queue.c` (`attach_thread_input`), `server/console.c` (`AttachConsole`): the requests that name another
+  process or thread by id instead of by handle are checked against its descriptor.
+- `server/registry.c` (`boot_state_paths`): `Control\ServiceCurrent` and `Control\ComputerName\ActiveComputerName` are
+  Users-writable only while the system role is **not** active (no launcher: services.exe and `wineboot --init` run
+  limited); with it they are written as SYSTEM and the grant is gone.
+- `dlls/ntdll/unix/sysrun.c`, `process.c`, `loader.c`, `unix_private.h` (`sysrun_must_drop_group`,
+  `sysrun_prepare_child`, `sysrun_early_init`): a client with the system group that starts a process with a token
+  other than SYSTEM (or none) drops the group in the forked child (`setresgid(gid, gid, gid)`, the child cannot get
+  it back) before the loader is executed. The child marks itself not dumpable first thing (`WINESERVICENODUMP`), and
+  so do its children, so the user cannot ptrace it. Shortcut: a short window between the exec and the flag.
+- `programs/services/services.c` (`has_system_role`, `get_service_token`, `service_start_process`,
+  `process_create`): with the SYSTEM token services.exe starts every service with `CreateProcessAsUserW` and the token
+  its `ObjectName` names (empty or `LocalSystem`; `NT AUTHORITY\LocalService`; `NT AUTHORITY\NetworkService`).
+  Any other name fails with `ERROR_SERVICE_LOGON_FAILED` for now (a user account needs a logon). The control pipe of a
+  service has a descriptor for SYSTEM and the account. services.exe sets its own token's default DACL to
+  SYSTEM, Administrators and Authenticated Users (read, write, execute): objects with no descriptor (the
+  `\pipe\svcctl` endpoint, `__wine_SvcctlStarted`) are created from it. Without the system role nothing changes.
+- `programs/services/rpc.c`, `services.c`, `services.h` (`load_service_security`, `check_client_access`,
+  `svcctl_QueryServiceObjectSecurity`, `svcctl_SetServiceObjectSecurity`): the descriptor of a service is the
+  binary `Security` value of its registry key, else the native default; `SetServiceObjectSecurity` needs `WRITE_DAC`
+  on the service handle, takes the DACL only (shortcut) and writes the value; `QueryServiceObjectSecurity` returns
+  owner, group and DACL (it was `ERROR_CALL_NOT_IMPLEMENTED`). `dlls/sechost/service.c`
+  (`QueryServiceObjectSecurity`, `SetServiceObjectSecurity`) call these over RPC; they were a semi-stub (an empty
+  DACL) and `return TRUE`. **Ungated**: this is the documented behavior, for every services.exe, with or without the system role or enforcement.
+
+## Elevation boundary: the elevation broker (plan step 4, 2026-10-23)
+
+`ELEVATION_BROKER_WORKORDER.md`, items 1 and 2. Everything below is active only while the system role is active and
+elevation is enforced; otherwise stock behavior (the build files and the service entry are the only ungated parts).
+
+- `configure.ac`, `include/Makefile.in`, `loader/wine.inf.in`: the project program `programs/wexelevate` (source in
+  WineExplorer `src/programs/wexelevate`, header `include/wexelevate.h`) is built and installed; `wine.inf` registers the
+  demand-start LocalSystem service `wexelevate` ("Application Information", `[WexElevateService]`, all four
+  `[DefaultInstall*.Services]` lists) with a `Security` value that lets Authenticated Users query and start it (a
+  binary self-relative descriptor, `O:SYG:SYD:(A;;0x2019d;;;AU)(A;;0x2a1fd;;;SY)(A;;0xf01ff;;;BA)`, the default
+  descriptor plus `SERVICE_START` for users). Always.
+- `server/token.c` (`create_linked_token`): while elevation is enforced, a caller that is the system role's SYSTEM
+  process (SYSTEM user, system group, enabled SeTcbPrivilege) gets the linked token as a **primary** token
+  (native N6); everybody else still gets the identification-level token. Stricter than N6: Wine's administrator token
+  holds SeTcbPrivilege too.
+- `server/token.c`, `server/security.h` (`token_is_elevated`, `token_protect_elevated`), `server/sysrun.c`
+  (`sysrun_process_created`, `protect_object`): **B8.** The server applies mandatory integrity labels to token
+  objects but not to process and thread objects (no label, no descriptor, any access granted), so a process whose
+  token is the full half of a split token gets the descriptor of a system role process: SYSTEM and the full token's
+  Administrators full control, Users and Authenticated Users the limited query and SYNCHRONIZE; so do its threads.
+  **The owner is Administrators, not the user**: an owner always gets WRITE_DAC, so a limited token of the user
+  would rewrite the descriptor. The token object of an elevated process gets a descriptor of SYSTEM and
+  Administrators only. Any other new process whose connection has the system group loses the raised file access
+  (`peer_gid` cleared): its Unix process dropped the group.
+- `server/token.c` (`open_token`): while the system role is active and elevation is enforced, opening the token of
+  another process needs `PROCESS_QUERY_INFORMATION` (a thread: `THREAD_QUERY_INFORMATION`), as on Windows. Stock Wine
+  asks for no right at all, so a limited process could open the full token of an elevated process of its user and
+  impersonate it.
+- `server/sysrun.c` (`system_images`): `drive_c/windows/system32/wexelevate.exe` may be the main image of a system
+  group root process (B1). Dormant until the launcher accepts the broker as a mode; the broker is started by
+  services.exe as a LocalSystem service and does not need it.
+- `dlls/ntdll/unix/sysrun.c` (`sysrun_must_drop_group`): **B7.** A client with the system group keeps it for a child
+  whose token has `TokenElevationTypeFull` (an elevated process), in addition to the SYSTEM token. The process stays
+  non-dumpable (its effective group differs from its real group).
+
+## Elevation boundary: consent work order, Part A, the read lease (plan step 6, 2026-10-24)
+
+`ELEVATION_CONSENT_WORKORDER.md`, Part A. **No stock Wine file is changed.** Project modules only: `dlls/wexhost`
+(new `lease.c`, three new exports `WexLeaseTake`, `WexLeaseArm`, `WexLeaseRelease`; the Unix side uses the stock ntdll
+exports `wine_server_handle_to_fd` and the `list_processes` server request, both unchanged) and `programs/wexelevate`.
+The broker holds a Linux read lease on the frozen image until the elevated process exits; a write open ends that
+process. Active only inside the broker, which runs only with the system role.
+
+## Elevation boundary: consent work order, Part B, click consent (plan step 6, 2026-10-24)
+
+`ELEVATION_CONSENT_WORKORDER.md`, Part B. **No stock Wine file is changed.** Project programs only: `programs/wexelevate`
+(starts the consent window itself when `ConsentPromptBehaviorAdmin` is 2 or 5; otherwise unchanged, `ERROR_NOT_READY`) and
+`programs/consent` (new `/broker` and `/image` arguments, a 32768-character command line, details shown in full; the test hook
+exists only in a copy that the test harness compiles). The existing server protection of system-role processes covers the consent
+window; nothing was added to it.
+
+## Elevation boundary: the secure desktop (plan step 5, 2026-10-24)
+
+`ELEVATION_SECURE_DESKTOP_WORKORDER.md`, phases 1 to 4. Stock Wine files changed:
+- `server/winstation.c`, `server/user.h`: `SwitchDesktop` (`set_input_desktop`) needs `DESKTOP_SWITCHDESKTOP` on the handle and
+  a desktop of the caller's own window station (**not gated**: Windows behavior; the user32 and win32u suites give the same
+  result before and after). While the secure desktop is the input desktop only a process of the system role may switch;
+  the winstation records the process that switched to it and the desktop to return to (`input_owner`, `return_desktop`), and
+  `winstation_process_killed()` gives the input back when that process dies. `create_desktop`: the names `Winlogon` and
+  `Screen-Saver` are reserved for the system role, a desktop named `Winlogon` made by the system role is marked secure,
+  and `WINSTA_CREATEDESKTOP` is checked on the window station handle (gated, see below). `cross_desktop_denied()`.
+- `server/queue.c`: hardware input (`send_hardware_message`, also `NtUserCallHwndParam(SendHardwareInput)`) is accepted only
+  when the sender's desktop, the target window's desktop and the input desktop are one, for every desktop; a host event no
+  longer flips the input desktop (**not gated**: Windows behavior, see the work order's "Decisions"). `send_message`
+  (which also posts) refuses a receiver on another desktop (gated).
+- `server/hook.c`: a thread hook on a thread of another desktop is refused (gated).
+- `server/window.c`: `set_window_pos`, `set_window_info`, `set_parent`, `set_window_owner`, `get_window_text` and
+  `set_window_text` refuse a window of another desktop (gated; the caller survey is in the work order).
+- `server/sysrun.c`, `server/sysrun.h`, `server/process.c`: `sysrun_process_is_system()`, `sysrun_desktops_enforced()` and the hook
+  in `process_killed()`.
+- `dlls/winex11.drv/secure.c` (new), `x11drv_main.c`, `x11drv.h`, `window.c`, `Makefile.in`: a process on the desktop named
+  `Winlogon` (other than `explorer.exe`, the desktop manager) takes a dimmed snapshot of the screen when the driver loads
+  and, before its first window, covers the screen with a full-screen override-redirect window and grabs the keyboard and
+  the pointer; its windows are not managed. Nothing else changes in the driver.
+"Gated" means: only while the launcher-started server has the system role and elevation is enforced (`sysrun_desktops_enforced()`);
+otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta0\Winlogon`, switches, policy values) and
+`programs/consent` (`/secure`, `/ppid`).
+
+## Elevation boundary: callers use the broker (plan step 7, 2026-10-24)
+
+`ELEVATION_CALLERS_WORKORDER.md`. Every change is active only while the elevation helper is configured (the "not unset" rule of
+`kernelbase` and `ntdll`); with it unset each caller behaves as before, byte for byte. Stock Wine files changed:
+- `dlls/shell32/shlexec.c`: `run_elevation_helper()` (run the helper program, trust its exit code) is gone. `SHELL_ExecuteW`, with
+  the helper configured, sends the `runas` verb (when the caller is not elevated already) and a `CreateProcess` that fails with
+  `ERROR_ELEVATION_REQUIRED` to the broker through `execute_with_broker()`: it loads `wexhost.dll` (system directory only), calls
+  its export `WexElevateRun` with the resolved image, the full command line, the working directory, the environment and the show
+  state, and returns the broker's process handle for `SEE_MASK_NOCLOSEPROCESS`. If `wexhost.dll` or the export is missing the
+  launch fails with `ERROR_NOT_SUPPORTED`; nothing falls back to a linked token. An invalid helper value still fails closed as before.
+  Error mapping (`ShellExecuteEx`): the broker's Win32 error is the last error; `hInstApp` is `SE_ERR_FNF`, `SE_ERR_PNF`,
+  `SE_ERR_SHARE`, `SE_ERR_OOM` for the matching file and memory errors and `SE_ERR_ACCESSDENIED` for everything else
+  (cancel 1223, standard user 50, no policy 21, timeout 1460, consent window 1062, changed image 1392).
+- `dlls/shell32/tests/shlexec.c` (`test_elevation`): the helper-exit-code cases (approving and declining helper programs) are
+  replaced by the new rule: with a helper configured and no broker that approves, `ShellExecuteEx` fails and returns no handle.
+- `dlls/msi/custom.c`, `dlls/msi/msipriv.h`: `msi_install_through_broker()` starts `msiexec.exe /i <package> <UI switch> <properties>` once
+  through the broker for a per-machine install by a limited administrator and returns the exit code of the elevated `msiexec`
+  (cancel becomes `ERROR_INSTALL_USEREXIT`); `msi_package_file_is_machine()` (reads ALLUSERS and the registered context from the package file, read-only) is in `package.c`. `get_admin_token()` (custom action
+  server) no longer returns a linked token while the helper is configured: a per-machine install runs wholly in the elevated
+  `msiexec`, a per-user install does not elevate.
+- `dlls/msi/msi.c` (`MsiInstallProductW`), `dlls/msi/action.c` (`MSI_InstallPackage`): the two call sites. The first runs before the
+  package is opened, because opening copies the package into `C:\Windows\Installer`, which a limited token cannot write.
+- `programs/msiexec`: not changed.
+Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `advapi32`), `include/wexhost.h`, `include/wexelevate.h` unchanged.
+
 ## In place of stock behavior (deliberate)
 | Area | Change | Gate |
 |---|---|---|
@@ -360,6 +1091,84 @@ smoke without changing the production pin (REBASE.md).
   prompt only.
 - `dlls/shell32/dialogs.c` (Run dialog placement).
 
+## Token Security, Elevation & Chromium Compatibility (gemini/token-security)
+- `include/winnt.h`: Added definition for `SECURITY_CAPABILITIES`.
+- `dlls/kernelbase/process.c`: Added attribute length check for `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`; zeroed output buffer in `GetProcessMitigationPolicy` stub.
+- `server/protocol.def`:
+  - Extended `filter_token` with `disable_sids_size` and VARARG `restrict_sids`.
+  - Added request `create_lowbox_token` with `package_sid` and `capabilities`.
+  - Extended `get_token_groups` with `which_groups` selector (0=groups, 1=restricted SIDs).
+  - Added request `set_token_integrity_level`.
+  - Extended `get_token_info` reply with `integrity_rid`, `is_app_container`, `is_restricted`.
+- `server/token.c`:
+  - Added `integrity_rid`, `restricted_sids`, `app_container`, and `capabilities` to `struct token`.
+  - Implemented token filtering flags `DISABLE_MAX_PRIVILEGE`, `LUA_TOKEN`, and restricting SIDs storage.
+  - Implemented `create_lowbox_token` handler setting AppContainer SID, Low integrity (`0x1000`), and capabilities.
+  - Implemented `set_token_integrity_level` handler for setting token integrity labels.
+  - Implemented restricting SID intersection check in `token_access_check`.
+  - Implemented Mandatory Integrity Check (`SYSTEM_MANDATORY_LABEL_NO_WRITE_UP`, `NO_READ_UP`, `NO_EXECUTE_UP`) in `token_access_check` and `check_object_access`.
+- `dlls/ntdll/unix/security.c`:
+  - Implemented `NtCreateLowBoxToken` wineserver call.
+  - Extended `NtFilterToken` passing `restrict_sids` and `disable_sids_size`.
+  - Implemented `NtSetInformationToken(TokenIntegrityLevel)`.
+  - Implemented `NtQueryInformationToken` for `TokenIntegrityLevel`, `TokenAppContainerSid`, `TokenIsAppContainer`, `TokenIsRestricted`, `TokenHasRestrictions`, and `TokenRestrictedSids`.
+- `dlls/wow64/security.c`: Added WOW64 thunks for `NtCreateLowBoxToken` and 32-bit queries for `TokenIsRestricted`, `TokenHasRestrictions`, `TokenRestrictedSids`, and `TokenAppContainerSid`.
+- `dlls/kernelbase/process.c`:
+  - Added `is_elevation_required(HANDLE token, const WCHAR *filename)`: checks PE manifest runlevel (`RunlevelInformationInActivationContext`). If `requireAdministrator` (or `highestAvailable` on limited token) and elevation helper is configured in `HKLM\Software\Wine\Elevation\Helper`, `CreateProcessInternalW` fails with `STATUS_ELEVATION_REQUIRED` (`ERROR_ELEVATION_REQUIRED` / 740).
+- `dlls/ntdll/loader.c`:
+  - Added `is_elevation_helper_configured()`: prevents silent in-process token elevation (`elevate_token()`) when helper is configured, maintaining stock behavior when unconfigured.
+- `dlls/shell32/shlexec.c`:
+  - Added `get_elevation_helper()` and `run_elevation_helper()`: invokes configured helper on verb `"runas"` or upon `ERROR_ELEVATION_REQUIRED`.
+  - On helper approval (exit 0), spawns elevated process with `CreateProcessAsUserW(get_admin_token(), ...)` and returns genuine `hProcess`.
+  - On helper refusal or cancellation (exit non-zero), sets `GetLastError() = ERROR_CANCELLED` (1223) and returns `SE_ERR_ACCESSDENIED`.
+  - Handles working directory normalization, quoted helpers with arguments, and token closing safely.
+- `dlls/shell32/tests/shlexec.c`:
+  - Added `test_elevation()`: tests stock unprompted behavior, direct `CreateProcess` 740 failure with `requireAdministrator` manifest, `ShellExecuteEx` approval with genuine `hProcess`, `runas` approval, `ShellExecuteEx` cancellation with `ERROR_CANCELLED` (1223) and `hProcess == NULL`, and registry rollback.
+- `programs/consent/`:
+  - User Account Control Consent Dialog (`consent.exe`), resource script, 4-quadrant golden shield graphics, Authenticode verification, consent and credentials modes with automated test overrides (`WINE_CONSENT_AUTO_APPROVE` / `WINE_CONSENT_AUTO_DENY`).
+- `include/winnt.h`:
+  - Added `CLAIM_SECURITY_ATTRIBUTES_INFORMATION` structure definition for token security attribute queries.
+- `dlls/ntdll/unix/security.c`:
+  - Implemented `TokenUserClaimAttributes` (33) and `TokenSecurityAttributes` (39) returning valid empty claim blocks (`Version = 1, AttributeCount = 0`). Updated `info_len` table.
+- `dlls/wow64/security.c`:
+  - Implemented 32-bit thunking in `wow64_NtQueryInformationToken` for `TokenUserClaimAttributes` and `TokenSecurityAttributes` (12-byte layout).
+- `dlls/advapi32/security.c`:
+  - Handled `REVOKE_ACCESS` in `SetEntriesInAclW` first pass to cleanly remove matching ACEs without error.
+- `dlls/advapi32/tests/security.c`:
+  - Added unit tests `test_claim_security_attributes` and `test_revoke_access_acl` (3,665 tests passing, 0 failures).
+- `dlls/kernelbase/process.c`:
+  - Supported `PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER` (26), `PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` (15), `PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY` (18), `PROC_THREAD_ATTRIBUTE_MITIGATION_AUDIT_POLICY` (24), and `PROC_THREAD_ATTRIBUTE_WIN32K_FILTER` (16) in `validate_proc_thread_attribute` and `CreateProcessInternalW`.
+  - Silenced `GetProcessMitigationPolicy` stub logging to TRACE.
+- `server/protocol.def`:
+  - Added `@REQ(get_process_handle_table)` with `count` reply field.
+  - Added `@REQ(get_thread_page_priority)` and `@REQ(set_thread_page_priority)`.
+- `server/handle.c`:
+  - Implemented `DECL_HANDLER(get_process_handle_table)`: queries handle table, validates buffer capacity, sets `STATUS_INFO_LENGTH_MISMATCH` with required length on undersized buffers.
+- `server/thread.h`, `server/thread.c`:
+  - Added `page_priority` in `struct thread` (default 5).
+  - Implemented `DECL_HANDLER(get_thread_page_priority)` and `DECL_HANDLER(set_thread_page_priority)` enforcing priority range 0..5 and `THREAD_SET_LIMITED_INFORMATION` access checks.
+- `server/token.c`:
+  - Implemented two-pass DACL evaluation in `token_access_check`: Pass 1 checks user and group SIDs; Pass 2 checks restricting SIDs in DACL order, honoring `ACCESS_DENIED_ACE_TYPE` before allow ACEs.
+  - Implemented strict intersection semantics in `filter_token`: intersecting existing restrictions with new restrictions, retaining `null_sid` (`S-1-0-0`) on disjoint sets.
+  - Wired LowBox AppContainer package and capability SID checks in `token_sid_present`.
+- `dlls/kernelbase/process.c`:
+  - Wired `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` in `CreateProcessInternalW` to create lowbox tokens via `NtCreateLowBoxToken` and assign them to child processes.
+- `dlls/ntdll/unix/process.c`:
+  - Handled `ProcessHandleTable` (58) in `NtQueryInformationProcess`, querying `server_get_process_handle_table` and setting required buffer length on `STATUS_INFO_LENGTH_MISMATCH`.
+- `dlls/ntdll/unix/thread.c`:
+  - Implemented `ThreadPagePriority` (24) query and set in `NtQueryInformationThread` and `NtSetInformationThread` via wineserver requests.
+- `dlls/advapi32/tests/security.c`:
+  - Added unit tests for Case C deny on restricting SIDs in `test_restricted_token_access_check`, and `test_restricted_sid_intersection` (3,692 tests passing, 0 failures on x86_64 and WOW64).
+- `dlls/ntdll/tests/info.c`:
+  - Enhanced unit tests `test_process_handle_table` and `test_thread_page_priority` (2,798 64-bit and 2,729 WOW64 tests passing, 0 failures).
+- `dlls/shell32/shlexec.c`:
+  - Added 30-second bounded wait in `run_elevation_helper` with `TerminateProcess(pi.hProcess, 1223)` on timeout.
+- `programs/consent/consent.c`:
+  - Removed `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` environment bypasses.
+  - Implemented genuine PAM shadow password verification via `/sbin/unix_chkpwd <username> nullok`.
+  - Added root-only opt-in fixture `/etc/wineexplorer/test-elevation.conf`.
+- `dlls/shell32/shell32_main.c`, `shellpath.c`, `shell32_main.h` (always; upstreamable): `DllInstall(TRUE, L"U")` (was a stub) does the per-user setup, as Windows' Active Setup does at first logon (`regsvr32 /s /n /i:U shell32.dll`): `_SHRegisterUserShellFolders(FALSE)` (HKCU, creates the user's folders) and `create_extra_folders(TRUE)` (TEMP/TMP, Temp, Themes, AccountPictures, Screenshots; not the COMMON_APPDATA step). It writes no HKLM, so it works when the elevation helper denies machine writes, where `DllRegisterServer` stops at its first HKLM write and never creates the folders. `DllRegisterServer` and other `DllInstall` arguments are unchanged.
+
 ## License headers
 
 `wexhost` now also provides `WexAppsList` / `WexAppsLaunch` through runtime-loaded GIO. `apps.c` handles freedesktop discovery and launching with the shell's Wine variables removed; both Start menu styles expose the entries. The X11 WM checks its running state under the connection lock so requests arriving during shutdown cannot use the closed connection. These are project additions, not changes to Proton or a shared prefix.
@@ -397,3 +1206,104 @@ Modified Wine files keep their original header. ReactOS-derived programs keep th
   picture (the classic Start menu).
 
 | `dlls/wexhost` (`unixlib.c`), `include/wexhost.h` | WEX_POWER_LOGOFF (login1 TerminateSession of our session) and WEX_POWER_SWITCHUSER (GDM CreateTransientDisplay) | always |
+
+## Chromium token reconciliation candidate (2026-10-31, unaccepted)
+
+Wine topic `f2e67abe` changes only `server/token.c`, above `ce87bac0`:
+
+- AppContainer SID matching recognizes AllApplicationPackages.
+- The generated token default DACL uses the actual user SID, not Domain Users.
+- The NULL-descriptor `token_duplicate` branch copies the source object's
+  whole owner/group/DACL/SACL. This part conflicts with upstream
+  `test_token_security_descriptor` and the native default-descriptor contract;
+  Wine `e1a90b94` removes this candidate behavior, restoring `token_duplicate`
+  exactly to `ce87bac0`, including independent source integrity-label
+  propagation whether or not an explicit descriptor is supplied.
+
+These are topic candidates, not a production Wine pin or a confirmed Chromium
+fix. After guest recovery, the corrected Mojo probe passes all three modes
+at mask `0x88` on x64 and x86 with the candidate; the baseline still fails
+both sandboxed modes. See
+[the continuation and raw evidence](CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md).
+The native descriptor oracle further distinguishes the token's integrity
+state from an explicitly supplied object label; the baseline rollback is not
+full descriptor conformance.
+
+The subsequent public-duplication correction changes
+`server/{token.c,security.h,process.c,named_pipe.c}`: an explicit public/internal
+flag limits creator-default descriptor initialization to public token
+duplication. An explicit object mandatory label is preserved; an omitted
+label derives from source token integrity state rather than the source object
+label. Omitted object defaults no longer leak the source token default DACL.
+Allocation and descriptor-setting failures release the duplicate and propagate
+failure. Internal filter, lowbox, process and named-pipe callers retain the
+prior label behavior; no access-check exemptions or restrictions are removed.
+
+Matched guest x64/x86 each pass all 114 named native-backed descriptor
+assertions and all three Mojo modes with server SHA-256
+`196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800`.
+This establishes the focused public contract, not every effective-creator
+context or internal assignment contract, nor actual Chromium/Edge acceptance.
+
+## Temporary opt-in pipe diagnostics (2026-10-31)
+
+Wine `2ab3949a` adds the `wex_mojo` channel in
+`dlls/kernelbase/{file.c,sync.c}`. It records named-pipe creation and pipe-only
+file opens, parameters, returned NT status and defined output handles. It
+changes no API result, descriptor, access mask or policy; the prefix test is
+disabled unless the channel is enabled. This avoids the full file/sync
+trace's measured startup log-quota overrun. Both kernelbase architectures
+build without new warnings and the instrumented guest passes the six
+x64/x86 startup, Mojo and descriptor programs. This is diagnostic code, not
+a browser connection fix; the r12 observation stopped at an earlier
+pre-logging boundary and does not establish Chromium or Edge acceptance.
+
+## Temporary opt-in process mapping diagnostics (2026-11-01)
+
+Wine `65f8cc3a` adds the `wex_process` channel to
+`dlls/ntdll/unix/server.c`. After process/thread server initialization it
+records Windows PID/TID and Unix PID/TID; no process, token, signal or access
+semantics change. Only the Unix ntdll module is overlaid on the preserved
+corrected WoW64 runtime. The r14 observer binds the native-held browser ID
+to these records and verifies live thread command lines and thread groups,
+without relying on `/proc/<leader>/environ`. The same instrumented runtime
+passes all six x64/x86 startup, Mojo and descriptor programs. This resolves
+diagnostic identity, not the browser stall or Chromium/Edge acceptance.
+
+## Temporary opt-in pending wait diagnostics (2026-11-01)
+
+Wine `b737f525` adds the `wex_wait` channel in
+`dlls/ntdll/unix/{server.c,thread.c}`. It records pending-select cookies,
+operation/size/flags/timeout, context presence and the first handle, the
+returned status, and pending/resumed context handles. It changes no wait,
+signal, process, token or access semantics. Only Unix `ntdll.so` is overlaid
+on the corrected WoW64 runtime; both PE architectures and server are unchanged.
+The r15 trace exercises these markers and all six x64/x86 startup, Mojo and
+descriptor programs pass afterward. Its root observer aborts at five seconds
+with an unknown original stderr cause, so it is not a completed browser
+observation or a connection fix. Subsequent visual r16/r17 checks use the
+original corrected runtime without this overlay.
+
+## Temporary opt-in exception-boundary diagnostics (2026-11-01)
+
+Wine `29e2853b` adds `wex_exception` in `dlls/ntdll/unix/virtual.c`.
+It logs only the guaranteed-stack overflow transition and terminal
+exception-frame allocation below the hard floor. Records include effective
+and TEB stack guarantee, bounds, exception code/flags/address, original stack
+pointer and requested allocation size. No allocation, protection, exception,
+stack sizing or termination semantics change. Only Unix ntdll is overlaid;
+the original PE modules of both architectures and corrected server remain
+unchanged. The r30 runtime passes all six x64/x86 startup, Mojo and descriptor
+programs. Its browser trace reproduces the overflow with an 8,192-byte effective
+guarantee, zero TEB-requested guarantee and a terminal access violation, but
+does not identify the initiating fault or a justified semantic fix.
+
+Wine `ccebeff5` extends this temporary `wex_exception` instrumentation in
+`dlls/ntdll/unix/signal_x86_64.c` and `virtual.c`: for stack-overflow and
+access-violation dispatch it records exception parameters, access type and
+fault address, and it marks entry to the suspend-signal branch with no TEB.
+These traces do not change exception, signal, stack or wait behavior. r35
+overlays only Unix `ntdll.so`; all six x64/x86 regressions pass, and the
+captured no-TEB signal is from a different Wine process than the later
+stack-overflow/AV trace. No semantic fix or Chromium acceptance is claimed.
+See `CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md`.

@@ -62,6 +62,9 @@ D:\DeepThought\Projects\WineExplorer\
 
 See [docs/BUILDING.md](docs/BUILDING.md) for recursive clone, assembly, build, VM sync and packaging.
 
+For reusable application-testing helpers, isolation rules and adding another app
+runner, see [the application test harness guide](docs/APP_TEST_HARNESS.md).
+
 ## Core Components
 
 1. **Virtual Desktop & Compositor Bridge**

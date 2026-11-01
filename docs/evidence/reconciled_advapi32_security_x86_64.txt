@@ -1,0 +1,465 @@
+security.c:5403: Test marked todo: acl is not present
+security.c:5405: Test marked todo: acl pointer is not set
+security.c:5414: Test marked todo: sid pointer is not set
+security.c:5423: Test marked todo: sid pointer is not set
+security.c:5443: Test marked todo: AccessCheck error 1338
+security.c:5444: Test marked todo: expected 1, got -559038737
+security.c:5445: Test marked todo: expected all access 0x1f0001, got 0xdeadbeef
+security.c:5453: Test marked todo: AccessCheck error 1338
+security.c:5454: Test marked todo: expected 0, got -559038737
+security.c:5455: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5463: Test marked todo: AccessCheck error 1338
+security.c:5464: Test marked todo: expected 0, got -559038737
+security.c:5465: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5473: Test marked todo: AccessCheck error 1338
+security.c:5474: Test marked todo: expected 1, got -559038737
+security.c:5475: Test marked todo: expected read access 0x120001, got 0xdeadbeef
+security.c:5483: Test marked todo: AccessCheck error 1338
+security.c:5484: Test marked todo: expected 1, got -559038737
+security.c:5485: Test marked todo: expected write access 0x120001, got 0xdeadbeef
+security.c:5493: Test marked todo: AccessCheck error 1338
+security.c:5494: Test marked todo: expected 1, got -559038737
+security.c:5495: Test marked todo: expected execute access 0x120000, got 0xdeadbeef
+security.c:5403: Test marked todo: acl is not present
+security.c:5405: Test marked todo: acl pointer is not set
+security.c:5414: Test marked todo: sid pointer is not set
+security.c:5423: Test marked todo: sid pointer is not set
+security.c:5443: Test marked todo: AccessCheck error 1338
+security.c:5444: Test marked todo: expected 1, got -559038737
+security.c:5445: Test marked todo: expected all access 0x1f0003, got 0xdeadbeef
+security.c:5453: Test marked todo: AccessCheck error 1338
+security.c:5454: Test marked todo: expected 0, got -559038737
+security.c:5455: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5463: Test marked todo: AccessCheck error 1338
+security.c:5464: Test marked todo: expected 0, got -559038737
+security.c:5465: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5473: Test marked todo: AccessCheck error 1338
+security.c:5474: Test marked todo: expected 1, got -559038737
+security.c:5475: Test marked todo: expected read access 0x120001, got 0xdeadbeef
+security.c:5483: Test marked todo: AccessCheck error 1338
+security.c:5484: Test marked todo: expected 1, got -559038737
+security.c:5485: Test marked todo: expected write access 0x120002, got 0xdeadbeef
+security.c:5493: Test marked todo: AccessCheck error 1338
+security.c:5494: Test marked todo: expected 1, got -559038737
+security.c:5495: Test marked todo: expected execute access 0x120000, got 0xdeadbeef
+security.c:5403: Test marked todo: acl is not present
+security.c:5405: Test marked todo: acl pointer is not set
+security.c:5414: Test marked todo: sid pointer is not set
+security.c:5423: Test marked todo: sid pointer is not set
+security.c:5443: Test marked todo: AccessCheck error 1338
+security.c:5444: Test marked todo: expected 1, got -559038737
+security.c:5445: Test marked todo: expected all access 0x1f01ff, got 0xdeadbeef
+security.c:5453: Test marked todo: AccessCheck error 1338
+security.c:5454: Test marked todo: expected 0, got -559038737
+security.c:5455: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5463: Test marked todo: AccessCheck error 1338
+security.c:5464: Test marked todo: expected 0, got -559038737
+security.c:5465: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5473: Test marked todo: AccessCheck error 1338
+security.c:5474: Test marked todo: expected 1, got -559038737
+security.c:5475: Test marked todo: expected read access 0x120089, got 0xdeadbeef
+security.c:5483: Test marked todo: AccessCheck error 1338
+security.c:5484: Test marked todo: expected 1, got -559038737
+security.c:5485: Test marked todo: expected write access 0x120116, got 0xdeadbeef
+security.c:5493: Test marked todo: AccessCheck error 1338
+security.c:5494: Test marked todo: expected 1, got -559038737
+security.c:5495: Test marked todo: expected execute access 0x1200a0, got 0xdeadbeef
+security.c:5403: Test marked todo: acl is not present
+security.c:5405: Test marked todo: acl pointer is not set
+security.c:5414: Test marked todo: sid pointer is not set
+security.c:5423: Test marked todo: sid pointer is not set
+security.c:5443: Test marked todo: AccessCheck error 1338
+security.c:5444: Test marked todo: expected 1, got -559038737
+security.c:5445: Test marked todo: expected all access 0x1f0003, got 0xdeadbeef
+security.c:5453: Test marked todo: AccessCheck error 1338
+security.c:5454: Test marked todo: expected 0, got -559038737
+security.c:5455: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5463: Test marked todo: AccessCheck error 1338
+security.c:5464: Test marked todo: expected 0, got -559038737
+security.c:5465: Test marked todo: expected 0, got 0xdeadbeef
+security.c:5473: Test marked todo: AccessCheck error 1338
+security.c:5474: Test marked todo: expected 1, got -559038737
+security.c:5475: Test marked todo: expected read access 0x20001, got 0xdeadbeef
+security.c:5483: Test marked todo: AccessCheck error 1338
+security.c:5484: Test marked todo: expected 1, got -559038737
+security.c:5485: Test marked todo: expected write access 0x20002, got 0xdeadbeef
+security.c:5493: Test marked todo: AccessCheck error 1338
+security.c:5494: Test marked todo: expected 1, got -559038737
+security.c:5495: Test marked todo: expected execute access 0x120000, got 0xdeadbeef
+security.c:2127: Tests skipped: Well known SID 38 not implemented
+security.c:2127: Tests skipped: Well known SID 39 not implemented
+security.c:2127: Tests skipped: Well known SID 40 not implemented
+security.c:2127: Tests skipped: Well known SID 41 not implemented
+security.c:2127: Tests skipped: Well known SID 42 not implemented
+security.c:2127: Tests skipped: Well known SID 43 not implemented
+security.c:2127: Tests skipped: Well known SID 44 not implemented
+security.c:2127: Tests skipped: Well known SID 45 not implemented
+security.c:2127: Tests skipped: Well known SID 46 not implemented
+security.c:2127: Tests skipped: Well known SID 47 not implemented
+security.c:2127: Tests skipped: Well known SID 48 not implemented
+security.c:2127: Tests skipped: Well known SID 49 not implemented
+security.c:2127: Tests skipped: Well known SID 50 not implemented
+security.c:2127: Tests skipped: Well known SID 62 not implemented
+security.c:2127: Tests skipped: Well known SID 63 not implemented
+security.c:2127: Tests skipped: Well known SID 64 not implemented
+security.c:2127: Tests skipped: Well known SID 65 not implemented
+security.c:2127: Tests skipped: Well known SID 70 not implemented
+security.c:2127: Tests skipped: Well known SID 72 not implemented
+security.c:2127: Tests skipped: Well known SID 73 not implemented
+security.c:2127: Tests skipped: Well known SID 74 not implemented
+security.c:2127: Tests skipped: Well known SID 75 not implemented
+security.c:2127: Tests skipped: Well known SID 76 not implemented
+security.c:2127: Tests skipped: Well known SID 77 not implemented
+security.c:2127: Tests skipped: Well known SID 78 not implemented
+security.c:2127: Tests skipped: Well known SID 79 not implemented
+security.c:2127: Tests skipped: Well known SID 81 not implemented
+security.c:2127: Tests skipped: Well known SID 82 not implemented
+security.c:975: Test marked todo: expected FILE_ATTRIBUTE_ARCHIVE|FILE_ATTRIBUTE_READONLY got 0x20
+security.c:1023: Test marked todo: expected 1, got 0
+security.c:1024: Test marked todo: expected FILE_WRITE_DATA, got 0
+security.c:1064: Test marked todo: expected 1, got 0
+security.c:1065: Test marked todo: expected FILE_DELETE_CHILD, got 0
+security.c:1073: Test marked todo: expected 1, got 0
+security.c:1074: Test marked todo: expected 0x1ff, got 0
+security.c:1082: Test marked todo: expected 1, got 0
+security.c:1083: Test marked todo: expected FILE_ALL_ACCESS, got 0
+security.c:1414: AccessCheck with MAXIMUM_ALLOWED got Access 0x001f0019
+security.c:1435: Test marked todo: AccessCheck should have failed with ERROR_INSUFFICIENT_BUFFER, instead of 998
+security.c:1438: Test marked todo: PrivSetLen returns 0
+security.c:1547: Test marked todo: PrivSetLen returns 20
+00ec:fixme:security:ImpersonateLoggedOnUser (0000000000000068)
+security.c:1832: TokenGroups:
+security.c:1846: S-1-1-0, \Everyone use: 5 attr: 0x00000007
+security.c:1846: S-1-2-0, \LOCAL use: 5 attr: 0x00000007
+security.c:1846: S-1-5-4, NT AUTHORITY\INTERACTIVE use: 5 attr: 0x00000007
+security.c:1846: S-1-5-11, NT AUTHORITY\Authenticated Users use: 5 attr: 0x00000007
+security.c:1846: S-1-5-21-0-0-0-513, DEEPTHOUGHT\None use: 2 attr: 0x0000000f
+security.c:1846: S-1-5-32-544, BUILTIN\Administrators use: 4 attr: 0x0000000f
+security.c:1846: S-1-5-32-545, BUILTIN\Users use: 4 attr: 0x00000007
+security.c:1849: attr: 0xc0000007 LookupAccountSid failed with error 1332
+security.c:1863: TokenUser: S-1-5-21-0-0-0-1000 attr: 0x00000000
+security.c:1877: TokenOwner: S-1-5-21-0-0-0-513
+security.c:1899: TokenLogon: S-1-5-5-0-0
+security.c:1922: TokenPrivileges:
+security.c:1928: 	SeChangeNotifyPrivilege, 0x3
+security.c:1928: 	SeTcbPrivilege, 0x0
+security.c:1928: 	SeSecurityPrivilege, 0x0
+security.c:1928: 	SeBackupPrivilege, 0x0
+security.c:1928: 	SeRestorePrivilege, 0x0
+security.c:1928: 	SeSystemtimePrivilege, 0x0
+security.c:1928: 	SeShutdownPrivilege, 0x0
+security.c:1928: 	SeRemoteShutdownPrivilege, 0x0
+security.c:1928: 	SeTakeOwnershipPrivilege, 0x0
+security.c:1928: 	SeDebugPrivilege, 0x0
+security.c:1928: 	SeSystemEnvironmentPrivilege, 0x0
+security.c:1928: 	SeSystemProfilePrivilege, 0x0
+security.c:1928: 	SeProfileSingleProcessPrivilege, 0x0
+security.c:1928: 	SeIncreaseBasePriorityPrivilege, 0x0
+security.c:1928: 	SeLoadDriverPrivilege, 0x3
+security.c:1928: 	SeCreatePagefilePrivilege, 0x0
+security.c:1928: 	SeIncreaseQuotaPrivilege, 0x0
+security.c:1928: 	SeUndockPrivilege, 0x0
+security.c:1928: 	SeManageVolumePrivilege, 0x0
+security.c:1928: 	SeImpersonatePrivilege, 0x3
+security.c:1928: 	SeCreateGlobalPrivilege, 0x3
+00ec:fixme:advapi:LookupAccountSidW Only local computer supported!
+security.c:2361: Well Known SIDs:
+security.c:2372:  0: S-1-0-0 \NULL SID 5
+security.c:2372:  1: S-1-1-0 \Everyone 5
+security.c:2372:  2: S-1-2-0 \LOCAL 5
+security.c:2372:  3: S-1-3-0 \CREATOR OWNER 5
+security.c:2372:  4: S-1-3-1 \CREATOR GROUP 5
+security.c:2372:  5: S-1-3-2 \CREATOR OWNER SERVER 5
+security.c:2372:  6: S-1-3-3 \CREATOR GROUP SERVER 5
+security.c:2372:  7: S-1-5 NT Pseudo Domain\NT Pseudo Domain 3
+security.c:2372:  8: S-1-5-1 NT AUTHORITY\DIALUP 5
+security.c:2372:  9: S-1-5-2 NT AUTHORITY\NETWORK 5
+security.c:2372:  10: S-1-5-3 NT AUTHORITY\BATCH 5
+security.c:2372:  11: S-1-5-4 NT AUTHORITY\INTERACTIVE 5
+security.c:2372:  12: S-1-5-6 NT AUTHORITY\SERVICE 5
+security.c:2372:  13: S-1-5-7 NT AUTHORITY\ANONYMOUS LOGON 5
+security.c:2372:  14: S-1-5-8 NT AUTHORITY\PROXY 5
+security.c:2372:  15: S-1-5-9 NT AUTHORITY\ENTERPRISE DOMAIN CONTROLLERS 5
+security.c:2372:  16: S-1-5-10 NT AUTHORITY\SELF 5
+security.c:2372:  17: S-1-5-11 NT AUTHORITY\Authenticated Users 5
+security.c:2372:  18: S-1-5-12 NT AUTHORITY\RESTRICTED 5
+security.c:2372:  19: S-1-5-13 NT AUTHORITY\TERMINAL SERVER USER 5
+security.c:2372:  20: S-1-5-14 NT AUTHORITY\REMOTE INTERACTIVE LOGON 5
+security.c:2372:  22: S-1-5-18 NT AUTHORITY\SYSTEM 5
+security.c:2372:  23: S-1-5-19 NT AUTHORITY\LOCAL SERVICE 5
+security.c:2372:  24: S-1-5-20 NT AUTHORITY\NETWORK SERVICE 5
+security.c:2372:  25: S-1-5-32 BUILTIN\BUILTIN 3
+security.c:2372:  26: S-1-5-32-544 BUILTIN\Administrators 4
+security.c:2372:  27: S-1-5-32-545 BUILTIN\Users 4
+security.c:2372:  28: S-1-5-32-546 BUILTIN\Guests 4
+security.c:2372:  29: S-1-5-32-547 BUILTIN\Power Users 4
+security.c:2372:  30: S-1-5-32-548 BUILTIN\Account Operators 4
+security.c:2372:  31: S-1-5-32-549 BUILTIN\Server Operators 4
+security.c:2372:  32: S-1-5-32-550 BUILTIN\Print Operators 4
+security.c:2372:  33: S-1-5-32-551 BUILTIN\Backup Operators 4
+security.c:2372:  34: S-1-5-32-552 BUILTIN\Replicators 4
+security.c:2372:  35: S-1-5-32-554 BUILTIN\Pre-Windows 2000 Compatible Access 4
+security.c:2372:  36: S-1-5-32-555 BUILTIN\Remote Desktop Users 4
+security.c:2372:  37: S-1-5-32-556 BUILTIN\Network Configuration Operators 4
+security.c:2381:  38: not supported
+security.c:2381:  39: not supported
+security.c:2381:  40: not supported
+security.c:2381:  41: not supported
+security.c:2381:  42: not supported
+security.c:2381:  43: not supported
+security.c:2381:  44: not supported
+security.c:2381:  45: not supported
+security.c:2381:  46: not supported
+security.c:2381:  47: not supported
+security.c:2381:  48: not supported
+security.c:2381:  49: not supported
+security.c:2381:  50: not supported
+security.c:2372:  51: S-1-5-64-10 NT AUTHORITY\NTLM Authentication 5
+security.c:2372:  52: S-1-5-64-21 NT AUTHORITY\Digest Authentication 5
+security.c:2372:  53: S-1-5-64-14 NT AUTHORITY\SChannel Authentication 5
+security.c:2372:  54: S-1-5-15 NT AUTHORITY\This Organization 5
+security.c:2372:  55: S-1-5-1000 NT AUTHORITY\Other Organization 5
+security.c:2372: Line has been silenced after 42 occurrences
+security.c:2036:  S-1-5-21-0-0-0 DEEPTHOUGHT\ 3
+security.c:2036:  S-1-5-21-0-0-0-500 DEEPTHOUGHT\Administrator 1
+security.c:2036:  S-1-5-21-0-0-0-501 DEEPTHOUGHT\Guest 1
+security.c:2036:  S-1-5-21-0-0-0-512 DEEPTHOUGHT\Domain Admins 1
+security.c:2036:  S-1-5-21-0-0-0-513 DEEPTHOUGHT\None 2
+security.c:2036:  S-1-5-21-0-0-0-514 DEEPTHOUGHT\Domain Guests 1
+security.c:2036:  S-1-5-21-0-0-0-515 DEEPTHOUGHT\Domain Computers 1
+security.c:2036:  S-1-5-21-0-0-0-516 DEEPTHOUGHT\Domain Controllers 1
+security.c:2036:  S-1-5-21-0-0-0-517 DEEPTHOUGHT\Cert Publishers 1
+security.c:2036:  S-1-5-21-0-0-0-518 DEEPTHOUGHT\Schema Admins 1
+security.c:2036:  S-1-5-21-0-0-0-519 DEEPTHOUGHT\Enterprise Admins 1
+security.c:2036:  S-1-5-21-0-0-0-520 DEEPTHOUGHT\Group Policy Creator Owners 1
+security.c:2036:  S-1-5-21-0-0-0-553 DEEPTHOUGHT\RAS and IAS Servers 1
+security.c:2036:  S-1-5-21-0-0-0-1000 DEEPTHOUGHT\root 1
+00ec:fixme:advapi:LookupAccountNameW remote computer not supported
+security.c:2801: Test marked todo: got 122
+security.c:2036:  S-1-5-21-0-0-0-513 DEEPTHOUGHT\None 2
+security.c:2036:  S-1-5-21-0-0-0-513 DEEPTHOUGHT\None 2
+security.c:2036:  S-1-5-21-0-0-0-1000 DEEPTHOUGHT\root 1
+00fc:security: 22 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+security.c:3162: Test marked todo: RegOpenKeyEx failed with 0
+security.c:3216: Test marked todo: RegOpenKeyEx should have failed with ERROR_INVALID_HANDLE, ERROR_BAD_IMPERSONATION_LEVEL or ERROR_ACCESS_DENIED instead of 0
+security.c:3617: Test failed: GetAclInformation returned unexpected entry count (3 != 2)
+security.c:3617: Test marked todo: Current User ACE (S-1-5-18) != Current User SID (S-1-5-21-0-0-0-1000)
+security.c:3617: Test marked todo: Administators Group ACE (S-1-5-21-0-0-0-1000) != Administators Group SID (S-1-5-32-544)
+security.c:3633: Test marked todo: GetAclInformation returned unexpected entry count (3 != 2)
+security.c:3633: Test marked todo: Current User ACE (S-1-5-18) != Current User SID (S-1-5-21-0-0-0-1000)
+security.c:3633: Test marked todo: Current User ACE has unexpected flags (0x0 != 0x10)
+security.c:3633: Test marked todo: Administators Group ACE (S-1-5-21-0-0-0-1000) != Administators Group SID (S-1-5-32-544)
+security.c:3633: Test marked todo: Administators Group ACE has unexpected flags (0x0 != 0x10)
+security.c:3664: Test marked todo: GetAclInformation returned unexpected entry count (3 != 0).
+security.c:3672: Test succeeded inside todo block: GetNamedSecurityInfo failed with error 0
+security.c:3678: Test marked todo: GetAclInformation returned unexpected entry count (3 != 0).
+security.c:3706: Test marked todo: GetAclInformation returned unexpected entry count (3 != 2)
+security.c:3706: Test marked todo: Current User ACE (S-1-5-18) != Current User SID (S-1-5-21-0-0-0-1000)
+security.c:3706: Test marked todo: Current User ACE has unexpected flags (0x0 != 0x10)
+security.c:3706: Test marked todo: Administators Group ACE (S-1-5-21-0-0-0-1000) != Administators Group SID (S-1-5-32-544)
+security.c:3706: Test marked todo: Administators Group ACE has unexpected flags (0x0 != 0x10)
+security.c:3743: Test marked todo: GetAclInformation returned unexpected entry count (3 != 0).
+security.c:3751: Test succeeded inside todo block: GetNamedSecurityInfo failed with error 0
+security.c:3757: Test marked todo: GetAclInformation returned unexpected entry count (3 != 0).
+security.c:3921: Test marked todo: Current User ACE (S-1-5-18) != Current User SID (S-1-5-21-0-0-0-1000).
+security.c:3933: Test marked todo: Administators Group ACE (S-1-5-21-0-0-0-1000) != Administators Group SID (S-1-5-32-544).
+security.c:3962: Test marked todo: ACE has unexpected flags: 0x0
+security.c:3980: Test marked todo: pDacl != NULL
+security.c:4001: Test failed: CreateFile error 0
+security.c:4010: Test failed: CreateFile error 0
+security.c:4020: Test failed: CreateFile error 0
+security.c:4053: Test failed: CreateFile error 0
+security.c:4243: Test marked todo: ConvertStringSecurityDescriptorToSecurityDescriptor should have failed with ERROR_INVALID_PARAMETER instead of -559038737
+00ec:fixme:security:GetWindowsAccountDomainSid (0000000000000000 0000000000000000 0000000000000000): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (00000000007C31B0 0000000000000000 0000000000000000): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (00000000007C31B0 0000000000000000 000000000021FA9C): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (00000000007C31B0 000000000021FAB0 0000000000000000): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (00000000007C31B0 000000000021FAB0 000000000021FA9C): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (00000000007C31B0 000000000021FAB0 000000000021FA9C): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+security.c:7692: Well known SID 38 not supported
+security.c:7692: Well known SID 39 not supported
+security.c:7692: Well known SID 40 not supported
+security.c:7692: Well known SID 41 not supported
+security.c:7692: Well known SID 42 not supported
+security.c:7692: Well known SID 43 not supported
+security.c:7692: Well known SID 44 not supported
+security.c:7692: Well known SID 45 not supported
+security.c:7692: Well known SID 46 not supported
+security.c:7692: Well known SID 47 not supported
+security.c:7692: Well known SID 48 not supported
+security.c:7692: Well known SID 49 not supported
+security.c:7692: Well known SID 50 not supported
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+security.c:7692: Well known SID 62 not supported
+security.c:7692: Well known SID 63 not supported
+security.c:7692: Well known SID 64 not supported
+security.c:7692: Well known SID 65 not supported
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+security.c:7692: Well known SID 70 not supported
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+security.c:7692: Well known SID 72 not supported
+security.c:7692: Well known SID 73 not supported
+security.c:7692: Well known SID 74 not supported
+security.c:7692: Well known SID 75 not supported
+security.c:7692: Well known SID 76 not supported
+security.c:7692: Well known SID 77 not supported
+security.c:7692: Well known SID 78 not supported
+security.c:7692: Well known SID 79 not supported
+security.c:7692: Well known SID 80 not supported
+security.c:7692: Well known SID 81 not supported
+security.c:7692: Well known SID 82 not supported
+security.c:7692: Well known SID 83 not supported
+00ec:fixme:security:GetWindowsAccountDomainSid (000000000021FAB0 000000000021F940 000000000021F8EC): semi-stub
+security.c:4768: Test marked todo: Current User ACE (S-1-5-18) != Current User SID (S-1-5-21-0-0-0-1000).
+security.c:4780: Test marked todo: Administators Group ACE (S-1-5-21-0-0-0-1000) != Administators Group SID (S-1-5-32-544).
+security.c:4910: Test marked todo: got error 0
+security.c:4914: Test marked todo: got error 0
+00ec:fixme:advapi:GetSecurityInfo unimplemented type 0
+security.c:4928: Test marked todo: Type 0: got error 120
+00ec:fixme:advapi:SetSecurityInfo unimplemented type 0, returning success
+security.c:4936: Test marked todo: Type 0: got error 0
+00ec:fixme:advapi:GetSecurityInfo unimplemented type 8
+security.c:4928: Test marked todo: Type 0x8: got error 120
+00ec:fixme:advapi:SetSecurityInfo unimplemented type 8, returning success
+security.c:4936: Test marked todo: Type 0x8: got error 0
+00ec:fixme:advapi:GetSecurityInfo unimplemented type 9
+security.c:4928: Test marked todo: Type 0x9: got error 120
+00ec:fixme:advapi:SetSecurityInfo unimplemented type 9, returning success
+security.c:4936: Test marked todo: Type 0x9: got error 0
+00ec:fixme:advapi:GetSecurityInfo unimplemented type 10
+security.c:4928: Test marked todo: Type 0xa: got error 120
+00ec:fixme:advapi:SetSecurityInfo unimplemented type 10, returning success
+security.c:4936: Test marked todo: Type 0xa: got error 0
+00ec:fixme:advapi:GetSecurityInfo unimplemented type 12
+security.c:4928: Test marked todo: Type 0xc: got error 120
+00ec:fixme:advapi:SetSecurityInfo unimplemented type 12, returning success
+security.c:4936: Test marked todo: Type 0xc: got error 0
+00ec:fixme:advapi:GetSecurityInfo unimplemented type 13
+security.c:4928: Test marked todo: Type 0xd: got error 120
+00ec:fixme:advapi:SetSecurityInfo unimplemented type 13, returning success
+security.c:4936: Test marked todo: Type 0xd: got error 0
+00ec:fixme:advapi:GetSecurityInfo unimplemented type 3735928559
+security.c:4928: Test marked todo: Type 0xdeadbeef: got error 120
+00ec:fixme:advapi:SetSecurityInfo unimplemented type 3735928559, returning success
+security.c:4936: Test marked todo: Type 0xdeadbeef: got error 0
+security.c:6794: Test marked todo: got 0
+security.c:6821: Test marked todo: got 0
+security.c:6844: Test marked todo: got 5
+security.c:7009: Test marked todo: Expected ERROR_NO_TOKEN, got 6
+security.c:7077: Test marked todo: Unexpected security descriptor control 0x8014
+security.c:7122: Test marked todo: DACL present
+security.c:7077: Test marked todo: Unexpected security descriptor control 0x8014
+security.c:7122: Test marked todo: DACL present
+security.c:7077: Test marked todo: Unexpected security descriptor control 0x8014
+security.c:7122: Test marked todo: DACL present
+security.c:7077: Test marked todo: Unexpected security descriptor control 0x8014
+security.c:7122: Test marked todo: DACL present
+security.c:7080: Test marked todo: Unexpected security descriptor control 0x8014
+security.c:7122: Test marked todo: DACL present
+security.c:7077: Test marked todo: Unexpected security descriptor control 0x8014
+security.c:7122: Test marked todo: DACL present
+0108:security: 14 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+0110:security: 1 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+security.c:7960: Test marked todo: expected failure
+security.c:7961: Test marked todo: got error 0
+0118:security: 1 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+0120:security: 1 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+0128:security: 1 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+0130:security: 2 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+security.c:8066: Test marked todo: key FFFFFFFF80000006: got error 0
+security.c:8128: Test marked todo: Got attributes 0
+security.c:8141: Test marked todo: Got attributes 0
+security.c:8164: Test marked todo: Got attributes 0
+security.c:8177: Test marked todo: Got attributes 0
+00ec:fixme:ntdll:NtDuplicateToken ignoring effective-only flag
+security.c:8186: Test marked todo: Privilege shouldn't exist
+security.c:8271: Test marked todo: got control 0x8004
+security.c:8286: Test marked todo: expected no DACL present
+00ec:fixme:ntdll:NtSetInformationToken unimplemented class 18
+security.c:8396: Test marked todo: got error 1
+00ec:fixme:ntdll:NtSetInformationToken unimplemented class 20
+security.c:8401: Test marked todo: got error 1
+security.c:9588: Test marked todo: DuplicateTokenEx succeeded
+security.c:9589: Test marked todo: got error 3735928559
+security.c:9599: Test marked todo: CreateProcessAsUserA succeeded
+security.c:9600: Test marked todo: got error 0
+security.c:9618: Test marked todo: CreateFileA succeeded
+security.c:9619: Test marked todo: got error 0
+security.c:9626: Test marked todo: OpenProcessToken succeeded
+security.c:9627: Test marked todo: got error 3735928559
+security.c:8730: Test marked todo: got present 0
+0194:security: 23 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped.
+00e8:security: Silenced 0 todos, 0 skips and 2 traces.
+00e8:security: 3777 tests executed (179 marked as todo, 0 as flaky, 7 failures), 28 skipped.
+X connection to :102 broken (explicit kill or server shutdown).
+X connection to :102 broken (explicit kill or server shutdown).
