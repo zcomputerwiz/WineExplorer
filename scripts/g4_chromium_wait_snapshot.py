@@ -59,15 +59,20 @@ def observe(output, env, build, prefix, *, maximum_seconds=8, proc_root=Path('/p
 
 def observe_root(output, env, build, prefix, *, run=subprocess.run):
     name=Path(output).name
-    if name not in ('chromium-token-wait-r13-20261101','chromium-token-wait-r14-20261101'):
+    if name not in ('chromium-token-wait-r13-20261101','chromium-token-wait-r14-20261101','chromium-token-wait-r15-20261101'):
         raise ValueError('Root wait snapshot requires fixed r13/r14 paths')
     lab=Path('/home/debian/wex-g4')
     if (Path(output),Path(build),Path(prefix)) != (lab/name,lab/(name+'-wine/build/wow64'),lab/(name+'-prefix')):
         raise ValueError('Root wait snapshot requires fixed r13 paths')
     if env.get('WINEPREFIX')!=str(prefix) or env.get('WINESERVER')!=str(Path(build)/'server/wineserver'):
         raise ValueError('Root wait snapshot requires candidate environment')
-    result=run(['sudo','-n','python3','-B',str(Path(__file__).resolve()),'--root-'+name.split('-')[3]],
-               capture_output=True,text=True,timeout=10,check=True)
+    try:
+        result=run(['sudo','-n','python3','-B',str(Path(__file__).resolve()),'--root-'+name.split('-')[3]],
+                   capture_output=True,text=True,timeout=10,check=True)
+    except subprocess.CalledProcessError as error:
+        stderr=error.stderr or ''
+        if len(stderr.encode())>1024**2:raise ValueError('Root wait snapshot error quota') from error
+        raise ValueError('Root wait snapshot failed: '+stderr[:4096]) from error
     if len(result.stdout.encode())>1024**2:raise ValueError('Root wait snapshot output quota')
     record=json.loads(result.stdout)
     if record.get('candidate_server_sha256')!='196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800':
@@ -115,10 +120,14 @@ def mapped_browser(output, *, proc_root=Path('/proc'), now=time.monotonic):
         if isinstance(command,dict):
             record['threads'].append({'tid':tid,'identity_error':command});continue
         args=command.rstrip('\0').split('\0')
+        status=read(task/'status')
+        if isinstance(status,dict):
+            record['threads'].append({'tid':tid,'identity_field':'status','identity_error':status});continue
+        if not command and re.search(r'^State:\s*[ZX]\b',status,re.MULTILINE):
+            record['threads'].append({'tid':tid,'identity_error':{'error':'ExitedTask'}});continue
         if not args or args[0]!=image or profile not in args or any(arg.startswith('--type=') for arg in args):
             raise ValueError('Mapped browser command identity mismatch')
-        status=read(task/'status')
-        if not isinstance(status,str) or not re.search(r'^Tgid:\s*'+str(pid)+r'\s*$',status,re.MULTILINE):
+        if not re.search(r'^Tgid:\s*'+str(pid)+r'\s*$',status,re.MULTILINE):
             raise ValueError('Mapped browser thread group mismatch')
         record['threads'].append({'tid':tid,'identity_verified':True,
                                   **{field:read(task/field) for field in ('comm','wchan','syscall')}})
@@ -128,7 +137,7 @@ def mapped_browser(output, *, proc_root=Path('/proc'), now=time.monotonic):
 
 
 def root_snapshot():
-    if sys.argv[1:] not in (['--root-r13'],['--root-r14']) or os.geteuid()!=0:
+    if sys.argv[1:] not in (['--root-r13'],['--root-r14'],['--root-r15']) or os.geteuid()!=0:
         raise ValueError('Fixed root snapshot only')
     identities={name:os.readlink('/proc/self/ns/'+name) for name in ('mnt','net')}
     if any(identities[name]==os.readlink('/proc/1/ns/'+name) for name in identities):
@@ -140,7 +149,7 @@ def root_snapshot():
     if hashlib.sha256((build/'server/wineserver').read_bytes()).hexdigest()!='196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800':
         raise ValueError('Root snapshot server identity mismatch')
     env={'WINEPREFIX':str(prefix),'WINESERVER':str(build/'server/wineserver')}
-    if name.endswith('r14-20261101'):
+    if name.endswith(('r14-20261101','r15-20261101')):
         record={'classification':'Exact bound Wine/Unix mapping and live thread identity; not browser acceptance',
                 'candidate_server_sha256':hashlib.sha256((build/'server/wineserver').read_bytes()).hexdigest(),
                 'browser':mapped_browser(output)}

@@ -442,3 +442,52 @@ failure**. Six x64/x86 startup, three-mode Mojo and descriptor programs then
 passed on that same runtime. All owned threads were checked before clone
 removal; the preserved baseline and graceful QMP shutdown were verified.
 Chromium acceptance and the subsequent Edge comparison remain outstanding.
+
+## r15 partial waits and r16/r17 direct visual checks
+
+Wine `b737f525` adds opt-in `wex_wait` markers around pending selects and
+thread-context waits, without changing their results. The r15 archive changes
+only Unix `ntdll.so` (1778 files, 1883826843 bytes); the accepted server and
+both architectures' PE modules remain unchanged. Its partial trace records
+repeated completed sampler context handshakes, including a main-thread select
+returning `STATUS_KERNEL_APC`. A 16-byte pipe read alone therefore does not
+establish a stuck context suspension.
+
+**The r15 browser observation is invalid:** the root observer exited with
+status one at five seconds, aborting the trial. Its original stderr was not
+retained, so the cause is unknown. The partial trace and Chromium log are not
+a completed 45-second connection verdict. All six x64/x86 startup, three-mode
+Mojo and descriptor programs passed afterward on the same runtime. Observer
+exit-race handling and error-context preservation now have fixture coverage;
+they have not been confirmed by another live root-observer run.
+
+The user-directed visual r16 deliberately returns to the original corrected
+r7 runtime, minimal Wine logging and no root observer. Successful captures of
+the actual owned compositor output at ten and thirty-five seconds both show
+only black background and cursor, with **no Chromium window**. There are zero
+fixture requests and no Chromium log. The native helper reaches its
+45-second deadline while the browser remains alive; that timeout alone is
+not a browser failure.
+
+The r17 follow-up removes the native-held helper and launches Wine directly
+on the exclusively owned initialized r16 prefix, with a fresh browser profile
+and unchanged normal Chromium sandbox flags. Captures at ten and fifty-five
+seconds again show no browser window, with zero fixture requests. Unlike r16,
+this run produces a 19868-byte Chromium log and reaches network/GPU startup.
+Wine thread `0024` reports:
+
+```text
+virtual_setup_exception stack overflow 4736 bytes addr 0x6fffffc12156 stack 0x1fd80 (0x20000-0x21000-0x820000)
+```
+
+This is a new concrete startup-failure lead, not proof of its cause or that it
+explains the earlier utility connection timeouts. Completed context capture
+does not prove later stack walking completes. No speculative token change,
+sandbox-disable flag or permissive ACL workaround was used.
+
+The r17 server and compositor were stopped, then the idle owned r16 prefix
+and build were removed after process checks. The preserved baseline server
+hash remains `0323c006...`; QMP powerdown was graceful with QEMU exit zero and
+QEMU/Xvfb stopped. Public outcomes and r15 diagnostic traces are retained in
+`docs/evidence/`; screenshots and full r17 browser artifacts remain private.
+Chromium functionality and the subsequent Edge comparison are still unaccepted.

@@ -190,6 +190,21 @@ class ParserTests(unittest.TestCase):
                 self.assertEqual(r.main(),1)
                 self.assertEqual(r.MODE,'token-wait-r14')
                 self.assertEqual(dispatch.call_args.args[0],r.OUTPUT)
+            r.configure('token-wait-r15')
+            self.assertEqual(r.HOST,'chromium-token-wait-r15-20261101')
+            self.assertEqual(r.DEBUG,debug+',+wex_process,+wex_wait')
+            self.assertEqual(r.child_args(NONCE,URL),[arg.replace(old_output,r.cal.win(r.OUTPUT)) for arg in args])
+            with mock.patch.object(r.sys,'argv',['native','--token-wait-r15']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as dispatch:
+                self.assertEqual(r.main(),1)
+                self.assertEqual(r.MODE,'token-wait-r15')
+                self.assertEqual(dispatch.call_args.args[0],r.OUTPUT)
+            r.configure('token-visual-r16')
+            self.assertEqual(r.HOST,'chromium-token-visual-r16-20261101')
+            self.assertEqual(r.DEBUG,r.BASE_DEBUG)
+            self.assertEqual(r.child_args(NONCE,URL),[arg.replace(old_output,r.cal.win(r.OUTPUT)) for arg in args])
+            with mock.patch.object(r.sys,'argv',['native','--token-visual-r16']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as dispatch:
+                self.assertEqual(r.main(),1)
+                self.assertEqual(r.MODE,'token-visual-r16')
         finally:
             r.configure(original[0]);r.BUILD=original[1];r.cal.BUILD=original[1]
             r.PREFIX=original[2];r.cal.PREFIX=original[2];r.cal.APPROVED_LOADER=original[3]

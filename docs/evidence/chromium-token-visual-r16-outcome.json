@@ -1,0 +1,100 @@
+{
+  "classification": "Actual live output black with cursor at ten and thirty-five seconds; no browser window or fixture traffic",
+  "result": {
+    "error": "ValueError('Linux helper failed/exit mismatch')",
+    "journal_outcome": {
+      "outcome": "native_timeout",
+      "bound": {
+        "v": 1,
+        "event": "bound",
+        "mode": "chromium",
+        "nonce": "7739c66c5e2dbe64a480c201873951f6",
+        "helper_pid": 32,
+        "child_pid": 244,
+        "creation_time": 134379691862419540,
+        "image": "Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe",
+        "command_line": "\"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\" \"--app=http://127.0.0.1:38677/7739c66c5e2dbe64a480c201873951f6/index.html#nonce=7739c66c5e2dbe64a480c201873951f6\" \"--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-visual-r16-20261101\\profile\" \"--no-first-run\" \"--no-default-browser-check\" \"--enable-logging\" \"--log-file=Z:\\home\\debian\\wex-g4\\chromium-token-visual-r16-20261101\\chromium.log\" \"--v=1\" \"--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3\" \"--log-net-log=Z:\\home\\debian\\wex-g4\\chromium-token-visual-r16-20261101\\netlog.json\" \"--net-log-max-size-mb=8\" \"--net-log-duration=40\" \"--trace-startup\" \"--trace-startup-duration=35\" \"--trace-startup-file=Z:\\home\\debian\\wex-g4\\chromium-token-visual-r16-20261101\\trace.json\"",
+        "creation_flags": 0,
+        "inherit_handles": false,
+        "environment": "inherited_NULL",
+        "manifest_sha256": "8fc037ca464bc22952c9f9d63447cf0feb7dcab07e20489cb2d3a4ef3e1a8ba7",
+        "manifest_verified_by_native": false,
+        "tick_ms": 90506
+      },
+      "terminal": {
+        "v": 1,
+        "event": "timeout",
+        "nonce": "7739c66c5e2dbe64a480c201873951f6",
+        "child_pid": 244,
+        "creation_time": 134379691862419540,
+        "wait_result": 258,
+        "wait_ms": 45000,
+        "tick_ms": 135670
+      },
+      "manifest_marker_verified": false,
+      "accepted_observation": false
+    },
+    "http_fixture": {
+      "classification": "HTTP writes only; browser consumption NOT_PROVEN",
+      "requests": [],
+      "errors": [],
+      "sources": {
+        "index.html": {
+          "path": "/home/debian/wex-g4/chromium-token-visual-r16-20261101-stage/scripts/g4-edge-probe/index.html",
+          "bytes": 637,
+          "sha256": "f0a47b1a6013c015228c3e6c76a0a73b5d3eb6c218ec031a34dd8da7e0c0edc3"
+        },
+        "scene.js": {
+          "path": "/home/debian/wex-g4/chromium-token-visual-r16-20261101-stage/scripts/g4-edge-probe/scene.js",
+          "bytes": 3750,
+          "sha256": "fe9b1801a7d4baa3512fb4e103330e317d17c9f2e2763abf8f14a275c686ee51"
+        }
+      },
+      "connection_timeout_seconds": 0.5,
+      "maximum_requests": 64,
+      "listener": {
+        "host": "127.0.0.1",
+        "port": 38677
+      },
+      "started_monotonic": 89.340360186,
+      "url": "http://127.0.0.1:38677/7739c66c5e2dbe64a480c201873951f6/index.html#nonce=7739c66c5e2dbe64a480c201873951f6",
+      "stopped_monotonic": 135.87708841,
+      "thread_stopped": true
+    },
+    "live_capture_10": {
+      "exit": 0,
+      "stderr": "",
+      "path": "/home/debian/wex-g4/chromium-token-visual-r16-20261101/live-front-10.png"
+    },
+    "live_capture_35": {
+      "exit": 0,
+      "stderr": "",
+      "path": "/home/debian/wex-g4/chromium-token-visual-r16-20261101/live-front-35.png"
+    },
+    "cleanup_complete": true,
+    "remaining_prefix_processes": {}
+  },
+  "runtime": {
+    "manifest_files": 1778,
+    "manifest_bytes": 1883823875,
+    "original_corrected_r7_runtime": true,
+    "diagnostic_overlay": false
+  },
+  "owned_cleanup": {
+    "removed_owned_paths": [
+      "/home/debian/wex-g4/chromium-token-visual-r16-20261101-prefix",
+      "/home/debian/wex-g4/chromium-token-visual-r16-20261101-wine/build"
+    ],
+    "preserved_baseline_server_sha256": "0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab"
+  },
+  "shutdown": {
+    "stop_reason": "signal",
+    "graceful_powerdown": true,
+    "qemu_exit_status": 0,
+    "cleanup": {
+      "qemu_stopped": true,
+      "xvfb_stopped": true
+    }
+  },
+  "limits": "Interactive browser remaining alive at the forty-five-second harness deadline is not itself a browser failure. Successful screenshot capture, missing window and zero HTTP are independent observations; screenshots remain private."
+}

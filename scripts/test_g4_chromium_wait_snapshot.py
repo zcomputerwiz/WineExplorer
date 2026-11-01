@@ -10,11 +10,34 @@ from g4_chromium_wait_snapshot import observe,observe_root,root_snapshot,browser
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_root_r15_uses_fixed_paths_and_argument(self):
+        lab=Path('/home/debian/wex-g4');name='chromium-token-wait-r15-20261101'
+        build=lab/(name+'-wine/build/wow64');prefix=lab/(name+'-prefix')
+        record={'candidate_server_sha256':'196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800'}
+        run=mock.Mock(return_value=mock.Mock(stdout=json.dumps(record)))
+        env={'WINEPREFIX':str(prefix),'WINESERVER':str(build/'server/wineserver')}
+        self.assertEqual(observe_root(lab/name,env,build,prefix,run=run),record)
+        self.assertEqual(run.call_args.args[0][-1],'--root-r15')
+        self.assertEqual(run.call_args.kwargs['timeout'],10)
+
     def test_root_snapshot_rejects_unprivileged_or_shared_namespace(self):
         with mock.patch('sys.argv',['observer','--root-r13']),mock.patch('os.geteuid',return_value=1000):
             with self.assertRaisesRegex(ValueError,'Fixed root'):root_snapshot()
         with mock.patch('sys.argv',['observer','--root-r13']),mock.patch('os.geteuid',return_value=0),mock.patch('os.readlink',return_value='shared'):
             with self.assertRaisesRegex(ValueError,'shared namespaces'):root_snapshot()
+
+    def test_root_failure_retains_stderr_and_cause_with_quota(self):
+        lab=Path('/home/debian/wex-g4');name='chromium-token-wait-r15-20261101'
+        build=lab/(name+'-wine/build/wow64');prefix=lab/(name+'-prefix')
+        env={'WINEPREFIX':str(prefix),'WINESERVER':str(build/'server/wineserver')}
+        failure=subprocess.CalledProcessError(1,['sudo'],stderr='observer identity failure')
+        run=mock.Mock(side_effect=failure)
+        with self.assertRaisesRegex(ValueError,'Root wait snapshot failed: observer identity failure') as raised:
+            observe_root(lab/name,env,build,prefix,run=run)
+        self.assertIs(raised.exception.__cause__,failure)
+        failure.stderr='x'*(1024**2+1)
+        with self.assertRaisesRegex(ValueError,'error quota'):
+            observe_root(lab/name,env,build,prefix,run=run)
 
     def test_root_invocation_is_fixed_and_propagates_failures(self):
         lab=Path('/home/debian/wex-g4');name='chromium-token-wait-r13-20261101'
@@ -225,6 +248,31 @@ class MappedBrowserTests(unittest.TestCase):
             self.assertEqual(record['threads'][0]['tid'],1200)
             self.assertTrue(record['threads'][0]['identity_verified'])
             self.assertEqual(record['threads'][1],{'tid':1201,'identity_error':{'error':'FileNotFoundError'}})
+
+    def test_mapped_browser_records_status_read_exit_race(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output,proc=self.fixture(folder)
+            (proc/'1200'/'status').unlink()
+            record=mapped_browser(output,proc_root=proc)
+            self.assertEqual(record['threads'][0],{'tid':1200,'identity_field':'status',
+                                                  'identity_error':{'error':'FileNotFoundError'}})
+            self.assertTrue(record['threads'][1]['identity_verified'])
+
+    def test_mapped_browser_records_empty_command_only_for_exited_tasks(self):
+        for state in ('Z','X'):
+            with self.subTest(state=state),tempfile.TemporaryDirectory() as folder:
+                output,proc=self.fixture(folder)
+                (proc/'1200'/'cmdline').write_bytes(b'')
+                (proc/'1200'/'status').write_text('State:\t'+state+'\nTgid:\t1176\n')
+                record=mapped_browser(output,proc_root=proc)
+                self.assertEqual(record['threads'][0],{'tid':1200,'identity_error':{'error':'ExitedTask'}})
+                self.assertTrue(record['threads'][1]['identity_verified'])
+        with tempfile.TemporaryDirectory() as folder:
+            output,proc=self.fixture(folder)
+            (proc/'1200'/'cmdline').write_bytes(b'')
+            (proc/'1200'/'status').write_text('State:\tS\nTgid:\t1176\n')
+            with self.assertRaisesRegex(ValueError,'command identity mismatch'):
+                mapped_browser(output,proc_root=proc)
 
     def test_mapped_browser_requires_at_least_one_live_thread(self):
         with tempfile.TemporaryDirectory() as folder:

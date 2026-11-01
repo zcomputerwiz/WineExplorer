@@ -1266,3 +1266,17 @@ to these records and verifies live thread command lines and thread groups,
 without relying on `/proc/<leader>/environ`. The same instrumented runtime
 passes all six x64/x86 startup, Mojo and descriptor programs. This resolves
 diagnostic identity, not the browser stall or Chromium/Edge acceptance.
+
+## Temporary opt-in pending wait diagnostics (2026-11-01)
+
+Wine `b737f525` adds the `wex_wait` channel in
+`dlls/ntdll/unix/{server.c,thread.c}`. It records pending-select cookies,
+operation/size/flags/timeout, context presence and the first handle, the
+returned status, and pending/resumed context handles. It changes no wait,
+signal, process, token or access semantics. Only Unix `ntdll.so` is overlaid
+on the corrected WoW64 runtime; both PE architectures and server are unchanged.
+The r15 trace exercises these markers and all six x64/x86 startup, Mojo and
+descriptor programs pass afterward. Its root observer aborts at five seconds
+with an unknown original stderr cause, so it is not a completed browser
+observation or a connection fix. Subsequent visual r16/r17 checks use the
+original corrected runtime without this overlay.
