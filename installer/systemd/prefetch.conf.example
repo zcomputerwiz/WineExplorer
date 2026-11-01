@@ -15,3 +15,14 @@ MaxConcurrent=128
 
 # Maximum size of a single cached image in megabytes.
 MaxImageMB=1024
+
+# Maximum number of cache entries. Images are sparse, so each entry is also charged 4 KiB against MaxCacheMB.
+MaxEntries=4096
+
+# Per user limit on reading and hashing files the service has not seen before, per minute (0 = unlimited).
+# Files already known are free. A request over the limit is answered BUSY and the client loads the image itself.
+MaxBuildsPerMinute=120
+
+# Refuse sources on FUSE, NFS, SMB and 9p filesystems (1, the default): reading them can block forever while the
+# service holds its build lock. Set to 0 only for testing, for example when images live on a WSL drive mount.
+RejectNetworkFS=1

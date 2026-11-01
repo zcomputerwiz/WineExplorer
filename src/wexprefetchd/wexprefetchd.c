@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <poll.h>
+#include <sys/vfs.h>
 #include <stdarg.h>
 #include <inttypes.h>
 #include <ctype.h>
@@ -55,6 +56,19 @@
 #define DEFAULT_MAX_CACHE_MB     8192u
 #define DEFAULT_MAX_CONCURRENT   128u  /* a browser start-up has 20+ processes loading images at once */
 #define DEFAULT_MAX_IMAGE_MB     1024u
+#define DEFAULT_MAX_ENTRIES      4096u
+#define DEFAULT_MAX_BUILDS_MIN   120u   /* reads+hashes of unknown files per user per minute */
+#define ENTRY_OVERHEAD_BYTES     4096ULL /* charged per cache entry on top of its blocks: images are sparse */
+
+/* statfs f_type of filesystems whose reads can stall forever or are controlled by an unprivileged user */
+#define WEXPF_FS_FUSE            0x65735546
+#define WEXPF_FS_NFS             0x6969
+#define WEXPF_FS_SMB             0x517B
+#define WEXPF_FS_CIFS            0xFF534D42
+#define WEXPF_FS_SMB2            0xFE534D42
+#define WEXPF_FS_9P              0x01021997
+#define WEXPF_FS_AFS             0x5346414F
+#define WEXPF_FS_CEPH            0x00C36400
 
 #define SD_LISTEN_FDS_START      3
 #define IDLE_EXIT_SECONDS        120
@@ -117,6 +131,9 @@ struct daemon_config
     uint64_t max_cache_bytes;
     uint32_t max_concurrent;
     uint64_t max_image_bytes;
+    uint32_t max_entries;          /* cache entry count cap */
+    uint32_t max_builds_per_min;   /* per peer uid; 0 = unlimited */
+    int      reject_network_fs;    /* refuse sources on FUSE, NFS, SMB, 9p ... */
 };
 
 struct daemon_ctx
@@ -506,6 +523,9 @@ static void init_default_config( struct daemon_config *cfg )
     cfg->max_image_bytes = (uint64_t)DEFAULT_MAX_IMAGE_MB * 1024ULL * 1024ULL;
     if (cfg->max_image_bytes > (uint64_t)WEXPF_MAX_IMAGE_SIZE)
         cfg->max_image_bytes = (uint64_t)WEXPF_MAX_IMAGE_SIZE;
+    cfg->max_entries        = DEFAULT_MAX_ENTRIES;
+    cfg->max_builds_per_min = DEFAULT_MAX_BUILDS_MIN;
+    cfg->reject_network_fs  = 1;
 }
 
 static void load_config( struct daemon_ctx *ctx, int is_reload )
@@ -577,6 +597,27 @@ static void load_config( struct daemon_ctx *ctx, int is_reload )
                     next.max_concurrent = (uint32_t)parsed_val;
                 }
             }
+            else if (strcmp( key, "MaxEntries" ) == 0)
+            {
+                errno = 0;
+                parsed_val = strtoull( val, &endp, 10 );
+                if (errno == 0 && endp && *endp == '\0' && parsed_val >= 1 && parsed_val <= 1000000)
+                    next.max_entries = (uint32_t)parsed_val;
+            }
+            else if (strcmp( key, "MaxBuildsPerMinute" ) == 0)
+            {
+                errno = 0;
+                parsed_val = strtoull( val, &endp, 10 );
+                if (errno == 0 && endp && *endp == '\0' && parsed_val <= 1000000)
+                    next.max_builds_per_min = (uint32_t)parsed_val;
+            }
+            else if (strcmp( key, "RejectNetworkFS" ) == 0)
+            {
+                if (strcmp( val, "0" ) == 0 || strcasecmp( val, "false" ) == 0 || strcasecmp( val, "no" ) == 0)
+                    next.reject_network_fs = 0;
+                else if (strcmp( val, "1" ) == 0 || strcasecmp( val, "true" ) == 0 || strcasecmp( val, "yes" ) == 0)
+                    next.reject_network_fs = 1;
+            }
             else if (strcmp( key, "MaxImageMB" ) == 0)
             {
                 errno = 0;
@@ -605,11 +646,12 @@ static void load_config( struct daemon_ctx *ctx, int is_reload )
     {
         log_msg( ctx->foreground, LOG_INFO,
                  "config reloaded from %s: Enabled=%d MaxCacheMB=%" PRIu64
-                 " MaxConcurrent=%u MaxImageMB=%" PRIu64,
+                 " MaxConcurrent=%u MaxImageMB=%" PRIu64 " MaxEntries=%u MaxBuildsPerMinute=%u RejectNetworkFS=%d",
                  ctx->config_path, next.enabled,
                  (uint64_t)(next.max_cache_bytes / (1024ULL * 1024ULL)),
                  next.max_concurrent,
-                 (uint64_t)(next.max_image_bytes / (1024ULL * 1024ULL)) );
+                 (uint64_t)(next.max_image_bytes / (1024ULL * 1024ULL)),
+                 next.max_entries, next.max_builds_per_min, next.reject_network_fs );
     }
 }
 
@@ -983,7 +1025,7 @@ static int compare_prune_candidates( const void *a, const void *b )
 }
 
 static void prune_cache_if_needed( const struct daemon_ctx *ctx, const char *just_created_name,
-                                   uint64_t max_cache_bytes )
+                                   uint64_t max_cache_bytes, uint32_t max_entries )
 {
     DIR *dir;
     int dfd;
@@ -993,6 +1035,7 @@ static void prune_cache_if_needed( const struct daemon_ctx *ctx, const char *jus
     size_t cand_cap = 0;
     uint64_t total_bytes = 0;
     uint64_t freed_bytes = 0;
+    uint64_t entries = 0;
     uint32_t removed_files = 0;
     size_t i;
 
@@ -1020,8 +1063,10 @@ static void prune_cache_if_needed( const struct daemon_ctx *ctx, const char *jus
         if (!S_ISREG( st.st_mode ))
             continue;
 
-        disk_bytes = (uint64_t)st.st_blocks * 512ULL;
+        /* images are sparse, so blocks alone would let near-empty entries pile up for free */
+        disk_bytes = (uint64_t)st.st_blocks * 512ULL + ENTRY_OVERHEAD_BYTES;
         total_bytes += disk_bytes;
+        entries++;
 
         if (just_created_name && strcmp( de->d_name, just_created_name ) == 0)
             continue;
@@ -1043,13 +1088,14 @@ static void prune_cache_if_needed( const struct daemon_ctx *ctx, const char *jus
         cand_count++;
     }
 
-    if (total_bytes > max_cache_bytes && cand_count > 0)
+    if ((total_bytes > max_cache_bytes || entries > max_entries) && cand_count > 0)
     {
         qsort( cands, cand_count, sizeof(*cands), compare_prune_candidates );
-        for (i = 0; i < cand_count && total_bytes > max_cache_bytes; i++)
+        for (i = 0; i < cand_count && (total_bytes > max_cache_bytes || entries > max_entries); i++)
         {
             if (unlinkat( dfd, cands[i].name, 0 ) == 0)
             {
+                entries--;
                 if (total_bytes >= cands[i].disk_bytes)
                     total_bytes -= cands[i].disk_bytes;
                 else
@@ -1110,6 +1156,97 @@ static int open_existing_cache_image( const char *cache_dir, const char *sha_hex
     }
 
     return fd;
+}
+
+/* Per peer uid limit on the expensive path (reading and hashing a file we have not seen): a client cannot make
+ * the daemon read, hash and write an unbounded stream of distinct files.  g_rate_lock is a leaf lock. */
+#define RATE_SLOTS 32
+static struct rate_slot
+{
+    uid_t    uid;
+    int64_t  window_start;
+    uint32_t count;
+    int      used;
+} g_rate[RATE_SLOTS];
+static pthread_mutex_t g_rate_lock = PTHREAD_MUTEX_INITIALIZER;
+static __thread uid_t  tl_peer_uid = (uid_t)-1;
+
+static int build_rate_allowed( uid_t uid, uint32_t limit )
+{
+    int64_t now = now_monotonic_ms() / 1000;
+    struct rate_slot *slot = NULL;
+    int allowed = 1;
+    int i;
+
+    if (limit == 0)
+        return 1;
+
+    pthread_mutex_lock( &g_rate_lock );
+    for (i = 0; i < RATE_SLOTS; i++)
+    {
+        if (g_rate[i].used && g_rate[i].uid == uid)
+        {
+            slot = &g_rate[i];
+            break;
+        }
+    }
+    if (!slot)
+    {
+        /* take a free slot, else the one whose window is oldest */
+        for (i = 0; i < RATE_SLOTS; i++)
+        {
+            if (!g_rate[i].used)
+            {
+                slot = &g_rate[i];
+                break;
+            }
+            if (!slot || g_rate[i].window_start < slot->window_start)
+                slot = &g_rate[i];
+        }
+        slot->used = 1;
+        slot->uid = uid;
+        slot->window_start = now;
+        slot->count = 0;
+    }
+    if (now - slot->window_start >= 60)
+    {
+        slot->window_start = now;
+        slot->count = 0;
+    }
+    if (slot->count >= limit)
+        allowed = 0;
+    else
+        slot->count++;
+    pthread_mutex_unlock( &g_rate_lock );
+    return allowed;
+}
+
+/* Sources on filesystems whose reads can block forever or are served by an unprivileged process are refused:
+ * the daemon reads the whole file while holding the global build lock. */
+static int fd_on_untrusted_fs( int fd )
+{
+    struct statfs sf;
+
+    if (fstatfs( fd, &sf ) < 0)
+        return 1;
+    switch ((unsigned long)sf.f_type)
+    {
+    case WEXPF_FS_FUSE: case WEXPF_FS_NFS: case WEXPF_FS_SMB: case WEXPF_FS_CIFS: case WEXPF_FS_SMB2:
+    case WEXPF_FS_9P: case WEXPF_FS_AFS: case WEXPF_FS_CEPH:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static void fsync_dir( const char *path )
+{
+    int dfd = open( path, O_RDONLY | O_DIRECTORY | O_CLOEXEC );
+
+    if (dfd < 0)
+        return;
+    (void)fsync( dfd );
+    close_no_eintr( dfd );
 }
 
 static enum wexpf_status build_or_fetch_image( struct daemon_ctx *ctx, int client_fd,
@@ -1199,6 +1336,12 @@ static enum wexpf_status build_or_fetch_image( struct daemon_ctx *ctx, int clien
         }
     }
 
+    if (!build_rate_allowed( tl_peer_uid, cfg->max_builds_per_min ))
+    {
+        pthread_mutex_unlock( &g_build_lock );
+        return WEXPF_BUSY;
+    }
+
     if (orig_id->size == 0 || orig_id->size > (uint64_t)SIZE_MAX)
     {
         pthread_mutex_unlock( &g_build_lock );
@@ -1245,6 +1388,20 @@ static enum wexpf_status build_or_fetch_image( struct daemon_ctx *ctx, int clien
         free( buf );
         pthread_mutex_unlock( &g_build_lock );
         return st;
+    }
+
+    {
+        uint64_t data_bytes = 0;
+        uint32_t k;
+
+        for (k = 0; k < parsed.section_count; k++)
+            data_bytes += parsed.sections[k].file_size;
+        if (data_bytes == 0)
+        {
+            free( buf );
+            pthread_mutex_unlock( &g_build_lock );
+            return WEXPF_UNSUPPORTED;
+        }
     }
 
     /* Re-check the cache file on disk while holding g_build_lock. */
@@ -1355,6 +1512,15 @@ static enum wexpf_status build_or_fetch_image( struct daemon_ctx *ctx, int clien
         return WEXPF_IO_ERROR;
     }
 
+    /* the entry is trusted by its name and length alone once it is published, so it must be on disk first */
+    if (fsync( tmp_fd ) < 0)
+    {
+        close_no_eintr( tmp_fd );
+        unlink( tmp_path );
+        pthread_mutex_unlock( &g_build_lock );
+        return WEXPF_IO_ERROR;
+    }
+
     if (close_no_eintr( tmp_fd ) < 0)
     {
         unlink( tmp_path );
@@ -1380,6 +1546,8 @@ static enum wexpf_status build_or_fetch_image( struct daemon_ctx *ctx, int clien
         }
     }
 
+    fsync_dir( ctx->cache_dir );
+
     cached_fd = open_existing_cache_image( ctx->cache_dir, sha_hex, parsed.image_size, 0, NULL );
     if (cached_fd < 0)
     {
@@ -1387,7 +1555,7 @@ static enum wexpf_status build_or_fetch_image( struct daemon_ctx *ctx, int clien
         return WEXPF_IO_ERROR;
     }
 
-    prune_cache_if_needed( ctx, final_name, cfg->max_cache_bytes );
+    prune_cache_if_needed( ctx, final_name, cfg->max_cache_bytes, cfg->max_entries );
     elapsed_ms = now_monotonic_ms() - start_ms;
     if (elapsed_ms < 0)
         elapsed_ms = 0;
@@ -1663,6 +1831,19 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
         goto out;
     }
 
+    if (cfg.reject_network_fs && fd_on_untrusted_fs( client_fd ))
+    {
+        reject_request( ctx, conn_fd, WEXPF_UNSUPPORTED, "source is on a network, FUSE or other untrusted filesystem" );
+        goto out;
+    }
+
+    {
+        struct ucred cred;
+        socklen_t cred_len = sizeof(cred);
+
+        tl_peer_uid = getsockopt( conn_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len ) == 0 ? cred.uid : (uid_t)-1;
+    }
+
     extract_identity( &st, &id );
     status = build_or_fetch_image( ctx, client_fd, &id, &cfg, &result_fd, &image_size, sha_hex );
     if (status != WEXPF_OK)
@@ -1688,20 +1869,17 @@ out:
 
 static void handle_busy_in_accept_thread( struct daemon_ctx *ctx, int conn_fd )
 {
-    struct wexpf_request req;
-    int msg_flags = 0;
-    int client_fd = -1;
-    size_t fd_count = 0;
+    struct timeval tv;
 
-    set_socket_timeouts( conn_fd );
+    /* Do not read the request here: a client that connects and stays silent would stall every other accept.
+     * The queued request, and the descriptor it carries, is dropped when the connection is closed. */
+    tv.tv_sec  = 0;
+    tv.tv_usec = 100 * 1000;
+    (void)setsockopt( conn_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv) );
 
     pthread_mutex_lock( &g_state_lock );
     g_counters.requests++;
     pthread_mutex_unlock( &g_state_lock );
-
-    (void)recv_request_datagram( conn_fd, &req, &msg_flags, &client_fd, &fd_count );
-    if (client_fd >= 0)
-        close_no_eintr( client_fd );
 
     reject_request( ctx, conn_fd, WEXPF_BUSY, "MaxConcurrent limit reached" );
     close_no_eintr( conn_fd );

@@ -41,13 +41,14 @@ def check(name, cond, detail=''):
 
 
 class Daemon:
-    def __init__(self, binary, tmp, config=''):
+    def __init__(self, binary, tmp, config='', raw_config=False):
         self.tmp = tmp
         self.sock = os.path.join(tmp, 'run', 'prefetch.sock')
         self.cache = os.path.join(tmp, 'cache')
         self.config = os.path.join(tmp, 'prefetch.conf')
         os.makedirs(self.cache, exist_ok=True)
-        open(self.config, 'w').write(config)
+        # the test sources usually live on a network share (9p under WSL), which the daemon refuses by default
+        open(self.config, 'w').write(('' if raw_config else 'RejectNetworkFS=0\nMaxBuildsPerMinute=0\n') + config)
         env = dict(os.environ, WEXPF_SOCKET=self.sock, WEXPF_CACHE_DIR=self.cache, WEXPF_CONFIG=self.config,
                    WEXPF_FOREGROUND='1')
         self.log = open(os.path.join(tmp, 'daemon.log'), 'w')
@@ -83,10 +84,10 @@ def request(daemon, fds, header=None, extra=b'', timeout=20):
     s.settimeout(timeout)
     s.connect(daemon.sock)
     payload = struct.pack('<IIII', *(header or (MAGIC, VERSION, OP_GET, 0))) + extra
-    socket.send_fds(s, [payload], fds)
     try:
+        socket.send_fds(s, [payload], fds)
         data, got, _flags, _addr = socket.recv_fds(s, 4096, 4)
-    except (socket.timeout, ConnectionResetError):
+    except (socket.timeout, ConnectionResetError, BrokenPipeError):
         s.close()
         return None, None, []
     s.close()
@@ -334,8 +335,9 @@ def main():
               len(res) == 48 and all(st == OK for st in res) and alive, (sorted(set(res)), elapsed))
         print('     48 simultaneous cold requests took %.2fs' % elapsed)
         res, elapsed, alive = burst('MaxConcurrent=16\n')
-        check('burst: MaxConcurrent=16 answers the excess with BUSY and survives',
-              BUSY in res and OK in res and alive and all(st in (OK, BUSY) for st in res), sorted(set(res)))
+        check('burst: MaxConcurrent=16 turns the excess away at once (BUSY or reset) and survives',
+              OK in res and any(st != OK for st in res) and alive and all(st in (OK, BUSY, None) for st in res),
+              sorted(set(res), key=str))
         os.unlink(burst_pe)
 
     # 7. configuration: size limit, Enabled=0 via SIGHUP, cache cap
@@ -366,6 +368,84 @@ def main():
     newest = shas[-1]
     check('cache cap: total stays near MaxCacheMB and the newest entry survives',
           (newest + '.img') in d.images() and len(d.images()) < 6 and total <= 2 * 1024 * 1024, (len(d.images()), total))
+    d.stop()
+
+    # 8. findings from the Codex review: each one has a test
+    def variant(n, offset=None):
+        v = bytearray(open(pe, 'rb').read())
+        v[first_raw + 32 + n] ^= 0x21
+        return file_with('var%d.dll' % n, bytes(v))
+
+    # 8a. sources on network or FUSE filesystems are refused by default (they can block a read forever)
+    fstype = subprocess.run(['stat', '-f', '-c', '%T', pe], capture_output=True, text=True).stdout.strip()
+    if fstype in ('v9fs', '9p', 'fuseblk', 'fuse', 'nfs', 'cifs', 'smb2', 'smb'):
+        d = Daemon(binary, tempfile.mkdtemp(prefix='wexpf-fs-'), raw_config=True)
+        status, _i, got = get_image(d, pe)
+        [os.close(g) for g in got]
+        check('untrusted filesystem (%s) source refused by default' % fstype, status == UNSUPPORTED and d.alive(), status)
+        d.stop()
+    else:
+        print('SKIP untrusted filesystem refusal: the test source is on %s' % fstype)
+
+    # 8b. an image with no section data is free to create, so it is refused
+    empty = bytearray(open(pe, 'rb').read())
+    e_off = struct.unpack_from('<I', empty, 0x3c)[0]
+    table_off = e_off + 24 + struct.unpack_from('<H', empty, e_off + 20)[0]
+    for i in range(struct.unpack_from('<H', empty, e_off + 6)[0]):
+        off = table_off + i * 40
+        struct.pack_into('<II', empty, off + 16, 0, 0)   # SizeOfRawData, PointerToRawData
+    d = Daemon(binary, tempfile.mkdtemp(prefix='wexpf-empty-'))
+    status, _i, got = get_image(d, file_with('nodata.dll', bytes(empty)))
+    [os.close(g) for g in got]
+    check('PE without any section data refused, nothing cached', status == UNSUPPORTED and not d.images(), (status, d.images()))
+    d.stop()
+
+    # 8c. entry-count cap with per-entry charge (sparse entries used to cost nothing)
+    d = Daemon(binary, tempfile.mkdtemp(prefix='wexpf-entries-'), 'MaxEntries=3\n')
+    last = None
+    for n in range(8):
+        status, inf, got = get_image(d, variant(n))
+        [os.close(g) for g in got]
+        last = inf['sha'] if inf else last
+        time.sleep(0.05)
+    check('MaxEntries=3 keeps at most 3 entries and the newest', len(d.images()) <= 3 and (last + '.img') in d.images(),
+          (len(d.images())))
+    d.stop()
+
+    # 8d. per-user limit on reading and hashing unseen files; files already known are not charged
+    d = Daemon(binary, tempfile.mkdtemp(prefix='wexpf-rate-'), 'MaxBuildsPerMinute=5\n')
+    statuses = []
+    paths = [variant(n) for n in range(12)]
+    for path in paths:
+        status, inf, got = get_image(d, path)
+        [os.close(g) for g in got]
+        statuses.append(status)
+    again, _i, g = get_image(d, paths[0])
+    [os.close(x) for x in g]
+    check('MaxBuildsPerMinute=5: first 5 new files served, the rest answered BUSY',
+          statuses[:5] == [OK] * 5 and all(st == BUSY for st in statuses[5:]) and d.alive(), statuses)
+    check('MaxBuildsPerMinute: a file already in the memo is still served', again == OK, again)
+    d.stop()
+
+    # 8e. a silent client must not stall the accept loop while the daemon is at its concurrency limit
+    d = Daemon(binary, tempfile.mkdtemp(prefix='wexpf-busy-'), 'MaxConcurrent=2\n')
+    silent = []
+    for _ in range(4):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        s.connect(d.sock)
+        silent.append(s)
+    time.sleep(0.5)
+    t0 = time.time()
+    status, _i, got = get_image(d, pe)
+    [os.close(g) for g in got]
+    elapsed = time.time() - t0
+    check('at MaxConcurrent with silent clients: a real request is answered BUSY at once, not after a timeout',
+          status in (BUSY, None) and elapsed < 3 and d.alive(), (status, elapsed))
+    [s.close() for s in silent]
+    time.sleep(0.5)
+    status, _i, got = get_image(d, pe)
+    [os.close(g) for g in got]
+    check('and it is served normally once the silent clients are gone', status == OK, status)
     d.stop()
 
     print('\n%d/%d passed' % (sum(results), len(results)))

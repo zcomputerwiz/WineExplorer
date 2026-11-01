@@ -1333,7 +1333,8 @@ cache hits and misses. Measured with Edge 156 (8 renderers): 5.9 GB to 3.9 GB PS
 `dlls/kernelbase/process.c`: `SetProcessWorkingSetSizeEx` was a stub returning `TRUE`; it now passes the sizes to
 `NtSetInformationProcess( ProcessQuotaLimits )`. `dlls/ntdll/unix/process.c`: that class is implemented for set:
 `(SIZE_T)-1, (SIZE_T)-1` on the current process (`EmptyWorkingSet`) calls the new `virtual_trim_working_set()`
-(`dlls/ntdll/unix/virtual.c`), which applies `MADV_PAGEOUT` to committed private anonymous views; any other limits
+(`dlls/ntdll/unix/virtual.c`), which walks the per-page commitment of each private anonymous view (so reserve-then-commit
+memory counts) and applies `MADV_PAGEOUT` to the committed pages; any other limits
 are accepted and ignored, as before. `dlls/wow64/process.c` thunks the 32-bit `QUOTA_LIMITS`. Without swap the
 call changes nothing; with swap or zram the pages are compressed or written out and fault back intact. Measured
 with zram swap: 270 MB resident to 8 MB (64-bit) and 141 MB to 10 MB (32-bit), content intact after re-touch.
@@ -1352,4 +1353,6 @@ and a socket with a timeout is not restarted after a signal), takes ownership of
 leak, validates the reply (magic, version, status, layout, exactly one descriptor, regular file at least `image_size`
 long, at most 1 GiB), and remembers per process that no service exists after the first `ENOENT`, `ECONNREFUSED` or
 `EACCES`. Any failure falls through to the in-process cache and then to `pread`; `WINE_PE_CACHE=0` disables both cache
-tiers. `TRACE_(module)` logs each image served by the service.
+tiers. `TRACE_(module)` logs each image served by the service. A cache descriptor is used only if a page of it can be
+mapped executable (`fd_maps_exec`), so a `noexec` filesystem falls back to `pread` instead of leaving code without
+execute permission; the socket flags are guarded for systems without `SOCK_CLOEXEC` and `MSG_CMSG_CLOEXEC`.

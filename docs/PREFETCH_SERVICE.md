@@ -27,7 +27,7 @@ Deviations from the design below, all deliberate:
   `WINE_PREFETCH_SOCKET` overrides the socket path for tests).
 
 Tests (`make -C src/wexprefetchd check` for SHA-256; `python3 test_wexprefetchd.py ./wexprefetchd SMALL.exe [BIG.dll]`
-for the rest): 39 checks pass on the release build, and 34 on an AddressSanitizer plus UBSan build. They cover: exact
+for the rest): 46 checks pass on the release build, and 41 on an AddressSanitizer plus UBSan build. They cover: exact
 flat-image bytes against the independent oracle, the reported digest, a byte-identical copy dedup, a modified copy getting
 its own entry, protocol abuse (no or two descriptors, wrong magic, version or op, short datagram, write-only, directory and
 socket descriptors), hostile and non-PE files, 300 random header mutations, 12 concurrent first requests producing one build,
@@ -49,6 +49,21 @@ Bugs the integration found, now fixed and covered by tests:
    `reply ... failed: Broken pipe`. The client now retries `connect`, `sendmsg` and `recvmsg` on `EINTR`.
 3. `MaxConcurrent` default raised from 16 to 128 (a browser start-up has 20+ processes loading images at once), thread
    stacks set to 256 KiB, and a `BUSY` reply bounded the burst test.
+
+Codex review (adversarial review of the daemon, standard review of the Wine commits), all findings fixed with tests:
+
+- *Sparse images bypassed the cache cap* (the cap counted allocated blocks only, so near-empty images cost nothing and entries
+  were never evicted): every entry is now also charged 4 KiB, entries are capped by count (`MaxEntries`), a PE with no
+  section data is refused, and unseen-file reads and hashes are limited per user (`MaxBuildsPerMinute`).
+- *A stalled read could hold the global build lock forever* (a file on a stalled or hostile FUSE mount): sources on FUSE, NFS, SMB
+  and 9p are refused (`RejectNetworkFS`, default on); the client then loads the image itself.
+- *No `fsync` before publication*: the data is synced before the rename and the directory after it.
+- *The accept thread blocked on client input when at `MaxConcurrent`*: an overloaded connection is now turned away at once,
+  without reading from it, so a silent client cannot stall accepting. The client sees BUSY or a reset and falls back.
+- Wine client: socket flags guarded for systems without `SOCK_CLOEXEC` and `MSG_CMSG_CLOEXEC`; a cache that cannot be mapped
+  executable (a `noexec` filesystem) is detected and not used, where before the program died with an access violation on its
+  first instruction (reproduced and fixed); `EmptyWorkingSet` walks per-page commitment so reserve-then-commit memory is trimmed
+  too (534 MB resident to 10 MB in the test, from 270 MB untouched by the first version).
 
 Open items: traces and readahead (sections 3.6 and 4), the registry value and folder, KSM/zram tuning in the daemon, and
 whether the tier-2 cache should move to `$XDG_CACHE_HOME`.
