@@ -353,6 +353,56 @@ with QEMU exit zero. The curated outcome is
 `docs/evidence/chromium-exception-boundary-r30-outcome.json`; raw maps and
 screenshots remain private.
 
+## Context-suspension follow-up (r31-r35)
+
+r31 and r32 use the same one-module diagnostic overlay and normal sandbox.
+Both remain alive through the 55-second observation without Chromium log
+output, fixture requests, visible window or exception markers. The mapped
+browser and Unix ntdll are present; all six x64/x86 startup, Mojo and descriptor
+regressions pass, and the owned guest shuts down cleanly. These runs do not
+reproduce the r30 exception.
+
+r34 adds a bounded, read-only snapshot of the exact owned wineserver. Two
+snapshots one second apart agree: the browser's main thread is suspended once
+with a `STATUS_PENDING` context whose manual synchronization event is
+unsignaled; the sampler waits on that same context object. Its stack is in
+`NtGetContextThread`; the main thread is in a signal handler calling
+`server_select` with a null context. This establishes a stable context-suspend
+handshake stall, distinct from the r30 stack exhaustion. r34 did not record
+the server thread's TEB pointer, so the null-context path was not yet
+attributed to `data->teb` being null.
+
+Wine `ccebeff5` adds opt-in exception dispatch parameter/fault-address logging
+and a marker for the `usr1_handler` no-TEB branch. r35 uses that diagnostic
+module alone: all 1,778 runtime files verify, only Unix `ntdll.so` differs,
+the original WoW64 server and PE modules remain unchanged, and all six
+regressions pass. The trace confirms a suspend signal takes the no-TEB branch
+in Wine PID `0x0200`, TID `0x0204` (`data->tid=0`). About 0.55 seconds later,
+a different Wine PID/TID (`0x0020`/`0x0024`) reports `STATUS_STACK_OVERFLOW`
+and then an access violation while building the exception frame in the
+`call_seh_handlers` context-copy path. The trace now records the initial
+exception code and the AV access/fault address; it still does not establish
+why the initial stack overflow occurs or prove recursive exception dispatch.
+
+The r35 server snapshot is post-event: its 44 captured threads all have
+nonzero server TEB values, including the browser main thread, which has no
+pending context at capture. The no-TEB signal belongs to a different
+Wine process, so this run does **not** show that the r34 main-thread stall was
+caused by the no-TEB branch. Chromium still shows no window and makes no
+fixture requests; the screenshot is black with only the pointer. The browser
+log also shows two child processes terminate after 15 seconds without a
+connection. No utility connection is proven. r35's guest and owned clones are
+cleaned up, QEMU exits zero after graceful powerdown, and the preserved server
+hash is unchanged. The curated measurements are in
+`docs/evidence/chromium-exception-followup-r31-r35-outcome.json`; raw
+debugger output, maps and screenshots remain private.
+
+Next, capture the server record for process `0x0200`/thread `0x0204` near the
+signal and correlate its server TEB with client thread-data initialization.
+Do not treat the nearby overflow as the same event, change stack or exception
+semantics, or claim Chromium acceptance without a displayed window, fixture
+consumption and utility connection.
+
 ## Durable runtime packaging prerequisite
 
 `scripts/g4_combined_r6_deploy.py` is the tracked archive implementation used

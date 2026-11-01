@@ -1294,3 +1294,13 @@ unchanged. The r30 runtime passes all six x64/x86 startup, Mojo and descriptor
 programs. Its browser trace reproduces the overflow with an 8,192-byte effective
 guarantee, zero TEB-requested guarantee and a terminal access violation, but
 does not identify the initiating fault or a justified semantic fix.
+
+Wine `ccebeff5` extends this temporary `wex_exception` instrumentation in
+`dlls/ntdll/unix/signal_x86_64.c` and `virtual.c`: for stack-overflow and
+access-violation dispatch it records exception parameters, access type and
+fault address, and it marks entry to the suspend-signal branch with no TEB.
+These traces do not change exception, signal, stack or wait behavior. r35
+overlays only Unix `ntdll.so`; all six x64/x86 regressions pass, and the
+captured no-TEB signal is from a different Wine process than the later
+stack-overflow/AV trace. No semantic fix or Chromium acceptance is claimed.
+See `CHROMIUM_MOJO_0X88_CONTINUATION_20261031.md`.

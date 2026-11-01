@@ -1,0 +1,119 @@
+{
+  "classification": "Bounded diagnostic follow-up; no Chromium acceptance or semantic fix",
+  "wine_diagnostics_commit": "ccebeff5",
+  "runs": {
+    "r31": {
+      "runtime_manifest_passed": true,
+      "changed_module": "wow64/dlls/ntdll/ntdll.so",
+      "chromium_window_observed": false,
+      "fixture_requests": [],
+      "exception_markers": 0,
+      "regressions_passed": 6,
+      "cleanup_passed": true
+    },
+    "r32": {
+      "runtime_manifest_passed": true,
+      "changed_module": "wow64/dlls/ntdll/ntdll.so",
+      "chromium_window_observed": false,
+      "fixture_requests": [],
+      "exception_markers": 0,
+      "regressions_passed": 6,
+      "cleanup_passed": true
+    },
+    "r34": {
+      "runtime_manifest_passed": true,
+      "browser_main_thread_suspend_count": 1,
+      "process_suspend_count": 0,
+      "context_status": "STATUS_PENDING",
+      "context_manual_event_signaled": false,
+      "sampler_waits_on_same_context": true,
+      "main_thread_signal_handler_select_context": null,
+      "sampler_stack": "NtGetContextThread",
+      "stable_server_snapshots_seconds_apart": 1,
+      "chromium_window_observed": false,
+      "fixture_requests": [],
+      "regressions_passed": 6,
+      "cleanup_passed": true
+    },
+    "r35": {
+      "runtime": {
+        "files": 1778,
+        "bytes": 1883834659,
+        "full_manifest_passed": true,
+        "changed_module": "wow64/dlls/ntdll/ntdll.so",
+        "diagnostic_ntdll_sha256": "24856000625c9356060279578fd567fd6a3ad46f6171b9ef9c26960130bc6657",
+        "original_ntdll_sha256": "639af4cd083163f54840666bd17361f0969d7bd9371c5ccf80a4d451adc9f8c0",
+        "preserved_server_sha256": "0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab",
+        "archive_sha256": "34999d683d61f478ac51a590a86e25d2e5c81b3363412ad639225d467ebde41a",
+        "unchanged_pe_modules_both_architectures": true,
+        "sandbox_bypass": false
+      },
+      "measurement": {
+        "no_teb_suspend_signal": {
+          "wine_process_id": "0200",
+          "wine_thread_id": "0204",
+          "si_code": -6,
+          "thread_data_tid": 0,
+          "thread_data_teb": null
+        },
+        "later_exception_in_different_wine_process": {
+          "wine_process_id": "0020",
+          "wine_thread_id": "0024",
+          "initial_exception_code": "c00000fd",
+          "initial_exception": "STATUS_STACK_OVERFLOW",
+          "followup_exception_code": "c0000005",
+          "followup_exception": "STATUS_ACCESS_VIOLATION",
+          "followup_access_type": 1,
+          "followup_fault_address": "0x20ca0",
+          "terminal_frame_input_stack": "0x20af0",
+          "exception_frame_bytes": 3440,
+          "effective_stack_guarantee_bytes": 8192,
+          "teb_guaranteed_stack_bytes": 0,
+          "hard_floor": "0x21000",
+          "allocation_deficit_bytes": 4736,
+          "cause": "Unknown"
+        },
+        "server_snapshot": {
+          "threads": 44,
+          "browser_main_thread_id": 36,
+          "browser_main_thread_teb_nonzero": true,
+          "browser_main_thread_suspend_count": 0,
+          "browser_main_thread_context": null,
+          "all_captured_server_tebs_nonzero": true,
+          "captures_exact_no_teb_signal_thread": false,
+          "browser_process_gdb_attach": "Skipped after exact mappings were no longer present"
+        },
+        "chromium_log_bytes": 696,
+        "child_processes_terminated_without_connection": 2,
+        "chromium_window_observed": false,
+        "screenshot": "Black display with pointer only",
+        "fixture_requests": [],
+        "utility_connection_proven": false
+      },
+      "regressions": [
+        {"pe": "mojo-startup-smoke-x64.exe", "exit": 0},
+        {"pe": "mojo-startup-smoke-x86.exe", "exit": 0},
+        {"pe": "chromium-mojo-token-0x88-x64.exe", "exit": 0},
+        {"pe": "chromium-mojo-token-0x88-x86.exe", "exit": 0},
+        {"pe": "token-duplicate-sd-x64.exe", "exit": 0},
+        {"pe": "token-duplicate-sd-x86.exe", "exit": 0}
+      ],
+      "cleanup": {
+        "exact_prefix_and_build_clones_removed": true,
+        "preserved_baseline_server_unchanged": true,
+        "graceful_powerdown": true,
+        "qemu_exit_status": 0,
+        "xvfb_stopped": true,
+        "stray_guest_processes": 0
+      }
+    }
+  },
+  "limitations": [
+    "The no-TEB signal and the later stack-overflow/AV trace are from different Wine processes",
+    "The r35 server snapshot was post-event and did not capture the no-TEB signal thread",
+    "The r34 context-suspension stall is not yet correlated with the no-TEB branch",
+    "No initiating cause for the initial stack overflow has been established",
+    "Chromium fixture consumption, visible window, utility connection and Edge remain unresolved",
+    "Raw debugger data, process maps and screenshots remain private"
+  ]
+}
