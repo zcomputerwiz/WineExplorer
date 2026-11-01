@@ -5,8 +5,39 @@
 import argparse
 import hashlib
 import os
+import re
+import shutil
 from pathlib import Path
 import subprocess
+
+
+def register_project_sources(root, wine):
+    """Register the overlay even when the selected Wine base has clean build lists."""
+    configure = wine / 'configure.ac'
+    text = configure.read_text()
+    modules = sorted(kind + '/' + source.name
+                     for kind in ('dlls', 'programs')
+                     for source in (root / 'src' / kind).iterdir()
+                     if (source / 'Makefile.in').is_file())
+    declared = set(re.findall(r'WINE_CONFIG_MAKEFILE\(([^)]+)\)', text))
+    missing = [name for name in modules if name not in declared]
+    if missing:
+        marker = re.search(r'^WINE_CONFIG_MAKEFILE\(', text, re.M)
+        if not marker:
+            raise RuntimeError('Wine configure.ac has no module registration list')
+        block = ''.join('WINE_CONFIG_MAKEFILE(' + name + ')\n' for name in missing)
+        configure.write_text(text[:marker.start()] + block + text[marker.start():])
+    includes = wine / 'include/Makefile.in'
+    text = includes.read_text()
+    headers = sorted(p.name for p in (root / 'src/include').iterdir() if p.is_file())
+    listed = set(re.findall(r'^\s*([A-Za-z0-9_.-]+)\s*\\?\s*$', text, re.M))
+    missing = [name for name in headers if name not in listed]
+    if missing:
+        marker = 'SOURCES = ' + chr(92) + '\n'
+        if marker not in text:
+            raise RuntimeError('Wine include Makefile has no SOURCES list')
+        block = ''.join('\t' + name + ' ' + chr(92) + '\n' for name in missing)
+        includes.write_text(text.replace(marker, marker + block, 1))
 
 
 def assemble(root, wine):
@@ -34,7 +65,7 @@ def assemble(root, wine):
         if saved.exists():
             raise RuntimeError('Stock backup already exists: ' + str(saved))
         saved.parent.mkdir(parents=True, exist_ok=True)
-        os.rename(target, saved)
+        shutil.move(str(target), str(saved))
         print('Preserved stock module:', key)
 
     def link(source, target, key):
@@ -68,6 +99,8 @@ def assemble(root, wine):
         (wine / 'resources').mkdir(exist_ok=True)
         for source in sorted(resources.iterdir()):
             link(source, wine / 'resources' / source.name, 'resources/' + source.name)
+
+    register_project_sources(root, wine)
 
 
 if __name__ == '__main__':

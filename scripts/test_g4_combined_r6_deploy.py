@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import g4_combined_r6_deploy as deploy_module
 
 REPO=Path(__file__).resolve().parents[1]
+FONTS=deploy_module.REQUIRED_FONTS
 WINMD=('windows.applicationmodel.winmd','windows.globalization.winmd','windows.ui.xaml.winmd')
 # The full [WinmdFiles] closure of the recipe wine/loader/wine.inf.in (order as listed there).
 REPO_WINMD=('windows.applicationmodel.winmd','windows.globalization.winmd','windows.graphics.winmd','windows.media.winmd',
@@ -25,12 +26,12 @@ def trial():
     p.build_deploy=lambda: deploy_module.build_deploy(p.MY_BUILD,p.DEPLOY_ARC_DIR)
     return p
 
-def make_fixture(root,winmd=WINMD,inf_winmd=None,drop=(),empty=(),inf_text=None):
+def make_fixture(root,winmd=WINMD,inf_winmd=None,drop=(),empty=(),inf_text=None,drop_fonts=()):
     """Tiny in-tree-layout host build: launcher + wine symlink stand-in, one builtin PE, recipe wine.inf,
-    include/ winmd resources. Returns the build root."""
+    include/ winmd resources, wow64/fonts/ with the six required Wine TrueType fonts. Returns the build root."""
     if inf_winmd is None:inf_winmd=winmd
     b=root/'build'
-    for d in ('wow64/loader','wow64/tools/wine','wow64/dlls/foo/x86_64-windows','include'):
+    for d in ('wow64/loader','wow64/tools/wine','wow64/dlls/foo/x86_64-windows','wow64/fonts','include'):
         (b/d).mkdir(parents=True)
     if inf_text is None:
         inf=['[BaseInstall]','CopyFiles=WinmdFiles','','[WinmdFiles]']+list(inf_winmd)+['','[WineSourceDirs]','WinmdFiles = winmd,include']
@@ -42,6 +43,9 @@ def make_fixture(root,winmd=WINMD,inf_winmd=None,drop=(),empty=(),inf_text=None)
     for n in winmd:
         if n in drop:continue
         (b/'include'/n).write_bytes(b'' if n in empty else b'winmd-'+n.encode())
+    for n in FONTS:
+        if n in drop_fonts:continue
+        (b/'wow64/fonts'/n).write_bytes(b'font-'+n.encode())
     return b
 
 class CombinedR6DeployTests(unittest.TestCase):
@@ -53,9 +57,9 @@ class CombinedR6DeployTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def deploy(self,winmd=WINMD,inf_winmd=None,drop=(),empty=(),inf_text=None):
+    def deploy(self,winmd=WINMD,inf_winmd=None,drop=(),empty=(),inf_text=None,drop_fonts=()):
         self._n=getattr(self,'_n',0)+1;root=self.root/str(self._n)  # fresh tree per call
-        b=make_fixture(root,winmd=winmd,inf_winmd=inf_winmd,drop=drop,empty=empty,inf_text=inf_text)
+        b=make_fixture(root,winmd=winmd,inf_winmd=inf_winmd,drop=drop,empty=empty,inf_text=inf_text,drop_fonts=drop_fonts)
         self.p.MY_BUILD=b;self.p.DEPLOY_ARC_DIR=root/'arc'
         return b
 
@@ -135,7 +139,7 @@ class CombinedR6DeployTests(unittest.TestCase):
         self.deploy(winmd=WINMD+(extra,),inf_winmd=WINMD+(extra,))
         arc,manifest,total,count=self.p.build_deploy()
         self.assertIn('wow64/include/'+extra,manifest)
-        self.assertEqual(count,8)  # wine.inf, wine, tools/wine/wine, foo.dll, 4 winmd
+        self.assertEqual(count,14)  # wine.inf, wine, tools/wine/wine, foo.dll, 4 winmd, 6 fonts
         self.deploy(winmd=WINMD,inf_winmd=WINMD+(extra,))  # recipe requires a resource the host build lacks
         with self.assertRaisesRegex(ValueError,extra):self.p.build_deploy()
 
@@ -144,6 +148,50 @@ class CombinedR6DeployTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'WinmdFiles'):self.p.required_winmd()
         (b/'wow64/loader/wine.inf').unlink()
         with self.assertRaisesRegex(ValueError,'wine.inf'):self.p.required_winmd()
+
+    def test_missing_font_fails_fast_before_archive(self):
+        self.deploy(drop_fonts=('tahoma.ttf',))
+        with self.assertRaisesRegex(ValueError,'tahoma.ttf'):deploy_module.preflight_fonts(self.p.MY_BUILD)
+        with self.assertRaisesRegex(ValueError,'tahoma.ttf'):self.p.build_deploy()
+        self.assertFalse((self.p.DEPLOY_ARC_DIR/'wine-build.tar.gz').exists())
+
+    def test_empty_font_fails_fast(self):
+        b=self.deploy(drop_fonts=('symbol.ttf',))
+        (b/'wow64/fonts/symbol.ttf').write_bytes(b'')
+        with self.assertRaisesRegex(ValueError,'symbol.ttf'):self.p.build_deploy()
+
+    def test_font_symlink_dereferenced_into_archive(self):
+        b=self.deploy()
+        source=self.root/'wine-src/fonts/tahoma.ttf'  # stands in for an out-of-tree Wine source checkout
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b'real-tahoma-bytes')
+        link=b/'wow64/fonts/tahoma.ttf'
+        link.unlink()
+        try:
+            link.symlink_to(source)
+        except OSError as error:
+            if getattr(error,'winerror',None)==1314:
+                self.skipTest('Windows symlink creation requires privilege; run on WSL')
+            raise
+        arc,manifest,_,_=self.p.build_deploy()
+        self.assertEqual(manifest['wow64/fonts/tahoma.ttf'],hashlib.sha256(b'real-tahoma-bytes').hexdigest())
+        with tarfile.open(arc) as tar:
+            member=tar.getmember('wow64/fonts/tahoma.ttf')
+            self.assertTrue(member.isfile())  # not a symlink: the source tree will not exist once deployed
+            self.assertEqual(tar.extractfile(member).read(),b'real-tahoma-bytes')
+
+    def test_dangling_font_symlink_fails_fast(self):
+        b=self.deploy()
+        link=b/'wow64/fonts/tahoma.ttf'
+        link.unlink()
+        try:
+            link.symlink_to(self.root/'does-not-exist.ttf')
+        except OSError as error:
+            if getattr(error,'winerror',None)==1314:
+                self.skipTest('Windows symlink creation requires privilege; run on WSL')
+            raise
+        with self.assertRaisesRegex(ValueError,'tahoma.ttf'):deploy_module.preflight_fonts(b)
+        with self.assertRaisesRegex(ValueError,'tahoma.ttf'):self.p.build_deploy()
 
     def test_launcher_symlink_stored_as_symlink(self):
         b=self.deploy()
