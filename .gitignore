@@ -63,3 +63,8 @@ wine/programs/*/*.exe
 __pycache__/
 *.py[cod]
 *.tmp
+
+# wexprefetchd build outputs
+/src/wexprefetchd/wexprefetchd
+/src/wexprefetchd/wexpf-client
+/src/wexprefetchd/test_sha256

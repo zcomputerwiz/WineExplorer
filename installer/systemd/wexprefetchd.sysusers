@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+u wexcache - "WineExplorer cache service" /var/cache/wineexplorer /usr/sbin/nologin

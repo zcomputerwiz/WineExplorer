@@ -1337,3 +1337,19 @@ cache hits and misses. Measured with Edge 156 (8 renderers): 5.9 GB to 3.9 GB PS
 are accepted and ignored, as before. `dlls/wow64/process.c` thunks the 32-bit `QUOTA_LIMITS`. Without swap the
 call changes nothing; with swap or zram the pages are compressed or written out and fault back intact. Measured
 with zram swap: 270 MB resident to 8 MB (64-bit) and 141 MB to 10 MB (32-bit), content intact after re-touch.
+
+## PE images fetched from the wexprefetchd service (2026-11-01)
+
+`dlls/ntdll/unix/virtual.c`: before falling back to the in-process cache described above, `map_image_into_view` now
+asks the `wexprefetchd` service (`docs/PREFETCH_SERVICE.md`, `src/wexprefetchd/protocol.h`) for a page-aligned "flat
+image" of any image that has a section whose sector-rounded file offset is not page aligned
+(`pe_has_unaligned_sections`, the same test the section loop uses). `open_prefetch_image` connects to
+`/run/wineexplorer/prefetch.sock` (`WINE_PREFETCH_SOCKET` overrides it), sends the already-open PE file as an
+`SCM_RIGHTS` descriptor and never a path, and receives a read-only descriptor to a sparse file holding each section's
+bytes at its RVA; the section is then mapped `MAP_PRIVATE` at that offset with the existing `map_pe_cache_section`. The
+call has 15 s socket timeouts, retries `connect`, `sendmsg` and `recvmsg` on `EINTR` (Wine signals its threads constantly
+and a socket with a timeout is not restarted after a signal), takes ownership of every descriptor that arrives so none can
+leak, validates the reply (magic, version, status, layout, exactly one descriptor, regular file at least `image_size`
+long, at most 1 GiB), and remembers per process that no service exists after the first `ENOENT`, `ECONNREFUSED` or
+`EACCES`. Any failure falls through to the in-process cache and then to `pread`; `WINE_PE_CACHE=0` disables both cache
+tiers. `TRACE_(module)` logs each image served by the service.

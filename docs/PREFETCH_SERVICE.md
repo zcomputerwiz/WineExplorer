@@ -3,6 +3,56 @@
 
 Design specification for WineExplorer's shared PE image-alignment cache, Windows XP Prefetcher (`C:\Windows\Prefetch`), and host memory tuning (KSM and `zram` swap) on Debian 13 (Trixie).
 
+## 0. Status: what is built (2026-11-01)
+
+**Built and tested: the image cache half (phase 2).** Not built: traces, readahead, `EnablePrefetcher`, the Prefetch folder,
+KSM/zram tuning inside the daemon (KSM is enabled with `MemoryKSM=yes` on the session unit, zram with
+`systemd-zram-generator`; both verified by hand, see `EDGE_DEVELOPMENT_RUN_20261101.md`).
+
+Deviations from the design below, all deliberate:
+
+- **Transport is a systemd-activated `AF_UNIX` `SOCK_SEQPACKET` socket with `SCM_RIGHTS`, not D-Bus.** Passing file
+  descriptors through libdbus from inside `ntdll`, which holds the process's virtual-memory lock while mapping an image,
+  was judged too heavy and risky. The security model is unchanged: one request carries one open descriptor, never a path,
+  and the daemon takes the identity and contents from that descriptor and hashes them itself. A D-Bus control and
+  properties interface can be added beside it. The wire format and the flat image layout are specified in
+  `src/wexprefetchd/protocol.h`.
+- **The cache entry is a "flat image", not a compact per-section file.** Section bytes are stored at their RVA in a sparse
+  file named by the SHA-256 of the source (`<sha256>.img`), so a client maps a section with one `mmap` at the offset equal to
+  its `VirtualAddress` and needs no layout table. The per-user in-process cache (tier 2) keeps its compact layout.
+- **Layout of the code:** `src/wexprefetchd/` (`wexprefetchd.c` daemon, `sha256.c`, `wexpf-client.c` test client,
+  `verify_flat.py` independent oracle, `test_wexprefetchd.py` suite, `Makefile`), `installer/systemd/wexprefetchd.*`
+  and `prefetch.conf.example`, packaging in `installer/package-wine.sh`, Wine client in `dlls/ntdll/unix/virtual.c`
+  (`open_prefetch_image`, three tiers: daemon, in-process cache, `pread`; `WINE_PE_CACHE=0` disables the first two,
+  `WINE_PREFETCH_SOCKET` overrides the socket path for tests).
+
+Tests (`make -C src/wexprefetchd check` for SHA-256; `python3 test_wexprefetchd.py ./wexprefetchd SMALL.exe [BIG.dll]`
+for the rest): 39 checks pass on the release build, and 34 on an AddressSanitizer plus UBSan build. They cover: exact
+flat-image bytes against the independent oracle, the reported digest, a byte-identical copy dedup, a modified copy getting
+its own entry, protocol abuse (no or two descriptors, wrong magic, version or op, short datagram, write-only, directory and
+socket descriptors), hostile and non-PE files, 300 random header mutations, 12 concurrent first requests producing one build,
+a warm cache with an empty memo, a 48-request start-up burst, `MaxImageMB`, `Enabled=0` with `SIGHUP`, the cache cap,
+`SIGTERM` exit, the status file, and no leftover temporary files.
+
+Integration (Edge 156 and Chromium 156 on Wine 11.21, 16 GiB guest, fresh prefix each run, daemon installed from the real
+unit files and socket-activated as `wexcache`): both pass with the daemon. All images (211 requests for one Edge run, 198
+from the memo) come from the service and the prefix's in-process cache stays empty. With the service stopped, Edge still
+passes through tier 2 (12 files, 328 MiB). The unit rates 3.2 ("OK") in `systemd-analyze security`. A first request for
+`msedge.dll` (340 MB) takes 2.2 s, then 0.27 ms from the memo.
+
+Bugs the integration found, now fixed and covered by tests:
+
+1. After taking the global build lock the daemon did not re-check its memo, so concurrent requests for one big DLL each
+   re-read and re-hashed it in turn (12 requests: 20 s, past the client's 15 s timeout, so some clients fell back).
+2. The Wine client treated `EINTR` as failure. Wine delivers signals to its threads constantly and a socket with a timeout
+   is not restarted after one, so a `recvmsg` returned early, the client closed the socket and the daemon logged
+   `reply ... failed: Broken pipe`. The client now retries `connect`, `sendmsg` and `recvmsg` on `EINTR`.
+3. `MaxConcurrent` default raised from 16 to 128 (a browser start-up has 20+ processes loading images at once), thread
+   stacks set to 256 KiB, and a `BUSY` reply bounded the burst test.
+
+Open items: traces and readahead (sections 3.6 and 4), the registry value and folder, KSM/zram tuning in the daemon, and
+whether the tier-2 cache should move to `$XDG_CACHE_HOME`.
+
 ---
 
 ## 1. Problem Statement (Measured)

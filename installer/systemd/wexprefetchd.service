@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+[Unit]
+Description=WineExplorer PE image cache and prefetch service
+Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/PREFETCH_SERVICE.md
+Requires=wexprefetchd.socket
+After=wexprefetchd.socket
+
+[Service]
+Type=simple
+User=wexcache
+Group=wexcache
+ExecStart=/usr/local/sbin/wexprefetchd
+CacheDirectory=wineexplorer/images
+CacheDirectoryMode=0755
+# The .socket unit creates /run/wineexplorer first (DirectoryMode=0755); RuntimeDirectoryPreserve=yes
+# keeps the directory across restarts instead of removing it, so it does not conflict with the socket.
+RuntimeDirectory=wineexplorer
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0022
+ReadWritePaths=/var/cache/wineexplorer /run/wineexplorer
+MemoryMax=2G

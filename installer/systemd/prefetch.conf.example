@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Example configuration for wexprefetchd.
+#
+# Copy this file to /etc/wineexplorer/prefetch.conf and adjust the values.
+# The daemon reads these keys at startup; the values below are the defaults.
+
+# Enable (1) or disable (0) the prefetch service.
+Enabled=1
+
+# Maximum total cache size in megabytes.
+MaxCacheMB=8192
+
+# Maximum number of concurrent requests the daemon will serve.
+MaxConcurrent=128
+
+# Maximum size of a single cached image in megabytes.
+MaxImageMB=1024

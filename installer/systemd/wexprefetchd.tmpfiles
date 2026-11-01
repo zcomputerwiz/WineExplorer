@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+d /var/cache/wineexplorer 0755 wexcache wexcache -
+d /var/cache/wineexplorer/images 0755 wexcache wexcache -
+d /run/wineexplorer 0755 wexcache wexcache -

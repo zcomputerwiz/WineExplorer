@@ -254,6 +254,17 @@ cp "$SCRIPT_DIR/systemd/wex-textsetup.service" "$STAGE_SESSION/lib/systemd/syste
 cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-safemode.service" "$STAGE_SESSION/lib/systemd/system/"
+
+# PE image cache and prefetch service (docs/PREFETCH_SERVICE.md): socket-activated, runs as the wexcache user
+make -C "$ROOT_DIR/src/wexprefetchd" >/dev/null
+mkdir -p "$STAGE_SESSION/usr/local/sbin" "$STAGE_SESSION/usr/lib/sysusers.d" "$STAGE_SESSION/usr/lib/tmpfiles.d" "$STAGE_SESSION/etc/wineexplorer"
+install -m755 "$ROOT_DIR/src/wexprefetchd/wexprefetchd" "$STAGE_SESSION/usr/local/sbin/wexprefetchd"
+install -m755 "$ROOT_DIR/src/wexprefetchd/wexpf-client" "$STAGE_SESSION/usr/local/bin/wexpf-client"
+cp "$SCRIPT_DIR/systemd/wexprefetchd.socket" "$SCRIPT_DIR/systemd/wexprefetchd.service" "$STAGE_SESSION/lib/systemd/system/"
+install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.sysusers" "$STAGE_SESSION/usr/lib/sysusers.d/wexprefetchd.conf"
+install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.tmpfiles" "$STAGE_SESSION/usr/lib/tmpfiles.d/wexprefetchd.conf"
+install -m644 "$SCRIPT_DIR/systemd/prefetch.conf.example" "$STAGE_SESSION/etc/wineexplorer/prefetch.conf"
+echo /etc/wineexplorer/prefetch.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"
 chmod 644 "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexsetup.rules"
@@ -262,8 +273,12 @@ chmod 644 "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexsetup.rules"
 cat > "$STAGE_SESSION/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
+systemd-sysusers wexprefetchd.conf || true
+systemd-tmpfiles --create wexprefetchd.conf || true
 systemctl daemon-reload || true
 systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service wex-safemode.service || true
+systemctl enable wexprefetchd.socket || true
+systemctl start wexprefetchd.socket || true
 if [ "$1" = "configure" ] && [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     /usr/local/bin/wex-setup-machine.sh --update
 fi
