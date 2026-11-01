@@ -106,12 +106,59 @@
         "xvfb_stopped": true,
         "stray_guest_processes": 0
       }
+    },
+    "r36": {
+      "runtime": {
+        "files": 1778,
+        "full_manifest_passed": true,
+        "changed_module": "wow64/dlls/ntdll/ntdll.so",
+        "same_diagnostic_archive_as_r35": true,
+        "sandbox_bypass": false
+      },
+      "measurement": {
+        "no_teb_suspend_signal_observed": false,
+        "server_snapshots_seconds_apart": 1,
+        "browser_gdb_attached": true,
+        "browser_gdb_exit": 0,
+        "browser_gdb_output_bytes": 122222,
+        "intended_skip_flag_survived_sudo": false,
+        "threads": [
+          {
+            "process_id": "0020",
+            "thread_id": "0024",
+            "server_teb_nonzero": true,
+            "context": null,
+            "suspend_count": 0
+          },
+          {
+            "process_id": "0020",
+            "thread_id": "0204",
+            "server_teb_nonzero": true,
+            "wait_count": 2,
+            "context": null,
+            "suspend_count": 0
+          }
+        ],
+        "chromium_window_observed": false,
+        "fixture_requests": [],
+        "screenshot": "Black display with pointer only"
+      },
+      "regressions_passed": 6,
+      "cleanup": {
+        "exact_prefix_and_build_clones_removed": true,
+        "preserved_baseline_server_unchanged": true,
+        "graceful_powerdown": true,
+        "qemu_exit_status": 0,
+        "xvfb_stopped": true,
+        "stray_guest_processes": 0
+      }
     }
   },
   "limitations": [
     "The no-TEB signal and the later stack-overflow/AV trace are from different Wine processes",
     "The r35 server snapshot was post-event and did not capture the no-TEB signal thread",
     "The r34 context-suspension stall is not yet correlated with the no-TEB branch",
+    "r36's browser GDB attach perturbed timing; its 0x0204 thread belongs to process 0x0020, not r35's process 0x0200",
     "No initiating cause for the initial stack overflow has been established",
     "Chromium fixture consumption, visible window, utility connection and Edge remain unresolved",
     "Raw debugger data, process maps and screenshots remain private"

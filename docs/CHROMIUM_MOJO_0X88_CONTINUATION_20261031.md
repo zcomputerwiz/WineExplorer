@@ -403,6 +403,18 @@ Do not treat the nearby overflow as the same event, change stack or exception
 semantics, or claim Chromium acceptance without a displayed window, fixture
 consumption and utility connection.
 
+r36 moved the two snapshots earlier and selected thread ID `0x0204`, but the
+intended server-only mode was not active: `sudo` discarded the environment
+flag, so the browser GDB attach still ran and perturbed timing. The no-TEB
+marker did not recur. Both snapshots show a nonzero TEB and no context for
+thread `0x0204`, which in this run belongs to process `0x0020`; it is not the
+r35 `0x0200`/`0x0204` thread. The browser main thread has a nonzero TEB and no
+pending context in both snapshots. The same stack-overflow/AV trace recurs,
+the fixture is not requested, and the screenshot remains black. This does
+not resolve the r34 stall or identify the no-TEB thread's server state.
+r37 will capture a compact inventory across all Wine server threads and use
+an explicit helper argument to skip browser GDB attachment.
+
 ## Durable runtime packaging prerequisite
 
 `scripts/g4_combined_r6_deploy.py` is the tracked archive implementation used
