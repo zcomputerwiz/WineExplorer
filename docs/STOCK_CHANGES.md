@@ -1254,3 +1254,15 @@ build without new warnings and the instrumented guest passes the six
 x64/x86 startup, Mojo and descriptor programs. This is diagnostic code, not
 a browser connection fix; the r12 observation stopped at an earlier
 pre-logging boundary and does not establish Chromium or Edge acceptance.
+
+## Temporary opt-in process mapping diagnostics (2026-11-01)
+
+Wine `65f8cc3a` adds the `wex_process` channel to
+`dlls/ntdll/unix/server.c`. After process/thread server initialization it
+records Windows PID/TID and Unix PID/TID; no process, token, signal or access
+semantics change. Only the Unix ntdll module is overlaid on the preserved
+corrected WoW64 runtime. The r14 observer binds the native-held browser ID
+to these records and verifies live thread command lines and thread groups,
+without relying on `/proc/<leader>/environ`. The same instrumented runtime
+passes all six x64/x86 startup, Mojo and descriptor programs. This resolves
+diagnostic identity, not the browser stall or Chromium/Edge acceptance.

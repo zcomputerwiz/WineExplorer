@@ -182,6 +182,14 @@ class ParserTests(unittest.TestCase):
                 env=r.environment(r.OUTPUT)
             self.assertEqual(env['WINESERVER'],str(r.BUILD/'server/wineserver'))
             self.assertEqual(env['WINEPREFIX'],str(r.PREFIX))
+            r.configure('token-wait-r14')
+            self.assertEqual(r.HOST,'chromium-token-wait-r14-20261101')
+            self.assertEqual(r.DEBUG,debug+',+wex_process')
+            self.assertEqual(r.child_args(NONCE,URL),[arg.replace(old_output,r.cal.win(r.OUTPUT)) for arg in args])
+            with mock.patch.object(r.sys,'argv',['native','--token-wait-r14']),mock.patch.object(r,'load'),mock.patch.object(r,'run',return_value=1) as dispatch:
+                self.assertEqual(r.main(),1)
+                self.assertEqual(r.MODE,'token-wait-r14')
+                self.assertEqual(dispatch.call_args.args[0],r.OUTPUT)
         finally:
             r.configure(original[0]);r.BUILD=original[1];r.cal.BUILD=original[1]
             r.PREFIX=original[2];r.cal.PREFIX=original[2];r.cal.APPROVED_LOADER=original[3]

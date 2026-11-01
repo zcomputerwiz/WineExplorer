@@ -1,0 +1,1230 @@
+{
+  "classification": "Bound Wine/Unix live-browser identity and wait evidence; earlier pre-logging stall, not browser acceptance",
+  "result": {
+    "error": "ValueError('Linux helper failed/exit mismatch')",
+    "journal_outcome": {
+      "outcome": "native_timeout",
+      "bound": {
+        "v": 1,
+        "event": "bound",
+        "mode": "chromium",
+        "nonce": "c2a20b95cfdcd2d8275feecaf92b32cc",
+        "helper_pid": 32,
+        "child_pid": 248,
+        "creation_time": 134379668919674790,
+        "image": "Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe",
+        "command_line": "\"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\" \"--app=http://127.0.0.1:43135/c2a20b95cfdcd2d8275feecaf92b32cc/index.html#nonce=c2a20b95cfdcd2d8275feecaf92b32cc\" \"--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\profile\" \"--no-first-run\" \"--no-default-browser-check\" \"--enable-logging\" \"--log-file=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\chromium.log\" \"--v=1\" \"--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3\" \"--log-net-log=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\netlog.json\" \"--net-log-max-size-mb=8\" \"--net-log-duration=40\" \"--trace-startup\" \"--trace-startup-duration=35\" \"--trace-startup-file=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\trace.json\"",
+        "creation_flags": 0,
+        "inherit_handles": false,
+        "environment": "inherited_NULL",
+        "manifest_sha256": "8fc037ca464bc22952c9f9d63447cf0feb7dcab07e20489cb2d3a4ef3e1a8ba7",
+        "manifest_verified_by_native": false,
+        "tick_ms": 91020
+      },
+      "terminal": {
+        "v": 1,
+        "event": "timeout",
+        "nonce": "c2a20b95cfdcd2d8275feecaf92b32cc",
+        "child_pid": 248,
+        "creation_time": 134379668919674790,
+        "wait_result": 258,
+        "wait_ms": 45000,
+        "tick_ms": 136029
+      },
+      "manifest_marker_verified": false,
+      "accepted_observation": false
+    },
+    "http_fixture": {
+      "classification": "HTTP writes only; browser consumption NOT_PROVEN",
+      "requests": [],
+      "errors": [],
+      "sources": {
+        "index.html": {
+          "path": "/home/debian/wex-g4/chromium-token-wait-r14-20261101-stage/scripts/g4-edge-probe/index.html",
+          "bytes": 637,
+          "sha256": "f0a47b1a6013c015228c3e6c76a0a73b5d3eb6c218ec031a34dd8da7e0c0edc3"
+        },
+        "scene.js": {
+          "path": "/home/debian/wex-g4/chromium-token-wait-r14-20261101-stage/scripts/g4-edge-probe/scene.js",
+          "bytes": 3750,
+          "sha256": "fe9b1801a7d4baa3512fb4e103330e317d17c9f2e2763abf8f14a275c686ee51"
+        }
+      },
+      "connection_timeout_seconds": 0.5,
+      "maximum_requests": 64,
+      "listener": {
+        "host": "127.0.0.1",
+        "port": 43135
+      },
+      "started_monotonic": 90.490035059,
+      "url": "http://127.0.0.1:43135/c2a20b95cfdcd2d8275feecaf92b32cc/index.html#nonce=c2a20b95cfdcd2d8275feecaf92b32cc",
+      "stopped_monotonic": 136.241254905,
+      "thread_stopped": true
+    },
+    "wait_snapshot": {
+      "classification": "Exact bound Wine/Unix mapping and live thread identity; not browser acceptance",
+      "candidate_server_sha256": "196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800",
+      "browser": {
+        "wine_pid": 248,
+        "unix_pid": 1118,
+        "threads": [
+          {
+            "tid": 1118,
+            "identity_verified": true,
+            "comm": "chrome.exe\n",
+            "wchan": "pipe_read",
+            "syscall": "0 0x8 0x7f15b569d3b0 0x10 0x0 0x0 0x0 0x7f15b569d348 0x7f15b63cc72e\n"
+          },
+          {
+            "tid": 1162,
+            "identity_verified": true,
+            "comm": "StackSamplingPr\n",
+            "wchan": "pipe_read",
+            "syscall": "0 0xd 0x10013c2c0 0x10 0x0 0x0 0x0 0x10013c258 0x7f15b63cc72e\n"
+          }
+        ]
+      },
+      "root_namespaces": {
+        "mnt": "mnt:[4026532236]",
+        "net": "net:[4026532238]"
+      }
+    },
+    "cleanup_complete": true,
+    "remaining_prefix_processes": {},
+    "linux_helper_exit_observed": {
+      "code": 1,
+      "monotonic": 136.044367546,
+      "before_cleanup": true
+    }
+  },
+  "regression": {
+    "classification": "Post-browser isolated diagnostic runtime regression, not browser acceptance",
+    "server_sha256": "196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800",
+    "source_ownership": {
+      "schema": "wex.prefix_ownership",
+      "version": 1,
+      "requested_prefix": "/home/debian/wex-g4/chromium-token-wait-r14-20261101-prefix",
+      "nonce": "54c63d866e55e36ec0e4f2ae17b0f2c6",
+      "status": "complete",
+      "owners": [],
+      "busy": false,
+      "observations": [
+        {
+          "pid": 2,
+          "start_ticks": 314,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 3,
+          "start_ticks": 314,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 4,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 5,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 6,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 7,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 8,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 9,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 10,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 11,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 12,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 13,
+          "start_ticks": 314,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 14,
+          "start_ticks": 314,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 15,
+          "start_ticks": 314,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 16,
+          "start_ticks": 314,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 17,
+          "start_ticks": 318,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 18,
+          "start_ticks": 319,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 19,
+          "start_ticks": 319,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 20,
+          "start_ticks": 319,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 21,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 22,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 23,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 24,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 25,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 26,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 27,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 28,
+          "start_ticks": 320,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 29,
+          "start_ticks": 320,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 30,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 31,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 32,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 33,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 34,
+          "start_ticks": 320,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 35,
+          "start_ticks": 320,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 36,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 37,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 38,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 39,
+          "start_ticks": 320,
+          "flags": 69238848,
+          "flags_after": 69238848,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 40,
+          "start_ticks": 320,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 41,
+          "start_ticks": 320,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 43,
+          "start_ticks": 322,
+          "flags": 69239136,
+          "flags_after": 69239136,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 44,
+          "start_ticks": 322,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 45,
+          "start_ticks": 322,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 46,
+          "start_ticks": 329,
+          "flags": 2130240,
+          "flags_after": 2130240,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 47,
+          "start_ticks": 330,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 48,
+          "start_ticks": 333,
+          "flags": 2097216,
+          "flags_after": 2097216,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 49,
+          "start_ticks": 338,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 50,
+          "start_ticks": 338,
+          "flags": 2097216,
+          "flags_after": 2097216,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 51,
+          "start_ticks": 338,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 52,
+          "start_ticks": 338,
+          "flags": 2162752,
+          "flags_after": 2162752,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 53,
+          "start_ticks": 364,
+          "flags": 2097216,
+          "flags_after": 2097216,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 54,
+          "start_ticks": 364,
+          "flags": 2097216,
+          "flags_after": 2097216,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 55,
+          "start_ticks": 364,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 56,
+          "start_ticks": 364,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 57,
+          "start_ticks": 364,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 58,
+          "start_ticks": 382,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 59,
+          "start_ticks": 382,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 60,
+          "start_ticks": 382,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 61,
+          "start_ticks": 408,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 62,
+          "start_ticks": 410,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 63,
+          "start_ticks": 410,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 64,
+          "start_ticks": 427,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 65,
+          "start_ticks": 445,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 66,
+          "start_ticks": 483,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 68,
+          "start_ticks": 629,
+          "flags": 2230336,
+          "flags_after": 2230336,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 75,
+          "start_ticks": 669,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 79,
+          "start_ticks": 684,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 80,
+          "start_ticks": 774,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 81,
+          "start_ticks": 774,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 82,
+          "start_ticks": 774,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 87,
+          "start_ticks": 792,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 89,
+          "start_ticks": 829,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 132,
+          "start_ticks": 906,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 135,
+          "start_ticks": 906,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 145,
+          "start_ticks": 906,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 182,
+          "start_ticks": 966,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 204,
+          "start_ticks": 967,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 211,
+          "start_ticks": 970,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 213,
+          "start_ticks": 1004,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 214,
+          "start_ticks": 1032,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 215,
+          "start_ticks": 1040,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 216,
+          "start_ticks": 1073,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 217,
+          "start_ticks": 1073,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 218,
+          "start_ticks": 1074,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 219,
+          "start_ticks": 1074,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 220,
+          "start_ticks": 1079,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 221,
+          "start_ticks": 1079,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 222,
+          "start_ticks": 1080,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 223,
+          "start_ticks": 1080,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 224,
+          "start_ticks": 1081,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 225,
+          "start_ticks": 1081,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 226,
+          "start_ticks": 1086,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 227,
+          "start_ticks": 1086,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 228,
+          "start_ticks": 1129,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 229,
+          "start_ticks": 1129,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 230,
+          "start_ticks": 1129,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 231,
+          "start_ticks": 1129,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 232,
+          "start_ticks": 1129,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 233,
+          "start_ticks": 1129,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 234,
+          "start_ticks": 1129,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 235,
+          "start_ticks": 1267,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 236,
+          "start_ticks": 1307,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 237,
+          "start_ticks": 1307,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 257,
+          "start_ticks": 1372,
+          "flags": 2359360,
+          "flags_after": 2359360,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 258,
+          "start_ticks": 1372,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 358,
+          "start_ticks": 2165,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 359,
+          "start_ticks": 2165,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 360,
+          "start_ticks": 2165,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 377,
+          "start_ticks": 2221,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 394,
+          "start_ticks": 2329,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 436,
+          "start_ticks": 2488,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 437,
+          "start_ticks": 2490,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 677,
+          "start_ticks": 2708,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 1224,
+          "start_ticks": 22121,
+          "flags": 69238880,
+          "flags_after": 69238880,
+          "classification": "kernel_thread_excluded"
+        },
+        {
+          "pid": 1232,
+          "start_ticks": 25946,
+          "flags": 2129984,
+          "flags_after": 2129984,
+          "classification": "kernel_thread_excluded"
+        }
+      ],
+      "counts": {
+        "numeric_entries": 134,
+        "scanned": 134,
+        "kernel_threads": 115,
+        "user_tasks": 19,
+        "empty_environ": 0
+      },
+      "environment_bytes_read": 11648,
+      "started_monotonic": 259.812972952,
+      "limits": {
+        "maximum_seconds": 8,
+        "max_processes": 4096,
+        "max_env_bytes": 1048576,
+        "max_total_env_bytes": 16777216,
+        "max_details": 128,
+        "max_output_bytes": 65536
+      },
+      "finished_monotonic": 259.817903533,
+      "elapsed_seconds": 0.004930580999996437
+    },
+    "runs": [
+      {
+        "pe": "mojo-startup-smoke-x64.exe",
+        "machine": 34404,
+        "sha256": "0bafbd3c5f00f9a78cc8106d6a19bbacd995fdefc0d6ee9b9b382b9a72169797",
+        "exit": 0,
+        "seconds": 0.3168212300000164,
+        "stdout": "STARTUP_SMOKE bits=64 pid=32 PASS\n",
+        "stderr": "  0.000:0020:0024:trace:wex_process:server_init_process win_pid=0020 win_tid=0024 unix_pid=1277 unix_tid=1277\n  0.000:0028:002c:trace:wex_process:server_init_process win_pid=0028 win_tid=002c unix_pid=1281 unix_tid=1281\n  0.000:0030:0034:trace:wex_process:server_init_process win_pid=0030 win_tid=0034 unix_pid=1283 unix_tid=1283\n260.009:0028:002c:err:wineboot:process_run_key Error running cmd L\"C:\\\\windows\\\\system32\\\\winemenubuilder.exe -a -r\" (126).\n  0.000:0038:003c:trace:wex_process:server_init_process win_pid=0038 win_tid=003c unix_pid=1285 unix_tid=1285\n260.048:0038:0040:trace:wex_process:server_init_thread win_pid=0038 win_tid=0040 unix_pid=1285 unix_tid=1286\n  0.000:0044:0048:trace:wex_process:server_init_process win_pid=0044 win_tid=0048 unix_pid=1288 unix_tid=1288\n260.069:0038:004c:trace:wex_process:server_init_thread win_pid=0038 win_tid=004c unix_pid=1285 unix_tid=1289\n260.070:0038:0050:trace:wex_process:server_init_thread win_pid=0038 win_tid=0050 unix_pid=1285 unix_tid=1290\n260.071:0044:0054:trace:wex_process:server_init_thread win_pid=0044 win_tid=0054 unix_pid=1288 unix_tid=1291\n260.072:0044:0058:trace:wex_process:server_init_thread win_pid=0044 win_tid=0058 unix_pid=1288 unix_tid=1292\n260.073:0044:005c:trace:wex_process:server_init_thread win_pid=0044 win_tid=005c unix_pid=1288 unix_tid=1293\n260.075:0044:0054:err:ntoskrnl:ZwLoadDriver failed to create driver L\"\\\\Registry\\\\Machine\\\\System\\\\CurrentControlSet\\\\Services\\\\MountMgr\": c0000142\n260.076:0038:0060:trace:wex_process:server_init_thread win_pid=0038 win_tid=0060 unix_pid=1285 unix_tid=1294\n260.077:0038:0064:trace:wex_process:server_init_thread win_pid=0038 win_tid=0064 unix_pid=1285 unix_tid=1295\n  0.000:0068:006c:trace:wex_process:server_init_process win_pid=0068 win_tid=006c unix_pid=1297 unix_tid=1297\n260.088:0038:0070:trace:wex_process:server_init_thread win_pid=0038 win_tid=0070 unix_pid=1285 unix_tid=1298\n260.089:0068:0074:trace:wex_process:server_init_thread win_pid=0068 win_tid=0074 unix_pid=1297 unix_tid=1299\n260.090:0068:0078:trace:wex_process:server_init_thread win_pid=0068 win_tid=0078 unix_pid=1297 unix_tid=1300\n  0.000:007c:0080:trace:wex_process:server_init_process win_pid=007c win_tid=0080 unix_pid=1302 unix_tid=1302\n260.112:0038:0084:trace:wex_process:server_init_thread win_pid=0038 win_tid=0084 unix_pid=1285 unix_tid=1303\n260.113:007c:0088:trace:wex_process:server_init_thread win_pid=007c win_tid=0088 unix_pid=1302 unix_tid=1304\n260.114:007c:008c:trace:wex_process:server_init_thread win_pid=007c win_tid=008c unix_pid=1302 unix_tid=1305\n260.115:007c:0090:trace:wex_process:server_init_thread win_pid=007c win_tid=0090 unix_pid=1302 unix_tid=1306\n  0.000:0094:0098:trace:wex_process:server_init_process win_pid=0094 win_tid=0098 unix_pid=1308 unix_tid=1308\n260.127:0038:009c:trace:wex_process:server_init_thread win_pid=0038 win_tid=009c unix_pid=1285 unix_tid=1309\n260.128:0094:00a0:trace:wex_process:server_init_thread win_pid=0094 win_tid=00a0 unix_pid=1308 unix_tid=1310\n260.129:0094:00a4:trace:wex_process:server_init_thread win_pid=0094 win_tid=00a4 unix_pid=1308 unix_tid=1311\n260.130:0094:00a8:trace:wex_process:server_init_thread win_pid=0094 win_tid=00a8 unix_pid=1308 unix_tid=1312\n260.132:0094:00ac:trace:wex_process:server_init_thread win_pid=0094 win_tid=00ac unix_pid=1308 unix_tid=1313\n  0.000:00b0:00b4:trace:wex_process:server_init_process win_pid=00b0 win_tid=00b4 unix_pid=1315 unix_tid=1315\n260.159:0038:00b8:trace:wex_process:server_init_thread win_pid=0038 win_tid=00b8 unix_pid=1285 unix_tid=1316\n260.160:00b0:00bc:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00bc unix_pid=1315 unix_tid=1317\n260.161:00b0:00c0:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00c0 unix_pid=1315 unix_tid=1318\n260.162:00b0:00c4:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00c4 unix_pid=1315 unix_tid=1319\n260.171:00b0:00c8:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00c8 unix_pid=1315 unix_tid=1320\n260.171:00b0:00cc:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00cc unix_pid=1315 unix_tid=1321\n260.173:00b0:00d0:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00d0 unix_pid=1315 unix_tid=1322\n260.174:0038:00d4:trace:wex_process:server_init_thread win_pid=0038 win_tid=00d4 unix_pid=1285 unix_tid=1323\n260.191:00b0:00d8:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00d8 unix_pid=1315 unix_tid=1324\n260.192:00b0:00dc:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00dc unix_pid=1315 unix_tid=1325\n260.194:00b0:00e0:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00e0 unix_pid=1315 unix_tid=1327\n260.200:007c:00e4:trace:wex_process:server_init_thread win_pid=007c win_tid=00e4 unix_pid=1302 unix_tid=1328\n260.200:007c:00e8:trace:wex_process:server_init_thread win_pid=007c win_tid=00e8 unix_pid=1302 unix_tid=1329\n260.202:00b0:00ec:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00ec unix_pid=1315 unix_tid=1330\n260.203:0038:00f0:trace:wex_process:server_init_thread win_pid=0038 win_tid=00f0 unix_pid=1285 unix_tid=1331\n260.204:0038:00f4:trace:wex_process:server_init_thread win_pid=0038 win_tid=00f4 unix_pid=1285 unix_tid=1332\n"
+      },
+      {
+        "pe": "mojo-startup-smoke-x86.exe",
+        "machine": 332,
+        "sha256": "f077b01b014fdf58e3b5807adabf081cf1e948d02dc6cae63227ec40fdb1382e",
+        "exit": 0,
+        "seconds": 0.016366833999995833,
+        "stdout": "STARTUP_SMOKE bits=32 pid=248 PASS\n",
+        "stderr": "  0.000:00f8:00fc:trace:wex_process:server_init_process win_pid=00f8 win_tid=00fc unix_pid=1333 unix_tid=1333\n"
+      },
+      {
+        "pe": "chromium-mojo-token-0x88-x64.exe",
+        "machine": 34404,
+        "sha256": "8ca51fa79d67407cdf983d54b8fe445e2964fddfb75241aae3b477c6197bd2f9",
+        "exit": 0,
+        "seconds": 0.11502380200005291,
+        "stdout": "[PARENT:plain] === BEGIN MODE plain ===\n[PARENT:plain] STAGE1_CHANNEL server=0x34 client=0x38 ConnectNamedPipe=0(err=535,exp=535) ClientPid=256(ok=1)\n[PARENT:plain] STAGE2_LAUNCHED child_pid=264 child_tid=268 mojo_client_h=0x38\n[PARENT:plain] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2\n[PARENT:plain] STAGE2_SHARED_SECTION duplicated into child as 0x14\n[PARENT:plain] STAGE4_PARENT_READ1_PREPOST ok=0 err=997\n[PARENT:plain] STAGE2_RESUMED prev_suspend=1\n[PARENT:plain] STAGE4_PARENT_WRITE1_POST ok=1 err=0\n[PARENT:plain] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f480 (exp=000000000021f480)\n[PARENT:plain] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f460 (exp=000000000021f460)\n[PARENT:plain] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f4a0 (exp=000000000021f4a0)\n[CHILD:plain] STAGE3_START pid=264 tid=268 mojo_handle=0x38\n[CHILD:plain] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=256(ok=1,err=0)\n[CHILD:plain] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x3000,ac=0) proc_tok=1(il=0x3000,ac=0)\n[CHILD:plain] STAGE4_READ1_POST ok=1 err=0\n[CHILD:plain] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021ea60 (exp=000000000021ea60)\n[CHILD:plain] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload=\"MOJO_INVITATION_CONNECT_NODE\"\n[CHILD:plain] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x3000 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0\n[CHILD:plain] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853\n[CHILD:plain] STAGE4_INBAND_HANDLES event=0x20(info=1,wait=0) shmem=0x24(info=1,data=\"MOJO_SHMEM_PORTAL_OK\")\n[CHILD:plain] STAGE4_READ2_PREPOST ok=0 err=997\n[CHILD:plain] STAGE4_WRITE1_POST ok=1 err=0\n[CHILD:plain] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eac0 (exp=000000000021eac0)\n[CHILD:plain] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eaa0 (exp=000000000021eaa0)\n[CHILD:plain] CHILD_PASS all stages succeeded\n[PARENT:plain] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=264\n[PARENT:plain] === MODE plain VERDICT: PASS ===\n[PARENT:service_restricted] === BEGIN MODE service_restricted ===\n[PARENT:service_restricted] STAGE1_CHANNEL server=0x34 client=0x38 ConnectNamedPipe=0(err=535,exp=535) ClientPid=256(ok=1)\n[PARENT:service_restricted] STAGE2_LAUNCHED child_pid=272 child_tid=276 mojo_client_h=0x38\n[PARENT:service_restricted] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2\n[PARENT:service_restricted] STAGE2_SHARED_SECTION duplicated into child as 0x14\n[PARENT:service_restricted] STAGE4_PARENT_READ1_PREPOST ok=0 err=997\n[PARENT:service_restricted] STAGE2_RESUMED prev_suspend=1\n[PARENT:service_restricted] STAGE4_PARENT_WRITE1_POST ok=1 err=0\n[PARENT:service_restricted] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f480 (exp=000000000021f480)\n[PARENT:service_restricted] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f460 (exp=000000000021f460)\n[PARENT:service_restricted] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f4a0 (exp=000000000021f4a0)\n[CHILD:service_restricted] STAGE3_START pid=272 tid=276 mojo_handle=0x38\n[CHILD:service_restricted] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=256(ok=1,err=0)\n[CHILD:service_restricted] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x1000,ac=0) proc_tok=1(il=0x1000,ac=0)\n[CHILD:service_restricted] STAGE4_READ1_POST ok=1 err=0\n[CHILD:service_restricted] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021ea60 (exp=000000000021ea60)\n[CHILD:service_restricted] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload=\"MOJO_INVITATION_CONNECT_NODE\"\n[CHILD:service_restricted] STAGE3_SET_DELAYED_IL target=S-1-16-0 ok=1 err=0\n[CHILD:service_restricted] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x0 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0\n[CHILD:service_restricted] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853\n[CHILD:service_restricted] STAGE4_INBAND_HANDLES event=0x20(info=1,wait=0) shmem=0x24(info=1,data=\"MOJO_SHMEM_PORTAL_OK\")\n[CHILD:service_restricted] STAGE4_READ2_PREPOST ok=0 err=997\n[CHILD:service_restricted] STAGE4_WRITE1_POST ok=1 err=0\n[CHILD:service_restricted] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eac0 (exp=000000000021eac0)\n[CHILD:service_restricted] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eaa0 (exp=000000000021eaa0)\n[CHILD:service_restricted] CHILD_PASS all stages succeeded\n[PARENT:service_restricted] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=272\n[PARENT:service_restricted] === MODE service_restricted VERDICT: PASS ===\n[PARENT:network_appcontainer] === BEGIN MODE network_appcontainer ===\n[PARENT:network_appcontainer] STAGE1_CHANNEL server=0x34 client=0x38 ConnectNamedPipe=0(err=535,exp=535) ClientPid=256(ok=1)\n[PARENT:network_appcontainer] STAGE2_AC_REGISTER hr=0x00000000\n[PARENT:network_appcontainer] STAGE2_REPLACE_PACKAGE_SID_DACL ok=1 err=0\n[PARENT:network_appcontainer] STAGE2_LAUNCHED child_pid=280 child_tid=284 mojo_client_h=0x38\n[PARENT:network_appcontainer] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2\n[PARENT:network_appcontainer] STAGE2_SHARED_SECTION duplicated into child as 0x14\n[PARENT:network_appcontainer] STAGE4_PARENT_READ1_PREPOST ok=0 err=997\n[PARENT:network_appcontainer] STAGE2_RESUMED prev_suspend=1\n[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_POST ok=1 err=0\n[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f480 (exp=000000000021f480)\n[PARENT:network_appcontainer] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f460 (exp=000000000021f460)\n[PARENT:network_appcontainer] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=000000000021f4a0 (exp=000000000021f4a0)\n[CHILD:network_appcontainer] STAGE3_START pid=280 tid=284 mojo_handle=0x38\n[CHILD:network_appcontainer] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=256(ok=1,err=0)\n[CHILD:network_appcontainer] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x1000,ac=1) proc_tok=1(il=0x1000,ac=1)\n[CHILD:network_appcontainer] STAGE4_READ1_POST ok=1 err=0\n[CHILD:network_appcontainer] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021ea60 (exp=000000000021ea60)\n[CHILD:network_appcontainer] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload=\"MOJO_INVITATION_CONNECT_NODE\"\n[CHILD:network_appcontainer] STAGE3_SET_DELAYED_IL target=S-1-16-4096 ok=1 err=0\n[CHILD:network_appcontainer] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x1000 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0\n[CHILD:network_appcontainer] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853\n[CHILD:network_appcontainer] STAGE4_INBAND_HANDLES event=0x20(info=1,wait=0) shmem=0x24(info=1,data=\"MOJO_SHMEM_PORTAL_OK\")\n[CHILD:network_appcontainer] STAGE4_READ2_PREPOST ok=0 err=997\n[CHILD:network_appcontainer] STAGE4_WRITE1_POST ok=1 err=0\n[CHILD:network_appcontainer] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eac0 (exp=000000000021eac0)\n[CHILD:network_appcontainer] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=000000000021eaa0 (exp=000000000021eaa0)\n[CHILD:network_appcontainer] CHILD_PASS all stages succeeded\n[PARENT:network_appcontainer] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=280\n[PARENT:network_appcontainer] === MODE network_appcontainer VERDICT: PASS ===\n[SUMMARY] failures=0 overall=PASS\n",
+        "stderr": "  0.000:0100:0104:trace:wex_process:server_init_process win_pid=0100 win_tid=0104 unix_pid=1334 unix_tid=1334\n  0.000:0108:010c:trace:wex_process:server_init_process win_pid=0108 win_tid=010c unix_pid=1336 unix_tid=1336\n  0.000:0110:0114:trace:wex_process:server_init_process win_pid=0110 win_tid=0114 unix_pid=1338 unix_tid=1338\n  0.000:0118:011c:trace:wex_process:server_init_process win_pid=0118 win_tid=011c unix_pid=1340 unix_tid=1340\n"
+      },
+      {
+        "pe": "chromium-mojo-token-0x88-x86.exe",
+        "machine": 332,
+        "sha256": "9d27ae910a940b1cb4415bff2fda7ab087cd8a408f223630bc08fd3a567fac92",
+        "exit": 0,
+        "seconds": 0.115017856999998,
+        "stdout": "[PARENT:plain] === BEGIN MODE plain ===\n[PARENT:plain] STAGE1_CHANNEL server=0x3c client=0x40 ConnectNamedPipe=0(err=535,exp=535) ClientPid=288(ok=1)\n[PARENT:plain] STAGE2_LAUNCHED child_pid=296 child_tid=300 mojo_client_h=0x40\n[PARENT:plain] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2\n[PARENT:plain] STAGE2_SHARED_SECTION duplicated into child as 0x14\n[PARENT:plain] STAGE4_PARENT_READ1_PREPOST ok=0 err=997\n[PARENT:plain] STAGE2_RESUMED prev_suspend=1\n[PARENT:plain] STAGE4_PARENT_WRITE1_POST ok=1 err=0\n[PARENT:plain] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5b4 (exp=0036f5b4)\n[PARENT:plain] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5a0 (exp=0036f5a0)\n[PARENT:plain] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5c8 (exp=0036f5c8)\n[CHILD:plain] STAGE3_START pid=296 tid=300 mojo_handle=0x40\n[CHILD:plain] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=288(ok=1,err=0)\n[CHILD:plain] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x3000,ac=0) proc_tok=1(il=0x3000,ac=0)\n[CHILD:plain] STAGE4_READ1_POST ok=1 err=0\n[CHILD:plain] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea78 (exp=0036ea78)\n[CHILD:plain] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload=\"MOJO_INVITATION_CONNECT_NODE\"\n[CHILD:plain] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x3000 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0\n[CHILD:plain] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853\n[CHILD:plain] STAGE4_INBAND_HANDLES event=0x1c(info=1,wait=0) shmem=0x20(info=1,data=\"MOJO_SHMEM_PORTAL_OK\")\n[CHILD:plain] STAGE4_READ2_PREPOST ok=0 err=997\n[CHILD:plain] STAGE4_WRITE1_POST ok=1 err=0\n[CHILD:plain] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036eaa0 (exp=0036eaa0)\n[CHILD:plain] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea8c (exp=0036ea8c)\n[CHILD:plain] CHILD_PASS all stages succeeded\n[PARENT:plain] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=296\n[PARENT:plain] === MODE plain VERDICT: PASS ===\n[PARENT:service_restricted] === BEGIN MODE service_restricted ===\n[PARENT:service_restricted] STAGE1_CHANNEL server=0x3c client=0x40 ConnectNamedPipe=0(err=535,exp=535) ClientPid=288(ok=1)\n[PARENT:service_restricted] STAGE2_LAUNCHED child_pid=304 child_tid=308 mojo_client_h=0x40\n[PARENT:service_restricted] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2\n[PARENT:service_restricted] STAGE2_SHARED_SECTION duplicated into child as 0x14\n[PARENT:service_restricted] STAGE4_PARENT_READ1_PREPOST ok=0 err=997\n[PARENT:service_restricted] STAGE2_RESUMED prev_suspend=1\n[PARENT:service_restricted] STAGE4_PARENT_WRITE1_POST ok=1 err=0\n[PARENT:service_restricted] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5b4 (exp=0036f5b4)\n[PARENT:service_restricted] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5a0 (exp=0036f5a0)\n[PARENT:service_restricted] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5c8 (exp=0036f5c8)\n[CHILD:service_restricted] STAGE3_START pid=304 tid=308 mojo_handle=0x40\n[CHILD:service_restricted] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=288(ok=1,err=0)\n[CHILD:service_restricted] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x1000,ac=0) proc_tok=1(il=0x1000,ac=0)\n[CHILD:service_restricted] STAGE4_READ1_POST ok=1 err=0\n[CHILD:service_restricted] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea78 (exp=0036ea78)\n[CHILD:service_restricted] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload=\"MOJO_INVITATION_CONNECT_NODE\"\n[CHILD:service_restricted] STAGE3_SET_DELAYED_IL target=S-1-16-0 ok=1 err=0\n[CHILD:service_restricted] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x0 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0\n[CHILD:service_restricted] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853\n[CHILD:service_restricted] STAGE4_INBAND_HANDLES event=0x20(info=1,wait=0) shmem=0x24(info=1,data=\"MOJO_SHMEM_PORTAL_OK\")\n[CHILD:service_restricted] STAGE4_READ2_PREPOST ok=0 err=997\n[CHILD:service_restricted] STAGE4_WRITE1_POST ok=1 err=0\n[CHILD:service_restricted] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036eaa0 (exp=0036eaa0)\n[CHILD:service_restricted] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea8c (exp=0036ea8c)\n[CHILD:service_restricted] CHILD_PASS all stages succeeded\n[PARENT:service_restricted] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=304\n[PARENT:service_restricted] === MODE service_restricted VERDICT: PASS ===\n[PARENT:network_appcontainer] === BEGIN MODE network_appcontainer ===\n[PARENT:network_appcontainer] STAGE1_CHANNEL server=0x3c client=0x40 ConnectNamedPipe=0(err=535,exp=535) ClientPid=288(ok=1)\n[PARENT:network_appcontainer] STAGE2_AC_REGISTER hr=0x00000000\n[PARENT:network_appcontainer] STAGE2_REPLACE_PACKAGE_SID_DACL ok=1 err=0\n[PARENT:network_appcontainer] STAGE2_LAUNCHED child_pid=312 child_tid=316 mojo_client_h=0x40\n[PARENT:network_appcontainer] STAGE2_THREAD_TOKEN SetThreadToken+OpenThreadToken ok=1 imp_level=2\n[PARENT:network_appcontainer] STAGE2_SHARED_SECTION duplicated into child as 0x14\n[PARENT:network_appcontainer] STAGE4_PARENT_READ1_PREPOST ok=0 err=997\n[PARENT:network_appcontainer] STAGE2_RESUMED prev_suspend=1\n[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_POST ok=1 err=0\n[PARENT:network_appcontainer] STAGE4_PARENT_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5b4 (exp=0036f5b4)\n[PARENT:network_appcontainer] STAGE4_PARENT_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5a0 (exp=0036f5a0)\n[PARENT:network_appcontainer] STAGE4_PARENT_WRITE2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x11110001 (exp=0x11110001) ovl=0036f5c8 (exp=0036f5c8)\n[CHILD:network_appcontainer] STAGE3_START pid=312 tid=316 mojo_handle=0x40\n[CHILD:network_appcontainer] STAGE3_HANDLE_CHECK GetHandleInformation=1(err=0,flags=0x1) GetFileType=3 ServerPid=288(ok=1,err=0)\n[CHILD:network_appcontainer] STAGE3_PRE_LOWER thread_tok=1(err=0,il=0x1000,ac=1) proc_tok=1(il=0x1000,ac=1)\n[CHILD:network_appcontainer] STAGE4_READ1_POST ok=1 err=0\n[CHILD:network_appcontainer] STAGE4_READ1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea78 (exp=0036ea78)\n[CHILD:network_appcontainer] STAGE4_READ1_VERIFIED bytes=96 magic=0x4d4f4a31 payload=\"MOJO_INVITATION_CONNECT_NODE\"\n[CHILD:network_appcontainer] STAGE3_SET_DELAYED_IL target=S-1-16-4096 ok=1 err=0\n[CHILD:network_appcontainer] STAGE3_POST_LOWER RevertToSelf_no_thread_tok=1(err=1008) proc_il=0x1000 lang=0x409 lcid=0x409 hcount=0 NtQIP(58)=0x0 NtQO(2)=0x0\n[CHILD:network_appcontainer] STAGE4_SHARED_SECTION handle=0x14 ok=1 magic=0x57455853\n[CHILD:network_appcontainer] STAGE4_INBAND_HANDLES event=0x1c(info=1,wait=0) shmem=0x20(info=1,data=\"MOJO_SHMEM_PORTAL_OK\")\n[CHILD:network_appcontainer] STAGE4_READ2_PREPOST ok=0 err=997\n[CHILD:network_appcontainer] STAGE4_WRITE1_POST ok=1 err=0\n[CHILD:network_appcontainer] STAGE4_WRITE1_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036eaa0 (exp=0036eaa0)\n[CHILD:network_appcontainer] STAGE4_READ2_IOCP: GQCS ok=1 err=0 bytes=96 key=0x22220002 (exp=0x22220002) ovl=0036ea8c (exp=0036ea8c)\n[CHILD:network_appcontainer] CHILD_PASS all stages succeeded\n[PARENT:network_appcontainer] STAGE4_CHILD_EXIT wait=0 exit_code=0 (PASS) shared_section_child_pid=312\n[PARENT:network_appcontainer] === MODE network_appcontainer VERDICT: PASS ===\n[SUMMARY] failures=0 overall=PASS\n",
+        "stderr": "  0.000:0120:0124:trace:wex_process:server_init_process win_pid=0120 win_tid=0124 unix_pid=1341 unix_tid=1341\n  0.000:0128:012c:trace:wex_process:server_init_process win_pid=0128 win_tid=012c unix_pid=1343 unix_tid=1343\n  0.000:0130:0134:trace:wex_process:server_init_process win_pid=0130 win_tid=0134 unix_pid=1345 unix_tid=1345\n  0.000:0138:013c:trace:wex_process:server_init_process win_pid=0138 win_tid=013c unix_pid=1347 unix_tid=1347\n"
+      },
+      {
+        "pe": "token-duplicate-sd-x64.exe",
+        "machine": 34404,
+        "sha256": "3c3840dca0058a0d5dceae336ddbe1113575cee9c0ca30be1240b31aac5028f9",
+        "exit": 0,
+        "seconds": 0.016499882000005073,
+        "stdout": "TOKEN_DUPLICATE_SD_PROBE bits=64\nASSERT setup.creator_default_has_no_source_marker PASS\nASSERT setup.creator_default_has_no_supplied_marker PASS\nASSERT setup.creator_default_has_no_default_marker PASS\nASSERT setup.source_integrity_not_low PASS\nCASE source type=1 source_object_marker=1 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT source.source_object_marker PASS\nASSERT source.supplied_object_marker PASS\nASSERT source.default_marker_not_object PASS\nASSERT source.default_marker_token_state PASS\nASSERT source.object_marker_not_token_state PASS\nASSERT source.token_integrity PASS\nASSERT source.object_integrity PASS\nASSERT source.token_type PASS\nASSERT source.owner_group_present PASS\nASSERT source.handle_inheritance PASS\nCASE primary.null_sa type=1 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.null_sa.source_object_marker PASS\nASSERT primary.null_sa.supplied_object_marker PASS\nASSERT primary.null_sa.default_marker_not_object PASS\nASSERT primary.null_sa.default_marker_token_state PASS\nASSERT primary.null_sa.object_marker_not_token_state PASS\nASSERT primary.null_sa.token_integrity PASS\nASSERT primary.null_sa.object_integrity PASS\nASSERT primary.null_sa.token_type PASS\nASSERT primary.null_sa.owner_group_present PASS\nASSERT primary.null_sa.handle_inheritance PASS\nCASE primary.null_descriptor type=1 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=1\nASSERT primary.null_descriptor.source_object_marker PASS\nASSERT primary.null_descriptor.supplied_object_marker PASS\nASSERT primary.null_descriptor.default_marker_not_object PASS\nASSERT primary.null_descriptor.default_marker_token_state PASS\nASSERT primary.null_descriptor.object_marker_not_token_state PASS\nASSERT primary.null_descriptor.token_integrity PASS\nASSERT primary.null_descriptor.object_integrity PASS\nASSERT primary.null_descriptor.token_type PASS\nASSERT primary.null_descriptor.owner_group_present PASS\nASSERT primary.null_descriptor.handle_inheritance PASS\nCASE primary.explicit_descriptor type=1 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.explicit_descriptor.source_object_marker PASS\nASSERT primary.explicit_descriptor.supplied_object_marker PASS\nASSERT primary.explicit_descriptor.default_marker_not_object PASS\nASSERT primary.explicit_descriptor.default_marker_token_state PASS\nASSERT primary.explicit_descriptor.object_marker_not_token_state PASS\nASSERT primary.explicit_descriptor.token_integrity PASS\nASSERT primary.explicit_descriptor.object_integrity PASS\nASSERT primary.explicit_descriptor.token_type PASS\nASSERT primary.explicit_descriptor.owner_group_present PASS\nASSERT primary.explicit_descriptor.handle_inheritance PASS\nCASE primary.explicit_low_label type=1 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x1000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.explicit_low_label.source_object_marker PASS\nASSERT primary.explicit_low_label.supplied_object_marker PASS\nASSERT primary.explicit_low_label.default_marker_not_object PASS\nASSERT primary.explicit_low_label.default_marker_token_state PASS\nASSERT primary.explicit_low_label.object_marker_not_token_state PASS\nASSERT primary.explicit_low_label.token_integrity PASS\nASSERT primary.explicit_low_label.object_integrity PASS\nASSERT primary.explicit_low_label.token_type PASS\nASSERT primary.explicit_low_label.owner_group_present PASS\nASSERT primary.explicit_low_label.handle_inheritance PASS\nCASE primary.null_after_explicit_low type=1 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.null_after_explicit_low.source_object_marker PASS\nASSERT primary.null_after_explicit_low.supplied_object_marker PASS\nASSERT primary.null_after_explicit_low.default_marker_not_object PASS\nASSERT primary.null_after_explicit_low.default_marker_token_state PASS\nASSERT primary.null_after_explicit_low.object_marker_not_token_state PASS\nASSERT primary.null_after_explicit_low.token_integrity PASS\nASSERT primary.null_after_explicit_low.object_integrity PASS\nASSERT primary.null_after_explicit_low.token_type PASS\nASSERT primary.null_after_explicit_low.owner_group_present PASS\nASSERT primary.null_after_explicit_low.handle_inheritance PASS\nCASE impersonation.null_sa type=2 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.null_sa.source_object_marker PASS\nASSERT impersonation.null_sa.supplied_object_marker PASS\nASSERT impersonation.null_sa.default_marker_not_object PASS\nASSERT impersonation.null_sa.default_marker_token_state PASS\nASSERT impersonation.null_sa.object_marker_not_token_state PASS\nASSERT impersonation.null_sa.token_integrity PASS\nASSERT impersonation.null_sa.object_integrity PASS\nASSERT impersonation.null_sa.token_type PASS\nASSERT impersonation.null_sa.owner_group_present PASS\nASSERT impersonation.null_sa.handle_inheritance PASS\nCASE impersonation.null_descriptor type=2 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=1\nASSERT impersonation.null_descriptor.source_object_marker PASS\nASSERT impersonation.null_descriptor.supplied_object_marker PASS\nASSERT impersonation.null_descriptor.default_marker_not_object PASS\nASSERT impersonation.null_descriptor.default_marker_token_state PASS\nASSERT impersonation.null_descriptor.object_marker_not_token_state PASS\nASSERT impersonation.null_descriptor.token_integrity PASS\nASSERT impersonation.null_descriptor.object_integrity PASS\nASSERT impersonation.null_descriptor.token_type PASS\nASSERT impersonation.null_descriptor.owner_group_present PASS\nASSERT impersonation.null_descriptor.handle_inheritance PASS\nCASE impersonation.explicit_descriptor type=2 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.explicit_descriptor.source_object_marker PASS\nASSERT impersonation.explicit_descriptor.supplied_object_marker PASS\nASSERT impersonation.explicit_descriptor.default_marker_not_object PASS\nASSERT impersonation.explicit_descriptor.default_marker_token_state PASS\nASSERT impersonation.explicit_descriptor.object_marker_not_token_state PASS\nASSERT impersonation.explicit_descriptor.token_integrity PASS\nASSERT impersonation.explicit_descriptor.object_integrity PASS\nASSERT impersonation.explicit_descriptor.token_type PASS\nASSERT impersonation.explicit_descriptor.owner_group_present PASS\nASSERT impersonation.explicit_descriptor.handle_inheritance PASS\nCASE impersonation.explicit_low_label type=2 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x1000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.explicit_low_label.source_object_marker PASS\nASSERT impersonation.explicit_low_label.supplied_object_marker PASS\nASSERT impersonation.explicit_low_label.default_marker_not_object PASS\nASSERT impersonation.explicit_low_label.default_marker_token_state PASS\nASSERT impersonation.explicit_low_label.object_marker_not_token_state PASS\nASSERT impersonation.explicit_low_label.token_integrity PASS\nASSERT impersonation.explicit_low_label.object_integrity PASS\nASSERT impersonation.explicit_low_label.token_type PASS\nASSERT impersonation.explicit_low_label.owner_group_present PASS\nASSERT impersonation.explicit_low_label.handle_inheritance PASS\nCASE impersonation.null_after_explicit_low type=2 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.null_after_explicit_low.source_object_marker PASS\nASSERT impersonation.null_after_explicit_low.supplied_object_marker PASS\nASSERT impersonation.null_after_explicit_low.default_marker_not_object PASS\nASSERT impersonation.null_after_explicit_low.default_marker_token_state PASS\nASSERT impersonation.null_after_explicit_low.object_marker_not_token_state PASS\nASSERT impersonation.null_after_explicit_low.token_integrity PASS\nASSERT impersonation.null_after_explicit_low.object_integrity PASS\nASSERT impersonation.null_after_explicit_low.token_type PASS\nASSERT impersonation.null_after_explicit_low.owner_group_present PASS\nASSERT impersonation.null_after_explicit_low.handle_inheritance PASS\nSUMMARY failures=0 overall=PASS\n",
+        "stderr": "  0.000:0140:0144:trace:wex_process:server_init_process win_pid=0140 win_tid=0144 unix_pid=1348 unix_tid=1348\n"
+      },
+      {
+        "pe": "token-duplicate-sd-x86.exe",
+        "machine": 332,
+        "sha256": "6343627ed847e72158b538755a30363a53d49b71d7a793c7ee01525bd5734548",
+        "exit": 0,
+        "seconds": 0.03244960900002525,
+        "stdout": "TOKEN_DUPLICATE_SD_PROBE bits=32\nASSERT setup.creator_default_has_no_source_marker PASS\nASSERT setup.creator_default_has_no_supplied_marker PASS\nASSERT setup.creator_default_has_no_default_marker PASS\nASSERT setup.source_integrity_not_low PASS\nCASE source type=1 source_object_marker=1 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT source.source_object_marker PASS\nASSERT source.supplied_object_marker PASS\nASSERT source.default_marker_not_object PASS\nASSERT source.default_marker_token_state PASS\nASSERT source.object_marker_not_token_state PASS\nASSERT source.token_integrity PASS\nASSERT source.object_integrity PASS\nASSERT source.token_type PASS\nASSERT source.owner_group_present PASS\nASSERT source.handle_inheritance PASS\nCASE primary.null_sa type=1 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.null_sa.source_object_marker PASS\nASSERT primary.null_sa.supplied_object_marker PASS\nASSERT primary.null_sa.default_marker_not_object PASS\nASSERT primary.null_sa.default_marker_token_state PASS\nASSERT primary.null_sa.object_marker_not_token_state PASS\nASSERT primary.null_sa.token_integrity PASS\nASSERT primary.null_sa.object_integrity PASS\nASSERT primary.null_sa.token_type PASS\nASSERT primary.null_sa.owner_group_present PASS\nASSERT primary.null_sa.handle_inheritance PASS\nCASE primary.null_descriptor type=1 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=1\nASSERT primary.null_descriptor.source_object_marker PASS\nASSERT primary.null_descriptor.supplied_object_marker PASS\nASSERT primary.null_descriptor.default_marker_not_object PASS\nASSERT primary.null_descriptor.default_marker_token_state PASS\nASSERT primary.null_descriptor.object_marker_not_token_state PASS\nASSERT primary.null_descriptor.token_integrity PASS\nASSERT primary.null_descriptor.object_integrity PASS\nASSERT primary.null_descriptor.token_type PASS\nASSERT primary.null_descriptor.owner_group_present PASS\nASSERT primary.null_descriptor.handle_inheritance PASS\nCASE primary.explicit_descriptor type=1 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.explicit_descriptor.source_object_marker PASS\nASSERT primary.explicit_descriptor.supplied_object_marker PASS\nASSERT primary.explicit_descriptor.default_marker_not_object PASS\nASSERT primary.explicit_descriptor.default_marker_token_state PASS\nASSERT primary.explicit_descriptor.object_marker_not_token_state PASS\nASSERT primary.explicit_descriptor.token_integrity PASS\nASSERT primary.explicit_descriptor.object_integrity PASS\nASSERT primary.explicit_descriptor.token_type PASS\nASSERT primary.explicit_descriptor.owner_group_present PASS\nASSERT primary.explicit_descriptor.handle_inheritance PASS\nCASE primary.explicit_low_label type=1 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x1000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.explicit_low_label.source_object_marker PASS\nASSERT primary.explicit_low_label.supplied_object_marker PASS\nASSERT primary.explicit_low_label.default_marker_not_object PASS\nASSERT primary.explicit_low_label.default_marker_token_state PASS\nASSERT primary.explicit_low_label.object_marker_not_token_state PASS\nASSERT primary.explicit_low_label.token_integrity PASS\nASSERT primary.explicit_low_label.object_integrity PASS\nASSERT primary.explicit_low_label.token_type PASS\nASSERT primary.explicit_low_label.owner_group_present PASS\nASSERT primary.explicit_low_label.handle_inheritance PASS\nCASE primary.null_after_explicit_low type=1 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT primary.null_after_explicit_low.source_object_marker PASS\nASSERT primary.null_after_explicit_low.supplied_object_marker PASS\nASSERT primary.null_after_explicit_low.default_marker_not_object PASS\nASSERT primary.null_after_explicit_low.default_marker_token_state PASS\nASSERT primary.null_after_explicit_low.object_marker_not_token_state PASS\nASSERT primary.null_after_explicit_low.token_integrity PASS\nASSERT primary.null_after_explicit_low.object_integrity PASS\nASSERT primary.null_after_explicit_low.token_type PASS\nASSERT primary.null_after_explicit_low.owner_group_present PASS\nASSERT primary.null_after_explicit_low.handle_inheritance PASS\nCASE impersonation.null_sa type=2 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.null_sa.source_object_marker PASS\nASSERT impersonation.null_sa.supplied_object_marker PASS\nASSERT impersonation.null_sa.default_marker_not_object PASS\nASSERT impersonation.null_sa.default_marker_token_state PASS\nASSERT impersonation.null_sa.object_marker_not_token_state PASS\nASSERT impersonation.null_sa.token_integrity PASS\nASSERT impersonation.null_sa.object_integrity PASS\nASSERT impersonation.null_sa.token_type PASS\nASSERT impersonation.null_sa.owner_group_present PASS\nASSERT impersonation.null_sa.handle_inheritance PASS\nCASE impersonation.null_descriptor type=2 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=1\nASSERT impersonation.null_descriptor.source_object_marker PASS\nASSERT impersonation.null_descriptor.supplied_object_marker PASS\nASSERT impersonation.null_descriptor.default_marker_not_object PASS\nASSERT impersonation.null_descriptor.default_marker_token_state PASS\nASSERT impersonation.null_descriptor.object_marker_not_token_state PASS\nASSERT impersonation.null_descriptor.token_integrity PASS\nASSERT impersonation.null_descriptor.object_integrity PASS\nASSERT impersonation.null_descriptor.token_type PASS\nASSERT impersonation.null_descriptor.owner_group_present PASS\nASSERT impersonation.null_descriptor.handle_inheritance PASS\nCASE impersonation.explicit_descriptor type=2 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.explicit_descriptor.source_object_marker PASS\nASSERT impersonation.explicit_descriptor.supplied_object_marker PASS\nASSERT impersonation.explicit_descriptor.default_marker_not_object PASS\nASSERT impersonation.explicit_descriptor.default_marker_token_state PASS\nASSERT impersonation.explicit_descriptor.object_marker_not_token_state PASS\nASSERT impersonation.explicit_descriptor.token_integrity PASS\nASSERT impersonation.explicit_descriptor.object_integrity PASS\nASSERT impersonation.explicit_descriptor.token_type PASS\nASSERT impersonation.explicit_descriptor.owner_group_present PASS\nASSERT impersonation.explicit_descriptor.handle_inheritance PASS\nCASE impersonation.explicit_low_label type=2 source_object_marker=0 supplied_object_marker=1 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x1000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.explicit_low_label.source_object_marker PASS\nASSERT impersonation.explicit_low_label.supplied_object_marker PASS\nASSERT impersonation.explicit_low_label.default_marker_not_object PASS\nASSERT impersonation.explicit_low_label.default_marker_token_state PASS\nASSERT impersonation.explicit_low_label.object_marker_not_token_state PASS\nASSERT impersonation.explicit_low_label.token_integrity PASS\nASSERT impersonation.explicit_low_label.object_integrity PASS\nASSERT impersonation.explicit_low_label.token_type PASS\nASSERT impersonation.explicit_low_label.owner_group_present PASS\nASSERT impersonation.explicit_low_label.handle_inheritance PASS\nCASE impersonation.null_after_explicit_low type=2 source_object_marker=0 supplied_object_marker=0 default_marker_in_object=0 default_marker_in_token_state=1 token_integrity=0x3000 object_integrity=0x3000 owner_is_process_user=0 owner_present=1 group_present=1 inherit=0\nASSERT impersonation.null_after_explicit_low.source_object_marker PASS\nASSERT impersonation.null_after_explicit_low.supplied_object_marker PASS\nASSERT impersonation.null_after_explicit_low.default_marker_not_object PASS\nASSERT impersonation.null_after_explicit_low.default_marker_token_state PASS\nASSERT impersonation.null_after_explicit_low.object_marker_not_token_state PASS\nASSERT impersonation.null_after_explicit_low.token_integrity PASS\nASSERT impersonation.null_after_explicit_low.object_integrity PASS\nASSERT impersonation.null_after_explicit_low.token_type PASS\nASSERT impersonation.null_after_explicit_low.owner_group_present PASS\nASSERT impersonation.null_after_explicit_low.handle_inheritance PASS\nSUMMARY failures=0 overall=PASS\n",
+        "stderr": "  0.000:0148:014c:trace:wex_process:server_init_process win_pid=0148 win_tid=014c unix_pid=1349 unix_tid=1349\n"
+      }
+    ],
+    "cleanup": [
+      {
+        "flag": "-k",
+        "exit": 0,
+        "stderr": ""
+      },
+      {
+        "flag": "-w",
+        "exit": 0,
+        "stderr": ""
+      }
+    ],
+    "compositor": {
+      "binary": "/home/debian/wex-g4/labwc",
+      "sha256": "4a24dd13fed3d733d4edd6f213e4db284ff0dee9229e5df898d694d4446e0ec8",
+      "config": "/home/debian/wex-g4/wayland",
+      "command": [
+        "/home/debian/wex-g4/labwc",
+        "-V",
+        "-C",
+        "/home/debian/wex-g4/wayland"
+      ],
+      "backend": "headless",
+      "compositor_renderer": "gles2: virgl (D3D12 (Intel(R) UHD Graphics 750))",
+      "endpoint": "wex-shell-0",
+      "private_protocol_verified": true,
+      "alive_at_end": true,
+      "outer_gl_driver_verification": {
+        "driver": "virgl",
+        "renderer": "virgl (D3D12 (Intel(R) UHD Graphics 750))",
+        "passed": true,
+        "startup_log_sha256": "e7f4513303ddc24a2a68b18c64452b0dad3202b1e1b3c4849a056f9385f65b0d"
+      }
+    },
+    "outer": {
+      "driver": "virgl",
+      "renderer": "virgl (D3D12 (Intel(R) UHD Graphics 750))",
+      "passed": true,
+      "startup_log_sha256": "e7f4513303ddc24a2a68b18c64452b0dad3202b1e1b3c4849a056f9385f65b0d"
+    },
+    "compositor_stopped": true
+  },
+  "owned_cleanup": {
+    "removed_owned_paths": [
+      "/home/debian/wex-g4/chromium-token-wait-r14-20261101-prefix",
+      "/home/debian/wex-g4/chromium-token-wait-r14-20261101-wine/build"
+    ],
+    "preserved_baseline_server_sha256": "0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab"
+  },
+  "shutdown": {
+    "classification": "Guest bootstrap only, not Chromium rendering acceptance",
+    "host_gl": {
+      "passed": true,
+      "stdout": "name of display: :0\ndisplay: :0  screen: 0\ndirect rendering: Yes\nExtended renderer info (GLX_MESA_query_renderer):\n    Vendor: Microsoft Corporation (0xffffffff)\n    Device: D3D12 (Intel(R) UHD Graphics 750) (0xffffffff)\n    Version: 25.0.7\n    Accelerated: yes\n    Video memory: 104819MB\n    Unified memory: yes\n    Preferred profile: core (0x1)\n    Max core profile version: 4.1\n    Max compat profile version: 4.1\n    Max GLES1 profile version: 1.1\n    Max GLES[23] profile version: 3.0\nMemory info (GL_ATI_meminfo):\n    VBO free memory - total: 103915 MB, largest block: 103915 MB\n    VBO free aux. memory - total: 0 MB, largest block: 0 MB\n    Texture free memory - total: 103915 MB, largest block: 103915 MB\n    Texture free aux. memory - total: 0 MB, largest block: 0 MB\n    Renderbuffer free memory - total: 103915 MB, largest block: 103915 MB\n    Renderbuffer free aux. memory - total: 0 MB, largest block: 0 MB\nMemory info (GL_NVX_gpu_memory_info):\n    Dedicated video memory: 104819 MB\n    Total available memory: 104819 MB\n    Currently available dedicated video memory: 103915 MB\nOpenGL vendor string: Microsoft Corporation\nOpenGL renderer string: D3D12 (Intel(R) UHD Graphics 750)\nOpenGL core profile version string: 4.1 (Core Profile) Mesa 25.0.7-2+deb13u1\nOpenGL core profile shading language version string: 4.10\nOpenGL core profile context flags: (none)\nOpenGL core profile profile mask: core profile\n\nOpenGL version string: 4.1 (Compatibility Profile) Mesa 25.0.7-2+deb13u1\nOpenGL shading language version string: 4.10\nOpenGL context flags: (none)\nOpenGL profile mask: compatibility profile\n\nOpenGL ES profile version string: OpenGL ES 3.0 Mesa 25.0.7-2+deb13u1\nOpenGL ES profile shading language version string: OpenGL ES GLSL ES 3.00\n\n",
+      "exit_code": 0
+    },
+    "command": [
+      "qemu-system-x86_64",
+      "-accel",
+      "kvm",
+      "-machine",
+      "q35",
+      "-cpu",
+      "host",
+      "-smp",
+      "4",
+      "-m",
+      "8192",
+      "-device",
+      "virtio-vga-gl",
+      "-display",
+      "gtk,gl=on",
+      "-drive",
+      "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/system-native-identity-r4-20261024.qcow2,format=qcow2,if=virtio",
+      "-drive",
+      "file=/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/seed.iso,format=raw,media=cdrom,readonly=on",
+      "-nic",
+      "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2235-:22",
+      "-serial",
+      "file:/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r14-20261101/serial.log",
+      "-qmp",
+      "unix:/var/tmp/wex-g4-tree-20261020/isolated-sockets/virgl-runtime-c3i8_tox/qmp.sock,server=on,wait=off",
+      "-no-reboot"
+    ],
+    "pid": 9125,
+    "exit_before_shutdown": null,
+    "stop_reason": "signal",
+    "graceful_powerdown": true,
+    "fallback_used": false,
+    "shutdown_started_monotonic": 21170.746947114,
+    "qmp": {
+      "started_monotonic": 21170.784000879,
+      "maximum_seconds": 50,
+      "request_ids": {
+        "capabilities": "4e1481a28c1b05398d12a47cc70ba693-capabilities",
+        "powerdown": "4e1481a28c1b05398d12a47cc70ba693-powerdown"
+      },
+      "capabilities_ack": true,
+      "powerdown_requested": true,
+      "powerdown_ack": true,
+      "guest_shutdown_observed": true,
+      "protocol_complete": true,
+      "events": [
+        {
+          "message": {
+            "timestamp": {
+              "seconds": 1793493513,
+              "microseconds": 598023
+            },
+            "event": "POWERDOWN"
+          },
+          "before_powerdown_request": false,
+          "observed_monotonic": 21170.7850177
+        },
+        {
+          "message": {
+            "timestamp": {
+              "seconds": 1793493519,
+              "microseconds": 343174
+            },
+            "event": "SHUTDOWN",
+            "data": {
+              "guest": true,
+              "reason": "guest-shutdown"
+            }
+          },
+          "before_powerdown_request": false,
+          "observed_monotonic": 21176.530249927
+        }
+      ],
+      "transcript": [
+        {
+          "direction": "rx",
+          "monotonic": 21170.784289764,
+          "bytes": 141,
+          "base64": "eyJRTVAiOiB7InZlcnNpb24iOiB7InFlbXUiOiB7Im1pY3JvIjogMTMsICJtaW5vciI6IDAsICJtYWpvciI6IDEwfSwgInBhY2thZ2UiOiAiRGViaWFuIDE6MTAuMC4xMytkcy0wK2RlYjEzdTEifSwgImNhcGFiaWxpdGllcyI6IFsib29iIl19fQ0K",
+          "before_powerdown_request": true
+        },
+        {
+          "direction": "tx",
+          "monotonic": 21170.784372377,
+          "bytes": 85,
+          "base64": "eyJleGVjdXRlIjoicW1wX2NhcGFiaWxpdGllcyIsImlkIjoiNGUxNDgxYTI4YzFiMDUzOThkMTJhNDdjYzcwYmE2OTMtY2FwYWJpbGl0aWVzIn0NCg==",
+          "completed": true
+        },
+        {
+          "direction": "rx",
+          "monotonic": 21170.784665591,
+          "bytes": 71,
+          "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjRlMTQ4MWEyOGMxYjA1Mzk4ZDEyYTQ3Y2M3MGJhNjkzLWNhcGFiaWxpdGllcyJ9DQo=",
+          "before_powerdown_request": true
+        },
+        {
+          "direction": "tx",
+          "monotonic": 21170.78471811,
+          "bytes": 82,
+          "base64": "eyJleGVjdXRlIjoic3lzdGVtX3Bvd2VyZG93biIsImlkIjoiNGUxNDgxYTI4YzFiMDUzOThkMTJhNDdjYzcwYmE2OTMtcG93ZXJkb3duIn0NCg==",
+          "completed": true
+        },
+        {
+          "direction": "rx",
+          "monotonic": 21170.784988431,
+          "bytes": 86,
+          "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDkzNTEzLCAibWljcm9zZWNvbmRzIjogNTk4MDIzfSwgImV2ZW50IjogIlBPV0VSRE9XTiJ9DQo=",
+          "before_powerdown_request": false
+        },
+        {
+          "direction": "rx",
+          "monotonic": 21170.785024739,
+          "bytes": 68,
+          "base64": "eyJyZXR1cm4iOiB7fSwgImlkIjogIjRlMTQ4MWEyOGMxYjA1Mzk4ZDEyYTQ3Y2M3MGJhNjkzLXBvd2VyZG93biJ9DQo=",
+          "before_powerdown_request": false
+        },
+        {
+          "direction": "rx",
+          "monotonic": 21176.530178262,
+          "bytes": 138,
+          "base64": "eyJ0aW1lc3RhbXAiOiB7InNlY29uZHMiOiAxNzkzNDkzNTE5LCAibWljcm9zZWNvbmRzIjogMzQzMTc0fSwgImV2ZW50IjogIlNIVVRET1dOIiwgImRhdGEiOiB7Imd1ZXN0IjogdHJ1ZSwgInJlYXNvbiI6ICJndWVzdC1zaHV0ZG93biJ9fQ0K",
+          "before_powerdown_request": false
+        }
+      ],
+      "greeting": {
+        "QMP": {
+          "version": {
+            "qemu": {
+              "micro": 13,
+              "minor": 0,
+              "major": 10
+            },
+            "package": "Debian 1:10.0.13+ds-0+deb13u1"
+          },
+          "capabilities": [
+            "oob"
+          ]
+        }
+      },
+      "powerdown_request_monotonic": 21170.784741928,
+      "finished_monotonic": 21176.530288406,
+      "elapsed_seconds": 5.746287526999367
+    },
+    "qemu_exit_status": 0,
+    "cleanup": {
+      "qemu_stopped": true,
+      "xvfb_stopped": true
+    },
+    "shutdown_elapsed_seconds": 5.954868389999319,
+    "launcher_identity": {
+      "pid": 9110,
+      "start_ticks": 2084228,
+      "cmdline": [
+        "python3",
+        "-B",
+        "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py"
+      ],
+      "run_name": "chromium-token-wait-r14-20261101",
+      "run_dir": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r14-20261101",
+      "launcher_path": "/mnt/d/DeepThought/Worktrees/chromium-token-integration/WineExplorer/build/g4-virgl-20261022/launch.py",
+      "identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r14-20261101/launcher-identity.json",
+      "qemu_pid": 9125,
+      "qemu_start_ticks": 2084369,
+      "qemu_cmdline": [],
+      "xvfb_pid": 9112,
+      "xvfb_start_ticks": 2084257,
+      "xvfb_cmdline": []
+    },
+    "launcher_identity_record": "/mnt/d/VirtualBox_VMs/WEX-G4-VirGL-20261022/chromium-token-wait-r14-20261101/launcher-identity.json"
+  },
+  "runtime": {
+    "wine_diagnostic_commit": "65f8cc3a",
+    "manifest_files": 1778,
+    "manifest_bytes": 1883824747,
+    "only_changed_file": "wow64/dlls/ntdll/ntdll.so",
+    "original_ntdll_sha256": "639af4cd083163f54840666bd17361f0969d7bd9371c5ccf80a4d451adc9f8c0",
+    "diagnostic_ntdll_sha256": "bb08004acee5df6ec997a24b1126285937e713a9cf3c583311345d786e985d17"
+  },
+  "identity_limits": "This run maps Windows PID248 to UnixPID1118 and live tids1118/1162 from its own binding/trace and verified cmdline/Tgid. PID1118 was a helper in r13, not in r14. IDs cannot be transferred between runs. The syscall does not identify the waited Wine object or prove GetTokenInformation blocked."
+}

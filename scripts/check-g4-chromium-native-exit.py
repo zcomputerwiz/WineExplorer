@@ -41,10 +41,10 @@ HELPER_PREVIOUS={'sha256':cal.PES['native-exit.exe']}
 def configure(mode):
     """Fixed diagnostic contracts only; no executable/flag/path passthrough."""
     global HOST,STAGE,OUTPUT,PROFILE,HELPER,MANIFEST,FIXTURE,DEBUG,MODE,HELPER_PREVIOUS,BUILD,PREFIX
-    if mode in ('token-wait-r9','token-wait-r10','token-pipe-r11','token-pipe-r12','token-wait-r13'):
+    if mode in ('token-wait-r9','token-wait-r10','token-pipe-r11','token-pipe-r12','token-wait-r13','token-wait-r14'):
         configure('token-fixed-r8')
         MODE=mode;HOST='chromium-'+mode+'-20261031'
-        if mode=='token-wait-r13':HOST='chromium-token-wait-r13-20261101'
+        if mode in ('token-wait-r13','token-wait-r14'):HOST='chromium-'+mode+'-20261101'
         STAGE=LAB/(HOST+'-stage');OUTPUT=LAB/HOST;PROFILE=OUTPUT/'profile'
         HELPER=STAGE/'original/native-exit.exe';MANIFEST=STAGE/'runtime-manifest.json'
         FIXTURE=STAGE/'scripts/g4-edge-probe/index.html'
@@ -57,6 +57,8 @@ def configure(mode):
             DEBUG=DEBUG+',+file,+sync'
         elif mode=='token-pipe-r12':
             DEBUG=DEBUG+',+wex_mojo'
+        elif mode=='token-wait-r14':
+            DEBUG=DEBUG+',+wex_process'
         return
     if mode not in ('r1','module-warn-r2','userenv-r3','userenv-r4','userenv-r6','runtime-unblock','renderer-unblock','observation-control','observation-control-r2','memory-8g','navigation-unblock','navigation-phase','browser-boundary','diagnostic','verify-r1','verify-r2','verify-r3','verify-r4','verify-r5','verify-r6','token-fixed-r7','token-fixed-r8'):raise ValueError('Unknown fixed Chromium mode')
     MODE=mode
@@ -130,7 +132,7 @@ def child_args(nonce,url):
         args+=['--vmodule=*/content/browser/*=2,*/content/browser/renderer_host/*=2,*/content/browser/loader/*=2,*/services/network/*=2,*/sandbox/*=2,*/base/process/*=2',
                '--log-net-log='+cal.win(OUTPUT/'netlog.json'),'--net-log-max-size-mb=8','--net-log-duration=40',
                '--trace-startup','--trace-startup-duration=35','--trace-startup-file='+cal.win(OUTPUT/'trace.json')]
-    elif MODE in ('verify-r2','verify-r3','verify-r4','verify-r5','verify-r6','token-fixed-r7','token-fixed-r8','token-wait-r9','token-wait-r10','token-pipe-r11','token-pipe-r12','token-wait-r13'):
+    elif MODE in ('verify-r2','verify-r3','verify-r4','verify-r5','verify-r6','token-fixed-r7','token-fixed-r8','token-wait-r9','token-wait-r10','token-pipe-r11','token-pipe-r12','token-wait-r13','token-wait-r14'):
         # WO-20261029-CHROMIUM-VERIFICATION-ITERATION-2/3/4/5 + WO-20261030-CHROMIUM-COMBINED r6 +
         # WO-20261031-CHROMIUM-TOKEN-FIXED-R7: level 3 scoped VLOG to expose the decisive pre-spawn
         # policy decision and failure cause, plus startup NetLog and trace. Same shape for all three
@@ -143,7 +145,7 @@ def child_args(nonce,url):
 def environment(output):
     env=cal.install.environment(output)
     env.update(WINEPREFIX=str(PREFIX),WINEDEBUG=DEBUG)
-    if MODE in ('token-fixed-r7','token-fixed-r8','token-wait-r9','token-wait-r10','token-pipe-r11','token-pipe-r12','token-wait-r13'):
+    if MODE in ('token-fixed-r7','token-fixed-r8','token-wait-r9','token-wait-r10','token-pipe-r11','token-pipe-r12','token-wait-r13','token-wait-r14'):
         env.update(WINE=str(BUILD/'wine'),WINESERVER=str(BUILD/'server/wineserver'))
     return env
 
@@ -296,7 +298,7 @@ def run(output,helpers,*,now=time.monotonic,sleep=time.sleep,popen=subprocess.Po
             if MODE=='token-wait-r10' and now()-observed_at>=5 and 'wait_snapshot' not in result:
                 from g4_chromium_wait_snapshot import observe
                 result['wait_snapshot']=observe(output,env,BUILD,PREFIX,maximum_seconds=bound(8))
-            elif MODE=='token-wait-r13' and now()-observed_at>=5 and 'wait_snapshot' not in result:
+            elif MODE in ('token-wait-r13','token-wait-r14') and now()-observed_at>=5 and 'wait_snapshot' not in result:
                 from g4_chromium_wait_snapshot import observe_root
                 if bound(10)<10:raise TimeoutError('Root snapshot requires ten-second observation budget')
                 result['wait_snapshot']=observe_root(output,env,BUILD,PREFIX)
@@ -371,10 +373,16 @@ def main():
     selection.add_argument('--token-pipe-r11',action='store_true',help='Fixed token correction diagnostic with WINEDEBUG +file,+sync named-pipe transport channels added to the r8 enriched mask; no wineserver -d, no WineDbg/proc observer')
     selection.add_argument('--token-pipe-r12',action='store_true',help='Fresh fixed pipe-only instrumentation diagnostic; same Chromium command, private runtime and sandbox checks')
     selection.add_argument('--token-wait-r13',action='store_true',help='Fixed original token-corrected runtime with one root-scoped read-only thread snapshot')
+    selection.add_argument('--token-wait-r14',action='store_true',help='Bound browser Wine/Unix mapping with a root-scoped live-thread wait snapshot')
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--runtime-probe',action='store_true')
     mode.add_argument('--stage-runtime',type=Path)
     args=parser.parse_args()
+    if args.token_wait_r14:
+        configure('token-wait-r14')
+        if args.runtime_probe or args.stage_runtime:
+            print(json.dumps(runtime_state(zip_path=args.stage_runtime,extract=args.stage_runtime is not None),indent=2));return 0
+        return run(OUTPUT if args.output_dir is None else args.output_dir,load('check-g3-correctness'))
     configure('token-pipe-r12' if args.token_pipe_r12 else 'token-pipe-r11' if args.token_pipe_r11 else 'token-wait-r10' if args.token_wait_r10 else 'token-wait-r9' if args.token_wait_r9 else 'token-fixed-r8' if args.token_fixed_r8 else 'token-fixed-r7' if args.token_fixed_r7 else 'verify-r6' if args.verify_r6 else 'verify-r5' if args.verify_r5 else 'verify-r4' if args.verify_r4 else 'verify-r3' if args.verify_r3 else 'verify-r2' if args.verify_r2 else 'verify-r1' if args.verify_r1 else 'diagnostic' if args.diagnostic else 'browser-boundary' if args.browser_boundary else 'navigation-phase' if args.navigation_phase else 'navigation-unblock' if args.navigation_unblock else 'memory-8g' if args.memory_8g else 'observation-control-r2' if args.observation_control_r2 else 'observation-control' if args.observation_control else 'renderer-unblock' if args.renderer_unblock else 'runtime-unblock' if args.runtime_unblock else 'userenv-r6' if args.userenv_r6 else 'userenv-r4' if args.userenv_r4 else 'userenv-r3' if args.userenv_r3 else 'module-warn-r2' if args.module_warn_r2 else 'r1')
     if args.runtime_probe or args.stage_runtime:
         if args.token_wait_r13:configure('token-wait-r13')

@@ -422,3 +422,23 @@ Linux PID1118 is the native-exit helper, not the main browser. Its
 captured, including the utility children; the browser's omission does not
 prove absence. Resolving the Wine-to-Linux process identity is still required
 before attributing its wait. Cleanup and graceful shutdown were verified.
+
+The r14 diagnostic resolves that identity gap with Wine `65f8cc3a`'s opt-in
+`wex_process` startup/thread mapping. The full 1778-file manifest has exactly
+one change from the original corrected runtime: Unix `ntdll.so`. Both
+architectures' PE modules, original kernelbase and server `196f24db...` remain
+unchanged. Forty-one focused observer/contract checks cover binding, live
+thread identity, quotas, deadlines and the complete native command.
+
+This run binds Windows PID248 to Unix PID1118. Unlike r13, PID1118 here is
+the browser, verified against its exact executable, fresh profile and thread
+group. At five seconds the main thread and `StackSamplingPr` thread1162 are
+both in `pipe_read`, each reading 16 bytes. This proves the observed process
+and waits, not the waited object or a hang in the last logged token call.
+Only those two browser threads were mapped, and no Chromium log or utility
+connection appeared. The browser remained alive at 45 seconds with zero
+HTTP requests: **another earlier pre-logging stall, not r13's later utility
+failure**. Six x64/x86 startup, three-mode Mojo and descriptor programs then
+passed on that same runtime. All owned threads were checked before clone
+removal; the preserved baseline and graceful QMP shutdown were verified.
+Chromium acceptance and the subsequent Edge comparison remain outstanding.

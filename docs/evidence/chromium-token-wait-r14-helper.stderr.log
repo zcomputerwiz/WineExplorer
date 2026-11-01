@@ -1,0 +1,575 @@
+  0.000:0020:0024:trace:wex_process:server_init_process win_pid=0020 win_tid=0024 unix_pid=1061 unix_tid=1061
+ 90.523:0020:0024:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\wineboot.exe" image L"C:\\windows\\system32\\wineboot.exe" cmdline L"\"C:\\windows\\system32\\wineboot.exe\" --init" parent (nil) machine 8664
+  0.000:0028:002c:trace:wex_process:server_init_process win_pid=0028 win_tid=002c unix_pid=1065 unix_tid=1065
+ 90.529:0020:0024:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\wineboot.exe" pid 0028 tid 002c handles 0x14/0x18
+ 90.530:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 90.549:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 90.549:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 90.550:0028:002c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 90.550:0028:002c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 00000000002411B0 18)
+ 90.551:0028:002c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 90.551:0028:002c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 00000000002411E0 18)
+ 90.552:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 90.554:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21ee58,0x00000008,(nil))
+ 90.560:0028:002c:trace:process:CreateProcessInternalW app (null) cmdline L"C:\\windows\\system32\\winemenubuilder.exe -a -r"
+ 90.560:0028:002c:trace:process:find_exe_file looking for L"C:\\windows\\system32\\winemenubuilder.exe" in L"C:\\windows\\system32;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+ 90.561:0028:002c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\winemenubuilder.exe" image L"C:\\windows\\system32\\winemenubuilder.exe" cmdline L"C:\\windows\\system32\\winemenubuilder.exe -a -r" parent (nil) machine 0
+  0.000:0030:0034:trace:wex_process:server_init_process win_pid=0030 win_tid=0034 unix_pid=1067 unix_tid=1067
+ 90.566:0028:002c:trace:process:InitializeProcThreadAttributeList (000000000024D0F0 1 0 000000000021EDC8)
+ 90.566:0028:002c:trace:process:UpdateProcThreadAttribute (000000000024D0F0 0 00020019 000000000021EDC6 2 0000000000000000 0000000000000000)
+ 90.566:0028:002c:trace:process:CreateProcessInternalW app L"C:\\windows\\system32\\services.exe" cmdline (null)
+ 90.567:0028:002c:trace:process:CreateProcessInternalW PROC_THREAD_ATTRIBUTE_MACHINE 8664.
+ 90.567:0028:002c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\services.exe" image L"C:\\windows\\system32\\services.exe" cmdline L"\"C:\\windows\\system32\\services.exe\"" parent (nil) machine 8664
+  0.000:0038:003c:trace:wex_process:server_init_process win_pid=0038 win_tid=003c unix_pid=1069 unix_tid=1069
+ 90.573:0028:002c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\services.exe" pid 0038 tid 003c handles 0x40/0x44
+ 90.574:0028:002c:trace:process:CreateProcessInternalW started process pid 0038 tid 003c
+ 90.574:0038:003c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 90.612:0038:003c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 90.613:0038:003c:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 90.614:0038:003c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 90.614:0038:003c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000249C90 18)
+ 90.614:0038:003c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 90.614:0038:003c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000249CC0 18)
+ 90.672:0038:003c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 90.673:0038:003c:trace:security:GetTokenInformation (000000000000007C, 1 [TokenUser], 000000000021FCE0, 84, 000000000021FC18):
+ 90.673:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 22)
+ 90.673:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000000000 0)
+ 90.673:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000245B90 43)
+ 90.674:0038:003c:trace:process:ExpandEnvironmentStringsW (L"\"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\" /svc" 0000000000000000 0)
+ 90.674:0038:003c:trace:process:ExpandEnvironmentStringsW (L"\"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\" /svc" 000000000024FF40 75)
+ 90.674:0038:003c:trace:process:ExpandEnvironmentStringsW (L"\"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\" /medsvc" 0000000000000000 0)
+ 90.674:0038:003c:trace:process:ExpandEnvironmentStringsW (L"\"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\" /medsvc" 0000000000800460 78)
+ 90.674:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted" 0000000000000000 0)
+ 90.674:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted" 0000000000800880 65)
+ 90.675:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000000000 0)
+ 90.675:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000245C50 43)
+ 90.675:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\Microsoft.Net\\Framework\\v3.0\\wpf\\presentationfontcache.exe" 0000000000000000 0)
+ 90.675:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\Microsoft.Net\\Framework\\v3.0\\wpf\\presentationfontcache.exe" 0000000000800BB0 70)
+ 90.675:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\http.sys" 0000000000000000 0)
+ 90.675:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\http.sys" 0000000000245CB0 37)
+ 90.676:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000000000 0)
+ 90.676:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000245D10 43)
+ 90.676:0038:003c:trace:process:ExpandEnvironmentStringsW (L"\"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\156.0.4314.42\\elevation_service.exe\"" 0000000000000000 0)
+ 90.676:0038:003c:trace:process:ExpandEnvironmentStringsW (L"\"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\156.0.4314.42\\elevation_service.exe\"" 0000000000802560 88)
+ 90.676:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\mountmgr.sys" 0000000000000000 0)
+ 90.676:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\mountmgr.sys" 0000000000245D70 41)
+ 90.677:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\msiexec.exe /V" 0000000000000000 0)
+ 90.677:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\msiexec.exe /V" 0000000000249270 35)
+ 90.677:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\ndis.sys" 0000000000000000 0)
+ 90.677:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\ndis.sys" 0000000000245DD0 37)
+ 90.678:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\nsiproxy.sys" 0000000000000000 0)
+ 90.678:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\nsiproxy.sys" 0000000000245E30 41)
+ 90.678:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\plugplay.exe" 0000000000000000 0)
+ 90.678:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\plugplay.exe" 00000000002492C0 33)
+ 90.678:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rpcss.exe" 0000000000000000 0)
+ 90.678:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rpcss.exe" 0000000000249310 30)
+ 90.679:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\lsass.exe" 0000000000000000 0)
+ 90.679:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\lsass.exe" 00000000002493B0 30)
+ 90.679:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000000000 0)
+ 90.679:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000245EF0 43)
+ 90.679:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000000000 0)
+ 90.679:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k netsvcs" 0000000000245F50 43)
+ 90.680:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\spoolsv.exe" 0000000000000000 0)
+ 90.680:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\spoolsv.exe" 0000000000249450 32)
+ 90.680:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k imgsvc" 0000000000000000 0)
+ 90.680:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k imgsvc" 0000000000246010 42)
+ 90.681:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\termsv.exe" 0000000000000000 0)
+ 90.681:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\termsv.exe" 00000000002494A0 31)
+ 90.682:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebth.sys" 0000000000000000 0)
+ 90.682:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebth.sys" 0000000000246070 40)
+ 90.682:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebus.sys" 0000000000000000 0)
+ 90.682:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebus.sys" 00000000002460D0 40)
+ 90.682:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winehid.sys" 0000000000000000 0)
+ 90.682:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winehid.sys" 0000000000246130 40)
+ 90.683:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\wineusb.sys" 0000000000000000 0)
+ 90.683:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\wineusb.sys" 0000000000246190 40)
+ 90.683:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winmgmt.exe" 0000000000000000 0)
+ 90.683:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winmgmt.exe" 00000000002494F0 32)
+ 90.684:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\wuauserv.exe" 0000000000000000 0)
+ 90.684:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\wuauserv.exe" 0000000000249540 33)
+ 90.685:0038:0040:trace:wex_process:server_init_thread win_pid=0038 win_tid=0040 unix_pid=1069 unix_tid=1070
+ 90.689:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\mountmgr.sys" 0000000000000000 0)
+ 90.689:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\mountmgr.sys" 00000000002461F0 41)
+ 90.690:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winedevice.exe" 0000000000000000 0)
+ 90.690:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winedevice.exe" 0000000000249590 35)
+ 90.690:0038:003c:trace:userenv:CreateEnvironmentBlock 0000000140015118 000000000000013C 0
+ 90.690:0038:003c:trace:process:GetEnvironmentVariableW (L"SystemRoot" 000000000020F2F0 32767)
+ 90.690:0038:003c:trace:process:GetEnvironmentVariableW (L"SystemDrive" 000000000020F2F0 32767)
+ 90.691:0038:003c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x20ef58,0x00000008,(nil))
+ 90.691:0038:003c:trace:security:GetTokenInformation (000000000000013C, 1 [TokenUser], 0000000000000000, 0, 000000000020F014):
+ 90.691:0038:003c:trace:security:GetTokenInformation (000000000000013C, 1 [TokenUser], 0000000000802B70, 44, 000000000020F014):
+ 90.691:0038:003c:trace:security:ConvertSidToStringSidW 0000000000802B80 000000000020F040
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 0)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 1)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 2)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 3)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 4)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 5)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 6)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 7)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 8)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 9)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 10)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 11)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 12)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 13)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 14)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 15)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 16)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 17)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 18)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 19)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 20)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 21)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 22)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 23)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 24)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 25)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 26)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 27)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 28)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 29)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 30)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 31)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 32)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 33)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 34)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 35)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 36)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 37)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 38)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 39)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 40)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 41)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 42)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 43)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 44)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 45)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 46)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 47)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 48)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 49)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 50)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 51)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 52)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 53)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 54)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 55)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 56)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 57)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 58)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 59)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 60)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 61)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 62)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 63)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 64)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 65)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 66)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 67)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 68)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 69)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 70)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 71)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 72)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 73)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 74)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 75)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 76)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 77)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 78)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 79)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 80)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 81)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 82)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 83)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 84)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 85)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 86)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 87)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 88)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 89)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 90)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 91)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 92)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 93)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 94)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 95)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 96)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 97)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 98)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 99)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 100)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 101)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 102)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 103)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 104)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 105)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 106)
+ 90.691:0038:003c:trace:security:IsWellKnownSid (S-1-5-21-0-0-0-1000, 107)
+ 90.692:0038:003c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 00000000007C2760 257)
+ 90.693:0038:003c:trace:process:GetEnvironmentVariableW (L"WINEBOOTSTRAPMODE" 000000000021F3F0 16)
+ 90.693:0038:003c:trace:process:CreateProcessInternalW app (null) cmdline L"C:\\windows\\system32\\winedevice.exe"
+ 90.693:0038:003c:trace:process:find_exe_file looking for L"C:\\windows\\system32\\winedevice.exe" in L"C:\\windows\\system32;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+ 90.694:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\winedevice.exe" image L"C:\\windows\\system32\\winedevice.exe" cmdline L"C:\\windows\\system32\\winedevice.exe" parent (nil) machine 0
+  0.000:0044:0048:trace:wex_process:server_init_process win_pid=0044 win_tid=0048 unix_pid=1072 unix_tid=1072
+ 90.701:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\winedevice.exe" pid 0044 tid 0048 handles 0x148/0x14c
+ 90.701:0038:003c:trace:process:CreateProcessInternalW started process pid 0044 tid 0048
+ 90.701:0044:0048:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 90.708:0044:0048:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 90.708:0044:0048:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 90.708:0044:0048:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 90.708:0044:0048:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000245F00 18)
+ 90.709:0044:0048:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 90.709:0044:0048:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000245F30 18)
+ 90.710:0044:0048:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000024,0x21f5ec,0x00000004,(nil))
+ 90.710:0044:0048:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 90.711:0038:004c:trace:wex_process:server_init_thread win_pid=0038 win_tid=004c unix_pid=1069 unix_tid=1073
+ 90.712:0038:0050:trace:wex_process:server_init_thread win_pid=0038 win_tid=0050 unix_pid=1069 unix_tid=1074
+ 90.713:0044:0054:trace:wex_process:server_init_thread win_pid=0044 win_tid=0054 unix_pid=1072 unix_tid=1075
+ 90.714:0044:0058:trace:wex_process:server_init_thread win_pid=0044 win_tid=0058 unix_pid=1072 unix_tid=1076
+ 90.715:0044:0058:trace:process:NtQueryInformationProcess (0x50,0x00000000,0xc20848,0x00000030,(nil))
+ 90.715:0044:0058:trace:process:NtQueryInformationProcess (0x50,0x00000018,0xc2089c,0x00000004,(nil))
+ 90.715:0044:0058:trace:process:NtQueryInformationProcess (0x50,0x00000004,0xc20878,0x00000020,(nil))
+ 90.715:0044:0058:trace:process:NtQueryInformationProcess (0x50,0x0000001b,(nil),0x00000000,0xc1f6cc)
+ 90.715:0044:0058:trace:process:NtQueryInformationProcess (0x50,0x0000001b,0x7c1fc0,0x00000070,(nil))
+ 90.715:0044:0058:trace:process:NtQueryInformationProcess (0x50,0x0000001a,0xc1f668,0x00000008,(nil))
+ 90.715:0044:005c:trace:wex_process:server_init_thread win_pid=0044 win_tid=005c unix_pid=1072 unix_tid=1077
+ 90.718:0044:0054:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\mountmgr.sys" 0000000000000000 0)
+ 90.718:0044:0054:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\mountmgr.sys" 000000000024D080 41)
+ 90.718:0038:0060:trace:wex_process:server_init_thread win_pid=0038 win_tid=0060 unix_pid=1069 unix_tid=1078
+ 90.719:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted" 0000000000000000 0)
+ 90.719:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted" 000000000086FE00 65)
+ 90.719:0038:003c:trace:process:CreateProcessInternalW app (null) cmdline L"C:\\windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted"
+ 90.719:0038:003c:trace:process:find_exe_file looking for L"C:\\windows\\system32\\svchost.exe" in L"C:\\windows\\system32;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+ 90.720:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\svchost.exe" image L"C:\\windows\\system32\\svchost.exe" cmdline L"C:\\windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted" parent (nil) machine 0
+ 90.722:0038:006c:trace:wex_process:server_init_thread win_pid=0038 win_tid=006c unix_pid=1069 unix_tid=1080
+  0.000:0064:0068:trace:wex_process:server_init_process win_pid=0064 win_tid=0068 unix_pid=1081 unix_tid=1081
+ 90.726:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\svchost.exe" pid 0064 tid 0068 handles 0x160/0x164
+ 90.726:0038:003c:trace:process:CreateProcessInternalW started process pid 0064 tid 0068
+ 90.727:0064:0068:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 90.730:0064:0068:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 90.731:0064:0068:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 90.731:0064:0068:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 90.731:0064:0068:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000245A20 18)
+ 90.732:0064:0068:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 90.732:0064:0068:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000245A50 18)
+ 90.733:0064:0068:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 90.733:0064:0068:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\wevtsvc.dll" 0000000000000000 0)
+ 90.733:0064:0068:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\wevtsvc.dll" 00000000002498B0 32)
+ 90.735:0038:0070:trace:wex_process:server_init_thread win_pid=0038 win_tid=0070 unix_pid=1069 unix_tid=1082
+ 90.736:0064:0074:trace:wex_process:server_init_thread win_pid=0064 win_tid=0074 unix_pid=1081 unix_tid=1083
+ 90.738:0064:0078:trace:wex_process:server_init_thread win_pid=0064 win_tid=0078 unix_pid=1081 unix_tid=1084
+ 90.738:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\plugplay.exe" 0000000000000000 0)
+ 90.738:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\plugplay.exe" 00000000002495E0 33)
+ 90.738:0038:003c:trace:process:CreateProcessInternalW app (null) cmdline L"C:\\windows\\system32\\plugplay.exe"
+ 90.738:0038:003c:trace:process:find_exe_file looking for L"C:\\windows\\system32\\plugplay.exe" in L"C:\\windows\\system32;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+ 90.739:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\plugplay.exe" image L"C:\\windows\\system32\\plugplay.exe" cmdline L"C:\\windows\\system32\\plugplay.exe" parent (nil) machine 0
+  0.000:007c:0080:trace:wex_process:server_init_process win_pid=007c win_tid=0080 unix_pid=1086 unix_tid=1086
+ 90.744:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\plugplay.exe" pid 007c tid 0080 handles 0x15c/0x164
+ 90.744:0038:003c:trace:process:CreateProcessInternalW started process pid 007c tid 0080
+ 90.745:007c:0080:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 90.751:007c:0080:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 90.751:007c:0080:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 90.751:007c:0080:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 90.751:007c:0080:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000243ED0 18)
+ 90.752:007c:0080:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 90.752:007c:0080:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000243F00 18)
+ 90.763:007c:0080:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 90.763:0038:0084:trace:wex_process:server_init_thread win_pid=0038 win_tid=0084 unix_pid=1069 unix_tid=1087
+ 90.765:007c:0088:trace:wex_process:server_init_thread win_pid=007c win_tid=0088 unix_pid=1086 unix_tid=1088
+ 90.766:007c:008c:trace:wex_process:server_init_thread win_pid=007c win_tid=008c unix_pid=1086 unix_tid=1089
+ 90.766:007c:0090:trace:wex_process:server_init_thread win_pid=007c win_tid=0090 unix_pid=1086 unix_tid=1090
+ 90.767:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\nsiproxy.sys" 0000000000000000 0)
+ 90.767:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\nsiproxy.sys" 00000000002461F0 41)
+ 90.768:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winedevice.exe" 0000000000000000 0)
+ 90.768:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winedevice.exe" 00000000002495E0 35)
+ 90.768:0038:003c:trace:process:CreateProcessInternalW app (null) cmdline L"C:\\windows\\system32\\winedevice.exe"
+ 90.768:0038:003c:trace:process:find_exe_file looking for L"C:\\windows\\system32\\winedevice.exe" in L"C:\\windows\\system32;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+ 90.769:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\winedevice.exe" image L"C:\\windows\\system32\\winedevice.exe" cmdline L"C:\\windows\\system32\\winedevice.exe" parent (nil) machine 0
+  0.000:0094:0098:trace:wex_process:server_init_process win_pid=0094 win_tid=0098 unix_pid=1092 unix_tid=1092
+ 90.773:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\winedevice.exe" pid 0094 tid 0098 handles 0x184/0x188
+ 90.773:0038:003c:trace:process:CreateProcessInternalW started process pid 0094 tid 0098
+ 90.774:0094:0098:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 90.778:0094:0098:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 90.779:0094:0098:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 90.779:0094:0098:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 90.779:0094:0098:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000245F00 18)
+ 90.780:0094:0098:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 90.780:0094:0098:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000245F30 18)
+ 90.781:0094:0098:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000024,0x21f5ec,0x00000004,(nil))
+ 90.781:0094:0098:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 90.782:0038:009c:trace:wex_process:server_init_thread win_pid=0038 win_tid=009c unix_pid=1069 unix_tid=1093
+ 90.783:0094:00a0:trace:wex_process:server_init_thread win_pid=0094 win_tid=00a0 unix_pid=1092 unix_tid=1094
+ 90.784:0094:00a4:trace:wex_process:server_init_thread win_pid=0094 win_tid=00a4 unix_pid=1092 unix_tid=1095
+ 90.786:0094:00a4:trace:process:NtQueryInformationProcess (0x50,0x00000000,0xc20848,0x00000030,(nil))
+ 90.786:0094:00a4:trace:process:NtQueryInformationProcess (0x50,0x00000018,0xc2089c,0x00000004,(nil))
+ 90.786:0094:00a4:trace:process:NtQueryInformationProcess (0x50,0x00000004,0xc20878,0x00000020,(nil))
+ 90.786:0094:00a4:trace:process:NtQueryInformationProcess (0x50,0x0000001b,(nil),0x00000000,0xc1f6cc)
+ 90.786:0094:00a4:trace:process:NtQueryInformationProcess (0x50,0x0000001b,0x7c1fc0,0x00000070,(nil))
+ 90.786:0094:00a4:trace:process:NtQueryInformationProcess (0x50,0x0000001a,0xc1f668,0x00000008,(nil))
+ 90.786:0094:00a8:trace:wex_process:server_init_thread win_pid=0094 win_tid=00a8 unix_pid=1092 unix_tid=1096
+ 90.788:0094:00a0:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\nsiproxy.sys" 0000000000000000 0)
+ 90.788:0094:00a0:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\nsiproxy.sys" 000000000024D080 41)
+ 90.789:0094:00ac:trace:wex_process:server_init_thread win_pid=0094 win_tid=00ac unix_pid=1092 unix_tid=1097
+ 90.794:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\ndis.sys" 0000000000000000 0)
+ 90.794:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\ndis.sys" 00000000002461F0 37)
+ 90.801:0094:00a0:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\ndis.sys" 0000000000000000 0)
+ 90.801:0094:00a0:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\ndis.sys" 000000000024D1A0 37)
+ 90.813:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebus.sys" 0000000000000000 0)
+ 90.813:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebus.sys" 00000000002461F0 40)
+ 90.814:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winedevice.exe" 0000000000000000 0)
+ 90.814:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\winedevice.exe" 00000000002495E0 35)
+ 90.814:0038:003c:trace:process:CreateProcessInternalW app (null) cmdline L"C:\\windows\\system32\\winedevice.exe"
+ 90.814:0038:003c:trace:process:find_exe_file looking for L"C:\\windows\\system32\\winedevice.exe" in L"C:\\windows\\system32;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+ 90.815:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\winedevice.exe" image L"C:\\windows\\system32\\winedevice.exe" cmdline L"C:\\windows\\system32\\winedevice.exe" parent (nil) machine 0
+  0.000:00b0:00b4:trace:wex_process:server_init_process win_pid=00b0 win_tid=00b4 unix_pid=1099 unix_tid=1099
+ 90.822:0038:003c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\winedevice.exe" pid 00b0 tid 00b4 handles 0x1a4/0x1a8
+ 90.822:0038:003c:trace:process:CreateProcessInternalW started process pid 00b0 tid 00b4
+ 90.823:00b0:00b4:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 90.828:00b0:00b4:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 90.828:00b0:00b4:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 90.829:00b0:00b4:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 90.829:00b0:00b4:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000245F00 18)
+ 90.829:00b0:00b4:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 90.829:00b0:00b4:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000245F30 18)
+ 90.830:00b0:00b4:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000024,0x21f5ec,0x00000004,(nil))
+ 90.830:00b0:00b4:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 90.832:0038:00b8:trace:wex_process:server_init_thread win_pid=0038 win_tid=00b8 unix_pid=1069 unix_tid=1100
+ 90.833:00b0:00bc:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00bc unix_pid=1099 unix_tid=1101
+ 90.834:00b0:00c0:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00c0 unix_pid=1099 unix_tid=1102
+ 90.836:00b0:00c0:trace:process:NtQueryInformationProcess (0x48,0x00000000,0x24ff88,0x00000030,(nil))
+ 90.836:00b0:00c0:trace:process:NtQueryInformationProcess (0x48,0x00000018,0x24ffdc,0x00000004,(nil))
+ 90.836:00b0:00c0:trace:process:NtQueryInformationProcess (0x48,0x00000004,0x24ffb8,0x00000020,(nil))
+ 90.836:00b0:00c0:trace:process:NtQueryInformationProcess (0x48,0x0000001b,(nil),0x00000000,0xc1f6cc)
+ 90.836:00b0:00c0:trace:process:NtQueryInformationProcess (0x48,0x0000001b,0x7c1fc0,0x00000070,(nil))
+ 90.836:00b0:00c0:trace:process:NtQueryInformationProcess (0x48,0x0000001a,0xc1f668,0x00000008,(nil))
+ 90.836:00b0:00c4:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00c4 unix_pid=1099 unix_tid=1103
+ 90.838:00b0:00bc:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebus.sys" 0000000000000000 0)
+ 90.838:00b0:00bc:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebus.sys" 000000000024D080 40)
+ 90.849:00b0:00c8:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00c8 unix_pid=1099 unix_tid=1104
+ 90.850:00b0:00cc:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00cc unix_pid=1099 unix_tid=1105
+ 90.851:00b0:00d0:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00d0 unix_pid=1099 unix_tid=1106
+ 90.852:00b0:00c4:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winehid.sys" 0000000000000000 0)
+ 90.852:00b0:00c4:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winehid.sys" 0000000000C21E80 40)
+ 90.858:0038:00d4:trace:wex_process:server_init_thread win_pid=0038 win_tid=00d4 unix_pid=1069 unix_tid=1107
+ 90.860:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\wineusb.sys" 0000000000000000 0)
+ 90.860:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\wineusb.sys" 00000000002461F0 40)
+ 90.864:00b0:00bc:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\wineusb.sys" 0000000000000000 0)
+ 90.864:00b0:00bc:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\wineusb.sys" 000000000024D320 40)
+ 90.879:00b0:00d8:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00d8 unix_pid=1099 unix_tid=1108
+ 90.883:00b0:00dc:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00dc unix_pid=1099 unix_tid=1109
+ 90.884:00b0:00e0:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00e0 unix_pid=1099 unix_tid=1110
+ 90.885:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebth.sys" 0000000000000000 0)
+ 90.885:0038:003c:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebth.sys" 00000000002461F0 40)
+ 90.890:00b0:00bc:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebth.sys" 0000000000000000 0)
+ 90.890:00b0:00bc:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\drivers\\winebth.sys" 000000000024D3E0 40)
+ 90.894:007c:00e4:trace:wex_process:server_init_thread win_pid=007c win_tid=00e4 unix_pid=1086 unix_tid=1112
+ 90.894:007c:00e8:trace:wex_process:server_init_thread win_pid=007c win_tid=00e8 unix_pid=1086 unix_tid=1113
+ 90.899:00b0:00ec:trace:wex_process:server_init_thread win_pid=00b0 win_tid=00ec unix_pid=1099 unix_tid=1114
+ 90.900:0038:00f0:trace:wex_process:server_init_thread win_pid=0038 win_tid=00f0 unix_pid=1069 unix_tid=1115
+ 90.900:0038:00f4:trace:wex_process:server_init_thread win_pid=0038 win_tid=00f4 unix_pid=1069 unix_tid=1116
+ 90.917:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021DF30 260)
+ 90.917:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e8fc,0x00000004,(nil))
+ 90.917:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e8fc,0x00000004,(nil))
+ 90.919:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021E700 260)
+ 90.919:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e8fc,0x00000004,(nil))
+ 90.919:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e8fc,0x00000004,(nil))
+ 90.919:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021F6E0 260)
+ 90.919:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021DF30 260)
+ 90.919:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e8fc,0x00000004,(nil))
+ 90.919:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e8fc,0x00000004,(nil))
+ 91.005:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021D270 260)
+ 91.005:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21dc3c,0x00000004,(nil))
+ 91.005:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21dc3c,0x00000004,(nil))
+ 91.005:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021D270 260)
+ 91.005:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21dc3c,0x00000004,(nil))
+ 91.005:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21dc3c,0x00000004,(nil))
+ 91.005:0028:002c:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021D270 260)
+ 91.005:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21dc3c,0x00000004,(nil))
+ 91.005:0028:002c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21dc3c,0x00000004,(nil))
+ 91.009:0020:0024:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 91.011:0020:0024:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 91.011:0020:0024:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 91.011:0020:0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 91.011:0020:0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 00000000002441D0 18)
+ 91.012:0020:0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 91.012:0020:0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000244200 18)
+ 91.013:0020:0024:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 91.013:0020:0024:trace:process:CreateProcessInternalW app L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" cmdline L"\"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\" \"--app=http://127.0.0.1:43135/c2a20b95cfdcd2d8275feecaf92b32cc/index.html#nonce=c2a20b95cfdcd2d8275feecaf92b32cc\" \"--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r"...
+ 91.014:0020:0024:trace:process:NtCreateUserProcess L"\\??\\Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" image L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" cmdline L"\"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\" \"--app=http://127.0.0.1:43135/c2a20b95cfdcd2d8275feecaf92b32cc/index.html#nonce=c2a20b95cfdcd2d8275feecaf92b32cc\" \"--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r"... parent (nil) machine 0
+  0.000:00f8:00fc:trace:wex_process:server_init_process win_pid=00f8 win_tid=00fc unix_pid=1118 unix_tid=1118
+ 91.019:0020:0024:trace:process:NtCreateUserProcess L"\\??\\Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" pid 00f8 tid 00fc handles 0x40/0x44
+ 91.019:0020:0024:trace:process:CreateProcessInternalW started process pid 00f8 tid 00fc
+ 91.020:0020:0024:trace:process:NtQueryInformationProcess (0x40,0x00000000,0x1ffaf0,0x00000030,(nil))
+ 91.020:0020:0024:trace:process:NtQueryInformationProcess (0x40,0x0000002b,0x1ff0d0,0x00000006,0x1ff03c)
+ 91.020:0020:0024:trace:process:NtQueryInformationProcess (0x40,0x0000002b,0x2423d0,0x000000d0,0x1ff03c)
+ 91.020:0020:0024:trace:process:NtQueryInformationProcess (0x40,0x00000004,0x1ffaf0,0x00000020,(nil))
+ 91.020:00f8:00fc:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x81fa30,0x00000040,(nil))
+ 91.026:00f8:00fc:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x81f5c8,0x00000008,(nil))
+ 91.027:00f8:00fc:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000081F350 85)
+ 91.027:00f8:00fc:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 91.027:00f8:00fc:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000847080 18)
+ 91.028:00f8:00fc:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 91.028:00f8:00fc:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 00000000008470B0 18)
+ 91.034:00f8:00fc:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES" 000000000081F200 260)
+ 91.034:00f8:00fc:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES(X86)" 000000000081F200 260)
+ 91.034:00f8:00fc:trace:process:GetEnvironmentVariableW (L"PROGRAMW6432" 000000000081F200 260)
+ 91.037:00f8:00fc:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES" 000000000081F0D0 260)
+ 91.037:00f8:00fc:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES(X86)" 000000000081F0D0 260)
+ 91.037:00f8:00fc:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x81f078,0x00000008,(nil))
+ 91.039:00f8:00fc:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x81f9e0,0x00000008,(nil))
+ 91.064:00f8:00fc:trace:process:GetEnvironmentVariableW (L"BREAKPAD_DUMP_LOCATION" 0000000000000000 0)
+ 91.064:00f8:00fc:trace:process:GetEnvironmentVariableW (L"CHROME_CRASHPAD_SERVER_URL" 00005560000F8000 32767)
+ 91.064:00f8:00fc:trace:process:GetEnvironmentVariableW (L"chrome_crashpad_server_url" 00005560000F8000 32767)
+ 91.064:00f8:00fc:trace:security:ConvertStringSecurityDescriptorToSecurityDescriptorW L"D:(A;;GA;;;SY)(A;;GWGR;;;S-1-15-2-1)S:(ML;;;;;S-1-16-0)", 1, 000000000081EEE8, 0000000000000000
+ 91.064:00f8:00fc:trace:security:parse_acl L"(A;;GA;;;SY)(A;;GWGR;;;S-1-15-2-1)"
+ 91.064:00f8:00fc:trace:security:parse_acl L"(ML;;;;;S-1-16-0)"
+ 91.064:00f8:00fc:trace:security:parse_acl L"(A;;GA;;;SY)(A;;GWGR;;;S-1-15-2-1)"
+ 91.064:00f8:00fc:trace:security:parse_acl L"(ML;;;;;S-1-16-0)"
+ 91.064:00f8:00fc:trace:security:GetTokenInformation (0000000000000084, 1 [TokenUser], 000000000081E9E0, 88, 000000000081E9B0):
+ 91.065:00f8:00fc:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000024,0x81f0ac,0x00000004,(nil))
+ 91.065:00f8:00fc:trace:process:InitializeProcThreadAttributeList (0000000000000000 1 0 000000000081EDD0)
+ 91.065:00f8:00fc:trace:process:InitializeProcThreadAttributeList (00005560000784E0 1 0 000000000081EDD0)
+ 91.065:00f8:00fc:trace:process:UpdateProcThreadAttribute (00005560000784E0 0 00020002 00005560000386E0 48 0000000000000000 0000000000000000)
+ 91.065:00f8:00fc:trace:process:CreateProcessInternalW app L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" cmdline L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe --type=crashpad-handler --user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\profile /prefetch:4 --monitor-self --monitor-self-argument=--type=crashpad-handler --"...
+ 91.066:00f8:00fc:trace:process:CreateProcessInternalW PROC_THREAD_ATTRIBUTE_HANDLE_LIST handle count 6.
+ 91.066:00f8:00fc:trace:process:NtCreateUserProcess L"\\??\\Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" image L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" cmdline L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe --type=crashpad-handler --user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\profile /prefetch:4 --monitor-self --monitor-self-argument=--type=crashpad-handler --"... parent (nil) machine 0
+  0.000:0100:0104:trace:wex_process:server_init_process win_pid=0100 win_tid=0104 unix_pid=1120 unix_tid=1120
+ 91.073:00f8:00fc:trace:process:NtCreateUserProcess L"\\??\\Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" pid 0100 tid 0104 handles 0xa0/0xa4
+ 91.073:00f8:00fc:trace:process:CreateProcessInternalW started process pid 0100 tid 0104
+ 91.073:0100:0104:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x81fa30,0x00000040,(nil))
+ 91.078:0100:0104:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x81f5c8,0x00000008,(nil))
+ 91.078:0100:0104:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000081F350 85)
+ 91.079:0100:0104:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 91.079:0100:0104:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000846F90 18)
+ 91.080:0100:0104:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 91.080:0100:0104:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000846FC0 18)
+ 91.083:0100:0104:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES" 000000000081F200 260)
+ 91.083:0100:0104:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES(X86)" 000000000081F200 260)
+ 91.083:0100:0104:trace:process:GetEnvironmentVariableW (L"PROGRAMW6432" 000000000081F200 260)
+ 91.086:0100:0104:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES" 000000000081F0D0 260)
+ 91.086:0100:0104:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES(X86)" 000000000081F0D0 260)
+ 91.086:0100:0104:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x81f078,0x00000008,(nil))
+ 91.087:0100:0104:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x81f9e0,0x00000008,(nil))
+ 91.090:0100:0104:trace:process:InitializeProcThreadAttributeList (0000000000000000 1 0 000000000081F808)
+ 91.090:0100:0104:trace:process:InitializeProcThreadAttributeList (0000080800050480 1 0 000000000081F808)
+ 91.090:0100:0104:trace:process:UpdateProcThreadAttribute (0000080800050480 0 00020002 000000000081F8D8 8 0000000000000000 0000000000000000)
+ 91.090:0100:0104:trace:process:NtQueryInformationProcess (0x34,0x00000000,0x81fa20,0x00000030,(nil))
+ 91.090:0100:0104:trace:process:NtQueryInformationProcess (0x34,0x00000004,0x81fa70,0x00000020,(nil))
+ 91.091:0100:0108:trace:wex_process:server_init_thread win_pid=0100 win_tid=0108 unix_pid=1120 unix_tid=1121
+ 91.091:0100:010c:trace:wex_process:server_init_thread win_pid=0100 win_tid=010c unix_pid=1120 unix_tid=1122
+ 91.091:0100:0104:trace:security:ConvertStringSecurityDescriptorToSecurityDescriptorW L"D:(A;;GA;;;SY)(A;;GWGR;;;S-1-15-2-1)S:(ML;;;;;S-1-16-0)", 1, 000000000081ED08, 0000000000000000
+ 91.091:0100:0104:trace:security:parse_acl L"(A;;GA;;;SY)(A;;GWGR;;;S-1-15-2-1)"
+ 91.091:0100:0104:trace:security:parse_acl L"(ML;;;;;S-1-16-0)"
+ 91.091:0100:0104:trace:security:parse_acl L"(A;;GA;;;SY)(A;;GWGR;;;S-1-15-2-1)"
+ 91.091:0100:0104:trace:security:parse_acl L"(ML;;;;;S-1-16-0)"
+ 91.102:0100:0104:trace:security:GetTokenInformation (0000000000000080, 1 [TokenUser], 000000000081E800, 88, 000000000081E7D0):
+ 91.103:0100:010c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\explorer.exe" image L"C:\\windows\\system32\\explorer.exe" cmdline L"\"C:\\windows\\system32\\explorer.exe\" /desktop" parent (nil) machine 8664
+ 91.103:0100:0104:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000024,0x81eecc,0x00000004,(nil))
+ 91.103:0100:0104:trace:process:InitializeProcThreadAttributeList (0000000000000000 1 0 000000000081EBF0)
+ 91.103:0100:0104:trace:process:InitializeProcThreadAttributeList (0000080800050960 1 0 000000000081EBF0)
+ 91.103:0100:0104:trace:process:UpdateProcThreadAttribute (0000080800050960 0 00020002 0000080800094680 40 0000000000000000 0000000000000000)
+ 91.103:0100:0104:trace:process:CreateProcessInternalW app L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" cmdline L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe --type=crashpad-handler --user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\profile /prefetch:4 --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-hand"...
+ 91.105:0100:0104:trace:process:CreateProcessInternalW PROC_THREAD_ATTRIBUTE_HANDLE_LIST handle count 5.
+ 91.105:0100:0104:trace:process:NtCreateUserProcess L"\\??\\Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" image L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" cmdline L"Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe --type=crashpad-handler --user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r14-20261101\\profile /prefetch:4 --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-hand"... parent (nil) machine 0
+  0.000:0110:0114:trace:wex_process:server_init_process win_pid=0110 win_tid=0114 unix_pid=1124 unix_tid=1124
+ 91.107:0100:010c:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\explorer.exe" pid 0110 tid 0114 handles 0xa8/0xb0
+  0.000:0118:011c:trace:wex_process:server_init_process win_pid=0118 win_tid=011c unix_pid=1126 unix_tid=1126
+ 91.108:0110:0114:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 91.110:0100:0104:trace:process:NtCreateUserProcess L"\\??\\Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe" pid 0118 tid 011c handles 0xc0/0xc4
+ 91.110:0100:0104:trace:process:CreateProcessInternalW started process pid 0118 tid 011c
+ 91.111:0118:011c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x81fa30,0x00000040,(nil))
+ 91.114:0110:0114:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 91.114:0110:0114:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 91.114:0110:0114:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 91.114:0110:0114:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 00000000002450C0 18)
+ 91.115:0110:0114:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 91.115:0110:0114:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 00000000002450F0 18)
+ 91.116:0118:011c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x81f5c8,0x00000008,(nil))
+ 91.116:0118:011c:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000081F350 85)
+ 91.117:0118:011c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 91.117:0118:011c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000846DD0 18)
+ 91.117:0118:011c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 91.117:0118:011c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000846E00 18)
+ 91.123:0118:011c:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES" 000000000081F200 260)
+ 91.123:0118:011c:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES(X86)" 000000000081F200 260)
+ 91.123:0118:011c:trace:process:GetEnvironmentVariableW (L"PROGRAMW6432" 000000000081F200 260)
+ 91.123:0118:011c:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES" 000000000081F0D0 260)
+ 91.123:0118:011c:trace:process:GetEnvironmentVariableW (L"PROGRAMFILES(X86)" 000000000081F0D0 260)
+ 91.123:0118:011c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x81f078,0x00000008,(nil))
+ 91.124:0118:011c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x81f9e0,0x00000008,(nil))
+ 91.126:0110:0114:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 91.128:0118:011c:trace:process:InitializeProcThreadAttributeList (0000000000000000 1 0 000000000081F808)
+ 91.128:0118:011c:trace:process:InitializeProcThreadAttributeList (00003A40000584B0 1 0 000000000081F808)
+ 91.128:0118:011c:trace:process:UpdateProcThreadAttribute (00003A40000584B0 0 00020002 000000000081F8D8 8 0000000000000000 0000000000000000)
+ 91.128:0118:0120:trace:wex_process:server_init_thread win_pid=0118 win_tid=0120 unix_pid=1126 unix_tid=1127
+ 91.129:0118:011c:fixme:process:SetProcessShutdownParameters (00000100, 00000001): partial stub.
+ 91.129:0118:0124:trace:wex_process:server_init_thread win_pid=0118 win_tid=0124 unix_pid=1126 unix_tid=1128
+ 91.130:0118:0128:trace:wex_process:server_init_thread win_pid=0118 win_tid=0128 unix_pid=1126 unix_tid=1129
+ 91.144:0118:0120:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\explorer.exe" image L"C:\\windows\\system32\\explorer.exe" cmdline L"\"C:\\windows\\system32\\explorer.exe\" /desktop" parent (nil) machine 8664
+ 91.144:0118:012c:trace:wex_process:server_init_thread win_pid=0118 win_tid=012c unix_pid=1126 unix_tid=1130
+ 91.144:0118:0130:trace:wex_process:server_init_thread win_pid=0118 win_tid=0130 unix_pid=1126 unix_tid=1131
+ 91.145:0100:013c:trace:wex_process:server_init_thread win_pid=0100 win_tid=013c unix_pid=1120 unix_tid=1132
+ 91.145:0100:0104:fixme:process:SetProcessShutdownParameters (00000100, 00000001): partial stub.
+ 91.145:0100:0140:trace:wex_process:server_init_thread win_pid=0100 win_tid=0140 unix_pid=1120 unix_tid=1134
+ 91.145:0100:0144:trace:wex_process:server_init_thread win_pid=0100 win_tid=0144 unix_pid=1120 unix_tid=1135
+ 91.146:0100:0148:trace:wex_process:server_init_thread win_pid=0100 win_tid=0148 unix_pid=1120 unix_tid=1137
+ 91.148:0100:014c:trace:wex_process:server_init_thread win_pid=0100 win_tid=014c unix_pid=1120 unix_tid=1138
+ 91.148:00f8:00fc:trace:process:SetEnvironmentVariableW (L"CHROME_CRASHPAD_PIPE_NAME" L"\\\\.\\pipe\\crashpad_248_CMJRBXBXNFQIWACW")
+  0.000:0134:0138:trace:wex_process:server_init_process win_pid=0134 win_tid=0138 unix_pid=1136 unix_tid=1136
+ 91.152:0118:0120:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\explorer.exe" pid 0134 tid 0138 handles 0x90/0x94
+ 91.153:0134:0138:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 91.155:0110:0150:trace:wex_process:server_init_thread win_pid=0110 win_tid=0150 unix_pid=1124 unix_tid=1139
+ 91.160:0134:0138:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 91.160:0134:0138:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 91.161:0134:0138:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 91.161:0134:0138:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 00000000002450C0 18)
+ 91.162:0134:0138:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 91.162:0134:0138:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 00000000002450F0 18)
+ 91.179:0134:0138:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 91.195:0134:0154:trace:wex_process:server_init_thread win_pid=0134 win_tid=0154 unix_pid=1136 unix_tid=1140
+ 91.683:0134:0138:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021DE30 260)
+ 91.683:0134:0138:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e7fc,0x00000004,(nil))
+ 91.683:0134:0138:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e7fc,0x00000004,(nil))
+ 91.689:0110:0158:trace:wex_process:server_init_thread win_pid=0110 win_tid=0158 unix_pid=1124 unix_tid=1143
+ 91.689:0110:015c:trace:wex_process:server_init_thread win_pid=0110 win_tid=015c unix_pid=1124 unix_tid=1144
+ 91.690:0134:0160:trace:wex_process:server_init_thread win_pid=0134 win_tid=0160 unix_pid=1136 unix_tid=1145
+ 91.696:0134:0138:trace:process:GetEnvironmentVariableW (L"oanocache" 0000000000000000 0)
+ 91.697:0038:0164:trace:wex_process:server_init_thread win_pid=0038 win_tid=0164 unix_pid=1069 unix_tid=1146
+ 91.699:0038:0060:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rpcss.exe" 0000000000000000 0)
+ 91.699:0038:0060:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rpcss.exe" 0000000000872B90 30)
+ 91.699:0038:0060:trace:process:CreateProcessInternalW app (null) cmdline L"C:\\windows\\system32\\rpcss.exe"
+ 91.699:0038:0060:trace:process:find_exe_file looking for L"C:\\windows\\system32\\rpcss.exe" in L"C:\\windows\\system32;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+ 91.700:0038:0060:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\rpcss.exe" image L"C:\\windows\\system32\\rpcss.exe" cmdline L"C:\\windows\\system32\\rpcss.exe" parent (nil) machine 0
+ 91.702:0110:0114:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 000000000021DE30 260)
+ 91.704:0110:0114:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e7fc,0x00000004,(nil))
+ 91.704:0110:0114:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000000c,0x21e7fc,0x00000004,(nil))
+  0.000:0168:016c:trace:wex_process:server_init_process win_pid=0168 win_tid=016c unix_pid=1148 unix_tid=1148
+ 91.706:0110:0170:trace:wex_process:server_init_thread win_pid=0110 win_tid=0170 unix_pid=1124 unix_tid=1149
+ 91.706:0038:0060:trace:process:NtCreateUserProcess L"\\??\\C:\\windows\\system32\\rpcss.exe" pid 0168 tid 016c handles 0x1d8/0x1dc
+ 91.706:0038:0060:trace:process:CreateProcessInternalW started process pid 0168 tid 016c
+ 91.707:0168:016c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000025,0x21fa30,0x00000040,(nil))
+ 91.708:0110:0114:trace:process:GetEnvironmentVariableW (L"oanocache" 0000000000000000 0)
+ 91.709:0038:0174:trace:wex_process:server_init_thread win_pid=0038 win_tid=0174 unix_pid=1069 unix_tid=1150
+ 91.712:0168:016c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x0000001a,0x21f5c8,0x00000008,(nil))
+ 91.713:0168:016c:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000000021F350 85)
+ 91.714:0168:016c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000000000 0)
+ 91.714:0168:016c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22000" 0000000000245F00 18)
+ 91.714:0168:016c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 0000000000000000 0)
+ 91.714:0168:016c:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-22001" 00000000002461B0 18)
+ 91.715:0168:016c:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000007,0x21f9e0,0x00000008,(nil))
+ 91.748:0038:0178:trace:wex_process:server_init_thread win_pid=0038 win_tid=0178 unix_pid=1069 unix_tid=1151
+ 91.749:0038:017c:trace:wex_process:server_init_thread win_pid=0038 win_tid=017c unix_pid=1069 unix_tid=1152
+ 91.750:0168:0180:trace:wex_process:server_init_thread win_pid=0168 win_tid=0180 unix_pid=1148 unix_tid=1153
+ 91.751:0168:0184:trace:wex_process:server_init_thread win_pid=0168 win_tid=0184 unix_pid=1148 unix_tid=1154
+ 91.752:0168:0188:trace:wex_process:server_init_thread win_pid=0168 win_tid=0188 unix_pid=1148 unix_tid=1155
+ 91.752:0168:018c:trace:wex_process:server_init_thread win_pid=0168 win_tid=018c unix_pid=1148 unix_tid=1156
+ 91.755:0168:0190:trace:wex_process:server_init_thread win_pid=0168 win_tid=0190 unix_pid=1148 unix_tid=1157
+ 91.756:0168:0194:trace:wex_process:server_init_thread win_pid=0168 win_tid=0194 unix_pid=1148 unix_tid=1158
+ 91.763:0168:0198:trace:wex_process:server_init_thread win_pid=0168 win_tid=0198 unix_pid=1148 unix_tid=1159
+ 91.774:0100:019c:trace:wex_process:server_init_thread win_pid=0100 win_tid=019c unix_pid=1120 unix_tid=1160
+ 91.792:0118:01a0:trace:wex_process:server_init_thread win_pid=0118 win_tid=01a0 unix_pid=1126 unix_tid=1161
+ 92.426:00f8:00fc:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x00000004,0x81f470,0x00000020,(nil))
+ 92.439:00f8:00fc:trace:security:GetTokenInformation (FFFFFFFFFFFFFFFC, 18 [TokenElevationType], 000000000081F008, 4, 000000000081F00C):
+ 92.439:00f8:01a4:trace:wex_process:server_init_thread win_pid=00f8 win_tid=01a4 unix_pid=1118 unix_tid=1162
