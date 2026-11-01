@@ -714,3 +714,28 @@ The completed outcomes and bounded r19/r20 SEH logs are public evidence;
 debugger memory, full process maps and screenshots remain private.
 No new Wine semantic change has been made and Chromium/Edge acceptance
 remains outstanding.
+
+## r37 server-only inventory: browser already terminated
+
+The explicitly server-only GDB capture skipped browser GDB and collected
+all-process Wine-server inventories: sample one contains 147 threads and
+sample two 156 threads, spanning 13 process IDs. Main browser process
+`0x20`/thread `0x24` was already terminated in both snapshots, with a nonzero
+TEB and no context. The stack-overflow/AV trace had occurred by the first
+2.5-second capture; these are post-event inventories, not a capture of the
+initiating failure.
+
+Process `0x200` from r35 was absent, and r35's no-TEB signal did not recur.
+This observation does not establish a cause for the stack overflow or a
+causal connection between that signal and r34's pending-context stall.
+Chromium produced zero fixture requests and no visible window; the screenshot
+was black with pointer only. Utility connection was not demonstrated.
+
+All six x64/x86 startup, Mojo and descriptor regressions passed. The guest
+shut down gracefully with QEMU exit 0; QEMU/Xvfb and Wine processes were
+absent after cleanup, and the preserved baseline remained unchanged.
+The r37 summary is recorded alongside the prior runs in
+`docs/evidence/chromium-exception-followup-r31-r35-outcome.json`.
+These diagnostic results do not accept Chromium or Edge; both remain
+unaccepted. This documentation step makes no Wine source change or new
+runtime observation.

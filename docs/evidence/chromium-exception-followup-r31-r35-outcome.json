@@ -152,6 +152,42 @@
         "xvfb_stopped": true,
         "stray_guest_processes": 0
       }
+    },
+    "r37": {
+      "measurement": {
+        "capture_scope": "Explicitly server-only GDB; all-process Wine-server inventories",
+        "browser_gdb_attached": false,
+        "server_snapshots": {
+          "sample_one_threads": 147,
+          "sample_two_threads": 156,
+          "process_ids_spanned": 13,
+          "first_capture_seconds": 2.5,
+          "browser_main_thread_in_both_snapshots": {
+            "process_id": "0020",
+            "thread_id": "0024",
+            "terminated": true,
+            "server_teb_nonzero": true,
+            "context": null
+          }
+        },
+        "stack_overflow_av_trace_occurred_by_first_capture": true,
+        "r35_process_0x0200_present": false,
+        "no_teb_suspend_signal_observed": false,
+        "chromium_window_observed": false,
+        "fixture_requests": [],
+        "screenshot": "Black display with pointer only",
+        "utility_connection_proven": false
+      },
+      "regressions_passed": 6,
+      "regression_coverage": "Startup, Mojo and descriptor regressions on x64 and x86",
+      "cleanup": {
+        "preserved_baseline_unchanged": true,
+        "graceful_powerdown": true,
+        "qemu_exit_status": 0,
+        "qemu_absent": true,
+        "xvfb_absent": true,
+        "wine_processes_absent": true
+      }
     }
   },
   "limitations": [
@@ -159,8 +195,11 @@
     "The r35 server snapshot was post-event and did not capture the no-TEB signal thread",
     "The r34 context-suspension stall is not yet correlated with the no-TEB branch",
     "r36's browser GDB attach perturbed timing; its 0x0204 thread belongs to process 0x0020, not r35's process 0x0200",
+    "r37 skipped browser GDB; both all-process server inventories were post-event with the browser already terminated",
+    "r37 did not reproduce r35's no-TEB signal and establishes no causal connection to r34's pending-context stall",
     "No initiating cause for the initial stack overflow has been established",
     "Chromium fixture consumption, visible window, utility connection and Edge remain unresolved",
+    "Chromium and Edge remain unaccepted",
     "Raw debugger data, process maps and screenshots remain private"
   ]
 }
