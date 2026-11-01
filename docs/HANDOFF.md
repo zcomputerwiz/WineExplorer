@@ -75,6 +75,9 @@ Windows XP Pro is the visual/behavioral reference VM. Reference source/assets li
 | `scripts/themed-frame-probe.c` | Luna frame region, app-defined regions, maximize/restore and Classic reset. MinGW with `-lgdi32`; requires an English My Computer window. It moves/resizes the test window, so use an isolated session. |
 | `scripts/tray-layout-probe.c` | Read-only visible tray child bounds versus icons, clock and task band. MinGW `-mwindows`; writes `Z:\tmp\tray-layout-probe.txt`. Bounds alone do not validate the cyan themed boundary: also inspect screenshots. |
 | `scripts/display-output-probe.c` | XRandR versus read-only DRM scanout. See DISPLAY_OUTPUT_TESTING.md for build/run and supported topology. |
+| `scripts/check-first-thread-alignment.py`, `scripts/suspend-context-probe.c` | Run after every Wine rebase: the first thread's data block must be aligned to the signal stack size, and a sampler must be able to suspend the main thread and read its context (Chromium's profiler hung otherwise). Build the probe with both MinGW compilers, run it through Wine, 32-bit included. See CHROMIUM_FIRST_THREAD_DATA_ALIGNMENT_20261101.md. |
+| `scripts/check-runtime-fonts.py`, `scripts/dwrite-font-probe.c` | Run on every packaged Wine runtime: all six TrueType fonts (Tahoma above all) must be present, or Chromium's font initialization recurses until its stack is gone. The probe shows what DirectWrite and Skia see; build it with both MinGW compilers and run it through Wine (`-v` lists every family). See CHROMIUM_MISSING_WINE_FONTS_20261101.md. |
+| `scripts/appcontainer-label-probe.c` | Sets and reads a mandatory label on a scratch directory and file the way Chromium's AppContainer profile code does and prints the Win32 error of every call, so Wine can be compared with a native Windows host. Run as a standard user; build 64- and 32-bit. See CHROMIUM_APPCONTAINER_LABEL_20261101.md. |
 
 Isolated GUI tests used Xvfb `:6` and `~/launcher-check/prefix`. Apply the theme in that prefix, stop **its** wineserver, then start a fresh `/shell` desktop: applying a theme first can create a plain desktop that otherwise gets reused without a taskbar. The server must match the Wine build/runtime.
 
@@ -96,6 +99,7 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 4. Multi-monitor work areas/struts, foreign-window grouping and shell-crash recovery. Native Wayland window management and a session-wide Gamescope bridge are not implemented.
 5. Accelerated/per-hypervisor graphics and physical-output tests need suitable hardware. The VM currently reports CPU Vulkan; nested Gamescope output resizing is not evidence of changing physical scanout.
 6. WebView2 remains a separate lab. A positive baseline-Wine test on ProtonExplorer-VM used a per-app Windows 7 override for `msedgewebview2.exe` plus SwiftShader. Do not infer accelerated rendering or shell integration from it; see WEBVIEW2.md for exact provenance and remaining tests.
+7. Chromium (pinned build, sandbox on) stopped working after the Wine rebase and the token work. Three separate failures are diagnosed: the new Wine base left the first thread's data block unaligned, which stalls Chromium's stack sampler (repaired in `2ebf5f72`); the R6 runtime package lacks Wine's six TrueType fonts, so Chromium's font initialization recurses until the main thread's stack is gone (packaging fix recommended; the `tfont` candidate was validated in the VM); and `SetNamedSecurityInfoW()` refused mandatory labels, which broke the sandboxed network service on a prefix without the AppContainer registration (repaired in `1cc71ccd`, validated in local runs only). The Wine commits are on `copilot/first-thread-data-alignment` and not pushed. The lab harness has to ship the six fonts, run `scripts/check-runtime-fonts.py` and use a new user data directory per run. The whole chain has not been run in the VM on a prefix without the registration. See the three `CHROMIUM_*_20261101.md` documents.
 
 ## Documentation map
 
@@ -106,6 +110,7 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 - [DISPLAY.md](DISPLAY.md) / [DISPLAY_OUTPUT_TESTING.md](DISPLAY_OUTPUT_TESTING.md): graphical mode changes and output validation.
 - [STOCK_CHANGES.md](STOCK_CHANGES.md): changes outside the Explorer/wexhost modules.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md): cursor and VM integration notes.
+- [CHROMIUM_FIRST_THREAD_DATA_ALIGNMENT_20261101.md](CHROMIUM_FIRST_THREAD_DATA_ALIGNMENT_20261101.md) / [CHROMIUM_MISSING_WINE_FONTS_20261101.md](CHROMIUM_MISSING_WINE_FONTS_20261101.md) / [CHROMIUM_APPCONTAINER_LABEL_20261101.md](CHROMIUM_APPCONTAINER_LABEL_20261101.md): why Chromium stopped working on the new Wine base, the three failures found, the repairs, validation and open items.
 - [HANDOFF_2026-10-07.md](HANDOFF_2026-10-07.md): archived earlier handoff; contains superseded statements. Current code and topical docs take precedence.
 
 Commit work regularly at coherent boundaries. The desktop runtime decision above supersedes the old full-Proton migration plan.
