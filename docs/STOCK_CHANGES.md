@@ -1280,3 +1280,17 @@ descriptor programs pass afterward. Its root observer aborts at five seconds
 with an unknown original stderr cause, so it is not a completed browser
 observation or a connection fix. Subsequent visual r16/r17 checks use the
 original corrected runtime without this overlay.
+
+## Temporary opt-in exception-boundary diagnostics (2026-11-01)
+
+Wine `29e2853b` adds `wex_exception` in `dlls/ntdll/unix/virtual.c`.
+It logs only the guaranteed-stack overflow transition and terminal
+exception-frame allocation below the hard floor. Records include effective
+and TEB stack guarantee, bounds, exception code/flags/address, original stack
+pointer and requested allocation size. No allocation, protection, exception,
+stack sizing or termination semantics change. Only Unix ntdll is overlaid;
+the original PE modules of both architectures and corrected server remain
+unchanged. The r30 runtime passes all six x64/x86 startup, Mojo and descriptor
+programs. Its browser trace reproduces the overflow with an 8,192-byte effective
+guarantee, zero TEB-requested guarantee and a terminal access violation, but
+does not identify the initiating fault or a justified semantic fix.

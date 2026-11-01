@@ -323,6 +323,36 @@ Increasing the guarantee or changing exception dispatch remains unjustified
 without these measurements. Low-noise, opt-in boundary diagnostics are the next
 step, rather than a speculative semantic patch.
 
+## Low-noise exception-boundary measurement (r30)
+
+Wine `29e2853b` supplies the opt-in `wex_exception` markers described in
+`STOCK_CHANGES.md`. The r30 full-manifest check verifies exactly one changed
+Unix ntdll module in the original corrected WoW64 runtime. The normal minimal
+Chromium command, sandbox and original PE modules remain unchanged.
+
+This run reproduces the main-thread overflow with just two boundary records
+in 3,376 bytes of stderr. The guaranteed-space transition reports an effective
+8,192-byte reservation and `TEB.GuaranteedStackBytes=0`. The terminal exception
+is **`STATUS_ACCESS_VIOLATION` (`c0000005`)**, at the previously resolved PE
+`call_seh_handlers` context copy. Its input stack pointer is `0x20af0` and the
+requested exception-frame allocation is 3,440 bytes; subtracting that size
+produces `0x1fd80`, 4,736 bytes below the `0x21000` hard floor. This measures
+the missing input pointer/code/allocation distinction directly.
+
+The overflow transition precedes that terminal access violation, but neither
+record identifies the initiating exception or proves why the context copy
+faults. A larger guarantee or an exception-dispatch change is still speculative.
+The next diagnostic needs the access mode/fault address or the preceding
+dispatch chain, not another unmeasured stack-size change.
+
+The fixture receives no requests and no Chromium window appears. All six
+same-runtime x64/x86 startup, Mojo three-mode and descriptor programs pass
+afterward. Owned servers/compositors are stopped, exact prefix/build clones
+removed with the baseline hash unchanged, and the guest shut down gracefully
+with QEMU exit zero. The curated outcome is
+`docs/evidence/chromium-exception-boundary-r30-outcome.json`; raw maps and
+screenshots remain private.
+
 ## Durable runtime packaging prerequisite
 
 `scripts/g4_combined_r6_deploy.py` is the tracked archive implementation used

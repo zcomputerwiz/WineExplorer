@@ -1,0 +1,56 @@
+{
+  "classification": "Reproduced main-thread exception-stack exhaustion; no semantic fix or browser acceptance",
+  "run": "chromium-exception-r30-20261101",
+  "wine_diagnostics_commit": "29e2853b",
+  "runtime": {
+    "files": 1778,
+    "bytes": 1883832507,
+    "full_guest_manifest_passed": true,
+    "only_changed_module": "wow64/dlls/ntdll/ntdll.so",
+    "diagnostic_ntdll_sha256": "bdd4518fdafebf88a09417c8e441caf2a24c0f2cb0eb808f9908b6a498c899c8",
+    "original_ntdll_sha256": "639af4cd083163f54840666bd17361f0969d7bd9371c5ccf80a4d451adc9f8c0",
+    "original_both_architecture_pe_modules_and_corrected_server_unchanged": true,
+    "sandbox_bypass": false
+  },
+  "measurement": {
+    "stderr_bytes": 3376,
+    "boundary_records": 2,
+    "effective_guarantee_bytes": 8192,
+    "teb_guaranteed_stack_bytes": 0,
+    "wow_thread": false,
+    "guaranteed_overflow_transition_observed": true,
+    "terminal_exception_code": "c0000005",
+    "terminal_exception": "STATUS_ACCESS_VIOLATION",
+    "terminal_instruction": "Original PE ntdll call_seh_handlers context copy",
+    "input_stack_pointer": "0x20af0",
+    "requested_exception_frame_bytes": 3440,
+    "allocated_stack_pointer": "0x1fd80",
+    "hard_floor": "0x21000",
+    "allocation_deficit_bytes": 4736,
+    "initiating_exception_and_context_copy_fault_cause": "Unknown"
+  },
+  "fixture_requests": [],
+  "browser_window_observed": false,
+  "regressions": [
+    {"pe": "mojo-startup-smoke-x64.exe", "exit": 0},
+    {"pe": "mojo-startup-smoke-x86.exe", "exit": 0},
+    {"pe": "chromium-mojo-token-0x88-x64.exe", "exit": 0},
+    {"pe": "chromium-mojo-token-0x88-x86.exe", "exit": 0},
+    {"pe": "token-duplicate-sd-x64.exe", "exit": 0},
+    {"pe": "token-duplicate-sd-x86.exe", "exit": 0}
+  ],
+  "cleanup": {
+    "exact_owned_prefix_and_build_clones_removed": true,
+    "preserved_baseline_server_sha256": "0323c006eab58eb9ba975675e2345750bf061aab53ec56954d82952ad13b67ab",
+    "owned_server_and_compositor_stopped": true,
+    "graceful_powerdown": true,
+    "qemu_exit_status": 0,
+    "qemu_and_xvfb_stopped": true
+  },
+  "limitations": [
+    "No initiating exception or recursive dispatch chain captured",
+    "No stack-size or exception-dispatch semantic change justified",
+    "Raw maps and screenshots private",
+    "Chromium fixture/window/utility acceptance and Edge unresolved"
+  ]
+}
