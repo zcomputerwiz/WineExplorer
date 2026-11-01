@@ -169,6 +169,23 @@ class ParserTests(unittest.TestCase):
             r.BUILD=original[1];r.cal.BUILD=original[1]
             r.PREFIX=original[2];r.cal.PREFIX=original[2];r.cal.APPROVED_LOADER=original[3]
 
+    def test_root_wait_r13_retains_original_runtime_debug_and_complete_command(self):
+        original=(r.MODE,r.BUILD,r.PREFIX,r.cal.APPROVED_LOADER)
+        try:
+            r.configure('token-fixed-r8')
+            old_output=r.cal.win(r.OUTPUT);args=r.child_args(NONCE,URL);debug=r.DEBUG
+            r.configure('token-wait-r13')
+            self.assertEqual(r.HOST,'chromium-token-wait-r13-20261101')
+            self.assertEqual(r.DEBUG,debug)
+            self.assertEqual(r.child_args(NONCE,URL),[arg.replace(old_output,r.cal.win(r.OUTPUT)) for arg in args])
+            with mock.patch.object(r.cal.install,'environment',return_value={'WINE':'stale','WINESERVER':'stale'}):
+                env=r.environment(r.OUTPUT)
+            self.assertEqual(env['WINESERVER'],str(r.BUILD/'server/wineserver'))
+            self.assertEqual(env['WINEPREFIX'],str(r.PREFIX))
+        finally:
+            r.configure(original[0]);r.BUILD=original[1];r.cal.BUILD=original[1]
+            r.PREFIX=original[2];r.cal.PREFIX=original[2];r.cal.APPROVED_LOADER=original[3]
+
     def test_full_status_arbitrary_signaled259_and_exact_normal_contract(self):
         for code in (0,127,259,0xc000007f,2**32-1):
             value=r.parse(raw(rows(code)),NONCE,r.cal.win(r.RUNTIME/'chrome.exe'),URL)

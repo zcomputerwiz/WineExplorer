@@ -1,0 +1,1379 @@
+{
+  "maximum_seconds": 8,
+  "processes": [
+    {
+      "pid": 1110,
+      "cmdline": "/home/debian/wex-g4/labwc\u0000-V\u0000-C\u0000/home/debian/wex-g4/wayland\u0000",
+      "threads": [
+        {
+          "tid": 1110,
+          "comm": "labwc\n",
+          "wchan": "do_epoll_wait",
+          "syscall": "232 0x3 0x7ffc7906ffa0 0x20 0xffffffffffffffff 0x0 0x0 0x7ffc7906fed8 0x7facca4a672e\n"
+        },
+        {
+          "tid": 1111,
+          "comm": "labwc:disk$0\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x55889474cc60 0x189 0x2 0x0 0x0 0xffffffff 0x7facbc9fe838 0x7facca4a672e\n"
+        },
+        {
+          "tid": 1112,
+          "comm": "labwc:disk$0\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x55889514fb20 0x189 0x0 0x0 0x0 0xffffffff 0x7facbc0bc838 0x7facca4a672e\n"
+        },
+        {
+          "tid": 1113,
+          "comm": "[pango] fontcon\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x558895316770 0x80 0x2 0x0 0x0 0x558895316760 0x7facbb6bb938 0x7facca51a4f9\n"
+        }
+      ]
+    },
+    {
+      "pid": 1118,
+      "cmdline": "/home/debian/wex-g4/chromium-token-wait-r13-20261101-stage/original/native-exit.exe\u0000--chromium\u0000--image\u0000Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\u0000--profile\u0000Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\profile\u0000--log\u0000Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\chromium.log\u0000--events\u0000Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\native-exit.jsonl\u0000--nonce\u000070a9495948665ae1ed363625532a8000\u0000--url\u0000http://127.0.0.1:34329/70a9495948665ae1ed363625532a8000/index.html#nonce=70a9495948665ae1ed363625532a8000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1118,
+          "comm": "native-exit.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xa 0x7f9b6f3a4440 0x10 0x0 0x0 0x0 0x7f9b6f3a43f0 0x7f9b6ffdf3a7\n"
+        }
+      ]
+    },
+    {
+      "pid": 1120,
+      "cmdline": "/home/debian/wex-g4/chromium-token-wait-r13-20261101-wine/build/wow64/server/wineserver\u0000",
+      "threads": [
+        {
+          "tid": 1120,
+          "comm": "wineserver\n",
+          "wchan": "do_epoll_wait",
+          "syscall": "441 0x9 0x7fff99a33bb0 0x80 0x7fff99a33ba0 0x0 0x8 0x7fff99a33b50 0x7f78ac58c3a7\n"
+        }
+      ]
+    },
+    {
+      "pid": 1126,
+      "cmdline": "C:\\windows\\system32\\services.exe\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1126,
+          "comm": "services.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x9 0x7fb8c2dfe440 0x10 0x0 0x0 0x0 0x7fb8c2dfe3d8 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1127,
+          "comm": "wine_rpcrt4_ser\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xe 0x10013d1f0 0x10 0x0 0x0 0x0 0x10013d188 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1131,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7fb8c28af04c 0x80 0x0 0x10035e340 0x0 0x0 0x10035e328 0x7fb8c3aaf4f9\n"
+        },
+        {
+          "tid": 1135,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7fb8c28af05c 0x80 0x0 0x10046e340 0x0 0x0 0x10046e328 0x7fb8c3aaf4f9\n"
+        },
+        {
+          "tid": 1137,
+          "comm": "wine_threadpool\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x20 0x10057d1f0 0x10 0x0 0x0 0x0 0x10057d188 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1139,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7fb8c28af06c 0x80 0x0 0x10068e340 0x0 0x0 0x10068e328 0x7fb8c3aaf4f9\n"
+        },
+        {
+          "tid": 1140,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x13 0x10079d200 0x10 0x0 0x0 0x0 0x10079d198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1145,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x26 0x1008ad200 0x10 0x0 0x0 0x0 0x1008ad198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1151,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x2a 0x1009bd200 0x10 0x0 0x0 0x0 0x1009bd198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1158,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x2e 0x100acd200 0x10 0x0 0x0 0x0 0x100acd198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1165,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x32 0x100bdd200 0x10 0x0 0x0 0x0 0x100bdd198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1173,
+          "comm": "wine_threadpool\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x36 0x100ced1f0 0x10 0x0 0x0 0x0 0x100ced188 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1174,
+          "comm": "services.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x3a 0x100dfd170 0x10 0x0 0x0 0x0 0x100dfd108 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1193,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x3e 0x100f0d200 0x10 0x0 0x0 0x0 0x100f0d198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1196,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x42 0x10101d200 0x10 0x0 0x0 0x0 0x10101d198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1225,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x46 0x10118d200 0x10 0x0 0x0 0x0 0x10118d198 0x7fb8c3a3b72e\n"
+        },
+        {
+          "tid": 1228,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x4a 0x10129d200 0x10 0x0 0x0 0x0 0x10129d198 0x7fb8c3a3b72e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1138,
+      "cmdline": "C:\\windows\\system32\\svchost.exe\u0000-k\u0000LocalServiceNetworkRestricted\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1138,
+          "comm": "svchost.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f95095a4430 0x10 0x0 0x0 0x0 0x7f95095a43c8 0x7f950a20272e\n"
+        },
+        {
+          "tid": 1141,
+          "comm": "svchost.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xd 0x10013d0a0 0x10 0x0 0x0 0x0 0x10013d038 0x7f950a20272e\n"
+        },
+        {
+          "tid": 1142,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x11 0x10024d200 0x10 0x0 0x0 0x0 0x10024d198 0x7f950a20272e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1144,
+      "cmdline": "C:\\windows\\system32\\plugplay.exe\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1144,
+          "comm": "plugplay.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f3fe1dfe430 0x10 0x0 0x0 0x0 0x7f3fe1dfe3c8 0x7f3fe2a5672e\n"
+        },
+        {
+          "tid": 1146,
+          "comm": "plugplay.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xd 0x10013d0a0 0x10 0x0 0x0 0x0 0x10013d038 0x7f3fe2a5672e\n"
+        },
+        {
+          "tid": 1147,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x11 0x10024d200 0x10 0x0 0x0 0x0 0x10024d198 0x7f3fe2a5672e\n"
+        },
+        {
+          "tid": 1148,
+          "comm": "wine_rpcrt4_ser\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x16 0x10035d1f0 0x10 0x0 0x0 0x0 0x10035d188 0x7f3fe2a5672e\n"
+        },
+        {
+          "tid": 1170,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x1a 0x10046d200 0x10 0x0 0x0 0x0 0x10046d198 0x7f3fe2a5672e\n"
+        },
+        {
+          "tid": 1171,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7f3fe14730e8 0x80 0x0 0x0 0x0 0x0 0x10057e328 0x7f3fe2aca4f9\n"
+        },
+        {
+          "tid": 1249,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x22 0x10068d200 0x10 0x0 0x0 0x0 0x10068d198 0x7f3fe2a5672e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1150,
+      "cmdline": "C:\\windows\\system32\\winedevice.exe\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1150,
+          "comm": "winedevice.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f0764fa3430 0x10 0x0 0x0 0x0 0x7f0764fa33c8 0x7f0765bd272e\n"
+        },
+        {
+          "tid": 1152,
+          "comm": "winedevice.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xd 0x10013d0a0 0x10 0x0 0x0 0x0 0x10013d038 0x7f0765bd272e\n"
+        },
+        {
+          "tid": 1153,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x11 0x10024d1f0 0x10 0x0 0x0 0x0 0x10024d188 0x7f0765bd272e\n"
+        },
+        {
+          "tid": 1154,
+          "comm": "wine_sechost_se\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7f0764b830a8 0x80 0x0 0x0 0x0 0x0 0x10035e328 0x7f0765c464f9\n"
+        },
+        {
+          "tid": 1155,
+          "comm": "wine_nsi_notifi\n",
+          "wchan": "__skb_wait_for_more_packets",
+          "syscall": "45 0x18 0x10046d330 0x1000 0x0 0x0 0x0 0x10046d2b8 0x7f0765bd272e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1157,
+      "cmdline": "C:\\windows\\system32\\winedevice.exe\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1157,
+          "comm": "winedevice.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f27179fe430 0x10 0x0 0x0 0x0 0x7f27179fe3c8 0x7f271869772e\n"
+        },
+        {
+          "tid": 1159,
+          "comm": "winedevice.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xd 0x10013d0a0 0x10 0x0 0x0 0x0 0x10013d038 0x7f271869772e\n"
+        },
+        {
+          "tid": 1160,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x11 0x10024d1f0 0x10 0x0 0x0 0x0 0x10024d188 0x7f271869772e\n"
+        },
+        {
+          "tid": 1161,
+          "comm": "wine_sechost_se\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7f27184580c4 0x80 0x0 0x0 0x0 0x0 0x10035e328 0x7f271870b4f9\n"
+        },
+        {
+          "tid": 1163,
+          "comm": "winedevice.exe\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x10057cf40 0x2 0xffffffffffffffff 0x0 0x0 0x0 0x10057cd68 0x7f271869772e\n"
+        },
+        {
+          "tid": 1166,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x20 0x10046d1f0 0x10 0x0 0x0 0x0 0x10046d188 0x7f271869772e\n"
+        },
+        {
+          "tid": 1167,
+          "comm": "winedevice.exe\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x7f26f8001310 0x2 0xea60 0x0 0x0 0x0 0x10079e158 0x7f271869772e\n"
+        },
+        {
+          "tid": 1168,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x2b 0x1008ad1f0 0x10 0x0 0x0 0x0 0x1008ad188 0x7f271869772e\n"
+        },
+        {
+          "tid": 1169,
+          "comm": "libusb_event\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x7f2717028ea0 0x2 0xffffffffffffffff 0x0 0x0 0x0 0x7f2717028e38 0x7f271869772e\n"
+        },
+        {
+          "tid": 1172,
+          "comm": "winedevice.exe\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x1009be280 0x1 0x64 0x0 0x0 0x0 0x1009be208 0x7f271869772e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1178,
+      "cmdline": "Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\u0000--type=crashpad-handler\u0000--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\profile\u0000/prefetch:4\u0000--monitor-self-annotation=ptype=crashpad-handler\u0000--user-stream-region=128,65568\u0000--database=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\profile\\Crashpad\u0000--annotation=plat=Win64\u0000--annotation=prod=Chromium\u0000--annotation=ver=156.0.8078.0-devel\u0000--initial-client-data=0x88,0x8c,0x90,0x84,0x94,0x6ffffcb8bbd0,0x6ffffcb8bbe0,0x6ffffcb8bbf0\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1178,
+          "comm": "CrashpadMainThr\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x9 0x7f7ea47fe3b0 0x10 0x0 0x0 0x0 0x7f7ea47fe348 0x7f7ea544972e\n"
+        },
+        {
+          "tid": 1179,
+          "comm": "ExitCodeWatcher\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xe 0x10013d1f0 0x10 0x0 0x0 0x0 0x10013d188 0x7f7ea544972e\n"
+        },
+        {
+          "tid": 1180,
+          "comm": "CrashpadMainThr\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x12 0x10024d0d0 0x10 0x0 0x0 0x0 0x10024d068 0x7f7ea544972e\n"
+        },
+        {
+          "tid": 1181,
+          "comm": "CrashpadMainThr\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x16 0x10035d200 0x10 0x0 0x0 0x0 0x10035d198 0x7f7ea544972e\n"
+        },
+        {
+          "tid": 1182,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7f7ea226b118 0x80 0x0 0x10046e340 0x0 0x0 0x10046e328 0x7f7ea54bd4f9\n"
+        },
+        {
+          "tid": 1184,
+          "comm": "wine_threadpool\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x20 0x10057d1f0 0x10 0x0 0x0 0x0 0x10057d188 0x7f7ea544972e\n"
+        },
+        {
+          "tid": 1186,
+          "comm": "CrashpadMainThr\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x23 0x10068d100 0x10 0x0 0x0 0x0 0x10068d098 0x7f7ea544972e\n"
+        },
+        {
+          "tid": 1187,
+          "comm": "CrashpadMainThr\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x27 0x10079d100 0x10 0x0 0x0 0x0 0x10079d098 0x7f7ea544972e\n"
+        },
+        {
+          "tid": 1203,
+          "comm": "CrashpadMainThr\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x1008ae330 0x1 0xffffffffffffffff 0x0 0x0 0x0 0x1008ae2c8 0x7f7ea544972e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1185,
+      "cmdline": "C:\\windows\\system32\\explorer.exe\u0000/desktop\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1185,
+          "comm": "explorer.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f8878bfe310 0x10 0x0 0x0 0x0 0x7f8878bfe2a8 0x7f88798c272e\n"
+        },
+        {
+          "tid": 1188,
+          "comm": "explorer.exe\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x10013e330 0x1 0xffffffffffffffff 0x0 0x0 0x0 0x10013e2c8 0x7f88798c272e\n"
+        },
+        {
+          "tid": 1189,
+          "comm": "explore:disk$0\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x555577eb79e0 0x189 0x0 0x0 0x0 0xffffffff 0x7f8877b0fcb8 0x7f88798c272e\n"
+        },
+        {
+          "tid": 1190,
+          "comm": "explorer.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x17 0x10024d0d0 0x10 0x0 0x0 0x0 0x10024d068 0x7f88798c272e\n"
+        },
+        {
+          "tid": 1191,
+          "comm": "wine_explorer_d\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x1b 0x10035cef0 0x10 0x0 0x0 0x0 0x10035ce88 0x7f88798c272e\n"
+        },
+        {
+          "tid": 1192,
+          "comm": "wine_rpcrt4_ser\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x1f 0x10046d1f0 0x10 0x0 0x0 0x0 0x10046d188 0x7f88798c272e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1195,
+      "cmdline": "C:\\windows\\system32\\rpcss.exe\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1195,
+          "comm": "rpcss.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f96fdba4430 0x10 0x0 0x0 0x0 0x7f96fdba43c8 0x7f96fe7ea72e\n"
+        },
+        {
+          "tid": 1197,
+          "comm": "rpcss.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xd 0x10013d0a0 0x10 0x0 0x0 0x0 0x10013d038 0x7f96fe7ea72e\n"
+        },
+        {
+          "tid": 1198,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x11 0x10024d200 0x10 0x0 0x0 0x0 0x10024d198 0x7f96fe7ea72e\n"
+        },
+        {
+          "tid": 1199,
+          "comm": "wine_rpcrt4_ser\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x15 0x10035d1f0 0x10 0x0 0x0 0x0 0x10035d188 0x7f96fe7ea72e\n"
+        },
+        {
+          "tid": 1200,
+          "comm": "wine_rpcrt4_ser\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x19 0x10046d1f0 0x10 0x0 0x0 0x0 0x10046d188 0x7f96fe7ea72e\n"
+        },
+        {
+          "tid": 1201,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x1d 0x10057d200 0x10 0x0 0x0 0x0 0x10057d198 0x7f96fe7ea72e\n"
+        },
+        {
+          "tid": 1202,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7f96fe605160 0x80 0x0 0x10068e340 0x0 0x0 0x10068e328 0x7f96fe85e4f9\n"
+        }
+      ]
+    },
+    {
+      "pid": 1207,
+      "cmdline": "C:\\windows\\system32\\conhost.exe\u0000--server\u00000xe4\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1207,
+          "comm": "conhost.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f2e61ffe130 0x10 0x0 0x0 0x0 0x7f2e61ffe0c8 0x7f2e62cc872e\n"
+        },
+        {
+          "tid": 1209,
+          "comm": "conhost.exe\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x10013e330 0x1 0xffffffffffffffff 0x0 0x0 0x0 0x10013e2c8 0x7f2e62cc872e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1227,
+      "cmdline": "C:\\windows\\system32\\lsass.exe\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1227,
+          "comm": "lsass.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f01f5f63430 0x10 0x0 0x0 0x0 0x7f01f5f633c8 0x7f01f6bc072e\n"
+        },
+        {
+          "tid": 1229,
+          "comm": "lsass.exe\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xd 0x10013d0a0 0x10 0x0 0x0 0x0 0x10013d038 0x7f01f6bc072e\n"
+        },
+        {
+          "tid": 1230,
+          "comm": "wine_sechost_se\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x11 0x10024d200 0x10 0x0 0x0 0x0 0x10024d198 0x7f01f6bc072e\n"
+        },
+        {
+          "tid": 1231,
+          "comm": "wine_rpcrt4_ser\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x15 0x10035d1f0 0x10 0x0 0x0 0x0 0x10035d188 0x7f01f6bc072e\n"
+        },
+        {
+          "tid": 1232,
+          "comm": "wine_rpcrt4_io\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x19 0x10046d200 0x10 0x0 0x0 0x0 0x10046d198 0x7f01f6bc072e\n"
+        },
+        {
+          "tid": 1233,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7f01f6a1c1dc 0x80 0x0 0x10057e340 0x0 0x0 0x10057e328 0x7f01f6c344f9\n"
+        }
+      ]
+    },
+    {
+      "pid": 1247,
+      "cmdline": "Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\u0000--type=gpu-process\u0000--gpu-recent-crash-count=0\u0000--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\profile\u0000--no-pre-read-main-dll\u0000--force-high-res-timeticks=disabled\u0000--start-stack-profiler\u0000--gpu-preferences=WAAAAAAAAADgAQAEAAAAAAAAAAAAAGAAQAAAAAAAAAADAAAAAAAAADgAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAAgAAAAAAAAAEAAAAAIAAAABAAAAAAAAAAgAAAAAAAAACAAAAAAAAAA=\u0000--metrics-shmem-handle=1148,i,12947510794531770244,5086749013002419451,262144\u0000--field-trial-handle=1216,i,16215795110229417464,4274685238257097229,262144\u0000--variations-seed-version\u0000--trace-config-handle=1164,i,9580973824323448940,17342402717109579067,132\u0000--trace-buffer-handle=1176,i,15859298132364034146,11351933783983798516,4194304\u0000--pseudonymization-salt-handle=1220,i,11333395577017160693,14947194683672284194,4\u0000--trace-process-track-uuid=3190708988185955192\u0000--enable-logging=handle\u0000--log-file=1244\u0000--v=1\u0000--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3\u0000--mojo-platform-channel-handle=1104\u0000/prefetch:2\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1247,
+          "comm": "CrGpuMain\n",
+          "wchan": "dma_fence_default_wait",
+          "syscall": "16 0x22 0xc0086448 0x7fd8769fef00 0x0 0x77dfef00 0x30a49178b3 0x7fd8769fee70 0x7fd8776b265b\n"
+        },
+        {
+          "tid": 1264,
+          "comm": "StackSamplingPr\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0xd 0x10013d200 0x10 0x0 0x0 0x0 0x10013d198 0x7fd87764072e\n"
+        },
+        {
+          "tid": 1265,
+          "comm": "PerfettoTrace\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x13 0x10024d170 0x10 0x0 0x0 0x0 0x10024d108 0x7fd87764072e\n"
+        },
+        {
+          "tid": 1266,
+          "comm": "HangWatcher\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x19 0x10035d200 0x10 0x0 0x0 0x0 0x10035d198 0x7fd87764072e\n"
+        },
+        {
+          "tid": 1267,
+          "comm": "CrGpuMain\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x10046e330 0x1 0xffffffffffffffff 0x0 0x0 0x0 0x10046e2c8 0x7fd87764072e\n"
+        },
+        {
+          "tid": 1271,
+          "comm": "chrome.:disk$0\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x55558c1b70d4 0x189 0x0 0x0 0x0 0xffffffff 0x7fd872237cb8 0x7fd87764072e\n"
+        },
+        {
+          "tid": 1298,
+          "comm": "GpuWatchdog\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x26 0x10057d200 0x10 0x0 0x0 0x0 0x10057d198 0x7fd87764072e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1253,
+      "cmdline": "Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\u0000--type=utility\u0000--utility-sub-type=network.mojom.NetworkService\u0000--lang=en-US\u0000--service-sandbox-type=network\u0000--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\profile\u0000--no-pre-read-main-dll\u0000--force-high-res-timeticks=disabled\u0000--start-stack-profiler\u0000--metrics-shmem-handle=1412,i,14620036550711930491,621827629822082123,524288\u0000--field-trial-handle=1216,i,16215795110229417464,4274685238257097229,262144\u0000--variations-seed-version\u0000--trace-config-handle=1424,i,651361417619825193,1600041528963109530,132\u0000--trace-buffer-handle=1436,i,3394301808245491607,109866719462785609,4194304\u0000--pseudonymization-salt-handle=1220,i,11333395577017160693,14947194683672284194,4\u0000--trace-process-track-uuid=3190708989122997041\u0000--enable-logging=handle\u0000--log-file=1444\u0000--v=1\u0000--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3\u0000--mojo-platform-channel-handle=1432\u0000/prefetch:3\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1253,
+          "comm": "network.CrUtili\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f49e47fe440 0x10 0x0 0x0 0x0 0x7f49e47fe3d8 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1270,
+          "comm": "PerfettoTrace\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x19 0x10013d170 0x10 0x0 0x0 0x0 0x10013d108 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1272,
+          "comm": "HangWatcher\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x1f 0x10024d200 0x10 0x0 0x0 0x0 0x10024d198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1273,
+          "comm": "ThreadPoolServi\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x28 0x10035d200 0x10 0x0 0x0 0x0 0x10035d198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1274,
+          "comm": "Chrome_ChildIOT\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x25 0x10046d170 0x10 0x0 0x0 0x0 0x10046d108 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1275,
+          "comm": "ThreadPoolForeg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x3c 0x10057d200 0x10 0x0 0x0 0x0 0x10057d198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1276,
+          "comm": "ThreadPoolPrese\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x2d 0x10068d200 0x10 0x0 0x0 0x0 0x10068d198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1277,
+          "comm": "ThreadPoolAudio\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x36 0x10079d200 0x10 0x0 0x0 0x0 0x10079d198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1278,
+          "comm": "StackSamplingPr\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x32 0x1008ad200 0x10 0x0 0x0 0x0 0x1008ad198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1279,
+          "comm": "ThreadPoolBackg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x39 0x1009bd200 0x10 0x0 0x0 0x0 0x1009bd198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1280,
+          "comm": "ThreadPoolForeg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x40 0x100acd200 0x10 0x0 0x0 0x0 0x100acd198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1281,
+          "comm": "wine_threadpool\n",
+          "wchan": "futex_wait_queue",
+          "syscall": "202 0x7f49e2031298 0x80 0x0 0x100bde340 0x0 0x0 0x100bde328 0x7f49e55354f9\n"
+        },
+        {
+          "tid": 1282,
+          "comm": "wine_threadpool\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x48 0x100ced1f0 0x10 0x0 0x0 0x0 0x100ced188 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1283,
+          "comm": "ThreadPoolSingl\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x4c 0x100dfcef0 0x10 0x0 0x0 0x0 0x100dfce88 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1284,
+          "comm": "ThreadPoolForeg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x51 0x100f0d170 0x10 0x0 0x0 0x0 0x100f0d108 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1285,
+          "comm": "ThreadPoolForeg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x55 0x10101d200 0x10 0x0 0x0 0x0 0x10101d198 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1296,
+          "comm": "ThreadPoolSingl\n",
+          "wchan": "do_sys_poll",
+          "syscall": "7 0x10118e330 0x1 0xffffffffffffffff 0x0 0x0 0x0 0x10118e2c8 0x7f49e54c172e\n"
+        },
+        {
+          "tid": 1297,
+          "comm": "ThreadPoolBackg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x60 0x10129d200 0x10 0x0 0x0 0x0 0x10129d198 0x7f49e54c172e\n"
+        }
+      ]
+    },
+    {
+      "pid": 1257,
+      "cmdline": "Z:\\home\\debian\\wex-g4\\chromium-headful-r1-20261023-stage\\vendor\\extracted\\chrome-win\\chrome.exe\u0000--type=utility\u0000--utility-sub-type=storage.mojom.StorageService\u0000--lang=en-US\u0000--service-sandbox-type=service\u0000--user-data-dir=Z:\\home\\debian\\wex-g4\\chromium-token-wait-r13-20261101\\profile\u0000--no-pre-read-main-dll\u0000--force-high-res-timeticks=disabled\u0000--metrics-shmem-handle=1600,i,156579075212008197,1098499232615819201,524288\u0000--field-trial-handle=1216,i,16215795110229417464,4274685238257097229,262144\u0000--variations-seed-version\u0000--trace-config-handle=1608,i,14320083688005906435,14260108651572013042,132\u0000--trace-buffer-handle=1616,i,2052823156216470729,14499306455020020014,4194304\u0000--pseudonymization-salt-handle=1220,i,11333395577017160693,14947194683672284194,4\u0000--trace-process-track-uuid=3190708990060038890\u0000--enable-logging=handle\u0000--log-file=1632\u0000--v=1\u0000--vmodule=*/content/browser/*=3,*/content/browser/renderer_host/*=3,*/content/browser/loader/*=3,*/services/network/*=3,*/sandbox/*=3,*/base/process/*=3\u0000--mojo-platform-channel-handle=1620\u0000/prefetch:8\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "threads": [
+        {
+          "tid": 1257,
+          "comm": "storage.CrUtili\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x8 0x7f734fca4440 0x10 0x0 0x0 0x0 0x7f734fca43d8 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1286,
+          "comm": "PerfettoTrace\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x19 0x10013d170 0x10 0x0 0x0 0x0 0x10013d108 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1287,
+          "comm": "HangWatcher\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x1f 0x10024d200 0x10 0x0 0x0 0x0 0x10024d198 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1288,
+          "comm": "ThreadPoolServi\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x24 0x10035d200 0x10 0x0 0x0 0x0 0x10035d198 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1289,
+          "comm": "Chrome_ChildIOT\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x28 0x10046d170 0x10 0x0 0x0 0x0 0x10046d108 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1290,
+          "comm": "ThreadPoolForeg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x32 0x10057d200 0x10 0x0 0x0 0x0 0x10057d198 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1291,
+          "comm": "ThreadPoolPrese\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x36 0x10068d200 0x10 0x0 0x0 0x0 0x10068d198 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1292,
+          "comm": "ThreadPoolAudio\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x2e 0x10079d200 0x10 0x0 0x0 0x0 0x10079d198 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1293,
+          "comm": "ThreadPoolBackg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x3a 0x1008ad200 0x10 0x0 0x0 0x0 0x1008ad198 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1294,
+          "comm": "ThreadPoolForeg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x3c 0x1009bd200 0x10 0x0 0x0 0x0 0x1009bd198 0x7f73508e072e\n"
+        },
+        {
+          "tid": 1295,
+          "comm": "ThreadPoolForeg\n",
+          "wchan": "pipe_read",
+          "syscall": "0 0x40 0x100acd200 0x10 0x0 0x0 0x0 0x100acd198 0x7f73508e072e\n"
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "pid": "2",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "3",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "4",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "5",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "6",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "7",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "8",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "9",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "10",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "11",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "12",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "13",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "14",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "15",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "16",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "17",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "18",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "19",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "20",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "21",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "22",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "23",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "24",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "25",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "26",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "27",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "28",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "29",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "30",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "31",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "32",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "33",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "34",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "35",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "36",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "37",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "38",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "39",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "40",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "41",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "43",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "44",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "45",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "46",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "47",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "48",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "49",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "50",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "51",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "52",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "53",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "54",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "55",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "56",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "57",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "58",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "59",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "60",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "61",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "62",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "63",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "64",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "65",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "66",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "67",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "74",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "78",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "79",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "80",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "81",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "86",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "87",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "89",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "146",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "155",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "191",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "210",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "211",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "212",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "213",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "214",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "215",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "216",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "217",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "218",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "219",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "220",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "221",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "222",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "223",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "224",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "225",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "226",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "227",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "228",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "229",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "230",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "231",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "232",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "233",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "234",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "254",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "255",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "314",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "356",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "357",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "358",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "373",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "374",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "375",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "394",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "441",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "481",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "662",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "678",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "824",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "914",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    },
+    {
+      "pid": "1176",
+      "field": "prefix_identity",
+      "error": "ProcessLookupError"
+    }
+  ],
+  "classification": "Read-only private-prefix thread waits; not browser acceptance",
+  "candidate_server_sha256": "196f24db0bfd402bc5656dc6be09a9d5baf82f863eeedd9596f9f3f78160a800"
+}

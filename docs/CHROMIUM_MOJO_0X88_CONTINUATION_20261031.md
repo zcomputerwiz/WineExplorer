@@ -406,3 +406,19 @@ instrumented APIs, including failed pipe opens; they are not browser
 acceptance. The diagnostic changes logging only, with exact failed NT status
 and no read of undefined output handles/information. Cleanup, preserved
 baseline hash, and graceful QMP shutdown were independently verified.
+
+The r13 diagnostic uses the original corrected runtime (not the pipe-only
+DLL overlay) and a fixed root-scoped read-only snapshot. The helper verifies
+root execution, private mount/network namespaces, canonical fixed paths and
+the candidate server hash before reading `/proc`. It retains the existing
+eight-second read budget with a ten-second outer timeout and never stores
+environment contents. It again reaches sandboxed network/storage children,
+then the alive 45-second native timeout with zero HTTP requests.
+
+Root access eliminates the permission errors, but the exact-prefix filter
+still omits the main browser. **Correction to the earlier PID interpretation:**
+Linux PID1118 is the native-exit helper, not the main browser. Its
+`pipe_read` is not the browser's wait state. Sixteen matching processes are
+captured, including the utility children; the browser's omission does not
+prove absence. Resolving the Wine-to-Linux process identity is still required
+before attributing its wait. Cleanup and graceful shutdown were verified.

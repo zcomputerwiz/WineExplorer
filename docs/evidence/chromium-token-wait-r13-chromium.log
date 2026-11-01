@@ -1,0 +1,133 @@
+[252:256:1101/000705.114:VERBOSE1:components\policy\core\common\policy_service_impl.cc:632] Taking initial snapshot of POLICY_DOMAIN_CHROME policies
+[252:256:1101/000705.116:VERBOSE1:components\variations\service\variations_field_trial_creator.cc:608] Applying FieldTrialTestingConfig
+[252:256:1101/000705.119:VERBOSE1:components\variations\service\variations_field_trial_creator.cc:407] VariationsSetupComplete
+[252:256:1101/000705.147:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for browser/global.
+[252:256:1101/000705.147:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for browser/*.
+[252:256:1101/000705.262:ERROR:net\base\network_change_notifier_win.cc:224] WSALookupServiceBegin failed with: 8
+[252:256:1101/000705.271:VERBOSE1:chrome\browser\media\webrtc\webrtc_event_log_manager.cc:126] WebRTC remote-bound event logging enabled.
+[252:256:1101/000705.276:VERBOSE1:components\proxy_config\pref_proxy_config_tracker_impl.cc:510] 0xb7402244780: set chrome proxy config service to 0xb74023b12c0
+[252:256:1101/000705.278:VERBOSE1:components\device_event_log\device_event_log_impl.cc:214] [00:07:05.279] Display: EVENT: screen_win.cc:1111 Displays updated, count: 1
+[252:256:1101/000705.278:VERBOSE1:components\device_event_log\device_event_log_impl.cc:214] [00:07:05.279] Display: EVENT: screen_win.cc:1113 Display[11762804] bounds=[0,0 1280x720], workarea=[0,0 1280x720], scale=1, rotation=0, panel_rotation=0 external detected
+[252:424:1101/000705.313:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
+[252:424:1101/000705.393:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Optimization Guide On DeviceModels Manifest
+[252:256:1101/000705.394:VERBOSE1:components\enterprise\browser\controller\chrome_browser_cloud_management_controller.cc:206] Cloud management controller initialization aborted as CBCM is not enabled. Please use the `--enable-chrome-browser-cloud-management` command line flag to enable it if you are not using the official Google Chrome build.
+[252:256:1101/000705.395:VERBOSE1:chrome\installer\util\install_util.cc:221] No existing Chrome install found.
+[252:256:1101/000705.396:VERBOSE1:chrome\browser\enterprise\platform_auth\platform_auth_policy_observer.cc:108] PlatformAuthProviderManager enabled: 0
+[252:256:1101/000705.403:VERBOSE1:components\policy\core\common\cloud\user_cloud_policy_store.cc:146] [policy_type=google/chrome/user] Initiating immediate policy load from disk
+[252:256:1101/000705.404:VERBOSE1:components\policy\core\common\cloud\user_cloud_policy_store.cc:249] [policy_type=google/chrome/user] No policy found on disk
+[252:256:1101/000705.404:VERBOSE1:components\policy\core\common\cloud\user_cloud_policy_store.cc:146] [policy_type=google/extension-install-cloud-policy/chrome/user] Initiating immediate policy load from disk
+[252:256:1101/000705.404:VERBOSE1:components\policy\core\common\cloud\user_cloud_policy_store.cc:249] [policy_type=google/extension-install-cloud-policy/chrome/user] No policy found on disk
+[252:256:1101/000705.404:VERBOSE1:components\policy\core\common\policy_service_impl.cc:632] Taking initial snapshot of POLICY_DOMAIN_CHROME policies
+[252:256:1101/000705.450:WARNING:chrome\browser\signin\account_consistency_mode_manager.cc:74] Desktop Identity Consistency cannot be enabled as no OAuth client ID and client secret have been configured.
+[252:256:1101/000705.450:VERBOSE1:chrome\browser\signin\account_consistency_mode_manager.cc:99] Desktop Identity Consistency disabled as sign-in to Chrome is not allowed
+[252:256:1101/000705.463:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:355] MutablePO2TS::MutablePO2TS
+[252:256:1101/000705.464:VERBOSE1:components\proxy_config\pref_proxy_config_tracker_impl.cc:510] 0xb7402245e00: set chrome proxy config service to 0xb74023b4920
+[252:256:1101/000705.513:VERBOSE1:chrome\browser\permissions\prediction_service\prediction_model_handler_provider_factory.cc:62] [PermissionsAI]: PredictionModelHandlerProviderFactory::BuildServiceInstanceForBrowserContext
+[252:256:1101/000705.513:VERBOSE1:chrome\browser\permissions\prediction_service\prediction_model_handler_provider_factory.cc:90] [PermissionsAI]: PassageEmbeddingsServiceController available, passage_embedder setup.true
+[252:256:1101/000705.513:VERBOSE1:chrome\browser\permissions\prediction_service\prediction_model_handler_provider.cc:55] [PermissionsAI] PredictionModelHandlerProvider ctor passage_embedder available: true
+[252:256:1101/000705.513:VERBOSE1:chrome\browser\permissions\prediction_service\prediction_model_handler_provider.cc:58] [PermissionsAI] PredictionModelHandlerProvider ctor optimization_guide available: true
+[252:256:1101/000705.514:VERBOSE1:chrome\browser\permissions\prediction_service\prediction_model_handler_provider.cc:100] [PermissionsAI] PredictionModelHandlerProvider init AIv4
+[252:256:1101/000705.518:VERBOSE1:chrome\browser\signin\account_consistency_mode_manager.cc:99] Desktop Identity Consistency disabled as sign-in to Chrome is not allowed
+[252:256:1101/000705.518:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.518:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.519:VERBOSE1:components\proxy_config\pref_proxy_config_tracker_impl.cc:510] 0xb7402246940: set chrome proxy config service to 0xb74023b4560
+[252:588:1101/000705.520:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Optimization Guide Geolocation Permission Predictions
+[252:256:1101/000705.529:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.538:VERBOSE1:chrome\browser\signin\account_consistency_mode_manager.cc:99] Desktop Identity Consistency disabled as sign-in to Chrome is not allowed
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\actor\core\aggregated_journal.cc:145] [ActorTool]: GlicActorPolicyChecker::ComputeActOnWebCapability: outcome=kNo reasons=kAccountCapabilityIneligible 
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\actor\core\aggregated_journal.cc:145] [ActorTool]: GlicActorPolicyChecker::ComputeActOnWebCapability: outcome=kNo reasons=kAccountCapabilityIneligible 
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.540:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.551:VERBOSE1:google_apis\gaia\gaia_auth_util.cc:53] Canonicalized @gmail.com to @gmail.com
+[252:256:1101/000705.551:VERBOSE1:google_apis\gaia\gaia_auth_util.cc:53] Canonicalized @gmail.com to @gmail.com
+[252:256:1101/000705.551:VERBOSE1:chrome\browser\signin\account_consistency_mode_manager.cc:99] Desktop Identity Consistency disabled as sign-in to Chrome is not allowed
+[252:256:1101/000705.552:VERBOSE1:components\signin\core\browser\account_reconcilor.cc:145] AccountReconcilor::AccountReconcilor
+[252:256:1101/000705.552:VERBOSE1:components\signin\core\browser\account_reconcilor.cc:168] AccountReconcilor::Initialize
+[252:256:1101/000705.552:VERBOSE1:chrome\browser\signin\account_consistency_mode_manager.cc:99] Desktop Identity Consistency disabled as sign-in to Chrome is not allowed
+[252:256:1101/000705.552:VERBOSE1:chrome\browser\signin\account_consistency_mode_manager.cc:99] Desktop Identity Consistency disabled as sign-in to Chrome is not allowed
+[252:256:1101/000705.552:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.560:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.561:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.578:VERBOSE1:extensions\browser\extension_registrar.cc:584] AddComponentExtension Chromium PDF Viewer
+[252:256:1101/000705.578:VERBOSE1:extensions\browser\extension_registrar.cc:586] Component extension Chromium PDF Viewer (mhjfbmdgcfjbbpaeojofohoefgiehjai) installing/upgrading from '' to 1
+[252:256:1101/000705.585:VERBOSE1:extensions\browser\extension_registrar.cc:584] AddComponentExtension Contextual Tasks
+[252:256:1101/000705.585:VERBOSE1:extensions\browser\extension_registrar.cc:586] Component extension Contextual Tasks (glbjnfimcajjenihimblfaponejbkoph) installing/upgrading from '' to 1.0
+[252:256:1101/000705.593:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.594:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[532:536:1101/000705.604:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for gpu-process/global.
+[252:424:1101/000705.618:VERBOSE1:components\signin\public\webdata\token_service_table.cc:259] Loaded tokens: result = 3 ; number of tokens loaded = 0
+[252:256:1101/000705.673:VERBOSE1:components\component_updater\installer_policies\on_device_head_suggest_component_installer.cc:60] On Device Head Component will fetch model for locale: ENUS500000
+[252:256:1101/000705.674:VERBOSE1:chrome\browser\component_updater\trust_token_key_commitments_component_installer.cc:22] Registering Trust Token Key Commitments component.
+[252:504:1101/000705.674:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Subresource Filter Rules
+[252:256:1101/000705.674:VERBOSE1:chrome\browser\component_updater\first_party_sets_component_installer.cc:40] Registering Related Website Sets component.
+[252:256:1101/000705.674:VERBOSE1:chrome\browser\component_updater\privacy_sandbox_attestations_component_installer.cc:182] Registering Privacy Sandbox Attestations component
+[252:516:1101/000705.674:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for OnDeviceHeadSuggest
+[252:256:1101/000705.674:VERBOSE1:components\component_updater\installer_policies\actor_safety_lists_component_installer.cc:141] Registering Actor Safety Lists Component.
+[252:588:1101/000705.674:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Privacy Sandbox Attestations
+[252:496:1101/000705.674:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Optimization Hints
+[252:508:1101/000705.674:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Actor Safety Lists
+[252:600:1101/000705.675:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Trust Token Key Commitments
+[252:256:1101/000705.678:VERBOSE1:chrome\browser\component_updater\indigo_component_installer.cc:132] Registering Indigo component.
+[252:256:1101/000705.678:VERBOSE1:chrome\browser\component_updater\file_type_policies_component_installer.cc:127] Registering File Type Policies component.
+[252:584:1101/000705.681:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Certificate Error Assistant
+[252:592:1101/000705.681:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for History Search
+[252:424:1101/000705.681:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for File Type Policies
+[252:256:1101/000705.682:VERBOSE1:chrome\browser\component_updater\hyphenation_component_installer.cc:154] Registering Hyphenation component.
+[252:256:1101/000705.682:VERBOSE1:chrome\browser\component_updater\dictation_connector_component_installer.cc:186] Registering Dictation Connector component.
+[252:256:1101/000705.682:VERBOSE1:chrome\browser\component_updater\translate_kit_component_installer.cc:212] Registering TranslateKit component.
+[252:256:1101/000705.682:VERBOSE1:chrome\browser\component_updater\wasm_tts_engine_component_installer.cc:307] Registering WASM TTS Engine component.
+[252:256:1101/000705.682:VERBOSE1:chrome\browser\component_updater\captcha_provider_component_installer.cc:175] Registering Captcha Provider component.
+[252:256:1101/000705.682:VERBOSE1:chrome\browser\component_updater\aim_eligibility_component_installer.cc:177] Uninstalling AIM Eligibility component.
+[252:596:1101/000705.682:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Indigo
+[252:420:1101/000705.684:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for CRLSet
+[252:512:1101/000705.687:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Crowd Deny
+[252:404:1101/000705.688:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Origin Trials
+[252:256:1101/000705.689:VERBOSE1:chrome\browser\profiles\profile_manager.cc:1400] AddKeepAlive(Default, kBrowserWindow). keep_alives=[kWaitingForFirstBrowserWindow (1), kBrowserWindow (1)]
+[252:256:1101/000705.689:VERBOSE1:chrome\browser\profiles\profile_manager.cc:1482] ClearFirstBrowserWindowKeepAlive(Default). keep_alives=[kBrowserWindow (1)]
+[252:256:1101/000705.689:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.689:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:624:1101/000705.689:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Hyphenation
+[252:620:1101/000705.691:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for MEI Preload
+[252:588:1101/000705.695:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Dictation Connector
+[252:504:1101/000705.695:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for WASM TTS Engine
+[252:592:1101/000705.697:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Zxcvbn Data Dictionaries
+[252:620:1101/000705.697:VERBOSE1:components\component_updater\component_installer.cc:332] Preinstalled component found for MEI Preload at Z:\home\debian\wex-g4\chromium-headful-r1-20261023-stage\vendor\extracted\chrome-win\MEIPreload with version 1.0.7.1652906823.
+[252:256:1101/000705.698:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.698:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.698:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.698:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.699:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.699:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.699:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:256:1101/000705.699:VERBOSE1:components\signin\internal\identity_manager\mutable_profile_oauth2_token_service_delegate.cc:461] MutablePO2TS::RefreshTokenIsAvailable
+[252:584:1101/000705.698:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for PKI Metadata
+[252:508:1101/000705.700:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Amount Extraction Heuristic Regexes
+[252:404:1101/000705.701:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for Safety Tips
+[252:596:1101/000705.704:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for SODA en-US Models
+[252:504:1101/000705.705:VERBOSE1:components\component_updater\component_installer.cc:513] StartRegistration for SODA Library
+[556:560:1101/000705.734:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for utility.net..workService/global.
+[556:560:1101/000705.735:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for utility.netwo..etworkService/*.
+[556:560:1101/000705.735:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for utility.netw..tworkService/main.
+[556:640:1101/000705.810:ERROR:net\base\network_change_notifier_win.cc:224] WSALookupServiceBegin failed with: 8
+[572:576:1101/000705.874:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for utility.sto..rageService/global.
+[572:576:1101/000705.875:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for utility.stora..torageService/*.
+[572:576:1101/000705.875:VERBOSE1:base\allocator\scheduler_loop_quarantine_config.cc:199] No entry found for utility.stor..orageService/main.
+[556:664:1101/000705.958:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
+[556:644:1101/000706.385:VERBOSE1:net\disk_cache\simple\simple_index_file.cc:624] Simple Cache Index is being restored from disk.
+[532:536:1101/000708.766:ERROR:ui\gl\direct_composition_support.cc:255] GetGpuDriverOverlayInfo: Failed to retrieve video device
+[532:536:1101/000708.769:VERBOSE1:components\viz\service\main\viz_main_impl.cc:87] VizNullHypothesis is disabled (not a warning)
+[252:404:1101/000710.321:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
+[556:664:1101/000710.960:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
+[252:404:1101/000720.324:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
+[556:560:1101/000720.754:INFO:content\child\child_thread_impl.cc:931] Terminating current process after 15 seconds with no connection.
+[572:576:1101/000720.884:INFO:content\child\child_thread_impl.cc:931] Terminating current process after 15 seconds with no connection.
+[252:404:1101/000740.328:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
