@@ -1383,3 +1383,14 @@ per-window attributes (write-only attributes read back `E_INVALIDARG`, computed 
 `DwmQueryThumbnailSourceSize`, `DwmModifyPreviousDxFrameDuration` and `DwmTransitionOwnedWindow`, `DWM_E_COMPOSITIONDISABLED` for the graphics
 stream hint, and composition timing rates as counter frequency over refresh period. Nothing is drawn yet; a DWM service
 (`docs/DWM_PLAN.md` 1.0) is to take over the state. The conformance test passes on Windows 11 and on Wine, 32-bit and 64-bit.
+
+## DWM control channel: wineserver endpoint and `ProcessWineDwmChannel` (2026-11-02)
+
+New `server/dwm.c` (requests `dwm_connect`, `dwm_get_broker_capability`, `dwm_broker_register`, `dwm_send`, `dwm_recv`, `dwm_reply`),
+`include/wine/dwm_protocol.h`, `dlls/dwmapi/dwm_client.c`; small hooks in `server/protocol.def`, `server/user.h` (per-desktop endpoint and
+epoch), `server/winstation.c` (init and revoke on desktop destruction), `server/process.c` (clean-up on process exit), `server/window.c`
+(two accessors; `window_desktop_denied` made non-static), `dlls/ntdll/unix/process.c` and `dlls/wow64/process.c` (private information class
+`ProcessWineDwmChannel` = 1004 on `NtSet/QueryInformationProcess`, the same pattern as `ProcessWineGrantAdminToken`), `include/winternl.h`.
+One bounded message channel per desktop between clients and one broker; the server stamps sender, desktop, request id and epoch, so the wire
+carries no identity. The broker registers with a one-use capability minted only for the owner of the desktop's top window. Absent broker:
+`STATUS_PORT_DISCONNECTED`; messages are capped (size, queue depth 64). Test: `dlls/dwmapi/tests/dwm_channel.c` (skips on Windows).
