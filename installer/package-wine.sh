@@ -265,8 +265,10 @@ install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.sysusers" "$STAGE_SESSION/usr/li
 install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.tmpfiles" "$STAGE_SESSION/usr/lib/tmpfiles.d/wexprefetchd.conf"
 install -m644 "$SCRIPT_DIR/systemd/prefetch.conf.example" "$STAGE_SESSION/etc/wineexplorer/prefetch.conf"
 echo /etc/wineexplorer/prefetch.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
-install -d "$STAGE_SESSION/usr/lib/systemd" "$STAGE_SESSION/usr/lib/sysctl.d"
-install -m644 "$SCRIPT_DIR/systemd/zram-generator.conf" "$STAGE_SESSION/usr/lib/systemd/zram-generator.conf"
+# /etc overrides the generator's own /usr/lib/systemd/zram-generator.conf, which systemd-zram-generator owns
+install -d "$STAGE_SESSION/etc/systemd" "$STAGE_SESSION/usr/lib/sysctl.d"
+install -m644 "$SCRIPT_DIR/systemd/zram-generator.conf" "$STAGE_SESSION/etc/systemd/zram-generator.conf"
+echo /etc/systemd/zram-generator.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -m644 "$SCRIPT_DIR/systemd/99-wineexplorer-memory.conf" "$STAGE_SESSION/usr/lib/sysctl.d/99-wineexplorer-memory.conf"
 chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"

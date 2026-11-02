@@ -106,5 +106,5 @@ pkexec
 xvfb
 xauth
 python3
-# compressed swap in RAM (config: /usr/lib/systemd/zram-generator.conf)
+# compressed swap in RAM (config: /etc/systemd/zram-generator.conf)
 systemd-zram-generator
