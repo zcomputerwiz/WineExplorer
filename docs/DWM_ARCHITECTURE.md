@@ -296,3 +296,8 @@ Acceptance must distinguish API compatibility, visible software composition, rea
 8. **Owner choices:** select maintained Chromium/Edge versions and authorized Vista/7/8/10 reference environments/theme-era priorities. Proposed art order: Basic/Aero, flat 8/10, Fluent 11. Win11 is today's API oracle; label unmeasured differences.
 9. **Lifecycle:** this plan chooses per-desktop brokers with secure effects initially off. One privileged cross-desktop broker or animated secure consent changes the trust design and warrants owner review.
 
+
+## 11. Status (2026-11-02)
+
+- P1 slice 1 (control channel) and P2 (broker lifecycle) are merged. `DwmService` (HKCU `Software\WineExplorer\Shell`, default off) makes the desktop manager start `dwm.exe`, which registers as broker and echoes. Tested by `scripts/dwm-p2-lifecycle-test.sh` (gate off, two desktops, restart after kill, crash-loop give-up, no orphan after explorer is killed) and `dlls/dwmapi/tests/dwm_channel.c`.
+- Test note: a plain `/desktop=NAME` desktop (not a shell desktop) is closed by the server one second after its only remaining users are the manager's own threads (`remove_desktop_user`), so lifecycle tests must use a shell desktop (`HKCU\Software\Wine\Explorer\Desktops\NAME` `EnableShell`=1), as the real session does.
