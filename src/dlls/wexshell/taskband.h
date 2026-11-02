@@ -41,6 +41,7 @@ typedef struct _TASK_ITEM
     BOOL        hot;       /* mouse is over the button */
     BOOL        pressed;   /* left button held down on it */
     RECT        rect;       /* empty for a window shown by its group's button */
+    RECT        normal_rect; /* the window's rectangle when last seen not minimized (previews keep its shape) */
     WCHAR       group_key[MAX_PATH];   /* the program's path; empty: never grouped (Linux programs) */
     WCHAR       group_name[64];        /* the program's description, "Windows Explorer" */
     struct _TASK_ITEM *group;          /* the first window of its group when grouped, else NULL */
@@ -72,6 +73,7 @@ void taskband_resize(int x, int y, int width, int height);
 /* taskband_preview.c: live thumbnail above the hovered button (TaskbarThumbnails, composition only) */
 void taskband_preview_hover(HWND band, TASK_ITEM *item);
 void taskband_preview_hide(void);
+BOOL window_frame_rect(HWND hwnd, RECT *rect);
 void taskband_add_window(HWND hwnd);
 void taskband_remove_window(HWND hwnd);
 void taskband_activate_window(HWND hwnd);

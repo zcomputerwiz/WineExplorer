@@ -244,14 +244,75 @@ static void free_window( struct window *w, BOOL destroyed )
     free( w );
 }
 
+/* The last picture of windows that were unmapped (minimized or hidden), so their thumbnails keep showing them, as on
+ * Windows. A named window pixmap stays valid after the unmap. Freed when the window is destroyed or mapped again.
+ * ponytail: 16 slots, oldest replaced first; a per-window budget if taskbars with more minimized windows matter. */
+#define RETAINED_MAX 16
+static struct retained { Window id; Pixmap pixmap; Picture picture; int width, height, depth; UINT64 when; } retained[RETAINED_MAX];
+static unsigned int retained_next;
+
+static UINT64 now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime( CLOCK_MONOTONIC, &ts );
+    return ts.tv_sec * (UINT64)1000 + ts.tv_nsec / 1000000;
+}
+
+static BOOL is_offscreen( const struct window *w )
+{
+    return w->x + w->attr.width <= 0 || w->y + w->attr.height <= 0;
+}
+
+static void free_retained( struct retained *r )
+{
+    if (r->picture) pXRenderFreePicture( dpy, r->picture );
+    if (r->pixmap) pXFreePixmap( dpy, r->pixmap );
+    memset( r, 0, sizeof(*r) );
+}
+
+static struct retained *find_retained( Window id )
+{
+    unsigned int i;
+    for (i = 0; i < RETAINED_MAX; i++) if (retained[i].id == id) return &retained[i];
+    return NULL;
+}
+
+static void drop_retained( Window id )
+{
+    struct retained *r;
+    if (id && (r = find_retained( id ))) free_retained( r );
+}
+
+/* Wine shrinks a window to its icon size just before unmapping it on minimize: a picture kept at that resize
+ * (less than a second ago) is the one to show, not the icon-sized one */
+static void retain_surface( struct window *w )
+{
+    struct retained *r;
+    if (!w->picture || (w->parent != desktop && w->parent != root)) return;
+    if ((r = find_retained( w->id )) && now_ms() - r->when < 1000) return;
+    drop_retained( w->id );
+    r = &retained[retained_next++ % RETAINED_MAX];
+    if (r->id) free_retained( r );
+    r->id = w->id;
+    r->pixmap = w->pixmap;
+    r->picture = w->picture;
+    r->width = w->attr.width + 2 * w->attr.border_width;
+    r->height = w->attr.height + 2 * w->attr.border_width;
+    r->depth = w->attr.depth;
+    r->when = now_ms();
+    w->picture = w->pixmap = 0;
+}
+
 static void remove_window( Window id, BOOL destroyed )
 {
     struct window **entry;
+    if (destroyed) drop_retained( id );
     for (entry = &windows; *entry; entry = &(*entry)->next)
         if ((*entry)->id == id)
         {
             struct window *w = *entry;
             *entry = w->next;
+            if (!destroyed) retain_surface( w );
             free_window( w, destroyed );
             break;
         }
@@ -319,6 +380,8 @@ static struct window *track_window( Window id, Window parent )
     w->x = x;
     w->y = y;
     w->seen = TRUE;
+    /* mapped again on screen: live pixels from now on (Wine maps a minimized window off screen, at -32000) */
+    if (!is_offscreen( w )) drop_retained( id );
     update_opacity( w );
     w->shadow = !!get_cardinal( w->id, shadow_atom, 0 );
     return w;
@@ -382,7 +445,9 @@ static BOOL create_output(void)
 static void unredirect(void)
 {
     struct window *w;
+    unsigned int i;
     for (w = windows; w; w = w->next) free_surface( w );
+    for (i = 0; i < RETAINED_MAX; i++) if (retained[i].id) free_retained( &retained[i] );
     free_output();
     if (redirected_desktop) pXCompositeUnredirectSubwindows( dpy, desktop, CompositeRedirectManual );
     if (redirected_root) pXCompositeUnredirectSubwindows( dpy, root, CompositeRedirectManual );
@@ -517,16 +582,30 @@ static void paint_thumbnails( struct window *dest )
     {
         const struct compose_thumb *t = &thumbs[i];
         struct window *src;
+        struct retained *r;
         XTransform transform = {{{ 0 }}};
         XRenderColor color = { 0, 0, 0, 0 };
-        Picture mask = 0;
-        int sx, sy, sw, sh, dw = t->dest[2] - t->dest[0], dh = t->dest[3] - t->dest[1];
+        Picture mask = 0, picture;
+        int sx, sy, sw, sh, depth, dw = t->dest[2] - t->dest[0], dh = t->dest[3] - t->dest[1];
 
         if (t->dest_window != dest->id || !(t->flags & WEX_THUMB_VISIBLE) || dw <= 0 || dh <= 0) continue;
-        if (!(src = find_window( t->src )) || src == dest || !name_surface( src )) continue;
+        if ((src = find_window( t->src )) && !(is_offscreen( src ) && find_retained( t->src )))
+        {
+            if (src == dest || !name_surface( src )) continue;
+            picture = src->picture;
+            sw = src->attr.width + 2 * src->attr.border_width;
+            sh = src->attr.height + 2 * src->attr.border_width;
+            depth = src->attr.depth;
+        }
+        else if ((r = find_retained( t->src )))   /* minimized: its last picture */
+        {
+            picture = r->picture;
+            sw = r->width;
+            sh = r->height;
+            depth = r->depth;
+        }
+        else continue;
         sx = sy = 0;
-        sw = src->attr.width + 2 * src->attr.border_width;
-        sh = src->attr.height + 2 * src->attr.border_width;
         if (t->flags & WEX_THUMB_HAS_SOURCE)
         {
             sx = max( t->source[0], 0 );
@@ -545,14 +624,14 @@ static void paint_thumbnails( struct window *dest )
             color.alpha = t->opacity * 257;
             mask = pXRenderCreateSolidFill( dpy, &color );
         }
-        pXRenderSetPictureTransform( dpy, src->picture, &transform );
-        pXRenderSetPictureFilter( dpy, src->picture, "bilinear", NULL, 0 );
-        pXRenderComposite( dpy, mask || src->attr.depth == 32 ? PictOpOver : PictOpSrc, src->picture, mask,
+        pXRenderSetPictureTransform( dpy, picture, &transform );
+        pXRenderSetPictureFilter( dpy, picture, "bilinear", NULL, 0 );
+        pXRenderComposite( dpy, mask || depth == 32 ? PictOpOver : PictOpSrc, picture, mask,
                            back_picture, 0, 0, 0, 0, dest->x + t->dest[0], dest->y + t->dest[1], dw, dh );
         memset( &transform, 0, sizeof(transform) );
         transform.matrix[0][0] = transform.matrix[1][1] = transform.matrix[2][2] = XDoubleToFixed( 1 );
-        pXRenderSetPictureTransform( dpy, src->picture, &transform );
-        pXRenderSetPictureFilter( dpy, src->picture, "nearest", NULL, 0 );
+        pXRenderSetPictureTransform( dpy, picture, &transform );
+        pXRenderSetPictureFilter( dpy, picture, "nearest", NULL, 0 );
         if (mask) pXRenderFreePicture( dpy, mask );
     }
 }
@@ -897,7 +976,11 @@ void compose_event( void *xevent )
     case ConfigureNotify:
         id = event->xconfigure.window;
         if ((w = find_window( id )) &&
-            (event->xconfigure.width != w->attr.width || event->xconfigure.height != w->attr.height)) free_surface( w );
+            (event->xconfigure.width != w->attr.width || event->xconfigure.height != w->attr.height))
+        {
+            retain_surface( w );  /* the size before a minimize; see retain_surface */
+            free_surface( w );
+        }
         break;
     case ReparentNotify:
         id = event->xreparent.window;

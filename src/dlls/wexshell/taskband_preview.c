@@ -22,8 +22,8 @@
 
 /* docs/DWM_ARCHITECTURE.md P11a: hovering a taskbar button shows a live DWM thumbnail of its window above it.
  * Off unless composition runs and HKCU\Software\WineExplorer\Shell\TaskbarThumbnails is non-zero, so the XP
- * taskbar is unchanged by default. A minimized window has no pixels yet (iconic previews are P9): the popup
- * then shows its title only. */
+ * taskbar is unchanged by default. A minimized window shows the last picture the compositor kept of it; one
+ * minimized before the shell started has none (iconic previews are P9), and the popup then shows its title. */
 
 #include <windows.h>
 #include <dwmapi.h>
@@ -65,8 +65,7 @@ static void show_preview(void)
 
     release_thumbnail();
     if (!IsWindow( preview_target )) return;
-    if (!IsIconic( preview_target ) && GetWindowRect( preview_target, &source ) &&
-        source.right > source.left && source.bottom > source.top &&
+    if (window_frame_rect( preview_target, &source ) && source.right > source.left && source.bottom > source.top &&
         SUCCEEDED( DwmRegisterThumbnail( preview_hwnd, preview_target, &preview_thumb ) ))
     {
         /* keep the window's aspect ratio inside PREVIEW_MAX_W x PREVIEW_MAX_H */

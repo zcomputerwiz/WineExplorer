@@ -341,6 +341,7 @@ static BOOL CALLBACK sync_enum_windows_proc(HWND hwnd, LPARAM lparam)
         BOOL active = (hwnd == foreground);
         BOOL minimized = IsIconic(hwnd);
         GetWindowTextW(hwnd, title, ARRAY_SIZE(title));
+        if (!minimized) GetWindowRect(hwnd, &item->normal_rect);
 
         if (wcscmp(item->title, title) != 0 || item->active != active || item->minimized != minimized)
         {
@@ -351,6 +352,19 @@ static BOOL CALLBACK sync_enum_windows_proc(HWND hwnd, LPARAM lparam)
         }
         item->seen = TRUE;
     }
+    return TRUE;
+}
+
+/* The window's size when shown, for previews: a minimized window's own rectangle is its icon (the compositor keeps
+ * its last picture, so the thumbnail still shows it). Wine's GetWindowPlacement of another process's minimized
+ * window returns the icon rectangle too, so the taskbar remembers the last one it saw. */
+BOOL window_frame_rect(HWND hwnd, RECT *rect)
+{
+    TASK_ITEM *item;
+
+    if (!IsIconic(hwnd)) return GetWindowRect(hwnd, rect);
+    if (!(item = find_task_by_hwnd(hwnd)) || IsRectEmpty(&item->normal_rect)) return FALSE;
+    *rect = item->normal_rect;
     return TRUE;
 }
 

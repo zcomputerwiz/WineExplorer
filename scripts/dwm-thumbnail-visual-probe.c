@@ -23,7 +23,8 @@
 /* A 400x300 source at (50,50), left half red and right half blue, and a white 300x250 destination at (600,100)
  * that shows a thumbnail of the source in (20,20)-(220,170). Run under the shell with Composition=1 and
  * DwmService=1, then grab the root window: the destination must show the scaled red/blue source.
- * An argument names a log file (programs started through explorer have no stdout).
+ * An argument names a log file (programs started through explorer have no stdout). With PROBE_MINIMIZE set, the
+ * source is minimized after 5 s and the thumbnail must keep showing its last picture.
  * Build: x86_64-w64-mingw32-gcc -municode -mwindows -o dwm-thumbnail-visual-probe.exe dwm-thumbnail-visual-probe.c -luser32 -lgdi32 */
 
 #include <windows.h>
@@ -67,7 +68,7 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
     HWND source, dest;
     HRESULT hr = E_FAIL;
     MSG msg;
-    DWORD deadline = GetTickCount() + 40000;
+    DWORD deadline = GetTickCount() + 40000, minimize_at;
 
     if (cmdline && *cmdline) _wfreopen( cmdline, L"w", stdout );
     register_thumbnail = (void *)GetProcAddress( dwmapi, "DwmRegisterThumbnail" );
@@ -99,8 +100,23 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
     printf( "source %p dest %p thumbnail %p hr %08lx\n", source, dest, thumb, hr );
     fflush( stdout );
 
+    /* PROBE_MINIMIZE=1: minimize the source after 5 s; the thumbnail must keep showing its last picture */
+    minimize_at = GetEnvironmentVariableW( L"PROBE_MINIMIZE", NULL, 0 ) ? GetTickCount() + 5000 : 0;
     while (GetTickCount() < deadline)
     {
+        if (minimize_at && GetTickCount() >= minimize_at)
+        {
+            WINDOWPLACEMENT placement = { sizeof(placement) };
+            RECT rect;
+            ShowWindow( source, SW_MINIMIZE );
+            GetWindowRect( source, &rect );
+            GetWindowPlacement( source, &placement );
+            printf( "source minimized: iconic %d rect %ld,%ld-%ld,%ld normal %ld,%ld-%ld,%ld\n", IsIconic( source ),
+                    rect.left, rect.top, rect.right, rect.bottom, placement.rcNormalPosition.left,
+                    placement.rcNormalPosition.top, placement.rcNormalPosition.right, placement.rcNormalPosition.bottom );
+            fflush( stdout );
+            minimize_at = 0;
+        }
         while (PeekMessageW( &msg, NULL, 0, 0, PM_REMOVE ))
         {
             if (msg.message == WM_QUIT) return 0;
