@@ -43,11 +43,28 @@ WINE_DEFAULT_DEBUG_CHANNEL(wexshell);
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
 #define DWMWA_WINDOW_CORNER_PREFERENCE 33
 #endif
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#endif
+#ifndef DWMWA_MICA_EFFECT
+#define DWMWA_MICA_EFFECT 1029
+#endif
 
 HRESULT WINAPI WexDwmpPoll( UINT64 since_revision, DWORD cursor, void *out, DWORD *out_len );
 HRESULT WINAPI WexDwmpThumbList( UINT64 since_revision, void *out, DWORD *out_len );
 
-struct pending { HWND hwnd; DWORD radius; int tries; };
+struct pending
+{
+    HWND hwnd;
+    DWORD radius;
+    BOOL dark;
+    DWORD backdrop_type;
+    DWORD mica_effect;
+    int tries;
+};
 
 /* live thumbnails (P8): the broker's list, mapped to X windows on every poll, because a window may get its
  * X window after the thumbnail was registered; the compositor ignores an unchanged list */
@@ -94,6 +111,7 @@ static void sync_thumbnails( BOOL have_broker )
 static HANDLE bridge_thread, bridge_stop;
 static HDESK bridge_desktop;
 static struct pending pending[DWM_BRIDGE_PENDING];
+static BOOL materials_on;
 
 /* DWMWCP_DEFAULT stays square for now: the corner policy of a theme era comes with the open styles (P13) */
 static DWORD corner_radius( DWORD preference )
@@ -106,33 +124,66 @@ static DWORD corner_radius( DWORD preference )
     }
 }
 
-static BOOL apply_corner( HWND hwnd, DWORD radius )
+/* The DwmMaterials gate (HKCU\Software\WineExplorer\Shell), read once at thread start: off by default, and
+ * forced off by high contrast or a disabled transparency, so the backdrop is never drawn in those modes. */
+static void read_materials_gate(void)
+{
+    DWORD value = 0, size = sizeof(value);
+    HIGHCONTRASTW hc;
+
+    materials_on = FALSE;
+    if (RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"DwmMaterials",
+                      RRF_RT_REG_DWORD, NULL, &value, &size ) != ERROR_SUCCESS || !value) return;
+    materials_on = TRUE;
+    memset( &hc, 0, sizeof(hc) );
+    hc.cbSize = sizeof(hc);
+    if (SystemParametersInfoW( SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0 ) && (hc.dwFlags & HCF_HIGHCONTRASTON))
+    {
+        materials_on = FALSE;
+        return;
+    }
+    if (RegGetValueW( HKEY_CURRENT_USER,
+                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                      L"EnableTransparency", RRF_RT_REG_DWORD, NULL, &value, &size ) == ERROR_SUCCESS && !value)
+        materials_on = FALSE;
+    TRACE( "materials gate %s\n", materials_on ? "on" : "off" );
+}
+
+/* The backdrop the compositor draws for a window: Mica for the main-window and tabbed backdrops, or when the
+ * app asked for the Mica effect without opting out; type 3 (Acrylic) maps to NONE for now (P12b). */
+static DWORD backdrop_value( const struct pending *p )
+{
+    DWORD backdrop = WEX_BACKDROP_NONE;
+
+    if ((p->backdrop_type == 2 || p->backdrop_type == 4) || (p->mica_effect && p->backdrop_type != 1))
+        backdrop = WEX_BACKDROP_MICA;
+    if (p->dark) backdrop |= WEX_BACKDROP_DARK;
+    return backdrop;
+}
+
+/* 1 applied, 0 waiting for the X window, -1 the window is gone. */
+static int apply_window( HWND hwnd, const struct pending *p )
 {
     UINT64 window;
     DWORD err;
 
-    if (!IsWindow( hwnd )) return TRUE;  /* gone: nothing to do */
+    if (!IsWindow( hwnd )) return -1;  /* gone: nothing to do */
     window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
     if (!window)
     {
         TRACE( "%p has no x11 window yet\n", hwnd );
-        return FALSE;
+        return 0;
     }
-    err = WexCompositionSetCorner( window, radius );
-    TRACE( "%p xwin %#I64x radius %lu err %lu\n", hwnd, window, radius, err );
-    return !err;
-}
-
-static void queue_retry( HWND hwnd, DWORD radius )
-{
-    int i, free_slot = -1;
-
-    for (i = 0; i < DWM_BRIDGE_PENDING; i++)
+    err = WexCompositionSetCorner( window, p->radius );
+    TRACE( "%p xwin %#I64x radius %lu err %lu\n", hwnd, window, p->radius, err );
+    if (materials_on)
     {
-        if (pending[i].hwnd == hwnd) { pending[i].radius = radius; pending[i].tries = DWM_BRIDGE_RETRIES; return; }
-        if (!pending[i].hwnd && free_slot < 0) free_slot = i;
+        DWORD backdrop = backdrop_value( p );
+        DWORD err2 = WexCompositionSetBackdrop( window, backdrop );
+        TRACE( "%p xwin %#I64x backdrop %lu err %lu\n", hwnd, window, backdrop, err2 );
+        if (!err) err = err2;
     }
-    if (free_slot >= 0) pending[free_slot] = (struct pending){ hwnd, radius, DWM_BRIDGE_RETRIES };
+    return !err;
 }
 
 static void retry_pending(void)
@@ -141,20 +192,60 @@ static void retry_pending(void)
 
     for (i = 0; i < DWM_BRIDGE_PENDING; i++)
     {
+        int r;
         if (!pending[i].hwnd) continue;
-        if (apply_corner( pending[i].hwnd, pending[i].radius ) || --pending[i].tries <= 0)
-            pending[i].hwnd = NULL;
+        if (!IsWindow( pending[i].hwnd )) { pending[i].hwnd = NULL; continue; }
+        if (!pending[i].tries) continue;
+        r = apply_window( pending[i].hwnd, &pending[i] );
+        if (r < 0) pending[i].hwnd = NULL;
+        else if (r > 0) pending[i].tries = 0;
+        else if (--pending[i].tries <= 0) pending[i].hwnd = NULL;
     }
 }
 
 static void apply_change( const struct dwm_change *change )
 {
     HWND hwnd = UlongToHandle( change->hwnd );
-    DWORD radius;
+    struct pending *p = NULL;
+    int i, free_slot = -1;
 
-    if (change->attribute != DWMWA_WINDOW_CORNER_PREFERENCE) return;
-    radius = corner_radius( change->value );
-    if (!apply_corner( hwnd, radius )) queue_retry( hwnd, radius );
+    if (change->attribute != DWMWA_WINDOW_CORNER_PREFERENCE &&
+        change->attribute != DWMWA_USE_IMMERSIVE_DARK_MODE &&
+        change->attribute != DWMWA_SYSTEMBACKDROP_TYPE &&
+        change->attribute != DWMWA_MICA_EFFECT)
+        return;
+    for (i = 0; i < DWM_BRIDGE_PENDING; i++)
+    {
+        if (pending[i].hwnd == hwnd) { p = &pending[i]; break; }
+        if (!pending[i].hwnd && free_slot < 0) free_slot = i;
+    }
+    if (!p)
+    {
+        if (free_slot < 0) return;  /* table full */
+        p = &pending[free_slot];
+        *p = (struct pending){ hwnd, 0, FALSE, 0, 0, 0 };
+    }
+    switch (change->attribute)
+    {
+    case DWMWA_WINDOW_CORNER_PREFERENCE:
+        p->radius = corner_radius( change->value );
+        break;
+    case DWMWA_USE_IMMERSIVE_DARK_MODE:
+        p->dark = change->value != 0;
+        break;
+    case DWMWA_SYSTEMBACKDROP_TYPE:
+        p->backdrop_type = change->value;
+        break;
+    case DWMWA_MICA_EFFECT:
+        p->mica_effect = change->value;
+        break;
+    }
+    switch (apply_window( hwnd, p ))
+    {
+    case -1: p->hwnd = NULL; break;   /* gone */
+    case 0:  p->tries = DWM_BRIDGE_RETRIES; break;
+    default: p->tries = 0; break;
+    }
 }
 
 static DWORD WINAPI bridge_proc( void *arg )
@@ -165,6 +256,7 @@ static DWORD WINAPI bridge_proc( void *arg )
     DWORD wait = DWM_BRIDGE_POLL_MS;
 
     SetThreadDesktop( bridge_desktop );
+    read_materials_gate();
     while (WaitForSingleObject( bridge_stop, wait ) == WAIT_TIMEOUT)
     {
         const struct dwm_poll_reply *reply = (const struct dwm_poll_reply *)buf;

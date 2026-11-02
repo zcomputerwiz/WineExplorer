@@ -145,6 +145,8 @@ struct composition_shadow_params { UINT64 window; BOOL shadow; DWORD err; };
 extern NTSTATUS composition_shadow(void *args);
 struct composition_corner_params { UINT64 window; DWORD radius; DWORD err; };
 extern NTSTATUS composition_corner(void *args);
+struct composition_backdrop_params { UINT64 window; DWORD backdrop; DWORD err; };
+extern NTSTATUS composition_backdrop(void *args);
 struct composition_thumbs_params { UINT64 thumbs; DWORD count; DWORD err; };
 extern NTSTATUS composition_thumbs(void *args);
 struct composition_peek_params { UINT64 target; UINT64 keep; DWORD count; DWORD err; };
@@ -160,6 +162,7 @@ extern DWORD compose_set(void *display, unsigned long root, unsigned long deskto
 extern BOOL compose_enabled(void);
 extern DWORD compose_shadow(unsigned long window, BOOL shadow);
 extern DWORD compose_corner(unsigned long window, unsigned int radius);
+extern DWORD compose_backdrop(unsigned long window, unsigned int backdrop);
 extern DWORD compose_thumbnails(const struct compose_thumb *thumbs, unsigned int count);
 extern DWORD compose_peek(unsigned long target, const UINT64 *keep, unsigned int count);
 extern DWORD compose_clock(void *page, HANDLE event);
@@ -285,6 +288,7 @@ enum wexhost_funcs
     unix_oobe_review_start,
     unix_oobe_review_query,
     unix_oobe_review_cancel,
+    unix_composition_backdrop,
     unix_funcs_count
 };
 

@@ -284,6 +284,10 @@ DWORD WINAPI WexCompositionSetEnabled( BOOL enabled );
 DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
 DWORD WINAPI WexCompositionSetShadow( UINT64 xwindow, BOOL shadow );
 DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
+#define WEX_BACKDROP_NONE  0
+#define WEX_BACKDROP_MICA  1
+#define WEX_BACKDROP_DARK  0x100   /* flag: dark tint */
+DWORD WINAPI WexCompositionSetBackdrop( UINT64 xwindow, DWORD backdrop );
 /* Live thumbnails (DWM P8): the whole list, replaced on each call. Rectangles are left, top, right, bottom;
  * dest relative to the destination window, source relative to the source window. */
 #define WEX_THUMB_VISIBLE    0x1

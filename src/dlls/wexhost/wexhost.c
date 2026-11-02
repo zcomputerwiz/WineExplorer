@@ -633,6 +633,14 @@ DWORD WINAPI WexCompositionSetCorner( UINT64 window, DWORD radius )
     return params.err;
 }
 
+DWORD WINAPI WexCompositionSetBackdrop( UINT64 window, DWORD backdrop )
+{
+    struct composition_backdrop_params params = { window, backdrop };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_backdrop, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexCompositionSetClock( void *page, HANDLE event )
 {
     struct composition_clock_params params = { (UINT64)(ULONG_PTR)page, (UINT64)(ULONG_PTR)event };

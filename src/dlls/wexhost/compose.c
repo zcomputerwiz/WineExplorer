@@ -155,11 +155,12 @@ struct window
     BOOL glass;
     int client[4];
     int margin[4];
+    unsigned int backdrop;   /* WEX_BACKDROP_* */
 };
 
 static Display *dpy;
 static Window root, desktop, owner, overlay;
-static Atom selection, opacity_atom, shadow_atom, margins_atom;
+static Atom selection, opacity_atom, shadow_atom, margins_atom, backdrop_atom;
 static int *x_error, damage_base, shape_base;
 static BOOL enabled, redirected_root, redirected_desktop, tree_dirty, full_repaint, dirty;
 static BOOL libraries_tried, libraries_loaded;
@@ -417,6 +418,7 @@ static struct window *track_window( Window id, Window parent )
     update_opacity( w );
     update_margins( w );
     w->shadow = !!get_cardinal( w->id, shadow_atom, 0 );
+    w->backdrop = get_cardinal( w->id, backdrop_atom, 0 );
     return w;
 }
 
@@ -475,10 +477,129 @@ static BOOL create_output(void)
     return sync_ok();
 }
 
+/* Cached Mica (P12a): the desktop picture averaged down by repeated halving (a bilinear sample between four pixels
+ * is a 2x2 box filter) and scaled back up with bilinear filtering, then tinted where it is painted. Rebuilt when the
+ * desktop is damaged or resized; it never samples other windows. */
+#define MICA_STEPS 5
+static BOOL name_surface( struct window *w );
+static Pixmap mica_pixmap;
+static Picture mica_picture;
+static BOOL mica_dirty = TRUE;
+
+static void free_mica(void)
+{
+    if (mica_picture) pXRenderFreePicture( dpy, mica_picture );
+    if (mica_pixmap) pXFreePixmap( dpy, mica_pixmap );
+    mica_picture = mica_pixmap = 0;
+    mica_dirty = TRUE;
+}
+
+static void set_scale( Picture picture, double sx, double sy, const char *filter )
+{
+    XTransform transform = {{{ 0 }}};
+    transform.matrix[0][0] = XDoubleToFixed( sx );
+    transform.matrix[1][1] = XDoubleToFixed( sy );
+    transform.matrix[2][2] = XDoubleToFixed( 1 );
+    pXRenderSetPictureTransform( dpy, picture, &transform );
+    pXRenderSetPictureFilter( dpy, picture, filter, NULL, 0 );
+}
+
+/* The wallpaper: the lowest mapped child covering the whole virtual desktop, which is the shell's desktop window
+ * (redirected on its own, so the desktop pixmap does not have it), else the desktop itself. */
+static Window mica_source;
+
+static struct window *wallpaper_window( struct window *desk )
+{
+    Window dummy, *children = NULL;
+    unsigned int i, count = 0;
+    struct window *w = NULL;
+
+    if (pXQueryTree( dpy, desktop, &dummy, &dummy, &children, &count ))
+        for (i = 0; i < count && !w; i++)
+            if ((w = find_window( children[i] )) &&
+                (w->x != desk->x || w->y != desk->y || w->attr.width != desk->attr.width ||
+                 w->attr.height != desk->attr.height)) w = NULL;
+    if (children) pXFree( children );
+    return w ? w : desk;
+}
+
+static void build_mica( struct window *desk )
+{
+    XRenderPictureAttributes attr = { 0 };
+    XRenderPictFormat *format;
+    Pixmap pixmap[2] = { 0 };
+    Picture level[2] = { 0 }, source;
+    int i, w, h;
+
+    free_mica();
+    mica_dirty = FALSE;
+    if (!desk) return;
+    desk = wallpaper_window( desk );
+    mica_source = desk->id;
+    if (!name_surface( desk ) || !(format = pXRenderFindStandardFormat( dpy, PictStandardRGB24 ))) return;
+    w = desk->attr.width;
+    h = desk->attr.height;
+    source = desk->picture;
+    attr.repeat = RepeatPad;   /* the upscale samples half a pixel past the edges */
+    *x_error = 0;
+    for (i = 0; i < MICA_STEPS && w > 1 && h > 1; i++)
+    {
+        int next = i & 1, nw = w / 2, nh = h / 2;
+        if (level[next]) pXRenderFreePicture( dpy, level[next] );
+        if (pixmap[next]) pXFreePixmap( dpy, pixmap[next] );
+        pixmap[next] = pXCreatePixmap( dpy, root, nw, nh, 24 );
+        level[next] = pXRenderCreatePicture( dpy, pixmap[next], format, CPRepeat, &attr );
+        set_scale( source, (double)w / nw, (double)h / nh, "bilinear" );
+        pXRenderComposite( dpy, PictOpSrc, source, None, level[next], 0, 0, 0, 0, 0, 0, nw, nh );
+        source = level[next];
+        w = nw;
+        h = nh;
+    }
+    mica_pixmap = pXCreatePixmap( dpy, root, desk->attr.width, desk->attr.height, 24 );
+    mica_picture = pXRenderCreatePicture( dpy, mica_pixmap, format, 0, NULL );
+    set_scale( source, (double)w / desk->attr.width, (double)h / desk->attr.height, "bilinear" );
+    pXRenderComposite( dpy, PictOpSrc, source, None, mica_picture, 0, 0, 0, 0, 0, 0,
+                       desk->attr.width, desk->attr.height );
+    set_scale( desk->picture, 1, 1, "nearest" );
+    for (i = 0; i < 2; i++)
+    {
+        if (level[i]) pXRenderFreePicture( dpy, level[i] );
+        if (pixmap[i]) pXFreePixmap( dpy, pixmap[i] );
+    }
+    if (!sync_ok())
+    {
+        free_mica();
+        mica_dirty = FALSE;   /* until the desktop changes again */
+    }
+    TRACE( "mica %dx%d from %lx %dx%d depth %d (desktop %lx)\n", w, h, desk->id, desk->attr.width, desk->attr.height,
+           desk->attr.depth, desktop );
+}
+
+/* Under the glass of a Mica window (the back picture's clip is set): the cached desktop, then the tint
+ * (light F3F3F3 at 50 %, dark 202020 at 80 %, premultiplied). Opaque tint when there is no cached desktop. */
+static void paint_mica( const struct window *w )
+{
+    struct window *desk = find_window( desktop );
+    XRenderColor tint;
+    unsigned int gray = w->backdrop & WEX_BACKDROP_DARK ? 0x20 : 0xf3;
+
+    if (mica_dirty) build_mica( desk );
+    tint.alpha = 0xffff;
+    if (mica_picture && desk)
+    {
+        pXRenderComposite( dpy, PictOpSrc, mica_picture, None, back_picture, 0, 0, 0, 0, desk->x, desk->y,
+                           desk->attr.width, desk->attr.height );
+        tint.alpha = w->backdrop & WEX_BACKDROP_DARK ? 0xcccc : 0x8000;
+    }
+    tint.red = tint.green = tint.blue = gray * 257 * (tint.alpha / 65535.0);
+    pXRenderFillRectangle( dpy, PictOpOver, back_picture, &tint, 0, 0, width, height );
+}
+
 static void unredirect(void)
 {
     struct window *w;
     unsigned int i;
+    free_mica();
     for (w = windows; w; w = w->next) free_surface( w );
     for (i = 0; i < RETAINED_MAX; i++) if (retained[i].id) free_retained( &retained[i] );
     free_output();
@@ -780,6 +901,7 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
         pXFixesIntersectRegion( dpy, clip, damage_region, glass );
         if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
         pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+        if (w->backdrop & WEX_BACKDROP_MICA) paint_mica( w );
         pXRenderComposite( dpy, PictOpOver, w->picture, w->alpha, back_picture, 0, 0, 0, 0,
                            w->x - border, w->y - border,
                            w->attr.width + 2 * border, w->attr.height + 2 * border );
@@ -857,6 +979,23 @@ DWORD compose_shadow( unsigned long id, BOOL shadow )
     pXChangeProperty( dpy, id, shadow_atom, XA_CARDINAL, 32, PropModeReplace,
                       (unsigned char *)&value, 1 );
     tree_dirty = full_repaint = dirty = TRUE;
+    return sync_ok() ? ERROR_SUCCESS : ERROR_INVALID_WINDOW_HANDLE;
+}
+
+/* kept as a property on the X window, like the shadow, so it survives unmapping (minimize) */
+DWORD compose_backdrop( unsigned long id, unsigned int backdrop )
+{
+    unsigned long value = backdrop;
+    XWindowAttributes attr;
+    if (!enabled) return ERROR_NOT_SUPPORTED;
+    if (backdrop & ~(WEX_BACKDROP_MICA | WEX_BACKDROP_DARK)) return ERROR_INVALID_PARAMETER;
+    if (!id || id == root || id == desktop || id == overlay || id == owner)
+        return ERROR_INVALID_PARAMETER;
+    *x_error = 0;
+    if (!pXGetWindowAttributes( dpy, id, &attr )) return ERROR_INVALID_WINDOW_HANDLE;
+    pXChangeProperty( dpy, id, backdrop_atom, XA_CARDINAL, 32, PropModeReplace,
+                      (unsigned char *)&value, 1 );
+    full_repaint = dirty = TRUE;
     return sync_ok() ? ERROR_SUCCESS : ERROR_INVALID_WINDOW_HANDLE;
 }
 
@@ -1007,6 +1146,7 @@ DWORD compose_set( void *display, unsigned long root_window, unsigned long deskt
     opacity_atom = pXInternAtom( dpy, "_NET_WM_WINDOW_OPACITY", False );
     shadow_atom = pXInternAtom( dpy, "_WEX_DROPSHADOW", False );
     margins_atom = pXInternAtom( dpy, "_WEX_DWM_MARGINS", False );
+    backdrop_atom = pXInternAtom( dpy, "_WEX_DWM_BACKDROP", False );
     /* Selection check/claim is atomic with respect to other X clients. */
     pXGrabServer( dpy );
     if (pXGetSelectionOwner( dpy, selection ))
@@ -1070,6 +1210,11 @@ void compose_event( void *xevent )
         pXDamageSubtract( dpy, w->damage, None, scratch );
         pXFixesTranslateRegion( dpy, scratch, w->x, w->y );
         pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+        if (w->id == desktop || w->id == mica_source)
+        {
+            mica_dirty = TRUE;
+            if (mica_picture) full_repaint = TRUE;
+        }
         /* ponytail: a damaged thumbnail source repaints everything; damage only its destinations if it costs */
         if (is_thumbnail_source( w->id )) full_repaint = TRUE;
         dirty = TRUE;
@@ -1091,6 +1236,7 @@ void compose_event( void *xevent )
         {
             retain_surface( w );  /* the size before a minimize; see retain_surface */
             free_surface( w );
+            if (id == desktop || id == mica_source) mica_dirty = TRUE;
         }
         break;
     case ReparentNotify:
@@ -1117,6 +1263,11 @@ void compose_event( void *xevent )
         if (event->xproperty.atom == margins_atom && (w = find_window( event->xproperty.window )))
         {
             update_margins( w );
+            full_repaint = dirty = TRUE;
+        }
+        if (event->xproperty.atom == backdrop_atom && (w = find_window( event->xproperty.window )))
+        {
+            w->backdrop = get_cardinal( w->id, backdrop_atom, 0 );
             full_repaint = dirty = TRUE;
         }
         return;
@@ -1204,6 +1355,7 @@ DWORD compose_set( void *display, unsigned long root, unsigned long desktop, int
 BOOL compose_enabled(void) { return FALSE; }
 DWORD compose_shadow( unsigned long window, BOOL shadow ) { return ERROR_NOT_SUPPORTED; }
 DWORD compose_corner( unsigned long window, unsigned int radius ) { return ERROR_NOT_SUPPORTED; }
+DWORD compose_backdrop( unsigned long window, unsigned int backdrop ) { return ERROR_NOT_SUPPORTED; }
 DWORD compose_clock( void *page, HANDLE event ) { return page ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 DWORD compose_thumbnails( const struct compose_thumb *list, unsigned int count ) { return count ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 DWORD compose_peek( unsigned long target, const UINT64 *keep, unsigned int count ) { return target ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }

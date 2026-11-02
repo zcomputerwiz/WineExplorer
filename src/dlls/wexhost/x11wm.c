@@ -1040,6 +1040,15 @@ NTSTATUS composition_corner( void *args )
     return STATUS_SUCCESS;
 }
 
+NTSTATUS composition_backdrop( void *args )
+{
+    struct composition_backdrop_params *params = args;
+    if (!begin_call( &params->err )) return STATUS_SUCCESS;
+    params->err = compose_backdrop( params->window, params->backdrop );
+    end_call();
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS composition_clock( void *args )
 {
     struct composition_clock_params *params = args;
@@ -1378,6 +1387,7 @@ STUB( x11_wm_focus, struct wm_window_params )
 STUB( composition_set, struct composition_params )
 STUB( composition_shadow, struct composition_shadow_params )
 STUB( composition_corner, struct composition_corner_params )
+STUB( composition_backdrop, struct composition_backdrop_params )
 STUB( composition_clock, struct composition_clock_params )
 STUB( composition_thumbs, struct composition_thumbs_params )
 STUB( composition_peek, struct composition_peek_params )
