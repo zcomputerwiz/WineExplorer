@@ -649,6 +649,15 @@ DWORD WINAPI WexCompositionSetThumbnails( const struct compose_thumb *thumbs, DW
     return params.err;
 }
 
+/* Peek (DWM P11c): only the desktop, target and the keep windows are drawn; target 0 ends it */
+DWORD WINAPI WexCompositionSetPeek( UINT64 target, const UINT64 *keep, DWORD count )
+{
+    struct composition_peek_params params = { target, (UINT64)(ULONG_PTR)keep, count };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_peek, &params );
+    return params.err;
+}
+
 /* Waits up to timeout_ms for a composed frame after *generation; updates *generation. */
 DWORD WINAPI WexCompositionWaitFrame( UINT64 *generation, DWORD timeout_ms )
 {

@@ -846,7 +846,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_MOUSELEAVE:
     {
         TASK_ITEM *curr = g_taskband.tasks;
-        taskband_preview_hide();
+        taskband_preview_leave();
         while (curr) { curr->hot = curr->pressed = FALSE; curr = curr->next; }
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;

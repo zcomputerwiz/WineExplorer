@@ -36,9 +36,61 @@
 #define PREVIEW_MARGIN   8
 #define PREVIEW_TITLE_H  20
 
-static HWND preview_hwnd, preview_target;
+#define PEEK_DELAY_MS    600
+#define LEAVE_DELAY_MS   300
+
+enum { TIMER_SHOW = 1, TIMER_PEEK, TIMER_LEAVE };
+
+static HWND preview_hwnd, preview_target, preview_band;
 static HTHUMBNAIL preview_thumb;
 static RECT preview_button;   /* screen coordinates of the hovered button */
+static BOOL peeking, tracking;
+
+static UINT64 x_window( HWND hwnd )
+{
+    return (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
+}
+
+/* Peek (P11c, TaskbarPeek=1): resting on the preview shows only that window over the desktop, as on Windows 7 */
+static BOOL peek_enabled(void)
+{
+    DWORD enabled = 0, size = sizeof(enabled);
+    RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"TaskbarPeek", RRF_RT_REG_DWORD,
+                  NULL, &enabled, &size );
+    return enabled != 0;
+}
+
+static void end_peek(void)
+{
+    if (!peeking) return;
+    WexCompositionSetPeek( 0, NULL, 0 );
+    peeking = FALSE;
+}
+
+struct peek_keep { UINT64 windows[8]; DWORD count; };
+
+/* the shell's own visible top-level windows stay: desktop icons and wallpaper, taskbar, this preview */
+static BOOL CALLBACK add_shell_window( HWND hwnd, LPARAM lparam )
+{
+    struct peek_keep *keep = (struct peek_keep *)lparam;
+    DWORD pid;
+    UINT64 window;
+
+    GetWindowThreadProcessId( hwnd, &pid );
+    if (pid != GetCurrentProcessId() || !IsWindowVisible( hwnd ) || !(window = x_window( hwnd ))) return TRUE;
+    keep->windows[keep->count++] = window;
+    return keep->count < ARRAY_SIZE(keep->windows);
+}
+
+static void start_peek(void)
+{
+    struct peek_keep keep = { { 0 }, 0 };
+    UINT64 target = x_window( preview_target );
+
+    if (!target || IsIconic( preview_target )) return;
+    EnumWindows( add_shell_window, (LPARAM)&keep );
+    peeking = !WexCompositionSetPeek( target, keep.windows, keep.count );
+}
 
 static BOOL previews_enabled(void)
 {
@@ -95,8 +147,30 @@ static LRESULT CALLBACK preview_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     switch (msg)
     {
     case WM_TIMER:
-        KillTimer( hwnd, 1 );
-        show_preview();
+        KillTimer( hwnd, wparam );
+        if (wparam == TIMER_SHOW) show_preview();
+        else if (wparam == TIMER_PEEK) start_peek();
+        else if (wparam == TIMER_LEAVE)
+        {
+            POINT pt;
+            RECT rc;
+            GetCursorPos( &pt );
+            GetWindowRect( hwnd, &rc );
+            if (!PtInRect( &rc, pt )) taskband_preview_hide();
+        }
+        return 0;
+    case WM_MOUSEMOVE:
+        KillTimer( hwnd, TIMER_LEAVE );
+        if (!tracking)
+        {
+            TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+            tracking = TrackMouseEvent( &tme );
+            if (!peeking && peek_enabled()) SetTimer( hwnd, TIMER_PEEK, PEEK_DELAY_MS, NULL );
+        }
+        return 0;
+    case WM_MOUSELEAVE:
+        tracking = FALSE;
+        taskband_preview_hide();
         return 0;
     case WM_PAINT:
     {
@@ -146,17 +220,30 @@ void taskband_preview_hover( HWND band, TASK_ITEM *item )
                                         NULL, WS_POPUP, 0, 0, 1, 1, band, NULL, cls.hInstance, NULL );
         if (!preview_hwnd) return;
     }
+    end_peek();
+    KillTimer( preview_hwnd, TIMER_LEAVE );
     preview_target = item->target_hwnd;
+    preview_band = band;
     preview_button = item->rect;
     MapWindowPoints( band, NULL, (POINT *)&preview_button, 2 );
     /* moving to another button while a preview shows switches at once, like on Windows */
-    SetTimer( preview_hwnd, 1, IsWindowVisible( preview_hwnd ) ? 0 : PREVIEW_DELAY_MS, NULL );
+    SetTimer( preview_hwnd, TIMER_SHOW, IsWindowVisible( preview_hwnd ) ? 0 : PREVIEW_DELAY_MS, NULL );
+}
+
+/* the pointer left the taskbar: hide unless it went onto the preview */
+void taskband_preview_leave(void)
+{
+    if (!preview_hwnd || !IsWindowVisible( preview_hwnd )) taskband_preview_hide();
+    else SetTimer( preview_hwnd, TIMER_LEAVE, LEAVE_DELAY_MS, NULL );
 }
 
 void taskband_preview_hide(void)
 {
     if (!preview_hwnd) return;
-    KillTimer( preview_hwnd, 1 );
+    KillTimer( preview_hwnd, TIMER_SHOW );
+    KillTimer( preview_hwnd, TIMER_PEEK );
+    KillTimer( preview_hwnd, TIMER_LEAVE );
+    end_peek();
     release_thumbnail();
     ShowWindow( preview_hwnd, SW_HIDE );
     preview_target = NULL;

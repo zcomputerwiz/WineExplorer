@@ -291,6 +291,8 @@ DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
 #define WEX_THUMB_MAX        80
 struct compose_thumb { UINT64 dest_window; UINT64 src; UINT32 flags; UINT32 opacity; INT32 dest[4]; INT32 source[4]; };
 DWORD WINAPI WexCompositionSetThumbnails( const struct compose_thumb *thumbs, DWORD count );
+/* Peek (DWM P11c): draw only the desktop, target and up to 8 keep windows (X window ids); target 0 ends it */
+DWORD WINAPI WexCompositionSetPeek( UINT64 target, const UINT64 *keep, DWORD count );
 /* Frame clock (docs/DWM_ARCHITECTURE.md section 2.3): the compositor publishes one record per composed frame
  * into the shared page and pulses the event. page is a struct dwm_clock_page (wine/dwm_protocol.h); a NULL
  * page turns the clock off. */

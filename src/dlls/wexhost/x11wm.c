@@ -1066,6 +1066,19 @@ NTSTATUS composition_thumbs( void *args )
     return STATUS_SUCCESS;
 }
 
+NTSTATUS composition_peek( void *args )
+{
+    struct composition_peek_params *params = args;
+    if (!begin_call( &params->err ))
+    {
+        if (!params->target) params->err = ERROR_SUCCESS;
+        return STATUS_SUCCESS;
+    }
+    params->err = compose_peek( params->target, (const UINT64 *)(ULONG_PTR)params->keep, params->count );
+    end_call();
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS x11_wm_manage( void *args )
 {
     struct wm_manage_params *params = args;
@@ -1367,6 +1380,7 @@ STUB( composition_shadow, struct composition_shadow_params )
 STUB( composition_corner, struct composition_corner_params )
 STUB( composition_clock, struct composition_clock_params )
 STUB( composition_thumbs, struct composition_thumbs_params )
+STUB( composition_peek, struct composition_peek_params )
 NTSTATUS composition_get( void *args )
 {
     struct composition_params *params = args;

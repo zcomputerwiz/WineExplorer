@@ -50,6 +50,7 @@
 @ stdcall WexCompositionSetClock(ptr ptr)
 @ stdcall WexCompositionWaitFrame(ptr long)
 @ stdcall WexCompositionSetThumbnails(ptr long)
+@ stdcall WexCompositionSetPeek(int64 ptr long)
 @ stdcall WexLocaleSet(str str)
 @ stdcall WexRootPasswordSet(str)
 @ stdcall WexUserCreate(str str long str)

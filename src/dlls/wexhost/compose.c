@@ -717,6 +717,19 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
     paint_thumbnails( w );
 }
 
+/* Peek (P11c): while set, only the desktop, the peeked window and the shell's own windows are drawn */
+#define PEEK_KEEP_MAX 8
+static Window peek_target, peek_keep[PEEK_KEEP_MAX];
+static unsigned int peek_keep_count;
+
+static BOOL peek_hides( Window id )
+{
+    unsigned int i;
+    if (!peek_target || id == peek_target) return FALSE;
+    for (i = 0; i < peek_keep_count; i++) if (peek_keep[i] == id) return FALSE;
+    return TRUE;
+}
+
 static void paint_children( Window parent, BOOL skip_desktop, XserverRegion parent_clip )
 {
     Window dummy, *children = NULL;
@@ -726,8 +739,21 @@ static void paint_children( Window parent, BOOL skip_desktop, XserverRegion pare
     if (skip_desktop && find_window( desktop ))
         for (i = 0; i < count; i++) if (children[i] == desktop) { first = i + 1; break; }
     for (i = first; i < count; i++)
-        if (!skip_desktop || children[i] != desktop) paint_window( find_window( children[i] ), parent_clip );
+        if ((!skip_desktop || children[i] != desktop) && !peek_hides( children[i] ))
+            paint_window( find_window( children[i] ), parent_clip );
     if (children) pXFree( children );
+}
+
+DWORD compose_peek( unsigned long target, const UINT64 *keep, unsigned int count )
+{
+    unsigned int i;
+    if (!enabled) return target ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS;
+    if (count > PEEK_KEEP_MAX) return ERROR_INVALID_PARAMETER;
+    peek_target = target;
+    for (i = 0; i < count; i++) peek_keep[i] = keep[i];
+    peek_keep_count = count;
+    full_repaint = dirty = TRUE;
+    return ERROR_SUCCESS;
 }
 
 BOOL compose_enabled(void)
@@ -1090,6 +1116,7 @@ DWORD compose_shadow( unsigned long window, BOOL shadow ) { return ERROR_NOT_SUP
 DWORD compose_corner( unsigned long window, unsigned int radius ) { return ERROR_NOT_SUPPORTED; }
 DWORD compose_clock( void *page, HANDLE event ) { return page ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 DWORD compose_thumbnails( const struct compose_thumb *list, unsigned int count ) { return count ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
+DWORD compose_peek( unsigned long target, const UINT64 *keep, unsigned int count ) { return target ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 void compose_event( void *event ) { }
 void compose_paint(void) { }
 long compose_event_mask( unsigned long window, long wm_mask ) { return wm_mask; }

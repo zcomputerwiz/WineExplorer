@@ -73,6 +73,7 @@ void taskband_resize(int x, int y, int width, int height);
 /* taskband_preview.c: live thumbnail above the hovered button (TaskbarThumbnails, composition only) */
 void taskband_preview_hover(HWND band, TASK_ITEM *item);
 void taskband_preview_hide(void);
+void taskband_preview_leave(void);
 BOOL window_frame_rect(HWND hwnd, RECT *rect);
 void taskband_add_window(HWND hwnd);
 void taskband_remove_window(HWND hwnd);
