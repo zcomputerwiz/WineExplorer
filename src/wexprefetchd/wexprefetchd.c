@@ -1620,7 +1620,7 @@ static void set_socket_timeouts( int conn_fd )
 }
 
 static ssize_t send_reply( int conn_fd, enum wexpf_status status,
-                             uint64_t image_size, const char *sha_hex, int result_fd )
+                             uint64_t image_size, const char *sha_hex, int result_fd, uint8_t hints )
 {
     struct wexpf_reply reply;
     struct iovec iov;
@@ -1638,6 +1638,7 @@ static ssize_t send_reply( int conn_fd, enum wexpf_status status,
     reply.status  = (int32_t)status;
     if (status == WEXPF_OK && result_fd >= 0)
     {
+        reply.hints      = hints;
         reply.layout     = WEXPF_LAYOUT_FLAT;
         reply.image_size = image_size;
         if (sha_hex)
@@ -1768,7 +1769,7 @@ static void reject_request( const struct daemon_ctx *ctx, int conn_fd,
 
     log_msg( ctx->foreground, LOG_NOTICE,
              "rejected request with %s: %s", status_name( status ), reason );
-    send_reply( conn_fd, status, 0, NULL, -1 );
+    send_reply( conn_fd, status, 0, NULL, -1, 0 );
 }
 
 static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
@@ -1787,6 +1788,7 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
     char sha_hex[65];
     enum wexpf_status status;
     pid_t peer_pid = 0;
+    uint8_t hints = 0;
 
     int64_t t_start = now_monotonic_ms();
 
@@ -1818,6 +1820,32 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
     if ((msg_flags & MSG_CTRUNC) != 0 || (msg_flags & MSG_TRUNC) != 0)
     {
         reject_request( ctx, conn_fd, WEXPF_BAD_REQUEST, "control or payload message truncated" );
+        goto out;
+    }
+    if (req.magic == WEXPF_MAGIC && req.version == WEXPF_VERSION && req.op == WEXPF_OP_GET_TRACE && req.flags == 0)
+    {
+        struct ucred cred;
+        socklen_t cred_len = sizeof(cred);
+        struct
+        {
+            struct wexpf_reply r;
+            char               list[WEXPF_MAX_TRACE_REPLY];
+        } out;
+        size_t len = 0;
+
+        if (fd_count != 0 || getsockopt( conn_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len ) < 0)
+        {
+            reject_request( ctx, conn_fd, WEXPF_BAD_REQUEST, "trace request with a descriptor, or no credentials" );
+            goto out;
+        }
+        len = trace_take_private( cred.pid, cred.uid, out.list, sizeof(out.list) );
+        memset( &out.r, 0, sizeof(out.r) );
+        out.r.magic = WEXPF_MAGIC;
+        out.r.version = WEXPF_VERSION;
+        out.r.status = WEXPF_OK;
+        out.r.image_size = len;
+        if (send( conn_fd, &out, sizeof(out.r) + len, MSG_NOSIGNAL ) < 0)
+            log_msg( ctx->foreground, LOG_WARNING, "trace reply failed: %s", strerror( errno ) );
         goto out;
     }
     if (req.magic != WEXPF_MAGIC || req.version != WEXPF_VERSION ||
@@ -1884,14 +1912,14 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
         goto out;
     }
 
-    if (send_reply( conn_fd, WEXPF_OK, image_size, sha_hex, result_fd ) < 0)
+    if (peer_pid > 0 && trace_image( peer_pid, tl_peer_uid, client_fd, fd_trusted ))
+        hints |= WEXPF_HINT_TRACE;
+
+    if (send_reply( conn_fd, WEXPF_OK, image_size, sha_hex, result_fd, hints ) < 0)
         log_msg( ctx->foreground, LOG_WARNING, "reply for sha256=%.12s failed: %s", sha_hex, strerror( errno ) );
     else if (getenv( "WEXPF_VERBOSE" ))
         log_msg( ctx->foreground, LOG_INFO, "served sha256=%.12s source_size=%" PRIu64 " image_size=%" PRIu64 " in %" PRId64 " ms",
                  sha_hex, id.size, image_size, now_monotonic_ms() - t_start );
-
-    if (peer_pid > 0)
-        trace_image( peer_pid, client_fd, &st, fd_trusted );
 
 out:
     if (result_fd >= 0)

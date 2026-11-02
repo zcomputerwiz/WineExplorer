@@ -1356,3 +1356,11 @@ long, at most 1 GiB), and remembers per process that no service exists after the
 tiers. `TRACE_(module)` logs each image served by the service. A cache descriptor is used only if a page of it can be
 mapped executable (`fd_maps_exec`), so a `noexec` filesystem falls back to `pread` instead of leaving code without
 execute permission; the socket flags are guarded for systems without `SOCK_CLOEXEC` and `MSG_CMSG_CLOEXEC`.
+
+## Client-side readahead of the previous run's private files (2026-11-02)
+
+`dlls/ntdll/unix/virtual.c`: when a `wexprefetchd` reply to `open_prefetch_image` has `WEXPF_HINT_TRACE` set (new `hints`
+byte in the reply padding, ignored by older clients), the process sends one `WEXPF_OP_GET_TRACE` request, receives the
+NUL-separated paths the service could not open itself, opens each with the process's own rights (at most 64 files and
+512 MB) and calls `posix_fadvise(POSIX_FADV_WILLNEED)` (`fetch_prefetch_trace`). Failures are ignored; it happens at most
+once per process, after the image reply. See `docs/PREFETCH_SERVICE.md`.

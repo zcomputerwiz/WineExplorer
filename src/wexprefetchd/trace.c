@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 #define PE_FILE_DLL_FLAG  0x2000u
@@ -46,6 +47,9 @@
 struct session
 {
     pid_t    pid;
+    uid_t    uid;
+    char    *priv;         /* NUL-separated paths of the trace this daemon could not open, for the client to warm */
+    size_t   priv_len;
     int64_t  start_sec;
     char    *exe;          /* NULL until a non-DLL image is seen */
     char   **files;
@@ -213,6 +217,7 @@ static void free_session( struct session *s )
     for (i = 0; i < s->count; i++) free( s->files[i] );
     free( s->files );
     free( s->exe );
+    free( s->priv );
     memset( s, 0, sizeof(*s) );
 }
 
@@ -251,9 +256,45 @@ static void pf_name_for( const char *exe, char *name, size_t size, uint32_t *has
     else pf_make_name( base, hash, name, size );
 }
 
-/* writes <dir>/<NAME>-<HASH>.pf from a finished session; the previous run count is carried over */
+/* A POSIX ACL as the kernel stores it ("system.posix_acl_access" / "_default"): version 2 and sorted entries.
+ * Owner (the daemon) full access, the named user and the mask read-only, nobody else anything. */
+static void set_user_acl( const char *dir, uid_t uid, int is_default, unsigned user_perm, unsigned mask_perm )
+{
+    struct { uint16_t tag, perm; uint32_t id; } e[5] =
+    {
+        { 0x01, 7, 0xffffffffu },          /* USER_OBJ */
+        { 0x02, user_perm, uid },          /* USER */
+        { 0x04, 0, 0xffffffffu },          /* GROUP_OBJ */
+        { 0x10, mask_perm, 0xffffffffu },  /* MASK */
+        { 0x20, 0, 0xffffffffu },          /* OTHER */
+    };
+    uint8_t buf[4 + sizeof(e)];
+    uint32_t version = 2;
+
+    memcpy( buf, &version, 4 );
+    memcpy( buf + 4, e, sizeof(e) );
+    setxattr( dir, is_default ? "system.posix_acl_default" : "system.posix_acl_access", buf, sizeof(buf), 0 );
+}
+
+/* <dir>/<uid>: the C:\Windows\Prefetch folder holds one directory per user.  A trace lists the paths a user's
+ * programs load, so the daemon owns it and only that user may read it (an ACL; where the filesystem has none, nobody
+ * but the daemon can). */
+static int user_dir( uid_t uid, char *out, size_t size )
+{
+    if (snprintf( out, size, "%s/%u", g_dir, (unsigned)uid ) >= (int)size) return -1;
+    if (mkdir( out, 0750 ) == 0)
+    {
+        set_user_acl( out, uid, 0, 5, 5 );   /* r-x on the directory */
+        set_user_acl( out, uid, 1, 4, 4 );   /* new files: r-- (their mode is 0640) */
+    }
+    else if (errno != EEXIST) return -1;
+    return 0;
+}
+
+/* writes <dir>/<uid>/<NAME>-<HASH>.pf from a finished session; the previous run count is carried over */
 static void write_session( const struct session *s )
 {
+    char udir[PATH_MAX / 2 + 16];
     struct pf_file *files = NULL;
     uint16_t (*wide)[PF_V17_MAX_STRING_CHARS + 1] = NULL;
     uint16_t base[PF_V17_MAX_EXE_CHARS + 1];
@@ -266,14 +307,14 @@ static void write_session( const struct session *s )
     struct stat st;
     int fd;
 
-    if (!s->exe || s->count < 2) return;
+    if (!s->exe || s->count < 2 || user_dir( s->uid, udir, sizeof(udir) ) < 0) return;
     pf_name_for( s->exe, name, sizeof(name), &hash );
-    snprintf( path, sizeof(path), "%s/%s", g_dir, name );
+    snprintf( path, sizeof(path), "%s/%s", udir, name );
 
     if (stat( path, &st ) < 0)
     {
-        /* a new executable: stay under the cap */
-        DIR *d = opendir( g_dir );
+        /* a new executable: stay under the cap (per user) */
+        DIR *d = opendir( udir );
         struct dirent *e;
         unsigned have = 0;
         if (d) { while ((e = readdir( d ))) if (strstr( e->d_name, ".pf" )) have++; closedir( d ); }
@@ -302,8 +343,8 @@ static void write_session( const struct session *s )
     info.file_count = n;
     if (pf_write_v17( &info, &out, &out_len ) < 0) goto out;
 
-    snprintf( tmp, sizeof(tmp), "%s/.%s.tmp", g_dir, name );
-    fd = open( tmp, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0644 );
+    snprintf( tmp, sizeof(tmp), "%s/.%s.tmp", udir, name );
+    fd = open( tmp, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0640 );
     if (fd < 0) goto out;
     if (write( fd, out, out_len ) != (ssize_t)out_len || fsync( fd ) < 0 || close( fd ) < 0 || rename( tmp, path ) < 0)
         unlink( tmp );
@@ -319,82 +360,112 @@ static void finish_session( struct session *s )
     free_session( s );
 }
 
-struct replay_job { char pf[PATH_MAX]; int (*fd_ok)( int ); };
+/* files the daemon could open are warmed by this thread, which owns them */
+struct replay_job
+{
+    char             pf[PATH_MAX];
+    struct ra_item  *items;
+    struct ra_range *ranges;
+    unsigned         n;
+};
 
 static void *replay_thread( void *arg )
 {
     struct replay_job *job = arg;
-    char *paths[TRACE_MAX_PF_FILES] = { 0 };
-    struct ra_item *items;
-    struct ra_range *ranges;
-    unsigned i, n = 0;
-    int count = trace_read_pf( job->pf, paths, TRACE_MAX_PF_FILES, NULL );
+    struct ra_stats stats;
+    unsigned i;
 
-    if (count < 0) count = 0;
-    items = calloc( count > 0 ? count : 1, sizeof(*items) );
-    ranges = calloc( count > 0 ? count : 1, sizeof(*ranges) );
-    for (i = 0; items && ranges && i < (unsigned)count; i++)
-    {
-        struct stat st;
-        int fd = open( paths[i], O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC );
-        if (fd < 0) continue;
-        if (fstat( fd, &st ) < 0 || !S_ISREG( st.st_mode ) || st.st_size <= 0 || !job->fd_ok( fd ))
-        {
-            close( fd );
-            continue;
-        }
-        ranges[n].offset = 0;
-        ranges[n].length = (uint64_t)st.st_size < RA_MAX_RANGE_BYTES ? (uint64_t)st.st_size : RA_MAX_RANGE_BYTES;
-        items[n].fd = fd;
-        items[n].ranges = &ranges[n];
-        items[n].range_count = 1;
-        n++;
-    }
-    if (n)
-    {
-        struct ra_stats stats;
-        ra_replay( items, n, RA_AUTO, &stats );
-        if (getenv( "WEXPF_VERBOSE" ))
-            fprintf( stderr, "readahead: %u files, %llu ranges from %s\n", n,
-                     (unsigned long long)stats.ranges_issued, job->pf );
-    }
-    for (i = 0; i < n; i++) close( items[i].fd );
-    for (i = 0; i < TRACE_MAX_PF_FILES; i++) free( paths[i] );
-    free( items );
-    free( ranges );
+    ra_replay( job->items, job->n, RA_AUTO, &stats );
+    if (getenv( "WEXPF_VERBOSE" ))
+        fprintf( stderr, "readahead: %u files, %llu ranges from %s\n", job->n,
+                 (unsigned long long)stats.ranges_issued, job->pf );
+    for (i = 0; i < job->n; i++) close( job->items[i].fd );
+    free( job->items );
+    free( job->ranges );
     free( job );
     return NULL;
 }
 
-/* g_lock held */
-static void maybe_replay( const char *exe, int (*fd_ok)( int ) )
+#define TRACE_PRIV_MAX 60000   /* what one reply datagram carries to the client */
+
+/* Opens every file of the user's trace for the program.  Files this daemon can read are warmed by a thread; the
+ * paths it cannot open (a private home directory, another mount namespace) go to s->priv for the client to warm
+ * itself.  The list is the user's own trace, so it shows them nothing they did not load.  g_lock held. */
+static void maybe_replay( struct session *s, int (*fd_ok)( int ) )
 {
-    char name[96];
+    char name[96], udir[PATH_MAX / 2 + 16];
+    char *paths[TRACE_MAX_PF_FILES] = { 0 };
     struct replay_job *job;
-    struct stat st;
-    uint32_t hash;
+    uint32_t hash, key;
     pthread_t tid;
     pthread_attr_t attr;
     int64_t now = mono_sec();
+    int count;
     unsigned i;
 
-    if (!g_replay) return;
-    pf_name_for( exe, name, sizeof(name), &hash );
+    if (!g_replay || user_dir( s->uid, udir, sizeof(udir) ) < 0) return;
+    pf_name_for( s->exe, name, sizeof(name), &hash );
+    key = hash ^ ((uint32_t)s->uid * 2654435761u);
     for (i = 0; i < TRACE_MAX_SESSIONS; i++)
-        if (g_replayed[i].hash == hash && g_replayed[i].sec && now - g_replayed[i].sec < TRACE_REPLAY_MIN_SECS) return;
+        if (g_replayed[i].hash == key && g_replayed[i].sec && now - g_replayed[i].sec < TRACE_REPLAY_MIN_SECS) return;
     job = calloc( 1, sizeof(*job) );
     if (!job) return;
-    snprintf( job->pf, sizeof(job->pf), "%s/%s", g_dir, name );
-    job->fd_ok = fd_ok;
-    if (stat( job->pf, &st ) < 0) { free( job ); return; }
-    g_replayed[g_replayed_next].hash = hash;
+    snprintf( job->pf, sizeof(job->pf), "%s/%s", udir, name );
+    count = trace_read_pf( job->pf, paths, TRACE_MAX_PF_FILES, NULL );
+    if (count <= 0) { free( job ); return; }
+    job->items = calloc( count, sizeof(*job->items) );
+    job->ranges = calloc( count, sizeof(*job->ranges) );
+    s->priv = calloc( 1, TRACE_PRIV_MAX );
+    if (!job->items || !job->ranges || !s->priv) goto fail;
+
+    for (i = 0; i < (unsigned)count; i++)
+    {
+        struct stat st;
+        size_t len = strlen( paths[i] ) + 1;
+        int fd = open( paths[i], O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC );
+
+        if (fd < 0)
+        {
+            if (s->priv_len + len <= TRACE_PRIV_MAX)
+            {
+                memcpy( s->priv + s->priv_len, paths[i], len );
+                s->priv_len += len;
+            }
+            continue;
+        }
+        if (fstat( fd, &st ) < 0 || !S_ISREG( st.st_mode ) || st.st_size <= 0 || !fd_ok( fd ))
+        {
+            close( fd );
+            continue;
+        }
+        job->ranges[job->n].offset = 0;
+        job->ranges[job->n].length = (uint64_t)st.st_size < RA_MAX_RANGE_BYTES ? (uint64_t)st.st_size : RA_MAX_RANGE_BYTES;
+        job->items[job->n].fd = fd;
+        job->items[job->n].ranges = &job->ranges[job->n];
+        job->items[job->n].range_count = 1;
+        job->n++;
+    }
+    if (!s->priv_len) { free( s->priv ); s->priv = NULL; }
+    g_replayed[g_replayed_next].hash = key;
     g_replayed[g_replayed_next].sec = now;
     g_replayed_next = (g_replayed_next + 1) % TRACE_MAX_SESSIONS;
-    pthread_attr_init( &attr );
-    pthread_attr_setdetachstate( &attr, PTHREAD_CREATE_DETACHED );
-    pthread_attr_setstacksize( &attr, 512 * 1024 );
-    if (pthread_create( &tid, &attr, replay_thread, job )) free( job );
-    pthread_attr_destroy( &attr );
+    if (job->n)
+    {
+        pthread_attr_init( &attr );
+        pthread_attr_setdetachstate( &attr, PTHREAD_CREATE_DETACHED );
+        pthread_attr_setstacksize( &attr, 512 * 1024 );
+        if (pthread_create( &tid, &attr, replay_thread, job ) == 0) job = NULL;
+        pthread_attr_destroy( &attr );
+    }
+fail:
+    if (job)
+    {
+        for (i = 0; i < job->n; i++) close( job->items[i].fd );
+        free( job->items );
+        free( job->ranges );
+        free( job );
+    }
+    for (i = 0; i < TRACE_MAX_PF_FILES; i++) free( paths[i] );
 }
 
 /* true for a PE file whose header says it is not a DLL */
@@ -409,21 +480,20 @@ static int is_exe_image( int fd )
     return !((nt[22] | (nt[23] << 8)) & PE_FILE_DLL_FLAG);
 }
 
-void trace_image( pid_t pid, int fd, const struct stat *st, int (*fd_ok)( int ) )
+int trace_image( pid_t pid, uid_t uid, int fd, int (*fd_ok)( int ) )
 {
     char link[64], path[PATH_MAX];
     ssize_t n;
     struct session *s = NULL, *oldest = NULL;
     unsigned i;
-    int is_exe;
+    int is_exe, hint = 0;
 
-    (void)st;
-    if ((!g_record && !g_replay) || !g_dir[0]) return;
+    if ((!g_record && !g_replay) || !g_dir[0]) return 0;
     snprintf( link, sizeof(link), "/proc/self/fd/%d", fd );
     n = readlink( link, path, sizeof(path) - 1 );
-    if (n <= 0 || path[0] != '/') return;
+    if (n <= 0 || path[0] != '/') return 0;
     path[n] = 0;
-    if (n >= 10 && !strcmp( path + n - 10, " (deleted)" )) return;
+    if (n >= 10 && !strcmp( path + n - 10, " (deleted)" )) return 0;
     is_exe = is_exe_image( fd );
 
     pthread_mutex_lock( &g_lock );
@@ -433,21 +503,23 @@ void trace_image( pid_t pid, int fd, const struct stat *st, int (*fd_ok)( int ) 
         if (!g_sessions[i].pid) { if (!s) s = &g_sessions[i]; }
         else if (!oldest || g_sessions[i].start_sec < oldest->start_sec) oldest = &g_sessions[i];
     }
-    if (s && s->pid != pid && s->pid == 0) { s->pid = pid; s->start_sec = mono_sec(); }
+    if (s && s->pid != pid && s->pid == 0) { s->pid = pid; s->uid = uid; s->start_sec = mono_sec(); }
     else if (!s || s->pid != pid)
     {
         if (!oldest) goto out;
         finish_session( oldest );
         s = oldest;
         s->pid = pid;
+        s->uid = uid;
         s->start_sec = mono_sec();
     }
 
     if (is_exe && !s->exe)
     {
         s->exe = strdup( path );
-        if (s->exe) maybe_replay( s->exe, fd_ok );
+        if (s->exe) maybe_replay( s, fd_ok );
     }
+    hint = s->priv_len > 0;
     for (i = 0; i < s->count; i++) if (!strcmp( s->files[i], path )) goto out;
     if (s->count < PF_V17_MAX_FILES)
     {
@@ -461,6 +533,28 @@ void trace_image( pid_t pid, int fd, const struct stat *st, int (*fd_ok)( int ) 
     }
 out:
     pthread_mutex_unlock( &g_lock );
+    return hint;
+}
+
+/* Hands the process the paths of its trace that the daemon could not open, once.  Returns the byte count. */
+size_t trace_take_private( pid_t pid, uid_t uid, char *buf, size_t cap )
+{
+    size_t n = 0;
+    unsigned i;
+
+    pthread_mutex_lock( &g_lock );
+    for (i = 0; i < TRACE_MAX_SESSIONS; i++)
+    {
+        struct session *s = &g_sessions[i];
+        if (s->pid != pid || s->uid != uid || !s->priv_len) continue;
+        if (s->priv_len <= cap) { n = s->priv_len; memcpy( buf, s->priv, n ); }
+        free( s->priv );
+        s->priv = NULL;
+        s->priv_len = 0;
+        break;
+    }
+    pthread_mutex_unlock( &g_lock );
+    return n;
 }
 
 void trace_tick( void )

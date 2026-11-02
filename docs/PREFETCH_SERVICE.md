@@ -70,16 +70,21 @@ The three modules are wired in (2026-11-01):
 - **Traces** (`trace.c`). Every image the daemon serves is noted per client process (`SO_PEERCRED` pid; the path comes from
   `/proc/self/fd/N` of the descriptor it received, never from the client). The first non-DLL image names the program. After
   30 seconds (`TRACE_WINDOW_SECONDS`) or when the process is gone, `<name>-<hash>.pf` is written atomically (fsync, rename) under
-  `/var/cache/wineexplorer/prefetch` with `pf_v17.c`; the run count of the previous file is carried over and the file list is
-  replaced by the newest run's. At most 1024 `.pf` files. Paths in the file are Unix paths (UTF-16, not NT paths) and the hash is
+  `/var/cache/wineexplorer/prefetch/<uid>/` with `pf_v17.c`; the run count of the previous file is carried over and the file list is
+  replaced by the newest run's. At most 1024 `.pf` files per user. Each user's directory is owned by the daemon (mode 0750) with a POSIX ACL
+  that gives only that user read access (and a default ACL so the files inherit it), because a trace lists the paths a
+  user's programs load; other users cannot read or list it. Paths in the file are Unix paths (UTF-16, not NT paths) and the hash is
   taken over the upper-cased Unix path, so these files are for this daemon and for parsers, not for Windows. A process that
   loads fewer than two images writes nothing. Config: `Prefetch=0` turns recording off.
 - **Readahead** (`readahead.c`). When a program that has a `.pf` starts (its executable is served), a detached thread opens
   each listed file (`O_NOFOLLOW`, regular files only, not on a network or FUSE filesystem) and replays whole-file ranges with
   `ra_replay` (serial on rotational disks, parallel otherwise). The same program is replayed at most once a minute.
-  Config: `Readahead=0` turns it off. Only files the `wexcache` user can read are warmed, so a prefix in a private home
-  directory (and `ProtectHome=yes`) gains nothing; the machine root and system installs do. Ranges are whole files, not the
-  sections actually touched (a refinement for later).
+  Config: `Readahead=0` turns it off. The daemon warms the files it can read (the machine root, system installs). The
+  ones it cannot open (a private home directory, `ProtectHome=yes`) are kept per process: the replies for that process carry
+  `WEXPF_HINT_TRACE`, and Wine sends one `WEXPF_OP_GET_TRACE` request (no descriptor) and gets those paths back, once, which
+  it opens with its own rights and passes to `posix_fadvise(POSIX_FADV_WILLNEED)` (`fetch_prefetch_trace`, at most 64 files and
+  512 MB). The list is the same user's own earlier trace, so nothing leaks. Ranges are whole files, not the sections
+  actually touched (a refinement for later). Only processes that ask the daemon for at least one image (one with unaligned sections) can get the hint.
 - **KSM tuner** (`ksm_tuner.c`). `wexprefetchd --ksm-tuner` runs the `ksmtuned`-style loop every 5 seconds (MemAvailable,
   `pages_sharing`) and writes `/sys/kernel/mm/ksm/{run,pages_to_scan,sleep_millisecs}` only when a value changes. It needs
   write access to sysfs, so it is its own unit, `wexksmtuned.service` (no capabilities, `ReadWritePaths=/sys/kernel/mm/ksm`,
@@ -91,7 +96,8 @@ written and named by the XP hash, run count 2 on the second run, replay of three
 AddressSanitizer and UBSan. A first version looped four billion times on an unreadable `.pf` (`(unsigned)-1` as the file
 count); the corrupt-file test caught it.
 
-Windows side: `scripts/setup-machine-root.sh` links `C:\Windows\Prefetch` to `/var/cache/wineexplorer/prefetch` and sets
+Windows side: `scripts/setup-machine-root.sh` links `C:\Windows\Prefetch` to `/var/cache/wineexplorer/prefetch` (one
+directory per user inside it, see above) and sets
 `HKLM\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters\EnablePrefetcher` to 3.
 `installer/systemd/zram-generator.conf` (`zram-size = ram / 2`, zstd, priority 100) and `99-wineexplorer-memory.conf`
 (`vm.swappiness = 100`, `vm.page-cluster = 0`) ship in the session package, which recommends `systemd-zram-generator`.
@@ -381,3 +387,10 @@ Per the `libyal/libscca` specification (*Windows Prefetch File (PF) format*, GFD
 | `systemd-zram-generator` | MIT | Packaged in Debian 13 (`1.2.1`); used directly via `/etc/systemd/zram-generator.conf` (`[zram0]`, `zstd`). |
 | `libyal/libscca` | Code: LGPL-3.0-or-later <br> Docs: GFDL-1.3-or-later | Cite `Windows Prefetch File (PF) format.asciidoc` for the v17 (`SCCA`) layout and filename hash function. **Never copy `libscca` code** so our module stays GPL-2.0-or-later. |
 | `composefs` / `OSTree` | GPL-2.0-or-later / LGPL-2.0-or-later | Inspiration for content-addressed backing files (`/var/cache/wineexplorer/images/<sha256>`) shared across processes and users via the kernel page cache. |
+
+Verified (2026-11-02): `make check-daemon` 40/40 and `test_trace.py` 20/20 (also under ASan/UBSan), covering the private
+directory ACL (the owner reads, another uid cannot read or list; run as root with `setuid`), the hint, the trace fetch and
+its once-only delivery. In the QEMU guest the daemon created `/var/cache/wineexplorer/prefetch/1000` with
+`user:debian:r-x`; a second `chrome.exe --version` from `/home/debian` (which the service cannot read) logged
+`asked the kernel to read ahead 3 files of the previous run`; a Chromium start still passes, 64-bit and 32-bit.
+Not measured: the benefit of the client-side readahead on a cold disk.

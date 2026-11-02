@@ -24,6 +24,7 @@
 #ifndef WEXPREFETCHD_TRACE_H
 #define WEXPREFETCHD_TRACE_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -37,9 +38,11 @@
 int  trace_init( const char *dir );
 void trace_configure( int record, int replay );
 
-/* fd is the image the process asked for (st = fstat of it).  fd_ok returns nonzero if the file may be read
- * ahead (the daemon's untrusted filesystem test, inverted). */
-void trace_image( pid_t pid, int fd, const struct stat *st, int (*fd_ok)( int ) );
+/* fd is the image the process asked for.  fd_ok returns nonzero if the file may be read ahead (the daemon's
+ * untrusted filesystem test, inverted).  Traces are kept per user.  Returns nonzero if the process should ask for
+ * the paths of its trace that the daemon could not read itself (trace_take_private). */
+int trace_image( pid_t pid, uid_t uid, int fd, int (*fd_ok)( int ) );
+size_t trace_take_private( pid_t pid, uid_t uid, char *buf, size_t cap );
 
 /* Finishes sessions that are older than the window or whose process is gone.  Call about once a second. */
 void trace_tick( void );

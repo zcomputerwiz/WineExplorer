@@ -50,6 +50,14 @@
  * a section with mmap( base + VirtualAddress, round_up( file_size, 4096 ), prot, MAP_FIXED | MAP_PRIVATE, fd,
  * VirtualAddress ).  The flat image is only usable for images with SectionAlignment >= 4096 and every
  * VirtualAddress a multiple of 4096; otherwise the daemon answers WEXPF_UNSUPPORTED.
+ *
+ * Trace hint: the daemon records which images a user's programs load (a .pf file per user and executable) and, when
+ * that program starts again, reads those files into the page cache itself.  Files it cannot open (a private home
+ * directory) it keeps for the client: the replies of that process then carry WEXPF_HINT_TRACE, and the client may send
+ * one WEXPF_OP_GET_TRACE request (no descriptor, flags 0) on a new connection.  The reply is a struct wexpf_reply
+ * with status WEXPF_OK and image_size = N, followed in the same datagram by N bytes: NUL-terminated absolute paths,
+ * at most WEXPF_MAX_TRACE_REPLY bytes in total.  They are paths the same user's processes loaded earlier; the list is
+ * handed out once.  The client opens them with its own rights and uses posix_fadvise(POSIX_FADV_WILLNEED).
  */
 
 #define WEXPF_SOCKET_PATH     "/run/wineexplorer/prefetch.sock"
@@ -57,6 +65,9 @@
 #define WEXPF_MAGIC           0x31465058u              /* "XPF1" little endian */
 #define WEXPF_VERSION         1u
 #define WEXPF_OP_GET_IMAGE    1u
+#define WEXPF_OP_GET_TRACE    2u                       /* no descriptor; see below */
+#define WEXPF_HINT_TRACE      0x01u                    /* reply.hints: the process has a trace to fetch */
+#define WEXPF_MAX_TRACE_REPLY 60000u
 #define WEXPF_LAYOUT_FLAT     1u
 #define WEXPF_MAX_IMAGE_SIZE  (1u << 30)               /* source files and images above 1 GiB are refused */
 
@@ -88,7 +99,8 @@ struct wexpf_reply
     uint32_t layout;      /* WEXPF_LAYOUT_FLAT on success */
     uint64_t image_size;  /* size of the flat image in bytes */
     char     sha256[65];  /* lowercase hex digest of the source file, NUL terminated; empty on failure */
-    char     pad[7];
+    uint8_t  hints;       /* WEXPF_HINT_* bits; older clients ignore them */
+    char     pad[6];
 };
 
 #endif /* WEXPREFETCHD_PROTOCOL_H */
