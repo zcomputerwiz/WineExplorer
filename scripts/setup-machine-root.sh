@@ -291,6 +291,7 @@ done < "$FONT_RES_DIR/font-links.txt"
 # C:\Windows\Prefetch shows the .pf files wexprefetchd writes (read-only for users), and the XP value that says
 # the prefetcher is on is set (3 = applications and boot).
 PREFETCH_DIR="${WEX_PREFETCH_DIR:-/var/cache/wineexplorer/prefetch}"
+mkdir -p "$PREFETCH_DIR" 2>/dev/null || true
 if [ ! -e "$MACHINE_ROOT/drive_c/windows/Prefetch" ] || [ -L "$MACHINE_ROOT/drive_c/windows/Prefetch" ]; then
     ln -sfn "$PREFETCH_DIR" "$MACHINE_ROOT/drive_c/windows/Prefetch"
 fi

@@ -1364,3 +1364,11 @@ byte in the reply padding, ignored by older clients), the process sends one `WEX
 NUL-separated paths the service could not open itself, opens each with the process's own rights (at most 64 files and
 512 MB) and calls `posix_fadvise(POSIX_FADV_WILLNEED)` (`fetch_prefetch_trace`). Failures are ignored; it happens at most
 once per process, after the image reply. See `docs/PREFETCH_SERVICE.md`.
+
+## explorer switches to the desktop it creates (2026-11-02)
+
+`programs/explorer/desktop.c`: after `CreateDesktopW` and `SetThreadDesktop` for `/desktop=NAME` (virtual or root
+desktop), explorer calls `SwitchDesktop`. The fork's secure-desktop rules (server `send_hardware_message`) accept hardware
+input only on the input desktop and no longer let a host event move it, so without this call the installer's Setup and
+OOBE (`explorer /desktop=Setup`, `/desktop=OOBE`) drew their pages but got no mouse or keyboard input. Found by the first
+fresh install of an ISO built on Wine 11.21; the same OOBE responded on the 11.19 runtime and not on the bare 11.21 merge.

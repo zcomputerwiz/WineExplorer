@@ -142,6 +142,7 @@ fi
 
 # Clean up temporary setup user and files
 pkill -9 -u wexsetup 2>/dev/null || true
+rm -rf "/var/cache/wineexplorer/prefetch/$(id -u wexsetup 2>/dev/null || echo none)"
 userdel -r -f wexsetup 2>/dev/null || true
 rm -rf /var/lib/wexsetup /etc/skel/.wine/drive_c/users/wexsetup
 chown -R root:root /etc/skel/.wine 2>/dev/null || true
