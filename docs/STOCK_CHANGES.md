@@ -1394,3 +1394,10 @@ epoch), `server/winstation.c` (init and revoke on desktop destruction), `server/
 One bounded message channel per desktop between clients and one broker; the server stamps sender, desktop, request id and epoch, so the wire
 carries no identity. The broker registers with a one-use capability minted only for the owner of the desktop's top window. Absent broker:
 `STATUS_PORT_DISCONNECTED`; messages are capped (size, queue depth 64). Test: `dlls/dwmapi/tests/dwm_channel.c` (skips on Windows).
+
+## explorer starts and supervises the DWM broker (2026-11-02)
+
+`programs/explorer/dwmhost.c` (new), `desktop.c` (`start_dwm_broker()` after the desktop window exists, `stop_dwm_broker()` at exit), `explorer_private.h`,
+`Makefile.in`. Off unless `HKCU\Software\WineExplorer\Shell\DwmService` is non-zero. The desktop manager mints a one-use broker capability for its desktop
+and starts `src/programs/dwm` (`dwm.exe /parent=<pid> /cap=<hex>`) on that desktop; a worker thread restarts it after a crash (250 ms, 1 s, 4 s) and gives up
+after three failures in a minute. `dwm.exe` ends when the channel is revoked or explorer exits. No broker is started for Winlogon or other desktops without a manager.

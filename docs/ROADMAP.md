@@ -253,3 +253,20 @@ better served by a Linux daemon through `wexhost` (D-Bus). References: ReactOS `
   `TOKEN_SECURITY_REFERENCES.md`. Functionality first; hostile-code containment is
   a later hardening stage. `ELEVATION_WORKORDER.md` is historical input. Keep the
   backend seam suitable for the later system tier without requiring it up front.
+
+## Future: stock browser installers (2026-11-02)
+
+Priority is below the DWM phases (`DWM_ARCHITECTURE.md`). Goal: the vendors' own installers run unmodified in the combined
+WoW64 build and produce a browser that starts, without manual extraction of the payload. Order: Chromium installer
+(not yet tried; only the extracted `chrome-win` tree has been validated), Google Chrome, then Microsoft Edge. No test
+against stock Wine is needed.
+
+- Google Chrome enterprise MSI (`googlechromestandaloneenterprise64.msi`, tried 2026-11-02 in the QEMU guest with
+  `ChromiumLab/mk-gchrome.py`): the MSI starts, its `DoInstall` action runs Google's embedded installer, which fails
+  (`err:msi:execute_script ... DoInstall returned 1627`) after trying to create the COM classes
+  `{6d40bdad-bf13-535b-bc3b-eeee65b1d745}` and `{8018f647-bf07-55bb-82be-a2d7049f7ce4}` ("not registered"; our
+  `dllhost.exe` surrogate then exits with "Can't create instance"). Next: trace `+ole,+reg,+service,+msi` to find which registration or
+  service step is missing, fix it in the Wine fork or the machine image, rerun; then the consumer `ChromeSetup.exe`.
+- Edge: its installer was not tried; the validated route uses an extracted tree.
+- Check after each: the installer exits 0, the files and uninstall entry exist, the browser starts and the functional
+  fixture passes (`validate-*.py`), including a screenshot.
