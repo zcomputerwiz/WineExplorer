@@ -10,7 +10,7 @@ Type=simple
 User=wexcache
 Group=wexcache
 ExecStart=/usr/local/sbin/wexprefetchd
-CacheDirectory=wineexplorer/images
+CacheDirectory=wineexplorer/images wineexplorer/prefetch
 CacheDirectoryMode=0755
 # The .socket unit creates /run/wineexplorer first (DirectoryMode=0755); RuntimeDirectoryPreserve=yes
 # keeps the directory across restarts instead of removing it, so it does not conflict with the socket.

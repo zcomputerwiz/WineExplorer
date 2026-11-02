@@ -65,11 +65,34 @@ Codex review (adversarial review of the daemon, standard review of the Wine comm
   first instruction (reproduced and fixed); `EmptyWorkingSet` walks per-page commitment so reserve-then-commit memory is trimmed
   too (534 MB resident to 10 MB in the test, from 270 MB untouched by the first version).
 
-Modules written and unit-tested but **not yet wired into the daemon** (`make -C src/wexprefetchd check` runs all four test
-programs): `pf_v17.c` (XP-style version 17 `.pf` writer plus the XP prefetch hash, checked against the documented test vector
-`\DEVICE\HARDDISKVOLUME1\WINDOWS\NOTEPAD.EXE` = `0x189578DA` and an independent Python reader), `readahead.c` (replay of recorded ranges with merging,
-caps and rotational-disk handling, verified with `mincore`), and `ksm_tuner.c` (`ksmtuned`-style adaptive control as a pure
-function, plus sysfs read and apply helpers and the kernel advisor option).
+The three modules are wired in (2026-11-01):
+
+- **Traces** (`trace.c`). Every image the daemon serves is noted per client process (`SO_PEERCRED` pid; the path comes from
+  `/proc/self/fd/N` of the descriptor it received, never from the client). The first non-DLL image names the program. After
+  30 seconds (`TRACE_WINDOW_SECONDS`) or when the process is gone, `<name>-<hash>.pf` is written atomically (fsync, rename) under
+  `/var/cache/wineexplorer/prefetch` with `pf_v17.c`; the run count of the previous file is carried over and the file list is
+  replaced by the newest run's. At most 1024 `.pf` files. Paths in the file are Unix paths (UTF-16, not NT paths) and the hash is
+  taken over the upper-cased Unix path, so these files are for this daemon and for parsers, not for Windows. A process that
+  loads fewer than two images writes nothing. Config: `Prefetch=0` turns recording off.
+- **Readahead** (`readahead.c`). When a program that has a `.pf` starts (its executable is served), a detached thread opens
+  each listed file (`O_NOFOLLOW`, regular files only, not on a network or FUSE filesystem) and replays whole-file ranges with
+  `ra_replay` (serial on rotational disks, parallel otherwise). The same program is replayed at most once a minute.
+  Config: `Readahead=0` turns it off. Only files the `wexcache` user can read are warmed, so a prefix in a private home
+  directory (and `ProtectHome=yes`) gains nothing; the machine root and system installs do. Ranges are whole files, not the
+  sections actually touched (a refinement for later).
+- **KSM tuner** (`ksm_tuner.c`). `wexprefetchd --ksm-tuner` runs the `ksmtuned`-style loop every 5 seconds (MemAvailable,
+  `pages_sharing`) and writes `/sys/kernel/mm/ksm/{run,pages_to_scan,sleep_millisecs}` only when a value changes. It needs
+  write access to sysfs, so it is its own unit, `wexksmtuned.service` (no capabilities, `ReadWritePaths=/sys/kernel/mm/ksm`,
+  `ConditionPathExists` on KSM), enabled by the package postinst next to the socket.
+
+Tests: `make check` (modules) and `make check-daemon PE=small.exe` (the 40-check daemon suite plus `test_trace.py`: `.pf`
+written and named by the XP hash, run count 2 on the second run, replay of three files, a corrupted `.pf` leaving the daemon up,
+`Prefetch=0`, and the tuner against a fake sysfs and meminfo). `test_trace.py` also passes with the daemon built under
+AddressSanitizer and UBSan. A first version looped four billion times on an unreadable `.pf` (`(unsigned)-1` as the file
+count); the corrupt-file test caught it.
+
+Not verified: the packaged ISO with `wexksmtuned.service`, the replay effect on a rotational disk, and the trace under a real
+Wine session (the tests use a client that behaves like Wine's loader).
 
 Where the format document of `pf_v17.c` is ambiguous, the writer chose (these files are for tools and parity, not read back by
 Windows): file header offset 8 is `0x0000000f` (the value seen on XP/2003 files); unused bytes of the 60-byte executable name
@@ -79,8 +102,9 @@ device path is stored with a trailing NUL and its character count excludes the N
 file references header with no entries and no directory strings; the hash is computed over the unsigned bytes of the UTF-16LE
 uppercase path with the documented folding step (`CcPfHashValue`'s signed-char variant is not used).
 
-Open items: traces and readahead (sections 3.6 and 4), the registry value and folder, KSM/zram tuning in the daemon, and
-whether the tier-2 cache should move to `$XDG_CACHE_HOME`.
+Open items: the `EnablePrefetcher` registry value and a Prefetch folder in the machine root (the `.pf` files are not
+exposed to Windows yet), the zram generator configuration in the installer, and whether the tier-2 cache should move
+to `$XDG_CACHE_HOME`.
 
 ---
 

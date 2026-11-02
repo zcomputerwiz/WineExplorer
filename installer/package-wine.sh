@@ -260,7 +260,7 @@ make -C "$ROOT_DIR/src/wexprefetchd" >/dev/null
 mkdir -p "$STAGE_SESSION/usr/local/sbin" "$STAGE_SESSION/usr/lib/sysusers.d" "$STAGE_SESSION/usr/lib/tmpfiles.d" "$STAGE_SESSION/etc/wineexplorer"
 install -m755 "$ROOT_DIR/src/wexprefetchd/wexprefetchd" "$STAGE_SESSION/usr/local/sbin/wexprefetchd"
 install -m755 "$ROOT_DIR/src/wexprefetchd/wexpf-client" "$STAGE_SESSION/usr/local/bin/wexpf-client"
-cp "$SCRIPT_DIR/systemd/wexprefetchd.socket" "$SCRIPT_DIR/systemd/wexprefetchd.service" "$STAGE_SESSION/lib/systemd/system/"
+cp "$SCRIPT_DIR/systemd/wexprefetchd.socket" "$SCRIPT_DIR/systemd/wexprefetchd.service" "$SCRIPT_DIR/systemd/wexksmtuned.service" "$STAGE_SESSION/lib/systemd/system/"
 install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.sysusers" "$STAGE_SESSION/usr/lib/sysusers.d/wexprefetchd.conf"
 install -m644 "$SCRIPT_DIR/systemd/wexprefetchd.tmpfiles" "$STAGE_SESSION/usr/lib/tmpfiles.d/wexprefetchd.conf"
 install -m644 "$SCRIPT_DIR/systemd/prefetch.conf.example" "$STAGE_SESSION/etc/wineexplorer/prefetch.conf"
@@ -279,6 +279,8 @@ systemctl daemon-reload || true
 systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service wex-safemode.service || true
 systemctl enable wexprefetchd.socket || true
 systemctl start wexprefetchd.socket || true
+systemctl enable wexksmtuned.service || true
+systemctl start wexksmtuned.service || true
 if [ "$1" = "configure" ] && [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     /usr/local/bin/wex-setup-machine.sh --update
 fi

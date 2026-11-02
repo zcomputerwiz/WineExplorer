@@ -49,6 +49,10 @@
 
 #include "protocol.h"
 #include "sha256.h"
+#include "trace.h"
+#include "ksm_tuner.h"
+
+#define DEFAULT_TRACE_DIR        "/var/cache/wineexplorer/prefetch"
 
 #define DEFAULT_CACHE_DIR        "/var/cache/wineexplorer/images"
 #define DEFAULT_CONFIG_PATH      "/etc/wineexplorer/prefetch.conf"
@@ -134,6 +138,8 @@ struct daemon_config
     uint32_t max_entries;          /* cache entry count cap */
     uint32_t max_builds_per_min;   /* per peer uid; 0 = unlimited */
     int      reject_network_fs;    /* refuse sources on FUSE, NFS, SMB, 9p ... */
+    int      record_traces;        /* Prefetch=: write a .pf per executable */
+    int      readahead;            /* Readahead=: replay the .pf into the page cache when the executable starts */
 };
 
 struct daemon_ctx
@@ -526,6 +532,16 @@ static void init_default_config( struct daemon_config *cfg )
     cfg->max_entries        = DEFAULT_MAX_ENTRIES;
     cfg->max_builds_per_min = DEFAULT_MAX_BUILDS_MIN;
     cfg->reject_network_fs  = 1;
+    cfg->record_traces      = 1;
+    cfg->readahead          = 1;
+}
+
+static int parse_bool( const char *val, int *out )
+{
+    if (strcmp( val, "0" ) == 0 || strcasecmp( val, "false" ) == 0 || strcasecmp( val, "no" ) == 0) *out = 0;
+    else if (strcmp( val, "1" ) == 0 || strcasecmp( val, "true" ) == 0 || strcasecmp( val, "yes" ) == 0) *out = 1;
+    else return 0;
+    return 1;
 }
 
 static void load_config( struct daemon_ctx *ctx, int is_reload )
@@ -618,6 +634,10 @@ static void load_config( struct daemon_ctx *ctx, int is_reload )
                 else if (strcmp( val, "1" ) == 0 || strcasecmp( val, "true" ) == 0 || strcasecmp( val, "yes" ) == 0)
                     next.reject_network_fs = 1;
             }
+            else if (strcmp( key, "Prefetch" ) == 0)
+                parse_bool( val, &next.record_traces );
+            else if (strcmp( key, "Readahead" ) == 0)
+                parse_bool( val, &next.readahead );
             else if (strcmp( key, "MaxImageMB" ) == 0)
             {
                 errno = 0;
@@ -641,6 +661,7 @@ static void load_config( struct daemon_ctx *ctx, int is_reload )
     pthread_mutex_lock( &g_state_lock );
     ctx->cfg = next;
     pthread_mutex_unlock( &g_state_lock );
+    trace_configure( next.enabled && next.record_traces, next.enabled && next.readahead );
 
     if (is_reload)
     {
@@ -1239,6 +1260,11 @@ static int fd_on_untrusted_fs( int fd )
     }
 }
 
+static int fd_trusted( int fd )
+{
+    return !fd_on_untrusted_fs( fd );
+}
+
 static void fsync_dir( const char *path )
 {
     int dfd = open( path, O_RDONLY | O_DIRECTORY | O_CLOEXEC );
@@ -1760,6 +1786,7 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
     uint64_t image_size = 0;
     char sha_hex[65];
     enum wexpf_status status;
+    pid_t peer_pid = 0;
 
     int64_t t_start = now_monotonic_ms();
 
@@ -1841,7 +1868,12 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
         struct ucred cred;
         socklen_t cred_len = sizeof(cred);
 
-        tl_peer_uid = getsockopt( conn_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len ) == 0 ? cred.uid : (uid_t)-1;
+        if (getsockopt( conn_fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len ) == 0)
+        {
+            tl_peer_uid = cred.uid;
+            peer_pid = cred.pid;
+        }
+        else tl_peer_uid = (uid_t)-1;
     }
 
     extract_identity( &st, &id );
@@ -1857,6 +1889,9 @@ static void handle_connection( struct daemon_ctx *ctx, int conn_fd )
     else if (getenv( "WEXPF_VERBOSE" ))
         log_msg( ctx->foreground, LOG_INFO, "served sha256=%.12s source_size=%" PRIu64 " image_size=%" PRIu64 " in %" PRId64 " ms",
                  sha_hex, id.size, image_size, now_monotonic_ms() - t_start );
+
+    if (peer_pid > 0)
+        trace_image( peer_pid, client_fd, &st, fd_trusted );
 
 out:
     if (result_fd >= 0)
@@ -2067,9 +2102,60 @@ static int run_selftest_pe( const char *pe_path )
     return 0;
 }
 
+/* --ksm-tuner: the adaptive KSM tuner loop.  Needs write access to /sys/kernel/mm/ksm, so it runs as its own
+ * unit (wexksmtuned.service), not as the unprivileged cache daemon. */
+static int run_ksm_tuner( int foreground )
+{
+    const char *dir = getenv( "WEXPF_KSM_DIR" );
+    const char *meminfo = getenv( "WEXPF_MEMINFO" );
+    const char *iv = getenv( "WEXPF_KSM_INTERVAL_MS" );
+    long interval_ms = iv && atol( iv ) > 0 ? atol( iv ) : 5000;
+    long max_steps = getenv( "WEXPF_KSM_STEPS" ) ? atol( getenv( "WEXPF_KSM_STEPS" ) ) : 0; /* tests */
+    struct ksm_cfg cfg;
+    struct ksm_state st, last;
+    struct ksm_sample smp;
+    int have_state = 0, warned = 0;
+    struct timespec ts;
+
+    dir = dir && *dir ? dir : "/sys/kernel/mm/ksm";
+    meminfo = meminfo && *meminfo ? meminfo : "/proc/meminfo";
+    ksm_cfg_defaults( &cfg );
+    memset( &last, 0, sizeof(last) );
+    last.run = -1;
+    openlog( "wexksmtuned", LOG_PID | LOG_NDELAY, LOG_DAEMON );
+    if (install_signal_handlers() < 0) return 1;
+
+    while (!g_sig_stop)
+    {
+        if (ksm_read_sample( meminfo, dir, &smp ) == 0)
+        {
+            if (!have_state) { ksm_state_init( &cfg, &st, &smp ); have_state = 1; }
+            else ksm_tune_step( &cfg, &st, &smp );
+            if (ksm_apply( dir, &cfg, &st, &last ) < 0 && !warned)
+            {
+                log_msg( foreground, LOG_WARNING, "cannot write %s: %s", dir, strerror( errno ) );
+                warned = 1;
+            }
+        }
+        else if (!warned)
+        {
+            log_msg( foreground, LOG_WARNING, "cannot read %s", meminfo );
+            warned = 1;
+        }
+        if (max_steps && --max_steps == 0) break;
+        ts.tv_sec = interval_ms / 1000;
+        ts.tv_nsec = (interval_ms % 1000) * 1000000L;
+        nanosleep( &ts, NULL );
+    }
+    closelog();
+    return 0;
+}
+
 int main( int argc, char **argv )
 {
     struct daemon_ctx ctx;
+    int arg_ksm = 0;
+    const char *env_trace;
     const char *env_fg;
     const char *env_sock;
     const char *env_cache;
@@ -2086,6 +2172,10 @@ int main( int argc, char **argv )
         if (strcmp( argv[i], "--foreground" ) == 0)
         {
             arg_fg = 1;
+        }
+        else if (strcmp( argv[i], "--ksm-tuner" ) == 0)
+        {
+            arg_ksm = 1;
         }
         else if (strcmp( argv[i], "--selftest-pe" ) == 0)
         {
@@ -2113,6 +2203,7 @@ int main( int argc, char **argv )
     memset( &ctx, 0, sizeof(ctx) );
     env_fg = getenv( "WEXPF_FOREGROUND" );
     ctx.foreground = arg_fg || (env_fg && strcmp( env_fg, "1" ) == 0);
+    if (arg_ksm) return run_ksm_tuner( ctx.foreground );
 
     openlog( "wexprefetchd", LOG_PID | LOG_NDELAY, LOG_DAEMON );
 
@@ -2187,6 +2278,15 @@ int main( int argc, char **argv )
 
     cleanup_stale_tmp_files( &ctx );
 
+    env_trace = getenv( "WEXPF_TRACE_DIR" );
+    if (trace_init( env_trace && *env_trace ? env_trace : DEFAULT_TRACE_DIR ) < 0)
+    {
+        log_msg( ctx.foreground, LOG_WARNING, "no trace directory (%s): prefetch traces and readahead off",
+                 strerror( errno ) );
+        trace_configure( 0, 0 );
+        ctx.cfg.record_traces = ctx.cfg.readahead = 0;
+    }
+
     listen_fd = setup_listening_socket( &ctx );
     if (listen_fd < 0)
     {
@@ -2228,6 +2328,7 @@ int main( int argc, char **argv )
             g_sig_reload = 0;
             load_config( &ctx, 1 );
         }
+        trace_tick();
 
         if (ctx.socket_activated)
         {
@@ -2342,6 +2443,7 @@ int main( int argc, char **argv )
         pthread_cond_wait( &g_state_cond, &g_state_lock );
     pthread_mutex_unlock( &g_state_lock );
 
+    trace_flush_all();
     write_status_file( &ctx, 1 );
     pthread_attr_destroy( &detached_attr );
     log_msg( ctx.foreground, LOG_INFO, "shutting down cleanly" );

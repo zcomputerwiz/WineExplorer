@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+[Unit]
+Description=WineExplorer adaptive KSM tuner
+Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/PREFETCH_SERVICE.md
+ConditionPathExists=/sys/kernel/mm/ksm/run
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/wexprefetchd --ksm-tuner
+Restart=on-failure
+# Root only to write the KSM sysfs files; it can do nothing else.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+ReadWritePaths=/sys/kernel/mm/ksm
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

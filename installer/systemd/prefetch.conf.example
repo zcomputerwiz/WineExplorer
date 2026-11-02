@@ -26,3 +26,11 @@ MaxBuildsPerMinute=120
 # Refuse sources on FUSE, NFS, SMB and 9p filesystems (1, the default): reading them can block forever while the
 # service holds its build lock. Set to 0 only for testing, for example when images live on a WSL drive mount.
 RejectNetworkFS=1
+
+# Record which images each program loads during its first seconds, as a Prefetch (.pf, version 17) file per
+# executable under /var/cache/wineexplorer/prefetch (1, the default).
+Prefetch=1
+
+# On the next start of that executable, read the files of its .pf into the page cache (1, the default). Only files
+# the service user can read are touched, so a prefix inside a private home directory gains nothing.
+Readahead=1

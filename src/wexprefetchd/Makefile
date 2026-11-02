@@ -9,8 +9,10 @@ DESTDIR ?=
 
 all: wexprefetchd wexpf-client test_sha256
 
-wexprefetchd: wexprefetchd.c sha256.c protocol.h sha256.h
-	$(CC) $(CFLAGS) wexprefetchd.c sha256.c -o $@ -pthread
+DAEMON_SRC = wexprefetchd.c sha256.c trace.c pf_v17.c readahead.c ksm_tuner.c
+
+wexprefetchd: $(DAEMON_SRC) protocol.h sha256.h trace.h pf_v17.h readahead.h ksm_tuner.h
+	$(CC) $(CFLAGS) $(DAEMON_SRC) -o $@ -pthread
 
 wexpf-client: wexpf-client.c protocol.h
 	$(CC) $(CFLAGS) wexpf-client.c -o $@
@@ -31,6 +33,11 @@ check: test_sha256 test_readahead test_ksm_tuner
 	./test_ksm_tuner
 	python3 -I test_pf_v17.py
 
+# Daemon traces, readahead and KSM tuner mode: make check-daemon PE=/path/to/small.exe
+check-daemon: wexprefetchd
+	python3 -I test_wexprefetchd.py ./wexprefetchd $(PE)
+	python3 test_trace.py ./wexprefetchd $(PE)
+
 install: all
 	install -d $(DESTDIR)$(PREFIX)/sbin
 	install -d $(DESTDIR)$(PREFIX)/bin
@@ -40,4 +47,4 @@ install: all
 clean:
 	rm -f wexprefetchd wexpf-client test_sha256 test_readahead test_ksm_tuner
 
-.PHONY: all check install clean
+.PHONY: all check check-daemon install clean
