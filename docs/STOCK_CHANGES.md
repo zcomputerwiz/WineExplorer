@@ -1455,7 +1455,7 @@ never called while holding `thumbnail_cs`), test `dlls/dwmapi/tests/dwm_thumb.c`
 `dlls/dwmapi/dwmapi_main.c`, `dlls/winex11.drv/bitblt.c`, `window.c`, `x11drv.h`, `x11drv_main.c`. With
 `HKCU\Software\WineExplorer\Shell\DwmAlpha` non-zero (read once per process), `DwmExtendFrameIntoClientArea`
 stores the four margins as window properties (`__wine_dwm_margin_*`, a -1 "sheet of glass" stored as 0x10000)
-and `__wine_dwm_alpha`, and removes them for all-zero margins, then sends `SWP_FRAMECHANGED | SWP_NOCOPYBITS` so
+and `__wine_dwm_alpha`, and removes them for all-zero margins, then sends `SWP_FRAMECHANGED` so
 the driver recreates the surface and the client repaints (pixels drawn before the switch carry a forced opaque
 alpha); it still returns S_OK for every input. The surface keeps the pixels' own alpha when flushing (`keep_alpha`). The X11 driver selects the ARGB visual for such
 windows (and back to the default visual when the margins are removed), avoids reusing a stale surface when the
@@ -1464,3 +1464,15 @@ glass state changes, and publishes the client rectangle and decoded margins on t
 (`src/dlls/wexhost/compose.c`) paints the margin bands with `PictOpOver` (the alpha shows the desktop) and the
 rest with `PictOpSrc`. Off by default; the conformance test (`dlls/dwmapi/tests/dwmapi.c`) is unchanged.
 Visual check: `scripts/dwm-glass-visual-probe.c`.
+
+## uxtheme/win32u/user32: opaque modern frames (DwmFrameEffects) (2026-11-02)
+
+`dlls/uxtheme/window.c` (modern caption and frame renderer, owned rectangular window region), `dialog.c`, `system.c`,
+`uxthemedll.h` (settings cache reset on WM_SETTINGCHANGE/WM_THEMECHANGED), `dlls/win32u/defwnd.c` (gate cache,
+`NCFRAME_DWM_FRAME_EFFECTS` to `draw_themed_nc_frame`, modern hit testing), `dlls/user32/class.c` (keeps uxtheme loaded
+for the gate without an active theme), `include/winuser.h` (`NCFRAME_DWM_FRAME_EFFECTS`), test
+`dlls/uxtheme/tests/ncframe.c`. With `HKCU\Software\WineExplorer\Shell\DwmFrameEffects` non-zero (default off), captioned
+top-level windows get a flat Windows 10/11-style opaque caption: DPI-scaled line glyphs, accent color from the DWM
+values, dark mode and caption/text/border colors from `DwmSetWindowAttribute`, tool and maximized variants, matching
+hit testing. Gate off: unchanged. ncframe 11 (off) and 31 (on) pass on x86_64 and i386. Visual check:
+`scripts/dwm-frame-visual-probe.c`. Known: a one-pixel light strip at the top right of a colored caption.
