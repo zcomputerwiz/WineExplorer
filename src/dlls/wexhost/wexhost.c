@@ -625,6 +625,14 @@ DWORD WINAPI WexCompositionSetShadow( UINT64 window, BOOL shadow )
     return params.err;
 }
 
+DWORD WINAPI WexCompositionSetCorner( UINT64 window, DWORD radius )
+{
+    struct composition_corner_params params = { window, radius };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_corner, &params );
+    return params.err;
+}
+
 static DWORD WINAPI wm_event_thread( void *arg )
 {
     for (;;)

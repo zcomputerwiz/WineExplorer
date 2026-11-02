@@ -283,6 +283,7 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 DWORD WINAPI WexCompositionSetEnabled( BOOL enabled );
 DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
 DWORD WINAPI WexCompositionSetShadow( UINT64 xwindow, BOOL shadow );
+DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
 
 /* Setup (setup.exe, oobe.exe): locale1 locale and keyboard layout; root's password; a new account through
  * AccountsService (account_type 1: administrator), with its password when one is given; session and automatic logon. */

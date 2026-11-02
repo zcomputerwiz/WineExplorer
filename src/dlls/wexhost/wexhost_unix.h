@@ -143,10 +143,13 @@ extern NTSTATUS composition_set(void *args);
 extern NTSTATUS composition_get(void *args);
 struct composition_shadow_params { UINT64 window; BOOL shadow; DWORD err; };
 extern NTSTATUS composition_shadow(void *args);
+struct composition_corner_params { UINT64 window; DWORD radius; DWORD err; };
+extern NTSTATUS composition_corner(void *args);
 /* x11wm calls these with x_mutex held; Display/XEvent stay on the Unix side. */
 extern DWORD compose_set(void *display, unsigned long root, unsigned long desktop, int *x_error, BOOL enabled);
 extern BOOL compose_enabled(void);
 extern DWORD compose_shadow(unsigned long window, BOOL shadow);
+extern DWORD compose_corner(unsigned long window, unsigned int radius);
 extern void compose_event(void *event);
 extern void compose_paint(void);
 extern long compose_event_mask(unsigned long window, long wm_mask);
@@ -238,6 +241,7 @@ enum wexhost_funcs
     unix_composition_set,
     unix_composition_get,
     unix_composition_shadow,
+    unix_composition_corner,
     unix_locale_set,
     unix_root_pass_set,
     unix_user_create,

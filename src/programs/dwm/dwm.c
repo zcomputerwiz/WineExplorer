@@ -67,6 +67,30 @@ struct attr_entry { uint32_t hwnd, attribute, value; };
 static struct attr_entry attrs[MAX_ATTRS];
 static unsigned int attr_count;
 
+/* change log: a monotonically increasing revision and a ring of the last LOG_SIZE changes,
+ * so clients can poll for attribute changes (DWM_OP_POLL) */
+#define LOG_SIZE 1024
+
+struct log_entry { uint64_t revision; uint32_t hwnd; uint32_t attribute; uint32_t value; };
+
+static uint64_t revision = 1;
+static struct log_entry change_log[LOG_SIZE];
+static unsigned int log_head;   /* index of the oldest entry */
+static unsigned int log_count;  /* number of valid entries, up to LOG_SIZE */
+
+static void log_change( uint32_t hwnd, uint32_t attribute, uint32_t value )
+{
+    unsigned int idx = (log_head + log_count) % LOG_SIZE;
+
+    revision++;
+    change_log[idx].revision  = revision;
+    change_log[idx].hwnd      = hwnd;
+    change_log[idx].attribute = attribute;
+    change_log[idx].value     = value;
+    if (log_count == LOG_SIZE) log_head = (log_head + 1) % LOG_SIZE;
+    else log_count++;
+}
+
 static struct attr_entry *find_attr( uint32_t hwnd, uint32_t attribute )
 {
     unsigned int i;
@@ -83,7 +107,11 @@ static void sweep_attrs(void)
     while (i < attr_count)
     {
         if (IsWindow( UlongToHandle( attrs[i].hwnd ) )) i++;
-        else attrs[i] = attrs[--attr_count];
+        else
+        {
+            log_change( attrs[i].hwnd, 0, 0 );  /* attribute 0, value 0: the window is gone */
+            attrs[i] = attrs[--attr_count];
+        }
     }
 }
 
@@ -122,8 +150,14 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t *rep
             entry = &attrs[attr_count++];
             entry->hwnd      = hdr->window_token;
             entry->attribute = set.attribute;
+            entry->value     = set.value;
+            log_change( hdr->window_token, set.attribute, set.value );
         }
-        entry->value = set.value;
+        else if (entry->value != set.value)
+        {
+            entry->value = set.value;
+            log_change( hdr->window_token, set.attribute, set.value );
+        }
         rep = (struct dwm_attr_reply *)payload;
         rep->found = 1;
         rep->value = set.value;
@@ -141,6 +175,78 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t *rep
         rep->found = entry != NULL;
         rep->value = entry ? entry->value : 0;
         break;
+    }
+
+    case DWM_OP_POLL:
+    {
+        struct dwm_poll_req poll;
+        struct dwm_poll_reply *prep;
+        struct dwm_change *changes;
+        uint32_t count = 0, flags = 0, i;
+        uint64_t reply_revision;
+
+        if (hdr->length != sizeof(poll)) return STATUS_INVALID_PARAMETER;
+        memcpy( &poll, payload, sizeof(poll) );
+        prep    = (struct dwm_poll_reply *)payload;
+        changes = (struct dwm_change *)(payload + sizeof(*prep));
+
+        if (poll.since_revision >= revision)
+        {
+            reply_revision = revision;
+        }
+        else if (poll.since_revision == 0 || (log_count && poll.since_revision < change_log[log_head].revision))
+        {
+            /* the log overflowed, or the client wants the whole table: page through the attribute table */
+            uint32_t start = poll.cursor < attr_count ? poll.cursor : attr_count;
+
+            while (count < DWM_POLL_MAX_CHANGES && start + count < attr_count)
+            {
+                changes[count].hwnd      = attrs[start + count].hwnd;
+                changes[count].attribute = attrs[start + count].attribute;
+                changes[count].value     = attrs[start + count].value;
+                changes[count].pad       = 0;
+                count++;
+            }
+            flags |= DWM_POLL_SNAPSHOT;
+            if (start + count < attr_count) flags |= DWM_POLL_MORE;
+            reply_revision = revision;
+        }
+        else
+        {
+            /* page through the change log, oldest first */
+            uint32_t total = 0, n = 0;
+            uint64_t last = 0;
+
+            for (i = 0; i < log_count; i++)
+                if (change_log[(log_head + i) % LOG_SIZE].revision > poll.since_revision) total++;
+            count = total < DWM_POLL_MAX_CHANGES ? total : DWM_POLL_MAX_CHANGES;
+            for (i = 0; i < log_count && n < count; i++)
+            {
+                const struct log_entry *e = &change_log[(log_head + i) % LOG_SIZE];
+
+                if (e->revision <= poll.since_revision) continue;
+                changes[n].hwnd      = e->hwnd;
+                changes[n].attribute = e->attribute;
+                changes[n].value     = e->value;
+                changes[n].pad       = 0;
+                last = e->revision;
+                n++;
+            }
+            if (total > count)
+            {
+                flags |= DWM_POLL_MORE;
+                reply_revision = last;
+            }
+            else
+                reply_revision = revision;
+        }
+
+        prep->revision = reply_revision;
+        prep->count    = count;
+        prep->flags    = flags;
+        hdr->length    = sizeof(*prep) + count * sizeof(*changes);
+        *reply_size    = sizeof(*hdr) + hdr->length;
+        return STATUS_SUCCESS;
     }
 
     default:

@@ -1410,3 +1410,12 @@ after three failures in a minute. `dwm.exe` ends when the channel is revoked or 
 first, so another process sees the value. The process-local table stays as a mirror: it answers without a broker and refills a broker that
 restarted. Entries of destroyed windows are dropped by a sweep. Not done: checkpoint sections for a setter that exited before a broker restart.
 Test: `dlls/dwmapi/tests/dwm_attr.c` via `scripts/dwm-p3-attr-test.sh`.
+
+## dwmapi: `WexDwmpPoll` for the shell's corner bridge (2026-11-02)
+
+`include/wine/dwm_protocol.h` (`DWM_OP_POLL`, `struct dwm_poll_req/dwm_change/dwm_poll_reply`, flags `DWM_POLL_SNAPSHOT`, `DWM_POLL_MORE`),
+`dlls/dwmapi/dwm_client.c`, `dwmapi.spec` (private export `WexDwmpPoll`). The broker (`src/programs/dwm/dwm.c`) keeps a revision counter and a
+1024-entry change log; a poll returns the changes since a revision, or pages through the whole table when the revision is too old or zero.
+The shell (`src/dlls/wexshell/dwm_bridge.c`, started only with `Composition=1` and `DwmService=1`) polls every 250 ms and passes
+`DWMWA_WINDOW_CORNER_PREFERENCE` to the X11 compositor (`WexCompositionSetCorner`: ROUND 8 px, ROUNDSMALL 4 px, DEFAULT and DONOTROUND square).
+Visual check: `scripts/dwm-corner-visual-probe.c` under the shell (`explorer /desktop=Shell,1024x768 /shell`) on Xvfb, composition on versus off.

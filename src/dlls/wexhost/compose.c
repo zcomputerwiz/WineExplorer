@@ -94,8 +94,9 @@ static void (*pXDamageSubtract)( Display *, Damage, XserverRegion, XserverRegion
 #define FIXES_FUNCS \
     FUNC(XFixesQueryExtension) FUNC(XFixesQueryVersion) FUNC(XFixesCreateRegion) \
     FUNC(XFixesDestroyRegion) FUNC(XFixesSetRegion) FUNC(XFixesUnionRegion) \
-    FUNC(XFixesIntersectRegion) FUNC(XFixesTranslateRegion) FUNC(XFixesCreateRegionFromWindow) \
-    FUNC(XFixesSetPictureClipRegion) FUNC(XFixesSetWindowShapeRegion) FUNC(XFixesFetchRegion)
+    FUNC(XFixesIntersectRegion) FUNC(XFixesSubtractRegion) FUNC(XFixesTranslateRegion) \
+    FUNC(XFixesCreateRegionFromWindow) FUNC(XFixesSetPictureClipRegion) \
+    FUNC(XFixesSetWindowShapeRegion) FUNC(XFixesFetchRegion)
 #define RENDER_FUNCS \
     FUNC(XRenderQueryExtension) FUNC(XRenderQueryVersion) FUNC(XRenderFindVisualFormat) \
     FUNC(XRenderCreatePicture) FUNC(XRenderFreePicture) FUNC(XRenderComposite) \
@@ -121,6 +122,7 @@ struct window
     Pixmap pixmap, shadow_pixmap;
     Picture picture, alpha, shadow_picture;
     BOOL shadow;
+    unsigned int corner;
     Damage damage;
     unsigned long opacity;
 };
@@ -470,12 +472,72 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
     if (!w || !name_surface( w )) return;
     paint_shadow( w, parent_clip );
     shape = pXFixesCreateRegionFromWindow( dpy, w->id, WindowRegionBounding );
+    border = w->attr.border_width;
+    if (w->corner > 0)
+    {
+        int win_w = w->attr.width + 2 * border;
+        int win_h = w->attr.height + 2 * border;
+        int count = 0;
+        XRectangle *rects = pXFixesFetchRegion( dpy, shape, &count );
+
+        if (rects)
+        {
+            if (count == 1 && rects[0].width == win_w && rects[0].height == win_h)
+            {
+                XRectangle corner_rects[64];
+                int corner_count = 0, y;
+                unsigned int r = w->corner;
+
+                if (r > 16) r = 16;
+                for (y = 0; y < r; y++)
+                {
+                    int k = r - y;
+                    int m = 4 * (r * r - k * (k - 1)) - 1;
+                    int s = 0, inset;
+
+                    while ((s + 1) * (s + 1) <= m) s++;
+                    inset = r - (s + 1) / 2;
+                    if (!inset) continue;
+
+                    corner_rects[corner_count].x = rects[0].x;
+                    corner_rects[corner_count].y = rects[0].y + y;
+                    corner_rects[corner_count].width = inset;
+                    corner_rects[corner_count].height = 1;
+                    corner_count++;
+
+                    corner_rects[corner_count].x = rects[0].x + win_w - inset;
+                    corner_rects[corner_count].y = rects[0].y + y;
+                    corner_rects[corner_count].width = inset;
+                    corner_rects[corner_count].height = 1;
+                    corner_count++;
+
+                    corner_rects[corner_count].x = rects[0].x;
+                    corner_rects[corner_count].y = rects[0].y + win_h - 1 - y;
+                    corner_rects[corner_count].width = inset;
+                    corner_rects[corner_count].height = 1;
+                    corner_count++;
+
+                    corner_rects[corner_count].x = rects[0].x + win_w - inset;
+                    corner_rects[corner_count].y = rects[0].y + win_h - 1 - y;
+                    corner_rects[corner_count].width = inset;
+                    corner_rects[corner_count].height = 1;
+                    corner_count++;
+                }
+                if (corner_count > 0)
+                {
+                    XserverRegion corners = pXFixesCreateRegion( dpy, corner_rects, corner_count );
+                    pXFixesSubtractRegion( dpy, shape, shape, corners );
+                    pXFixesDestroyRegion( dpy, corners );
+                }
+            }
+            pXFree( rects );
+        }
+    }
     pXFixesTranslateRegion( dpy, shape, w->x, w->y );
     pXFixesIntersectRegion( dpy, clip, damage_region, shape );
     if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
     pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
     /* A uniform alpha mask also requires Over for an otherwise opaque visual. */
-    border = w->attr.border_width;
     pXRenderComposite( dpy, w->attr.depth == 32 || w->alpha ? PictOpOver : PictOpSrc,
                        w->picture, w->alpha, back_picture, 0, 0, 0, 0,
                        w->x - border, w->y - border,
@@ -514,6 +576,24 @@ DWORD compose_shadow( unsigned long id, BOOL shadow )
                       (unsigned char *)&value, 1 );
     tree_dirty = full_repaint = dirty = TRUE;
     return sync_ok() ? ERROR_SUCCESS : ERROR_INVALID_WINDOW_HANDLE;
+}
+
+DWORD compose_corner( unsigned long id, unsigned int radius )
+{
+    struct window *w;
+
+    if (!enabled) return ERROR_NOT_SUPPORTED;
+    if (radius > 16) return ERROR_INVALID_PARAMETER;
+    if (!id || id == root || id == desktop || id == overlay || id == owner)
+        return ERROR_INVALID_PARAMETER;
+    if (!(w = find_window( id )))
+    {
+        if (tree_dirty) scan_windows();
+        if (!(w = find_window( id ))) return ERROR_FILE_NOT_FOUND;
+    }
+    w->corner = radius;
+    tree_dirty = full_repaint = dirty = TRUE;
+    return ERROR_SUCCESS;
 }
 
 long compose_event_mask( unsigned long id, long wm_mask )
@@ -768,6 +848,7 @@ DWORD compose_set( void *display, unsigned long root, unsigned long desktop, int
 }
 BOOL compose_enabled(void) { return FALSE; }
 DWORD compose_shadow( unsigned long window, BOOL shadow ) { return ERROR_NOT_SUPPORTED; }
+DWORD compose_corner( unsigned long window, unsigned int radius ) { return ERROR_NOT_SUPPORTED; }
 void compose_event( void *event ) { }
 void compose_paint(void) { }
 long compose_event_mask( unsigned long window, long wm_mask ) { return wm_mask; }
