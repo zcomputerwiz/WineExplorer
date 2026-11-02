@@ -32,6 +32,7 @@
 
 #include "alttab.h"
 #include <wexhost.h>
+#include <dwmapi.h>
 #include "shellres.h"
 #include "taskband.h"
 #include "module.h"
@@ -59,6 +60,61 @@ static HICON icons[MAX_WINDOWS];
 static int count, selected;
 static int columns = 7, rows = 3, items, shown_columns, shown_rows, items_width, items_height, total_width, total_height;
 static int font_height;
+
+/* DWM P11b: a live thumbnail of the selected window above the icons, only with composition and
+ * HKCU\Software\WineExplorer\Shell\AltTabThumbnails non-zero; otherwise the XP switcher is unchanged.
+ * A minimized window shows the last picture the compositor kept of it. */
+#define PREVIEW_HEIGHT 160
+static int preview_height;
+static HTHUMBNAIL preview_thumb;
+
+static BOOL previews_enabled(void)
+{
+    DWORD enabled = 0, size = sizeof(enabled);
+    BOOL composition = FALSE;
+
+    if (WexCompositionGetEnabled( &composition ) || !composition) return FALSE;
+    RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"AltTabThumbnails", RRF_RT_REG_DWORD,
+                  NULL, &enabled, &size );
+    return enabled != 0;
+}
+
+static void release_preview(void)
+{
+    if (preview_thumb) DwmUnregisterThumbnail( preview_thumb );
+    preview_thumb = NULL;
+}
+
+/* fit the selected window, keeping its aspect ratio, centered in the band; called whenever the selection moves */
+static void update_preview(void)
+{
+    DWM_THUMBNAIL_PROPERTIES props = { 0 };
+    RECT source;
+    int band_w = total_width - 2 * DIALOG_MARGIN, band_h = preview_height - DIALOG_MARGIN, w, h, x, y;
+
+    release_preview();
+    if (!preview_height || selected >= count ||
+        !window_frame_rect( windows[selected], &source ) || source.right <= source.left || source.bottom <= source.top ||
+        FAILED( DwmRegisterThumbnail( switch_hwnd, windows[selected], &preview_thumb ) )) return;
+    w = band_w;
+    h = MulDiv( w, source.bottom - source.top, source.right - source.left );
+    if (h > band_h)
+    {
+        h = band_h;
+        w = MulDiv( h, source.right - source.left, source.bottom - source.top );
+    }
+    x = DIALOG_MARGIN + (band_w - w) / 2;
+    y = DIALOG_MARGIN + (band_h - h) / 2;
+    /* the destination rectangle is relative to the switcher's window, which has a border */
+    GetWindowRect( switch_hwnd, &source );
+    MapWindowPoints( NULL, switch_hwnd, (POINT *)&source, 1 );
+    x -= source.left;
+    y -= source.top;
+    props.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE;
+    SetRect( &props.rcDestination, x, y, x + w, y + h );
+    props.fVisible = TRUE;
+    DwmUpdateThumbnailProperties( preview_thumb, &props );
+}
 
 static int get_reg_int( HKEY key, const WCHAR *name, int def )
 {
@@ -139,8 +195,9 @@ static void layout(void)
     }
     items_width = shown_columns * CX_ITEM_SPACE;
     items_height = shown_rows * CY_ITEM_SPACE;
+    preview_height = previews_enabled() ? PREVIEW_HEIGHT : 0;
     total_width = items_width + 2 * DIALOG_MARGIN;
-    total_height = items_height + 2 * DIALOG_MARGIN + font_height + 2 * CY_TEXT_MARGIN;
+    total_height = preview_height + items_height + 2 * DIALOG_MARGIN + font_height + 2 * CY_TEXT_MARGIN;
 
     SystemParametersInfoW( SPI_GETWORKAREA, 0, &rect, 0 );
     SetRect( &rect, (rect.left + rect.right - total_width) / 2, (rect.top + rect.bottom - total_height) / 2,
@@ -169,7 +226,7 @@ static void paint( HWND hwnd )
     for (i = 0; i < items && i + shift < count; i++)
     {
         x = DIALOG_MARGIN + CX_ITEM_SPACE * (i % shown_columns) + ITEM_MARGIN;
-        y = DIALOG_MARGIN + CY_ITEM_SPACE * (i / shown_columns) + ITEM_MARGIN;
+        y = preview_height + DIALOG_MARGIN + CY_ITEM_SPACE * (i / shown_columns) + ITEM_MARGIN;
         if (count < shown_columns) x += (items_width - count * CX_ITEM_SPACE) / 2;
 
         if (selected == i + shift)
@@ -187,7 +244,7 @@ static void paint( HWND hwnd )
     }
 
     /* the selected window's title in a sunken field */
-    SetRect( &text_rect, DIALOG_MARGIN, DIALOG_MARGIN + items_height, total_width - DIALOG_MARGIN,
+    SetRect( &text_rect, DIALOG_MARGIN, preview_height + DIALOG_MARGIN + items_height, total_width - DIALOG_MARGIN,
              total_height - DIALOG_MARGIN );
     DrawFrameControl( hdc, &text_rect, DFC_BUTTON, DFCS_BUTTONPUSH | DFCS_PUSHED );
     len = GetWindowTextW( windows[selected], text, ARRAY_SIZE(text) );
@@ -229,6 +286,7 @@ static LRESULT CALLBACK switch_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         mask_alt();
         return 0;
     case WM_SWITCH_TO:
+        release_preview();
         ShowWindow( hwnd, SW_HIDE );
         free_list();
         selected = 0;
@@ -296,6 +354,7 @@ static void open_switcher( BOOL backwards )
     /* the first window is the active one: start at the next (or the last one with Shift) */
     selected = backwards ? count - 1 : 1;
     layout();
+    update_preview();
     InvalidateRect( switch_hwnd, NULL, TRUE );
     PostMessageW( switch_hwnd, WM_MASK_ALT, 0, 0 );
 }
@@ -303,6 +362,7 @@ static void open_switcher( BOOL backwards )
 static void move_selection( int step )
 {
     selected = (selected + step + count) % count;
+    update_preview();
     InvalidateRect( switch_hwnd, NULL, TRUE );
 }
 
@@ -313,6 +373,7 @@ static void move_row( int step )
     if (row < 0) row = shown_rows - 1;
     if (row >= shown_rows) row = 0;
     selected = min( row * shown_columns + column, count - 1 );
+    update_preview();
     InvalidateRect( switch_hwnd, NULL, TRUE );
 }
 
