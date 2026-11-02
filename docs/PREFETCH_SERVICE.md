@@ -112,8 +112,16 @@ Verified in the QEMU guest with the real socket-activated service and the WoW64 
 - `wexksmtuned.service` starts under `systemd-analyze security` 3.7 OK. With 15 GiB free it leaves `run=0`, as `ksmtuned` does:
   merging starts only under memory pressure (below about 20% of RAM plus 2 GiB free).
 
-Not verified: the packaged ISO, the replay effect on a rotational disk, `EnablePrefetcher` and the folder link in a freshly
-built machine root (the script passes `bash -n`; it was not run).
+Verified on a fresh install (2026-11-02, ISO built from `5d2670d0`+ in WSL `wexbuild`, `installer/tests/install-interactive.sh`
+passes end to end): the `wexcache` user and `/var/cache/wineexplorer/{images,prefetch}` exist with the right owners; `wexprefetchd.socket`
+and `wexksmtuned.service` are enabled and run; zram swap (`/etc/systemd/zram-generator.conf`, 4 GB on the 4 GB VM) is active;
+`C:\Windows\Prefetch` links to the trace directory and `EnablePrefetcher` is 3 in the machine root's `system.reg`; the first user's
+programs wrote `Prefetch/<uid>/*.pf` with the per-user ACL (`user:alice:r-x`); the lightdm `MemoryKSM=yes` drop-in is shipped.
+The first ISO builds failed on the way and are fixed: `zstd`, `msitools` and `cabextract` missing in `wexbuild`, and the zram
+config path (`/usr/lib/systemd/zram-generator.conf` belongs to `systemd-zram-generator`; ours is in `/etc`). The fresh install also
+found that Setup and OOBE got no input on Wine 11.21 (`explorer /desktop=NAME` never switched desktops; see `STOCK_CHANGES.md`).
+
+Not verified: the replay effect on a rotational disk, and the `lightdm` KSM drop-in under load (no pressure in the VM).
 
 Where the format document of `pf_v17.c` is ambiguous, the writer chose (these files are for tools and parity, not read back by
 Windows): file header offset 8 is `0x0000000f` (the value seen on XP/2003 files); unused bytes of the 60-byte executable name
