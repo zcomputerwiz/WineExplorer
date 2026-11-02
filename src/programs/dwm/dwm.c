@@ -115,6 +115,38 @@ static void sweep_attrs(void)
     }
 }
 
+/* live thumbnails (docs/DWM_ARCHITECTURE.md, P8): keyed by the registering connection's epoch and the
+ * HTHUMBNAIL value; entries of destroyed windows are dropped by the sweep */
+struct thumb_entry { uint64_t epoch; uint32_t handle; struct dwm_thumb thumb; BOOL used; };
+
+static struct thumb_entry thumbs[DWM_THUMB_MAX];
+static uint64_t thumb_revision = 1;
+
+static struct thumb_entry *find_thumb( uint64_t epoch, uint32_t handle )
+{
+    unsigned int i;
+
+    for (i = 0; i < DWM_THUMB_MAX; i++)
+        if (thumbs[i].used && thumbs[i].epoch == epoch && thumbs[i].handle == handle) return &thumbs[i];
+    return NULL;
+}
+
+static void sweep_thumbs(void)
+{
+    unsigned int i;
+    BOOL dropped = FALSE;
+
+    for (i = 0; i < DWM_THUMB_MAX; i++)
+    {
+        if (!thumbs[i].used) continue;
+        if (IsWindow( UlongToHandle( thumbs[i].thumb.dest ) ) &&
+            IsWindow( UlongToHandle( thumbs[i].thumb.src ) )) continue;
+        thumbs[i].used = FALSE;
+        dropped = TRUE;
+    }
+    if (dropped) thumb_revision++;
+}
+
 static BOOL valid_attribute( uint32_t attribute )
 {
     return attribute != 0 && (attribute < DWMWA_LAST || attribute == DWMWA_MICA_EFFECT);
@@ -249,6 +281,83 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t *rep
         return STATUS_SUCCESS;
     }
 
+    case DWM_OP_THUMB_SET:
+    {
+        struct dwm_thumb_set set;
+        struct thumb_entry *tentry;
+        unsigned int i;
+
+        if (hdr->length != sizeof(set)) return STATUS_INVALID_PARAMETER;
+        memcpy( &set, payload, sizeof(set) );
+        if (!hdr->window_token || !set.src) return STATUS_INVALID_PARAMETER;
+        if (set.flags & ~(DWM_THUMB_VISIBLE | DWM_THUMB_CLIENT_ONLY | DWM_THUMB_HAS_SOURCE))
+            return STATUS_INVALID_PARAMETER;
+        if (set.opacity > 255) return STATUS_INVALID_PARAMETER;
+        if (set.dest[2] < set.dest[0] || set.dest[3] < set.dest[1]) return STATUS_INVALID_PARAMETER;
+        if (!(tentry = find_thumb( hdr->connection_epoch, set.handle )))
+        {
+            for (i = 0; i < DWM_THUMB_MAX; i++)
+                if (!thumbs[i].used) break;
+            if (i == DWM_THUMB_MAX) return STATUS_QUOTA_EXCEEDED;
+            tentry = &thumbs[i];
+            tentry->epoch  = hdr->connection_epoch;
+            tentry->handle = set.handle;
+            tentry->used   = TRUE;
+        }
+        tentry->thumb.dest    = (uint32_t)hdr->window_token;
+        tentry->thumb.src     = set.src;
+        tentry->thumb.flags   = set.flags;
+        tentry->thumb.opacity = set.opacity;
+        memcpy( tentry->thumb.dest_rect, set.dest, sizeof(set.dest) );
+        memcpy( tentry->thumb.source, set.source, sizeof(set.source) );
+        thumb_revision++;
+        hdr->length  = 0;
+        *reply_size  = sizeof(*hdr);
+        return STATUS_SUCCESS;
+    }
+
+    case DWM_OP_THUMB_DEL:
+    {
+        struct dwm_thumb_del del;
+        struct thumb_entry *tentry;
+
+        if (hdr->length != sizeof(del)) return STATUS_INVALID_PARAMETER;
+        memcpy( &del, payload, sizeof(del) );
+        if (!(tentry = find_thumb( hdr->connection_epoch, del.handle ))) return STATUS_NOT_FOUND;
+        tentry->used = FALSE;
+        thumb_revision++;
+        hdr->length  = 0;
+        *reply_size  = sizeof(*hdr);
+        return STATUS_SUCCESS;
+    }
+
+    case DWM_OP_THUMB_LIST:
+    {
+        struct dwm_thumb_list_req list;
+        struct dwm_thumb_list_reply *lrep;
+        struct dwm_thumb *entries;
+        uint32_t count = 0, i;
+
+        if (hdr->length != sizeof(list)) return STATUS_INVALID_PARAMETER;
+        memcpy( &list, payload, sizeof(list) );
+        lrep    = (struct dwm_thumb_list_reply *)payload;
+        entries = (struct dwm_thumb *)(payload + sizeof(*lrep));
+
+        if (list.since_revision != thumb_revision)
+            for (i = 0; i < DWM_THUMB_MAX; i++)
+                if (thumbs[i].used)
+                {
+                    entries[count] = thumbs[i].thumb;
+                    count++;
+                }
+        lrep->revision = thumb_revision;
+        lrep->count    = count;
+        lrep->pad      = 0;
+        hdr->length    = sizeof(*lrep) + count * sizeof(*entries);
+        *reply_size    = sizeof(*hdr) + hdr->length;
+        return STATUS_SUCCESS;
+    }
+
     default:
         return STATUS_NOT_IMPLEMENTED;
     }
@@ -263,9 +372,17 @@ static void serve( HANDLE broker, HANDLE parent )
     unsigned char buf[sizeof(struct dwm_msg_header) + DWM_MAX_MESSAGE_SIZE];
     struct dwm_channel_call call;
     NTSTATUS status;
+    DWORD last_sweep = GetTickCount();
 
     for (;;)
     {
+        /* by elapsed time: the shell's bridge polls several times a second, so the broker is rarely idle */
+        if (GetTickCount() - last_sweep >= 5000)
+        {
+            sweep_attrs();
+            sweep_thumbs();
+            last_sweep = GetTickCount();
+        }
         memset( &call, 0, sizeof(call) );
         call.op      = DWM_CHANNEL_OP_RECV;
         call.handle  = HandleToUlong( broker );
@@ -278,7 +395,6 @@ static void serve( HANDLE broker, HANDLE parent )
             DWORD count = parent ? 2 : 1;
             DWORD wait = WaitForMultipleObjects( count, objs, FALSE, 5000 );
             if (wait == WAIT_OBJECT_0 + 1) return;
-            if (wait == WAIT_TIMEOUT) sweep_attrs();
             continue;
         }
         if (status != STATUS_SUCCESS) return;  /* revoked, closed or the desktop is gone */

@@ -126,7 +126,8 @@ static void (*pXDamageSubtract)( Display *, Damage, XserverRegion, XserverRegion
 #define RENDER_FUNCS \
     FUNC(XRenderQueryExtension) FUNC(XRenderQueryVersion) FUNC(XRenderFindVisualFormat) \
     FUNC(XRenderCreatePicture) FUNC(XRenderFreePicture) FUNC(XRenderComposite) \
-    FUNC(XRenderFillRectangle) FUNC(XRenderCreateSolidFill) FUNC(XRenderFindStandardFormat)
+    FUNC(XRenderFillRectangle) FUNC(XRenderCreateSolidFill) FUNC(XRenderFindStandardFormat) \
+    FUNC(XRenderSetPictureTransform) FUNC(XRenderSetPictureFilter)
 #define SHAPE_FUNCS FUNC(XShapeQueryExtension) FUNC(XShapeSelectInput) FUNC(XShapeInputSelected)
 #define FUNC(name) static typeof(name) *p##name;
 X11_FUNCS
@@ -170,6 +171,9 @@ static long desktop_added_mask;
  * not call Nt* waits or events: it bumps clock_generation, and a Wine thread of the shell waits for it in
  * compose_clock_wait and pulses the Win32 event. */
 static struct dwm_clock_page *clock_page;
+/* live thumbnails, replaced as a whole by compose_thumbnails under x_mutex */
+static struct compose_thumb thumbs[WEX_THUMB_MAX];
+static unsigned int thumb_count;
 
 static BOOL load_libraries(void)
 {
@@ -496,6 +500,63 @@ static void paint_shadow( struct window *w, XserverRegion parent_clip )
                        0, 0, 0, 0, w->x - border, w->y - border, cx, cy );
 }
 
+static BOOL is_thumbnail_source( Window id )
+{
+    unsigned int i;
+    for (i = 0; i < thumb_count; i++) if (thumbs[i].src == id) return TRUE;
+    return FALSE;
+}
+
+/* Live thumbnails (P8): after a destination window, scale each visible source into it, inside the clip that
+ * window was painted with. Sources are top-level windows tracked here; minimized ones have no pixels yet. */
+static void paint_thumbnails( struct window *dest )
+{
+    unsigned int i;
+
+    for (i = 0; i < thumb_count; i++)
+    {
+        const struct compose_thumb *t = &thumbs[i];
+        struct window *src;
+        XTransform transform = {{{ 0 }}};
+        XRenderColor color = { 0, 0, 0, 0 };
+        Picture mask = 0;
+        int sx, sy, sw, sh, dw = t->dest[2] - t->dest[0], dh = t->dest[3] - t->dest[1];
+
+        if (t->dest_window != dest->id || !(t->flags & WEX_THUMB_VISIBLE) || dw <= 0 || dh <= 0) continue;
+        if (!(src = find_window( t->src )) || src == dest || !name_surface( src )) continue;
+        sx = sy = 0;
+        sw = src->attr.width + 2 * src->attr.border_width;
+        sh = src->attr.height + 2 * src->attr.border_width;
+        if (t->flags & WEX_THUMB_HAS_SOURCE)
+        {
+            sx = max( t->source[0], 0 );
+            sy = max( t->source[1], 0 );
+            sw = min( t->source[2], sw ) - sx;
+            sh = min( t->source[3], sh ) - sy;
+        }
+        if (sw <= 0 || sh <= 0) continue;
+        transform.matrix[0][0] = XDoubleToFixed( (double)sw / dw );
+        transform.matrix[0][2] = XDoubleToFixed( sx );
+        transform.matrix[1][1] = XDoubleToFixed( (double)sh / dh );
+        transform.matrix[1][2] = XDoubleToFixed( sy );
+        transform.matrix[2][2] = XDoubleToFixed( 1 );
+        if (t->opacity < 255)
+        {
+            color.alpha = t->opacity * 257;
+            mask = pXRenderCreateSolidFill( dpy, &color );
+        }
+        pXRenderSetPictureTransform( dpy, src->picture, &transform );
+        pXRenderSetPictureFilter( dpy, src->picture, "bilinear", NULL, 0 );
+        pXRenderComposite( dpy, mask || src->attr.depth == 32 ? PictOpOver : PictOpSrc, src->picture, mask,
+                           back_picture, 0, 0, 0, 0, dest->x + t->dest[0], dest->y + t->dest[1], dw, dh );
+        memset( &transform, 0, sizeof(transform) );
+        transform.matrix[0][0] = transform.matrix[1][1] = transform.matrix[2][2] = XDoubleToFixed( 1 );
+        pXRenderSetPictureTransform( dpy, src->picture, &transform );
+        pXRenderSetPictureFilter( dpy, src->picture, "nearest", NULL, 0 );
+        if (mask) pXRenderFreePicture( dpy, mask );
+    }
+}
+
 static void paint_window( struct window *w, XserverRegion parent_clip )
 {
     XserverRegion shape;
@@ -574,6 +635,7 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
                        w->x - border, w->y - border,
                        w->attr.width + 2 * border, w->attr.height + 2 * border );
     pXFixesDestroyRegion( dpy, shape );
+    paint_thumbnails( w );
 }
 
 static void paint_children( Window parent, BOOL skip_desktop, XserverRegion parent_clip )
@@ -664,6 +726,17 @@ static void clock_disable(void)
     if (!clock_page) return;
     clock_publish( clock_page->flags & ~DWM_CLOCK_COMPOSED, clock_page->frame, clock_page->qpc_composed );
     clock_signal();
+}
+
+DWORD compose_thumbnails( const struct compose_thumb *list, unsigned int count )
+{
+    if (!enabled) return count ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS;
+    if (count > WEX_THUMB_MAX) return ERROR_INVALID_PARAMETER;
+    if (count == thumb_count && !memcmp( thumbs, list, count * sizeof(*list) )) return ERROR_SUCCESS;
+    memcpy( thumbs, list, count * sizeof(*list) );
+    thumb_count = count;
+    full_repaint = dirty = TRUE;
+    return ERROR_SUCCESS;
 }
 
 DWORD compose_clock( void *page, HANDLE event )
@@ -807,6 +880,8 @@ void compose_event( void *xevent )
         pXDamageSubtract( dpy, w->damage, None, scratch );
         pXFixesTranslateRegion( dpy, scratch, w->x, w->y );
         pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+        /* ponytail: a damaged thumbnail source repaints everything; damage only its destinations if it costs */
+        if (is_thumbnail_source( w->id )) full_repaint = TRUE;
         dirty = TRUE;
         return;
     }
@@ -931,6 +1006,7 @@ BOOL compose_enabled(void) { return FALSE; }
 DWORD compose_shadow( unsigned long window, BOOL shadow ) { return ERROR_NOT_SUPPORTED; }
 DWORD compose_corner( unsigned long window, unsigned int radius ) { return ERROR_NOT_SUPPORTED; }
 DWORD compose_clock( void *page, HANDLE event ) { return page ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
+DWORD compose_thumbnails( const struct compose_thumb *list, unsigned int count ) { return count ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 void compose_event( void *event ) { }
 void compose_paint(void) { }
 long compose_event_mask( unsigned long window, long wm_mask ) { return wm_mask; }

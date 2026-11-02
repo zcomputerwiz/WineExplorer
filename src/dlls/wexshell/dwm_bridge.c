@@ -26,6 +26,7 @@
 
 #include <stdarg.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <windows.h>
 #include <wexhost.h>
@@ -44,8 +45,51 @@ WINE_DEFAULT_DEBUG_CHANNEL(wexshell);
 #endif
 
 HRESULT WINAPI WexDwmpPoll( UINT64 since_revision, DWORD cursor, void *out, DWORD *out_len );
+HRESULT WINAPI WexDwmpThumbList( UINT64 since_revision, void *out, DWORD *out_len );
 
 struct pending { HWND hwnd; DWORD radius; int tries; };
+
+/* live thumbnails (P8): the broker's list, mapped to X windows on every poll, because a window may get its
+ * X window after the thumbnail was registered; the compositor ignores an unchanged list */
+static struct dwm_thumb thumb_list[DWM_THUMB_MAX];
+static unsigned int thumb_list_count;
+static UINT64 thumb_revision;
+
+static UINT64 x_window( UINT32 hwnd )
+{
+    return (ULONG_PTR)GetPropW( UlongToHandle( hwnd ), L"__wine_x11_whole_window" );
+}
+
+static void sync_thumbnails( BOOL have_broker )
+{
+    unsigned char buf[sizeof(struct dwm_thumb_list_reply) + DWM_THUMB_MAX * sizeof(struct dwm_thumb)];
+    const struct dwm_thumb_list_reply *reply = (const struct dwm_thumb_list_reply *)buf;
+    struct compose_thumb out[WEX_THUMB_MAX];
+    DWORD len = sizeof(buf), i, count = 0;
+
+    if (!have_broker) thumb_list_count = 0, thumb_revision = 0;
+    else if (!WexDwmpThumbList( thumb_revision, buf, &len ) && len >= sizeof(*reply) &&
+             reply->count <= DWM_THUMB_MAX && len >= sizeof(*reply) + reply->count * sizeof(struct dwm_thumb) &&
+             (reply->count || reply->revision != thumb_revision))
+    {
+        memcpy( thumb_list, buf + sizeof(*reply), reply->count * sizeof(struct dwm_thumb) );
+        thumb_list_count = reply->count;
+        thumb_revision = reply->revision;
+        TRACE( "%u thumbnails, revision %I64u\n", thumb_list_count, thumb_revision );
+    }
+    for (i = 0; i < thumb_list_count; i++)
+    {
+        const struct dwm_thumb *t = &thumb_list[i];
+        if (!(out[count].dest_window = x_window( t->dest )) || !(out[count].src = x_window( t->src ))) continue;
+        out[count].flags = (t->flags & DWM_THUMB_VISIBLE ? WEX_THUMB_VISIBLE : 0) |
+                           (t->flags & DWM_THUMB_HAS_SOURCE ? WEX_THUMB_HAS_SOURCE : 0);
+        out[count].opacity = t->opacity;
+        memcpy( out[count].dest, t->dest_rect, sizeof(out[count].dest) );
+        memcpy( out[count].source, t->source, sizeof(out[count].source) );
+        count++;
+    }
+    WexCompositionSetThumbnails( out, count );
+}
 
 static HANDLE bridge_thread, bridge_stop;
 static HDESK bridge_desktop;
@@ -137,9 +181,11 @@ static DWORD WINAPI bridge_proc( void *arg )
             revision = 0;
             cursor = 0;
             wait = DWM_BRIDGE_IDLE_MS;
+            sync_thumbnails( FALSE );
             continue;
         }
         wait = DWM_BRIDGE_POLL_MS;
+        sync_thumbnails( TRUE );
         if (reply->count) TRACE( "poll: %lu changes, revision %I64u\n", (DWORD)reply->count, (UINT64)reply->revision );
         for (i = 0; i < reply->count; i++) apply_change( &changes[i] );
         if (reply->flags & DWM_POLL_MORE)
@@ -178,6 +224,7 @@ void dwm_bridge_stop(void)
     CloseHandle( bridge_thread );
     CloseHandle( bridge_stop );
     bridge_thread = bridge_stop = NULL;
+    WexCompositionSetThumbnails( NULL, 0 );
 }
 
 /* Frame clock (docs/DWM_ARCHITECTURE.md section 2.3, P6 slice 1): a per-desktop shared page the compositor

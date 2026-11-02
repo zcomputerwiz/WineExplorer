@@ -641,6 +641,14 @@ DWORD WINAPI WexCompositionSetClock( void *page, HANDLE event )
     return params.err;
 }
 
+DWORD WINAPI WexCompositionSetThumbnails( const struct compose_thumb *thumbs, DWORD count )
+{
+    struct composition_thumbs_params params = { (UINT64)(ULONG_PTR)thumbs, count };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_thumbs, &params );
+    return params.err;
+}
+
 /* Waits up to timeout_ms for a composed frame after *generation; updates *generation. */
 DWORD WINAPI WexCompositionWaitFrame( UINT64 *generation, DWORD timeout_ms )
 {

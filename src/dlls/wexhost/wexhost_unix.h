@@ -145,6 +145,8 @@ struct composition_shadow_params { UINT64 window; BOOL shadow; DWORD err; };
 extern NTSTATUS composition_shadow(void *args);
 struct composition_corner_params { UINT64 window; DWORD radius; DWORD err; };
 extern NTSTATUS composition_corner(void *args);
+struct composition_thumbs_params { UINT64 thumbs; DWORD count; DWORD err; };
+extern NTSTATUS composition_thumbs(void *args);
 /* page is a struct dwm_clock_page (wine/dwm_protocol.h) mapped into this process; a NULL page turns the clock
  * off. event is pulsed once per composed frame. Both are kept on the Unix side and used under x_mutex. */
 struct composition_clock_params { UINT64 page; UINT64 event; DWORD err; };
@@ -156,6 +158,7 @@ extern DWORD compose_set(void *display, unsigned long root, unsigned long deskto
 extern BOOL compose_enabled(void);
 extern DWORD compose_shadow(unsigned long window, BOOL shadow);
 extern DWORD compose_corner(unsigned long window, unsigned int radius);
+extern DWORD compose_thumbnails(const struct compose_thumb *thumbs, unsigned int count);
 extern DWORD compose_clock(void *page, HANDLE event);
 extern void compose_event(void *event);
 extern void compose_paint(void);
@@ -251,6 +254,7 @@ enum wexhost_funcs
     unix_composition_corner,
     unix_composition_clock,
     unix_composition_clock_wait,
+    unix_composition_thumbs,
     unix_locale_set,
     unix_root_pass_set,
     unix_user_create,

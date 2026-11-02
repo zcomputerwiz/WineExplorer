@@ -1430,3 +1430,22 @@ writes the frame count and compose time (QPC) under a sequence lock after each c
 refresh periods; `DwmGetCompositionTimingInfo` reports `cFrame`, `cRefresh` and `qpcCompose`. These are composition times, not display times:
 `qpcVBlank` stays an estimate until X Present or Wayland presentation feedback (later P6 slices). Without the page, or with
 `HKCU\Software\WineExplorer\Shell\DwmFrameClock` = 0, both keep the previous estimate. Tested 47/47 on x86_64 and i386 under the shell on Xvfb.
+
+## dwmapi: live thumbnails through the DWM broker (2026-11-02)
+
+`include/wine/dwm_protocol.h` (`DWM_OP_THUMB_SET/DEL/LIST`, `struct dwm_thumb*`, at most 80 per desktop), `dlls/dwmapi/dwm_client.c/.h`,
+`dwmapi_main.c`, `dwmapi.spec` (private `WexDwmpThumbList`), test `dlls/dwmapi/tests/dwm_thumb.c`. The process-local thumbnail table and its
+validation stay; `DwmUpdateThumbnailProperties` also sends the merged properties to the broker (`src/programs/dwm/dwm.c`, keyed by connection
+and handle, dropped when either window is gone) and `DwmUnregisterThumbnail` removes them. The shell's bridge polls the list and the X11
+compositor scales the source window's pixels into the destination (`WexCompositionSetThumbnails`, XRender transform, bilinear). Not done yet:
+`fSourceClientAreaOnly` (the whole window is used), minimized sources (no pixels), Wayland. The broker now sweeps every 5 s by elapsed time;
+before, the sweep only ran after 5 idle seconds, which the bridge's polling prevented. Visual check: `scripts/dwm-thumbnail-visual-probe.c`.
+
+## dwmapi: live thumbnails held by the broker (2026-11-02)
+
+`src/programs/dwm/dwm.c` (a fixed table of `DWM_THUMB_MAX` entries keyed by (connection epoch, HTHUMBNAIL value), a `thumb_revision`
+counter, `DWM_OP_THUMB_SET/DEL/LIST`, and a sweep that drops thumbnails whose dest or src window is gone), `dlls/dwmapi/dwm_client.c/.h`
+(`dwm_client_thumb_set/del` and the private export `WexDwmpThumbList`), `dwmapi.spec`, `dlls/dwmapi/dwmapi_main.c` (a successful
+`DwmUpdateThumbnailProperties` publishes the merged properties to the broker and `DwmUnregisterThumbnail` deletes them; the broker is
+never called while holding `thumbnail_cs`), test `dlls/dwmapi/tests/dwm_thumb.c` (skips without a broker). The protocol in
+`include/wine/dwm_protocol.h` is unchanged.
