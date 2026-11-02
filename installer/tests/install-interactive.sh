@@ -64,6 +64,7 @@ $V wait "$VM" "Thank you for installing" --timeout 900 || fail "OOBE did not sta
 step oobe; $V key "$VM" ret
 $V wait "$VM" "Automatic Updates" --timeout 30 || fail "no updates page"; $V key "$VM" ret
 $V wait "$VM" "connectivity" --timeout 60 || fail "no connectivity page"; $V key "$VM" ret
+$V wait "$VM" "Compatibility Components" --timeout 30 || fail "no optional components page"; $V key "$VM" ret
 $V wait "$VM" "Who will use" --timeout 30 || fail "no users page"
 $V type "$VM" "Alice"; $V key "$VM" tab; $V type "$VM" "Bob Smith"
 step users; $V key "$VM" ret
