@@ -1372,3 +1372,14 @@ desktop), explorer calls `SwitchDesktop`. The fork's secure-desktop rules (serve
 input only on the input desktop and no longer let a host event move it, so without this call the installer's Setup and
 OOBE (`explorer /desktop=Setup`, `/desktop=OOBE`) drew their pages but got no mouse or keyboard input. Found by the first
 fresh install of an ISO built on Wine 11.21; the same OOBE responded on the 11.19 runtime and not on the bare 11.21 merge.
+
+## dwmapi: state, thumbnails, colorization and the missing exports (2026-11-02)
+
+`dlls/dwmapi/dwmapi_main.c`, `dwmapi.spec`, `Makefile.in` (imports gdi32, advapi32), `include/dwmapi.h`, `dlls/dwmapi/tests/dwmapi.c`.
+Follows the behaviour measured on Windows 11 (`scripts/dwmapi-probe.c`, `docs/DWMAPI_BEHAVIOR.md`): a process-local table of
+per-window attributes (write-only attributes read back `E_INVALIDARG`, computed ones such as `CLOAKED`, `NCRENDERING_ENABLED`,
+`CAPTION_BUTTON_BOUNDS`), a thumbnail table with properties and source size (the visible frame, like
+`DWMWA_EXTENDED_FRAME_BOUNDS`), `DwmGetColorizationColor` from the DWM registry values, blur-behind and iconic bitmap argument checks, the exports
+`DwmQueryThumbnailSourceSize`, `DwmModifyPreviousDxFrameDuration` and `DwmTransitionOwnedWindow`, `DWM_E_COMPOSITIONDISABLED` for the graphics
+stream hint, and composition timing rates as counter frequency over refresh period. Nothing is drawn yet; a DWM service
+(`docs/DWM_PLAN.md` 1.0) is to take over the state. The conformance test passes on Windows 11 and on Wine, 32-bit and 64-bit.

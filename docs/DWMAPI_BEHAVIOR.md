@@ -39,3 +39,7 @@ Findings:
   parity default, but Vista-era programs and Chromium's DirectComposition path want the success path when composition is
   on. That is what D4 and the application-facing work in `CHROMIUM_GRAPHICS_PLAN.md` add.
 - The probe's raw outputs are in `ChromiumLab/dwmapi-host.txt` and `dwmapi-wine.txt` (local lab files, not in the repository).
+
+## Status (2026-11-02)
+
+The Wine branch `dwmapi-d4` (merged into Wine `development`) implements every row of the table above that is not marked as a later phase: attribute state, colorization, blur-behind and iconic checks, thumbnail registry and source size, the missing exports, and the Windows-style timing rates. The extended conformance test (`dlls/dwmapi/tests/dwmapi.c`, 100 checks) passes on Windows 11 build 26300 and on Wine 11.21, 32-bit and 64-bit. Not drawn yet: thumbnails, blur and frame effects (see `DWM_PLAN.md`).
