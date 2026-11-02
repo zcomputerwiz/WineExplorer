@@ -91,8 +91,23 @@ written and named by the XP hash, run count 2 on the second run, replay of three
 AddressSanitizer and UBSan. A first version looped four billion times on an unreadable `.pf` (`(unsigned)-1` as the file
 count); the corrupt-file test caught it.
 
-Not verified: the packaged ISO with `wexksmtuned.service`, the replay effect on a rotational disk, and the trace under a real
-Wine session (the tests use a client that behaves like Wine's loader).
+Windows side: `scripts/setup-machine-root.sh` links `C:\Windows\Prefetch` to `/var/cache/wineexplorer/prefetch` and sets
+`HKLM\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters\EnablePrefetcher` to 3.
+`installer/systemd/zram-generator.conf` (`zram-size = ram / 2`, zstd, priority 100) and `99-wineexplorer-memory.conf`
+(`vm.swappiness = 100`, `vm.page-cluster = 0`) ship in the session package, which recommends `systemd-zram-generator`.
+
+Verified in the QEMU guest with the real socket-activated service and the WoW64 build (2026-11-02):
+- Chromium twice: functional, 64-bit and 32-bit startup exit 0; one `CHROME.EXE-<hash>.pf` appears (820 bytes: the daemon is
+  asked only for images with unaligned sections, so a trace lists chrome.exe, chrome_elf.dll and chrome.dll, not the
+  page-aligned DLLs). Every `chrome.exe` child process counts as a run (the count reached 27 in one Chromium start).
+- `chrome.exe --version` from `/opt` three times: `.pf` after the first; the second start logged `readahead: 3 files, 3 ranges`; the
+  third, 40 s later, was throttled by the 60 s rule.
+- A program under `/home/debian` (mode 0700) writes a trace, but its replay opens nothing: the service user cannot read it.
+- `wexksmtuned.service` starts under `systemd-analyze security` 3.7 OK. With 15 GiB free it leaves `run=0`, as `ksmtuned` does:
+  merging starts only under memory pressure (below about 20% of RAM plus 2 GiB free).
+
+Not verified: the packaged ISO, the replay effect on a rotational disk, `EnablePrefetcher` and the folder link in a freshly
+built machine root (the script passes `bash -n`; it was not run).
 
 Where the format document of `pf_v17.c` is ambiguous, the writer chose (these files are for tools and parity, not read back by
 Windows): file header offset 8 is `0x0000000f` (the value seen on XP/2003 files); unused bytes of the 60-byte executable name
@@ -102,9 +117,7 @@ device path is stored with a trailing NUL and its character count excludes the N
 file references header with no entries and no directory strings; the hash is computed over the unsigned bytes of the UTF-16LE
 uppercase path with the documented folding step (`CcPfHashValue`'s signed-char variant is not used).
 
-Open items: the `EnablePrefetcher` registry value and a Prefetch folder in the machine root (the `.pf` files are not
-exposed to Windows yet), the zram generator configuration in the installer, and whether the tier-2 cache should move
-to `$XDG_CACHE_HOME`.
+Open items: whether the tier-2 cache should move to `$XDG_CACHE_HOME`, and whether to count only top-level starts as runs.
 
 ---
 

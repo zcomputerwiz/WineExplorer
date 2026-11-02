@@ -288,6 +288,25 @@ while read -r font_name font_target; do
         echo "Missing open font target (skipped): $font_target" >&2
     fi
 done < "$FONT_RES_DIR/font-links.txt"
+# C:\Windows\Prefetch shows the .pf files wexprefetchd writes (read-only for users), and the XP value that says
+# the prefetcher is on is set (3 = applications and boot).
+PREFETCH_DIR="${WEX_PREFETCH_DIR:-/var/cache/wineexplorer/prefetch}"
+if [ ! -e "$MACHINE_ROOT/drive_c/windows/Prefetch" ] || [ -L "$MACHINE_ROOT/drive_c/windows/Prefetch" ]; then
+    ln -sfn "$PREFETCH_DIR" "$MACHINE_ROOT/drive_c/windows/Prefetch"
+fi
+if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
+    PREFETCH_REG="$(mktemp)"
+    cat > "$PREFETCH_REG" <<'PFREG'
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters]
+"EnablePrefetcher"=dword:00000003
+PFREG
+    WINEPREFIX="$MACHINE_ROOT" WINEDLLOVERRIDES=winemenubuilder.exe=d \
+        "$WINE_BIN" regedit.exe /S "$PREFETCH_REG"
+    WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+    rm -f "$PREFETCH_REG"
+fi
 if [ -f /usr/share/applications/wex-components.desktop ]; then
     install -m644 /usr/share/applications/wex-components.desktop \
         "$MACHINE_ROOT/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/Administrative Tools/Windows Components.desktop"
