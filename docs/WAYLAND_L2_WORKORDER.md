@@ -5,7 +5,7 @@ Status: implementation started. Accepted plan, 2026-10-14.
 
 Explorer owns shell behavior and Wine-rendered non-client frames; wexhost bridges
 host protocols; wexcomp owns composition, native surfaces and physical input.
-Extend that existing split, rather than introduce dwm.exe. Honor client-side
+Extend that existing split. A thin `dwm.exe` state/policy service is allowed since 2026-11-02 (`DWM_PLAN.md` 1.0), but it must not become a second scene compositor. Honor client-side
 decorations: Wine frames replace server decorations only, without duplicate
 title bars. Wayland remains opt-in and shipping X11 keeps its backend.
 

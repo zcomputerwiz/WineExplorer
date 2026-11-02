@@ -86,7 +86,12 @@ Enabling desktop composition does not implement `dcomp.dll`, and implementing
 | Desktop composition | Stack complete windows, apply desktop effects, present/capture the desktop | X11: existing `src/dlls/wexhost/compose.c` with WM integration; Wayland: wexcomp |
 | Shell behavior | Frames, taskbar, optional previews, settings and XP appearance | Explorer/wexshell plus wexhost bridge, not a second compositor |
 
-Do not introduce `dwm.exe`, another X Composite selection owner or a second
+Decision of 2026-11-02 (owner): the earlier "no `dwm.exe`" rule applied while the goal was XP parity. The goal now includes the
+Windows Vista to Windows 11 look and applications that use the Desktop Window Manager, so a thin `dwm.exe` is allowed and planned
+as the Windows-facing DWM state and policy service (see `DWM_PLAN.md`, section 1.0). It is not a second pixel compositor: it must
+never own an X Composite selection or a second Wayland scene, and applications must keep working when it is absent.
+
+Do not introduce another X Composite selection owner or a second
 Wayland scene compositor. On Wayland retain wexcomp's composition/native-surface/
 physical-input ownership and the existing native-frame grouping contract. On X11
 retain wexhost's event/locking model and protect Wine's already redirected GL/

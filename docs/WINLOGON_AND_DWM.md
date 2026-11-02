@@ -168,7 +168,7 @@ AccountsService), the fades, scrolling for more accounts than fit, the open logo
 application-facing DComp/DXGI implementation. D1/D2 remain the outer desktop
 effects/capture layer; D3 presentation and optional D4 APIs coordinate with the
 new work's surface lifetime, damage, pacing and capture contracts. Neither layer
-replaces the other. No second desktop compositor or `dwm.exe` is planned.
+replaces the other. No second desktop compositor is planned. Decision of 2026-11-02 (owner): the earlier "no `dwm.exe`" rule applied while the goal was XP parity. The goal now includes the Windows Vista to Windows 11 look and applications that use the Desktop Window Manager, so a thin `dwm.exe` is allowed and planned as the Windows-facing DWM state and policy service (see `DWM_PLAN.md`, section 1.0). It is not a second pixel compositor: it must never own an X Composite selection or a second Wayland scene, and applications must keep working when it is absent.
 
 Preserve X11 wexhost composition and the Wayland ownership split in
 `WAYLAND_L2_WORKORDER.md` (wexcomp composes native surfaces and owns physical
