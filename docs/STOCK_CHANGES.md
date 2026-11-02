@@ -1401,3 +1401,12 @@ carries no identity. The broker registers with a one-use capability minted only 
 `Makefile.in`. Off unless `HKCU\Software\WineExplorer\Shell\DwmService` is non-zero. The desktop manager mints a one-use broker capability for its desktop
 and starts `src/programs/dwm` (`dwm.exe /parent=<pid>`, the capability goes through its stdin) on that desktop; a worker thread restarts it after a crash (250 ms, 1 s, 4 s) and gives up
 after three failures in a minute. `dwm.exe` ends when the channel is revoked or explorer exits. No broker is started for Winlogon or other desktops without a manager.
+
+## dwmapi scalar attributes held by the DWM broker (2026-11-02)
+
+`server/dwm.c` (any opcode up to `DWM_OP_LAST` is passed to the broker; the window token is still checked against the sender's desktop),
+`include/wine/dwm_protocol.h` (`DWM_OP_SET_ATTR`, `DWM_OP_GET_ATTR`), `dlls/dwmapi/dwm_client.c/.h`, `dlls/dwmapi/dwmapi_main.c`,
+`src/programs/dwm/dwm.c`. With a broker, `DwmSetWindowAttribute` also stores the DWORD in the broker and `DwmGetWindowAttribute` reads the broker
+first, so another process sees the value. The process-local table stays as a mirror: it answers without a broker and refills a broker that
+restarted. Entries of destroyed windows are dropped by a sweep. Not done: checkpoint sections for a setter that exited before a broker restart.
+Test: `dlls/dwmapi/tests/dwm_attr.c` via `scripts/dwm-p3-attr-test.sh`.

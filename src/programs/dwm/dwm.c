@@ -39,6 +39,7 @@
 #include "wingdi.h"
 #include "winuser.h"
 #include "winternl.h"
+#include "dwmapi.h"
 #include "wine/dwm_protocol.h"
 
 static NTSTATUS channel_call( struct dwm_channel_call *call )
@@ -51,6 +52,104 @@ static BOOL use_startup_desktop(void)
 {
     /* the process starts on the desktop named in STARTUPINFO, and so does its first thread */
     return GetThreadDesktop( GetCurrentThreadId() ) != NULL;
+}
+
+#ifndef DWMWA_MICA_EFFECT
+#define DWMWA_MICA_EFFECT 1029
+#endif
+
+/* Scalar window attributes, the canonical copy (docs/DWM_ARCHITECTURE.md section 5). The server has already
+ * checked that the window belongs to this desktop; entries of destroyed windows are dropped by the sweep. */
+#define MAX_ATTRS 4096
+
+struct attr_entry { uint32_t hwnd, attribute, value; };
+
+static struct attr_entry attrs[MAX_ATTRS];
+static unsigned int attr_count;
+
+static struct attr_entry *find_attr( uint32_t hwnd, uint32_t attribute )
+{
+    unsigned int i;
+
+    for (i = 0; i < attr_count; i++)
+        if (attrs[i].hwnd == hwnd && attrs[i].attribute == attribute) return &attrs[i];
+    return NULL;
+}
+
+static void sweep_attrs(void)
+{
+    unsigned int i = 0;
+
+    while (i < attr_count)
+    {
+        if (IsWindow( UlongToHandle( attrs[i].hwnd ) )) i++;
+        else attrs[i] = attrs[--attr_count];
+    }
+}
+
+static BOOL valid_attribute( uint32_t attribute )
+{
+    return attribute != 0 && (attribute < DWMWA_LAST || attribute == DWMWA_MICA_EFFECT);
+}
+
+/* buf holds a request (header and payload); on success it holds the reply and *reply_size its size */
+static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t *reply_size )
+{
+    struct dwm_msg_header *hdr = (struct dwm_msg_header *)buf;
+    unsigned char *payload = buf + sizeof(*hdr);
+    struct dwm_attr_reply *rep;
+    struct attr_entry *entry;
+
+    if (size < sizeof(*hdr) || hdr->length != size - sizeof(*hdr)) return STATUS_INVALID_PARAMETER;
+
+    switch (hdr->opcode)
+    {
+    case DWM_OP_ECHO:
+        *reply_size = size;
+        return STATUS_SUCCESS;
+
+    case DWM_OP_SET_ATTR:
+    {
+        struct dwm_attr_set set;
+
+        if (hdr->length != sizeof(set)) return STATUS_INVALID_PARAMETER;
+        memcpy( &set, payload, sizeof(set) );
+        if (!hdr->window_token || !valid_attribute( set.attribute )) return STATUS_INVALID_PARAMETER;
+        if (!(entry = find_attr( hdr->window_token, set.attribute )))
+        {
+            if (attr_count == MAX_ATTRS) sweep_attrs();
+            if (attr_count == MAX_ATTRS) return STATUS_QUOTA_EXCEEDED;
+            entry = &attrs[attr_count++];
+            entry->hwnd      = hdr->window_token;
+            entry->attribute = set.attribute;
+        }
+        entry->value = set.value;
+        rep = (struct dwm_attr_reply *)payload;
+        rep->found = 1;
+        rep->value = set.value;
+        break;
+    }
+
+    case DWM_OP_GET_ATTR:
+    {
+        struct dwm_attr_get get;
+
+        if (hdr->length != sizeof(get)) return STATUS_INVALID_PARAMETER;
+        memcpy( &get, payload, sizeof(get) );
+        entry = hdr->window_token ? find_attr( hdr->window_token, get.attribute ) : NULL;
+        rep = (struct dwm_attr_reply *)payload;
+        rep->found = entry != NULL;
+        rep->value = entry ? entry->value : 0;
+        break;
+    }
+
+    default:
+        return STATUS_NOT_IMPLEMENTED;
+    }
+
+    hdr->length = sizeof(*rep);
+    *reply_size = sizeof(*hdr) + sizeof(*rep);
+    return STATUS_SUCCESS;
 }
 
 static void serve( HANDLE broker, HANDLE parent )
@@ -71,22 +170,23 @@ static void serve( HANDLE broker, HANDLE parent )
         {
             HANDLE objs[2] = { broker, parent };
             DWORD count = parent ? 2 : 1;
-            if (WaitForMultipleObjects( count, objs, FALSE, INFINITE ) == WAIT_OBJECT_0 + 1) return;
+            DWORD wait = WaitForMultipleObjects( count, objs, FALSE, 5000 );
+            if (wait == WAIT_OBJECT_0 + 1) return;
+            if (wait == WAIT_TIMEOUT) sweep_attrs();
             continue;
         }
         if (status != STATUS_SUCCESS) return;  /* revoked, closed or the desktop is gone */
         {
-            const struct dwm_msg_header *hdr = (const struct dwm_msg_header *)buf;
-            uint32_t id = call.request_id, size = call.out_len;
-            BOOL known = size >= sizeof(*hdr) && hdr->opcode == DWM_OP_ECHO;
+            uint32_t id = call.request_id, size = call.out_len, reply_size = 0;
+            NTSTATUS result = handle_request( buf, size, &reply_size );
 
             memset( &call, 0, sizeof(call) );
             call.op         = DWM_CHANNEL_OP_REPLY;
             call.handle     = HandleToUlong( broker );
             call.request_id = id;
-            call.status     = known ? STATUS_SUCCESS : STATUS_NOT_IMPLEMENTED;
-            call.in_ptr     = known ? (uintptr_t)buf : 0;
-            call.in_len     = known ? size : 0;
+            call.status     = result;
+            call.in_ptr     = result ? 0 : (uintptr_t)buf;
+            call.in_len     = result ? 0 : reply_size;
             channel_call( &call );
         }
     }
