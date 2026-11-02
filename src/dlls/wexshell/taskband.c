@@ -814,20 +814,25 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         BOOL changed = FALSE;
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
 
+        TASK_ITEM *hot_item = NULL;
+
         TrackMouseEvent(&tme);
         while (curr)
         {
             BOOL hot = PtInRect(&curr->rect, pt);
             if (hot != curr->hot) { curr->hot = hot; changed = TRUE; }
+            if (hot) hot_item = curr;
             curr = curr->next;
         }
         if (changed) InvalidateRect(hwnd, NULL, FALSE);
+        if (!(wparam & (MK_LBUTTON | MK_RBUTTON))) taskband_preview_hover(hwnd, hot_item);
         return 0;
     }
 
     case WM_MOUSELEAVE:
     {
         TASK_ITEM *curr = g_taskband.tasks;
+        taskband_preview_hide();
         while (curr) { curr->hot = curr->pressed = FALSE; curr = curr->next; }
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
@@ -838,6 +843,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
         TASK_ITEM *curr = g_taskband.tasks;
 
+        taskband_preview_hide();
         while (curr)
         {
             curr->pressed = PtInRect(&curr->rect, pt);
@@ -878,6 +884,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         TASK_ITEM *curr = g_taskband.tasks;
         POINT screen_pt = pt;
         ClientToScreen(hwnd, &screen_pt);
+        taskband_preview_hide();
 
         while (curr)
         {
@@ -921,6 +928,7 @@ static LRESULT CALLBACK taskband_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         break;
 
     case WM_DESTROY:
+        taskband_preview_hide();
         KillTimer(hwnd, 1);
         KillTimer(hwnd, 2);
         return 0;

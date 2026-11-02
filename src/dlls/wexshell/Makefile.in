@@ -28,6 +28,7 @@ SOURCES = \
 	startprops.c \
 	systray.c \
 	taskband.c \
+	taskband_preview.c \
 	toolbars.c \
 	taskbar_props.c \
 	tray_clock.c \

@@ -68,6 +68,10 @@ HWND taskband_create(HWND parent_tray, int x, int y, int width, int height);
 void taskband_destroy(void);
 
 void taskband_resize(int x, int y, int width, int height);
+
+/* taskband_preview.c: live thumbnail above the hovered button (TaskbarThumbnails, composition only) */
+void taskband_preview_hover(HWND band, TASK_ITEM *item);
+void taskband_preview_hide(void);
 void taskband_add_window(HWND hwnd);
 void taskband_remove_window(HWND hwnd);
 void taskband_activate_window(HWND hwnd);

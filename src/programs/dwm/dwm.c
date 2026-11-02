@@ -115,19 +115,20 @@ static void sweep_attrs(void)
     }
 }
 
-/* live thumbnails (docs/DWM_ARCHITECTURE.md, P8): keyed by the registering connection's epoch and the
- * HTHUMBNAIL value; entries of destroyed windows are dropped by the sweep */
-struct thumb_entry { uint64_t epoch; uint32_t handle; struct dwm_thumb thumb; BOOL used; };
+/* live thumbnails (docs/DWM_ARCHITECTURE.md, P8): keyed by the server-stamped sender process and the
+ * HTHUMBNAIL value (handles are per process, so two processes both have handle 1); entries of destroyed
+ * windows are dropped by the sweep, which also covers a process that exited */
+struct thumb_entry { uint32_t pid; uint32_t handle; struct dwm_thumb thumb; BOOL used; };
 
 static struct thumb_entry thumbs[DWM_THUMB_MAX];
 static uint64_t thumb_revision = 1;
 
-static struct thumb_entry *find_thumb( uint64_t epoch, uint32_t handle )
+static struct thumb_entry *find_thumb( uint32_t pid, uint32_t handle )
 {
     unsigned int i;
 
     for (i = 0; i < DWM_THUMB_MAX; i++)
-        if (thumbs[i].used && thumbs[i].epoch == epoch && thumbs[i].handle == handle) return &thumbs[i];
+        if (thumbs[i].used && thumbs[i].pid == pid && thumbs[i].handle == handle) return &thumbs[i];
     return NULL;
 }
 
@@ -153,7 +154,7 @@ static BOOL valid_attribute( uint32_t attribute )
 }
 
 /* buf holds a request (header and payload); on success it holds the reply and *reply_size its size */
-static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t *reply_size )
+static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t sender_pid, uint32_t *reply_size )
 {
     struct dwm_msg_header *hdr = (struct dwm_msg_header *)buf;
     unsigned char *payload = buf + sizeof(*hdr);
@@ -294,13 +295,13 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t *rep
             return STATUS_INVALID_PARAMETER;
         if (set.opacity > 255) return STATUS_INVALID_PARAMETER;
         if (set.dest[2] < set.dest[0] || set.dest[3] < set.dest[1]) return STATUS_INVALID_PARAMETER;
-        if (!(tentry = find_thumb( hdr->connection_epoch, set.handle )))
+        if (!(tentry = find_thumb( sender_pid, set.handle )))
         {
             for (i = 0; i < DWM_THUMB_MAX; i++)
                 if (!thumbs[i].used) break;
             if (i == DWM_THUMB_MAX) return STATUS_QUOTA_EXCEEDED;
             tentry = &thumbs[i];
-            tentry->epoch  = hdr->connection_epoch;
+            tentry->pid    = sender_pid;
             tentry->handle = set.handle;
             tentry->used   = TRUE;
         }
@@ -323,7 +324,7 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t *rep
 
         if (hdr->length != sizeof(del)) return STATUS_INVALID_PARAMETER;
         memcpy( &del, payload, sizeof(del) );
-        if (!(tentry = find_thumb( hdr->connection_epoch, del.handle ))) return STATUS_NOT_FOUND;
+        if (!(tentry = find_thumb( sender_pid, del.handle ))) return STATUS_NOT_FOUND;
         tentry->used = FALSE;
         thumb_revision++;
         hdr->length  = 0;
@@ -400,7 +401,7 @@ static void serve( HANDLE broker, HANDLE parent )
         if (status != STATUS_SUCCESS) return;  /* revoked, closed or the desktop is gone */
         {
             uint32_t id = call.request_id, size = call.out_len, reply_size = 0;
-            NTSTATUS result = handle_request( buf, size, &reply_size );
+            NTSTATUS result = handle_request( buf, size, call.sender_pid, &reply_size );
 
             memset( &call, 0, sizeof(call) );
             call.op         = DWM_CHANNEL_OP_REPLY;
