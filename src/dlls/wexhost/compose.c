@@ -152,11 +152,14 @@ struct window
     unsigned int corner;
     Damage damage;
     unsigned long opacity;
+    BOOL glass;
+    int client[4];
+    int margin[4];
 };
 
 static Display *dpy;
 static Window root, desktop, owner, overlay;
-static Atom selection, opacity_atom, shadow_atom;
+static Atom selection, opacity_atom, shadow_atom, margins_atom;
 static int *x_error, damage_base, shape_base;
 static BOOL enabled, redirected_root, redirected_desktop, tree_dirty, full_repaint, dirty;
 static BOOL libraries_tried, libraries_loaded;
@@ -347,6 +350,35 @@ static void update_opacity( struct window *w )
     }
 }
 
+/* DWM glass margins (P7a): the client rectangle and the four margins, in window coordinates.
+ * A margin of -1 (0xffffffff) means the whole client area is glass. */
+static void update_margins( struct window *w )
+{
+    Atom actual;
+    int format;
+    unsigned long count, left;
+    unsigned char *data = NULL;
+    if (pXGetWindowProperty( dpy, w->id, margins_atom, 0, 8, False, XA_CARDINAL,
+                             &actual, &format, &count, &left, &data ) == Success &&
+        actual == XA_CARDINAL && format == 32 && count == 8)
+    {
+        unsigned long *values = (unsigned long *)data;
+        w->glass = TRUE;
+        w->client[0] = values[0];
+        w->client[1] = values[1];
+        w->client[2] = values[2];
+        w->client[3] = values[3];
+        w->margin[0] = (int)values[4];
+        w->margin[1] = (int)values[5];
+        w->margin[2] = (int)values[6];
+        w->margin[3] = (int)values[7];
+    }
+    else w->glass = FALSE;
+    if (w->glass) TRACE( "glass %lx depth %d client %d,%d %dx%d\n", w->id, w->attr.depth,
+                         w->client[0], w->client[1], w->client[2], w->client[3] );
+    if (data) pXFree( data );
+}
+
 static struct window *track_window( Window id, Window parent )
 {
     struct window *w = find_window( id );
@@ -383,6 +415,7 @@ static struct window *track_window( Window id, Window parent )
     /* mapped again on screen: live pixels from now on (Wine maps a minimized window off screen, at -32000) */
     if (!is_offscreen( w )) drop_retained( id );
     update_opacity( w );
+    update_margins( w );
     w->shadow = !!get_cardinal( w->id, shadow_atom, 0 );
     return w;
 }
@@ -704,15 +737,66 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
             pXFree( rects );
         }
     }
-    pXFixesTranslateRegion( dpy, shape, w->x, w->y );
-    pXFixesIntersectRegion( dpy, clip, damage_region, shape );
-    if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
-    pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
-    /* A uniform alpha mask also requires Over for an otherwise opaque visual. */
-    pXRenderComposite( dpy, w->attr.depth == 32 || w->alpha ? PictOpOver : PictOpSrc,
-                       w->picture, w->alpha, back_picture, 0, 0, 0, 0,
-                       w->x - border, w->y - border,
-                       w->attr.width + 2 * border, w->attr.height + 2 * border );
+    if (w->glass && w->attr.depth == 32)
+    {
+        XserverRegion glass;
+        XRectangle client_rect, inner_rect;
+        BOOL full_glass = (w->margin[0] == -1 || w->margin[1] == -1 ||
+                           w->margin[2] == -1 || w->margin[3] == -1);
+
+        client_rect.x = w->client[0];
+        client_rect.y = w->client[1];
+        client_rect.width = w->client[2];
+        client_rect.height = w->client[3];
+        glass = pXFixesCreateRegion( dpy, &client_rect, 1 );
+        if (!full_glass)
+        {
+            /* XRectangle sizes are unsigned: clamp before storing */
+            int inner_w = w->client[2] - w->margin[0] - w->margin[1];
+            int inner_h = w->client[3] - w->margin[2] - w->margin[3];
+            inner_rect.x = w->client[0] + w->margin[0];
+            inner_rect.y = w->client[1] + w->margin[2];
+            inner_rect.width = max( inner_w, 0 );
+            inner_rect.height = max( inner_h, 0 );
+            {
+                XserverRegion inner = pXFixesCreateRegion( dpy, &inner_rect, 1 );
+                pXFixesSubtractRegion( dpy, glass, glass, inner );
+                pXFixesDestroyRegion( dpy, inner );
+            }
+        }
+        /* clip the glass region to the window shape, then move both to root coordinates */
+        pXFixesIntersectRegion( dpy, glass, glass, shape );
+        pXFixesTranslateRegion( dpy, shape, w->x, w->y );
+        pXFixesTranslateRegion( dpy, glass, w->x, w->y );
+        /* the opaque part (shape minus glass) keeps its colors: the back buffer has no alpha */
+        pXFixesIntersectRegion( dpy, clip, damage_region, shape );
+        if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
+        pXFixesSubtractRegion( dpy, clip, clip, glass );
+        pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+        pXRenderComposite( dpy, PictOpSrc, w->picture, w->alpha, back_picture, 0, 0, 0, 0,
+                           w->x - border, w->y - border,
+                           w->attr.width + 2 * border, w->attr.height + 2 * border );
+        /* the glass part blends with what is below, so the desktop shows through */
+        pXFixesIntersectRegion( dpy, clip, damage_region, glass );
+        if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
+        pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+        pXRenderComposite( dpy, PictOpOver, w->picture, w->alpha, back_picture, 0, 0, 0, 0,
+                           w->x - border, w->y - border,
+                           w->attr.width + 2 * border, w->attr.height + 2 * border );
+        pXFixesDestroyRegion( dpy, glass );
+    }
+    else
+    {
+        pXFixesTranslateRegion( dpy, shape, w->x, w->y );
+        pXFixesIntersectRegion( dpy, clip, damage_region, shape );
+        if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
+        pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+        /* A uniform alpha mask also requires Over for an otherwise opaque visual. */
+        pXRenderComposite( dpy, w->attr.depth == 32 || w->alpha ? PictOpOver : PictOpSrc,
+                           w->picture, w->alpha, back_picture, 0, 0, 0, 0,
+                           w->x - border, w->y - border,
+                           w->attr.width + 2 * border, w->attr.height + 2 * border );
+    }
     pXFixesDestroyRegion( dpy, shape );
     paint_thumbnails( w );
 }
@@ -922,6 +1006,7 @@ DWORD compose_set( void *display, unsigned long root_window, unsigned long deskt
     selection = pXInternAtom( dpy, name, False );
     opacity_atom = pXInternAtom( dpy, "_NET_WM_WINDOW_OPACITY", False );
     shadow_atom = pXInternAtom( dpy, "_WEX_DROPSHADOW", False );
+    margins_atom = pXInternAtom( dpy, "_WEX_DWM_MARGINS", False );
     /* Selection check/claim is atomic with respect to other X clients. */
     pXGrabServer( dpy );
     if (pXGetSelectionOwner( dpy, selection ))
@@ -1027,6 +1112,11 @@ void compose_event( void *xevent )
         if (event->xproperty.atom == opacity_atom && (w = find_window( event->xproperty.window )))
         {
             update_opacity( w );
+            full_repaint = dirty = TRUE;
+        }
+        if (event->xproperty.atom == margins_atom && (w = find_window( event->xproperty.window )))
+        {
+            update_margins( w );
             full_repaint = dirty = TRUE;
         }
         return;

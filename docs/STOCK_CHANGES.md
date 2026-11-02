@@ -1449,3 +1449,18 @@ counter, `DWM_OP_THUMB_SET/DEL/LIST`, and a sweep that drops thumbnails whose de
 `DwmUpdateThumbnailProperties` publishes the merged properties to the broker and `DwmUnregisterThumbnail` deletes them; the broker is
 never called while holding `thumbnail_cs`), test `dlls/dwmapi/tests/dwm_thumb.c` (skips without a broker). The protocol in
 `include/wine/dwm_protocol.h` is unchanged.
+
+## dwmapi/winex11: glass margins (DwmAlpha) (2026-11-02)
+
+`dlls/dwmapi/dwmapi_main.c`, `dlls/winex11.drv/bitblt.c`, `window.c`, `x11drv.h`, `x11drv_main.c`. With
+`HKCU\Software\WineExplorer\Shell\DwmAlpha` non-zero (read once per process), `DwmExtendFrameIntoClientArea`
+stores the four margins as window properties (`__wine_dwm_margin_*`, a -1 "sheet of glass" stored as 0x10000)
+and `__wine_dwm_alpha`, and removes them for all-zero margins, then sends `SWP_FRAMECHANGED | SWP_NOCOPYBITS` so
+the driver recreates the surface and the client repaints (pixels drawn before the switch carry a forced opaque
+alpha); it still returns S_OK for every input. The surface keeps the pixels' own alpha when flushing (`keep_alpha`). The X11 driver selects the ARGB visual for such
+windows (and back to the default visual when the margins are removed), avoids reusing a stale surface when the
+glass state changes, and publishes the client rectangle and decoded margins on the whole window as
+`_WEX_DWM_MARGINS` (CARDINAL, 8 values), refreshed on position changes. The X11 compositor
+(`src/dlls/wexhost/compose.c`) paints the margin bands with `PictOpOver` (the alpha shows the desktop) and the
+rest with `PictOpSrc`. Off by default; the conformance test (`dlls/dwmapi/tests/dwmapi.c`) is unchanged.
+Visual check: `scripts/dwm-glass-visual-probe.c`.
