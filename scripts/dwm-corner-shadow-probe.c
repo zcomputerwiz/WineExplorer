@@ -81,6 +81,7 @@ static void init_output(const char *path)
     }
     CreateDirectoryA("Z:\\tmp", NULL);
     g_file_out = freopen(path, "w", stdout);
+    if (!g_file_out) g_file_out = freopen(strrchr(path, '\\') + 1, "w", stdout);  /* no Z: on Windows: use the current directory */
     if (g_file_out)
         setvbuf(stdout, NULL, _IONBF, 0);
 }
