@@ -63,6 +63,25 @@ clearly between active and inactive (darker and taller when active) and is much 
 
 ## Backdrop (`dwm-backdrop-color-probe`)
 
-The first run sampled white everywhere (the test window painted white over the backdrop), so it shows nothing about Mica or
-Acrylic. The probe is being fixed (client area painted black, frame extended before showing). Colorization on this machine:
-`ColorizationColor` 0xE3BC000B, opaque blend on. Results will be added here.
+A test window with the frame extended into the whole client area (margins -1) and the client painted black, over a calibrated
+window (left half RGB 255,0,0, right half RGB 0,0,255). Values are screen pixels at 9 points across the window (left, middle,
+right shown); `ColorizationColor` on this machine is 0xE3BC000B with opaque blend on.
+
+| Backdrop type | Light mode (left / middle / right) | Dark mode (left / middle / right) |
+| --- | --- | --- |
+| None (1) | 255,255,255 everywhere | 0,0,0 everywhere |
+| Main window, Mica (2) | 249,241,236 / 249,241,236 / 249,241,237 | 35,31,28 / 36,31,27 / 37,31,27 |
+| Tabbed, Mica Alt (4) | 227,216,208 / 229,215,206 / 229,214,206 | 19,8,0 / 19,7,0 / 20,7,0 |
+| Transient, Acrylic (3) | 255,123,123 / 207,116,210 / 132,132,255 | 255,7,7 / 146,20,149 / 40,40,255 |
+
+What this shows:
+- Mica (2) and tabbed (4) do not depend on the windows behind (the red and blue halves give the same colour): they take the
+  desktop wallpaper, strongly blurred, with a tint. Tabbed is darker than Mica in light mode and nearly black in dark mode.
+  The colour is slightly warm, from the wallpaper and the accent colour.
+- Acrylic (3) does follow what is behind: red behind gives 255,123,123 in light mode, which is red mixed with about 48% white,
+  and blue gives 132,132,255. In dark mode the tint is much weaker (255,7,7 over red), i.e. a dark overlay of a few percent.
+  The middle point (207,116,210) is the blurred red-to-blue transition, so the blur radius is at least several pixels.
+- Without a backdrop the extended client area is the plain frame colour (white or black by the dark-mode setting).
+
+Not measured: the blur radius in pixels (the checkerboard strip is in the data; a fit is still to be done), noise or luminosity
+layers, and how the tint depends on `ColorizationColor` and the wallpaper.

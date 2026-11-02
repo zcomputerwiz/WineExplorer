@@ -54,6 +54,8 @@ typedef HRESULT (WINAPI *pfn_DwmExtendFrameIntoClientArea)(HWND, const MARGINS *
 typedef HRESULT (WINAPI *pfn_DwmFlush)(void);
 typedef HANDLE (WINAPI *pfn_SetThreadDpiAwarenessContext)(HANDLE);
 
+static const MARGINS g_margins_neg1 = {-1, -1, -1, -1};
+
 static FILE *g_con_out = NULL;
 static FILE *g_file_out = NULL;
 static pfn_DwmGetColorizationColor pDwmGetColorizationColor = NULL;
@@ -107,6 +109,107 @@ static void pump_messages(void)
     }
 }
 
+static void wait_compose(int ms)
+{
+    int i;
+    for (i = 0; i < ms / 10; i++)
+    {
+        Sleep(10);
+        pump_messages();
+    }
+}
+
+static void sample_region(int left, int top, int w, int h,
+                          int *pt_r, int *pt_g, int *pt_b,
+                          double *mean_r, double *mean_g, double *mean_b,
+                          double *lq_r, double *lq_g, double *lq_b,
+                          double *rq_r, double *rq_g, double *rq_b)
+{
+    HDC hdc_scr, hdc_mem;
+    BITMAPINFO bmi;
+    void *dib_bits = NULL;
+    HBITMAP hdib, old_bmp;
+    const DWORD *pixels;
+    int x, y, i;
+    double sum_r = 0.0, sum_g = 0.0, sum_b = 0.0, total_n = 0.0;
+    double l_sum_r = 0.0, l_sum_g = 0.0, l_sum_b = 0.0, l_n = 0.0;
+    double r_sum_r = 0.0, r_sum_g = 0.0, r_sum_b = 0.0, r_n = 0.0;
+
+    hdc_scr = GetDC(NULL);
+    hdc_mem = CreateCompatibleDC(hdc_scr);
+    memset(&bmi, 0, sizeof(bmi));
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    hdib = CreateDIBSection(hdc_scr, &bmi, DIB_RGB_COLORS, &dib_bits, NULL, 0);
+    old_bmp = (HBITMAP)SelectObject(hdc_mem, hdib);
+    BitBlt(hdc_mem, 0, 0, w, h, hdc_scr, left, top, SRCCOPY | CAPTUREBLT);
+    GdiFlush();
+
+    pixels = (const DWORD *)dib_bits;
+    for (i = 0; i < 9; i++)
+    {
+        int gx = ((i % 3) + 1) * w / 4;
+        int gy = ((i / 3) + 1) * h / 4;
+        DWORD px = pixels[gy * w + gx];
+        pt_r[i] = (int)((px >> 16) & 0xff);
+        pt_g[i] = (int)((px >> 8) & 0xff);
+        pt_b[i] = (int)(px & 0xff);
+    }
+
+    for (y = 0; y < h; y++)
+    {
+        for (x = 0; x < w; x++)
+        {
+            DWORD px = pixels[y * w + x];
+            int r = (int)((px >> 16) & 0xff);
+            int g = (int)((px >> 8) & 0xff);
+            int b = (int)(px & 0xff);
+            sum_r += r;
+            sum_g += g;
+            sum_b += b;
+            total_n += 1.0;
+            if (x < w / 4)
+            {
+                l_sum_r += r;
+                l_sum_g += g;
+                l_sum_b += b;
+                l_n += 1.0;
+            }
+            else if (x >= (3 * w) / 4)
+            {
+                r_sum_r += r;
+                r_sum_g += g;
+                r_sum_b += b;
+                r_n += 1.0;
+            }
+        }
+    }
+
+    if (total_n < 1.0) total_n = 1.0;
+    if (l_n < 1.0) l_n = 1.0;
+    if (r_n < 1.0) r_n = 1.0;
+
+    *mean_r = sum_r / total_n;
+    *mean_g = sum_g / total_n;
+    *mean_b = sum_b / total_n;
+    *lq_r = l_sum_r / l_n;
+    *lq_g = l_sum_g / l_n;
+    *lq_b = l_sum_b / l_n;
+    *rq_r = r_sum_r / r_n;
+    *rq_g = r_sum_g / r_n;
+    *rq_b = r_sum_b / r_n;
+
+    SelectObject(hdc_mem, old_bmp);
+    DeleteObject(hdib);
+    DeleteDC(hdc_mem);
+    ReleaseDC(NULL, hdc_scr);
+}
+
 static void paint_calibrated_backdrop(HWND hwnd, HDC hdc)
 {
     RECT rc, r_left, r_right, r_cell;
@@ -134,9 +237,9 @@ static void paint_calibrated_backdrop(HWND hwnd, HDC hdc)
     r_right.bottom = h;
     FillRect(hdc, &r_right, br_blue);
 
-    /* 16 px checkerboard strip across horizontal center */
-    strip_y0 = (h / 2) - 16;
-    strip_y1 = (h / 2) + 16;
+    /* 16 px checkerboard strip along the top */
+    strip_y0 = 0;
+    strip_y1 = 16;
     for (y = strip_y0; y < strip_y1; y += 16)
     {
         for (x = 0; x < w; x += 16)
@@ -175,11 +278,19 @@ static LRESULT CALLBACK bg_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 static LRESULT CALLBACK fg_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     if (msg == WM_ERASEBKGND)
+    {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        FillRect((HDC)wp, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
         return 1;
+    }
     if (msg == WM_PAINT)
     {
         PAINTSTRUCT ps;
-        BeginPaint(hwnd, &ps);
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -188,20 +299,18 @@ static LRESULT CALLBACK fg_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
 static void run_backdrop_case(HWND hwnd_bg, HWND hwnd_fg, DWORD sbt, BOOL dark_mode)
 {
-    static const MARGINS margins_neg1 = {-1, -1, -1, -1};
     HRESULT hr_dark = NOT_FOUND, hr_sbt = NOT_FOUND, hr_ext = NOT_FOUND;
     DWORD read_sbt = 0;
     RECT rc_cli = {0};
-    int cw, ch, x, y, i;
-    HDC hdc_scr, hdc_mem;
-    BITMAPINFO bmi;
-    void *dib_bits = NULL;
-    HBITMAP hdib, old_bmp;
-    const DWORD *pixels;
+    int cw, ch;
     int pt_r[9] = {0}, pt_g[9] = {0}, pt_b[9] = {0};
-    double sum_r = 0.0, sum_g = 0.0, sum_b = 0.0, total_n = 0.0;
-    double l_sum_r = 0.0, l_sum_g = 0.0, l_sum_b = 0.0, l_n = 0.0;
-    double r_sum_r = 0.0, r_sum_g = 0.0, r_sum_b = 0.0, r_n = 0.0;
+    int ref_r[9] = {0}, ref_g[9] = {0}, ref_b[9] = {0};
+    double mean_r = 0.0, mean_g = 0.0, mean_b = 0.0;
+    double lq_r = 0.0, lq_g = 0.0, lq_b = 0.0;
+    double rq_r = 0.0, rq_g = 0.0, rq_b = 0.0;
+    double ref_mean_r = 0.0, ref_mean_g = 0.0, ref_mean_b = 0.0;
+    double ref_lq_r = 0.0, ref_lq_g = 0.0, ref_lq_b = 0.0;
+    double ref_rq_r = 0.0, ref_rq_g = 0.0, ref_rq_b = 0.0;
 
     if (pDwmSetWindowAttribute)
     {
@@ -212,11 +321,14 @@ static void run_backdrop_case(HWND hwnd_bg, HWND hwnd_fg, DWORD sbt, BOOL dark_m
     }
     if (pDwmGetWindowAttribute)
         pDwmGetWindowAttribute(hwnd_fg, DWMWA_SYSTEMBACKDROP_TYPE, &read_sbt, sizeof(read_sbt));
+    /* Re-extend the frame after the backdrop attributes change. */
     if (pDwmExtendFrameIntoClientArea)
-        hr_ext = pDwmExtendFrameIntoClientArea(hwnd_fg, &margins_neg1);
+        hr_ext = pDwmExtendFrameIntoClientArea(hwnd_fg, &g_margins_neg1);
 
-    SetWindowPos(hwnd_bg, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    SetWindowPos(hwnd_fg, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    /* Keep both windows topmost, backdrop behind the test window. */
+    SetWindowPos(hwnd_bg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos(hwnd_fg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    ShowWindow(hwnd_fg, SW_SHOW);
     SetForegroundWindow(hwnd_fg);
     SetActiveWindow(hwnd_fg);
     InvalidateRect(hwnd_bg, NULL, TRUE);
@@ -227,8 +339,8 @@ static void run_backdrop_case(HWND hwnd_bg, HWND hwnd_fg, DWORD sbt, BOOL dark_m
     if (pDwmFlush)
         pDwmFlush();
 
-    Sleep(300);
-    pump_messages();
+    /* Let DWM composite the system backdrop before sampling. */
+    wait_compose(600);
 
     GetClientRect(hwnd_fg, &rc_cli);
     MapWindowPoints(hwnd_fg, NULL, (POINT *)&rc_cli, 2);
@@ -237,64 +349,28 @@ static void run_backdrop_case(HWND hwnd_bg, HWND hwnd_fg, DWORD sbt, BOOL dark_m
     if (cw <= 0 || ch <= 0)
         return;
 
-    hdc_scr = GetDC(NULL);
-    hdc_mem = CreateCompatibleDC(hdc_scr);
-    memset(&bmi, 0, sizeof(bmi));
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = cw;
-    bmi.bmiHeader.biHeight = -ch;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
+    sample_region(rc_cli.left, rc_cli.top, cw, ch,
+                  pt_r, pt_g, pt_b,
+                  &mean_r, &mean_g, &mean_b,
+                  &lq_r, &lq_g, &lq_b,
+                  &rq_r, &rq_g, &rq_b);
 
-    hdib = CreateDIBSection(hdc_scr, &bmi, DIB_RGB_COLORS, &dib_bits, NULL, 0);
-    old_bmp = (HBITMAP)SelectObject(hdc_mem, hdib);
-    BitBlt(hdc_mem, 0, 0, cw, ch, hdc_scr, rc_cli.left, rc_cli.top, SRCCOPY | CAPTUREBLT);
-    GdiFlush();
-
-    pixels = (const DWORD *)dib_bits;
-    for (i = 0; i < 9; i++)
-    {
-        int gx = ((i % 3) + 1) * cw / 4;
-        int gy = ((i / 3) + 1) * ch / 4;
-        DWORD px = pixels[gy * cw + gx];
-        pt_r[i] = (int)((px >> 16) & 0xff);
-        pt_g[i] = (int)((px >> 8) & 0xff);
-        pt_b[i] = (int)(px & 0xff);
-    }
-
-    for (y = 0; y < ch; y++)
-    {
-        for (x = 0; x < cw; x++)
-        {
-            DWORD px = pixels[y * cw + x];
-            int r = (int)((px >> 16) & 0xff);
-            int g = (int)((px >> 8) & 0xff);
-            int b = (int)(px & 0xff);
-            sum_r += r;
-            sum_g += g;
-            sum_b += b;
-            total_n += 1.0;
-            if (x < cw / 4)
-            {
-                l_sum_r += r;
-                l_sum_g += g;
-                l_sum_b += b;
-                l_n += 1.0;
-            }
-            else if (x >= (3 * cw) / 4)
-            {
-                r_sum_r += r;
-                r_sum_g += g;
-                r_sum_b += b;
-                r_n += 1.0;
-            }
-        }
-    }
-
-    if (total_n < 1.0) total_n = 1.0;
-    if (l_n < 1.0) l_n = 1.0;
-    if (r_n < 1.0) r_n = 1.0;
+    /* Reference: same 9 points with the test window hidden (backdrop window alone). */
+    ShowWindow(hwnd_fg, SW_HIDE);
+    pump_messages();
+    if (pDwmFlush)
+        pDwmFlush();
+    wait_compose(600);
+    sample_region(rc_cli.left, rc_cli.top, cw, ch,
+                  ref_r, ref_g, ref_b,
+                  &ref_mean_r, &ref_mean_g, &ref_mean_b,
+                  &ref_lq_r, &ref_lq_g, &ref_lq_b,
+                  &ref_rq_r, &ref_rq_g, &ref_rq_b);
+    ShowWindow(hwnd_fg, SW_SHOW);
+    pump_messages();
+    if (pDwmFlush)
+        pDwmFlush();
+    wait_compose(600);
 
     emit_line("backdrop=%lu read_backdrop=%lu dark_mode=%d "
               "sbt_hr=0x%08lx dark_hr=0x%08lx ext_hr=0x%08lx "
@@ -304,23 +380,36 @@ static void run_backdrop_case(HWND hwnd_bg, HWND hwnd_fg, DWORD sbt, BOOL dark_m
               "mean_r=%.2f mean_g=%.2f mean_b=%.2f "
               "left_q_r=%.2f left_q_g=%.2f left_q_b=%.2f "
               "right_q_r=%.2f right_q_g=%.2f right_q_b=%.2f "
-              "grad_r=%.2f grad_g=%.2f grad_b=%.2f\n",
+              "grad_r=%.2f grad_g=%.2f grad_b=%.2f "
+              "ref_p0_r=%d ref_p0_g=%d ref_p0_b=%d "
+              "ref_p1_r=%d ref_p1_g=%d ref_p1_b=%d "
+              "ref_p2_r=%d ref_p2_g=%d ref_p2_b=%d "
+              "ref_p3_r=%d ref_p3_g=%d ref_p3_b=%d "
+              "ref_p4_r=%d ref_p4_g=%d ref_p4_b=%d "
+              "ref_p5_r=%d ref_p5_g=%d ref_p5_b=%d "
+              "ref_p6_r=%d ref_p6_g=%d ref_p6_b=%d "
+              "ref_p7_r=%d ref_p7_g=%d ref_p7_b=%d "
+              "ref_p8_r=%d ref_p8_g=%d ref_p8_b=%d\n",
               (unsigned long)sbt, (unsigned long)read_sbt, (int)dark_mode,
               (unsigned long)hr_sbt, (unsigned long)hr_dark, (unsigned long)hr_ext,
               pt_r[0], pt_g[0], pt_b[0], pt_r[1], pt_g[1], pt_b[1], pt_r[2], pt_g[2], pt_b[2],
               pt_r[3], pt_g[3], pt_b[3], pt_r[4], pt_g[4], pt_b[4], pt_r[5], pt_g[5], pt_b[5],
               pt_r[6], pt_g[6], pt_b[6], pt_r[7], pt_g[7], pt_b[7], pt_r[8], pt_g[8], pt_b[8],
-              sum_r / total_n, sum_g / total_n, sum_b / total_n,
-              l_sum_r / l_n, l_sum_g / l_n, l_sum_b / l_n,
-              r_sum_r / r_n, r_sum_g / r_n, r_sum_b / r_n,
-              (r_sum_r / r_n) - (l_sum_r / l_n),
-              (r_sum_g / r_n) - (l_sum_g / l_n),
-              (r_sum_b / r_n) - (l_sum_b / l_n));
-
-    SelectObject(hdc_mem, old_bmp);
-    DeleteObject(hdib);
-    DeleteDC(hdc_mem);
-    ReleaseDC(NULL, hdc_scr);
+              mean_r, mean_g, mean_b,
+              lq_r, lq_g, lq_b,
+              rq_r, rq_g, rq_b,
+              rq_r - lq_r,
+              rq_g - lq_g,
+              rq_b - lq_b,
+              ref_r[0], ref_g[0], ref_b[0],
+              ref_r[1], ref_g[1], ref_b[1],
+              ref_r[2], ref_g[2], ref_b[2],
+              ref_r[3], ref_g[3], ref_b[3],
+              ref_r[4], ref_g[4], ref_b[4],
+              ref_r[5], ref_g[5], ref_b[5],
+              ref_r[6], ref_g[6], ref_b[6],
+              ref_r[7], ref_g[7], ref_b[7],
+              ref_r[8], ref_g[8], ref_b[8]);
 }
 
 int main(void)
@@ -333,7 +422,7 @@ int main(void)
     DWORD col_val = 0;
     BOOL col_opaque = FALSE;
     HRESULT hr_col = NOT_FOUND;
-    int i, d;
+    int i, d, sw, sh;
 
     init_output("Z:\\tmp\\dwm-backdrop-color-probe.txt");
 
@@ -373,17 +462,31 @@ int main(void)
     wc_fg.lpfnWndProc = fg_wndproc;
     wc_fg.hInstance = wc_bg.hInstance;
     wc_fg.lpszClassName = "dwm_bc_fg_cls";
-    wc_fg.hbrBackground = NULL;
+    wc_fg.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RegisterClassA(&wc_fg);
 
-    hwnd_bg = CreateWindowExA(0, wc_bg.lpszClassName, "", WS_POPUP | WS_VISIBLE,
-                              100, 100, 600, 400, NULL, NULL, wc_bg.hInstance, NULL);
-    hwnd_fg = CreateWindowExA(0, wc_fg.lpszClassName, "", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                              200, 150, 400, 300, hwnd_bg, NULL, wc_bg.hInstance, NULL);
+    sw = GetSystemMetrics(SM_CXSCREEN);
+    sh = GetSystemMetrics(SM_CYSCREEN);
 
+    /* Fullscreen calibrated backdrop window; the test window is centered on it so
+       its client area straddles the red/blue split. Both are top-level so the
+       HWND_TOPMOST z-order (backdrop behind, test window above) is well defined. */
+    hwnd_bg = CreateWindowExA(0, wc_bg.lpszClassName, "", WS_POPUP,
+                              0, 0, sw, sh, NULL, NULL, wc_bg.hInstance, NULL);
+    hwnd_fg = CreateWindowExA(0, wc_fg.lpszClassName, "", WS_OVERLAPPEDWINDOW,
+                              (sw - 400) / 2, (sh - 300) / 2, 400, 300,
+                              NULL, NULL, wc_bg.hInstance, NULL);
+
+    /* Extend the frame before the window is shown so DWM treats the black
+       client pixels as transparent backdrop areas. */
+    if (pDwmExtendFrameIntoClientArea)
+        pDwmExtendFrameIntoClientArea(hwnd_fg, &g_margins_neg1);
+
+    SetWindowPos(hwnd_bg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    SetWindowPos(hwnd_fg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     ShowWindow(hwnd_bg, SW_SHOW);
     ShowWindow(hwnd_fg, SW_SHOW);
-    pump_messages();
+    wait_compose(600);
 
     for (i = 0; i < 4; i++)
     {
