@@ -153,6 +153,7 @@ struct window
     Damage damage;
     unsigned long opacity;
     BOOL glass;
+    BOOL frame_glass;
     int client[4];
     int margin[4];
     unsigned int backdrop;   /* WEX_BACKDROP_* */
@@ -352,19 +353,21 @@ static void update_opacity( struct window *w )
 }
 
 /* DWM glass margins (P7a): the client rectangle and the four margins, in window coordinates.
- * A margin of -1 (0xffffffff) means the whole client area is glass. */
+ * A margin of -1 (0xffffffff) means the whole client area is glass. The 9th value is a flags word:
+ * bit 0 means the frame is glass too (P10b). */
 static void update_margins( struct window *w )
 {
     Atom actual;
     int format;
     unsigned long count, left;
     unsigned char *data = NULL;
-    if (pXGetWindowProperty( dpy, w->id, margins_atom, 0, 8, False, XA_CARDINAL,
+    if (pXGetWindowProperty( dpy, w->id, margins_atom, 0, 9, False, XA_CARDINAL,
                              &actual, &format, &count, &left, &data ) == Success &&
-        actual == XA_CARDINAL && format == 32 && count == 8)
+        actual == XA_CARDINAL && format == 32 && (count == 8 || count == 9))
     {
         unsigned long *values = (unsigned long *)data;
         w->glass = TRUE;
+        w->frame_glass = count == 9 && (values[8] & 1);
         w->client[0] = values[0];
         w->client[1] = values[1];
         w->client[2] = values[2];
@@ -374,9 +377,13 @@ static void update_margins( struct window *w )
         w->margin[2] = (int)values[6];
         w->margin[3] = (int)values[7];
     }
-    else w->glass = FALSE;
-    if (w->glass) TRACE( "glass %lx depth %d client %d,%d %dx%d\n", w->id, w->attr.depth,
-                         w->client[0], w->client[1], w->client[2], w->client[3] );
+    else
+    {
+        w->glass = FALSE;
+        w->frame_glass = FALSE;
+    }
+    if (w->glass) TRACE( "glass %lx depth %d client %d,%d %dx%d frame %d\n", w->id, w->attr.depth,
+                         w->client[0], w->client[1], w->client[2], w->client[3], w->frame_glass );
     if (data) pXFree( data );
 }
 
@@ -861,15 +868,26 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
     if (w->glass && w->attr.depth == 32)
     {
         XserverRegion glass;
-        XRectangle client_rect, inner_rect;
+        XRectangle glass_rect, inner_rect;
         BOOL full_glass = (w->margin[0] == -1 || w->margin[1] == -1 ||
                            w->margin[2] == -1 || w->margin[3] == -1);
 
-        client_rect.x = w->client[0];
-        client_rect.y = w->client[1];
-        client_rect.width = w->client[2];
-        client_rect.height = w->client[3];
-        glass = pXFixesCreateRegion( dpy, &client_rect, 1 );
+        if (w->frame_glass)
+        {
+            /* the frame is glass too (P10b): the glass region starts as the whole window */
+            glass_rect.x = 0;
+            glass_rect.y = 0;
+            glass_rect.width = w->attr.width + 2 * border;
+            glass_rect.height = w->attr.height + 2 * border;
+        }
+        else
+        {
+            glass_rect.x = w->client[0];
+            glass_rect.y = w->client[1];
+            glass_rect.width = w->client[2];
+            glass_rect.height = w->client[3];
+        }
+        glass = pXFixesCreateRegion( dpy, &glass_rect, 1 );
         if (!full_glass)
         {
             /* XRectangle sizes are unsigned: clamp before storing */

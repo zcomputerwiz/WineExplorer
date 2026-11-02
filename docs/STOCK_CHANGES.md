@@ -1476,3 +1476,16 @@ top-level windows get a flat Windows 10/11-style opaque caption: DPI-scaled line
 values, dark mode and caption/text/border colors from `DwmSetWindowAttribute`, tool and maximized variants, matching
 hit testing. Gate off: unchanged. ncframe 11 (off) and 31 (on) pass on x86_64 and i386. Visual check:
 `scripts/dwm-frame-visual-probe.c`. Known: a one-pixel light strip at the top right of a colored caption.
+
+## dwmapi/winex11/uxtheme: glass frames (DwmAlpha + DwmFrameEffects) (2026-11-02)
+
+`dlls/dwmapi/dwmapi_main.c`, `dlls/winex11.drv/window.c`, `dlls/uxtheme/window.c`. With both gates on,
+`DwmExtendFrameIntoClientArea` keeps the window glass even for all-zero margins and sets `__wine_dwm_frame`;
+`DwmSetWindowAttribute` with `DWMWA_SYSTEMBACKDROP_TYPE` 2-4 or `DWMWA_MICA_EFFECT` does the same for a window that
+has no glass yet (Windows 11 draws the backdrop behind the caption without extended margins). `_WEX_DWM_MARGINS` gets a
+9th value, flags, bit 0 = the frame is glass; the compositor then blends the whole window except the opaque client
+part. uxtheme paints such a frame twice, over black and over white, and writes the difference as per-pixel alpha (the
+black pass is the premultiplied color), so the caption background is clear and text, glyphs and icons keep their
+antialiased edges; the caption stays opaque when the app or the accent colors it; a pressed button repaints the whole
+frame. Either gate off: unchanged. ncframe 31 passes on x86_64 and i386. Visual check:
+`scripts/dwm-glassframe-visual-probe.c`.
