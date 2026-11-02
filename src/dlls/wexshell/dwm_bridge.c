@@ -179,3 +179,109 @@ void dwm_bridge_stop(void)
     CloseHandle( bridge_stop );
     bridge_thread = bridge_stop = NULL;
 }
+
+/* Frame clock (docs/DWM_ARCHITECTURE.md section 2.3, P6 slice 1): a per-desktop shared page the compositor
+ * publishes one record into per composed frame, plus the event it pulses. dwmapi opens the same objects
+ * read-only to pace DwmFlush and fill DwmGetCompositionTimingInfo. */
+static HANDLE clock_mapping, clock_event, clock_thread;
+static struct dwm_clock_page *clock_page;
+static volatile LONG clock_stopping;
+
+/* The compositor runs on a Unix thread that cannot touch Win32 events: this thread waits for its frames and
+ * pulses the event dwmapi's DwmFlush waits on. */
+static DWORD WINAPI clock_proc( void *arg )
+{
+    UINT64 generation = 0, last = 0;
+
+    while (!clock_stopping)
+    {
+        if (WexCompositionWaitFrame( &generation, 500 )) break;
+        if (generation != last) PulseEvent( clock_event );
+        last = generation;
+    }
+    return 0;
+}
+
+void dwm_clock_start(void)
+{
+    DWORD enabled = 1, size = sizeof(enabled);
+    WCHAR desk_name[MAX_PATH], name[MAX_PATH + 64], event_name[MAX_PATH + 64];
+    HDESK desk;
+    DEVMODEW mode;
+    DWORD frequency;
+
+    if (clock_page) return;
+    /* rollback switch: default on */
+    if (RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"DwmFrameClock",
+                      RRF_RT_REG_DWORD, NULL, &enabled, &size ) == ERROR_SUCCESS && !enabled) return;
+    if (!(desk = GetThreadDesktop( GetCurrentThreadId() ))) return;
+    if (!GetUserObjectInformationW( desk, UOI_NAME, desk_name, ARRAY_SIZE( desk_name ), NULL )) return;
+    lstrcpynW( name, DWM_CLOCK_NAME, ARRAY_SIZE( name ) );
+    lstrcatW( name, desk_name );
+    lstrcpynW( event_name, DWM_CLOCK_EVENT_NAME, ARRAY_SIZE( event_name ) );
+    lstrcatW( event_name, desk_name );
+
+    if (!(clock_mapping = CreateFileMappingW( INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0,
+                                              sizeof(struct dwm_clock_page), name )))
+    {
+        WARN( "clock mapping, error %lu\n", GetLastError() );
+        return;
+    }
+    if (!(clock_page = MapViewOfFile( clock_mapping, FILE_MAP_WRITE, 0, 0, sizeof(*clock_page) )))
+    {
+        CloseHandle( clock_mapping );
+        clock_mapping = NULL;
+        return;
+    }
+
+    /* refresh period in QPC units (100 ns); 60 Hz when the display does not report a frequency */
+    memset( &mode, 0, sizeof(mode) );
+    mode.dmSize = sizeof(mode);
+    frequency = 60;
+    if (EnumDisplaySettingsW( NULL, ENUM_CURRENT_SETTINGS, &mode ) &&
+        (mode.dmFields & DM_DISPLAYFREQUENCY) && mode.dmDisplayFrequency > 1)
+        frequency = mode.dmDisplayFrequency;
+    clock_page->qpc_period = 10000000 / frequency;
+
+    if (!(clock_event = CreateEventW( NULL, TRUE, FALSE, event_name )))
+    {
+        UnmapViewOfFile( clock_page );
+        clock_page = NULL;
+        CloseHandle( clock_mapping );
+        clock_mapping = NULL;
+        return;
+    }
+
+    if (WexCompositionSetClock( clock_page, clock_event ))
+    {
+        UnmapViewOfFile( clock_page );
+        clock_page = NULL;
+        CloseHandle( clock_mapping );
+        clock_mapping = NULL;
+        CloseHandle( clock_event );
+        clock_event = NULL;
+        return;
+    }
+    clock_stopping = FALSE;
+    clock_thread = CreateThread( NULL, 0, clock_proc, NULL, 0, NULL );
+    TRACE( "frame clock on, period %I64d\n", clock_page->qpc_period );
+}
+
+void dwm_clock_stop(void)
+{
+    if (!clock_page) return;
+    WexCompositionSetClock( NULL, NULL );
+    clock_stopping = TRUE;
+    if (clock_thread)
+    {
+        WaitForSingleObject( clock_thread, 2000 );
+        CloseHandle( clock_thread );
+        clock_thread = NULL;
+    }
+    UnmapViewOfFile( clock_page );
+    clock_page = NULL;
+    CloseHandle( clock_mapping );
+    clock_mapping = NULL;
+    CloseHandle( clock_event );
+    clock_event = NULL;
+}

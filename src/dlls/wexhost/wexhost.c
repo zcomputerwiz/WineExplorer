@@ -633,6 +633,24 @@ DWORD WINAPI WexCompositionSetCorner( UINT64 window, DWORD radius )
     return params.err;
 }
 
+DWORD WINAPI WexCompositionSetClock( void *page, HANDLE event )
+{
+    struct composition_clock_params params = { (UINT64)(ULONG_PTR)page, (UINT64)(ULONG_PTR)event };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_clock, &params );
+    return params.err;
+}
+
+/* Waits up to timeout_ms for a composed frame after *generation; updates *generation. */
+DWORD WINAPI WexCompositionWaitFrame( UINT64 *generation, DWORD timeout_ms )
+{
+    struct composition_clock_wait_params params = { *generation, timeout_ms };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( composition_clock_wait, &params );
+    *generation = params.generation;
+    return ERROR_SUCCESS;
+}
+
 static DWORD WINAPI wm_event_thread( void *arg )
 {
     for (;;)

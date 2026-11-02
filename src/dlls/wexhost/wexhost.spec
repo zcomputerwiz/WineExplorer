@@ -47,6 +47,8 @@
 @ stdcall WexCompositionGetEnabled(ptr)
 @ stdcall WexCompositionSetShadow(int64 long)
 @ stdcall WexCompositionSetCorner(int64 long)
+@ stdcall WexCompositionSetClock(ptr ptr)
+@ stdcall WexCompositionWaitFrame(ptr long)
 @ stdcall WexLocaleSet(str str)
 @ stdcall WexRootPasswordSet(str)
 @ stdcall WexUserCreate(str str long str)

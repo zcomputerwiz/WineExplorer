@@ -34,6 +34,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
+#include <pthread.h>
+#include <time.h>
 #if defined(SONAME_LIBX11) && defined(SONAME_LIBXCOMPOSITE) && defined(SONAME_LIBXFIXES) && defined(SONAME_LIBXRENDER)
 #define COMPOSE_X11
 #include <X11/Xlib.h>
@@ -50,10 +52,34 @@
 #define WIN32_NO_STATUS
 #include <windef.h>
 #include <winbase.h>
+#include "winternl.h"
 #include "wine/debug.h"
+#include "wine/dwm_protocol.h"
 #include "wexhost_unix.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wexhost);
+
+static pthread_mutex_t clock_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t clock_cond = PTHREAD_COND_INITIALIZER;
+static UINT64 clock_generation;
+
+/* On a Wine thread of the shell: returns once the generation differs from the one given, or after timeout_ms. */
+NTSTATUS composition_clock_wait( void *args )
+{
+    struct composition_clock_wait_params *params = args;
+    struct timespec deadline;
+
+    clock_gettime( CLOCK_REALTIME, &deadline );
+    deadline.tv_sec += params->timeout_ms / 1000;
+    deadline.tv_nsec += (params->timeout_ms % 1000) * 1000000;
+    if (deadline.tv_nsec >= 1000000000) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000; }
+    pthread_mutex_lock( &clock_mutex );
+    while (clock_generation == params->generation)
+        if (pthread_cond_timedwait( &clock_cond, &clock_mutex, &deadline )) break;
+    params->generation = clock_generation;
+    pthread_mutex_unlock( &clock_mutex );
+    return STATUS_SUCCESS;
+}
 
 #ifdef COMPOSE_X11
 
@@ -139,6 +165,11 @@ static Pixmap back_pixmap;
 static Picture back_picture, overlay_picture;
 static int width, height;
 static long desktop_added_mask;
+/* Frame clock (docs/DWM_ARCHITECTURE.md section 2.3): the shared page, set by compose_clock under x_mutex
+ * and written by compose_paint/compose_set under the same lock. The WM loop is not a Wine thread and must
+ * not call Nt* waits or events: it bumps clock_generation, and a Wine thread of the shell waits for it in
+ * compose_clock_wait and pulses the Win32 event. */
+static struct dwm_clock_page *clock_page;
 
 static BOOL load_libraries(void)
 {
@@ -596,6 +627,53 @@ DWORD compose_corner( unsigned long id, unsigned int radius )
     return ERROR_SUCCESS;
 }
 
+static void clock_signal(void)
+{
+    pthread_mutex_lock( &clock_mutex );
+    clock_generation++;
+    pthread_cond_broadcast( &clock_cond );
+    pthread_mutex_unlock( &clock_mutex );
+}
+
+/* seqlock write: make seq odd, publish the fields, make seq even. The release barriers order the field
+ * writes before the even seq, which the readers acquire. There is a single writer (the WM loop thread). */
+static void clock_publish( UINT32 flags, UINT64 frame, INT64 qpc_composed )
+{
+    struct dwm_clock_page *page = clock_page;
+    if (!page) return;
+    __atomic_add_fetch( &page->seq, 1, __ATOMIC_RELEASE );
+    page->flags = flags;
+    page->frame = frame;
+    page->qpc_composed = qpc_composed;
+    __atomic_add_fetch( &page->seq, 1, __ATOMIC_RELEASE );
+}
+
+/* one composed frame: bump the counter, stamp it, and wake the waiters */
+static void clock_tick(void)
+{
+    LARGE_INTEGER now;
+    if (!clock_page) return;
+    NtQueryPerformanceCounter( &now, NULL );
+    clock_publish( clock_page->flags | DWM_CLOCK_COMPOSED, clock_page->frame + 1, now.QuadPart );
+    clock_signal();
+}
+
+/* composition went off: stop claiming composed frames and wake any waiter once */
+static void clock_disable(void)
+{
+    if (!clock_page) return;
+    clock_publish( clock_page->flags & ~DWM_CLOCK_COMPOSED, clock_page->frame, clock_page->qpc_composed );
+    clock_signal();
+}
+
+DWORD compose_clock( void *page, HANDLE event )
+{
+    /* readers that still map an old page must stop waiting on it */
+    if (page != clock_page) clock_disable();
+    clock_page = page;
+    return ERROR_SUCCESS;
+}
+
 long compose_event_mask( unsigned long id, long wm_mask )
 {
     struct window *w;
@@ -640,6 +718,7 @@ DWORD compose_set( void *display, unsigned long root_window, unsigned long deskt
         pXSync( dpy, False );
         owner = damage_region = scratch = clip = 0;
         enabled = dirty = tree_dirty = full_repaint = FALSE;
+        clock_disable();
         return ERROR_SUCCESS;
     }
     if (!load_libraries()) return ERROR_NOT_SUPPORTED;
@@ -838,6 +917,8 @@ void compose_paint(void)
                        0, 0, 0, 0, 0, 0, width, height );
     pXFixesSetRegion( dpy, damage_region, NULL, 0 );
     dirty = full_repaint = FALSE;
+    /* the frame is composed (the caller flushes X right after): publish it and wake the waiters */
+    clock_tick();
 }
 
 #else
@@ -849,6 +930,7 @@ DWORD compose_set( void *display, unsigned long root, unsigned long desktop, int
 BOOL compose_enabled(void) { return FALSE; }
 DWORD compose_shadow( unsigned long window, BOOL shadow ) { return ERROR_NOT_SUPPORTED; }
 DWORD compose_corner( unsigned long window, unsigned int radius ) { return ERROR_NOT_SUPPORTED; }
+DWORD compose_clock( void *page, HANDLE event ) { return page ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 void compose_event( void *event ) { }
 void compose_paint(void) { }
 long compose_event_mask( unsigned long window, long wm_mask ) { return wm_mask; }

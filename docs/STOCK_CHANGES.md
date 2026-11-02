@@ -1419,3 +1419,14 @@ Test: `dlls/dwmapi/tests/dwm_attr.c` via `scripts/dwm-p3-attr-test.sh`.
 The shell (`src/dlls/wexshell/dwm_bridge.c`, started only with `Composition=1` and `DwmService=1`) polls every 250 ms and passes
 `DWMWA_WINDOW_CORNER_PREFERENCE` to the X11 compositor (`WexCompositionSetCorner`: ROUND 8 px, ROUNDSMALL 4 px, DEFAULT and DONOTROUND square).
 Visual check: `scripts/dwm-corner-visual-probe.c` under the shell (`explorer /desktop=Shell,1024x768 /shell`) on Xvfb, composition on versus off.
+
+## dwmapi: `DwmFlush` and timing info on the compositor's frame clock (2026-11-02)
+
+`include/wine/dwm_protocol.h` (`struct dwm_clock_page`, `DWM_CLOCK_COMPOSED`, object names), `dlls/dwmapi/dwmapi_main.c`, test
+`dlls/dwmapi/tests/dwm_clock.c` (and `gdi32` in the test imports). With `Composition=1` the shell (`src/dlls/wexshell/dwm_bridge.c`) creates a
+per-desktop page `Local\__wex_dwm_clock_<desktop>` and event `Local\__wex_dwm_frame_<desktop>`; the X11 compositor (`src/dlls/wexhost/compose.c`)
+writes the frame count and compose time (QPC) under a sequence lock after each composed frame, and a shell thread pulses the event
+(`WexCompositionWaitFrame`; the compositor's Unix thread cannot touch Win32 objects). `DwmFlush` waits for the next composed frame, at most two
+refresh periods; `DwmGetCompositionTimingInfo` reports `cFrame`, `cRefresh` and `qpcCompose`. These are composition times, not display times:
+`qpcVBlank` stays an estimate until X Present or Wayland presentation feedback (later P6 slices). Without the page, or with
+`HKCU\Software\WineExplorer\Shell\DwmFrameClock` = 0, both keep the previous estimate. Tested 47/47 on x86_64 and i386 under the shell on Xvfb.

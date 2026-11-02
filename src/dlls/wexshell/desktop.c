@@ -53,6 +53,8 @@ static HWND shell_desktop;
 static HWINEVENTHOOK composition_shadow_hook;
 extern void dwm_bridge_start(void);
 extern void dwm_bridge_stop(void);
+extern void dwm_clock_start(void);
+extern void dwm_clock_stop(void);
 
 static void CALLBACK composition_shadow_event( HWINEVENTHOOK hook, DWORD event, HWND hwnd,
                                                LONG object, LONG child, DWORD thread, DWORD time )
@@ -1351,6 +1353,7 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
                                                                NULL, composition_shadow_event, 0, 0,
                                                                WINEVENT_OUTOFCONTEXT );
                     dwm_bridge_start();
+                    dwm_clock_start();
                 }
             }
             shellfolder_link_media_folders();
@@ -1363,6 +1366,7 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
 void WINAPI WexShellStop(void)
 {
     dwm_bridge_stop();
+    dwm_clock_stop();
     if (composition_shadow_hook) UnhookWinEvent(composition_shadow_hook);
     WexCompositionSetEnabled(FALSE);
     linux_windows_stop();

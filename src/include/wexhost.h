@@ -284,6 +284,11 @@ DWORD WINAPI WexCompositionSetEnabled( BOOL enabled );
 DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
 DWORD WINAPI WexCompositionSetShadow( UINT64 xwindow, BOOL shadow );
 DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
+/* Frame clock (docs/DWM_ARCHITECTURE.md section 2.3): the compositor publishes one record per composed frame
+ * into the shared page and pulses the event. page is a struct dwm_clock_page (wine/dwm_protocol.h); a NULL
+ * page turns the clock off. */
+DWORD WINAPI WexCompositionSetClock( void *page, HANDLE event );
+DWORD WINAPI WexCompositionWaitFrame( UINT64 *generation, DWORD timeout_ms );
 
 /* Setup (setup.exe, oobe.exe): locale1 locale and keyboard layout; root's password; a new account through
  * AccountsService (account_type 1: administrator), with its password when one is given; session and automatic logon. */

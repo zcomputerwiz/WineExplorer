@@ -1040,6 +1040,19 @@ NTSTATUS composition_corner( void *args )
     return STATUS_SUCCESS;
 }
 
+NTSTATUS composition_clock( void *args )
+{
+    struct composition_clock_params *params = args;
+    if (!begin_call( &params->err ))
+    {
+        if (!params->page) params->err = ERROR_SUCCESS;
+        return STATUS_SUCCESS;
+    }
+    params->err = compose_clock( (void *)(ULONG_PTR)params->page, (HANDLE)(ULONG_PTR)params->event );
+    end_call();
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS x11_wm_manage( void *args )
 {
     struct wm_manage_params *params = args;
@@ -1339,6 +1352,7 @@ STUB( x11_wm_focus, struct wm_window_params )
 STUB( composition_set, struct composition_params )
 STUB( composition_shadow, struct composition_shadow_params )
 STUB( composition_corner, struct composition_corner_params )
+STUB( composition_clock, struct composition_clock_params )
 NTSTATUS composition_get( void *args )
 {
     struct composition_params *params = args;
