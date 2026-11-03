@@ -288,6 +288,8 @@ DWORD WINAPI WexCompositionSetShadow( UINT64 xwindow, BOOL shadow );
 DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
 #define WEX_BACKDROP_NONE  0
 #define WEX_BACKDROP_MICA  1
+#define WEX_BACKDROP_BLUR  2       /* live blur of what is below (Aero glass, ACCENT_ENABLE_BLURBEHIND) */
+#define WEX_BACKDROP_ACRYLIC 4     /* live blur and tint */
 #define WEX_BACKDROP_DARK  0x100   /* flag: dark tint */
 DWORD WINAPI WexCompositionSetBackdrop( UINT64 xwindow, DWORD backdrop );
 /* Live thumbnails (DWM P8): the whole list, replaced on each call. Rectangles are left, top, right, bottom;

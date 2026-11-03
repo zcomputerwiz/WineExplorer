@@ -1494,3 +1494,14 @@ bottom frame bands are an invisible resize area (they still hit-test as sizing b
 visible frame and the caption buttons move inward by the band width, in painting and in
 `handle_modern_nc_hit_test` alike; `DWMWA_EXTENDED_FRAME_BOUNDS` reports the visible frame. The compositor clips to it,
 rounds it (8 px unless `DWMWCP_DONOTROUND`) and draws a soft shadow outside it.
+
+## user32/dwmapi: blur behind and ACCENT_POLICY (P12b) (2026-11-02)
+
+`dlls/user32/win.c`, `dlls/dwmapi/dwmapi_main.c`, `include/wine/dwm_protocol.h`. `SetWindowCompositionAttribute`
+accepts `WCA_ACCENT_POLICY` (19): it validates the window and the size, maps `ACCENT_ENABLE_BLURBEHIND` (3) and
+`ACCENT_ENABLE_ACRYLICBLURBEHIND` (4) to the private attribute `DWM_ATTR_WINE_BLUR` (0x80000001) and passes it to
+`DwmSetWindowAttribute` in a dwmapi loaded on demand; it returns TRUE. Other attributes keep the stub's failure.
+`DwmEnableBlurBehindWindow` with `DWM_BB_ENABLE` sets the same attribute (`hRgnBlur` is ignored).
+`DwmSetWindowAttribute` accepts the private attribute (values 0-2); with `DwmAlpha` a window that has no glass yet
+becomes a glass sheet, and loses it again when the blur is turned off. The blur itself needs the shell's
+`DwmMaterials` gate. Gates off: the calls succeed and nothing is drawn differently.

@@ -530,13 +530,44 @@ static struct window *wallpaper_window( struct window *desk )
     return w ? w : desk;
 }
 
-static void build_mica( struct window *desk )
+/* Halve source (width x height) steps times, then scale it back up into dest at (x, y); the source's transform is
+ * reset afterwards. */
+static void blur_into( Picture source, int width, int height, int steps, Picture dest, int x, int y )
 {
     XRenderPictureAttributes attr = { 0 };
-    XRenderPictFormat *format;
+    XRenderPictFormat *format = pXRenderFindStandardFormat( dpy, PictStandardRGB24 );
     Pixmap pixmap[2] = { 0 };
-    Picture level[2] = { 0 }, source;
-    int i, w, h;
+    Picture level[2] = { 0 }, from = source;
+    int i, w = width, h = height;
+
+    if (!format) return;
+    attr.repeat = RepeatPad;   /* the upscale samples half a pixel past the edges */
+    for (i = 0; i < steps && w > 1 && h > 1; i++)
+    {
+        int next = i & 1, nw = w / 2, nh = h / 2;
+        if (level[next]) pXRenderFreePicture( dpy, level[next] );
+        if (pixmap[next]) pXFreePixmap( dpy, pixmap[next] );
+        pixmap[next] = pXCreatePixmap( dpy, root, nw, nh, 24 );
+        level[next] = pXRenderCreatePicture( dpy, pixmap[next], format, CPRepeat, &attr );
+        set_scale( from, (double)w / nw, (double)h / nh, "bilinear" );
+        pXRenderComposite( dpy, PictOpSrc, from, None, level[next], 0, 0, 0, 0, 0, 0, nw, nh );
+        from = level[next];
+        w = nw;
+        h = nh;
+    }
+    set_scale( from, (double)w / width, (double)h / height, "bilinear" );
+    pXRenderComposite( dpy, PictOpSrc, from, None, dest, 0, 0, 0, 0, x, y, width, height );
+    set_scale( source, 1, 1, "nearest" );
+    for (i = 0; i < 2; i++)
+    {
+        if (level[i]) pXRenderFreePicture( dpy, level[i] );
+        if (pixmap[i]) pXFreePixmap( dpy, pixmap[i] );
+    }
+}
+
+static void build_mica( struct window *desk )
+{
+    XRenderPictFormat *format;
 
     free_mica();
     mica_dirty = FALSE;
@@ -544,42 +575,94 @@ static void build_mica( struct window *desk )
     desk = wallpaper_window( desk );
     mica_source = desk->id;
     if (!name_surface( desk ) || !(format = pXRenderFindStandardFormat( dpy, PictStandardRGB24 ))) return;
-    w = desk->attr.width;
-    h = desk->attr.height;
-    source = desk->picture;
-    attr.repeat = RepeatPad;   /* the upscale samples half a pixel past the edges */
     *x_error = 0;
-    for (i = 0; i < MICA_STEPS && w > 1 && h > 1; i++)
-    {
-        int next = i & 1, nw = w / 2, nh = h / 2;
-        if (level[next]) pXRenderFreePicture( dpy, level[next] );
-        if (pixmap[next]) pXFreePixmap( dpy, pixmap[next] );
-        pixmap[next] = pXCreatePixmap( dpy, root, nw, nh, 24 );
-        level[next] = pXRenderCreatePicture( dpy, pixmap[next], format, CPRepeat, &attr );
-        set_scale( source, (double)w / nw, (double)h / nh, "bilinear" );
-        pXRenderComposite( dpy, PictOpSrc, source, None, level[next], 0, 0, 0, 0, 0, 0, nw, nh );
-        source = level[next];
-        w = nw;
-        h = nh;
-    }
     mica_pixmap = pXCreatePixmap( dpy, root, desk->attr.width, desk->attr.height, 24 );
     mica_picture = pXRenderCreatePicture( dpy, mica_pixmap, format, 0, NULL );
-    set_scale( source, (double)w / desk->attr.width, (double)h / desk->attr.height, "bilinear" );
-    pXRenderComposite( dpy, PictOpSrc, source, None, mica_picture, 0, 0, 0, 0, 0, 0,
-                       desk->attr.width, desk->attr.height );
-    set_scale( desk->picture, 1, 1, "nearest" );
-    for (i = 0; i < 2; i++)
-    {
-        if (level[i]) pXRenderFreePicture( dpy, level[i] );
-        if (pixmap[i]) pXFreePixmap( dpy, pixmap[i] );
-    }
+    blur_into( desk->picture, desk->attr.width, desk->attr.height, MICA_STEPS, mica_picture, 0, 0 );
     if (!sync_ok())
     {
         free_mica();
         mica_dirty = FALSE;   /* until the desktop changes again */
     }
-    TRACE( "mica %dx%d from %lx %dx%d depth %d (desktop %lx)\n", w, h, desk->id, desk->attr.width, desk->attr.height,
+    TRACE( "mica from %lx %dx%d depth %d (desktop %lx)\n", desk->id, desk->attr.width, desk->attr.height,
            desk->attr.depth, desktop );
+}
+
+/* Live blur (P12b): what is already composed below the window, blurred in place. The back buffer holds this
+ * frame's lower windows only where it was repainted, so expand_blur_damage repaints a blurred window's whole
+ * area (plus the reach of the filter) whenever any of it is damaged; the window never samples itself. */
+#define BLUR_STEPS 3      /* Aero glass and ACCENT_ENABLE_BLURBEHIND */
+#define ACRYLIC_STEPS 5   /* Acrylic */
+#define BLUR_REACH (1 << ACRYLIC_STEPS)
+
+static BOOL live_blur( const struct window *w )
+{
+    return (w->backdrop & (WEX_BACKDROP_BLUR | WEX_BACKDROP_ACRYLIC)) && w->glass && w->attr.depth == 32;
+}
+
+static XRectangle blur_area( const struct window *w )
+{
+    XRectangle r;
+    int x = max( w->x - BLUR_REACH, 0 ), y = max( w->y - BLUR_REACH, 0 );
+    int right = min( w->x + w->attr.width + 2 * w->attr.border_width + BLUR_REACH, width );
+    int bottom = min( w->y + w->attr.height + 2 * w->attr.border_width + BLUR_REACH, height );
+    r.x = x;
+    r.y = y;
+    r.width = max( right - x, 0 );
+    r.height = max( bottom - y, 0 );
+    return r;
+}
+
+/* ponytail: one pass in list order; a blurred window under another blurred one may need a second pass when the
+ * upper one's expansion reaches it. */
+static void expand_blur_damage(void)
+{
+    struct window *w;
+    for (w = windows; w; w = w->next)
+    {
+        XRectangle r, *rects;
+        int count = 0;
+        if (!live_blur( w )) continue;
+        r = blur_area( w );
+        pXFixesSetRegion( dpy, scratch, &r, 1 );
+        pXFixesIntersectRegion( dpy, scratch, scratch, damage_region );
+        if ((rects = pXFixesFetchRegion( dpy, scratch, &count ))) pXFree( rects );
+        if (!count) continue;
+        pXFixesSetRegion( dpy, scratch, &r, 1 );
+        pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+    }
+}
+
+/* Under the glass of a blurred window (the back picture's clip is set, and restored to clip afterwards) */
+static void paint_live_blur( const struct window *w )
+{
+    XRenderPictureAttributes attr = { 0 };
+    XRenderPictFormat *format = pXRenderFindStandardFormat( dpy, PictStandardRGB24 );
+    XRectangle r = blur_area( w );
+    Pixmap pixmap;
+    Picture copy;
+    BOOL acrylic = !!(w->backdrop & WEX_BACKDROP_ACRYLIC);
+
+    if (!format || !r.width || !r.height) return;
+    attr.repeat = RepeatPad;
+    pixmap = pXCreatePixmap( dpy, root, r.width, r.height, 24 );
+    copy = pXRenderCreatePicture( dpy, pixmap, format, CPRepeat, &attr );
+    pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, None );
+    pXRenderComposite( dpy, PictOpSrc, back_picture, None, copy, r.x, r.y, 0, 0, 0, 0, r.width, r.height );
+    pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+    blur_into( copy, r.width, r.height, acrylic ? ACRYLIC_STEPS : BLUR_STEPS, back_picture, r.x, r.y );
+    pXRenderFreePicture( dpy, copy );
+    pXFreePixmap( dpy, pixmap );
+    if (acrylic)
+    {
+        /* ponytail: one fixed tint (F3F3F3 light, 202020 dark, 70 %); ACCENT_POLICY's GradientColor and the
+         * luminosity layer come later */
+        XRenderColor tint;
+        unsigned int gray = w->backdrop & WEX_BACKDROP_DARK ? 0x20 : 0xf3;
+        tint.alpha = 0xb333;
+        tint.red = tint.green = tint.blue = gray * 257 * (tint.alpha / 65535.0);
+        pXRenderFillRectangle( dpy, PictOpOver, back_picture, &tint, r.x, r.y, r.width, r.height );
+    }
 }
 
 /* Under the glass of a Mica window (the back picture's clip is set): the cached desktop, then the tint
@@ -973,6 +1056,7 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
         if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
         pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
         if (w->backdrop & WEX_BACKDROP_MICA) paint_mica( w );
+        else if (live_blur( w )) paint_live_blur( w );
         pXRenderComposite( dpy, PictOpOver, w->picture, w->alpha, back_picture, 0, 0, 0, 0,
                            w->x - border, w->y - border,
                            w->attr.width + 2 * border, w->attr.height + 2 * border );
@@ -1059,7 +1143,8 @@ DWORD compose_backdrop( unsigned long id, unsigned int backdrop )
     unsigned long value = backdrop;
     XWindowAttributes attr;
     if (!enabled) return ERROR_NOT_SUPPORTED;
-    if (backdrop & ~(WEX_BACKDROP_MICA | WEX_BACKDROP_DARK)) return ERROR_INVALID_PARAMETER;
+    if (backdrop & ~(WEX_BACKDROP_MICA | WEX_BACKDROP_BLUR | WEX_BACKDROP_ACRYLIC | WEX_BACKDROP_DARK))
+        return ERROR_INVALID_PARAMETER;
     if (!id || id == root || id == desktop || id == overlay || id == owner)
         return ERROR_INVALID_PARAMETER;
     *x_error = 0;
@@ -1395,6 +1480,7 @@ void compose_paint(void)
         rect.height = height;
         pXFixesSetRegion( dpy, damage_region, &rect, 1 );
     }
+    else expand_blur_damage();
     pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, damage_region );
     pXRenderFillRectangle( dpy, PictOpSrc, back_picture, &black, 0, 0, width, height );
     desk = find_window( desktop );

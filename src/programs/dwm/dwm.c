@@ -150,7 +150,8 @@ static void sweep_thumbs(void)
 
 static BOOL valid_attribute( uint32_t attribute )
 {
-    return attribute != 0 && (attribute < DWMWA_LAST || attribute == DWMWA_MICA_EFFECT);
+    return attribute != 0 && (attribute < DWMWA_LAST || attribute == DWMWA_MICA_EFFECT ||
+                              attribute == DWM_ATTR_WINE_BLUR);
 }
 
 /* buf holds a request (header and payload); on success it holds the reply and *reply_size its size */

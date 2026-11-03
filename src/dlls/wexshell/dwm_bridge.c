@@ -63,6 +63,7 @@ struct pending
     BOOL dark;
     DWORD backdrop_type;
     DWORD mica_effect;
+    DWORD blur;   /* DWM_WINE_BLUR_* */
     int tries;
 };
 
@@ -152,13 +153,18 @@ static void read_materials_gate(void)
 }
 
 /* The backdrop the compositor draws for a window: Mica for the main-window and tabbed backdrops, or when the
- * app asked for the Mica effect without opting out; type 3 (Acrylic) maps to NONE for now (P12b). */
+ * app asked for the Mica effect without opting out; Acrylic for the transient backdrop (type 3); else the blur
+ * asked for through DwmEnableBlurBehindWindow or ACCENT_POLICY. */
 static DWORD backdrop_value( const struct pending *p )
 {
     DWORD backdrop = WEX_BACKDROP_NONE;
 
     if ((p->backdrop_type == 2 || p->backdrop_type == 4) || (p->mica_effect && p->backdrop_type != 1))
         backdrop = WEX_BACKDROP_MICA;
+    else if (p->backdrop_type == 3 || p->blur == DWM_WINE_BLUR_ACRYLIC)
+        backdrop = WEX_BACKDROP_ACRYLIC;
+    else if (p->blur == DWM_WINE_BLUR_BEHIND)
+        backdrop = WEX_BACKDROP_BLUR;
     if (p->dark) backdrop |= WEX_BACKDROP_DARK;
     return backdrop;
 }
@@ -214,7 +220,8 @@ static void apply_change( const struct dwm_change *change )
     if (change->attribute != DWMWA_WINDOW_CORNER_PREFERENCE &&
         change->attribute != DWMWA_USE_IMMERSIVE_DARK_MODE &&
         change->attribute != DWMWA_SYSTEMBACKDROP_TYPE &&
-        change->attribute != DWMWA_MICA_EFFECT)
+        change->attribute != DWMWA_MICA_EFFECT &&
+        change->attribute != DWM_ATTR_WINE_BLUR)
         return;
     for (i = 0; i < DWM_BRIDGE_PENDING; i++)
     {
@@ -225,7 +232,7 @@ static void apply_change( const struct dwm_change *change )
     {
         if (free_slot < 0) return;  /* table full */
         p = &pending[free_slot];
-        *p = (struct pending){ hwnd, 0, FALSE, 0, 0, 0 };
+        *p = (struct pending){ hwnd, 0, FALSE, 0, 0, 0, 0 };
     }
     switch (change->attribute)
     {
@@ -240,6 +247,9 @@ static void apply_change( const struct dwm_change *change )
         break;
     case DWMWA_MICA_EFFECT:
         p->mica_effect = change->value;
+        break;
+    case DWM_ATTR_WINE_BLUR:
+        p->blur = change->value;
         break;
     }
     switch (apply_window( hwnd, p ))
