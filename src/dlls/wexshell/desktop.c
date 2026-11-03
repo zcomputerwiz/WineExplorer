@@ -1342,10 +1342,15 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
             uac_agent_start();
             linux_windows_start();
             {
-                DWORD composition = 0, size = sizeof(composition), err;
+                DWORD composition = 0, size = sizeof(composition), err, backend = 0, capabilities = 0;
+                BOOL wayland;
                 RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"Composition",
                               RRF_RT_REG_DWORD, NULL, &composition, &size );
-                if (composition == 1 && (err = WexCompositionSetEnabled( TRUE )))
+                /* On Wayland there is no X composition: the compositor draws, and the bridge sends it each window's
+                 * DWM effects (wex_window_manager_v1.set_effects) */
+                wayland = !WexWmGetCapabilities( &backend, &capabilities ) && backend == WEX_WM_BACKEND_WAYLAND;
+                if (composition == 1 && wayland) dwm_bridge_start();
+                else if (composition == 1 && (err = WexCompositionSetEnabled( TRUE )))
                     WARN( "composition unavailable, error %lu\n", err );
                 else if (composition == 1)
                 {

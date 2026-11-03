@@ -104,6 +104,15 @@ DISPATCH(wm_get_title, struct wm_get_title_params, get_title)
 DISPATCH(wm_get_icon, struct wm_get_icon_params, get_icon)
 DISPATCH(wm_focus, struct wm_window_params, focus)
 
+NTSTATUS wm_effects(void *args)
+{
+    struct wm_effects_params *params = args;
+    const struct wm_backend_ops *ops = get_backend();
+    if (ops && ops->effects) return ops->effects(args);
+    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS wm_native_info(void *args)
 {
     struct wm_native_info_params *params = args;

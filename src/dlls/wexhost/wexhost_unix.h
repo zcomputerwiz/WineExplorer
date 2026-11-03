@@ -108,6 +108,9 @@ struct wm_start_ex_params { UINT64 desktop; DWORD backend; DWORD err; };
 struct wm_capabilities_params { DWORD backend; DWORD capabilities; DWORD err; };
 struct wm_native_info_params { UINT64 window; WEX_NATIVE_WINDOW info; DWORD err; };
 struct wm_binding_params { UINT64 window; char token[33], controller[33]; DWORD err; };
+/* DWM effects of a Wayland window by its shared handle (wex_window_manager_v1.set_effects, protocol v13) */
+struct wm_effects_params { char handle[33]; DWORD radius, backdrop, flags, tint; INT region[4]; DWORD err; };
+extern NTSTATUS wm_effects(void *args);
 extern NTSTATUS wm_binding(void *args);
 extern NTSTATUS wm_native_info(void *args);
 extern NTSTATUS wm_start_ex(void *args);
@@ -132,6 +135,7 @@ struct wm_backend_ops
     unixlib_entry_t release, get_title, get_icon, stop, focus;
     unixlib_entry_t native_info;
     unixlib_entry_t binding, get_capabilities;
+    unixlib_entry_t effects;   /* NULL: not supported by the backend */
 };
 extern const struct wm_backend_ops x11_wm_backend;
 extern const struct wm_backend_ops wayland_wm_backend;
@@ -289,6 +293,7 @@ enum wexhost_funcs
     unix_oobe_review_query,
     unix_oobe_review_cancel,
     unix_composition_backdrop,
+    unix_wm_effects,
     unix_funcs_count
 };
 

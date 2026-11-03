@@ -253,7 +253,7 @@ static void global(void *data, struct wl_registry *registry,uint32_t name,const 
 {
     if (!strcmp(interface,"wex_window_manager_v1") && version >= 3)
     {
-        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 9 ? version : 9);
+        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 13 ? version : 13);
         wex_window_manager_v1_add_listener(manager,&manager_listener,NULL);
     }
     else if (!strcmp(interface,"zwlr_foreign_toplevel_manager_v1") && version >= 3)
@@ -444,6 +444,34 @@ static NTSTATUS control(void *args, unsigned action)
     pthread_mutex_unlock(&wl_mutex);
     return STATUS_SUCCESS;
 }
+/* DWM effects of any Wine window by its shared handle (v13): the shell is the privileged client, the window's own
+ * connection need not be. An older compositor has no such request. */
+static NTSTATUS wayland_effects(void *args)
+{
+    struct wm_effects_params *params = args;
+    unsigned i;
+    pthread_mutex_lock(&wl_mutex);
+    params->err = running ? ERROR_SUCCESS : ERROR_NOT_READY;
+    if (running)
+    {
+        params->handle[32] = 0;
+        for (i = 0; i < 32; i++)
+            if (!((params->handle[i] >= '0' && params->handle[i] <= '9') ||
+                  (params->handle[i] >= 'a' && params->handle[i] <= 'f')))
+                params->err = ERROR_INVALID_PARAMETER;
+        if (params->err) {}
+        else if (!manager || wex_window_manager_v1_get_version(manager) < 13) params->err = ERROR_NOT_SUPPORTED;
+        else
+        {
+            wex_window_manager_v1_set_effects(manager,params->handle,params->radius,params->backdrop,params->flags,
+                                              params->tint,params->region[0],params->region[1],params->region[2],
+                                              params->region[3]);
+            if (wl_display_flush(display) < 0 && errno != EAGAIN) params->err = ERROR_GEN_FAILURE;
+        }
+    }
+    pthread_mutex_unlock(&wl_mutex);
+    return STATUS_SUCCESS;
+}
 static NTSTATUS wayland_close(void *args) { return control(args,0); }
 static NTSTATUS wayland_focus(void *args) { return control(args,1); }
 static NTSTATUS wayland_release(void *args) { return control(args,2); }
@@ -495,5 +523,5 @@ const struct wm_backend_ops wayland_wm_backend = {
     WEX_WM_BACKEND_WAYLAND, WEX_WM_CAP_OBSERVE | WEX_WM_CAP_NATIVE_ENV,
     wayland_start,wayland_next_event,wayland_manage,wayland_configure,wayland_state,
     wayland_close,wayland_release,wayland_title,wayland_icon,wayland_stop,wayland_focus,wayland_info,
-    wayland_binding,wayland_capabilities,
+    wayland_binding,wayland_capabilities,wayland_effects,
 };

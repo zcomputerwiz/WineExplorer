@@ -66,6 +66,7 @@ struct pending
     DWORD blur;   /* DWM_WINE_BLUR_* */
     DWORD tint;   /* DWM_ATTR_WINE_TINT */
     DWORD rgn[2]; /* DWM_ATTR_WINE_RGN_LT, _RB */
+    DWORD frame;  /* DWM_ATTR_WINE_FRAME: 0 none, 1 Windows 10/11 glass frame, 2 Aero */
     int tries;
 };
 
@@ -176,17 +177,77 @@ static DWORD backdrop_value( const struct pending *p )
     return backdrop;
 }
 
+/* The 32 hex digit shared handle of a Wayland window's wex_window_v1, which winewayland.drv publishes as a global
+ * atom in the window property; FALSE while it has none. */
+static BOOL wayland_handle( HWND hwnd, char handle[33] )
+{
+    WCHAR name[40];
+    ATOM atom = (ATOM)(ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_window_handle" );
+    UINT i, len;
+
+    if (!atom || !(len = GlobalGetAtomNameW( atom, name, ARRAY_SIZE(name) )) || len != 32) return FALSE;
+    for (i = 0; i < 32; i++) handle[i] = (char)name[i];
+    handle[32] = 0;
+    return TRUE;
+}
+
+/* The DWM effects of a Wayland window go to the compositor as one request. 1 applied (or nothing to do), 0 not yet. */
+static int apply_wayland( HWND hwnd, const struct pending *p, const char *handle )
+{
+    DWORD radius = p->radius, backdrop = WEX_WM_BACKDROP_NONE, flags = 0, mode = p->blur & DWM_WINE_BLUR_MODE, err;
+    DWORD tint = p->tint;
+    BOOL glass_frame = p->frame != 0;
+    RECT region = { 0 }, wr, cr;
+
+    /* the compositor rounds only what it is told to; a glass frame is round unless the window says square */
+    if (radius == WEX_CORNER_SQUARE) radius = 0;
+    else if (!radius && glass_frame) radius = p->frame == 2 ? 6 : 8;
+    if (glass_frame) flags |= WEX_WM_EFFECT_SHADOW;
+    if (materials_on)
+    {
+        if ((p->backdrop_type == 2 || p->backdrop_type == 4) || (p->mica_effect && p->backdrop_type != 1))
+            backdrop = WEX_WM_BACKDROP_MICA;
+        else if (p->backdrop_type == 3) backdrop = WEX_WM_BACKDROP_ACRYLIC;
+        else if (mode != DWM_WINE_BLUR_NONE)
+        {
+            backdrop = mode == DWM_WINE_BLUR_ACRYLIC ? WEX_WM_BACKDROP_ACRYLIC :
+                       mode == DWM_WINE_BLUR_GRADIENT ? WEX_WM_BACKDROP_GRADIENT : WEX_WM_BACKDROP_BLUR;
+            if (p->blur & DWM_WINE_BLUR_TINTED)
+            {
+                flags |= WEX_WM_EFFECT_TINT;
+                tint = (tint & 0xff00ff00) | (tint >> 16 & 0xff) | (tint & 0xff) << 16;   /* ABGR to ARGB */
+            }
+            if ((p->blur & DWM_WINE_BLUR_REGION) && GetWindowRect( hwnd, &wr ) && GetClientRect( hwnd, &cr ))
+            {
+                POINT origin = { 0, 0 };
+                ClientToScreen( hwnd, &origin );
+                SetRect( &region, (SHORT)LOWORD( p->rgn[0] ) + origin.x - wr.left,
+                         (SHORT)HIWORD( p->rgn[0] ) + origin.y - wr.top,
+                         (SHORT)LOWORD( p->rgn[1] ) + origin.x - wr.left,
+                         (SHORT)HIWORD( p->rgn[1] ) + origin.y - wr.top );
+                flags |= WEX_WM_EFFECT_REGION;
+            }
+        }
+        if (p->dark && backdrop) flags |= WEX_WM_EFFECT_DARK;
+    }
+    err = WexWmSetEffects( handle, radius, backdrop, flags, tint, &region );
+    TRACE( "%p wayland %s radius %lu backdrop %lu flags %#lx err %lu\n", hwnd, handle, radius, backdrop, flags, err );
+    return err != ERROR_NOT_READY;   /* an old compositor or an X11 session: nothing more to try */
+}
+
 /* 1 applied, 0 waiting for the X window, -1 the window is gone. */
 static int apply_window( HWND hwnd, const struct pending *p )
 {
     UINT64 window;
     DWORD err;
+    char handle[33];
 
     if (!IsWindow( hwnd )) return -1;  /* gone: nothing to do */
     window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
     if (!window)
     {
-        TRACE( "%p has no x11 window yet\n", hwnd );
+        if (wayland_handle( hwnd, handle )) return apply_wayland( hwnd, p, handle );
+        TRACE( "%p has no x11 window or wayland handle yet\n", hwnd );
         return 0;
     }
     err = WexCompositionSetCorner( window, p->radius );
@@ -266,6 +327,9 @@ static void apply_change( const struct dwm_change *change )
     case DWM_ATTR_WINE_RGN_LT:
     case DWM_ATTR_WINE_RGN_RB:
         p->rgn[change->attribute - DWM_ATTR_WINE_RGN_LT] = change->value;
+        break;
+    case DWM_ATTR_WINE_FRAME:
+        p->frame = change->value;
         break;
     }
     switch (apply_window( hwnd, p ))

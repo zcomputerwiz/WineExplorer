@@ -97,10 +97,14 @@ In `wexcomp/protocols/wex-window-v1.xml`:
 
 To integrate the Wayland corner preference on the Wine host side, apply the following steps in `src/dlls/wexhost/` and `wine/dlls/winewayland.drv/`:
 
-**Status (2026-11-02): compositor side only.** The Wine side below is not wired yet. Because the request is owner-only, the shell's bridge
-(`src/dlls/wexshell/dwm_bridge.c`, which serves X11) cannot set it for another process's window: the application's own `winewayland.drv`
-connection has to send it, and that connection must be offered `wex_window_manager_v1`. Deciding how an ordinary application process obtains
-that (or a narrower, unprivileged request for its own surfaces) is the open integration step.
+**Status (2026-11-03): wired through the shell, not the application.** The owner-only `set_corner_radius` stays for a window's own
+connection. The shell, the one privileged client, sets every Wine window's effects with `wex_window_manager_v1.set_effects` (v13, section 6),
+naming the window by the shared handle that `winewayland.drv` publishes in `__wine_wayland_window_handle`:
+`dwm_bridge.c:apply_wayland` -> `WexWmSetEffects` -> unix `wm_effects` -> `waylandwm.c:wayland_effects`. The bridge starts on a Wayland
+session (`desktop.c`), and `winewayland.drv` keeps per-pixel alpha for DwmAlpha windows (ARGB buffer, opaque outside the glass, opaque region
+set). Verified end to end by `scripts/check-wayland-dwm.sh` (screenshots: Aero frames with rounded corners, shadow and tint; tinted blur,
+Acrylic and gradient accents with the exact blends of X11). Open: real blur, acrylic and mica (the compositor draws the tint only; wlroots
+0.18's scene has no blur), thumbnails and Peek, presentation feedback.
 
 ### 4.1 Synchronize Protocol XML
 
@@ -204,3 +208,30 @@ Compositor changes are validated by the test suite under `wexcomp/tests/wex/`:
 | `Corner Radius: Visual clipping (16px)` | Window top-left corner at $(200, 200)$ is clipped to background color; interior is filled. | Pixel check via `verify.py check-pixel` (Navy background at $(200, 200)$, Red at $(300, 300)$). |
 | `Corner Radius: Visual clearing (0px)` | Setting radius back to 0 restores sharp corners. | Pixel check via `verify.py check-pixel` (Red at $(200, 200)$). |
 | `Corner Radius: Clamping (> 32px)` | Radius 100 is clamped to 32px by compositor without error. | Pixel check at corner (clipped) and $(240, 240)$ (inside $>32$ px boundary, Red). |
+
+---
+
+## 6. Version 13 Protocol: `set_effects`
+
+Phase P5 v13 extends `wex_window_manager_v1` to version 13 with the `set_effects` request:
+
+```xml
+<request name="set_effects" since="13">
+  <arg name="handle" type="string"/>
+  <arg name="corner_radius" type="uint"/>
+  <arg name="backdrop" type="uint" enum="backdrop"/>
+  <arg name="flags" type="uint" enum="effect_flags"/>
+  <arg name="tint" type="uint"/>
+  <arg name="left" type="int"/><arg name="top" type="int"/>
+  <arg name="right" type="int"/><arg name="bottom" type="int"/>
+</request>
+```
+
+### 6.1 Semantics and Stacking
+
+1. **Privileged Dispatch & Lookup**: Available only on the private endpoint (`wex-shell-0`). The target window is identified by its shared opaque handle (`wex_window_v1.handle`). Stale or unknown handles are harmless no-ops.
+2. **Replacement and Reset**: Each request atomically replaces the window's effect parameters. An all-zero call clears all effects and destroys any active effect scene nodes.
+3. **Corner Clipping**: Reuses `compute_corner_slices` (clamped to 0..32). An effect corner radius and an owner's `set_corner_radius` update the same property without conflict (last request wins).
+4. **Soft Window Shadow (Flag 1)**: Rendered via six nested `wlr_scene_rect` nodes in a dedicated `shadow_tree` below the content/backdrop, spanning roughly 10 px of spread offset 2 px down with ~2.5% alpha accumulation.
+5. **Backdrop Materials**: Rendered via `backdrop_tree` placed below the content/corner tree. When tint flag (4) is set, straight `0xAARRGGBB` is converted to premultiplied float. Otherwise, defaults are applied (Mica: F3F3F3 at 50% / dark 202020 at 80%; Acrylic: F3F3F3 at 70% / dark 202020 at 70%; Blur: white at 25% / dark 202020 at 25%). Optional region flag (8) bounds the backdrop to `[left, top, right, bottom]`. Without compositor blur shader passes, the material tint alone is drawn behind translucent pixels.
+6. **Lifecycle & Input**: Effect trees are children of `view->scene_tree`, surviving buffer commits/resizes, hiding on minimize/unmap, and dropped on destruction without scene node leakage or accepting pointer input.

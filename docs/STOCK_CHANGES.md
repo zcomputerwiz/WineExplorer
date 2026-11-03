@@ -1577,3 +1577,12 @@ the Aero painter does not draw; button geometry is clamped to what the property 
 `dlls/uxtheme/window.c` (2026-11-03, docs/CAPTION_BUTTONS.md): the Windows 10/11 frame colours follow measurements on a
 Windows 11 host: flat #F3F3F3 (light) and #202020 (dark), active and inactive, close hover #C42B1C, inactive light glyph
 #929292. The Aero frame takes its caption button sizes from the style's `DWMWindow` parts.
+
+## winewayland.drv/dwmapi: DWM glass on Wayland (P5) (2026-11-03)
+
+`dlls/winewayland.drv/{window.c,window_surface.c,wayland_surface.c,waylanddrv.h}`, `dlls/dwmapi/dwmapi_main.c`,
+`include/wine/dwm_protocol.h`. A window with the `__wine_dwm_alpha` property (DwmAlpha) gets an ARGB8888 buffer; on flush
+the alpha byte is forced to 0xff outside the glass area (the frame when it is not glass, the client interior inside the
+margins) and kept inside it, and the surface's opaque region is set to the opaque area. Without the property nothing
+changes. dwmapi publishes the glass frame kind as the private broker attribute `DWM_ATTR_WINE_FRAME` (0 none, 1
+Windows 10/11, 2 Aero) so the shell can tell the compositor to round and shadow the frame.

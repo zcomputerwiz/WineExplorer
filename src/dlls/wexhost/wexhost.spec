@@ -33,6 +33,7 @@
 @ stdcall WexWmGetIcon(int64 long ptr long ptr ptr)
 @ stdcall WexWmStop()
 @ stdcall WexWmFocus(int64)
+@ stdcall WexWmSetEffects(str long long long long ptr)
 @ stdcall WexAppsList(ptr long ptr)
 @ stdcall WexAppsLaunch(wstr)
 @ stdcall WexHardwareList(ptr long ptr)

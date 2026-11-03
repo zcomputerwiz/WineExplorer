@@ -276,6 +276,20 @@ DWORD WINAPI WexWmGetIcon( UINT64 window, DWORD size, DWORD *pixels, DWORD max, 
 void  WINAPI WexWmStop( void );
 /* Synchronize X keyboard focus after switching a Win32 foreground window. */
 DWORD WINAPI WexWmFocus( UINT64 window );
+/* DWM effects of a Wayland window by the 32 hex digit shared handle of its wex_window_v1 (Wayland backend, compositor
+ * protocol v13; ERROR_NOT_SUPPORTED otherwise). radius 0-32, backdrop WEX_WM_BACKDROP_*, flags WEX_WM_EFFECT_*,
+ * tint 0xAARRGGBB, region (window coordinates) with WEX_WM_EFFECT_REGION. All zero clears the effects. */
+#define WEX_WM_BACKDROP_NONE     0
+#define WEX_WM_BACKDROP_BLUR     1
+#define WEX_WM_BACKDROP_ACRYLIC  2
+#define WEX_WM_BACKDROP_MICA     3
+#define WEX_WM_BACKDROP_GRADIENT 4
+#define WEX_WM_EFFECT_SHADOW     0x1
+#define WEX_WM_EFFECT_DARK       0x2
+#define WEX_WM_EFFECT_TINT       0x4
+#define WEX_WM_EFFECT_REGION     0x8
+DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,
+                              const RECT *region );
 
 /* Optional X11 composition, off by default. Requires WexWmStart's connection.
  * Set returns ERROR_NOT_SUPPORTED for missing extensions, ERROR_ALREADY_EXISTS

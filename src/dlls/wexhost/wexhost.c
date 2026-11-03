@@ -810,6 +810,24 @@ DWORD WINAPI WexWmClose( UINT64 window )
     return wm_window_call( unix_wm_close, window, NULL, NULL, 0 );
 }
 
+DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,
+                              const RECT *region )
+{
+    struct wm_effects_params params = { { 0 }, radius, backdrop, flags, tint };
+    if (!handle || strlen( handle ) != 32) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    memcpy( params.handle, handle, 32 );
+    if (region)
+    {
+        params.region[0] = region->left;
+        params.region[1] = region->top;
+        params.region[2] = region->right;
+        params.region[3] = region->bottom;
+    }
+    WEXHOST_CALL( wm_effects, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexWmFocus( UINT64 window )
 {
     return wm_window_call( unix_wm_focus, window, NULL, NULL, 0 );
