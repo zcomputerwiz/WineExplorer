@@ -937,6 +937,28 @@ static BOOL is_thumbnail_source( Window id )
     return FALSE;
 }
 
+/* The source of live thumbnails changed: repaint where they are shown, not the whole screen. The destination
+ * rectangles are relative to the destination window (its rectangle, border included). */
+static void damage_thumbnail_destinations( Window src )
+{
+    unsigned int i;
+
+    for (i = 0; i < thumb_count; i++)
+    {
+        const struct compose_thumb *t = &thumbs[i];
+        struct window *dest;
+        XRectangle r;
+
+        if (t->src != src || !(t->flags & WEX_THUMB_VISIBLE) || !(dest = find_window( t->dest_window ))) continue;
+        r.x = dest->x - dest->attr.border_width + t->dest[0];
+        r.y = dest->y - dest->attr.border_width + t->dest[1];
+        r.width = max( t->dest[2] - t->dest[0], 0 );
+        r.height = max( t->dest[3] - t->dest[1], 0 );
+        pXFixesSetRegion( dpy, scratch, &r, 1 );
+        pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+    }
+}
+
 /* Live thumbnails (P8): after a destination window, scale each visible source into it, inside the clip that
  * window was painted with. Sources are top-level windows tracked here; minimized ones have no pixels yet. */
 static void paint_thumbnails( struct window *dest )
@@ -1516,8 +1538,8 @@ void compose_event( void *xevent )
             mica_dirty = TRUE;
             if (mica_picture) full_repaint = TRUE;
         }
-        /* ponytail: a damaged thumbnail source repaints everything; damage only its destinations if it costs */
-        if (is_thumbnail_source( w->id )) full_repaint = TRUE;        dirty = TRUE;
+        damage_thumbnail_destinations( w->id );
+        dirty = TRUE;
         return;
     }
     if (event->type == shape_base + ShapeNotify)
