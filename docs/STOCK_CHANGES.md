@@ -1556,3 +1556,8 @@ content-rect and transparency queries too.
 `dlls/uxtheme/stylemap.c` (P13, 2026-11-03): INI (XP format) styles may define the `DWMWindow` class with the Windows 7
 part names (frames, caption buttons, glyphs, `TEXTGLOW`); its states (ACTIVE/INACTIVE, NORMAL/HOT/PRESSED/DISABLED)
 are listed once for all parts, which `MSSTYLES_LookupPartState` now accepts as a fallback (no other class lists any).
+
+`dlls/win32u/defwnd.c`, `dlls/uxtheme/window.c` (polish, 2026-11-03): with `DwmFrameEffects`, the caption button under
+the pointer is kept in the window property `__wine_nc_hot` (set on WM_NCMOUSEMOVE with a non-client leave tracking,
+cleared on WM_NCMOUSELEAVE) and the frame repainted; uxtheme draws it hot (Aero: the style's HOT state; the Windows
+10/11 frame: gray, red for close).
