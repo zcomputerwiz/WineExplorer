@@ -280,3 +280,13 @@ Phase P5 v14 extends `wex_window_manager_v1` to version 14 with `set_thumbnails`
 2. **Conditional Dispatch**: Dispatches only when at least one manager resource is bound at version $\ge 14$, imposing zero per-frame cost when inactive.
 3. **Timestamp & Counter**: Sends 32-bit incremental frame counter along with `CLOCK_MONOTONIC` split into `sec_hi`, `sec_lo`, and `nsec`, providing a stable composed-frame clock for client-side DWM synchronization.
 
+
+## Known limits (open)
+
+- Thumbnails mirror the source's root surface only. Subsurfaces (a client's GL/Vulkan child surface) and the
+  native client hosted inside a Wine frame are not mirrored; fix: walk the source view's scene tree and mirror
+  each `wlr_scene_buffer` with its offset (design in the Codex review of 2026-11-03).
+- Peek decides per group root (`wex_scene_group_root`); a native view hosted in another group's tree follows
+  its frame only through that mapping.
+- Thumbnail rectangles are sent in Wine device pixels; at a fractional output scale they need the window scale
+  divided out (`window.scale` in winewayland.drv). The shell assumes scale 1 for now.
