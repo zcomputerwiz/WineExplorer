@@ -51,11 +51,9 @@ static BOOL using_root = TRUE;
 static BOOL shell_mode;   /* WineExplorer interactive shell: taskbar, Start menu, desktop view */
 static HWND shell_desktop;
 static HWINEVENTHOOK composition_shadow_hook;
-extern void dwm_bridge_start(void);
-extern void dwm_bridge_start_wayland(void);
-extern void dwm_bridge_stop(void);
-extern void dwm_clock_start(void);
-extern void dwm_clock_stop(void);
+extern BOOL dwm_composition_start(void);
+extern BOOL dwm_bridge_stop(void);
+extern BOOL dwm_clock_stop(void);
 
 static void CALLBACK composition_shadow_event( HWINEVENTHOOK hook, DWORD event, HWND hwnd,
                                                LONG object, LONG child, DWORD thread, DWORD time )
@@ -1342,30 +1340,10 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
             desktop_view_create( hwnd, width, height );
             uac_agent_start();
             linux_windows_start();
-            {
-                DWORD composition = 0, size = sizeof(composition), err, backend = 0, capabilities = 0;
-                BOOL wayland;
-                RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"Composition",
-                              RRF_RT_REG_DWORD, NULL, &composition, &size );
-                /* On Wayland there is no X composition: the compositor draws, and the bridge sends it each window's
-                 * DWM effects (wex_window_manager_v1.set_effects) */
-                wayland = !WexWmGetCapabilities( &backend, &capabilities ) && backend == WEX_WM_BACKEND_WAYLAND;
-                if (composition == 1 && wayland)
-                {
-                    dwm_bridge_start_wayland();
-                    dwm_clock_start();
-                }
-                else if (composition == 1 && (err = WexCompositionSetEnabled( TRUE )))
-                    WARN( "composition unavailable, error %lu\n", err );
-                else if (composition == 1)
-                {
-                    composition_shadow_hook = SetWinEventHook( EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE,
-                                                               NULL, composition_shadow_event, 0, 0,
-                                                               WINEVENT_OUTOFCONTEXT );
-                    dwm_bridge_start();
-                    dwm_clock_start();
-                }
-            }
+            if (dwm_composition_start())
+                composition_shadow_hook = SetWinEventHook( EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE,
+                                                           NULL, composition_shadow_event, 0, 0,
+                                                           WINEVENT_OUTOFCONTEXT );
             shellfolder_link_media_folders();
 
     initialize_systray(FALSE, TRUE, show_systray, no_tray_items);
@@ -1375,8 +1353,11 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
 
 void WINAPI WexShellStop(void)
 {
-    dwm_bridge_stop();
-    dwm_clock_stop();
+    if (!dwm_bridge_stop() || !dwm_clock_stop())
+    {
+        WARN( "DWM shutdown incomplete; retaining compositor resources\n" );
+        return;
+    }
     if (composition_shadow_hook) UnhookWinEvent(composition_shadow_hook);
     WexCompositionSetEnabled(FALSE);
     linux_windows_stop();

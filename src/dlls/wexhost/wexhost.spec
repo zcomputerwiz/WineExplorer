@@ -79,3 +79,6 @@
 @ stdcall WexOobeReviewStart(str str long str long)
 @ stdcall WexOobeReviewQuery(str str long ptr ptr str long str long)
 @ stdcall WexOobeReviewCancel(str str long)
+
+@ stdcall WexWmApplyThumbnails(ptr long)
+@ stdcall WexWmPeekWindow(long long)

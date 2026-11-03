@@ -20,9 +20,11 @@ Coordinates remain Wine pixels until the backend adapter converts them. Carry a
 separate material-application bit: gate-off currently means skip X11 backdrop writes,
 but send no Wayland backdrop; a kind of none alone cannot express both operations.
 
-One PE-side helper in wexhost resolves HWND identity using the historical XID-first rule:
-X window ID or 32-digit wex handle, plus the scale and client-to-window offset needed
-by Wayland. USER/window-property calls stay on the PE side; Unix backends receive
+One PE-side helper in wexhost resolves HWND identity: effects use the historical
+XID-first rule; thumbnail/Peek adapters can request a specific backend to preserve
+their session policy. It returns an X window ID or 32-digit wex handle, plus the
+scale used by Wayland. Client-to-window offsets and USER/window-property calls
+stay on the PE side; Unix backends receive
 fixed-size records, never HWNDs to dereference. Identity is the only platform-specific
 window input; conversion metadata is derived by that helper. Use a tagged internal
 identity, not an XID encoded as a fake Wayland string. Preserve effects on arbitrary
@@ -59,18 +61,20 @@ Wine windows, not just entries in the foreign-window inventory.
   unresolved pairs. X11 sends each poll (`compose_thumbnails` suppresses duplicates);
   Wayland caches successfully sent records **and both scales**. Dest coordinates
   round nearest; source bounds round outward. Keep 80-record capacity.
-- Peek lives in `taskband_preview.c`, outside the bridge: `start_peek/end_peek` and
-  keep-window collection branch too. Preserve iconic-picture fallback, target
-  selection, and the different keep limits (X11 8, Wayland 64).
-- Current bridge stop clears only X11 thumbnails. Wayland clear/reset of cached
-  thumbnails, `bridge_wayland`, and restart state needs an explicit later lifecycle
-  change and tests; it is not silently corrected in slice 1.
+- Peek's iconic-picture popup remains in `taskband_preview.c`, outside the bridge;
+  start/end now call the neutral host adapter. Preserve iconic-picture fallback,
+  target selection and the different keep limits (X11 8, Wayland 64).
+- Bridge start/stop now explicitly clear either backend's thumbnails and reset
+  broker/pending state; the host invalidates its sent cache. Repeated lifecycle
+  and failed-clear tests remain acceptance gates for slice 4.
 
 ## Ordered slices
 
 Each slice leaves existing exports/callers working and can be built and tested
-independently before proceeding. Slices 1-3 are implemented statically, with no
-compiler, WSL, or runtime validation. Their acceptance gates remain outstanding.
+independently before proceeding. Slices 1-3 are committed and runtime verified
+(user-provided baseline: X11 pixel-identical, Wayland probes, dwm_clock 47/47).
+Slices 4-5 below are implemented statically only; their build/runtime acceptance
+is outstanding. No compiler or WSL was used for this change.
 
 1. **Share effect policy locally (implemented).** Add `effect_kind`, `window_effect`
    and `pending_effect` in `dwm_bridge.c`. Compute once, preserve raw tint/region,
@@ -93,14 +97,14 @@ compiler, WSL, or runtime validation. Their acceptance gates remain outstanding.
    windows, fractional scale changes and broker snapshots/restarts. Risk: lost refresh
    or accidentally changing the historical XID-first dispatch in mixed sessions;
    explicitly validate mixed-session policy before selecting solely by backend.
-4. **Unify thumbnails and peek.** Add HWND-based neutral list/peek APIs using the
+4. **Unify thumbnails and peek (implemented statically).** Add HWND-based neutral list/peek APIs using the
    same helper, reuse the X11 backend ops from slice 2, and migrate bridge plus preview callers.
    Preserve per-backend keep limits, list order, omissions, return codes, geometry
    rounding, and success-only cache updates. Clear lists and caches on stop/restart
    in a separately verified lifecycle change within this slice. Test empty lists,
    late identities, source/destination scale changes, minimization/iconic Peek,
    broker disappearance and repeated start/stop. Risk: stale scenes and handle reuse.
-5. **Unify clock and startup last.** Backend clock ops and
+5. **Unify clock and startup last (implemented statically).** Backend clock ops and
    `WexWmSetClock/WexWmWaitFrame` are available from slice 2; keep the existing shared wait primitive and
    producer ownership. Migrate clock callers and centralize composition eligibility,
    so `bridge_wayland` and the separate Wayland start wrapper can be removed.
@@ -114,7 +118,140 @@ For every later slice: WoW64 build (i386 and x86_64), a 32-bit probe, fresh-pref
 X11 and Wayland runs, and visible captures of material/corner/shadow/thumbnail/Peek
 results are acceptance gates. Build/API success alone does not establish parity.
 
+## Slices 4-5 static checkpoint (2026-11-03)
+
+- Added PE-only WEX_WINDOW_THUMB and WexWmApplyThumbnails. The shell fetches
+  one broker list and fills HWNDs, flags, opacity and Wine-pixel rectangles once.
+  The host resolves every pair on every poll through slice 2's effect_identity
+  helper, extended with an explicit backend request. Effects retain AUTO's
+  XID-first identity; lists request their session backend. Explicit tags, list
+  order, omission of unresolved pairs and the 80-record limit remain.
+  It uses existing wm_backend_thumbnails dispatch and X11 ops over compose.c;
+  no HWND enters a Unix record. Legacy handle and Composition exports retain
+  their exact bodies and existing callers remain supported.
+- X11 submits every poll for compose-side duplicate suppression. Wayland converts
+  destination coordinates nearest/ties away using the destination scale, and
+  source bounds outward using the source scale, with unchanged signed/saturating
+  arithmetic. Its success-only sent-list comparison includes both scales even
+  when rounded coordinates do not change. NULL/0 forces an empty submission and
+  invalidates the cache even if the clear fails; an X11 submission also
+  invalidates the Wayland cache. Calls are serialized by the shell bridge.
+- Bridge start/stop reset the broker revision/list and pending effects; start and
+  stop explicitly clear thumbnails on either backend. A failed empty submission
+  is returned by the host; bridge teardown still proceeds to WM teardown, as the
+  old X11 teardown did. Runtime failure/disconnection coverage is required to
+  validate scene cleanup. Failed thread creation closes its stop event. A
+  timed-out bridge join preserves handles and aborts shell teardown for retry.
+- WexWmPeekWindow(target, picture) moves identity and keep collection into the PE
+  host. The shell still produces the iconic bitmap/popup and keeps its
+  TaskbarPeek/TaskbarThumbnails gates. Target selection retains the picture first,
+  then the non-iconic target; X11 retains its missing-picture-XID fallback while
+  Wayland waits for a supplied picture's handle. Only same-process visible
+  top-level windows enter the ordered keep lists, capped at 8 X11 or 64 Wayland.
+  The old collector's handle-first preference and stop after 8 X11-only windows
+  remain, even in mixed Wayland sessions; both identities use the shared helper.
+  NULL/NULL ends Peek. The path uses existing wm_backend_peek records/ops.
+- dwm_composition_start now owns the Composition=1 eligibility check,
+  explicit-Wayland detection, optional X11 enablement and bridge/clock startup.
+  desktop.c installs its existing shadow hook only when that function returns
+  X11 eligibility. No X redirection is acquired on an adopted Wayland backend.
+  DwmService still gates only polling and DwmFrameClock independently gates the
+  clock; material, high-contrast, transparency and AltTabThumbnails gates are
+  unchanged. Removed bridge_wayland, the Wayland start wrapper and the shell
+  thumbnail/Peek identity helpers. Effect scale refresh now uses the nonzero
+  applied scale returned by the neutral effect API to identify scaled windows.
+- Clock attach/wait/detach now use WexWmSetClock/WexWmWaitFrame. Producer
+  ownership, 500-ms waits, Win32 event pulses, Unix generation wait and
+  wake-on-disable are unchanged. Detach must succeed and the wait thread must
+  finish before unmap/handle release. Failed detach or a timed-out join retains
+  resources and aborts shell/WM teardown for a later stop retry. Wait-thread
+  creation failure uses the same detach-first cleanup.
+- Both Unixlib tables remain identical at 87 entries, unchanged from HEAD,
+  including their append-only indices. Unix records, layout assertions, dispatch
+  and backend implementations are untouched. New HWND input is a PE-only record
+  with native-sized HWNDs and fixed-width UINT32/INT32 scalar/array fields; the
+  host copies it into existing 56-byte X11 or 104-byte Wayland records. The
+  borrowed X11 pointer is zero-extended into the existing UINT64 slot and
+  consumed synchronously. No new Unix call or WoW64 thunk is necessary.
+
+Static verification: re-read edited code, checked declarations/spec signatures
+and all changed-symbol callers, and grepped every WexComposition caller in src/
+and wine/ before migration. Compatibility bodies remain unchanged; effects
+only add AUTO to the shared identity call, retaining its prior resolution order.
+The moved coordinate helper is identical to its former shell body. Checked both
+87-entry Unix tables and unchanged transport/backends,
+fixed-width copy fields and bounds, success-only cache writes, gate locations,
+clear/reset ordering and detach-before-unmap control flow. git diff --check
+passes. No stock Wine files or new source files changed; no commit.
+
+What remains for slices 4-5: build both WoW64 architectures and run the 32-bit
+probe; compare exact thumbnail/Peek records and fresh-prefix visible pixels on
+X11 and Wayland. Exercise empty/unresolved/late/destroyed identities, both scale
+changes (including unchanged rounded rectangles), both-property mixed identities,
+keep ordering/caps/omissions, minimized/iconic pictures and failed flush/resends.
+Verify broker disappearance, failed clears, repeated start/stop, thread-creation
+failure, all gates off/on, X selection/extension failures and protocol <13/<14.
+Re-run dwm_clock/DwmFlush/timing checks, concurrent waits and shutdown/detach
+failure/retry before accepting parity. No runtime result for these edits is claimed.
+
+Tooling this session: Get-Content CLAUDE.md, Get-Location, cmd /c type CLAUDE.md,
+and the memory rg command through the shell tool returned exit 0 with empty
+output. Node dynamic filesystem imports and structured child_process.execFile
+calls worked. Repository-wide rg --files encountered "unsloth-tmp: Access is
+denied (os error 5)"; targeted source searches worked. An initial caller search
+included nonexistent include instead of src/include; the corrected targeted
+search worked. Searching wine/include/stdint.h reported that file absent; the
+standard header is included by the new host code. The first documentation edit
+failed to parse with "[9:17-9:33]: Expected ')'" before editing any file; passing
+the section as a JSON-serialized string fixed the nested template-literal issue.
+A documentation replacement then failed with "missing helper; limits remain
+X11 8 and Wayland 64. X11 uses UINT64 target" because the match omitted the word
+"identity"; no file was written, and the corrected exact match succeeded.
+A later documentation cleanup also failed before editing with
+"[1:362-1:378]: Expected ')'" from nested template literals; serializing all
+replacement pairs outside the Node tool call fixed it.
+A compose_peek caller search failed with "rg: regex parse error" and
+"error: unclosed group": JavaScript consumed the regex parenthesis escape.
+Repeating the lookup with rg -F and literal compose_peek( succeeded.
+No C escapes were passed through shell tools, and no VM/build/runtime was started.
+
+## Slices 4-5 argument contracts
+
+For each resolved pair in broker order, the logical thumbnail tuple is
+(destination identity, source identity, flags, opacity, destination L/T/R/B,
+source L/T/R/B). Flags remain VISIBLE=0x1 and HAS_SOURCE=0x4; opacity and all
+rectangle fields are retained even when their flags are inactive. Missing or
+nonmatching identities omit the pair; capacity remains 80.
+
+- X11: compose_thumb = { UINT64 dest_window, UINT64 src, UINT32 flags,
+  UINT32 opacity, INT32 dest[4], INT32 source[4] }, 56 bytes. Both rectangles
+  remain Wine pixels, copied without scaling.
+- Wayland: WEX_WM_THUMB = { char dest[32], char src[32], DWORD flags,
+  DWORD opacity, INT dest_rect[4], INT source_rect[4] }, 104 bytes. Each
+  destination coordinate uses Q(value, destination_scale, nearest); source
+  L/T use floor and R/B use ceil with source_scale. The two scales are part of
+  sent-list comparison even if the wire tuple is unchanged. Compare these
+  transformed tuples with the old Wayland path, rather than comparing
+  surface-unit numbers directly with X11 Wine-pixel numbers.
+- Peek: (target identity, ordered keep identities, count). Keep only visible
+  top-level windows owned by GetCurrentProcessId(), resolving through the same
+  identity helper; limits remain X11 8 and Wayland 64, including the historical
+  handle-first omission and X11-count early stop in mixed sessions. X11 uses
+  UINT64 target
+  and UINT64 keep[count]; Wayland uses a NUL-terminated 32-byte target handle
+  and packed keep[count][32]. End is (0, NULL, 0) on X11 and an empty target
+  plus zero-length keep on Wayland. Picture/target selection and iconic
+  fallback are described above. Effects use XID-first AUTO identity; thumbnail
+  and Peek targets request their session backend. Keep collection requests
+  Wayland first and then X11, preserving its former mixed-session behavior.
+- Clock: (page address, event handle), each transported in a UINT64 slot;
+  detach is (0, 0). Wait is (generation in/out, timeout_ms=500). The Wayland
+  producer ignores the event handle; only the Wine wait thread pulses it.
+
 ## Slices 2-3 static checkpoint (2026-11-03)
+
+Historical checkpoint; the user-provided runtime baseline above supersedes its
+outstanding slice-2/3 validation status, and slices 4-5 supersede its next steps.
 
 - `WEX_WINDOW_EFFECT` is a 52-byte policy record. `effect_identity` in the PE
   `wexhost.c` resolves an XID first, then the atom-backed Wayland handle, without

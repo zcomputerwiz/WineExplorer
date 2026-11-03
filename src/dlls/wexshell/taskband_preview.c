@@ -157,11 +157,6 @@ static HBITMAP peek_bitmap;
 static RECT peek_bitmap_rect;    /* in the popup */
 static BOOL peek_frame;
 
-static UINT64 x_window( HWND hwnd )
-{
-    return (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
-}
-
 /* Peek (P11c, TaskbarPeek=1): resting on the preview shows only that window over the desktop, as on Windows 7 */
 static BOOL peek_enabled(void)
 {
@@ -171,22 +166,13 @@ static BOOL peek_enabled(void)
     return enabled != 0;
 }
 
-extern BOOL dwm_wayland_handle( HWND hwnd, char handle[33] );   /* dwm_bridge.c */
-
-static BOOL wayland_session(void)
-{
-    DWORD backend = 0, capabilities = 0;
-    return !WexWmGetCapabilities( &backend, &capabilities ) && backend == WEX_WM_BACKEND_WAYLAND;
-}
-
 static void end_peek(void)
 {
     if (peek_hwnd) ShowWindow( peek_hwnd, SW_HIDE );
     if (peek_bitmap) DeleteObject( peek_bitmap );
     peek_bitmap = NULL;
     if (!peeking) return;
-    if (wayland_session()) WexWmSetPeek( NULL, NULL, 0 );
-    else WexCompositionSetPeek( 0, NULL, 0 );
+    WexWmPeekWindow( NULL, NULL );
     peeking = FALSE;
 }
 
@@ -265,47 +251,10 @@ static HWND show_iconic_peek(void)
     return peek_hwnd;
 }
 
-struct peek_keep { UINT64 windows[8]; char handles[64][32]; DWORD count, handle_count; };
-
-/* the shell's own visible top-level windows stay: desktop icons and wallpaper, taskbar, this preview */
-static BOOL CALLBACK add_shell_window( HWND hwnd, LPARAM lparam )
-{
-    struct peek_keep *keep = (struct peek_keep *)lparam;
-    DWORD pid;
-    UINT64 window;
-
-    char handle[33];
-
-    GetWindowThreadProcessId( hwnd, &pid );
-    if (pid != GetCurrentProcessId() || !IsWindowVisible( hwnd )) return TRUE;
-    if (dwm_wayland_handle( hwnd, handle ))   /* Wayland: windows are named by shared handle */
-    {
-        if (keep->handle_count < ARRAY_SIZE(keep->handles)) memcpy( keep->handles[keep->handle_count++], handle, 32 );
-        return TRUE;
-    }
-    if (!(window = x_window( hwnd ))) return TRUE;
-    keep->windows[keep->count++] = window;
-    return keep->count < ARRAY_SIZE(keep->windows);
-}
-
 static void start_peek(void)
 {
-    struct peek_keep keep = { { 0 }, { { 0 } }, 0, 0 };
     HWND shown = show_iconic_peek();
-    UINT64 target = shown ? x_window( shown ) : 0;
-    char handle[33];
-
-    if (wayland_session())
-    {
-        HWND hwnd = shown ? shown : IsIconic( preview_target ) ? NULL : preview_target;
-        if (!hwnd || !dwm_wayland_handle( hwnd, handle )) return;
-        EnumWindows( add_shell_window, (LPARAM)&keep );
-        peeking = !WexWmSetPeek( handle, (const char (*)[32])keep.handles, keep.handle_count );
-        return;
-    }
-    if (!target && (!(target = x_window( preview_target )) || IsIconic( preview_target ))) return;
-    EnumWindows( add_shell_window, (LPARAM)&keep );
-    peeking = !WexCompositionSetPeek( target, keep.windows, keep.count );
+    peeking = !WexWmPeekWindow( preview_target, shown );
 }
 
 static BOOL previews_enabled(void)

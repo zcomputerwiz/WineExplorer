@@ -71,58 +71,11 @@ struct pending
     int tries;
 };
 
-/* live thumbnails (P8): the broker's list, mapped to X windows on every poll, because a window may get its
- * X window after the thumbnail was registered; the compositor ignores an unchanged list */
+/* Live thumbnails (P8): the broker list is resolved by wexhost on every poll,
+ * since a window may acquire its backend identity after registration. */
 static struct dwm_thumb thumb_list[DWM_THUMB_MAX];
 static unsigned int thumb_list_count;
 static UINT64 thumb_revision;
-
-static UINT64 x_window( UINT32 hwnd )
-{
-    return (ULONG_PTR)GetPropW( UlongToHandle( hwnd ), L"__wine_x11_whole_window" );
-}
-
-static BOOL bridge_wayland;   /* a Wayland session: effects and thumbnails go to the compositor by shared handle */
-
-/* The 32 hex digit shared handle of a Wayland window's wex_window_v1, which winewayland.drv publishes as a global
- * atom in the window property; FALSE while it has none. */
-BOOL dwm_wayland_handle( HWND hwnd, char handle[33] )
-{
-    WCHAR name[40];
-    ATOM atom = (ATOM)(ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_window_handle" );
-    UINT i, len;
-
-    if (!atom || !(len = GlobalGetAtomNameW( atom, name, ARRAY_SIZE(name) )) || len != 32) return FALSE;
-    for (i = 0; i < 32; i++) handle[i] = (char)name[i];
-    handle[32] = 0;
-    return TRUE;
-}
-
-/* Published by winewayland.drv in 1/120 units, independent of the window's Win32 DPI awareness. Thousandths out. */
-static DWORD wayland_scale( HWND hwnd )
-{
-    DWORD scale = (ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_scale_120" ) * 1000 / 120;
-    return scale ? scale : 1000;
-}
-
-/* Wine pixels -> wl_surface units. rounding: -1 floor, 0 nearest (ties away from zero), 1 ceil.
- * Use signed 64-bit arithmetic so negative origins and large coordinates also round correctly. */
-static INT wayland_coord( INT value, DWORD scale, int rounding )
-{
-    LONGLONG pixels = (LONGLONG)value * 1000;
-    LONGLONG result = pixels / scale, remainder = pixels % scale;
-
-    if (rounding < 0 && remainder < 0) result--;
-    else if (rounding > 0 && remainder > 0) result++;
-    else if (!rounding)
-    {
-        if (remainder * 2 >= scale) result++;
-        else if (-remainder * 2 >= scale) result--;
-    }
-    if (result > INT32_MAX) return INT32_MAX;
-    if (result < INT32_MIN) return INT32_MIN;
-    return result;
-}
 
 /* The broker's thumbnail flags map one-to-one onto the compositor's (equal values); fill the destination's flags,
  * opacity and the two rectangles from the broker record */
@@ -134,50 +87,11 @@ static void thumb_fill( UINT32 *flags, UINT32 *opacity, INT32 *dest, INT32 *sour
     memcpy( source, t->source, sizeof(t->source) );
 }
 
-/* The same list for a Wayland compositor: windows are named by handle, and only a changed list is sent */
-static void sync_thumbnails_wayland(void)
-{
-    static WEX_WM_THUMB sent[WEX_THUMB_MAX];
-    static DWORD sent_scales[WEX_THUMB_MAX][2];
-    static DWORD sent_count;
-    WEX_WM_THUMB out[WEX_THUMB_MAX];
-    DWORD scales[WEX_THUMB_MAX][2] = { { 0 } };
-    char dest[33], src[33];
-    DWORD i, j, count = 0;
-
-    memset( out, 0, sizeof(out) );
-    for (i = 0; i < thumb_list_count; i++)
-    {
-        const struct dwm_thumb *t = &thumb_list[i];
-        if (!dwm_wayland_handle( UlongToHandle( t->dest ), dest ) || !dwm_wayland_handle( UlongToHandle( t->src ), src ))
-            continue;
-        memcpy( out[count].dest, dest, 32 );
-        memcpy( out[count].src, src, 32 );
-        thumb_fill( (UINT32 *)&out[count].flags, (UINT32 *)&out[count].opacity, (INT32 *)out[count].dest_rect, (INT32 *)out[count].source_rect, t );
-        scales[count][0] = wayland_scale( UlongToHandle( t->dest ) );
-        scales[count][1] = wayland_scale( UlongToHandle( t->src ) );
-        for (j = 0; j < 4; j++)
-        {
-            out[count].dest_rect[j] = wayland_coord( out[count].dest_rect[j], scales[count][0], 0 );
-            out[count].source_rect[j] = wayland_coord( out[count].source_rect[j], scales[count][1], j < 2 ? -1 : 1 );
-        }
-        count++;
-    }
-    if (count == sent_count && !memcmp( out, sent, count * sizeof(*out) ) &&
-        !memcmp( scales, sent_scales, count * sizeof(*scales) )) return;
-    if (!WexWmSetThumbnails( out, count ))
-    {
-        memcpy( sent, out, sizeof(sent) );
-        memcpy( sent_scales, scales, sizeof(sent_scales) );
-        sent_count = count;
-    }
-}
-
 static void sync_thumbnails( BOOL have_broker )
 {
     unsigned char buf[sizeof(struct dwm_thumb_list_reply) + DWM_THUMB_MAX * sizeof(struct dwm_thumb)];
     const struct dwm_thumb_list_reply *reply = (const struct dwm_thumb_list_reply *)buf;
-    struct compose_thumb out[WEX_THUMB_MAX];
+    WEX_WINDOW_THUMB out[WEX_THUMB_MAX];
     DWORD len = sizeof(buf), i, count = 0;
 
     if (!have_broker) thumb_list_count = 0, thumb_revision = 0;
@@ -190,19 +104,15 @@ static void sync_thumbnails( BOOL have_broker )
         thumb_revision = reply->revision;
         TRACE( "%u thumbnails, revision %I64u\n", thumb_list_count, thumb_revision );
     }
-    if (bridge_wayland)
-    {
-        sync_thumbnails_wayland();
-        return;
-    }
     for (i = 0; i < thumb_list_count; i++)
     {
         const struct dwm_thumb *t = &thumb_list[i];
-        if (!(out[count].dest_window = x_window( t->dest )) || !(out[count].src = x_window( t->src ))) continue;
-        thumb_fill( &out[count].flags, &out[count].opacity, out[count].dest, out[count].source, t );
+        out[count].dest = UlongToHandle( t->dest );
+        out[count].src = UlongToHandle( t->src );
+        thumb_fill( &out[count].flags, &out[count].opacity, out[count].dest_rect, out[count].source_rect, t );
         count++;
     }
-    WexCompositionSetThumbnails( out, count );
+    WexWmApplyThumbnails( out, count );
 }
 
 static HANDLE bridge_thread, bridge_stop;
@@ -302,7 +212,7 @@ static void retry_pending(void)
         if (!pending[i].hwnd) continue;
         if (!IsWindow( pending[i].hwnd )) { pending[i].hwnd = NULL; continue; }
         /* A scale event does not change the broker revision. Refresh already applied effects as well. */
-        if (bridge_wayland && !pending[i].tries && pending[i].scale != WexWmGetEffectScale( pending[i].hwnd ))
+        if (pending[i].scale && !pending[i].tries && pending[i].scale != WexWmGetEffectScale( pending[i].hwnd ))
             pending[i].tries = DWM_BRIDGE_RETRIES;
         if (!pending[i].tries) continue;
         r = apply_window( pending[i].hwnd, &pending[i] );
@@ -418,15 +328,6 @@ static DWORD WINAPI bridge_proc( void *arg )
     return 0;
 }
 
-void dwm_bridge_start(void);
-
-/* On a Wayland session (no X composition): thumbnails, effects and the frame clock all go to the compositor */
-void dwm_bridge_start_wayland(void)
-{
-    bridge_wayland = TRUE;
-    dwm_bridge_start();
-}
-
 void dwm_bridge_start(void)
 {
     DWORD enabled = 0, size = sizeof(enabled);
@@ -436,19 +337,32 @@ void dwm_bridge_start(void)
                       RRF_RT_REG_DWORD, NULL, &enabled, &size ) || !enabled) return;
     if (!(bridge_desktop = GetThreadDesktop( GetCurrentThreadId() ))) return;
     if (!(bridge_stop = CreateEventW( NULL, TRUE, FALSE, NULL ))) return;
+    memset( pending, 0, sizeof(pending) );
+    thumb_list_count = 0;
+    thumb_revision = 0;
+    WexWmApplyThumbnails( NULL, 0 );
     bridge_thread = CreateThread( NULL, 0, bridge_proc, NULL, 0, NULL );
+    if (!bridge_thread)
+    {
+        CloseHandle( bridge_stop );
+        bridge_stop = NULL;
+    }
     TRACE( "bridge thread %p\n", bridge_thread );
 }
 
-void dwm_bridge_stop(void)
+BOOL dwm_bridge_stop(void)
 {
-    if (!bridge_thread) return;
+    if (!bridge_thread) return TRUE;
     SetEvent( bridge_stop );
-    WaitForSingleObject( bridge_thread, 3000 );
+    if (WaitForSingleObject( bridge_thread, 3000 ) != WAIT_OBJECT_0) return FALSE;
     CloseHandle( bridge_thread );
     CloseHandle( bridge_stop );
     bridge_thread = bridge_stop = NULL;
-    WexCompositionSetThumbnails( NULL, 0 );
+    thumb_list_count = 0;
+    thumb_revision = 0;
+    memset( pending, 0, sizeof(pending) );
+    WexWmApplyThumbnails( NULL, 0 );
+    return TRUE;
 }
 
 /* Frame clock (docs/DWM_ARCHITECTURE.md section 2.3, P6 slice 1): a per-desktop shared page the compositor
@@ -466,12 +380,14 @@ static DWORD WINAPI clock_proc( void *arg )
 
     while (!clock_stopping)
     {
-        if (WexCompositionWaitFrame( &generation, 500 )) break;
+        if (WexWmWaitFrame( &generation, 500 )) break;
         if (generation != last) PulseEvent( clock_event );
         last = generation;
     }
     return 0;
 }
+
+BOOL dwm_clock_stop(void);
 
 void dwm_clock_start(void)
 {
@@ -523,7 +439,7 @@ void dwm_clock_start(void)
         return;
     }
 
-    if (WexCompositionSetClock( clock_page, clock_event ))
+    if (WexWmSetClock( clock_page, clock_event ))
     {
         UnmapViewOfFile( clock_page );
         clock_page = NULL;
@@ -535,17 +451,23 @@ void dwm_clock_start(void)
     }
     clock_stopping = FALSE;
     clock_thread = CreateThread( NULL, 0, clock_proc, NULL, 0, NULL );
+    if (!clock_thread)
+    {
+        dwm_clock_stop();
+        return;
+    }
     TRACE( "frame clock on, period %I64d\n", clock_page->qpc_period );
 }
 
-void dwm_clock_stop(void)
+BOOL dwm_clock_stop(void)
 {
-    if (!clock_page) return;
-    WexCompositionSetClock( NULL, NULL );
+    if (!clock_page) return TRUE;
+    /* Never release the page while a producer may still write it. */
+    if (WexWmSetClock( NULL, NULL )) return FALSE;
     clock_stopping = TRUE;
     if (clock_thread)
     {
-        WaitForSingleObject( clock_thread, 2000 );
+        if (WaitForSingleObject( clock_thread, 2000 ) != WAIT_OBJECT_0) return FALSE;
         CloseHandle( clock_thread );
         clock_thread = NULL;
     }
@@ -555,4 +477,27 @@ void dwm_clock_stop(void)
     clock_mapping = NULL;
     CloseHandle( clock_event );
     clock_event = NULL;
+    return TRUE;
+}
+
+/* The shell uses one startup path. Only explicit Wayland WM adoption skips
+ * optional X redirection; the default-off Composition gate applies to both.
+ * Return whether desktop.c should install its existing X11 shadow hook. */
+BOOL dwm_composition_start(void)
+{
+    DWORD composition = 0, size = sizeof(composition), backend, capabilities, err;
+    BOOL wayland;
+
+    RegGetValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"Composition",
+                  RRF_RT_REG_DWORD, NULL, &composition, &size );
+    if (composition != 1) return FALSE;
+    wayland = !WexWmGetCapabilities( &backend, &capabilities ) && backend == WEX_WM_BACKEND_WAYLAND;
+    if (!wayland && (err = WexCompositionSetEnabled( TRUE )))
+    {
+        WARN( "composition unavailable, error %lu\n", err );
+        return FALSE;
+    }
+    dwm_bridge_start();
+    dwm_clock_start();
+    return !wayland;
 }

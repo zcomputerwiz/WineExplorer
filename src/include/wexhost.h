@@ -308,6 +308,20 @@ typedef struct
 typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
 DWORD WINAPI WexWmGetEffectScale( HWND hwnd );
+/* PE-only HWND input; geometry stays in Wine pixels until host adaptation.
+ * Calls are serialized by the shell bridge. NULL/0 forces a clear and invalidates
+ * the success-only Wayland sent cache, including both per-window scales. */
+typedef struct
+{
+    HWND dest, src;
+    UINT32 flags, opacity;
+    INT32 dest_rect[4], source_rect[4];
+} WEX_WINDOW_THUMB;
+DWORD WINAPI WexWmApplyThumbnails( const WEX_WINDOW_THUMB *records, DWORD count );
+/* Keep this process's visible top-level windows, in enumeration order (8 X11,
+ * 64 Wayland). Prefer the iconic picture window; fall back to a non-iconic
+ * target as before. NULL target/picture ends Peek. No HWND crosses Unixlib. */
+DWORD WINAPI WexWmPeekWindow( HWND target, HWND picture );
 /* Selected backend clock. The caller keeps page mapped until a successful
  * detach; only the Wine-side wait thread pulses Win32 events. */
 DWORD WINAPI WexWmSetClock( void *page, HANDLE event );

@@ -19,6 +19,7 @@
  */
 
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -841,20 +842,23 @@ DWORD WINAPI WexWmGetEffectScale( HWND hwnd )
     return scale ? scale : 1000;
 }
 
-/* Keep the historical XID-first rule even in a mixed session. The identity is
- * independent of the foreign-window inventory and can name any Wine window. */
-static BOOL effect_identity( HWND hwnd, struct wm_apply_effects_params *params )
+/* AUTO keeps effects' historical XID-first rule even in a mixed session.
+ * Lists/Peek can request one backend to preserve their original session policy.
+ * Identity is independent of the inventory and can name any Wine window. */
+static BOOL effect_identity( HWND hwnd, DWORD backend, struct wm_apply_effects_params *params )
 {
     WCHAR name[40];
     ATOM atom;
     UINT i;
 
-    params->window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
+    if (backend != WEX_WM_BACKEND_WAYLAND)
+        params->window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
     if (params->window)
     {
         params->backend = WEX_WM_BACKEND_X11;
         return TRUE;
     }
+    if (backend == WEX_WM_BACKEND_X11) return FALSE;
     atom = (ATOM)(ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_window_handle" );
     if (!atom || GlobalGetAtomNameW( atom, name, ARRAY_SIZE(name) ) != 32) return FALSE;
     for (i = 0; i < 32; i++) params->handle[i] = (char)name[i];
@@ -872,7 +876,7 @@ DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_
     result->scale = 0;
     result->retry = TRUE;
     if (!effect || effect->kind > WEX_EFFECT_GRADIENT) return ERROR_INVALID_PARAMETER;
-    if (!effect_identity( hwnd, &params )) return ERROR_NOT_READY;
+    if (!effect_identity( hwnd, WEX_WM_BACKEND_AUTO, &params )) return ERROR_NOT_READY;
     params.effect = *effect;
     result->scale = params.scale;
     if (params.backend == WEX_WM_BACKEND_WAYLAND && effect->materials && effect->has_region)
@@ -897,6 +901,160 @@ DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_
     else WEXHOST_CALL( wm_apply_effects, &params );
     result->retry = params.backend == WEX_WM_BACKEND_X11 ? !!params.err : params.err == ERROR_NOT_READY;
     return params.err;
+}
+
+/* Only an explicitly adopted Wayland WM selects its handle transport. */
+static DWORD thumbnail_backend(void)
+{
+    DWORD backend, capabilities;
+    if (!WexWmGetCapabilities( &backend, &capabilities ) && backend == WEX_WM_BACKEND_WAYLAND)
+        return backend;
+    return WEX_WM_BACKEND_X11;
+}
+
+/* Wine pixels -> surface units: floor, nearest/ties away, or ceil. */
+static INT thumbnail_coord( INT value, DWORD scale, int rounding )
+{
+    LONGLONG pixels = (LONGLONG)value * 1000;
+    LONGLONG result = pixels / scale, remainder = pixels % scale;
+
+    if (rounding < 0 && remainder < 0) result--;
+    else if (rounding > 0 && remainder > 0) result++;
+    else if (!rounding)
+    {
+        if (remainder * 2 >= scale) result++;
+        else if (-remainder * 2 >= scale) result--;
+    }
+    if (result > INT32_MAX) return INT32_MAX;
+    if (result < INT32_MIN) return INT32_MIN;
+    return result;
+}
+
+/* Resolve on every poll, including unchanged broker revisions. X11 retains its
+ * compose-side duplicate suppression; Wayland caches only successful sends. */
+DWORD WINAPI WexWmApplyThumbnails( const WEX_WINDOW_THUMB *records, DWORD count )
+{
+    static WEX_WM_THUMB sent[WEX_THUMB_MAX];
+    static DWORD sent_scales[WEX_THUMB_MAX][2], sent_count;
+    static BOOL sent_valid;
+    WEX_WM_THUMB out[WEX_THUMB_MAX] = { 0 };
+    struct compose_thumb x11[WEX_THUMB_MAX] = { 0 };
+    DWORD scales[WEX_THUMB_MAX][2] = { { 0 } };
+    struct wm_thumbnails_params params = { 0 };
+    DWORD backend = thumbnail_backend(), i, j, n = 0;
+
+    if (count > WEX_THUMB_MAX || (count && !records)) return ERROR_INVALID_PARAMETER;
+    /* Even a failed clear must not suppress the next resend after a restart. */
+    if (!records || backend != WEX_WM_BACKEND_WAYLAND) sent_valid = FALSE;
+    for (i = 0; i < count; i++)
+    {
+        struct wm_apply_effects_params dest = { 0 }, src = { 0 };
+        const WEX_WINDOW_THUMB *t = &records[i];
+        if (!effect_identity( t->dest, backend, &dest ) || !effect_identity( t->src, backend, &src ) ||
+            dest.backend != backend || src.backend != backend) continue;
+        if (backend == WEX_WM_BACKEND_X11)
+        {
+            x11[n].dest_window = dest.window;
+            x11[n].src = src.window;
+            x11[n].flags = t->flags;
+            x11[n].opacity = t->opacity;
+            memcpy( x11[n].dest, t->dest_rect, sizeof(t->dest_rect) );
+            memcpy( x11[n].source, t->source_rect, sizeof(t->source_rect) );
+        }
+        else
+        {
+            memcpy( out[n].dest, dest.handle, 32 );
+            memcpy( out[n].src, src.handle, 32 );
+            out[n].flags = t->flags;
+            out[n].opacity = t->opacity;
+            scales[n][0] = dest.scale;
+            scales[n][1] = src.scale;
+            for (j = 0; j < 4; j++)
+            {
+                out[n].dest_rect[j] = thumbnail_coord( t->dest_rect[j], dest.scale, 0 );
+                out[n].source_rect[j] = thumbnail_coord( t->source_rect[j], src.scale, j < 2 ? -1 : 1 );
+            }
+        }
+        n++;
+    }
+    if (backend == WEX_WM_BACKEND_WAYLAND && records && sent_valid && n == sent_count &&
+        !memcmp( out, sent, n * sizeof(*out) ) && !memcmp( scales, sent_scales, n * sizeof(*scales) ))
+        return ERROR_SUCCESS;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.count = n;
+    params.backend = backend;
+    if (backend == WEX_WM_BACKEND_X11) params.x11_thumbs = records ? (UINT64)(ULONG_PTR)x11 : 0;
+    else memcpy( params.records, out, n * sizeof(*out) );
+    WEXHOST_CALL( wm_backend_thumbnails, &params );
+    if (!params.err && backend == WEX_WM_BACKEND_WAYLAND && records)
+    {
+        memcpy( sent, out, sizeof(sent) );
+        memcpy( sent_scales, scales, sizeof(sent_scales) );
+        sent_count = n;
+        sent_valid = TRUE;
+    }
+    return params.err;
+}
+
+struct window_peek
+{
+    struct wm_peek_params params;
+    UINT64 windows[8];
+    DWORD window_count, handle_count;
+};
+
+static BOOL CALLBACK peek_keep_window( HWND hwnd, LPARAM lparam )
+{
+    struct window_peek *peek = (struct window_peek *)lparam;
+    struct wm_apply_effects_params identity = { 0 };
+    DWORD pid;
+
+    GetWindowThreadProcessId( hwnd, &pid );
+    if (pid != GetCurrentProcessId() || !IsWindowVisible( hwnd )) return TRUE;
+    /* Preserve the old keep collector's handle-first preference and its X11
+     * early stop, even in mixed sessions. Both identities use the same helper. */
+    if (effect_identity( hwnd, WEX_WM_BACKEND_WAYLAND, &identity ))
+    {
+        if (peek->handle_count < ARRAY_SIZE(peek->params.keep))
+            memcpy( peek->params.keep[peek->handle_count++], identity.handle, 32 );
+        return TRUE;
+    }
+    if (!effect_identity( hwnd, WEX_WM_BACKEND_X11, &identity )) return TRUE;
+    peek->windows[peek->window_count++] = identity.window;
+    return peek->window_count < ARRAY_SIZE(peek->windows);
+}
+
+DWORD WINAPI WexWmPeekWindow( HWND target, HWND picture )
+{
+    struct window_peek peek = { 0 };
+    struct wm_apply_effects_params identity = { 0 };
+    BOOL resolved = FALSE;
+
+    peek.params.backend = thumbnail_backend();
+    if (target || picture)
+    {
+        if (picture) resolved = effect_identity( picture, peek.params.backend, &identity ) && identity.backend == peek.params.backend;
+        /* X11 historically falls back when the picture has no X window;
+         * Wayland waits for the picture handle instead of exposing the target. */
+        if (!resolved && (!picture || peek.params.backend == WEX_WM_BACKEND_X11) && target && !IsIconic( target ))
+        {
+            memset( &identity, 0, sizeof(identity) );
+            resolved = effect_identity( target, peek.params.backend, &identity ) && identity.backend == peek.params.backend;
+        }
+        if (!resolved) return ERROR_NOT_READY;
+        if (identity.backend == WEX_WM_BACKEND_X11) peek.params.x11_target = identity.window;
+        else
+        {
+            if (strlen( identity.handle ) != 32) return ERROR_INVALID_PARAMETER;
+            memcpy( peek.params.target, identity.handle, 32 );
+        }
+        EnumWindows( peek_keep_window, (LPARAM)&peek );
+        peek.params.count = peek.params.backend == WEX_WM_BACKEND_X11 ? peek.window_count : peek.handle_count;
+    }
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (peek.params.count) peek.params.x11_keep = (UINT64)(ULONG_PTR)peek.windows;
+    WEXHOST_CALL( wm_backend_peek, &peek.params );
+    return peek.params.err;
 }
 
 DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,
