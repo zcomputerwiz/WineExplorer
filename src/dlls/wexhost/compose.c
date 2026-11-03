@@ -163,6 +163,7 @@ struct window
     BOOL blur_expanded;      /* expand_blur_damage: this frame's damage already covers the blur area */
     Window above;            /* the sibling below, from the last ConfigureNotify */
     BOOL above_known;
+    BOOL fresh;              /* tracked since the last frame: its area is damaged once */
 };
 
 static Display *dpy;
@@ -435,6 +436,7 @@ static struct window *track_window( Window id, Window parent )
     {
         if (!(w = calloc( 1, sizeof(*w) ))) return NULL;
         w->id = id;
+        w->fresh = TRUE;
         w->opacity = 0xffffffff;
         w->added_mask = mask & ~attr.your_event_mask;
         pXSelectInput( dpy, id, attr.your_event_mask | mask );
@@ -1437,17 +1439,22 @@ DWORD compose_set( void *display, unsigned long root_window, unsigned long deskt
 /* A window that only moved (same size, border and stacking) repaints where it was and where it is, with the reach
  * of its shadows, instead of the whole screen and a new scan of the tree. */
 #define MOVE_REACH 16
-static void damage_window( const struct window *w )
+/* x, y: the window's inside corner in root coordinates, as struct window keeps it */
+static void damage_rect( int x, int y, int width, int height, int border )
 {
-    int border = w->attr.border_width;
     XRectangle r;
-    r.x = w->x - border - MOVE_REACH;
-    r.y = w->y - border - MOVE_REACH;
-    r.width = w->attr.width + 2 * (border + MOVE_REACH);
-    r.height = w->attr.height + 2 * (border + MOVE_REACH);
+    r.x = x - border - MOVE_REACH;
+    r.y = y - border - MOVE_REACH;
+    r.width = width + 2 * (border + MOVE_REACH);
+    r.height = height + 2 * (border + MOVE_REACH);
     pXFixesSetRegion( dpy, scratch, &r, 1 );
     pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
     dirty = TRUE;
+}
+
+static void damage_window( const struct window *w )
+{
+    damage_rect( w->x, w->y, w->attr.width, w->attr.height, w->attr.border_width );
 }
 
 static BOOL move_only( struct window *w, const XConfigureEvent *ev )
@@ -1473,6 +1480,7 @@ void compose_event( void *xevent )
     XEvent *event = xevent;
     struct window *w;
     Window id = 0;
+    BOOL full = FALSE;
     if (!enabled) return;
     if (event->type == SelectionClear && event->xselectionclear.selection == selection)
     {
@@ -1501,14 +1509,21 @@ void compose_event( void *xevent )
         if ((w = find_window( ((XShapeEvent *)event)->window ))) damage_window( w );
         return;
     }
+    /* A window that appears, goes, restacks or resizes repaints where it was and where it is (a new window once the
+     * tree is scanned again, see compose_paint); the desktop, the Mica source and thumbnail sources repaint all. */
     switch (event->type)
     {
-    case CreateNotify: id = event->xcreatewindow.window; break;
+    case CreateNotify: id = event->xcreatewindow.window; break;   /* not visible before it is mapped */
     case MapNotify: id = event->xmap.window; break;
     case ConfigureNotify:
         id = event->xconfigure.window;
-        if ((w = find_window( id )) && move_only( w, &event->xconfigure )) return;
-        if (w && (event->xconfigure.width != w->attr.width || event->xconfigure.height != w->attr.height))
+        if (!(w = find_window( id ))) break;
+        if (move_only( w, &event->xconfigure )) return;
+        damage_window( w );
+        damage_rect( w->x + event->xconfigure.x - w->attr.x, w->y + event->xconfigure.y - w->attr.y,
+                     event->xconfigure.width, event->xconfigure.height, event->xconfigure.border_width );
+        full = id == desktop || id == mica_source || is_thumbnail_source( id );
+        if (event->xconfigure.width != w->attr.width || event->xconfigure.height != w->attr.height)
         {
             retain_surface( w );  /* the size before a minimize; see retain_surface */
             free_surface( w );
@@ -1518,12 +1533,18 @@ void compose_event( void *xevent )
     case ReparentNotify:
         id = event->xreparent.window;
         remove_window( id, FALSE );
+        full = TRUE;
         break;
-    case UnmapNotify: id = event->xunmap.window; remove_window( id, FALSE ); break;
+    case UnmapNotify:
     case DestroyNotify:
-        id = event->xdestroywindow.window;
-        remove_window( id, TRUE );
-        if (id == desktop) { compose_set( dpy, root, desktop, x_error, FALSE ); return; }
+        id = event->type == UnmapNotify ? event->xunmap.window : event->xdestroywindow.window;
+        if ((w = find_window( id )))
+        {
+            damage_window( w );
+            full = id == desktop || id == mica_source || is_thumbnail_source( id );
+        }
+        remove_window( id, event->type == DestroyNotify );
+        if (event->type == DestroyNotify && id == desktop) { compose_set( dpy, root, desktop, x_error, FALSE ); return; }
         break;
     case PropertyNotify:
         if (event->xproperty.atom == shadow_atom && (w = find_window( event->xproperty.window )))
@@ -1550,7 +1571,8 @@ void compose_event( void *xevent )
     }
     /* Our overlay/selection windows must not recursively trigger rebuilding. */
     if (id == overlay || id == owner) return;
-    tree_dirty = full_repaint = dirty = TRUE;
+    tree_dirty = dirty = TRUE;
+    if (full) full_repaint = TRUE;
 }
 
 /* P14 measurement: with +wexhost traces each frame waits for the server, and every 2 s the frame count, the average
@@ -1592,7 +1614,17 @@ void compose_paint(void)
     UINT64 begin = TRACE_ON(wexhost) ? now_us() : 0;
     BOOL full;
     if (!enabled || !dirty) return;
-    if (tree_dirty) scan_windows();
+    if (tree_dirty)
+    {
+        struct window *w;
+        scan_windows();
+        for (w = windows; w; w = w->next)
+            if (w->fresh)
+            {
+                damage_window( w );
+                w->fresh = FALSE;
+            }
+    }
     if (!pXGetWindowAttributes( dpy, root, &attr )) return;
     if (width != attr.width || height != attr.height)
     {
