@@ -97,6 +97,16 @@ BOOL dwm_wayland_handle( HWND hwnd, char handle[33] )
     return TRUE;
 }
 
+/* The broker's thumbnail flags map one-to-one onto the compositor's (equal values); fill the destination's flags,
+ * opacity and the two rectangles from the broker record */
+static void thumb_fill( UINT32 *flags, UINT32 *opacity, INT32 *dest, INT32 *source, const struct dwm_thumb *t )
+{
+    *flags = (t->flags & DWM_THUMB_VISIBLE ? WEX_THUMB_VISIBLE : 0) | (t->flags & DWM_THUMB_HAS_SOURCE ? WEX_THUMB_HAS_SOURCE : 0);
+    *opacity = t->opacity;
+    memcpy( dest, t->dest_rect, sizeof(t->dest_rect) );
+    memcpy( source, t->source, sizeof(t->source) );
+}
+
 /* The same list for a Wayland compositor: windows are named by handle, and only a changed list is sent */
 static void sync_thumbnails_wayland(void)
 {
@@ -114,11 +124,7 @@ static void sync_thumbnails_wayland(void)
             continue;
         memcpy( out[count].dest, dest, 32 );
         memcpy( out[count].src, src, 32 );
-        out[count].flags = (t->flags & DWM_THUMB_VISIBLE ? WEX_WM_THUMB_VISIBLE : 0) |
-                           (t->flags & DWM_THUMB_HAS_SOURCE ? WEX_WM_THUMB_HAS_SOURCE : 0);
-        out[count].opacity = t->opacity;
-        memcpy( out[count].dest_rect, t->dest_rect, sizeof(out[count].dest_rect) );
-        memcpy( out[count].source_rect, t->source, sizeof(out[count].source_rect) );
+        thumb_fill( (UINT32 *)&out[count].flags, (UINT32 *)&out[count].opacity, (INT32 *)out[count].dest_rect, (INT32 *)out[count].source_rect, t );
         count++;
     }
     if (count == sent_count && !memcmp( out, sent, count * sizeof(*out) )) return;
@@ -151,11 +157,7 @@ static void sync_thumbnails( BOOL have_broker )
     {
         const struct dwm_thumb *t = &thumb_list[i];
         if (!(out[count].dest_window = x_window( t->dest )) || !(out[count].src = x_window( t->src ))) continue;
-        out[count].flags = (t->flags & DWM_THUMB_VISIBLE ? WEX_THUMB_VISIBLE : 0) |
-                           (t->flags & DWM_THUMB_HAS_SOURCE ? WEX_THUMB_HAS_SOURCE : 0);
-        out[count].opacity = t->opacity;
-        memcpy( out[count].dest, t->dest_rect, sizeof(out[count].dest) );
-        memcpy( out[count].source, t->source, sizeof(out[count].source) );
+        thumb_fill( &out[count].flags, &out[count].opacity, out[count].dest, out[count].source, t );
         count++;
     }
     WexCompositionSetThumbnails( out, count );

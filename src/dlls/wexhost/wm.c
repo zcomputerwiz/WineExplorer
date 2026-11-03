@@ -104,32 +104,17 @@ DISPATCH(wm_get_title, struct wm_get_title_params, get_title)
 DISPATCH(wm_get_icon, struct wm_get_icon_params, get_icon)
 DISPATCH(wm_focus, struct wm_window_params, focus)
 
-NTSTATUS wm_effects(void *args)
-{
-    struct wm_effects_params *params = args;
-    const struct wm_backend_ops *ops = get_backend();
-    if (ops && ops->effects) return ops->effects(args);
-    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
-    return STATUS_SUCCESS;
+#define OPTIONAL_DISPATCH(name, params_type, op) \
+NTSTATUS name(void *args) \
+{ \
+    const struct wm_backend_ops *ops = get_backend(); \
+    if (ops && ops->op) return ops->op(args); \
+    ((params_type *)args)->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY; \
+    return STATUS_SUCCESS; \
 }
-
-NTSTATUS wm_thumbnails(void *args)
-{
-    struct wm_thumbnails_params *params = args;
-    const struct wm_backend_ops *ops = get_backend();
-    if (ops && ops->thumbnails) return ops->thumbnails(args);
-    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
-    return STATUS_SUCCESS;
-}
-
-NTSTATUS wm_peek(void *args)
-{
-    struct wm_peek_params *params = args;
-    const struct wm_backend_ops *ops = get_backend();
-    if (ops && ops->peek) return ops->peek(args);
-    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
-    return STATUS_SUCCESS;
-}
+OPTIONAL_DISPATCH(wm_effects, struct wm_effects_params, effects)
+OPTIONAL_DISPATCH(wm_thumbnails, struct wm_thumbnails_params, thumbnails)
+OPTIONAL_DISPATCH(wm_peek, struct wm_peek_params, peek)
 
 NTSTATUS wm_native_info(void *args)
 {
