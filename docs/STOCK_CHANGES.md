@@ -1568,3 +1568,8 @@ a theme that switches `DwmFrameStyle` while windows live switches their frames. 
 match the style: Aero glass that uxtheme asked for goes away under the Windows 10/11 style, other glass is marked
 again with its margins. The Aero blur dwmapi adds is remembered (`__wine_dwm_blur_auto`) and removed with it; an
 application's own blur replaces it.
+
+Review fixes (Codex, 2026-11-03): an application's blur request is never replaced by the automatic Aero blur; an
+application's own `DwmExtendFrameIntoClientArea` makes the glass its own (a frame style switch keeps it); every theme
+change refreshes glass frames once (a new colorization recolors the Aero blur); `__wine_nc_buttons` is removed whenever
+the Aero painter does not draw; button geometry is clamped to what the property holds before painting (300 % dpi).

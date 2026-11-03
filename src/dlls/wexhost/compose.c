@@ -422,6 +422,26 @@ static BOOL update_margins( struct window *w )
     return TRUE;
 }
 
+/* Damage a window's area with the reach of its shadows (P14). x, y: the window's inside corner in root coordinates,
+ * as struct window keeps it. */
+#define MOVE_REACH 16
+static void damage_rect( int x, int y, int width, int height, int border )
+{
+    XRectangle r;
+    r.x = x - border - MOVE_REACH;
+    r.y = y - border - MOVE_REACH;
+    r.width = width + 2 * (border + MOVE_REACH);
+    r.height = height + 2 * (border + MOVE_REACH);
+    pXFixesSetRegion( dpy, scratch, &r, 1 );
+    pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+    dirty = TRUE;
+}
+
+static void damage_window( const struct window *w )
+{
+    damage_rect( w->x, w->y, w->attr.width, w->attr.height, w->attr.border_width );
+}
+
 static struct window *track_window( Window id, Window parent )
 {
     struct window *w = find_window( id );
@@ -451,6 +471,13 @@ static struct window *track_window( Window id, Window parent )
     if (w->attr.width != attr.width || w->attr.height != attr.height ||
         w->attr.border_width != attr.border_width || w->parent != parent)
         free_surface( w );
+    /* moved or resized before its ConfigureNotify came: repaint where it was, and where it is (fresh) */
+    if (!w->fresh && (w->x != x || w->y != y || w->attr.width != attr.width || w->attr.height != attr.height ||
+                      w->attr.border_width != attr.border_width))
+    {
+        damage_window( w );
+        w->fresh = TRUE;
+    }
     w->attr = attr;
     w->parent = parent;
     w->x = x;
@@ -483,7 +510,7 @@ static void scan_windows(void)
     for (entry = &windows; *entry; )
     {
         w = *entry;
-        if (!w->seen) { *entry = w->next; free_window( w, FALSE ); }
+        if (!w->seen) { damage_window( w ); *entry = w->next; free_window( w, FALSE ); }
         else entry = &w->next;
     }
     tree_dirty = FALSE;
@@ -1438,25 +1465,6 @@ DWORD compose_set( void *display, unsigned long root_window, unsigned long deskt
 
 /* A window that only moved (same size, border and stacking) repaints where it was and where it is, with the reach
  * of its shadows, instead of the whole screen and a new scan of the tree. */
-#define MOVE_REACH 16
-/* x, y: the window's inside corner in root coordinates, as struct window keeps it */
-static void damage_rect( int x, int y, int width, int height, int border )
-{
-    XRectangle r;
-    r.x = x - border - MOVE_REACH;
-    r.y = y - border - MOVE_REACH;
-    r.width = width + 2 * (border + MOVE_REACH);
-    r.height = height + 2 * (border + MOVE_REACH);
-    pXFixesSetRegion( dpy, scratch, &r, 1 );
-    pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
-    dirty = TRUE;
-}
-
-static void damage_window( const struct window *w )
-{
-    damage_rect( w->x, w->y, w->attr.width, w->attr.height, w->attr.border_width );
-}
-
 static BOOL move_only( struct window *w, const XConfigureEvent *ev )
 {
     BOOL known = w->above_known && w->above == ev->above;
