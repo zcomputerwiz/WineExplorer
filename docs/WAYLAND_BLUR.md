@@ -64,3 +64,54 @@ fallback and enable blur only when the renderer is the fx renderer and (a hardwa
   region for `WS_EX_TRANSPARENT | WS_EX_LAYERED` windows.
 - **Presentation feedback (P6)**: wlroots implements `wp_presentation` (presentation-time); the frame event in protocol v14 is a
   composed-frame clock, not a display proof.
+
+## Status (2026-11-03)
+
+Backdrop blur adoption via SceneFX 0.3 is complete and verified. The default shipping ISO and default runtime behavior remain 100% untouched unless explicitly built with `-Dscenefx=enabled` and run with `WEX_BLUR=1`.
+
+### Implementation Summary
+1. **Vendoring**: SceneFX 0.3 vendored in `wexcomp/subprojects/scenefx/` (without `examples/` or `tinywl/`). Applied `0001-fx_renderer-surfaceless-egl.patch` for headless Mesa surfaceless EGL initialization, fixed upstream optimized-blur false-positive warning, and documented changes in `WEXCOMP-NOTES.txt`.
+2. **Meson Option**: Added `scenefx` feature option (default `disabled`) in `wexcomp/meson_options.txt`. When enabled, resolves `dependency('scenefx-0.3', fallback: ['scenefx', 'scenefx_dep'])`, requires `wayland-server >= 1.23`, defines `HAVE_SCENEFX=1`, and enables dynamic symbol export.
+3. **Compat Header**: Created `wexcomp/include/wex-scene.h` dispatching to `<scenefx/types/wlr_scene.h>` under `HAVE_SCENEFX` or `<wlr/types/wlr_scene.h>` otherwise; updated all 14 compositor source files to include it.
+4. **Renderer & Headless GBM Allocator**: In `wexcomp/src/server.c`, conditionally calls `fx_renderer_create(server->backend)` when `HAVE_SCENEFX && getenv("WEX_BLUR") == "1"`, falling back to `wlr_renderer_autocreate`. Sets `server->fx_renderer`. For headless/CI llvmpipe software rasterization under `vgem`, allocates GBM buffers via `/dev/dri/card0` and sets `DRM_RDWR` on exported dumb DMA-BUFs so llvmpipe `mmap` succeeds.
+5. **Backdrop Blur in Effects**: In `wexcomp/src/protocols/wex-window.c` (`wex_window_update_effects`), when `server->fx_renderer` is true and backdrop is `blur`, `acrylic`, or `mica`:
+   - Configures `wlr_scene_set_blur_data(server->scene, bd)` with the exact preset parameters (blur: r=5 p=3; acrylic: r=12 p=4 s=1.2 b=0.85; mica: r=16 p=4).
+   - Applies `wlr_scene_rect_set_backdrop_blur(rect, true)` to the dedicated full-window or region rect in `win->backdrop_tree`.
+   - Supports corner radius (`wlr_scene_rect_set_corner_radius`) and custom region bounds.
+   - Tint is painted directly onto the rect.
+   - Clearing effects with all zeros removes `backdrop_tree` without leaking nodes.
+6. **Testing**:
+   - Added `blur` scenario to `wexcomp/tests/wex/corner-client.c`.
+   - Extended `wexcomp/tests/wex/verify.py` with `check-range`.
+   - Created standalone runner `wexcomp/tests/wex/run-blur.sh`.
+
+### How to Build
+- **Default build** (unchanged, SceneFX disabled):
+  ```bash
+  meson setup build
+  ninja -C build
+  ```
+- **SceneFX build** (opt-in blur support):
+  ```bash
+  meson setup build-fx -Dscenefx=enabled
+  ninja -C build-fx
+  ```
+
+### How to Run
+- Set `WEX_BLUR=1` in the environment when launching the compositor:
+  ```bash
+  WEX_BLUR=1 labwc
+  ```
+- In headless CI / software GLES2 environments (llvmpipe):
+  ```bash
+  WLR_BACKENDS=headless WLR_RENDERER=gles2 WLR_RENDERER_ALLOW_SOFTWARE=1 WEX_BLUR=1 labwc
+  ```
+
+### Test Results
+- **Default build regression test**: `tests/wex/run-effects.sh` passes **32/32 tests** cleanly.
+- **SceneFX blur test**: `tests/wex/run-blur.sh` passes **12/12 tests** under llvmpipe software GLES2:
+  - Outside pixels (635, 100) and (645, 100) stay pure white `(255, 255, 255)` and black `(0, 0, 0)`.
+  - Without blur (`backdrop none`), inside pixels equal outside pixels `(255, 255, 255)` and `(0, 0, 0)`.
+  - With blur active (`backdrop blur`), inside white pixel dims to `(180, 180, 180)` and inside black pixel brightens to `(91, 91, 91)` across the edge.
+  - With blur cleared, inside pixels return to `(255, 255, 255)` and `(0, 0, 0)`.
+  - Compositor logs contain zero runtime errors or assertions.
