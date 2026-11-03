@@ -52,6 +52,7 @@ static BOOL shell_mode;   /* WineExplorer interactive shell: taskbar, Start menu
 static HWND shell_desktop;
 static HWINEVENTHOOK composition_shadow_hook;
 extern void dwm_bridge_start(void);
+extern void dwm_bridge_start_wayland(void);
 extern void dwm_bridge_stop(void);
 extern void dwm_clock_start(void);
 extern void dwm_clock_stop(void);
@@ -1349,7 +1350,11 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
                 /* On Wayland there is no X composition: the compositor draws, and the bridge sends it each window's
                  * DWM effects (wex_window_manager_v1.set_effects) */
                 wayland = !WexWmGetCapabilities( &backend, &capabilities ) && backend == WEX_WM_BACKEND_WAYLAND;
-                if (composition == 1 && wayland) dwm_bridge_start();
+                if (composition == 1 && wayland)
+                {
+                    dwm_bridge_start_wayland();
+                    dwm_clock_start();
+                }
                 else if (composition == 1 && (err = WexCompositionSetEnabled( TRUE )))
                     WARN( "composition unavailable, error %lu\n", err );
                 else if (composition == 1)

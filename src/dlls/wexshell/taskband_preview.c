@@ -171,13 +171,22 @@ static BOOL peek_enabled(void)
     return enabled != 0;
 }
 
+extern BOOL dwm_wayland_handle( HWND hwnd, char handle[33] );   /* dwm_bridge.c */
+
+static BOOL wayland_session(void)
+{
+    DWORD backend = 0, capabilities = 0;
+    return !WexWmGetCapabilities( &backend, &capabilities ) && backend == WEX_WM_BACKEND_WAYLAND;
+}
+
 static void end_peek(void)
 {
     if (peek_hwnd) ShowWindow( peek_hwnd, SW_HIDE );
     if (peek_bitmap) DeleteObject( peek_bitmap );
     peek_bitmap = NULL;
     if (!peeking) return;
-    WexCompositionSetPeek( 0, NULL, 0 );
+    if (wayland_session()) WexWmSetPeek( NULL, NULL, 0 );
+    else WexCompositionSetPeek( 0, NULL, 0 );
     peeking = FALSE;
 }
 
@@ -206,9 +215,9 @@ static LRESULT CALLBACK peek_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 }
 
 /* The window's live preview bitmap where the window is (its restored place when minimized); the popup is shaped to
- * the picture (and the frame, with DWM_SIT_DISPLAYFRAME) so the desktop shows around it. Returns the popup's X
- * window, 0 when the window has no picture. */
-static UINT64 show_iconic_peek(void)
+ * the picture (and the frame, with DWM_SIT_DISPLAYFRAME) so the desktop shows around it. Returns the popup, NULL
+ * when the window has no picture. */
+static HWND show_iconic_peek(void)
 {
     struct dwm_iconic info;
     RECT window, adjust = { 0 };
@@ -216,10 +225,10 @@ static UINT64 show_iconic_peek(void)
     int x, y;
 
     if (!(peek_bitmap = iconic_fetch( preview_target, WM_DWMSENDICONICLIVEPREVIEWBITMAP, 0, DWM_ICONIC_LIVE_NAME,
-                                      &info ))) return 0;
+                                      &info ))) return NULL;
     /* the window's own process recorded where it goes when restored */
     SetRect( &window, info.window[0], info.window[1], info.window[2], info.window[3] );
-    if (IsRectEmpty( &window ) && !GetWindowRect( preview_target, &window )) return 0;
+    if (IsRectEmpty( &window ) && !GetWindowRect( preview_target, &window )) return NULL;
     peek_frame = !!(info.flags & DWM_SIT_DISPLAYFRAME);
     /* the offset is from the client area; without one the picture starts at the window's corner */
     AdjustWindowRectEx( &adjust, GetWindowLongW( preview_target, GWL_STYLE ), FALSE,
@@ -242,7 +251,7 @@ static UINT64 show_iconic_peek(void)
         peek_hwnd = CreateWindowExW( WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
                                      cls.lpszClassName, NULL, WS_POPUP, 0, 0, 1, 1, preview_hwnd, NULL,
                                      cls.hInstance, NULL );
-        if (!peek_hwnd) return 0;
+        if (!peek_hwnd) return NULL;
     }
     region = peek_frame ? CreateRectRgn( 0, 0, window.right - window.left, window.bottom - window.top )
                         : CreateRectRgnIndirect( &peek_bitmap_rect );
@@ -253,10 +262,10 @@ static UINT64 show_iconic_peek(void)
     SetWindowPos( preview_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE );
     InvalidateRect( peek_hwnd, NULL, TRUE );
     UpdateWindow( peek_hwnd );
-    return x_window( peek_hwnd );
+    return peek_hwnd;
 }
 
-struct peek_keep { UINT64 windows[8]; DWORD count; };
+struct peek_keep { UINT64 windows[8]; char handles[64][32]; DWORD count, handle_count; };
 
 /* the shell's own visible top-level windows stay: desktop icons and wallpaper, taskbar, this preview */
 static BOOL CALLBACK add_shell_window( HWND hwnd, LPARAM lparam )
@@ -265,17 +274,35 @@ static BOOL CALLBACK add_shell_window( HWND hwnd, LPARAM lparam )
     DWORD pid;
     UINT64 window;
 
+    char handle[33];
+
     GetWindowThreadProcessId( hwnd, &pid );
-    if (pid != GetCurrentProcessId() || !IsWindowVisible( hwnd ) || !(window = x_window( hwnd ))) return TRUE;
+    if (pid != GetCurrentProcessId() || !IsWindowVisible( hwnd )) return TRUE;
+    if (dwm_wayland_handle( hwnd, handle ))   /* Wayland: windows are named by shared handle */
+    {
+        if (keep->handle_count < ARRAY_SIZE(keep->handles)) memcpy( keep->handles[keep->handle_count++], handle, 32 );
+        return TRUE;
+    }
+    if (!(window = x_window( hwnd ))) return TRUE;
     keep->windows[keep->count++] = window;
     return keep->count < ARRAY_SIZE(keep->windows);
 }
 
 static void start_peek(void)
 {
-    struct peek_keep keep = { { 0 }, 0 };
-    UINT64 target = show_iconic_peek();
+    struct peek_keep keep = { { 0 }, { { 0 } }, 0, 0 };
+    HWND shown = show_iconic_peek();
+    UINT64 target = shown ? x_window( shown ) : 0;
+    char handle[33];
 
+    if (wayland_session())
+    {
+        HWND hwnd = shown ? shown : IsIconic( preview_target ) ? NULL : preview_target;
+        if (!hwnd || !dwm_wayland_handle( hwnd, handle )) return;
+        EnumWindows( add_shell_window, (LPARAM)&keep );
+        peeking = !WexWmSetPeek( handle, (const char (*)[32])keep.handles, keep.handle_count );
+        return;
+    }
     if (!target && (!(target = x_window( preview_target )) || IsIconic( preview_target ))) return;
     EnumWindows( add_shell_window, (LPARAM)&keep );
     peeking = !WexCompositionSetPeek( target, keep.windows, keep.count );

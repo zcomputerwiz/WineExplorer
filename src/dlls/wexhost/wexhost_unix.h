@@ -111,6 +111,16 @@ struct wm_binding_params { UINT64 window; char token[33], controller[33]; DWORD 
 /* DWM effects of a Wayland window by its shared handle (wex_window_manager_v1.set_effects, protocol v13) */
 struct wm_effects_params { char handle[33]; DWORD radius, backdrop, flags, tint; INT region[4]; DWORD err; };
 extern NTSTATUS wm_effects(void *args);
+/* live thumbnails and Peek of a Wayland session (wex_window_manager_v1.set_thumbnails / set_peek, protocol v14);
+ * records are WEX_WM_THUMB (104 bytes), handles 32 hex digits */
+struct wm_thumbnails_params { DWORD count; BYTE records[80 * 104]; DWORD err; };
+extern NTSTATUS wm_thumbnails(void *args);
+struct wm_peek_params { char target[33]; DWORD count; char keep[64][32]; DWORD err; };
+extern NTSTATUS wm_peek(void *args);
+/* the Wayland frame clock: the shared page is filled on every frame event of the compositor (DwmFlush) */
+extern BOOL wayland_wm_set_clock(void *page);
+extern BOOL wayland_wm_composition(void);
+extern void compose_clock_wake(void);
 extern NTSTATUS wm_binding(void *args);
 extern NTSTATUS wm_native_info(void *args);
 extern NTSTATUS wm_start_ex(void *args);
@@ -135,7 +145,7 @@ struct wm_backend_ops
     unixlib_entry_t release, get_title, get_icon, stop, focus;
     unixlib_entry_t native_info;
     unixlib_entry_t binding, get_capabilities;
-    unixlib_entry_t effects;   /* NULL: not supported by the backend */
+    unixlib_entry_t effects, thumbnails, peek;   /* NULL: not supported by the backend */
 };
 extern const struct wm_backend_ops x11_wm_backend;
 extern const struct wm_backend_ops wayland_wm_backend;
@@ -294,6 +304,8 @@ enum wexhost_funcs
     unix_oobe_review_cancel,
     unix_composition_backdrop,
     unix_wm_effects,
+    unix_wm_thumbnails,
+    unix_wm_peek,
     unix_funcs_count
 };
 

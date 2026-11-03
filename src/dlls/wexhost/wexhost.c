@@ -828,6 +828,28 @@ DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, 
     return params.err;
 }
 
+DWORD WINAPI WexWmSetThumbnails( const WEX_WM_THUMB *records, DWORD count )
+{
+    struct wm_thumbnails_params params = { count };
+    if (count > 80 || (count && !records)) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    C_ASSERT( sizeof(WEX_WM_THUMB) == 104 );
+    memcpy( params.records, records, count * sizeof(*records) );
+    WEXHOST_CALL( wm_thumbnails, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexWmSetPeek( const char *target, const char (*keep)[32], DWORD count )
+{
+    struct wm_peek_params params = { { 0 }, count };
+    if (count > 64 || (count && !keep) || (target && target[0] && strlen( target ) != 32)) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (target) memcpy( params.target, target, strlen( target ) );
+    memcpy( params.keep, keep, count * 32 );
+    WEXHOST_CALL( wm_peek, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexWmFocus( UINT64 window )
 {
     return wm_window_call( unix_wm_focus, window, NULL, NULL, 0 );

@@ -63,6 +63,15 @@ static pthread_mutex_t clock_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t clock_cond = PTHREAD_COND_INITIALIZER;
 static UINT64 clock_generation;
 
+/* Wakes the waiters below: a frame was composed (the Wayland backend calls this too) */
+void compose_clock_wake(void)
+{
+    pthread_mutex_lock( &clock_mutex );
+    clock_generation++;
+    pthread_cond_broadcast( &clock_cond );
+    pthread_mutex_unlock( &clock_mutex );
+}
+
 /* On a Wine thread of the shell: returns once the generation differs from the one given, or after timeout_ms. */
 NTSTATUS composition_clock_wait( void *args )
 {

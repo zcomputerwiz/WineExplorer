@@ -1019,6 +1019,7 @@ NTSTATUS composition_get( void *args )
     params->enabled = running && compose_enabled();
     params->err = ERROR_SUCCESS;
     pthread_mutex_unlock( &x_mutex );
+    if (!params->enabled) params->enabled = wayland_wm_composition();   /* a Wayland session composes too */
     return STATUS_SUCCESS;
 }
 
@@ -1054,7 +1055,8 @@ NTSTATUS composition_clock( void *args )
     struct composition_clock_params *params = args;
     if (!begin_call( &params->err ))
     {
-        if (!params->page) params->err = ERROR_SUCCESS;
+        /* no X window manager: the frame clock may come from a Wayland compositor */
+        params->err = wayland_wm_set_clock( (void *)(ULONG_PTR)params->page ) ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
         return STATUS_SUCCESS;
     }
     params->err = compose_clock( (void *)(ULONG_PTR)params->page, (HANDLE)(ULONG_PTR)params->event );
@@ -1394,7 +1396,7 @@ STUB( composition_peek, struct composition_peek_params )
 NTSTATUS composition_get( void *args )
 {
     struct composition_params *params = args;
-    params->enabled = FALSE;
+    params->enabled = wayland_wm_composition();
     params->err = ERROR_SUCCESS;
     return STATUS_SUCCESS;
 }

@@ -235,3 +235,48 @@ Phase P5 v13 extends `wex_window_manager_v1` to version 13 with the `set_effects
 4. **Soft Window Shadow (Flag 1)**: Rendered via six nested `wlr_scene_rect` nodes in a dedicated `shadow_tree` below the content/backdrop, spanning roughly 10 px of spread offset 2 px down with ~2.5% alpha accumulation.
 5. **Backdrop Materials**: Rendered via `backdrop_tree` placed below the content/corner tree. When tint flag (4) is set, straight `0xAARRGGBB` is converted to premultiplied float. Otherwise, defaults are applied (Mica: F3F3F3 at 50% / dark 202020 at 80%; Acrylic: F3F3F3 at 70% / dark 202020 at 70%; Blur: white at 25% / dark 202020 at 25%). Optional region flag (8) bounds the backdrop to `[left, top, right, bottom]`. Without compositor blur shader passes, the material tint alone is drawn behind translucent pixels.
 6. **Lifecycle & Input**: Effect trees are children of `view->scene_tree`, surviving buffer commits/resizes, hiding on minimize/unmap, and dropped on destruction without scene node leakage or accepting pointer input.
+
+---
+
+## 7. Version 14 Protocol: Live Thumbnails, Aero Peek, and Frame Events
+
+Phase P5 v14 extends `wex_window_manager_v1` to version 14 with `set_thumbnails`, `set_peek`, and the `frame` event:
+
+```xml
+<request name="set_thumbnails" since="14">
+  <arg name="records" type="array"/>
+</request>
+<request name="set_peek" since="14">
+  <arg name="target" type="string"/>
+  <arg name="keep" type="array"/>
+</request>
+<event name="frame" since="14">
+  <arg name="frame" type="uint"/>
+  <arg name="sec_hi" type="uint"/>
+  <arg name="sec_lo" type="uint"/>
+  <arg name="nsec" type="uint"/>
+</event>
+```
+
+### 7.1 Live Window Thumbnails (`set_thumbnails`)
+
+1. **Record Specification**: Records are packed at 104 bytes each (`dest[32]`, `src[32]`, `flags` uint32, `opacity` uint32, `dest_rect[4]` int32, `source_rect[4]` int32). Malformed array sizes (not a multiple of 104) are safely ignored without processing. Maximum 80 records per request.
+2. **Lookup & Filtering**: Looks up destination and source windows by 32-byte shared handle via `find_window_handle`. Records referencing unknown/stale handles, empty rectangles, or `src == dest` are skipped.
+3. **Scene Node Placement**: Built as a `thumbnail_tree` child of the destination view's `scene_tree`, placed above `content_tree` so thumbnails render over destination pixels and clip automatically with destination geometry.
+4. **Source Scaling & Cropping**: Uses `wlr_scene_surface_create` displaying the main source `wl_surface`. When `has_source` (flag 4) is set, crops via `wlr_scene_buffer_set_source_box`; otherwise uses the source surface dimensions. Scales to destination rect size via `wlr_scene_buffer_set_dest_size` and sets opacity (`opacity / 255.0f`).
+5. **Input Pass-Through**: Overrides `scene_surface->buffer->point_accepts_input` returning false, ensuring thumbnails do not intercept pointer or touch events.
+6. **Lifecycle & Updates**: Listens to source surface commits to reapply crop/scale when source buffers change, and destination resizes. Minimized or hidden source windows keep showing their last committed buffer. Nodes are safely dropped when destination or source windows are destroyed or unmapped.
+
+### 7.2 Aero Peek (`set_peek`)
+
+1. **Target and Keep Filtering**: Privileged request specifying target window handle and an array of 32-byte handles to keep (capped at 64 entries). Mapped application views not in the keep list and not matching the target are hidden (`wlr_scene_node_set_enabled` false on `view->scene_tree`).
+2. **Shell Preservation**: Views with `wex_exclusive_edge != 0` or layer roles `WEX_WINDOW_V1_LAYER_SHELL` / `DESKTOP` remain visible unconditionally.
+3. **Target Visibility**: Target window is kept visible even if minimized.
+4. **Deactivation & Automatic Cleanup**: An empty target string (`""`) ends the peek and restores original view visibility. If the issuing privileged client disconnects while peek is active, peek is automatically terminated. Newly mapped views during peek are hidden unless in the keep list.
+
+### 7.3 Output Frame Notification (`frame`)
+
+1. **Primary Output Commit Hook**: Attached to `wlr_output->events.commit` on the compositor's primary output.
+2. **Conditional Dispatch**: Dispatches only when at least one manager resource is bound at version $\ge 14$, imposing zero per-frame cost when inactive.
+3. **Timestamp & Counter**: Sends 32-bit incremental frame counter along with `CLOCK_MONOTONIC` split into `sec_hi`, `sec_lo`, and `nsec`, providing a stable composed-frame clock for client-side DWM synchronization.
+

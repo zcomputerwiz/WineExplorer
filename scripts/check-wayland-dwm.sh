@@ -3,7 +3,7 @@
 # Copyright 2026 WineExplorer contributors
 # check-wayland-dwm.sh: headless labwc (the wexcomp build, COMP) + the Wine shell on the Wayland driver + a probe exe
 # from /root, then a grim screenshot (DWM P5: set_effects, glass alpha). Needs grim, wlr-randr, the wow64 build tree.
-# env: PROBE (exe in /root), PARGS, DA FX MAT FS COL (gates), HOLD (seconds the probe runs, default 12), OUT (png name)
+# env: PROBE (exe in /root), PARGS, PROBE_CMD (instead: a cmd /c command line), DA FX MAT FS COL (gates), HOLD (seconds the probe runs, default 12), OUT (png name)
 COMP=${COMP:-/root/wexcomp-dev/build/labwc}
 W=/root/WE-prefetch/build/wow64
 R=$(mktemp -d /tmp/wex-p5-XXXXXX); chmod 700 $R
@@ -41,7 +41,11 @@ reg "$S" Composition 1; reg "$S" DwmService 1
 timeout 30 ./server/wineserver -w
 (timeout 120 ./wine explorer.exe /shell >>$L 2>&1 &)
 sleep 15
-(timeout 60 ./wine "Z:\\root\\${PROBE:-dwm-blur-visual-probe}.exe" ${PARGS} 'Z:\root\p5-probe.log' >>$L 2>&1 &)
+if [ -n "$PROBE_CMD" ]; then   # a command line run by cmd /c (a conformance test, its output redirected to the log)
+    (timeout 90 ./wine cmd /c "$PROBE_CMD" >>$L 2>&1 &)
+else
+    (timeout 60 ./wine "Z:\\root\\${PROBE:-dwm-blur-visual-probe}.exe" ${PARGS} 'Z:\root\p5-probe.log' >>$L 2>&1 &)
+fi
 sleep ${HOLD:-12}
 grim /root/${OUT:-p5-wl}.png
 cat /root/p5-probe.log 2>/dev/null | head -8

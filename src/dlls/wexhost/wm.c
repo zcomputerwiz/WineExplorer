@@ -113,6 +113,24 @@ NTSTATUS wm_effects(void *args)
     return STATUS_SUCCESS;
 }
 
+NTSTATUS wm_thumbnails(void *args)
+{
+    struct wm_thumbnails_params *params = args;
+    const struct wm_backend_ops *ops = get_backend();
+    if (ops && ops->thumbnails) return ops->thumbnails(args);
+    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS wm_peek(void *args)
+{
+    struct wm_peek_params *params = args;
+    const struct wm_backend_ops *ops = get_backend();
+    if (ops && ops->peek) return ops->peek(args);
+    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS wm_native_info(void *args)
 {
     struct wm_native_info_params *params = args;

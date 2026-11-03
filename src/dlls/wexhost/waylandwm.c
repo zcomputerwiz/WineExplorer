@@ -15,7 +15,11 @@
 #include <wayland-client.h>
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
+#include <windef.h>
+#include <winbase.h>
 #include <winerror.h>
+#include "winternl.h"
+#include "wine/dwm_protocol.h"
 #include "wexhost_unix.h"
 #include "wex-window-v1-client-protocol.h"
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
@@ -248,12 +252,65 @@ static void environment(void *data, struct wex_window_manager_v1 *obj,const char
     snprintf(native_socket,sizeof(native_socket),"%s",socket);
     snprintf(native_xdisplay,sizeof(native_xdisplay),"%s",xdisplay);
 }
-static const struct wex_window_manager_v1_listener manager_listener = { environment };
+/* The frame clock of DwmFlush: the compositor sends a frame event after each commit of its output (protocol v14).
+ * The shared page is the one dwm_bridge maps (see struct dwm_clock_page); it is written under clock_page_mutex by the
+ * reader thread, which is not a Wine thread and so only bumps the generation compose_clock_wait waits on. */
+static pthread_mutex_t clock_page_mutex = PTHREAD_MUTEX_INITIALIZER;
+static struct dwm_clock_page *clock_page;
+static UINT64 clock_frames;
+
+static void clock_publish(UINT32 flags,UINT64 frame,INT64 qpc)
+{
+    __atomic_add_fetch(&clock_page->seq,1,__ATOMIC_RELEASE);
+    clock_page->flags = flags;
+    clock_page->frame = frame;
+    clock_page->qpc_composed = qpc;
+    __atomic_add_fetch(&clock_page->seq,1,__ATOMIC_RELEASE);
+}
+static void frame(void *data, struct wex_window_manager_v1 *obj,uint32_t number,uint32_t sec_hi,uint32_t sec_lo,
+                  uint32_t nsec)
+{
+    LARGE_INTEGER now;
+    pthread_mutex_lock(&clock_page_mutex);
+    if (clock_page)
+    {
+        NtQueryPerformanceCounter(&now,NULL);
+        clock_publish(clock_page->flags | DWM_CLOCK_COMPOSED,++clock_frames,now.QuadPart);
+    }
+    pthread_mutex_unlock(&clock_page_mutex);
+    if (clock_page) compose_clock_wake();
+}
+/* page NULL turns the clock off; readers that still map the old page must stop waiting on it */
+BOOL wayland_wm_set_clock(void *page)
+{
+    BOOL ok;
+    pthread_mutex_lock(&wl_mutex);
+    ok = running && manager && wex_window_manager_v1_get_version(manager) >= 14;
+    pthread_mutex_unlock(&wl_mutex);
+    if (!ok && page) return FALSE;
+    pthread_mutex_lock(&clock_page_mutex);
+    if (clock_page && page != clock_page) clock_publish(clock_page->flags & ~DWM_CLOCK_COMPOSED,clock_page->frame,
+                                                        clock_page->qpc_composed);
+    clock_page = page;
+    pthread_mutex_unlock(&clock_page_mutex);
+    compose_clock_wake();
+    return TRUE;
+}
+/* DWM composition exists on a Wayland session whose compositor takes the DWM effect requests */
+BOOL wayland_wm_composition(void)
+{
+    BOOL ok;
+    pthread_mutex_lock(&wl_mutex);
+    ok = running && manager && wex_window_manager_v1_get_version(manager) >= 13;
+    pthread_mutex_unlock(&wl_mutex);
+    return ok;
+}
+static const struct wex_window_manager_v1_listener manager_listener = { environment, frame };
 static void global(void *data, struct wl_registry *registry,uint32_t name,const char *interface,uint32_t version)
 {
     if (!strcmp(interface,"wex_window_manager_v1") && version >= 3)
     {
-        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 13 ? version : 13);
+        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 14 ? version : 14);
         wex_window_manager_v1_add_listener(manager,&manager_listener,NULL);
     }
     else if (!strcmp(interface,"zwlr_foreign_toplevel_manager_v1") && version >= 3)
@@ -472,6 +529,47 @@ static NTSTATUS wayland_effects(void *args)
     pthread_mutex_unlock(&wl_mutex);
     return STATUS_SUCCESS;
 }
+/* live thumbnails and Peek (v14); the arrays are the packed records of the XML */
+static NTSTATUS wayland_thumbnails(void *args)
+{
+    struct wm_thumbnails_params *params = args;
+    struct wl_array records = { params->count * 104, params->count * 104, params->records };
+    pthread_mutex_lock(&wl_mutex);
+    params->err = running ? ERROR_SUCCESS : ERROR_NOT_READY;
+    if (running)
+    {
+        if (params->count > 80) params->err = ERROR_INVALID_PARAMETER;
+        else if (!manager || wex_window_manager_v1_get_version(manager) < 14) params->err = ERROR_NOT_SUPPORTED;
+        else
+        {
+            wex_window_manager_v1_set_thumbnails(manager,&records);
+            if (wl_display_flush(display) < 0 && errno != EAGAIN) params->err = ERROR_GEN_FAILURE;
+        }
+    }
+    pthread_mutex_unlock(&wl_mutex);
+    return STATUS_SUCCESS;
+}
+static NTSTATUS wayland_peek(void *args)
+{
+    struct wm_peek_params *params = args;
+    struct wl_array keep = { params->count * 32, params->count * 32, params->keep };
+    pthread_mutex_lock(&wl_mutex);
+    params->err = running ? ERROR_SUCCESS : ERROR_NOT_READY;
+    if (running)
+    {
+        params->target[32] = 0;
+        if (params->count > 64 || (params->target[0] && strlen(params->target) != 32))
+            params->err = ERROR_INVALID_PARAMETER;
+        else if (!manager || wex_window_manager_v1_get_version(manager) < 14) params->err = ERROR_NOT_SUPPORTED;
+        else
+        {
+            wex_window_manager_v1_set_peek(manager,params->target,&keep);
+            if (wl_display_flush(display) < 0 && errno != EAGAIN) params->err = ERROR_GEN_FAILURE;
+        }
+    }
+    pthread_mutex_unlock(&wl_mutex);
+    return STATUS_SUCCESS;
+}
 static NTSTATUS wayland_close(void *args) { return control(args,0); }
 static NTSTATUS wayland_focus(void *args) { return control(args,1); }
 static NTSTATUS wayland_release(void *args) { return control(args,2); }
@@ -523,5 +621,5 @@ const struct wm_backend_ops wayland_wm_backend = {
     WEX_WM_BACKEND_WAYLAND, WEX_WM_CAP_OBSERVE | WEX_WM_CAP_NATIVE_ENV,
     wayland_start,wayland_next_event,wayland_manage,wayland_configure,wayland_state,
     wayland_close,wayland_release,wayland_title,wayland_icon,wayland_stop,wayland_focus,wayland_info,
-    wayland_binding,wayland_capabilities,wayland_effects,
+    wayland_binding,wayland_capabilities,wayland_effects,wayland_thumbnails,wayland_peek,
 };

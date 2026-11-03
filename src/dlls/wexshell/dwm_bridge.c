@@ -81,6 +81,50 @@ static UINT64 x_window( UINT32 hwnd )
     return (ULONG_PTR)GetPropW( UlongToHandle( hwnd ), L"__wine_x11_whole_window" );
 }
 
+static BOOL bridge_wayland;   /* a Wayland session: effects and thumbnails go to the compositor by shared handle */
+
+/* The 32 hex digit shared handle of a Wayland window's wex_window_v1, which winewayland.drv publishes as a global
+ * atom in the window property; FALSE while it has none. */
+BOOL dwm_wayland_handle( HWND hwnd, char handle[33] )
+{
+    WCHAR name[40];
+    ATOM atom = (ATOM)(ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_window_handle" );
+    UINT i, len;
+
+    if (!atom || !(len = GlobalGetAtomNameW( atom, name, ARRAY_SIZE(name) )) || len != 32) return FALSE;
+    for (i = 0; i < 32; i++) handle[i] = (char)name[i];
+    handle[32] = 0;
+    return TRUE;
+}
+
+/* The same list for a Wayland compositor: windows are named by handle, and only a changed list is sent */
+static void sync_thumbnails_wayland(void)
+{
+    static WEX_WM_THUMB sent[WEX_THUMB_MAX];
+    static DWORD sent_count;
+    WEX_WM_THUMB out[WEX_THUMB_MAX];
+    char dest[33], src[33];
+    DWORD i, count = 0;
+
+    memset( out, 0, sizeof(out) );
+    for (i = 0; i < thumb_list_count; i++)
+    {
+        const struct dwm_thumb *t = &thumb_list[i];
+        if (!dwm_wayland_handle( UlongToHandle( t->dest ), dest ) || !dwm_wayland_handle( UlongToHandle( t->src ), src ))
+            continue;
+        memcpy( out[count].dest, dest, 32 );
+        memcpy( out[count].src, src, 32 );
+        out[count].flags = (t->flags & DWM_THUMB_VISIBLE ? WEX_WM_THUMB_VISIBLE : 0) |
+                           (t->flags & DWM_THUMB_HAS_SOURCE ? WEX_WM_THUMB_HAS_SOURCE : 0);
+        out[count].opacity = t->opacity;
+        memcpy( out[count].dest_rect, t->dest_rect, sizeof(out[count].dest_rect) );
+        memcpy( out[count].source_rect, t->source, sizeof(out[count].source_rect) );
+        count++;
+    }
+    if (count == sent_count && !memcmp( out, sent, count * sizeof(*out) )) return;
+    if (!WexWmSetThumbnails( out, count )) memcpy( sent, out, sizeof(sent) ), sent_count = count;
+}
+
 static void sync_thumbnails( BOOL have_broker )
 {
     unsigned char buf[sizeof(struct dwm_thumb_list_reply) + DWM_THUMB_MAX * sizeof(struct dwm_thumb)];
@@ -97,6 +141,11 @@ static void sync_thumbnails( BOOL have_broker )
         thumb_list_count = reply->count;
         thumb_revision = reply->revision;
         TRACE( "%u thumbnails, revision %I64u\n", thumb_list_count, thumb_revision );
+    }
+    if (bridge_wayland)
+    {
+        sync_thumbnails_wayland();
+        return;
     }
     for (i = 0; i < thumb_list_count; i++)
     {
@@ -177,20 +226,6 @@ static DWORD backdrop_value( const struct pending *p )
     return backdrop;
 }
 
-/* The 32 hex digit shared handle of a Wayland window's wex_window_v1, which winewayland.drv publishes as a global
- * atom in the window property; FALSE while it has none. */
-static BOOL wayland_handle( HWND hwnd, char handle[33] )
-{
-    WCHAR name[40];
-    ATOM atom = (ATOM)(ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_window_handle" );
-    UINT i, len;
-
-    if (!atom || !(len = GlobalGetAtomNameW( atom, name, ARRAY_SIZE(name) )) || len != 32) return FALSE;
-    for (i = 0; i < 32; i++) handle[i] = (char)name[i];
-    handle[32] = 0;
-    return TRUE;
-}
-
 /* The DWM effects of a Wayland window go to the compositor as one request. 1 applied (or nothing to do), 0 not yet. */
 static int apply_wayland( HWND hwnd, const struct pending *p, const char *handle )
 {
@@ -246,7 +281,7 @@ static int apply_window( HWND hwnd, const struct pending *p )
     window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
     if (!window)
     {
-        if (wayland_handle( hwnd, handle )) return apply_wayland( hwnd, p, handle );
+        if (dwm_wayland_handle( hwnd, handle )) return apply_wayland( hwnd, p, handle );
         TRACE( "%p has no x11 window or wayland handle yet\n", hwnd );
         return 0;
     }
@@ -385,6 +420,15 @@ static DWORD WINAPI bridge_proc( void *arg )
         }
     }
     return 0;
+}
+
+void dwm_bridge_start(void);
+
+/* On a Wayland session (no X composition): thumbnails, effects and the frame clock all go to the compositor */
+void dwm_bridge_start_wayland(void)
+{
+    bridge_wayland = TRUE;
+    dwm_bridge_start();
 }
 
 void dwm_bridge_start(void)

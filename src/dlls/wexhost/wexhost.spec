@@ -34,6 +34,8 @@
 @ stdcall WexWmStop()
 @ stdcall WexWmFocus(int64)
 @ stdcall WexWmSetEffects(str long long long long ptr)
+@ stdcall WexWmSetThumbnails(ptr long)
+@ stdcall WexWmSetPeek(str ptr long)
 @ stdcall WexAppsList(ptr long ptr)
 @ stdcall WexAppsLaunch(wstr)
 @ stdcall WexHardwareList(ptr long ptr)

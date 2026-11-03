@@ -290,6 +290,16 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 #define WEX_WM_EFFECT_REGION     0x8
 DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,
                               const RECT *region );
+/* Live thumbnails (DwmRegisterThumbnail) of a Wayland session, the whole list replaced on each call (compositor
+ * protocol v14). dest and src are shared handles (32 hex digits, no NUL), rectangles left, top, right, bottom in each
+ * window's coordinates; flags WEX_WM_THUMB_*. At most 80 records. */
+#define WEX_WM_THUMB_VISIBLE     0x1
+#define WEX_WM_THUMB_HAS_SOURCE  0x4
+typedef struct { char dest[32]; char src[32]; DWORD flags; DWORD opacity; INT dest_rect[4]; INT source_rect[4]; } WEX_WM_THUMB;
+DWORD WINAPI WexWmSetThumbnails( const WEX_WM_THUMB *records, DWORD count );
+/* Aero Peek of a Wayland session: only target (a shared handle, NULL or empty ends the peek) and the keep list of
+ * handles (32 digits each, at most 64) are drawn. */
+DWORD WINAPI WexWmSetPeek( const char *target, const char (*keep)[32], DWORD count );
 
 /* Optional X11 composition, off by default. Requires WexWmStart's connection.
  * Set returns ERROR_NOT_SUPPORTED for missing extensions, ERROR_ALREADY_EXISTS
