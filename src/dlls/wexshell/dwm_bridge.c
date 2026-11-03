@@ -67,6 +67,7 @@ struct pending
     DWORD tint;   /* DWM_ATTR_WINE_TINT */
     DWORD rgn[2]; /* DWM_ATTR_WINE_RGN_LT, _RB */
     DWORD frame;  /* DWM_ATTR_WINE_FRAME: 0 none, 1 Windows 10/11 glass frame, 2 Aero */
+    DWORD scale;  /* last applied Wayland scale, in thousandths */
     int tries;
 };
 
@@ -97,6 +98,32 @@ BOOL dwm_wayland_handle( HWND hwnd, char handle[33] )
     return TRUE;
 }
 
+/* Published by winewayland.drv in 1/120 units, independent of the window's Win32 DPI awareness. Thousandths out. */
+static DWORD wayland_scale( HWND hwnd )
+{
+    DWORD scale = (ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_scale_120" ) * 1000 / 120;
+    return scale ? scale : 1000;
+}
+
+/* Wine pixels -> wl_surface units. rounding: -1 floor, 0 nearest (ties away from zero), 1 ceil.
+ * Use signed 64-bit arithmetic so negative origins and large coordinates also round correctly. */
+static INT wayland_coord( INT value, DWORD scale, int rounding )
+{
+    LONGLONG pixels = (LONGLONG)value * 1000;
+    LONGLONG result = pixels / scale, remainder = pixels % scale;
+
+    if (rounding < 0 && remainder < 0) result--;
+    else if (rounding > 0 && remainder > 0) result++;
+    else if (!rounding)
+    {
+        if (remainder * 2 >= scale) result++;
+        else if (-remainder * 2 >= scale) result--;
+    }
+    if (result > INT32_MAX) return INT32_MAX;
+    if (result < INT32_MIN) return INT32_MIN;
+    return result;
+}
+
 /* The broker's thumbnail flags map one-to-one onto the compositor's (equal values); fill the destination's flags,
  * opacity and the two rectangles from the broker record */
 static void thumb_fill( UINT32 *flags, UINT32 *opacity, INT32 *dest, INT32 *source, const struct dwm_thumb *t )
@@ -111,10 +138,12 @@ static void thumb_fill( UINT32 *flags, UINT32 *opacity, INT32 *dest, INT32 *sour
 static void sync_thumbnails_wayland(void)
 {
     static WEX_WM_THUMB sent[WEX_THUMB_MAX];
+    static DWORD sent_scales[WEX_THUMB_MAX][2];
     static DWORD sent_count;
     WEX_WM_THUMB out[WEX_THUMB_MAX];
+    DWORD scales[WEX_THUMB_MAX][2] = { { 0 } };
     char dest[33], src[33];
-    DWORD i, count = 0;
+    DWORD i, j, count = 0;
 
     memset( out, 0, sizeof(out) );
     for (i = 0; i < thumb_list_count; i++)
@@ -125,10 +154,23 @@ static void sync_thumbnails_wayland(void)
         memcpy( out[count].dest, dest, 32 );
         memcpy( out[count].src, src, 32 );
         thumb_fill( (UINT32 *)&out[count].flags, (UINT32 *)&out[count].opacity, (INT32 *)out[count].dest_rect, (INT32 *)out[count].source_rect, t );
+        scales[count][0] = wayland_scale( UlongToHandle( t->dest ) );
+        scales[count][1] = wayland_scale( UlongToHandle( t->src ) );
+        for (j = 0; j < 4; j++)
+        {
+            out[count].dest_rect[j] = wayland_coord( out[count].dest_rect[j], scales[count][0], 0 );
+            out[count].source_rect[j] = wayland_coord( out[count].source_rect[j], scales[count][1], j < 2 ? -1 : 1 );
+        }
         count++;
     }
-    if (count == sent_count && !memcmp( out, sent, count * sizeof(*out) )) return;
-    if (!WexWmSetThumbnails( out, count )) memcpy( sent, out, sizeof(sent) ), sent_count = count;
+    if (count == sent_count && !memcmp( out, sent, count * sizeof(*out) ) &&
+        !memcmp( scales, sent_scales, count * sizeof(*scales) )) return;
+    if (!WexWmSetThumbnails( out, count ))
+    {
+        memcpy( sent, out, sizeof(sent) );
+        memcpy( sent_scales, scales, sizeof(sent_scales) );
+        sent_count = count;
+    }
 }
 
 static void sync_thumbnails( BOOL have_broker )
@@ -229,10 +271,11 @@ static DWORD backdrop_value( const struct pending *p )
 }
 
 /* The DWM effects of a Wayland window go to the compositor as one request. 1 applied (or nothing to do), 0 not yet. */
-static int apply_wayland( HWND hwnd, const struct pending *p, const char *handle )
+static int apply_wayland( HWND hwnd, struct pending *p, const char *handle )
 {
     DWORD radius = p->radius, backdrop = WEX_WM_BACKDROP_NONE, flags = 0, mode = p->blur & DWM_WINE_BLUR_MODE, err;
     DWORD tint = p->tint;
+    DWORD scale = wayland_scale( hwnd );
     BOOL glass_frame = p->frame != 0;
     RECT region = { 0 }, wr, cr;
 
@@ -267,13 +310,20 @@ static int apply_wayland( HWND hwnd, const struct pending *p, const char *handle
         }
         if (p->dark && backdrop) flags |= WEX_WM_EFFECT_DARK;
     }
+    /* Resolve square/default radii and the client-to-window offset before converting to surface units. */
+    radius = wayland_coord( radius, scale, 0 );
+    region.left = wayland_coord( region.left, scale, -1 );
+    region.top = wayland_coord( region.top, scale, -1 );
+    region.right = wayland_coord( region.right, scale, 1 );
+    region.bottom = wayland_coord( region.bottom, scale, 1 );
     err = WexWmSetEffects( handle, radius, backdrop, flags, tint, &region );
+    if (err != ERROR_NOT_READY) p->scale = scale;
     TRACE( "%p wayland %s radius %lu backdrop %lu flags %#lx err %lu\n", hwnd, handle, radius, backdrop, flags, err );
     return err != ERROR_NOT_READY;   /* an old compositor or an X11 session: nothing more to try */
 }
 
 /* 1 applied, 0 waiting for the X window, -1 the window is gone. */
-static int apply_window( HWND hwnd, const struct pending *p )
+static int apply_window( HWND hwnd, struct pending *p )
 {
     UINT64 window;
     DWORD err;
@@ -310,6 +360,9 @@ static void retry_pending(void)
         int r;
         if (!pending[i].hwnd) continue;
         if (!IsWindow( pending[i].hwnd )) { pending[i].hwnd = NULL; continue; }
+        /* A scale event does not change the broker revision. Refresh already applied effects as well. */
+        if (bridge_wayland && !pending[i].tries && pending[i].scale != wayland_scale( pending[i].hwnd ))
+            pending[i].tries = DWM_BRIDGE_RETRIES;
         if (!pending[i].tries) continue;
         r = apply_window( pending[i].hwnd, &pending[i] );
         if (r < 0) pending[i].hwnd = NULL;

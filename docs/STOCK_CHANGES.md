@@ -1,5 +1,14 @@
 # Changes to stock Wine / third-party code
 
+`wine/dlls/winewayland.drv/wayland_surface.c`: publish `window.scale`, rounded
+to thousandths, in the `__wine_wayland_scale` HWND property on surface creation,
+role scale initialization and fractional-scale changes; remove it on surface
+destruction. Preserve the existing `__wine_wayland_scale_120` property and its
+notifications for current shell consumers. The DWM shell bridge uses the new
+property to convert thumbnail and effect geometry from Wine pixels to surface
+units. No protocol change. Static validation only; user builds and Wayland
+runtime checks remain. See `DWM_P5_WAYLAND.md`.
+
 ## G4 unbound composition frame retention (2026-10-21)
 
 Wine `4315be8`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c` and

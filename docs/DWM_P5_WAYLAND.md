@@ -281,7 +281,18 @@ Phase P5 v14 extends `wex_window_manager_v1` to version 14 with `set_thumbnails`
 3. **Timestamp & Counter**: Sends 32-bit incremental frame counter along with `CLOCK_MONOTONIC` split into `sec_hi`, `sec_lo`, and `nsec`, providing a stable composed-frame clock for client-side DWM synchronization.
 
 
-## Known limits (open)
+## Fractional scale handling
 
-- Thumbnail rectangles are sent in Wine device pixels; at a fractional output scale they need the window scale
-  divided out (`window.scale` in winewayland.drv). The shell assumes scale 1 for now.
+- Thumbnail rectangles cross the protocol in `wl_surface` logical units. winewayland.drv publishes each
+  window's `window.scale` as the existing `__wine_wayland_scale_120` property (1/120 units, set on creation
+  and on every scale change). The DWM bridge defaults a missing property to 1,
+  divides destination edges by the destination scale (nearest, ties away from zero), and source crop edges
+  by the source scale (left/top down, right/bottom up). Both scales participate in sent-list change detection,
+  so moving either window between scales resends even without a broker revision or rounded rectangle change.
+- Effect corner radii use the affected window's scale and round to nearest after resolving square/default
+  policy. Blur regions use that scale and expand outward after the client-to-window offset is applied.
+  Already applied effects refresh on scale changes during bridge polling. Peek sends only target/keep handles
+  and toggles existing scene visibility; it has no pixel geometry to convert. The protocol remains unchanged.
+- This change has static validation only. Runtime checks still needed: WoW64 builds; destination/source at
+  different 125%/150% scales; nonzero and negative crop origins; moving either window between outputs without
+  updating thumbnail properties; corner/blur refresh; Peek activation/restoration; and scale-1 regression.
