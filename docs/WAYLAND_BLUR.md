@@ -1,0 +1,66 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- Copyright 2026 WineExplorer contributors -->
+# Wayland: backdrop blur, and prior art for the other open DWM items (2026-11-03)
+
+State: the compositor draws a tint where Windows would blur (`wex_window_manager_v1.set_effects`, docs/DWM_P5_WAYLAND.md). wlroots
+0.18's scene graph has no blur. This note records what exists already, found by web research and a source survey (Qwen, local
+SceneFX source), and the experiment that settles the main question.
+
+## Blur: SceneFX (MIT)
+
+[SceneFX](https://github.com/wlrfx/scenefx) replaces wlroots' scene API and renderer with one that adds backdrop blur, rounded
+corners and shadows (SwayFX uses it). Release **0.3 targets wlroots >=0.18.1 <0.19**, exactly our compositor; 0.4 and later need
+wlroots 0.19. MIT, derived from wlroots (Drew DeVault and Jari Vetoniemi notices): compatible with our GPL-2.0-or-later tree if the
+notice is kept. Its README says it is not yet ready for other compositors, so expect API churn.
+
+Adopting it in wexcomp (Qwen's survey, every item checked against the sources):
+- `meson.build`: a `scenefx` dependency, `wayland-server >= 1.23`.
+- 14 files switch `<wlr/types/wlr_scene.h>` to `<scenefx/types/wlr_scene.h>`; labwc's reach into scene internals
+  (damage ring, `direct_scanout`, `node->data`, buffer fields) all exist in SceneFX's structs.
+- `server.c`: `wlr_renderer_autocreate` becomes `fx_renderer_create` (two places).
+- Per window: `wlr_scene_buffer_set_backdrop_blur`, `..._set_corner_radius`; global `blur_data` (passes, radius, noise,
+  brightness, contrast, saturation); an "optimized blur" node blurs everything below it (Mica: the wallpaper).
+
+| Our backdrop | SceneFX |
+|---|---|
+| blur | backdrop blur, radius 5, 3 passes (defaults) |
+| acrylic | radius 12, 4 passes, saturation 1.2, brightness .85, plus the tint rect |
+| mica | optimized-blur node over the wallpaper plus tint |
+| gradient | tint only (today) |
+
+### The experiment (done): SceneFX needs EGL, not necessarily a GPU
+
+SceneFX's renderer is GLES2 only and wants a DRM render node: on a machine without one (this WSL build host, VMs, CI) it fails
+with "no DRM FD available", with `WLR_RENDERER=pixman` too. Blur has no pixman fallback.
+
+`0001-fx_renderer-surfaceless-egl.patch` (this directory, against SceneFX 0.3) adds a fallback to the Mesa surfaceless EGL
+platform. With it, SceneFX's `tinywl` starts headless on llvmpipe in the build VM (`WLR_RENDERER_ALLOW_SOFTWARE=1 WLR_BACKENDS=headless
+WLR_RENDERER=gles2`; "Using software rendering", "Using EGL 1.5"). So the blur renderer can run in CI, slowly, and on any host
+with Mesa. Not yet shown: that blurred pixels come out correct, and XWayland surfaces under the fx renderer.
+
+Consequence for shipping: on a VM with no 3D acceleration (VMSVGA, `AccelMethod none`) blur would run on llvmpipe: keep the tint
+fallback and enable blur only when the renderer is the fx renderer and (a hardware renderer, or an explicit opt-in).
+
+### Steps (each small enough to delegate)
+1. Vendor SceneFX 0.3 plus the patch as a meson subproject in wexcomp; bump `wayland-server`.
+2. Flip the 14 headers; `fx_renderer_create` with a pixman fallback so the old CI still boots.
+3. In `wex_window_update_effects` (wex-window.c) use backdrop blur and corner radius per the table; keep the tint rect.
+4. Gate on `wlr_renderer_is_fx`; the tint stays for pixman.
+5. Tests: `run-effects.sh` under the fx renderer on llvmpipe (blurred stripes pixel check), XWayland, corner slices and shadow.
+
+## Other prior art
+
+- **`ext-background-effect-v1`** (wayland-protocols staging): clients request blur for a region of their surface. Plasma 6.7 and
+  GNOME 51 implement it. Worth adding to wexcomp once the blur renderer exists, so native Wayland apps get blur through the same
+  path (its `blur` capability bit says whether it works).
+- **Thumbnails**: `ext-foreign-toplevel-image-capture-source-v1` plus `ext-image-copy-capture-v1` (wlroots implements the source side)
+  are the standard route to window pictures, including for native windows. No shipping taskbar thumbnails use them that we found; our
+  `set_thumbnails` (v14) draws them inside the compositor instead.
+- **Transparent DirectComposition (P7b) on Wayland**: [Wine MR 10180](https://list.winehq.org/hyperkitty/list/wine-gitlab@list.winehq.org/thread/DV2B7XOW2KV3LTEBH4QMJ4MG44U7WYJ3/)
+  (Namo Nath, July 2026; merge status unknown): ARGB late binding and DWM cut-outs in `winewayland.drv` (CPU alpha for GDI layers,
+  `glScissor` for OpenGL subsurfaces), input regions for click-through, `zxdg_foreign_v2` for cross-process parents, and Vulkan:
+  inject `VK_ERROR_OUT_OF_DATE_KHR` at image acquisition so DXVK recreates the swapchain with `PRE_MULTIPLIED` alpha. Wine is LGPL:
+  ideas and code can be reused with the notices kept. Merged upstream already: alpha-modifier opacity (Wine 11.11), an empty input
+  region for `WS_EX_TRANSPARENT | WS_EX_LAYERED` windows.
+- **Presentation feedback (P6)**: wlroots implements `wp_presentation` (presentation-time); the frame event in protocol v14 is a
+  composed-frame clock, not a display proof.
