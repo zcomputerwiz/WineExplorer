@@ -75,6 +75,7 @@ void taskband_preview_hover(HWND band, TASK_ITEM *item);
 void taskband_preview_hide(void);
 void taskband_preview_leave(void);
 BOOL window_frame_rect(HWND hwnd, RECT *rect);
+HBITMAP iconic_thumbnail(HWND hwnd, int max_w, int max_h);
 void taskband_add_window(HWND hwnd);
 void taskband_remove_window(HWND hwnd);
 void taskband_activate_window(HWND hwnd);

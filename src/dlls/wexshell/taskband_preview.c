@@ -23,12 +23,70 @@
 /* docs/DWM_ARCHITECTURE.md P11a: hovering a taskbar button shows a live DWM thumbnail of its window above it.
  * Off unless composition runs and HKCU\Software\WineExplorer\Shell\TaskbarThumbnails is non-zero, so the XP
  * taskbar is unchanged by default. A minimized window shows the last picture the compositor kept of it; one
- * minimized before the shell started has none (iconic previews are P9), and the popup then shows its title. */
+ * minimized before the shell started has none, and the popup then shows its title. A window with
+ * DWMWA_HAS_ICONIC_BITMAP shows the picture it supplies instead (P9). */
 
+#include <stdint.h>
+#include <stdio.h>
 #include <windows.h>
 #include <dwmapi.h>
 #include <wexhost.h>
+#include "wine/dwm_protocol.h"
 #include "taskband.h"
+
+HRESULT WINAPI WexDwmpGetAttr( HWND hwnd, DWORD attribute, DWORD *value );
+
+/* P9: a window that set DWMWA_HAS_ICONIC_BITMAP draws its own preview. Ask it (WM_DWMSENDICONICTHUMBNAIL, the
+ * largest size in lParam: width high, height low) and copy what its DwmSetIconicThumbnail left in the shared
+ * section (include/wine/dwm_protocol.h). NULL when it has none: the caller falls back to the live thumbnail. */
+HBITMAP iconic_thumbnail( HWND hwnd, int max_w, int max_h )
+{
+    BITMAPINFO info = {{ sizeof(BITMAPINFOHEADER) }};
+    const struct dwm_iconic *header;
+    struct dwm_iconic copy;
+    HBITMAP bitmap = NULL;
+    HANDLE section;
+    WCHAR name[64];
+    DWORD has = 0, i, *bits;
+    BOOL any_alpha = FALSE;
+
+    if (WexDwmpGetAttr( hwnd, DWMWA_HAS_ICONIC_BITMAP, &has ) != S_OK || !has) return NULL;
+    SendMessageTimeoutW( hwnd, WM_DWMSENDICONICTHUMBNAIL, 0, MAKELPARAM( max_h, max_w ), SMTO_ABORTIFHUNG, 1000,
+                         NULL );
+    swprintf( name, ARRAY_SIZE(name), L"%s%lx", DWM_ICONIC_NAME, HandleToUlong( hwnd ) );
+    if (!(section = OpenFileMappingW( FILE_MAP_READ, FALSE, name ))) return NULL;
+    if ((header = MapViewOfFile( section, FILE_MAP_READ, 0, 0, DWM_ICONIC_SIZE )))
+    {
+        copy = *header;
+        if (copy.width && copy.height && copy.width <= DWM_ICONIC_MAX && copy.height <= DWM_ICONIC_MAX)
+        {
+            info.bmiHeader.biWidth = copy.width;
+            info.bmiHeader.biHeight = -(int)copy.height;
+            info.bmiHeader.biPlanes = 1;
+            info.bmiHeader.biBitCount = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+            if ((bitmap = CreateDIBSection( NULL, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0 )))
+            {
+                memcpy( bits, header + 1, copy.width * copy.height * 4 );
+                /* the window rewrote it while we copied: skip this picture */
+                if (header->serial != copy.serial || header->width != copy.width || header->height != copy.height)
+                {
+                    DeleteObject( bitmap );
+                    bitmap = NULL;
+                }
+                else
+                {
+                    /* a bitmap without alpha (all zero) is opaque */
+                    for (i = 0; i < copy.width * copy.height && !any_alpha; i++) any_alpha = bits[i] >> 24 != 0;
+                    for (i = 0; i < copy.width * copy.height && !any_alpha; i++) bits[i] |= 0xff000000;
+                }
+            }
+        }
+        UnmapViewOfFile( header );
+    }
+    CloseHandle( section );
+    return bitmap;
+}
 
 #define PREVIEW_DELAY_MS 400
 #define PREVIEW_MAX_W    200
@@ -44,6 +102,8 @@ enum { TIMER_SHOW = 1, TIMER_PEEK, TIMER_LEAVE };
 static HWND preview_hwnd, preview_target, preview_band;
 static HTHUMBNAIL preview_thumb;
 static RECT preview_button;   /* screen coordinates of the hovered button */
+static HBITMAP preview_bitmap;   /* the window's own iconic picture (P9) */
+static RECT preview_bitmap_rect;
 static BOOL peeking, tracking;
 
 static UINT64 x_window( HWND hwnd )
@@ -107,17 +167,34 @@ static void release_thumbnail(void)
 {
     if (preview_thumb) DwmUnregisterThumbnail( preview_thumb );
     preview_thumb = NULL;
+    if (preview_bitmap) DeleteObject( preview_bitmap );
+    preview_bitmap = NULL;
 }
 
 static void show_preview(void)
 {
     DWM_THUMBNAIL_PROPERTIES props = { 0 };
+    BITMAP bitmap;
     RECT source;
     int w = PREVIEW_MAX_W, h = 0, cx, cy, x, y;
 
     release_thumbnail();
     if (!IsWindow( preview_target )) return;
-    if (window_frame_rect( preview_target, &source ) && source.right > source.left && source.bottom > source.top &&
+    if ((preview_bitmap = iconic_thumbnail( preview_target, PREVIEW_MAX_W, PREVIEW_MAX_H )))
+    {
+        /* the window's own picture (P9): fit it into the popup, never enlarge it */
+        GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
+        w = min( bitmap.bmWidth, PREVIEW_MAX_W );
+        h = MulDiv( w, bitmap.bmHeight, bitmap.bmWidth );
+        if (h > PREVIEW_MAX_H)
+        {
+            h = PREVIEW_MAX_H;
+            w = MulDiv( h, bitmap.bmWidth, bitmap.bmHeight );
+        }
+        SetRect( &preview_bitmap_rect, PREVIEW_MARGIN, PREVIEW_TITLE_H + PREVIEW_MARGIN / 2,
+                 PREVIEW_MARGIN + w, PREVIEW_TITLE_H + PREVIEW_MARGIN / 2 + h );
+    }
+    else if (window_frame_rect( preview_target, &source ) && source.right > source.left && source.bottom > source.top &&
         SUCCEEDED( DwmRegisterThumbnail( preview_hwnd, preview_target, &preview_thumb ) ))
     {
         /* keep the window's aspect ratio inside PREVIEW_MAX_W x PREVIEW_MAX_H */
@@ -183,6 +260,24 @@ static LRESULT CALLBACK preview_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         GetClientRect( hwnd, &rc );
         FillRect( dc, &rc, GetSysColorBrush( COLOR_INFOBK ) );
         FrameRect( dc, &rc, GetSysColorBrush( COLOR_WINDOWFRAME ) );
+        if (preview_bitmap)
+        {
+            BITMAP bitmap;
+            HDC mem = CreateCompatibleDC( dc );
+            HBITMAP prev = SelectObject( mem, preview_bitmap );
+            BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+
+            GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
+            if (bitmap.bmWidth != preview_bitmap_rect.right - preview_bitmap_rect.left ||
+                bitmap.bmHeight != preview_bitmap_rect.bottom - preview_bitmap_rect.top)
+                SetStretchBltMode( dc, HALFTONE );
+            GdiAlphaBlend( dc, preview_bitmap_rect.left, preview_bitmap_rect.top,
+                           preview_bitmap_rect.right - preview_bitmap_rect.left,
+                           preview_bitmap_rect.bottom - preview_bitmap_rect.top,
+                           mem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, blend );
+            SelectObject( mem, prev );
+            DeleteDC( mem );
+        }
         GetWindowTextW( preview_target, title, ARRAY_SIZE(title) );
         SetRect( &rc, PREVIEW_MARGIN, 0, rc.right - PREVIEW_MARGIN, PREVIEW_TITLE_H );
         SetBkMode( dc, TRANSPARENT );

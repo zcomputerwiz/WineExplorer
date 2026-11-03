@@ -67,6 +67,8 @@ static int font_height;
 #define PREVIEW_HEIGHT 160
 static int preview_height;
 static HTHUMBNAIL preview_thumb;
+static HBITMAP preview_bitmap;   /* the window's own iconic picture (P9) */
+static RECT preview_bitmap_rect;
 
 static BOOL previews_enabled(void)
 {
@@ -83,18 +85,38 @@ static void release_preview(void)
 {
     if (preview_thumb) DwmUnregisterThumbnail( preview_thumb );
     preview_thumb = NULL;
+    if (preview_bitmap) DeleteObject( preview_bitmap );
+    preview_bitmap = NULL;
 }
 
 /* fit the selected window, keeping its aspect ratio, centered in the band; called whenever the selection moves */
 static void update_preview(void)
 {
     DWM_THUMBNAIL_PROPERTIES props = { 0 };
+    BITMAP bitmap;
     RECT source;
     int band_w = total_width - 2 * DIALOG_MARGIN, band_h = preview_height - DIALOG_MARGIN, w, h, x, y;
 
     release_preview();
-    if (!preview_height || selected >= count ||
-        !window_frame_rect( windows[selected], &source ) || source.right <= source.left || source.bottom <= source.top ||
+    if (!preview_height || selected >= count) return;
+    if ((preview_bitmap = iconic_thumbnail( windows[selected], band_w, band_h )))
+    {
+        /* the window's own picture (P9): fit it into the band, never enlarge it */
+        GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
+        w = min( bitmap.bmWidth, band_w );
+        h = MulDiv( w, bitmap.bmHeight, bitmap.bmWidth );
+        if (h > band_h)
+        {
+            h = band_h;
+            w = MulDiv( h, bitmap.bmWidth, bitmap.bmHeight );
+        }
+        x = DIALOG_MARGIN + (band_w - w) / 2;
+        y = DIALOG_MARGIN + (band_h - h) / 2;
+        SetRect( &preview_bitmap_rect, x, y, x + w, y + h );
+        InvalidateRect( switch_hwnd, &preview_bitmap_rect, TRUE );
+        return;
+    }
+    if (!window_frame_rect( windows[selected], &source ) || source.right <= source.left || source.bottom <= source.top ||
         FAILED( DwmRegisterThumbnail( switch_hwnd, windows[selected], &preview_thumb ) )) return;
     w = band_w;
     h = MulDiv( w, source.bottom - source.top, source.right - source.left );
@@ -220,6 +242,25 @@ static void paint( HWND hwnd )
     GetClientRect( hwnd, &rect );
     FillRect( hdc, &rect, GetSysColorBrush( COLOR_3DFACE ));
     if (!items) { EndPaint( hwnd, &ps ); return; }
+
+    if (preview_bitmap)
+    {
+        BITMAP bitmap;
+        HDC mem = CreateCompatibleDC( hdc );
+        HBITMAP prev = SelectObject( mem, preview_bitmap );
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+
+        GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
+        if (bitmap.bmWidth != preview_bitmap_rect.right - preview_bitmap_rect.left ||
+            bitmap.bmHeight != preview_bitmap_rect.bottom - preview_bitmap_rect.top)
+            SetStretchBltMode( hdc, HALFTONE );
+        GdiAlphaBlend( hdc, preview_bitmap_rect.left, preview_bitmap_rect.top,
+                       preview_bitmap_rect.right - preview_bitmap_rect.left,
+                       preview_bitmap_rect.bottom - preview_bitmap_rect.top,
+                       mem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, blend );
+        SelectObject( mem, prev );
+        DeleteDC( mem );
+    }
 
     /* more windows than places: the selection scrolls the list */
     shift = selected >= items ? selected - items + 1 : 0;
