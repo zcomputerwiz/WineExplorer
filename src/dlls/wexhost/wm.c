@@ -8,6 +8,7 @@
 #endif
 #include "config.h"
 #include <pthread.h>
+#include <stdint.h>
 #include <string.h>
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
@@ -115,6 +116,65 @@ NTSTATUS name(void *args) \
 OPTIONAL_DISPATCH(wm_effects, struct wm_effects_params, effects)
 OPTIONAL_DISPATCH(wm_thumbnails, struct wm_thumbnails_params, thumbnails)
 OPTIONAL_DISPATCH(wm_peek, struct wm_peek_params, peek)
+OPTIONAL_DISPATCH(wm_clock, struct wm_clock_params, clock)
+OPTIONAL_DISPATCH(wm_clock_wait, struct wm_clock_wait_params, wait_frame)
+
+/* Both producers wake the existing shared generation wait. Translate records
+ * explicitly; the legacy wait has no err member. No backend lock is held. */
+NTSTATUS wm_wait_frame(void *args)
+{
+    struct wm_clock_wait_params *params = args;
+    struct composition_clock_wait_params request = { params->generation, params->timeout_ms };
+    composition_clock_wait( &request );
+    params->generation = request.generation;
+    params->err = ERROR_SUCCESS;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS wm_backend_thumbnails(void *args)
+{
+    struct wm_thumbnails_params *params = args;
+    if (params->backend == WEX_WM_BACKEND_X11) return x11_wm_backend.thumbnails(args);
+    return wm_thumbnails(args);
+}
+
+NTSTATUS wm_backend_peek(void *args)
+{
+    struct wm_peek_params *params = args;
+    if (params->backend == WEX_WM_BACKEND_X11) return x11_wm_backend.peek(args);
+    return wm_peek(args);
+}
+
+/* Identity routing is deliberate: the old bridge always sent an available XID
+ * to composition, regardless of the selected WM backend. Wayland still uses
+ * the selected backend, preserving NOT_READY/NOT_SUPPORTED on missing/X11 WMs.
+ * get_backend releases its mutex before either backend takes its own lock. */
+NTSTATUS wm_apply_effects(void *args)
+{
+    struct wm_apply_effects_params *params = args;
+    const struct wm_backend_ops *ops = params->backend == WEX_WM_BACKEND_X11 ? &x11_wm_backend : get_backend();
+    if (ops && ops->apply_effects) return ops->apply_effects(args);
+    params->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY;
+    return STATUS_SUCCESS;
+}
+
+/* Wine pixels -> surface units. -1 floor, 0 nearest/ties away, 1 ceil. */
+INT wm_effect_coord(INT value, DWORD scale, int rounding)
+{
+    LONGLONG pixels = (LONGLONG)value * 1000;
+    LONGLONG result = pixels / scale, remainder = pixels % scale;
+
+    if (rounding < 0 && remainder < 0) result--;
+    else if (rounding > 0 && remainder > 0) result++;
+    else if (!rounding)
+    {
+        if (remainder * 2 >= scale) result++;
+        else if (-remainder * 2 >= scale) result--;
+    }
+    if (result > INT32_MAX) return INT32_MAX;
+    if (result < INT32_MIN) return INT32_MIN;
+    return result;
+}
 
 NTSTATUS wm_native_info(void *args)
 {

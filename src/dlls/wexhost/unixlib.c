@@ -2583,6 +2583,11 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     wm_effects,
     wm_thumbnails,
     wm_peek,
+    wm_apply_effects,
+    wm_backend_thumbnails,
+    wm_backend_peek,
+    wm_clock,
+    wm_clock_wait,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -2674,6 +2679,11 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wm_effects,
     wm_thumbnails,
     wm_peek,
+    wm_apply_effects,
+    wm_backend_thumbnails,
+    wm_backend_peek,
+    wm_clock,
+    wm_clock_wait,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif

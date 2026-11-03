@@ -659,18 +659,23 @@ DWORD WINAPI WexCompositionSetClock( void *page, HANDLE event )
 
 DWORD WINAPI WexCompositionSetThumbnails( const struct compose_thumb *thumbs, DWORD count )
 {
-    struct composition_thumbs_params params = { (UINT64)(ULONG_PTR)thumbs, count };
+    struct wm_thumbnails_params params = { count };
     if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    WEXHOST_CALL( composition_thumbs, &params );
+    params.x11_thumbs = (UINT64)(ULONG_PTR)thumbs;
+    params.backend = WEX_WM_BACKEND_X11;
+    WEXHOST_CALL( wm_backend_thumbnails, &params );
     return params.err;
 }
 
 /* Peek (DWM P11c): only the desktop, target and the keep windows are drawn; target 0 ends it */
 DWORD WINAPI WexCompositionSetPeek( UINT64 target, const UINT64 *keep, DWORD count )
 {
-    struct composition_peek_params params = { target, (UINT64)(ULONG_PTR)keep, count };
+    struct wm_peek_params params = { { 0 }, count };
     if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    WEXHOST_CALL( composition_peek, &params );
+    params.x11_target = target;
+    params.x11_keep = (UINT64)(ULONG_PTR)keep;
+    params.backend = WEX_WM_BACKEND_X11;
+    WEXHOST_CALL( wm_backend_peek, &params );
     return params.err;
 }
 
@@ -808,6 +813,90 @@ DWORD WINAPI WexWmSetState( UINT64 window, DWORD states )
 DWORD WINAPI WexWmClose( UINT64 window )
 {
     return wm_window_call( unix_wm_close, window, NULL, NULL, 0 );
+}
+
+DWORD WINAPI WexWmSetClock( void *page, HANDLE event )
+{
+    struct wm_clock_params params = { (UINT64)(ULONG_PTR)page, (UINT64)(ULONG_PTR)event };
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( wm_clock, &params );
+    return params.err;
+}
+
+DWORD WINAPI WexWmWaitFrame( UINT64 *generation, DWORD timeout_ms )
+{
+    struct wm_clock_wait_params params = { 0 };
+    if (!generation) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.generation = *generation;
+    params.timeout_ms = timeout_ms;
+    WEXHOST_CALL( wm_clock_wait, &params );
+    *generation = params.generation;
+    return params.err;
+}
+
+DWORD WINAPI WexWmGetEffectScale( HWND hwnd )
+{
+    DWORD scale = (ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_scale_120" ) * 1000 / 120;
+    return scale ? scale : 1000;
+}
+
+/* Keep the historical XID-first rule even in a mixed session. The identity is
+ * independent of the foreign-window inventory and can name any Wine window. */
+static BOOL effect_identity( HWND hwnd, struct wm_apply_effects_params *params )
+{
+    WCHAR name[40];
+    ATOM atom;
+    UINT i;
+
+    params->window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
+    if (params->window)
+    {
+        params->backend = WEX_WM_BACKEND_X11;
+        return TRUE;
+    }
+    atom = (ATOM)(ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_window_handle" );
+    if (!atom || GlobalGetAtomNameW( atom, name, ARRAY_SIZE(name) ) != 32) return FALSE;
+    for (i = 0; i < 32; i++) params->handle[i] = (char)name[i];
+    params->backend = WEX_WM_BACKEND_WAYLAND;
+    params->scale = WexWmGetEffectScale( hwnd );
+    return TRUE;
+}
+
+DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result )
+{
+    struct wm_apply_effects_params params = { 0 };
+    RECT wr, cr;
+
+    if (!result) return ERROR_INVALID_PARAMETER;
+    result->scale = 0;
+    result->retry = TRUE;
+    if (!effect || effect->kind > WEX_EFFECT_GRADIENT) return ERROR_INVALID_PARAMETER;
+    if (!effect_identity( hwnd, &params )) return ERROR_NOT_READY;
+    params.effect = *effect;
+    result->scale = params.scale;
+    if (params.backend == WEX_WM_BACKEND_WAYLAND && effect->materials && effect->has_region)
+    {
+        params.effect.has_region = FALSE;
+        if (GetWindowRect( hwnd, &wr ) && GetClientRect( hwnd, &cr ))
+        {
+            POINT origin = { 0, 0 };
+            ClientToScreen( hwnd, &origin ); /* preserve the existing unchecked result */
+            SetRect( &params.effect.region, effect->region.left + origin.x - wr.left,
+                     effect->region.top + origin.y - wr.top,
+                     effect->region.right + origin.x - wr.left,
+                     effect->region.bottom + origin.y - wr.top );
+            params.effect.has_region = TRUE;
+        }
+    }
+    /* Match the legacy handle export's validation before Unix readiness. Atom
+     * names are WCHARs; narrowing a malformed name can introduce an early NUL. */
+    if (params.backend == WEX_WM_BACKEND_WAYLAND && strlen( params.handle ) != 32)
+        params.err = ERROR_INVALID_PARAMETER;
+    else if (!unix_ready) params.err = ERROR_NOT_SUPPORTED;
+    else WEXHOST_CALL( wm_apply_effects, &params );
+    result->retry = params.backend == WEX_WM_BACKEND_X11 ? !!params.err : params.err == ERROR_NOT_READY;
+    return params.err;
 }
 
 DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,

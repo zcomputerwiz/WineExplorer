@@ -290,6 +290,28 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 #define WEX_WM_EFFECT_REGION     0x8
 DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,
                               const RECT *region );
+/* Neutral DWM policy in Wine pixels, client coordinates and ABGR. The explicit
+ * square sentinel is retained; materials FALSE skips X11 backdrop writes but
+ * still clears the Wayland backdrop. This does not enable composition. */
+enum wex_effect_kind
+{
+    WEX_EFFECT_NONE, WEX_EFFECT_BLUR, WEX_EFFECT_ACRYLIC, WEX_EFFECT_MICA, WEX_EFFECT_GRADIENT
+};
+typedef struct
+{
+    DWORD kind, tint, radius, default_radius;
+    RECT region;
+    BOOL tinted, has_region, dark, shadow, materials;
+} WEX_WINDOW_EFFECT;
+/* scale is zero for X11/missing identity, otherwise Wayland thousandths.
+ * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */
+typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
+DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
+DWORD WINAPI WexWmGetEffectScale( HWND hwnd );
+/* Selected backend clock. The caller keeps page mapped until a successful
+ * detach; only the Wine-side wait thread pulses Win32 events. */
+DWORD WINAPI WexWmSetClock( void *page, HANDLE event );
+DWORD WINAPI WexWmWaitFrame( UINT64 *generation, DWORD timeout_ms );
 /* Live thumbnails (DwmRegisterThumbnail) of a Wayland session, the whole list replaced on each call (compositor
  * protocol v14). dest and src are shared handles (32 hex digits, no NUL), rectangles left, top, right, bottom in each
  * window's coordinates; flags WEX_WM_THUMB_*. At most 80 records. */

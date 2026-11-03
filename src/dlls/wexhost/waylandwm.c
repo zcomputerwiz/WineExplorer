@@ -529,6 +529,50 @@ static NTSTATUS wayland_effects(void *args)
     pthread_mutex_unlock(&wl_mutex);
     return STATUS_SUCCESS;
 }
+/* Neutral policy adapter; the legacy handle-based request remains unchanged. */
+static NTSTATUS wayland_apply_effects(void *args)
+{
+    struct wm_apply_effects_params *params = args;
+    const WEX_WINDOW_EFFECT *effect = &params->effect;
+    static const DWORD backdrops[] = { WEX_WM_BACKDROP_NONE, WEX_WM_BACKDROP_BLUR, WEX_WM_BACKDROP_ACRYLIC,
+                                       WEX_WM_BACKDROP_MICA, WEX_WM_BACKDROP_GRADIENT };
+    struct wm_effects_params request = { { 0 } };
+    DWORD radius = effect->radius, scale = params->scale;
+
+    if (params->backend != WEX_WM_BACKEND_WAYLAND || !scale || effect->kind > WEX_EFFECT_GRADIENT)
+    {
+        params->err = ERROR_INVALID_PARAMETER;
+        return STATUS_SUCCESS;
+    }
+    memcpy( request.handle, params->handle, 32 );
+    if (radius == WEX_CORNER_SQUARE) radius = 0;
+    else if (!radius) radius = effect->default_radius;
+    request.radius = wm_effect_coord( radius, scale, 0 );
+    request.tint = effect->tint;
+    if (effect->shadow) request.flags |= WEX_WM_EFFECT_SHADOW;
+    if (effect->materials)
+    {
+        request.backdrop = backdrops[effect->kind];
+        if (effect->tinted)
+        {
+            request.flags |= WEX_WM_EFFECT_TINT;
+            request.tint = (request.tint & 0xff00ff00) | (request.tint >> 16 & 0xff) | (request.tint & 0xff) << 16;
+        }
+        if (effect->has_region)
+        {
+            request.flags |= WEX_WM_EFFECT_REGION;
+            request.region[0] = wm_effect_coord( effect->region.left, scale, -1 );
+            request.region[1] = wm_effect_coord( effect->region.top, scale, -1 );
+            request.region[2] = wm_effect_coord( effect->region.right, scale, 1 );
+            request.region[3] = wm_effect_coord( effect->region.bottom, scale, 1 );
+        }
+        if (effect->dark && request.backdrop) request.flags |= WEX_WM_EFFECT_DARK;
+    }
+    wayland_effects( &request );
+    params->err = request.err;
+    return STATUS_SUCCESS;
+}
+
 /* live thumbnails and Peek (v14); the arrays are the packed records of the XML */
 static NTSTATUS wayland_thumbnails(void *args)
 {
@@ -617,9 +661,18 @@ static NTSTATUS wayland_capabilities(void *args)
     pthread_mutex_unlock(&wl_mutex);
     return STATUS_SUCCESS;
 }
+static NTSTATUS wayland_clock(void *args)
+{
+    struct wm_clock_params *params = args;
+    params->err = wayland_wm_set_clock( (void *)(ULONG_PTR)params->page ) ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+    return STATUS_SUCCESS;
+}
+
 const struct wm_backend_ops wayland_wm_backend = {
     WEX_WM_BACKEND_WAYLAND, WEX_WM_CAP_OBSERVE | WEX_WM_CAP_NATIVE_ENV,
     wayland_start,wayland_next_event,wayland_manage,wayland_configure,wayland_state,
     wayland_close,wayland_release,wayland_title,wayland_icon,wayland_stop,wayland_focus,wayland_info,
     wayland_binding,wayland_capabilities,wayland_effects,wayland_thumbnails,wayland_peek,
+    wayland_apply_effects,
+    wayland_clock,wm_wait_frame,
 };

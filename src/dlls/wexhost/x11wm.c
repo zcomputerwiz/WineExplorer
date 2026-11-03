@@ -1064,6 +1064,15 @@ NTSTATUS composition_clock( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS x11_clock( void *args )
+{
+    struct wm_clock_params *params = args;
+    if (!begin_call( &params->err )) return STATUS_SUCCESS;
+    params->err = compose_clock( (void *)(ULONG_PTR)params->page, (HANDLE)(ULONG_PTR)params->event );
+    end_call();
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS composition_thumbs( void *args )
 {
     struct composition_thumbs_params *params = args;
@@ -1392,6 +1401,7 @@ STUB( composition_corner, struct composition_corner_params )
 STUB( composition_backdrop, struct composition_backdrop_params )
 STUB( composition_thumbs, struct composition_thumbs_params )
 STUB( composition_peek, struct composition_peek_params )
+STUB( x11_clock, struct wm_clock_params )
 NTSTATUS composition_clock( void *args )
 {
     struct composition_clock_params *params = args;
@@ -1418,10 +1428,78 @@ NTSTATUS x11_wm_next_event( void *args )
 
 #endif
 
+/* Compatibility exports and selected backend ops share the original locked
+ * implementation. Tagged X11 input never masquerades as a Wayland handle. */
+static NTSTATUS x11_thumbnails(void *args)
+{
+    struct wm_thumbnails_params *params = args;
+    struct composition_thumbs_params request = { params->x11_thumbs, params->count };
+    if (params->backend != WEX_WM_BACKEND_X11) params->err = ERROR_NOT_SUPPORTED;
+    else
+    {
+        composition_thumbs( &request );
+        params->err = request.err;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS x11_peek(void *args)
+{
+    struct wm_peek_params *params = args;
+    struct composition_peek_params request = { params->x11_target, params->x11_keep, params->count };
+    if (params->backend != WEX_WM_BACKEND_X11) params->err = ERROR_NOT_SUPPORTED;
+    else
+    {
+        composition_peek( &request );
+        params->err = request.err;
+    }
+    return STATUS_SUCCESS;
+}
+
+/* Use the legacy calls individually: corner first, backdrop even after a corner
+ * error, first error wins. Retain their lock/flush boundaries and inactive-region
+ * zeroing. Shadows remain owned by desktop.c and compose's glass-frame policy. */
+static NTSTATUS x11_apply_effects(void *args)
+{
+    struct wm_apply_effects_params *params = args;
+    const WEX_WINDOW_EFFECT *effect = &params->effect;
+    static const DWORD backdrops[] = { WEX_BACKDROP_NONE, WEX_BACKDROP_BLUR, WEX_BACKDROP_ACRYLIC,
+                                       WEX_BACKDROP_MICA, WEX_BACKDROP_GRADIENT };
+    struct composition_corner_params corner = { params->window, effect->radius };
+    struct composition_backdrop_params backdrop = { params->window, 0, effect->tint };
+
+    if (params->backend != WEX_WM_BACKEND_X11 || effect->kind > WEX_EFFECT_GRADIENT)
+    {
+        params->err = ERROR_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+    composition_corner( &corner );
+    params->err = corner.err;
+    if (effect->materials)
+    {
+        backdrop.backdrop = backdrops[effect->kind];
+        if (effect->dark) backdrop.backdrop |= WEX_BACKDROP_DARK;
+        if (effect->tinted) backdrop.backdrop |= WEX_BACKDROP_TINT;
+        if (effect->has_region)
+        {
+            backdrop.backdrop |= WEX_BACKDROP_REGION;
+            backdrop.region[0] = effect->region.left;
+            backdrop.region[1] = effect->region.top;
+            backdrop.region[2] = effect->region.right;
+            backdrop.region[3] = effect->region.bottom;
+        }
+        composition_backdrop( &backdrop );
+        if (!params->err) params->err = backdrop.err;
+    }
+    return STATUS_SUCCESS;
+}
+
 const struct wm_backend_ops x11_wm_backend =
 {
     WEX_WM_BACKEND_X11, WEX_WM_CAP_X11_PARENT,
     x11_wm_start, x11_wm_next_event, x11_wm_manage, x11_wm_configure,
     x11_wm_set_state, x11_wm_close, x11_wm_release, x11_wm_get_title,
-    x11_wm_get_icon, x11_wm_stop, x11_wm_focus, NULL
+    x11_wm_get_icon, x11_wm_stop, x11_wm_focus, NULL,
+    NULL, NULL, NULL, x11_thumbnails, x11_peek, x11_apply_effects,
+    x11_clock, wm_wait_frame
 };

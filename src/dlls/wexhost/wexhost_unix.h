@@ -111,12 +111,77 @@ struct wm_binding_params { UINT64 window; char token[33], controller[33]; DWORD 
 /* DWM effects of a Wayland window by its shared handle (wex_window_manager_v1.set_effects, protocol v13) */
 struct wm_effects_params { char handle[33]; DWORD radius, backdrop, flags, tint; INT region[4]; DWORD err; };
 extern NTSTATUS wm_effects(void *args);
-/* live thumbnails and Peek of a Wayland session (wex_window_manager_v1.set_thumbnails / set_peek, protocol v14);
- * records are WEX_WM_THUMB (104 bytes), handles 32 hex digits */
-struct wm_thumbnails_params { DWORD count; BYTE records[80 * 104]; DWORD err; };
+/* New neutral effects call. Identity is resolved on the PE side, XID first as
+ * in the original bridge. No HWNDs or native pointers cross this transport.
+ * Wayland region is already offset to window coordinates, still in Wine pixels. */
+struct wm_apply_effects_params
+{
+    UINT64 window;
+    DWORD backend, scale;
+    char handle[36];
+    WEX_WINDOW_EFFECT effect;
+    DWORD err, reserved;
+};
+C_ASSERT( sizeof(WEX_WINDOW_EFFECT) == 52 );
+C_ASSERT( FIELD_OFFSET(WEX_WINDOW_EFFECT, region) == 16 );
+C_ASSERT( FIELD_OFFSET(WEX_WINDOW_EFFECT, materials) == 48 );
+C_ASSERT( sizeof(struct wm_apply_effects_params) == 112 );
+C_ASSERT( FIELD_OFFSET(struct wm_apply_effects_params, backend) == 8 );
+C_ASSERT( FIELD_OFFSET(struct wm_apply_effects_params, handle) == 16 );
+C_ASSERT( FIELD_OFFSET(struct wm_apply_effects_params, effect) == 52 );
+C_ASSERT( FIELD_OFFSET(struct wm_apply_effects_params, err) == 104 );
+extern NTSTATUS wm_apply_effects(void *args);
+extern INT wm_effect_coord(INT value, DWORD scale, int rounding);
+/* Legacy Wayland records remain at their original offsets. The appended X11
+ * pointer slots are zero-extended PE addresses, borrowed only for the synchronous
+ * call, exactly like composition_thumbs/peek. backend X11 selects those slots;
+ * zero retains the legacy Wayland record/handle contract. */
+struct wm_thumbnails_params
+{
+    DWORD count;
+    BYTE records[80 * 104];
+    DWORD err;
+    UINT64 x11_thumbs;
+    DWORD backend, reserved;
+};
+C_ASSERT( FIELD_OFFSET(struct wm_thumbnails_params, x11_thumbs) == 8328 );
+C_ASSERT( FIELD_OFFSET(struct wm_thumbnails_params, records) == 4 );
+C_ASSERT( FIELD_OFFSET(struct wm_thumbnails_params, err) == 8324 );
+C_ASSERT( sizeof(struct compose_thumb) == 56 );
+C_ASSERT( FIELD_OFFSET(struct wm_thumbnails_params, backend) == 8336 );
+C_ASSERT( sizeof(struct wm_thumbnails_params) == 8344 );
 extern NTSTATUS wm_thumbnails(void *args);
-struct wm_peek_params { char target[33]; DWORD count; char keep[64][32]; DWORD err; };
+struct wm_peek_params
+{
+    char target[33];
+    DWORD count;
+    char keep[64][32];
+    DWORD err, padding;
+    UINT64 x11_target, x11_keep;
+    DWORD backend, reserved;
+};
+C_ASSERT( FIELD_OFFSET(struct wm_peek_params, x11_target) == 2096 );
+C_ASSERT( FIELD_OFFSET(struct wm_peek_params, count) == 36 );
+C_ASSERT( FIELD_OFFSET(struct wm_peek_params, keep) == 40 );
+C_ASSERT( FIELD_OFFSET(struct wm_peek_params, x11_keep) == 2104 );
+C_ASSERT( FIELD_OFFSET(struct wm_peek_params, backend) == 2112 );
+C_ASSERT( sizeof(struct wm_peek_params) == 2120 );
 extern NTSTATUS wm_peek(void *args);
+/* Explicit X11 compatibility routing for the legacy Composition exports; the
+ * original handle-based wm_thumbnails/wm_peek calls still use the selected WM. */
+extern NTSTATUS wm_backend_thumbnails(void *args);
+extern NTSTATUS wm_backend_peek(void *args);
+struct wm_clock_params { UINT64 page, event; DWORD err, reserved; };
+struct wm_clock_wait_params { UINT64 generation; DWORD timeout_ms, err; };
+C_ASSERT( FIELD_OFFSET(struct wm_clock_params, event) == 8 );
+C_ASSERT( FIELD_OFFSET(struct wm_clock_params, err) == 16 );
+C_ASSERT( sizeof(struct wm_clock_params) == 24 );
+C_ASSERT( FIELD_OFFSET(struct wm_clock_wait_params, timeout_ms) == 8 );
+C_ASSERT( FIELD_OFFSET(struct wm_clock_wait_params, err) == 12 );
+C_ASSERT( sizeof(struct wm_clock_wait_params) == 16 );
+extern NTSTATUS wm_clock(void *args);
+extern NTSTATUS wm_clock_wait(void *args);
+extern NTSTATUS wm_wait_frame(void *args);
 /* the Wayland frame clock: the shared page is filled on every frame event of the compositor (DwmFlush) */
 extern BOOL wayland_wm_set_clock(void *page);
 extern BOOL wayland_wm_composition(void);
@@ -146,6 +211,8 @@ struct wm_backend_ops
     unixlib_entry_t native_info;
     unixlib_entry_t binding, get_capabilities;
     unixlib_entry_t effects, thumbnails, peek;   /* NULL: not supported by the backend */
+    unixlib_entry_t apply_effects;              /* neutral policy, distinct from legacy handle effects */
+    unixlib_entry_t clock, wait_frame;
 };
 extern const struct wm_backend_ops x11_wm_backend;
 extern const struct wm_backend_ops wayland_wm_backend;
@@ -306,6 +373,11 @@ enum wexhost_funcs
     unix_wm_effects,
     unix_wm_thumbnails,
     unix_wm_peek,
+    unix_wm_apply_effects,
+    unix_wm_backend_thumbnails,
+    unix_wm_backend_peek,
+    unix_wm_clock,
+    unix_wm_clock_wait,
     unix_funcs_count
 };
 
