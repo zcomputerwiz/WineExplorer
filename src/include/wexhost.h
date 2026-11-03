@@ -290,8 +290,11 @@ DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
 #define WEX_BACKDROP_MICA  1
 #define WEX_BACKDROP_BLUR  2       /* live blur of what is below (Aero glass, ACCENT_ENABLE_BLURBEHIND) */
 #define WEX_BACKDROP_ACRYLIC 4     /* live blur and tint */
+#define WEX_BACKDROP_GRADIENT 8    /* the tint alone (ACCENT_ENABLE_GRADIENT, _TRANSPARENTGRADIENT) */
 #define WEX_BACKDROP_DARK  0x100   /* flag: dark tint */
-DWORD WINAPI WexCompositionSetBackdrop( UINT64 xwindow, DWORD backdrop );
+#define WEX_BACKDROP_TINT  0x200   /* flag: tint is the color over the backdrop (0xAABBGGRR), not the default */
+#define WEX_BACKDROP_REGION 0x400  /* flag: the blur covers region only (left, top, right, bottom; client area) */
+DWORD WINAPI WexCompositionSetBackdrop( UINT64 xwindow, DWORD backdrop, DWORD tint, const RECT *region );
 /* Live thumbnails (DWM P8): the whole list, replaced on each call. Rectangles are left, top, right, bottom;
  * dest relative to the destination window, source relative to the source window. */
 #define WEX_THUMB_VISIBLE    0x1

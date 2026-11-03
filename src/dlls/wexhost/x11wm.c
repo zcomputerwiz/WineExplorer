@@ -1044,7 +1044,7 @@ NTSTATUS composition_backdrop( void *args )
 {
     struct composition_backdrop_params *params = args;
     if (!begin_call( &params->err )) return STATUS_SUCCESS;
-    params->err = compose_backdrop( params->window, params->backdrop );
+    params->err = compose_backdrop( params->window, params->backdrop, params->tint, params->region );
     end_call();
     return STATUS_SUCCESS;
 }

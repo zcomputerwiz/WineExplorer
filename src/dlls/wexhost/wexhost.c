@@ -633,10 +633,18 @@ DWORD WINAPI WexCompositionSetCorner( UINT64 window, DWORD radius )
     return params.err;
 }
 
-DWORD WINAPI WexCompositionSetBackdrop( UINT64 window, DWORD backdrop )
+DWORD WINAPI WexCompositionSetBackdrop( UINT64 window, DWORD backdrop, DWORD tint, const RECT *region )
 {
-    struct composition_backdrop_params params = { window, backdrop };
+    struct composition_backdrop_params params = { window, backdrop, tint };
     if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (backdrop & WEX_BACKDROP_REGION)
+    {
+        if (!region) return ERROR_INVALID_PARAMETER;
+        params.region[0] = region->left;
+        params.region[1] = region->top;
+        params.region[2] = region->right;
+        params.region[3] = region->bottom;
+    }
     WEXHOST_CALL( composition_backdrop, &params );
     return params.err;
 }

@@ -47,7 +47,7 @@
 @ stdcall WexCompositionGetEnabled(ptr)
 @ stdcall WexCompositionSetShadow(int64 long)
 @ stdcall WexCompositionSetCorner(int64 long)
-@ stdcall WexCompositionSetBackdrop(int64 long)
+@ stdcall WexCompositionSetBackdrop(int64 long long ptr)
 @ stdcall WexCompositionSetClock(ptr ptr)
 @ stdcall WexCompositionWaitFrame(ptr long)
 @ stdcall WexCompositionSetThumbnails(ptr long)

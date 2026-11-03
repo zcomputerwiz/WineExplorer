@@ -64,6 +64,8 @@ struct pending
     DWORD backdrop_type;
     DWORD mica_effect;
     DWORD blur;   /* DWM_WINE_BLUR_* */
+    DWORD tint;   /* DWM_ATTR_WINE_TINT */
+    DWORD rgn[2]; /* DWM_ATTR_WINE_RGN_LT, _RB */
     int tries;
 };
 
@@ -154,17 +156,22 @@ static void read_materials_gate(void)
 
 /* The backdrop the compositor draws for a window: Mica for the main-window and tabbed backdrops, or when the
  * app asked for the Mica effect without opting out; Acrylic for the transient backdrop (type 3); else the blur
- * asked for through DwmEnableBlurBehindWindow or ACCENT_POLICY. */
+ * or gradient asked for through DwmEnableBlurBehindWindow or ACCENT_POLICY, with its tint and region. */
 static DWORD backdrop_value( const struct pending *p )
 {
-    DWORD backdrop = WEX_BACKDROP_NONE;
+    DWORD backdrop = WEX_BACKDROP_NONE, mode = p->blur & DWM_WINE_BLUR_MODE;
 
     if ((p->backdrop_type == 2 || p->backdrop_type == 4) || (p->mica_effect && p->backdrop_type != 1))
         backdrop = WEX_BACKDROP_MICA;
-    else if (p->backdrop_type == 3 || p->blur == DWM_WINE_BLUR_ACRYLIC)
+    else if (p->backdrop_type == 3)
         backdrop = WEX_BACKDROP_ACRYLIC;
-    else if (p->blur == DWM_WINE_BLUR_BEHIND)
-        backdrop = WEX_BACKDROP_BLUR;
+    else if (mode != DWM_WINE_BLUR_NONE)
+    {
+        backdrop = mode == DWM_WINE_BLUR_ACRYLIC ? WEX_BACKDROP_ACRYLIC :
+                   mode == DWM_WINE_BLUR_GRADIENT ? WEX_BACKDROP_GRADIENT : WEX_BACKDROP_BLUR;
+        if (p->blur & DWM_WINE_BLUR_TINTED) backdrop |= WEX_BACKDROP_TINT;
+        if (p->blur & DWM_WINE_BLUR_REGION) backdrop |= WEX_BACKDROP_REGION;
+    }
     if (p->dark) backdrop |= WEX_BACKDROP_DARK;
     return backdrop;
 }
@@ -187,7 +194,9 @@ static int apply_window( HWND hwnd, const struct pending *p )
     if (materials_on)
     {
         DWORD backdrop = backdrop_value( p );
-        DWORD err2 = WexCompositionSetBackdrop( window, backdrop );
+        RECT rgn = { (SHORT)LOWORD( p->rgn[0] ), (SHORT)HIWORD( p->rgn[0] ),
+                     (SHORT)LOWORD( p->rgn[1] ), (SHORT)HIWORD( p->rgn[1] ) };
+        DWORD err2 = WexCompositionSetBackdrop( window, backdrop, p->tint, &rgn );
         TRACE( "%p xwin %#I64x backdrop %lu err %lu\n", hwnd, window, backdrop, err2 );
         if (!err) err = err2;
     }
@@ -221,7 +230,7 @@ static void apply_change( const struct dwm_change *change )
         change->attribute != DWMWA_USE_IMMERSIVE_DARK_MODE &&
         change->attribute != DWMWA_SYSTEMBACKDROP_TYPE &&
         change->attribute != DWMWA_MICA_EFFECT &&
-        change->attribute != DWM_ATTR_WINE_BLUR)
+        (change->attribute < DWM_ATTR_WINE_BLUR || change->attribute > DWM_ATTR_WINE_LAST))
         return;
     for (i = 0; i < DWM_BRIDGE_PENDING; i++)
     {
@@ -232,7 +241,7 @@ static void apply_change( const struct dwm_change *change )
     {
         if (free_slot < 0) return;  /* table full */
         p = &pending[free_slot];
-        *p = (struct pending){ hwnd, 0, FALSE, 0, 0, 0, 0 };
+        *p = (struct pending){ .hwnd = hwnd };
     }
     switch (change->attribute)
     {
@@ -250,6 +259,13 @@ static void apply_change( const struct dwm_change *change )
         break;
     case DWM_ATTR_WINE_BLUR:
         p->blur = change->value;
+        break;
+    case DWM_ATTR_WINE_TINT:
+        p->tint = change->value;
+        break;
+    case DWM_ATTR_WINE_RGN_LT:
+    case DWM_ATTR_WINE_RGN_RB:
+        p->rgn[change->attribute - DWM_ATTR_WINE_RGN_LT] = change->value;
         break;
     }
     switch (apply_window( hwnd, p ))

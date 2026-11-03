@@ -23,7 +23,9 @@
 /* A striped window fills the screen; over it four 360x260 windows: "Blur behind" (DwmEnableBlurBehindWindow,
  * 40,40), "Accent blur" (ACCENT_ENABLE_BLURBEHIND, 520,40), "Accent acrylic" (ACCENT_ENABLE_ACRYLICBLURBEHIND,
  * 40,380) and "Acrylic backdrop" (DWMWA_SYSTEMBACKDROP_TYPE 3, 520,380). The stripes move every 500 ms, so the
- * blur must follow what is below. An argument names a log file.
+ * blur must follow what is below. With "2" as the first argument the four are "Region blur" (hRgnBlur, the left
+ * half), "Tinted blur" (ACCENT_ENABLE_BLURBEHIND, flag 2, green 0x6000a000), "Tinted acrylic" (blue 0xa0800000)
+ * and "Gradient" (ACCENT_ENABLE_TRANSPARENTGRADIENT, yellow 0x8000ffff). A further argument names a log file.
  * Build: x86_64-w64-mingw32-gcc -municode -mwindows -o dwm-blur-visual-probe.exe dwm-blur-visual-probe.c
  *        -luser32 -lgdi32 -ldwmapi */
 
@@ -82,28 +84,44 @@ static LRESULT CALLBACK glass_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     return DefWindowProcW( hwnd, msg, wp, lp );
 }
 
-static BOOL set_accent( HWND hwnd, DWORD state )
+static BOOL set_accent( HWND hwnd, DWORD state, DWORD flags, DWORD gradient )
 {
-    struct accent_policy accent = { state, 0, 0, 0 };
+    struct accent_policy accent = { state, flags, gradient, 0 };
     struct composition_data data = { 19 /* WCA_ACCENT_POLICY */, &accent, sizeof(accent) };
     return pSetWindowCompositionAttribute && pSetWindowCompositionAttribute( hwnd, &data );
 }
 
 int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
 {
-    static const struct { int x, y; const WCHAR *title; int kind; } windows[] =
+    /* kind: 0 DwmEnableBlurBehindWindow, 5 system backdrop, 6 blur with a region, else the accent state */
+    static const struct { int x, y; const WCHAR *title; int kind; DWORD flags, gradient; } sets[2][4] =
     {
-        { 40, 40, L"Blur behind", 0 },
-        { 520, 40, L"Accent blur", 3 },
-        { 40, 380, L"Accent acrylic", 4 },
-        { 520, 380, L"Acrylic backdrop", 5 },
+        {
+            { 40, 40, L"Blur behind", 0 },
+            { 520, 40, L"Accent blur", 3 },
+            { 40, 380, L"Accent acrylic", 4 },
+            { 520, 380, L"Acrylic backdrop", 5 },
+        },
+        {
+            { 40, 40, L"Region blur", 6 },
+            { 520, 40, L"Tinted blur", 3, 2, 0x6000a000 },
+            { 40, 380, L"Tinted acrylic", 4, 0, 0xa0800000 },
+            { 520, 380, L"Gradient", 2, 0, 0x8000ffff },
+        },
     };
     WNDCLASSW wc = { 0 };
     HWND stripes;
     MSG msg;
     DWORD i, deadline = GetTickCount() + 40000, next = 0;
+    int set = 0;
 
-    if (cmdline && *cmdline) _wfreopen( cmdline, L"w", stdout );
+    while (*cmdline == ' ') cmdline++;
+    if (cmdline[0] == '2' && (!cmdline[1] || cmdline[1] == ' '))
+    {
+        set = 1;
+        for (cmdline++; *cmdline == ' '; cmdline++) ;
+    }
+    if (*cmdline) _wfreopen( cmdline, L"w", stdout );
     pSetWindowCompositionAttribute = (void *)GetProcAddress( GetModuleHandleW( L"user32.dll" ),
                                                              "SetWindowCompositionAttribute" );
     wc.lpfnWndProc   = stripes_proc;
@@ -118,22 +136,32 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
     wc.hbrBackground = (HBRUSH)GetStockObject( BLACK_BRUSH );
     wc.lpszClassName = L"DwmBlurProbe";
     RegisterClassW( &wc );
-    for (i = 0; i < ARRAYSIZE(windows); i++)
+    for (i = 0; i < 4; i++)
     {
+        const typeof(sets[0][0]) *windows = sets[set];
         HWND hwnd = CreateWindowExW( 0, wc.lpszClassName, windows[i].title, WS_OVERLAPPEDWINDOW,
                                      windows[i].x, windows[i].y, 360, 260, NULL, NULL, inst, NULL );
         HRESULT hr = S_OK;
-        if (windows[i].kind == 0)
+        if (windows[i].kind == 0 || windows[i].kind == 6)
         {
             DWM_BLURBEHIND bb = { DWM_BB_ENABLE, TRUE, NULL, FALSE };
+            if (windows[i].kind == 6)
+            {
+                RECT rc;
+                GetClientRect( hwnd, &rc );
+                bb.dwFlags |= DWM_BB_BLURREGION;
+                bb.hRgnBlur = CreateRectRgn( 0, 0, rc.right / 2, rc.bottom );
+            }
             hr = DwmEnableBlurBehindWindow( hwnd, &bb );
+            if (bb.hRgnBlur) DeleteObject( bb.hRgnBlur );
         }
         else if (windows[i].kind == 5)
         {
             DWORD backdrop = 3;
             hr = DwmSetWindowAttribute( hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop) );
         }
-        else hr = set_accent( hwnd, windows[i].kind ) ? S_OK : HRESULT_FROM_WIN32( GetLastError() );
+        else hr = set_accent( hwnd, windows[i].kind, windows[i].flags, windows[i].gradient ) ?
+                  S_OK : HRESULT_FROM_WIN32( GetLastError() );
         ShowWindow( hwnd, SW_SHOWNORMAL );
         UpdateWindow( hwnd );
         printf( "%ls: hwnd %p hr %08lx\n", windows[i].title, hwnd, hr );

@@ -157,6 +157,8 @@ struct window
     int client[4];
     int margin[4];
     unsigned int backdrop;   /* WEX_BACKDROP_* */
+    unsigned int tint;       /* with WEX_BACKDROP_TINT: 0xAABBGGRR */
+    int region[4];           /* with WEX_BACKDROP_REGION: left, top, right, bottom in the client area */
 };
 
 static Display *dpy;
@@ -337,6 +339,26 @@ static unsigned long get_cardinal( Window id, Atom atom, unsigned long fallback 
     return value;
 }
 
+/* _WEX_DWM_BACKDROP: backdrop, tint, region[4] */
+static void update_backdrop( struct window *w )
+{
+    Atom actual;
+    int format, i;
+    unsigned long count, left;
+    unsigned char *data = NULL;
+    w->backdrop = 0;
+    if (pXGetWindowProperty( dpy, w->id, backdrop_atom, 0, 6, False, XA_CARDINAL,
+                             &actual, &format, &count, &left, &data ) == Success &&
+        actual == XA_CARDINAL && format == 32 && count == 6)
+    {
+        unsigned long *values = (unsigned long *)data;
+        w->backdrop = values[0];
+        w->tint = values[1];
+        for (i = 0; i < 4; i++) w->region[i] = (int)values[2 + i];
+    }
+    if (data) pXFree( data );
+}
+
 static void update_opacity( struct window *w )
 {
     XRenderColor color = { 0, 0, 0, 0 };
@@ -425,7 +447,7 @@ static struct window *track_window( Window id, Window parent )
     update_opacity( w );
     update_margins( w );
     w->shadow = !!get_cardinal( w->id, shadow_atom, 0 );
-    w->backdrop = get_cardinal( w->id, backdrop_atom, 0 );
+    update_backdrop( w );
     return w;
 }
 
@@ -633,35 +655,63 @@ static void expand_blur_damage(void)
     }
 }
 
-/* Under the glass of a blurred window (the back picture's clip is set, and restored to clip afterwards) */
-static void paint_live_blur( const struct window *w )
+/* Under the glass of a window with a live blur or a gradient accent (the back picture's clip is set, and restored
+ * to clip afterwards): the blur, narrowed to the box of DwmEnableBlurBehindWindow's region, then the tint
+ * (GradientColor, or for Acrylic without one F3F3F3 light, 202020 dark, at 70 %). */
+static void paint_accent( const struct window *w )
 {
     XRenderPictureAttributes attr = { 0 };
     XRenderPictFormat *format = pXRenderFindStandardFormat( dpy, PictStandardRGB24 );
     XRectangle r = blur_area( w );
-    Pixmap pixmap;
-    Picture copy;
+    XserverRegion area = clip;
+    XRenderColor tint = { 0 };
     BOOL acrylic = !!(w->backdrop & WEX_BACKDROP_ACRYLIC);
 
     if (!format || !r.width || !r.height) return;
-    attr.repeat = RepeatPad;
-    pixmap = pXCreatePixmap( dpy, root, r.width, r.height, 24 );
-    copy = pXRenderCreatePicture( dpy, pixmap, format, CPRepeat, &attr );
-    pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, None );
-    pXRenderComposite( dpy, PictOpSrc, back_picture, None, copy, r.x, r.y, 0, 0, 0, 0, r.width, r.height );
-    pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
-    blur_into( copy, r.width, r.height, acrylic ? ACRYLIC_STEPS : BLUR_STEPS, back_picture, r.x, r.y );
-    pXRenderFreePicture( dpy, copy );
-    pXFreePixmap( dpy, pixmap );
-    if (acrylic)
+    if (w->backdrop & WEX_BACKDROP_REGION)
     {
-        /* ponytail: one fixed tint (F3F3F3 light, 202020 dark, 70 %); ACCENT_POLICY's GradientColor and the
-         * luminosity layer come later */
-        XRenderColor tint;
+        XRectangle box;
+        box.x = w->x + w->client[0] + w->region[0];
+        box.y = w->y + w->client[1] + w->region[1];
+        box.width = max( w->region[2] - w->region[0], 0 );
+        box.height = max( w->region[3] - w->region[1], 0 );
+        area = pXFixesCreateRegion( dpy, &box, 1 );
+        pXFixesIntersectRegion( dpy, area, area, clip );
+        pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, area );
+    }
+    if (live_blur( w ))
+    {
+        Pixmap pixmap = pXCreatePixmap( dpy, root, r.width, r.height, 24 );
+        Picture copy;
+        attr.repeat = RepeatPad;
+        copy = pXRenderCreatePicture( dpy, pixmap, format, CPRepeat, &attr );
+        pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, None );
+        pXRenderComposite( dpy, PictOpSrc, back_picture, None, copy, r.x, r.y, 0, 0, 0, 0, r.width, r.height );
+        pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, area );
+        blur_into( copy, r.width, r.height, acrylic ? ACRYLIC_STEPS : BLUR_STEPS, back_picture, r.x, r.y );
+        pXRenderFreePicture( dpy, copy );
+        pXFreePixmap( dpy, pixmap );
+    }
+    /* ponytail: no luminosity layer or noise under the Acrylic tint */
+    if (w->backdrop & WEX_BACKDROP_TINT)
+    {
+        unsigned int a = w->tint >> 24;
+        tint.alpha = a * 257;
+        tint.red = (w->tint & 0xff) * a * 257 / 255;
+        tint.green = (w->tint >> 8 & 0xff) * a * 257 / 255;
+        tint.blue = (w->tint >> 16 & 0xff) * a * 257 / 255;
+    }
+    else if (acrylic)
+    {
         unsigned int gray = w->backdrop & WEX_BACKDROP_DARK ? 0x20 : 0xf3;
         tint.alpha = 0xb333;
         tint.red = tint.green = tint.blue = gray * 257 * (tint.alpha / 65535.0);
-        pXRenderFillRectangle( dpy, PictOpOver, back_picture, &tint, r.x, r.y, r.width, r.height );
+    }
+    if (tint.alpha) pXRenderFillRectangle( dpy, PictOpOver, back_picture, &tint, r.x, r.y, r.width, r.height );
+    if (area != clip)
+    {
+        pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+        pXFixesDestroyRegion( dpy, area );
     }
 }
 
@@ -1056,7 +1106,7 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
         if (parent_clip) pXFixesIntersectRegion( dpy, clip, clip, parent_clip );
         pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
         if (w->backdrop & WEX_BACKDROP_MICA) paint_mica( w );
-        else if (live_blur( w )) paint_live_blur( w );
+        else if (w->backdrop & (WEX_BACKDROP_BLUR | WEX_BACKDROP_ACRYLIC | WEX_BACKDROP_GRADIENT)) paint_accent( w );
         pXRenderComposite( dpy, PictOpOver, w->picture, w->alpha, back_picture, 0, 0, 0, 0,
                            w->x - border, w->y - border,
                            w->attr.width + 2 * border, w->attr.height + 2 * border );
@@ -1138,19 +1188,20 @@ DWORD compose_shadow( unsigned long id, BOOL shadow )
 }
 
 /* kept as a property on the X window, like the shadow, so it survives unmapping (minimize) */
-DWORD compose_backdrop( unsigned long id, unsigned int backdrop )
+DWORD compose_backdrop( unsigned long id, unsigned int backdrop, unsigned int tint, const INT *region )
 {
-    unsigned long value = backdrop;
+    unsigned long value[6] = { backdrop, tint, region[0], region[1], region[2], region[3] };
     XWindowAttributes attr;
     if (!enabled) return ERROR_NOT_SUPPORTED;
-    if (backdrop & ~(WEX_BACKDROP_MICA | WEX_BACKDROP_BLUR | WEX_BACKDROP_ACRYLIC | WEX_BACKDROP_DARK))
+    if (backdrop & ~(WEX_BACKDROP_MICA | WEX_BACKDROP_BLUR | WEX_BACKDROP_ACRYLIC | WEX_BACKDROP_GRADIENT |
+                     WEX_BACKDROP_DARK | WEX_BACKDROP_TINT | WEX_BACKDROP_REGION))
         return ERROR_INVALID_PARAMETER;
     if (!id || id == root || id == desktop || id == overlay || id == owner)
         return ERROR_INVALID_PARAMETER;
     *x_error = 0;
     if (!pXGetWindowAttributes( dpy, id, &attr )) return ERROR_INVALID_WINDOW_HANDLE;
     pXChangeProperty( dpy, id, backdrop_atom, XA_CARDINAL, 32, PropModeReplace,
-                      (unsigned char *)&value, 1 );
+                      (unsigned char *)value, 6 );
     full_repaint = dirty = TRUE;
     return sync_ok() ? ERROR_SUCCESS : ERROR_INVALID_WINDOW_HANDLE;
 }
@@ -1423,7 +1474,7 @@ void compose_event( void *xevent )
         }
         if (event->xproperty.atom == backdrop_atom && (w = find_window( event->xproperty.window )))
         {
-            w->backdrop = get_cardinal( w->id, backdrop_atom, 0 );
+            update_backdrop( w );
             full_repaint = dirty = TRUE;
         }
         return;
@@ -1512,7 +1563,8 @@ DWORD compose_set( void *display, unsigned long root, unsigned long desktop, int
 BOOL compose_enabled(void) { return FALSE; }
 DWORD compose_shadow( unsigned long window, BOOL shadow ) { return ERROR_NOT_SUPPORTED; }
 DWORD compose_corner( unsigned long window, unsigned int radius ) { return ERROR_NOT_SUPPORTED; }
-DWORD compose_backdrop( unsigned long window, unsigned int backdrop ) { return ERROR_NOT_SUPPORTED; }
+DWORD compose_backdrop( unsigned long window, unsigned int backdrop, unsigned int tint, const INT *region )
+{ return ERROR_NOT_SUPPORTED; }
 DWORD compose_clock( void *page, HANDLE event ) { return page ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 DWORD compose_thumbnails( const struct compose_thumb *list, unsigned int count ) { return count ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
 DWORD compose_peek( unsigned long target, const UINT64 *keep, unsigned int count ) { return target ? ERROR_NOT_SUPPORTED : ERROR_SUCCESS; }
