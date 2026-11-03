@@ -283,6 +283,8 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 DWORD WINAPI WexCompositionSetEnabled( BOOL enabled );
 DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
 DWORD WINAPI WexCompositionSetShadow( UINT64 xwindow, BOOL shadow );
+/* radius 0-16, or square even where the default is round (a glass frame) */
+#define WEX_CORNER_SQUARE  0x100
 DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
 #define WEX_BACKDROP_NONE  0
 #define WEX_BACKDROP_MICA  1

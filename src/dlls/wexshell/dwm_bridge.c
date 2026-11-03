@@ -113,14 +113,16 @@ static HDESK bridge_desktop;
 static struct pending pending[DWM_BRIDGE_PENDING];
 static BOOL materials_on;
 
-/* DWMWCP_DEFAULT stays square for now: the corner policy of a theme era comes with the open styles (P13) */
+/* DWMWCP_DEFAULT is square except for glass frames, which the compositor rounds; the corner policy of a theme era
+ * comes with the open styles (P13) */
 static DWORD corner_radius( DWORD preference )
 {
     switch (preference)
     {
+    case 1: return WEX_CORNER_SQUARE;  /* DWMWCP_DONOTROUND */
     case 2: return 8;   /* DWMWCP_ROUND */
     case 3: return 4;   /* DWMWCP_ROUNDSMALL */
-    default: return 0;  /* DEFAULT, DONOTROUND */
+    default: return 0;  /* DEFAULT */
     }
 }
 

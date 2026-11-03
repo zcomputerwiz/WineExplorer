@@ -797,15 +797,113 @@ static void paint_thumbnails( struct window *dest )
     }
 }
 
+/* Cut the corners of rectangle r (radius at most 16) out of region. */
+static void round_corners( XserverRegion region, const XRectangle *r, unsigned int radius )
+{
+    XRectangle corner_rects[64];
+    int corner_count = 0, y;
+
+    if (radius > 16) radius = 16;
+    for (y = 0; y < radius; y++)
+    {
+        int k = radius - y;
+        int m = 4 * (radius * radius - k * (k - 1)) - 1;
+        int s = 0, inset;
+
+        while ((s + 1) * (s + 1) <= m) s++;
+        inset = radius - (s + 1) / 2;
+        if (!inset) continue;
+
+        corner_rects[corner_count].x = r->x;
+        corner_rects[corner_count].y = r->y + y;
+        corner_rects[corner_count].width = inset;
+        corner_rects[corner_count].height = 1;
+        corner_count++;
+
+        corner_rects[corner_count].x = r->x + r->width - inset;
+        corner_rects[corner_count].y = r->y + y;
+        corner_rects[corner_count].width = inset;
+        corner_rects[corner_count].height = 1;
+        corner_count++;
+
+        corner_rects[corner_count].x = r->x;
+        corner_rects[corner_count].y = r->y + r->height - 1 - y;
+        corner_rects[corner_count].width = inset;
+        corner_rects[corner_count].height = 1;
+        corner_count++;
+
+        corner_rects[corner_count].x = r->x + r->width - inset;
+        corner_rects[corner_count].y = r->y + r->height - 1 - y;
+        corner_rects[corner_count].width = inset;
+        corner_rects[corner_count].height = 1;
+        corner_count++;
+    }
+    if (corner_count > 0)
+    {
+        XserverRegion corners = pXFixesCreateRegion( dpy, corner_rects, corner_count );
+        pXFixesSubtractRegion( dpy, region, region, corners );
+        pXFixesDestroyRegion( dpy, corners );
+    }
+}
+
+/* Glass frames (P10b) have invisible resize bands left, right and below, like Windows 10 and 11: the visible frame
+ * is the client, the caption and a one-pixel border. Not for a maximized window (its frame is off screen).
+ * ponytail: the band is the client's left offset less the border, taken for the right and bottom too (a left
+ * scroll bar or uneven frame metrics would skew it); publish the insets if that matters. */
+static BOOL frame_bounds( const struct window *w, XRectangle *r )
+{
+    int inset = w->client[0] - 1;
+    int win_w = w->attr.width + 2 * w->attr.border_width, win_h = w->attr.height + 2 * w->attr.border_width;
+
+    if (!w->glass || !w->frame_glass || w->attr.depth != 32 || inset <= 0 ||
+        win_w <= 2 * inset || win_h <= inset) return FALSE;
+    r->x = inset;
+    r->y = 0;
+    r->width = win_w - 2 * inset;
+    r->height = win_h - inset;
+    return w->x + inset > 0 || w->x + inset + r->width < width;
+}
+
+/* A soft shadow around the visible frame, slightly lower than above, outside the frame only. */
+static void paint_frame_shadow( const struct window *w, const XRectangle *frame, XserverRegion parent_clip )
+{
+    static const int spread = 10;
+    XRenderColor color = { 0, 0, 0, 0x0600 };
+    XRectangle r = { w->x + frame->x, w->y + frame->y, frame->width, frame->height };
+    XserverRegion hole = pXFixesCreateRegion( dpy, &r, 1 );
+    int i;
+
+    pXFixesIntersectRegion( dpy, clip, damage_region, parent_clip ? parent_clip : damage_region );
+    pXFixesSubtractRegion( dpy, clip, clip, hole );
+    pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
+    for (i = 1; i <= spread; i++)
+        pXRenderFillRectangle( dpy, PictOpOver, back_picture, &color, r.x - i, r.y - i + 2,
+                               r.width + 2 * i, r.height + 2 * i );
+    pXFixesDestroyRegion( dpy, hole );
+}
+
 static void paint_window( struct window *w, XserverRegion parent_clip )
 {
     XserverRegion shape;
+    XRectangle frame;
+    BOOL has_frame;
+    unsigned int radius;
     int border;
     if (!w || !name_surface( w )) return;
     paint_shadow( w, parent_clip );
     shape = pXFixesCreateRegionFromWindow( dpy, w->id, WindowRegionBounding );
     border = w->attr.border_width;
-    if (w->corner > 0)
+    radius = w->corner == WEX_CORNER_SQUARE ? 0 : w->corner;
+    if ((has_frame = frame_bounds( w, &frame )))
+    {
+        /* the visible frame is round unless the window asked for square corners, as on Windows 11 */
+        XserverRegion visible = pXFixesCreateRegion( dpy, &frame, 1 );
+        if (w->corner != WEX_CORNER_SQUARE) round_corners( visible, &frame, radius ? radius : 8 );
+        pXFixesIntersectRegion( dpy, shape, shape, visible );
+        pXFixesDestroyRegion( dpy, visible );
+        paint_frame_shadow( w, &frame, parent_clip );
+    }
+    else if (radius)
     {
         int win_w = w->attr.width + 2 * border;
         int win_h = w->attr.height + 2 * border;
@@ -815,53 +913,7 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
         if (rects)
         {
             if (count == 1 && rects[0].width == win_w && rects[0].height == win_h)
-            {
-                XRectangle corner_rects[64];
-                int corner_count = 0, y;
-                unsigned int r = w->corner;
-
-                if (r > 16) r = 16;
-                for (y = 0; y < r; y++)
-                {
-                    int k = r - y;
-                    int m = 4 * (r * r - k * (k - 1)) - 1;
-                    int s = 0, inset;
-
-                    while ((s + 1) * (s + 1) <= m) s++;
-                    inset = r - (s + 1) / 2;
-                    if (!inset) continue;
-
-                    corner_rects[corner_count].x = rects[0].x;
-                    corner_rects[corner_count].y = rects[0].y + y;
-                    corner_rects[corner_count].width = inset;
-                    corner_rects[corner_count].height = 1;
-                    corner_count++;
-
-                    corner_rects[corner_count].x = rects[0].x + win_w - inset;
-                    corner_rects[corner_count].y = rects[0].y + y;
-                    corner_rects[corner_count].width = inset;
-                    corner_rects[corner_count].height = 1;
-                    corner_count++;
-
-                    corner_rects[corner_count].x = rects[0].x;
-                    corner_rects[corner_count].y = rects[0].y + win_h - 1 - y;
-                    corner_rects[corner_count].width = inset;
-                    corner_rects[corner_count].height = 1;
-                    corner_count++;
-
-                    corner_rects[corner_count].x = rects[0].x + win_w - inset;
-                    corner_rects[corner_count].y = rects[0].y + win_h - 1 - y;
-                    corner_rects[corner_count].width = inset;
-                    corner_rects[corner_count].height = 1;
-                    corner_count++;
-                }
-                if (corner_count > 0)
-                {
-                    XserverRegion corners = pXFixesCreateRegion( dpy, corner_rects, corner_count );
-                    pXFixesSubtractRegion( dpy, shape, shape, corners );
-                    pXFixesDestroyRegion( dpy, corners );
-                }
-            }
+                round_corners( shape, &rects[0], radius );
             pXFree( rects );
         }
     }
@@ -872,7 +924,8 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
         BOOL full_glass = (w->margin[0] == -1 || w->margin[1] == -1 ||
                            w->margin[2] == -1 || w->margin[3] == -1);
 
-        if (w->frame_glass)
+        if (has_frame) glass_rect = frame;
+        else if (w->frame_glass)
         {
             /* the frame is glass too (P10b): the glass region starts as the whole window */
             glass_rect.x = 0;
@@ -1022,7 +1075,7 @@ DWORD compose_corner( unsigned long id, unsigned int radius )
     struct window *w;
 
     if (!enabled) return ERROR_NOT_SUPPORTED;
-    if (radius > 16) return ERROR_INVALID_PARAMETER;
+    if (radius > 16 && radius != WEX_CORNER_SQUARE) return ERROR_INVALID_PARAMETER;
     if (!id || id == root || id == desktop || id == overlay || id == owner)
         return ERROR_INVALID_PARAMETER;
     if (!(w = find_window( id )))

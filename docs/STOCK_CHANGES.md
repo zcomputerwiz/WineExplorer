@@ -1489,3 +1489,8 @@ black pass is the premultiplied color), so the caption background is clear and t
 antialiased edges; the caption stays opaque when the app or the accent colors it; a pressed button repaints the whole
 frame. Either gate off: unchanged. ncframe 31 passes on x86_64 and i386. Visual check:
 `scripts/dwm-glassframe-visual-probe.c`.
+Windows 10/11 geometry for glass frames that are not maximized (also `dlls/win32u/defwnd.c`): the left, right and
+bottom frame bands are an invisible resize area (they still hit-test as sizing borders), the 1 px border runs along the
+visible frame and the caption buttons move inward by the band width, in painting and in
+`handle_modern_nc_hit_test` alike; `DWMWA_EXTENDED_FRAME_BOUNDS` reports the visible frame. The compositor clips to it,
+rounds it (8 px unless `DWMWCP_DONOTROUND`) and draws a soft shadow outside it.
