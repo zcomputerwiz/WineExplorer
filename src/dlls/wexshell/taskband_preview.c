@@ -36,50 +36,55 @@
 
 HRESULT WINAPI WexDwmpGetAttr( HWND hwnd, DWORD attribute, DWORD *value );
 
-/* P9: a window that set DWMWA_HAS_ICONIC_BITMAP draws its own preview. Ask it (WM_DWMSENDICONICTHUMBNAIL, the
- * largest size in lParam: width high, height low) and copy what its DwmSetIconicThumbnail left in the shared
- * section (include/wine/dwm_protocol.h). NULL when it has none: the caller falls back to the live thumbnail. */
-HBITMAP iconic_thumbnail( HWND hwnd, int max_w, int max_h )
+/* P9: a window that set DWMWA_HAS_ICONIC_BITMAP draws its own previews. Ask it (msg) and copy what its
+ * DwmSetIconicThumbnail / DwmSetIconicLivePreviewBitmap left in the shared section (include/wine/dwm_protocol.h);
+ * *info gets the header. NULL when it has none: the caller falls back to the live picture. */
+static HBITMAP iconic_fetch( HWND hwnd, UINT msg, LPARAM lparam, const WCHAR *prefix, struct dwm_iconic *info )
 {
-    BITMAPINFO info = {{ sizeof(BITMAPINFOHEADER) }};
+    BITMAPINFO bmi = {{ sizeof(BITMAPINFOHEADER) }};
     const struct dwm_iconic *header;
-    struct dwm_iconic copy;
     HBITMAP bitmap = NULL;
     HANDLE section;
     WCHAR name[64];
-    DWORD has = 0, i, *bits;
+    DWORD has = 0, i, count, *bits;
     BOOL any_alpha = FALSE;
 
     if (WexDwmpGetAttr( hwnd, DWMWA_HAS_ICONIC_BITMAP, &has ) != S_OK || !has) return NULL;
-    SendMessageTimeoutW( hwnd, WM_DWMSENDICONICTHUMBNAIL, 0, MAKELPARAM( max_h, max_w ), SMTO_ABORTIFHUNG, 1000,
-                         NULL );
-    swprintf( name, ARRAY_SIZE(name), L"%s%lx", DWM_ICONIC_NAME, HandleToUlong( hwnd ) );
+    SendMessageTimeoutW( hwnd, msg, 0, lparam, SMTO_ABORTIFHUNG, 1000, NULL );
+    swprintf( name, ARRAY_SIZE(name), L"%s%lx", prefix, HandleToUlong( hwnd ) );
     if (!(section = OpenFileMappingW( FILE_MAP_READ, FALSE, name ))) return NULL;
-    if ((header = MapViewOfFile( section, FILE_MAP_READ, 0, 0, DWM_ICONIC_SIZE )))
+    /* the header first, then as many pixels as it claims: mapping more than the section holds fails */
+    if ((header = MapViewOfFile( section, FILE_MAP_READ, 0, 0, sizeof(*header) )))
     {
-        copy = *header;
-        if (copy.width && copy.height && copy.width <= DWM_ICONIC_MAX && copy.height <= DWM_ICONIC_MAX)
+        *info = *header;
+        UnmapViewOfFile( header );
+        header = NULL;
+        if (info->width && info->height && info->width <= DWM_ICONIC_MAX && info->height <= DWM_ICONIC_MAX)
+            header = MapViewOfFile( section, FILE_MAP_READ, 0, 0,
+                                    sizeof(*header) + (SIZE_T)info->width * info->height * 4 );
+    }
+    if (header)
+    {
+        count = info->width * info->height;
+        bmi.bmiHeader.biWidth = info->width;
+        bmi.bmiHeader.biHeight = -(int)info->height;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        if ((bitmap = CreateDIBSection( NULL, &bmi, DIB_RGB_COLORS, (void **)&bits, NULL, 0 )))
         {
-            info.bmiHeader.biWidth = copy.width;
-            info.bmiHeader.biHeight = -(int)copy.height;
-            info.bmiHeader.biPlanes = 1;
-            info.bmiHeader.biBitCount = 32;
-            info.bmiHeader.biCompression = BI_RGB;
-            if ((bitmap = CreateDIBSection( NULL, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0 )))
+            memcpy( bits, header + 1, count * 4 );
+            /* the window rewrote it while we copied: skip this picture */
+            if (header->serial != info->serial || header->width != info->width || header->height != info->height)
             {
-                memcpy( bits, header + 1, copy.width * copy.height * 4 );
-                /* the window rewrote it while we copied: skip this picture */
-                if (header->serial != copy.serial || header->width != copy.width || header->height != copy.height)
-                {
-                    DeleteObject( bitmap );
-                    bitmap = NULL;
-                }
-                else
-                {
-                    /* a bitmap without alpha (all zero) is opaque */
-                    for (i = 0; i < copy.width * copy.height && !any_alpha; i++) any_alpha = bits[i] >> 24 != 0;
-                    for (i = 0; i < copy.width * copy.height && !any_alpha; i++) bits[i] |= 0xff000000;
-                }
+                DeleteObject( bitmap );
+                bitmap = NULL;
+            }
+            else
+            {
+                /* a bitmap without alpha (all zero) is opaque */
+                for (i = 0; i < count && !any_alpha; i++) any_alpha = bits[i] >> 24 != 0;
+                for (i = 0; i < count && !any_alpha; i++) bits[i] |= 0xff000000;
             }
         }
         UnmapViewOfFile( header );
@@ -88,11 +93,51 @@ HBITMAP iconic_thumbnail( HWND hwnd, int max_w, int max_h )
     return bitmap;
 }
 
+/* the largest size goes in lParam: width high, height low; *flags gets the DWM_SIT_* flags */
+HBITMAP iconic_thumbnail( HWND hwnd, int max_w, int max_h, DWORD *flags )
+{
+    struct dwm_iconic info;
+    HBITMAP bitmap = iconic_fetch( hwnd, WM_DWMSENDICONICTHUMBNAIL, MAKELPARAM( max_h, max_w ), DWM_ICONIC_NAME,
+                                   &info );
+    *flags = bitmap ? info.flags & DWM_ICONIC_SIT_FLAGS : 0;
+    return bitmap;
+}
+
+/* With DWM_SIT_DISPLAYFRAME the picture is the window's content: a raised border and the window's caption go around
+ * it, inside rect; caption_h is the caption height. */
+void draw_iconic( HDC dc, HBITMAP bitmap, const RECT *rect, HWND hwnd, BOOL frame, int caption_h )
+{
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    RECT dest = *rect, caption;
+    BITMAP bm;
+    HDC mem;
+    HBITMAP old;
+
+    if (frame)
+    {
+        DrawEdge( dc, &dest, EDGE_RAISED, BF_RECT | BF_ADJUST | BF_MIDDLE );
+        SetRect( &caption, dest.left, dest.top, dest.right, dest.top + min( caption_h, (dest.bottom - dest.top) / 3 ) );
+        DrawCaption( hwnd, dc, &caption, DC_ACTIVE | DC_TEXT | DC_GRADIENT | DC_SMALLCAP );
+        dest.top = caption.bottom;
+    }
+    if (dest.right <= dest.left || dest.bottom <= dest.top) return;
+    GetObjectW( bitmap, sizeof(bm), &bm );
+    mem = CreateCompatibleDC( dc );
+    old = SelectObject( mem, bitmap );
+    if (bm.bmWidth != dest.right - dest.left || bm.bmHeight != dest.bottom - dest.top)
+        SetStretchBltMode( dc, HALFTONE );
+    GdiAlphaBlend( dc, dest.left, dest.top, dest.right - dest.left, dest.bottom - dest.top,
+                   mem, 0, 0, bm.bmWidth, bm.bmHeight, blend );
+    SelectObject( mem, old );
+    DeleteDC( mem );
+}
+
 #define PREVIEW_DELAY_MS 400
 #define PREVIEW_MAX_W    200
 #define PREVIEW_MAX_H    120
 #define PREVIEW_MARGIN   8
 #define PREVIEW_TITLE_H  20
+#define ICONIC_CAPTION_H 12   /* the caption DWM_SIT_DISPLAYFRAME draws around a small preview */
 
 #define PEEK_DELAY_MS    600
 #define LEAVE_DELAY_MS   300
@@ -104,7 +149,13 @@ static HTHUMBNAIL preview_thumb;
 static RECT preview_button;   /* screen coordinates of the hovered button */
 static HBITMAP preview_bitmap;   /* the window's own iconic picture (P9) */
 static RECT preview_bitmap_rect;
+static DWORD preview_flags;      /* its DWM_SIT_* flags */
 static BOOL peeking, tracking;
+/* Peek at a window that draws its own live preview (P9): a popup over its place shows the picture */
+static HWND peek_hwnd;
+static HBITMAP peek_bitmap;
+static RECT peek_bitmap_rect;    /* in the popup */
+static BOOL peek_frame;
 
 static UINT64 x_window( HWND hwnd )
 {
@@ -122,9 +173,87 @@ static BOOL peek_enabled(void)
 
 static void end_peek(void)
 {
+    if (peek_hwnd) ShowWindow( peek_hwnd, SW_HIDE );
+    if (peek_bitmap) DeleteObject( peek_bitmap );
+    peek_bitmap = NULL;
     if (!peeking) return;
     WexCompositionSetPeek( 0, NULL, 0 );
     peeking = FALSE;
+}
+
+static LRESULT CALLBACK peek_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
+{
+    switch (msg)
+    {
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        RECT rc;
+        HDC dc = BeginPaint( hwnd, &ps );
+        GetClientRect( hwnd, &rc );
+        if (peek_bitmap)
+            draw_iconic( dc, peek_bitmap, peek_frame ? &rc : &peek_bitmap_rect, preview_target, peek_frame,
+                         GetSystemMetrics( SM_CYCAPTION ) );
+        EndPaint( hwnd, &ps );
+        return 0;
+    }
+    case WM_NCHITTEST:
+        return HTTRANSPARENT;
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
+    }
+    return DefWindowProcW( hwnd, msg, wparam, lparam );
+}
+
+/* The window's live preview bitmap where the window is (its restored place when minimized); the popup is shaped to
+ * the picture (and the frame, with DWM_SIT_DISPLAYFRAME) so the desktop shows around it. Returns the popup's X
+ * window, 0 when the window has no picture. */
+static UINT64 show_iconic_peek(void)
+{
+    struct dwm_iconic info;
+    RECT window, adjust = { 0 };
+    HRGN region;
+    int x, y;
+
+    if (!(peek_bitmap = iconic_fetch( preview_target, WM_DWMSENDICONICLIVEPREVIEWBITMAP, 0, DWM_ICONIC_LIVE_NAME,
+                                      &info ))) return 0;
+    /* the window's own process recorded where it goes when restored */
+    SetRect( &window, info.window[0], info.window[1], info.window[2], info.window[3] );
+    if (IsRectEmpty( &window ) && !GetWindowRect( preview_target, &window )) return 0;
+    peek_frame = !!(info.flags & DWM_SIT_DISPLAYFRAME);
+    /* the offset is from the client area; without one the picture starts at the window's corner */
+    AdjustWindowRectEx( &adjust, GetWindowLongW( preview_target, GWL_STYLE ), FALSE,
+                        GetWindowLongW( preview_target, GWL_EXSTYLE ) );
+    x = (peek_frame || (info.flags & DWM_ICONIC_HAS_POS)) ? -adjust.left : 0;
+    y = (peek_frame || (info.flags & DWM_ICONIC_HAS_POS)) ? -adjust.top : 0;
+    if (info.flags & DWM_ICONIC_HAS_POS)
+    {
+        x += info.x;
+        y += info.y;
+    }
+    SetRect( &peek_bitmap_rect, x, y, x + info.width, y + info.height );
+    if (!peek_hwnd)
+    {
+        WNDCLASSW cls = { 0 };
+        cls.lpfnWndProc   = peek_proc;
+        cls.hInstance     = GetModuleHandleW( NULL );
+        cls.lpszClassName = L"WexIconicPeek";
+        RegisterClassW( &cls );
+        peek_hwnd = CreateWindowExW( WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
+                                     cls.lpszClassName, NULL, WS_POPUP, 0, 0, 1, 1, preview_hwnd, NULL,
+                                     cls.hInstance, NULL );
+        if (!peek_hwnd) return 0;
+    }
+    region = peek_frame ? CreateRectRgn( 0, 0, window.right - window.left, window.bottom - window.top )
+                        : CreateRectRgnIndirect( &peek_bitmap_rect );
+    SetWindowRgn( peek_hwnd, region, FALSE );
+    SetWindowPos( peek_hwnd, HWND_TOPMOST, window.left, window.top, window.right - window.left,
+                  window.bottom - window.top, SWP_NOACTIVATE | SWP_SHOWWINDOW );
+    /* the preview stays above the picture */
+    SetWindowPos( preview_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE );
+    InvalidateRect( peek_hwnd, NULL, TRUE );
+    UpdateWindow( peek_hwnd );
+    return x_window( peek_hwnd );
 }
 
 struct peek_keep { UINT64 windows[8]; DWORD count; };
@@ -145,9 +274,9 @@ static BOOL CALLBACK add_shell_window( HWND hwnd, LPARAM lparam )
 static void start_peek(void)
 {
     struct peek_keep keep = { { 0 }, 0 };
-    UINT64 target = x_window( preview_target );
+    UINT64 target = show_iconic_peek();
 
-    if (!target || IsIconic( preview_target )) return;
+    if (!target && (!(target = x_window( preview_target )) || IsIconic( preview_target ))) return;
     EnumWindows( add_shell_window, (LPARAM)&keep );
     peeking = !WexCompositionSetPeek( target, keep.windows, keep.count );
 }
@@ -180,7 +309,7 @@ static void show_preview(void)
 
     release_thumbnail();
     if (!IsWindow( preview_target )) return;
-    if ((preview_bitmap = iconic_thumbnail( preview_target, PREVIEW_MAX_W, PREVIEW_MAX_H )))
+    if ((preview_bitmap = iconic_thumbnail( preview_target, PREVIEW_MAX_W, PREVIEW_MAX_H, &preview_flags )))
     {
         /* the window's own picture (P9): fit it into the popup, never enlarge it */
         GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
@@ -261,23 +390,8 @@ static LRESULT CALLBACK preview_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         FillRect( dc, &rc, GetSysColorBrush( COLOR_INFOBK ) );
         FrameRect( dc, &rc, GetSysColorBrush( COLOR_WINDOWFRAME ) );
         if (preview_bitmap)
-        {
-            BITMAP bitmap;
-            HDC mem = CreateCompatibleDC( dc );
-            HBITMAP prev = SelectObject( mem, preview_bitmap );
-            BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-
-            GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
-            if (bitmap.bmWidth != preview_bitmap_rect.right - preview_bitmap_rect.left ||
-                bitmap.bmHeight != preview_bitmap_rect.bottom - preview_bitmap_rect.top)
-                SetStretchBltMode( dc, HALFTONE );
-            GdiAlphaBlend( dc, preview_bitmap_rect.left, preview_bitmap_rect.top,
-                           preview_bitmap_rect.right - preview_bitmap_rect.left,
-                           preview_bitmap_rect.bottom - preview_bitmap_rect.top,
-                           mem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, blend );
-            SelectObject( mem, prev );
-            DeleteDC( mem );
-        }
+            draw_iconic( dc, preview_bitmap, &preview_bitmap_rect, preview_target,
+                         preview_flags & DWM_SIT_DISPLAYFRAME, ICONIC_CAPTION_H );
         GetWindowTextW( preview_target, title, ARRAY_SIZE(title) );
         SetRect( &rc, PREVIEW_MARGIN, 0, rc.right - PREVIEW_MARGIN, PREVIEW_TITLE_H );
         SetBkMode( dc, TRANSPARENT );

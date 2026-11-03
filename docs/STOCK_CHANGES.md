@@ -1509,9 +1509,11 @@ becomes a glass sheet, and loses it again when the blur is turned off. The blur 
 ## dwmapi: iconic thumbnails (P9) (2026-11-03)
 
 `dlls/dwmapi/dwmapi_main.c`, `dlls/dwmapi/dwm_client.c`, `dlls/dwmapi/dwmapi.spec`, `include/wine/dwm_protocol.h`.
-`DwmSetIconicThumbnail`, after the existing checks, copies the bitmap (at most 1024x1024, else `E_INVALIDARG`) as
-top-down BGRA into a section named `Local\__wex_dwm_iconic_<hwnd>`, which the process keeps open while the window
-lives (32 windows per process). New private export `WexDwmpGetAttr` reads an attribute as the broker holds it, so the
+`DwmSetIconicThumbnail` and `DwmSetIconicLivePreviewBitmap`, after the existing checks, copy the bitmap (at most
+4096x4096, else `E_INVALIDARG`) as top-down BGRA into a section named `Local\__wex_dwm_iconic_<hwnd>` or
+`Local\__wex_dwm_iconic_live_<hwnd>`, sized to the picture, which the process keeps open while the window lives (32
+windows per process); the live preview also records the client offset and the window's restored rectangle.
+`DwmInvalidateIconicBitmaps` clears both. New private export `WexDwmpGetAttr` reads an attribute as the broker holds it, so the
 shell sees `DWMWA_HAS_ICONIC_BITMAP` set by another process. The shell draws the picture in its taskbar and Alt+Tab
 previews (off unless `TaskbarThumbnails` / `AltTabThumbnails`). The section is readable and writable by the session,
 like the other `Local\` DWM objects; a reader only ever gets a wrong preview picture.

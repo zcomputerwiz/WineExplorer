@@ -20,7 +20,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-/* Two 400x300 windows: Iconic probe (60,60) and Live probe (520,60).
+/* Two 400x300 windows: Iconic probe (60,60, minimized; supplies a framed thumbnail and a framed live preview
+ * bitmap) and Live probe (520,60).
  * An argument names a log file.
  * Build: x86_64-w64-mingw32-gcc -municode -mwindows -o dwm-iconic-visual-probe.exe dwm-iconic-visual-probe.c -luser32 -lgdi32 -ldwmapi */
 
@@ -36,6 +37,9 @@
 #endif
 #ifndef WM_DWMSENDICONICTHUMBNAIL
 #define WM_DWMSENDICONICTHUMBNAIL 0x0323
+#endif
+#ifndef WM_DWMSENDICONICLIVEPREVIEWBITMAP
+#define WM_DWMSENDICONICLIVEPREVIEWBITMAP 0x0326
 #endif
 
 static LRESULT CALLBACK probe_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
@@ -104,10 +108,31 @@ static LRESULT CALLBACK probe_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
             }
         }
 
-        hr = DwmSetIconicThumbnail( hwnd, bitmap, 0 );
+        hr = DwmSetIconicThumbnail( hwnd, bitmap, DWM_SIT_DISPLAYFRAME );
         printf( "DwmSetIconicThumbnail: hr %08lx\n", hr );
         fflush( stdout );
 
+        if (bitmap) DeleteObject( bitmap );
+        return 0;
+    }
+    if (msg == WM_DWMSENDICONICLIVEPREVIEWBITMAP)
+    {
+        /* the client area: cyan with a dark blue 20-pixel border and the title */
+        RECT rc = { 0, 0, 384, 262 };   /* the 400x300 window's client area */
+        BITMAPINFO bmi = {{ sizeof(BITMAPINFOHEADER), 384, -262, 1, 32, BI_RGB }};
+        DWORD *pixels = NULL;
+        HBITMAP bitmap = CreateDIBSection( NULL, &bmi, DIB_RGB_COLORS, (void **)&pixels, NULL, 0 );
+        HRESULT hr;
+        int x, y;
+
+        if (bitmap)
+            for (y = 0; y < rc.bottom; y++)
+                for (x = 0; x < rc.right; x++)
+                    pixels[y * rc.right + x] = (x < 20 || x >= rc.right - 20 || y < 20 || y >= rc.bottom - 20)
+                                               ? 0xff000080 : 0xff00e0e0;
+        hr = DwmSetIconicLivePreviewBitmap( hwnd, bitmap, NULL, DWM_SIT_DISPLAYFRAME );
+        printf( "DwmSetIconicLivePreviewBitmap: hr %08lx\n", hr );
+        fflush( stdout );
         if (bitmap) DeleteObject( bitmap );
         return 0;
     }
@@ -154,7 +179,8 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
             printf( "%ls: hwnd %p\n", windows[i].title, hwnd );
             fflush( stdout );
         }
-        ShowWindow( hwnd, SW_SHOWNORMAL );
+        /* the iconic window starts minimized: Peek must show its live preview bitmap, not a live picture */
+        ShowWindow( hwnd, windows[i].iconic ? SW_SHOWMINNOACTIVE : SW_SHOWNORMAL );
         UpdateWindow( hwnd );
     }
     while (GetTickCount() < deadline)

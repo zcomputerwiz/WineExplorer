@@ -69,6 +69,7 @@ static int preview_height;
 static HTHUMBNAIL preview_thumb;
 static HBITMAP preview_bitmap;   /* the window's own iconic picture (P9) */
 static RECT preview_bitmap_rect;
+static DWORD preview_flags;      /* its DWM_SIT_* flags */
 
 static BOOL previews_enabled(void)
 {
@@ -99,7 +100,7 @@ static void update_preview(void)
 
     release_preview();
     if (!preview_height || selected >= count) return;
-    if ((preview_bitmap = iconic_thumbnail( windows[selected], band_w, band_h )))
+    if ((preview_bitmap = iconic_thumbnail( windows[selected], band_w, band_h, &preview_flags )))
     {
         /* the window's own picture (P9): fit it into the band, never enlarge it */
         GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
@@ -244,23 +245,8 @@ static void paint( HWND hwnd )
     if (!items) { EndPaint( hwnd, &ps ); return; }
 
     if (preview_bitmap)
-    {
-        BITMAP bitmap;
-        HDC mem = CreateCompatibleDC( hdc );
-        HBITMAP prev = SelectObject( mem, preview_bitmap );
-        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-
-        GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
-        if (bitmap.bmWidth != preview_bitmap_rect.right - preview_bitmap_rect.left ||
-            bitmap.bmHeight != preview_bitmap_rect.bottom - preview_bitmap_rect.top)
-            SetStretchBltMode( hdc, HALFTONE );
-        GdiAlphaBlend( hdc, preview_bitmap_rect.left, preview_bitmap_rect.top,
-                       preview_bitmap_rect.right - preview_bitmap_rect.left,
-                       preview_bitmap_rect.bottom - preview_bitmap_rect.top,
-                       mem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, blend );
-        SelectObject( mem, prev );
-        DeleteDC( mem );
-    }
+        draw_iconic( hdc, preview_bitmap, &preview_bitmap_rect, windows[selected],
+                     preview_flags & DWM_SIT_DISPLAYFRAME, GetSystemMetrics( SM_CYSMCAPTION ) );
 
     /* more windows than places: the selection scrolls the list */
     shift = selected >= items ? selected - items + 1 : 0;
