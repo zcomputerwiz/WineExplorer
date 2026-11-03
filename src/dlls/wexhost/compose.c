@@ -1319,14 +1319,6 @@ DWORD compose_corner( unsigned long id, unsigned int radius )
     return ERROR_SUCCESS;
 }
 
-static void clock_signal(void)
-{
-    pthread_mutex_lock( &clock_mutex );
-    clock_generation++;
-    pthread_cond_broadcast( &clock_cond );
-    pthread_mutex_unlock( &clock_mutex );
-}
-
 /* seqlock write: make seq odd, publish the fields, make seq even. The release barriers order the field
  * writes before the even seq, which the readers acquire. There is a single writer (the WM loop thread). */
 static void clock_publish( UINT32 flags, UINT64 frame, INT64 qpc_composed )
@@ -1347,7 +1339,7 @@ static void clock_tick(void)
     if (!clock_page) return;
     NtQueryPerformanceCounter( &now, NULL );
     clock_publish( clock_page->flags | DWM_CLOCK_COMPOSED, clock_page->frame + 1, now.QuadPart );
-    clock_signal();
+    compose_clock_wake();
 }
 
 /* composition went off: stop claiming composed frames and wake any waiter once */
@@ -1355,7 +1347,7 @@ static void clock_disable(void)
 {
     if (!clock_page) return;
     clock_publish( clock_page->flags & ~DWM_CLOCK_COMPOSED, clock_page->frame, clock_page->qpc_composed );
-    clock_signal();
+    compose_clock_wake();
 }
 
 DWORD compose_thumbnails( const struct compose_thumb *list, unsigned int count )

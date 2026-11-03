@@ -1390,9 +1390,15 @@ STUB( composition_set, struct composition_params )
 STUB( composition_shadow, struct composition_shadow_params )
 STUB( composition_corner, struct composition_corner_params )
 STUB( composition_backdrop, struct composition_backdrop_params )
-STUB( composition_clock, struct composition_clock_params )
 STUB( composition_thumbs, struct composition_thumbs_params )
 STUB( composition_peek, struct composition_peek_params )
+NTSTATUS composition_clock( void *args )
+{
+    struct composition_clock_params *params = args;
+    params->err = wayland_wm_set_clock( (void *)(ULONG_PTR)params->page ) ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS composition_get( void *args )
 {
     struct composition_params *params = args;
