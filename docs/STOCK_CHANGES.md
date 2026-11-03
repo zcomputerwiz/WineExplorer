@@ -1573,3 +1573,7 @@ Review fixes (Codex, 2026-11-03): an application's blur request is never replace
 application's own `DwmExtendFrameIntoClientArea` makes the glass its own (a frame style switch keeps it); every theme
 change refreshes glass frames once (a new colorization recolors the Aero blur); `__wine_nc_buttons` is removed whenever
 the Aero painter does not draw; button geometry is clamped to what the property holds before painting (300 % dpi).
+
+`dlls/uxtheme/window.c` (2026-11-03, docs/CAPTION_BUTTONS.md): the Windows 10/11 frame colours follow measurements on a
+Windows 11 host: flat #F3F3F3 (light) and #202020 (dark), active and inactive, close hover #C42B1C, inactive light glyph
+#929292. The Aero frame takes its caption button sizes from the style's `DWMWindow` parts.
