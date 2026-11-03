@@ -248,67 +248,84 @@ static void read_materials_gate(void)
     TRACE( "materials gate %s\n", materials_on ? "on" : "off" );
 }
 
+enum effect_kind
+{
+    EFFECT_NONE, EFFECT_BLUR, EFFECT_ACRYLIC, EFFECT_MICA, EFFECT_GRADIENT
+};
+
+/* Backend-neutral policy in Wine pixels and client coordinates. Keep the raw ABGR tint and the explicit-square
+ * radius sentinel; each adapter translates them to its compositor's representation. */
+struct window_effect
+{
+    enum effect_kind kind;
+    DWORD tint, radius, default_radius;
+    RECT region;
+    BOOL tinted, has_region, dark, shadow;
+};
+
 /* The backdrop the compositor draws for a window: Mica for the main-window and tabbed backdrops, or when the
  * app asked for the Mica effect without opting out; Acrylic for the transient backdrop (type 3); else the blur
  * or gradient asked for through DwmEnableBlurBehindWindow or ACCENT_POLICY, with its tint and region. */
-static DWORD backdrop_value( const struct pending *p )
+static struct window_effect pending_effect( const struct pending *p )
 {
-    DWORD backdrop = WEX_BACKDROP_NONE, mode = p->blur & DWM_WINE_BLUR_MODE;
+    struct window_effect effect = { 0 };
+    DWORD mode = p->blur & DWM_WINE_BLUR_MODE;
+
+    effect.tint = p->tint;
+    effect.radius = p->radius;
+    effect.default_radius = p->frame ? (p->frame == 2 ? 6 : 8) : 0;
+    effect.shadow = p->frame != 0;
+    effect.dark = p->dark;
+    SetRect( &effect.region, (SHORT)LOWORD( p->rgn[0] ), (SHORT)HIWORD( p->rgn[0] ),
+             (SHORT)LOWORD( p->rgn[1] ), (SHORT)HIWORD( p->rgn[1] ) );
 
     if ((p->backdrop_type == 2 || p->backdrop_type == 4) || (p->mica_effect && p->backdrop_type != 1))
-        backdrop = WEX_BACKDROP_MICA;
+        effect.kind = EFFECT_MICA;
     else if (p->backdrop_type == 3)
-        backdrop = WEX_BACKDROP_ACRYLIC;
+        effect.kind = EFFECT_ACRYLIC;
     else if (mode != DWM_WINE_BLUR_NONE)
     {
-        backdrop = mode == DWM_WINE_BLUR_ACRYLIC ? WEX_BACKDROP_ACRYLIC :
-                   mode == DWM_WINE_BLUR_GRADIENT ? WEX_BACKDROP_GRADIENT : WEX_BACKDROP_BLUR;
-        if (p->blur & DWM_WINE_BLUR_TINTED) backdrop |= WEX_BACKDROP_TINT;
-        if (p->blur & DWM_WINE_BLUR_REGION) backdrop |= WEX_BACKDROP_REGION;
+        effect.kind = mode == DWM_WINE_BLUR_ACRYLIC ? EFFECT_ACRYLIC :
+                      mode == DWM_WINE_BLUR_GRADIENT ? EFFECT_GRADIENT : EFFECT_BLUR;
+        effect.tinted = !!(p->blur & DWM_WINE_BLUR_TINTED);
+        effect.has_region = !!(p->blur & DWM_WINE_BLUR_REGION);
     }
-    if (p->dark) backdrop |= WEX_BACKDROP_DARK;
-    return backdrop;
+    return effect;
 }
 
 /* The DWM effects of a Wayland window go to the compositor as one request. 1 applied (or nothing to do), 0 not yet. */
-static int apply_wayland( HWND hwnd, struct pending *p, const char *handle )
+static int apply_wayland( HWND hwnd, struct pending *p, const char *handle, const struct window_effect *effect )
 {
-    DWORD radius = p->radius, backdrop = WEX_WM_BACKDROP_NONE, flags = 0, mode = p->blur & DWM_WINE_BLUR_MODE, err;
-    DWORD tint = p->tint;
+    static const DWORD backdrops[] = { WEX_WM_BACKDROP_NONE, WEX_WM_BACKDROP_BLUR, WEX_WM_BACKDROP_ACRYLIC,
+                                       WEX_WM_BACKDROP_MICA, WEX_WM_BACKDROP_GRADIENT };
+    DWORD radius = effect->radius, backdrop = WEX_WM_BACKDROP_NONE, flags = 0, err;
+    DWORD tint = effect->tint;
     DWORD scale = wayland_scale( hwnd );
-    BOOL glass_frame = p->frame != 0;
     RECT region = { 0 }, wr, cr;
 
     /* the compositor rounds only what it is told to; a glass frame is round unless the window says square */
     if (radius == WEX_CORNER_SQUARE) radius = 0;
-    else if (!radius && glass_frame) radius = p->frame == 2 ? 6 : 8;
-    if (glass_frame) flags |= WEX_WM_EFFECT_SHADOW;
+    else if (!radius) radius = effect->default_radius;
+    if (effect->shadow) flags |= WEX_WM_EFFECT_SHADOW;
     if (materials_on)
     {
-        if ((p->backdrop_type == 2 || p->backdrop_type == 4) || (p->mica_effect && p->backdrop_type != 1))
-            backdrop = WEX_WM_BACKDROP_MICA;
-        else if (p->backdrop_type == 3) backdrop = WEX_WM_BACKDROP_ACRYLIC;
-        else if (mode != DWM_WINE_BLUR_NONE)
+        backdrop = backdrops[effect->kind];
+        if (effect->tinted)
         {
-            backdrop = mode == DWM_WINE_BLUR_ACRYLIC ? WEX_WM_BACKDROP_ACRYLIC :
-                       mode == DWM_WINE_BLUR_GRADIENT ? WEX_WM_BACKDROP_GRADIENT : WEX_WM_BACKDROP_BLUR;
-            if (p->blur & DWM_WINE_BLUR_TINTED)
-            {
-                flags |= WEX_WM_EFFECT_TINT;
-                tint = (tint & 0xff00ff00) | (tint >> 16 & 0xff) | (tint & 0xff) << 16;   /* ABGR to ARGB */
-            }
-            if ((p->blur & DWM_WINE_BLUR_REGION) && GetWindowRect( hwnd, &wr ) && GetClientRect( hwnd, &cr ))
-            {
-                POINT origin = { 0, 0 };
-                ClientToScreen( hwnd, &origin );
-                SetRect( &region, (SHORT)LOWORD( p->rgn[0] ) + origin.x - wr.left,
-                         (SHORT)HIWORD( p->rgn[0] ) + origin.y - wr.top,
-                         (SHORT)LOWORD( p->rgn[1] ) + origin.x - wr.left,
-                         (SHORT)HIWORD( p->rgn[1] ) + origin.y - wr.top );
-                flags |= WEX_WM_EFFECT_REGION;
-            }
+            flags |= WEX_WM_EFFECT_TINT;
+            tint = (tint & 0xff00ff00) | (tint >> 16 & 0xff) | (tint & 0xff) << 16;   /* ABGR to ARGB */
         }
-        if (p->dark && backdrop) flags |= WEX_WM_EFFECT_DARK;
+        if (effect->has_region && GetWindowRect( hwnd, &wr ) && GetClientRect( hwnd, &cr ))
+        {
+            POINT origin = { 0, 0 };
+            ClientToScreen( hwnd, &origin );
+            SetRect( &region, effect->region.left + origin.x - wr.left,
+                     effect->region.top + origin.y - wr.top,
+                     effect->region.right + origin.x - wr.left,
+                     effect->region.bottom + origin.y - wr.top );
+            flags |= WEX_WM_EFFECT_REGION;
+        }
+        if (effect->dark && backdrop) flags |= WEX_WM_EFFECT_DARK;
     }
     /* Resolve square/default radii and the client-to-window offset before converting to surface units. */
     radius = wayland_coord( radius, scale, 0 );
@@ -325,26 +342,31 @@ static int apply_wayland( HWND hwnd, struct pending *p, const char *handle )
 /* 1 applied, 0 waiting for the X window, -1 the window is gone. */
 static int apply_window( HWND hwnd, struct pending *p )
 {
+    static const DWORD backdrops[] = { WEX_BACKDROP_NONE, WEX_BACKDROP_BLUR, WEX_BACKDROP_ACRYLIC,
+                                       WEX_BACKDROP_MICA, WEX_BACKDROP_GRADIENT };
+    struct window_effect effect;
     UINT64 window;
     DWORD err;
     char handle[33];
 
     if (!IsWindow( hwnd )) return -1;  /* gone: nothing to do */
+    effect = pending_effect( p );
     window = (ULONG_PTR)GetPropW( hwnd, L"__wine_x11_whole_window" );
     if (!window)
     {
-        if (dwm_wayland_handle( hwnd, handle )) return apply_wayland( hwnd, p, handle );
+        if (dwm_wayland_handle( hwnd, handle )) return apply_wayland( hwnd, p, handle, &effect );
         TRACE( "%p has no x11 window or wayland handle yet\n", hwnd );
         return 0;
     }
-    err = WexCompositionSetCorner( window, p->radius );
+    err = WexCompositionSetCorner( window, effect.radius );
     TRACE( "%p xwin %#I64x radius %lu err %lu\n", hwnd, window, p->radius, err );
     if (materials_on)
     {
-        DWORD backdrop = backdrop_value( p );
-        RECT rgn = { (SHORT)LOWORD( p->rgn[0] ), (SHORT)HIWORD( p->rgn[0] ),
-                     (SHORT)LOWORD( p->rgn[1] ), (SHORT)HIWORD( p->rgn[1] ) };
-        DWORD err2 = WexCompositionSetBackdrop( window, backdrop, p->tint, &rgn );
+        DWORD backdrop = backdrops[effect.kind], err2;
+        if (effect.dark) backdrop |= WEX_BACKDROP_DARK;
+        if (effect.tinted) backdrop |= WEX_BACKDROP_TINT;
+        if (effect.has_region) backdrop |= WEX_BACKDROP_REGION;
+        err2 = WexCompositionSetBackdrop( window, backdrop, effect.tint, &effect.region );
         TRACE( "%p xwin %#I64x backdrop %lu err %lu\n", hwnd, window, backdrop, err2 );
         if (!err) err = err2;
     }
