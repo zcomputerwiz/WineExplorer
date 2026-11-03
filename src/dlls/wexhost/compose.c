@@ -161,6 +161,8 @@ struct window
     unsigned int tint;       /* with WEX_BACKDROP_TINT: 0xAABBGGRR */
     int region[4];           /* with WEX_BACKDROP_REGION: left, top, right, bottom in the client area */
     BOOL blur_expanded;      /* expand_blur_damage: this frame's damage already covers the blur area */
+    Window above;            /* the sibling below, from the last ConfigureNotify */
+    BOOL above_known;
 };
 
 static Display *dpy;
@@ -378,13 +380,14 @@ static void update_opacity( struct window *w )
 
 /* DWM glass margins (P7a): the client rectangle and the four margins, in window coordinates.
  * A margin of -1 (0xffffffff) means the whole client area is glass. The 9th value is a flags word:
- * bit 0 means the frame is glass too (P10b). */
-static void update_margins( struct window *w )
+ * bit 0 means the frame is glass too (P10b). Returns whether anything changed (winex11 rewrites it on every move). */
+static BOOL update_margins( struct window *w )
 {
     Atom actual;
     int format;
     unsigned long count, left;
     unsigned char *data = NULL;
+    const struct window old = *w;
     if (pXGetWindowProperty( dpy, w->id, margins_atom, 0, 9, False, XA_CARDINAL,
                              &actual, &format, &count, &left, &data ) == Success &&
         actual == XA_CARDINAL && format == 32 && (count == 8 || count == 9))
@@ -408,9 +411,14 @@ static void update_margins( struct window *w )
         w->frame_glass = FALSE;
         w->aero_frame = FALSE;
     }
+    if (data) pXFree( data );
+    if (w->glass == old.glass && w->frame_glass == old.frame_glass && w->aero_frame == old.aero_frame &&
+        (!w->glass || (!memcmp( w->client, old.client, sizeof(w->client) ) &&
+                       !memcmp( w->margin, old.margin, sizeof(w->margin) ))))
+        return FALSE;
     if (w->glass) TRACE( "glass %lx depth %d client %d,%d %dx%d frame %d\n", w->id, w->attr.depth,
                          w->client[0], w->client[1], w->client[2], w->client[3], w->frame_glass );
-    if (data) pXFree( data );
+    return TRUE;
 }
 
 static struct window *track_window( Window id, Window parent )
@@ -1426,6 +1434,40 @@ DWORD compose_set( void *display, unsigned long root_window, unsigned long deskt
     return ERROR_SUCCESS;
 }
 
+/* A window that only moved (same size, border and stacking) repaints where it was and where it is, with the reach
+ * of its shadows, instead of the whole screen and a new scan of the tree. */
+#define MOVE_REACH 16
+static void damage_window( const struct window *w )
+{
+    int border = w->attr.border_width;
+    XRectangle r;
+    r.x = w->x - border - MOVE_REACH;
+    r.y = w->y - border - MOVE_REACH;
+    r.width = w->attr.width + 2 * (border + MOVE_REACH);
+    r.height = w->attr.height + 2 * (border + MOVE_REACH);
+    pXFixesSetRegion( dpy, scratch, &r, 1 );
+    pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+    dirty = TRUE;
+}
+
+static BOOL move_only( struct window *w, const XConfigureEvent *ev )
+{
+    BOOL known = w->above_known && w->above == ev->above;
+
+    w->above = ev->above;
+    w->above_known = TRUE;
+    if (!known || w->id == desktop || ev->width != w->attr.width || ev->height != w->attr.height ||
+        ev->border_width != w->attr.border_width)
+        return FALSE;
+    damage_window( w );
+    w->x += ev->x - w->attr.x;
+    w->y += ev->y - w->attr.y;
+    w->attr.x = ev->x;
+    w->attr.y = ev->y;
+    damage_window( w );
+    return TRUE;
+}
+
 void compose_event( void *xevent )
 {
     XEvent *event = xevent;
@@ -1450,13 +1492,13 @@ void compose_event( void *xevent )
             if (mica_picture) full_repaint = TRUE;
         }
         /* ponytail: a damaged thumbnail source repaints everything; damage only its destinations if it costs */
-        if (is_thumbnail_source( w->id )) full_repaint = TRUE;
-        dirty = TRUE;
+        if (is_thumbnail_source( w->id )) full_repaint = TRUE;        dirty = TRUE;
         return;
     }
     if (event->type == shape_base + ShapeNotify)
     {
-        if (find_window( ((XShapeEvent *)event)->window )) full_repaint = dirty = TRUE;
+        /* the shape only changes what the window itself covers (winex11 sets it again on every move) */
+        if ((w = find_window( ((XShapeEvent *)event)->window ))) damage_window( w );
         return;
     }
     switch (event->type)
@@ -1465,8 +1507,8 @@ void compose_event( void *xevent )
     case MapNotify: id = event->xmap.window; break;
     case ConfigureNotify:
         id = event->xconfigure.window;
-        if ((w = find_window( id )) &&
-            (event->xconfigure.width != w->attr.width || event->xconfigure.height != w->attr.height))
+        if ((w = find_window( id )) && move_only( w, &event->xconfigure )) return;
+        if (w && (event->xconfigure.width != w->attr.width || event->xconfigure.height != w->attr.height))
         {
             retain_surface( w );  /* the size before a minimize; see retain_surface */
             free_surface( w );
@@ -1494,11 +1536,9 @@ void compose_event( void *xevent )
             update_opacity( w );
             full_repaint = dirty = TRUE;
         }
-        if (event->xproperty.atom == margins_atom && (w = find_window( event->xproperty.window )))
-        {
-            update_margins( w );
+        if (event->xproperty.atom == margins_atom && (w = find_window( event->xproperty.window )) &&
+            update_margins( w ))
             full_repaint = dirty = TRUE;
-        }
         if (event->xproperty.atom == backdrop_atom && (w = find_window( event->xproperty.window )))
         {
             update_backdrop( w );
@@ -1513,6 +1553,35 @@ void compose_event( void *xevent )
     tree_dirty = full_repaint = dirty = TRUE;
 }
 
+/* P14 measurement: with +wexhost traces each frame waits for the server, and every 2 s the frame count, the average
+ * and worst frame time (client and server work) and the full repaints are traced. */
+static struct { UINT64 start, frames, total_us, worst_us, full; } stats;
+
+static UINT64 now_us(void)
+{
+    struct timespec ts;
+    clock_gettime( CLOCK_MONOTONIC, &ts );
+    return ts.tv_sec * (UINT64)1000000 + ts.tv_nsec / 1000;
+}
+
+static void frame_stats( UINT64 begin, BOOL full )
+{
+    UINT64 end, took;
+    pXSync( dpy, False );
+    end = now_us();
+    took = end - begin;
+    if (!stats.start) stats.start = end;
+    stats.frames++;
+    stats.total_us += took;
+    stats.full += full;
+    if (took > stats.worst_us) stats.worst_us = took;
+    if (end - stats.start < 2000000) return;
+    TRACE( "frames %u in %u ms: average %u us, worst %u us, %u full\n", (unsigned int)stats.frames,
+           (unsigned int)((end - stats.start) / 1000), (unsigned int)(stats.total_us / stats.frames),
+           (unsigned int)stats.worst_us, (unsigned int)stats.full );
+    memset( &stats, 0, sizeof(stats) );
+}
+
 void compose_paint(void)
 {
     XWindowAttributes attr;
@@ -1520,6 +1589,8 @@ void compose_paint(void)
     XRenderColor black = { 0, 0, 0, 0xffff };
     struct window *desk;
     XserverRegion desktop_clip = 0;
+    UINT64 begin = TRACE_ON(wexhost) ? now_us() : 0;
+    BOOL full;
     if (!enabled || !dirty) return;
     if (tree_dirty) scan_windows();
     if (!pXGetWindowAttributes( dpy, root, &attr )) return;
@@ -1551,7 +1622,7 @@ void compose_paint(void)
         compose_set( dpy, root, desktop, x_error, FALSE );
         return;
     }
-    if (full_repaint)
+    if ((full = full_repaint))
     {
         rect.x = rect.y = 0;
         rect.width = width;
@@ -1579,6 +1650,7 @@ void compose_paint(void)
     dirty = full_repaint = FALSE;
     /* the frame is composed (the caller flushes X right after): publish it and wake the waiters */
     clock_tick();
+    if (begin) frame_stats( begin, full );
 }
 
 #else

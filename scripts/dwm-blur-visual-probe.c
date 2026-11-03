@@ -25,7 +25,9 @@
  * 40,380) and "Acrylic backdrop" (DWMWA_SYSTEMBACKDROP_TYPE 3, 520,380). The stripes move every 500 ms, so the
  * blur must follow what is below. With "2" as the first argument the four are "Region blur" (hRgnBlur, the left
  * half), "Tinted blur" (ACCENT_ENABLE_BLURBEHIND, flag 2, green 0x6000a000), "Tinted acrylic" (blue 0xa0800000)
- * and "Gradient" (ACCENT_ENABLE_TRANSPARENTGRADIENT, yellow 0x8000ffff). A further argument names a log file.
+ * and "Gradient" (ACCENT_ENABLE_TRANSPARENTGRADIENT, yellow 0x8000ffff). A first argument "fast" moves the stripes
+ * every 16 ms instead, "move" moves the last window by 4 px every 16 ms (loads for measuring the compositor). A further
+ * argument names a log file.
  * Build: x86_64-w64-mingw32-gcc -municode -mwindows -o dwm-blur-visual-probe.exe dwm-blur-visual-probe.c
  *        -luser32 -lgdi32 -ldwmapi */
 
@@ -113,9 +115,21 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
     HWND stripes;
     MSG msg;
     DWORD i, deadline = GetTickCount() + 40000, next = 0;
-    int set = 0;
+    int set = 0, interval = 500, step = 0;
+    HWND last = NULL;
 
     while (*cmdline == ' ') cmdline++;
+    if (!wcsncmp( cmdline, L"fast ", 5 ))   /* P14 load: the stripes move every 16 ms */
+    {
+        interval = 16;
+        cmdline += 5;
+    }
+    else if (!wcsncmp( cmdline, L"move ", 5 ))   /* P14 load: the last window moves every 16 ms, as when dragged */
+    {
+        interval = 16;
+        step = 4;
+        cmdline += 5;
+    }
     if (cmdline[0] == '2' && (!cmdline[1] || cmdline[1] == ' '))
     {
         set = 1;
@@ -166,17 +180,28 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
         UpdateWindow( hwnd );
         printf( "%ls: hwnd %p hr %08lx\n", windows[i].title, hwnd, hr );
         fflush( stdout );
+        last = hwnd;
     }
     while (GetTickCount() < deadline)
     {
         while (PeekMessageW( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageW( &msg );
         if (GetTickCount() >= next)
         {
-            phase = (phase + 16) % 64;
-            InvalidateRect( stripes, NULL, FALSE );
-            next = GetTickCount() + 500;
+            if (step)
+            {
+                RECT rc;
+                GetWindowRect( last, &rc );
+                if (rc.left + step < 300 || rc.left + step > 640) step = -step;
+                SetWindowPos( last, NULL, rc.left + step, rc.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
+            }
+            else
+            {
+                phase = (phase + 16) % 64;
+                InvalidateRect( stripes, NULL, FALSE );
+            }
+            next = GetTickCount() + interval;
         }
-        Sleep( 50 );
+        Sleep( interval < 50 ? 1 : 50 );
     }
     return 0;
 }
