@@ -393,6 +393,41 @@ static void apply_registry_sections(const WCHAR *path)
     HeapFree(GetProcessHeap(), 0, sections);
 }
 
+/* DWM frame style and colorization from the theme file (DWM P13) */
+static void apply_dwm_settings(const WCHAR *path)
+{
+    WCHAR value[64];
+    DWORD frame_style = 0;
+    HKEY key;
+
+    /* [WineExplorer] FrameStyle: "aero" or "1" = Vista/7 glass frames, anything else (or missing) = Windows 10/11 */
+    GetPrivateProfileStringW(L"WineExplorer", L"FrameStyle", L"", value, sizeof(value)/sizeof(WCHAR), path);
+    if (!wcsicmp(value, L"aero") || !wcscmp(value, L"1")) frame_style = 1;
+    if (!RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL))
+    {
+        RegSetValueExW(key, L"DwmFrameStyle", 0, REG_DWORD, (const BYTE *)&frame_style, sizeof(frame_style));
+        RegCloseKey(key);
+    }
+
+    /* [VisualStyles] ColorizationColor: hex like "0X6B74B8FC"; leave the registry alone if missing or unparsable */
+    GetPrivateProfileStringW(L"VisualStyles", L"ColorizationColor", L"", value, sizeof(value)/sizeof(WCHAR), path);
+    if (value[0])
+    {
+        const WCHAR *start = value;
+        DWORD color;
+        WCHAR *end;
+
+        if (value[0] == L'0' && (value[1] == L'x' || value[1] == L'X')) start += 2;
+        color = wcstoul(start, &end, 16);
+        if (end != start && *end == 0 &&
+            !RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\DWM", 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL))
+        {
+            RegSetValueExW(key, L"ColorizationColor", 0, REG_DWORD, (const BYTE *)&color, sizeof(color));
+            RegCloseKey(key);
+        }
+    }
+}
+
 BOOL theme_apply(THEME_CONFIG *cfg)
 {
     HMODULE huxtheme;
@@ -427,6 +462,9 @@ BOOL theme_apply(THEME_CONFIG *cfg)
         RegSetValueExW(hkey, L"CurrentTheme", 0, REG_SZ, (const BYTE *)cfg->theme_path, (lstrlenW(cfg->theme_path) + 1) * sizeof(WCHAR));
         RegCloseKey(hkey);
     }
+
+    /* DWM settings before WM_THEMECHANGED, so windows see the new values when they repaint */
+    apply_dwm_settings(cfg->theme_path);
 
     /* shell32's icons follow the theme's icon pack; written before WM_THEMECHANGED goes out, which reloads them */
     shellres_reset();

@@ -1534,3 +1534,21 @@ that closes the sections on `FreeLibrary`; a section that already existed is nev
 Review fixes (2026-11-03): `uxtheme/window.c` holds its own reference to dwmapi (`LoadLibraryW`) for its cached
 `DwmGetWindowAttribute`. dwmapi makes a window glass for blur only when `DwmMaterials` is on too, and an explicit
 `DwmExtendFrameIntoClientArea` takes over glass the blur made, so turning the blur off keeps the app's margins.
+
+## uxtheme/win32u/dwmapi/winex11: Aero glass frames (P13) (2026-11-03)
+
+`dlls/uxtheme/window.c`, `dlls/win32u/defwnd.c`, `dlls/dwmapi/dwmapi_main.c`, `dlls/winex11.drv/window.c`,
+`include/winuser.h`. With `DwmFrameStyle` = 1 (set by a theme's `[WineExplorer] FrameStyle=aero`) next to
+`DwmAlpha` and `DwmFrameEffects`, every captioned top-level window gets a Vista/7 glass frame: uxtheme asks dwmapi
+for zero margins once per window, dwmapi marks the frame `__wine_dwm_frame` = 2 and, with `DwmMaterials`, blurs it
+with the colorization color. uxtheme draws the active style's `DWMWindow` parts (Windows 7 part numbers) over the
+glass and stores the caption buttons' geometry in `__wine_nc_buttons` (`NCFRAME_BUTTONS` in winuser.h), which
+win32u's hit test reads. winex11 publishes frame flag 2, so the compositor shows the frame to the window's edges with
+6 px corners. Without glass the themed frame is drawn (Vista Basic) and hit-tested the classic way; a style without
+`DWMWindow` parts falls back to the Windows 10/11 glass frame. Style 0 (default): unchanged.
+
+`dlls/uxtheme/draw.c`, `msstyles.c`, `msstyles.h` (P13, 2026-11-03): an atlas image named by a disk stream property is
+loaded from the STREAM resource only (`MSSTYLES_LoadBitmap` takes `is_stream`; the image cache keys on it), because
+resource ids are per type and Windows 7 styles also carry an IMAGE with the same id. A part-level atlas rectangle is a
+vertical strip of states; a state-level one is used as is. Atlas parts count as image backgrounds in the size,
+content-rect and transparency queries too.

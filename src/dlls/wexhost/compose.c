@@ -154,6 +154,7 @@ struct window
     unsigned long opacity;
     BOOL glass;
     BOOL frame_glass;
+    BOOL aero_frame;         /* a Vista/7 glass frame: visible to the window's edges */
     int client[4];
     int margin[4];
     unsigned int backdrop;   /* WEX_BACKDROP_* */
@@ -391,6 +392,7 @@ static void update_margins( struct window *w )
         unsigned long *values = (unsigned long *)data;
         w->glass = TRUE;
         w->frame_glass = count == 9 && (values[8] & 1);
+        w->aero_frame = w->frame_glass && (values[8] & 2);
         w->client[0] = values[0];
         w->client[1] = values[1];
         w->client[2] = values[2];
@@ -404,6 +406,7 @@ static void update_margins( struct window *w )
     {
         w->glass = FALSE;
         w->frame_glass = FALSE;
+        w->aero_frame = FALSE;
     }
     if (w->glass) TRACE( "glass %lx depth %d client %d,%d %dx%d frame %d\n", w->id, w->attr.depth,
                          w->client[0], w->client[1], w->client[2], w->client[3], w->frame_glass );
@@ -1002,15 +1005,16 @@ static void round_corners( XserverRegion region, const XRectangle *r, unsigned i
 }
 
 /* Glass frames (P10b) have invisible resize bands left, right and below, like Windows 10 and 11: the visible frame
- * is the client, the caption and a one-pixel border. Not for a maximized window (its frame is off screen).
+ * is the client, the caption and a one-pixel border; an Aero frame (P13) is visible to the window's edges. Not for a
+ * maximized window (its frame is off screen).
  * ponytail: the band is the client's left offset less the border, taken for the right and bottom too (a left
  * scroll bar or uneven frame metrics would skew it); publish the insets if that matters. */
 static BOOL frame_bounds( const struct window *w, XRectangle *r )
 {
-    int inset = w->client[0] - 1;
+    int inset = w->aero_frame ? 0 : w->client[0] - 1;
     int win_w = w->attr.width + 2 * w->attr.border_width, win_h = w->attr.height + 2 * w->attr.border_width;
 
-    if (!w->glass || !w->frame_glass || w->attr.depth != 32 || inset <= 0 ||
+    if (!w->glass || !w->frame_glass || w->attr.depth != 32 || (inset <= 0 && !w->aero_frame) ||
         win_w <= 2 * inset || win_h <= inset) return FALSE;
     r->x = inset;
     r->y = 0;
@@ -1053,7 +1057,8 @@ static void paint_window( struct window *w, XserverRegion parent_clip )
     {
         /* the visible frame is round unless the window asked for square corners, as on Windows 11 */
         XserverRegion visible = pXFixesCreateRegion( dpy, &frame, 1 );
-        if (w->corner != WEX_CORNER_SQUARE) round_corners( visible, &frame, radius ? radius : 8 );
+        /* ponytail: Aero corners are 6 px all round; Windows 7 rounds the bottom less, unmeasured */
+        if (w->corner != WEX_CORNER_SQUARE) round_corners( visible, &frame, radius ? radius : w->aero_frame ? 6 : 8 );
         pXFixesIntersectRegion( dpy, shape, shape, visible );
         pXFixesDestroyRegion( dpy, visible );
         paint_frame_shadow( w, &frame, parent_clip );
