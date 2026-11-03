@@ -77,6 +77,7 @@ void taskband_preview_leave(void);
 BOOL window_frame_rect(HWND hwnd, RECT *rect);
 HBITMAP iconic_thumbnail(HWND hwnd, int max_w, int max_h, DWORD *flags);
 void draw_iconic(HDC dc, HBITMAP bitmap, const RECT *rect, HWND hwnd, BOOL frame, int caption_h);
+void fit_size(int src_w, int src_h, int max_w, int max_h, BOOL enlarge, int *w, int *h);
 void taskband_add_window(HWND hwnd);
 void taskband_remove_window(HWND hwnd);
 void taskband_activate_window(HWND hwnd);

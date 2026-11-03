@@ -104,13 +104,7 @@ static void update_preview(void)
     {
         /* the window's own picture (P9): fit it into the band, never enlarge it */
         GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
-        w = min( bitmap.bmWidth, band_w );
-        h = MulDiv( w, bitmap.bmHeight, bitmap.bmWidth );
-        if (h > band_h)
-        {
-            h = band_h;
-            w = MulDiv( h, bitmap.bmWidth, bitmap.bmHeight );
-        }
+        fit_size( bitmap.bmWidth, bitmap.bmHeight, band_w, band_h, FALSE, &w, &h );
         x = DIALOG_MARGIN + (band_w - w) / 2;
         y = DIALOG_MARGIN + (band_h - h) / 2;
         SetRect( &preview_bitmap_rect, x, y, x + w, y + h );
@@ -119,13 +113,7 @@ static void update_preview(void)
     }
     if (!window_frame_rect( windows[selected], &source ) || source.right <= source.left || source.bottom <= source.top ||
         FAILED( DwmRegisterThumbnail( switch_hwnd, windows[selected], &preview_thumb ) )) return;
-    w = band_w;
-    h = MulDiv( w, source.bottom - source.top, source.right - source.left );
-    if (h > band_h)
-    {
-        h = band_h;
-        w = MulDiv( h, source.right - source.left, source.bottom - source.top );
-    }
+    fit_size( source.right - source.left, source.bottom - source.top, band_w, band_h, TRUE, &w, &h );
     x = DIALOG_MARGIN + (band_w - w) / 2;
     y = DIALOG_MARGIN + (band_h - h) / 2;
     /* the destination rectangle is relative to the switcher's window, which has a border */

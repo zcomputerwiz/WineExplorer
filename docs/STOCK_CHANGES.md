@@ -1528,4 +1528,9 @@ windows per process); the live preview also records the client offset and the wi
 `DwmInvalidateIconicBitmaps` clears both. New private export `WexDwmpGetAttr` reads an attribute as the broker holds it, so the
 shell sees `DWMWA_HAS_ICONIC_BITMAP` set by another process. The shell draws the picture in its taskbar and Alt+Tab
 previews (off unless `TaskbarThumbnails` / `AltTabThumbnails`). The section is readable and writable by the session,
-like the other `Local\` DWM objects; a reader only ever gets a wrong preview picture.
+like the other `Local\` DWM objects; a reader only ever gets a wrong preview picture. dwmapi now has a `DllMain`
+that closes the sections on `FreeLibrary`; a section that already existed is never trusted to be large enough.
+
+Review fixes (2026-11-03): `uxtheme/window.c` holds its own reference to dwmapi (`LoadLibraryW`) for its cached
+`DwmGetWindowAttribute`. dwmapi makes a window glass for blur only when `DwmMaterials` is on too, and an explicit
+`DwmExtendFrameIntoClientArea` takes over glass the blur made, so turning the blur off keeps the app's margins.

@@ -292,6 +292,18 @@ static BOOL previews_enabled(void)
     return enabled != 0;
 }
 
+/* src_w x src_h scaled into max_w x max_h keeping the aspect ratio; larger than the source only with enlarge */
+void fit_size( int src_w, int src_h, int max_w, int max_h, BOOL enlarge, int *w, int *h )
+{
+    *w = enlarge ? max_w : min( src_w, max_w );
+    *h = MulDiv( *w, src_h, src_w );
+    if (*h > max_h)
+    {
+        *h = max_h;
+        *w = MulDiv( *h, src_w, src_h );
+    }
+}
+
 static void release_thumbnail(void)
 {
     if (preview_thumb) DwmUnregisterThumbnail( preview_thumb );
@@ -305,7 +317,7 @@ static void show_preview(void)
     DWM_THUMBNAIL_PROPERTIES props = { 0 };
     BITMAP bitmap;
     RECT source;
-    int w = PREVIEW_MAX_W, h = 0, cx, cy, x, y;
+    int w = PREVIEW_MAX_W, h = 0, cx, cy, x, y;   /* the popup's size without a picture */
 
     release_thumbnail();
     if (!IsWindow( preview_target )) return;
@@ -313,26 +325,14 @@ static void show_preview(void)
     {
         /* the window's own picture (P9): fit it into the popup, never enlarge it */
         GetObjectW( preview_bitmap, sizeof(bitmap), &bitmap );
-        w = min( bitmap.bmWidth, PREVIEW_MAX_W );
-        h = MulDiv( w, bitmap.bmHeight, bitmap.bmWidth );
-        if (h > PREVIEW_MAX_H)
-        {
-            h = PREVIEW_MAX_H;
-            w = MulDiv( h, bitmap.bmWidth, bitmap.bmHeight );
-        }
+        fit_size( bitmap.bmWidth, bitmap.bmHeight, PREVIEW_MAX_W, PREVIEW_MAX_H, FALSE, &w, &h );
         SetRect( &preview_bitmap_rect, PREVIEW_MARGIN, PREVIEW_TITLE_H + PREVIEW_MARGIN / 2,
                  PREVIEW_MARGIN + w, PREVIEW_TITLE_H + PREVIEW_MARGIN / 2 + h );
     }
     else if (window_frame_rect( preview_target, &source ) && source.right > source.left && source.bottom > source.top &&
         SUCCEEDED( DwmRegisterThumbnail( preview_hwnd, preview_target, &preview_thumb ) ))
     {
-        /* keep the window's aspect ratio inside PREVIEW_MAX_W x PREVIEW_MAX_H */
-        h = MulDiv( w, source.bottom - source.top, source.right - source.left );
-        if (h > PREVIEW_MAX_H)
-        {
-            h = PREVIEW_MAX_H;
-            w = MulDiv( h, source.right - source.left, source.bottom - source.top );
-        }
+        fit_size( source.right - source.left, source.bottom - source.top, PREVIEW_MAX_W, PREVIEW_MAX_H, TRUE, &w, &h );
         props.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE;
         SetRect( &props.rcDestination, PREVIEW_MARGIN, PREVIEW_TITLE_H + PREVIEW_MARGIN / 2,
                  PREVIEW_MARGIN + w, PREVIEW_TITLE_H + PREVIEW_MARGIN / 2 + h );

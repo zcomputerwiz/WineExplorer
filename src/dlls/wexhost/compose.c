@@ -159,6 +159,7 @@ struct window
     unsigned int backdrop;   /* WEX_BACKDROP_* */
     unsigned int tint;       /* with WEX_BACKDROP_TINT: 0xAABBGGRR */
     int region[4];           /* with WEX_BACKDROP_REGION: left, top, right, bottom in the client area */
+    BOOL blur_expanded;      /* expand_blur_damage: this frame's damage already covers the blur area */
 };
 
 static Display *dpy;
@@ -552,9 +553,9 @@ static struct window *wallpaper_window( struct window *desk )
     return w ? w : desk;
 }
 
-/* Halve source (width x height) steps times, then scale it back up into dest at (x, y); the source's transform is
- * reset afterwards. */
-static void blur_into( Picture source, int width, int height, int steps, Picture dest, int x, int y )
+/* Halve source (width x height) steps times, then scale it back up into dest at (x, y), through mask (a window's
+ * opacity) if any; the source's transform is reset afterwards. */
+static void blur_into( Picture source, int width, int height, int steps, Picture dest, int x, int y, Picture mask )
 {
     XRenderPictureAttributes attr = { 0 };
     XRenderPictFormat *format = pXRenderFindStandardFormat( dpy, PictStandardRGB24 );
@@ -578,7 +579,7 @@ static void blur_into( Picture source, int width, int height, int steps, Picture
         h = nh;
     }
     set_scale( from, (double)w / width, (double)h / height, "bilinear" );
-    pXRenderComposite( dpy, PictOpSrc, from, None, dest, 0, 0, 0, 0, x, y, width, height );
+    pXRenderComposite( dpy, mask ? PictOpOver : PictOpSrc, from, mask, dest, 0, 0, 0, 0, x, y, width, height );
     set_scale( source, 1, 1, "nearest" );
     for (i = 0; i < 2; i++)
     {
@@ -600,7 +601,7 @@ static void build_mica( struct window *desk )
     *x_error = 0;
     mica_pixmap = pXCreatePixmap( dpy, root, desk->attr.width, desk->attr.height, 24 );
     mica_picture = pXRenderCreatePicture( dpy, mica_pixmap, format, 0, NULL );
-    blur_into( desk->picture, desk->attr.width, desk->attr.height, MICA_STEPS, mica_picture, 0, 0 );
+    blur_into( desk->picture, desk->attr.width, desk->attr.height, MICA_STEPS, mica_picture, 0, 0, None );
     if (!sync_ok())
     {
         free_mica();
@@ -635,24 +636,45 @@ static XRectangle blur_area( const struct window *w )
     return r;
 }
 
-/* ponytail: one pass in list order; a blurred window under another blurred one may need a second pass when the
- * upper one's expansion reaches it. */
+/* Repeated until nothing grows: one blurred window's expansion may reach another already visited. Each window
+ * expands at most once, so this ends. */
 static void expand_blur_damage(void)
 {
     struct window *w;
-    for (w = windows; w; w = w->next)
+    BOOL grown;
+    for (w = windows; w; w = w->next) w->blur_expanded = FALSE;
+    do
     {
-        XRectangle r, *rects;
-        int count = 0;
-        if (!live_blur( w )) continue;
-        r = blur_area( w );
-        pXFixesSetRegion( dpy, scratch, &r, 1 );
-        pXFixesIntersectRegion( dpy, scratch, scratch, damage_region );
-        if ((rects = pXFixesFetchRegion( dpy, scratch, &count ))) pXFree( rects );
-        if (!count) continue;
-        pXFixesSetRegion( dpy, scratch, &r, 1 );
-        pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+        grown = FALSE;
+        for (w = windows; w; w = w->next)
+        {
+            XRectangle r, *rects;
+            int count = 0;
+            if (w->blur_expanded || !live_blur( w )) continue;
+            r = blur_area( w );
+            pXFixesSetRegion( dpy, scratch, &r, 1 );
+            pXFixesIntersectRegion( dpy, scratch, scratch, damage_region );
+            if ((rects = pXFixesFetchRegion( dpy, scratch, &count ))) pXFree( rects );
+            if (!count) continue;
+            pXFixesSetRegion( dpy, scratch, &r, 1 );
+            pXFixesUnionRegion( dpy, damage_region, damage_region, scratch );
+            w->blur_expanded = grown = TRUE;
+        }
+    } while (grown);
+}
+
+/* A premultiplied tint over the back picture, faded with the window's opacity */
+static void fill_tint( const struct window *w, XRenderColor tint, int x, int y, int width, int height )
+{
+    if (w->opacity != 0xffffffff)
+    {
+        double scale = w->opacity / 4294967295.0;
+        tint.alpha *= scale;
+        tint.red *= scale;
+        tint.green *= scale;
+        tint.blue *= scale;
     }
+    if (tint.alpha) pXRenderFillRectangle( dpy, PictOpOver, back_picture, &tint, x, y, width, height );
 }
 
 /* Under the glass of a window with a live blur or a gradient accent (the back picture's clip is set, and restored
@@ -688,7 +710,7 @@ static void paint_accent( const struct window *w )
         pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, None );
         pXRenderComposite( dpy, PictOpSrc, back_picture, None, copy, r.x, r.y, 0, 0, 0, 0, r.width, r.height );
         pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, area );
-        blur_into( copy, r.width, r.height, acrylic ? ACRYLIC_STEPS : BLUR_STEPS, back_picture, r.x, r.y );
+        blur_into( copy, r.width, r.height, acrylic ? ACRYLIC_STEPS : BLUR_STEPS, back_picture, r.x, r.y, w->alpha );
         pXRenderFreePicture( dpy, copy );
         pXFreePixmap( dpy, pixmap );
     }
@@ -707,7 +729,7 @@ static void paint_accent( const struct window *w )
         tint.alpha = 0xb333;
         tint.red = tint.green = tint.blue = gray * 257 * (tint.alpha / 65535.0);
     }
-    if (tint.alpha) pXRenderFillRectangle( dpy, PictOpOver, back_picture, &tint, r.x, r.y, r.width, r.height );
+    fill_tint( w, tint, r.x, r.y, r.width, r.height );
     if (area != clip)
     {
         pXFixesSetPictureClipRegion( dpy, back_picture, 0, 0, clip );
@@ -727,12 +749,12 @@ static void paint_mica( const struct window *w )
     tint.alpha = 0xffff;
     if (mica_picture && desk)
     {
-        pXRenderComposite( dpy, PictOpSrc, mica_picture, None, back_picture, 0, 0, 0, 0, desk->x, desk->y,
-                           desk->attr.width, desk->attr.height );
+        pXRenderComposite( dpy, w->alpha ? PictOpOver : PictOpSrc, mica_picture, w->alpha, back_picture,
+                           0, 0, 0, 0, desk->x, desk->y, desk->attr.width, desk->attr.height );
         tint.alpha = w->backdrop & WEX_BACKDROP_DARK ? 0xcccc : 0x8000;
     }
     tint.red = tint.green = tint.blue = gray * 257 * (tint.alpha / 65535.0);
-    pXRenderFillRectangle( dpy, PictOpOver, back_picture, &tint, 0, 0, width, height );
+    fill_tint( w, tint, 0, 0, width, height );
 }
 
 static void unredirect(void)
