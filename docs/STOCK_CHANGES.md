@@ -1506,6 +1506,15 @@ accepts `WCA_ACCENT_POLICY` (19): it validates the window and the size, maps `AC
 becomes a glass sheet, and loses it again when the blur is turned off. The blur itself needs the shell's
 `DwmMaterials` gate. Gates off: the calls succeed and nothing is drawn differently.
 
+## dcomp/winex11/wined3d: transparent DComp targets (P7b) (2026-11-03)
+
+`dlls/dcomp/device.c`, `dlls/winex11.drv/init.c`, `dlls/wined3d/swapchain.c`. `dcomp_target_create` calls
+`DwmExtendFrameIntoClientArea` (dwmapi loaded on demand) with sheet-of-glass margins for a top-level target window
+with `WS_EX_NOREDIRECTIONBITMAP`; dwmapi applies it only with the `DwmAlpha` gate. `needs_offscreen_rendering`
+returns TRUE for a window with `__wine_dwm_alpha`, so an opaque GL client window never covers the ARGB window.
+`swapchain_gl_present` sends a target scene of such a window (with no GDI underlay) through the CPU composition and
+`SetDIBitsToDevice` to the window's ARGB surface, premultiplied, instead of the GL drawable. Gate off: unchanged.
+
 ## dwmapi: iconic thumbnails (P9) (2026-11-03)
 
 `dlls/dwmapi/dwmapi_main.c`, `dlls/dwmapi/dwm_client.c`, `dlls/dwmapi/dwmapi.spec`, `include/wine/dwm_protocol.h`.
