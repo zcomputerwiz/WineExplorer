@@ -1561,3 +1561,10 @@ are listed once for all parts, which `MSSTYLES_LookupPartState` now accepts as a
 the pointer is kept in the window property `__wine_nc_hot` (set on WM_NCMOUSEMOVE with a non-client leave tracking,
 cleared on WM_NCMOUSELEAVE) and the frame repainted; uxtheme draws it hot (Aero: the style's HOT state; the Windows
 10/11 frame: gray, red for close).
+
+`dlls/dwmapi` (`dwmapi_main.c`, `dwmapi.spec`), `dlls/uxtheme/window.c`, `dlls/win32u/defwnd.c` (polish, 2026-11-03):
+a theme that switches `DwmFrameStyle` while windows live switches their frames. WM_THEMECHANGED repaints the frame
+(with `DwmFrameEffects`); uxtheme calls the new private export `WexDwmpRefreshFrame` for a glass frame that does not
+match the style: Aero glass that uxtheme asked for goes away under the Windows 10/11 style, other glass is marked
+again with its margins. The Aero blur dwmapi adds is remembered (`__wine_dwm_blur_auto`) and removed with it; an
+application's own blur replaces it.

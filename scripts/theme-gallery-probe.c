@@ -23,7 +23,7 @@
 /* Applies the visual style named by the first argument (a .msstyles path; "-" keeps the current one), then shows
  * two windows of common controls at 40,40 (active) and 520,40, 440x420 each, for 40 s. A second argument names a log
  * file. Build: x86_64-w64-mingw32-gcc -municode -mwindows -o theme-gallery-probe.exe theme-gallery-probe.c
- *              -luxtheme -lcomctl32 -lgdi32 -luser32 */
+ *              -luxtheme -lcomctl32 -lgdi32 -luser32 -ladvapi32 */
 
 #include <windows.h>
 #include <commctrl.h>
@@ -94,7 +94,8 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
     HANDLE theme = NULL;
     HRESULT hr = S_FALSE;
     WNDCLASSW wc = { 0 };
-    DWORD deadline;
+    DWORD deadline, switch_at;
+    WCHAR value[16];
     MSG msg;
     HWND a, b;
 
@@ -156,11 +157,25 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
     ShowWindow( a, SW_SHOWNORMAL );
     SetForegroundWindow( a );
 
+    /* THEME_SWITCH=n in the environment: after 6 s set DwmFrameStyle to n and apply the style again (a live
+     * switch between the Windows 10/11 and the Aero frame) */
+    switch_at = GetEnvironmentVariableW( L"THEME_SWITCH", value, ARRAYSIZE(value) ) ? GetTickCount() + 6000 : 0;
     for (deadline = GetTickCount() + 40000; GetTickCount() < deadline; Sleep( 30 ))
+    {
         while (PeekMessageW( &msg, NULL, 0, 0, PM_REMOVE ))
         {
             TranslateMessage( &msg );
             DispatchMessageW( &msg );
         }
+        if (switch_at && GetTickCount() >= switch_at && theme)
+        {
+            DWORD style = _wtoi( value );
+            RegSetKeyValueW( HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", L"DwmFrameStyle", REG_DWORD,
+                             &style, sizeof(style) );
+            printf( "switch to frame style %lu: %08lx\n", style, apply( theme, NULL, NULL ) );
+            fflush( stdout );
+            switch_at = 0;
+        }
+    }
     return 0;
 }
