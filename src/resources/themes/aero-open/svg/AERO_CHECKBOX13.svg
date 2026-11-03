@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="156" viewBox="0 0 13 156">
+
+  <defs>
+    <linearGradient id="cb_bg_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#ECECEC"/>
+    </linearGradient>
+    <linearGradient id="cb_bg_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F0F7FD"/>
+      <stop offset="100%" stop-color="#D7ECFC"/>
+    </linearGradient>
+    <linearGradient id="cb_bg_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#CBE5F9"/>
+      <stop offset="100%" stop-color="#E2F1FC"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_norm)" stroke="#8E8F8F" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 13)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_hot)" stroke="#3C7FB1" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 26)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_press)" stroke="#255D85" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 39)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="#F4F4F4" stroke="#C4C4C4" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 52)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_norm)" stroke="#8E8F8F" stroke-width="1"/>
+    <path d="M 3.2 6.5 L 5.2 8.8 L 9.8 3.5" fill="none" stroke="#1E395B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(0, 65)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_hot)" stroke="#3C7FB1" stroke-width="1"/>
+    <path d="M 3.2 6.5 L 5.2 8.8 L 9.8 3.5" fill="none" stroke="#1E395B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(0, 78)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_press)" stroke="#255D85" stroke-width="1"/>
+    <path d="M 3.2 6.5 L 5.2 8.8 L 9.8 3.5" fill="none" stroke="#1E395B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(0, 91)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="#F4F4F4" stroke="#C4C4C4" stroke-width="1"/>
+    <path d="M 3.2 6.5 L 5.2 8.8 L 9.8 3.5" fill="none" stroke="#888888" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(0, 104)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_norm)" stroke="#8E8F8F" stroke-width="1"/>
+    <rect x="3.5" y="3.5" width="6" height="6" rx="1" fill="#2A628F"/>
+  </g>
+  <g transform="translate(0, 117)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_hot)" stroke="#3C7FB1" stroke-width="1"/>
+    <rect x="3.5" y="3.5" width="6" height="6" rx="1" fill="#2A628F"/>
+  </g>
+  <g transform="translate(0, 130)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="url(#cb_bg_press)" stroke="#255D85" stroke-width="1"/>
+    <rect x="3.5" y="3.5" width="6" height="6" rx="1" fill="#2A628F"/>
+  </g>
+  <g transform="translate(0, 143)">
+    <rect x="0.5" y="0.5" width="12" height="12" rx="2" fill="#F4F4F4" stroke="#C4C4C4" stroke-width="1"/>
+    <rect x="3.5" y="3.5" width="6" height="6" rx="1" fill="#999999"/>
+  </g>
+</svg>

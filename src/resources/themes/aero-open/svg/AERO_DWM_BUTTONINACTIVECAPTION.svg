@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="76" viewBox="0 0 26 76">
+  <defs>
+    <linearGradient id="dwmb_ihot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E0EBF5" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#A8C8E0" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#7098B8" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="dwmb_ipress" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#406078" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#284050" stop-opacity="0.8"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="#FFFFFF" fill-opacity="0.03"/>
+  </g>
+  <g transform="translate(0, 19)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="url(#dwmb_ihot)"/>
+    <path d="M 0.5 0.5 L 25.5 0.5 L 25.5 16 Q 25.5 18.5 23 18.5 L 3 18.5 Q 0.5 18.5 0.5 16 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 38)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="url(#dwmb_ipress)"/>
+  </g>
+  <g transform="translate(0, 57)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="none"/>
+  </g>
+</svg>

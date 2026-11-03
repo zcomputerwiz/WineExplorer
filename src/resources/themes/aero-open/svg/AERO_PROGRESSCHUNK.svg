@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="16" viewBox="0 0 8 16">
+  <defs>
+    <linearGradient id="p_chk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#34DE4A"/>
+      <stop offset="49%" stop-color="#18B830"/>
+      <stop offset="50%" stop-color="#08A020"/>
+      <stop offset="100%" stop-color="#048010"/>
+    </linearGradient>
+    <linearGradient id="p_hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.1"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="7" height="15" rx="1" fill="url(#p_chk)" stroke="#12781E" stroke-width="1"/>
+  <rect x="1.5" y="1.5" width="5" height="6" rx="0.5" fill="url(#p_hi)"/>
+</svg>

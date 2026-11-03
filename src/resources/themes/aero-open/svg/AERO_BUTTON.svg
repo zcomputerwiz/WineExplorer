@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="135" viewBox="0 0 30 135">
+  <defs>
+    <!-- State 1: Normal (glossy light-gray) -->
+    <linearGradient id="btn_norm_bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F7F8F9"/>
+      <stop offset="50%" stop-color="#ECEEF0"/>
+      <stop offset="51%" stop-color="#DFE2E4"/>
+      <stop offset="100%" stop-color="#E8EAEB"/>
+    </linearGradient>
+    <linearGradient id="btn_norm_hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.2"/>
+    </linearGradient>
+
+    <!-- State 2: Hot (blue-tinted hot state) -->
+    <linearGradient id="btn_hot_bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F2F8FE"/>
+      <stop offset="50%" stop-color="#E1EFFB"/>
+      <stop offset="51%" stop-color="#CBE3F8"/>
+      <stop offset="100%" stop-color="#D7EAFC"/>
+    </linearGradient>
+    <linearGradient id="btn_hot_hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#BEE0F8" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- State 3: Pressed -->
+    <linearGradient id="btn_press_bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C2DCF2"/>
+      <stop offset="35%" stop-color="#C8E1F5"/>
+      <stop offset="51%" stop-color="#B2D4F0"/>
+      <stop offset="100%" stop-color="#CBE3F7"/>
+    </linearGradient>
+
+    <!-- State 4: Disabled -->
+    <linearGradient id="btn_dis_bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4F4F4"/>
+      <stop offset="100%" stop-color="#ECECEC"/>
+    </linearGradient>
+
+    <!-- State 5: Defaulted (blue-glow default button) -->
+    <linearGradient id="btn_def_bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F0F7FD"/>
+      <stop offset="48%" stop-color="#D4EAFB"/>
+      <stop offset="51%" stop-color="#B6DCFA"/>
+      <stop offset="100%" stop-color="#CEE6FB"/>
+    </linearGradient>
+    <linearGradient id="btn_def_glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#70B8F8" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#3894E8" stop-opacity="0.4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal -->
+  <g transform="translate(0, 0)">
+    <rect x="0.5" y="0.5" width="29" height="26" rx="3" fill="url(#btn_norm_bg)" stroke="#707070" stroke-width="1"/>
+    <rect x="1.5" y="1.5" width="27" height="12" rx="2" fill="url(#btn_norm_hi)"/>
+  </g>
+
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 27)">
+    <rect x="0.5" y="0.5" width="29" height="26" rx="3" fill="url(#btn_hot_bg)" stroke="#3C7FB1" stroke-width="1"/>
+    <rect x="1.5" y="1.5" width="27" height="12" rx="2" fill="url(#btn_hot_hi)"/>
+    <rect x="1.5" y="1.5" width="27" height="24" rx="2" fill="none" stroke="#A6D2F5" stroke-width="1" opacity="0.6"/>
+  </g>
+
+  <!-- State 3: Pressed -->
+  <g transform="translate(0, 54)">
+    <rect x="0.5" y="0.5" width="29" height="26" rx="3" fill="url(#btn_press_bg)" stroke="#2C628B" stroke-width="1"/>
+    <rect x="1.5" y="1.5" width="27" height="24" rx="2" fill="none" stroke="#1F4E73" stroke-width="1" opacity="0.2"/>
+  </g>
+
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 81)">
+    <rect x="0.5" y="0.5" width="29" height="26" rx="3" fill="url(#btn_dis_bg)" stroke="#CCCCCC" stroke-width="1"/>
+  </g>
+
+  <!-- State 5: Defaulted -->
+  <g transform="translate(0, 108)">
+    <rect x="0.5" y="0.5" width="29" height="26" rx="3" fill="url(#btn_def_bg)" stroke="#3399FF" stroke-width="1"/>
+    <rect x="1.5" y="1.5" width="27" height="24" rx="2" fill="none" stroke="url(#btn_def_glow)" stroke-width="1.5"/>
+    <rect x="2" y="2" width="26" height="11" rx="1.5" fill="url(#btn_hot_hi)"/>
+  </g>
+</svg>

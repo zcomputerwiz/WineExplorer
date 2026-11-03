@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="17" height="68" viewBox="0 0 17 68">
+  <rect x="0" y="0" width="17" height="68" fill="#F4F4F4"/>
+  <line x1="0.5" y1="0" x2="0.5" y2="68" stroke="#E6E6E6" stroke-width="1"/>
+  <line x1="16.5" y1="0" x2="16.5" y2="68" stroke="#E6E6E6" stroke-width="1"/>
+</svg>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="17" height="80" viewBox="0 0 17 80">
+  <defs>
+    <linearGradient id="tv_norm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FAFAFB"/>
+      <stop offset="40%" stop-color="#EBECEE"/>
+      <stop offset="100%" stop-color="#D7D9DC"/>
+    </linearGradient>
+    <linearGradient id="tv_hot" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F2F8FE"/>
+      <stop offset="40%" stop-color="#E1EFFB"/>
+      <stop offset="100%" stop-color="#CDE4F8"/>
+    </linearGradient>
+    <linearGradient id="tv_press" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#BEDEFA"/>
+      <stop offset="100%" stop-color="#95C6EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal -->
+  <g transform="translate(0, 0)">
+    <rect x="1.5" y="0.5" width="14" height="19" rx="3" fill="url(#tv_norm)" stroke="#B8B8B8" stroke-width="1"/>
+  </g>
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 20)">
+    <rect x="1.5" y="0.5" width="14" height="19" rx="3" fill="url(#tv_hot)" stroke="#3C7FB1" stroke-width="1"/>
+  </g>
+  <!-- State 3: Pressed -->
+  <g transform="translate(0, 40)">
+    <rect x="1.5" y="0.5" width="14" height="19" rx="3" fill="url(#tv_press)" stroke="#2C628B" stroke-width="1"/>
+  </g>
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 60)">
+    <rect x="1.5" y="0.5" width="14" height="19" rx="3" fill="#EFEFEF" stroke="#D5D5D5" stroke-width="1"/>
+  </g>
+</svg>

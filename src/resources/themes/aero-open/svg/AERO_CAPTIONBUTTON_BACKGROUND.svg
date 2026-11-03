@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="152" viewBox="0 0 26 152">
+
+  <defs>
+    <linearGradient id="wb_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#55A8E8"/>
+      <stop offset="50%" stop-color="#2270B8"/>
+      <stop offset="100%" stop-color="#14508A"/>
+    </linearGradient>
+    <linearGradient id="wb_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#185288"/>
+      <stop offset="100%" stop-color="#0E3860"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)">
+    <rect x="0" y="0" width="26" height="19" fill="none"/>
+  </g>
+  <g transform="translate(0, 19)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="url(#wb_hot)" stroke="#78B8F0" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 38)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="url(#wb_press)" stroke="#103A62" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 57)">
+    <rect x="0" y="0" width="26" height="19" fill="none"/>
+  </g>
+  <g transform="translate(0, 76)">
+    <rect x="0" y="0" width="26" height="19" fill="none"/>
+  </g>
+  <g transform="translate(0, 95)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="#5A7894" stroke="#78B8F0" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 114)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="#3E5468" stroke="#103A62" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 133)">
+    <rect x="0" y="0" width="26" height="19" fill="none"/>
+  </g>
+</svg>

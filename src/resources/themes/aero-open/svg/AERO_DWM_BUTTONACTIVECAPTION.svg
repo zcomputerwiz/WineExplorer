@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="76" viewBox="0 0 26 76">
+  <defs>
+    <!-- Hot glass: cyan-blue glow -->
+    <linearGradient id="dwmb_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C8E4FC" stop-opacity="0.8"/>
+      <stop offset="30%" stop-color="#80C0F8" stop-opacity="0.65"/>
+      <stop offset="50%" stop-color="#409CF0" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#2880D8" stop-opacity="0.65"/>
+    </linearGradient>
+    <linearGradient id="dwmb_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2060A0" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#104078" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal (subtle transparent sheen) -->
+  <g transform="translate(0, 0)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="#FFFFFF" fill-opacity="0.05"/>
+  </g>
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 19)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="url(#dwmb_hot)"/>
+    <path d="M 0.5 0.5 L 25.5 0.5 L 25.5 16 Q 25.5 18.5 23 18.5 L 3 18.5 Q 0.5 18.5 0.5 16 Z" fill="none" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="1"/>
+  </g>
+  <!-- State 3: Pressed -->
+  <g transform="translate(0, 38)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="url(#dwmb_press)"/>
+    <path d="M 0.5 0.5 L 25.5 0.5 L 25.5 16 Q 25.5 18.5 23 18.5 L 3 18.5 Q 0.5 18.5 0.5 16 Z" fill="none" stroke="#286090" stroke-opacity="0.8" stroke-width="1"/>
+  </g>
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 57)">
+    <path d="M 0 0 L 26 0 L 26 16 Q 26 19 23 19 L 3 19 Q 0 19 0 16 Z" fill="none"/>
+  </g>
+</svg>

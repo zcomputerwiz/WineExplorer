@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="9" height="72" viewBox="0 0 9 72">
+  <g transform="translate(0, 0)" opacity="1.0">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+  <g transform="translate(0, 9)" opacity="1.0">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+  <g transform="translate(0, 18)" opacity="1.0">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+  <g transform="translate(0, 27)" opacity="0.4">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+  <g transform="translate(0, 36)" opacity="1.0">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+  <g transform="translate(0, 45)" opacity="1.0">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+  <g transform="translate(0, 54)" opacity="1.0">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+  <g transform="translate(0, 63)" opacity="0.4">
+<text x="4.5" y="7.5" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#000">?</text><text x="4.5" y="7" font-family="sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFF">?</text>
+  </g>
+</svg>

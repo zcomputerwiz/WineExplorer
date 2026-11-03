@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="40" viewBox="0 0 64 40">
+  <defs>
+    <linearGradient id="w_scap_act" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2D5572"/>
+      <stop offset="50%" stop-color="#102535"/>
+      <stop offset="100%" stop-color="#122A3C"/>
+    </linearGradient>
+    <linearGradient id="w_scap_inact" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#64727D"/>
+      <stop offset="50%" stop-color="#374047"/>
+      <stop offset="100%" stop-color="#434D55"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)">
+    <rect x="0" y="0" width="64" height="20" fill="url(#w_scap_act)"/>
+    <line x1="0" y1="0.5" x2="64" y2="0.5" stroke="#4C85B0" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 20)">
+    <rect x="0" y="0" width="64" height="20" fill="url(#w_scap_inact)"/>
+    <line x1="0" y1="0.5" x2="64" y2="0.5" stroke="#80909C" stroke-width="1"/>
+  </g>
+</svg>

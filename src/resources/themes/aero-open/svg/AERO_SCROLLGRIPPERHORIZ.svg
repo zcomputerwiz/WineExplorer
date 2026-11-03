@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="32" viewBox="0 0 8 32">
+  <g fill="#A0A0A0">
+    <circle cx="2" cy="4" r="1"/><circle cx="4" cy="4" r="1"/><circle cx="6" cy="4" r="1"/>
+    <circle cx="2" cy="12" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="6" cy="12" r="1"/>
+    <circle cx="2" cy="20" r="1"/><circle cx="4" cy="20" r="1"/><circle cx="6" cy="20" r="1"/>
+    <circle cx="2" cy="28" r="1"/><circle cx="4" cy="28" r="1"/><circle cx="6" cy="28" r="1"/>
+  </g>
+</svg>

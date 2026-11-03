@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="60" viewBox="0 0 64 60">
+  <defs>
+    <!-- State 1: Active Vista Basic Caption (dark navy-cyan sleek gradient) -->
+    <linearGradient id="w_cap_act" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2D5572"/>
+      <stop offset="8%" stop-color="#1B384E"/>
+      <stop offset="45%" stop-color="#102535"/>
+      <stop offset="50%" stop-color="#0A1822"/>
+      <stop offset="100%" stop-color="#122A3C"/>
+    </linearGradient>
+    <!-- State 2: Inactive Vista Basic Caption (neutral slate gradient) -->
+    <linearGradient id="w_cap_inact" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#64727D"/>
+      <stop offset="10%" stop-color="#4B565F"/>
+      <stop offset="50%" stop-color="#374047"/>
+      <stop offset="100%" stop-color="#434D55"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Active -->
+  <g transform="translate(0, 0)">
+    <rect x="0" y="0" width="64" height="30" fill="url(#w_cap_act)"/>
+    <line x1="0" y1="0.5" x2="64" y2="0.5" stroke="#4C85B0" stroke-width="1"/>
+    <line x1="0" y1="29.5" x2="64" y2="29.5" stroke="#08141D" stroke-width="1"/>
+  </g>
+  <!-- State 2: Inactive -->
+  <g transform="translate(0, 30)">
+    <rect x="0" y="0" width="64" height="30" fill="url(#w_cap_inact)"/>
+    <line x1="0" y1="0.5" x2="64" y2="0.5" stroke="#80909C" stroke-width="1"/>
+    <line x1="0" y1="29.5" x2="64" y2="29.5" stroke="#252B30" stroke-width="1"/>
+  </g>
+</svg>

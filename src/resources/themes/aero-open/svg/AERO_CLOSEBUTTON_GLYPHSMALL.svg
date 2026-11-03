@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="7" height="56" viewBox="0 0 7 56">
+  <g transform="translate(0, 0)" opacity="1.0">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(0, 7)" opacity="1.0">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(0, 14)" opacity="1.0">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(0, 21)" opacity="0.4">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(0, 28)" opacity="1.0">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(0, 35)" opacity="1.0">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(0, 42)" opacity="1.0">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(0, 49)" opacity="0.4">
+<path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><path d="M 1.5 1.5 L 5.5 5.5 M 5.5 1.5 L 1.5 5.5" stroke="#FFF" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+</svg>

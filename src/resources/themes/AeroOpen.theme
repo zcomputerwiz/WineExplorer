@@ -1,0 +1,80 @@
+; Aero Open Theme - WineExplorer Desktop Environment
+[Theme]
+DisplayName=Aero Open
+
+[CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon]
+DefaultValue=%WinDir%\explorer.exe,0
+
+[CLSID\{450D8FBA-AD25-11D0-98A8-0800361B1103}\DefaultIcon]
+DefaultValue=%WinDir%\system32\shell32.dll,235
+
+[CLSID\{208D2C60-3AEA-1069-A2D7-08002B30309D}\DefaultIcon]
+DefaultValue=%WinDir%\system32\shell32.dll,17
+
+[CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon]
+full=%WinDir%\system32\shell32.dll,32
+empty=%WinDir%\system32\shell32.dll,31
+
+[Control Panel\Colors]
+ActiveTitle=153 180 209
+Background=0 78 152
+Hilight=51 153 255
+HilightText=255 255 255
+TitleText=0 0 0
+Window=255 255 255
+WindowText=0 0 0
+Scrollbar=200 200 200
+InactiveTitle=191 205 219
+Menu=240 240 240
+WindowFrame=100 100 100
+MenuText=0 0 0
+ActiveBorder=180 180 180
+InactiveBorder=200 200 200
+AppWorkspace=171 171 171
+ButtonFace=240 240 240
+ButtonShadow=160 160 160
+GrayText=160 160 160
+ButtonText=0 0 0
+InactiveTitleText=60 60 60
+ButtonHilight=255 255 255
+ButtonDkShadow=105 105 105
+ButtonLight=227 227 227
+InfoText=0 0 0
+InfoWindow=255 255 225
+GradientActiveTitle=185 209 234
+GradientInactiveTitle=215 228 242
+
+[Control Panel\Desktop]
+Wallpaper=
+TileWallpaper=0
+WallpaperStyle=2
+Pattern=
+ScreenSaveActive=0
+StartMenuStyle=1
+
+[VisualStyles]
+Path=%ResourceDir%\Themes\Aero\Aero.msstyles
+ColorStyle=NormalColor
+Size=NormalSize
+ColorizationColor=0X6B74B8FC
+
+[WineExplorer]
+FrameStyle=aero
+
+[Control Panel\Cursors]
+Arrow=
+Help=
+AppStarting=
+Wait=
+Crosshair=
+IBeam=
+NWPen=
+No=
+SizeNS=
+SizeWE=
+SizeNWSE=
+SizeNESW=
+SizeAll=
+UpArrow=
+Hand=
+DefaultValue=Windows Default

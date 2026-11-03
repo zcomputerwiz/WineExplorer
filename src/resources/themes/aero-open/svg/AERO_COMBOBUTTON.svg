@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="17" height="88" viewBox="0 0 17 88">
+  <defs>
+    <linearGradient id="cmb_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F6F7F8"/>
+      <stop offset="50%" stop-color="#ECEEF0"/>
+      <stop offset="51%" stop-color="#E0E3E5"/>
+      <stop offset="100%" stop-color="#E9EBEC"/>
+    </linearGradient>
+    <linearGradient id="cmb_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F0F7FD"/>
+      <stop offset="50%" stop-color="#E0EFFB"/>
+      <stop offset="51%" stop-color="#CAE2F8"/>
+      <stop offset="100%" stop-color="#D7EAFC"/>
+    </linearGradient>
+    <linearGradient id="cmb_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C2DCF2"/>
+      <stop offset="50%" stop-color="#C8E1F5"/>
+      <stop offset="51%" stop-color="#B2D4F0"/>
+      <stop offset="100%" stop-color="#CBE3F7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal -->
+  <g transform="translate(0, 0)">
+    <rect x="0" y="0" width="17" height="22" fill="url(#cmb_norm)"/>
+    <line x1="0.5" y1="0" x2="0.5" y2="22" stroke="#D0D0D0" stroke-width="1"/>
+    <path d="M 6 9.5 L 8.5 12.5 L 11 9.5 Z" fill="#4C4C4C"/>
+  </g>
+
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 22)">
+    <rect x="0" y="0" width="17" height="22" fill="url(#cmb_hot)"/>
+    <line x1="0.5" y1="0" x2="0.5" y2="22" stroke="#3C7FB1" stroke-width="1"/>
+    <path d="M 6 9.5 L 8.5 12.5 L 11 9.5 Z" fill="#1E395B"/>
+  </g>
+
+  <!-- State 3: Pressed -->
+  <g transform="translate(0, 44)">
+    <rect x="0" y="0" width="17" height="22" fill="url(#cmb_press)"/>
+    <line x1="0.5" y1="0" x2="0.5" y2="22" stroke="#2C628B" stroke-width="1"/>
+    <path d="M 6 10.5 L 8.5 13.5 L 11 10.5 Z" fill="#14283E"/>
+  </g>
+
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 66)">
+    <rect x="0" y="0" width="17" height="22" fill="#F4F4F4"/>
+    <line x1="0.5" y1="0" x2="0.5" y2="22" stroke="#E0E0E0" stroke-width="1"/>
+    <path d="M 6 9.5 L 8.5 12.5 L 11 9.5 Z" fill="#A8A8A8"/>
+  </g>
+</svg>

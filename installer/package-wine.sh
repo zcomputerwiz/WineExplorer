@@ -67,6 +67,13 @@ python3 "$ROOT_DIR/scripts/build_msstyles.py" \
     "$ROOT_DIR/src/resources/themes/luna-open" \
     "$STAGE_WINE/usr/local/share/wineexplorer/themes/Luna/Luna.msstyles"
 
+# Build open Aero visual style
+echo "Building open Aero theme package..."
+mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes/Aero"
+python3 "$ROOT_DIR/scripts/build_msstyles.py" \
+    "$ROOT_DIR/src/resources/themes/aero-open" \
+    "$STAGE_WINE/usr/local/share/wineexplorer/themes/Aero/Aero.msstyles"
+
 # Build open icon pack (Fluent) if tools are available
 echo "Building Fluent theme package..."
 (

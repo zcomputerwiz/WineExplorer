@@ -1552,3 +1552,7 @@ loaded from the STREAM resource only (`MSSTYLES_LoadBitmap` takes `is_stream`; t
 resource ids are per type and Windows 7 styles also carry an IMAGE with the same id. A part-level atlas rectangle is a
 vertical strip of states; a state-level one is used as is. Atlas parts count as image backgrounds in the size,
 content-rect and transparency queries too.
+
+`dlls/uxtheme/stylemap.c` (P13, 2026-11-03): INI (XP format) styles may define the `DWMWindow` class with the Windows 7
+part names (frames, caption buttons, glyphs, `TEXTGLOW`); its states (ACTIVE/INACTIVE, NORMAL/HOT/PRESSED/DISABLED)
+are listed once for all parts, which `MSSTYLES_LookupPartState` now accepts as a fallback (no other class lists any).

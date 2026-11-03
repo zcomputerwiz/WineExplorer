@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <!-- Active state gloss overlay -->
+    <linearGradient id="dwm_top_act" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.6"/>
+      <stop offset="4%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="40%" stop-color="#E8F4FF" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#C0DCF8" stop-opacity="0.04"/>
+    </linearGradient>
+    <!-- Inactive state gloss overlay -->
+    <linearGradient id="dwm_top_inact" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.4"/>
+      <stop offset="4%" stop-color="#FFFFFF" stop-opacity="0.2"/>
+      <stop offset="40%" stop-color="#E0E8F0" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#B0C0D0" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Active -->
+  <g transform="translate(0, 0)">
+    <!-- Base translucent fill -->
+    <rect x="0" y="0" width="64" height="32" fill="url(#dwm_top_act)"/>
+    <!-- Outer 1px dark line -->
+    <line x1="0" y1="0.5" x2="64" y2="0.5" stroke="#182430" stroke-opacity="0.75" stroke-width="1"/>
+    <!-- Inner 1px crisp highlight -->
+    <line x1="0" y1="1.5" x2="64" y2="1.5" stroke="#FFFFFF" stroke-opacity="0.65" stroke-width="1"/>
+    <!-- Bottom line of top frame -->
+    <line x1="0" y1="31.5" x2="64" y2="31.5" stroke="#000000" stroke-opacity="0.25" stroke-width="1"/>
+  </g>
+
+  <!-- State 2: Inactive -->
+  <g transform="translate(0, 32)">
+    <rect x="0" y="0" width="64" height="32" fill="url(#dwm_top_inact)"/>
+    <line x1="0" y1="0.5" x2="64" y2="0.5" stroke="#25303A" stroke-opacity="0.65" stroke-width="1"/>
+    <line x1="0" y1="1.5" x2="64" y2="1.5" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="1"/>
+    <line x1="0" y1="31.5" x2="64" y2="31.5" stroke="#000000" stroke-opacity="0.2" stroke-width="1"/>
+  </g>
+</svg>

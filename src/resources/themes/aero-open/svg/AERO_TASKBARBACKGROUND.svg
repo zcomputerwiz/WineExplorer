@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="32" viewBox="0 0 16 32">
+  <defs>
+    <linearGradient id="tb_grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#243C50" stop-opacity="0.9"/>
+      <stop offset="25%" stop-color="#142634" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#0C1720" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="16" height="32" fill="url(#tb_grad)"/>
+  <line x1="0" y1="0.5" x2="16" y2="0.5" stroke="#48789C" stroke-width="1"/>
+</svg>

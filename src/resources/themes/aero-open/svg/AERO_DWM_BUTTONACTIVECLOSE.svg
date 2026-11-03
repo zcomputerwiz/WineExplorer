@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="43" height="76" viewBox="0 0 43 76">
+  <defs>
+    <!-- Normal: subtle faint red glow -->
+    <linearGradient id="cls_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E83030" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#C01818" stop-opacity="0.25"/>
+    </linearGradient>
+    <!-- Hot: vibrant glossy red glass -->
+    <linearGradient id="cls_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF7070" stop-opacity="0.95"/>
+      <stop offset="25%" stop-color="#FA3030" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#E01010" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#B80808" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="cls_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#A80808" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#780000" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal -->
+  <g transform="translate(0, 0)">
+    <path d="M 0 0 L 43 0 L 43 16 Q 43 19 40 19 L 3 19 Q 0 19 0 16 Z" fill="url(#cls_norm)"/>
+  </g>
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 19)">
+    <path d="M 0 0 L 43 0 L 43 16 Q 43 19 40 19 L 3 19 Q 0 19 0 16 Z" fill="url(#cls_hot)"/>
+    <path d="M 0.5 0.5 L 42.5 0.5 L 42.5 16 Q 42.5 18.5 40 18.5 L 3 18.5 Q 0.5 18.5 0.5 16 Z" fill="none" stroke="#FFA8A8" stroke-opacity="0.75" stroke-width="1"/>
+  </g>
+  <!-- State 3: Pressed -->
+  <g transform="translate(0, 38)">
+    <path d="M 0 0 L 43 0 L 43 16 Q 43 19 40 19 L 3 19 Q 0 19 0 16 Z" fill="url(#cls_press)"/>
+    <path d="M 0.5 0.5 L 42.5 0.5 L 42.5 16 Q 42.5 18.5 40 18.5 L 3 18.5 Q 0.5 18.5 0.5 16 Z" fill="none" stroke="#500000" stroke-opacity="0.8" stroke-width="1"/>
+  </g>
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 57)">
+    <path d="M 0 0 L 43 0 L 43 16 Q 43 19 40 19 L 3 19 Q 0 19 0 16 Z" fill="none"/>
+  </g>
+</svg>

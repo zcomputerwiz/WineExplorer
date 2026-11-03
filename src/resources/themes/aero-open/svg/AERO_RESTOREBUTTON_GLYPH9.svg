@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="9" height="72" viewBox="0 0 9 72">
+  <g transform="translate(0, 0)" opacity="1.0">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 9)" opacity="1.0">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 18)" opacity="1.0">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 27)" opacity="0.4">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 36)" opacity="1.0">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 45)" opacity="1.0">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 54)" opacity="1.0">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 63)" opacity="0.4">
+<rect x="3" y="1" width="5" height="5" fill="none" stroke="#000" stroke-width="1.8"/><rect x="3" y="1" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/><rect x="1" y="3" width="5" height="5" fill="#183048" stroke="#000" stroke-width="1.8"/><rect x="1" y="3" width="5" height="5" fill="none" stroke="#FFF" stroke-width="1"/>
+  </g>
+</svg>

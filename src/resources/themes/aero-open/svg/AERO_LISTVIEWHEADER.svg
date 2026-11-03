@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="120" viewBox="0 0 20 120">
+  <defs>
+    <linearGradient id="hdr_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="70%" stop-color="#F2F3F5"/>
+      <stop offset="100%" stop-color="#E5E7EA"/>
+    </linearGradient>
+    <linearGradient id="hdr_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4F9FE"/>
+      <stop offset="70%" stop-color="#D7E8F7"/>
+      <stop offset="100%" stop-color="#C2DCF2"/>
+    </linearGradient>
+    <linearGradient id="hdr_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C2DCF2"/>
+      <stop offset="100%" stop-color="#99C8EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal -->
+  <g transform="translate(0, 0)">
+    <rect x="0" y="0" width="20" height="24" fill="url(#hdr_norm)"/>
+    <line x1="0" y1="23.5" x2="20" y2="23.5" stroke="#D0D0D0" stroke-width="1"/>
+    <line x1="19.5" y1="2" x2="19.5" y2="22" stroke="#D8D8D8" stroke-width="1"/>
+  </g>
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 24)">
+    <rect x="0" y="0" width="20" height="24" fill="url(#hdr_hot)"/>
+    <line x1="0" y1="23.5" x2="20" y2="23.5" stroke="#3C7FB1" stroke-width="1"/>
+    <line x1="19.5" y1="2" x2="19.5" y2="22" stroke="#B0D2F0" stroke-width="1"/>
+  </g>
+  <!-- State 3: Pressed -->
+  <g transform="translate(0, 48)">
+    <rect x="0" y="0" width="20" height="24" fill="url(#hdr_press)"/>
+    <line x1="0" y1="23.5" x2="20" y2="23.5" stroke="#2C628B" stroke-width="1"/>
+    <line x1="19.5" y1="2" x2="19.5" y2="22" stroke="#8AC0EC" stroke-width="1"/>
+  </g>
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 72)">
+    <rect x="0" y="0" width="20" height="24" fill="#F4F4F4"/>
+    <line x1="0" y1="23.5" x2="20" y2="23.5" stroke="#E0E0E0" stroke-width="1"/>
+  </g>
+  <!-- State 5: Sorted -->
+  <g transform="translate(0, 96)">
+    <rect x="0" y="0" width="20" height="24" fill="url(#hdr_norm)"/>
+    <line x1="0" y1="23.5" x2="20" y2="23.5" stroke="#3C7FB1" stroke-width="1"/>
+    <line x1="19.5" y1="2" x2="19.5" y2="22" stroke="#D8D8D8" stroke-width="1"/>
+  </g>
+</svg>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="68" viewBox="0 0 20 68">
+  <defs>
+    <linearGradient id="th_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FAFAFB"/>
+      <stop offset="40%" stop-color="#EBECEE"/>
+      <stop offset="100%" stop-color="#D7D9DC"/>
+    </linearGradient>
+    <linearGradient id="th_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F2F8FE"/>
+      <stop offset="40%" stop-color="#E1EFFB"/>
+      <stop offset="100%" stop-color="#CDE4F8"/>
+    </linearGradient>
+    <linearGradient id="th_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#BEDEFA"/>
+      <stop offset="100%" stop-color="#95C6EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal -->
+  <g transform="translate(0, 0)">
+    <rect x="0.5" y="1.5" width="19" height="14" rx="3" fill="url(#th_norm)" stroke="#B8B8B8" stroke-width="1"/>
+  </g>
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 17)">
+    <rect x="0.5" y="1.5" width="19" height="14" rx="3" fill="url(#th_hot)" stroke="#3C7FB1" stroke-width="1"/>
+  </g>
+  <!-- State 3: Pressed -->
+  <g transform="translate(0, 34)">
+    <rect x="0.5" y="1.5" width="19" height="14" rx="3" fill="url(#th_press)" stroke="#2C628B" stroke-width="1"/>
+  </g>
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 51)">
+    <rect x="0.5" y="1.5" width="19" height="14" rx="3" fill="#EFEFEF" stroke="#D5D5D5" stroke-width="1"/>
+  </g>
+</svg>

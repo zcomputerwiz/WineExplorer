@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="64" viewBox="0 0 8 64">
+  <!-- State 1: Active -->
+  <g transform="translate(0, 0)">
+    <rect x="0" y="0" width="8" height="32" fill="#FFFFFF" fill-opacity="0.06"/>
+    <line x1="0.5" y1="0" x2="0.5" y2="32" stroke="#182430" stroke-opacity="0.75" stroke-width="1"/>
+    <line x1="1.5" y1="0" x2="1.5" y2="32" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="1"/>
+  </g>
+  <!-- State 2: Inactive -->
+  <g transform="translate(0, 32)">
+    <rect x="0" y="0" width="8" height="32" fill="#FFFFFF" fill-opacity="0.03"/>
+    <line x1="0.5" y1="0" x2="0.5" y2="32" stroke="#25303A" stroke-opacity="0.65" stroke-width="1"/>
+    <line x1="1.5" y1="0" x2="1.5" y2="32" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="1"/>
+  </g>
+</svg>

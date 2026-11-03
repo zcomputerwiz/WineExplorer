@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <linearGradient id="p_trk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E5E5E5"/>
+      <stop offset="25%" stop-color="#ECECEC"/>
+      <stop offset="100%" stop-color="#F7F7F7"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="15" height="15" rx="2" fill="url(#p_trk)" stroke="#BCBCBC" stroke-width="1"/>
+</svg>

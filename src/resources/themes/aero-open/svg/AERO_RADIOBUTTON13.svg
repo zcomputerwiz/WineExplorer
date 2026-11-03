@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="104" viewBox="0 0 13 104">
+
+  <defs>
+    <linearGradient id="rb_bg_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#ECECEC"/>
+    </linearGradient>
+    <linearGradient id="rb_bg_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F0F7FD"/>
+      <stop offset="100%" stop-color="#D7ECFC"/>
+    </linearGradient>
+    <linearGradient id="rb_bg_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#CBE5F9"/>
+      <stop offset="100%" stop-color="#E2F1FC"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="url(#rb_bg_norm)" stroke="#8E8F8F" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 13)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="url(#rb_bg_hot)" stroke="#3C7FB1" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 26)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="url(#rb_bg_press)" stroke="#255D85" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 39)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="#F4F4F4" stroke="#C4C4C4" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 52)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="url(#rb_bg_norm)" stroke="#8E8F8F" stroke-width="1"/>
+    <circle cx="6.5" cy="6.5" r="2.5" fill="#1E395B"/>
+  </g>
+  <g transform="translate(0, 65)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="url(#rb_bg_hot)" stroke="#3C7FB1" stroke-width="1"/>
+    <circle cx="6.5" cy="6.5" r="2.5" fill="#1E395B"/>
+  </g>
+  <g transform="translate(0, 78)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="url(#rb_bg_press)" stroke="#255D85" stroke-width="1"/>
+    <circle cx="6.5" cy="6.5" r="2.5" fill="#1E395B"/>
+  </g>
+  <g transform="translate(0, 91)">
+    <circle cx="6.5" cy="6.5" r="5.5" fill="#F4F4F4" stroke="#C4C4C4" stroke-width="1"/>
+    <circle cx="6.5" cy="6.5" r="2.5" fill="#888888"/>
+  </g>
+</svg>

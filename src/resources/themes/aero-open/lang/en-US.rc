@@ -1,0 +1,38 @@
+/*
+ * Aero Open Theme - String resources
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+STRINGTABLE
+{
+1000, "Aero"
+}
+
+STRINGTABLE
+{
+2000, "Aero Open"
+}
+
+STRINGTABLE
+{
+3000, "Normal"
+}
+
+STRINGTABLE
+{
+4000, "Normal"
+}
+
+STRINGTABLE
+{
+5000, "Aero Open"
+5001, "Visual Style"
+5002, "WineExplorer Project"
+5003, "WineExplorer Desktop Environment Contributors"
+5004, "Released under GNU/GPL 2.0 or later"
+5005, "https://github.com/wine-explorer"
+5006, "1.0"
+5007, "Aero Open Visual Style for WineExplorer"
+}

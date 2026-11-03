@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="65" viewBox="0 0 13 65">
+  <defs>
+    <linearGradient id="tbd_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#DCDCDC"/>
+    </linearGradient>
+    <linearGradient id="tbd_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F2F8FE"/>
+      <stop offset="100%" stop-color="#CDE4F8"/>
+    </linearGradient>
+    <linearGradient id="tbd_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#BEDEFA"/>
+      <stop offset="100%" stop-color="#95C6EE"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)">
+    <path d="M 0.5 0.5 L 12.5 0.5 L 12.5 7 L 6.5 12.5 L 0.5 7 Z" fill="url(#tbd_norm)" stroke="#909090" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 13)">
+    <path d="M 0.5 0.5 L 12.5 0.5 L 12.5 7 L 6.5 12.5 L 0.5 7 Z" fill="url(#tbd_hot)" stroke="#3C7FB1" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 26)">
+    <path d="M 0.5 0.5 L 12.5 0.5 L 12.5 7 L 6.5 12.5 L 0.5 7 Z" fill="url(#tbd_press)" stroke="#2C628B" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 39)">
+    <path d="M 0.5 0.5 L 12.5 0.5 L 12.5 7 L 6.5 12.5 L 0.5 7 Z" fill="#EFEFEF" stroke="#D0D0D0" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 52)">
+    <path d="M 0.5 0.5 L 12.5 0.5 L 12.5 7 L 6.5 12.5 L 0.5 7 Z" fill="url(#tbd_norm)" stroke="#3C7FB1" stroke-width="1"/>
+  </g>
+</svg>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="120" viewBox="0 0 24 120">
+  <defs>
+    <!-- Normal -->
+    <linearGradient id="tab_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F2F3F4"/>
+      <stop offset="100%" stop-color="#E2E4E6"/>
+    </linearGradient>
+    <!-- Hot -->
+    <linearGradient id="tab_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F5F9FD"/>
+      <stop offset="100%" stop-color="#D7E8F7"/>
+    </linearGradient>
+    <!-- Selected -->
+    <linearGradient id="tab_sel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- State 1: Normal -->
+  <g transform="translate(0, 0)">
+    <path d="M 0.5 24 L 0.5 3 Q 0.5 0.5 3 0.5 L 21 0.5 Q 23.5 0.5 23.5 3 L 23.5 24 Z" fill="url(#tab_norm)" stroke="#9CB0C4" stroke-width="1"/>
+  </g>
+  <!-- State 2: Hot -->
+  <g transform="translate(0, 24)">
+    <path d="M 0.5 24 L 0.5 3 Q 0.5 0.5 3 0.5 L 21 0.5 Q 23.5 0.5 23.5 3 L 23.5 24 Z" fill="url(#tab_hot)" stroke="#3C7FB1" stroke-width="1"/>
+  </g>
+  <!-- State 3: Selected -->
+  <g transform="translate(0, 48)">
+    <path d="M 0.5 24 L 0.5 3 Q 0.5 0.5 3 0.5 L 21 0.5 Q 23.5 0.5 23.5 3 L 23.5 24 Z" fill="url(#tab_sel)" stroke="#8CA0B4" stroke-width="1"/>
+    <line x1="1" y1="23.5" x2="23" y2="23.5" stroke="#FFFFFF" stroke-width="1.5"/>
+  </g>
+  <!-- State 4: Disabled -->
+  <g transform="translate(0, 72)">
+    <path d="M 0.5 24 L 0.5 3 Q 0.5 0.5 3 0.5 L 21 0.5 Q 23.5 0.5 23.5 3 L 23.5 24 Z" fill="#F4F4F4" stroke="#D0D0D0" stroke-width="1"/>
+  </g>
+  <!-- State 5: Focused / Selected Focused -->
+  <g transform="translate(0, 96)">
+    <path d="M 0.5 24 L 0.5 3 Q 0.5 0.5 3 0.5 L 21 0.5 Q 23.5 0.5 23.5 3 L 23.5 24 Z" fill="url(#tab_sel)" stroke="#8CA0B4" stroke-width="1"/>
+    <line x1="1" y1="23.5" x2="23" y2="23.5" stroke="#FFFFFF" stroke-width="1.5"/>
+  </g>
+</svg>

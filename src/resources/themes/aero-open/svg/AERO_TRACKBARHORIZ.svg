@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="15" height="65" viewBox="0 0 15 65">
+  <defs>
+    <linearGradient id="tb_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#DCDCDC"/>
+    </linearGradient>
+    <linearGradient id="tb_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F2F8FE"/>
+      <stop offset="100%" stop-color="#CDE4F8"/>
+    </linearGradient>
+    <linearGradient id="tb_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#BEDEFA"/>
+      <stop offset="100%" stop-color="#95C6EE"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)"><rect x="0.5" y="0.5" width="14" height="12" rx="2" fill="url(#tb_norm)" stroke="#909090" stroke-width="1"/></g>
+  <g transform="translate(0, 13)"><rect x="0.5" y="0.5" width="14" height="12" rx="2" fill="url(#tb_hot)" stroke="#3C7FB1" stroke-width="1"/></g>
+  <g transform="translate(0, 26)"><rect x="0.5" y="0.5" width="14" height="12" rx="2" fill="url(#tb_press)" stroke="#2C628B" stroke-width="1"/></g>
+  <g transform="translate(0, 39)"><rect x="0.5" y="0.5" width="14" height="12" rx="2" fill="#EFEFEF" stroke="#D0D0D0" stroke-width="1"/></g>
+  <g transform="translate(0, 52)"><rect x="0.5" y="0.5" width="14" height="12" rx="2" fill="url(#tb_norm)" stroke="#3C7FB1" stroke-width="1"/></g>
+</svg>

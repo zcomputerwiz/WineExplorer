@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bmp-bpp: 32 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="26" height="152" viewBox="0 0 26 152">
+
+  <defs>
+    <linearGradient id="wcb_norm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#803030" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#401010" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="wcb_hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F25555"/>
+      <stop offset="50%" stop-color="#D82020"/>
+      <stop offset="100%" stop-color="#A81010"/>
+    </linearGradient>
+    <linearGradient id="wcb_press" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#B01212"/>
+      <stop offset="100%" stop-color="#700808"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(0, 0)">
+    <rect x="0" y="0" width="26" height="19" fill="url(#wcb_norm)"/>
+  </g>
+  <g transform="translate(0, 19)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="url(#wcb_hot)" stroke="#FFA0A0" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 38)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="url(#wcb_press)" stroke="#500000" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 57)">
+    <rect x="0" y="0" width="26" height="19" fill="url(#wcb_norm)"/>
+  </g>
+  <g transform="translate(0, 76)">
+    <rect x="0" y="0" width="26" height="19" fill="url(#wcb_norm)"/>
+  </g>
+  <g transform="translate(0, 95)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="#A04040" stroke="#FFA0A0" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 114)">
+    <rect x="0.5" y="0.5" width="25" height="18" rx="2" fill="#702020" stroke="#500000" stroke-width="1"/>
+  </g>
+  <g transform="translate(0, 133)">
+    <rect x="0" y="0" width="26" height="19" fill="url(#wcb_norm)"/>
+  </g>
+</svg>
