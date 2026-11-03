@@ -1586,3 +1586,38 @@ the alpha byte is forced to 0xff outside the glass area (the frame when it is no
 margins) and kept inside it, and the surface's opaque region is set to the opaque area. Without the property nothing
 changes. dwmapi publishes the glass frame kind as the private broker attribute `DWM_ATTR_WINE_FRAME` (0 none, 1
 Windows 10/11, 2 Aero) so the shell can tell the compositor to round and shadow the frame.
+
+## dcomp: align with Wine-Staging conformance tests (2026-11-03)
+
+Wine `dlls/dcomp/{device.c,dcomp.spec,Makefile.in,tests/Makefile.in,tests/dcomp.c}`, `configure.ac`.
+Brings Wine's DirectComposition device implementation in line with the behavior validated by
+CodeWeavers' Wine-Staging DirectComposition test suite (Zhiyi Zhang):
+- Export validation: DCompositionCreateDevice accepts only IID_IDCompositionDevice (returning
+  E_NOINTERFACE otherwise); DCompositionCreateDevice2 and DCompositionCreateDevice3 accept
+  IID_IDCompositionDevice and IID_IDCompositionDesktopDevice; NULL out pointer returns E_INVALIDARG
+  for all three creation exports, CreateTargetForHwnd, and CreateVisual (patches 0003, 0005, 0006, 0022).
+- Version-gated QueryInterface: device QI exposes IDCompositionDevice2 and IDCompositionDesktopDevice
+  only on version >= 2 devices, and IDCompositionDevice3 on version >= 3 devices. Visuals created
+  from a v1 device reject IDCompositionVisual2 with E_NOINTERFACE (patches 0009, 0011, 0067).
+- Argument validation: CreateTargetForHwnd rejects GetDesktopWindow() with E_INVALIDARG (0008);
+  SetRoot returns E_INVALIDARG if the visual is already the root of another target (0015);
+  SetBackFaceVisibility validates the enum values (0039); AddVisual returns E_INVALIDARG without
+  silent reparenting if the visual is already a child or a root (0039) and does not take an extra
+  COM reference on pending child visuals; SetContent validates that content supports swapchain or
+  surface interfaces or returns E_INVALIDARG (0013, 0051).
+- SetOffsetX/SetOffsetY over-validation removed: any float is accepted and stored (0043).
+- Target window property safety: replaces target object pointer in the window property table with
+  a sentinel value (HANDLE)1, avoiding cross-process pointer leaks.
+- Conformance test suite: ported 12 unit tests from staging covering device creation, targets,
+  visuals, SetRoot, SetContent, SetOffsetX, AddVisual, and enum validation.
+
+## uxtheme, dwmapi: composited text, buffered paint alpha, DWM attribute accuracy (2026-11-03)
+
+Wine `dlls/uxtheme/{draw.c,buffer.c,uxthemedll.h,tests/glass.c,tests/Makefile.in}`, `dlls/dwmapi/dwmapi_main.c`.
+- DrawThemeTextEx honours DTT_COMPOSITED, DTT_GLOWSIZE, DTT_CALCRECT and the colour properties (glow
+  and shadow on glass title text).
+- Buffered paint keeps per-pixel alpha: BPPF_ERASE clears the buffer, BufferedPaintSetAlpha works on
+  the glass bitmap.
+- DwmIsCompositionEnabled reports the real gate state; DwmGetWindowAttribute round-trips FLIP3D_POLICY
+  and EXCLUDED_FROM_PEEK; DwmGetColorizationParameters returns the theme colours.
+- New test `uxtheme/tests/glass.c`.
