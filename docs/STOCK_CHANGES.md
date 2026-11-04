@@ -1657,5 +1657,5 @@ Wine `dlls/dcomp/{device.c,tests/dcomp.c,tests/Makefile.in}`, `dlls/dxgi/swapcha
 surface content but no swapchain gets a lazily created 1x1 composition swapchain as producer (revoked when a real
 swapchain layer appears or the scene goes away). dxgi snapshots a surface through a D3D11 staging copy into
 `wined3d_dcomp_frame_create_from_pixels` (replaces `_create_from_texture`, which acquired a GL context off the CS thread
-and asserted); wined3d takes its own frame references. A never-drawn surface composes as nothing. Open: the
-surface-composition test's three pixel checks are todo_wine (window stays white); dcomp 941 tests, 0 failures.
+and asserted); wined3d takes its own frame references. A never-drawn surface composes as nothing. Verified on screen with X grabs (`scripts/check-dcomp-surface-screen.sh`): green, then yellow after Commit; the
+test's three GetPixel checks stay todo_wine because winex11 presents GL to a child drawable GDI does not read; dcomp 941 tests, 0 failures.
