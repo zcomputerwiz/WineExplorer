@@ -280,6 +280,42 @@ Phase P5 v14 extends `wex_window_manager_v1` to version 14 with `set_thumbnails`
 2. **Conditional Dispatch**: Dispatches only when at least one manager resource is bound at version $\ge 14$, imposing zero per-frame cost when inactive.
 3. **Timestamp & Counter**: Sends 32-bit incremental frame counter along with `CLOCK_MONOTONIC` split into `sec_hi`, `sec_lo`, and `nsec`, providing a stable composed-frame clock for client-side DWM synchronization.
 
+---
+
+## 8. Frame Pacing, Presentation Feedback, and Latency Optimization
+
+### 8.1 Presentation Feedback (`wp_presentation`)
+1. **Global Creation**: `wlr_presentation` is initialized in `server.c` on compositor startup (`wlr_presentation_create(server->wl_display, server->backend)`), advertising the standard `wp_presentation` interface (v1) with `CLOCK_MONOTONIC`.
+2. **Surface & Mirror Delivery**: Wlroots scene graph integrates presentation feedback through `output_sample` events emitted on each visible buffer node.
+   - For regular windows, the main surface's buffer node receives the feedback event.
+   - For live thumbnails, mirrors created via `wlr_scene_surface_create` are distinct scene buffer nodes. Minimized or hidden source windows keep receiving `frame_done` and presentation feedback when visible in an active thumbnail because their thumbnail mirror remains enabled on the scene output.
+   - For windows visible both normally and as thumbnails, `wlr_surface_send_frame_done` drains the pending frame callback list once; redundant delivery attempts are harmless no-ops.
+
+### 8.2 Frame Scheduling and Idle Zero-Damage Optimization
+1. **Damage-Driven Scheduling**: Output frames are rendered exclusively when damage is present or when a client explicitly requests a frame callback via `wlr_output_schedule_frame`.
+2. **Zero-Damage Thumbnail Refresh**: On every output commit, `wex_window_manager_on_output_commit` invokes `wex_window_manager_refresh_thumbnails` to sync subsurfaces and hosted native surfaces. To prevent busy-rendering loops:
+   - `apply_thumbnail_geometry` inspects the mirror buffer's actual properties (`dst_width`, `dst_height`, `node.x`, `node.y`, `src_box`, `opacity`, `enabled`).
+   - If geometry, crop, and opacity have not changed, all scene-graph node modification calls (`wlr_scene_buffer_set_*`, `wlr_scene_node_set_*`) are bypassed.
+   - Consequently, no scene damage is posted and no extra output frames are scheduled when idle, ensuring 0 output commits during idle intervals.
+
+### 8.3 Latency Reduction: Late-Frame Latch (`max_render_time`)
+1. **Config Key**: Optional setting `<core><maxRenderTime>0</maxRenderTime></core>` (default `0` = off, preserving immediate rendering).
+2. **Timing Delay**: When `max_render_time > 0`, the compositor measures the interval since the last output presentation (`output->last_presentation`) and the known refresh duration (`output->refresh_nsec`), calculating predicted milliseconds until next VBlank (`msec_until_refresh`).
+3. **Timer Dispatch**: If `delay = msec_until_refresh - rc.max_render_time >= 1`, rendering is held back via a timer (`output->repaint_timer`) until `max_render_time` milliseconds before the expected VBlank, sampling the freshest client state immediately before scanout.
+
+### 8.4 Content-Type Hints (`wp_content_type_v1`)
+1. **Protocol Integration**: `wp_content_type_v1` is compiled into `server_protos` from the wayland-protocols staging specification.
+2. **Global Advertisement**: `wlr_content_type_manager_v1_create(server->wl_display, 1)` in `server.c` advertises `wp_content_type_manager_v1` to all Wayland clients.
+3. **Client Advertising**: Allows video players and Wine games to advertise content types (`video`, `game`, `photo`), enabling compositor and DRM-level display optimizations (e.g. ALLM / Game Mode on compatible HDMI/DP sinks).
+
+### 8.5 Test Verification
+
+| Test | Objective | Verification Method |
+| --- | --- | --- |
+| `Frame Pacing: Zero output commits when idle over ~1s` | Verifies the compositor generates zero damage and schedules zero frames when active windows and live thumbnails are idle over ~1 second, and immediately resumes scheduling on surface damage. | Scenario `idle` in `corner-client.c` monitoring `wex_window_manager_v1.frame` events during a 1.0 s sleep followed by a buffer commit. |
+| `Content Type: wp_content_type_v1 global advertised` | Verifies `wp_content_type_manager_v1` is advertised by the compositor on the normal Wayland socket. | Scenario `content-type` in `corner-client.c` querying registry on `wayland-0`. |
+
+---
 
 ## Fractional scale handling
 
