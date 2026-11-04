@@ -36,6 +36,7 @@
 @ stdcall WexWmSetEffects(str long long long long ptr)
 @ stdcall WexWmApplyEffects(long ptr ptr)
 @ stdcall WexWmGetEffectScale(long)
+@ stdcall WexWmGetEffectIdentity(long ptr)
 @ stdcall WexWmSetClock(ptr ptr)
 @ stdcall WexWmWaitFrame(ptr long)
 @ stdcall WexWmSetThumbnails(ptr long)

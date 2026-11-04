@@ -16,7 +16,10 @@
 #include "wexhost_unix.h"
 
 static pthread_mutex_t backend_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t backend_cond = PTHREAD_COND_INITIALIZER;
 static const struct wm_backend_ops *backend;
+enum wm_state { WM_STOPPED, WM_STARTING, WM_RUNNING, WM_STOPPING };
+static enum wm_state backend_state;
 
 static const struct wm_backend_ops *get_backend(void)
 {
@@ -46,12 +49,18 @@ NTSTATUS wm_start_ex(void *args)
     else
     {
         pthread_mutex_lock(&backend_mutex);
-        if (backend) params->err = ERROR_ALREADY_EXISTS;
+        while (backend_state == WM_STOPPING) pthread_cond_wait(&backend_cond, &backend_mutex);
+        if (backend_state != WM_STOPPED) params->err = ERROR_ALREADY_EXISTS;
         else
         {
+            backend_state = WM_STARTING;
+            pthread_mutex_unlock(&backend_mutex);
             ops->start(&start);
+            pthread_mutex_lock(&backend_mutex);
             params->err = start.err;
-            if (!start.err) backend = ops;
+            if (!start.err) { backend = ops; backend_state = WM_RUNNING; }
+            else backend_state = WM_STOPPED;
+            pthread_cond_broadcast(&backend_cond);
         }
         pthread_mutex_unlock(&backend_mutex);
     }
@@ -200,13 +209,26 @@ NTSTATUS wm_binding(void *args)
 NTSTATUS wm_stop(void *args)
 {
     struct wm_stop_params *params = args;
-    const struct wm_backend_ops *ops = get_backend();
+    const struct wm_backend_ops *ops;
     params->err = ERROR_SUCCESS;
+    pthread_mutex_lock(&backend_mutex);
+    while (backend_state == WM_STARTING || backend_state == WM_STOPPING)
+        pthread_cond_wait(&backend_cond, &backend_mutex);
+    if (backend_state != WM_RUNNING)
+    {
+        pthread_mutex_unlock(&backend_mutex);
+        return STATUS_SUCCESS;
+    }
+    ops = backend;
+    backend_state = WM_STOPPING;
+    pthread_mutex_unlock(&backend_mutex);
     /* next_event must be allowed to finish while the backend wakes/joins its
      * reader. Never hold the dispatch lock across that blocking operation. */
     if (ops) ops->stop(args);
     pthread_mutex_lock(&backend_mutex);
     if (backend == ops) backend = NULL;
+    backend_state = WM_STOPPED;
+    pthread_cond_broadcast(&backend_cond);
     pthread_mutex_unlock(&backend_mutex);
     return STATUS_SUCCESS;
 }

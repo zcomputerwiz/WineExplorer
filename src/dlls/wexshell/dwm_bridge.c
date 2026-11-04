@@ -68,6 +68,8 @@ struct pending
     DWORD rgn[2]; /* DWM_ATTR_WINE_RGN_LT, _RB */
     DWORD frame;  /* DWM_ATTR_WINE_FRAME: 0 none, 1 Windows 10/11 glass frame, 2 Aero */
     DWORD scale;  /* last applied Wayland scale, in thousandths */
+    WEX_WM_IDENTITY identity;
+    BOOL identity_valid;
     int tries;
 };
 
@@ -123,10 +125,12 @@ static BOOL materials_on;
 /* Called before starting the bridge, or after its thread has finished. */
 static void reset_bridge_state(void)
 {
+    DWORD err;
     memset( pending, 0, sizeof(pending) );
     thumb_list_count = 0;
     thumb_revision = 0;
-    WexWmApplyThumbnails( NULL, 0 );
+    err = WexWmApplyThumbnails( NULL, 0 );
+    if (err) WexWmApplyThumbnails( NULL, 0 ); /* one bounded retry for a remote scene clear */
 }
 
 /* DWMWCP_DEFAULT is square except for glass frames, which the compositor rounds; the corner policy of a theme era
@@ -203,11 +207,18 @@ static int apply_window( HWND hwnd, struct pending *p )
 {
     WEX_WINDOW_EFFECT effect;
     WEX_WM_EFFECT_RESULT result;
+    WEX_WM_IDENTITY identity;
 
     if (!IsWindow( hwnd )) return -1;
+    if (WexWmGetEffectIdentity( hwnd, &identity )) return 0;
     effect = pending_effect( p );
     WexWmApplyEffects( hwnd, &effect, &result );
-    if (!result.retry) p->scale = result.scale;
+    if (!result.retry)
+    {
+        p->scale = result.scale;
+        p->identity = identity;
+        p->identity_valid = TRUE;
+    }
     return !result.retry;
 }
 
@@ -220,9 +231,15 @@ static void retry_pending(void)
         int r;
         if (!pending[i].hwnd) continue;
         if (!IsWindow( pending[i].hwnd )) { pending[i].hwnd = NULL; continue; }
-        /* Scale/backend changes do not change the broker revision. Zero denotes X11/missing identity. */
-        if (!pending[i].tries && pending[i].scale != WexWmGetEffectScale( pending[i].hwnd ))
-            pending[i].tries = DWM_BRIDGE_RETRIES;
+        /* Identity changes do not change the broker revision. The broker
+         * carries the complete 32-bit HWND, including Wine generation bits. */
+        {
+            WEX_WM_IDENTITY identity;
+            BOOL changed = WexWmGetEffectIdentity( pending[i].hwnd, &identity ) != ERROR_SUCCESS;
+            if (!changed) changed = !pending[i].identity_valid ||
+                memcmp( &identity, &pending[i].identity, sizeof(identity) ) != 0;
+            if (changed) pending[i].tries = DWM_BRIDGE_RETRIES;
+        }
         if (!pending[i].tries) continue;
         r = apply_window( pending[i].hwnd, &pending[i] );
         if (r < 0) pending[i].hwnd = NULL;

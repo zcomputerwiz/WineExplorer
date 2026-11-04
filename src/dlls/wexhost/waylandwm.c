@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <wayland-client.h>
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
@@ -46,6 +47,7 @@ static struct native_window *windows;
 static struct queued_event *queue_head, *queue_tail;
 static char native_socket[108], native_xdisplay[128];
 static pthread_t reader;
+static int wake_pipe[2] = { -1, -1 };
 static BOOL running, reader_started, queue_stopped;
 static UINT64 next_id; /* never reuse an identifier after stop/restart */
 
@@ -77,6 +79,11 @@ static void stop_queue(void)
     queue_stopped = TRUE;
     pthread_cond_broadcast(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
+}
+static void wake_reader(void)
+{
+    char byte = 0;
+    if (wake_pipe[1] != -1) write(wake_pipe[1],&byte,1);
 }
 static void queue_event(struct native_window *window, DWORD type)
 {
@@ -342,20 +349,27 @@ static void *read_events(void *unused)
     pthread_mutex_lock(&wl_mutex);
     while (running)
     {
-        struct pollfd fd = {wl_display_get_fd(display),POLLIN,0};
+        struct pollfd fd[2] = {{wl_display_get_fd(display),POLLIN,0},{wake_pipe[0],POLLIN,0}};
         int ret;
         while (running && wl_display_prepare_read(display) < 0)
             if (wl_display_dispatch_pending(display) < 0) running = FALSE;
         if (!running) break;
         ret = wl_display_flush(display);
         if (ret < 0 && errno != EAGAIN) { wl_display_cancel_read(display); break; }
-        if (ret < 0) fd.events |= POLLOUT;
+        if (ret < 0) fd[0].events |= POLLOUT;
         pthread_mutex_unlock(&wl_mutex);
-        ret = poll(&fd,1,50);
+        ret = poll(fd,2,-1);
         pthread_mutex_lock(&wl_mutex);
-        if (ret > 0 && (fd.revents & POLLIN)) ret = wl_display_read_events(display);
+        if (ret > 0 && (fd[1].revents & POLLIN))
+        {
+            char buffer[64];
+            while (read(wake_pipe[0],buffer,sizeof(buffer)) > 0) ;
+            wl_display_cancel_read(display);
+            continue;
+        }
+        if (ret > 0 && (fd[0].revents & POLLIN)) ret = wl_display_read_events(display);
         else { wl_display_cancel_read(display); if (ret < 0 && errno == EINTR) ret = 0; }
-        if (ret < 0 || (fd.revents & (POLLERR|POLLHUP|POLLNVAL)) || wl_display_dispatch_pending(display) < 0) break;
+        if (ret < 0 || (fd[0].revents & (POLLERR|POLLHUP|POLLNVAL)) || wl_display_dispatch_pending(display) < 0) break;
     }
     running = FALSE;
     clock_disable();
@@ -373,6 +387,7 @@ static NTSTATUS wayland_stop(void *args)
     pthread_mutex_lock(&wl_mutex);
     running = FALSE;
     pthread_mutex_unlock(&wl_mutex);
+    wake_reader();
     if (reader_started) pthread_join(reader,NULL);
     reader_started = FALSE;
     stop_queue();
@@ -390,6 +405,9 @@ static NTSTATUS wayland_stop(void *args)
     if (registry) wl_registry_destroy(registry);
     if (display) wl_display_disconnect(display);
     display = NULL; registry = NULL; manager = NULL; inventory = NULL; seat = NULL;
+    if (wake_pipe[0] != -1) close(wake_pipe[0]);
+    if (wake_pipe[1] != -1) close(wake_pipe[1]);
+    wake_pipe[0] = wake_pipe[1] = -1;
     native_socket[0] = native_xdisplay[0] = 0;
     pthread_mutex_unlock(&wl_mutex);
     pthread_mutex_lock(&queue_mutex);
@@ -412,6 +430,7 @@ static NTSTATUS wayland_start(void *args)
     wl_registry_add_listener(registry,&registry_listener,NULL);
     for (i=0;i<3;i++) if (wl_display_roundtrip(display) < 0 || !running) goto failed;
     if (!manager || !inventory || !native_socket[0]) goto failed;
+    if (pipe(wake_pipe)) { wake_pipe[0] = wake_pipe[1] = -1; params->err = ERROR_NOT_ENOUGH_MEMORY; goto failed; }
     if (pthread_create(&reader,NULL,read_events,NULL)) { params->err = ERROR_NOT_ENOUGH_MEMORY; goto failed; }
     reader_started = TRUE;
     params->err = ERROR_SUCCESS;

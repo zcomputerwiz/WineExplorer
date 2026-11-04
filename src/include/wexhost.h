@@ -272,7 +272,8 @@ DWORD WINAPI WexWmRelease( UINT64 window, const RECT *screen );
 DWORD WINAPI WexWmGetTitle( UINT64 window, WCHAR *title, DWORD count );
 /* ARGB pixels, top-down, of the icon closest to size; ERROR_MORE_DATA when max pixels are not enough. */
 DWORD WINAPI WexWmGetIcon( UINT64 window, DWORD size, DWORD *pixels, DWORD max, DWORD *width, DWORD *height );
-/* Release every window to the root window and stop managing the display. */
+/* Release every window to the root window and stop managing the display.
+ * On a join timeout the handle is retained and GetLastError returns ERROR_TIMEOUT. */
 void  WINAPI WexWmStop( void );
 /* Synchronize X keyboard focus after switching a Win32 foreground window. */
 DWORD WINAPI WexWmFocus( UINT64 window );
@@ -306,9 +307,11 @@ typedef struct
 /* scale is zero for X11/missing identity, otherwise Wayland thousandths.
  * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */
 typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
+typedef struct { DWORD backend; UINT64 window; char handle[33]; } WEX_WM_IDENTITY;
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
 /* Current AUTO identity's scale: zero for X11/missing, Wayland thousandths otherwise. */
 DWORD WINAPI WexWmGetEffectScale( HWND hwnd );
+DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity );
 /* PE-only HWND input; geometry stays in Wine pixels until host adaptation.
  * Calls are serialized by the shell bridge. NULL/0 forces a clear and invalidates
  * the success-only Wayland sent cache, including both per-window scales. */

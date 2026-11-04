@@ -596,6 +596,20 @@ DWORD WINAPI WexAgentRespond( const char *cookie, const char *user, const char *
 }
 
 static HANDLE wm_thread;
+static CRITICAL_SECTION wm_lifetime_lock;
+static INIT_ONCE wm_lifetime_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK init_wm_lifetime_lock( INIT_ONCE *once, void *param, void **context )
+{
+    InitializeCriticalSection( &wm_lifetime_lock );
+    return TRUE;
+}
+
+static void lock_wm_lifetime(void)
+{
+    InitOnceExecuteOnce( &wm_lifetime_once, init_wm_lifetime_lock, NULL, NULL );
+    EnterCriticalSection( &wm_lifetime_lock );
+}
 static WEX_WM_CALLBACK wm_callback;
 static void *wm_context;
 
@@ -649,11 +663,23 @@ DWORD WINAPI WexWmStartEx( DWORD backend, UINT64 desktop_window, WEX_WM_CALLBACK
     struct wm_start_ex_params params = { desktop_window, backend };
 
     if (!unix_ready || !callback) return ERROR_NOT_SUPPORTED;
-    if (wm_thread) return ERROR_ALREADY_EXISTS;
+    lock_wm_lifetime();
+    if (wm_thread && WaitForSingleObject( wm_thread, 0 ) == WAIT_OBJECT_0)
+    {
+        CloseHandle( wm_thread );
+        wm_thread = NULL;
+    }
+    if (wm_thread) { LeaveCriticalSection( &wm_lifetime_lock ); return ERROR_ALREADY_EXISTS; }
     wm_callback = callback;
     wm_context = context;
     WEXHOST_CALL( wm_start_ex, &params );
-    if (params.err) return params.err;
+    if (params.err)
+    {
+        wm_callback = NULL;
+        wm_context = NULL;
+        LeaveCriticalSection( &wm_lifetime_lock );
+        return params.err;
+    }
     wm_thread = CreateThread( NULL, 0, wm_event_thread, NULL, 0, NULL );
     if (!wm_thread)
     {
@@ -661,8 +687,10 @@ DWORD WINAPI WexWmStartEx( DWORD backend, UINT64 desktop_window, WEX_WM_CALLBACK
         WEXHOST_CALL( wm_stop, &stop );
         wm_callback = NULL;
         wm_context = NULL;
+        LeaveCriticalSection( &wm_lifetime_lock );
         return ERROR_NOT_ENOUGH_MEMORY;
     }
+    LeaveCriticalSection( &wm_lifetime_lock );
     return ERROR_SUCCESS;
 }
 
@@ -809,6 +837,18 @@ DWORD WINAPI WexWmGetEffectScale( HWND hwnd )
 {
     struct wm_apply_effects_params params = { 0 };
     return effect_identity( hwnd, WEX_WM_BACKEND_AUTO, &params ) ? params.scale : 0;
+}
+
+DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity )
+{
+    struct wm_apply_effects_params params = { 0 };
+    if (!identity) return ERROR_INVALID_PARAMETER;
+    memset( identity, 0, sizeof(*identity) );
+    if (!effect_identity( hwnd, WEX_WM_BACKEND_AUTO, &params )) return ERROR_NOT_READY;
+    identity->backend = params.backend;
+    identity->window = params.window;
+    memcpy( identity->handle, params.handle, sizeof(identity->handle) );
+    return ERROR_SUCCESS;
 }
 
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result )
@@ -1096,14 +1136,24 @@ void WINAPI WexWmStop( void )
 
     MSG msg;
 
-    if (!unix_ready || !wm_thread) return;
+    if (!unix_ready) return;
+    lock_wm_lifetime();
+    if (!wm_thread) { LeaveCriticalSection( &wm_lifetime_lock ); return; }
     wayland_host_stop();
     WEXHOST_CALL( wm_stop, &params );
     /* the event thread may be sending its last events to this thread */
     while (MsgWaitForMultipleObjects( 1, &wm_thread, FALSE, 5000, QS_SENDMESSAGE ) == WAIT_OBJECT_0 + 1)
         PeekMessageW( &msg, NULL, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE );
+    if (WaitForSingleObject( wm_thread, 0 ) != WAIT_OBJECT_0)
+    {
+        SetLastError( ERROR_TIMEOUT );
+        LeaveCriticalSection( &wm_lifetime_lock );
+        return;
+    }
     CloseHandle( wm_thread );
     wm_thread = NULL;
+    SetLastError( ERROR_SUCCESS );
+    LeaveCriticalSection( &wm_lifetime_lock );
 }
 
 void WINAPI WexAgentStop( void )

@@ -150,6 +150,7 @@ static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
 static WEX_WM_EVENT queue[EVENT_QUEUE];
 static unsigned int queue_head, queue_count;
+static BOOL queue_stopped;
 
 static void load_library(void)
 {
@@ -829,9 +830,10 @@ static void *wm_loop( void *arg )
 
     fds[0].fd = ConnectionNumber( display );
     fds[1].fd = wake_pipe[0];
-    while (running)
+    for (;;)
     {
         pthread_mutex_lock( &x_mutex );
+        if (!running) { pthread_mutex_unlock( &x_mutex ); break; }
         while (running && pXPending( display ))
         {
             XEvent event;
@@ -907,7 +909,9 @@ NTSTATUS x11_wm_start( void *args )
 
     pthread_once( &load_once, load_library );
     if (!loaded) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
-    if (running) { params->err = ERROR_ALREADY_EXISTS; return STATUS_SUCCESS; }
+    pthread_mutex_lock( &x_mutex );
+    if (running) { pthread_mutex_unlock( &x_mutex ); params->err = ERROR_ALREADY_EXISTS; return STATUS_SUCCESS; }
+    pthread_mutex_unlock( &x_mutex );
     if (!(display = pXOpenDisplay( NULL ))) { params->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
 
     pthread_mutex_lock( &x_mutex );
@@ -941,14 +945,33 @@ NTSTATUS x11_wm_start( void *args )
     if (pipe( wake_pipe ))
     {
         wake_pipe[0] = wake_pipe[1] = -1;
+        pXCloseDisplay( display );
+        display = NULL;
+        params->err = ERROR_NOT_ENOUGH_MEMORY;
+        return STATUS_SUCCESS;
     }
     else
     {
         fcntl( wake_pipe[0], F_SETFL, O_NONBLOCK );
         fcntl( wake_pipe[1], F_SETFL, O_NONBLOCK );
     }
+    pthread_mutex_lock( &x_mutex );
     running = TRUE;
-    pthread_create( &loop_thread, NULL, wm_loop, NULL );
+    pthread_mutex_unlock( &x_mutex );
+    pthread_mutex_lock( &queue_mutex );
+    queue_stopped = FALSE;
+    pthread_mutex_unlock( &queue_mutex );
+    if (pthread_create( &loop_thread, NULL, wm_loop, NULL ))
+    {
+        pthread_mutex_lock( &x_mutex );
+        running = FALSE;
+        pthread_mutex_unlock( &x_mutex );
+        close( wake_pipe[0] ); close( wake_pipe[1] );
+        wake_pipe[0] = wake_pipe[1] = -1;
+        pXCloseDisplay( display ); display = NULL;
+        params->err = ERROR_NOT_ENOUGH_MEMORY;
+        return STATUS_SUCCESS;
+    }
     TRACE( "managing the display, desktop window %lx\n", desktop_window );
     params->err = ERROR_SUCCESS;
     return STATUS_SUCCESS;
@@ -959,7 +982,7 @@ NTSTATUS x11_wm_next_event( void *args )
     struct wm_next_event_params *params = args;
 
     pthread_mutex_lock( &queue_mutex );
-    while (!queue_count && running) pthread_cond_wait( &queue_cond, &queue_mutex );
+    while (!queue_count && !queue_stopped) pthread_cond_wait( &queue_cond, &queue_mutex );
     if (queue_count)
     {
         params->event = queue[queue_head];
@@ -1356,6 +1379,7 @@ NTSTATUS x11_wm_stop( void *args )
     pthread_join( loop_thread, NULL );
 
     pthread_mutex_lock( &queue_mutex );
+    queue_stopped = TRUE;
     pthread_cond_broadcast( &queue_cond );
     pthread_mutex_unlock( &queue_mutex );
 

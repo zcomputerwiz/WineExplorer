@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="1260" viewBox="0 0 1600 1260">
+  <rect width="1600" height="1260" fill="#f4f5f7"/>
+  <text x="48" y="58" font-family="Segoe UI,Arial" font-size="34" font-weight="700" fill="#1f2937">Windows XP / Luna — reference resources vs open pack</text>
+  <text x="48" y="92" font-family="Segoe UI,Arial" font-size="18" fill="#4b5563">Reference: extracted XP resource sheets in references/xp_resources_sheets. Open: docs/iconpacks/xp-preview.png (Windows Explorer and Control Panel icon pack).</text>
+  <rect x="40" y="125" width="730" height="1080" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <rect x="810" y="125" width="750" height="1080" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="70" y="175" font-family="Segoe UI,Arial" font-size="25" font-weight="700" fill="#111827">Reference icons</text>
+  <text x="70" y="204" font-family="Segoe UI,Arial" font-size="16" fill="#6b7280">Extracted official XP resources; each sheet retains its source layout.</text>
+  <image x="70" y="230" width="670" height="300" preserveAspectRatio="xMidYMid meet" xlink:href="../../../references/xp_resources_sheets/setupapi_icons.png"/>
+  <text x="70" y="555" font-family="Segoe UI,Arial" font-size="17" font-weight="600" fill="#374151">setupapi_icons.png — hardware / device-class imagery</text>
+  <image x="70" y="590" width="670" height="260" preserveAspectRatio="xMidYMid meet" xlink:href="../../../references/xp_resources_sheets/devmgr_bitmaps.png"/>
+  <text x="70" y="875" font-family="Segoe UI,Arial" font-size="17" font-weight="600" fill="#374151">devmgr_bitmaps.png — Device Manager bitmap resources</text>
+  <image x="70" y="910" width="670" height="250" preserveAspectRatio="xMidYMid meet" xlink:href="../../../references/xp_resources_sheets/mmcndmgr_bitmaps.png"/>
+  <text x="70" y="1185" font-family="Segoe UI,Arial" font-size="17" font-weight="600" fill="#374151">mmcndmgr_bitmaps.png — MMC / management-console imagery</text>
+  <text x="840" y="175" font-family="Segoe UI,Arial" font-size="25" font-weight="700" fill="#111827">Open equivalent</text>
+  <text x="840" y="204" font-family="Segoe UI,Arial" font-size="16" fill="#6b7280">The current open XP/Luna mapping, rendered at 48 px per icon.</text>
+  <image x="840" y="230" width="690" height="690" preserveAspectRatio="xMidYMid meet" xlink:href="../xp-preview.png"/>
+  <rect x="850" y="950" width="670" height="190" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="875" y="990" font-family="Segoe UI,Arial" font-size="19" font-weight="700" fill="#1e3a8a">Coverage note</text>
+  <text x="875" y="1025" font-family="Segoe UI,Arial" font-size="16" fill="#1e40af">The open pack covers the mapped shell / app / Control Panel IDs in</text>
+  <text x="875" y="1050" font-family="Segoe UI,Arial" font-size="16" fill="#1e40af">assets/iconpacks/xp.json. Reference-only families are listed in</text>
+  <text x="875" y="1075" font-family="Segoe UI,Arial" font-size="16" fill="#1e40af">docs/iconpacks/era-comparison.md; this sheet does not claim pixel identity.</text>
+</svg>

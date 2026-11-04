@@ -516,6 +516,46 @@ The first layout-check script rejected `keep[64][32]` because its declaration
 parser handled only one array dimension; accepting all dimensions and multiplying
 their extents fixed the checker, and both alignment runs then passed.
 
+## Follow-up lifecycle and identity fixes (2026-11-04)
+
+- `dwm_bridge.c` now caches the exact `(HWND, identity)` pair: the identity is
+  the current XID or the complete 32-character Wayland handle. The broker HWND
+  remains a full 32-bit value, so Wine's upper generation bits are not lost.
+  Every retry poll compares identity, not only scale, and reapplies effects when
+  an X window or Wayland surface is replaced. Native-surface replacement is
+  therefore intentionally refreshed through the same path.
+- `wm.c` now owns one STOPPED/STARTING/RUNNING/STOPPING state machine and
+  condition variable for both backends. Start waits for STOPPING; stop owns the
+  transition and never races a backend start. X11 and Wayland each wake their
+  reader before joining; their wake descriptors are closed only after join.
+  `WexWmStop` retains the PE event-thread handle if its 5-second wait expires
+  and reports `ERROR_TIMEOUT` through `GetLastError`; a later stop can join it,
+  and start cannot replace it prematurely.
+- Mixed-session Peek keep-list collection retains the historical handle-first
+  and X11 early-stop behavior. Failed remote thumbnail/scene clears receive one
+  bounded retry during bridge reset; a persistent failure is not spun on.
+
+Runtime scenarios required before acceptance:
+
+1. Start and stop X11 concurrently from multiple callers, then repeat rapid
+   stop/start; verify no stale thread, closed-pipe poll, X error, or leaked
+   thread handle.
+2. Repeat the same concurrency and rapid restart test with Wayland; verify the
+   reader exits immediately on its wake pipe and the next start gets a fresh
+   connection.
+3. Keep one HWND alive while replacing its XID, then its Wayland handle/native
+   surface; without a new broker attribute revision, verify corner, backdrop,
+   tint, region, and shadow are reapplied to the replacement.
+4. Destroy and rapidly recreate a window in the same USER slot; verify the
+   differing full-generation HWND does not inherit the old applied state.
+5. Exercise mixed X11/Wayland sessions and both iconic-picture and target Peek;
+   verify the historical keep-list selection and limits remain unchanged.
+6. Force the remote scene clear to fail once and then succeed, and fail twice;
+   verify exactly one retry, clean shutdown, and no unbounded retry loop.
+7. Let the PE event callback block past five seconds during stop; verify stop
+   retains the handle, a later stop joins it, and start refuses replacement
+   until that join completes.
+
 ## Slice 1 exact argument contracts
 
 Let `T = p->tint` (ABGR), `R` be the four signed 16-bit halves of `p->rgn[0..1]`
