@@ -332,3 +332,12 @@ Phase P5 v14 extends `wex_window_manager_v1` to version 14 with `set_thumbnails`
 - This change has static validation only. Runtime checks still needed: WoW64 builds; destination/source at
   different 125%/150% scales; nonzero and negative crop origins; moving either window between outputs without
   updating thumbnail properties; corner/blur refresh; Peek activation/restoration; and scale-1 regression.
+
+## Iconic Peek on Wayland (2026-11-04)
+
+Iconic thumbnails and Peek bitmaps already use one backend-neutral path: `taskband_preview.c` copies the iconic
+sections written by `DwmSetIconicThumbnail` / `DwmSetIconicLivePreviewBitmap` into GDI bitmaps and paints them in
+ordinary shell popups (`show_iconic_peek`). On Wayland the popup's shared handle is published only after its first
+commit, so `WexWmPeekWindow` returned `ERROR_NOT_READY` and Peek never started. `start_peek` now retries every 50 ms
+for up to 1 s (`TIMER_PEEK_RETRY`); `end_peek` cancels it. Build-verified; runtime check pending (hover a taskbar
+button of an iconic window on X11 and Wayland with TaskbarPeek=1, and with every gate off).

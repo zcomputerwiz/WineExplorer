@@ -142,7 +142,11 @@ void draw_iconic( HDC dc, HBITMAP bitmap, const RECT *rect, HWND hwnd, BOOL fram
 #define PEEK_DELAY_MS    600
 #define LEAVE_DELAY_MS   300
 
-enum { TIMER_SHOW = 1, TIMER_PEEK, TIMER_LEAVE };
+enum { TIMER_SHOW = 1, TIMER_PEEK, TIMER_LEAVE, TIMER_PEEK_RETRY };
+/* A Wayland session publishes the picture's shared handle after its first commit: retry Peek briefly. */
+#define PEEK_RETRY_MS    50
+#define PEEK_RETRIES     20
+static unsigned int peek_retries;
 
 static HWND preview_hwnd, preview_target, preview_band;
 static HTHUMBNAIL preview_thumb;
@@ -171,6 +175,8 @@ static void end_peek(void)
     if (peek_hwnd) ShowWindow( peek_hwnd, SW_HIDE );
     if (peek_bitmap) DeleteObject( peek_bitmap );
     peek_bitmap = NULL;
+    if (preview_hwnd) KillTimer( preview_hwnd, TIMER_PEEK_RETRY );
+    peek_retries = 0;
     if (!peeking) return;
     WexWmPeekWindow( NULL, NULL );
     peeking = FALSE;
@@ -254,7 +260,20 @@ static HWND show_iconic_peek(void)
 static void start_peek(void)
 {
     HWND shown = show_iconic_peek();
-    peeking = !WexWmPeekWindow( preview_target, shown );
+    DWORD err = WexWmPeekWindow( preview_target, shown );
+
+    peeking = !err;
+    peek_retries = 0;
+    if (err == ERROR_NOT_READY) SetTimer( preview_hwnd, TIMER_PEEK_RETRY, PEEK_RETRY_MS, NULL );
+}
+
+static void retry_peek(void)
+{
+    DWORD err = WexWmPeekWindow( preview_target, peek_hwnd && IsWindowVisible( peek_hwnd ) ? peek_hwnd : NULL );
+
+    peeking = !err;
+    if (err == ERROR_NOT_READY && ++peek_retries < PEEK_RETRIES)
+        SetTimer( preview_hwnd, TIMER_PEEK_RETRY, PEEK_RETRY_MS, NULL );
 }
 
 static BOOL previews_enabled(void)
@@ -332,6 +351,7 @@ static LRESULT CALLBACK preview_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         KillTimer( hwnd, wparam );
         if (wparam == TIMER_SHOW) show_preview();
         else if (wparam == TIMER_PEEK) start_peek();
+        else if (wparam == TIMER_PEEK_RETRY) retry_peek();
         else if (wparam == TIMER_LEAVE)
         {
             POINT pt;
