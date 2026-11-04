@@ -1640,3 +1640,12 @@ Device2/Device3/desktop devices (formats B8G8R8A8, R8G8B8A8, R16G16B16A16F; alph
 device, whole-surface first draw, busy error reported before rectangle validation). Surface content is not yet
 composed onto targets; virtual surfaces, SuspendDraw, ResumeDraw and Scroll stay stubs. Tests ported from
 staging; dcomp test 917/917 on x86_64 and i386.
+
+## dcomp, dxgi, d3d11, wined3d: surface content in the retained composition (P7b slice 1, 2026-11-04)
+
+Wine `dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/d3d11/{texture.c,d3d11_private.h}`,
+`dlls/wined3d/{swapchain.c,wined3d.spec}`, `include/wine/{wined3d.h,winedxgi.idl}`. A DirectComposition surface is
+accepted as visual content; builtin interfaces `IWineDCompSurface` (physical texture, content valid after EndDraw)
+and `IWineD3D11Texture` (wined3d texture) let dxgi turn the last ended draw into a retained frame through the new
+`wined3d_dcomp_frame_create_from_texture` / `wined3d_dcomp_frame_release` exports. Not presented yet without a
+swapchain producer (slice 2, in progress); dcomp tests 917/917 on x86_64 and i386.
