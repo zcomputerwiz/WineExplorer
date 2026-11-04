@@ -40,7 +40,7 @@ The optimized API is `wlr_scene_optimized_blur_create(parent, width, height)` pl
 created on first Mica use, sized to the output layout) sits on top of `desktop_tree`; SceneFX caches the blur of
 everything below it (wallpaper and desktop windows). Mica rects stay in their window's tree with
 `wlr_scene_rect_set_backdrop_blur_optimized()` and draw that cache, so normal windows never enter the Mica sample.
-The cache is resized and raised when a Mica window updates; it is not re-marked dirty on later desktop-layer commits.
+The cache is resized and raised when a Mica window updates and is marked dirty on every desktop-layer commit and when a window moves into the desktop layer.
 
 ### The experiment (done): SceneFX needs EGL, not necessarily a GPU
 
@@ -123,7 +123,7 @@ Backdrop blur adoption via SceneFX 0.3 is complete and verified. The default shi
 
 ### Test Results
 - **Default build regression test**: `tests/wex/run-effects.sh` passes **32/32 tests** cleanly.
-- **SceneFX blur test**: `tests/wex/run-blur.sh` passes **15/15** under llvmpipe software GLES2 (2026-11-04), default build `run-effects.sh` 34/34:
+- **SceneFX blur test**: `tests/wex/run-blur.sh` passes **17/17** under llvmpipe software GLES2 (2026-11-04), default build `run-effects.sh` 34/34:
   - Outside pixels (635, 100) and (645, 100) stay pure white `(255, 255, 255)` and black `(0, 0, 0)`.
   - Without blur (`backdrop none`), inside pixels equal outside pixels `(255, 255, 255)` and `(0, 0, 0)`.
   - With blur active (`backdrop blur`), inside white pixel dims to `(180, 180, 180)` and inside black pixel brightens to `(91, 91, 91)` across the edge.
