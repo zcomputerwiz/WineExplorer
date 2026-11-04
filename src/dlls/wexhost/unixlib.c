@@ -2549,7 +2549,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     composition_get,
     composition_shadow,
     composition_corner,
-    composition_clock,
+    composition_clock, /* retired export; reserved stub, do not shift indices */
     composition_clock_wait,
     composition_thumbs,
     composition_peek,
@@ -2645,7 +2645,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     composition_get,
     composition_shadow,
     composition_corner,
-    composition_clock,
+    composition_clock, /* retired export; reserved stub, do not shift indices */
     composition_clock_wait,
     composition_thumbs,
     composition_peek,

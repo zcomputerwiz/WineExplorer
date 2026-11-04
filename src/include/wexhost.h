@@ -307,6 +307,7 @@ typedef struct
  * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */
 typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
+/* Current AUTO identity's scale: zero for X11/missing, Wayland thousandths otherwise. */
 DWORD WINAPI WexWmGetEffectScale( HWND hwnd );
 /* PE-only HWND input; geometry stays in Wine pixels until host adaptation.
  * Calls are serialized by the shell bridge. NULL/0 forces a clear and invalidates
@@ -345,7 +346,6 @@ DWORD WINAPI WexCompositionGetEnabled( BOOL *enabled );
 DWORD WINAPI WexCompositionSetShadow( UINT64 xwindow, BOOL shadow );
 /* radius 0-16, or square even where the default is round (a glass frame) */
 #define WEX_CORNER_SQUARE  0x100
-DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
 #define WEX_BACKDROP_NONE  0
 #define WEX_BACKDROP_MICA  1
 #define WEX_BACKDROP_BLUR  2       /* live blur of what is below (Aero glass, ACCENT_ENABLE_BLURBEHIND) */
@@ -354,21 +354,12 @@ DWORD WINAPI WexCompositionSetCorner( UINT64 xwindow, DWORD radius );
 #define WEX_BACKDROP_DARK  0x100   /* flag: dark tint */
 #define WEX_BACKDROP_TINT  0x200   /* flag: tint is the color over the backdrop (0xAABBGGRR), not the default */
 #define WEX_BACKDROP_REGION 0x400  /* flag: the blur covers region only (left, top, right, bottom; client area) */
-DWORD WINAPI WexCompositionSetBackdrop( UINT64 xwindow, DWORD backdrop, DWORD tint, const RECT *region );
 /* Live thumbnails (DWM P8): the whole list, replaced on each call. Rectangles are left, top, right, bottom;
  * dest relative to the destination window, source relative to the source window. */
 #define WEX_THUMB_VISIBLE    0x1
 #define WEX_THUMB_HAS_SOURCE 0x4
 #define WEX_THUMB_MAX        80
 struct compose_thumb { UINT64 dest_window; UINT64 src; UINT32 flags; UINT32 opacity; INT32 dest[4]; INT32 source[4]; };
-DWORD WINAPI WexCompositionSetThumbnails( const struct compose_thumb *thumbs, DWORD count );
-/* Peek (DWM P11c): draw only the desktop, target and up to 8 keep windows (X window ids); target 0 ends it */
-DWORD WINAPI WexCompositionSetPeek( UINT64 target, const UINT64 *keep, DWORD count );
-/* Frame clock (docs/DWM_ARCHITECTURE.md section 2.3): the compositor publishes one record per composed frame
- * into the shared page and pulses the event. page is a struct dwm_clock_page (wine/dwm_protocol.h); a NULL
- * page turns the clock off. */
-DWORD WINAPI WexCompositionSetClock( void *page, HANDLE event );
-DWORD WINAPI WexCompositionWaitFrame( UINT64 *generation, DWORD timeout_ms );
 
 /* Setup (setup.exe, oobe.exe): locale1 locale and keyboard layout; root's password; a new account through
  * AccountsService (account_type 1: administrator), with its password when one is given; session and automatic logon. */

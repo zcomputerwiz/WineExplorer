@@ -63,6 +63,17 @@ static pthread_mutex_t clock_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t clock_cond = PTHREAD_COND_INITIALIZER;
 static UINT64 clock_generation;
 
+/* Callers serialize writers and page detach with their backend mutex. The
+ * acquire on the odd transition also keeps following field stores after it. */
+void compose_clock_publish( struct dwm_clock_page *page, UINT32 flags, UINT64 frame, INT64 qpc )
+{
+    __atomic_add_fetch( &page->seq, 1, __ATOMIC_ACQ_REL );
+    page->flags = flags;
+    page->frame = frame;
+    page->qpc_composed = qpc;
+    __atomic_add_fetch( &page->seq, 1, __ATOMIC_RELEASE );
+}
+
 /* Wakes the waiters below: a frame was composed (the Wayland backend calls this too) */
 void compose_clock_wake(void)
 {
@@ -1319,26 +1330,13 @@ DWORD compose_corner( unsigned long id, unsigned int radius )
     return ERROR_SUCCESS;
 }
 
-/* seqlock write: make seq odd, publish the fields, make seq even. The release barriers order the field
- * writes before the even seq, which the readers acquire. There is a single writer (the WM loop thread). */
-static void clock_publish( UINT32 flags, UINT64 frame, INT64 qpc_composed )
-{
-    struct dwm_clock_page *page = clock_page;
-    if (!page) return;
-    __atomic_add_fetch( &page->seq, 1, __ATOMIC_RELEASE );
-    page->flags = flags;
-    page->frame = frame;
-    page->qpc_composed = qpc_composed;
-    __atomic_add_fetch( &page->seq, 1, __ATOMIC_RELEASE );
-}
-
 /* one composed frame: bump the counter, stamp it, and wake the waiters */
 static void clock_tick(void)
 {
     LARGE_INTEGER now;
     if (!clock_page) return;
     NtQueryPerformanceCounter( &now, NULL );
-    clock_publish( clock_page->flags | DWM_CLOCK_COMPOSED, clock_page->frame + 1, now.QuadPart );
+    compose_clock_publish( clock_page, clock_page->flags | DWM_CLOCK_COMPOSED, clock_page->frame + 1, now.QuadPart );
     compose_clock_wake();
 }
 
@@ -1346,7 +1344,7 @@ static void clock_tick(void)
 static void clock_disable(void)
 {
     if (!clock_page) return;
-    clock_publish( clock_page->flags & ~DWM_CLOCK_COMPOSED, clock_page->frame, clock_page->qpc_composed );
+    compose_clock_publish( clock_page, clock_page->flags & ~DWM_CLOCK_COMPOSED, clock_page->frame, clock_page->qpc_composed );
     compose_clock_wake();
 }
 

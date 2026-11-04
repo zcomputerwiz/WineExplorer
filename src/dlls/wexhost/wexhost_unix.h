@@ -183,8 +183,10 @@ extern NTSTATUS wm_clock(void *args);
 extern NTSTATUS wm_clock_wait(void *args);
 extern NTSTATUS wm_wait_frame(void *args);
 /* the Wayland frame clock: the shared page is filled on every frame event of the compositor (DwmFlush) */
-extern BOOL wayland_wm_set_clock(void *page);
+extern DWORD wayland_wm_set_clock(void *page);
 extern BOOL wayland_wm_composition(void);
+struct dwm_clock_page;
+extern void compose_clock_publish(struct dwm_clock_page *page, UINT32 flags, UINT64 frame, INT64 qpc);
 extern void compose_clock_wake(void);
 extern NTSTATUS wm_binding(void *args);
 extern NTSTATUS wm_native_info(void *args);
@@ -232,8 +234,8 @@ struct composition_thumbs_params { UINT64 thumbs; DWORD count; DWORD err; };
 extern NTSTATUS composition_thumbs(void *args);
 struct composition_peek_params { UINT64 target; UINT64 keep; DWORD count; DWORD err; };
 extern NTSTATUS composition_peek(void *args);
-/* page is a struct dwm_clock_page (wine/dwm_protocol.h) mapped into this process; a NULL page turns the clock
- * off. event is pulsed once per composed frame. Both are kept on the Unix side and used under x_mutex. */
+/* Retired clock transport, retained for its reserved Unixlib slot. New callers
+ * use wm_clock_params and detach before releasing their mapped page. */
 struct composition_clock_params { UINT64 page; UINT64 event; DWORD err; };
 extern NTSTATUS composition_clock(void *args);
 struct composition_clock_wait_params { UINT64 generation; DWORD timeout_ms; };

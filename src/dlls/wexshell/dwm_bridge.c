@@ -120,6 +120,15 @@ static HDESK bridge_desktop;
 static struct pending pending[DWM_BRIDGE_PENDING];
 static BOOL materials_on;
 
+/* Called before starting the bridge, or after its thread has finished. */
+static void reset_bridge_state(void)
+{
+    memset( pending, 0, sizeof(pending) );
+    thumb_list_count = 0;
+    thumb_revision = 0;
+    WexWmApplyThumbnails( NULL, 0 );
+}
+
 /* DWMWCP_DEFAULT is square except for glass frames, which the compositor rounds; the corner policy of a theme era
  * comes with the open styles (P13) */
 static DWORD corner_radius( DWORD preference )
@@ -198,7 +207,7 @@ static int apply_window( HWND hwnd, struct pending *p )
     if (!IsWindow( hwnd )) return -1;
     effect = pending_effect( p );
     WexWmApplyEffects( hwnd, &effect, &result );
-    if (!result.retry && result.scale) p->scale = result.scale;
+    if (!result.retry) p->scale = result.scale;
     return !result.retry;
 }
 
@@ -211,8 +220,8 @@ static void retry_pending(void)
         int r;
         if (!pending[i].hwnd) continue;
         if (!IsWindow( pending[i].hwnd )) { pending[i].hwnd = NULL; continue; }
-        /* A scale event does not change the broker revision. Refresh already applied effects as well. */
-        if (pending[i].scale && !pending[i].tries && pending[i].scale != WexWmGetEffectScale( pending[i].hwnd ))
+        /* Scale/backend changes do not change the broker revision. Zero denotes X11/missing identity. */
+        if (!pending[i].tries && pending[i].scale != WexWmGetEffectScale( pending[i].hwnd ))
             pending[i].tries = DWM_BRIDGE_RETRIES;
         if (!pending[i].tries) continue;
         r = apply_window( pending[i].hwnd, &pending[i] );
@@ -299,6 +308,7 @@ static DWORD WINAPI bridge_proc( void *arg )
 
         retry_pending();
         if (WexDwmpPoll( revision, cursor, buf, &len ) || len < sizeof(*reply) ||
+            reply->count > DWM_POLL_MAX_CHANGES ||
             len < sizeof(*reply) + reply->count * sizeof(*changes))
         {
             /* no broker (or it restarted): ask for the whole table again when it is back */
@@ -337,10 +347,7 @@ void dwm_bridge_start(void)
                       RRF_RT_REG_DWORD, NULL, &enabled, &size ) || !enabled) return;
     if (!(bridge_desktop = GetThreadDesktop( GetCurrentThreadId() ))) return;
     if (!(bridge_stop = CreateEventW( NULL, TRUE, FALSE, NULL ))) return;
-    memset( pending, 0, sizeof(pending) );
-    thumb_list_count = 0;
-    thumb_revision = 0;
-    WexWmApplyThumbnails( NULL, 0 );
+    reset_bridge_state();
     bridge_thread = CreateThread( NULL, 0, bridge_proc, NULL, 0, NULL );
     if (!bridge_thread)
     {
@@ -358,10 +365,7 @@ BOOL dwm_bridge_stop(void)
     CloseHandle( bridge_thread );
     CloseHandle( bridge_stop );
     bridge_thread = bridge_stop = NULL;
-    thumb_list_count = 0;
-    thumb_revision = 0;
-    memset( pending, 0, sizeof(pending) );
-    WexWmApplyThumbnails( NULL, 0 );
+    reset_bridge_state();
     return TRUE;
 }
 
@@ -378,7 +382,7 @@ static DWORD WINAPI clock_proc( void *arg )
 {
     UINT64 generation = 0, last = 0;
 
-    while (!clock_stopping)
+    while (!InterlockedCompareExchange( &clock_stopping, 0, 0 ))
     {
         if (WexWmWaitFrame( &generation, 500 )) break;
         if (generation != last) PulseEvent( clock_event );
@@ -449,7 +453,7 @@ void dwm_clock_start(void)
         clock_event = NULL;
         return;
     }
-    clock_stopping = FALSE;
+    InterlockedExchange( &clock_stopping, FALSE );
     clock_thread = CreateThread( NULL, 0, clock_proc, NULL, 0, NULL );
     if (!clock_thread)
     {
@@ -464,7 +468,7 @@ BOOL dwm_clock_stop(void)
     if (!clock_page) return TRUE;
     /* Never release the page while a producer may still write it. */
     if (WexWmSetClock( NULL, NULL )) return FALSE;
-    clock_stopping = TRUE;
+    InterlockedExchange( &clock_stopping, TRUE );
     if (clock_thread)
     {
         if (WaitForSingleObject( clock_thread, 2000 ) != WAIT_OBJECT_0) return FALSE;

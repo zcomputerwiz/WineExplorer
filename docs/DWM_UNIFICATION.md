@@ -52,8 +52,8 @@ Wine windows, not just entries in the foreign-window inventory.
   `x11wm.c` now supplies neutral effects, thumbnails and peek ops; its composition calls serialize
   `compose_corner/backdrop/shadow/thumbnails/peek` with `begin_call/end_call`.
   Do not hold the dispatch mutex while taking backend locks or waiting for frames.
-- Clock backend ops and `WexWmSetClock/WexWmWaitFrame` now exist. Despite their names,
-  `WexCompositionSetClock/GetEnabled` already have Wayland fallbacks in `x11wm.c`.
+- Clock backend ops and `WexWmSetClock/WexWmWaitFrame` now exist.
+  `WexCompositionGetEnabled` retains its Wayland fallback in `x11wm.c`.
   `composition_clock_wait` in `compose.c` is a shared generation/condition wait;
   Wayland frame events call `compose_clock_wake`. The shell's Wine thread pulses
   the Win32 event; the Unix producer must not touch Win32 events.
@@ -71,10 +71,11 @@ Wine windows, not just entries in the foreign-window inventory.
 ## Ordered slices
 
 Each slice leaves existing exports/callers working and can be built and tested
-independently before proceeding. Slices 1-3 are committed and runtime verified
-(user-provided baseline: X11 pixel-identical, Wayland probes, dwm_clock 47/47).
-Slices 4-5 below are implemented statically only; their build/runtime acceptance
-is outstanding. No compiler or WSL was used for this change.
+independently before proceeding. Slices 1-5 are committed and runtime verified
+(user-provided baseline; slices 2-3: a1e27298, slices 4-5: a620e492).
+The implementation notes below retain their original static-checkpoint wording;
+their outstanding acceptance status is superseded by that baseline. The follow-up
+review below is static only and needs its own build/runtime acceptance.
 
 1. **Share effect policy locally (implemented).** Add `effect_kind`, `window_effect`
    and `pending_effect` in `dwm_bridge.c`. Compute once, preserve raw tint/region,
@@ -118,7 +119,185 @@ For every later slice: WoW64 build (i386 and x86_64), a 32-bit probe, fresh-pref
 X11 and Wayland runs, and visible captures of material/corner/shadow/thumbnail/Peek
 results are acceptance gates. Build/API success alone does not establish parity.
 
+## Follow-up static review (2026-11-04)
+
+Reviewed a1e27298, a620e492 and the complete src/ delta since 948b4e04,
+plus compose.c and the backend lifecycle code. No compiler, WSL, build, VM or
+runtime test was used. The five committed slices remain the user-provided
+runtime baseline; the changes in this section are uncommitted and unverified at
+runtime. No stock Wine file was edited, so docs/STOCK_CHANGES.md needs no new entry.
+The pre-existing dirty wine/ worktree and unrelated untracked files are preserved.
+
+### Edits and fixed defects
+
+- No bridge_wayland branch or separate Wayland startup wrapper remains in src/;
+  slice 5 already removed them. Consolidated the bridge's identical start/stop
+  state resets without changing their ordering relative to thread creation/join.
+- Completed effects previously monitored only nonzero applied scales. A window
+  moving from Wayland to X11 retained that scale; monitoring then compared it
+  against a raw Wayland property/default and could submit every poll forever.
+  Completed X11 entries could also miss a later Wayland identity. The public
+  WexWmGetEffectScale query now resolves the same AUTO, XID-first identity as
+  application: zero for X11/missing identity, otherwise Wayland thousandths.
+  Completed entries compare both zero/nonzero values, and every non-retry result
+  records its scale, including zero. A stable transition stops resubmitting;
+  errors still consume the bounded 40-poll budget. Fractional-scale events still
+  rearm without a broker revision. Thumbnail conversion uses the separate raw
+  scale helper and still honors its explicitly selected backend.
+- Wayland frame callbacks read clock_page after releasing clock_page_mutex,
+  racing detach. Publication and wake now both happen while the page lock is
+  held. Clock attach previously released wl_mutex between its availability test
+  and page assignment, allowing stop/disconnect to win that gap. It now holds
+  wl_mutex through the page update; nested order is wl_mutex -> clock_page_mutex
+  -> the shared generation mutex. Reader exit clears DWM_CLOCK_COMPOSED and wakes
+  waiters before retiring its connection. Detach remains successful even when
+  disconnected or on an old protocol, and the shell still detaches and joins
+  before unmapping. The shell stop flag now uses Interlocked reads/writes.
+- X11 and Wayland now share compose_clock_publish outside COMPOSE_X11, including
+  builds without X libraries. Each backend retains its own page ownership lock.
+  The odd sequence transition uses acquire/release to order subsequent field
+  stores after it; the even transition remains release. This replaces duplicate
+  publishers whose first transition was release-only. No event handle enters
+  either Unix producer; only the Wine wait thread pulses the Win32 event.
+- Shared the Wayland connection/protocol eligibility checks used by composition,
+  effects, thumbnails, Peek and clock attachment. Clock attachment now returns
+  ERROR_NOT_READY for a stopped connection and ERROR_NOT_SUPPORTED for missing
+  protocol v14, instead of collapsing both into NOT_SUPPORTED. Effect retry
+  semantics remain: missing identity and every X11 error retry; only NOT_READY
+  retries after resolving Wayland. Registry gates remain on the PE side; no
+  duplicate registry gate readers exist in x11wm.c/waylandwm.c to move.
+- Any failed thumbnail submission now invalidates the sent cache. Previously:
+  successful A, failed flush of B (possibly already queued), desired A again
+  could incorrectly skip A using its old cache. This includes a failed empty
+  list on broker loss. Successful tuple/scale duplicate suppression is unchanged.
+- Reject broker replies with count above DWM_POLL_MAX_CHANGES before multiplying
+  the count or indexing the fixed reply buffer.
+- Caller audit: git grep over the complete tracked tree, rg across src/, wine/,
+  scripts/ and tests/, and hidden/no-ignore repository source/script searches
+  (including ignored build scripts and nested worktrees) found callers only for
+  WexCompositionSetEnabled, WexCompositionGetEnabled and WexCompositionSetShadow.
+  Retained those three. Removed the six dead PE exports, definitions and public
+  prototypes: SetCorner, SetBackdrop, SetClock, WaitFrame, SetThumbnails, SetPeek.
+  Both Unixlib tables and enum retain all 87 indices. The dead composition_clock
+  slot is an ERROR_NOT_SUPPORTED stub; corner/backdrop/thumbnails/Peek retain
+  their internal implementations used directly by the X11 backend, and the
+  shared generation wait remains live. No slot is deleted or reused.
+
+### Review findings left open
+
+- Same-backend identity replacement is still not an effect refresh trigger:
+  replacing an XID, or replacing a Wayland handle at the same scale, while
+  retaining the HWND and broker revision can leave effects unapplied on the new
+  surface. HWND reuse can similarly retain old pending attribute fields if it
+  happens between polls. A scale/backend discriminator cannot solve this;
+  identity/lifetime revision tracking needs an explicit contract and runtime
+  evidence. Initial missing identities still get the existing bounded retries;
+  identities arriving after exhaustion require another broker change/snapshot.
+- X11's running flag is read under queue_mutex and outside locks in wm_loop,
+  while stop writes it under x_mutex. end_call also wakes the pipe after
+  releasing x_mutex, while stop can close/reset its descriptors. These existing
+  lifecycle races are not solved by the new effect dispatch. A consistent
+  lifetime/queue/pipe synchronization change needs dedicated stop stress tests.
+- WexWmStop still closes the PE event-thread handle after its five-second wait
+  even on timeout. A blocked callback can outlive stop and overlap a restart.
+  This pre-existing lifecycle contract needs a separate coordinated fix;
+  bridge/clock teardown itself retains resources on a failed join.
+- backend_mutex protects selecting the static ops pointer, not the lifetime of
+  an in-flight operation. Arbitrary concurrent Start/Stop/Start is not serialized
+  for the full backend teardown. Existing shell ordering stops bridge/clock
+  first, but direct callers must also serialize WM lifecycle. Do not add backend
+  lock holds around waits/reader joins to address this: callbacks must drain.
+
+### Open policy questions
+
+- Should same-backend native-surface replacement be guaranteed to reapply effects
+  without broker changes? If so, define a neutral identity revision query before
+  extending the fixed pending table. Preserve the historical XID-first effects
+  rule unless mixed-session runtime results justify changing it.
+- Is handle-first Peek keep-list selection, including its X11 early-stop limit
+  in mixed sessions, still intended? It is preserved, not silently normalized.
+- A failed final thumbnail/Peek clear cannot prove remote scene cleanup. Confirm
+  disconnect cleanup and whether shutdown should retain/retry clear failures.
+  The current shell still proceeds to WM teardown after thumbnail clear failure.
+- All gates off starts neither bridge nor clock and acquires no X selection.
+  Wayland itself still composes, and GetEnabled still describes that backend
+  availability; it does not read the shell Composition gate. Keep that existing
+  distinction when asserting disabled-session behavior.
+
+### Required acceptance for this follow-up
+
+1. Build the WoW64 pair (i386 and x86_64), plus the configuration without X11
+   libraries if supported. Run 32-bit and 64-bit callers of the neutral effects,
+   thumbnails, Peek and clock APIs. Check err/scale/retry fields and all retained
+   exports. Rebuild import libraries after removing the six dead exports.
+2. In fresh X11 and explicitly adopted Wayland sessions, apply effects before
+   native identity exists, then publish it within and after the 40-poll budget.
+   With no broker changes, exercise X11 -> Wayland and Wayland -> X11, both
+   properties present, XID disappearance, and repeated fractional scale changes.
+   Expect bounded retries and no repeated writes once identity/scale stabilizes.
+   Separately reproduce same-backend replacement to characterize the open defect.
+3. Run scripts/compose-probe.c, the material/corner/shadow visual probes,
+   scripts/check-wayland-dwm.sh and the thumbnail/iconic visual probes against
+   the verified baseline. Capture GDI and final-screen pixels; compare tint,
+   inactive regions, signed/extreme bounds, glass defaults, square corners and
+   source/destination rounding at fractional scales. Exercise Peek keep caps
+   (8 X11/64 Wayland), mixed identities and minimized iconic pictures.
+4. Send thumbnail A successfully; inject a flush error submitting B, then
+   immediately restore A. Verify A is sent again. Repeat with B empty during
+   broker loss, both scales changing without changing rounded rectangles, and
+   failed clears during repeated shell stop/start.
+5. Run dwm_clock/DwmFlush/timing probes while repeatedly attaching/detaching and
+   stopping the shell under concurrent waits and frame events. Disconnect the
+   Wayland compositor between eligibility and attach and while frames arrive.
+   Expect NOT_READY for disconnection, NOT_SUPPORTED for protocol <14, successful
+   NULL detach, COMPOSED cleared on reader exit, and no page writes after detach.
+   Inject thread-creation/join/detach failures; verify retained resources can be
+   stopped on retry. Check that restart frame counters remain usable.
+6. Explicitly set Composition, DwmService, DwmFrameClock, DwmMaterials,
+   TaskbarThumbnails, TaskbarPeek and AltTabThumbnails to zero, then enable one
+   relevant combination at a time. Composition=0 starts no bridge/clock or X
+   redirection; Composition=1/DwmService=0 may run the independent clock;
+   Composition=1/DwmFrameClock=0 may run polling. Materials=0/high contrast/
+   transparency=0 suppress material policy as before while corners/shadows stay.
+   Exercise missing X extensions/occupied selection and Wayland protocol <13/<14.
+7. Fault-inject an oversized broker reply count and verify it is rejected without
+   indexing changes; then resume a normal snapshot. Stress WM stop during pending
+   native events and blocked callbacks to characterize the unresolved races.
+
+Static validation: re-read each edited function, declarations/prototypes and
+conditional builds. Both tables are identical to HEAD, with 87 entries in the
+same order. Source-derived layouts satisfy all 26 relevant size/offset assertions
+with both 4- and 8-byte UINT64 alignment: effect 52, apply 112, X11 thumb 56,
+thumbnail params 8344, Peek params 2120, clock params 24, wait params 16 bytes.
+No native pointer/HWND was added to a Unix record. git diff --check passes.
+These checks do not substitute for compilation or runtime evidence.
+
+Tooling notes: shell-tool Get-Content, pwd/Get-Item/git status, and the memory rg
+commands returned exit 0 with empty output; direct Node filesystem reads and
+structured child_process.execFile worked. The initial AGENTS.md discovery hit
+"rg: ./unsloth-tmp: Access is denied. (os error 5)"; git ls-files found no tracked
+AGENTS.md. An unrestricted hidden/no-ignore root search exceeded the Node tool's
+30-second limit ("js execution timed out; kernel reset, rerun your request");
+tracked-tree and source/script-filtered hidden/no-ignore searches completed.
+tasklist /FI "IMAGENAME eq rg.exe" /FO CSV failed with "ERROR: Access denied".
+The first enum checker reported "Enum mismatch" because index 0 is unix_init
+but its implementation is unix_init_impl; recognizing that existing alias made
+the full table/enum and layout checks pass. All edits used apply_patch; no C
+escapes went through shell editing commands. No commit was made.
+An unfiltered rg file inventory exceeded the 16-MiB execFile output buffer after
+251,343 lines (ERR_CHILD_PROCESS_STDIO_MAXBUFFER). A further root scan with a
+10-MiB per-file cap also timed out at 60 seconds and reset the Node kernel;
+neither incomplete scan is used as caller-removal evidence. The complete
+tracked-tree and source/script scans above are the evidence for that decision.
+A memory read using the repository-relative read helper with an absolute path
+failed with ENOENT because it prepended the repository root; direct fs.readFile
+with the absolute memory path worked. No VM/session state was changed.
+
 ## Slices 4-5 static checkpoint (2026-11-03)
+
+Historical checkpoint: all five slices are now committed and runtime verified,
+per the user. Its validation backlog describes the original acceptance gates,
+not missing work on the committed baseline. See the follow-up review for new work.
 
 - Added PE-only WEX_WINDOW_THUMB and WexWmApplyThumbnails. The shell fetches
   one broker list and fills HWNDs, flags, opacity and Wine-pixel rectangles once.

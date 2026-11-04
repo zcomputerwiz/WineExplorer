@@ -49,6 +49,14 @@ static pthread_t reader;
 static BOOL running, reader_started, queue_stopped;
 static UINT64 next_id; /* never reuse an identifier after stop/restart */
 
+/* wl_mutex held: distinguish a missing connection (retry) from an old protocol. */
+static DWORD request_error(unsigned version)
+{
+    if (!running) return ERROR_NOT_READY;
+    if (!manager || wex_window_manager_v1_get_version(manager) < version) return ERROR_NOT_SUPPORTED;
+    return ERROR_SUCCESS;
+}
+
 BOOL wayland_wm_native_environment(char wayland[108], char xdisplay[128])
 {
     BOOL available;
@@ -259,13 +267,15 @@ static pthread_mutex_t clock_page_mutex = PTHREAD_MUTEX_INITIALIZER;
 static struct dwm_clock_page *clock_page;
 static UINT64 clock_frames;
 
-static void clock_publish(UINT32 flags,UINT64 frame,INT64 qpc)
+/* wl_mutex held, including on reader exit; same order as clock attach. */
+static void clock_disable(void)
 {
-    __atomic_add_fetch(&clock_page->seq,1,__ATOMIC_RELEASE);
-    clock_page->flags = flags;
-    clock_page->frame = frame;
-    clock_page->qpc_composed = qpc;
-    __atomic_add_fetch(&clock_page->seq,1,__ATOMIC_RELEASE);
+    pthread_mutex_lock(&clock_page_mutex);
+    if (clock_page)
+        compose_clock_publish(clock_page,clock_page->flags & ~DWM_CLOCK_COMPOSED,clock_page->frame,
+                              clock_page->qpc_composed);
+    pthread_mutex_unlock(&clock_page_mutex);
+    compose_clock_wake();
 }
 static void frame(void *data, struct wex_window_manager_v1 *obj,uint32_t number,uint32_t sec_hi,uint32_t sec_lo,
                   uint32_t nsec)
@@ -275,33 +285,36 @@ static void frame(void *data, struct wex_window_manager_v1 *obj,uint32_t number,
     if (clock_page)
     {
         NtQueryPerformanceCounter(&now,NULL);
-        clock_publish(clock_page->flags | DWM_CLOCK_COMPOSED,++clock_frames,now.QuadPart);
+        compose_clock_publish(clock_page,clock_page->flags | DWM_CLOCK_COMPOSED,++clock_frames,now.QuadPart);
+        compose_clock_wake();
     }
     pthread_mutex_unlock(&clock_page_mutex);
-    if (clock_page) compose_clock_wake();
 }
 /* page NULL turns the clock off; readers that still map the old page must stop waiting on it */
-BOOL wayland_wm_set_clock(void *page)
+DWORD wayland_wm_set_clock(void *page)
 {
-    BOOL ok;
+    DWORD err;
     pthread_mutex_lock(&wl_mutex);
-    ok = running && manager && wex_window_manager_v1_get_version(manager) >= 14;
+    err = page ? request_error(14) : ERROR_SUCCESS;
+    if (!err)
+    {
+        pthread_mutex_lock(&clock_page_mutex);
+        if (clock_page && page != clock_page)
+            compose_clock_publish(clock_page,clock_page->flags & ~DWM_CLOCK_COMPOSED,clock_page->frame,
+                                  clock_page->qpc_composed);
+        clock_page = page;
+        pthread_mutex_unlock(&clock_page_mutex);
+        compose_clock_wake();
+    }
     pthread_mutex_unlock(&wl_mutex);
-    if (!ok && page) return FALSE;
-    pthread_mutex_lock(&clock_page_mutex);
-    if (clock_page && page != clock_page) clock_publish(clock_page->flags & ~DWM_CLOCK_COMPOSED,clock_page->frame,
-                                                        clock_page->qpc_composed);
-    clock_page = page;
-    pthread_mutex_unlock(&clock_page_mutex);
-    compose_clock_wake();
-    return TRUE;
+    return err;
 }
 /* DWM composition exists on a Wayland session whose compositor takes the DWM effect requests */
 BOOL wayland_wm_composition(void)
 {
     BOOL ok;
     pthread_mutex_lock(&wl_mutex);
-    ok = running && manager && wex_window_manager_v1_get_version(manager) >= 13;
+    ok = !request_error(13);
     pthread_mutex_unlock(&wl_mutex);
     return ok;
 }
@@ -345,6 +358,7 @@ static void *read_events(void *unused)
         if (ret < 0 || (fd.revents & (POLLERR|POLLHUP|POLLNVAL)) || wl_display_dispatch_pending(display) < 0) break;
     }
     running = FALSE;
+    clock_disable();
     /* The event thread drains these before STOP. Future shell adoption must
      * destroy its proxies when the host connection disappears, too. */
     for (window=windows;window;window=window->next) withdraw(window);
@@ -517,7 +531,7 @@ static NTSTATUS wayland_effects(void *args)
                   (params->handle[i] >= 'a' && params->handle[i] <= 'f')))
                 params->err = ERROR_INVALID_PARAMETER;
         if (params->err) {}
-        else if (!manager || wex_window_manager_v1_get_version(manager) < 13) params->err = ERROR_NOT_SUPPORTED;
+        else if ((params->err = request_error(13))) {}
         else
         {
             wex_window_manager_v1_set_effects(manager,params->handle,params->radius,params->backdrop,params->flags,
@@ -583,7 +597,7 @@ static NTSTATUS wayland_thumbnails(void *args)
     if (running)
     {
         if (params->count > 80) params->err = ERROR_INVALID_PARAMETER;
-        else if (!manager || wex_window_manager_v1_get_version(manager) < 14) params->err = ERROR_NOT_SUPPORTED;
+        else if ((params->err = request_error(14))) {}
         else
         {
             wex_window_manager_v1_set_thumbnails(manager,&records);
@@ -604,7 +618,7 @@ static NTSTATUS wayland_peek(void *args)
         params->target[32] = 0;
         if (params->count > 64 || (params->target[0] && strlen(params->target) != 32))
             params->err = ERROR_INVALID_PARAMETER;
-        else if (!manager || wex_window_manager_v1_get_version(manager) < 14) params->err = ERROR_NOT_SUPPORTED;
+        else if ((params->err = request_error(14))) {}
         else
         {
             wex_window_manager_v1_set_peek(manager,params->target,&keep);
@@ -664,7 +678,7 @@ static NTSTATUS wayland_capabilities(void *args)
 static NTSTATUS wayland_clock(void *args)
 {
     struct wm_clock_params *params = args;
-    params->err = wayland_wm_set_clock( (void *)(ULONG_PTR)params->page ) ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+    params->err = wayland_wm_set_clock( (void *)(ULONG_PTR)params->page );
     return STATUS_SUCCESS;
 }
 

@@ -1050,20 +1050,6 @@ NTSTATUS composition_backdrop( void *args )
     return STATUS_SUCCESS;
 }
 
-NTSTATUS composition_clock( void *args )
-{
-    struct composition_clock_params *params = args;
-    if (!begin_call( &params->err ))
-    {
-        /* no X window manager: the frame clock may come from a Wayland compositor */
-        params->err = wayland_wm_set_clock( (void *)(ULONG_PTR)params->page ) ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
-        return STATUS_SUCCESS;
-    }
-    params->err = compose_clock( (void *)(ULONG_PTR)params->page, (HANDLE)(ULONG_PTR)params->event );
-    end_call();
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS x11_clock( void *args )
 {
     struct wm_clock_params *params = args;
@@ -1402,13 +1388,6 @@ STUB( composition_backdrop, struct composition_backdrop_params )
 STUB( composition_thumbs, struct composition_thumbs_params )
 STUB( composition_peek, struct composition_peek_params )
 STUB( x11_clock, struct wm_clock_params )
-NTSTATUS composition_clock( void *args )
-{
-    struct composition_clock_params *params = args;
-    params->err = wayland_wm_set_clock( (void *)(ULONG_PTR)params->page ) ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
-    return STATUS_SUCCESS;
-}
-
 NTSTATUS composition_get( void *args )
 {
     struct composition_params *params = args;
@@ -1427,6 +1406,13 @@ NTSTATUS x11_wm_next_event( void *args )
 }
 
 #endif
+
+/* Retired PE export: reserve its Unixlib index in both tables. */
+NTSTATUS composition_clock( void *args )
+{
+    ((struct composition_clock_params *)args)->err = ERROR_NOT_SUPPORTED;
+    return STATUS_SUCCESS;
+}
 
 /* Compatibility exports and selected backend ops share the original locked
  * implementation. Tagged X11 input never masquerades as a Wayland handle. */

@@ -626,70 +626,6 @@ DWORD WINAPI WexCompositionSetShadow( UINT64 window, BOOL shadow )
     return params.err;
 }
 
-DWORD WINAPI WexCompositionSetCorner( UINT64 window, DWORD radius )
-{
-    struct composition_corner_params params = { window, radius };
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    WEXHOST_CALL( composition_corner, &params );
-    return params.err;
-}
-
-DWORD WINAPI WexCompositionSetBackdrop( UINT64 window, DWORD backdrop, DWORD tint, const RECT *region )
-{
-    struct composition_backdrop_params params = { window, backdrop, tint };
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    if (backdrop & WEX_BACKDROP_REGION)
-    {
-        if (!region) return ERROR_INVALID_PARAMETER;
-        params.region[0] = region->left;
-        params.region[1] = region->top;
-        params.region[2] = region->right;
-        params.region[3] = region->bottom;
-    }
-    WEXHOST_CALL( composition_backdrop, &params );
-    return params.err;
-}
-
-DWORD WINAPI WexCompositionSetClock( void *page, HANDLE event )
-{
-    struct composition_clock_params params = { (UINT64)(ULONG_PTR)page, (UINT64)(ULONG_PTR)event };
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    WEXHOST_CALL( composition_clock, &params );
-    return params.err;
-}
-
-DWORD WINAPI WexCompositionSetThumbnails( const struct compose_thumb *thumbs, DWORD count )
-{
-    struct wm_thumbnails_params params = { count };
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    params.x11_thumbs = (UINT64)(ULONG_PTR)thumbs;
-    params.backend = WEX_WM_BACKEND_X11;
-    WEXHOST_CALL( wm_backend_thumbnails, &params );
-    return params.err;
-}
-
-/* Peek (DWM P11c): only the desktop, target and the keep windows are drawn; target 0 ends it */
-DWORD WINAPI WexCompositionSetPeek( UINT64 target, const UINT64 *keep, DWORD count )
-{
-    struct wm_peek_params params = { { 0 }, count };
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    params.x11_target = target;
-    params.x11_keep = (UINT64)(ULONG_PTR)keep;
-    params.backend = WEX_WM_BACKEND_X11;
-    WEXHOST_CALL( wm_backend_peek, &params );
-    return params.err;
-}
-
-/* Waits up to timeout_ms for a composed frame after *generation; updates *generation. */
-DWORD WINAPI WexCompositionWaitFrame( UINT64 *generation, DWORD timeout_ms )
-{
-    struct composition_clock_wait_params params = { *generation, timeout_ms };
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    WEXHOST_CALL( composition_clock_wait, &params );
-    *generation = params.generation;
-    return ERROR_SUCCESS;
-}
-
 static DWORD WINAPI wm_event_thread( void *arg )
 {
     for (;;)
@@ -836,7 +772,7 @@ DWORD WINAPI WexWmWaitFrame( UINT64 *generation, DWORD timeout_ms )
     return params.err;
 }
 
-DWORD WINAPI WexWmGetEffectScale( HWND hwnd )
+static DWORD effect_scale( HWND hwnd )
 {
     DWORD scale = (ULONG_PTR)GetPropW( hwnd, L"__wine_wayland_scale_120" ) * 1000 / 120;
     return scale ? scale : 1000;
@@ -863,8 +799,16 @@ static BOOL effect_identity( HWND hwnd, DWORD backend, struct wm_apply_effects_p
     if (!atom || GlobalGetAtomNameW( atom, name, ARRAY_SIZE(name) ) != 32) return FALSE;
     for (i = 0; i < 32; i++) params->handle[i] = (char)name[i];
     params->backend = WEX_WM_BACKEND_WAYLAND;
-    params->scale = WexWmGetEffectScale( hwnd );
+    params->scale = effect_scale( hwnd );
     return TRUE;
+}
+
+/* Use the same XID-first identity as application, so a completed entry can
+ * detect a backend change without continually refreshing X11 at Wayland scale. */
+DWORD WINAPI WexWmGetEffectScale( HWND hwnd )
+{
+    struct wm_apply_effects_params params = { 0 };
+    return effect_identity( hwnd, WEX_WM_BACKEND_AUTO, &params ) ? params.scale : 0;
 }
 
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result )
@@ -986,6 +930,9 @@ DWORD WINAPI WexWmApplyThumbnails( const WEX_WINDOW_THUMB *records, DWORD count 
     if (backend == WEX_WM_BACKEND_X11) params.x11_thumbs = records ? (UINT64)(ULONG_PTR)x11 : 0;
     else memcpy( params.records, out, n * sizeof(*out) );
     WEXHOST_CALL( wm_backend_thumbnails, &params );
+    /* A failed flush may still have queued the new list. Do not let the old
+     * successful list suppress a resend if the broker subsequently reverts. */
+    if (params.err) sent_valid = FALSE;
     if (!params.err && backend == WEX_WM_BACKEND_WAYLAND && records)
     {
         memcpy( sent, out, sizeof(sent) );
