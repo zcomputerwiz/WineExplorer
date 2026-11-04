@@ -1630,3 +1630,13 @@ Wine `dlls/uxtheme/{draw.c,buffer.c,uxthemedll.h,tests/glass.c,tests/Makefile.in
 - DwmIsCompositionEnabled reports the real gate state; DwmGetWindowAttribute round-trips FLIP3D_POLICY
   and EXCLUDED_FROM_PEEK; DwmGetColorizationParameters returns the theme colours.
 - New test `uxtheme/tests/glass.c`.
+
+## dcomp: IDCompositionSurfaceFactory and IDCompositionSurface BeginDraw/EndDraw (2026-11-04)
+
+Wine `dlls/dcomp/{device.c,Makefile.in,tests/Makefile.in,tests/dcomp.c}`. Ports the behaviour of Wine-Staging's
+DirectComposition series (patches 0047-0054, LGPL-2.1+): CreateSurfaceFactory and CreateSurface on the
+Device2/Device3/desktop devices (formats B8G8R8A8, R8G8B8A8, R16G16B16A16F; alpha PREMULTIPLIED/IGNORE), a physical
+`ID3D11Texture2D` on the application's device, and the BeginDraw/EndDraw state machine (one active draw per
+device, whole-surface first draw, busy error reported before rectangle validation). Surface content is not yet
+composed onto targets; virtual surfaces, SuspendDraw, ResumeDraw and Scroll stay stubs. Tests ported from
+staging; dcomp test 917/917 on x86_64 and i386.
