@@ -23,10 +23,24 @@ Adopting it in wexcomp (Qwen's survey, every item checked against the sources):
 
 | Our backdrop | SceneFX |
 |---|---|
-| blur | backdrop blur, radius 5, 3 passes (defaults) |
-| acrylic | radius 12, 4 passes, saturation 1.2, brightness .85, plus the tint rect |
-| mica | optimized-blur node over the wallpaper plus tint |
+| blur | plain backdrop blur rect, using the scene's shared blur parameters |
+| acrylic | strong shared preset: radius 12, 4 passes, noise .03, saturation 1.25, brightness .85, plus the tint rect |
+| mica | backdrop rect in the window's own tree with `backdrop_blur_optimized`, plus tint; it draws the cached blur of one `wlr_scene_optimized_blur` node on top of `desktop_tree`, so the sample is wallpaper/desktop only |
 | gradient | tint only (today) |
+
+SceneFX's `struct wlr_scene` contains one `struct blur_data`; `wlr_scene_set_blur_data()` copies it into the scene and
+marks every `wlr_scene_optimized_blur` dirty. The per-node APIs are `wlr_scene_rect_set_backdrop_blur()` and
+`wlr_scene_rect_set_backdrop_blur_optimized()` (with equivalent buffer APIs), but they select the algorithm only; they do
+not carry separate radius/pass/noise/effect parameters. Therefore the compositor sets one Acrylic-quality preset and
+never changes it per committing window. Blur and Acrylic retain distinct material tints, while their SceneFX kernel is
+necessarily shared in SceneFX 0.3. Mica gets isolation from the desktop-tree placement and caching, not a second kernel.
+
+The optimized API is `wlr_scene_optimized_blur_create(parent, width, height)` plus
+`wlr_scene_optimized_blur_mark_dirty()`. As in SwayFX, one server-wide optimized blur node (`server->mica_blur`,
+created on first Mica use, sized to the output layout) sits on top of `desktop_tree`; SceneFX caches the blur of
+everything below it (wallpaper and desktop windows). Mica rects stay in their window's tree with
+`wlr_scene_rect_set_backdrop_blur_optimized()` and draw that cache, so normal windows never enter the Mica sample.
+The cache is resized and raised when a Mica window updates; it is not re-marked dirty on later desktop-layer commits.
 
 ### The experiment (done): SceneFX needs EGL, not necessarily a GPU
 
@@ -75,15 +89,15 @@ Backdrop blur adoption via SceneFX 0.3 is complete and verified. The default shi
 3. **Compat Header**: Created `wexcomp/include/wex-scene.h` dispatching to `<scenefx/types/wlr_scene.h>` under `HAVE_SCENEFX` or `<wlr/types/wlr_scene.h>` otherwise; updated all 14 compositor source files to include it.
 4. **Renderer & Headless GBM Allocator**: In `wexcomp/src/server.c`, conditionally calls `fx_renderer_create(server->backend)` when `HAVE_SCENEFX && getenv("WEX_BLUR") == "1"`, falling back to `wlr_renderer_autocreate`. Sets `server->fx_renderer`. For headless/CI llvmpipe software rasterization under `vgem`, allocates GBM buffers via `/dev/dri/card0` and sets `DRM_RDWR` on exported dumb DMA-BUFs so llvmpipe `mmap` succeeds.
 5. **Backdrop Blur in Effects**: In `wexcomp/src/protocols/wex-window.c` (`wex_window_update_effects`), when `server->fx_renderer` is true and backdrop is `blur`, `acrylic`, or `mica`:
-   - Configures `wlr_scene_set_blur_data(server->scene, bd)` with the exact preset parameters (blur: r=5 p=3; acrylic: r=12 p=4 s=1.2 b=0.85; mica: r=16 p=4).
-   - Applies `wlr_scene_rect_set_backdrop_blur(rect, true)` to the dedicated full-window or region rect in `win->backdrop_tree`.
+   - Configures one stable `wlr_scene_set_blur_data(server->scene, bd)` preset: r=12, p=4, noise=.03, brightness=.85, contrast=1, saturation=1.25.
+   - Applies `wlr_scene_rect_set_backdrop_blur(rect, true)` to the dedicated full-window or region rect.
    - Supports corner radius (`wlr_scene_rect_set_corner_radius`) and custom region bounds.
-   - Tint is painted directly onto the rect.
-   - Clearing effects with all zeros removes `backdrop_tree` without leaking nodes.
+   - Mica's rect enables `wlr_scene_rect_set_backdrop_blur_optimized()` and samples `server->mica_blur` on top of `desktop_tree`.
+   - Tint is painted directly onto the rect; clearing effects with all zeros removes `backdrop_tree` without leaking nodes.
 6. **Testing**:
    - Added `blur` scenario to `wexcomp/tests/wex/corner-client.c`.
    - Extended `wexcomp/tests/wex/verify.py` with `check-range`.
-   - Created standalone runner `wexcomp/tests/wex/run-blur.sh`.
+   - Created standalone runner `wexcomp/tests/wex/run-blur.sh`; it now captures Blur, Acrylic, and Mica, with an intervening red normal window for the Mica isolation check.
 
 ### How to Build
 - **Default build** (unchanged, SceneFX disabled):
@@ -109,9 +123,17 @@ Backdrop blur adoption via SceneFX 0.3 is complete and verified. The default shi
 
 ### Test Results
 - **Default build regression test**: `tests/wex/run-effects.sh` passes **32/32 tests** cleanly.
-- **SceneFX blur test**: `tests/wex/run-blur.sh` passes **12/12 tests** under llvmpipe software GLES2:
+- **SceneFX blur test**: `tests/wex/run-blur.sh` passes **15/15** under llvmpipe software GLES2 (2026-11-04), default build `run-effects.sh` 34/34:
   - Outside pixels (635, 100) and (645, 100) stay pure white `(255, 255, 255)` and black `(0, 0, 0)`.
   - Without blur (`backdrop none`), inside pixels equal outside pixels `(255, 255, 255)` and `(0, 0, 0)`.
   - With blur active (`backdrop blur`), inside white pixel dims to `(180, 180, 180)` and inside black pixel brightens to `(91, 91, 91)` across the edge.
   - With blur cleared, inside pixels return to `(255, 255, 255)` and `(0, 0, 0)`.
-  - Compositor logs contain zero runtime errors or assertions.
+  - Acrylic's capture differs from plain Blur; Mica at `(600,350)` reads (203,193,193) over the red normal blocker (Blur at the same spot: (194,179,179) with the blocker blurred in).
+
+## Limits
+
+The optional SceneFX build is still the only path with a real blur. The default build, tint-only fallback, rounded-corner
+clipping, and region behavior remain unchanged. SceneFX 0.3 cannot provide per-window blur_data, so Blur cannot use fewer
+passes than Acrylic without changing every other blur node; a future SceneFX API with node-local parameters can remove this
+shared-kernel limitation. Mica's desktop-tree placement assumes the wallpaper/desktop content is below that tree; desktop
+layer applications intentionally share that layer and are outside the normal-window isolation guarantee.
