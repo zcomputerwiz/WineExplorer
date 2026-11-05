@@ -41,7 +41,7 @@ Status: planned, not started. Nothing here is implemented. Documents:
 | `WineExplorer` (GPL-2.0-or-later) | the feature gate, the per-prefix install/uninstall command, shell integration, test harness, these docs | no parser, no XAML runtime here |
 | **new: `WineExplorer-UWP-Fixtures`** (public) | self-owned C++/WinRT fixtures, manifests, build scripts, hashes, result schema | needed first (U1.0 item 2); built on the Windows host |
 | **new: `WineExplorer-UWP-Tools`** (public) | package inspection / store prototype, safe extraction, PRI/XBF inspectors | needed at U1.2; Apache-2.0 and MIT code stays here |
-| `uno-uwp` (existing fork) | XAML backend research and the native-ABI wrapper spike | U2 only, after the one-control ABI spike; licence decision first |
+| [`unoplatform/uno`](https://github.com/unoplatform/uno) (official, reference only) | design reference for a XAML backend and its native-ABI limits | not forked and not imported (owner decision 2026-11-05); Apache-2.0 code stays out of this repository and of `wine/` |
 | `../WineExplorer-local` (existing, private) | Windows-host oracle logs, screenshots, package inventories | replaces the proposed third repo `WineExplorer-UWP-Oracle` |
 
 Licence note for the owner (not a legal opinion): Apache-2.0 (Uno, XbfTools, PriTools) is not GPLv2-only compatible; the

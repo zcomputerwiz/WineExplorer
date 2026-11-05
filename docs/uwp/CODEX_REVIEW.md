@@ -120,7 +120,7 @@ Create exactly these new repositories:
    Windows package contents and protected Store assets do not belong in the
    project or public CI.
 
-Use the already available **`zcomputerwiz/uno-uwp`** as the separate XAML
+(Superseded: the owner dropped the fork; Uno is reference-only.) Originally: use the already available **`zcomputerwiz/uno-uwp`** as the separate XAML
 research/backend repository. Do not copy its managed implementation into
 Wine or WineExplorer. A small adapter/prototype can live there until a native
 WinRT ABI and licence decision exists; no XAML backend should be added as a
