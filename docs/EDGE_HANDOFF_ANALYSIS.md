@@ -32,7 +32,7 @@ Static source inspection only; no build, VM, installer run, or probe was perform
 * The 32-bit updater process loads shell32 and then fails with `err:winediag:nodrv_CreateWindow Application tried to create a
   window, but no driver could be loaded` right before the log line. The lab starts the elevated prefix with `winex11.drv` and
   `winewayland.drv` disabled (`guest-elev-run.sh`), so no window can be created. The updater's ShellExecute helper creates a hidden
-  parent window first and reports 0x80004005 when that fails. Working theory: the Edge handoff failure is a lab artifact, not a
+  parent window first and reports 0x80004005 when that fails. Working theory (confirmed, see the end of this file): the Edge handoff failure is a lab artifact, not a
   Wine shell bug. Test: give the elevated prefix a display (headless compositor plus winewayland, or an X server plus winex11) and
   rerun. If the handoff then works, the lab recipe needs a display step; if a product session lacks a display for services, window
   creation on the service desktop needs its own look.
@@ -40,3 +40,13 @@ Static source inspection only; no build, VM, installer run, or probe was perform
   auto-start; `guest-elev-run.sh` now retries.
 * The `WINEDEBUG` line in the machine `system.reg` appears twice after `guest-env-debug.py` (an older line in another place);
   check the file after running it.
+
+## Resolution, 2026-11-05
+
+1. Display: with a headless compositor and winewayland in the elevated lab prefix (`WEXDISPLAY=1` in `guest-elev-run.sh`, plus
+   `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `WEX_WAYLAND_NATIVE_WINDOWS` in the machine Environment) the handoff `ShellExecuteEx`
+   succeeds and the `/handoff` process runs. The compositor binary must be readable by the elevated user (`chmod o+rx`).
+2. Next failure, found with `+ole`: `CoSetProxyBlanket` on a proxy returned `E_NOTIMPL` because
+   `ProxyCliSec_SetBlanket` was a stub (the updater treats that as fatal, "Failed to install apps 0x80004001"). Fixed in
+   combase (see `STOCK_CHANGES.md`).
+3. Result: Edge enterprise MSI exit 0, `msedge.exe` installed, installed Edge passes the browser fixture.

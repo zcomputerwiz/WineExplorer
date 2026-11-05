@@ -206,3 +206,10 @@ reinstall, and rollback need separate fresh-prefix/snapshot evidence.
   `docs/EDGE_HANDOFF_ANALYSIS.md` ranks hypotheses; next is a traced rerun (`+exec,+process,+security,+server,+service,+loaddll`).
 * Edge MSI traced (round 12b): handoff failure is before Wine's shell32 (`nodrv_CreateWindow` in the updater, no display driver in
   the lab elevated prefix). Next: add a display to the elevated lab prefix and rerun. Details in `docs/EDGE_HANDOFF_ANALYSIS.md`.
+
+### Round 13, 2026-11-05, VM B: Edge MSI passes
+
+Edge enterprise MSI: exit 0 after two fixes (display for the elevated prefix, `CoSetProxyBlanket` on proxies). Installed Edge 156.0.4314.58
+passes the browser fixture (WebGL, WebGL2). Status of all installers: Chromium official installer PASS, Chrome enterprise MSI PASS,
+Chrome consumer stub PASS, Edge enterprise MSI PASS. Not tested: Edge consumer stub (not downloaded), per-user Edge install, running
+the browsers inside the installed machine-root prefix itself (the fixture copies the installed tree into a fresh prefix).

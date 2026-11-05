@@ -1889,3 +1889,13 @@ and `[in, string] char *` parameters) and `ndr_typelib.c` (`write_oleaut_tfs`, `
 `E_NOINTERFACE` and the Chrome MSI failed with 1627). Verified in the QEMU guest: with the change the Chrome enterprise MSI
 installs (exit 0, `Program Files\Google\Chrome\Application\chrome.exe`). Only the `[in]` pointer form is covered; `[out]
 LPWSTR *` is not. A unit test in `dlls/oleaut32/tests/tmarshal.c` is still to be written (see `TYPELIB_PROXYSTUB_ANALYSIS.md`).
+
+## combase: IClientSecurity::SetBlanket on proxies (2026-11-05)
+
+`wine/dlls/combase/marshal.c`: `ProxyCliSec_SetBlanket` accepts the blanket and records it in the proxy manager (`blanket_*`
+fields); `ProxyCliSec_QueryBlanket` returns the recorded values once set (the old stub behaviour stays until then). Security is
+not enforced for the local transport; the change only stops `CoSetProxyBlanket` from failing with `E_NOTIMPL`. The Edge updater
+calls it (PKT_PRIVACY, IMPERSONATE) on its update-service proxy and treats a failure as fatal ("Failed to install apps
+0x80004001", MSI 1627). Verified in the QEMU guest: with the change the Edge enterprise MSI installs (exit 0,
+`Edge\Application\156.0.4314.58`) and the installed Edge passes the browser fixture (WebGL and WebGL2). Unit test in
+`dlls/ole32/tests/marshal.c` (see `TYPELIB_PROXYSTUB_ANALYSIS.md`, "SetBlanket test status").
