@@ -1859,3 +1859,11 @@ handle (`ERROR_INVALID_HANDLE`, or `ERROR_INVALID_PARAMETER` for NULL, checked o
 the export during start-up and aborts with a delay-load failure (`DelayLoad-ModuleName` USER32.dll, last error 127)
 when it is missing; the official Chromium installer itself passes. Test: `dlls/user32/tests/input.c`
 `test_GetPointerDevice`.
+
+## dcomp: no magnitude limit on visual transforms (2026-11-05)
+
+`wine/dlls/dcomp/device.c` (`dcomp_visual_SetTransform_locked` and the commit-time accumulated transform) only rejects
+non-finite matrix values. The earlier 64x scale and 1048576 translation limits were arbitrary and made Chromium's
+GPU process abort (`dc_layer_tree.cc` check, `E_INVALIDARG`) when it scaled a 1x1 solid-colour surface to the layer
+size. Test: `test_visual_SetTransform_scale` in `dlls/dcomp/tests/dcomp.c` (passes on Windows 11 and Wine). See
+`CHROMIUM_DCOMP_ANALYSIS.md`.
