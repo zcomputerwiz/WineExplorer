@@ -1085,3 +1085,27 @@ Next: either (a) lab-only, install the test broker (`wexelevate_test.exe` built 
 `test_sysrun_server.sh` around lines 653-720) in the guest so `runas` is approved without a person, then re-run the Chrome MSI,
 Edge MSI and the Chrome stub; or (b) finish the production consent path (T3). (a) is a disposable fixture only and must
 never be in the machine root of a shipped image.
+
+## 14. Round 10 (2026-11-05): lab-only test broker in the guest (Claude)
+
+Tools in `ChromiumLab/guest-sysrole/` (lab, outside the repo): `guest-broker-install.sh` (installs `wexelevate_test.exe` built with
+`-DWEXELEVATE_TEST_APPROVAL`, `wexelevate_stub.exe`, creates `/tmp/wexelev/approve.all` and the filtered administrator `wexadm`),
+`guest-broker-path.py` (points the existing `wexelevate` service `ImagePath` at the test broker; the machine root already has the
+service entry), `guest-env-debug.py` (WINEDEBUG in the machine-wide Environment, so broker-started processes inherit it; their
+stderr goes to the log of the client that started the server), `guest-elev-run.sh` / `guest-elev-msi.sh` (start the prefix as
+`wexadm` with the secure-desktop holder, then run a program elevated via `runas_wait.exe`), `runas_wait.c`.
+
+Results:
+
+* The test broker works: `runas_wait cmd.exe /c exit 7` returns "runas started", exit code 7; with a limited token `msiexec`
+  itself asks the broker (`msi_install_through_broker per-machine install by a limited token, asking the broker` in
+  `wine/dlls/msi`), so the wrapper is only needed for other programs. The server's saved gid is 989 (system role on).
+* The Chrome enterprise MSI now gets further than in any earlier run, and fails differently: the elevated `msiexec` is started
+  by the broker, opens the package, copies it to `C:\windows\Installer\xxxx.msi` (170 MB per attempt: clean that directory
+  between attempts), starts `rpcss.exe`, and then ends with exit code 1627 right after `GetEnvironmentVariableW(L"TMP")`,
+  with no further trace and no `err:` line (traced with `err+all,fixme+service,fixme+msi,+process`; `trace+msi` also stops after
+  `MSI_OpenPackageW "C:\windows\Installer\xxxx.msi"`). No custom action process, no `Program Files (x86)\Google` directory.
+* Hypotheses to test next: the temp directory of the elevated user token (`TMP` from `CreateEnvironmentBlock` of the linked
+  token); file access in `C:\windows\Installer` or `Temp` for a process with the full token but a user home in another
+  prefix; an unlogged failure path in `dlls/msi` after opening the cached package. Next trace: `+file,+msi` limited to that
+  process, or `WINEDEBUG=+seh,+relay` for `msiexec` only.
