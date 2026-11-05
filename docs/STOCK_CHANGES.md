@@ -1879,3 +1879,13 @@ the handle check. Reason: Chromium's updater service creates `ClientStateMedium`
 `AddAllowedAce`, which returned 0x80070005 and made the Chrome installers fail. Test: `test_regkey_descriptor_handle_access`
 in `dlls/advapi32/tests/security.c` (the same calls pass on Windows 11 and under Wine). See `CHROME_INSTALLER_ANALYSIS.md`
 section 15.
+
+## rpcrt4: LPWSTR and LPSTR parameters in the typelib marshaller (2026-11-05)
+
+`wine/dlls/rpcrt4/ndr_types.idl` (the reference method that generates the shared format strings gets `[in, string] wchar_t *`
+and `[in, string] char *` parameters) and `ndr_typelib.c` (`write_oleaut_tfs`, `type_memsize`, `get_stack_size`,
+`get_param_info`) support `VT_LPWSTR` and `VT_LPSTR` parameters, which the Chrome updater's type library uses
+(`get_param_info unhandled type 31` made `CreateStubFromTypeInfo` fail with `E_NOTIMPL`, the updater's COM calls returned
+`E_NOINTERFACE` and the Chrome MSI failed with 1627). Verified in the QEMU guest: with the change the Chrome enterprise MSI
+installs (exit 0, `Program Files\Google\Chrome\Application\chrome.exe`). Only the `[in]` pointer form is covered; `[out]
+LPWSTR *` is not. A unit test in `dlls/oleaut32/tests/tmarshal.c` is still to be written (see `TYPELIB_PROXYSTUB_ANALYSIS.md`).
