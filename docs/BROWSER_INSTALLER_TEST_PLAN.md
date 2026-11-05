@@ -183,4 +183,4 @@ reinstall, and rollback need separate fresh-prefix/snapshot evidence.
   gone; `STOCK_CHANGES.md`, `CHROMIUM_DCOMP_ANALYSIS.md`).
 * Result (system-level install, fresh prefix, Wayland session): the validation fixture passes: WebGL and WebGL2 render,
   GPU process alive, shell alive after the browser starts. Evidence: `ChromiumLab/chromium-installer-20261105/run4/`
-  (`result.json`, `chromium.png`). Per-user mode was installed but not yet launched through the fixture.
+  (`result.json`, `chromium.png`). Per-user mode (`validate-chromium-user.py`, run `chromium-5`) also passes: install exit 0, `chromium_functional` true.
