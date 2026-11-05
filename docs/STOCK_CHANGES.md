@@ -1,5 +1,35 @@
 # Changes to stock Wine / third-party code
 
+## dcomp: IDCompositionAnimation objects and animated offset/opacity properties (2026-11-04)
+
+`wine/dlls/dcomp/device.c`: implement `IDCompositionAnimation` as a refcounted
+object holding a validated segment list (cubic polynomial
+`c0+c1*t+c2*t^2+c3*t^3`, sinusoidal, repeat and end segments) with the Windows
+validation rules: `E_INVALIDARG` for NULL, not-yet-ended, out-of-order
+(`beginOffset` earlier than the previous segment's end), negative repeat
+duration, repeat before any segment, and NaN/inf arguments; `E_NOTIMPL` for a
+foreign vtable; `E_INVALIDARG` for an animation from another device. `End`
+before any segment succeeds, matching the staging contract.
+`CreateAnimation` on the device, device2, device3 and desktop-device
+interfaces now creates the object. `IDCompositionVisual::SetOffsetXAnimation`
+and `SetOffsetYAnimation` and `IDCompositionEffectGroup::SetOpacityAnimation`
+accept an animation when the matching property exists in our pending/active
+state: the setter validates the object, takes a reference and stores it in the
+pending state; `Commit` copies it to the active state and samples it once at
+the commit's reference time (system time in 100ns units, so elapsed seconds
+are measured from the `SetAbsoluteBeginTime` `LARGE_INTEGER`) to fill the
+plain float property,
+so the existing retained-scene renderer uses it unchanged. There is no
+per-frame animation engine: the value is sampled at `Commit` only. Setting the
+plain float afterwards replaces the animation, as Windows does. All other
+animation setters (transform, rectangle clip, etc.) keep `E_NOTIMPL` where our
+state has no such property.
+
+`wine/dlls/dcomp/tests/dcomp.c`: port `test_visual_SetOffsetXAnimation`
+(staging patch 0044, `todo_wine` removed since it now passes) and
+`test_animation` (Add*/End error codes) with attribution to Zhiyi Zhang.
+`dcomp` runs 991 tests, 3 todo, 0 failures on x86_64 and i386.
+
 ## dcomp: device and visual conformance contracts (2026-11-04)
 
 `wine/dlls/dcomp/device.c` matches the selected Wine-Staging conformance contracts for device
