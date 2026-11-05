@@ -37,11 +37,15 @@
  *
  * Every call's return value and GetLastError are printed.
  *
- * Usage: reg-acl-probe.exe [keep]
- *   keep  do not delete the test key at the end
+ * Also prints the current process token (user, groups, privileges) and the
+ * owner/group of the key it creates.
  *
- * Build: x86_64-w64-mingw32-gcc -Wall -O2 reg-acl-probe.c -o reg-acl-probe.exe -ladvapi32
- *        i686-w64-mingw32-gcc -Wall -O2 reg-acl-probe.c -o reg-acl-probe.exe -ladvapi32
+ * Usage: reg-acl-probe.exe [keep] [wow64]
+ *   keep   do not delete the test key at the end
+ *   wow64  open/create the key with KEY_WOW64_32KEY (the 32-bit / Wow6432Node view)
+ *
+ * Build: x86_64-w64-mingw32-gcc -Wall -O2 reg-acl-probe.c -o reg-acl-probe.exe -ladvapi32 -lole32
+ *        i686-w64-mingw32-gcc -Wall -O2 reg-acl-probe.c -o reg-acl-probe.exe -ladvapi32 -lole32
  */
 
 #include <windows.h>
@@ -52,6 +56,10 @@
 
 static const WCHAR key_path[]   = L"Software\\WineTest\\Update\\ClientStateMedium";
 static const WCHAR named_path[] = L"MACHINE\\Software\\WineTest\\Update\\ClientStateMedium";
+
+/* set to KEY_WOW64_32KEY when the "wow64" option is given, so a 64-bit probe can
+ * exercise the 32-bit (Wow6432Node) view the way the x86 updater does */
+static DWORD wow64_flag = 0;
 
 static void ret_dword( const char *name, DWORD ret )
 {
@@ -82,13 +90,120 @@ static void print_sid( const char *label, PSID sid )
     fflush( stdout );
 }
 
+/* print the user, groups and privileges of the current process token */
+static void print_token_info( void )
+{
+    HANDLE token;
+    DWORD len = 0;
+    PTOKEN_USER tu;
+    PTOKEN_GROUPS tg;
+    PTOKEN_PRIVILEGES tp;
+    char *str = NULL;
+    DWORD i;
+
+    printf( "-- process token --\n" );
+    if (!OpenProcessToken( GetCurrentProcess(),
+                           TOKEN_QUERY | TOKEN_READ, &token ))
+    {
+        printf( "  OpenProcessToken failed: %lu\n", GetLastError() );
+        fflush( stdout );
+        return;
+    }
+
+    if (GetTokenInformation( token, TokenUser, NULL, 0, &len ) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        len = 0;
+    if (len)
+    {
+        tu = LocalAlloc( LPTR, len );
+        if (tu && GetTokenInformation( token, TokenUser, tu, len, &len ))
+        {
+            if (ConvertSidToStringSidA( tu->User.Sid, &str ))
+                printf( "  user                 %s\n", str );
+            else
+                printf( "  user                 <convert failed %lu>\n", GetLastError() );
+            LocalFree( str ); str = NULL;
+        }
+        LocalFree( tu );
+    }
+
+    if (GetTokenInformation( token, TokenGroups, NULL, 0, &len ) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        len = 0;
+    if (len)
+    {
+        tg = LocalAlloc( LPTR, len );
+        if (tg && GetTokenInformation( token, TokenGroups, tg, len, &len ))
+        {
+            printf( "  groups (%lu):\n", tg->GroupCount );
+            for (i = 0; i < tg->GroupCount; i++)
+            {
+                if (ConvertSidToStringSidA( tg->Groups[i].Sid, &str ))
+                    printf( "    %-40s attrs=0x%lx\n", str, tg->Groups[i].Attributes );
+                else
+                    printf( "    <convert failed %lu>\n", GetLastError() );
+                LocalFree( str ); str = NULL;
+            }
+        }
+        LocalFree( tg );
+    }
+
+    if (GetTokenInformation( token, TokenPrivileges, NULL, 0, &len ) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        len = 0;
+    if (len)
+    {
+        tp = LocalAlloc( LPTR, len );
+        if (tp && GetTokenInformation( token, TokenPrivileges, tp, len, &len ))
+        {
+            printf( "  privileges (%lu):\n", tp->PrivilegeCount );
+            for (i = 0; i < tp->PrivilegeCount; i++)
+            {
+                char name[256];
+                DWORD nlen = sizeof(name);
+                if (LookupPrivilegeNameA( NULL, &tp->Privileges[i].Luid, name, &nlen ))
+                    printf( "    %-40s %s\n", name,
+                            (tp->Privileges[i].Attributes & SE_PRIVILEGE_ENABLED) ? "enabled" : "disabled" );
+                else
+                    printf( "    <luid %lu,%lu> %s\n",
+                            tp->Privileges[i].Luid.LowPart, tp->Privileges[i].Luid.HighPart,
+                            (tp->Privileges[i].Attributes & SE_PRIVILEGE_ENABLED) ? "enabled" : "disabled" );
+            }
+        }
+        LocalFree( tp );
+    }
+
+    CloseHandle( token );
+    fflush( stdout );
+}
+
+/* print the owner (and group) of a registry key */
+static void print_key_owner( HKEY key )
+{
+    PSECURITY_DESCRIPTOR sd = NULL;
+    PSID owner = NULL, group = NULL;
+
+    printf( "-- key owner --\n" );
+    if (GetSecurityInfo( key, SE_REGISTRY_KEY,
+                         OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION,
+                         &owner, &group, NULL, NULL, &sd ) == ERROR_SUCCESS)
+    {
+        print_sid( "owner:", owner );
+        print_sid( "group:", group );
+    }
+    else
+        printf( "  GetSecurityInfo(OWNER|GROUP) failed: %lu\n", GetLastError() );
+    if (sd) LocalFree( sd );
+    fflush( stdout );
+}
+
 /* create the test key fresh; returns a handle or INVALID_HANDLE_VALUE */
 static HKEY create_key( const char *label )
 {
     HKEY key;
     DWORD disp;
     LONG res = RegCreateKeyExW( HKEY_LOCAL_MACHINE, key_path, 0, NULL, 0,
-                                KEY_READ | KEY_WRITE | WRITE_DAC | READ_CONTROL,
+                                KEY_READ | KEY_WRITE | WRITE_DAC | READ_CONTROL | wow64_flag,
                                 NULL, &key, &disp );
     ret_dword( label, (res == ERROR_SUCCESS) ? 0 : (DWORD)res );
     if (res != ERROR_SUCCESS) return INVALID_HANDLE_VALUE;
@@ -105,7 +220,7 @@ static void delete_key( void )
 
 int main( int argc, char *argv[] )
 {
-    int keep = (argc > 1 && !strcmp( argv[1], "keep" ));
+    int keep = 0, i;
     char user[64] = "?";
     DWORD ulen = sizeof(user);
     PSID au, users, everyone, admin;
@@ -114,12 +229,21 @@ int main( int argc, char *argv[] )
     ACCESS_MASK masks[2] = { KEY_ALL_ACCESS, KEY_READ | KEY_WRITE };
     const char *mask_names[2] = { "KEY_ALL_ACCESS", "KEY_READ|KEY_WRITE" };
     HKEY key;
-    int i, m;
+    int m;
 
-    printf( "=== reg-acl-probe (bitness %d) ===\n", (int)sizeof(void *) * 8 );
+    for (i = 1; i < argc; i++)
+    {
+        if (!strcmp( argv[i], "keep" )) keep = 1;
+        else if (!strcmp( argv[i], "wow64" )) wow64_flag = KEY_WOW64_32KEY;
+    }
+
+    printf( "=== reg-acl-probe (bitness %d, view %s) ===\n", (int)sizeof(void *) * 8,
+            wow64_flag ? "KEY_WOW64_32KEY" : "default" );
     GetUserNameA( user, &ulen );
     printf( "user: %s\n", user );
     fflush( stdout );
+
+    print_token_info();
 
     au       = well_known( WinAuthenticatedUserSid );
     users    = well_known( WinBuiltinUsersSid );
@@ -137,12 +261,14 @@ int main( int argc, char *argv[] )
     {
         printf( "cannot create the key; trying to open an existing one\n" );
         if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, key_path, 0,
-                           KEY_READ | KEY_WRITE | WRITE_DAC | READ_CONTROL, &key ))
+                           KEY_READ | KEY_WRITE | WRITE_DAC | READ_CONTROL | wow64_flag, &key ))
         {
             printf( "no key to probe; aborting\n" );
             return 1;
         }
     }
+
+    print_key_owner( key );
 
     /* ---- phase 2: GetSecurityInfo (DACL) ---- */
     {
@@ -214,18 +340,26 @@ int main( int argc, char *argv[] )
             if (err == ERROR_SUCCESS)
             {
                 GetSecurityDescriptorDacl( sd, NULL, &dacl, NULL );
-                memset( &ea, 0, sizeof(ea) );
-                ea.grfAccessPermissions = KEY_ALL_ACCESS;
-                ea.grfAccessMode        = SET_ACCESS;
-                ea.grfInheritance       = NO_INHERITANCE;
-                BuildTrusteeWithSidW( &ea.Trustee, au );
-                err = SetEntriesInAclW( 1, &ea, dacl, &new_dacl );
-                ret_dword( "  SetEntriesInAclW", err );
-                if (err == ERROR_SUCCESS)
+                if (!dacl)
                 {
-                    err = RegSetKeySecurity( key, DACL_SECURITY_INFORMATION, new_dacl );
-                    ret_dword( "  RegSetKeySecurity(DACL)", err );
-                    LocalFree( new_dacl );
+                    printf( "  (no dacl in returned sd)\n" );
+                    fflush( stdout );
+                }
+                else
+                {
+                    memset( &ea, 0, sizeof(ea) );
+                    ea.grfAccessPermissions = KEY_ALL_ACCESS;
+                    ea.grfAccessMode        = SET_ACCESS;
+                    ea.grfInheritance       = NO_INHERITANCE;
+                    BuildTrusteeWithSidW( &ea.Trustee, au );
+                    err = SetEntriesInAclW( 1, &ea, dacl, &new_dacl );
+                    ret_dword( "  SetEntriesInAclW", err );
+                    if (err == ERROR_SUCCESS)
+                    {
+                        err = RegSetKeySecurity( key, DACL_SECURITY_INFORMATION, new_dacl );
+                        ret_dword( "  RegSetKeySecurity(DACL)", err );
+                        LocalFree( new_dacl );
+                    }
                 }
             }
             LocalFree( sd );
@@ -245,20 +379,28 @@ int main( int argc, char *argv[] )
         ret_dword( "  GetNamedSecurityInfoW(DACL)", err );
         if (err == ERROR_SUCCESS)
         {
-            memset( &ea, 0, sizeof(ea) );
-            ea.grfAccessPermissions = KEY_ALL_ACCESS;
-            ea.grfAccessMode        = SET_ACCESS;
-            ea.grfInheritance       = NO_INHERITANCE;
-            BuildTrusteeWithSidW( &ea.Trustee, au );
-            err = SetEntriesInAclW( 1, &ea, dacl, &new_dacl );
-            ret_dword( "  SetEntriesInAclW", err );
-            if (err == ERROR_SUCCESS)
+            if (!dacl)
             {
-                err = SetNamedSecurityInfoW( (LPWSTR)named_path, SE_REGISTRY_KEY,
-                                             DACL_SECURITY_INFORMATION,
-                                             NULL, NULL, new_dacl, NULL );
-                ret_dword( "  SetNamedSecurityInfoW(DACL)", err );
-                LocalFree( new_dacl );
+                printf( "  (no dacl in returned sd)\n" );
+                fflush( stdout );
+            }
+            else
+            {
+                memset( &ea, 0, sizeof(ea) );
+                ea.grfAccessPermissions = KEY_ALL_ACCESS;
+                ea.grfAccessMode        = SET_ACCESS;
+                ea.grfInheritance       = NO_INHERITANCE;
+                BuildTrusteeWithSidW( &ea.Trustee, au );
+                err = SetEntriesInAclW( 1, &ea, dacl, &new_dacl );
+                ret_dword( "  SetEntriesInAclW", err );
+                if (err == ERROR_SUCCESS)
+                {
+                    err = SetNamedSecurityInfoW( (LPWSTR)named_path, SE_REGISTRY_KEY,
+                                                 DACL_SECURITY_INFORMATION,
+                                                 NULL, NULL, new_dacl, NULL );
+                    ret_dword( "  SetNamedSecurityInfoW(DACL)", err );
+                    LocalFree( new_dacl );
+                }
             }
             LocalFree( sd );
         }
