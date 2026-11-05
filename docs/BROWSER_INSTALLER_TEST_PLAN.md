@@ -184,3 +184,14 @@ reinstall, and rollback need separate fresh-prefix/snapshot evidence.
 * Result (system-level install, fresh prefix, Wayland session): the validation fixture passes: WebGL and WebGL2 render,
   GPU process alive, shell alive after the browser starts. Evidence: `ChromiumLab/chromium-installer-20261105/run4/`
   (`result.json`, `chromium.png`). Per-user mode (`validate-chromium-user.py`, run `chromium-5`) also passes: install exit 0, `chromium_functional` true.
+
+### Edge MSI and Chrome stub, 2026-11-05, VM B (guest has internet: dl.google.com 302, www.microsoft.com 200)
+
+* Edge enterprise MSI 156.0.4314.58 (SHA-256 `784051EB...F2FB`, signature valid, matches the vendor JSON): `msiexec /i ... /qn`
+  fails, exit 91 (`DoInstall` returned 1627), both inside the fixture's no-network namespace (WinHTTP 0x2efd, then
+  `Failed to install apps 0x80004001`) and with guest internet, where `MicrosoftEdgeUpdate.exe` fails at
+  `::ShellExecuteEx` of its own `/handoff` command (`needsAdmin=True`, `0x80040708`) and `/regserver` (`0x80070002`).
+  Analysis in progress (`docs/EDGE_INSTALLER_ANALYSIS.md`); evidence in `ChromiumLab/browser-installer-20261105/edge-msi/`.
+* Chrome stub `ChromeSetup.exe` (13283768 bytes, signature valid): `/silent /install` exits 251; the updater log is created
+  and `{6d40bdad-...}` / `{8018f647-...}` are "not registered" (COM classes of the updater service), the same blocker as the
+  Chrome enterprise MSI (registry DACL, Round 7 in `CHROME_INSTALLER_ANALYSIS.md`).
