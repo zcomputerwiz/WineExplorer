@@ -165,3 +165,18 @@ reinstall, and rollback need separate fresh-prefix/snapshot evidence.
   results, and the still-unresolved registry-DACL status.
 * Answered all open questions with verified facts or an explicit unverifiable
   status.
+
+## Results log
+
+### Chromium continuous build 1736300 (Chromium 159.0.8145.0), 2026-11-05, VM B
+
+* Source: `mini_installer.exe` from the official snapshots bucket, 180214272 bytes, SHA-256
+  `573d86cec140380cd56ca91f221ae4084b531f4d73f539fda7ab04e46a4120c3` (lab manifest under `ChromiumLab/installers/`).
+* `mini_installer.exe --silent --do-not-launch-chrome` (per-user) and `--system-level --silent --do-not-launch-chrome`:
+  both exit 0, `InstallerResult` 0, `chrome.exe` present under `%LOCALAPPDATA%\Chromium` and `Program Files\Chromium`,
+  uninstall entry written. The installer passes with no Wine change.
+* First launch aborted with a delay-load failure (`DelayLoad-ModuleName` USER32.dll, last error 127): the missing export
+  is `GetPointerDevice`. Fixed in Wine (`user32`, see `STOCK_CHANGES.md`); the browser then starts and loads the
+  fixture page.
+* Next failure: the GPU process dies at `ui\gl\dc_layer_tree.cc:717`, `hr == 0x80070057` (E_INVALIDARG) from a
+  DirectComposition call, so the fixture reports `webgl context lost`. Under investigation (dcomp).

@@ -1850,3 +1850,12 @@ second `services.exe` (the 32-bit and 64-bit `wineboot --init` can start two wit
 either sets the started event) waits for the started event and exits 0 instead of building a second service database.
 Verified in the QEMU guest with the Chrome updater service (it now reaches the dispatcher and reports running) and with
 the advapi32 `service` test (759/777 tests, 0 failures). See `CHROME_INSTALLER_ANALYSIS.md` section 9.
+
+## user32: GetPointerDevice (2026-11-05)
+
+`wine/dlls/user32/misc.c` and `user32.spec` export `GetPointerDevice` (previously a commented-out stub). It fails like the native export does for an invalid
+handle (`ERROR_INVALID_HANDLE`, or `ERROR_INVALID_PARAMETER` for NULL, checked on Windows 11), because
+`GetPointerDevices` reports no devices and so no handle is valid. Chromium delay-loads
+the export during start-up and aborts with a delay-load failure (`DelayLoad-ModuleName` USER32.dll, last error 127)
+when it is missing; the official Chromium installer itself passes. Test: `dlls/user32/tests/input.c`
+`test_GetPointerDevice`.
