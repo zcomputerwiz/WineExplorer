@@ -1,5 +1,69 @@
 # Changes to stock Wine / third-party code
 
+## dcomp: rectangle-clip and 2D transform animation setters, transform objects (2026-11-05)
+
+`wine/dlls/dcomp/device.c`: implement the remaining animation setters whose
+property already exists in our state, and the five 2D transform object classes.
+
+`IDCompositionRectangleClip`: `SetLeft/Top/Right/Bottom` and the eight
+`Set*RadiusX/Y` animation setters (previously `E_NOTIMPL`) now accept an
+animation when the matching property exists, mirroring the offset-animation
+contract: `E_INVALIDARG` for NULL, a not-yet-ended animation, or an animation
+from another device; `E_NOTIMPL` for a foreign vtable. The plain float setters
+validate finiteness only (`E_INVALIDARG` for NaN/inf), matching Windows, which
+accepts out-of-range values. `Commit` samples each animated property once at
+the commit reference time through the shared animation sampler.
+
+`IDCompositionTranslateTransform`, `IDCompositionScaleTransform`,
+`IDCompositionRotateTransform`, `IDCompositionSkewTransform` and
+`IDCompositionMatrixTransform`: new refcounted transform objects. Each stores
+its animated properties and exposes the plain float setters plus the matching
+`Set*Animation` setters with the same validation rules as the offset
+animations. `SetMatrix` validates the six elements for finiteness
+(`E_INVALIDARG` for NaN/inf); `SetMatrixElement` validates the row/column
+bounds (`E_INVALIDARG` outside row 0..2, column 0..1) and the value for
+finiteness. `Create*Transform` on the device, device2, device3 and
+desktop-device interfaces now creates the object (`E_INVALIDARG` for a NULL
+output pointer). `CreateTransformGroup` and the 3D transform factories remain
+`E_NOTIMPL`.
+
+`IDCompositionVisual::SetTransformObject`: stores the transform object pointer
+without taking a reference (Windows does not add a reference when a transform
+is attached to a visual), clears the plain `SetTransform` matrix (the two are
+mutually exclusive), and validates `E_INVALIDARG` for a transform from another
+device and `E_NOTIMPL` for a foreign vtable. `Commit` builds the visual's
+matrix from the transform object's current (sampled) values using the standard
+D2D row-vector affine formulas (translate, scale/rotate/skew about the center,
+matrix as-is). The retained-scene renderer uses the resulting matrix unchanged.
+
+`IDCompositionEffectGroup::SetOpacity`: validate finiteness only
+(`E_INVALIDARG` for NaN/inf); Windows accepts values outside [0,1].
+
+`wine/dlls/dcomp/tests/dcomp.c`: add `test_clip_animation`,
+`test_effect_group_opacity`, `test_transforms` and
+`test_visual_SetTransformObject` in the existing style. `dcomp` runs 1112
+tests, 0 todo, 0 failures on x86_64 and i386 (up from 1002).
+
+Native behaviour was pinned with MSVC probes on Windows 11 (x86_64 and i386,
+identical results): all probed HRESULTs match the implementation, including
+`SetOpacity(-1.0)` -> `S_OK`, `SetMatrixElement` out-of-bounds ->
+`E_INVALIDARG`, and the no-reference semantics of `SetTransformObject`. The
+full test exe cannot run to completion natively because the pre-existing
+`test_surface_interface` calls a Wine-only `IDCompositionSurfaceUnknown`
+vtable slot that does not exist in the native interface; native verification
+is therefore via the probes.
+
+## combase: LocalService WOW64 lookup and service parameter compatibility (2026-11-05)
+
+`wine/dlls/combase/rpc.c` retries the AppID lookup in the opposite WOW64 view when the current view has no
+`LocalService`, matching the installer trace where the CLSID is in the 32-bit view but the AppID service
+registration is in the native view. It reads the documented `ServiceParameters` value first and retains
+`ServiceParams` as a fallback. Static-only change; no build or guest runtime result is claimed here.
+
+Known deviation: the surrogate fallback remains unchanged. Wine still may launch the default `dllhost.exe` when
+`DllSurrogate` is absent; the proposed surrogate-semantics fix was deliberately not applied because its Windows
+behavior is unverified and the change is risky.
+
 ## P13 flat8 opaque accent frame (2026-11-05)
 
 Wine files touched: `wine/include/wine/dwm_protocol.h`, `wine/dlls/dwmapi/dwmapi_main.c`,
