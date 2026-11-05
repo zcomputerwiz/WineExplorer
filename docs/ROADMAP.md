@@ -232,7 +232,7 @@ steps and remaining limits are recorded in [HANDOFF.md](HANDOFF.md).
 ## Phase 12: Verification, Packaging & Deployment (Next Steps)
 - [ ] Test build configuration with Wine build system (`./configure && make`).
 - [ ] Verify Gamescope session startup with display manager.
-- [ ] Provide comprehensive administration and user documentation.
+- [x] Provide comprehensive administration and user documentation ([ADMIN_GUIDE.md](ADMIN_GUIDE.md), [USER_GUIDE.md](USER_GUIDE.md)).
 
 
 

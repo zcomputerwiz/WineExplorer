@@ -30,6 +30,8 @@ from earlier phases.
 D:\DeepThought\Projects\WineExplorer\
 ├── archives/               # Original repository zip archives
 ├── docs/                   # Architecture, design specifications, and guides
+│   ├── ADMIN_GUIDE.md      # System administration, installation, sessions, DWM gates, and troubleshooting
+│   ├── USER_GUIDE.md       # End-user guide: desktop, taskbar, Start menu, themes, and shortcuts
 │   ├── ARCHITECTURE.md     # System architecture and compositor integration
 │   ├── ROADMAP.md          # Phased development roadmap
 │   └── HANDOFF.md          # Current VM state, verification and next pickup
@@ -61,6 +63,8 @@ D:\DeepThought\Projects\WineExplorer\
 ---
 
 See [docs/BUILDING.md](docs/BUILDING.md) for recursive clone, assembly, build, VM sync and packaging.
+For administrative deployment, sessions, prefix layouts, DWM registry gates, and troubleshooting, see the [Administrator Guide](docs/ADMIN_GUIDE.md).
+For end-user shell features, Start menu variants, themes, and verified keyboard shortcuts, see the [User Guide](docs/USER_GUIDE.md).
 
 For reusable application-testing helpers, isolation rules and adding another app
 runner, see [the application test harness guide](docs/APP_TEST_HARNESS.md).

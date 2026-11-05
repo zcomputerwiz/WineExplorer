@@ -130,6 +130,8 @@ Guest cursor images changed correctly during the original fault; a driver/hyperv
 
 ## Documentation map
 
+- [ADMIN_GUIDE.md](ADMIN_GUIDE.md): system administration, installation/live-build, session models, DWM registry gates, and troubleshooting.
+- [USER_GUIDE.md](USER_GUIDE.md): end-user XP-style shell, Start menu variants, themes, where files live, and verified keyboard shortcuts.
 - [ARCHITECTURE.md](ARCHITECTURE.md): current desktop/runtime ownership.
 - [LINUX_WINDOWS.md](LINUX_WINDOWS.md): native hosts, focus, launch bridge and dialog constraints.
 - [START_MENU.md](START_MENU.md) / [THEMES.md](THEMES.md): shell settings, theme packages, menu icon and region behavior.
