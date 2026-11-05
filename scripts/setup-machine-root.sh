@@ -335,6 +335,9 @@ fi
 find "$MACHINE_ROOT" -mindepth 1 -maxdepth 1 ! -type l -exec chown -h "root:$MACHINE_GROUP" {} +
 chown -h "root:$MACHINE_GROUP" "$MACHINE_ROOT"
 chown -R -h "root:$MACHINE_GROUP" "$MACHINE_ROOT/drive_c"
+# The bootstrap wineboot (run as root) leaves pe_section_cache/*.cache as root:root. They are not under drive_c, so the
+# chown above missed them and the "migration incomplete" check below failed on the second pass (found on the lab guest).
+[ ! -d "$MACHINE_ROOT/pe_section_cache" ] || chown -R -h "root:$MACHINE_GROUP" "$MACHINE_ROOT/pe_section_cache"
 chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
 find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
 find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +

@@ -1867,3 +1867,15 @@ non-finite matrix values. The earlier 64x scale and 1048576 translation limits w
 GPU process abort (`dc_layer_tree.cc` check, `E_INVALIDARG`) when it scaled a 1x1 solid-colour surface to the layer
 size. Test: `test_visual_SetTransform_scale` in `dlls/dcomp/tests/dcomp.c` (passes on Windows 11 and Wine). See
 `CHROMIUM_DCOMP_ANALYSIS.md`.
+
+## server: registry key security descriptor calls ignore the handle access (2026-11-05)
+
+`wine/server/handle.c` (`get_security_handle_obj`, used by `set_security_object` and `get_security_object`): for a registry
+key the descriptor right (`WRITE_DAC`, `WRITE_OWNER`, `READ_CONTROL`, `ACCESS_SYSTEM_SECURITY`) is checked against the
+caller's token and the key's descriptor, not against the access bits of the handle. Windows does the same: on Windows 11 a
+key created with `KEY_WRITE` or reopened with `KEY_SET_VALUE` can have its DACL read and changed through `GetSecurityInfo` and
+`SetSecurityInfo` (probe `ChromiumLab/guest-sysrole/probes/keywrite_dacl.c`, native results all 0). Other object types keep
+the handle check. Reason: Chromium's updater service creates `ClientStateMedium` with `KEY_WRITE` and then calls
+`AddAllowedAce`, which returned 0x80070005 and made the Chrome installers fail. Test: `test_regkey_descriptor_handle_access`
+in `dlls/advapi32/tests/security.c` (the same calls pass on Windows 11 and under Wine). See `CHROME_INSTALLER_ANALYSIS.md`
+section 15.

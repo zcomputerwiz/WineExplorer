@@ -105,3 +105,20 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
 * Several legacy harnesses kill wineserver, services.exe or Xvfb globally, delete fixed prefixes, and overwrite logs. Only one agent may use such a distro at a time. An owned prefix alone does not protect other processes from `pkill`.
 * Guest disks fill: remove only confirmed superseded, owned prefixes after coordinating with their owner. VM B can auto-stop (`WEX_VMB_SECONDS`); check its configured lifetime against the test.
 * On the Windows host, execute only our own test executables. A compile, window-DC sample or screenshot alone does not establish presented-pixel correctness; validate visible screen pixels and fresh-prefix guest behavior when required.
+
+## Added 2026-11-05: lessons that cost hours (do not rediscover)
+
+* A guest or distro without the system role gives services the user's filtered token: provisioning recipe and every failure
+  it hit are in `docs/GUEST_SYSROLE.md` (scripts in `scripts/lab/guest-sysrole/`). Do that before any installer test.
+* The launcher refuses runtimes under a non-root-owned path (use `/opt/...`), the in-tree build symlinks `nls` and `fonts` into the
+  source tree, and `setup-machine-root.sh` does not follow a moved runtime (edit `sysrun.conf`, re-link).
+* `wexdev build <paths...>` copies only the named files (fast). Without paths it scans every tracked file over `/mnt/d` and
+  takes minutes (`WEXDEV_SYNC_TIMEOUT`, default 900 s).
+* `test_sysrun_server.sh` refuses to run while `/etc/wineexplorer` exists: `wexdev sysrole reset` first.
+* To see why a server request is denied, instrument `wine/server` (the client trace never shows it), rebuild with
+  `wexdev build server/...`, and push only `server/wineserver` to the guest runtime; revert with `git checkout` after.
+* Compare with the native Windows 11 result with a tiny probe (`scripts/keywrite_dacl.c` is the pattern) before assuming
+  Wine's behaviour is right: both the elevated-token theory and the handle-access theory were checked this way.
+* Write C, Python and shell helpers with the Write tool, never `python -c` or heredocs with backslashes: `
+` became a real
+  newline three times in one session (always `grep` the edited line or build before trusting it).

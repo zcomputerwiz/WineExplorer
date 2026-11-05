@@ -1109,3 +1109,25 @@ Results:
   token); file access in `C:\windows\Installer` or `Temp` for a process with the full token but a user home in another
   prefix; an unlogged failure path in `dlls/msi` after opening the cached package. Next trace: `+file,+msi` limited to that
   process, or `WINEDEBUG=+seh,+relay` for `msiexec` only.
+
+## 15. Round 11 (2026-11-05): the AddAllowedAce failure was a server bug, fixed (Claude)
+
+With the system role provisioned and the test broker (sections 12 to 14, `GUEST_SYSROLE.md`), the Chrome updater service
+(`LocalSystem`, 32-bit, `--system --windows-service`) still failed `CreateClientStateMedium: AddAllowedAce returned 0x80070005`.
+A temporary trace in the server (token, descriptor and handle access at every denial) showed that no token check failed: the
+denial is `get_handle_obj` in `set_security_object`, `have=0x20006` (`KEY_WRITE`) `need=0x40000` (`WRITE_DAC`). The updater
+creates the key with `KEY_WRITE | KEY_WOW64_32KEY` and then calls `GetSecurityInfo` / `SetEntriesInAcl` / `SetSecurityInfo`
+through that handle. A native probe (`scripts/keywrite_dacl.c`) on Windows 11 shows that this works there, with any handle
+access (`KEY_WRITE`, `KEY_READ`, `KEY_SET_VALUE`, `WRITE_DAC`): the handle's access is not what counts for the descriptor of a
+registry key. Fix: `server/handle.c` `get_security_handle_obj` (`STOCK_CHANGES.md`), test
+`test_regkey_descriptor_handle_access`. After the fix `AddAllowedAce` no longer fails.
+
+Why the earlier hunts missed it: the harness probes opened their keys with `WRITE_DAC` (they succeeded), and the Round 7 harness
+had no way to see the server side. Lessons kept in the tooling: probe with the access mask the vendor code really uses (read it
+from `+reg`: `NtCreateKey ... 20206`), compare with the native result before suspecting the token, and read the server's
+`get_handle_obj` denial before the access check.
+
+Next failure (not yet analysed): `err:ole:dispatch_typelib_ps_CreateStub Failed to create stub, hr 0x80004001` and
+`marshal_object Failed to create an IRpcStubBuffer from IPSFactory for {acab122b-29c0-56a9-8145-afa2f82a547c}`; the updater's
+`CoCreateInstance {8018F647-...}` / `QueryInterface {ACAB122B-...}` then return `E_NOINTERFACE` and `DoInstall` returns 1627.
+This is a typelib-driven proxy/stub marshalling gap in ole32/oleaut32.

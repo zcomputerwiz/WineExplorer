@@ -392,10 +392,25 @@ build()
             [[ -e $SRC/wine/$p ]] || paths+=("$p")
         done < <(git -C "$CLONE" ls-files -z)
     fi
-    [[ -f /root/sync-wine.sh ]] || fail "missing authoritative /root/sync-wine.sh"
-    # Keep the existing changed/untracked-file sync implementation authoritative.
-    timeout --kill-after=5 "$TIMEOUT" bash /root/sync-wine.sh >"$STATE/logs/sync.log" 2>&1 ||
-        fail "source sync failed; see $STATE/logs/sync.log"
+    if (( $# )); then
+        # Explicit paths: copy only those files. The full scan below walks every tracked file over /mnt/d, which
+        # takes minutes (it made an earlier 120 s timeout fail), so naming the changed files is the fast path.
+        : > "$STATE/logs/sync.log"
+        for p in "$@"; do
+            p=${p#wine/}
+            [[ $p != /* && $p != *..* ]] || fail "unsafe source path: $p"
+            if [[ -f $SRC/wine/$p ]]; then
+                mkdir -p "$CLONE/$(dirname -- "$p")"
+                cp -p -- "$SRC/wine/$p" "$CLONE/$p" || fail "copy failed: $p"
+                printf 'sync %s\n' "$p" >> "$STATE/logs/sync.log"
+            fi
+        done
+    else
+        [[ -f /root/sync-wine.sh ]] || fail "missing authoritative /root/sync-wine.sh"
+        # Keep the existing changed/untracked-file sync implementation authoritative.
+        timeout --kill-after=5 "${WEXDEV_SYNC_TIMEOUT:-900}" bash /root/sync-wine.sh >"$STATE/logs/sync.log" 2>&1 ||
+            fail "source sync failed or timed out (WEXDEV_SYNC_TIMEOUT, default 900 s); see $STATE/logs/sync.log"
+    fi
     grep -Ei 'warning:|error:|fatal:' "$STATE/logs/sync.log" || true
     for p in "${paths[@]}"; do
         p=${p#wine/}; p=${p%/}
