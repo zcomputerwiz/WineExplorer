@@ -4,8 +4,12 @@
  * One-shot service adapter. Compile with -municode -mwindows -ladvapi32.
  * Arguments: service-name output-file command-line-file (UTF-16LE).
  */
+#ifndef UNICODE
 #define UNICODE
+#endif
+#ifndef _UNICODE
 #define _UNICODE
+#endif
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>

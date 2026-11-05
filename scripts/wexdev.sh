@@ -27,11 +27,13 @@ stop_prefix()
 {
     [[ -n $ACTIVE_PREFIX ]] || return 0
     local rc=0
+    # -k exits nonzero when no server is running; that is a clean state, not a failure.
+    # Only -w timing out (server stuck) is an error.
     if [[ -n $ACTIVE_USER ]]; then
-        as_user "$ACTIVE_USER" env WINEPREFIX="$ACTIVE_PREFIX" timeout 15 "$BUILD/server/wineserver" -k || rc=1
+        as_user "$ACTIVE_USER" env WINEPREFIX="$ACTIVE_PREFIX" timeout 15 "$BUILD/server/wineserver" -k || :
         as_user "$ACTIVE_USER" env WINEPREFIX="$ACTIVE_PREFIX" timeout 15 "$BUILD/server/wineserver" -w || rc=1
     else
-        WINEPREFIX=$ACTIVE_PREFIX timeout 15 "$BUILD/server/wineserver" -k || rc=1
+        WINEPREFIX=$ACTIVE_PREFIX timeout 15 "$BUILD/server/wineserver" -k || :
         WINEPREFIX=$ACTIVE_PREFIX timeout 15 "$BUILD/server/wineserver" -w || rc=1
     fi
     return "$rc"
@@ -128,16 +130,20 @@ fixture_owned()
 }
 fixture_paths()
 {
-    local image resolved dir
+    local image resolved dir images
     for dir in system32 syswow64; do
-        for image in wineboot.exe winedevice.exe ntdll.dll; do
-            resolved=$(readlink -f "$M/drive_c/windows/$dir/$image") || fail "missing $dir/$image"
+        # WoW64 has no 32-bit wineboot (BUILD ships only x86_64 wineboot), and services.exe
+        # lives only in system32; check each directory against the images it actually holds.
+        if [[ $dir == system32 ]]; then images="wineboot.exe winedevice.exe ntdll.dll services.exe";
+        else images="winedevice.exe ntdll.dll"; fi
+        for image in $images; do
+            # readlink -f succeeds even when the final component is absent, so test existence first.
+            [[ -e "$M/drive_c/windows/$dir/$image" ]] || fail "missing $dir/$image"
+            resolved=$(readlink -f "$M/drive_c/windows/$dir/$image")
             [[ $resolved == "$BUILD/"* ]] ||
                 fail "$dir/$image resolves outside BUILD: $resolved; reset only this owned fixture, then up"
         done
     done
-    resolved=$(readlink -f "$M/drive_c/windows/system32/services.exe") || fail "missing services.exe"
-    [[ $resolved == "$BUILD/"* ]] || fail "services.exe resolves outside BUILD: $resolved"
     grep -Fq '"Helper"="C:\\windows\\system32\\consent.exe"' "$M/system.reg" ||
         fail "system role disabled: missing elevation Helper"
 }
@@ -440,12 +446,16 @@ prefix()
         [[ $1 == --gate && $# -ge 2 && $2 == *=* ]] || fail "expected --gate K=V"
         gates+=("$2"); shift 2
     done
-    display
-    logged "$name-init" wine_env "$BUILD/wine" wineboot.exe -i || fail "wineboot failed"
+    # Validate gates before creating the prefix so a bad gate leaves no orphan.
     for gate in "${gates[@]}"; do
         key=${gate%%=*}; value=${gate#*=}
         valid_name "$key"
         [[ $value =~ ^[0-9]+$ || $value =~ ^0x[0-9a-fA-F]+$ ]] || fail "gate must be a DWORD: $gate"
+    done
+    display
+    logged "$name-init" wine_env "$BUILD/wine" wineboot.exe -i || fail "wineboot failed"
+    for gate in "${gates[@]}"; do
+        key=${gate%%=*}; value=${gate#*=}
         logged "$name-gate" wine_env "$BUILD/wine" reg.exe add 'HKCU\Software\WineExplorer\Shell' \
             /v "$key" /t REG_DWORD /d "$value" /f || fail "gate failed: $gate"
     done

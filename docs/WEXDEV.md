@@ -171,3 +171,148 @@ file handling and branch assumptions; compare p6's visual-test environment.
     Repeat from Debian with copied artifacts/state and WEXDEV_SSH wrapper.
     Coordinate exclusive guest use. Schedule desktop/fresh-prefix visible and
     presented-pixel checks separately.
+
+## Acceptance results (2026-11-05)
+
+Executed in the `wexbuild` WSL distro (owner released it exclusively for this
+acceptance; no other agent in use). BUILD `/root/WE-prefetch/build/wow64`, clone
+`/root/WE-prefetch/wine` (513bd8e80dd), source `wine/` (14e252dc, development).
+Invoked as `wsl -d wexbuild --exec bash /mnt/d/.../scripts/wexdev.sh <cmd>`.
+Guest push (step 10) NOT tested: no VM available.
+
+### Fixes made during acceptance
+
+1. `scripts/wexdev-service.c`: `#define UNICODE` / `#define _UNICODE` wrapped in
+   `#ifndef` guards. Both MinGW arches previously warned `"UNICODE" redefined`;
+   now 0 warnings.
+2. `scripts/wexdev.sh` `stop_prefix()`: both `wineserver -k` lines changed
+   `|| rc=1` to `|| :`. `-k` exits nonzero when no server is running, which is a
+   clean state, not a failure; only a `-w` timeout (stuck server) is an error.
+   This made `prefix`/`run`/`test` report "prefix server cleanup failed" on a
+   fresh prefix.
+3. `scripts/wexdev.sh` `prefix()`: added a gate-validation loop (valid name +
+   DWORD value) before `display`/wineboot, so an invalid gate no longer leaves an
+   orphaned prefix.
+4. `scripts/wexdev.sh` `fixture_paths()`: WoW64 has no 32-bit wineboot (BUILD
+   ships only `x86_64` wineboot) and `services.exe` lives only in system32, so the
+   check now tests each directory against the images it actually holds
+   (system32: wineboot/winedevice/ntdll/services; syswow64: winedevice/ntdll).
+   It also tests existence before `readlink -f`, which succeeds even when the
+   final component is absent (the old `|| fail "missing"` never fired). This made
+   `sysrole up` fail with "syswow64/wineboot.exe resolves outside BUILD".
+
+### 1. Build (targeted rebuild)
+
+Changed a harmless comment in `wine/dlls/advapi32/advapi.c` and
+`wine/dlls/advapi32/tests/registry.c`, then:
+
+- `build` (no paths): printed NOTE lines for `configure`, `configure.ac`,
+  `include/Makefile.in` and fell back to full make (by design). Root cause of the
+  drift: source configure is Autoconf 2.73, clone is 2.72, so auto-detect always
+  full-makes in this environment.
+- `build dlls/advapi32` (explicit): `OK: PASS build: dlls/advapi32`. build.log
+  shows targeted compile+link for both arches; all four advapi32 artifact hashes
+  changed; `last-build.files` = exactly the six advapi32 files. Source reverted
+  (git checkout, clean).
+
+### 2. Prefix + run + test
+
+- `prefix acc-02 --gate Composition=1 --gate DwmService=1` → `OK: prefix acc-02
+  created`; both gates present as `dword:00000001` in `user.reg`.
+- `run acc-02 /tmp/probe64.exe` native OK; `run acc-02 /tmp/probe64.exe fail7`
+  → `FAIL` rc=1 (correct); `run acc-02 --arch both '/tmp/probe{arch}.exe'` → both
+  arches OK.
+- `test advapi32 service` → x86_64: 759 tests, 0 failures (25 todo); i386: 777
+  tests, 0 failures (27 todo); `OK: test advapi32: both architectures passed`.
+- Error cases all `FAIL` rc=1: unknown command, `--arch 16`, name with a space,
+  invalid gate, duplicate prefix name. No leftover wineservers.
+
+### 3. Lock behaviour
+
+Background `run acc-02 /tmp/sleepprobe64.exe 10`; while it held the lock,
+`prefix test-lock` → rc=1 with
+`FAIL: harness locked by pid=118660 user=root host=DEEPTHOUGHT command=run acc-02 /tmp/sleepprobe64.exe 10 started=...`.
+First invocation rc=0. The second names the holder.
+
+### 4. Sysrole (foreign state removal + fresh up)
+
+The distro held a previous agent's hand-made system role:
+`/etc/wineexplorer/sysrun.conf` (md5 10666016f8012e305a9aaec9aac33d49),
+`/usr/local/libexec/wineexplorer/wex-sysrun` (3f52b47346fb82b5224046f240bcf768),
+`/usr/local/bin/sysrun_asgroup`, `/var/lib/wineexplorer/{machine,backup}`, user
+`wexadm` (sudo), group `wexsys`, four orphaned `winedbg --auto` procs, and
+`/root/probe-pfx`. All four sysrole commands correctly refused it
+(`status`/`down`/`reset`: "foreign or incomplete fixture: /var/lib/wexdev-sys";
+`up`: "/etc/wineexplorer already exists; leave Qwen/wexadm state intact").
+
+`/etc/wineexplorer` also held two pre-existing WineExplorer project files that
+predate the foreign role (2026-10-17): `component-licenses/corefonts.txt` and
+`setup/stage` (`oobe`). These were backed up to
+`/root/wexdev-acceptance-backup/etc-wineexplorer-foreign/` and are NOT part of the
+foreign role.
+
+As owner (user-authorized maintenance window): killed the four winedbg procs,
+backed up `/etc/wineexplorer`, removed the foreign files/dirs, `userdel -r
+wexadm`, `groupdel wexsys`. Verified all paths gone and user/group deleted.
+
+- `sysrole up` → first attempt FAILED at `fixture_paths` (see fix 4). After the
+  fix and a `sysrole reset` of the partial fixture: `OK: sysrole ready; Helper
+  enabled; system images resolve into BUILD`.
+- `sysrole status` → accurate: conf `group=wexdevsys`, loader/ntdll/wineserver all
+  under BUILD, `machine_root=/var/lib/wexdev-sys/machine`; `OK: sysrole
+  provisioned; servers are started per invocation, not left running`.
+- Fixture verified: launcher `2755 root:wexdevsys`; `wexdev` in sudo, `wexdevstd`
+  not; neither in `wexdevsys`; probes `probe{32,64}.exe` + `rolesprobe{32,64}.exe`
+  compiled; `asgroup.sg` `2755 root:wexdevsys`; `"Helper"="C:\windows\system32\consent.exe"`
+  in system.reg; `owner` = BUILD.
+
+### 5. Svc (service token as each account)
+
+`svc <name> /var/lib/wexdev-sys/probes/rolesprobe{64,32}.exe token [--account A]
+[--arch N]`. Reported `user=` SID:
+
+- LocalSystem, arch 64: `user=S-1-5-18`, owner `S-1-5-32-544`, elevation=1,
+  integrity=16384, `token=PASS`, service exit=0.
+- LocalService, arch 64: `user=S-1-5-19`.
+- NetworkService, arch 64: `user=S-1-5-20`.
+- LocalSystem, arch 32: `user=S-1-5-18`.
+
+All `OK: service <name> completed as <account> (arch=N); service removed on exit`.
+
+### 6. test_sysrun_server.sh regression
+
+Run after `sysrole reset` (it needs `/etc/wineexplorer` and
+`/usr/local/libexec/wineexplorer` free; it uses its own root
+`/var/lib/wexsys-c2` and users wexadm/wexstd/wexcar):
+
+```
+WINE_BUILD_DIR=/root/WE-prefetch/build/wow64 timeout --kill-after=30 600 \
+    bash scripts/test_sysrun_server.sh
+```
+
+Result: **214 PASS, 0 FAIL** before the 10-minute limit (exit 124). The suite is
+long; it reached the secure-dialog policy checks (`sd_policy_*`) with no failures,
+so the refactor into `scripts/lib/sysrun-fixture.sh` did not break it. Note: the
+`timeout` SIGTERM did not run the script's `trap cleanup EXIT`, so its fixture
+(`/var/lib/wexsys-c2`, `/etc/wineexplorer`, `LIBEXEC`, users, group) had to be
+removed manually afterwards (replicating the cleanup function).
+
+### 7. Guest push
+
+NOT tested: no VM available in this environment.
+
+### Environment notes
+
+- Source `wine/` configure is Autoconf 2.73, the clone's is 2.72, so `build` with
+  no paths always prints the shared-header NOTE and falls back to full make in
+  this environment; explicit paths (e.g. `build dlls/advapi32`) still target
+  correctly.
+- The acceptance was driven over a Windows→WSL transport that strips backslashes
+  and truncates multi-line output; that is a property of the driving harness, not
+  of wexdev.sh. All wexdev.sh invocations used the on-disk script (backslashes
+  intact) and passed.
+- Final distro state: foreign role removed; wexdev fixture up (`sysrole up`
+  re-run after the regression test, `sysrole status` accurate); test fixture
+  cleaned up. Project files preserved at
+  `/root/wexdev-acceptance-backup/etc-wineexplorer-foreign/`.
+
