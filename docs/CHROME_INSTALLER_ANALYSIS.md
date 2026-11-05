@@ -1003,3 +1003,60 @@ at start-up in the guest runtime (a Wine debugger dump instead of results; the u
 so the probe must first be made to run there (build it with `-static`/`-lmsvcrt`, or compare with the guest's
 `ntdll.dll`/`advapi32.dll` versions). Also useful: `WINEDEBUG=+server` on the service process shows the server's
 status for each `set_security_object` request. The updater's own log remains the quickest signal.
+
+## 11. Round 7 (2026-11-06): reproducing the failure as LocalSystem in the canonical system role
+
+Environment (left by the previous job, not redone): WSL distro `wexbuild`, machine root
+`/var/lib/wineexplorer/machine` (`root:wexsys`, gid 989), setgid launcher
+`/usr/local/libexec/wineexplorer/wex-sysrun`, `/etc/wineexplorer/sysrun.conf` pointing at the build
+`/root/WE-prefetch/build/wow64` (wine-11.19-914-g513bd8e80dd, source `/root/WE-prefetch/wine` @ master). User
+`wexadm` (uid/gid 1006) has prefix `/home/wexadm/.wine` with `system.reg`/`userdef.reg` symlinked to the machine
+root and `drive_c/windows` → the machine root's `windows`. The machine root's `system32`/`syswow64` binaries are
+symlinks into `/usr/local/lib/wine` (the older install); the `wineserver` itself comes from the build. Probes
+`/home/wexadm/probes/probe{32,64}.exe` (the Google `ClientStateMedium` path, output to a file).
+
+**Probe services added** to the machine root `system.reg` (backup `system.reg.bak-probesvc-*`): `WexProbe64` and
+`WexProbe32`, `ObjectName=LocalSystem`, `Start=3`, `Type=0x10`, `ImagePath = C:\windows\system32\cmd.exe /c set
+WINEDEBUG=+server,+security,+reg && Z:\home\wexadm\probes\probeNN.exe > C:\probeNN-out.txt 2> C:\probeNN-trace.txt`.
+
+**First run — the bug did NOT reproduce, and the probe ran as the wrong account.** Started the server through the
+launcher as `wexadm` (correct GIDs: egid dropped, saved gid `wexsys`), with a hold client keeping it alive; the
+server auto-started `services.exe` (egid `wexsys`) + `winedevice` + `svchost`. `sc start WexProbe64` ran the probe,
+but its output showed the token was **`S-1-5-21-0-0-0-1000` (wexadm, with the Administrators group), not
+`S-1-5-18` (LocalSystem)**, and every call returned 0 (success). So the DACL failure is not reproduced yet.
+
+**Why the wrong token.** The system role is gated by `system_role_enabled()` = `sysrun_active &&
+elevation_enforced()` (`wine/server/sysrun.c`); `elevation_enforced()` = `!elevation_helper_unset()`
+(`wine/server/security.h`), and `elevation_helper_unset()` (`wine/server/registry.c`) is true unless
+`HKLM\Software\Wine\Elevation\Helper` is a non-empty `REG_SZ`. The machine root `system.reg` has **no** elevation
+`Helper` value, so `elevation_enforced()` is FALSE, the system role is off, `services.exe` never builds a SYSTEM
+token, and `get_service_token()` falls back to the caller's (wexadm's) token. The repo test
+`scripts/test_sysrun_server.sh` (line 338) configures exactly this:
+`reg_append "$M/system.reg" 'Software\\Wine\\Elevation' '"Helper"="C:\\windows\\system32\\consent.exe"'`.
+
+**Next.** Configure the elevation `Helper` in the machine root `system.reg`, restart the server through the launcher
+so `services.exe` gets the SYSTEM token, confirm the probe now prints `S-1-5-18`, then re-run `WexProbe64` and
+`WexProbe32` to find which call returns 5. Also fix the 0-byte `WINEDEBUG` trace capture (the `+server` output
+leaked to the `sc start` console instead of the trace file).
+
+## 12. Round 8 (2026-11-05): the QEMU guest has no system role (Claude)
+
+Checked on the lab guest (VM B): no `wexsys` group, no `/etc/wineexplorer/sysrun.conf`, no `/usr/local/libexec/wineexplorer`
+launcher, no `/var/lib/wineexplorer` machine root; the wineserver is the plain user's (`debian`, in `sudo`). So no service
+there can get the SYSTEM token: `get_service_token()` falls back to the caller's token, which the fork filters
+(UAC-style limited admin, Administrators deny-only). That explains the failures seen so far without a Wine bug in the
+registry code:
+
+* Chrome updater service: `AddAllowedAce` (`GetSecurityInfo` / `SetEntriesInAcl` / `SetSecurityInfo` with `WRITE_DAC`)
+  denied for a limited token on a key owned by Administrators (round 5 log).
+* Edge update service (`/svc`): Omaha logs `is machine: 0` there (it is not LocalSystem) while the other instances log
+  `is machine: 1`; its `ShellExecuteEx` handoff then fails.
+* The Round 7 harness in `wexbuild` reproduced nothing as `S-1-5-18` because, once the system role was configured
+  correctly, the probe is allowed (key created by SYSTEM, creator rights).
+
+Consequence: the installer tests must run on a guest that is provisioned like a real WineExplorer install (machine root
+`root:wexsys`, setgid launcher, elevation Helper, normal users outside the system group). Provisioning the guest is the
+next step; the Chrome MSI, Chrome stub and Edge MSI are then re-run unchanged. If they still fail as SYSTEM, that is a
+real Wine bug and the probe in `scripts/reg-acl-probe.c` (now a GUI service exe) reproduces it.
+Open question for the product: when the system role is off, services getting a limited token is stricter than stock
+Wine; decide whether an unprovisioned prefix should keep stock behaviour (full admin service token).
