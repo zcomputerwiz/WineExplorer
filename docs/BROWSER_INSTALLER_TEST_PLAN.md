@@ -204,3 +204,5 @@ reinstall, and rollback need separate fresh-prefix/snapshot evidence.
   WebGL2 pixels correct, shell alive. PASS. Not yet run inside the installed machine-root prefix itself.
 * Edge enterprise MSI: still exit 1627 (updater handoff `ShellExecuteEx` /handoff fails, 0x80004005 then 0x80040708).
   `docs/EDGE_HANDOFF_ANALYSIS.md` ranks hypotheses; next is a traced rerun (`+exec,+process,+security,+server,+service,+loaddll`).
+* Edge MSI traced (round 12b): handoff failure is before Wine's shell32 (`nodrv_CreateWindow` in the updater, no display driver in
+  the lab elevated prefix). Next: add a display to the elevated lab prefix and rerun. Details in `docs/EDGE_HANDOFF_ANALYSIS.md`.

@@ -21,3 +21,22 @@ The ranking below is an investigation order, not measured probabilities. The pre
 The `RoGetActivationFactory` 0x80040154 lines identify missing WinRT classes, including telemetry and region-policy classes in the supplied logs. No static connection from those calls to the shell launch is shown; temporal proximity is insufficient, and the same telemetry message appears in later updater processes. Treat as a separate possible application-side prerequisite until an API trace or controlled comparison demonstrates that it changes the handoff. The `secur32:start_samss` and `load_auth_packages` errors likewise show authentication-package initialization trouble, not a direct call from the normal shell launch path to SamSs. They could indirectly matter if a broker, service or application operation requires authentication; correlate PID, timing and a failing security/service API before assigning causality. Neither message proves or rules out the handoff failure.
 
 Static source inspection only; no build, VM, installer run, or probe was performed. The checked source describes this checkout and must be matched to the deployed guest binaries before treating its branches as runtime fact.
+
+## Measured result, 2026-11-05 (traced run in VM B, system role, fixed rpcrt4)
+
+`WINEDEBUG=err+all,+exec,+process,+loaddll` for the whole elevated tree. Findings:
+
+* No `trace:exec` line appears anywhere in the Edge run, not even `ShellExecuteExA`/`W` entry traces, although a probe built from
+  `scripts/shellexec_probe.c` run the same way prints them. So the failing "::ShellExecuteEx" of the updater never reaches Wine's
+  shell32. Hypotheses 2 to 7 above (resolution, process creation, elevation, broker) are ruled out for this failure.
+* The 32-bit updater process loads shell32 and then fails with `err:winediag:nodrv_CreateWindow Application tried to create a
+  window, but no driver could be loaded` right before the log line. The lab starts the elevated prefix with `winex11.drv` and
+  `winewayland.drv` disabled (`guest-elev-run.sh`), so no window can be created. The updater's ShellExecute helper creates a hidden
+  parent window first and reports 0x80004005 when that fails. Working theory: the Edge handoff failure is a lab artifact, not a
+  Wine shell bug. Test: give the elevated prefix a display (headless compositor plus winewayland, or an X server plus winex11) and
+  rerun. If the handoff then works, the lab recipe needs a display step; if a product session lacks a display for services, window
+  creation on the service desktop needs its own look.
+* `runas failed: error 1055` (service database locked) happens when the installed updater services make the machine root slow to
+  auto-start; `guest-elev-run.sh` now retries.
+* The `WINEDEBUG` line in the machine `system.reg` appears twice after `guest-env-debug.py` (an older line in another place);
+  check the file after running it.

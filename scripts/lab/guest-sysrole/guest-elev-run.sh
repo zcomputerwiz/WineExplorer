@@ -12,6 +12,13 @@ U=(runuser -u wexadm -- env -i HOME=/home/wexadm USER=wexadm LOGNAME=wexadm PATH
 sleep 12
 echo "== ids"; for p in $(pgrep -x wineserver); do awk '/^Gid:/' /proc/$p/status; done
 echo "== run: $*"
-timeout ${WEXTIMEOUT:-170} "${U[@]}" $R/loader/wine Z:\\opt\\wex-lab-runas_wait.exe "$@" > /tmp/gsr-out/elev.log 2>&1
-echo "exit $?"
+# Error 1055 (service database locked) means the machine root is still auto-starting services (the installed Chrome
+# updater services make that take a minute): retry until the broker answers.
+for try in 1 2 3 4 5 6 7 8; do
+    timeout ${WEXTIMEOUT:-170} "${U[@]}" $R/loader/wine Z:\\opt\\wex-lab-runas_wait.exe "$@" > /tmp/gsr-out/elev.log 2>&1
+    rc=$?
+    grep -aq 'runas failed: error 1055' /tmp/gsr-out/elev.log || break
+    echo "runas 1055, retry $try"; sleep 15
+done
+echo "exit $rc"
 tail -15 /tmp/gsr-out/elev.log | cut -c1-200
