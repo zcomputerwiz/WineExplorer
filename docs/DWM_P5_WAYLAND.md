@@ -394,3 +394,55 @@ order: the protocol is `create_virtual_pointer(seat, id)` (nullable `wl_seat` fi
 then the new id), and the marshal call must pass the seat object before the trailing
 NULL. Fixed in the probe; the compositor (`wexcomp` `src/seat.c:559`) accepts the
 correctly-ordered request.
+
+---
+
+## 9. Visual Quality: Anti-Aliased Corners and Soft Shadows (SceneFX 0.3)
+
+In Phase P5, window corners and shadows were initially implemented as discrete geometry approximations:
+- Corners were rasterized via `compute_corner_slices` into 1-pixel-stepped horizontal slices, causing visible aliasing (jagged edges).
+- Shadows were rendered via six nested concentric `wlr_scene_rect` nodes with 2.5% opacity accumulation, causing stepped boundaries.
+
+With SceneFX 0.3 (`wexcomp/subprojects/scenefx`) integrated, `wexcomp` utilizes hardware SDF shaders and analytical Gaussian blur shadows when the SceneFX renderer is active (`HAVE_SCENEFX` and `server->fx_renderer`), while retaining the slice and stacked-rect paths as unchanged fallbacks for the default Pixman/GLES2 build.
+
+### 9.1 Anti-Aliased SDF Window Corners
+
+1. **Prior Art & Shader Architecture**:
+   - SwayFX and SceneFX 0.3 implement corner clipping via fragment shader `corner_alpha.frag`. The shader evaluates a signed distance field (SDF) of the rounded rectangle box, applying `smoothstep` across a 1-pixel band at the arc boundary for smooth anti-aliased alpha blending.
+   - Stock wlroots and labwc scene graphs do not support rounded corners at the scene node level.
+2. **Buffer Node Configuration**:
+   - When SceneFX is active, `wex_window_update_effects` applies `wlr_scene_buffer_set_corner_radius(root, r, CORNER_LOCATION_ALL)` on the window's root buffer node.
+   - Corner radius is also applied recursively to subsurfaces and content tree nodes matching window bounds via `apply_scenefx_corner_radius_tree`, and to backdrop rectangles (`wlr_scene_rect_set_corner_radius`).
+   - Slices (`drop_corner_pieces`) are torn down under SceneFX, restoring the root buffer node without slicing overhead.
+3. **Input Routing & Hit Testing**:
+   - Unlike the slice path which leaves geometric holes in the scene tree, a single `wlr_scene_buffer` spans the full bounding rectangle.
+   - `wex_window_point_accepts_input` is hooked onto `root->point_accepts_input` and matching subsurface buffers. It evaluates circular arc rejection:
+     $$\Delta x^2 + \Delta y^2 > r^2$$
+     for points inside any of the four $r \times r$ corner bounding boxes. Points outside the arc return `false`, allowing pointer clicks to fall through to underlying windows. Points inside delegate to `wlr_surface_point_accepts_input`.
+   - When corner radius is reset to 0, `point_accepts_input` is restored to `NULL`.
+4. **Hosted Native Content (`wex_scene`)**:
+   - For Wine frames hosting native client surfaces (`wex_scene`), when the client area matches the full frame (`wex_scene_matches`), the hosted native surface's root buffer node (`native_root`) receives the matching corner radius and input hit testing. If the native window is non-matching or framed by a ring, sharp corners are preserved, matching the slice fallback.
+
+### 9.2 Analytical Gaussian Soft Shadows
+
+1. **Prior Art & Blur Implementation**:
+   - SceneFX provides `wlr_scene_shadow_create`, implementing Evan Wallace's analytical Gaussian blur of rounded rectangles (`box_shadow.frag`). It computes the exact 2D integral of Gaussian blur over a rounded box in a single fragment shader pass.
+2. **Parameters & Frame Profiles**:
+   - **Windows 10 / 11 Soft Shadow**: Modern fluent design uses a wide, soft shadow with low opacity. Configured with `blur_sigma = 24.0f`, black color `(0, 0, 0)` with alpha `0.22f`, corner radius matching the window, and padding $(24, 24)$ with offset $y = +2$ px.
+   - **Aero Glass Shadow**: Classic Aero uses a tighter, higher-contrast shadow. Configured with `blur_sigma = 8.0f`, black color `(0, 0, 0)` with alpha `0.35f`, corner radius matching the window, and padding $(8, 8)$ with offset $y = +2$ px.
+3. **Interior Clipping (`wlr_scene_shadow_set_clipped_region`)**:
+   - `wlr_scene_shadow_set_clipped_region` masks out the inner window boundary so the shadow does not darken translucent glass backdrops (Aero / Acrylic / Mica).
+4. **Fallback Path**:
+   - In default builds without SceneFX (`!server->fx_renderer`), the 6 concentric `wlr_scene_rect` fallback path remains active and unchanged.
+
+### 9.3 Test Suite Verification
+
+Validated across both default and SceneFX builds in `tests/wex/`:
+
+| Test Suite | Scenario / Test | Target | Verification Method |
+| --- | --- | --- | --- |
+| `run-effects.sh` | Default build (38 checks) | Fallback slices & stacked rects | Pixman renderer, 38 PASS 0 FAIL. |
+| `run-blur.sh` | SceneFX Step 7: Corner AA | Anti-aliased SDF corner edge | `verify.py check-corner-aa`: pixels on corner arc $(444, 254)$ and $(451, 250)$ exhibit intermediate RGB blends between Red $(255, 0, 0)$ and Blue background $(0, 0, 255)$. |
+| `run-blur.sh` | SceneFX Step 8: Soft Shadow | Monotonic gradual shadow falloff | `verify.py check-shadow-falloff`: horizontal $(840..860, 400)$ and vertical $(640, 550..570)$ shadow pixels outside window fall off gradually ($\le 8$ per pixel) and monotonically. |
+| `run-blur.sh` | SceneFX Total (23 checks) | Full blur + effects suite | llvmpipe renderer, 23 PASS 0 FAIL. |
+
