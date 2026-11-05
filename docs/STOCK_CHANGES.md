@@ -1842,3 +1842,11 @@ Native check of the surface-interface test on the Windows 11 host (build 26300) 
 `Unknown3` resize, so that interface is undocumented and unstable across Windows versions: the test follows staging's
 layout and was only verified under Wine (1002 tests, 0 failures, x86_64 and i386); the staging stack-pointer check
 (removed upstream by patch 0065) is not ported.
+
+## services.exe: single instance in WoW64 prefixes (2026-11-05)
+
+`wine/programs/services/services.c` takes the named mutex `__wine_SvcctlInstance` after creating the started event. A
+second `services.exe` (the 32-bit and 64-bit `wineboot --init` can start two within ~200 ms in a WoW64 prefix, before
+either sets the started event) waits for the started event and exits 0 instead of building a second service database.
+Verified in the QEMU guest with the Chrome updater service (it now reaches the dispatcher and reports running) and with
+the advapi32 `service` test (759/777 tests, 0 failures). See `CHROME_INSTALLER_ANALYSIS.md` section 9.

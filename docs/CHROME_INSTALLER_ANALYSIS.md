@@ -958,3 +958,30 @@ wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-svc-r4-202
 ```
 
 **No Wine sources were edited in this session.** No `qemu-system` process was left running (VM auto-stopped).
+
+## 9. Round 5 (2026-11-05, main session): single services.exe, and the updater's own log
+
+Qwen's round 4 diagnosis (section above) found that the WoW64 prefix runs two `services.exe` (the 64-bit and the 32-bit
+`wineboot --init` race), each with its own service database; the Chrome service's `OpenServiceW` of itself went to the
+other one (1060) and it could not report `SERVICE_RUNNING`. Fix (`wine/programs/services/services.c`): a named mutex
+`__wine_SvcctlInstance` so only the first `services.exe` serves; a duplicate waits for the started event and exits.
+Guest result: one `services.exe` (pid 0038), the updater service now reaches `StartServiceCtrlDispatcherW` and reports
+`SERVICE_RUNNING` (0x4); advapi32 `service` test: 759/777 tests, 0 failures.
+
+The install still ends with `DoInstall returned 1627`, because the service stops again about 1 ms later without
+`CoRegisterClassObject`. The updater's own log (`C:\Program Files (x86)\Google\GoogleUpdater\updater.log`, in the guest prefix
+`prefix/drive_c/Program Files (x86)/Google/GoogleUpdater/`) names the reason:
+
+```
+updater_service_delegate.cc:63  Running COM server within the Windows Service
+app_server_win.cc:118           CreateClientStateMedium failed: AddAllowedAce returned -2147024891   (0x80070005, E_ACCESSDENIED)
+app.cc:52                       Shutdown: 75002
+```
+
+`CreateClientStateMedium` creates the registry key `HKLM\Software\Google\Update\ClientStateMedium` and adds an allowed ACE
+for a SID to its DACL (Chromium `AddAllowedAce`, ATL `CDacl`/`AtlGetDacl`/`AtlSetDacl`: `GetSecurityInfo` +
+`SetEntriesInAcl` + `SetSecurityInfo` on a registry handle). One of these fails with access denied in our Wine, the updater
+treats it as fatal and shuts the COM server down before it registers the class objects. **Next step:** trace the service
+process with `+security,+reg,+advapi,+server` and find which call returns 5 (candidates: `SetSecurityInfo` for
+`SE_REGISTRY_KEY` needing WRITE_DAC on the handle, the key opened without WRITE_DAC, `elevation_enforced()` in
+`wine/server/registry.c`, or `GetSecurityInfo` on a registry handle). Tip: the updater log is the fastest diagnostic here.
