@@ -841,3 +841,120 @@ not register its class object** (it was started with `--com-service` and either 
 +ole for `updater.exe --system --windows-service`/`--com-service`, check `wine sc query`, the service's ImagePath and
 whether `services.exe` hands it the control-dispatcher handshake). Trace log was 12 GB: restrict the channels to
 `+service,+process,+ole,err+all` for the next run.
+
+## 9. Round 4: updater service (2026-11-05, diagnostic session)
+
+Round 3's open question: the updater service is started with `--com-service` but never registers its class
+object. This round captured the **service process itself** — round 3's 12 GB log never showed it, because
+`services.exe` was started by wineboot with `WINEDEBUG=-all` and the service environment comes from
+`CreateEnvironmentBlock` (registry-only), so the service ran with default channels into an 84-byte wineboot.log.
+
+### 9.1 Method
+
+- Light trace for msiexec: `WINEDEBUG=+timestamp,+pid,+service,+process,+ole,+rpc,err+all,warn+service`
+  (dropped `+reg,+msi,+combase`). Correction: the 12 GB log was actually dominated by
+  `trace:ole:CoWaitForMultipleHandles` (~147 M lines, the client's spin loop), not `+reg`.
+- `WINEDEBUG` written to `HKLM\...\Session Manager\Environment` so the service process (registry-only env)
+  gets the channels; `services.exe` restarted afterwards so it rebuilds its env block.
+- Guest: fresh prefix, `wineboot --init`, MSI run, live + post-mortem forensics (`sc query/qc`, `reg query`,
+  `ps aux`), per-PID service-log extraction from wineboot.log.
+- Scripts under `D:/DeepThought/ChromiumLab/msi-svc-r4-20261105/` (`run-trace-r4.sh`, `forensics-r4.sh`,
+  `launch-r4.sh`, `poll-r4.sh`, `push-scripts.sh`, `pull-r4.sh`); artifacts pulled as `r4-*`.
+
+### 9.2 What the service process does
+
+Six service processes are launched (all by the 64-bit SCM, wine pid `0038`), each
+`updater.exe --system --windows-service --service=update-internal` (+ a `--crash-handler` child). Each start is
+a fresh `StartServiceW` → 10 s pipe timeout (`service_pipe_timeout`) → **1053**:
+
+- `134.946:016c:01e4:trace:ole:start_local_service Starting service L"GoogleUpdaterInternalService157.0.8089.0" 1 params`
+- `144.962:016c:01e4:trace:ole:start_local_service StartService returned error 1053 (failed)` (×6)
+- `144.991:016c:01e4:warn:ole:rpc_get_local_class_object Server for {6d40bdad-...} failed to start.`
+- `198.662:00f4:00f8:err:msi:execute_script ... action L"DoInstall" returned 1627`
+
+Two distinct failure modes, alternating:
+
+- **Slow init (`02a0`, `03cc`, `04f4`)** — the process never reaches `StartServiceCtrlDispatcherW` within 10 s.
+  Its init does security setup that fails slowly in Wine:
+  - `135.004:02a0:02a4:warn:rpc:rpcrt4_conn_open_pipe connection failed, error=2` (no lsass)
+  - `135.006:02a0:02a4:trace:service:StartServiceW ... (SamSs)` → blocks ~4 s →
+    `138.942:02a0:02a4:err:secur32:start_samss Failed to start SamSs service`
+  - `138.943:02a0:02a4:err:secur32:load_auth_packages Failed to get security packages list: 80090304`
+  - `138.971:02a0:02a4:trace:process:NtCreateUserProcess ... updater.exe --crash-handler ...` then silence —
+    `02a0`'s last line is 138.976. 10 s later the SCM times out (1053).
+- **Dispatcher reached, own-open fails (`0314`, `043c`, `0564`)** — lsass/`SamSs` is now running (a previous
+  attempt's crash handler started it), so init is fast and the dispatcher runs, but the service cannot open its
+  own service handle to report `SERVICE_RUNNING`:
+  - `187.402:0564:0568:trace:service:StartServiceCtrlDispatcherW 00907DE8`
+  - `187.404:0564:05b8:trace:service:OpenServiceW 012A3418 L"GoogleUpdaterInternalService157.0.8089.0" 0x8000`
+  - `187.404:0564:05b8:trace:rpc:NdrpClientCall2 RetVal = 0x424` ← **1060 = ERROR_SERVICE_DOES_NOT_EXIST**
+  - `187.404:0564:05b8:fixme:service:service_control_dispatcher failed to open service L"GoogleUpdaterInternalService157.0.8089.0"`
+
+`CoRegisterClassObject` is never reached in any attempt.
+
+### 9.3 Root cause: two `services.exe` (WoW64), separate scmdatabases
+
+The `OpenServiceW(0x8000)` is served by a **different** `services.exe` than the one that started the process:
+
+- `187.259:0038:0060:trace:service:svcctl_OpenServiceW (L"GoogleUpdaterInternalService157.0.8089.0", 0x10)` — the 64-bit client's open/start, served by `0038`.
+- `187.404:00cc:02e4:trace:service:svcctl_OpenServiceW (L"GoogleUpdaterInternalService157.0.8089.0", 0x8000)` — the 32-bit service's own open, served by `00cc`.
+
+`ps` shows two `services.exe` (Linux 1012/1049, wine `0038`/`00cc`), both serving SCM. They are created during
+`wineboot --init`, 204 ms apart, **before either sets the `__wine_SvcctlStarted` single-instance event**:
+
+- `71.799:0028:002c: NtCreateUserProcess services.exe pid 0038 ... machine 8664` (64-bit)
+- `72.005:0020:0024: NtCreateUserProcess services.exe pid 00cc ... machine 0` (32-bit)
+
+`wineboot.c start_services_process()` skips starting `services.exe` only if `__wine_SvcctlStarted` is already
+**set**; in the WoW64 build the 64-bit and 32-bit wineboot both call it while the first `services.exe` is still
+initializing (event created, not set), so **both start a `services.exe`**. Each keeps its own in-memory
+scmdatabase (`services.c scmdatabase_load_services`, loaded at startup). The 64-bit MSI's `CreateServiceW`
+updates only `0038`'s scmdatabase; the 32-bit updater's `OpenServiceW` is routed to `00cc`, whose scmdatabase
+lacks the service → **1060**. (The `own_process_access` fallback in `rpc.c` cannot help: it needs
+`entry->process`, which is also set only in `0038`.)
+
+### 9.4 Classification
+
+**(b) launched but fails to start** — the service is launched (6×) but the `StartServiceCtrlDispatcherW`
+handshake never completes, so the SCM terminates it (1053) before it can register its COM class object. Not (a)
+(it launches), not (c) (it never reaches RUNNING, so `CoRegisterClassObject` is never called), not (d) (it never
+registers). Two compounding causes:
+
+1. **Slow init** (`02a0`/`03cc`/`04f4`): no lsass / `SamSs` start blocks ~4 s / auth-package failure push the
+   first `StartServiceCtrlDispatcherW` past the 10 s `service_pipe_timeout`.
+2. **Dual SCM** (decisive in `0314`/`043c`/`0564`): the 32-bit service's `OpenServiceW(SERVICE_SET_STATUS)` is
+   served by the 32-bit `services.exe`, whose scmdatabase lacks the service (created by the 64-bit MSI) → 1060 →
+   cannot report `SERVICE_RUNNING`.
+
+### 9.5 Proposed fix (NOT applied)
+
+Smallest fix: guarantee a **single** `services.exe` (single scmdatabase) so a service's own SCM calls always
+reach the instance that created/started it.
+
+- **`programs/services/services.c`, `main()`** — acquire a named mutex (e.g. `__wine_SvcctlInstance`) at
+  startup and hold it for the process lifetime; if already held, exit. The second (32-bit) `services.exe` then
+  exits instead of running a competing SCM. A 64-bit SCM serves 32-bit services fine (RPC is bitness-agnostic),
+  so one instance is sufficient.
+- Underlying trigger, **`programs/wineboot/wineboot.c`, `start_services_process()`** — the
+  `__wine_SvcctlStarted` guard only checks the *set* state, so it races when two wineboot (64/32-bit) call it
+  before the first `services.exe` sets the event. The mutex in `services.c` closes this race regardless.
+
+(Alternative, larger: share/synchronize the scmdatabase between instances, or route a service's SCM calls to the
+instance that started it. Not preferred.)
+
+### 9.6 Commands used
+
+```bash
+# Boot (auto-stops after 900 s)
+wsl -d Debian -u root --exec bash -c "WEX_G4_RUN_NAME=chrome-msi-svc-r4-20261105 python3 -B /mnt/d/DeepThought/ChromiumLab/launch-16g.py"
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/wait-ssh.sh"
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-svc-r4-20261105/push-scripts.sh"
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/deploy.sh"   # deploys the fixed combase.dll
+# Launch the trace detached, then poll
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'bash /tmp/launch-r4.sh'"
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'bash /tmp/poll-r4.sh'"
+# Pull artifacts
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-svc-r4-20261105/pull-r4.sh"
+```
+
+**No Wine sources were edited in this session.** No `qemu-system` process was left running (VM auto-stopped).
