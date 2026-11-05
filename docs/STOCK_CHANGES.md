@@ -53,12 +53,15 @@ full test exe cannot run to completion natively because the pre-existing
 vtable slot that does not exist in the native interface; native verification
 is therefore via the probes.
 
-## combase: LocalService WOW64 lookup and service parameter compatibility (2026-11-05)
+## combase: LocalService name buffer and ServiceParameters (2026-11-05)
 
-`wine/dlls/combase/rpc.c` retries the AppID lookup in the opposite WOW64 view when the current view has no
-`LocalService`, matching the installer trace where the CLSID is in the 32-bit view but the AppID service
-registration is in the native view. It reads the documented `ServiceParameters` value first and retains
-`ServiceParams` as a fallback. Static-only change; no build or guest runtime result is claimed here.
+`wine/dlls/combase/rpc.c` `create_local_service` read the AppID `LocalService` value into a GUID-sized buffer (39
+characters), so service names longer than 38 characters (the Chrome updater's `GoogleUpdaterInternalService157.0.8089.0`)
+failed with `ERROR_MORE_DATA` and activation fell through to a `dllhost.exe` surrogate; the buffer now holds a full
+service name (256 characters). It also reads the documented `ServiceParameters` value first and keeps `ServiceParams` as
+a fallback. Verified in the QEMU guest with the Chrome MSI trace (the service is now started with `--com-service`;
+the install still stops later, see `CHROME_INSTALLER_ANALYSIS.md` section 8) and with the ole32 `compobj` test
+(1229 tests, 0 failures, both architectures). An earlier opposite-WOW64-view retry was a misdiagnosis and was removed.
 
 Known deviation: the surrogate fallback remains unchanged. Wine still may launch the default `dllhost.exe` when
 `DllSurrogate` is absent; the proposed surrogate-semantics fix was deliberately not applied because its Windows
