@@ -1,5 +1,15 @@
 # Changes to stock Wine / third-party code
 
+## dxgi/dwmapi: frame statistics and shared colorization semantics (2026-11-04)
+
+Wine changes: `wine/dlls/dxgi/swapchain.c` implements D3D11 `GetFrameStatistics` from the existing successful-Present
+counter and a QPC/display-refresh estimate, returning `DXGI_ERROR_FRAME_STATISTICS_DISJOINT` before the first Present
+and for windowed non-flip swapchains; `wine/dlls/dxgi/tests/dxgi.c` adds the focused assertions, based on Wine-Staging
+patch `dxgi_getFrameStatistics`. `wine/dlls/dwmapi/dwmapi_main.c` makes `DwmGetColorizationColor` and
+`DwmGetColorizationParameters` read the same ARGB registry color and opaque flag, with theme-provided
+`[VisualStyles] ColorizationColor` continuing to flow through that registry source. `wine/dlls/dwmapi/tests/dwmapi.c`
+extends argument and getter-consistency validation. No Open-Shell code was copied.
+
 ## dcomp: IDCompositionAnimation objects and animated offset/opacity properties (2026-11-04)
 
 `wine/dlls/dcomp/device.c`: implement `IDCompositionAnimation` as a refcounted
