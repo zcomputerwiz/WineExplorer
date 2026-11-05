@@ -731,3 +731,113 @@ wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-202
 ```
 
 The VM was shut down at its 900 s deadline; no `qemu-system` processes remain.
+
+## 7. Fix validation round 2 (2026-11-05)
+
+**Status: BLOCKED — the round-2 trace could not be run in this session.**
+
+The intended round-2 step was to redeploy the two rebuilt `combase.dll` binaries
+(`/root/WE-prefetch/build/wow64/dlls/combase/{x86_64,i386}-windows/combase.dll`, the
+`open_appidkey_from_clsid_views` fix that re-opens **only the AppID key** in the opposite WOW64 view)
+into the guest runtime and rerun the §5.1/§6.1 MSI trace. That could not be executed because the
+sandbox permission boundary for this session denied **every path outside the repository**:
+
+| Path needed | Purpose | Result |
+|---|---|---|
+| `D:\DeepThought\ChromiumLab\launch-16g.py` | boot the QEMU guest | **denied** |
+| `D:\DeepThought\ChromiumLab\msi-fixval-20261105\*.sh` | reuse round-1 deploy/push/pull scripts | **denied** |
+| `/root/WE-prefetch/build/wow64/dlls/combase/{x86_64,i386}-windows/combase.dll` | the new binaries to redeploy | **denied** |
+| guest SSH (`debian@127.0.0.1:2235`) | deploy + trace | **unreachable** (VM never booted) |
+
+Verified in this session (so the blocker is the permission boundary, not a missing tool):
+
+- WSL distro `Debian` is **Running**; `wsl -d Debian --exec <cmd>` works for commands that do not
+  touch non-repo paths (`echo`, `pwd`, `ls` of the repo cwd).
+- The repository `D:\DeepThought\Projects\WineExplorer` is fully readable/writable.
+- **No `qemu-system` or `wine` processes are running** — there is nothing to shut down; the guest is
+  powered off.
+
+Because the trace was not run, there are **no new log lines, no `msiexec` exit code, and no
+`DoInstall returned 1627` verdict** from round 2. The items below are the exact commands to run the
+validation in an interactive (approval-capable) session, and the expected outcome derived from the
+fix and the round-1 findings.
+
+### 7.1 Commands to run the round-2 validation (interactive session)
+
+```bash
+# 0. Confirm the new binaries differ from round 1 and carry the fix
+wsl -d Debian --exec bash -c \
+  "ls -l --time-style=full-iso /root/WE-prefetch/build/wow64/dlls/combase/{x86_64,i386}-windows/combase.dll; \
+   for a in x86_64 i386; do echo \"== \$a ==\"; \
+     strings -e l /root/WE-prefetch/build/wow64/dlls/combase/\$a-windows/combase.dll | grep -E 'ServiceParameters|LocalService'; \
+   done"
+
+# 1. Boot the guest (launcher auto-stops the VM after 900 s)
+wsl -d Debian -u root --exec bash -c \
+  "WEX_G4_RUN_NAME=chrome-msi-fixval-r2-20261105 python3 -B /mnt/d/DeepThought/ChromiumLab/launch-16g.py"
+
+# 2. Wait for guest SSH (port 2235, user debian)
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'echo SSH_UP'"
+
+# 3. Push guest scripts + redeploy the two fixed combase.dll (backups kept as combase.dll.bak-fixval-r2)
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/push-scripts.sh"
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/deploy.sh"
+
+# 4. Launch the trace detached, then poll (same WINEDEBUG set as §5.1/§6.1)
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'bash /tmp/launch.sh'"
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'bash /tmp/poll.sh'"
+
+# 5. Service forensics (the round-1 1077 / no-CoRegisterClassObject question)
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 '\
+    wine reg query \"HKLM\\System\\CurrentControlSet\\Services\\GoogleUpdaterInternalService157.0.8089.0\" /v ImagePath; \
+    wine reg query \"HKLM\\System\\CurrentControlSet\\Services\\GoogleUpdaterInternalService157.0.8089.0\"; \
+    wine sc query GoogleUpdaterInternalService157.0.8089.0; \
+    wine sc qc GoogleUpdaterInternalService157.0.8089.0'"
+
+# 6. Pull artifacts to D:/DeepThought/ChromiumLab/msi-fixval-r2-20261105/
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/pull.sh"
+```
+
+### 7.2 Expected outcome (derived from the fix + round-1 findings — NOT observed)
+
+- **`create_local_service` should now find `LocalService`.** The fix re-opens only the AppID key in the
+  opposite (64-bit) view, where the installer wrote `LocalService`/`ServiceParameters` (§5.6). The round-1
+  `warn:ole:create_local_service No LocalService value` should be replaced by a successful read followed by
+  `start_local_service` → `OpenServiceW`/`StartServiceW` for `GoogleUpdaterInternalService157.0.8089.0`.
+- **`DoInstall returned 1627` may still appear** — but for a *different* reason. Round 1 showed the updater
+  service exits **1077 (ERROR_INVALID_PARAMETER)** and **never calls `CoRegisterClassObject`** (§6.4). Even
+  with the service now started by COM, the class object is not registered in-process, so the activation is
+  expected to still fail (likely `no class object … could be created for context 0x4`), and the MSI to roll
+  back with 1627 again.
+- **The next failure to chase is therefore the service itself**, not the WOW64 lookup: why
+  `updater.exe --system --windows-service --service=update-internal` exits 1077 and skips
+  `CoRegisterClassObject` (service `ImagePath`/`ServiceParameters` handling in `services.exe`, the
+  `StartServiceCtrlDispatcher`/`SERVICE_STATUS` handshake, missing DLLs/imports, or a LocalSystem/elevation
+  issue). That is the round-3 target.
+
+**No Wine sources were edited in this session.** No `qemu-system` process was left running.
+
+## 8. Fix validation round 3 (2026-11-05, run by the main session)
+
+Round 2's trace (`msi-fixval-20261105/fixval-msi-trace.log`, guest `memory-runtime2`) showed the WOW64 retry was a
+misdiagnosis: the 32-bit client **does** see the AppID key (`AppId\{6D40BDAD-...}` opens in its own view, the key is
+shared), but `create_local_service` read `LocalService` into `WCHAR buf[CHARS_IN_GUID]` (39 characters, 78 bytes):
+`GoogleUpdaterInternalService157.0.8089.0` needs 82 bytes, so `RegQueryValueExW` returned `ERROR_MORE_DATA` and Wine
+logged `No LocalService value` and fell through to the surrogate. This is a stock Wine bug (service names are up to
+256 characters). Fix (`wine/dlls/combase/rpc.c`): a 257-character buffer, plus `ServiceParameters` read before the
+old `ServiceParams`. The opposite-view retry was removed again.
+
+Result with the fix deployed to both architectures: `create_local_service` now finds `LocalService`, logs
+`start_local_service Starting service L"GoogleUpdaterInternalService157.0.8089.0" 1 params` (`--com-service`) and calls
+`StartServiceW`; the surrogate fallback is no longer reached for the class. The install still ends with
+`DoInstall returned 1627` (msiexec exit 91), but later: the client waits about 31 s (255 s -> 286 s) and then logs
+`no class object {6d40bdad-...} could be created for context 0x4`. **Next failure: the updater service process does
+not register its class object** (it was started with `--com-service` and either exits or never reaches
+`CoRegisterClassObject`; round 1 saw exit status 1077). Next step: capture the service process in the guest (+process,+service,
++ole for `updater.exe --system --windows-service`/`--com-service`, check `wine sc query`, the service's ImagePath and
+whether `services.exe` hands it the control-dispatcher handshake). Trace log was 12 GB: restrict the channels to
+`+service,+process,+ole,err+all` for the next run.
