@@ -1060,3 +1060,28 @@ next step; the Chrome MSI, Chrome stub and Edge MSI are then re-run unchanged. I
 real Wine bug and the probe in `scripts/reg-acl-probe.c` (now a GUI service exe) reproduces it.
 Open question for the product: when the system role is off, services getting a limited token is stricter than stock
 Wine; decide whether an unprovisioned prefix should keep stock behaviour (full admin service token).
+
+## 13. Round 9 (2026-11-05): provisioning the system role in the lab guest (Claude)
+
+Done on VM B with `ChromiumLab/guest-sysrole/` (`guest-sysrole-provision.sh`, `-user.sh`, `-rt.sh`, `-msi.sh`, `-ids.sh`,
+`run3.sh`/`run4.sh` helpers; the launcher is prebuilt in the build distro because the guest has no compiler):
+
+1. `setup-machine-root.sh` with `WEX_WINE_BIN`, `WEX_WINESERVER_BIN`, `WEX_NTDLL` and `WEX_SYSRUN_BIN` pointing at the runtime, plus
+   `XDG_RUNTIME_DIR` and the font resources (`src/resources/fonts`), creates `wexsys`, the machine root
+   `/var/lib/wineexplorer/machine` (`root:wexsys`), the setgid launcher and `sysrun.conf`.
+2. The launcher refuses any path that is not root-owned (`wex-sysrun: refused: not owned by root: /home/debian`), so the
+   runtime had to be copied to a root-owned tree (`/opt/wex-rt/build/wow64`); the lab layout under `/home/debian` can never
+   get the system role.
+3. The elevation Helper value was added to the machine root `system.reg`; normal user `wextest` (not in `sudo` or `wexsys`).
+4. Check: server saved gid 989, `services.exe` egid 989 (system role on).
+5. Side findings: a first bootstrap run leaves `pe_section_cache/*.cache` as `root:root`, which makes the second pass of
+   `setup-machine-root.sh` fail with "migration incomplete ... is not root:wexsys" (product bug to fix: chown or exclude
+   that directory); `/home/debian` was `drwx------`, so another user could not even run the loader (exit 126).
+6. Chrome MSI as `wextest`: `msiexec` exits 91 at once with an empty log, no `DoInstall`: a standard user cannot install a
+   per-machine package without elevation (no unattended elevation path exists: `docs/ELEVATION.md`, filtered-administrator
+   consent is designed but not implemented end to end, production consent has no unattended mode).
+
+Next: either (a) lab-only, install the test broker (`wexelevate_test.exe` built with `-DWEXELEVATE_TEST_APPROVAL`, see
+`test_sysrun_server.sh` around lines 653-720) in the guest so `runas` is approved without a person, then re-run the Chrome MSI,
+Edge MSI and the Chrome stub; or (b) finish the production consent path (T3). (a) is a disposable fixture only and must
+never be in the machine root of a shipped image.
