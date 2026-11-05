@@ -178,5 +178,9 @@ reinstall, and rollback need separate fresh-prefix/snapshot evidence.
 * First launch aborted with a delay-load failure (`DelayLoad-ModuleName` USER32.dll, last error 127): the missing export
   is `GetPointerDevice`. Fixed in Wine (`user32`, see `STOCK_CHANGES.md`); the browser then starts and loads the
   fixture page.
-* Next failure: the GPU process dies at `ui\gl\dc_layer_tree.cc:717`, `hr == 0x80070057` (E_INVALIDARG) from a
-  DirectComposition call, so the fixture reports `webgl context lost`. Under investigation (dcomp).
+* Next failure: the GPU process died at `ui\gl\dc_layer_tree.cc:717` (`E_INVALIDARG`): `dcomp` rejected the
+  large `SetTransform` scale Chromium uses for a 1x1 solid-colour surface. Fixed (the arbitrary magnitude limits are
+  gone; `STOCK_CHANGES.md`, `CHROMIUM_DCOMP_ANALYSIS.md`).
+* Result (system-level install, fresh prefix, Wayland session): the validation fixture passes: WebGL and WebGL2 render,
+  GPU process alive, shell alive after the browser starts. Evidence: `ChromiumLab/chromium-installer-20261105/run4/`
+  (`result.json`, `chromium.png`). Per-user mode was installed but not yet launched through the fixture.
