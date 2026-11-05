@@ -165,18 +165,8 @@ su - alice -c '
     # Seed wexsetup marker in user.reg
     sed -i -e "s/users\\\\alice/users\\\\wexsetup/g" "$WINEPREFIX/user.reg"
 '
-# Run session first logon personalization logic
-su - alice -c '
-    set -euo pipefail
-    export WINEPREFIX="/home/alice/.wine"
-    TEMPLATE_USER=wexsetup
-    if [ "$USER" != "$TEMPLATE_USER" ] && grep -qs "users\\\\\\\\$TEMPLATE_USER\\\\\\\\" "$WINEPREFIX/user.reg"; then
-        echo "Personalizing template prefix for $USER..."
-        sed -i -e "s/\\\\users\\\\$TEMPLATE_USER\\\\/\\\\users\\\\$USER\\\\/g" \
-               -e "s/\\\\users\\\\$TEMPLATE_USER\"/\\\\users\\\\$USER\"/g" \
-            "$WINEPREFIX/user.reg"
-    fi
-'
+# Run the same first-logon personalization helper used by the product session.
+su - alice -c 'bash /root/WineExplorer/scripts/personalize-prefix.sh /home/alice/.wine alice'
 if grep -qs "users\\\\wexsetup" /home/alice/.wine/user.reg; then
     echo "FAIL: user.reg still contains wexsetup after first logon personalization!"
     exit 1

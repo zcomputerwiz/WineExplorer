@@ -16,6 +16,7 @@ SYSRUN=$LIBEXEC/wex-sysrun
 source "$SRC/scripts/lib/sysrun-fixture.sh"
 RESULT="unexpected failure"
 ACTIVE_PREFIX= ACTIVE_USER= XV_PID= JOB= HIVE_BACKUP=
+GUEST_TMP= GUEST_TAR=
 LOCKED=0
 TIMEOUT=${WEXDEV_TIMEOUT:-120}
 CAP=${WEXDEV_LOG_BYTES:-2097152}
@@ -52,6 +53,8 @@ cleanup()
         else rc=1; RESULT="cannot restore service hive; backup retained: $HIVE_BACKUP"; fi
     fi
     if [[ -n $XV_PID ]]; then kill "$XV_PID" 2>/dev/null; wait "$XV_PID" 2>/dev/null; fi
+    [[ -z $GUEST_TMP ]] || rm -f -- "$GUEST_TMP"
+    [[ -z $GUEST_TAR ]] || rm -f -- "$GUEST_TAR"
     (( LOCKED == 0 )) || : > "$STATE/lock.owner"
     if [[ $RESULT == "unexpected failure" ]]; then RESULT="unexpected command failure (exit=$rc); inspect command diagnostics"; fi
     if (( rc == 0 )); then printf 'OK: %s\n' "$RESULT"; else printf 'FAIL: %s\n' "$RESULT" >&2; fi
@@ -534,15 +537,78 @@ test_module()
 }
 guest()
 {
-    (( $# == 2 )) && [[ $2 == push && $1 =~ ^[0-9]+$ ]] || fail "usage: guest ssh-port push"
-    local port=$1 p sum got destination
+    (( $# >= 2 )) || fail "usage: guest ssh-port push|sysrole ..."
+    local port=$1 p sum got destination op; shift
+    [[ $port =~ ^[0-9]+$ && $port -gt 0 && $port -lt 65536 ]] || fail "invalid SSH port"
+    op=$1; shift
     (( port > 0 && port < 65536 )) || fail "invalid SSH port"
-    [[ -s $STATE/last-build.files ]] || fail "no successful build artifact manifest"
     local -a ssh_command
     # WEXDEV_SSH is an executable plus whitespace-separated options, never evaluated.
     read -r -a ssh_command <<< "${WEXDEV_SSH:-ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -o BatchMode=yes -o ConnectTimeout=10}"
     destination=${WEXDEV_GUEST:-debian@127.0.0.1}
     [[ $destination =~ ^[a-zA-Z0-9_.@:-]+$ && $destination != -* ]] || fail "invalid SSH destination"
+    guest_send()
+    {
+        local local_file=$1 remote_file=$2
+        base64 "$local_file" | timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" \
+            "mkdir -p /tmp/gsr /tmp/gsr-out /tmp/gsr/repo/scripts /tmp/gsr/repo/src/resources; base64 -d > '$remote_file'" ||
+            fail "guest upload failed: $remote_file"
+    }
+    guest_run() { timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" sudo -n bash /tmp/gsr/guest-control.sh "$@"; }
+    guest_stage()
+    {
+        local f
+        for f in scripts/lab/guest-sysrole/guest-control.sh scripts/lab/guest-sysrole/guest-rt2.sh \
+            scripts/lab/guest-sysrole/guest-sysrole-provision.sh scripts/lab/guest-sysrole/guest-sysrole-user.sh \
+            scripts/lab/guest-sysrole/guest-broker-install.sh scripts/lab/guest-sysrole/guest-env-debug.py \
+            scripts/lab/guest-sysrole/guest-elev-run.sh scripts/lab/guest-sysrole/guest-personalize.py \
+            scripts/lab/guest-sysrole/guest-sysrole-ids.sh \
+            scripts/personalize-prefix.sh; do
+            guest_send "$SRC/$f" "/tmp/gsr/$(basename "$f")"
+        done
+        guest_send "$SRC/scripts/setup-machine-root.sh" /tmp/gsr/repo/scripts/setup-machine-root.sh
+        tar -C "$SRC/src/resources" -cf - fonts | base64 | timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" \
+            'base64 -d | tar -xf - -C /tmp/gsr/repo/src/resources' || fail 'guest font upload failed'
+        timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" chmod +x /tmp/gsr/*.sh || fail 'guest staging chmod failed'
+    }
+    case "$op" in
+        push)
+            (( $# == 0 )) || fail 'usage: guest ssh-port push'
+            [[ -s $STATE/last-build.files ]] || fail "no successful build artifact manifest"
+            ;;
+        sysrole|broker|elev|install|debug)
+            guest_stage
+            ;;
+        *) fail "unknown guest operation: $op";;
+    esac
+    if [[ $op == sysrole && ${1:-} == up ]]; then
+        [[ -x $BUILD/loader/wine && -x $BUILD/server/wineserver ]] || fail "missing WoW64 build: $BUILD"
+        command -v cc >/dev/null || fail 'cc is required to build wex-sysrun launcher'
+        GUEST_TMP=$STATE/guest-wex-sysrun
+        cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+            '-DSYSRUN_CONF="/etc/wineexplorer/sysrun.conf"' -o "$GUEST_TMP" "$SRC/tools/wex-sysrun/wex-sysrun.c" ||
+            fail 'could not build wex-sysrun launcher'
+        guest_send "$GUEST_TMP" /tmp/gsr/wex-sysrun
+        GUEST_TAR=$STATE/guest-runtime.tar
+        tar -C "$BUILD" -cf "$GUEST_TAR" .
+        tar --append --file "$GUEST_TAR" --transform='s,^nls,wine/nls,' --transform='s,^fonts,wine/fonts,' -C "$SRC/wine" nls fonts
+        guest_send "$GUEST_TAR" /tmp/build-wow64.tar
+    fi
+    case "$op" in
+        sysrole) (( $# == 1 )) || fail 'usage: guest port sysrole up|status|reset'; guest_run sysrole "$1";;
+        broker) guest_run broker "$@";;
+        elev) (( $# >= 1 )) || fail 'usage: guest port elev PROGRAM [ARGS...]'; guest_run elev "$@";;
+        debug) [[ ${1:-} == off || ${1:-} =~ ^[a-zA-Z0-9+_,.-]+$ ]] || fail 'invalid debug channels'; guest_run debug "${1:-off}";;
+        install)
+            (( $# >= 1 )) || fail 'usage: guest port install FILE [--elevated] [--debug channels] [--label name]'
+            local file=$1 label=install arg
+            shift
+            [[ -f $file ]] || fail "installer not found: $file"
+            while (( $# )); do case $1 in --elevated) shift;; --debug) (( $# >= 2 )) || fail 'missing debug channels'; guest_run debug "$2"; shift 2;; --label) (( $# >= 2 )) || fail 'missing label'; label=$2; shift 2;; *) fail "unknown install option: $1";; esac; done
+            guest_send "$file" "/tmp/gsr-out/$(basename "$file")"
+            guest_run install "$(basename "$file")" "$label";;
+    esac
+    [[ $op == push ]] || { RESULT="guest $op completed"; return; }
     while IFS= read -r p; do
         [[ $p =~ ^[a-zA-Z0-9_./+-]+$ && $p != /* && $p != *..* ]] || fail "unsafe artifact path: $p"
         [[ -f $BUILD/$p ]] || fail "artifact missing in this distro: $BUILD/$p; copy build and manifest or set WEXDEV_BUILD/HOME"

@@ -1,14 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
-# Root on the guest: the lab equivalent of the first-logon personalization: replace the template profile name in a user's user.reg.
-import sys, os
+# Root on the guest: use the product helper, staged by wexdev as /tmp/gsr/
+# personalize-prefix.sh. Keep this Python entry point for the historical recipe.
+import os, subprocess, sys
 user = sys.argv[1]
-p = '/home/%s/.wine/user.reg' % user
-s = open(p, encoding='latin-1').read()
-BS = chr(92)
-old = 'users' + BS*2 + 'wexsetup'
-new = 'users' + BS*2 + user
-print(user, 'occurrences', s.count(old), 'USERNAME wexsetup' , s.count('wexsetup'))
-s = s.replace(old, new).replace('wexsetup', user)
-open(p, 'w', encoding='latin-1').write(s)
-os.system('chown %s:%s %s' % (user, user, p))
+subprocess.check_call(['/tmp/gsr/personalize-prefix.sh', '/home/%s/.wine' % user, user])
+uid = int(subprocess.check_output(['id', '-u', user]))
+gid = int(subprocess.check_output(['id', '-g', user]))
+os.chown('/home/%s/.wine/user.reg' % user, uid, gid)

@@ -32,19 +32,7 @@ wex_prepare_prefix()
     TEMPLATE_USER=wexsetup
     if [ "$USER" != "$TEMPLATE_USER" ] && grep -qs "users\\\\\\\\$TEMPLATE_USER\\\\\\\\" "$WINEPREFIX/user.reg"; then
         echo "Making the template prefix this user's..."
-        sed -i -e 's/\\\\users\\\\'"$TEMPLATE_USER"'\\\\/\\\\users\\\\'"$USER"'\\\\/g' \
-               -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
-            "$WINEPREFIX/user.reg"
-        if [ -f "$WINEPREFIX/userdef.reg" ] && [ ! -L "$WINEPREFIX/userdef.reg" ]; then
-            sed -i -e 's/\\\\users\\\\'"$TEMPLATE_USER"'\\\\/\\\\users\\\\'"$USER"'\\\\/g' \
-                   -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
-                "$WINEPREFIX/userdef.reg"
-        fi
-        if [ -f "$WINEPREFIX/system.reg" ] && [ ! -L "$WINEPREFIX/system.reg" ]; then
-            sed -i -e 's/\\\\users\\\\'"$TEMPLATE_USER"'\\\\/\\\\users\\\\'"$USER"'\\\\/g' \
-                   -e 's/\\\\users\\\\'"$TEMPLATE_USER"'"/\\\\users\\\\'"$USER"'"/g' \
-                "$WINEPREFIX/system.reg"
-        fi
+        /usr/local/bin/wex-personalize-prefix "$WINEPREFIX" "$USER" "$TEMPLATE_USER"
         # Per-user setup only (shell32 DllInstall "U", as Windows' Active Setup); the machine part was done by wineboot.
         "$WINE" regsvr32.exe /s /n /i:U shell32.dll || echo "warning: regsvr32 /n /i:U shell32.dll failed (exit $?): the profile folders may be missing" >&2
         "$(dirname "$WINE")/wineserver" -k

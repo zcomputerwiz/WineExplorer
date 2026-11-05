@@ -27,7 +27,27 @@ bash "$wexdev" svc token32 /var/lib/wexdev-sys/probes/rolesprobe32.exe token --a
 bash "$wexdev" sysrole down
 bash "$wexdev" sysrole reset                  # owned wexdev fixture only
 bash "$wexdev" guest 2222 push
+bash "$wexdev" guest 2236 sysrole up
+bash "$wexdev" guest 2236 sysrole status
+bash "$wexdev" guest 2236 broker install --lab
+bash "$wexdev" guest 2236 elev /opt/wex-lab-runas_wait.exe --help
+bash "$wexdev" guest 2236 install /tmp/Browser.msi --elevated --debug err+all,fixme+msi --label browser
+bash "$wexdev" guest 2236 debug off
+bash "$wexdev" guest 2236 broker remove --lab
+bash "$wexdev" guest 2236 sysrole reset
 ```
+
+The guest commands use the same `WEXDEV_SSH` executable/options and
+`WEXDEV_GUEST` destination as `guest push`. `sysrole up` stages a root-owned
+runtime, NLS/fonts, launcher, machine-root setup, elevation Helper, test users,
+first-logon personalization, and machine-root profile directories. `status`
+checks ownership, setgid launcher/configuration paths, Helper, profiles, disk,
+and prints the existing saved-gid/services probe to run. `reset` only accepts
+the marked lab machine root. `broker` is deliberately refused without the
+literal `--lab` flag and installs the compile-time approval broker. `install`
+clears stale MSI copies, requires at least 8 GiB free in the guest, and runs
+MSI/EXE payloads through the lab elevation holder with logs under `/tmp/gsr-out`.
+`debug` changes the machine-wide WINEDEBUG registry value; `off` removes it.
 
 Build defaults: `/root/WE-prefetch/build/wow64` and clone
 `/root/WE-prefetch/wine`. The build's wine loads fresh DLLs directly; there is no
@@ -105,6 +125,30 @@ iconv, Xvfb (headless), SSH/base64/MD5 (guest); gcc, both MinGW compilers,
 runuser/account tools, sudo group and POSIX ACL tools for system-role setup.
 
 ## TESTPLAN
+
+### Guest system-role workflow
+
+Run these later on an exclusive disposable VM; no guest commands were run while
+authoring this interface.
+
+1. Set `WEXDEV_SSH` and `WEXDEV_GUEST`, then run `guest port sysrole up` twice.
+   Confirm the second run is idempotent, `/opt/wex-rt2` and its NLS/fonts are
+   root-owned, the launcher is `2755 root:wexsys`, and `sysrun.conf` resolves
+   only through root-owned ancestors.
+2. Run `guest port sysrole status`; verify the Helper value, both personalized
+   user registries, machine-root Temp/Roaming directories, free-space guard,
+   saved `wineserver` gid and `services.exe` egid probe. Check that neither test
+   user is in `wexsys`.
+3. Verify `guest port broker install` fails, then `broker --lab install` emits
+   the warning and is idempotent. Exercise `elev`, then remove the broker and
+   confirm its files, policy and registry backup are restored.
+4. Run MSI and EXE installs as the test user with `--elevated`, labels and debug
+   channels. Confirm stale `C:\windows\Installer` copies are removed, logs and
+   result summaries are retained, and an 8-GiB-or-less guest refuses before
+   starting Wine. Test paths with spaces and a failed installer.
+5. Run `debug off`, `sysrole reset`, and repeat reset. Confirm only the marked
+   lab runtime/users/machine-root are removed; foreign `/etc/wineexplorer`,
+   users, groups and launcher paths must be refused and left unchanged.
 
 Execute later after the distro owner releases it. No builds, Wine, wineserver,
 Xvfb or fixtures were run during authoring. First read `/root/sync-wine.sh` and
@@ -315,4 +359,3 @@ NOT tested: no VM available in this environment.
   re-run after the regression test, `sysrole status` accurate); test fixture
   cleaned up. Project files preserved at
   `/root/wexdev-acceptance-backup/etc-wineexplorer-foreign/`.
-
