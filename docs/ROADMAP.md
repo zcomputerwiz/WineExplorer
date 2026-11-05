@@ -278,6 +278,6 @@ against stock Wine is needed.
 
 Planned, not started; priority is below the DWM, browser-installer and system-tier work. Target: unmodified packaged
 native UWP apps, starting with a self-owned, gated, non-XAML C++/WinRT fixture (packaged identity, WinRT activation,
-async, clean exit), then CoreWindow, then a separate XAML track (Uno or native, after a one-control ABI spike), PRI/XBF,
+async, clean exit), then CoreWindow, then a separate native XAML track (Uno is reference only), PRI/XBF,
 and only later the installed Calculator (private test, never committed). Everything is off by default behind one gate.
 Plan, review, repository split and first backlog: `docs/uwp/` (start with `docs/uwp/README.md`).
