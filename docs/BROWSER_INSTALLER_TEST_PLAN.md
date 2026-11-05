@@ -195,3 +195,12 @@ reinstall, and rollback need separate fresh-prefix/snapshot evidence.
 * Chrome stub `ChromeSetup.exe` (13283768 bytes, signature valid): `/silent /install` exits 251; the updater log is created
   and `{6d40bdad-...}` / `{8018f647-...}` are "not registered" (COM classes of the updater service), the same blocker as the
   Chrome enterprise MSI (registry DACL, Round 7 in `CHROME_INSTALLER_ANALYSIS.md`).
+
+### Round 12, 2026-11-05, VM B (rpcrt4 LPWSTR/LPSTR fix in place)
+
+* Chrome consumer stub `ChromeSetup.exe` (elevated, /silent /install): exit 0, GoogleUpdater installed Chrome under
+  `C:\Program Files\Google\Chrome\Application`. PASS.
+* Installed Chrome run against the browser fixture (installed tree copied into a fresh prefix): fixture passed, WebGL and
+  WebGL2 pixels correct, shell alive. PASS. Not yet run inside the installed machine-root prefix itself.
+* Edge enterprise MSI: still exit 1627 (updater handoff `ShellExecuteEx` /handoff fails, 0x80004005 then 0x80040708).
+  `docs/EDGE_HANDOFF_ANALYSIS.md` ranks hypotheses; next is a traced rerun (`+exec,+process,+security,+server,+service,+loaddll`).
