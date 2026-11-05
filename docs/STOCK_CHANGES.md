@@ -1,5 +1,17 @@
 # Changes to stock Wine / third-party code
 
+## dcomp: device and visual conformance contracts (2026-11-04)
+
+`wine/dlls/dcomp/device.c` matches the selected Wine-Staging conformance contracts for device
+creation and QI/version gating, NULL-output validation, desktop-HWND target rejection, visual
+creation, swapchain/surface content acceptance and reference retention, target-root ownership and
+reparent rejection, visual-child ordering/reparent rejection, and enum validation for bitmap
+interpolation, border mode and back-face visibility. `SetOffsetX` stores the pending value and
+returns `S_OK`. These are HRESULT, QI, ownership and setter-contract changes only; the retained
+scene and transaction design is unchanged. The corresponding test provenance is recorded beside
+each ported function in `wine/dlls/dcomp/tests/dcomp.c` (staging patches 0002, 0004, 0007, 0009,
+0014, 0039, 0045 and 0050). Static inspection only; no runtime result is claimed here.
+
 `wine/dlls/winewayland.drv/wayland_surface.c`: publish `window.scale`, rounded
 to thousandths, in the `__wine_wayland_scale` HWND property on surface creation,
 role scale initialization and fractional-scale changes; remove it on surface
