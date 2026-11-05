@@ -1683,3 +1683,16 @@ previous scene is not re-published, so a failure blanks them rather than mixing 
 the auxiliary producers are only changed after every activation succeeded. The dxgi conformance failures seen in
 the harness (67 in a plain 1024x768 Xvfb prefix: display-mode, monitor-rect and factory-refcount checks) are identical
 with the dxgi dll from before the dcomp work, so they predate it.
+
+## dcomp: complete surface draw controls, scrolling and virtual surfaces (2026-11-04)
+
+`wine/dlls/dcomp/device.c`, `wine/dlls/dcomp/tests/dcomp.c`: implement
+`IDCompositionSurface::SuspendDraw` / `ResumeDraw` with the device-wide active-draw
+state, physical `ID3D11Texture2D` backing and `content_valid` preservation;
+implement validated immediate `Scroll` through a temporary D3D11 texture; and
+expose virtual surfaces from the factory, Device2, Device3 and desktop-device
+entry points. Virtual surfaces allow a partial first BeginDraw and implement
+overlap-preserving Resize plus validated no-op Trim, bounded to the 11_0
+16384-by-16384 texture limit. The conformance additions cover suspend/resume
+contention, Scroll, partial virtual drawing, Resize and Trim. Static inspection
+only; the user will build and run the 941+ test suite on i386 and x86_64.

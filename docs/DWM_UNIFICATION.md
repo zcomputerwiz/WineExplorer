@@ -607,3 +607,58 @@ Compare old/new tuples with conflicting attributes, every masked blur value,
 all tint/region/dark combinations, signed region extremes, API lookup failures,
 frame 0/1/2/other, square/default/explicit radii, and fractional scales. Also compare
 call absence, ordering and retry results, not just the numeric backdrop enum.
+
+## Runtime verification (2026-11-04, WSL `wexbuild`, build `/root/WE-prefetch/build/wow64`)
+
+Lifecycle scenarios from the section above, exercised at runtime on X11
+(`/root/p4-visual.sh`) and Wayland (`/root/p5-wayland.sh`). All three PASS.
+
+### A1 — HWND slot reuse: no effect leak onto the recreated window (PASS)
+
+Probe `scripts/dwm-hwnd-reuse-visual-probe.c` (built with both
+`x86_64-w64-mingw32-gcc` and `i686-w64-mingw32-gcc`, `.exe` copied to `/root`):
+creates a window, applies `DwmSetWindowAttribute` corner + backdrop, destroys it,
+then rapidly recreates a window in the same USER slot and checks the new window's
+pixels. Command (X11, 64-bit then 32-bit):
+
+```
+PROBE=dwm-hwnd-reuse-visual-probe COMP=1 FX=1 MAT=1 TB=1 AT=1 \
+    bash /root/p4-visual.sh on
+```
+
+Evidence: the recreated window's corner/backdrop pixels match the fresh (no-effect)
+reference, not the destroyed window's applied state — the differing full-generation
+HWND does not inherit the old applied state. Screenshots `a1-a-run1.png` (64-bit),
+`a1-b-run2.png`, `a1-b-run3-32bit.png` (32-bit) show the recreated window without the
+previous window's corner/backdrop. PASS for both arches.
+
+### A2 — shell restart: bridge + frame clock return, dwm_clock passes, no stale procs (PASS)
+
+Script `.tmp-g4-unit/a2.sh`: Xvfb `:77`, three `wineserver -k` restarts of the
+`/desktop` shell with `WINEDEBUG=trace+wexshell`. Evidence per restart (log lines
+25/27, 35/37, 45/47):
+
+```
+...:trace:wexshell:dwm_bridge_start bridge thread 00000000000000B0
+...:trace:wexshell:dwm_clock_start frame clock on, period 166666
+```
+
+Both lines appear exactly 3× (once per restart); zero `err:wexshell`/`err:wexhost`
+lines. The `dwm_clock` test still passes after the restarts:
+
+```
+MOD=dwmapi TESTS=dwm_clock FX=1 bash /root/p6-test.sh
+```
+
+x86_64: `frames 57 -> 83, refresh period 166666`; i386: `frames 126 -> 152`; both
+`47 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped`. No stale
+`wineserver`/`explorer.exe`/`Xvfb` remain after the run. PASS.
+
+### A3 — every gate off: shell starts, no err: from wexshell/wexhost (PASS)
+
+Script `.tmp-g4-unit/a3.sh`: prefix with **no** `Composition`/`DwmService`/
+`DwmFrameClock` keys at all. Evidence: the shell starts (taskbar window
+`1024x30+0+738`; Start button pixel `(10,750)=srgb(95,92,92)`), there are **no**
+`bridge thread`/`frame clock on` lines (neither the bridge nor the clock starts),
+and zero `err:wexshell`/`err:wexhost` lines (only benign `err:ole`/`err:setupapi`).
+Screenshot `a3-off.png`. PASS.

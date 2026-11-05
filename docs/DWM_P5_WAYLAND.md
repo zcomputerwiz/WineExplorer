@@ -345,5 +345,52 @@ Iconic thumbnails and Peek bitmaps already use one backend-neutral path: `taskba
 sections written by `DwmSetIconicThumbnail` / `DwmSetIconicLivePreviewBitmap` into GDI bitmaps and paints them in
 ordinary shell popups (`show_iconic_peek`). On Wayland the popup's shared handle is published only after its first
 commit, so `WexWmPeekWindow` returned `ERROR_NOT_READY` and Peek never started. `start_peek` now retries every 50 ms
-for up to 1 s (`TIMER_PEEK_RETRY`); `end_peek` cancels it. Build-verified; runtime check pending (hover a taskbar
-button of an iconic window on X11 and Wayland with TaskbarPeek=1, and with every gate off).
+for up to 1 s (`TIMER_PEEK_RETRY`); `end_peek` cancels it.
+
+### Runtime verification (2026-11-04, WSL `wexbuild`, build `/root/WE-prefetch/build/wow64`)
+
+Both backends PASS with `TaskbarPeek=1` and `TaskbarThumbnails=1`, probe
+`scripts/dwm-iconic-visual-probe.c` (sets `DwmSetIconicThumbnail` +
+`DwmSetIconicLivePreviewBitmap`, then minimizes).
+
+**X11** (`/root/p4-visual.sh`, `HOVER='186 753' HOVER2='194 670'`):
+
+```
+PROBE=dwm-iconic-visual-probe PEEK=1 TB=1 COMP=1 FX=1 MAT=1 DA=1 \
+    HOVER='186 753' HOVER2='194 670' bash /root/p4-visual.sh on
+```
+
+Probe log: `WM_DWMSENDICONICTHUMBNAIL`, `DwmSetIconicThumbnail hr 0`,
+`DwmSetIconicLivePreviewBitmap hr 0`. Peek screenshot: bitmap `(250,200)=srgb(0,224,224)`
+(cyan iconic bitmap shown), border `(75,200)=srgb(0,0,128)`, and the live probe
+`(700,200)=srgb(37,111,149)` (desktop showing through → other window hidden). On
+leave, the live probe returns to `(700,200)=srgb(255,255,255)` (visible) and the peek
+area reverts to the desktop. The first `WexWmPeekWindow` succeeds on X11 (no retry
+needed). PASS.
+
+**Wayland** (`/root/p5-peek-lf.sh`, a `p5-wayland.sh` copy that also sets
+`TaskbarPeek`/`TaskbarThumbnails` and keeps the compositor alive; hover driven by
+`scripts/wayland-pointer-move.c`, a `zwlr_virtual_pointer_v1` client):
+
+```
+KEEP=1 HOLD=120 PROBE=dwm-iconic-visual-probe FX=1 MAT=1 DA=1 OUT=p5-peek \
+    bash /root/p5-peek-lf.sh
+# then, from the printed tempdir:
+XDG_RUNTIME_DIR=$R WAYLAND_DISPLAY=wayland-0 /root/wayland-pointer-move 59,705,7000
+```
+
+Peek screenshot: the iconic bitmap fills the output (`(640,330)=(37,111,149)`, the
+compositor's rendering of the cyan bitmap — identical with and without the DWM
+`FX`/`MAT`/`DA` gates, so the shift is the pixman color path, not an effect), the
+taskbar button is highlighted `(59,705)=(251,251,251)`, and the desktop is otherwise
+hidden. On leave the output returns to black `(0,0,0)` and the button un-highlights.
+Because the Wayland popup handle is published only after its first commit, the Peek
+appearing at all exercises the `ERROR_NOT_READY` → 50 ms retry path in
+`start_peek`/`retry_peek`. PASS.
+
+Note: `scripts/wayland-pointer-move.c` initially failed with the compositor rejecting
+`create_virtual_pointer` ("invalid arguments"). The cause was the request argument
+order: the protocol is `create_virtual_pointer(seat, id)` (nullable `wl_seat` first,
+then the new id), and the marshal call must pass the seat object before the trailing
+NULL. Fixed in the probe; the compositor (`wexcomp` `src/seat.c:559`) accepts the
+correctly-ordered request.
