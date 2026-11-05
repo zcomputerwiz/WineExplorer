@@ -559,4 +559,175 @@ wsl -d Debian --exec bash /mnt/d/DeepThought/ChromiumLab/g.sh '<cmd>'
 #   trace-msi-trace.log, trace-msi.log, trace-system.reg, trace-run-stdout.log, trace-wineboot.log
 ```
 
+---
+
+## 6. Fix validation (2026-11-05)
+
+Re-ran the Chrome enterprise MSI in the QEMU guest with a runtime containing the combase fix
+(`combase: retry LocalService in the opposite WOW64 view; read ServiceParameters before ServiceParams`,
+wine commit `5e3ccdbe`; change only in `dlls/combase/rpc.c`). The fixed `combase.dll` for both
+architectures was built in WSL (`/root/WE-prefetch/build/wow64/dlls/combase/{x86_64,i386}-windows/`,
+rebuilt 2026-11-05 02:25; `strings -e l` confirms the `ServiceParameters` literal) and dropped into the
+guest's 2026-11-02 runtime (`memory-runtime2/build/wow64`), replacing the stock DLLs (backups kept as
+`combase.dll.bak-fixval-20261105`).
+
+### 6.1 Method
+
+- Booted the guest (`WEX_G4_RUN_NAME=chrome-msi-fixval-20261105`), reused the 2026-11-02 runtime and MSI.
+- Replaced `combase.dll` for both `x86_64-windows` (md5 `82b2ac2e…`) and `i386-windows` (md5 `6167c3c0…`)
+  with the fixed builds, keeping backups of the stock DLLs.
+- Fresh prefix, `wineboot --init`, then the same trace run as §5.1
+  (`WINEDEBUG=+timestamp,+pid,+ole,+combase,+rpc,+reg,+service,+msi,+process msiexec /i <msi> /qn /l*v msi.log`).
+- Artifacts: `D:/DeepThought/ChromiumLab/msi-fixval-20261105/` (`fixval-msi-trace.log` 2.4 MB,
+  `fixval-system.reg` 3.8 MB, `fixval-msi.log`, `fixval-key-lines.log`, `fixval-run-stdout.log`).
+
+### 6.2 Outcome
+
+**The fix did not unblock the install.** `msiexec` exit code **91** (same as §5.2); `DoInstall returned 1627`
+is still present:
+
+```
+23884:110.776:0128:012c:err:msi:execute_script Execution of script 0 halted; action L"DoInstall" returned 1627
+23904:110.777:0128:012c:err:msi:ITERATE_Actions Execution halted, action L"InstallFinalize" returned 1627
+```
+
+No `chrome.exe` under `drive_c/Program Files/Google/Chrome/Application/`; no Chrome uninstall entry in either
+WOW64 view. (The run's silent file-extraction phase was ~102 s this time vs ~560 s in §5.2 — a timing
+variance that does not affect the outcome.)
+
+### 6.3 Why the fix did not work
+
+The fix executed — the `IsWow64Process` probe and the opposite-view retry are visible in the trace — but the
+retry re-opens the **CLSID** key in the opposite WOW64 view, where it does not exist. The registration is split
+across views (CLSID in the 32-bit view, AppID in the 64-bit view, §5.6), so re-running the whole
+`open_appidkey_from_clsid` in the opposite view fails at the CLSID-key open step and never reaches the
+`LocalService` value:
+
+```
+108.266:018c:01c4:trace:ole:create_local_service Attempting to start Local service for {6d40bdad-bf13-535b-bc3b-eeee65b1d745}
+108.266:018c:01c4:trace:reg:NtOpenKeyEx (0xdc,L"CLSID\{6D40BDAD-...}",20019,...)        <- 32-bit view: CLSID key found
+108.266:018c:01c4:trace:reg:NtOpenKeyEx <- 0x184
+108.266:018c:01c4:trace:reg:RegQueryValueExW (00000184,L"AppId",...)
+108.266:018c:01c4:trace:reg:NtOpenKeyEx (0xdc,L"AppId\{6D40BDAD-...}",20019,...)        <- 32-bit view: AppID key found
+108.266:018c:01c4:trace:reg:NtOpenKeyEx <- 0x184
+108.266:018c:01c4:trace:reg:RegQueryValueExW (00000184,L"LocalService",...)              <- no LocalService in 32-bit view
+108.266:018c:01c4:trace:process:NtQueryInformationProcess (0xffffffffffffffff,0x1a,...)  <- IsWow64Process (the fix)
+108.266:018c:01c4:trace:reg:NtCreateKey ((nil),L"\\Registry\\Machine\\Software\\Classes",...)  <- retry: 64-bit view root
+108.266:018c:01c4:trace:reg:NtCreateKey <- 0x184
+108.266:018c:01c4:trace:reg:NtOpenKeyEx (0x184,L"CLSID\{6D40BDAD-...}",20119,...)        <- 64-bit view: CLSID key NOT found
+108.266:018c:01c4:trace:reg:NtOpenKeyEx <- (nil)
+108.266:018c:01c4:warn:ole:create_local_service No LocalService value
+```
+
+The `LocalService` value is in the 64-bit-view AppID key, but the retry never reaches it because
+`open_appidkey_from_clsid` first re-opens the CLSID key (in the 64-bit view) and fails there.
+
+### 6.4 Service start and class-object registration
+
+- The updater (`updater.exe`, PID `018c`) opens `GoogleUpdaterInternalService157.0.8089.0`
+  (`OpenServiceW … 0x10003`, ts 105.581) and starts it (`StartServiceW 00F84228 0 NULL`, ts 105.593) —
+  directly, **not** via COM `create_local_service` (which failed before `start_local_service`).
+- The service process (`updater.exe --system --windows-service --service=update-internal`) is launched by
+  `services.exe` (outside the client trace) but exits with **1077 (ERROR_INVALID_PARAMETER)**:
+  `sc query` → `STATE: 1 STOPPED`, `WIN32_EXIT_CODE: 1077 (0x435)`.
+- **No `CoRegisterClassObject` / `rpc_register_local_server`** is observed — the service never registers its
+  class objects, so the COM activation cannot succeed even after the service starts.
+- The surrogate fallback (Rank 1, §3) still fires: `dllhost.exe /PROCESSID:{6D40BDAD-…}` is launched six times
+  (ts 108.267 → 109.436) and fails, because that fix was not part of the deployed change.
+
+### 6.5 First new failure / classification
+
+There is **no new failure** — the install fails at the same point as §5.2 (`No LocalService value` →
+`DoInstall returned 1627`). The deployed fix is insufficient for the split-view registration. Two distinct
+gaps remain:
+
+1. **WOW64 retry granularity (primary).** The retry must re-open only the **AppID** key in the opposite view
+   (reusing the `AppId` value already read from the CLSID key in the default view), not the whole
+   `open_appidkey_from_clsid` (which re-opens the CLSID key in the opposite view, where it is absent).
+2. **Service start / class registration (secondary).** Even with the `LocalService` value found, the service
+   exits with 1077 and never calls `CoRegisterClassObject`; the activation would still fail. This needs
+   separate investigation (service `ImagePath` handling in `services.exe`, or the updater's service main).
+
+### 6.6 Proposed next fix (NOT applied)
+
+In `create_local_service` (`wine/dlls/combase/rpc.c`), restructure the WOW64 fallback so it re-opens only the
+AppID key in the opposite view:
+
+```c
+    hr = open_appidkey_from_clsid(rclsid, KEY_READ, &hkey);
+    if (FAILED(hr))
+        return hr;
+
+    sz = sizeof buf;
+    r = RegQueryValueExW(hkey, L"LocalService", NULL, &type, (LPBYTE)buf, &sz);
+    if ((r != ERROR_SUCCESS || type != REG_SZ) &&
+        (arch == 64 || (IsWow64Process(GetCurrentProcess(), &is_wow64) && is_wow64)))
+    {
+        /* The AppID key may live in the opposite WOW64 view while the CLSID key
+         * stays in the native view. Re-open only the AppID key there, reusing the
+         * AppId value already resolved from the CLSID key. */
+        WCHAR appid[CHARS_IN_GUID];
+        DWORD asz = sizeof(appid);
+        HKEY clsid;
+        LONG ar;
+        RegCloseKey(hkey);
+        hkey = NULL;
+        if (SUCCEEDED(open_key_for_clsid(rclsid, NULL, KEY_READ, &clsid)))
+        {
+            ar = RegQueryValueExW(clsid, L"AppId", NULL, NULL, (LPBYTE)appid, &asz);
+            RegCloseKey(clsid);
+            if (ar == ERROR_SUCCESS)
+            {
+                /* open HKCR\AppId\{appid} in the opposite view (mirrors the AppID-key
+                 * open inside open_appidkey_from_clsid) */
+                if (SUCCEEDED(open_appid_key(appid, opposite | KEY_READ, &hkey)))
+                {
+                    sz = sizeof buf;
+                    r = RegQueryValueExW(hkey, L"LocalService", NULL, &type, (LPBYTE)buf, &sz);
+                }
+            }
+        }
+        if (!hkey)
+        {
+            WARN("No LocalService value\n");
+            return REGDB_E_CLASSNOTREG;
+        }
+    }
+    /* ... existing ServiceParameters read + start_local_service ... */
+```
+
+This makes the 32-bit COM client see the `LocalService` value the installer wrote to the 64-bit-view AppID key
+without requiring the CLSID key to exist in the opposite view.
+
+**Note.** Even with this fix, the activation depends on the service starting and calling
+`CoRegisterClassObject` (§6.4). The 1077 service exit and the missing class registration are the next
+blockers and need separate fixes.
+
+### 6.7 Commands used
+
+```bash
+# Boot (WSL; the launcher auto-stops the VM after 900 s)
+wsl -d Debian -u root --exec bash -c \
+  "WEX_G4_RUN_NAME=chrome-msi-fixval-20261105 python3 -B /mnt/d/DeepThought/ChromiumLab/launch-16g.py"
+
+# Wait for guest SSH (port 2235, user debian)
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'echo SSH_UP'"
+
+# Push guest scripts + deploy the fixed combase.dll (backups kept)
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/push-scripts.sh"
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/deploy.sh"
+
+# Launch the trace detached, then poll
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'bash /tmp/launch.sh'"
+wsl -d Debian --exec bash -c "ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2235 -o BatchMode=yes \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null debian@127.0.0.1 'bash /tmp/poll.sh'"
+
+# Pull artifacts to D:/DeepThought/ChromiumLab/msi-fixval-20261105/
+wsl -d Debian --exec bash -c "bash /mnt/d/DeepThought/ChromiumLab/msi-fixval-20261105/pull.sh"
+#   fixval-msi-trace.log, fixval-msi.log, fixval-system.reg, fixval-key-lines.log,
+#   fixval-run-stdout.log, fixval-system-reg-clsid.log, fixval-system-reg-services.log, fixval-wineboot.log
+```
+
 The VM was shut down at its 900 s deadline; no `qemu-system` processes remain.
