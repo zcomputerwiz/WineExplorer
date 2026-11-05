@@ -281,3 +281,13 @@ native UWP apps, starting with a self-owned, gated, non-XAML C++/WinRT fixture (
 async, clean exit), then CoreWindow, then a separate native XAML track (Uno is reference only), PRI/XBF,
 and only later the installed Calculator (private test, never committed). Everything is off by default behind one gate.
 Plan, review, repository split and first backlog: `docs/uwp/` (start with `docs/uwp/README.md`).
+
+## Track E1: production elevation and installer authorization (2026-11-05)
+
+New open track, scheduled immediately before and alongside "Future: stock browser installers": machine-wide installers
+(Chrome, Edge, most application installers) need elevation, so E1 gates them and the ISO acceptance of machine installs.
+Completed phases are not renumbered. Work and order are in `docs/ELEVATION_ROADMAP_FIT.md` (reconcile the T3 documents and
+measure the installed configuration; lab installer diagnosis with the compile-time test broker, which is a disposable
+fixture and never shipped; decide the trust architecture; filtered-administrator flow; standard-user credentials with an
+authenticated identity; secure presentation on X11 and Wayland; image integration). The shared system tier (session 0) is
+not a prerequisite. Lab status: the test broker works in the QEMU guest (`CHROME_INSTALLER_ANALYSIS.md` section 14).
