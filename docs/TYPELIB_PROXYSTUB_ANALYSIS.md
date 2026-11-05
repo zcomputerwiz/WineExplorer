@@ -31,3 +31,12 @@ The minimal change is conditional on that finding: if format generation rejects 
 Extend `wine/dlls/oleaut32/tests/tmarshal.c:2925-2966` (existing cross-apartment host/marshal pattern), using typelib creation examples at `wine/dlls/oleaut32/tests/typelib.c:2269,2355,3340` and per-user registration/cleanup at `6960-7093`. Use `CreateTypeLib2` for the process SYSKIND and unique GUIDs. Define non-dual `TKIND_INTERFACE` types with `TYPEFLAG_FOLEAUTOMATION`, explicit `IUnknown` bases, correctly indexed vtable slots and `FUNCDESC`s: callback `HRESULT Run([in] LONG)` and server `HRESULT Run([in] ICallback *)` and `Hello`. Add the **observed failing descriptor** as a separate minimal method, preserving flags, aliases and nesting. Save, reload and register per-user; ensure the interface's `ProxyStubClsid32` and TypeLib/version resolve to PSOAInterface, using disposable HKCU keys if registration does not create them. Verify metadata and `CoGetPSClsid`. Restore/remove only test-owned keys and file.
 
 Marshal an implementation from a pumped STA to a second apartment with `CoMarshalInterThreadInterfaceInStream`/`CoGetInterfaceAndReleaseStream`; check marshal and unmarshal HRESULTs, call both methods, pass a callback and verify its `LONG` and HRESULT across the boundary, references and cleanup. For any observed `[out]`/`[retval]` shape, assert output values and ownership. Include dual and simple non-dual controls. Run on native Windows first to validate the generated typelib and expected results, then on current 32-bit Wine and other supported bitnesses. Failure on today's Wine and success on Windows are **test goals, not verified results**: the ordinary callback shape is already represented in Wine's code, and until the guest descriptor/failure branch is known there is no defensible promise that this test reproduces the error.
+
+## LPWSTR test status (2026-11-05)
+
+Added `test_marshal_string_args` to `wine/dlls/oleaut32/tests/tmarshal.c` and the method `string_args` (`[in] LPWSTR`, `[in] LPSTR`
+between integer arguments, `[out, retval] int`) to `tmarshal.idl`. It runs through the real apartment proxy with a nonempty, an empty
+and a non-ASCII wide string. Wine result: 775 tests, 0 failures on i386 and x86_64. Native Windows 11 verification is still pending: run
+the same test there before relying on it. Note for authors: the IDL must spell the types `LPWSTR` and `LPSTR`. A plain
+`[in, string] wchar_t *` becomes a pointer to a 16-bit integer in the type library and marshals one character only (the first Wine run
+failed in exactly that way).
