@@ -1659,3 +1659,27 @@ swapchain layer appears or the scene goes away). dxgi snapshots a surface throug
 `wined3d_dcomp_frame_create_from_pixels` (replaces `_create_from_texture`, which acquired a GL context off the CS thread
 and asserted); wined3d takes its own frame references. A never-drawn surface composes as nothing. Verified on screen with X grabs (`scripts/check-dcomp-surface-screen.sh`): green, then yellow after Commit; the
 test's three GetPixel checks stay todo_wine because winex11 presents GL to a child drawable GDI does not read; dcomp 941 tests, 0 failures.
+
+## dcomp, dxgi, wined3d: harden the P7b surface composition (2026-11-04)
+
+Wine `dlls/dcomp/device.c`, `dlls/dxgi/swapchain.c`, `dlls/wined3d/swapchain.c`. Code-review fixes for the P7b
+DirectComposition work: (1) dxgi's surface frame staging copy now serializes with the app thread through
+`ID3D11Multithread` Enter/Leave on the surface device's immediate context (the same lock the app's D3D11 calls take),
+so a concurrent draw/EndDraw cannot race the CopyResource/Map/Unmap; (2) the device commit is all-or-nothing across
+bindings: every producer is activated before the visual tree is switched, and a failed activation revokes the
+already-activated bindings and leaves the previous scene and tree intact; (3) auxiliary-producer revocation is
+deferred until the commit is known to succeed, so a failed transaction keeps it; (4) a surface frame capture failure
+(OOM, staging create, Map) now returns the D3D11 HRESULT (typically `E_OUTOFMEMORY`) instead of collapsing to
+`E_NOTIMPL`, with the previous scene left intact; (5) wined3d's `set_target_scene` tracks the number of layers whose
+references were acquired and releases exactly those on failure, instead of truncating `layer_count`; (6) duplicate
+producer preparation is deduplicated by the content `IUnknown` (the underlying object) rather than the
+`IWineDCompSwapChain` interface pointer. dcomp 941 tests, 3 todo, 0 failures on x86_64 and i386; on-screen check
+(`scripts/check-dcomp-surface-screen.sh`) shows green then yellow. The dxgi conformance failures (display/adapter
+rects, refresh rate, factory refcount) are unchanged by this work: a dxgi dll built from commit `29696397` (which did
+not touch the dxgi module) reports the identical set, so they predate the dcomp work.
+
+Note on the commit transaction above: a failed activation revokes the producers already activated in that commit (their
+previous scene is not re-published, so a failure blanks them rather than mixing old and new); the visual tree and
+the auxiliary producers are only changed after every activation succeeded. The dxgi conformance failures seen in
+the harness (67 in a plain 1024x768 Xvfb prefix: display-mode, monitor-rect and factory-refcount checks) are identical
+with the dxgi dll from before the dcomp work, so they predate it.
