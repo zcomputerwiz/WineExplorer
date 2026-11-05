@@ -5,6 +5,8 @@ Windows XP / Server 2003 shell on Wine for Debian. Docs live in `docs/` (start w
 
 ## Rules
 
+Agents: read docs/TOOLING.md before running any harness, VM or build script.
+
 - Pixel and functional parity with the XP VM; XP names; gray out what does not apply to Wine.
 - ReactOS code and art may be ported. Proprietary Microsoft material (genuine Windows files, reference sources, and
   art copied or traced from them) never enters this repository and is never named in it: it lives in the local-only

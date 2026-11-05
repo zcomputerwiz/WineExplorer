@@ -19,6 +19,8 @@ set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 2; }
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/sysrun-fixture.sh
+source "$SRC/scripts/lib/sysrun-fixture.sh"
 BUILD="${WINE_BUILD_DIR:-/home/user/build/dev}"
 ROOT=/var/lib/wexsys-c2
 M="$ROOT/machine"
@@ -101,10 +103,7 @@ chmod 0755 "$ROOT/probes"/*.exe
 
 if [ "$REUSE" != 1 ]; then
 echo "--- machine root and launcher"
-env WEX_MACHINE_GROUP="$GRP" WEX_MACHINE_ROOT="$M" WEX_SKEL_PFX="$ROOT/skel/.wine" WEX_BACKUP_DIR="$ROOT/backup" \
-    WEX_WINE_BIN="$BUILD/wine" WEX_WINESERVER_BIN="$BUILD/server/wineserver" WEX_NTDLL="$BUILD/dlls/ntdll/ntdll.so" \
-    WEX_SYSRUN_ENABLE=1 DISPLAY=":$DNUM" WINEDEBUG=-all \
-    bash "$SRC/scripts/setup-machine-root.sh" > "$ROOT/setup.log" 2>&1 || { tail -20 "$ROOT/setup.log" >&2; fail "setup failed"; }
+DISPLAY=":$DNUM" wex_fixture_machine || { tail -20 "$ROOT/setup.log" >&2; fail "setup failed"; }
 [ "$(stat -c '%a %U:%G' "$SYSRUN")" = "2755 root:$GRP" ] || fail "launcher not installed setgid"
 fi
 install -m 2755 -o root -g "$GRP" "$ROOT/bin/asgroup" "$ROOT/bin/asgroup.sg"
@@ -119,11 +118,6 @@ fi
 ADM_GID="$(id -g "$ADM")"; STD_GID="$(id -g "$STD")"; STD_UID="$(id -u "$STD")"; ADM_UID="$(id -u "$ADM")"
 
 # Values for the probes, written by root into the machine hives before any server runs.
-reg_append()   # file section line...
-{
-    local file="$1" section="$2"; shift 2
-    { printf '\n[%s] 1700000000\n#time=1d9a0000000000\n' "$section"; printf '%s\n' "$@"; } >> "$file"
-}
 if [ "$REUSE" != 1 ]; then
 printf 'MARKER' > "$M/drive_c/windows/wex_marker.txt"
 printf 'MARKER2' > "$M/drive_c/windows/wex_marker2.txt"
@@ -359,12 +353,6 @@ ok c2_enforced_standard_user_hklm_write_denied_and_not_persisted
 echo "--- system role (C3)"
 SVCDIR=/tmp/wexsvc
 SVCEXE='Z:\\var\\lib\\wexsys-c2\\probes\\wexsvc.exe'
-add_service()   # name account report-name start-type
-{
-    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\'"$1" '"ErrorControl"=dword:00000001' \
-        '"ImagePath"="'"$SVCEXE svc $1 "'Z:\\tmp\\wexsvc\\'"$3"'.txt Z:\\var\\lib\\wexsys-c2\\machine"' \
-        '"ObjectName"="'"$2"'"' '"Start"=dword:0000000'"$4" '"Type"=dword:00000010'
-}
 add_service WexSvcSys 'LocalSystem' sys 2
 add_service WexSvcLs 'NT AUTHORITY\\LocalService' ls 2
 add_service WexSvcNs 'NT AUTHORITY\\NetworkService' ns 2

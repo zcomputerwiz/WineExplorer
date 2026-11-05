@@ -2,6 +2,11 @@
 
 ## Unified development baseline (2026-11-01)
 
+Development test automation: [WEXDEV.md](WEXDEV.md) documents
+`scripts/wexdev.sh` (sync/targeted builds, prefixes/tests, system-role services,
+guest push) and its deferred TESTPLAN. Runtime acceptance is pending; do not run
+it while Qwen owns the wexbuild registry-ACL fixture.
+
 **Update (2026-11-01, later):** Wine `development` is now upstream 11.21 plus the PE section cache, its hardening and a
 real `EmptyWorkingSet` (`bed5c5ea`); Edge and Chromium both run on it. See
 [EDGE_DEVELOPMENT_RUN_20261101.md](EDGE_DEVELOPMENT_RUN_20261101.md) for measurements and
