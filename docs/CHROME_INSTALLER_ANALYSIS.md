@@ -985,3 +985,21 @@ treats it as fatal and shuts the COM server down before it registers the class o
 process with `+security,+reg,+advapi,+server` and find which call returns 5 (candidates: `SetSecurityInfo` for
 `SE_REGISTRY_KEY` needing WRITE_DAC on the handle, the key opened without WRITE_DAC, `elevation_enforced()` in
 `wine/server/registry.c`, or `GetSecurityInfo` on a registry handle). Tip: the updater log is the fastest diagnostic here.
+
+## 10. Round 6 (2026-11-05): the registry ACL failure is specific to the service's token
+
+Qwen's probe `scripts/reg-acl-probe.c` (the Chromium `AddAllowedAce` sequence on a registry key: `RegCreateKeyExW` with
+`WRITE_DAC|READ_CONTROL`, `GetSecurityInfo`, `SetEntriesInAclW`, `SetSecurityInfo(SE_REGISTRY_KEY)`, plus the
+`RegGet/SetKeySecurity` and `SetNamedSecurityInfoW` variants) **succeeds** in Wine for root, for a non-admin user, and
+for the Debian user inside the QEMU guest. So the plain API sequence works; the updater's call fails only in the
+service, which runs as LocalSystem (no elevation helper configured in either prefix, so `elevation_enforced()` is off).
+Candidates still open: the SYSTEM token built by `services.exe` (`system_role`, `set_default_dacl()`), the owner/group of
+a key created by that token, the SID passed to the ACE (`Sids::Users`/`Authenticated Users` mapping), or the 32-bit/
+`KEY_WOW64_32KEY` view (`Software\Wow6432Node\Google\Update\ClientStateMedium`: the updater is an x86 binary).
+Next step: run the probe as a service (LocalSystem) and with `KEY_WOW64_32KEY`: staged in
+`D:/DeepThought/ChromiumLab/msi-svc-r4-20261105/sys-probe.sh` (copy `reg-acl-probe.exe`, `sc create` a service whose
+binPath is `cmd /c C:\probe.exe > C:\svc.txt`, start it, read `C:\svc.txt`). In the last attempt the probe itself crashed
+at start-up in the guest runtime (a Wine debugger dump instead of results; the user-mode run printed no probe lines),
+so the probe must first be made to run there (build it with `-static`/`-lmsvcrt`, or compare with the guest's
+`ntdll.dll`/`advapi32.dll` versions). Also useful: `WINEDEBUG=+server` on the service process shows the server's
+status for each `set_security_object` request. The updater's own log remains the quickest signal.
