@@ -258,7 +258,10 @@ better served by a Linux daemon through `wexhost` (D-Bus). References: ReactOS `
 
 Priority is below the DWM phases (`DWM_ARCHITECTURE.md`). Goal: the vendors' own installers run unmodified in the combined
 WoW64 build and produce a browser that starts, without manual extraction of the payload. Order: Chromium installer
-(not yet tried; only the extracted `chrome-win` tree has been validated), Google Chrome, then Microsoft Edge. No test
+(done 2026-11-05: the official `mini_installer.exe` installs per-user and system-level and the fixture passes; see
+`BROWSER_INSTALLER_TEST_PLAN.md`), Google Chrome (MSI and stub), then Microsoft Edge (MSI and stub). Chrome and Edge are
+blocked on services running without the SYSTEM token and on the registry DACL (`CHROME_INSTALLER_ANALYSIS.md` section 11,
+`EDGE_INSTALLER_ANALYSIS.md`). No test
 against stock Wine is needed.
 
 - Google Chrome enterprise MSI (`googlechromestandaloneenterprise64.msi`, tried 2026-11-02 in the QEMU guest with
@@ -270,3 +273,11 @@ against stock Wine is needed.
 - Edge: its installer was not tried; the validated route uses an extracted tree.
 - Check after each: the installer exits 0, the files and uninstall entry exist, the browser starts and the functional
   fixture passes (`validate-*.py`), including a screenshot.
+
+## Future: UWP / package compatibility, track U1 (2026-11-05)
+
+Planned, not started; priority is below the DWM, browser-installer and system-tier work. Target: unmodified packaged
+native UWP apps, starting with a self-owned, gated, non-XAML C++/WinRT fixture (packaged identity, WinRT activation,
+async, clean exit), then CoreWindow, then a separate XAML track (Uno or native, after a one-control ABI spike), PRI/XBF,
+and only later the installed Calculator (private test, never committed). Everything is off by default behind one gate.
+Plan, review, repository split and first backlog: `docs/uwp/` (start with `docs/uwp/README.md`).
