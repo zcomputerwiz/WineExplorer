@@ -1748,3 +1748,21 @@ overlap-preserving Resize plus validated no-op Trim, bounded to the 11_0
 16384-by-16384 texture limit. The conformance additions cover suspend/resume
 contention, Scroll, partial virtual drawing, Resize and Trim. Static inspection
 only; the user will build and run the 941+ test suite on i386 and x86_64.
+
+## dcomp: IDCompositionSurfaceUnknown resize compatibility (2026-11-04)
+
+`wine/dlls/dcomp/device.c`, `wine/dlls/dcomp/tests/dcomp.c`: ported the Wine-Staging 0063/0064
+`IDCompositionSurfaceUnknown` ABI (IID `5680c979-14c8-48b5-8b92-3247379fd907`) onto the existing
+surface object. The inherited public surface methods remain backed by our retained physical texture,
+`IWineDCompSurface`, SuspendDraw/ResumeDraw/Scroll state, and virtual-surface interface. Unknown1–2
+and Unknown4–99 return `E_NOTIMPL`; Unknown3 validates nonzero, bounded dimensions, rejects any
+device-wide active draw with `DCOMPOSITION_ERROR_SURFACE_BEING_RENDERED`, preserves the overlapping
+texture contents, replaces the physical texture, and invalidates the old draw/content state. The
+ported `test_surface_interface` assertions cover `E_INVALIDARG` for zero dimensions, `S_OK` for valid
+resize, busy-draw rejection, and post-resize bounds validation, based on staging patch 0064 by Zhiyi Zhang.
+Static inspection only; the user will build and run dcomp tests under Wine on x86_64/i386 and natively
+on Windows 11.
+Native check of the surface-interface test on the Windows 11 host (build 26300) crashes at the first successful
+`Unknown3` resize, so that interface is undocumented and unstable across Windows versions: the test follows staging's
+layout and was only verified under Wine (1002 tests, 0 failures, x86_64 and i386); the staging stack-pointer check
+(removed upstream by patch 0065) is not ported.
