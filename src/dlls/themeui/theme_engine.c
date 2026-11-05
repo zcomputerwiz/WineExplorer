@@ -400,9 +400,10 @@ static void apply_dwm_settings(const WCHAR *path)
     DWORD frame_style = 0;
     HKEY key;
 
-    /* [WineExplorer] FrameStyle: "aero" or "1" = Vista/7 glass frames, anything else (or missing) = Windows 10/11 */
+    /* [WineExplorer] FrameStyle: "aero"/"1" = Vista/7 glass; "flat8"/"2" = opaque accent; else modern. */
     GetPrivateProfileStringW(L"WineExplorer", L"FrameStyle", L"", value, sizeof(value)/sizeof(WCHAR), path);
     if (!wcsicmp(value, L"aero") || !wcscmp(value, L"1")) frame_style = 1;
+    else if (!wcsicmp(value, L"flat8") || !wcscmp(value, L"2")) frame_style = 2;
     if (!RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\WineExplorer\\Shell", 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL))
     {
         RegSetValueExW(key, L"DwmFrameStyle", 0, REG_DWORD, (const BYTE *)&frame_style, sizeof(frame_style));

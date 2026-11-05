@@ -66,7 +66,7 @@ struct pending
     DWORD blur;   /* DWM_WINE_BLUR_* */
     DWORD tint;   /* DWM_ATTR_WINE_TINT */
     DWORD rgn[2]; /* DWM_ATTR_WINE_RGN_LT, _RB */
-    DWORD frame;  /* DWM_ATTR_WINE_FRAME: 0 none, 1 Windows 10/11 glass frame, 2 Aero */
+    DWORD frame;  /* DWM_ATTR_WINE_FRAME: 0 none, 1 Windows 10/11, 2 Aero, 3 flat8 */
     DWORD scale;  /* last applied Wayland scale, in thousandths */
     WEX_WM_IDENTITY identity;
     BOOL identity_valid;
@@ -180,9 +180,9 @@ static WEX_WINDOW_EFFECT pending_effect( const struct pending *p )
     DWORD mode = p->blur & DWM_WINE_BLUR_MODE;
 
     effect.tint = p->tint;
-    effect.radius = p->radius;
-    effect.default_radius = p->frame ? (p->frame == 2 ? 6 : 8) : 0;
-    effect.shadow = p->frame != 0;
+    effect.radius = p->frame == 3 ? 0 : p->radius;
+    effect.default_radius = p->frame == 3 ? 0 : (p->frame ? (p->frame == 2 ? 6 : 8) : 0);
+    effect.shadow = p->frame != 0 && p->frame != 3;
     effect.dark = p->dark;
     effect.materials = materials_on;
     SetRect( &effect.region, (SHORT)LOWORD( p->rgn[0] ), (SHORT)HIWORD( p->rgn[0] ),
@@ -198,6 +198,13 @@ static WEX_WINDOW_EFFECT pending_effect( const struct pending *p )
                       mode == DWM_WINE_BLUR_GRADIENT ? WEX_EFFECT_GRADIENT : WEX_EFFECT_BLUR;
         effect.tinted = !!(p->blur & DWM_WINE_BLUR_TINTED);
         effect.has_region = !!(p->blur & DWM_WINE_BLUR_REGION);
+    }
+    if (p->frame == 3)
+    {
+        /* flat8 owns an opaque accent frame; no compositor backdrop is allowed to show through it. */
+        effect.kind = WEX_EFFECT_NONE;
+        effect.tinted = FALSE;
+        effect.has_region = FALSE;
     }
     return effect;
 }

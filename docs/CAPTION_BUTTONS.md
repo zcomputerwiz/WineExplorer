@@ -26,3 +26,13 @@ here and are marked so.
 The CSS in the hints is for a web mock-up; WineExplorer draws these in C from the style's parts (`uxtheme/window.c`).
 Use the measured numbers above (inactive #F3F3F3 / #202020, hover #C42B1C) for the Windows 11 frame; the rest stays
 as estimated until a Windows 10 or 7 reference is available.
+
+## Windows 8/8.1 opaque accent frame
+
+| Era | Source / build / DPI | Frame metrics and states | Verdict |
+|---|---|---|---|
+| Windows 8 | No Win8 host; implementation table; 96 DPI | Border 1 px (**Unverified**); caption 30 px (**Unverified**); caption buttons 46x30 px (**Unverified**); button pitch 46 px (**Unverified**); glyph footprint 10 px (**Unverified**); square corners and no shadow (**Unverified**); inactive colour is active colour lightened 25% toward white (**Unverified**); title text uses integer luma contrast at 128 (**Unverified**); hot/pressed overlays are black at alpha 24/48 (**Unverified**); close hover #C42B1C (**Unverified**) | **Unverified** |
+| Windows 8.1 | No Win8.1 host; implementation table; 96 DPI | Border 1 px (**Unverified**); caption 30 px (**Unverified**); caption buttons 46x30 px (**Unverified**); button pitch 46 px (**Unverified**); glyph footprint 10 px (**Unverified**); square corners and no shadow (**Unverified**); inactive colour is active colour lightened 25% toward white (**Unverified**); title text uses integer luma contrast at 128 (**Unverified**); hot/pressed overlays are black at alpha 24/48 (**Unverified**); close hover #C42B1C (**Unverified**) | **Unverified** |
+
+These are implementation hypotheses only. The formulas are documented here so a Win8/8.1 measurement can replace the
+single metric table without changing the style contract.

@@ -1,5 +1,14 @@
 # Changes to stock Wine / third-party code
 
+## P13 flat8 opaque accent frame (2026-11-05)
+
+Wine files touched: `wine/include/wine/dwm_protocol.h`, `wine/dlls/dwmapi/dwmapi_main.c`,
+`wine/dlls/dwmapi/tests/dwm_attr.c`, `wine/dlls/uxtheme/window.c`, `wine/dlls/win32u/defwnd.c`,
+and `wine/dlls/winex11.drv/window.c`.
+The bridge/theme integration is in `src/dlls/wexshell/dwm_bridge.c` and `src/dlls/themeui/theme_engine.c`.
+Static-only implementation of the default-off `DwmFrameStyle=2` / `FrameStyle=flat8` gate; no build, runtime,
+fresh-prefix, X11/Wayland screenshot, or presented-pixel result is claimed.
+
 ## dxgi/dwmapi: frame statistics and shared colorization semantics (2026-11-04)
 
 Wine changes: `wine/dlls/dxgi/swapchain.c` implements D3D11 `GetFrameStatistics` from the existing successful-Present
