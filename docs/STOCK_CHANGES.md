@@ -1,58 +1,95 @@
 # Changes to stock Wine / third-party code
 
-## E1-H2 caller binding: proposed Wine changes, not implemented (2026-11-06); authentication id implemented (2026-11-06)
+## E1-H2 caller binding: authentication id and opener binding implemented (2026-11-06)
 
-Static review and proposed acceptance tests are in `E1_H2_CALLER_BINDING.md`.
-The authentication id (logon LUID) part is now implemented: `struct token`
-carries an `auth_id`, `get_token_info` returns it, and `TokenStatistics`
-reports the real `AuthenticationId` instead of zero. Side effects: the reply of
-`get_token_info` grew past the 64 byte request/reply limit, so `request_max_size`
-(`server/protocol.def`, `include/wine/server_protocol.h`) and `$max_req_size` in
-`tools/make_requests` went from 64 to 72 bytes, and `SERVER_PROTOCOL_VERSION`
-went from 973 to 974. System tokens use the fixed id 0x3e7, the first interactive
-token gets a new id, and the linked full token copies its source's id (native
-Windows gives each token of a pair its own logon session, so the advapi32 test
-checks only the non-zero value and duplicates). Verified: full WoW64 build, and
-`advapi32 security` runs in both architectures; its 10 failures per run are file
-and registry ACL checks (lines 4005-4057, 6510, 6522, 6962) that this change does
-not touch (not compared against a baseline build). The remaining parts
-(pipe PID retention and the private binding query) are still not implemented.
-Existing pipe PID queries retain a number and opening token, but no original
-process reference.
+Static review and the complete proposed contract are in `E1_H2_CALLER_BINDING.md`.
+The authentication id (logon LUID) part was already implemented and committed:
+`struct token` carries `auth_id`, `get_token_info` returns it, and
+`TokenStatistics` reports the real `AuthenticationId` instead of zero.
+That change increased `request_max_size` (`server/protocol.def`,
+`include/wine/server_protocol.h`) and `$max_req_size` in `tools/make_requests`
+from 64 to 72 bytes and bumped `SERVER_PROTOCOL_VERSION` from 973 to 974.
+System tokens use the fixed id 0x3e7, the first interactive token gets a new id,
+and the linked full token copies its source's id. The id is propagated through
+trusted creation, duplication, filtering, inherited primary tokens and pipe
+impersonation. The privileged create-token authentication-id input is honored.
+Previously verified for that authentication-id change: full WoW64 build and
+`advapi32 security` runs in both architectures, with 10 file/registry ACL
+failures per run (lines 4005-4057, 6510, 6522, 6962; no baseline comparison).
+Those results do not validate the opener-binding changes below.
 
-The minimum PID repair is to retain the opening process object in the server
-connection record at pipe open and release it on disconnect, failed setup,
-destruction and instance reuse. A later lookup of the saved PID is insufficient.
-For the strict E1 caller-context contract, add a small private binding query
-returning checked handles to that original process and primary token, captured
-token identity/version and process start time, and provenance for the exact
-request message read. Capture process/token provenance at open and write,
-including transceive; conservatively reject explicit thread impersonation,
-different writers, changed primary tokens and incomplete/stale provenance in
-the E1 query. Preserve ordinary pipe semantics for other users. Use normal
-access checks and unwind partially allocated handles/references. The intended
-locations are `wine/server/named_pipe.c`, `wine/server/protocol.def`, the
-corresponding generated protocol files and a narrow ntdll/project-bridge helper.
-This query and helper do not exist yet; their names/ABI remain proposals.
+E1-H2b now retains the opening `struct process` directly in the client
+`pipe_end` at `create_pipe_client`, along with a reference to its primary
+token, captured TokenId/ModifiedId and whether the opening thread had a token.
+The server end queries this record through its connected client, rather than
+looking up a saved PID. Disconnect (including either end's destruction) releases
+and clears the process/primary-token references; failed setup uses the same
+cleanup, and each replacement client has a fresh record. Cleanup tolerates a
+missing pseudo-fd on allocation failure, and client-creation failure returns
+NULL without dereferencing it. The existing effective-token pipe impersonation
+behavior is preserved. `server/token.c` and `server/security.h` add only a
+small token-id accessor; this slice does not change token mutation tracking.
 
-The authentication LUID is now implemented: `wine/server/token.c` carries it in
-`struct token` and `get_token_info` in `wine/server/protocol.def` returns it; it
-is propagated through trusted logon creation, duplication, filtering, inherited
-primary tokens, pipe impersonation and linked tokens. The privileged
-create-token authentication-ID input is honored, and
-`wine/dlls/ntdll/unix/security.c` returns the field for `TokenStatistics`
-instead of zero. Linked-token creation preserves the source logon as well as
-its session. Still to implement: provisioning one interactive identity per supported trusted
-user/server-session lifetime, with separate service identities; token IDs and
-derivation lineage are not logon IDs. Reject older/stub capability versions.
-Full multi-session host-logon mapping remains unsupported pending trusted
-provisioning. Existing token-session and process-information queries need no
-new implementation. Complete token mutation tracking is also needed for the
-captured-version check: integrity-label and default-DACL changes currently do
-not update `ModifiedId`, unlike privilege changes. Update successful relevant
-mutations in `wine/server/token.c` and test change-then-restore cases. Later
-implementation must regenerate protocol artifacts
-and run the focused broker/server fixtures; none of those checks ran here.
+The project-private `get_pipe_caller_binding` request takes a server-end
+`pipe` handle with FILE_READ_ATTRIBUTES. It requires the same gate used to
+select a usable primary linked token: elevation enforcement, LocalSystem token
+role, `sysrun_process_privileged(current->process)` and enabled SeTcbPrivilege
+on the process primary token. Otherwise it returns STATUS_ACCESS_DENIED.
+Invalid/wrong-type handles, including client ends, return
+STATUS_INVALID_PARAMETER_1; missing handle access returns STATUS_ACCESS_DENIED;
+an unconnected server end returns STATUS_PIPE_DISCONNECTED. Normal checked
+handle allocation returns non-inheritable SYNCHRONIZE |
+PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_QUERY_INFORMATION access to the
+retained process and TOKEN_QUERY only to the retained primary token. The reply
+also includes the opener PID/start_time, captured TokenId/ModifiedId,
+`impersonated` and `token_current`. The last flag means the retained token
+is still the process's primary-token object and its ModifiedId still matches.
+It does not assert liveness or absence of changes that do not update ModifiedId.
+Partial handle allocation is unwound before returning an error; reply handles
+are published only after both allocations succeed.
+
+`NtQueryWexPipeCallerBinding` is a private ntdll export, implemented on the
+PE side in `wine/dlls/ntdll/sec.c` using the existing `wine_server_call`
+transport and its WoW64 marshalling. No new syscall/unixlib entry or edit to
+`dlls/ntdll/unix/server.c` is needed. Its internal declaration is in
+`include/winternl.h`; callers can resolve the export with GetProcAddress:
+
+```c
+NTSTATUS WINAPI NtQueryWexPipeCallerBinding(
+    HANDLE pipe, HANDLE *process, HANDLE *token, ULONG *pid,
+    LARGE_INTEGER *start_time, LUID *token_id, LUID *modified_id,
+    BOOL *impersonated, BOOL *token_current);
+```
+
+All output pointers are required. On request failure the outputs are zero;
+on success the caller must close both returned handles. The flags are reported
+for the broker to enforce its policy; an impersonated open or a changed token
+does not itself make this query fail. The broker must separately check caller
+liveness and the rest of the E1 authorization contract.
+
+Protocol artifacts `server/request_handlers.h`, `server/request_trace.h`
+and `include/wine/server_protocol.h` were hand-updated to match
+`tools/make_requests` output conventions because the generator could not be
+run in this sandbox. `SERVER_PROTOCOL_VERSION` is now 975; the new request
+is 16 bytes and its reply is 56 bytes including the header and alignment
+padding. PID and start_time both fit; the existing 72-byte maximum is unchanged.
+Client/server protocol users must be rebuilt together. No build, generator run
+or runtime test was possible for E1-H2b; WoW64 build and focused lifecycle,
+access-denial, partial-allocation and token-change fixtures remain unverified.
+
+Deferred to a later step: per-message writer provenance, including transceive
+and the identity of the exact consumed request message. This query establishes
+only the opener binding and cannot detect another process or impersonating
+thread writing through a transferred handle. It is not the complete section
+(c) authorization facility. Server-generation/capability metadata, host-peer
+UID validation and broker integration are also outside this slice. Still
+needed: successful security-relevant token mutations must consistently update
+ModifiedId (integrity-label/default-DACL paths currently do not), with
+change-then-restore tests; provision one interactive identity per supported
+trusted user/server-session lifetime and separate service identities, reject
+older/stub capabilities, and implement trusted host-logon/session mapping
+before claiming multi-session support. Existing process-information and
+token-session queries need no new implementation.
 
 ## dcomp: rectangle-clip and 2D transform animation setters, transform objects (2026-11-05)
 
