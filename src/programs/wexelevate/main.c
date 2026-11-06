@@ -796,6 +796,54 @@ static DWORD approve( struct request *req )
 
 /* ---- the launch ---------------------------------------------------------------------------------------------- */
 
+/* Read NAME from a double-NUL-terminated environment block (a list of NAME=value wide strings), case-insensitively. */
+static const WCHAR *env_lookup( const WCHAR *block, const WCHAR *name )
+{
+    INT len = lstrlenW( name );
+
+    while (*block)
+    {
+        const WCHAR *eq = wcschr( block, L'=' );
+        if (eq && (INT)(eq - block) == len && !_wcsnicmp( block, name, len )) return eq + 1;
+        block += lstrlenW( block ) + 1;
+    }
+    return NULL;
+}
+
+/* An absolute path (a drive letter and a colon) with no .. component. */
+static BOOL temp_path_ok( const WCHAR *path )
+{
+    const WCHAR *p;
+
+    if ((path[0] < L'A' || path[0] > L'Z') && (path[0] < L'a' || path[0] > L'z')) return FALSE;
+    if (path[1] != L':') return FALSE;
+    for (p = path + 2; *p; p++)
+    {
+        if (*p != L'\\') continue;
+        if (p[1] == L'.' && p[2] == L'.' && (p[3] == 0 || p[3] == L'\\')) return FALSE;
+    }
+    return TRUE;
+}
+
+/* Create each missing component of an absolute path from the root down. ERROR_ALREADY_EXISTS is success and any
+ * other error is ignored, because the launch must not fail because of this. */
+static void ensure_dir_chain( const WCHAR *path )
+{
+    WCHAR buf[MAX_PATH];
+    WCHAR *p;
+
+    if (lstrlenW( path ) >= MAX_PATH) return;
+    lstrcpyW( buf, path );
+    for (p = buf + 2; *p; p++)
+    {
+        if (*p != L'\\') continue;
+        *p = 0;
+        CreateDirectoryW( buf, NULL );
+        *p = L'\\';
+    }
+    CreateDirectoryW( buf, NULL );
+}
+
 static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *handle )
 {
     STARTUPINFOEXW si = { { sizeof(si) } };
@@ -832,6 +880,24 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
         return err ? err : ERROR_ENVVAR_NOT_FOUND;
     }
     else env = default_env;
+
+    /* The elevated process runs in the machine root prefix, where the requesting user has no profile directory, so
+     * TEMP and TMP point at a directory that does not exist and installers such as msiexec fail (GetTempFileNameW,
+     * exit 1627). Create the chain; the launch must not fail because of this. */
+    {
+        /* Only the block the broker derives from the token is trusted: a caller-supplied block (WEXELEVATE_ENV_INHERIT)
+         * must not choose which directories the privileged broker creates. */
+        void *token_env = default_env;
+        const WCHAR *var;
+
+        if (!token_env && !CreateEnvironmentBlock( &token_env, linked, FALSE )) token_env = NULL;
+        if (token_env)
+        {
+            if ((var = env_lookup( token_env, L"TEMP" )) && temp_path_ok( var )) ensure_dir_chain( var );
+            if ((var = env_lookup( token_env, L"TMP" )) && temp_path_ok( var )) ensure_dir_chain( var );
+            if (token_env != default_env) DestroyEnvironmentBlock( token_env );
+        }
+    }
 
     InitializeProcThreadAttributeList( NULL, 1, 0, &attr_size );
     if (!(si.lpAttributeList = malloc( attr_size )) || !InitializeProcThreadAttributeList( si.lpAttributeList, 1, 0, &attr_size ))
