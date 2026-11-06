@@ -73,3 +73,7 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   `scripts/wexelevate_probe.c`, wired into `scripts/test_sysrun_server.sh` section 5. Run in VM B against the lab test broker with a
   positive control (`run` passes): all pass. Not yet covered: a forged mismatch of process or token (needs a second process sharing
   the pipe handle), broker stop during consent, image change during consent, existing writer, prompt crash.
+* **E1-S design written (2026-11-06)** in `E1_S_STANDARD_USERS.md` (Codex gpt-6.1-sol, static): PAM verifier in a root-owned helper,
+  request-bound transactions, new-account administrator token. Implementation waits for the owner questions in its section 9,
+  chiefly what "run as the administrator" means (real administrator host UID and profile, which needs cross-UID server work, or a
+  Wine-only identity under the caller's UID).
