@@ -35,7 +35,9 @@ machine-wide installer test in a guest. Scripts: `scripts/lab/guest-sysrole/` (t
    `C:\users\wexsetup\...`. Make `/home/debian` traversable (`chmod o+x`) if the loader is run from there, else exit 126.
 7. **Elevated processes run in the machine root**, whose `drive_c/users` has no profile of the user: create
    `machine/drive_c/users/<user>/AppData/Local/Temp` (`mkprof2.sh`, owner the user, group `wexsys`) or elevated `msiexec`
-   ends silently with 1627 after `GetTempFileNameW path not found`. This is a product gap (the broker should create it).
+   ends silently with 1627 after `GetTempFileNameW path not found`. The broker now creates the chain itself (verified in VM B 2026-11-06 with the rebuilt test broker: after deleting
+    `users/wexadm/AppData` an elevated launch recreated `AppData/Local/Temp`, owner `wexadm`, group `wexsys`, setgid); `mkprof2.sh`
+    stays for older brokers.
 8. **Unattended elevation (lab only).** Install the compile-time test broker: `wexelevate_test.exe`
    (`-DWEXELEVATE_TEST_APPROVAL`), `wexelevate_stub.exe`, point the machine root `wexelevate` service `ImagePath` at
    `wexelevate_test.exe` (`guest-broker-path.py`; the entry already exists, do not append a second one), `/tmp/wexelev/approve.all`,
@@ -63,7 +65,7 @@ machine-wide installer test in a guest. Scripts: `scripts/lab/guest-sysrole/` (t
 ## Known open items found by this recipe
 
 * `setup-machine-root.sh` left `pe_section_cache/*.cache` as `root:root` (fixed in the script, 2026-11-05).
-* The broker should create the user's profile directory in the machine root (step 7).
+* (Closed 2026-11-06) The broker creates the user's Temp chain in the machine root (step 7).
 * The first-logon personalization should be a callable script, not something each lab re-implements (step 6).
 * After the registry descriptor fix the Chrome updater now fails in COM marshalling
   (`dispatch_typelib_ps_CreateStub` E_NOTIMPL for `{ACAB122B-...}`); see `CHROME_INSTALLER_ANALYSIS.md` section 15.
