@@ -8,6 +8,21 @@ R=/opt/wex-rt2/build/wow64
 mkdir -p /run/user/1002 /tmp/gsr-out; chown wexadm:wexadm /run/user/1002; chmod 700 /run/user/1002; chmod 777 /tmp/gsr-out
 U=(runuser -u wexadm -- env -i HOME=/home/wexadm USER=wexadm LOGNAME=wexadm PATH=/usr/bin:/bin LANG=C.UTF-8 XDG_RUNTIME_DIR=/run/user/1002 WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;winex11.drv=d;winewayland.drv=d' WINEDEBUG=${WEXDEBUG:--all})
 "${U[@]}" $R/server/wineserver -k 2>/dev/null; sleep 1
+if [ -n "${WEXDISPLAY:-}" ]; then
+    # Give the prefix a display: installers (the Edge updater) create a hidden window and fail without a graphics driver.
+    # Headless labwc as wexadm, winewayland enabled, and the socket named in the machine Environment (set separately with
+    # guest-env-debug.py VALUE NAME) so processes started by the broker find it.
+    pkill -x labwc 2>/dev/null; rm -f /run/user/1002/wex-shell-0
+    (runuser -u wexadm -- env -i HOME=/home/wexadm PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/1002 \
+        XDG_CONFIG_HOME=/run/user/1002/config XDG_CONFIG_DIRS=/home/debian/wex-g4/wayland WLR_BACKENDS=headless \
+        WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman WEX_SHELL_SOCKET=wex-shell-0 \
+        /home/debian/wex-g4/labwc -V -C /home/debian/wex-g4/wayland > /tmp/gsr-out/labwc.log 2>&1 &)
+    for i in $(seq 1 50); do [ -S /run/user/1002/wex-shell-0 ] && break; sleep .2; done
+    U=(runuser -u wexadm -- env -i HOME=/home/wexadm USER=wexadm LOGNAME=wexadm PATH=/usr/bin:/bin LANG=C.UTF-8 \
+        XDG_RUNTIME_DIR=/run/user/1002 WAYLAND_DISPLAY=wex-shell-0 WEX_WAYLAND_NATIVE_WINDOWS=1 \
+        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;winex11.drv=d' WINEDEBUG=${WEXDEBUG:--all})
+    ls -la /run/user/1002 | head -5
+fi
 ("${U[@]}" $R/loader/wine Z:\\opt\\wex-lab-sdprobe64.exe hold > /tmp/gsr-out/sdhold.log 2>&1 &)
 sleep 12
 echo "== ids"; for p in $(pgrep -x wineserver); do awk '/^Gid:/' /proc/$p/status; done

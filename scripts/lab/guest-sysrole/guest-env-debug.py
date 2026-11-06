@@ -8,7 +8,8 @@ s = open(p, encoding='latin-1').read()
 BS = chr(92)
 head = '[System' + BS*2 + 'CurrentControlSet' + BS*2 + 'Control' + BS*2 + 'Session Manager' + BS*2 + 'Environment]'
 val = sys.argv[1] if len(sys.argv) > 1 else 'err+all,fixme+msi,trace+msi,warn+file'
-line = '"WINEDEBUG"="' + val + '"'
+name = sys.argv[2] if len(sys.argv) > 2 else 'WINEDEBUG'   # any machine-wide variable, e.g. WAYLAND_DISPLAY
+line = '"' + name + '"="' + val + '"'
 i = s.find(head)
 if i < 0:
     s += '\n' + head + ' 1700000000\n#time=1d9a0000000000\n' + line + '\n'
@@ -16,7 +17,7 @@ else:
     j = s.find('\n[', i + 1)
     j = len(s) if j < 0 else j
     sec = s[i:j]
-    sec = re.sub(r'\n"WINEDEBUG"="[^\n]*', '', sec)
+    sec = re.sub(r'\n"' + re.escape(name) + r'"="[^\n]*', '', sec)
     if val != 'off':
         sec = sec.rstrip('\n') + '\n' + line + '\n'
     s = s[:i] + sec + s[j:]

@@ -119,6 +119,16 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
   `wexdev build server/...`, and push only `server/wineserver` to the guest runtime; revert with `git checkout` after.
 * Compare with the native Windows 11 result with a tiny probe (`scripts/keywrite_dacl.c` is the pattern) before assuming
   Wine's behaviour is right: both the elevated-token theory and the handle-access theory were checked this way.
+* Codex runs in a sandbox: it cannot reach WSL, the QEMU guests or `D:/DeepThought/ChromiumLab`. Give it static work only.
+* Antigravity's quota is per model: a 429 ("Individual quota reached") on one model does not stop `gemini-3.8-flash-high`; pass
+  `model: gemini-3.8-flash-high` explicitly and test with a trivial prompt.
+* Scripts that go through `wsl ... bash -c '...'` from PowerShell lose their quotes: put the commands in a script file and run
+  `wsl -d <distro> --exec bash /mnt/d/.../script.sh`.
+* The lab scripts for the Edge/Chrome work are in `D:/DeepThought/ChromiumLab/guest-sysrole/` (`run-edge-trace.sh`,
+  `poll-edge-trace.sh`, `set-debug.sh`, `set-display-env.sh`, `deploy-combase.sh`, `run-probe.sh`); the fixture variants for an
+  installed browser are `validate-chrome-installed.py` / `validate-edge-installed.py` in `chromium-installer-20261105/`.
+* A test that needs HKLM registration skips on the non-elevated Windows host; the Wine tests should fall back to per-user
+  registration (`RegisterTypeLibForUser`) so they can be verified natively without UAC.
 * Write C, Python and shell helpers with the Write tool, never `python -c` or heredocs with backslashes: `
 ` became a real
   newline three times in one session (always `grep` the edited line or build before trusting it).

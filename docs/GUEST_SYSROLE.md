@@ -48,6 +48,18 @@ machine-wide installer test in a guest. Scripts: `scripts/lab/guest-sysrole/` (t
 10. **Disk.** Each elevated attempt copies the MSI into `machine/drive_c/windows/Installer` (170 MB for Chrome); delete them
     between runs. Keep more than 8 GB free; remove old `*/prefix` directories.
 
+11. **A display for the elevated prefix.** Installers (the Edge updater) create a hidden window and fail with 0x80004005 when the
+    prefix has no graphics driver (`err:winediag:nodrv_CreateWindow`, then a misleading "Failed to ::ShellExecuteEx"). Start the
+    run with `WEXDISPLAY=1` (`guest-elev-run.sh` starts a headless labwc as `wexadm`, enables winewayland) and put
+    `WAYLAND_DISPLAY=wex-shell-0`, `XDG_RUNTIME_DIR=/run/user/1002`, `WEX_WAYLAND_NATIVE_WINDOWS=1` into the machine Environment
+    (`guest-env-debug.py VALUE NAME`). The labwc binary and its config must be readable by `wexadm`
+    (`chmod o+rx /home/debian/wex-g4 /home/debian/wex-g4/labwc`).
+12. **`runas failed: error 1055`** (service database locked) means the machine root is still auto-starting services (the installed
+    Chrome and Edge updater services make that take a minute). `guest-elev-run.sh` retries up to 8 times.
+13. **Heavy debug channels break startup.** `+relay` writes about 850 MB per Edge run, `+ole` about 250 MB; `+service`/`+security`
+    together with `+process` made the elevated start fail with 1055. Use `err+all,+exec,+process` first, then one channel at a
+    time. Check `system.reg` after `guest-env-debug.py`: the `WINEDEBUG` line can exist twice.
+
 ## Known open items found by this recipe
 
 * `setup-machine-root.sh` left `pe_section_cache/*.cache` as `root:root` (fixed in the script, 2026-11-05).
