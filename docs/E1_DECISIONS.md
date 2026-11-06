@@ -35,7 +35,7 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   signature is labelled as such. Read or binding failures deny.
 * Environment: default environment of the target user; validated absolute working directory; private Temp chain created by the
   broker from the token-derived block only (done).
-* Secure desktop policy 0 (ordinary desktop) is rejected in production builds.
+* Secure desktop policy 0 (ordinary desktop) stays as the documented, insecure administrator option (as on Windows); the default is the secure desktop.
 
 ## Work packages
 
@@ -45,7 +45,7 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   launch. Deny when random request ids cannot be generated. Test: build, lab guest run (approve and deny paths), no survivor.
 * **E1-H2 (caller binding).** Compare logon and session identity as well as the user SID; pin the pipe client process before
   trusting the PID. Static review first.
-* **E1-H3 (policy narrowing).** Reject `PromptOnSecureDesktop` 0 in production; serialize prompts (one consent window per
+* **E1-H3 (policy narrowing).** Serialize prompts (one consent window per
   session); deny unvalidated mounts for the held image.
 * **E1-T (tests).** Extend `scripts/test_sysrun_server.sh` and the lab fixtures: caller death, prompt crash, broker stop during
   consent, image change during consent (rename, rewrite), existing writer, rejected request leaves no child.
