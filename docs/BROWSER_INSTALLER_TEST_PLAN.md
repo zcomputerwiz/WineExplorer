@@ -213,3 +213,10 @@ Edge enterprise MSI: exit 0 after two fixes (display for the elevated prefix, `C
 passes the browser fixture (WebGL, WebGL2). Status of all installers: Chromium official installer PASS, Chrome enterprise MSI PASS,
 Chrome consumer stub PASS, Edge enterprise MSI PASS. Not tested: Edge consumer stub (not downloaded), per-user Edge install, running
 the browsers inside the installed machine-root prefix itself (the fixture copies the installed tree into a fresh prefix).
+
+### Round 14, 2026-11-06: ISO build and fresh install
+
+Fresh-clone ISO build of master `d086c11d` (WoW64, `make -j16`, package, ISO 2.3 GB, sha256 6a231238...2193) after fixing a d3d12 link
+failure that only a clean build hit (`winedxgi.h` include order, see `STOCK_CHANGES.md`). `installer/tests/install-interactive.sh`
+on that ISO: PASS (text setup, GUI setup, OOBE with two users, logon, WoW64 program checks, prefix-split multi-user assertions,
+Fluent theme in Display Properties, per-user prefix 1 MB). That run used the shared `personalize-prefix.sh` helper in a real image.
