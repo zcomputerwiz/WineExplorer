@@ -544,7 +544,7 @@ guest()
     (( port > 0 && port < 65536 )) || fail "invalid SSH port"
     local -a ssh_command
     # WEXDEV_SSH is an executable plus whitespace-separated options, never evaluated.
-    read -r -a ssh_command <<< "${WEXDEV_SSH:-ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -o BatchMode=yes -o ConnectTimeout=10}"
+    read -r -a ssh_command <<< "${WEXDEV_SSH:-ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR}"
     destination=${WEXDEV_GUEST:-debian@127.0.0.1}
     [[ $destination =~ ^[a-zA-Z0-9_.@:-]+$ && $destination != -* ]] || fail "invalid SSH destination"
     guest_send()
@@ -554,7 +554,14 @@ guest()
             "mkdir -p /tmp/gsr /tmp/gsr-out /tmp/gsr/repo/scripts /tmp/gsr/repo/src/resources; base64 -d > '$remote_file'" ||
             fail "guest upload failed: $remote_file"
     }
-    guest_run() { timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" sudo -n bash /tmp/gsr/guest-control.sh "$@"; }
+    # ssh joins its arguments with spaces and the remote shell re-parses them (backslashes of
+    # Windows paths vanish), so quote each argument for the remote shell with printf %q.
+    guest_run()
+    {
+        local quoted
+        printf -v quoted '%q ' "$@"
+        timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" "sudo -n bash /tmp/gsr/guest-control.sh $quoted"
+    }
     guest_stage()
     {
         local f
@@ -609,7 +616,9 @@ guest()
             guest_run install "$(basename "$file")" "$label";;
     esac
     [[ $op == push ]] || { RESULT="guest $op completed"; return; }
-    while IFS= read -r p; do
+    # Manifest on fd 3 and ssh with </dev/null: an ssh in the loop body would otherwise eat the
+    # remaining manifest lines and push only the first file.
+    while IFS= read -r p <&3; do
         [[ $p =~ ^[a-zA-Z0-9_./+-]+$ && $p != /* && $p != *..* ]] || fail "unsafe artifact path: $p"
         [[ -f $BUILD/$p ]] || fail "artifact missing in this distro: $BUILD/$p; copy build and manifest or set WEXDEV_BUILD/HOME"
         sum=$(md5sum "$BUILD/$p"); sum=${sum%% *}
@@ -638,11 +647,11 @@ REMOTE
         } | timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" bash -s -- "$p" "$sum" ||
             fail "guest upload failed: $p (earlier files may already be replaced)"
         got=$(timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" \
-            "cat /home/debian/development-validation-20261101/memory-runtime2/build/wow64/$p" | md5sum) ||
+            "cat /home/debian/development-validation-20261101/memory-runtime2/build/wow64/$p" </dev/null | md5sum) ||
             fail "guest readback failed: $p"
         [[ ${got%% *} == "$sum" ]] || fail "guest md5 round trip differs: $p"
         printf 'verified %s md5=%s\n' "$p" "$sum"
-    done < "$STATE/last-build.files"
+    done 3< "$STATE/last-build.files"
     RESULT="guest artifacts pushed; backups .bak-wexdev; md5 round trips matched"
 }
 
