@@ -163,19 +163,17 @@ static BOOL start_guard( struct request *req, HANDLE process )
 
 /* ---- the table of requests ----------------------------------------------------------------------------------- */
 
+/* 0 when the generator fails: the request is then denied, never given a predictable id */
 static ULONGLONG random_id(void)
 {
     ULONGLONG id = 0;
 
-    while (!id)
-    {
-        if (!NT_SUCCESS(BCryptGenRandom( NULL, (UCHAR *)&id, sizeof(id), BCRYPT_USE_SYSTEM_PREFERRED_RNG )))
-            id = ((ULONGLONG)GetTickCount() << 32) ^ GetCurrentThreadId() ^ (ULONGLONG)(ULONG_PTR)&id;
-    }
+    if (!NT_SUCCESS(BCryptGenRandom( NULL, (UCHAR *)&id, sizeof(id), BCRYPT_USE_SYSTEM_PREFERRED_RNG ))) return 0;
     return id;
 }
 
-/* put a request into the table; fails with ERROR_BUSY at the limits */
+/* put a request into the table; fails with ERROR_BUSY at the limits, and with ERROR_GEN_FAILURE when no random id
+ * can be generated */
 static DWORD table_add( struct request *req )
 {
     DWORD err = ERROR_BUSY, i, same = 0;
@@ -187,8 +185,13 @@ static DWORD table_add( struct request *req )
         for (i = 0; i < MAX_REQUESTS; i++)
         {
             if (table[i]) continue;
-            table[i] = req;
             req->id = random_id();
+            if (!req->id)
+            {
+                err = ERROR_GEN_FAILURE;
+                break;
+            }
+            table[i] = req;
             req->live = 1;
             err = ERROR_SUCCESS;
             break;
@@ -853,6 +856,7 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     WCHAR *cmdline = NULL;
     void *default_env = NULL;
     void *env;
+    BOOL guard_owns = FALSE;
     DWORD err = ERROR_SUCCESS, len, type;
 
     if (!GetTokenInformation( req->caller_token, TokenLinkedToken, &linked, sizeof(linked), &len ))
@@ -922,8 +926,10 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     }
     lstrcpyW( cmdline, req->cmdline );
 
+    /* the target starts suspended: it runs only once the handle, the lease and the guard are in place */
     if (!CreateProcessAsUserW( linked, req->image, cmdline, NULL, NULL, FALSE,
-                               EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE,
+                               EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE |
+                               CREATE_SUSPENDED,
                                env, req->cwd, &si.StartupInfo, &pi ))
     {
         err = GetLastError();
@@ -936,8 +942,12 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     {
         /* the caller can wait for the process and read its exit code, and nothing else */
         if (!DuplicateHandle( GetCurrentProcess(), pi.hProcess, req->caller, &remote, SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
-                              FALSE, 0 )) err = GetLastError();
-        else *handle = (ULONGLONG)(ULONG_PTR)remote;
+                              FALSE, 0 ))
+        {
+            err = GetLastError();
+            goto fail;
+        }
+        *handle = (ULONGLONG)(ULONG_PTR)remote;
     }
     if (req->lease)
     {
@@ -946,17 +956,33 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
         if (arm || !start_guard( req, pi.hProcess ))
         {
             err = arm ? arm : ERROR_NOT_ENOUGH_MEMORY;
-            if (remote) DuplicateHandle( req->caller, remote, NULL, NULL, 0, FALSE, DUPLICATE_CLOSE_SOURCE );
-            *handle = 0;
-            TerminateProcess( pi.hProcess, 1 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( pi.hThread );
-            goto done;
+            goto fail;
         }
-        pi.hProcess = NULL;   /* the guard owns it now */
+        guard_owns = TRUE;   /* the guard owns the process handle now */
+    }
+    if (ResumeThread( pi.hThread ) == (DWORD)-1)
+    {
+        err = GetLastError();
+        goto fail;
     }
     CloseHandle( pi.hThread );
-    if (pi.hProcess) CloseHandle( pi.hProcess );
+    if (!guard_owns) CloseHandle( pi.hProcess );
+    goto done;
+fail:
+    /* a rejected launch leaves no running child: end it, wait for it, and close the remote handle in the caller */
+    if (remote) DuplicateHandle( req->caller, remote, NULL, NULL, 0, FALSE, DUPLICATE_CLOSE_SOURCE );
+    *handle = 0;
+    *pid = 0;
+    *tid = 0;
+    TerminateProcess( pi.hProcess, 1 );
+    /* once the guard owns the process handle it may close it at any time: do not wait on it from here */
+    if (!guard_owns)
+    {
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+    }
+    CloseHandle( pi.hThread );
+    goto done;
 done:
     if (si.lpAttributeList)
     {
@@ -987,6 +1013,7 @@ static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct 
     if ((err = verify_image( req ))) return err;
     if (req->lease && ((err = pLeaseArm( req->lease, 0 )) || WaitForSingleObject( req->lease_event, 0 ) != WAIT_TIMEOUT))
         return err ? err : ERROR_FILE_CORRUPT;
+    if (WaitForSingleObject( stop_event, 0 ) == WAIT_OBJECT_0) return ERROR_CANCELLED;
     return launch( req, &reply->pid, &reply->tid, &reply->handle );
 }
 
@@ -1005,10 +1032,12 @@ static DWORD WINAPI client_thread( void *param )
         if (!reply.error) reply.error = handle_request( req, buf, size, &reply );
     }
     if (reply.error == ERROR_OPERATION_ABORTED || reply.error == ERROR_BROKEN_PIPE) goto done;
-    pipe_io( req->pipe, &reply, sizeof(reply), TRUE, READ_TIMEOUT, &done );
+    /* the handle is in the caller's table: if the reply does not reach the caller, close it there, and leave the
+     * process alone (it was committed) */
+    if (pipe_io( req->pipe, &reply, sizeof(reply), TRUE, READ_TIMEOUT, &done ) && !reply.error && reply.handle)
+        DuplicateHandle( req->caller, (HANDLE)(ULONG_PTR)reply.handle, NULL, NULL, 0, FALSE, DUPLICATE_CLOSE_SOURCE );
     FlushFileBuffers( req->pipe );
 done:
-    if (reply.error && reply.handle) CloseHandle( (HANDLE)(ULONG_PTR)reply.handle );
     DisconnectNamedPipe( req->pipe );
     CloseHandle( req->pipe );
     req->pipe = INVALID_HANDLE_VALUE;

@@ -50,3 +50,13 @@ Owner decisions and the first-release design for Track E1 (production elevation)
 * **E1-T (tests).** Extend `scripts/test_sysrun_server.sh` and the lab fixtures: caller death, prompt crash, broker stop during
   consent, image change during consent (rename, rewrite), existing writer, rejected request leaves no child.
 * **E1-S (standard users, later).** Decide how an authenticated administrator identity reaches the broker (broker keeps policy).
+
+## Status
+
+* **E1-H1 done (2026-11-06).** Suspended create with full rollback, remote handle close in the caller's table, `stop_event` gate
+  before launch, deny when no random id. Qwen wrote it, review fixed `ResumeThread` error test (`== (DWORD)-1`) and a wait on a
+  handle the guard may close. Guest test (VM B, lab test broker): approve path exit 0; deny path (no approval) error 1223 with no
+  surviving process. Script: lab `guest-sysrole/test-e1h1.sh`.
+* **E1-H2 analysis done** (`E1_H2_CALLER_BINDING.md`, proposed stock-Wine changes in `STOCK_CHANGES.md`, not implemented): the
+  broker alone cannot bind logon identity (`AuthenticationId` is a stub that returns zero) or pin the pipe client process; it needs a
+  small Wine server change.

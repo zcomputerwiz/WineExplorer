@@ -1,5 +1,45 @@
 # Changes to stock Wine / third-party code
 
+## E1-H2 caller binding: proposed Wine changes, not implemented (2026-11-06)
+
+Static review and proposed acceptance tests are in `E1_H2_CALLER_BINDING.md`.
+No Wine code was changed or built for this entry. Existing pipe PID queries
+retain a number and opening token, but no original process reference;
+`TokenStatistics.AuthenticationId` is currently hard-coded to zero.
+
+The minimum PID repair is to retain the opening process object in the server
+connection record at pipe open and release it on disconnect, failed setup,
+destruction and instance reuse. A later lookup of the saved PID is insufficient.
+For the strict E1 caller-context contract, add a small private binding query
+returning checked handles to that original process and primary token, captured
+token identity/version and process start time, and provenance for the exact
+request message read. Capture process/token provenance at open and write,
+including transceive; conservatively reject explicit thread impersonation,
+different writers, changed primary tokens and incomplete/stale provenance in
+the E1 query. Preserve ordinary pipe semantics for other users. Use normal
+access checks and unwind partially allocated handles/references. The intended
+locations are `wine/server/named_pipe.c`, `wine/server/protocol.def`, the
+corresponding generated protocol files and a narrow ntdll/project-bridge helper.
+This query and helper do not exist yet; their names/ABI remain proposals.
+
+Add a real authentication LUID to `wine/server/token.c` and `get_token_info`
+in `wine/server/protocol.def`; propagate it through trusted logon creation,
+duplication, filtering, inherited primary tokens, pipe impersonation and linked
+tokens. Honor the existing privileged create-token authentication-ID input.
+Return the field from `wine/dlls/ntdll/unix/security.c` for `TokenStatistics`
+instead of zero. Linked-token creation must preserve the source logon as well
+as its session. Provision one interactive identity per supported trusted
+user/server-session lifetime, with separate service identities; token IDs and
+derivation lineage are not logon IDs. Reject older/stub capability versions.
+Full multi-session host-logon mapping remains unsupported pending trusted
+provisioning. Existing token-session and process-information queries need no
+new implementation. Complete token mutation tracking is also needed for the
+captured-version check: integrity-label and default-DACL changes currently do
+not update `ModifiedId`, unlike privilege changes. Update successful relevant
+mutations in `wine/server/token.c` and test change-then-restore cases. Later
+implementation must regenerate protocol artifacts
+and run the focused broker/server fixtures; none of those checks ran here.
+
 ## dcomp: rectangle-clip and 2D transform animation setters, transform objects (2026-11-05)
 
 `wine/dlls/dcomp/device.c`: implement the remaining animation setters whose
