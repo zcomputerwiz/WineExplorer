@@ -321,10 +321,33 @@ static BOOL token_is_system_with_tcb(void)
     return ret;
 }
 
-/* E1-H2: the server's own record of who opened the pipe. The process and token handles it returns must be the very
- * objects found by the pid, the opener must not have been impersonating, and its primary token must be unchanged.
- * Any missing piece (an older server without the request, a failed query) denies. */
-static NTSTATUS (WINAPI *pQueryBinding)( HANDLE, HANDLE *, HANDLE *, ULONG *, LARGE_INTEGER *, LUID *, LUID *, BOOL *, BOOL * );
+/* Private native-layout ABI from wine/include/winternl.h, mirrored here so the lab broker can also be built
+ * against the external SDK. Keep field order/types and constants in sync with WEX_PIPE_CALLER_BINDING. */
+#define PIPE_BINDING_VERSION      1
+#define PIPE_WRITER_VALID         0x0001
+#define PIPE_WRITER_TOKEN_CURRENT 0x0004
+struct pipe_caller_binding
+{
+    ULONG Size;
+    ULONG Version;
+    HANDLE Process;
+    HANDLE Token;
+    HANDLE WriterProcess;
+    HANDLE WriterToken;
+    ULONG Pid;
+    LARGE_INTEGER StartTime;
+    LUID TokenId;
+    LUID ModifiedId;
+    LUID WriterTokenId;
+    LUID WriterModifiedId;
+    BOOL Impersonated;
+    BOOL TokenCurrent;
+    ULONG WriterFlags;
+};
+
+/* E1-S3: compare retained objects and versions at open, consumed write and query.
+ * The Ex export and exact capability/version checks make older implementations deny. */
+static NTSTATUS (WINAPI *pQueryBinding)( HANDLE, struct pipe_caller_binding * );
 static BOOL (WINAPI *pCompareObjectHandles)( HANDLE, HANDLE );
 
 static BOOL token_stats( HANDLE token, TOKEN_STATISTICS *stats )
@@ -335,36 +358,44 @@ static BOOL token_stats( HANDLE token, TOKEN_STATISTICS *stats )
 
 static DWORD check_binding( struct request *req, DWORD pid, HANDLE pipe_token )
 {
-    HANDLE bound_process = NULL, bound_token = NULL;
-    ULONG bound_pid = 0;
-    LARGE_INTEGER start;
-    LUID token_id, modified_id;
-    BOOL impersonated = TRUE, current = FALSE;
+    struct pipe_caller_binding binding = { .Size = sizeof(binding) };
     TOKEN_STATISTICS primary, pipe;
     DWORD err = ERROR_ACCESS_DENIED, sid1 = 0, sid2 = 0, len;
 
     if (!pQueryBinding)
     {
         HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" ), kb = GetModuleHandleW( L"kernelbase.dll" );
-        pQueryBinding = (void *)GetProcAddress( ntdll, "NtQueryWexPipeCallerBinding" );
+        pQueryBinding = ntdll ? (void *)GetProcAddress( ntdll, "NtQueryWexPipeCallerBindingEx" ) : NULL;
         pCompareObjectHandles = kb ? (void *)GetProcAddress( kb, "CompareObjectHandles" ) : NULL;
     }
     if (!pQueryBinding || !pCompareObjectHandles) return ERROR_NOT_SUPPORTED;
-    if (!NT_SUCCESS(pQueryBinding( req->pipe, &bound_process, &bound_token, &bound_pid, &start, &token_id, &modified_id,
-                                   &impersonated, &current )))
+    if (!NT_SUCCESS(pQueryBinding( req->pipe, &binding )))
         return ERROR_ACCESS_DENIED;
 
-    if (bound_pid == pid && !impersonated && current &&
-        pCompareObjectHandles( bound_process, req->caller ) && pCompareObjectHandles( bound_token, req->caller_token ) &&
+    if (binding.Size == sizeof(binding) && binding.Version == PIPE_BINDING_VERSION && binding.Pid == pid &&
+        !binding.Impersonated && binding.TokenCurrent &&
+        binding.WriterFlags == (PIPE_WRITER_VALID | PIPE_WRITER_TOKEN_CURRENT) &&
+        pCompareObjectHandles( binding.Process, req->caller ) &&
+        pCompareObjectHandles( binding.Token, req->caller_token ) &&
+        pCompareObjectHandles( binding.WriterProcess, binding.Process ) &&
+        pCompareObjectHandles( binding.WriterToken, binding.Token ) &&
+        binding.WriterTokenId.LowPart == binding.TokenId.LowPart &&
+        binding.WriterTokenId.HighPart == binding.TokenId.HighPart &&
+        binding.WriterModifiedId.LowPart == binding.ModifiedId.LowPart &&
+        binding.WriterModifiedId.HighPart == binding.ModifiedId.HighPart &&
         token_stats( req->caller_token, &primary ) && token_stats( pipe_token, &pipe ) &&
+        primary.TokenId.LowPart == binding.TokenId.LowPart && primary.TokenId.HighPart == binding.TokenId.HighPart &&
+        primary.ModifiedId.LowPart == binding.ModifiedId.LowPart && primary.ModifiedId.HighPart == binding.ModifiedId.HighPart &&
         (primary.AuthenticationId.LowPart || primary.AuthenticationId.HighPart) &&
         primary.AuthenticationId.LowPart == pipe.AuthenticationId.LowPart &&
         primary.AuthenticationId.HighPart == pipe.AuthenticationId.HighPart &&
         GetTokenInformation( req->caller_token, TokenSessionId, &sid1, sizeof(sid1), &len ) &&
         GetTokenInformation( pipe_token, TokenSessionId, &sid2, sizeof(sid2), &len ) && sid1 == sid2)
         err = ERROR_SUCCESS;
-    CloseHandle( bound_process );
-    CloseHandle( bound_token );
+    CloseHandle( binding.Process );
+    CloseHandle( binding.Token );
+    CloseHandle( binding.WriterProcess );
+    CloseHandle( binding.WriterToken );
     return err;
 }
 

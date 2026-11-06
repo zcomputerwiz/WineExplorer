@@ -27,6 +27,8 @@
  *   concurrent <imageA> <imageB> <outA> <outB>
  *                      two requests at once; A must run and B must be refused (ERROR_CANCELLED)
  *   forge <image> <out> a request whose advisory_pid names another process; the parent must be this process
+ *   provenance <self|transceive|write-impersonate|transceive-impersonate|delegate|delegate-transceive|dacl-restore> <image> <out>
+ *                      lab-only consumed-writer controls; delegated and impersonating writes must deny before consent
  *   impersonate <image> <out>
  *                      open the broker pipe while the thread impersonates its own token; the broker must deny
  *                      (ERROR_ACCESS_DENIED) and start nothing
@@ -595,6 +597,139 @@ static void impersonate_mode(const char *image, const char *out)
     check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the impersonating request started nothing");
 }
 
+/* E1-S3 lab client. No broker/server barrier is needed: the parent opens the
+ * endpoint before starting a different process with a duplicate of that handle.
+ * Run only in the disposable sysrun fixture with a bounded consent hook. */
+static DWORD WINAPI provenance_watchdog(void *unused)
+{
+    Sleep(150000);
+    ExitProcess(3);
+    return 0;
+}
+
+static void provenance_send(HANDLE pipe, int transceive, int impersonate, int delegated,
+                            const char *image, const char *out)
+{
+    WCHAR *wimage = widen(image), *cmd, *data;
+    char *command = malloc(strlen(image) + strlen(out) + 32);
+    struct wexelevate_request *req;
+    struct wexelevate_reply reply = { 0 };
+    DWORD size, done = 0, mode = PIPE_READMODE_MESSAGE;
+    BOOL ok = FALSE;
+
+    check(command && wimage, "allocated the lab request strings");
+    if (!command || !wimage) { free(command); free(wimage); return; }
+    sprintf(command, "\"%s\" child \"%s\"", image, out);
+    cmd = widen(command);
+    free(command);
+    if (!cmd) { check(0, "allocated the lab command line"); free(wimage); return; }
+    size = sizeof(*req) + (lstrlenW(wimage) + lstrlenW(cmd)) * sizeof(WCHAR);
+    req = calloc(1, size);
+    check(req != NULL, "allocated the lab request");
+    if (!req) { free(wimage); free(cmd); return; }
+    req->magic = WEXELEVATE_MAGIC;
+    req->version = WEXELEVATE_VERSION;
+    req->show = SW_SHOWNORMAL;
+    req->image_len = lstrlenW(wimage);
+    req->cmdline_len = lstrlenW(cmd);
+    data = (WCHAR *)(req + 1);
+    memcpy(data, wimage, req->image_len * sizeof(WCHAR));
+    memcpy(data + req->image_len, cmd, req->cmdline_len * sizeof(WCHAR));
+    if (!SetNamedPipeHandleState(pipe, &mode, NULL, NULL)) check(0, "selected message read mode");
+    else if (impersonate && !ImpersonateSelf(SecurityImpersonation)) check(0, "installed a thread token after open");
+    else
+    {
+        if (transceive) ok = TransactNamedPipe(pipe, req, size, &reply, sizeof(reply), &done, NULL);
+        else
+        {
+            ok = WriteFile(pipe, req, size, &done, NULL) && done == size;
+            check(ok, "submitted the request message");
+            if (impersonate) check(RevertToSelf(), "reverted after submission");
+            if (ok) ok = ReadFile(pipe, &reply, sizeof(reply), &done, NULL);
+        }
+        if (impersonate && transceive) check(RevertToSelf(), "reverted after transceive");
+        check(ok && done == sizeof(reply) && reply.magic == WEXELEVATE_MAGIC, "received the bounded broker reply");
+        if (ok && done == sizeof(reply) && reply.magic == WEXELEVATE_MAGIC)
+        {
+            SetLastError(reply.error);
+            check(reply.error == (impersonate || delegated ? ERROR_ACCESS_DENIED : ERROR_SUCCESS),
+                  "the consumed writer has the expected result");
+            if (impersonate || delegated)
+            {
+                check(!reply.pid && !reply.tid && !reply.handle, "denial has zero result fields");
+                check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the denied writer started nothing");
+            }
+        }
+    }
+    free(req); free(cmd); free(wimage);
+}
+
+static void provenance_mode(const char *which, const char *image, const char *out)
+{
+    HANDLE pipe = INVALID_HANDLE_VALUE, inherited = NULL, watchdog;
+    int delegated = !strncmp(which, "delegate", 8), transceive = strstr(which, "transceive") != NULL;
+    int impersonate = strstr(which, "impersonate") != NULL;
+    int modified = !strcmp(which, "dacl-restore");
+
+    watchdog = CreateThread(NULL, 0, provenance_watchdog, NULL, 0, NULL);
+    check(watchdog != NULL, "started the lab timeout guard");
+    if (!watchdog) return;
+    CloseHandle(watchdog);
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the output is absent before the probe");
+    check(wexelevate_connect(&pipe) == 0, "opened the pipe as self");
+    if (pipe == INVALID_HANDLE_VALUE) return;
+    if (modified)
+    {
+        BYTE saved[8192]; /* bounded fixture token */
+        TOKEN_DEFAULT_DACL empty = { NULL };
+        HANDLE token;
+        DWORD len;
+
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_DEFAULT, &token))
+        {
+            if (GetTokenInformation(token, TokenDefaultDacl, saved, sizeof(saved), &len))
+            {
+                check(SetTokenInformation(token, TokenDefaultDacl, &empty, sizeof(empty)), "changed the default DACL after open");
+                check(SetTokenInformation(token, TokenDefaultDacl, saved, len), "restored the original default DACL");
+            }
+            else check(0, "read the original default DACL");
+            CloseHandle(token);
+        }
+        else check(0, "opened the primary token for the mutation probe");
+    }
+    if (!delegated) provenance_send(pipe, transceive, impersonate, modified, image, out);
+    else if (DuplicateHandle(GetCurrentProcess(), pipe, GetCurrentProcess(), &inherited, 0, TRUE, DUPLICATE_SAME_ACCESS))
+    {
+        PROCESS_INFORMATION pi;
+        STARTUPINFOA si = { sizeof(si) };
+        char self[MAX_PATH], *command;
+        DWORD exit_code = 1;
+
+        GetModuleFileNameA(NULL, self, sizeof(self));
+        command = malloc(strlen(self) + strlen(image) + strlen(out) + 96);
+        check(command != NULL, "allocated the delegated command");
+        if (command)
+        {
+            sprintf(command, "\"%s\" provenance-child %llu %d \"%s\" \"%s\"", self,
+                    (unsigned long long)(ULONG_PTR)inherited, transceive, image, out);
+            if (CreateProcessA(self, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+            {
+                DWORD wait = WaitForSingleObject(pi.hProcess, 140000);
+                check(wait == WAIT_OBJECT_0, "the delegated writer completed within the deadline");
+                if (wait != WAIT_OBJECT_0) { TerminateProcess(pi.hProcess, 3); WaitForSingleObject(pi.hProcess, 5000); }
+                if (GetExitCodeProcess(pi.hProcess, &exit_code)) check(exit_code == 0, "the different writer was denied");
+                else check(0, "queried the delegated writer exit status");
+                CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+            }
+            else check(0, "started the delegated writer");
+            free(command);
+        }
+        CloseHandle(inherited);
+    }
+    else check(0, "duplicated the pipe for another process");
+    CloseHandle(pipe);
+}
+
 /* the image is replaced while the consent is pending: the harness (from Unix, where the rename is not blocked by
  * the broker's read handle) renames a different file over the path after the probe signals imgrace.ready, and
  * writes imgrace.done; the broker must deny (ERROR_FILE_CORRUPT) and start nothing */
@@ -1020,6 +1155,13 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "concurrent") && argc > 5) concurrent_mode(argv[2], argv[3], argv[4], argv[5]);
     else if (!strcmp(mode, "forge") && argc > 3) forge_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "impersonate") && argc > 3) impersonate_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "provenance") && argc > 4) provenance_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "provenance-child") && argc > 5)
+    {
+        HANDLE pipe = (HANDLE)(ULONG_PTR)strtoull(argv[2], NULL, 10);
+        provenance_send(pipe, atoi(argv[3]), 0, 1, argv[4], argv[5]);
+        CloseHandle(pipe);
+    }
     else if (!strcmp(mode, "imagerace") && argc > 3) imagerace_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "writerfirst") && argc > 3) writerfirst_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "callerdeath") && argc > 4) callerdeath_mode(argv[2], argv[3], argv[4]);

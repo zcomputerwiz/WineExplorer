@@ -1,5 +1,106 @@
 # Changes to stock Wine / third-party code
 
+## E1-S3 consumed-message writer binding implemented, statically reviewed (2026-11-06)
+
+This extends E1-H2b below under `E1_S_STANDARD_USERS.md` section 7 row 3
+and `E1_S1_CONTRACTS.md`. No build, generator run or runtime validation was
+possible in this sandbox; none of the historical H2 results validate S3.
+
+`wine/server/named_pipe.c`: `queue_message`, shared by ordinary writes and
+FSCTL_PIPE_TRANSCEIVE, captures the submitting process, its primary-token
+reference, TokenId/ModifiedId and the presence of an explicit thread token.
+Capture is limited to client-to-server traffic whose client end has the H2
+opener retention. It does not change ordinary pipe impersonation policy.
+The server end retains that record before freeing the consumed message, in
+both read fast/copy paths. Only its first accepted read, in message read mode,
+consuming exactly one complete message, establishes valid provenance. Partial,
+byte-stream/mixed, missing or superseded reads cannot establish it; a subsequent
+accepted read invalidates it even if cancelled. Queuing another write does not
+replace the consumed record. Disconnect/destruction clears consumed references
+and buffered writer references; listener reuse resets read state. Cancelled,
+discarded and destroyed messages release their references through `free_message`.
+
+The private `get_pipe_caller_binding` gate and server-end FILE_READ_ATTRIBUTES
+check are unchanged. It now requires valid consumed provenance and allocates
+four checked, non-inheritable handles: opener and writer processes with the
+existing query/synchronize rights, and their primary tokens with TOKEN_QUERY.
+Every partial allocation is unwound; no handles are published before all four
+succeed. The reply retains the original opener fields and appends writer
+process/token handles, captured writer TokenId/ModifiedId, version 1 and writer
+flags (VALID=1, IMPERSONATED=2, TOKEN_CURRENT=4). TOKEN_CURRENT compares the
+retained writer primary object and IDs with its process at query time. The
+opener current flag also checks TokenId, in addition to object and ModifiedId.
+Flags report facts for broker policy; a mismatched writer does not globally
+change pipe behavior.
+
+`wine/server/protocol.def`, `wine/include/wine/server_protocol.h`,
+`wine/server/request_handlers.h`, `wine/server/request_trace.h` and
+`wine/tools/make_requests`: request remains 16 bytes; reply grows from 56 to
+88 bytes (including the existing alignment gap at offset 20). New offsets are
+56/60 for writer handles, 64/72 for writer LUIDs and 80/84 for version/flags.
+The generic request/reply limit grows from 72 to 88 bytes (`pad[22]` and
+`$max_req_size = 88`). SERVER_PROTOCOL_VERSION increases from 975 to 976.
+Generated declarations, offset/size assertions, constants and trace fields
+were edited by hand using the generator's layout rules; all protocol users
+must be rebuilt together.
+
+`wine/dlls/ntdll/sec.c`, `wine/dlls/ntdll/ntdll.spec` and
+`wine/include/winternl.h`: add the private
+`NtQueryWexPipeCallerBindingEx(HANDLE, WEX_PIPE_CALLER_BINDING *)` export.
+The caller initializes Size to sizeof the native-layout output, then owns
+all four handles on success. Version/required handles are checked; failed
+requests or unsupported replies leave zero output for a correctly sized
+buffer, and unsupported successful replies have their handles closed.
+This structure is not the complete E1-S1 wire record. WoW64 uses the existing
+PE-side server transport and explicit handle conversion. The old nine-argument
+export retains its ABI, delegates to Ex and closes the extra writer handles;
+it now shares the consumed-read requirement. The broker resolves only Ex,
+so an old ntdll denies; protocol negotiation and the reply version also deny
+old servers. The broker's external-SDK lab build mirrors the native structure
+in `src/programs/wexelevate/main.c`.
+
+`wine/server/token.c`: successful `token_assign_label` and default-DACL
+replacement (including clearing) allocate a fresh ModifiedId. DACL allocation
+precedes replacement, so allocation failure preserves the previous DACL/version.
+Successful token object security-descriptor updates, filtering/standard-token
+mutation helpers and authentication-ID copying also advance ModifiedId.
+Existing privilege adjustment/disable-all tracking remains. Construction of
+an unchanged duplicate preserves the source version after label copying, as
+before; a different token object still has its own TokenId. The LUID allocator
+now carries low-part overflow into the high part. No working session/owner/
+primary-group setter is added; the public TokenSessionId stub remains outside
+this package and cannot establish a different logon/session.
+
+Broker policy now requires exact version/flags, no impersonation at open or
+write, equal retained opener/writer process and primary-token objects, equal
+captured TokenId/ModifiedId at open and write, current token flags, and matching
+current primary statistics. Existing nonzero AuthenticationId, pipe/primary
+logon/session equality, PID/object and liveness checks remain. Standard/full
+callers remain unsupported. S5 still owns checked reversion and complete
+precommit revalidation; S3 does not enable standard-user credential elevation
+or claim the full S1 record, host/session generations or endpoint registration.
+
+Lab-only `scripts/wexelevate_probe.c` adds bounded `provenance` modes for
+self/transceive controls, post-open impersonation through write/transceive,
+an inherited duplicate written by a different live process through both routes,
+and default-DACL change-then-restore. `scripts/test_sysrun_server.sh` runs each
+in both client architectures and checks mismatches never reach the consent
+stub. These client-controlled sequences need no broker/server mismatch barrier;
+no production hook was added. The probes retain their existing GPL headers.
+
+Static checks: whitespace checks in both repositories, Git Bash `bash -n` on
+the lab harness, all 648 protocol request/reply layouts and 1,242 field offsets,
+size/limit consistency, native helper/broker layout agreement and cleanup/path
+inspection. Unverified: compilation/linking (server, ntdll, broker, probes and
+both architectures), exact generator reproduction, all new/existing lab tests,
+actual transceive routing, prompt exclusion, token-version change/restore,
+partial/oversized/mixed reads, queued second-message attribution, cancellation,
+disconnect/reconnect/instance reuse, caller death, reference/handle leak counts,
+each partial handle/allocation failure, wrong-object/old/short-reply injection,
+installed binary/source identity and production-image hook exclusion. A trusted
+fixture must still cover integrity-label change/restore and post-read token
+changes; the ordinary limited caller cannot restore a raised label itself.
+
 ## E1-H2 caller binding: authentication id and opener binding implemented (2026-11-06)
 
 Static review and the complete proposed contract are in `E1_H2_CALLER_BINDING.md`.
@@ -77,7 +178,8 @@ Client/server protocol users must be rebuilt together. No build, generator run
 or runtime test was possible for E1-H2b; WoW64 build and focused lifecycle,
 access-denial, partial-allocation and token-change fixtures remain unverified.
 
-Deferred to a later step: per-message writer provenance, including transceive
+Historical H2b deferrals (per-message provenance and version tracking are now
+implemented by the S3 entry above): per-message writer provenance, including transceive
 and the identity of the exact consumed request message. This query establishes
 only the opener binding and cannot detect another process or impersonating
 thread writing through a transferred handle. It is not the complete section

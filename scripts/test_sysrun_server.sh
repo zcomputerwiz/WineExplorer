@@ -893,6 +893,19 @@ bp c4_long_unicode_and_quoted_arguments_survive_32 "$ADM" 32 args "$(winpath /ho
 bp c4_forged_pid_is_attributed_to_the_real_caller "$ADM" 64 forge "$IMG" "$(winpath $EL/out.forge)"
 TAGCD="wexcd-$$"
 bp c4_impersonating_opener_is_denied "$ADM" 64 impersonate "$IMG" "$(winpath $EL/out.imp)"
+# E1-S3: real writers, with no server/broker timing hook. The parent remains
+# alive while the inherited duplicate is written by a different process.
+for arch in 64 32; do
+    pimage="$(winpath /home/$ADM/wexel/p$arch.exe)"
+    for writer_case in self transceive write-impersonate transceive-impersonate delegate delegate-transceive dacl-restore; do
+        rm -f "$EL/started.p$arch.exe"
+        bp "c4_consumed_writer_${writer_case}_$arch" "$ADM" "$arch" provenance "$writer_case" "$pimage" "$(winpath $EL/out.provenance.$writer_case.$arch)"
+        case "$writer_case" in
+            self|transceive) ;;
+            *) [ ! -e "$EL/started.p$arch.exe" ] || fail "writer mismatch reached consent: $writer_case/$arch" ;;
+        esac
+    done
+done
 bp c4_caller_death_leaves_no_child "$ADM" 64 callerdeath "$IMG" "$(winpath $EL/out.death)" "$TAGCD"
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
 bp c4_missing_image_is_reported "$ADM" 64 run "$(winpath $EL/missing.exe)" 2 "$(winpath $EL/out.bad)" -

@@ -94,3 +94,10 @@ Owner decisions and the first-release design for Track E1 (production elevation)
 * **E1-S2 lab baseline done (2026-11-06)**, `E1_S2_LAB_BASELINE.md` (Qwen): pinned guest hashes, fixture accounts bob, alice, carol and eve
   (throwaway passwords root-only in the guest), a test PAM service `wex-e1s-test`, controls (filtered admin approve 0, cancel 1223,
   standard user denied with error 50), snapshot procedure, cleanup script. Not taken: a disk snapshot.
+* **E1-S3 done (2026-11-06).** Per-message writer provenance: the server records writer process, primary token, token and modified id and
+  impersonation at each client write (including transceive) and keeps the record of the single request message the broker's end
+  consumes; private `NtQueryWexPipeCallerBindingEx` (protocol 976); the broker requires writer == opener, unchanged tokens, no
+  impersonation, and denies on a server without the fields. Token modified ids now change on every security-relevant update.
+  Codex sol wrote it, Qwen built it (0 errors, same 39 warnings), `kernel32 pipe` 0 failures, `advapi32 security` the same 10
+  baseline failures, and in VM B (slim runtime): approve 0, deny 1223, impersonate/callerdeath/writerfirst/imagerace PASS and 7
+  provenance modes PASS.
