@@ -66,3 +66,8 @@ exe per module, so there is no separate `marshal_test.exe`).
 Update 2026-11-06: the two stale `todo_wine` markers are removed (plus the two for an unset `QueryBlanket`), the unset defaults follow the
 native values (WINNT, authz none, PKT_PRIVACY, IDENTIFY; measured with `test_proxy_blanket`), and the whole `marshal` test passes on
 Windows 11 natively (1174 tests, 0 failures, our own ole32_test.exe) and in Wine (1249 and 1252 tests, 0 failures).
+
+Update 2026-11-06 (native verification): `tmarshal` (including `string_args`, the `[in] LPWSTR` and `[in] LPSTR` marshalling test) passes on
+Windows 11 natively: 884 tests, 0 failures, with our own oleaut32_test.exe. The test now registers its type library per user
+(`RegisterTypeLibForUser`) when `RegisterTypeLib` is denied, so it also runs without elevation and no longer skips; Wine result
+unchanged (775 tests, 0 failures).
