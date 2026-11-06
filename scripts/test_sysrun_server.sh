@@ -900,6 +900,23 @@ rm -f "$EL/approve.all"
 bp c4_refused_consent_is_error_cancelled "$ADM" 64 run "$IMG" 1223 "$(winpath $EL/out.refused)" -
 [ ! -e "$EL/out.refused" ] || fail "a refused request started a process"
 ok c4_refused_request_started_nothing
+
+# the image replaced while the consent is pending: the harness renames a different file over the path from Unix
+# (the broker's read handle blocks a rename from Windows), after the probe signals imgrace.ready
+el_clean; touch "$EL/wait-for-gate" "$EL/approve.imgrace.exe"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/imgrace.exe"
+bprobe "$ADM" 64 imagerace "$(winpath /home/$ADM/wexel/imgrace.exe)" "$(winpath $EL/out.imgrace)" > "$ROOT/imgrace.log" 2>&1 & IP=$!
+el_wait_file "$EL/imgrace.ready"
+run_as "$ADM" bash -c 'cp "$1" "$1.new" && mv "$1.new" "$1"' _ "/home/$ADM/wexel/imgrace.exe"
+touch "$EL/imgrace.done"
+wait "$IP" || { cat "$ROOT/imgrace.log" >&2; fail "imagerace"; }
+grep -q '^imagerace=PASS' "$ROOT/imgrace.log" || { cat "$ROOT/imgrace.log" >&2; fail "imagerace: no PASS"; }
+[ ! -e "$EL/out.imgrace" ] || fail "the replaced image ran"
+ok c4_image_replaced_while_consent_pending_is_denied_and_starts_nothing
+
+# an existing writer on the image when the request is made
+el_clean
+bp c4_existing_writer_on_the_image_is_denied "$ADM" 64 writerfirst "$IMG" "$(winpath $EL/out.writer)"
 el_down "$ADM"
 
 # -- 6. a standard user

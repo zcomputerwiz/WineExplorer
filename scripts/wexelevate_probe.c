@@ -30,6 +30,14 @@
  *   impersonate <image> <out>
  *                      open the broker pipe while the thread impersonates its own token; the broker must deny
  *                      (ERROR_ACCESS_DENIED) and start nothing
+ *   imagerace <image> <out>
+ *                      ask the broker, and while the consent is pending (the harness holds it open with
+ *                      wait-for-gate and approve.<name>) let the harness rename a different file over the image
+ *                      (it signals imgrace.ready and waits for imgrace.done); the broker must deny
+ *                      (ERROR_FILE_CORRUPT) and start nothing
+ *   writerfirst <image> <out>
+ *                      open the image for writing with another handle, then ask the broker; the broker must deny
+ *                      (ERROR_SHARING_VIOLATION) and start nothing
  *   callerdeath <image> <out> <tag>
  *                      send a raw request, then disconnect without reading the reply; after a pause no process
  *                      with <tag> in its command line may still be running
@@ -556,6 +564,24 @@ static int cmdline_contains(DWORD pid, const WCHAR *needle)
     return found;
 }
 
+/* a process (not this one) whose command line names <image> and the child argument: the elevated child */
+static int child_running(const char *image)
+{
+    PROCESSENTRY32W pe = { sizeof(pe) };
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    WCHAR *wimage = widen(image);
+    static const WCHAR child[] = L"child";
+    int found = 0;
+
+    if (snap != INVALID_HANDLE_VALUE && Process32FirstW(snap, &pe))
+        do { if (pe.th32ProcessID != GetCurrentProcessId() &&
+                 cmdline_contains(pe.th32ProcessID, wimage) && cmdline_contains(pe.th32ProcessID, child)) found = 1; }
+        while (Process32NextW(snap, &pe));
+    if (snap != INVALID_HANDLE_VALUE) CloseHandle(snap);
+    free(wimage);
+    return found;
+}
+
 static void impersonate_mode(const char *image, const char *out)
 {
     HANDLE process = NULL;
@@ -567,6 +593,53 @@ static void impersonate_mode(const char *image, const char *out)
     SetLastError(err);
     check(err == ERROR_ACCESS_DENIED, "the broker denies an impersonating opener with ERROR_ACCESS_DENIED");
     check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the impersonating request started nothing");
+}
+
+/* the image is replaced while the consent is pending: the harness (from Unix, where the rename is not blocked by
+ * the broker's read handle) renames a different file over the path after the probe signals imgrace.ready, and
+ * writes imgrace.done; the broker must deny (ERROR_FILE_CORRUPT) and start nothing */
+static void imagerace_mode(const char *image, const char *out)
+{
+    struct conc c = { image, out };
+    HANDLE t;
+    char name[MAX_PATH], path[2 * MAX_PATH], *base;
+    DWORD i;
+
+    t = CreateThread(NULL, 0, conc_thread, &c, 0, NULL);
+    base = strrchr(image, '\\');
+    strncpy(name, base ? base + 1 : image, sizeof(name) - 1);
+    name[sizeof(name) - 1] = 0;
+    sprintf(path, POLICY_DIR "started.%s", name);
+    for (i = 0; i < 600 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES, "the consent is pending (the stub wrote started.<name>)");
+    write_whole(POLICY_DIR "imgrace.ready", "x", 1);
+    for (i = 0; i < 600 && GetFileAttributesA(POLICY_DIR "imgrace.done") == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(POLICY_DIR "imgrace.done") != INVALID_FILE_ATTRIBUTES, "the harness replaced the image");
+    write_whole(POLICY_DIR "gate", "x", 1);
+    WaitForSingleObject(t, 120000);
+    CloseHandle(t);
+    SetLastError(c.err);
+    check(c.err == ERROR_FILE_CORRUPT, "the broker denies a request whose image was replaced while the consent was pending");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the replaced image started nothing");
+    check(!child_running(image), "no child is running after the refusal");
+}
+
+/* a writer holds the image open when the request is made: the broker's read open of the image must fail
+ * (ERROR_SHARING_VIOLATION) and start nothing */
+static void writerfirst_mode(const char *image, const char *out)
+{
+    HANDLE f = CreateFileA(image, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE process = NULL;
+    DWORD err;
+
+    check(f != INVALID_HANDLE_VALUE, "the image opens for writing with another handle");
+    if (f == INVALID_HANDLE_VALUE) return;
+    err = ask(image, out, NULL, NULL, &process);
+    CloseHandle(f);
+    SetLastError(err);
+    check(err == ERROR_SHARING_VIOLATION, "the broker denies a request with an existing writer on the image");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the request with an existing writer started nothing");
+    check(!child_running(image), "no child is running after the refusal");
 }
 
 static void callerdeath_mode(const char *image, const char *out, const char *tag)
@@ -947,6 +1020,8 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "concurrent") && argc > 5) concurrent_mode(argv[2], argv[3], argv[4], argv[5]);
     else if (!strcmp(mode, "forge") && argc > 3) forge_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "impersonate") && argc > 3) impersonate_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "imagerace") && argc > 3) imagerace_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "writerfirst") && argc > 3) writerfirst_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "callerdeath") && argc > 4) callerdeath_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "attack") && argc > 4) attack_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "leasekill") && argc > 4) leasekill_mode(argv[2], argv[3], argv[4]);
