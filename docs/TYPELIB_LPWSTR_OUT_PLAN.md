@@ -45,3 +45,13 @@ Use the existing registered test typelib and apartment hosting/proxy setup (`ole
 ## Vendor triage before investing
 
 On the Windows guest, run `ChromiumLab/guest-sysrole/probes/typelib_dump32.exe` against each actual installed Chrome and Edge updater typelib/resource path, including `file\N` resource suffix when required; record product version, path, resource index, architecture and complete output. The source `scripts/typelib_dump.c:91-110` loads with `LoadTypeLibEx(..., REGKIND_NONE)` and prints parameter flags and types (`:72-80`), but skips non-interface type infos (`:86`). Scan **every interface and method**, parameter direction/retval and return TYPEDESC, not just string names: look for `VT_PTR -> VT_LPWSTR/VT_LPSTR` with out, in-out, retval or in, direct input strings, aliases and nested records/arrays, plus every other type or nesting not handled by `get_param_info`/`write_type_tfs`. Compare each against the actual switch paths, not a blanket list of VARTYPE names. Resolve `VT_USERDEFINED` aliases recursively and inspect members/array element types with an extended disposable diagnostic outside this planning change or a native type-info probe; absence from a shallow dump is not evidence of absence. Keep Chrome and Edge results separate, include zero matches, and prioritize only observed vendor signatures. No vendor results are claimed here.
+
+## Vendor triage result, 2026-11-06
+
+Dumped with `typelib_dump32.exe` in VM B (raw dumps and tables kept in the lab, `browser-installer-20261105/typelib-vendor-scan.md`):
+Chrome updater (`updater.exe` resources 1 to 6, `elevation_service.exe`) and Edge updater (`msedgeupdate.dll` resource 1,
+`elevation_service.exe`). Zero matches for every `[out]`/`[in, out]`/`[out, retval]` string form, for string return values, for
+records or enums containing strings, for `VT_CARRAY` and for `SAFEARRAY(VT_LPWSTR)`. The only string form used is `[in]` `LPWSTR`
+(done). The other non-trivial types they use (`PTR(VT_I8)`, `PTR(VT_UI4)`, `PTR(VT_BOOL)`, `VT_INT`/`VT_UINT`, an integer enum,
+`ULONG_PTR`) are all handled by `get_param_info`. Decision: the `[out]` work below stays a planned item and is not scheduled until
+an application needs it.
