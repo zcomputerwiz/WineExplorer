@@ -82,3 +82,6 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   elevation does (the token is the identity). Real administrator host UID and cross-UID server work are a later option, not part of
   E1-S. Launches that would need a real UID deny as unsupported. Honest limit to document: host-level file ownership and raw
   syscalls stay the caller's. The administrator's profile and HKCU live in the caller's prefix and need their own storage design.
+* **E1-T part 2 done (2026-11-06).** Probe modes `imagerace` (image replaced from Unix while consent is pending: ERROR_FILE_CORRUPT,
+  nothing starts) and `writerfirst` (existing writer: ERROR_SHARING_VIOLATION), both with a no-surviving-child check. Run in VM B
+  with `guest-sysrole/test-e1t2.sh`: pass. Still open: forged process/token mismatch, broker stop during consent, prompt crash.
