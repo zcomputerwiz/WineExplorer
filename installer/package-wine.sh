@@ -233,6 +233,9 @@ cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex
 # The setup script installs this setgid launcher (wex-sysrun, on by default); build it here, next to the script.
 cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
     -o "$STAGE_SESSION/usr/local/bin/wex-sysrun.bin" "$ROOT_DIR/tools/wex-sysrun/wex-sysrun.c"
+# Root-only E1-S4 maintenance tool; no lab passwd/group or lookup hooks.
+cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+    -o "$STAGE_SESSION/usr/local/bin/wex-accounts.bin" "$ROOT_DIR/tools/wex-accounts/wex-accounts.c"
 install -m755 "$ROOT_DIR/scripts/wex-graphics.py" "$STAGE_SESSION/usr/local/bin/wex-graphics"
 install -m755 "$ROOT_DIR/scripts/wex-components.py" "$STAGE_SESSION/usr/local/bin/wex-components"
 install -m755 "$ROOT_DIR/scripts/check-font-targets.py" "$STAGE_SESSION/usr/local/bin/wex-check-font-targets"

@@ -101,3 +101,16 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   Codex sol wrote it, Qwen built it (0 errors, same 39 warnings), `kernel32 pipe` 0 failures, `advapi32 security` the same 10
   baseline failures, and in VM B (slim runtime): approve 0, deny 1223, impersonate/callerdeath/writerfirst/imagerace PASS and 7
   provenance modes PASS.
+* **E1-S5 disabled broker implementation (2026-11-06), statically reviewed only.** Frozen canonical request/binding digests,
+  environment-policy digest, random attempt nonce, broker-owned states, answer/evidence comparisons, single-use table/evidence
+  consumption and live H2/S3 rechecks are in `src/programs/wexelevate/e1s.h` and `main.c`, guarded by
+  `WEXELEVATE_TEST_APPROVAL`. Checked reversion, request-ID collision checks and repeated binding checks also harden the existing
+  filtered-admin flow. The standard-user path still returns error 50. New 32/64-bit probes and fixture/remaining-gate details:
+  [E1-S5 broker records](E1_S5_BROKER_RECORDS.md). No build or run here; endpoint/account/clock/verifier/launch inputs are synthetic
+  lab fixtures, not production authentication. Caller-primary replacement probes and concurrency/crash tests remain unrun.
+* **E1-S4 done (2026-11-06).** Account map authority: `/etc/wineexplorer/accounts.map` (0640 root:wexsys, incarnation ids, SIDs, tombstones,
+  generation), `tools/wex-accounts` (locked atomic sync, retire, rename), server `lookup_account` (unused by default, strict file
+  checks, distinct statuses), provisioning hook and wexhost post-create sync. Known gap: an account deleted and recreated with the
+  same name and uid between syncs needs a `retire` call. Codex sol wrote it, Qwen built and tested it: tool 0 warnings,
+  `scripts/test_accounts_map.sh` passes, Wine build ok, `kernel32 pipe` 0 failures, `advapi32 security` the same 10 baseline
+  failures, VM B regression (approve 0, deny 1223, impersonate/callerdeath/writerfirst/imagerace PASS).

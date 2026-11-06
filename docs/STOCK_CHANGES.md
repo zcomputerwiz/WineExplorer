@@ -1,5 +1,48 @@
 # Changes to stock Wine / third-party code
 
+## E1-S4 protected account/SID provider implemented, statically reviewed (2026-11-06)
+
+`wine/server/accounts.c`, `accounts.h`, `Makefile.in`: compile the private,
+currently unused `lookup_account(name, uid, negotiated_caps, result)` provider.
+No ordinary logon/SID/token path changes, protocol additions, capability
+advertisement or standard-user elevation enablement. The API requires the S1
+ACCOUNT_MAP_V1 bit, returns canonical local/NSS identity, incarnation, SID,
+primary GID, fresh one-group administrator membership and map generation, and
+zeros output on failure. Distinct private statuses cover unknown/tombstoned,
+NSS mismatch/error, SID collision, unreadable/unprotected/invalid map, missing
+administrator group, unsupported account, legacy conflict and absent capability.
+The existing sysrun raise/drop helpers scope reading of root:wexsys data.
+
+The root-only `tools/wex-accounts/wex-accounts.c` shares that parser/provider,
+allocates random nonzero 128-bit incarnation IDs and persistent monotonic RIDs,
+retains tombstones, serializes writers and publishes by fsync/atomic rename.
+Authority is `/etc/wineexplorer/accounts.map` (0640 root:wexsys) beside protected
+sysrun.conf: the group-writable machine root cannot protect an authority from
+replacement. An explicit initial legacy user keeps the current local_user_sid;
+no automatic migration or reuse of that SID occurs. Explicit retirement and
+rename operations supply lifecycle assertions NSS cannot infer. Same-name/UID
+deletion/recreation between syncs still requires retirement/absence notification;
+this and policy/endpoint readiness continue to gate production advertisement.
+
+`scripts/setup-machine-root.sh` installs/syncs at the end of enabled system-role
+provisioning and preserves the protected administrator-group setting;
+`installer/package-wine.sh` stages the native production tool. Wexhost's existing
+CreateUser path attempts sync best effort and logs failures; it gains no root
+privileges. No deletion path exists there. Root lifecycle maintenance remains
+necessary for unprivileged notifications. Test-only CLI/NSS/self-UID controls
+are compiled only with WEX_ACCOUNTS_TEST, with no production environment hook.
+
+Format, API/status numbers, lifecycle limits, provisioning inputs and Qwen
+handoff: [E1_S4_ACCOUNTS_MAP.md](E1_S4_ACCOUNTS_MAP.md).
+`scripts/test_accounts_map.sh` supplies the disposable root fixture and negative
+cases. Only source/cleanup inspection, whitespace checks and Git Bash `bash -n`
+on setup, packaging and the new fixture were performed here.
+Unverified: all builds/linking and test execution, real NSS/group expansion,
+server sysrun/group permissions, both client architectures and regression
+controls, setup/package/update and AccountsService integration, writer races,
+crash/durability/error recovery, actual ACL behavior, production hook exclusion
+and complete lifecycle notification coverage. No guest or WSL execution.
+
 ## E1-S3 consumed-message writer binding implemented, statically reviewed (2026-11-06)
 
 This extends E1-H2b below under `E1_S_STANDARD_USERS.md` section 7 row 3

@@ -810,6 +810,26 @@ static NTSTATUS root_pass_set( void *args )
     return STATUS_SUCCESS;
 }
 
+/* No privileged escalation here. The root-only tool logs a refusal when this
+ * ordinary host client lacks root; protected provisioning must then sync it.
+ * Do not confuse AccountsService/polkit authorization with root credentials. */
+static void sync_account_map(void)
+{
+    pid_t pid;
+    int status, ret;
+    char *const env[] = { "PATH=/usr/sbin:/usr/bin:/sbin:/bin", NULL };
+
+    if ((pid = fork()) == -1) { WARN( "account map sync fork failed\n" ); return; }
+    if (!pid)
+    {
+        execle( "/usr/local/libexec/wineexplorer/wex-accounts", "wex-accounts", "sync", (char *)NULL, env );
+        _exit( 127 );
+    }
+    do ret = waitpid( pid, &status, 0 ); while (ret == -1 && errno == EINTR);
+    if (ret == -1 || !WIFEXITED( status ) || WEXITSTATUS( status ))
+        WARN( "account map sync failed; root maintenance required\n" );
+}
+
 /* CreateUser (account type 1: administrator, the sudo group), the WineExplorer session, and the password when one is
  * given; AccountsService copies /etc/skel, including the template Wine prefix, into the new home */
 static NTSTATUS user_create( void *args )
@@ -831,6 +851,7 @@ static NTSTATUS user_create( void *args )
                                              DBUS_TYPE_INT32, &type, DBUS_TYPE_INVALID );
         params->err = call_system( msg, NULL );
         if (msg) p_dbus_message_unref( msg );
+        if (!params->err) sync_account_map();
         if (!params->err && !find_user_path( name, path, sizeof(path) )) params->err = ERROR_NO_SUCH_USER;
         if (!params->err)
         {

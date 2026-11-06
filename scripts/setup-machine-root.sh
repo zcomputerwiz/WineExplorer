@@ -388,6 +388,15 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
     if [ -f "$SYSRUN_TMP/wex-sysrun" ]; then
         echo "Installing wex-sysrun to $SYSRUN_DIR (root:$MACHINE_GROUP, mode 2755), configuration $SYSRUN_CONF..."
         install -d -m 0755 -o root -g root -- "$SYSRUN_DIR" "$(dirname -- "$SYSRUN_CONF")"
+        # Preserve the existing protected administrator-group choice on update.
+        ADMIN_GROUP="${WEX_ADMIN_GROUP:-sudo}"
+        if [ -z "${WEX_ADMIN_GROUP:-}" ] && [ -f "$SYSRUN_CONF" ] && [ ! -L "$SYSRUN_CONF" ]; then
+            [ "$(stat -c '%u' -- "$SYSRUN_CONF")" = 0 ] || die "sysrun config is not root-owned"
+            [ $(( 0$(stat -c '%a' -- "$SYSRUN_CONF") & 022 )) -eq 0 ] || die "sysrun config is writable by others"
+            while IFS= read -r config_line; do
+                case "$config_line" in admin_group=*) ADMIN_GROUP="${config_line#admin_group=}"; break ;; esac
+            done < "$SYSRUN_CONF"
+        fi
         install -m 2755 -o root -g "$MACHINE_GROUP" -- "$SYSRUN_TMP/wex-sysrun" "$SYSRUN_DIR/wex-sysrun"
         cat > "$SYSRUN_TMP/sysrun.conf" <<EOF
 # Written by setup-machine-root.sh. Read by wex-sysrun; it refuses a file that is not root-owned or that
@@ -397,6 +406,7 @@ loader=$WINE_BIN
 ntdll=${WEX_NTDLL:-/usr/local/lib/wine/x86_64-unix/ntdll.so}
 wineserver=$WINESERVER_BIN
 machine_root=$MACHINE_ROOT
+admin_group=$ADMIN_GROUP
 EOF
         install -m 0644 -o root -g root -- "$SYSRUN_TMP/sysrun.conf" "$SYSRUN_CONF"
     fi
@@ -438,5 +448,36 @@ rm -rf "$SKEL_PFX/drive_c/users/root" "$SKEL_PFX/drive_c/users/wexsetup"
 chown -R root:root "$SKEL_PFX"
 chmod 755 "$SKEL_PFX" "$SKEL_PFX/dosdevices" "$SKEL_PFX/drive_c" "$SKEL_PFX/drive_c/users"
 chmod 644 "$SKEL_PFX/user.reg" "$SKEL_PFX/.update-timestamp" 2>/dev/null || true
+
+# E1-S4: root-only identity authority, beside sysrun.conf. The machine root
+# itself is group-writable and therefore cannot protect an authority file.
+# This does not enable E1-S, advertise capabilities or change ordinary logon.
+if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
+    ACCOUNTS_SOURCE="$(dirname -- "$(readlink -f -- "$0")")/../tools/wex-accounts/wex-accounts.c"
+    ACCOUNTS_PKG="$(dirname -- "$(readlink -f -- "$0")")/wex-accounts.bin"
+    ACCOUNTS_TMP="$(mktemp -d)"
+    if [ -n "${WEX_ACCOUNTS_BIN:-}" ]; then
+        cp -- "$WEX_ACCOUNTS_BIN" "$ACCOUNTS_TMP/wex-accounts"
+    elif [ -f "$ACCOUNTS_PKG" ]; then
+        cp -- "$ACCOUNTS_PKG" "$ACCOUNTS_TMP/wex-accounts"
+    elif [ -f "$ACCOUNTS_SOURCE" ] && command -v cc >/dev/null 2>&1; then
+        cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+            -o "$ACCOUNTS_TMP/wex-accounts" "$ACCOUNTS_SOURCE"
+    else
+        die "E1-S4 requires a prebuilt wex-accounts binary or its source and cc"
+    fi
+    install -m 0755 -o root -g root -- "$ACCOUNTS_TMP/wex-accounts" "$SYSRUN_DIR/wex-accounts"
+    ACCOUNTS_ARGS=(--directory "$(dirname -- "$SYSRUN_CONF")" sync --initialize)
+    # Bind the fixed old local_user_sid only on an explicit provisioning choice.
+    # Existing multi-user legacy prefixes need separate migration/review.
+    if [ -n "${WEX_ACCOUNTS_LEGACY_USER:-}" ]; then
+        ACCOUNTS_ARGS+=(--legacy-user "$WEX_ACCOUNTS_LEGACY_USER")
+    fi
+    if ! "$SYSRUN_DIR/wex-accounts" "${ACCOUNTS_ARGS[@]}"; then
+        rm -rf -- "$ACCOUNTS_TMP"
+        die "E1-S4 account map sync failed"
+    fi
+    rm -rf -- "$ACCOUNTS_TMP"
+fi
 
 echo "=== S3 Machine Root Setup Completed Successfully ==="
