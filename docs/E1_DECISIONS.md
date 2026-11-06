@@ -77,3 +77,8 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   request-bound transactions, new-account administrator token. Implementation waits for the owner questions in its section 9,
   chiefly what "run as the administrator" means (real administrator host UID and profile, which needs cross-UID server work, or a
   Wine-only identity under the caller's UID).
+* **E1-S owner decision (2026-11-06): Wine-only identity first.** The administrator's elevated process gets the administrator's
+  token (own logon id) but runs under the caller's host UID in the caller's prefix and session, as Windows over-the-shoulder
+  elevation does (the token is the identity). Real administrator host UID and cross-UID server work are a later option, not part of
+  E1-S. Launches that would need a real UID deny as unsupported. Honest limit to document: host-level file ownership and raw
+  syscalls stay the caller's. The administrator's profile and HKCU live in the caller's prefix and need their own storage design.
