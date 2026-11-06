@@ -1,11 +1,24 @@
 # Changes to stock Wine / third-party code
 
-## E1-H2 caller binding: proposed Wine changes, not implemented (2026-11-06)
+## E1-H2 caller binding: proposed Wine changes, not implemented (2026-11-06); authentication id implemented (2026-11-06)
 
 Static review and proposed acceptance tests are in `E1_H2_CALLER_BINDING.md`.
-No Wine code was changed or built for this entry. Existing pipe PID queries
-retain a number and opening token, but no original process reference;
-`TokenStatistics.AuthenticationId` is currently hard-coded to zero.
+The authentication id (logon LUID) part is now implemented: `struct token`
+carries an `auth_id`, `get_token_info` returns it, and `TokenStatistics`
+reports the real `AuthenticationId` instead of zero. Side effects: the reply of
+`get_token_info` grew past the 64 byte request/reply limit, so `request_max_size`
+(`server/protocol.def`, `include/wine/server_protocol.h`) and `$max_req_size` in
+`tools/make_requests` went from 64 to 72 bytes, and `SERVER_PROTOCOL_VERSION`
+went from 973 to 974. System tokens use the fixed id 0x3e7, the first interactive
+token gets a new id, and the linked full token copies its source's id (native
+Windows gives each token of a pair its own logon session, so the advapi32 test
+checks only the non-zero value and duplicates). Verified: full WoW64 build, and
+`advapi32 security` runs in both architectures; its 10 failures per run are file
+and registry ACL checks (lines 4005-4057, 6510, 6522, 6962) that this change does
+not touch (not compared against a baseline build). The remaining parts
+(pipe PID retention and the private binding query) are still not implemented.
+Existing pipe PID queries retain a number and opening token, but no original
+process reference.
 
 The minimum PID repair is to retain the opening process object in the server
 connection record at pipe open and release it on disconnect, failed setup,
@@ -22,13 +35,14 @@ locations are `wine/server/named_pipe.c`, `wine/server/protocol.def`, the
 corresponding generated protocol files and a narrow ntdll/project-bridge helper.
 This query and helper do not exist yet; their names/ABI remain proposals.
 
-Add a real authentication LUID to `wine/server/token.c` and `get_token_info`
-in `wine/server/protocol.def`; propagate it through trusted logon creation,
-duplication, filtering, inherited primary tokens, pipe impersonation and linked
-tokens. Honor the existing privileged create-token authentication-ID input.
-Return the field from `wine/dlls/ntdll/unix/security.c` for `TokenStatistics`
-instead of zero. Linked-token creation must preserve the source logon as well
-as its session. Provision one interactive identity per supported trusted
+The authentication LUID is now implemented: `wine/server/token.c` carries it in
+`struct token` and `get_token_info` in `wine/server/protocol.def` returns it; it
+is propagated through trusted logon creation, duplication, filtering, inherited
+primary tokens, pipe impersonation and linked tokens. The privileged
+create-token authentication-ID input is honored, and
+`wine/dlls/ntdll/unix/security.c` returns the field for `TokenStatistics`
+instead of zero. Linked-token creation preserves the source logon as well as
+its session. Still to implement: provisioning one interactive identity per supported trusted
 user/server-session lifetime, with separate service identities; token IDs and
 derivation lineage are not logon IDs. Reject older/stub capability versions.
 Full multi-session host-logon mapping remains unsupported pending trusted
