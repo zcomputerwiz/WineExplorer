@@ -227,3 +227,13 @@ Installed Chrome and Edge, launched elevated inside the machine-root prefix itse
 `--headless=new --no-sandbox --disable-gpu --screenshot=...` on a `data:` page): both exit 0 after one 1055 retry and render the
 test page (screenshots checked by eye, 772x433 and 764x445). This closes the gap named in round 13. Remaining: Edge consumer stub,
 per-user Edge install (not planned).
+
+### Round 16, 2026-11-06, VM B: Edge consumer stub passes
+
+Official consumer stub (`MicrosoftEdgeSetup.exe`, Authenticode valid, signer Microsoft Corporation, SHA-256 `4f34f7d7...e165`; the vendor
+download link needs a browser-style user agent plus Channel and language parameters, the bare link led to a vendor outage page) run
+elevated in the machine root with `/silent /install` and network access: it downloaded and installed Edge 157.0.4341.42 (Edge, EdgeCore
+and EdgeUpdate directories present). The installed `msedge.exe` renders the headless test page (764x445, same size as the MSI install).
+Gotcha: the stub file must be owned by the user the elevated process runs as (the Linux `F_SETLEASE` call fails otherwise); the lab job
+chowned it to `wexadm`. The Antigravity job hit its 10 minute print limit while waiting for the install; the install itself finished,
+and the result was checked by hand. Remaining: per-user Edge install (not planned).
