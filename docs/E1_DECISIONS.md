@@ -85,3 +85,9 @@ Owner decisions and the first-release design for Track E1 (production elevation)
 * **E1-T part 2 done (2026-11-06).** Probe modes `imagerace` (image replaced from Unix while consent is pending: ERROR_FILE_CORRUPT,
   nothing starts) and `writerfirst` (existing writer: ERROR_SHARING_VIOLATION), both with a no-surviving-child check. Run in VM B
   with `guest-sysrole/test-e1t2.sh`: pass. Still open: forged process/token mismatch, broker stop during consent, prompt crash.
+* **E1-H3a done (2026-11-06).** `wexhost` `lease_take` calls `fstatfs` on the image descriptor and allows only ext2/3/4, xfs, btrfs,
+  tmpfs, overlayfs, ramfs and vfat (also when no lease is needed); anything else (NFS, 9p, FUSE, iso9660, unknown) is denied with
+  ERROR_NOT_SUPPORTED. Codex terra wrote it, Qwen built and tested it in VM B: approve exit 0, deny 1223, image on ext4 runs
+  (0), image on an iso9660 loop mount denied (50). Own code, not stock Wine. H3b (prompt serialization) is still open.
+* **E1-S1 contracts written (2026-11-06)** in `E1_S1_CONTRACTS.md` (Codex terra): seven versioned records, endpoint registration,
+  ordered launch checks, state-transition owners.

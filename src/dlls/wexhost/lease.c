@@ -45,6 +45,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/vfs.h>
 #include <sys/syscall.h>
 
 #include <ntstatus.h>
@@ -202,6 +203,34 @@ static BOOL user_cannot_write( int fd )
     return access( path, W_OK ) != 0;
 }
 
+/* Only these filesystem types are accepted for elevated images, even when no lease is needed. */
+static BOOL image_filesystem_allowed( int fd )
+{
+    static const unsigned int allowed[] =
+    {
+        0xef53,      /* ext2/3/4 */
+        0x58465342,  /* xfs */
+        0x9123683e,  /* btrfs */
+        0x01021994,  /* tmpfs */
+        0x794c7630,  /* overlayfs */
+        0x858458f6,  /* ramfs */
+        0x4d44       /* vfat/msdos */
+    };
+    struct statfs fs;
+    unsigned int i, type;
+
+    if (fstatfs( fd, &fs ))
+    {
+        fprintf( stderr, "wexhost: cannot determine image filesystem: errno %d\n", errno );
+        return FALSE;
+    }
+    type = (unsigned int)fs.f_type;
+    for (i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++)
+        if (type == allowed[i]) return TRUE;
+    fprintf( stderr, "wexhost: denied image filesystem type 0x%08x\n", type );
+    return FALSE;
+}
+
 NTSTATUS lease_take( void *args )
 {
     struct lease_take_params *params = args;
@@ -221,6 +250,12 @@ NTSTATUS lease_take( void *args )
     {
         close( fd );
         params->err = ERROR_FILE_SYSTEM_LIMITATION;
+        return STATUS_SUCCESS;
+    }
+    if (!image_filesystem_allowed( fd ))
+    {
+        close( fd );
+        params->err = ERROR_NOT_SUPPORTED;
         return STATUS_SUCCESS;
     }
     /* a file that the user cannot write needs no lease (root's or the system group's files in the machine root) */

@@ -426,7 +426,8 @@ DWORD WINAPI WexTrayGetMenu(DWORD token, INT root, WEX_TRAY_MENU *menu);
 
 /* Read lease on the image of an elevated program (the elevation broker, docs/ELEVATION_CONSENT_WORKORDER.md Part A).
  * WexLeaseTake takes a Linux read lease on the open file and starts watching it; *lease is 0 if none is needed (the
- * user cannot write the file anyway). ERROR_SHARING_VIOLATION: someone has the file open for writing;
+ * user cannot write the file anyway). ERROR_NOT_SUPPORTED: the image filesystem is unvalidated or cannot be
+ * identified, including when no lease is needed. ERROR_SHARING_VIOLATION: someone has the file open for writing;
  * ERROR_FILE_SYSTEM_LIMITATION: no lease can be taken (no lease support, or a file the user can write but does not
  * own). When a writer opens the file the lease breaks: the process given to WexLeaseArm is ended, the lease is
  * given up and 'event' is set. WexLeaseArm( lease, 0 ) says a launch starts (the lease is kept until the process is
