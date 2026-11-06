@@ -1893,9 +1893,9 @@ LPWSTR *` is not. A unit test in `dlls/oleaut32/tests/tmarshal.c` is still to be
 ## combase: IClientSecurity::SetBlanket on proxies (2026-11-05)
 
 `wine/dlls/combase/marshal.c`: `ProxyCliSec_SetBlanket` accepts the blanket and records it in the proxy manager (`blanket_*`
-fields); `ProxyCliSec_QueryBlanket` returns the recorded values once set (the old stub behaviour stays until then). Security is
+fields); `ProxyCliSec_QueryBlanket` returns the recorded values once set and, before that, the defaults measured on Windows 11 (WINNT, authz none, PKT_PRIVACY, IDENTIFY). Security is
 not enforced for the local transport; the change only stops `CoSetProxyBlanket` from failing with `E_NOTIMPL`. The Edge updater
 calls it (PKT_PRIVACY, IMPERSONATE) on its update-service proxy and treats a failure as fatal ("Failed to install apps
 0x80004001", MSI 1627). Verified in the QEMU guest: with the change the Edge enterprise MSI installs (exit 0,
-`Edge\Application\156.0.4314.58`) and the installed Edge passes the browser fixture (WebGL and WebGL2). Unit test in
-`dlls/ole32/tests/marshal.c` (see `TYPELIB_PROXYSTUB_ANALYSIS.md`, "SetBlanket test status").
+`Edge\Application\156.0.4314.58`) and the installed Edge passes the browser fixture (WebGL and WebGL2). `dlls/ole32/tests/marshal.c` has `test_proxy_blanket` and the stale `todo_wine` markers of `test_client_security` are gone; the whole
+`marshal` suite passes on Windows 11 natively (1174 tests, 0 failures) and under Wine (1249/1252 tests, 0 failures).

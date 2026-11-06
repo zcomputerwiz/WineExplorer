@@ -40,3 +40,29 @@ and a non-ASCII wide string. Wine result: 775 tests, 0 failures on i386 and x86_
 the same test there before relying on it. Note for authors: the IDL must spell the types `LPWSTR` and `LPSTR`. A plain
 `[in, string] wchar_t *` becomes a pointer to a 16-bit integer in the type library and marshals one character only (the first Wine run
 failed in exactly that way).
+
+## SetBlanket test status (2026-11-05)
+
+Added `test_proxy_blanket` to `wine/dlls/ole32/tests/marshal.c` (registered after `test_client_security` in `START_TEST(marshal)`).
+It cross-apartment-marshals `Test_ClassFactory` (`IID_IClassFactory`) with the existing `start_host_object` pattern, then on the
+standard-marshal proxy: (1) `CoQueryProxyBlanket` before any set — no hard assertion, result recorded via `trace` (returned
+`E_NOTIMPL` 0x80004001, no crash); (2) `CoSetProxyBlanket(RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL,
+RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE)` asserted `S_OK`; (3) `CoQueryProxyBlanket` afterwards
+asserted `S_OK` with `authn_level == RPC_C_AUTHN_LEVEL_PKT_PRIVACY` and `imp_level == RPC_C_IMP_LEVEL_IMPERSONATE` (both marked
+"verify natively").
+
+Wine result (harness `wexdev.sh test ole32 marshal`, 2026-11-05): x86_64 1249 tests executed, 2 failures; i386 1252 tests executed,
+2 failures. All of the new test's own assertions passed on both architectures. The harness test step failed (exit 2) with exactly
+these two lines on both architectures; both are in the pre-existing `test_client_security`, whose `todo_wine` markers are now stale
+because the combase `SetBlanket`/`QueryBlanket` fix makes those calls succeed:
+
+* `marshal.c:3910: Test succeeded inside todo block: "IClientSecurity_SetBlanket" failed with error 00000000`
+* `marshal.c:3924: Test succeeded inside todo block: "IClientSecurity_QueryBlanket(IUnknown)" failed with error 00000000`
+
+Removing those two `todo_wine` markers is the follow-up to make the suite green. 64-bit test exe for native Windows verification:
+`/root/WE-prefetch/build/wow64/dlls/ole32/tests/x86_64-windows/ole32_test.exe` (run as `ole32_test.exe marshal`; Wine builds one test
+exe per module, so there is no separate `marshal_test.exe`).
+
+Update 2026-11-06: the two stale `todo_wine` markers are removed (plus the two for an unset `QueryBlanket`), the unset defaults follow the
+native values (WINNT, authz none, PKT_PRIVACY, IDENTIFY; measured with `test_proxy_blanket`), and the whole `marshal` test passes on
+Windows 11 natively (1174 tests, 0 failures, our own ole32_test.exe) and in Wine (1249 and 1252 tests, 0 failures).
