@@ -60,3 +60,11 @@ Owner decisions and the first-release design for Track E1 (production elevation)
 * **E1-H2 analysis done** (`E1_H2_CALLER_BINDING.md`, proposed stock-Wine changes in `STOCK_CHANGES.md`, not implemented): the
   broker alone cannot bind logon identity (`AuthenticationId` is a stub that returns zero) or pin the pipe client process; it needs a
   small Wine server change.
+* **E1-H2a/b/c done (2026-11-06).** Token `AuthenticationId` (server, protocol 974), opener process and token retained on the
+  pipe connection with the private `get_pipe_caller_binding` request and ntdll `NtQueryWexPipeCallerBinding` (protocol 975, system
+  role with SeTcbPrivilege only), and the broker's `identify_caller` now requires: the bound process and primary token are the
+  objects found by the pid (`CompareObjectHandles`), the opener was not impersonating, its primary token is unchanged, and logon and
+  session of the primary token equal those of the pipe impersonation token; `launch()` requires the linked full token to have the
+  caller's logon. An older server without the request denies. Guest test (VM B, current build runtime): approve path exit 0, deny
+  path 1223. Not done: per-message writer provenance (a different process writing the request on the opener's connection), and
+  negative tests that forge each mismatch (E1-T).

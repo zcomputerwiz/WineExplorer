@@ -321,6 +321,53 @@ static BOOL token_is_system_with_tcb(void)
     return ret;
 }
 
+/* E1-H2: the server's own record of who opened the pipe. The process and token handles it returns must be the very
+ * objects found by the pid, the opener must not have been impersonating, and its primary token must be unchanged.
+ * Any missing piece (an older server without the request, a failed query) denies. */
+static NTSTATUS (WINAPI *pQueryBinding)( HANDLE, HANDLE *, HANDLE *, ULONG *, LARGE_INTEGER *, LUID *, LUID *, BOOL *, BOOL * );
+static BOOL (WINAPI *pCompareObjectHandles)( HANDLE, HANDLE );
+
+static BOOL token_stats( HANDLE token, TOKEN_STATISTICS *stats )
+{
+    DWORD len;
+    return GetTokenInformation( token, TokenStatistics, stats, sizeof(*stats), &len ) && len == sizeof(*stats);
+}
+
+static DWORD check_binding( struct request *req, DWORD pid, HANDLE pipe_token )
+{
+    HANDLE bound_process = NULL, bound_token = NULL;
+    ULONG bound_pid = 0;
+    LARGE_INTEGER start;
+    LUID token_id, modified_id;
+    BOOL impersonated = TRUE, current = FALSE;
+    TOKEN_STATISTICS primary, pipe;
+    DWORD err = ERROR_ACCESS_DENIED, sid1 = 0, sid2 = 0, len;
+
+    if (!pQueryBinding)
+    {
+        HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" ), kb = GetModuleHandleW( L"kernelbase.dll" );
+        pQueryBinding = (void *)GetProcAddress( ntdll, "NtQueryWexPipeCallerBinding" );
+        pCompareObjectHandles = kb ? (void *)GetProcAddress( kb, "CompareObjectHandles" ) : NULL;
+    }
+    if (!pQueryBinding || !pCompareObjectHandles) return ERROR_NOT_SUPPORTED;
+    if (!NT_SUCCESS(pQueryBinding( req->pipe, &bound_process, &bound_token, &bound_pid, &start, &token_id, &modified_id,
+                                   &impersonated, &current )))
+        return ERROR_ACCESS_DENIED;
+
+    if (bound_pid == pid && !impersonated && current &&
+        pCompareObjectHandles( bound_process, req->caller ) && pCompareObjectHandles( bound_token, req->caller_token ) &&
+        token_stats( req->caller_token, &primary ) && token_stats( pipe_token, &pipe ) &&
+        (primary.AuthenticationId.LowPart || primary.AuthenticationId.HighPart) &&
+        primary.AuthenticationId.LowPart == pipe.AuthenticationId.LowPart &&
+        primary.AuthenticationId.HighPart == pipe.AuthenticationId.HighPart &&
+        GetTokenInformation( req->caller_token, TokenSessionId, &sid1, sizeof(sid1), &len ) &&
+        GetTokenInformation( pipe_token, TokenSessionId, &sid2, sizeof(sid2), &len ) && sid1 == sid2)
+        err = ERROR_SUCCESS;
+    CloseHandle( bound_process );
+    CloseHandle( bound_token );
+    return err;
+}
+
 /* Who is the caller: the process that opened the pipe, as the server recorded it (the request carries no
  * identity), with the token of that process. The user the pipe reports for the client thread must be the user of
  * the process. A caller that is a standard user or elevated already is not served here. */
@@ -328,7 +375,7 @@ static DWORD identify_caller( struct request *req )
 {
     BYTE pipe_user[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE], proc_user[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
     HANDLE thread_token = NULL;
-    DWORD pid = 0, pid2 = 0, elevation, len;
+    DWORD pid = 0, pid2 = 0, elevation, len, err;
 
     if (!GetNamedPipeClientProcessId( req->pipe, &pid ) || !pid) return ERROR_ACCESS_DENIED;
     if (!ImpersonateNamedPipeClient( req->pipe )) return ERROR_ACCESS_DENIED;
@@ -343,20 +390,29 @@ static DWORD identify_caller( struct request *req )
         CloseHandle( thread_token );
         return ERROR_ACCESS_DENIED;
     }
-    CloseHandle( thread_token );
 
     req->caller_pid = pid;
     if (!(req->caller = OpenProcess( PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_DUP_HANDLE |
-                                     PROCESS_CREATE_PROCESS | SYNCHRONIZE, FALSE, pid ))) return ERROR_ACCESS_DENIED;
-    if (!OpenProcessToken( req->caller, TOKEN_QUERY | TOKEN_DUPLICATE, &req->caller_token )) return ERROR_ACCESS_DENIED;
+                                     PROCESS_CREATE_PROCESS | SYNCHRONIZE, FALSE, pid ))) goto denied;
+    if (!OpenProcessToken( req->caller, TOKEN_QUERY | TOKEN_DUPLICATE, &req->caller_token )) goto denied;
     if (!token_user_sid( req->caller_token, proc_user, sizeof(proc_user) ) ||
-        !EqualSid( ((TOKEN_USER *)pipe_user)->User.Sid, ((TOKEN_USER *)proc_user)->User.Sid )) return ERROR_ACCESS_DENIED;
+        !EqualSid( ((TOKEN_USER *)pipe_user)->User.Sid, ((TOKEN_USER *)proc_user)->User.Sid )) goto denied;
+    /* the server's record of the opener must be this very process and token (E1-H2) */
+    if ((err = check_binding( req, pid, thread_token )))
+    {
+        CloseHandle( thread_token );
+        return err;
+    }
+    CloseHandle( thread_token );
     /* the pid must still be the client's, and the process must not have gone away meanwhile */
     if (!GetNamedPipeClientProcessId( req->pipe, &pid2 ) || pid2 != pid || WaitForSingleObject( req->caller, 0 ) != WAIT_TIMEOUT)
         return ERROR_ACCESS_DENIED;
     if (!GetTokenInformation( req->caller_token, TokenElevationType, &elevation, sizeof(elevation), &len )) return ERROR_ACCESS_DENIED;
     /* only the limited half of a split administrator token has something to elevate to */
     return elevation == TokenElevationTypeLimited ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+denied:
+    CloseHandle( thread_token );
+    return ERROR_ACCESS_DENIED;
 }
 
 /* ---- parsing and freezing ------------------------------------------------------------------------------------ */
@@ -874,6 +930,18 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     {
         CloseHandle( linked );
         return ERROR_NOT_SUPPORTED;
+    }
+    /* the full token must belong to the caller's own logon (E1-H2); anything else is not the linked token we mean */
+    {
+        TOKEN_STATISTICS caller_stats, linked_stats;
+
+        if (!token_stats( req->caller_token, &caller_stats ) || !token_stats( linked, &linked_stats ) ||
+            caller_stats.AuthenticationId.LowPart != linked_stats.AuthenticationId.LowPart ||
+            caller_stats.AuthenticationId.HighPart != linked_stats.AuthenticationId.HighPart)
+        {
+            CloseHandle( linked );
+            return ERROR_ACCESS_DENIED;
+        }
     }
 
     if (req->flags & WEXELEVATE_ENV_INHERIT) env = req->env;
