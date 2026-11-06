@@ -91,3 +91,6 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   (0), image on an iso9660 loop mount denied (50). Own code, not stock Wine. H3b (prompt serialization) is still open.
 * **E1-S1 contracts written (2026-11-06)** in `E1_S1_CONTRACTS.md` (Codex terra): seven versioned records, endpoint registration,
   ordered launch checks, state-transition owners.
+* **E1-S2 lab baseline done (2026-11-06)**, `E1_S2_LAB_BASELINE.md` (Qwen): pinned guest hashes, fixture accounts bob, alice, carol and eve
+  (throwaway passwords root-only in the guest), a test PAM service `wex-e1s-test`, controls (filtered admin approve 0, cancel 1223,
+  standard user denied with error 50), snapshot procedure, cleanup script. Not taken: a disk snapshot.
