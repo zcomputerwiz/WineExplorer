@@ -1899,3 +1899,10 @@ calls it (PKT_PRIVACY, IMPERSONATE) on its update-service proxy and treats a fai
 0x80004001", MSI 1627). Verified in the QEMU guest: with the change the Edge enterprise MSI installs (exit 0,
 `Edge\Application\156.0.4314.58`) and the installed Edge passes the browser fixture (WebGL and WebGL2). `dlls/ole32/tests/marshal.c` has `test_proxy_blanket` and the stale `todo_wine` markers of `test_client_security` are gone; the whole
 `marshal` suite passes on Windows 11 natively (1174 tests, 0 failures) and under Wine (1249/1252 tests, 0 failures).
+
+## d3d12: include the D3D11 headers before initguid.h (2026-11-06)
+
+`wine/dlls/d3d12/d3d12_main.c` includes `d3d11_4.h` before `initguid.h`. Our `winedxgi.idl` now imports `d3d11.idl` (for the
+DirectComposition surface interfaces), so `winedxgi.h` pulled the D3D10/D3D11 headers in after `initguid.h`, `d3d12_main.o`
+defined their IIDs itself and `d3d12.dll` failed to link against `libdxguid` (multiple definition of `IID_ID3D10*`). A fresh
+full build (the ISO build) hit it; incremental dev builds had not rebuilt d3d12.
