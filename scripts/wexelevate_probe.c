@@ -27,6 +27,12 @@
  *   concurrent <imageA> <imageB> <outA> <outB>
  *                      two requests at once; A must run and B must be refused (ERROR_CANCELLED)
  *   forge <image> <out> a request whose advisory_pid names another process; the parent must be this process
+ *   impersonate <image> <out>
+ *                      open the broker pipe while the thread impersonates its own token; the broker must deny
+ *                      (ERROR_ACCESS_DENIED) and start nothing
+ *   callerdeath <image> <out> <tag>
+ *                      send a raw request, then disconnect without reading the reply; after a pause no process
+ *                      with <tag> in its command line may still be running
  *   attack <image> <out> <tag>
  *                      start the child held, then try to open it and its threads; none of the dangerous rights
  *                      may be granted. Releases the child at the end.
@@ -61,6 +67,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <sddl.h>
+#include <winternl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -495,6 +502,117 @@ static void forge_mode(const char *image, const char *out)
     free(wimage); free(cmd); free(req);
 }
 
+/* ---- caller binding (E1-H2): the opener must not be impersonating, and a dead caller leaves no child ----------- */
+
+/* Read another process's command line from its PEB (the pattern from scripts/webview2-probe.c). The structures are
+ * minimal local copies so the probe does not depend on the toolchain's winternl.h defining them. */
+typedef struct wex_unicode_string { USHORT length, maximum; WCHAR *buffer; } wex_unicode_string;
+typedef struct wex_process_parameters
+{
+    ULONG maximum_length, length, flags, debug_flags;
+    HANDLE console_handle;
+    ULONG console_flags;
+    HANDLE standard_input, standard_output, standard_error;
+    wex_unicode_string current_directory;
+    HANDLE current_directory_handle;
+    wex_unicode_string image_path_name;
+    wex_unicode_string command_line;
+} wex_process_parameters;
+
+static int cmdline_contains(DWORD pid, const WCHAR *needle)
+{
+    typedef NTSTATUS (WINAPI *wex_query_process)(HANDLE, PROCESSINFOCLASS, void *, ULONG, ULONG *);
+    static wex_query_process query = NULL;
+    PROCESS_BASIC_INFORMATION info;
+    BYTE peb[64];
+    wex_process_parameters params;
+    HANDLE process;
+    ULONG_PTR params_addr;
+    WCHAR *cmd = NULL;
+    int found = 0;
+
+    if (!query) query = (wex_query_process)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationProcess");
+    if (!query) return 0;
+    process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (!process) return 0;
+    if (!query(process, ProcessBasicInformation, &info, sizeof(info), NULL) &&
+        ReadProcessMemory(process, info.PebBaseAddress, peb, sizeof(peb), NULL))
+    {
+#ifdef _WIN64
+        memcpy(&params_addr, peb + 0x20, sizeof(params_addr));
+#else
+        memcpy(&params_addr, peb + 0x18, sizeof(params_addr));
+#endif
+        if (params_addr && ReadProcessMemory(process, (void *)params_addr, &params, sizeof(params), NULL) &&
+            params.command_line.length && params.command_line.buffer)
+        {
+            cmd = calloc(params.command_line.length + sizeof(WCHAR), 1);
+            if (cmd && ReadProcessMemory(process, params.command_line.buffer, cmd, params.command_line.length, NULL))
+                found = wcsstr(cmd, needle) != NULL;
+            free(cmd);
+        }
+    }
+    CloseHandle(process);
+    return found;
+}
+
+static void impersonate_mode(const char *image, const char *out)
+{
+    HANDLE process = NULL;
+    DWORD err;
+
+    check(ImpersonateSelf(SecurityImpersonation), "the thread impersonates its own token");
+    err = ask(image, out, NULL, NULL, &process);
+    RevertToSelf();
+    SetLastError(err);
+    check(err == ERROR_ACCESS_DENIED, "the broker denies an impersonating opener with ERROR_ACCESS_DENIED");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the impersonating request started nothing");
+}
+
+static void callerdeath_mode(const char *image, const char *out, const char *tag)
+{
+    struct wexelevate_request *req;
+    WCHAR *wimage = widen(image), *cmd, *data, *wtag = widen(tag);
+    char *narrow_cmd = malloc(2 * strlen(image) + 2 * strlen(out) + strlen(tag) + 64);
+    DWORD size, done, image_len = lstrlenW(wimage), cmd_len;
+    HANDLE pipe;
+    PROCESSENTRY32W pe = { sizeof(pe) };
+    HANDLE snap;
+    int found = 0;
+
+    /* "hold <tag>": a child that was started would stay alive until the release file exists */
+    sprintf(narrow_cmd, "\"%s\" child %s hold %s", image, out, tag);
+    cmd = widen(narrow_cmd);
+    cmd_len = lstrlenW(cmd);
+    size = sizeof(*req) + (image_len + cmd_len) * sizeof(WCHAR);
+    req = calloc(1, size);
+    req->magic = WEXELEVATE_MAGIC;
+    req->version = WEXELEVATE_VERSION;
+    req->flags = WEXELEVATE_WANT_HANDLE;
+    req->show = SW_SHOWNORMAL;
+    req->advisory_pid = 0;
+    req->image_len = image_len;
+    req->cmdline_len = cmd_len;
+    data = (WCHAR *)(req + 1);
+    memcpy(data, wimage, image_len * sizeof(WCHAR));
+    memcpy(data + image_len, cmd, cmd_len * sizeof(WCHAR));
+    check(wexelevate_connect(&pipe) == 0, "connected to the broker");
+    check(WriteFile(pipe, req, size, &done, NULL) && done == size, "sent the request");
+    CloseHandle(pipe);   /* the caller goes away without reading the reply */
+    Sleep(3000);
+    snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap != INVALID_HANDLE_VALUE && Process32FirstW(snap, &pe))
+        do { if (pe.th32ProcessID != GetCurrentProcessId() && cmdline_contains(pe.th32ProcessID, wtag)) found = 1; } while (Process32NextW(snap, &pe));
+    if (snap != INVALID_HANDLE_VALUE) CloseHandle(snap);
+    check(!found, "no process with the tag is running after the caller disconnected");
+    {
+        char release[MAX_PATH];
+        sprintf(release, POLICY_DIR "release.%s", tag);   /* end a child that was started anyway */
+        write_whole(release, "x", 1);
+    }
+    free(wimage); free(cmd); free(req); free(wtag); free(narrow_cmd);
+}
+
 static void denied(DWORD pid, DWORD access, const char *name)
 {
     char what[128];
@@ -828,6 +946,8 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "args") && argc > 3) args_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "concurrent") && argc > 5) concurrent_mode(argv[2], argv[3], argv[4], argv[5]);
     else if (!strcmp(mode, "forge") && argc > 3) forge_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "impersonate") && argc > 3) impersonate_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "callerdeath") && argc > 4) callerdeath_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "attack") && argc > 4) attack_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "leasekill") && argc > 4) leasekill_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "spoofcmd") && argc > 4) spoofcmd_mode(argv[2], argv[3], argv[4]);

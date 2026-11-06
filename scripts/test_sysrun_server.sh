@@ -891,6 +891,9 @@ el_clean; touch "$EL/approve.all"
 bp c4_long_unicode_and_quoted_arguments_survive "$ADM" 64 args "$IMG" "$(winpath $EL/out.args)"
 bp c4_long_unicode_and_quoted_arguments_survive_32 "$ADM" 32 args "$(winpath /home/$ADM/wexel/p32.exe)" "$(winpath $EL/out.args32)"
 bp c4_forged_pid_is_attributed_to_the_real_caller "$ADM" 64 forge "$IMG" "$(winpath $EL/out.forge)"
+TAGCD="wexcd-$$"
+bp c4_impersonating_opener_is_denied "$ADM" 64 impersonate "$IMG" "$(winpath $EL/out.imp)"
+bp c4_caller_death_leaves_no_child "$ADM" 64 callerdeath "$IMG" "$(winpath $EL/out.death)" "$TAGCD"
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
 bp c4_missing_image_is_reported "$ADM" 64 run "$(winpath $EL/missing.exe)" 2 "$(winpath $EL/out.bad)" -
 rm -f "$EL/approve.all"

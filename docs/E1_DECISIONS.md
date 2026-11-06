@@ -68,3 +68,8 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   caller's logon. An older server without the request denies. Guest test (VM B, current build runtime): approve path exit 0, deny
   path 1223. Not done: per-message writer provenance (a different process writing the request on the opener's connection), and
   negative tests that forge each mismatch (E1-T).
+* **E1-T first part done (2026-11-06).** Probe modes `impersonate` (an opener that impersonates is denied with error 5, nothing
+  starts) and `callerdeath` (a caller that disconnects without reading the reply leaves no tagged process) in
+  `scripts/wexelevate_probe.c`, wired into `scripts/test_sysrun_server.sh` section 5. Run in VM B against the lab test broker with a
+  positive control (`run` passes): all pass. Not yet covered: a forged mismatch of process or token (needs a second process sharing
+  the pipe handle), broker stop during consent, image change during consent, existing writer, prompt crash.
