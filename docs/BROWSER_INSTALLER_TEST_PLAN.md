@@ -220,3 +220,10 @@ Fresh-clone ISO build of master `d086c11d` (WoW64, `make -j16`, package, ISO 2.3
 failure that only a clean build hit (`winedxgi.h` include order, see `STOCK_CHANGES.md`). `installer/tests/install-interactive.sh`
 on that ISO: PASS (text setup, GUI setup, OOBE with two users, logon, WoW64 program checks, prefix-split multi-user assertions,
 Fluent theme in Display Properties, per-user prefix 1 MB). That run used the shared `personalize-prefix.sh` helper in a real image.
+
+### Round 15, 2026-11-06, VM B: installed browsers run in the machine-root prefix
+
+Installed Chrome and Edge, launched elevated inside the machine-root prefix itself (`guest-elev-run.sh` with `WEXDISPLAY=1`,
+`--headless=new --no-sandbox --disable-gpu --screenshot=...` on a `data:` page): both exit 0 after one 1055 retry and render the
+test page (screenshots checked by eye, 772x433 and 764x445). This closes the gap named in round 13. Remaining: Edge consumer stub,
+per-user Edge install (not planned).
