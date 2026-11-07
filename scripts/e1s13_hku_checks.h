@@ -97,12 +97,21 @@ static void e1s14_lifecycle( HANDLE token, HANDLE imp, const char *mode )
     if (!strncmp(mode,"crash-",6))
     {
         ULONG crash = strtoul(mode + 6, NULL, 10);
-        check(!load(WEX_HKU_TEST_CRASH,NULL,token,crash,NULL,0,&unused,&managed));
+        LSTATUS flush_status;
+        if (failures) return;
+        check(!load(WEX_HKU_OPEN,NULL,token,KEY_READ,NULL,0,(HANDLE *)&child,&managed) && child && managed == 1);
+        if (failures) { if (child) RegCloseKey(child); return; }
+        check(!load(WEX_HKU_TEST_CRASH,NULL,token,crash,NULL,0,&unused,&managed) && !unused && managed == 1);
+        if (failures) { RegCloseKey(child); return; }
         printf("E1S14 CRASH ARMED %lu\n", (unsigned long)crash); fflush(stdout);
-        check(!load(WEX_HKU_OPEN,NULL,token,KEY_READ,NULL,0,(HANDLE *)&child,&managed) && child);
-        if (child && RegFlushKey(child)) /* wineserver deliberately exits 86 */
-        { puts("E1S14 SERVER LOST"); fflush(stdout); ExitProcess(86); }
-        check(FALSE); /* returning from the flush is not the expected crash */
+        /* Flush saves synchronously with the peer still waiting in ReadFile;
+         * it has no unload last-user gate. Server EOF may abort this thread
+         * with status 0 instead of returning an error. The native parent must
+         * prove the server's _exit(86), independently of either Wine client. */
+        flush_status = RegFlushKey(child);
+        printf("E1S14 FLUSH RETURNED status=%ld\n", (long)flush_status); fflush(stdout);
+        check(FALSE); /* any returned flush, including an error, is a failure */
+        RegCloseKey(child);
         return;
     }
     /* Hold a deleted descendant; walking only linked keys would miss it. */
@@ -360,6 +369,27 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
     status = RegOpenKeyExA(HKEY_USERS, name, 0, KEY_READ, &visible);
     check(e1s13_loaded ? !status : status == ERROR_FILE_NOT_FOUND);
     if (visible) { e1s13_descriptor(visible, expected); RegCloseKey(visible); visible = NULL; }
+    if (!strcmp(mode,"recovery"))
+    {
+        hku_ex_fn load_ex = (hku_ex_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfileEx");
+        HANDLE absent_key = (HANDLE)1;
+        ULONG managed_identity = ~0u;
+        ULONGLONG generation = ~(ULONGLONG)0;
+        /* Storage recovery must deny before either HKU root is published.
+         * QUERY still recognizes the managed token, but has no loaded hive. */
+        check(!e1s13_loaded);
+        check(load_ex && !load_ex(WEX_HKU_QUERY,NULL,token,0,NULL,0,&absent_key,&managed_identity,&generation) &&
+              !absent_key && managed_identity == 1 && !generation);
+        if (load_ex && absent_key && absent_key != (HANDLE)1) CloseHandle(absent_key);
+        snprintf(name, sizeof(name), "%s_Classes", sid);
+        check(RegOpenKeyExA(HKEY_USERS,name,0,KEY_READ,&classes) == ERROR_FILE_NOT_FOUND && !classes);
+        if (classes) { RegCloseKey(classes); classes = NULL; }
+        check(SetThreadToken(NULL, imp));
+        check(RegOpenCurrentUser(KEY_READ, &visible) != ERROR_SUCCESS && !visible);
+        if (visible) { RegCloseKey(visible); visible = NULL; }
+        check(RevertToSelf());
+        if (!failures) { puts("E1S14 RECOVERY DENIED"); fflush(stdout); }
+    }
     if (e1s13_loaded)
     {
         typedef BOOL (WINAPI *profile_fn)(HANDLE,LPPROFILEINFOA);

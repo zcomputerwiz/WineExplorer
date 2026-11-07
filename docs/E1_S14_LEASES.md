@@ -228,9 +228,22 @@ Added, all unrun here:
   impersonation token** after reload to exercise kernelbase's generation check,
   without relying on a different TokenId to miss the cache.
 * Actual server _exit(86) after marker fsync, temp fsync and rename/directory
-  fsync. Require both broker arm and server checkpoint evidence, not a timeout.
-  The next server must deny loading, preserve hashes of every surviving hive,
-  marker/temp, and publish no HKU root. Only fixture-owned processes are stopped.
+  fsync. Crash cases own a persistent foreground server and require its native
+  job's exit status 86, broker arm and server checkpoint evidence before any
+  cleanup kill, with no watchdog intervention. They use explicit RegFlushKey
+  while the ordinary Bob peer waits for the broker's result; no unload or
+  last-user wait triggers this save. Client exits/timeouts are reaping outcomes,
+  not evidence that the server died. Pre-marker peer assertions remain checked.
+  Require an unchanged original hive at checkpoints 1/2, the completed temp at
+  2, the completed published hive at 3, and the exact state/temp presence for
+  each checkpoint. A returned flush always fails, even if it returns an error.
+  The next server must deny loading with STATUS_REGISTRY_CORRUPT on both fresh
+  contexts, retain replay denial, return zero loaded generation for the managed
+  token, publish neither HKU root nor SID_Classes, and deny managed HKCU opens.
+  Preserve and compare per-case hashes of every surviving hive/marker/temp from
+  crash through client cleanup and before/after the recovery attempt. Completed
+  rename at checkpoint 3 still requires operator recovery because its state
+  marker remains. Only fixture-owned processes are stopped.
 * Normal-server `advapi32/tests/wex_hku.c` covers all ten operations, both PE
   wrappers, generation clearing and existing malformed-length cases. Ordinary
   and filtered-admin lab peers also deny all management/control operations.

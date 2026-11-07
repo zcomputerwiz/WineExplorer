@@ -197,7 +197,7 @@ run_fixture() (
     LOG="$OWNED_OUT/$phase"
     CONF=/etc/wineexplorer/sysrun.conf LIBEXEC=/usr/local/libexec/wineexplorer
     SYS32="$M/drive_c/windows/system32"
-    STAGED_ID= HIVE_ID= MACHINE_ID= XV_PID= BOOT_PID= PEER_PID= WATCH_PID= CASE_DIR=
+    STAGED_ID= HIVE_ID= MACHINE_ID= XV_PID= BOOT_PID= PEER_PID= WATCH_PID= CRASH_SERVER_PID= CASE_DIR=
     # S6's el_wait_file allows 90s, and its service-report wait allows 120s.
     # Cold Wine/SCM and the other ABI can start before main() prints anything.
     # These are outer orchestration limits; S6 and TEST_INSTALL keep their
@@ -264,7 +264,7 @@ run_fixture() (
             retain_evidence || rc=1
         fi
         stop_prefixes || rc=1
-        for i in "$WATCH_PID" "$PEER_PID" "$BOOT_PID"; do
+        for i in "$WATCH_PID" "$PEER_PID" "$BOOT_PID" "$CRASH_SERVER_PID"; do
             [ -z "$i" ] || { kill "$i" 2>/dev/null; wait "$i" 2>/dev/null; }
         done
         e1s6_stop
@@ -392,7 +392,7 @@ run_fixture() (
     }
     CASE_NO=0
     service_start() {
-        local arch=$1 cmd arg image; shift
+        local arch=$1 cmd arg image bootstrap_stderr; shift
         stop_prefixes || fail 'prefix shutdown failed'
         # A stopped Wine server may replace the owned hive during its save.
         [ -f "$M/system.reg" ] && [ ! -L "$M/system.reg" ] || fail 'unsafe fixture hive'
@@ -416,12 +416,16 @@ run_fixture() (
         image="$(quote_arg "$(winpath "$OWNED_OUT/service64.exe")") E1S10Driver $(quote_arg "$(winpath "$BROKER_LOG")") $(quote_arg "$(winpath "$CASE_DIR/command.bin")")"
         image=${image//\\/\\\\}; image=${image//\"/\\\"}
         add_service E1S10Driver LocalSystem unused 2 "$image"
-        # Wineserver and service children inherit this stderr: retain it apart
-        # from probe stdout, even if the broker fails before transport startup.
-        run_as "$STD" timeout -k 2 "$((CASE_SECONDS + 10))" "$BUILD/wine" "$OWNED_OUT/roles64.exe" hold \
-            >"$LOG/bootstrap-$CASE_NO.log" 2>"$CASE_DIR/wineserver.stderr.log" &
-        BOOT_PID=$!
         DEADLINE=$((SECONDS + CASE_SECONDS))
+        # Crash cases own a foreground server so wait can prove _exit(86).
+        # Keep its stderr separate from clients that can outlive that server.
+        if [ "$S13_HARNESS" = 1 ]; then e1s14_server_start "${@: -1}"; fi
+        bootstrap_stderr="$CASE_DIR/wineserver.stderr.log"
+        if [ -n "$CRASH_SERVER_PID" ]; then bootstrap_stderr="$CASE_DIR/bootstrap.stderr.log"; fi
+        # Ordinary cases still retain the auto-started server's inherited stderr.
+        run_as "$STD" timeout -k 2 "$((CASE_SECONDS + 10))" "$BUILD/wine" "$OWNED_OUT/roles64.exe" hold \
+            >"$LOG/bootstrap-$CASE_NO.log" 2>"$bootstrap_stderr" &
+        BOOT_PID=$!
         # An independent outer guard bounds the broker even while the parent
         # waits for its separately bounded peer. It only stops Bob's owned
         # prefix and is reaped before another case can start in that prefix.
